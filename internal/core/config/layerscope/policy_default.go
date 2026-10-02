@@ -53,7 +53,12 @@ func DefaultPolicy() Policy {
 		// could never stick to a project-defined binding anyway.
 		{Path: "agents.*.engine_home", Scope: ScopeShared, Note: "a pollution/isolation policy decision about this project's agents, not a per-machine fact"},
 		{Path: "agents.*.host_env", Scope: ScopeShared, Note: "which host environment a project agent's engine inherits; passthrough widens what reaches every MCP server and hook, so like permissions a home config must never fill it in for a project"},
-		{Path: "agents.*.auth", Scope: ScopeShared, Note: "which auth mode a project agent uses, never a credential (those are stored per user under the ctxloom home)"},
+
+		// Preference: how the human's own session authenticates is that
+		// person's choice, and no layer can widen anything with it -- every
+		// run ctxloom spawns authenticates with the token whatever it says
+		// (launch.RunAuth), so even the env a child inherits reaches no login.
+		{Path: "auth", Scope: ScopePreference, Note: "how the human's own session authenticates, never a credential; spawned runs ignore it"},
 
 		{Path: "dirty_tree_handler", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},
 		{Path: "workspace", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},

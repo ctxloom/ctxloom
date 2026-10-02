@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -446,31 +445,22 @@ func (c recordingCells) Prepare(ctx context.Context, req launch.CellRequest) (la
 	return c.inner.Prepare(ctx, req)
 }
 
-// The setup probe runs in the DEFAULT AGENT's declared auth mode — the
-// credential of the session init is about to launch — so an init whose
-// default agent shares the human's login never mints a token nobody will
-// use. With no default agent it declares nothing.
-func TestPingEngineAuth_RunsInTheDefaultAgentsAuthMode(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		cfg  config.Fixture
-		want string
-	}{
-		{"the default agent's login", config.Fixture{
-			Agents:       map[string]agents.Agent{"dev": {Name: "dev", LLM: "claude-code", Auth: "login"}},
-			DefaultAgent: "dev",
-		}, string(engine.AuthLogin)},
-		{"no default agent", config.Fixture{}, ""},
+// The setup probe is a one-shot, so it authenticates as every run ctxloom
+// spawns does, with the token -- even when the human's own session is
+// configured to share their login.
+func TestPingEngineAuth_RunsInTheTokenWhateverTheHumansSessionUses(t *testing.T) {
+	for name, session := range map[string]engine.AuthMode{
+		"the human's session shares their login": engine.AuthLogin,
+		"nothing configured":                     "",
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			stubPingHosts(t, &stubRunHost{})
-			tc.cfg.AppPaths = []string{t.TempDir()}
-			cfg := gatedFixture(tc.cfg)
+			cfg := gatedFixture(config.Fixture{Auth: session, AppPaths: []string{t.TempDir()}})
 			deps := testLaunchDeps(t, cfg)
 			var got launch.CellRequest
 			deps.Cells = recordingCells{inner: deps.Cells, got: &got}
 			require.NoError(t, pingEngineAuth(context.Background(), deps, "claude-code", t.TempDir()))
-			assert.Equal(t, tc.want, got.Auth)
+			assert.Equal(t, engine.AuthToken, got.Auth)
 		})
 	}
 }

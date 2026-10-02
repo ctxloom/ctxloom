@@ -118,12 +118,12 @@ var schemaEnumBindings = []schemaEnumBinding{
 	{path: "properties/workspace", goNames: isolation.WorkspaceNames},
 	{path: "properties/dirty_tree_handler", goNames: launch.DirtyTreeHandlerNames},
 	{path: "properties/runtime", goNames: launch.RuntimeNames},
+	{path: "properties/auth", goNames: engine.AuthModeNames},
 
 	// Per-agent binding overrides of the same axes.
 	{path: "properties/agents/additionalProperties/properties/runtime", goNames: launch.RuntimeNames},
 	{path: "properties/agents/additionalProperties/properties/driving", goNames: agents.DrivingModeNames},
 	{path: "properties/agents/additionalProperties/properties/engine_home", goNames: agents.HomeModeNames},
-	{path: "properties/agents/additionalProperties/properties/auth", goNames: engine.AuthModeNames},
 
 	// The engine-neutral permission fields, at every rung (project, label,
 	// binding); an engine's own keys are its model's to validate.

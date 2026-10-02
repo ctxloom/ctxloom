@@ -46,7 +46,7 @@ func TestAuth_HelpInstructsTheHumanToMintAndExport(t *testing.T) {
 	assert.NotContains(t, authLong, "auth set")
 }
 
-// status: per engine and env-carried mode, whether the credential is
+// status: per engine and env-carried mode (the token), whether the credential is
 // present in the environment — the var names, never a value — and, when it
 // is not, the engine's remedy. The login is not an environment credential,
 // so it has no row.
@@ -57,7 +57,6 @@ func TestAuthStatus_ReportsWhetherEachCredentialIsInTheEnvironment(t *testing.T)
 	out, err := runRoot(t, "auth", "status", "--format", formatText)
 	require.NoError(t, err, out)
 	assert.Contains(t, out, "claude-code token: present ("+claude.OAuthTokenEnv+")\n")
-	assert.Contains(t, out, "claude-code api-key: missing — export "+claude.APIKeyEnv+"\n")
 	assert.NotContains(t, out, "claude-code login", "the login is not read from the environment")
 	assert.NotContains(t, out, cliFixtureToken)
 
@@ -73,7 +72,7 @@ func TestAuthStatus_ReportsWhetherEachCredentialIsInTheEnvironment(t *testing.T)
 		}
 	}
 	assert.Equal(t, authStatusRow{Engine: claude.EngineName, Mode: "token", Present: true, Vars: []string{claude.OAuthTokenEnv}}, byMode["token"])
-	assert.Equal(t, authStatusRow{Engine: claude.EngineName, Mode: "api-key", Remedy: "export " + claude.APIKeyEnv}, byMode["api-key"])
+	assert.Len(t, byMode, 1, "the token is the only environment credential")
 	assert.NotContains(t, byMode, "login")
 }
 

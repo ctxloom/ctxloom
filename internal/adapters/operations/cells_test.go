@@ -56,6 +56,7 @@ func claudeKind(t *testing.T) launch.CellRequest {
 		Engine:   eng,
 		Identity: sessions.Identity{Harp: "test-harp"},
 		HomeMode: launch.HomeModeHost,
+		Auth:     engine.AuthToken, // the resolver always settles one (launch.RunAuth)
 		Env:      map[string]string{sessions.EnvHarp: "test-harp"},
 	}
 }
@@ -98,7 +99,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 		req := claudeKind(t)
 		req.ProjectRoot = workDir
 		req.HomeMode = home
-		req.Auth = string(engine.AuthLogin)
+		req.Auth = engine.AuthLogin
 		req.Axes.Workspace = workspace
 		req.Identity.Harp = harp
 		req.Env = map[string]string{sessions.EnvHarp: harp}
@@ -232,7 +233,7 @@ func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing
 	req := claudeKind(t)
 	req.ProjectRoot = workDir
 	req.HomeMode = launch.HomeModeSession
-	req.Auth = string(engine.AuthToken)
+	req.Auth = engine.AuthToken
 	req.Identity = sessions.Identity{Harp: harpA, Depth: 1}
 	req.Env = map[string]string{sessions.EnvHarp: harpA}
 	req.SessionDir = harpDir(t, harpA)
@@ -288,7 +289,7 @@ func TestCellsPrepare_WithNoTokenExportedIsRefused(t *testing.T) {
 	req := claudeKind(t)
 	req.ProjectRoot = t.TempDir()
 	req.HomeMode = launch.HomeModeSession
-	req.Auth = string(engine.AuthToken)
+	req.Auth = engine.AuthToken
 	req.Identity = sessions.Identity{Harp: harpA, Depth: 1}
 	req.Env = map[string]string{sessions.EnvHarp: harpA}
 	_, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
@@ -414,6 +415,7 @@ func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
 	}
 	t.Cleanup(func() { prepareEnvironment = prev })
 	tokenCreds := engine.Credentials{
+		Mode:  engine.AuthToken,
 		Env:   map[string]string{claude.OAuthTokenEnv: tokenFixture},
 		Unset: []string{claude.APIKeyEnv, claude.AuthTokenEnv, "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_ANTHROPIC_AWS", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", claude.SecureStorageEnv},
 	}
@@ -466,7 +468,7 @@ func TestCellsPrepare_APreviewRecordsWhatARunRefuses(t *testing.T) {
 	t.Cleanup(func() { prepareEnvironment, previewEnvironment = prevPrepare, prevPreview })
 	req := claudeKind(t)
 	req.ProjectRoot = t.TempDir()
-	req.Auth = string(engine.AuthToken)
+	req.Auth = engine.AuthToken
 	req.SessionDir = harpDir(t, "test-harp")
 	cells := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}
 
@@ -491,7 +493,7 @@ func TestCellsPrepare_APreviewRecordsTheMissingStoreARunRefuses(t *testing.T) {
 	fakeHostHome(t, "") // no ~/.claude: the login store a run shares is missing
 	req := claudeKind(t)
 	req.ProjectRoot = t.TempDir()
-	req.Auth = string(engine.AuthLogin)
+	req.Auth = engine.AuthLogin
 	req.SessionDir = harpDir(t, "test-harp")
 	cells := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}
 
@@ -528,7 +530,7 @@ func TestCellsPrepare_APreviewResolvesCredentialsReadOnly(t *testing.T) {
 			HomeMode:    launch.HomeModeHost,
 			ProjectRoot: t.TempDir(),
 			SessionDir:  harpDir(t, harpA),
-			Auth:        string(engine.AuthToken),
+			Auth:        engine.AuthToken,
 		}
 		return Cells{engines: reg, cfg: config.NewFixture(config.Fixture{}), preview: true}, req
 	}

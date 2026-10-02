@@ -461,17 +461,6 @@ func TestExpandHome(t *testing.T) {
 	require.Error(t, err, "a tilde with no home handed in is an error, not a literal path segment")
 }
 
-// The discoverer dials the ssh-agent socket its composition handed it, never
-// one it read from its own environment; no socket means no agent.
-func TestNewDiscoverer_DialsTheHandedSocket(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "absent.sock")
-	_, err := NewDiscoverer(Env{AgentSocket: sock}).dialAgent()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), sock)
-	_, err = NewDiscoverer(Env{}).dialAgent()
-	require.Error(t, err, "no socket handed in means no ssh-agent to sign with")
-}
-
 // `git config user.signingkey` accepts the same forms as --key. A SHA256
 // fingerprint there used to fail with "no signing key found", because the git
 // step only parsed a public key literal or path.

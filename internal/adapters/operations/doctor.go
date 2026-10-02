@@ -58,8 +58,8 @@ var doctorDepBinariesRequired = []string{"git"}
 // NEITHER is a signing dependency (an earlier version of this comment/the
 // Detail below wrongly implied both were "for signing" — an audit caught
 // it): ctxloom's signing is pure Go over the ssh-agent protocol
-// (SSH_AUTH_SOCK — internal/adapters/signing/agentkey/agentkey.go's dialEnvAgent
-// net.Dial("unix", ...), never exec) and pure-Go sshsig cryptography
+// (SSH_AUTH_SOCK — agentkey's dialAgentAt, a unix-socket or named-pipe
+// dial, never exec) and pure-Go sshsig cryptography
 // (internal/adapters/signing/sign.go's Sign/Verify, internal/adapters/signing/publisher.go's
 // VerifyPublisher — both explicitly documented "no ssh-keygen binary" in
 // their own doc comments). Their absence still warns (worth having,

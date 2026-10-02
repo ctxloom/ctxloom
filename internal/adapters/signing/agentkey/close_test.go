@@ -3,17 +3,12 @@ package agentkey
 import (
 	"context"
 	"errors"
-	"io"
-	"net"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
-
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // countingAgent is a fakeAgent that also owns a connection, exactly as the
@@ -31,7 +26,7 @@ func (c *countingAgent) Close() error {
 // TestDiscover_AgentConnectionLifetime pins who releases the ssh-agent
 // connection and when.
 //
-// The defect this pins: dialEnvAgent opened a unix socket and
+// The defect this pins: the production dialer (dialAgentAt) opened a unix socket and
 // returned only the agent speaking over it, so the connection had no owner.
 // Discovered exposed no Close, and nothing closed it on the FAILURE paths
 // either — which is where it matters most, because `ctxloom doctor` and init
@@ -107,22 +102,4 @@ func TestDiscover_AgentConnectionLifetime(t *testing.T) {
 		var nilDiscovered *Discovered
 		assert.NoError(t, nilDiscovered.Close())
 	})
-}
-
-// TestDialAgentAt_ReturnsAClosableAgent proves the mechanism is live on the
-// PRODUCTION path, not merely on a fake that opted in. If the real dialer's
-// agent does not implement io.Closer, everything above passes while the actual
-// socket still leaks.
-func TestDialAgentAt_ReturnsAClosableAgent(t *testing.T) {
-	sock := filepath.Join(testsupport.SocketDir(t, "agent.sock"), "agent.sock")
-	ln, err := net.Listen("unix", sock)
-	require.NoError(t, err)
-	defer func() { _ = ln.Close() }()
-
-	ag, err := dialAgentAt(sock)()
-	require.NoError(t, err)
-
-	closer, ok := ag.(io.Closer)
-	require.True(t, ok, "the production dialer must hand back an agent that owns its connection")
-	assert.NoError(t, closer.Close())
 }

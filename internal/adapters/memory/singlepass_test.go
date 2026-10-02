@@ -318,3 +318,48 @@ func TestCompact_OversizedTranscriptStillOneCallAndReportsReduction(t *testing.T
 	assert.Less(t, sawBytes, len(huge)*2,
 		"the prompt must carry the REDUCED transcript, not the whole thing")
 }
+
+// TestRecoverFinding_PromptDirOverridesTheEmbeddedPrompt: a prompt sweep that
+// edits result-finding.md must actually reach the model, or the variant scores
+// identical to baseline and the harness reports a wrong number that looks real.
+func TestRecoverFinding_PromptDirOverridesTheEmbeddedPrompt(t *testing.T) {
+	dir := t.TempDir()
+	variant := "VARIANT RESULT-FINDING PROMPT UNDER EVALUATION"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "result-finding.md"), []byte(variant), 0o644))
+
+	var seen string
+	mock := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
+			seen = prompt
+			_, _ = stdout.Write([]byte("a finding"))
+			return 0, nil
+		},
+	}
+	c := &Compactor{config: CompactionConfig{PromptDir: dir, Run: runnerOver(mock)}}
+
+	_, err := c.recoverFinding(context.Background(), ResultRepair{ToolName: "Bash", Body: "out"})
+	require.NoError(t, err)
+
+	assert.Contains(t, seen, variant, "the on-disk variant must be what reaches the model")
+	assert.NotContains(t, seen, "You are recovering a finding that was never written down",
+		"the embedded prompt must not leak in alongside the variant")
+}
+
+// TestRecoverFinding_MissingPromptFailsLoudly: a prompt dir that lacks
+// result-finding.md must fail, never silently measure the embedded prompt.
+func TestRecoverFinding_MissingPromptFailsLoudly(t *testing.T) {
+	called := false
+	mock := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
+			called = true
+			return 0, nil
+		},
+	}
+	c := &Compactor{config: CompactionConfig{PromptDir: t.TempDir(), Run: runnerOver(mock)}}
+
+	_, err := c.recoverFinding(context.Background(), ResultRepair{ToolName: "Bash", Body: "out"})
+
+	require.Error(t, err, "a missing prompt must fail, never silently use the embedded one")
+	assert.Contains(t, err.Error(), "result-finding", "the error must name the prompt it wanted")
+	assert.False(t, called, "the model must not be called with a prompt nobody asked for")
+}

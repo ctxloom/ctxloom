@@ -130,8 +130,9 @@ type CompactionConfig struct {
 	// existed. A fresh harp has no captured next step, and a distill that
 	// invented one would steer retention by a guess.
 	TaskHint string
-	// PromptDir loads the distillation prompt from a directory on disk
-	// (<dir>/session-distill.md) instead of the binary's embedded copy, so a
+	// PromptDir loads every prompt the compactor sends from a directory on
+	// disk (<dir>/<name>.md, see promptText) instead of the binary's embedded
+	// copies, so a
 	// prompt-evaluation harness can A/B variants without a rebuild. Empty uses
 	// the embedded prompt. A named prompt missing from the directory is a hard
 	// failure, never a silent fall back to the embedded text: the whole value
@@ -959,7 +960,11 @@ func (c *Compactor) repairResults(ctx context.Context, sel Selection) int {
 func (c *Compactor) recoverFinding(ctx context.Context, r ResultRepair) (string, error) {
 	content := fmt.Sprintf("<tool_call>\n%s %s\n</tool_call>\n\n<tool_result>\n%s\n</tool_result>",
 		r.ToolName, r.Intent, r.Body)
-	out, err := c.runDistill(ctx, resultFindingPrompt, content)
+	prompt, err := c.promptText(resultFindingPromptName, resultFindingPrompt)
+	if err != nil {
+		return "", err
+	}
+	out, err := c.runDistill(ctx, prompt, content)
 	if err != nil {
 		return "", err
 	}
@@ -1320,13 +1325,9 @@ var sessionDistillPrompt = resources.MustGetPromptText(sessionDistillPromptName)
 // embedded prompt would report a result attributed to the variant under
 // evaluation while actually measuring the built-in one.
 func (c *Compactor) distillPrompt() (string, error) {
-	text := sessionDistillPrompt
-	if c.config.PromptDir != "" {
-		loaded, err := resources.PromptTextFromDir(c.config.PromptDir, sessionDistillPromptName)
-		if err != nil {
-			return "", fmt.Errorf("load prompt %q from %s: %w", sessionDistillPromptName, c.config.PromptDir, err)
-		}
-		text = loaded
+	text, err := c.promptText(sessionDistillPromptName, sessionDistillPrompt)
+	if err != nil {
+		return "", err
 	}
 	prompt := fmt.Sprintf("%s\n- The finished essence must be under %d characters.\n",
 		text, c.config.EssenceMaxChars)
@@ -1341,9 +1342,28 @@ func (c *Compactor) distillPrompt() (string, error) {
 	return prompt, nil
 }
 
+// promptText resolves one of this compactor's prompts: the PromptDir copy of
+// <name>.md when PromptDir is set, the embedded copy otherwise. EVERY prompt
+// the compactor sends goes through here, so a PromptDir sweep cannot reach one
+// prompt and silently leave another on its embedded text.
+func (c *Compactor) promptText(name, embedded string) (string, error) {
+	if c.config.PromptDir == "" {
+		return embedded, nil
+	}
+	loaded, err := resources.PromptTextFromDir(c.config.PromptDir, name)
+	if err != nil {
+		return "", fmt.Errorf("load prompt %q from %s: %w", name, c.config.PromptDir, err)
+	}
+	return loaded, nil
+}
+
+// resultFindingPromptName is the result-finding prompt file's stem, shared by
+// the embedded lookup and the PromptDir override.
+const resultFindingPromptName = "result-finding"
+
 // resultFindingPrompt recovers the finding an agent never stated for a large
 // tool result. See repairResults.
-var resultFindingPrompt = resources.MustGetPromptText("result-finding")
+var resultFindingPrompt = resources.MustGetPromptText(resultFindingPromptName)
 
 // noConclusionAvailable is the exact escape hatch result-finding.md instructs
 // the model to emit when a result supports no conclusion. It is a constant so

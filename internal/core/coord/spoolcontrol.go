@@ -239,7 +239,7 @@ func (c *Coordinator) controlAsk(by ControlInitiator, harp, kind, text string) (
 // quotes the id of the ask that started the turn, and is marked so
 // (IsAutoReport) precisely because it is not the child choosing to answer.
 func (c *Coordinator) settleAsk(sender, inReplyTo string, structured json.RawMessage) {
-	if inReplyTo == "" || IsAutoReport(structured) {
+	if IsAutoReport(structured) {
 		return
 	}
 	c.mu.Lock()

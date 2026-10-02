@@ -51,10 +51,9 @@ type Source struct {
 }
 
 // Resume is the resume arm. A non-zero Ref makes Resolve REUSE the session:
-// the same harp, the recorded MCP endpoint (unless RebindEndpoint), the
-// native key. It is how the coordinator's recovery re-resolves a journaled
+// the same harp and the native key. The MCP endpoint is never reused; every
+// launch mints its own. It is how the coordinator's recovery re-resolves a journaled
 // run after a restart (Source{Agent: rec.Agent, Identity: id, Resume: …}).
 type Resume struct {
-	Ref            sessions.ResumeRef
-	RebindEndpoint bool
+	Ref sessions.ResumeRef
 }

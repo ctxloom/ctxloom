@@ -21,3 +21,15 @@ func TestChildSource_IsTheBinding(t *testing.T) {
 	assert.Equal(t, "worker", src.Agent)
 	assert.Empty(t, src.Permission, "no caller sets a child's permissions")
 }
+
+// A resumed child re-resolves the same harp and continues its native key; a
+// fresh one carries no resume arm. Neither carries an endpoint: Resolve
+// mints one per launch.
+func TestChildSource_ResumeArmOnlyOnAResume(t *testing.T) {
+	plan := &coord.SpawnPlan{AgentName: "worker", Snapshot: &config.Snapshot{Config: config.NewFixture(config.Fixture{})}}
+	fresh := childSource(plan, coord.SpawnStart{Identity: sessions.Identity{Harp: "h"}, Prompt: "p"}, "/proj")
+	assert.Zero(t, fresh.Resume, "a fresh child is not a resume")
+
+	resumed := childSource(plan, coord.SpawnStart{Identity: sessions.Identity{Harp: "h"}, Resumed: true, ResumeKey: "k"}, "/proj")
+	assert.Equal(t, launch.Resume{Ref: sessions.ResumeRef{Harp: "h", NativeKey: "k"}}, resumed.Resume)
+}

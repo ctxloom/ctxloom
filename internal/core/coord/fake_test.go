@@ -128,12 +128,9 @@ type fakeSpawner struct {
 	// stretches, and the one a test must be able to stand a child in.
 	startGate chan struct{}
 	// launches records every launch ResolveLaunch resolved, in order;
-	// rebindFlags records, per call, whether it asked for a rebind; endpoints
-	// is the per-harp MCP endpoint the fake "minted", reused across resumes
-	// the way Resolve reuses the session record's.
+	// endpointSeq numbers the endpoint each resolve mints, as Resolve mints
+	// one per launch.
 	launches    []launch.Launch
-	rebindFlags []bool
-	endpoints   map[string]sessions.Endpoint
 	endpointSeq int
 	// refuseBinds is how many launches the runner tail refuses with
 	// delivery.ErrEndpointUnavailable before binding normally.
@@ -236,7 +233,7 @@ func (s *fakeSpawner) AssignSession(_, _ string) (string, error) {
 // ResolveLaunch resolves the child's launch the way the production spawner
 // does — the floor applied, the axes and handler recorded, the package (the
 // context every conformance test looks for) carried inline, and the MCP
-// endpoint minted ONCE per harp: a resume reuses it, a Rebind mints a new one.
+// endpoint minted fresh for every launch.
 func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start SpawnStart) (Resolved, error) {
 	perm, err := floorChild(s.degraded, plan.AgentName, plan.Permission)
 	if err != nil {
@@ -253,16 +250,8 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 	s.perms = append(s.perms, perm)
 	s.workspaces = append(s.workspaces, plan.Workspace)
 	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
-	s.rebindFlags = append(s.rebindFlags, start.Rebind)
-	if s.endpoints == nil {
-		s.endpoints = map[string]sessions.Endpoint{}
-	}
-	ep, bound := s.endpoints[start.Identity.Harp]
-	if !bound || start.Rebind {
-		s.endpointSeq++
-		ep = sessions.Endpoint{URL: fmt.Sprintf("http://127.0.0.1:%d/mcp", 40000+s.endpointSeq), Credential: fmt.Sprintf("bearer-%d", s.endpointSeq)}
-		s.endpoints[start.Identity.Harp] = ep
-	}
+	s.endpointSeq++
+	ep := sessions.Endpoint{URL: fmt.Sprintf("http://127.0.0.1:%d/mcp", 40000+s.endpointSeq), Credential: fmt.Sprintf("bearer-%d", s.endpointSeq)}
 	workDir := s.engineWorkDir
 	engineEnv := s.engineEnv
 	s.mu.Unlock()
@@ -425,13 +414,6 @@ func (s *fakeSpawner) resolvedLaunches() []launch.Launch {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]launch.Launch(nil), s.launches...)
-}
-
-// rebinds returns, per ResolveLaunch call, whether it asked for a rebind.
-func (s *fakeSpawner) rebinds() []bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]bool(nil), s.rebindFlags...)
 }
 
 // engineHome returns the i-th spawned runner-side Home, nil if unspawned.

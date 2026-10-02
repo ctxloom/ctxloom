@@ -87,9 +87,9 @@ const (
 	// CauseIdleReaped is the idle reaper's terminal: the run's runner had no
 	// turn for delegation.idle_timeout and was ended to free its slot, its
 	// process (a container, on that axis) and its bound endpoint. It is an
-	// EXPECTED, non-error terminal that leaves the harp RESUMABLE — the next mail starts a new incarnation through the
-	// resume arm, reusing the bound endpoint — queues NO "exited" notice to
-	// the parent.
+	// EXPECTED, non-error terminal that leaves the harp RESUMABLE — the next
+	// mail starts a new incarnation through the resume arm, on a freshly
+	// minted endpoint — and queues NO "exited" notice to the parent.
 	CauseIdleReaped = "idle-reaped"
 	// CauseDrained is a child ended by the coordinator's DRAIN at a point
 	// where no work was cut short: at its own turn boundary (the exit the

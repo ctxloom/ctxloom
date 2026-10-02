@@ -377,8 +377,8 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	}
 	if err := runner.Execute(eh.baseCtx, sr.GetLaunch()); err != nil {
 		// The ONE refusal the coordinator answers with a rebind rides a code
-		// of its own: the recorded endpoint could not be bound (another
-		// process took the port between two incarnations). Everything else
+		// of its own: the minted endpoint could not be bound (another
+		// process took the port between mint and bind). Everything else
 		// is the launch's own fault.
 		if errors.Is(err, delivery.ErrEndpointUnavailable) {
 			return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unavailable, err.Error())}

@@ -26,8 +26,8 @@ import (
 // story refuses (the cells adapter's refusals pass through untouched).
 // Order: Select → Assemble → the engine and its mode → the axes → the
 // permission floored ONCE → Cells.Prepare (the roots) → Exports → Route
-// (over those roots) → the endpoint once per harp (bound on the session
-// record) → the catalog index → Encode → carry by size → the Launch.
+// (over those roots) → the endpoint, minted fresh for this launch → the
+// catalog index → Encode → carry by size → the Launch.
 // Discard tears the cell down.
 func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err := validateIdentity(src.Identity); err != nil {
@@ -463,10 +463,10 @@ func preference(def engine.Base, roots map[string]string) (delivery.Preference, 
 	return pref, nil
 }
 
-// endpoint mints the session's MCP endpoint once per harp. A resume of the
-// same harp reuses the bound endpoint unless it asks for a rebind; the
-// result is bound on the session record either way. The resume ref rides
-// through: the caller's native key, else the one the record holds.
+// endpoint mints a fresh MCP endpoint for THIS launch, a resume included, and
+// persists none of it: a bearer that outlived its launch must not
+// authenticate the next one. The resume ref rides through: the caller's
+// native key, else the one the record holds.
 func endpoint(ctx context.Context, deps Deps, src Source, axes Axes) (sessions.Endpoint, sessions.ResumeRef, error) {
 	var resume sessions.ResumeRef
 	if src.Resume.Ref.Harp != "" {
@@ -479,37 +479,21 @@ func endpoint(ctx context.Context, deps Deps, src Source, axes Axes) (sessions.E
 			if resume.NativeKey == "" {
 				resume.NativeKey = entry.SessionID
 			}
-			if !src.Resume.RebindEndpoint && entry.MCP.URL != "" {
-				return entry.MCP, resume, nil
-			}
 		}
 	}
-	ep, err := mintEndpoint(ctx, deps, src.Identity, axes)
+	ep, err := deps.Endpoints.MintMCP(ctx, src.Identity, axes)
 	return ep, resume, err
 }
 
-// mintEndpoint mints a fresh session endpoint and binds it on the session
-// record, so a later resume of the harp finds the address the runner serves.
-func mintEndpoint(ctx context.Context, deps Deps, id sessions.Identity, axes Axes) (sessions.Endpoint, error) {
-	ep, err := deps.Endpoints.MintMCP(ctx, id, axes)
-	if err != nil {
-		return sessions.Endpoint{}, err
-	}
-	if err := deps.Sessions.BindMCP(id.Harp, ep); err != nil {
-		return sessions.Endpoint{}, err
-	}
-	return ep, nil
-}
-
-// RebindEndpoint is l with a NEWLY minted session endpoint, bound on the
-// session record in place of the one l carried. It answers the runner's
+// RebindEndpoint is l with a NEWLY minted session endpoint in place of the
+// one l carried. It answers the runner's
 // delivery.ErrEndpointUnavailable for a launch its caller already holds: a
 // minted address is only reserved until the mint returns, so another process
 // can take the port before the runner binds it. The endpoint is the only
 // part of a launch that names the address (the runner renders the engine's
 // MCP config from it), so nothing else is re-resolved.
 func RebindEndpoint(ctx context.Context, deps Deps, l Launch) (Launch, error) {
-	ep, err := mintEndpoint(ctx, deps, l.Identity, l.Axes)
+	ep, err := deps.Endpoints.MintMCP(ctx, l.Identity, l.Axes)
 	if err != nil {
 		return Launch{}, err
 	}

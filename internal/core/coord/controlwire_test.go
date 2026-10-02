@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -206,6 +207,8 @@ func TestControlRun_AskReturnsItsIDAtOnceAndTheAnswerArrivesAsMail(t *testing.T)
 			case resp := <-controlRunAsync(t, owner, tc.verb(out.Harp, tc.text)):
 				require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 				askID = tc.askID(resp.GetControlRun())
+				assert.Equal(t, fmt.Sprintf(askDisposition, out.Harp, askID), resp.GetStatus().GetMessage(),
+					"the caller is told where the answer will come from")
 			case <-time.After(conformanceWait):
 				t.Fatal("the ask held the asker's turn: no response before the child answered")
 			}

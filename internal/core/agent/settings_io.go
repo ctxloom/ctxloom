@@ -54,6 +54,10 @@ func CtxloomCommand() string {
 type SettingsOptions struct {
 	FS       afero.Fs    // filesystem to use; nil means the real OS filesystem
 	Reporter report.Sink // where the writer reports what it skips; nil discards
+	// ProjectClaims lists the places in a file that the ownership record says
+	// the project writer claims AND the file holds now — what a status read
+	// reports as installed. nil knows of none.
+	ProjectClaims func(target string) ([]string, error)
 }
 
 // SettingsOption is a functional option for settings operations.
@@ -63,6 +67,12 @@ type SettingsOption func(*SettingsOptions)
 // provided, the real OS filesystem is used.
 func WithSettingsFS(fs afero.Fs) SettingsOption {
 	return func(o *SettingsOptions) { o.FS = fs }
+}
+
+// WithSettingsProjectClaims hands the status read the ownership record's
+// account of what the project writer has installed (SettingsOptions).
+func WithSettingsProjectClaims(claims func(target string) ([]string, error)) SettingsOption {
+	return func(o *SettingsOptions) { o.ProjectClaims = claims }
 }
 
 // WithSettingsReporter names where the settings writer reports.

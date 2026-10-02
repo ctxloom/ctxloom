@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
-	"github.com/ctxloom/ctxloom/internal/core/delivery/deliverytest"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -82,18 +81,36 @@ func TestMock_HooksCodec_RefusesAPayloadItDidNotWrite(t *testing.T) {
 }
 
 // TestMock_AContextFileItCreatesIsOwnerOnly: a managed context file the
-// mock creates is 0600 (the engine's own reading needs no wider mode);
-// one that already stood keeps its mode.
+// mock's delivery creates is 0600 (the engine's own reading needs no wider
+// mode); one that already stood keeps its mode.
 func TestMock_AContextFileItCreatesIsOwnerOnly(t *testing.T) {
-	eng := mock.New()
-	project := t.TempDir()
-	start := present.ProjectOnHost(project)
-	fs := afero.NewOsFs()
-	d, err := eng.Root().Context.DeliverContext(start, present.RootProjectRoot, engine.ContextInputs{Text: []byte("ctx")}, fs)
-	require.NoError(t, err)
-	info, err := os.Stat(d.Presented.HostPath)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	for name, tc := range map[string]struct {
+		seed bool
+		want os.FileMode
+	}{"created": {false, 0o600}, "already standing": {true, 0o644}} {
+		t.Run(name, func(t *testing.T) {
+			eng := mock.New()
+			project := t.TempDir()
+			path := filepath.Join(project, mock.ContextFileName)
+			if tc.seed {
+				require.NoError(t, os.WriteFile(path, []byte("# mine\n"), 0o644))
+				require.NoError(t, os.Chmod(path, 0o644))
+			}
+			fs := afero.NewOsFs()
+			rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+			require.NoError(t, err)
+			pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "ctx"))
+			start := present.ProjectOnHost(project)
+			plan, err := delivery.Route(pkg.EngineItems(eng.Root().Name), eng.Root(), delivery.Preference{}, start.Paths())
+			require.NoError(t, err)
+			_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(),
+				delivery.Target{Root: start, Ownership: rec, Writer: delivery.ProjectWriter})
+			require.NoError(t, err)
+			info, err := os.Stat(path)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, info.Mode().Perm())
+		})
+	}
 }
 
 // deliverHookedAt is deliverHooked for any unified event: set places the hook
@@ -108,7 +125,9 @@ func deliverHookedAt(t *testing.T, set func(u *wire.UnifiedHooks, h wire.Hook), 
 	plan, err := delivery.Route(pkg.EngineItems(eng.Root().Name), eng.Root(), delivery.Preference{}, roots)
 	require.NoError(t, err)
 	fs := afero.NewOsFs()
-	target := delivery.Target{Root: present.New(present.OnHost(roots)), Ownership: deliverytest.NewOwnership(fs), Writer: delivery.SessionWriter("h")}
+	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+	require.NoError(t, err)
+	target := delivery.Target{Root: present.New(present.OnHost(roots)), Ownership: rec, Writer: delivery.SessionWriter("h")}
 	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), target)
 	require.NoError(t, err)
 	require.Contains(t, d.Wrote, present.Hooks, "the hook item was delivered statically")

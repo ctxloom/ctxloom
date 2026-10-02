@@ -2,7 +2,11 @@ package operations
 
 import (
 	"fmt"
+	"slices"
 
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -34,9 +38,35 @@ func engineSettingsStatus(reg engine.Registry, backendName, projectDir string, o
 	for _, opt := range opts {
 		opt(options)
 	}
+	if options.ProjectClaims == nil {
+		fs := agent.GetFS(options.FS)
+		records, err := OwnershipRecordsOn(fs)
+		if err != nil {
+			return agent.SettingsStatus{}, err
+		}
+		options.ProjectClaims = projectClaims(fs, records)
+	}
 	writer := engineSettingsWriter(reg, backendName, *options)
 	if writer == nil {
 		return agent.SettingsStatus{}, nil
 	}
 	return writer.Status(projectDir)
+}
+
+// projectClaims is the record's account of what the project writer has
+// installed in a file: the places it claims that the file holds now.
+func projectClaims(fs afero.Fs, records delivery.Ownership) func(string) ([]string, error) {
+	return func(target string) ([]string, error) {
+		places, err := records.Paths(fs, target)
+		if err != nil {
+			return nil, err
+		}
+		var out []string
+		for _, p := range places {
+			if p.Live && slices.Contains(p.Writers, delivery.ProjectWriter) {
+				out = append(out, p.Pointer)
+			}
+		}
+		return out, nil
+	}
 }

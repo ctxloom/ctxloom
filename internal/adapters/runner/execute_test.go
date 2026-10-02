@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -699,9 +700,9 @@ func TestExecute_ALiveSessionsDeliveryIsNotSwept(t *testing.T) {
 func TestExecute_TheProjectWriterIsNeverSwept(t *testing.T) {
 	s := newSharedProjectMCP(t)
 	target := filepath.Join(s.env.project, "materialized.json")
-	_, err := s.rec.Apply(context.Background(), afero.NewOsFs(), target, delivery.ProjectWriter, func([]byte) ([]byte, []string, error) {
-		return []byte(`{"kept": true}` + "\n"), []string{"materialized.json"}, nil
-	})
+	batch := safefs.NewBatch(afero.NewOsFs(), func(_ string, fn func() error) error { return fn() })
+	require.NoError(t, s.rec.In(batch).Stage(target, delivery.ProjectWriter, []present.Claim{{Pointer: "/kept", Value: true}}))
+	_, err := batch.Commit()
 	require.NoError(t, err)
 	s.locks.Dead[string(delivery.ProjectWriter)] = true // were it asked, the project writer would read as gone
 	s.run(t, "x", "run-next")

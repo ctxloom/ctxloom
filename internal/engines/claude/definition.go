@@ -1,9 +1,12 @@
 package claude
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/spf13/afero"
@@ -13,7 +16,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // This file is claude's DEFINITION on the engine port: the one typed
@@ -206,7 +211,7 @@ func (*contextApproach) Forms() agent.Presentations {
 func (a *contextApproach) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
 	switch root {
 	case present.RootProjectRoot:
-		return appendContextFile(start.UnderProjectRoot(ContextFileName).Build(), in.Text, agent.GetFS(fs))
+		return appendContextFile(start.UnderProjectRoot(ContextFileName).Build(), in.Text), nil
 	case present.RootSessionHome:
 	default:
 		return present.Delivered{}, errRoot(a.Name(), root)
@@ -219,14 +224,11 @@ func (a *contextApproach) DeliverContext(start present.Start, root present.RootK
 	return delivered(s, start, h), nil
 }
 
-// appendContextFile writes the context after the file's current bytes: the
-// user's CLAUDE.md is theirs, and the record owns what was appended.
-func appendContextFile(p present.Presentation, text []byte, fs afero.Fs) (present.Delivered, error) {
-	// A CLAUDE.md ctxloom creates is owner-only; a user's keeps its mode.
-	if err := safefs.AppendSection(fs, p.HostPath, text, 0o600); err != nil {
-		return present.Delivered{}, err
-	}
-	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil
+// appendContextFile claims the context as a section after the file's own
+// text: the user's CLAUDE.md is theirs, and the record owns what is appended.
+func appendContextFile(p present.Presentation, text []byte) present.Delivered {
+	return present.Delivered{Presented: p, Wrote: []string{p.HostPath},
+		Claims: map[string][]present.Claim{p.HostPath: {{Pointer: present.AppendedSection, Value: slices.Clone(text)}}}}
 }
 
 // mcpApproach is claude's MCP surface: .mcp.json under the session home
@@ -242,34 +244,67 @@ func (*mcpApproach) Forms() agent.Presentations {
 		return &mcpUnsafeFile{mcpWriter: newMCPWriter(in, fs)}
 	})
 }
-func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in engine.MCPInputs, fs afero.Fs) (present.Delivered, error) {
-	w := mcpWriter{bundle: in.Servers, fs: agent.GetFS(fs)}
-	var form agent.Approach
+
+// DeliverMCP claims each server's entry in the .mcp.json under the root: the
+// private session-home file announced on --mcp-config, or the project's own
+// .mcp.json, whose relay bearer is named by reference (bearerByReference) so a
+// file teams commit never holds it. The private file is claimed even with no
+// servers: --mcp-config names it whatever the run registers, and claude
+// refuses to start against a path that does not exist. The project file is
+// the user's and is never conjured.
+func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in engine.MCPInputs, _ afero.Fs) (present.Delivered, error) {
 	switch root {
 	case present.RootSessionHome:
-		form = &mcpConfig{mcpWriter: w}
+		if err := privateRooted(start); err != nil {
+			return present.Delivered{}, err
+		}
+		p := underPrivateRoot(start, MCPFileName).AnnounceFlag(flagMCPConfig).Build()
+		claims, err := mcpClaims(in.Servers)
+		if err != nil {
+			return present.Delivered{}, err
+		}
+		if len(claims) == 0 {
+			claims = []present.Claim{{Pointer: present.PointerKey(mcpServersKey), Value: map[string]any{}}}
+		}
+		return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Claims: map[string][]present.Claim{p.HostPath: claims}}, nil
 	case present.RootProjectRoot:
-		form = &mcpUnsafeFile{mcpWriter: w}
-	default:
-		return present.Delivered{}, errRoot(a.Name(), root)
+		bundle, env, err := bearerByReference(in.Servers)
+		if err != nil {
+			return present.Delivered{}, err
+		}
+		p := start.UnderProjectRoot(MCPFileName).Build()
+		if len(env) > 0 {
+			p.Env = env
+		}
+		claims, err := mcpClaims(bundle)
+		if err != nil {
+			return present.Delivered{}, err
+		}
+		return present.Delivered{Presented: p, Claims: map[string][]present.Claim{p.HostPath: claims}}, nil
 	}
-	h, err := form.Deliver(start)
-	if err != nil {
-		return present.Delivered{}, err
-	}
-	return delivered(form, start, h), nil
+	return present.Delivered{}, errRoot(a.Name(), root)
 }
 
-// deliverSettingsFile writes ctxloom's entries INTO claude's settings file
-// for the root — the well-known .claude/settings.json under the project
-// root, or settings.json under the session home — additively: hooks are
-// added, the statusline set when asked for, the deny list merged, and
-// nothing already there is removed. Removal is the ownership record's
-// (the static writer reconciles a delivery from clean), which is what
-// lets the settings and hooks kinds share one file: each adds its own
-// entries and neither undoes the other's. Settings and hooks share it
-// because claude keeps both in the one file.
-func deliverSettingsFile(name string, start present.Start, root present.RootKind, hooks *wire.HooksConfig, statusline bool, deny []string, fs afero.Fs) (present.Delivered, error) {
+// mcpClaims is each server as a claim on its own entry under mcpServers,
+// spelled as the chat scratch file spells it (desiredMCPServers).
+func mcpClaims(servers map[string]wire.MCPServer) ([]present.Claim, error) {
+	desired, err := (&ClaudeCodeHookWriter{}).desiredMCPServers(servers)
+	if err != nil {
+		return nil, err
+	}
+	claims := make([]present.Claim, 0, len(desired))
+	for _, name := range collections.SortedKeys(desired) {
+		claims = append(claims, present.Claim{Pointer: present.PointerKey(mcpServersKey) + present.PointerKey(name), Value: desired[name]})
+	}
+	return claims, nil
+}
+
+// deliverSettingsFile claims ctxloom's entries in claude's settings file for
+// the root — the well-known .claude/settings.json under the project root, or
+// settings.json under the session home. The settings and hooks kinds both
+// claim into this one file, because claude keeps both there; the static
+// writer folds their claims into one write, and each writer's leave with it.
+func deliverSettingsFile(name string, start present.Start, root present.RootKind, claims func(path string) ([]present.Claim, error)) (present.Delivered, error) {
 	var p present.Presentation
 	switch root {
 	case present.RootProjectRoot:
@@ -282,11 +317,88 @@ func deliverSettingsFile(name string, start present.Start, root present.RootKind
 	default:
 		return present.Delivered{}, errRoot(name, root)
 	}
-	w := &ClaudeCodeHookWriter{FS: agent.GetFS(fs)}
-	if err := w.addToSettingsFile(p.HostPath, hooks, statusline, deny); err != nil {
+	cs, err := claims(p.HostPath)
+	if err != nil {
 		return present.Delivered{}, err
 	}
-	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}}, nil
+	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Claims: map[string][]present.Claim{p.HostPath: cs}}, nil
+}
+
+// settingsClaims claims the statusline when asked for and free to claim, and
+// each denied tool as an element of permissions.deny — a deny the user
+// already has is theirs, and the record finds it rather than taking it.
+func settingsClaims(fs afero.Fs, path string, statusline bool, deny []string) ([]present.Claim, error) {
+	var claims []present.Claim
+	if statusline {
+		free, err := statuslineClaimable(fs, path)
+		if err != nil {
+			return nil, err
+		}
+		if free {
+			claims = append(claims, present.Claim{Pointer: present.PointerKey("statusLine"),
+				Value: map[string]any{"type": "command", "command": ctxloomStatusLineCommand()}})
+		}
+	}
+	seen := map[string]bool{}
+	for _, tool := range deny {
+		if tool == "" || seen[tool] {
+			continue
+		}
+		seen[tool] = true
+		claims = append(claims, present.Claim{Pointer: present.PointerKey("permissions") + present.PointerKey("deny") + "/-", Value: tool})
+	}
+	return claims, nil
+}
+
+// statuslineClaimable reports whether the statusline is ctxloom's to claim:
+// there is none, or it is exactly ctxloom's canonical command. Any other —
+// the user's own program, or the ctxloom binary with arguments the user
+// chose — is the user's.
+func statuslineClaimable(fs afero.Fs, path string) (bool, error) {
+	settings, err := (&ClaudeCodeHookWriter{FS: fs}).loadSettings(path) // a missing file is empty settings
+	if err != nil {
+		return false, err
+	}
+	return settings.StatusLine == nil || settings.StatusLine.Command == ctxloomStatusLineCommand(), nil
+}
+
+// hookClaims is each unified hook as a claim on its entry in the group of its
+// event that its matcher selects — the user's own group included, so the
+// file keeps the shape claude writes. A hook routed twice is claimed once.
+func hookClaims(unified wire.UnifiedHooks) ([]present.Claim, error) {
+	var (
+		claims []present.Claim
+		seen   = map[string]bool{}
+		failed error
+	)
+	agent.RouteUnifiedHooks(report.To(strictness.Sink("ctxloom")), EngineName, unifiedHookRoutes(unified), func(event string, h wire.Hook) {
+		v, err := hookValue(h)
+		if err != nil {
+			failed = errors.Join(failed, err)
+			return
+		}
+		ptr := present.PointerKey("hooks") + present.PointerKey(event) + present.PointerSelect("matcher", h.Matcher) + "/hooks/-"
+		if key := ptr + fmt.Sprint(v); !seen[key] {
+			seen[key] = true
+			claims = append(claims, present.Claim{Pointer: ptr, Value: v})
+		}
+	})
+	return claims, failed
+}
+
+// hookValue is h as claude's settings.json spells a hook: claudeCodeHook's
+// JSON, the type defaulting to "command".
+func hookValue(h wire.Hook) (map[string]any, error) {
+	cc := claudeCodeHook{Type: h.Type, Command: h.Command, Args: h.Args, Prompt: h.Prompt, Timeout: h.Timeout, Async: h.Async}
+	if cc.Type == "" {
+		cc.Type = "command"
+	}
+	b, err := json.Marshal(cc)
+	if err != nil {
+		return nil, err
+	}
+	var v map[string]any
+	return v, json.Unmarshal(b, &v)
 }
 
 // settingsApproach is claude's settings surface: statusline and the deny
@@ -302,19 +414,19 @@ func (*settingsApproach) Forms() agent.Presentations {
 	})
 }
 func (a *settingsApproach) DeliverSettings(start present.Start, root present.RootKind, in engine.SettingsInputs, fs afero.Fs) (present.Delivered, error) {
-	return deliverSettingsFile(a.Name(), start, root, nil, in.Statusline, in.DenyTools, fs)
+	return deliverSettingsFile(a.Name(), start, root, func(path string) ([]present.Claim, error) {
+		return settingsClaims(agent.GetFS(fs), path, in.Statusline, in.DenyTools)
+	})
 }
 
-// hooksApproach is claude's hooks surface: the hook registrations, written
-// as the hooks section of the same settings.json the settings approach
-// writes — the native form. Each typed Deliver adds its own entries to
-// that file and removes nothing (deliverSettingsFile), so the two kinds
-// share it without either undoing the other.
+// hooksApproach is claude's hooks surface: the hook registrations, claimed
+// in the hooks section of the same settings.json the settings approach
+// claims into — the native form (deliverSettingsFile).
 type hooksApproach struct{ traits }
 
 func (*hooksApproach) Name() string { return "settings-hooks" }
-func (a *hooksApproach) DeliverHooks(start present.Start, root present.RootKind, in engine.HooksInputs, fs afero.Fs) (present.Delivered, error) {
-	return deliverSettingsFile(a.Name(), start, root, &wire.HooksConfig{Unified: in.Hooks}, false, nil, fs)
+func (a *hooksApproach) DeliverHooks(start present.Start, root present.RootKind, in engine.HooksInputs, _ afero.Fs) (present.Delivered, error) {
+	return deliverSettingsFile(a.Name(), start, root, func(string) ([]present.Claim, error) { return hookClaims(in.Hooks) })
 }
 
 // commandsApproach is claude's commands surface: <config dir>/commands/

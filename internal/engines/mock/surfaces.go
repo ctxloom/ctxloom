@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"github.com/spf13/afero"
@@ -80,24 +81,19 @@ func writeFile(fs afero.Fs, p present.Presentation, bytes []byte, mode os.FileMo
 	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil
 }
 
-// contextFile appends the assembled context to MOCK_CONTEXT.md — after
-// whatever a human already wrote there, which stays theirs — and announces
-// the file on --context.
+// contextFile claims the assembled context as a section of MOCK_CONTEXT.md —
+// after whatever a human already wrote there, which stays theirs — and
+// announces the file on --context.
 type contextFile struct{ surface }
 
-func (a *contextFile) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
+func (a *contextFile) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, _ afero.Fs) (present.Delivered, error) {
 	r, err := a.rooted(start, root, ContextFileName)
 	if err != nil {
 		return present.Delivered{}, err
 	}
 	p := r.AnnounceFlag(contextFlag).Build()
-	// A context file the mock creates is owner-only: the engine reads it
-	// itself and nothing else needs to. One that already stood keeps its
-	// mode.
-	if err := safefs.AppendSection(fs, p.HostPath, in.Text, 0o600); err != nil {
-		return present.Delivered{}, err
-	}
-	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil
+	return present.Delivered{Presented: p, Wrote: []string{p.HostPath},
+		Claims: map[string][]present.Claim{p.HostPath: {{Pointer: present.AppendedSection, Value: slices.Clone(in.Text)}}}}, nil
 }
 
 // mcpFile writes the server set as {"mcpServers": {...}}.

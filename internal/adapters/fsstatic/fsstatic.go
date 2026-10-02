@@ -4,22 +4,23 @@
 // runner: root = session home, writer = the harp) and a human materialize
 // (root = project root, writer = project); they differ only in the Target.
 //
-// A delivery is reconcile-from-clean: the writer's PREVIOUS contribution is
-// reversed through the record first, then each item is delivered through
-// the engine's approach for its kind over an overlay of the target
-// filesystem, and every file the approach wrote is recorded under the
-// writer through Ownership.Apply — the record computes the reversal from
-// the before and after images, so an approach needs to know nothing about
-// ownership. A plan with no static items is UNINSTALL: the reversal runs
-// and nothing else is touched.
+// A delivery is one batch (safefs.Batch): the writer's PREVIOUS claims under
+// the target's roots are released, each item is delivered through the
+// engine's approach for its kind — its claims staged as given, and every file
+// it wrote over an overlay of the target filesystem staged as a claim on the
+// whole file — and the batch commits, so a file several items or writers put
+// values into is written once. A plan with no static items is UNINSTALL: the
+// release alone runs.
 package fsstatic
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -48,8 +50,8 @@ func New(fs afero.Fs) *Static { return &Static{fs: fs} }
 
 // Deliver validates the target, refuses a plan whose items cannot root under
 // it, prepares the ownership record (delivery.Ownership.Prepare: a security
-// invariant, not an optimisation), reverses the writer's previous delivery,
-// then delivers each static item and records what it wrote.
+// invariant, not an optimisation), then releases the writer's previous
+// delivery and stages each static item into one batch, and commits it.
 func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, root engine.Base, target delivery.Target) (delivery.Delivered, error) {
 	if err := target.Validate(); err != nil {
 		return delivery.Delivered{}, err
@@ -61,27 +63,53 @@ func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, root engine.B
 	if err := target.Ownership.Prepare(ctx); err != nil {
 		return delivery.Delivered{}, fmt.Errorf("fsstatic: prepare the ownership record for %s: %w", target.Writer, err)
 	}
-	undo := func(ctx context.Context) error { return s.reconcileToEmpty(ctx, target) }
-	if err := s.reconcileToEmpty(ctx, target); err != nil {
-		return delivery.Delivered{}, err
-	}
-	if len(lo.Plan.Static) == 0 {
-		return delivery.Delivered{Undo: undo}, nil
-	}
-	inputs, err := delivery.InputsFor(lo, root.Dynamic)
-	if err != nil {
+	paths := target.Root.Paths()
+	within := func(path string) bool { return underARoot(paths, path) }
+	undo := func(context.Context) error { return s.reverse(target.Ownership, within, target.Writer) }
+	b := s.batch()
+	st := target.Ownership.In(b)
+	if err := releaseWriters(st, target.Ownership, within, target.Writer); err != nil {
 		return delivery.Delivered{}, err
 	}
 	out := delivery.Delivered{Undo: undo}
-	for _, it := range lo.Plan.Static {
-		d, err := s.deliverItem(ctx, it, surfaces[it.Kind], target, inputs)
+	var modes map[string]os.FileMode
+	if len(lo.Plan.Static) > 0 {
+		inputs, err := delivery.InputsFor(lo, root.Dynamic)
 		if err != nil {
 			return delivery.Delivered{}, err
 		}
-		out.Presented = append(out.Presented, d.Presented)
-		out.Wrote = append(out.Wrote, it.Kind)
+		modes = map[string]os.FileMode{}
+		for _, it := range lo.Plan.Static {
+			d, err := s.deliverItem(it, surfaces[it.Kind], target, inputs, st, modes)
+			if err != nil {
+				return delivery.Delivered{}, err
+			}
+			out.Presented = append(out.Presented, d.Presented)
+			out.Wrote = append(out.Wrote, it.Kind)
+		}
 	}
-	return out, nil
+	if _, err := b.Commit(); err != nil {
+		return delivery.Delivered{}, fmt.Errorf("fsstatic: deliver for %s: %w", target.Writer, err)
+	}
+	return out, s.restoreModes(modes)
+}
+
+// batch is a batch over the static writer's filesystem, each target locked
+// by the lock every writer of that file takes.
+func (s *Static) batch() *safefs.Batch {
+	return safefs.NewBatch(s.fs, func(path string, fn func() error) error { return sessions.WithFileLock(s.fs, path, fn) })
+}
+
+// restoreModes gives each file an approach wrote whole the mode it wrote it
+// with (an exec bit on a skill's script is load-bearing): the batch writes
+// the bytes and keeps an existing file's mode.
+func (s *Static) restoreModes(modes map[string]os.FileMode) error {
+	for _, path := range slices.Sorted(maps.Keys(modes)) {
+		if err := s.fs.Chmod(path, modes[path]); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("fsstatic: mode of %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 // planRootable refuses a plan item whose kind the engine declares no
@@ -99,26 +127,36 @@ func planRootable(items []delivery.StaticItem, surfaces engine.Surfaces, paths p
 	return nil
 }
 
-// deliverItem runs the item's approach over a copy-on-write overlay, then
-// lands every file it wrote.
-func (s *Static) deliverItem(ctx context.Context, it delivery.StaticItem, approach present.Approach, target delivery.Target, inputs delivery.Inputs) (present.Delivered, error) {
+// deliverItem runs the item's approach over a copy-on-write overlay and
+// stages what it delivered: its claims as given, and each file it wrote
+// under a target root as a claim on the whole file. A file it wrote outside
+// every root is its own state, written through as it wrote it.
+func (s *Static) deliverItem(it delivery.StaticItem, approach present.Approach, target delivery.Target, inputs delivery.Inputs, st delivery.Staging, modes map[string]os.FileMode) (present.Delivered, error) {
 	layer := &writeLayer{Fs: afero.NewMemMapFs(), names: map[string]struct{}{}}
 	d, err := deliverKind(approach, it.Kind, target.Root, it.Root, inputs, newOverlay(s.fs, layer))
 	if err != nil {
 		return present.Delivered{}, fmt.Errorf("fsstatic: deliver %v through %s: %w", it.Kind, it.Approach, err)
 	}
+	for _, path := range slices.Sorted(maps.Keys(d.Claims)) {
+		if err := st.Stage(path, target.Writer, d.Claims[path]); err != nil {
+			return present.Delivered{}, fmt.Errorf("fsstatic: stage %v's claims on %s: %w", it.Kind, path, err)
+		}
+	}
 	for _, path := range layer.files() {
-		if err := s.landFile(ctx, layer, path, target); err != nil {
+		if _, claimed := d.Claims[path]; claimed {
+			return present.Delivered{}, fmt.Errorf("fsstatic: %s both claims values in %s and writes it whole; an approach does one or the other", it.Approach, path)
+		}
+		if err := s.stageWritten(layer, path, target, st, modes); err != nil {
 			return present.Delivered{}, err
 		}
 	}
 	return d, nil
 }
 
-// landFile moves one file the approach wrote from the overlay layer onto the
-// filesystem: under a target root through the ownership record, with the
-// approach's mode; outside every root written through as-is.
-func (s *Static) landFile(ctx context.Context, layer afero.Fs, path string, target delivery.Target) error {
+// stageWritten stages one file an approach wrote as a claim on the whole
+// file, keeping the mode it wrote it with; a file outside every target root
+// is the approach's own state, written through as it wrote it.
+func (s *Static) stageWritten(layer afero.Fs, path string, target delivery.Target, st delivery.Staging, modes map[string]os.FileMode) error {
 	bytes, err := afero.ReadFile(layer, path)
 	if err != nil {
 		return err
@@ -127,62 +165,53 @@ func (s *Static) landFile(ctx context.Context, layer afero.Fs, path string, targ
 	if err != nil {
 		return err
 	}
-	paths := target.Root.Paths()
-	if !underARoot(paths, path) {
-		// An approach's OWN state outside the target (claude's MCP
-		// approach keeps a hew record under the home): written
-		// through as the approach wrote it, never a delivered file
-		// the record owns.
+	if !underARoot(target.Root.Paths(), path) {
 		if err := writeThrough(s.fs, path, bytes, info.Mode().Perm()); err != nil {
 			return fmt.Errorf("fsstatic: write %s: %w", path, err)
 		}
 		return nil
 	}
-	entry := relativeTo(paths, path)
-	if _, err := target.Ownership.Apply(ctx, s.fs, path, target.Writer, func([]byte) ([]byte, []string, error) {
-		return bytes, []string{entry}, nil
-	}); err != nil {
-		return fmt.Errorf("fsstatic: record %s for %s: %w", path, target.Writer, err)
+	if err := st.Stage(path, target.Writer, []present.Claim{{Value: bytes}}); err != nil {
+		return fmt.Errorf("fsstatic: stage %s for %s: %w", path, target.Writer, err)
 	}
-	// The record writes the bytes; the mode is the approach's (an
-	// exec bit on a skill's script is load-bearing).
-	if err := s.fs.Chmod(path, info.Mode().Perm()); err != nil {
-		return fmt.Errorf("fsstatic: mode of %s: %w", path, err)
+	modes[path] = info.Mode().Perm()
+	return nil
+}
+
+// releaseWriters stages the release of each writer's claims in every file the
+// record names for it that within admits.
+func releaseWriters(st delivery.Staging, ownership delivery.Ownership, within func(string) bool, writers ...delivery.Writer) error {
+	for _, w := range writers {
+		targets, err := ownership.Targets(w)
+		if err != nil {
+			return err
+		}
+		for _, path := range targets {
+			if !within(path) {
+				continue
+			}
+			if err := st.Release(path, w, nil); err != nil {
+				return fmt.Errorf("fsstatic: release %s for %s: %w", path, w, err)
+			}
+		}
 	}
 	return nil
 }
 
-// reconcileToEmpty reverses the writer's contribution to every file its
-// record names UNDER THIS TARGET's roots: the record is home-rooted and one
-// writer (the project's) delivers into many projects, so a target's empty
-// plan reaches its own files and no other project's.
-func (s *Static) reconcileToEmpty(ctx context.Context, target delivery.Target) error {
-	paths := target.Root.Paths()
-	return s.reverse(ctx, target.Ownership, target.Writer, func(path string) bool { return underARoot(paths, path) })
+// Reverse takes writer's claims back out of every file the record names
+// for it, in one batch (delivery.Static.Reverse).
+func (s *Static) Reverse(_ context.Context, ownership delivery.Ownership, writer delivery.Writer) error {
+	return s.reverse(ownership, func(string) bool { return true }, writer)
 }
 
-// Reverse takes writer's contribution back out of every file its record
-// names (delivery.Static.Reverse).
-func (s *Static) Reverse(ctx context.Context, ownership delivery.Ownership, writer delivery.Writer) error {
-	return s.reverse(ctx, ownership, writer, func(string) bool { return true })
-}
-
-// reverse reconciles writer to empty in each file its record names that
-// within admits.
-func (s *Static) reverse(ctx context.Context, ownership delivery.Ownership, writer delivery.Writer, within func(string) bool) error {
-	targets, err := ownership.Targets(writer)
-	if err != nil {
+// reverse releases writers from each file within admits, in one batch.
+func (s *Static) reverse(ownership delivery.Ownership, within func(string) bool, writers ...delivery.Writer) error {
+	b := s.batch()
+	if err := releaseWriters(ownership.In(b), ownership, within, writers...); err != nil {
 		return err
 	}
-	for _, path := range targets {
-		if !within(path) {
-			continue
-		}
-		if _, err := ownership.Apply(ctx, s.fs, path, writer, func([]byte) ([]byte, []string, error) {
-			return nil, nil, nil
-		}); err != nil {
-			return fmt.Errorf("fsstatic: reconcile %s for %s: %w", path, writer, err)
-		}
+	if _, err := b.Commit(); err != nil {
+		return fmt.Errorf("fsstatic: reverse %v: %w", writers, err)
 	}
 	return nil
 }
@@ -244,7 +273,7 @@ func deliverAs[A any](a present.Approach, deliver func(A) (present.Delivered, er
 //
 // That refusal is the whole reason this type exists. afero serves each of
 // those by copying the file up through the layer's Create, which carries no
-// mode, so landFile would chmod the real file to 0. Chmod is left alone: it
+// mode, so the mode the static writer restores would be 0. Chmod is left alone: it
 // copies up too, but then sets the mode itself. No approach writes in
 // place — each writes a temp file and renames it — so the capability is
 // removed rather than repaired.
@@ -349,9 +378,9 @@ func (w *writeLayer) files() []string {
 
 // writeThrough lands a file the approach wrote outside the target's roots
 // on the real filesystem, bytes and mode as written. That file is the
-// approach's own state (claude's undo record, which keeps the previous value
-// of the key it undoes), so a directory created for it is owner-only, through
-// the record store's own seam. A directory that already exists is left as it
+// approach's own state, which may hold anything the approach keeps, so a
+// directory created for it is owner-only, through the record store's own
+// seam. A directory that already exists is left as it
 // is: this lands a file, it does not own the directory it lands in.
 func writeThrough(fs afero.Fs, path string, bytes []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
@@ -381,19 +410,4 @@ func underARoot(paths present.Paths, path string) bool {
 		}
 	}
 	return false
-}
-
-// relativeTo names a written file as the record's entry: its path relative
-// to the target root it lies under, or the path itself when it lies under
-// none.
-func relativeTo(paths present.Paths, path string) string {
-	for _, root := range rootsOf(paths) {
-		if root == "" || !present.Under(path, root) {
-			continue
-		}
-		if rel, err := filepath.Rel(root, path); err == nil {
-			return filepath.ToSlash(rel)
-		}
-	}
-	return path
 }

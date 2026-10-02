@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,17 +14,6 @@ import (
 
 // fakePlacement is defined in contextdelivery_test.go (same package): a local
 // placement double whose Dir() returns a fixed temp dir.
-
-// mcpServersOf reads .mcp.json under dir and returns its mcpServers map.
-func mcpServersOf(t *testing.T, dir string) map[string]any {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
-	require.NoError(t, err)
-	var cfg map[string]any
-	require.NoError(t, json.Unmarshal(data, &cfg))
-	servers, _ := cfg["mcpServers"].(map[string]any)
-	return servers
-}
 
 // TestFileTemplateDelivery_DeliverCommands verifies the commands surface is written
 // into the injected Placement identically to WriteCommandFiles, and that Cleanup

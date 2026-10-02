@@ -37,14 +37,6 @@ func managedPackage(hooks *wire.HooksConfig, servers map[string]wire.MCPServer) 
 	return pkg
 }
 
-// statusOf is claude's status read of p.
-func statusOf(t *testing.T, p *atrest.Project) agent.SettingsStatus {
-	t.Helper()
-	st, err := NewWriter(p.Settings()).Status(p.Dir)
-	require.NoError(t, err)
-	return st
-}
-
 // testDeclaration is claude's named-form table off a built engine.
 func testDeclaration() agent.Declaration {
 	e, err := Build()

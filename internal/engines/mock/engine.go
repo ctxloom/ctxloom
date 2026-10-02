@@ -1,13 +1,14 @@
 package mock
 
 import (
+	"path/filepath"
+	"slices"
+
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"path/filepath"
-	"slices"
 )
 
 // This file is the mock ENGINE KIND: the conformance double and the first

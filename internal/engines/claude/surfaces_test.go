@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -250,15 +249,6 @@ func TestSurfaces_LaunchOnly(t *testing.T) {
 	for _, a := range []agent.Approach{s.Native, s.Hook, s.MCPUnsafe, s.Settings, s.Commands, s.Skills} {
 		assert.False(t, launchOnly(a))
 	}
-}
-
-func readJSON(t *testing.T, path string) map[string]any {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	var m map[string]any
-	require.NoError(t, json.Unmarshal(data, &m))
-	return m
 }
 
 // TestNewSurfaces_ThreadsEverySurfaceScopedInput is the pin a past review

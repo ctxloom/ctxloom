@@ -461,17 +461,14 @@ func (t *targetOps) fold(cur []byte, exists bool) ([]byte, bool, error) {
 // target is about to change, and not at all when nothing in it changed. A
 // record left with no claims is removed once its target is settled — kept,
 // with its note, while the write that emptied it may not have landed. The
-// record this one replaced is deleted by its exact name.
+// records this one superseded are retired (retireSuperseded).
 func (t *targetOps) seal(before []byte, existed bool, after []byte, keep bool) error {
 	rec := t.rec
 	changing := digest(before, existed) != digest(after, keep)
 	if changing {
 		rec.Pending = &pendingWrite{Before: digest(before, existed), After: digest(after, keep), Prior: t.prior}
 	}
-	if err := t.c.dropOldRecord(t.target); err != nil {
-		return err
-	}
-	if err := t.c.retireConfpatchRecords(t.target); err != nil {
+	if err := t.c.retireSuperseded(t.target); err != nil {
 		return err
 	}
 	path := t.c.path(t.target)
@@ -493,6 +490,15 @@ func (t *targetOps) seal(before []byte, existed bool, after []byte, keep bool) e
 		return err
 	}
 	return safefs.WriteFile(t.c.fs, path, data, owneronly.FileMode, safefs.Durable())
+}
+
+// retireSuperseded deletes the records this one superseded for target: the
+// per-writer ownership record, and claude's confpatch records.
+func (c *Records) retireSuperseded(target string) error {
+	if err := c.dropOldRecord(target); err != nil {
+		return err
+	}
+	return c.retireConfpatchRecords(target)
 }
 
 // dropOldRecord deletes the per-writer ownership record this record replaces,

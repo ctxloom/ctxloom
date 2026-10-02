@@ -9,17 +9,10 @@ import (
 )
 
 // fileTemplateDelivery is claude's file-template delivery strategy for the
-// CWD-BOUND surfaces — MCP (.mcp.json), commands (.claude/commands/), and settings
-// (.claude/settings.json). Each surface must be materialized where the engine
-// already looks (a project-rooted config file), so this strategy holds a cwd
-// Placement and writes into place.Dir(). Every DeliverX delegates to claude's
-// EXISTING writer targeted at that directory and returns a Delivered whose
-// Cleanup reverts exactly what that call wrote — ctxloom-owned entries removed,
-// user-authored entries preserved on the marker-merged surfaces.
-//
-// It is the writer behind claude's MCP, commands and settings approaches;
-// per the delivery-seam design the Delivered handles it
-// returns undo the write.
+// commands surface (.claude/commands/), which must be materialized where the
+// engine already looks, so it holds a cwd placement and writes into
+// place.Dir(). DeliverCommands returns a Delivered whose Cleanup reverts
+// exactly the manifest-tracked set it wrote.
 type fileTemplateDelivery struct {
 	place placement
 	fs    afero.Fs
@@ -27,20 +20,10 @@ type fileTemplateDelivery struct {
 	// GlobalCommandsDir()/WithHomeCommandsDir dedup so every command lands in
 	// the target regardless of what happens to exist in the delivering
 	// machine's ~/.claude/commands. Only commandsSurface.Deliver ever sets this
-	// (from agent.SurfaceInputs.SelfContainedCommands, materialize's opt-out)
-	// — it is irrelevant to DeliverMCP/DeliverSettings and left false
-	// everywhere else.
+	// (from agent.SurfaceInputs.SelfContainedCommands, materialize's opt-out).
 	selfContainedCommands bool
 	// reporter is where WriteCommandFiles reports the commands it skips.
 	reporter report.Sink
-	// denyTools, when non-empty, is unioned into the settings surface's
-	// permissions.deny (see writeSettingsFile / mergeDenyTools). Only
-	// settingsSurface.Deliver sets this (from
-	// SurfaceInputs.DenyTools) — irrelevant to DeliverMCP/DeliverCommands and
-	// left nil everywhere else. Kept as a receiver field (not a
-	// DeliverSettings parameter) so DeliverSettings's signature stays
-	// untouched.
-	denyTools []string
 }
 
 // newFileTemplateDelivery constructs the file-template strategy writing into

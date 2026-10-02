@@ -1,11 +1,6 @@
 package mock
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"os"
-
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -75,20 +70,8 @@ func newMockSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 	})
 }
 
-// mockMCPPath, mockSettingsPath and mockCommandsPath resolve each surface's
-// path through its declared presenter, exactly as the context and skills
-// halves do — never by joining strings here, so Route() and the delivery agree
-// by construction.
-func mockMCPPath(dir string) string {
-	return mockSurfacePath(agent.SurfaceMCP, present.ProjectOnHost(dir))
-}
-
 func mockSettingsPath(dir string) string {
 	return mockSurfacePath(agent.SurfaceSettings, present.ProjectOnHost(dir))
-}
-
-func mockCommandsPath(dir string) string {
-	return mockSurfacePath(agent.SurfaceCommands, present.ProjectOnHost(dir))
 }
 
 // mockMCPSurface is mock's MCP form's presentation: .mock/mcp.json. The
@@ -116,31 +99,6 @@ func (s *mockSettingsSurface) Present(start present.Start) present.Presentation 
 
 // UnsafeInfo names mock's settings surface for the DeliverShared fallback.
 func (s *mockSettingsSurface) UnsafeInfo() string { return "mock/settings" }
-
-// mockSettingsHooksKey is the settings document key mock's managed hooks live
-// under. Named once so the write and the cleanup cannot disagree about it.
-const mockSettingsHooksKey = "hooks"
-
-// readMockSettings loads path as a key->raw-JSON map, so keys ctxloom does not
-// own survive a merge byte-for-byte. An absent file is an empty document, not
-// an error: delivering into a project that has none is the normal case.
-func readMockSettings(fs afero.Fs, path string) (map[string]json.RawMessage, error) {
-	data, err := afero.ReadFile(fs, path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return map[string]json.RawMessage{}, nil
-		}
-		return nil, fmt.Errorf("mock: read %s: %w", path, err)
-	}
-	if len(bytes.TrimSpace(data)) == 0 {
-		return map[string]json.RawMessage{}, nil
-	}
-	doc := map[string]json.RawMessage{}
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("mock: parse %s: %w", path, err)
-	}
-	return doc, nil
-}
 
 // newMockCommandsSurface builds mock's commands form: the SHARED
 // agent.ManagedCommandsDelivery at the mock's commands directory.

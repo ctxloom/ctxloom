@@ -34,7 +34,9 @@ func NewMockSettingsReader(opts agent.SettingsOptions) agent.SettingsReader {
 // delivery does not have.
 func (r *MockSettingsReader) Status(projectDir string) (agent.SettingsStatus, error) {
 	fs := agent.GetFS(r.FS)
-	at := func(rel string) string { return present.ProjectOnHost(projectDir).UnderProjectRoot(rel).Build().HostPath }
+	at := func(rel string) string {
+		return present.ProjectOnHost(projectDir).UnderProjectRoot(rel).Build().HostPath
+	}
 
 	var status agent.SettingsStatus
 	settings, err := afero.Exists(fs, at(settingsRel))

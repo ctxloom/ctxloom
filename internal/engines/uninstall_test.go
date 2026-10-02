@@ -7,6 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -28,11 +29,10 @@ func TestClaudeCodeUninstall_StripsManagedPreservesUser(t *testing.T) {
 	const dir = "/project"
 
 	// Seed a user-owned hook and a user-owned MCP server that ctxloom must not touch.
-	require.NoError(t, fs.MkdirAll(dir+"/.claude", 0755))
 	userSettings := `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"./user.sh"}]}]}}`
-	require.NoError(t, afero.WriteFile(fs, dir+"/.claude/settings.json", []byte(userSettings), 0644))
+	testsupport.WriteFileString(t, fs, dir+"/.claude/settings.json", userSettings, 0o644)
 	userMCP := `{"mcpServers":{"user-server":{"command":"./user-mcp"}}}`
-	require.NoError(t, afero.WriteFile(fs, dir+"/.mcp.json", []byte(userMCP), 0644))
+	testsupport.WriteFileString(t, fs, dir+"/.mcp.json", userMCP, 0o644)
 
 	// Wire ctxloom hooks, statusline (auto), and ctxloom's own MCP server.
 	p := deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}}, true, dir, fs)

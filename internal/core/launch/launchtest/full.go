@@ -41,11 +41,12 @@ func FullLaunch(t *testing.T) launch.Launch {
 		Axes: launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeRootless},
 		Cell: launch.Cell{
 			Placement: launch.Placement{
-				Paths:   paths,
-				Env:     map[string]string{"WS_VAR": "ws"},
-				Home:    []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
-				Unset:   []string{"FIXTURE_STORE"},
-				HostEnv: agents.HostEnv{Curated: true, Passthrough: []string{"FIXTURE_PASS"}},
+				Paths:       paths,
+				Env:         map[string]string{"WS_VAR": "ws"},
+				SecretFiles: map[string]string{"FIXTURE_TOKEN": "/run/ctxloom/secrets/FIXTURE_TOKEN"},
+				Home:        []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
+				Unset:       []string{"FIXTURE_STORE"},
+				HostEnv:     agents.HostEnv{Curated: true, Passthrough: []string{"FIXTURE_PASS"}},
 			},
 			Workspace: "/proj/.worktrees/harp-1",
 		},

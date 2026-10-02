@@ -1067,4 +1067,11 @@ never permitted in the committable project store.
     and request on any listener needs a per-run bearer (`Coordinator.Identify`),
     carried in cleartext h2c (see `docs/architecture/agentcoord/transport.md`).
     The outbound address is kept because without it a rootless container
-    cannot reach the coordinator at all. Ruled and accepted.
+    cannot reach the coordinator at all. Ruled and accepted. What crosses it
+    is that per-run bearer and the launch, never the human's engine
+    credential: a container cell names its credential by file
+    (`launch.Placement.SecretFiles`), written on the originator's side to an
+    owner-only dir on `$XDG_RUNTIME_DIR` and mounted read-only
+    (`isolation.containerPlacement`, `isolation.materializeSecrets`). A host
+    cell still carries its credential in the launch's env, over the
+    loopback-only listener.

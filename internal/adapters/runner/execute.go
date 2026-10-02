@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 
@@ -191,6 +192,11 @@ func prepareLaunch(deps Deps, l launch.Launch) (launch.Launch, engine.Instance, 
 	// which one it is under. Rewritten once, before anything reads the cell:
 	// the engine session's roots, the static target, the drive's paths.
 	l.Cell.Paths = l.Cell.Paths.EngineSide()
+	cell, err := redeemSecrets(l.Cell)
+	if err != nil {
+		return l, nil, err
+	}
+	l.Cell = cell
 	hosted := deps.Kind.Root().Name
 	if l.Engine != hosted {
 		return l, nil, fmt.Errorf("%w: hosts %q, launch names %q", ErrWrongEngine, hosted, l.Engine)
@@ -457,3 +463,31 @@ func hookEndpoint(ep sessions.Endpoint) (sessions.Endpoint, error) {
 // HookEventParam is the query parameter naming the engine event an approval
 // hook POST carries the payload of.
 const HookEventParam = "event"
+
+// ErrSecretUnreadable refuses a launch whose cell names a secret file the
+// runner cannot read (launch.Placement.SecretFiles).
+var ErrSecretUnreadable = errors.New("runner: a secret file the launch names could not be read")
+
+// redeemSecrets lays each secret file the cell names into the cell's env —
+// a copy, in this process's memory — so Launch.EngineEnv hands the value to
+// the engine's process alone. The value never crossed the coordinator link:
+// the originator wrote it to a file mounted read-only into this runner's
+// container. The exact bytes are the value.
+func redeemSecrets(c launch.Cell) (launch.Cell, error) {
+	if len(c.SecretFiles) == 0 {
+		return c, nil
+	}
+	env := maps.Clone(c.Env)
+	if env == nil {
+		env = map[string]string{}
+	}
+	for v, file := range c.SecretFiles {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return c, fmt.Errorf("%w: %s from %s: %w", ErrSecretUnreadable, v, file, err)
+		}
+		env[v] = string(b)
+	}
+	c.Env = env
+	return c, nil
+}

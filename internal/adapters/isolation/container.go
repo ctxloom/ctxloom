@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -376,6 +377,16 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 		return mountPlan{}, err
 	}
 	mounts := append(append(append([]mount(nil), cw.stateMounts...), baseMounts...), lockMounts...)
+	// The secret dir joins the plan here, empty, so the probe below proves
+	// the daemon sees it; Container.environment fills it once the relocator
+	// has named its files. Held by its owner's lock, so a crashed run's dir
+	// is swept by the next one made under the same parent.
+	secrets, err := newOwnedScratch(secretParent(os.Getenv, cw.scratchRoot), secretScratchPrefix)
+	if err != nil {
+		return mountPlan{}, fmt.Errorf("container secrets: %w", err)
+	}
+	cw.secrets = secrets
+	mounts = append(mounts, c.runtime.paths().bind(secrets.dir, secretsTarget, true))
 	// The shared-filesystem probe runs HERE, once every real mount root is
 	// known (mountProbeRoots): cw.dir (the project dir, or the worktree
 	// checkout resolveBase created), cw.scratchRoot (the config overlays), and
@@ -616,7 +627,7 @@ type containerScratch struct {
 // terminal description (TERM/COLORTERM as KEY=VAL, non-secret), which the
 // curated handshake env deliberately drops. Returns a fresh slice so callers
 // never alias the scratch's fields. A credential never rides here: it reaches
-// the engine through the launch's own env, over the wire.
+// the engine as a file under secretsTarget, which the runner reads.
 func (sc containerScratch) runEnv() []string {
 	return append([]string(nil), sc.termEnv...)
 }
@@ -935,6 +946,9 @@ type containerWorkspace struct {
 	// Identical to dir for the host base.
 	projectDir  string
 	scratchRoot string // host scratch tree removed by Cleanup
+	// secrets is the owner-only dir mounted read-only at secretsTarget,
+	// holding the run's credential files; released FIRST by Cleanup.
+	secrets *ownedScratch
 	// stateMounts/scratchEnv are the scratch's contributions to the
 	// mapping, resolved when the workspace was resolved and consumed by mount.
 	// They are held apart from extraEnv/extraMounts because those two are the
@@ -976,6 +990,15 @@ func (w *containerWorkspace) Dir() string { return w.dir }
 // than assumed away — neither half can hide the other.
 func (w *containerWorkspace) Cleanup() error {
 	var errs error
+	if w.secrets != nil {
+		s := w.secrets
+		w.secrets = nil
+		s.release()
+		if _, err := os.Lstat(s.dir); !errors.Is(err, fs.ErrNotExist) {
+			warnCleanupResidue("container secrets", s.dir, errSecretResidue)
+			errs = fmt.Errorf("remove container secrets %s: %w", s.dir, errSecretResidue)
+		}
+	}
 	if w.scratchRoot != "" {
 		dir := w.scratchRoot
 		w.scratchRoot = ""

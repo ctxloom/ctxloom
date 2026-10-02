@@ -225,20 +225,20 @@ func (r containerRelocator) relocate(l layout) (launch.Placement, []mount, error
 		mounts = append(mounts, home.mount)
 	}
 	if refused != nil {
-		return placementOf(paths, l, nil), nil, refused
+		return containerPlacement(paths, l, nil), nil, refused
 	}
 	storeEnv, storeMounts, err := r.relocateStores(l.stores)
 	if err != nil {
-		return placementOf(paths, l, nil), nil, err
+		return containerPlacement(paths, l, nil), nil, err
 	}
 	fileEnv, fileMounts, err := r.relocateFiles(l.creds)
 	if err != nil {
-		return placementOf(paths, l, nil), nil, err
+		return containerPlacement(paths, l, nil), nil, err
 	}
 	maps.Copy(storeEnv, fileEnv)
 	// Files after stores: a file inside a store's directory must not be
 	// shadowed by that directory's mount.
-	return placementOf(paths, l, storeEnv), append(append(mounts, storeMounts...), fileMounts...), nil
+	return containerPlacement(paths, l, storeEnv), append(append(mounts, storeMounts...), fileMounts...), nil
 }
 
 // relocateFiles binds each credential file the credentials declare

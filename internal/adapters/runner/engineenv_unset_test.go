@@ -27,9 +27,12 @@ func (d *childEnvDriver) Drive(_ context.Context, t runner.Turn) error {
 	return nil
 }
 
+// envHas is key's value as the spawned child sees it: os/exec keeps the
+// LAST value of a duplicated key, and BuildEnv appends the launch's env
+// after this process's, so a later entry is the one that counts.
 func envHas(env []string, key string) (string, bool) {
-	for _, kv := range env {
-		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+	for i := len(env) - 1; i >= 0; i-- {
+		if k, v, ok := strings.Cut(env[i], "="); ok && k == key {
 			return v, true
 		}
 	}

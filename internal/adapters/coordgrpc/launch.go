@@ -326,11 +326,12 @@ func decodeMode(m pb.Mode) engine.Mode {
 
 func encodeCell(c launch.Cell) *pb.Cell {
 	out := &pb.Cell{
-		Paths:     encodePaths(c.Paths.Paths()),
-		Workspace: c.Workspace,
-		Env:       c.Env,
-		Home:      encodeHome(c.Home),
-		UnsetEnv:  c.Unset,
+		Paths:       encodePaths(c.Paths.Paths()),
+		Workspace:   c.Workspace,
+		Env:         c.Env,
+		Home:        encodeHome(c.Home),
+		UnsetEnv:    c.Unset,
+		SecretFiles: c.SecretFiles,
 	}
 	if c.HostEnv.Curated {
 		out.HostEnv = &pb.HostEnv{Curated: true, Passthrough: c.HostEnv.Passthrough}
@@ -341,11 +342,12 @@ func encodeCell(c launch.Cell) *pb.Cell {
 func decodeCell(w *pb.Cell) launch.Cell {
 	return launch.Cell{
 		Placement: launch.Placement{
-			Paths:   present.Advised(decodePaths(w.GetPaths())),
-			Env:     w.GetEnv(),
-			Home:    decodeHome(w.GetHome()),
-			Unset:   w.GetUnsetEnv(),
-			HostEnv: agents.HostEnv{Curated: w.GetHostEnv().GetCurated(), Passthrough: w.GetHostEnv().GetPassthrough()},
+			Paths:       present.Advised(decodePaths(w.GetPaths())),
+			Env:         w.GetEnv(),
+			Home:        decodeHome(w.GetHome()),
+			Unset:       w.GetUnsetEnv(),
+			SecretFiles: w.GetSecretFiles(),
+			HostEnv:     agents.HostEnv{Curated: w.GetHostEnv().GetCurated(), Passthrough: w.GetHostEnv().GetPassthrough()},
 		},
 		Workspace: w.GetWorkspace(),
 	}

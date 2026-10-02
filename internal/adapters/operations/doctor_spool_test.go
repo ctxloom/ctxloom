@@ -110,6 +110,25 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheStuckEntry(t *testing.T) {
 	assert.NotContains(t, check.Detail, "coord.md", "the fresh in/ entry must not be reported as stuck")
 }
 
+// TestDoctorCheckSpoolBacklog_NamesAnInstructionNobodyRead pins the live in/
+// look on its own: a steer written to a harp's in/ that no reader ever
+// claimed or consumed. Nothing expires it, so without this clause an unread
+// instruction is indistinguishable from a delivered one. The claimed/ test
+// below does not cover it — its entry has already left in/ — and the out/
+// test above looks at the other direction.
+func TestDoctorCheckSpoolBacklog_NamesAnInstructionNobodyRead(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	old := time.Now().Add(-10 * time.Minute)
+	ref := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 1, "coord", old)
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Contains(t, check.Detail, ref.String(), "the unread steer must be named by harp, direction and file")
+	assert.Contains(t, check.Detail, "10m0s old", "the unread steer's age must be stated")
+}
+
 // TestDoctorCheckSpoolBacklog_NamesAClaimNoHookFinished pins in/claimed/ in
 // the scan: a message the owner's turn-start hook claimed (spool.Claim) and
 // never acknowledged has left in/, so without this look it would be invisible

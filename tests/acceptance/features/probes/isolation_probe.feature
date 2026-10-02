@@ -37,12 +37,11 @@ Feature: Isolation probe — live proof against real vendor engines
   Background:
     Given Alice has a git-backed project
 
-  # The primary sweep: every engine this repo drives, both axes, using whichever
-  # credential path is ambient (env API key, or a host credential file) — exactly
-  # ctxloom's own resolveEnvOrMountAuth precedence, so a cell can never claim to
-  # have proven a path it did not actually take. Self-skips LOUDLY, per cell, with
-  # the specific missing opt-in, credential AND axis named — see isolation_probe.go's
-  # probeTargetAuth.
+  # Every engine this repo drives, on each axis. A cell's run is an agent run,
+  # and an agent run authenticates only with the engine's token, taken from the
+  # launching environment: by value on the host, through the read-only secret
+  # mount in a container. Self-skips LOUDLY, per cell, naming the missing token
+  # or engine AND the axis — see isolation_probe.go's probeTargetAuth.
   # Each Examples block below carries its own @<engine> @<axis> tag pair —
   # not decoration, the addressing mechanism: `just isolation-probe <engine>
   # <axis>` sets ACCEPTANCE_TAGS="@live && @<engine> && @<axis>" to run
@@ -79,31 +78,6 @@ Feature: Isolation probe — live proof against real vendor engines
     Examples:
       | engine      | axis              |
       | claude-code | container-rootful |
-
-
-
-
-
-
-
-  # Auth-path duality: the primary sweep above reports which path it took, but a
-  # dev box with subscription credentials on disk will always land on "seeded"
-  # for a credentialed engine, never exercising the ENV-KEY BYPASS path — the
-  # path a credentialed CI lane (secrets only, no host credential file) actually
-  # takes. These four rows FORCE that path and self-skip loudly when the engine's
-  # own API-key env var is not set, rather than silently falling back to the
-  # seeded path and reporting a false pass.
-  Scenario Outline: The isolation probe proves the API-key bypass path for <engine> under the worktree axis
-    Given the isolation probe targets "<engine>" under the "worktree" axis using its API key credential
-    When the probe runs it live, writing a unique token in one turn
-    Then the probe's core guarantees hold for "<engine>" under the "worktree" axis
-
-    @claude-code @bypass
-    Examples:
-      | engine      |
-      | claude-code |
-
-
 
   # Back to: tests/acceptance/features/journeys/j002200_isolation.feature (the hermetic layer
   # this feature complements).

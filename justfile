@@ -990,14 +990,13 @@ test-acceptance-live-container: container-build-acceptance
 # isolation_probe.feature) for exactly ONE engine x axis cell — the
 # per-engine-release regression check, not the whole live suite. ENGINE is
 # a registered engine name; AXIS is worktree,
-# container-rootless, or container-rootful (or "bypass" for the engine's
-# env-API-key-forced worktree row).
+# container-rootless, or container-rootful.
 # container-rootful is wired but has never gone green on any box this suite
 # has run on (no reachable rootful daemon) — it self-skips loudly. Makes AT
 # MOST one real, paid engine call.
-# Requires real credentials for ENGINE (a host credential file, or its
-# API-key env var) — self-skips loudly, naming exactly what is missing, when
-# absent.
+# Requires ENGINE's token exported (claude: CLAUDE_CODE_OAUTH_TOKEN, from
+# `claude setup-token`) — the only credential an agent run takes. Self-skips
+# loudly, naming it, when absent.
 isolation-probe ENGINE AXIS: build
     ACCEPTANCE_PATHS=features/probes/isolation_probe.feature \
     ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{AXIS}}" \

@@ -19,10 +19,12 @@ import (
 
 // probeCellState is this feature's per-scenario fixture state.
 type probeCellState struct {
-	Engine     string
-	Axis       probeAxis
-	ForcedPath probeAuthPath
-	Result     *probeResult
+	Engine string
+	Axis   probeAxis
+	// Auth is the credential the Given step decided; the When step hands it
+	// to the run rather than deciding a second time.
+	Auth   probeAuth
+	Result *probeResult
 }
 
 func probeStateOf(w *World) *probeCellState {
@@ -32,17 +34,11 @@ func probeStateOf(w *World) *probeCellState {
 	return w.probe
 }
 
-// probeSkip prints the loud, specific skip line (engine, axis, authPath,
-// reason) and returns godog.ErrSkip — so a run where every cell skips is
-// grep-distinct from a run where every cell passed, per this feature's own
-// doc. authPath is the SKIP's real resolved auth path (this used to
-// be hardcoded to probeAuthNone regardless of caller, so the forced-env-key
-// scenario's skip -- which fires precisely because a credential IS present
-// but not the one this scenario forces -- misreported authPath=no-credentials
-// instead of the real seeded/env-key path, misattributing why the cell was
-// skipped).
-func probeSkip(engine string, axis probeAxis, authPath probeAuthPath, reason string) error {
-	printProbeReport(engine, axis, authPath, reason, "SKIPPED", "")
+// probeSkip prints the loud, specific skip line (engine, axis, reason) and
+// returns godog.ErrSkip — so a run where every cell skips is grep-distinct
+// from a run where every cell passed, per this feature's own doc.
+func probeSkip(engine string, axis probeAxis, reason string) error {
+	printProbeReport(engine, axis, reason, "SKIPPED", "")
 	return godog.ErrSkip
 }
 
@@ -52,28 +48,14 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		p := probeStateOf(w)
 		p.Engine, p.Axis = engine, probeAxis(axisStr)
 
-		authPath, reason, err := probeTargetAuth(engine, p.Axis)
+		auth, err := probeTargetAuth(engine, p.Axis)
 		if err != nil {
 			return err
 		}
-		if authPath == probeAuthNone {
-			return probeSkip(engine, p.Axis, authPath, reason)
+		if !auth.ok() {
+			return probeSkip(engine, p.Axis, auth.Reason)
 		}
-		return nil
-	})
-
-	ctx.Step(`^the isolation probe targets "([^"]*)" under the "worktree" axis using its API key credential$`, func(c context.Context, engine string) error {
-		w := worldFrom(c)
-		p := probeStateOf(w)
-		p.Engine, p.Axis, p.ForcedPath = engine, probeAxisWorktree, probeAuthEnvKey
-
-		authPath, reason, err := probeTargetAuth(engine, p.Axis)
-		if err != nil {
-			return err
-		}
-		if authPath != probeAuthEnvKey {
-			return probeSkip(engine, p.Axis, authPath, fmt.Sprintf("this scenario forces the env-API-key bypass path specifically, but it is not the ambient path (%s) — %s", authPath, reason))
-		}
+		p.Auth = auth
 		return nil
 	})
 
@@ -84,7 +66,7 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		var err error
 		switch {
 		case p.Axis == probeAxisWorktree:
-			res, err = runProbeWorktree(w, p.Engine, p.ForcedPath)
+			res, err = runProbeWorktree(w, p.Engine, p.Auth)
 		case isProbeContainerAxis(p.Axis):
 			// Resolve the SAME way probeCellGate does for the matrix probes
 			// (capability_probe_gate_live.go's probeContainerRuntimeForAxis):
@@ -100,9 +82,9 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 			case dockergate.Fail:
 				return fmt.Errorf("isolation probe: %s", msg)
 			case dockergate.Skip:
-				return probeSkip(p.Engine, p.Axis, probeAuthNone, msg)
+				return probeSkip(p.Engine, p.Axis, msg)
 			}
-			res, err = runProbeContainer(w, p.Engine, p.Axis, rt.Command)
+			res, err = runProbeContainer(w, p.Engine, p.Axis, rt.Command, p.Auth)
 		default:
 			return fmt.Errorf("isolation probe: unknown axis %q", p.Axis)
 		}
@@ -171,10 +153,10 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		}
 
 		if assertErr != nil {
-			printProbeReport(engine, p.Axis, res.AuthPath, res.AuthReason, "FAILED", ": "+assertErr.Error())
+			printProbeReport(engine, p.Axis, res.AuthReason, "FAILED", ": "+assertErr.Error())
 			return assertErr
 		}
-		printProbeReport(engine, p.Axis, res.AuthPath, res.AuthReason, "PASSED", "")
+		printProbeReport(engine, p.Axis, res.AuthReason, "PASSED", "")
 		return nil
 	})
 }

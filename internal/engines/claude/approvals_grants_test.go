@@ -122,6 +122,8 @@ func TestApprovalCodec_Covers(t *testing.T) {
 		{"mcp__sr", mcp, false},
 		{"mcp__srv__do", mcp, false},
 		{"mcp__other", mcp, false},
+		{"mcp__srv", engine.PermissionAsk{Kind: engine.AskTool, Tool: "mcp__srv__a__b"}, false},
+		{"mcp__a__b", engine.PermissionAsk{Kind: engine.AskTool, Tool: "mcp__a__b__c"}, false},
 		{"WebFetch(domain:example.com)", engine.PermissionAsk{Kind: engine.AskTool, Tool: "WebFetch", Input: json.RawMessage(`{"url":"https://example.com"}`)}, false},
 		{"", bashAsk("ls"), false},
 		{"Bash(", bashAsk("ls"), false},

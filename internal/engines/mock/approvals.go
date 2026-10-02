@@ -91,8 +91,11 @@ func (approvalCodec) Hooks(timeout time.Duration) wire.UnifiedHooks {
 // its settings and its hook registrations.
 func (approvalCodec) RepoSurfaces() []string { return []string{settingsRel, hooksRel} }
 
-// Covers reports whether rule allows ask's call.
-func (approvalCodec) Covers(string, engine.PermissionAsk) bool { return false }
+// Covers reports whether rule allows ask's call: a mock rule is a tool name,
+// covering every call of that tool.
+func (approvalCodec) Covers(rule string, ask engine.PermissionAsk) bool {
+	return ask.Kind == engine.AskTool && rule != "" && rule == ask.Tool
+}
 
 // ValidateRule accepts any one-line, non-blank rule: the mock has no rule
 // syntax of its own to enforce.

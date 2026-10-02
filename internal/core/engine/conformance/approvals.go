@@ -31,7 +31,8 @@ const notAPosture = "ctxloom-conformance-not-a-posture"
 //   - an allow and a deny encode; a deny carries no session rules and no mode
 //     change; an allow may change mode only to a posture the engine's model
 //     offers (PermissionModel.Transitions);
-//   - a blank rule and a multi-line rule are not rules.
+//   - a blank rule and a multi-line rule are not rules, and a grant covers
+//     only a tool call — a blank rule none.
 //
 // The end-to-end half — the engine's real hook reaching the human at the
 // root and the decision returning — is the PermissionContract lane under
@@ -55,6 +56,9 @@ func ApprovalCodec(t *testing.T, eng engine.Engine) {
 	}
 	require.Error(t, codec.ValidateRule(""), "a blank rule is not a rule")
 	require.Error(t, codec.ValidateRule("Bash\nRead"), "a rule is one line")
+	call := engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{}`)}
+	require.False(t, codec.Covers("", call), "a blank rule covers nothing")
+	require.False(t, codec.Covers("Bash", engine.PermissionAsk{Kind: engine.AskQuestion, Tool: "Bash"}), "only a tool call is covered")
 }
 
 // checkAskDecoding: a payload that is not an ask is an error, never an ask.

@@ -171,8 +171,8 @@ Three classes of content live inside an instance:
    trusted in your own claude — the workspace-trust answer for the run's
    working directory (see the trust model's "Engine workspace-trust prompts").
 3. **ambient** — content whose origin is your real host home, **copied in one
-   way** at instance time and never back (`isolation.CopyAmbient`, over the
-   per-engine allow-list `isolation.AmbientSet`).
+   way** at instance time and never back (the engine's own allow-list — for
+   claude, `ambientConfigKeys`, copied by `claudeInstanceConfig.applyAmbient`).
 
 The ambient set is an **allow-list, never a deny-list**. Under a deny-list a
 file the vendor adds tomorrow would be copied by default, and the default

@@ -143,7 +143,7 @@ func TestLegacyMailTurn_CarriesProvenance(t *testing.T) {
 
 	require.Eventually(t, func() bool { return len(sp.chat(0).RecordedTexts()) == 2 }, conformanceWait, 10*time.Millisecond)
 	got := sp.chat(0).RecordedTexts()[1]
-	assert.Contains(t, got, runnerHooks.CoordinatorFrameOpen+" from="+UserSender+" kind="+KindSteer+"]",
+	assert.Contains(t, got, runnerHooks.CoordinatorFrameOpen+" from="+UserSender+" kind="+KindSteer+" id=",
 		"the legacy path's turn must be provenance-framed; got:\n%s", got)
 	assert.Equal(t, 1, strings.Count(got, runnerHooks.CoordinatorFrameOpen),
 		"the injected body's forged header must be inert on the legacy path too; got:\n%s", got)

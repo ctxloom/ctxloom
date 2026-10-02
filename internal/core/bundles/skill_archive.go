@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -248,13 +249,13 @@ const (
 // the rejected entry occurs, and the caller (ImportSkillArchive) is
 // responsible for removing whatever was written for entries processed before
 // the rejection — which it does.
-func HardenedExtract(fsys afero.Fs, archive []byte, format ArchiveFormat, destDir string, opts ExtractOptions) (topDir string, err error) {
+func HardenedExtract(ctx context.Context, fsys afero.Fs, archive []byte, format ArchiveFormat, destDir string, opts ExtractOptions) (topDir string, err error) {
 	opts = opts.normalized()
 
 	// Every rejection this function can reach must be a no-op on the
 	// filesystem, so the format verdict is settled BEFORE the extraction root
 	// is created: an unsupported format leaves nothing behind at destDir.
-	var extract func(afero.Fs, []byte, string, ExtractOptions) (string, error)
+	var extract func(context.Context, afero.Fs, []byte, string, ExtractOptions) (string, error)
 	switch format {
 	case FormatZip:
 		extract = extractZip
@@ -267,10 +268,10 @@ func HardenedExtract(fsys afero.Fs, archive []byte, format ArchiveFormat, destDi
 	if err := fsys.MkdirAll(destDir, 0o755); err != nil {
 		return "", fmt.Errorf("skill archive: creating extraction root %q: %w", destDir, err)
 	}
-	return extract(fsys, archive, destDir, opts)
+	return extract(ctx, fsys, archive, destDir, opts)
 }
 
-func extractZip(fsys afero.Fs, archive []byte, destDir string, opts ExtractOptions) (string, error) {
+func extractZip(ctx context.Context, fsys afero.Fs, archive []byte, destDir string, opts ExtractOptions) (string, error) {
 	zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
 	if err != nil {
 		return "", fmt.Errorf("skill archive: invalid zip: %w", err)
@@ -288,7 +289,7 @@ func extractZip(fsys afero.Fs, archive []byte, destDir string, opts ExtractOptio
 				return fmt.Errorf("opening entry %q: %w", f.Name, err)
 			}
 			defer rc.Close()
-			return processArchiveEntry(fsys, destDir, &st, f.Name, kind, int64(f.Mode().Perm()), rc, opts)
+			return processArchiveEntry(ctx, fsys, destDir, &st, f.Name, kind, int64(f.Mode().Perm()), rc, opts)
 		}()
 		if perr != nil {
 			return "", fmt.Errorf("skill archive: %w", perr)
@@ -322,7 +323,7 @@ func zipEntryKind(f *zip.File) entryKind {
 	}
 }
 
-func extractTarGz(fsys afero.Fs, archive []byte, destDir string, opts ExtractOptions) (string, error) {
+func extractTarGz(ctx context.Context, fsys afero.Fs, archive []byte, destDir string, opts ExtractOptions) (string, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return "", fmt.Errorf("skill archive: invalid gzip: %w", err)
@@ -345,7 +346,7 @@ func extractTarGz(fsys afero.Fs, archive []byte, destDir string, opts ExtractOpt
 			return "", fmt.Errorf("skill archive: exceeds the %d entry cap — rejected (entry-count bomb guard)", opts.MaxEntries)
 		}
 		kind := tarEntryKind(hdr)
-		if err := processArchiveEntry(fsys, destDir, &st, hdr.Name, kind, hdr.Mode, tr, opts); err != nil {
+		if err := processArchiveEntry(ctx, fsys, destDir, &st, hdr.Name, kind, hdr.Mode, tr, opts); err != nil {
 			return "", fmt.Errorf("skill archive: %w", err)
 		}
 	}
@@ -395,7 +396,13 @@ type extractState struct {
 // HardenedExtract's doc comment for the full, authoritative rejection list —
 // this function and the four helpers below are where each rule is enforced, in
 // this order: nothing is written until every check has passed.
-func processArchiveEntry(fsys afero.Fs, destDir string, st *extractState, name string, kind entryKind, mode int64, r io.Reader, opts ExtractOptions) error {
+func processArchiveEntry(ctx context.Context, fsys afero.Fs, destDir string, st *extractState, name string, kind entryKind, mode int64, r io.Reader, opts ExtractOptions) error {
+	// The archive is untrusted and may be enormous within its caps: a
+	// cancelled caller gets control back at the next entry, and mid-entry
+	// through ctxReader below.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	segments, err := validateEntryPath(name)
 	if err != nil {
 		return err
@@ -424,7 +431,21 @@ func processArchiveEntry(fsys afero.Fs, destDir string, st *extractState, name s
 		}
 		return nil
 	}
-	return st.writeEntryFile(fsys, target, name, mode, r, opts)
+	return st.writeEntryFile(fsys, target, name, mode, ctxReader{ctx: ctx, r: r}, opts)
+}
+
+// ctxReader fails the read once ctx is done, so a single large entry cannot
+// outrun a cancellation.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
 }
 
 // validateEntryPath rejects every path shape an archive entry may not have and
@@ -682,7 +703,7 @@ func normalizeExtractedMode(mode int64) os.FileMode {
 // archive over a good skill used to leave the skill gone from disk while
 // bundle.yaml still referenced it. Callers with genuinely nothing to check
 // pass nil, and do so visibly.
-func ImportSkillArchive(fsys afero.Fs, archive []byte, destParent string, opts ExtractOptions, validate func(afero.Fs, string) error) (string, error) {
+func ImportSkillArchive(ctx context.Context, fsys afero.Fs, archive []byte, destParent string, opts ExtractOptions, validate func(afero.Fs, string) error) (string, error) {
 	format, err := DetectArchiveFormat(archive)
 	if err != nil {
 		return "", fmt.Errorf("skill import: %w", err)
@@ -701,7 +722,7 @@ func ImportSkillArchive(fsys afero.Fs, archive []byte, destParent string, opts E
 	}
 	extracted := filepath.Join(stagingRoot, "tree")
 
-	topDir, err := HardenedExtract(fsys, archive, format, extracted, opts)
+	topDir, err := HardenedExtract(ctx, fsys, archive, format, extracted, opts)
 	if err != nil {
 		_ = fsys.RemoveAll(stagingRoot)
 		return "", fmt.Errorf("skill import: %w", err)
@@ -733,6 +754,12 @@ func ImportSkillArchive(fsys afero.Fs, archive []byte, destParent string, opts E
 	// tree. So any existing destination is moved ASIDE, and put back if the
 	// swap does not complete. The aside copy lives inside stagingRoot so the
 	// ordinary staging cleanup reclaims it.
+	// Last point at which a cancellation leaves the destination untouched:
+	// past here the existing tree is moved aside.
+	if err := ctx.Err(); err != nil {
+		_ = fsys.RemoveAll(stagingRoot)
+		return "", fmt.Errorf("skill import: %w", err)
+	}
 	final := filepath.Join(destParent, topDir)
 	aside := filepath.Join(stagingRoot, ".replaced")
 	replaced, err := afero.Exists(fsys, final)

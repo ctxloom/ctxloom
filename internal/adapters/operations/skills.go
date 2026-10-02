@@ -537,7 +537,7 @@ type ImportSkillResult struct {
 // signature (signing.ErrSignatureTampered: a trusted key's signature that
 // does not cover these bytes) is an attack signal, not an unsigned archive, and
 // is refused like a structurally invalid archive/tree: nothing lands.
-func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) (*ImportSkillResult, error) {
+func ImportSkill(ctx context.Context, cfg *config.Config, req ImportSkillRequest) (*ImportSkillResult, error) {
 	if req.ArchivePath == "" {
 		return nil, fmt.Errorf("archive path is required")
 	}
@@ -580,7 +580,7 @@ func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) 
 	// case, not an exotic one.
 	var pkg *bundles.SkillPackage
 	sigState := "unsigned"
-	landedDir, err := bundles.ImportSkillArchive(fs, archiveBytes, skillsParent, bundles.ExtractOptions{},
+	landedDir, err := bundles.ImportSkillArchive(ctx, fs, archiveBytes, skillsParent, bundles.ExtractOptions{},
 		func(vfs afero.Fs, staged string) error {
 			p, perr := bundles.ParseSkillPackage(vfs, staged, 0)
 			if perr != nil {

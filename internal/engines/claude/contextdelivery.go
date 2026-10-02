@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 
@@ -54,7 +54,7 @@ func (d *appendFlagDelivery) Path() string { return d.path }
 // file is written, Path stays "", and a no-op handle is returned.
 //
 // The write itself routes through agent.AtomicWriteFile (unique temp + fsync
-// + rename via iox), not a raw afero.WriteFile, so archlint's write-discipline
+// + rename via safefs), not a raw afero.WriteFile, so archlint's write-discipline
 // rule has nothing to exempt here. No agent.WithFileLock wraps this:
 // the deterministic hash name means two concurrent deliveries of identical
 // content write identical bytes (idempotent, no lost update to guard), and
@@ -79,7 +79,7 @@ func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, er
 	name := hex.EncodeToString(sum[:8]) + agent.SCMFramedContextSuffix
 	path := filepath.Join(dir, name)
 
-	if err := iox.AtomicWriteFile(d.fs, path, []byte(framed), name); err != nil {
+	if err := safefs.WriteFileKeepMode(d.fs, path, []byte(framed), name); err != nil {
 		d.path = ""
 		return nil, fmt.Errorf("write framed context file: %w", err)
 	}

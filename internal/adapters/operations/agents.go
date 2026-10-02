@@ -47,6 +47,26 @@ type AgentEntry struct {
 	// written; empty (undeclared) is token at resolve time — see
 	// agents.Agent.Auth's doc.
 	Auth string `json:"auth,omitempty"`
+	// EnvHost and Env are the agent's declared env_host and env, as written
+	// (agents.Agent.EnvHost); nil EnvHost is undeclared, which inherits.
+	EnvHost *bool    `json:"env_host,omitempty"`
+	Env     []string `json:"env,omitempty"`
+}
+
+// agentEntry is the declared view of one binding.
+func agentEntry(name string, a agents.Agent) AgentEntry {
+	return AgentEntry{
+		Name:        name,
+		LLM:         a.LLM,
+		Profiles:    a.Profiles,
+		Runtime:     a.Runtime,
+		Permissions: a.Permissions,
+		Driving:     a.Driving,
+		HomeMode:    a.HomeMode,
+		Auth:        a.Auth,
+		EnvHost:     a.EnvHost,
+		Env:         a.Env,
+	}
 }
 
 // ListAgents returns every locally-defined agent (the `agents:` config key),
@@ -56,16 +76,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 	subs := cfg.LoadAgents()
 	out := make([]AgentEntry, 0, len(subs))
 	for _, s := range subs {
-		out = append(out, AgentEntry{
-			Name:        s.Name,
-			LLM:         s.LLM,
-			Profiles:    s.Profiles,
-			Runtime:     s.Runtime,
-			Permissions: s.Permissions,
-			Driving:     s.Driving,
-			HomeMode:    s.HomeMode,
-			Auth:        s.Auth,
-		})
+		out = append(out, agentEntry(s.Name, s))
 	}
 	return out
 }
@@ -80,16 +91,8 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found", name)
 	}
-	return &AgentEntry{
-		Name:        sub.Name,
-		LLM:         sub.LLM,
-		Profiles:    sub.Profiles,
-		Runtime:     sub.Runtime,
-		Permissions: sub.Permissions,
-		Driving:     sub.Driving,
-		HomeMode:    sub.HomeMode,
-		Auth:        sub.Auth,
-	}, nil
+	e := agentEntry(sub.Name, sub)
+	return &e, nil
 }
 
 // SetAgentRequest is the input for SetAgent: the binding to add or update
@@ -142,6 +145,14 @@ type SetAgentRequest struct {
 	// (undeclared) is token at resolve time. An unknown mode, or one the
 	// engine this write results in does not support, is REJECTED.
 	Auth *string `json:"auth,omitempty"`
+	// EnvHost sets env_host: false curates the host environment the engine
+	// inherits on the HOST runtime (agents.Agent.EnvHost).
+	EnvHost *bool `json:"env_host,omitempty"`
+	// Env sets the bare names whose host values pass through when env_host
+	// is false; an empty list clears them. The RESULTING binding is
+	// validated (agents.EnvHost.Validate), so env under env_host true and a
+	// NAME=value entry are refused and nothing is persisted.
+	Env *[]string `json:"env,omitempty"`
 }
 
 // orKeep dereferences an optional request field: nil means "the caller did not
@@ -578,6 +589,16 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 		}
 		entry.HomeMode = orKeep(req.HomeMode, entry.HomeMode)
 		entry.Auth = orKeep(req.Auth, entry.Auth)
+		if req.EnvHost != nil {
+			on := *req.EnvHost
+			entry.EnvHost = &on
+		}
+		if req.Env != nil {
+			entry.Env = slices.Clone(*req.Env)
+		}
+		if err := entry.HostEnv().Validate(); err != nil {
+			return fmt.Errorf("agent %q: %w", name, err)
+		}
 		// Checked against the record the write RESULTS IN, inside the
 		// transaction, for the same reason the surface preference is: a
 		// create with no --llm/--profiles and an edit that clears the last of
@@ -592,16 +613,8 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 	if err != nil {
 		return nil, fmt.Errorf("save agent %q: %w", name, err)
 	}
-	return &AgentEntry{
-		Name:        name,
-		LLM:         entry.LLM,
-		Profiles:    entry.Profiles,
-		Runtime:     entry.Runtime,
-		Permissions: entry.Permissions,
-		Driving:     entry.Driving,
-		HomeMode:    entry.HomeMode,
-		Auth:        entry.Auth,
-	}, nil
+	written := agentEntry(name, entry)
+	return &written, nil
 }
 
 // RemoveAgent deletes a LOCAL agent from the `agents:` config key, inside one

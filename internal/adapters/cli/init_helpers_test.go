@@ -178,7 +178,7 @@ func TestWriteInitialConfig_HeadlessPosture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config.yaml: %v", err)
 	}
-	if !strings.Contains(string(cfg), "permissions: plan") {
+	if !strings.Contains(string(cfg), "mode: plan") {
 		t.Errorf("config.yaml should carry the headless posture on the seed agent; got:\n%s", cfg)
 	}
 }

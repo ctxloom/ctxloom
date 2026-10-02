@@ -168,9 +168,9 @@ func hookProbeScript(stampPath, echoHarp string) string {
 // neutralize spaces, $, backticks and backslashes, so a temp path or a JSON
 // body containing any of those cannot break the command split.
 //
-// It mirrors agent.shellSingleQuote, which is unexported in its own package;
-// this file is deliberately import-light (stdlib only) so that the hermetic
-// gate can run it with no engine packages compiled in.
+// A local helper rather than an import: this file is deliberately
+// import-light (stdlib only) so that the hermetic gate can run it with no
+// engine packages compiled in.
 func shellQuoteForProbe(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

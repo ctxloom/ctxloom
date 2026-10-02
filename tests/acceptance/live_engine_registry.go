@@ -133,6 +133,9 @@ type liveAgent struct {
 	// tests prove context DELIVERY, not model quality, and a bigger model
 	// proves nothing extra while costing real money on every run.
 	config string
+	// engine is the engine config's llm entry types: the key its agent's
+	// permissions block is written under.
+	engine string
 	// mapCreds returns the env vars that make this engine authenticate from
 	// inside an otherwise-isolated run by setting them on the child. It NEVER
 	// writes, copies, moves or chmods a credential file, and errors loudly
@@ -160,6 +163,12 @@ type liveAgent struct {
 	authCheck func(realHome string) (ok bool, reason string)
 }
 
+// permissionsBlock is an agent binding's permissions block declaring mode
+// for engine, indented under an agent entry.
+func permissionsBlock(engine, mode string) string {
+	return "    permissions:\n      " + engine + ":\n        mode: " + mode + "\n"
+}
+
 // liveAgentOrder is the availability report's fixed display order. Kept
 // separate from the map because map iteration order is unspecified and this
 // report's whole point is to be predictable and diffable across runs.
@@ -177,6 +186,7 @@ var liveAgents = map[string]liveAgent{
 		binary:     "claude",
 		apiKeyEnvs: []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"},
 		credDir:    ".claude",
+		engine:     "claude-code",
 		config: fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     claude:

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 )
 
 func TestCheckLLMExistence_EachVerbRefusesTheOthersCase(t *testing.T) {
@@ -78,7 +79,7 @@ func TestBuildSetLLMRequest_ExplicitEmptyIsSentAsAClear(t *testing.T) {
 }
 
 func TestRenderLLMWritten_NamesWhichVerbRan(t *testing.T) {
-	entry := &operations.LLMEntry{Label: "big", Type: "mock", Model: "o1", Permissions: "bypass"}
+	entry := &operations.LLMEntry{Label: "big", Type: "mock", Model: "o1", Permissions: agents.LabelPermissions{Engine: map[string]any{"mode": "bypass"}}}
 
 	var created bytes.Buffer
 	require.NoError(t, renderLLMWritten(&created, entry, false))

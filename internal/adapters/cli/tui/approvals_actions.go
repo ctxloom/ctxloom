@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -112,7 +113,7 @@ type subState struct {
 	focus  int
 
 	scopes   []scopeOption
-	postures []engine.PermissionMode
+	postures []engine.PostureTransition
 	picks    []map[int]bool // per question: the chosen option indexes
 	others   []string       // per question: the Other text
 	grants   []coord.Grant
@@ -125,7 +126,8 @@ func newSub(kind subKind, p coord.PendingApproval) *subState {
 	case subScope:
 		s.scopes = scopeOptions(p)
 	case subApprove:
-		s.postures = planPostures(p.Ceiling)
+		s.postures = slices.Clone(p.Transitions)
+		s.cursor = max(0, slices.IndexFunc(s.postures, func(t engine.PostureTransition) bool { return t.Default }))
 	case subAnswer:
 		s.picks = make([]map[int]bool, len(p.Ask.Questions))
 		for i := range s.picks {
@@ -137,53 +139,28 @@ func newSub(kind subKind, p coord.PendingApproval) *subState {
 }
 
 // scopeOption is one allow-for-session choice: a session rule the engine
-// suggested, or the engine's suggested mode change.
+// suggested, or the engine's suggested mode change and its display name.
 type scopeOption struct {
-	rule string
-	mode engine.Declared[engine.PermissionMode]
+	rule  string
+	mode  engine.Declared[string]
+	label string
 }
 
 // scopeOptions are the engine's own session suggestions, and its suggested
-// mode change when that is one a human approval may grant here. Every rule
-// is granted for the session only — the decision carries rules, never a
-// destination — and no option ever widens past the request's ceiling or to
-// bypass.
+// mode change when the engine offers that transition from the asker's
+// posture (the request's Transitions). Every rule is granted for the session
+// only — the decision carries rules, never a destination.
 func scopeOptions(p coord.PendingApproval) []scopeOption {
 	var out []scopeOption
 	for _, r := range p.Ask.Suggestions {
 		out = append(out, scopeOption{rule: r})
 	}
-	if m, ok := p.Ask.SuggestsSetMode.Get(); ok && postureWithin(m, p.Ceiling) {
-		out = append(out, scopeOption{mode: engine.Provide(m)})
-	}
-	return out
-}
-
-// planPostures are the postures an approved plan may continue in, capped by
-// the ceiling; the first is the default selection.
-func planPostures(ceiling engine.PermissionMode) []engine.PermissionMode {
-	var out []engine.PermissionMode
-	for _, m := range []engine.PermissionMode{engine.PermissionDefault, engine.PermissionAcceptEdits} {
-		if postureWithin(m, ceiling) {
-			out = append(out, m)
+	if m, ok := p.Ask.SuggestsSetMode.Get(); ok {
+		if i := slices.IndexFunc(p.Transitions, func(t engine.PostureTransition) bool { return t.Posture == m }); i >= 0 {
+			out = append(out, scopeOption{mode: engine.Provide(m), label: p.Transitions[i].Label})
 		}
 	}
 	return out
-}
-
-// postureWithin reports that a human approval may move a child to m under
-// ceiling. Only default and acceptEdits are ever grantable: bypass and the
-// engine's own classifier (auto) are postures an agent binding declares, not
-// ones an approval hands out. The ranks order what each posture lets through
-// without asking; an unrequested ceiling reads as default.
-func postureWithin(m, ceiling engine.PermissionMode) bool {
-	grantable := map[engine.PermissionMode]int{engine.PermissionDefault: 1, engine.PermissionAcceptEdits: 2}
-	ceilingRank := map[engine.PermissionMode]int{
-		engine.PermissionPlan: 0, engine.PermissionNotRequested: 1, engine.PermissionDefault: 1, engine.PermissionDontAsk: 1,
-		engine.PermissionAcceptEdits: 2, engine.PermissionAuto: 2, engine.PermissionBypass: 3,
-	}
-	r, ok := grantable[m]
-	return ok && r <= ceilingRank[ceiling]
 }
 
 // subSpec is a sub-view's behaviour: its primary button and when it may be
@@ -214,7 +191,7 @@ var subSpecs = map[subKind]subSpec{
 		confirm: confirmAnswers},
 	subApprove: {primary: "Approve", text: true, listLen: func(s *subState) int { return len(s.postures) },
 		ready: func(s *subState) (bool, string) {
-			return len(s.postures) > 0, "this agent's ceiling allows no posture to continue in"
+			return len(s.postures) > 0, "this agent's engine offers no posture to continue in"
 		},
 		confirm: confirmApprove},
 	subReject: {primary: "Reject", text: true, listLen: noList,
@@ -264,8 +241,8 @@ func confirmAnswers(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
 
 func confirmApprove(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
 	m := s.postures[s.cursor]
-	d := coord.ApprovalDecision{Allow: true, SetMode: engine.Provide(m), Message: strings.TrimSpace(s.text)}
-	return a.decided(), answerCmd(a.src, "approved "+sanitizeForDisplay(s.harp)+"'s plan ("+m.String()+")", []coord.ApprovalID{s.target}, d)
+	d := coord.ApprovalDecision{Allow: true, SetMode: engine.Provide(m.Posture), Message: strings.TrimSpace(s.text)}
+	return a.decided(), answerCmd(a.src, "approved "+sanitizeForDisplay(s.harp)+"'s plan ("+sanitizeForDisplay(m.Label)+")", []coord.ApprovalID{s.target}, d)
 }
 
 func confirmReject(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {

@@ -29,7 +29,8 @@ import (
 // mode's grammar (the anti-drift property); Structured ∈ Modes exactly when
 // the instance has a driver; every home var the engine declares points
 // under the session home it was handed; Home validates; Container is a real
-// spec or ErrUnsupported naming the engine; Hooks is never nil.
+// spec or ErrUnsupported naming the engine; Hooks is never nil. An engine
+// that declares an approval codec meets its contract (ApprovalCodec).
 func Run(t *testing.T, eng engine.Engine) {
 	t.Helper()
 	def := eng.Root()
@@ -51,6 +52,7 @@ func Run(t *testing.T, eng engine.Engine) {
 		require.NoError(t, err)
 		require.Empty(t, inst.Drivers(), "a driver exists but Structured is not declared")
 	}
+	ApprovalCodec(t, eng)
 }
 
 // checkDerivedViews asserts the declarative half: the derived views agree
@@ -147,6 +149,23 @@ func checkEngineFacts(t *testing.T, eng engine.Engine, def engine.Base) {
 	if spec, ok := eng.Wake().Get(); ok {
 		require.NotNil(t, spec, "a provided wake is a spec")
 	}
+	require.True(t, eng.Approvals().Decided(), "an engine declares its approval codec, or declares it absent with the reason")
+	require.True(t, eng.Permissions().Decided(), "an engine declares its permission model, or declares it absent with the reason")
+	if m, ok := eng.Permissions().Get(); ok {
+		require.NotEmpty(t, m.Postures(), "a permission model names its postures")
+		for _, p := range m.Postures() {
+			require.NotEmptyf(t, m.Label(p), "posture %q has the engine's display name", p)
+		}
+		resolved, err := m.Resolve(engine.PostureRequest{})
+		require.NoError(t, err, "an undeclared posture resolves to the engine's default")
+		for _, doc := range []map[string]any{m.Floor(), resolved} {
+			requireTransitions(t, m, m.Transitions(doc))
+		}
+		require.Contains(t, m.Sandboxes("host"), m.DefaultSandbox(), "an engine's default sandbox is one it can enforce")
+	}
+	if c, ok := eng.Approvals().Get(); ok {
+		require.NotNil(t, c, "a provided approval codec is a codec")
+	}
 }
 
 // checkModeInstance asserts one mode's instance: Instance binds a session,
@@ -189,7 +208,7 @@ func SessionFor(t *testing.T, eng engine.Engine, mode engine.Mode) engine.Sessio
 		Identity:   sessions.Identity{Harp: "conformance-" + string(def.Name)},
 		Label:      engine.LabelConfig{Label: string(def.Name)},
 		Mode:       mode,
-		Permission: def.Permissions.HostDefault,
+		Permission: DefaultPolicy(t, eng),
 		Roots: present.Paths{
 			ProjectRoot: present.Root{Host: filepath.Join(dir, "project"), Engine: filepath.Join(dir, "project")},
 			SessionHome: present.Root{Host: home, Engine: home},
@@ -201,6 +220,19 @@ func SessionFor(t *testing.T, eng engine.Engine, mode engine.Mode) engine.Sessio
 		s.Home = append(s.Home, engine.HomeBinding{Var: v.Name, Path: filepath.Join(home, v.Subdir)})
 	}
 	return s
+}
+
+// DefaultPolicy is the policy a launch declaring nothing resolves to on
+// eng: its model's posture with nothing declared, its default sandbox.
+func DefaultPolicy(t *testing.T, eng engine.Engine) engine.PermissionPolicy {
+	t.Helper()
+	p := engine.PermissionPolicy{Posture: engine.Posture{Engine: eng.Root().Name}, Sandbox: engine.SandboxFull}
+	if model, ok := eng.Permissions().Get(); ok {
+		doc, err := model.Resolve(engine.PostureRequest{})
+		require.NoError(t, err)
+		p.Posture.Document, p.Sandbox = doc, model.DefaultSandbox()
+	}
+	return p
 }
 
 // PresentAll delivers every kind the engine carries through its typed
@@ -293,4 +325,23 @@ func Canonical(plan delivery.Plan) string {
 		fmt.Fprintf(&b, "loss %v\n", l.Kind)
 	}
 	return b.String()
+}
+
+// requireTransitions: an offer of transitions names exactly one default
+// (explicitly, never by position), each a posture of the engine's own
+// vocabulary carrying the engine's display name for it.
+func requireTransitions(t *testing.T, m engine.PermissionModel, ts []engine.PostureTransition) {
+	t.Helper()
+	if len(ts) == 0 {
+		return
+	}
+	defaults := 0
+	for _, tr := range ts {
+		require.Containsf(t, m.Postures(), tr.Posture, "transition %q is one of the engine's postures", tr.Posture)
+		require.Equalf(t, m.Label(tr.Posture), tr.Label, "transition %q carries the engine's display name", tr.Posture)
+		if tr.Default {
+			defaults++
+		}
+	}
+	require.Equal(t, 1, defaults, "an offer of transitions names exactly one default")
 }

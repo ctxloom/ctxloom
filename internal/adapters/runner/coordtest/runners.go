@@ -44,8 +44,19 @@ type Runners struct {
 	// double resolves a launch's engine by name and imports no engine
 	// package.
 	Engines engine.Registry
-	ctx     context.Context
-	cancel  context.CancelFunc
+	// Static delivers each run's launch into its cell, under Records; nil
+	// delivers nothing — what most tests observe is the drive, not the files.
+	// A test whose engine must READ what was delivered (the hooks a mock
+	// child runs) sets both.
+	Static  delivery.Static
+	Records delivery.Ownership
+	// Endpoint is the session endpoint each run serves over its own Home —
+	// its MCP tools and the approval hook's /hook; nil serves none. A factory
+	// because the Home exists only once the runner is bound, and because the
+	// endpoint package imports this one's dependents.
+	Endpoint func(*runner.Home) delivery.Dynamic
+	ctx      context.Context
+	cancel   context.CancelFunc
 
 	mu      sync.Mutex
 	engines []*Engine
@@ -75,6 +86,11 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 	engine := &Engine{}
 	rctx, cancel := context.WithCancel(r.ctx)
 	host := runner.NewEngineHost(rctx, r.Reporter, backend, runnerEnv[coord.EnvRunID])
+	static := delivery.Static(noDelivery{})
+	if r.Static != nil {
+		static = r.Static
+	}
+	served := &homeEndpoint{ready: make(chan struct{}), factory: r.Endpoint}
 	// The runner tail over the double: the wire launch is decoded and its
 	// package opened for real; delivery is a no-op (the fake spawner's cell
 	// is not a directory), and the host drives the real kind's driver, with
@@ -83,7 +99,9 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 		Kind:       recordingKind{Engine: kind, rec: engine},
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
 		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
-		Static:     noDelivery{},
+		Static:     static,
+		Records:    r.Records,
+		Dynamic:    served.dynamic(),
 		Driver:     recordingDriver{Driver: host, rec: engine},
 		// The double hosts many runs in ONE test process: removing a
 		// variable here would leak into every other test, so the removal is
@@ -105,6 +123,7 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 		return nil, err
 	}
 	host.BindHome(home)
+	served.bind(home)
 
 	exited := make(chan struct{})
 	var once sync.Once
@@ -132,6 +151,37 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 		},
 		StderrTail: func() string { return "" },
 	}, nil
+}
+
+// homeEndpoint serves a run's session endpoint through the test's factory,
+// once the run's Home exists: the runner is bound before its Home is, so a
+// launch that reached Serve first waits for it.
+type homeEndpoint struct {
+	ready   chan struct{}
+	home    *runner.Home
+	factory func(*runner.Home) delivery.Dynamic
+}
+
+// dynamic is the runner's Dynamic port: nil when the test serves nothing.
+func (e *homeEndpoint) dynamic() delivery.Dynamic {
+	if e.factory == nil {
+		return nil
+	}
+	return e
+}
+
+func (e *homeEndpoint) bind(h *runner.Home) {
+	e.home = h
+	close(e.ready)
+}
+
+func (e *homeEndpoint) Serve(ctx context.Context, lo delivery.Loadout, policy delivery.ServePolicy) (delivery.Served, error) {
+	select {
+	case <-e.ready:
+	case <-ctx.Done():
+		return delivery.Served{}, ctx.Err()
+	}
+	return e.factory(e.home).Serve(ctx, lo, policy)
 }
 
 // noDelivery is the double's static writer: the fake spawner's cell is no
@@ -196,13 +246,11 @@ type Engine struct {
 	texts    []string
 }
 
-// Request is what the runner composed for the engine: the floored
-// permission, the cell's working directory and the MCP servers the engine
-// was pointed at.
+// Request is what the runner composed for the engine: the cell's working
+// directory and the MCP servers the engine was pointed at.
 type Request struct {
-	Permissions agent.PermissionMode
-	WorkDir     string
-	MCPServers  []agent.ChatMCPServer
+	WorkDir    string
+	MCPServers []agent.ChatMCPServer
 }
 
 // Request returns what the runner composed, and whether the drive has been
@@ -229,7 +277,7 @@ type recordingDriver struct {
 
 func (d recordingDriver) Drive(ctx context.Context, t runner.Turn) error {
 	d.rec.mu.Lock()
-	d.rec.req = Request{Permissions: t.Launch.Permission, WorkDir: t.Exec.WorkDir, MCPServers: t.MCPServers}
+	d.rec.req = Request{WorkDir: t.Exec.WorkDir, MCPServers: t.MCPServers}
 	d.rec.gotDrive = true
 	d.rec.mu.Unlock()
 	return d.Driver.Drive(ctx, t)

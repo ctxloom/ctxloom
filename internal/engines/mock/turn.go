@@ -29,6 +29,9 @@ import (
 //     as it happens (ChatEvent.Denied) and the completion carrying it
 //     (TurnMeta.Denials): what claude reports when its posture refuses a
 //     call nobody can approve.
+//   - "mock:ask=<tool>:<json>": a call the rules leave open, ASKED about —
+//     through the delivered permission_ask hooks when the approver is the
+//     human, denied at once otherwise (ask.go).
 //   - "HANG": a STALLED engine — the turn is taken (hooks fire, the record is
 //     written) and then emits nothing at all until its context ends. A
 //     liveness check's red direction needs an engine that goes silent.
@@ -46,7 +49,7 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 	if err := d.fireTurnHooks(ctx, ex, hooks, in.Prompt); err != nil {
 		return engine.TurnResult{}, err
 	}
-	if err := recordTurn(ex, in.Prompt); err != nil {
+	if err := recordTurn(ex, in.Prompt, in.Posture); err != nil {
 		return engine.TurnResult{}, err
 	}
 	if err := exitCodeErr(ex); err != nil {
@@ -76,7 +79,10 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 		}
 	}
 	answer := mockAnswer(ex, in.Prompt)
-	if err := sendTurnEvents(send, in.Prompt, answer); err != nil {
+	ask := func(tool string, input json.RawMessage) (*agent.PermissionDenial, error) {
+		return d.ask(ctx, ex, hooks, send, tool, input)
+	}
+	if err := sendTurnEvents(send, ask, in.Prompt, answer, in.Posture); err != nil {
 		return engine.TurnResult{}, err
 	}
 	return engine.TurnResult{NativeKey: sessionKey, Answer: answer}, nil
@@ -123,10 +129,11 @@ func mockAnswer(ex engine.Exec, prompt string) string {
 	return answer
 }
 
-// sendTurnEvents relays the turn: the resumable session, a TOOLS turn's
-// entries, the answer, and the completion.
-func sendTurnEvents(send func(agent.ChatEvent) error, prompt, answer string) error {
-	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true}}); err != nil {
+// sendTurnEvents relays the turn: the resumable session at the turn's
+// mode, a TOOLS turn's entries, a mock:deny or mock:ask call (ask makes the
+// latter), the answer, and the completion.
+func sendTurnEvents(send func(agent.ChatEvent) error, ask func(string, json.RawMessage) (*agent.PermissionDenial, error), prompt, answer string, posture engine.TurnPosture) error {
+	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true, PermissionMode: posture.Mode}}); err != nil {
 		return err
 	}
 	if strings.Contains(prompt, "TOOLS") {
@@ -137,20 +144,51 @@ func sendTurnEvents(send func(agent.ChatEvent) error, prompt, answer string) err
 		}
 	}
 	meta := &agent.TurnMeta{StopReason: "end_turn"}
-	if tool, ok := deniedToolIn(prompt); ok {
-		denial := agent.PermissionDenial{ToolName: tool, ToolCallID: "mock-deny-1", Reason: "mock: " + tool + " is denied by policy", Decider: agent.DeciderPolicy}
-		if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: tool, ToolCallID: denial.ToolCallID, ToolInput: json.RawMessage(`{}`)}}); err != nil {
-			return err
-		}
-		if err := send(agent.ChatEvent{Denied: &denial}); err != nil {
-			return err
-		}
-		meta.Denials = []agent.PermissionDenial{denial}
+	denials, err := markedDenials(send, ask, prompt)
+	if err != nil {
+		return err
 	}
+	meta.Denials = denials
 	if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: answer}}); err != nil {
 		return err
 	}
 	return send(agent.ChatEvent{Complete: meta})
+}
+
+// markedDenials makes the turn's marked calls — a mock:deny call, refused by
+// policy, and a mock:ask call, asked about (ask) — and returns the denials
+// the turn reports.
+func markedDenials(send func(agent.ChatEvent) error, ask func(string, json.RawMessage) (*agent.PermissionDenial, error), prompt string) ([]agent.PermissionDenial, error) {
+	var out []agent.PermissionDenial
+	if tool, ok := deniedToolIn(prompt); ok {
+		denial, err := policyDenial(send, tool)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, denial)
+	}
+	tool, input, asks, err := askIn(prompt)
+	if err != nil || !asks {
+		return out, err
+	}
+	denial, err := ask(tool, input)
+	if err != nil {
+		return nil, err
+	}
+	if denial != nil {
+		out = append(out, *denial)
+	}
+	return out, nil
+}
+
+// policyDenial is a mock:deny call: the tool_use, then the refusal as it
+// happens.
+func policyDenial(send func(agent.ChatEvent) error, tool string) (agent.PermissionDenial, error) {
+	denial := agent.PermissionDenial{ToolName: tool, ToolCallID: "mock-deny-1", Reason: "mock: " + tool + " is denied by policy", Decider: agent.DeciderPolicy}
+	if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: tool, ToolCallID: denial.ToolCallID, ToolInput: json.RawMessage(`{}`)}}); err != nil {
+		return denial, err
+	}
+	return denial, send(agent.ChatEvent{Denied: &denial})
 }
 
 // toolsTurn is the entry vocabulary a TOOLS turn relays before its answer.
@@ -172,12 +210,12 @@ func toolsTurn(text string) []agent.ChatEvent {
 // left on disk, read back off the FILES — the context file the exec's argv
 // names, the deny list its sibling settings file carries, the skills its
 // sibling skills dir holds — never a Setup of the mock's own.
-func recordTurn(ex engine.Exec, prompt string) error {
+func recordTurn(ex engine.Exec, prompt string, posture engine.TurnPosture) error {
 	file := Env(ex.Env, EnvRecordFile)
 	if file == "" {
 		return nil
 	}
-	rec := Record{Mode: 1, WorkDir: ex.WorkDir, Env: ex.Env, Prompt: prompt}
+	rec := Record{Mode: 1, WorkDir: ex.WorkDir, Env: ex.Env, Prompt: prompt, Posture: &posture}
 	if contextFile := argOf(ex, contextFlag); contextFile != "" {
 		if body, err := os.ReadFile(contextFile); err == nil {
 			rec.Context = string(body)

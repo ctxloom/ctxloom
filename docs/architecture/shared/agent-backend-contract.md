@@ -127,14 +127,6 @@ classDiagram
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `PermissionMode` | `internal/core/agent/permissions.go:15` | Generalized launch-time permission posture (default / acceptEdits / plan / bypass). Referenced by 50+ files. |
-| `PermissionMode.String` | `internal/core/agent/permissions.go:36` | Canonical wire spelling. |
-| `PermissionMode.AllowsWithoutPrompt` | `internal/core/agent/permissions.go:53` | True only for `PermissionBypass`. |
-| `ParsePermissionMode` | `internal/core/agent/permissions.go:61` | Lenient string → mode with an `ok` bool distinguishing unset from explicit-default. |
-| `PermissionModeNames` | `internal/core/agent/permissions.go:78` | The four CLI spellings, for flag help/completion. |
-| `WireMode` | `internal/core/agent/permissions.go:86` | `ParsePermissionMode` with `ok` discarded — the deliberate fail-safe-default policy. |
-| `ResolveDefault` | `internal/core/agent/permissions.go:98` | First parseable of the layered sources, else the engine's declared host default. |
-| `PermissionMode.CollapsePlanIfUnenforced` | `internal/core/agent/permissions.go:116` | Downgrades `plan` → `default` when the engine cannot enforce plan mode. |
 | `ApplyLocalCLIConfig` | `internal/core/agent/localcli.go:9` | Applies per-backend binary/args/env overrides onto a `BaseBackend`. |
 | `GetPromptContent` | `internal/core/agent/base.go:185` | Nil-safe read of a prompt field; the nil guard is the whole point (7 call sites). |
 | `IsManaged` | `internal/core/agent/predicate.go:13` | Ownership test — is this command line one ctxloom installed, by exec-token identity. |
@@ -152,7 +144,5 @@ classDiagram
 - **`Clear` always returns nil and always clears `contextHash`** even when the removal failed — the `error` return is decorative and the hash needed to retry is discarded. Diverges from the `ContextProvider.Clear(workDir) error` signature's implied contract.
 - **`ExecutionMode` values are pinned to the proto enum** (`= 0`, `= 1`); the pin is not documented at the constant site.
 - **Only `Fragment.Content` is ever read** anywhere in the system (`base.go:175`, `contextfile.go:92`). `Installation` is never populated — the grpc converter omits it entirely.
-- **`PermissionMode.String()`'s `default:` arm returns `"default"`**, so an out-of-range or corrupted wire value renders as an intentional posture. `PermissionDefault` has no explicit case.
-- **Three hand-maintained parallel tables** describe `PermissionMode` (`String` at `:36`, `ParsePermissionMode` at `:61`, `PermissionModeNames` at `:78`) with no compile-time link.
 - **`SettingsStatus.Wired()`** (`settings.go:69`) is reachable only from tests; production reads the four booleans directly.
 - **`SkillExport.Description`** (`skillexport.go:22`) is written by the loader and read by no engine.

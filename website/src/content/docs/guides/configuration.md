@@ -103,14 +103,18 @@ agents:
     llm: claude-code          # an llm.configs label (engine + model)
     profiles: [developer]
     runtime: container-rootless # optional; host|container-rootless|container-rootful
-    permissions: acceptEdits  # optional; see the Agents concept page for the postures
+    permissions:              # optional; see the Agents concept page for every field
+      claude-code:            # the engine's own keys, in a block named for it
+        mode: acceptEdits
 
 # Profiles are files, one per profile, under .ctxloom/profiles/<name>.yaml.
 # config.yaml has no profiles: key.
 
-# The default permission posture for agents run IN THIS DIRECTORY.
+# The engine-neutral permission defaults for agents run IN THIS DIRECTORY.
 # Only ever read from this project file — see "Permissions" below.
-permissions: acceptEdits      # default|acceptEdits|plan|bypass
+permissions:
+  sandbox: workspace-write    # read-only|workspace-write|full
+  approver: human             # human|none|reviewer
 
 # Isolation defaults
 workspace: none               # session workspace axis: none|worktree
@@ -181,22 +185,28 @@ key on an entry is refused at load.
 | `llm.defaults.primary` | `claude-code` | Default LLM backend |
 | `workspace` | `none` | Session workspace axis default |
 | `runtime` | `host` | Agent runtime axis default |
-| `permissions` | engine's own | Default permission posture for this project directory |
+| `permissions` | engine's own | Engine-neutral permission defaults for this project directory |
 
 ## Permissions
 
-Approving every edit gets old fast in a scratch repo, and approving nothing at
-all is the wrong answer in the one that ships. `permissions:` lets you settle
-that question **once per project directory**:
+Some permission settings mean the same thing whatever engine runs: who
+answers a request the posture leaves open, how long it waits, and what the
+engine's own commands may touch. `permissions:` lets you settle those **once
+per project directory**:
 
 ```yaml
 # .ctxloom/config.yaml — in the project you want it to apply to
-permissions: bypass       # default | acceptEdits | plan | bypass
+permissions:
+  approver: none              # human | none | reviewer
+  approval_timeout: 20m
+  sandbox: workspace-write    # read-only | workspace-write | full
+  network: false
 ```
 
-Every agent launched in this directory now starts at that posture, with no
-flag to remember and nothing to re-type. A scratch repo can be `bypass`; the
-repo that deploys can be `plan`; neither one learns anything about the other.
+Every agent launched in this directory takes these unless something more
+specific declares its own. A scratch repo can run `sandbox: full`; the repo
+that deploys can hold its engines to `workspace-write`; neither one learns
+anything about the other.
 
 **This key is only honored from the project's own `.ctxloom/config.yaml`.**
 The same line in your `~/.ctxloom/config.yaml`, or in
@@ -207,41 +217,37 @@ re-grant every project on the machine what you meant for one of them — and an
 agent that can run `bash` can write an environment variable, which would let
 it widen its own successors.
 
-The postures:
+| Field | Values |
+|-------|--------|
+| `approver` | `human` (the default: you answer), `none` (nobody: the request is denied), `reviewer` (the engine's own classifier, where the engine has one) |
+| `approval_timeout` | how long a request waits before it is denied (default 15m, at most 60m) |
+| `sandbox` | `read-only`, `workspace-write` (the working tree only) or `full`; undeclared, the engine's default. A value the engine cannot enforce where the agent runs is refused |
+| `network` | whether sandboxed commands may reach the network |
 
-| Value | What the engine does |
-|-------|----------------------|
-| `default` | Prompts you for each gated call |
-| `acceptEdits` | Auto-accepts file edits, prompts for the rest |
-| `plan` | Read-only: it may inspect, not mutate |
-| `bypass` | No in-engine prompting at all |
+An engine's mode and its rules (`allow` / `deny` / `ask`) are that engine's
+grammar, so they are declared where the engine is known: in an agent
+binding's block for that engine, or flat on an llm label. One written here is
+refused at load, naming where it goes. See the Agents concept page.
 
-Anything more specific wins. The full order, nearest first:
+Anything more specific wins, key by key. The order, nearest first:
 
 ```
-run --permissions  >  the agent binding's `permissions`
+run --permissions  >  the agent binding's `permissions`   (the mode only)
                    >  the engine label's `permissions`
-                   >  this project default
-                   >  the engine's own built-in default
+                   >  this project default                  (the neutral fields only)
+                   >  the engine's own default
 ```
 
-So a `reviewer` agent declaring `permissions: plan` stays read-only in a
-project whose default is `bypass` — a project default can never widen a
-posture you wrote down somewhere more specific. It is precedence, not
-"strictest wins": a binding may equally declare a *wider* posture than the
-project default, exactly as it can today against the built-in one.
-
-Declaring the project default also settles what would otherwise be an engine's
-own choice — claude-code runs at `bypass` on the host when nobody has said
-otherwise, so `permissions: plan` in a claude-code project is the difference
-between read-only and unrestricted.
+So an agent declaring `sandbox: full` runs unsandboxed in a project whose
+default is `workspace-write` — it is precedence, not "strictest wins", and a
+binding may equally declare something narrower.
 
 :::caution
-`bypass` means the engine asks nothing before running commands or writing
-files. Its blast radius is whatever contains the process — a container, or
-nothing at all on the bare host. Pair a permissive project default with
-`runtime: container-rootless` on the agent binding (below) if the directory is
-not one you would hand a stranger a shell in.
+A posture that asks nothing (claude-code's `bypass`) and `sandbox: full`
+together bound nothing but whatever contains the process — a container, or
+nothing at all on the bare host. Pair a permissive agent with
+`runtime: container-rootless` on its binding (below) if the directory is not
+one you would hand a stranger a shell in.
 :::
 
 ## Agents and Isolation

@@ -57,7 +57,7 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 
 	t.Run("excluding ctxloom's own server strands the child, loudly", func(t *testing.T) {
 		s := newSpawner(t,
-			"version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n    profiles:\n      - noreach\n",
+			"version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypass\n    profiles:\n      - noreach\n",
 			map[string]string{"noreach": "description: withholds ctxloom's own MCP server\nexclude_mcp:\n  - ctxloom\n"})
 
 		var buf bytes.Buffer
@@ -75,7 +75,7 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 	})
 
 	t.Run("the default composition keeps the ctxloom server and stays silent", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n", nil)
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypass\n", nil)
 
 		var buf bytes.Buffer
 		restore := clidiag.SetSink(&buf)

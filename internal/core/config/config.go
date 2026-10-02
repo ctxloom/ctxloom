@@ -137,19 +137,17 @@ type Config struct {
 	// operations.resolveAgentBinding. The two axes are independent and meet
 	// only at launch (isolation.Axes).
 	runtime string
-	// permissions is the project-wide DEFAULT launch-time permission posture
-	// (default | acceptEdits | plan | bypass) for engines launched in THIS
-	// project directory — the per-project consent knob: "in this directory, an
-	// agent starts at this posture unless something narrower says otherwise".
-	// Empty means undeclared, which falls through to the engine's declared
-	// host default.
+	// permissions is the project-wide DEFAULT permissions block (posture and
+	// rules) for engines launched in THIS project directory — the
+	// per-project consent knob: "in this directory, an agent starts at this
+	// posture unless something narrower says otherwise". A field left empty
+	// is undeclared, and falls through to the engine's built-in default.
 	//
 	// It sits BELOW every explicit declaration (--permissions flag > the agent
-	// binding's own `permissions` > the engine label's `permissions` > this) and
-	// ABOVE the engine fallback, so a narrower posture declared anywhere always
-	// wins and a declared project posture beats a silent engine default.
-	// Resolution lives in the launch resolver's one floor (launch.Resolve)
-	// and, for `agent show`, operations.ResolveAgent.
+	// binding's own `permissions` > the engine label's `permissions` > this),
+	// field by field, and ABOVE the engine fallback. Resolution lives in the
+	// launch resolver (launch.resolvePolicy) and, for `agent show`,
+	// operations.ResolveAgent.
 	//
 	// LAYER-SCOPED TO THE PROJECT FILE. layerscope assigns it ScopeShared, so a
 	// ~/.ctxloom/config.yaml carrying it is DROPPED with a warning rather than
@@ -158,7 +156,7 @@ type Config struct {
 	// implementation detail: a home-wide permissive default would silently
 	// re-grant every project on the machine the posture a human granted exactly
 	// one of them.
-	permissions string
+	permissions agents.NeutralPermissions
 	// delegation groups the two agent-delegation limits — see
 	// DelegationConfig's doc for why they are grouped (both are limits ON
 	// delegation) despite differing in kind (one a resource ceiling, the
@@ -325,26 +323,26 @@ type Config struct {
 // pendingUpgrade, homePendingUpgrade) are deliberately absent here, exactly
 // mirroring their old yaml:"-" tag: configDoc IS the persisted-fields subset.
 type configDoc struct {
-	Version                      int                     `yaml:"version"`
-	LM                           LMConfig                `yaml:"llm,omitempty"`
-	Editor                       EditorConfig            `yaml:"editor,omitempty"`
-	Settings                     SettingsConfig          `yaml:"config,omitempty"`
-	Sync                         SyncConfig              `yaml:"sync,omitempty"`
-	Agents                       map[string]agents.Agent `yaml:"agents,omitempty"`
-	DefaultAgent                 string                  `yaml:"default_agent,omitempty"`
-	Workspace                    string                  `yaml:"workspace,omitempty"`
-	DirtyTreeHandler             string                  `yaml:"dirty_tree_handler,omitempty"`
-	Runtime                      string                  `yaml:"runtime,omitempty"`
-	Permissions                  string                  `yaml:"permissions,omitempty"`
-	Delegation                   DelegationConfig        `yaml:"delegation,omitempty"`
-	IsolationImages              map[string]string       `yaml:"isolation_images,omitempty"`
-	IsolationBaseContainerfile   string                  `yaml:"isolation_base_containerfile,omitempty"`
-	IsolationDevcontainerBase    *bool                   `yaml:"isolation_devcontainer_base,omitempty"`
-	IsolationDevcontainerService string                  `yaml:"isolation_devcontainer_service,omitempty"`
-	IsolationEngines             []string                `yaml:"isolation_engines,omitempty"`
-	UI                           UIConfig                `yaml:"ui,omitempty"`
-	SessionReapAge               string                  `yaml:"session_reap_age,omitempty"`
-	SessionPurgeAge              string                  `yaml:"session_purge_age,omitempty"`
+	Version                      int                       `yaml:"version"`
+	LM                           LMConfig                  `yaml:"llm,omitempty"`
+	Editor                       EditorConfig              `yaml:"editor,omitempty"`
+	Settings                     SettingsConfig            `yaml:"config,omitempty"`
+	Sync                         SyncConfig                `yaml:"sync,omitempty"`
+	Agents                       map[string]agents.Agent   `yaml:"agents,omitempty"`
+	DefaultAgent                 string                    `yaml:"default_agent,omitempty"`
+	Workspace                    string                    `yaml:"workspace,omitempty"`
+	DirtyTreeHandler             string                    `yaml:"dirty_tree_handler,omitempty"`
+	Runtime                      string                    `yaml:"runtime,omitempty"`
+	Permissions                  agents.NeutralPermissions `yaml:"permissions,omitempty"`
+	Delegation                   DelegationConfig          `yaml:"delegation,omitempty"`
+	IsolationImages              map[string]string         `yaml:"isolation_images,omitempty"`
+	IsolationBaseContainerfile   string                    `yaml:"isolation_base_containerfile,omitempty"`
+	IsolationDevcontainerBase    *bool                     `yaml:"isolation_devcontainer_base,omitempty"`
+	IsolationDevcontainerService string                    `yaml:"isolation_devcontainer_service,omitempty"`
+	IsolationEngines             []string                  `yaml:"isolation_engines,omitempty"`
+	UI                           UIConfig                  `yaml:"ui,omitempty"`
+	SessionReapAge               string                    `yaml:"session_reap_age,omitempty"`
+	SessionPurgeAge              string                    `yaml:"session_purge_age,omitempty"`
 }
 
 // MarshalYAML emits d as a plain map, so every key is written sorted at every
@@ -390,7 +388,7 @@ func (c *Config) toDoc() configDoc {
 		Workspace:                    c.workspace,
 		DirtyTreeHandler:             c.dirtyTreeHandler,
 		Runtime:                      c.runtime,
-		Permissions:                  c.permissions,
+		Permissions:                  c.permissions.Clone(),
 		Delegation:                   c.delegation,
 		IsolationImages:              maps.Clone(c.isolationImages),
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,

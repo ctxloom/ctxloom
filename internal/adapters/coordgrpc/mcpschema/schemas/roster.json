@@ -74,7 +74,7 @@
               "type": "string"
             },
             "permission_mode": {
-              "description": "permission_mode is the child's resolved permission mode's kind name (agent.PermissionMode.String(): \"bypass\"|\"plan\"|\"default\"| \"acceptEdits\"), fixed at enqueue. Empty for a run journaled before this field existed.",
+              "description": "permission_mode is the posture the child's binding declared for its engine, in that engine's vocabulary, fixed at enqueue. Empty when it declared none.",
               "type": "string"
             },
             "phase": {

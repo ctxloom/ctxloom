@@ -77,6 +77,23 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	hostSet := cellTree(t, host)
 	childSet := cellTree(t, child)
 	require.NotEmpty(t, hostSet, "the host arm delivered nothing — the fixture carries no surfaces")
+	// The one difference WHO asks makes: the delegated run is structured and
+	// its approver is the human, so it is also delivered the approval route's
+	// hooks (launch.Launch.RoutesApprovals) — exactly those, on top of the
+	// host's.
+	require.False(t, host.RoutesApprovals())
+	require.True(t, child.RoutesApprovals())
+	const hooksRel = "session/.mock/hooks.json"
+	hostHooks, err := mock.DeliveredHooksFile(filepath.Join(host.Cell.Paths.Paths().SessionHome.Host, ".mock", "hooks.json"))
+	require.NoError(t, err)
+	childHooks, err := mock.DeliveredHooksFile(filepath.Join(child.Cell.Paths.Paths().SessionHome.Host, ".mock", "hooks.json"))
+	require.NoError(t, err)
+	codec, ok := mock.New().Approvals().Get()
+	require.True(t, ok)
+	hostHooks.Append(codec.Hooks(child.Permission.ApprovalTimeout))
+	require.Equal(t, hostHooks, childHooks, "the delegated run's hooks are the host's plus the approval hooks")
+	delete(hostSet, hooksRel)
+	delete(childSet, hooksRel)
 	require.Equal(t, hostSet, childSet, "a host launch and a delegated launch over one binding deliver one file set")
 	t.Logf("delivered (both arms):\n%s", strings.Join(keys(hostSet), "\n"))
 
@@ -295,7 +312,7 @@ func newDeliveryEnv(t *testing.T) *deliveryEnv {
 			Configs:  map[string]config.LLMConfig{"primary": {Type: string(mock.Name)}},
 			Defaults: config.RoleDefaults{Primary: "primary"},
 		},
-		Agents:       map[string]agents.Agent{"x": {Name: "x", Profiles: []string{"base"}, Permissions: "bypass"}},
+		Agents:       map[string]agents.Agent{"x": {Name: "x", Profiles: []string{"base"}, Permissions: agents.Permissions{Engines: map[string]map[string]any{string(mock.Name): {"mode": "bypass"}}}}},
 		DefaultAgent: "x",
 	})
 	store := launchtest.MemStore{}
@@ -457,7 +474,7 @@ func keys(m map[string]string) []string {
 // the writer honours — while everything else stays under the session home.
 func TestExecute_ABindingsRootSelection_LandsTheKindAtTheSharedRoot(t *testing.T) {
 	env := newDeliveryEnv(t)
-	shared := agents.Agent{Name: "shared", Profiles: []string{"base"}, Permissions: "bypass", Roots: map[string]string{"mcp": "project-root"}}
+	shared := agents.Agent{Name: "shared", Profiles: []string{"base"}, Permissions: agents.Permissions{Engines: map[string]map[string]any{string(mock.Name): {"mode": "bypass"}}}, Roots: map[string]string{"mcp": "project-root"}}
 	env.deps.Snapshot.Config = config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs:  map[string]config.LLMConfig{"primary": {Type: string(mock.Name)}},

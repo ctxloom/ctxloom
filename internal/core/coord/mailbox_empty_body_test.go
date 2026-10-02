@@ -8,8 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // NOTE on assertion style: see mailbox_takefail_test.go's cute-brink note —
@@ -96,7 +94,7 @@ func TestSendOwnedRunTurn_RefusesAnEmptyTurn(t *testing.T) {
 
 	sc := &scriptedChat{}
 	starter, _ := ownerRunStarter(ctx, sc, "claude-code")
-	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "turn one")
+	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false), starter, "turn one")
 	if !assert.NoError(t, err) {
 		return
 	}

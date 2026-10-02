@@ -722,7 +722,7 @@ func resolvedHookMoved(h operations.ResolvedHook) string {
 func resolvedHookLabel(h operations.ResolvedHook) string {
 	switch {
 	case h.Command != "":
-		return termsafe.Field(h.Command)
+		return termsafe.Field(wire.Hook{Command: h.Command, Args: h.Args}.Line())
 	case h.Prompt != "":
 		return termsafe.Field(h.Prompt)
 	case h.Type != "":

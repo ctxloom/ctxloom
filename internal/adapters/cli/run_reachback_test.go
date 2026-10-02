@@ -70,3 +70,25 @@ func TestConfirmProfileUpgrades_UnresolvableProfileIsNotFatal(t *testing.T) {
 	assert.NotContains(t, warnings.String(), "no-such-profile",
 		"the harvest must not report a resolution fault here — AssembleContext raises it as a ClassRef finding, and warning twice for one broken reference reads as two problems")
 }
+
+// TestRunState_MayDelegateIsTheBoundBindings: the root hands coord the
+// may_delegate of the binding it launched under — --agent's, or the default
+// agent's for a bare launch — and none for an assembly that bound no agent.
+func TestRunState_MayDelegateIsTheBoundBindings(t *testing.T) {
+	saved := []string{runAgent, runProfile}
+	t.Cleanup(func() { runAgent, runProfile = saved[0], saved[1] })
+	st := &runState{cfg: config.NewFixture(config.Fixture{
+		DefaultAgent: "dev",
+		Agents: map[string]agents.Agent{
+			"dev":  {MayDelegate: []string{"finder"}},
+			"lead": {MayDelegate: []string{"coder", "finder"}},
+		},
+	})}
+
+	runAgent, runProfile = "lead", ""
+	assert.Equal(t, []string{"coder", "finder"}, st.mayDelegate(), "--agent's binding")
+	runAgent = ""
+	assert.Equal(t, []string{"finder"}, st.mayDelegate(), "a bare launch binds the default agent")
+	runProfile = "some-profile"
+	assert.Empty(t, st.mayDelegate(), "an explicit assembly bound no agent")
+}

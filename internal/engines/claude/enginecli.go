@@ -125,8 +125,6 @@ func commonFlags() []agent.CLIFlag {
 	return []agent.CLIFlag{
 		{Name: flagSkipPermissions, Value: agent.ValueNone,
 			Note: "PermissionBypass; the blanket skip"},
-		{Name: flagPermissionMode, Value: agent.ValueString,
-			Note: "acceptEdits | plan | dontAsk | auto"},
 		{Name: flagDisallowedTools, Value: agent.ValueString,
 			Note: "ONE comma-joined value token (Bash,Edit,Write,NotebookEdit), not repeated flags; plan posture only"},
 		{Name: flagAllowedTools, Value: agent.ValueString,
@@ -137,7 +135,7 @@ func commonFlags() []agent.CLIFlag {
 		{Name: flagMCPConfig, Value: agent.ValuePath,
 			Note: "layers over the project .mcp.json unless --strict-mcp-config is also present"},
 		{Name: flagSettings, Value: agent.ValuePath,
-			Note: "the settings file the runner delivered under the session home"},
+			Note: "ONE per launch — claude keeps only the last one given. A settings file a presentation names, or inline JSON: the interactive launch's declared rules; a structured turn's posture, which the driver appends"},
 	}
 }
 
@@ -190,13 +188,15 @@ const disableBackgroundTasksEnv = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 
 // EngineCLIs declares claude's oneshot and interactive process surfaces.
 //
-// The two differ in exactly three ways, all of them load-bearing:
+// The two differ in these ways, all of them load-bearing:
 //
-//	--print       oneshot only
-//	--name <harp> interactive only (gated on CTXLOOM_SESSION_HARP)
-//	the prompt    oneshot pipes it on STDIN (argv delivery hit E2BIG on
-//	              `ctxloom weave` synthesis); interactive passes it as the
-//	              trailing argv positional.
+//	--print           oneshot only
+//	--name <harp>     interactive only (gated on CTXLOOM_SESSION_HARP)
+//	--permission-mode interactive only: a structured run's mode rides each
+//	                  turn's --settings, so a later turn can change it
+//	the prompt        oneshot pipes it on STDIN (argv delivery hit E2BIG on
+//	                  `ctxloom weave` synthesis); interactive passes it as the
+//	                  trailing argv positional.
 func (b *ClaudeCode) EngineCLIs() []agent.EngineCLI {
 	return ClaudeEngineCLIs()
 }
@@ -215,7 +215,7 @@ func ClaudeEngineCLIs() []agent.EngineCLI {
 			agent.CLIFlag{Name: flagResume, Value: agent.ValueString,
 				Note: "the native session key a resumed Instance continues (Instance.Resume); the structured driver's own protocol flags (--input-format, --verbose) are appended by the driver and are not Exec's"},
 			agent.CLIFlag{Name: flagPermissionPrompts, Value: agent.ValueString,
-				Note: "none: a structured run has nobody at the engine to answer a prompt"},
+				Note: "none when nobody answers a prompt; absent when the human at the root does, through the PermissionRequest hook"},
 		),
 		SetEnv: append(setEnv(), disableBackgroundTasksEnv),
 		Probes: probes(),
@@ -228,6 +228,8 @@ func ClaudeEngineCLIs() []agent.EngineCLI {
 		Flags: append(commonFlags(),
 			agent.CLIFlag{Name: flagName, Value: agent.ValueString,
 				Note: "interactive only; names the session after ctxloom's harp (claude's /rename cannot be injected)"},
+			agent.CLIFlag{Name: flagPermissionMode, Value: agent.ValueString,
+				Note: "interactive only: acceptEdits | plan | dontAsk | auto"},
 		),
 		SetEnv: append(setEnv(), classicScreenEnv),
 		Probes: probes(),

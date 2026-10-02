@@ -452,6 +452,10 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 20s. The hook fired on Bash with hook_event_name PermissionRequest, the file exists, permission_denials is empty, and the gated call's tool_result is stamped 64ms AFTER the hook's post-sleep marker while the tool_use preceded it by ~5s — claude waited for the answer. MUTATION-CONFIRMED live: inverting the proof-file check reds the same run as DECISION-IGNORED."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12Deny), Status: probeLiveVerified,
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 21s. The hook fired on Bash, the file is absent, the gated call's tool_result is \"Permission denied by hook\" with is_error, and result.permission_denials names that tool_use_id."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12Silent), Status: probeLiveVerified,
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 12s. The hook fired on Bash and printed nothing; the gated call's tool_result is an error and the file is absent — claude -p refuses a call no hook decided, which is the approval route's fail-closed guarantee. MUTATION-CONFIRMED hermetically (TestP12_Silent): an arm that accepted an unrefused call reds."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12AllowPromptsNone), Status: probeLiveVerified,
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 9.5s. With --permission-prompts none on the argv the PermissionRequest hook is STILL consulted first: it fired on Bash, the gated call's tool_result is stamped after the hook's post-sleep marker, and the hook's allow ran the call (the file exists). none denies only what no hook decided."},
 		},
 	},
 	// P13 measures the VENDOR half of ctxloom's repo trust: claude's own trust
@@ -893,7 +897,7 @@ func p4Cells() []probeCell {
 	// the plan-oneshot warning (cli's warnPosture) fires only when a plan
 	// posture survives the launch resolver's headless floor into the run,
 	// and it fired on
-	// exactly the cell that bound `permissions: plan`. So the two runs differed
+	// exactly the cell that bound `permissions: {mode: plan}`. So the two runs differed
 	// in posture and not merely in outcome — which is the question a lone green
 	// plan cell could never answer.
 	//

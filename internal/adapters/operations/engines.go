@@ -3,6 +3,9 @@ package operations
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"maps"
+	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -60,15 +63,67 @@ func IsTestOnlyEngine(reg engine.Registry, name string) bool {
 	return ok && e.Root().Distribution == engine.DistributionTestOnly
 }
 
-// EnginePermissionFacts reads the named engine's declared permission facts
-// off its Definition. An unregistered name has the zero facts, which
-// resolve to prompt-per-call and collapse plan.
-func EnginePermissionFacts(reg engine.Registry, name string) engine.PermissionFacts {
-	e, ok := reg.Lookup(engine.Name(name))
+// EffectivePosture is the posture an unflagged run of backend resolves to
+// over a binding's and a label's declarations, resolved and named by the
+// engine's own PermissionModel (PostureName reads its token, Label its
+// display name); the zero Posture when the engine has no permission model,
+// or the declarations are ones the launch refuses.
+func EffectivePosture(reg engine.Registry, backend string, binding agents.Permissions, label agents.LabelPermissions) engine.Posture {
+	kind, ok := reg.Lookup(engine.Name(backend))
 	if !ok {
-		return engine.PermissionFacts{}
+		return engine.Posture{}
 	}
-	return e.Root().Permissions
+	model, ok := kind.Permissions().Get()
+	if !ok {
+		return engine.Posture{}
+	}
+	var decls []engine.Declaration
+	if block, ok := binding.Engines[backend]; ok {
+		decls = append(decls, engine.Declaration{Document: block, From: "the agent"})
+	} else if len(binding.Engines) > 0 {
+		return engine.Posture{}
+	}
+	if len(label.Engine) > 0 {
+		decls = append(decls, engine.Declaration{Document: label.Engine, From: "the llm label"})
+	}
+	doc, err := model.Resolve(engine.PostureRequest{Declared: decls})
+	if err != nil {
+		return engine.Posture{}
+	}
+	return engine.Posture{Engine: engine.Name(backend), Document: doc}.Named(model)
+}
+
+// PostureName names a resolved posture in its engine's own words; "" when
+// the engine has no permission model or cannot read the document.
+func PostureName(reg engine.Registry, p engine.Posture) string {
+	kind, ok := reg.Lookup(p.Engine)
+	if !ok {
+		return ""
+	}
+	model, ok := kind.Permissions().Get()
+	if !ok {
+		return ""
+	}
+	name, err := model.Decode(p.Document)
+	if err != nil {
+		return ""
+	}
+	return name
+}
+
+// PostureNames are every registered engine's mode vocabulary, deduplicated
+// and sorted: what `run --permissions` may name before the engine is known.
+func PostureNames(reg engine.Registry) []string {
+	seen := map[string]bool{}
+	for _, n := range reg.Names(nil) {
+		kind, _ := reg.Lookup(n)
+		if model, ok := kind.Permissions().Get(); ok {
+			for _, p := range model.Postures() {
+				seen[p] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // EngineBinary is the native client binary the named engine's interactive

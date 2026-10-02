@@ -242,13 +242,13 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output reports "[name=developer].llm" as "<the engine that survived>"
       And the output reports "[name=developer].profiles" containing "<the first profile>"
       And the output reports "[name=developer].profiles" containing "<the second profile>"
-      And the output reports "[name=developer].permissions" as "<the posture that survived>"
+      And the output reports "[name=developer].permissions.claude-code.mode" as "<the posture that survived>"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the binding written | the axis that changed       | the engine that survived | the first profile | the second profile | the posture that survived |
         |               | developer           | container-rootless          | claude-code              | dev               | ops                | plan                      |
         | --format json | developer           | container-rootless          | claude-code              | dev               | ops                | plan                      |
-        | --format text | Updated agent       | runtime: container-rootless | llm: claude-code         | profiles: dev, ops | ops               | permissions: plan         |
+        | --format text | Updated agent       | runtime: container-rootless | llm: claude-code         | profiles: dev, ops | ops               | permissions: claude-code={mode=plan} |
 
     # --surface is the delivery-preference axis (kind=approach, repeatable):
     # which mechanism a surface reaches the engine through, distinct from

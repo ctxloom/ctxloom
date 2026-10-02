@@ -41,7 +41,8 @@ The tier-1 surface. Each hook may declare:
 
 | Field | Meaning |
 |---|---|
-| `command` | **A shell command string. The harness executes it.** |
+| `command` | **A shell command string. The harness executes it.** With `args`, the executable to run. |
+| `args` | Exec form: `command` is spawned directly with these arguments, and no shell parses either |
 | `matcher` | Regex over tool names — which tool calls it fires on |
 | `type` | `command`, `prompt`, or `agent` |
 | `prompt` | Prompt text, for the non-command types |
@@ -53,7 +54,8 @@ Events: `pre_tool`, `post_tool`, `session_start`, `session_end`, `turn_end`,
 `pre_shell`, `post_file_edit`, `turn_start`.
 
 When you approve a hook, your signature covers its **executable surface**: matcher, type,
-command, prompt, and the pre-tool-fallback flag. Change any of those and the approval no
+command line (an exec-form hook's `command` and every one of its `args`), prompt, and the
+pre-tool-fallback flag. Change any of those and the approval no
 longer verifies, so the hook returns to pending and is withheld.
 
 Two exclusions, stated plainly because they are real:

@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -150,7 +149,7 @@ func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotNil(t, stub.gotLaunch)
-	assert.Equal(t, agent.PermissionBypass, stub.gotLaunch.Permission,
+	assert.Equal(t, "bypass", stub.gotLaunch.Permission.Posture.Document["mode"],
 		"the ping must carry an explicit bypass posture on the launch, not rely on the label's configured (or unset) permissions")
 }
 
@@ -180,30 +179,13 @@ func discoveryLaunch(t *testing.T, cfg *config.Config) launch.Launch {
 }
 
 // TestDiscoveryLaunch_StatesDefaultPermissionExplicitly pins the discovery
-// launch's one-rung posture: this project's declared default, else the
-// pinned default — never the engine's host default, never a label's.
+// launch's posture: the engine's default mode, pinned — never the engine's
+// launch default, never a label's.
 func TestDiscoveryLaunch_StatesDefaultPermissionExplicitly(t *testing.T) {
-	t.Run("undeclared project default keeps the pinned default", func(t *testing.T) {
-		l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}}))
-		assert.Equal(t, agent.PermissionDefault, l.Permission,
-			"an undeclared setup session must never launch at bypass: the vendor TUI's native approval prompts are the consent surface")
-		assert.Equal(t, engine.Interactive, l.Mode)
-	})
-
-	t.Run("a declared project default rides the launch", func(t *testing.T) {
-		for _, want := range []agent.PermissionMode{agent.PermissionBypass, agent.PermissionPlan, agent.PermissionAcceptEdits} {
-			t.Run(want.String(), func(t *testing.T) {
-				l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}, Permissions: want.String()}))
-				assert.Equal(t, want, l.Permission, "a project that declared its own posture must launch setup at it, not at the pinned default")
-				assert.Equal(t, engine.Interactive, l.Mode)
-			})
-		}
-	})
-
-	t.Run("an unparseable project default falls back to the pinned default", func(t *testing.T) {
-		l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}, Permissions: "byapss"}))
-		assert.Equal(t, agent.PermissionDefault, l.Permission, "a misspelled posture must never resolve to anything wider than the pinned default")
-	})
+	l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}}))
+	assert.Equal(t, "default", l.Permission.Posture.Document["mode"],
+		"a setup session must never launch at bypass: the vendor TUI's native approval prompts are the consent surface")
+	assert.Equal(t, engine.Interactive, l.Mode)
 }
 
 // TestDiscoveryLaunch_CarriesTheSetupPrompt: the discovery session opens
@@ -212,55 +194,6 @@ func TestDiscoveryLaunch_CarriesTheSetupPrompt(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 	l := discoveryLaunch(t, cfg)
 	assert.Equal(t, discoverySessionPrompt(cfg), l.Prompt)
-}
-
-// TestPrintDiscoveryPostureHint pins the one line the discovery handoff prints
-// when it is launching at the PINNED DEFAULT: a project that has not declared a
-// posture is told, at the exact moment the posture is about to bite, that the
-// key exists and how to set it. A capability nobody is told about is a
-// capability nobody has, and init's handoff is the one place in the product
-// where a human is already being walked through configuring this directory.
-//
-// It stays silent once a posture IS declared — repeating the instructions for
-// something already done is noise, and the declared posture is visible in the
-// session itself.
-//
-// MUTATION TARGET (m4): deleting the printDiscoveryPostureHint call from
-// launchDiscovery, or the fmt.Println inside it, turns this red.
-func TestPrintDiscoveryPostureHint(t *testing.T) {
-	t.Run("at the pinned default it names the key and how to set it", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
-
-		out := captureStdout(t, func() { printDiscoveryPostureHint(cfg) })
-
-		assert.Contains(t, out, "permissions:",
-			"the hint must name the config key itself — a description of the capability without its spelling is not actionable")
-		assert.Contains(t, out, ".ctxloom/config.yaml",
-			"the hint must name the file it goes in, because WHICH file is the whole restriction: a home config is ignored")
-		for _, mode := range agent.PermissionModeNames() {
-			assert.Contains(t, out, mode, "the hint must name the accepted postures")
-		}
-	})
-
-	t.Run("a nil config still prints the hint", func(t *testing.T) {
-		// GetConfig returns nil on a load failure, and launchDiscovery is
-		// explicitly best-effort about that. A project that could not load has
-		// certainly not declared a posture, so the hint is if anything more
-		// wanted here — and it must not panic reaching for one.
-		out := captureStdout(t, func() { printDiscoveryPostureHint(nil) })
-		assert.Contains(t, out, "permissions:")
-	})
-
-	t.Run("a declared posture silences the hint", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{
-			AppPaths:    []string{t.TempDir()},
-			Permissions: "bypass",
-		})
-
-		out := captureStdout(t, func() { printDiscoveryPostureHint(cfg) })
-		assert.Empty(t, out,
-			"a project that already declared its posture must not be told how to declare one")
-	})
 }
 
 // TestPingEngineAuth_FailsLoud_NamesTheFix: a dead engine (a failed turn, as
@@ -390,21 +323,6 @@ func TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint(t *testing.
 	// Re-entry hint printed; no relaunch prompt (deleted machinery).
 	assert.Contains(t, out, "/ctxloom-init")
 	assert.NotContains(t, out, "Start your session now")
-
-	// The project-posture hint rides this same handoff narration. This is the
-	// WIRING half of TestPrintDiscoveryPostureHint (which pins the line's
-	// content): that test would still pass if the call were deleted from
-	// launchDiscovery entirely, and then nobody would ever see it.
-	//
-	// Conditioned on the ambient config launchDiscovery actually reads, rather
-	// than asserted unconditionally: this test does not (and should not) stub
-	// GetConfig, so whether the hint is due depends on whether the project this
-	// suite runs inside has declared a posture of its own. Silence is the
-	// correct output when it has.
-	if cfg, cerr := GetConfig(); cerr != nil || cfg.GetPermissions() == "" {
-		assert.Contains(t, out, "permissions:",
-			"a handoff running at the pinned default must tell the user the project-scoped posture key exists")
-	}
 }
 
 // TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag: a

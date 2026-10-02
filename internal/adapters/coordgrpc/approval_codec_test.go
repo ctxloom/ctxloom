@@ -26,14 +26,17 @@ func fullApprovalRequest() coord.ApprovalRequest {
 			Input:           json.RawMessage(`{"questions":[{"question":"which?"}]}`),
 			ToolUseID:       "toolu_9",
 			Suggestions:     []string{"Bash(ls:*)"},
-			SuggestsSetMode: engine.Provide(engine.PermissionAcceptEdits),
+			SuggestsSetMode: engine.Provide("acceptEdits"),
 			Plan:            &engine.PlanProposal{Markdown: "# p", Path: "/p.md"},
 			Questions: []engine.Question{{
 				Header: "Pick", Text: "which?", MultiSelect: true,
 				Options: []engine.QuestionOption{{Label: "a", Description: "first"}, {Label: "b"}},
 			}},
 		},
-		Ceiling: engine.PermissionAcceptEdits,
+		Transitions: []engine.PostureTransition{
+			{Posture: "default", Label: "default"},
+			{Posture: "acceptEdits", Label: "accept edits", Default: true},
+		},
 		Timeout: 20 * time.Minute,
 	}
 }
@@ -44,14 +47,17 @@ func TestApprovalRequest_RoundTrips(t *testing.T) {
 	want := fullApprovalRequest()
 	wire := ApprovalRequestToWire(want)
 	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_QUESTION, wire.GetKind())
-	assert.Equal(t, "acceptEdits", wire.GetCeiling())
+	require.Len(t, wire.GetTransitions(), 2)
+	assert.False(t, wire.GetTransitions()[0].GetDefault(), "the default is a flag, not the first offer")
+	assert.True(t, wire.GetTransitions()[1].GetDefault())
+	assert.Equal(t, "accept edits", wire.GetTransitions()[1].GetLabel())
 	assert.Equal(t, "acceptEdits", wire.GetSuggestsSetMode())
 	got, err := ApprovalRequestFromWire(wire)
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 
 	for _, kind := range []engine.AskKind{engine.AskTool, engine.AskQuestion, engine.AskPlan} {
-		req := coord.ApprovalRequest{Ask: engine.PermissionAsk{Kind: kind}, Ceiling: engine.PermissionDefault}
+		req := coord.ApprovalRequest{Ask: engine.PermissionAsk{Kind: kind}}
 		back, err := ApprovalRequestFromWire(ApprovalRequestToWire(req))
 		require.NoError(t, err)
 		assert.Equal(t, kind, back.Ask.Kind)
@@ -71,9 +77,6 @@ func TestApprovalRequestFromWire_Refuses(t *testing.T) {
 	}{
 		{"unspecified-kind", func(r *agentcoordpb.ApprovalRequest) { r.Kind = agentcoordpb.ApprovalRequest_APPROVAL_KIND_UNSPECIFIED }, "kind"},
 		{"unknown-kind", func(r *agentcoordpb.ApprovalRequest) { r.Kind = 99 }, "kind"},
-		{"missing-ceiling", func(r *agentcoordpb.ApprovalRequest) { r.Ceiling = "" }, "ceiling"},
-		{"unknown-ceiling", func(r *agentcoordpb.ApprovalRequest) { r.Ceiling = "everything" }, "ceiling"},
-		{"unknown-set-mode", func(r *agentcoordpb.ApprovalRequest) { r.SuggestsSetMode = "yolo" }, "suggests_set_mode"},
 		{"input-not-json", func(r *agentcoordpb.ApprovalRequest) { r.Input = []byte("{nope") }, "input"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -92,7 +95,7 @@ func TestApprovalDecision_RoundTrips(t *testing.T) {
 	want := coord.ApprovalDecision{
 		Allow:        true,
 		SessionRules: []string{"Bash(ls:*)"},
-		SetMode:      engine.Provide(engine.PermissionAcceptEdits),
+		SetMode:      engine.Provide("acceptEdits"),
 		Answers:      []engine.QuestionAnswer{{Question: "which?", Labels: []string{"a", "b"}, Other: "and c"}},
 		Message:      "go",
 		Decider:      agent.DeciderHuman,
@@ -116,8 +119,6 @@ func TestApprovalDecision_RoundTrips(t *testing.T) {
 
 	_, err = ApprovalDecisionFromWire(&agentcoordpb.ApprovalDecision{Decider: "a presenter"})
 	assert.ErrorIs(t, err, agent.ErrUnknownDecider)
-	_, err = ApprovalDecisionFromWire(&agentcoordpb.ApprovalDecision{Decider: "human", SetMode: "yolo"})
-	assert.ErrorContains(t, err, "set_mode")
 }
 
 // TestAgentRequestFromWire_Approval: the approval arm reaches the

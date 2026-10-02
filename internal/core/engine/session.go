@@ -10,7 +10,7 @@ import (
 
 // Session is the ENGINE-FACING projection of a resolved launch: what
 // Instance is fed. It carries the identity, the label's configuration, the
-// permission (already floored), the advised roots, the MCP endpoint and its
+// permission policy (resolved once, at launch), the advised roots, the MCP endpoint and its
 // bearer (the engine's MCP file names it), the prompt, the resume ref and
 // the env additions. It carries NO package (already presentations), NO trust
 // gate, NO isolation axes and NO coordinator credential: those were consumed
@@ -19,7 +19,7 @@ type Session struct {
 	Identity   sessions.Identity
 	Label      LabelConfig
 	Mode       Mode
-	Permission PermissionMode
+	Permission PermissionPolicy
 	Roots      present.Paths // engine side of every root the launch advised
 	WorkDir    string        // the cell's working directory
 	Home       []HomeBinding // each home var the engine declares, resolved to its path under the session home

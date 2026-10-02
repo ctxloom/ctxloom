@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,7 +45,7 @@ func TestIssueStartRun_CancelAbortsTheRoundTrip(t *testing.T) {
 	c.runners[credHash] = rs
 	c.mu.Unlock()
 
-	l := ownerLaunch(rt.harp, plan.Backend, "fast", "test-model", t.TempDir(), agent.PermissionBypass)
+	l := ownerLaunch(rt.harp, plan.Backend, "fast", "test-model", t.TempDir(), "bypass")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

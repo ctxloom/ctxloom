@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,24 +18,11 @@ func TestNewNextStepHook_InvokesTheNextStepCallback(t *testing.T) {
 	h := NewNextStepHook()
 
 	assert.Equal(t, "command", h.Type)
-	assert.Contains(t, h.Command, "hook next-step",
+	assert.Equal(t, []string{"hook", "next-step"}, h.Args,
 		"the hook must invoke the next-step callback, not some other subcommand")
 	assert.Greater(t, h.Timeout, ToolReflectTimeout,
 		"reading a transcript needs longer than a hook that only reads its own stdin")
 	assert.Equal(t, NextStepTimeout, h.Timeout)
-}
-
-// TestNewNextStepHook_QuotesTheBinaryPath pins that the self-exec path is
-// shell-quoted, so a ctxloom binary living under a path with a space in it
-// cannot break the command split.
-//
-// MUTATION — interpolate CtxloomCommand() bare instead of through
-// shellSingleQuote — turns this red.
-func TestNewNextStepHook_QuotesTheBinaryPath(t *testing.T) {
-	h := NewNextStepHook()
-	assert.True(t, strings.HasPrefix(h.Command, "'"),
-		"the binary path must be single-quoted: %q", h.Command)
-	assert.Contains(t, h.Command, shellSingleQuote(CtxloomCommand()))
 }
 
 // TestNewNextStepHook_TakesNoHarpArgument pins that the harp is resolved from
@@ -48,8 +34,6 @@ func TestNewNextStepHook_QuotesTheBinaryPath(t *testing.T) {
 // MUTATION — add a --harp flag carrying a resolved harp to the command — red.
 func TestNewNextStepHook_TakesNoHarpArgument(t *testing.T) {
 	h := NewNextStepHook()
-	assert.NotContains(t, h.Command, "--harp",
+	assert.Equal(t, []string{"hook", "next-step"}, h.Args,
 		"the installed command outlives its session; the harp must come from %s at fire time", SessionHarpEnv)
-	assert.Equal(t, "hook next-step", h.Command[strings.LastIndex(h.Command, "hook next-step"):],
-		"the callback must take no arguments: %q", h.Command)
 }

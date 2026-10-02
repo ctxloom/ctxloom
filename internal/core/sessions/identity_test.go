@@ -85,3 +85,17 @@ func TestEnvKeys_AreTheOnlySpellings(t *testing.T) {
 	assert.Equal(t, "CTXLOOM_SESSION_HARP", EnvHarp)
 	assert.Equal(t, "CTXLOOM_PROJECT_ID", EnvProjectID)
 }
+
+func TestEncodeHookReach_DecodeHookReach_RoundTrip(t *testing.T) {
+	hook := Endpoint{URL: "http://127.0.0.1:41234/hook", Credential: "bearer"}
+	got, err := DecodeHookReach(lookup(EncodeHookReach(hook)))
+	require.NoError(t, err)
+	assert.Equal(t, hook, got)
+}
+
+func TestDecodeHookReach_RefusesAMissingBearer(t *testing.T) {
+	env := EncodeHookReach(Endpoint{URL: "http://127.0.0.1:41234/hook", Credential: "bearer"})
+	delete(env, EnvHookToken)
+	_, err := DecodeHookReach(lookup(env))
+	require.ErrorIs(t, err, ErrNoHookReach)
+}

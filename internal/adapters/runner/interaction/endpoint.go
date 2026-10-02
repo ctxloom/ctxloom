@@ -76,6 +76,9 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 	}
 	mux := http.NewServeMux()
 	mux.Handle(path, guard(lo.MCP.Credential, policy.AllowedOrigins, mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)))
+	// The approval hook's POST rides the same listener, behind the same
+	// bearer and Origin rules.
+	mux.Handle(runner.HookPath, guard(lo.MCP.Credential, policy.AllowedOrigins, hookHandler(e.Home)))
 	srv := &http.Server{Handler: mux}
 	go func() {
 		if e.serveGate != nil {

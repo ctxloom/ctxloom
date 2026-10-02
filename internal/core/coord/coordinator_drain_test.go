@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
@@ -63,14 +62,14 @@ func TestBeginDrain_StartOwnedRunRefusesNewWorkOnceDraining(t *testing.T) {
 
 	// Baseline: admission succeeds normally before draining.
 	baselineStarter, baselineStarted := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
-	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), baselineStarter, "hello before drain")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false), baselineStarter, "hello before drain")
 	require.NoError(t, err)
 	require.True(t, *baselineStarted, "the baseline run must actually have launched")
 
 	c.BeginDrain()
 
 	starter, started := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
-	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "hello after drain")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false), starter, "hello after drain")
 	require.Error(t, err, "admission must be refused once draining")
 	assert.ErrorIs(t, err, ErrDraining)
 	assert.Contains(t, err.Error(), "draining")

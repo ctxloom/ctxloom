@@ -146,16 +146,8 @@
       ]
     },
     "permissions": {
-      "type": "string",
-      "description": "Project default for the launch-time permission posture of engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. 'default' (prompt on each gated call), 'acceptEdits' (auto-accept file edits, prompt for the rest), 'plan' (read-only), 'bypass' (skip all in-engine prompting), 'dontAsk' (deny whatever the rules do not allow), 'auto' (the engine's own classifier decides). Resolution: `run --permissions` > the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's declared host default — so a narrower posture declared anywhere above always wins, and a declared project default beats a silent engine fallback. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them.",
-      "enum": [
-        "default",
-        "acceptEdits",
-        "plan",
-        "bypass",
-        "dontAsk",
-        "auto"
-      ]
+      "$ref": "#/$defs/neutralPermissions",
+      "description": "Project default permissions block for engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. The engine-neutral fields only; each resolves the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's default. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them."
     },
     "delegation": {
       "type": "object",
@@ -237,16 +229,17 @@
             ]
           },
           "permissions": {
-            "type": "string",
-            "description": "Launch-time permission posture for this agent; empty inherits the engine label's default, then the built-in default.",
-            "enum": [
-              "default",
-              "acceptEdits",
-              "plan",
-              "bypass",
-              "dontAsk",
-              "auto"
-            ]
+            "$ref": "#/$defs/bindingPermissions",
+            "description": "This agent's permissions block: the neutral fields, and one block per engine."
+          },
+          "may_delegate": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true,
+            "description": "The agents (roles) this agent may launch with agent_run. Unset or empty permits any; a list permits exactly those, and agent_run refuses any other, naming the ones allowed. Each must name an agent in `agents`, or the config is refused at load."
           },
           "driving": {
             "type": "string",
@@ -328,6 +321,112 @@
     }
   },
   "$defs": {
+    "neutralPermissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The project's permissions block: the engine-neutral fields only. An engine's mode and rules are engine grammar, declared where an engine is known \u2014 an agent binding's block for that engine, or an llm label; one written here is refused at load, naming where it goes.",
+      "properties": {
+        "approver": {
+          "type": "string",
+          "enum": [
+            "human",
+            "none",
+            "reviewer"
+          ],
+          "description": "Who answers a request the rules and posture leave open: 'human' (default), the human at the root session; 'none', nobody \u2014 the request is denied; or 'reviewer', the engine's own reviewer (a classifier), where the engine has one."
+        },
+        "approval_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$",
+          "description": "How long a request waits for the approver before it is denied, as a duration ('20m'). Default 15m; at most 60m."
+        },
+        "sandbox": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "workspace-write",
+            "full"
+          ],
+          "description": "What the engine's own commands may touch: 'read-only', 'workspace-write' (the working tree only) or 'full' (whatever contains the process is the boundary). Each engine maps it to its own mechanism and refuses a value it cannot enforce where the agent runs; undeclared, the engine's default applies."
+        },
+        "network": {
+          "type": "boolean",
+          "description": "Whether the engine's sandboxed commands may reach the network."
+        }
+      }
+    },
+    "labelPermissions": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "An llm label's permissions block: the engine-neutral fields and, flat beside them, the keys of the label's engine (its type), which that engine names and validates at load. An agent binding overrides it, key by key.",
+      "properties": {
+        "approver": {
+          "type": "string",
+          "enum": [
+            "human",
+            "none",
+            "reviewer"
+          ],
+          "description": "Who answers a request the rules and posture leave open: 'human' (default), the human at the root session; 'none', nobody \u2014 the request is denied; or 'reviewer', the engine's own reviewer (a classifier), where the engine has one."
+        },
+        "approval_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$",
+          "description": "How long a request waits for the approver before it is denied, as a duration ('20m'). Default 15m; at most 60m."
+        },
+        "sandbox": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "workspace-write",
+            "full"
+          ],
+          "description": "What the engine's own commands may touch: 'read-only', 'workspace-write' (the working tree only) or 'full' (whatever contains the process is the boundary). Each engine maps it to its own mechanism and refuses a value it cannot enforce where the agent runs; undeclared, the engine's default applies."
+        },
+        "network": {
+          "type": "boolean",
+          "description": "Whether the engine's sandboxed commands may reach the network."
+        }
+      }
+    },
+    "bindingPermissions": {
+      "type": "object",
+      "description": "An agent binding's permissions block: the engine-neutral fields, and one block per engine keyed by the engine's name (e.g. claude-code: {mode: plan}) \u2014 a binding's engine is known only when it resolves, and one binding may carry blocks for several. Each engine validates its own block at load. A binding with engine blocks but none for the engine it resolves to is refused at launch. Each field left empty inherits the engine label's, then the project's, then the engine's default.",
+      "properties": {
+        "approver": {
+          "type": "string",
+          "enum": [
+            "human",
+            "none",
+            "reviewer"
+          ],
+          "description": "Who answers a request the rules and posture leave open: 'human' (default), the human at the root session; 'none', nobody \u2014 the request is denied; or 'reviewer', the engine's own reviewer (a classifier), where the engine has one."
+        },
+        "approval_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$",
+          "description": "How long a request waits for the approver before it is denied, as a duration ('20m'). Default 15m; at most 60m."
+        },
+        "sandbox": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "workspace-write",
+            "full"
+          ],
+          "description": "What the engine's own commands may touch: 'read-only', 'workspace-write' (the working tree only) or 'full' (whatever contains the process is the boundary). Each engine maps it to its own mechanism and refuses a value it cannot enforce where the agent runs; undeclared, the engine's default applies."
+        },
+        "network": {
+          "type": "boolean",
+          "description": "Whether the engine's sandboxed commands may reach the network."
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "One engine's permission keys, validated by that engine."
+      }
+    },
     "llmConfig": {
       "type": "object",
       "description": "One labeled backend config. `type` is the discriminator and may be omitted (it defaults to claude-code \u2014 see LLMConfig.EffectiveType); the remaining fields are that backend's own config. anyOf (not oneOf): an entry without `type` is shape-compatible with several branches and must still validate.",
@@ -347,16 +446,8 @@
               "description": "Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime."
             },
             "permissions": {
-              "type": "string",
-              "enum": [
-                "default",
-                "acceptEdits",
-                "plan",
-                "bypass",
-                "dontAsk",
-                "auto"
-              ],
-              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
+              "$ref": "#/$defs/labelPermissions",
+              "description": "This label's permissions block: the neutral fields and its engine's keys, flat."
             },
             "model": {
               "type": "string",
@@ -394,16 +485,8 @@
               "description": "Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime."
             },
             "permissions": {
-              "type": "string",
-              "enum": [
-                "default",
-                "acceptEdits",
-                "plan",
-                "bypass",
-                "dontAsk",
-                "auto"
-              ],
-              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
+              "$ref": "#/$defs/labelPermissions",
+              "description": "This label's permissions block: the neutral fields and its engine's keys, flat."
             },
             "model": {
               "type": "string"
@@ -430,8 +513,15 @@
         },
         "command": {
           "type": "string",
-          "description": "Shell command to execute",
+          "description": "Shell command to execute; with args, the executable to run",
           "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "description": "Exec form: command is the executable, spawned directly with these arguments \u2014 no shell parses either, so a space, quote or $ in an argument reaches the program verbatim. Absent: command is one shell command line.",
+          "items": {
+            "type": "string"
+          }
         },
         "type": {
           "type": "string",
@@ -507,6 +597,10 @@
         "turn_start": {
           "$ref": "#/$defs/hookArray",
           "description": "When a prompt is submitted, before the agent acts on it — once per turn; a command hook's stdout becomes that turn's context"
+        },
+        "permission_ask": {
+          "$ref": "#/$defs/hookArray",
+          "description": "When the engine is about to ask for permission to use a tool its posture and rules left open; a command hook's stdout is the decision"
         }
       },
       "additionalProperties": false

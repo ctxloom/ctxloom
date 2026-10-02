@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -87,4 +88,26 @@ func TestHooks_DecodesUserPromptSubmitAsTurnStart(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, engine.HookEvent{Event: "turn_start", NativeSession: "s1", Transcript: "/t/s1.jsonl"}, ev)
 	assert.Equal(t, "UserPromptSubmit", hookEventMap()["turn_start"], "Exports names the native event turn_start registers under")
+}
+
+// TestClaudeCodeHookWriter_ApprovalHookReachesPermissionRequest: the
+// approval hook a human-approved run is delivered lands where claude spawns
+// it — under PermissionRequest for every tool — with a timeout that
+// outlives the approval timeout; no pre-tool hook is the route's.
+func TestClaudeCodeHookWriter_ApprovalHookReachesPermissionRequest(t *testing.T) {
+	approval := approvalCodec{}.Hooks(15 * time.Minute)
+	hooks := writtenHooks(t, &wire.HooksConfig{Unified: approval})
+
+	groups, ok := hooks["PermissionRequest"].([]any)
+	require.True(t, ok, "PermissionRequest must be written, got events %v", keysOf(hooks))
+	require.Len(t, groups, 1)
+	group := groups[0].(map[string]any)
+	assert.Empty(t, group["matcher"], "every tool")
+	entries := group["hooks"].([]any)
+	require.Len(t, entries, 1)
+	entry := entries[0].(map[string]any)
+	want := approval.PermissionAsk[0]
+	assert.Equal(t, want.Command, entry["command"])
+	assert.EqualValues(t, want.Timeout, entry["timeout"])
+	assert.NotContains(t, hooks, "PreToolUse")
 }

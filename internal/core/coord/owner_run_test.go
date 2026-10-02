@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
@@ -122,7 +121,7 @@ func TestStartOwnedRun_ParentLessOwnerRunYieldsPayload(t *testing.T) {
 	sc := &scriptedChat{}
 	starter, started := ownerRunStarter(ctx, sc, "claude-code")
 
-	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "hello owner run")
+	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false), starter, "hello owner run")
 	require.NoError(t, err)
 	require.True(t, *started, "StartOwnedRun must launch the runner via the starter")
 	require.Equal(t, ownerHarp, outcome.Harp)
@@ -171,7 +170,7 @@ func TestStartOwnedRun_RunnerEnvIsTheTrioAlone(t *testing.T) {
 		return OwnedRunner{Kill: func() {}}, errStopBeforeDial
 	}
 
-	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "hello")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false), starter, "hello")
 	require.ErrorIs(t, err, errStopBeforeDial)
 	require.NotNil(t, gotEnv, "the starter must have been invoked with the runner env")
 	assert.ElementsMatch(t, []string{EnvCoordURL, EnvCoordCred, EnvRunID}, envKeys(gotEnv), "the runner env is the reach-back trio; the run's identity rides the Launch")
@@ -196,7 +195,7 @@ func TestStartOwnedRun_OwnerHarpRoleNoCollision(t *testing.T) {
 
 	sc := &scriptedChat{}
 	starter, _ := ownerRunStarter(ctx, sc, "claude-code")
-	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "turn one")
+	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false), starter, "turn one")
 	require.NoError(t, err)
 
 	// The owner's credential still resolves to depth 0 — the per-run credential
@@ -294,7 +293,7 @@ func startOwnerRunRefusing(t *testing.T, refusals int, rebind func(context.Conte
 	owner, ok := c.Identify(token)
 	require.True(t, ok)
 	starter, _ := ownerRunStarterWith(ctx, &scriptedChat{}, "claude-code", "", refusingBinds(refusals))
-	spec := ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false)
+	spec := ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false)
 	spec.Rebind = rebind
 	out, err := c.StartOwnedRun(ctx, owner, spec, starter, "hello owner run")
 	return c, out, err

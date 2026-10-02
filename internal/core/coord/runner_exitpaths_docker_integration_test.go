@@ -25,7 +25,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -66,7 +65,7 @@ func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, 
 	}
 	s.cells[start.Identity.Harp] = preparedContainerCell{env: cenv, backend: plan.Backend, label: plan.Label}
 	s.mu.Unlock()
-	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", cenv.Placement().Paths.Paths().ProjectRoot.Host, agent.PermissionBypass)
+	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", cenv.Placement().Paths.Paths().ProjectRoot.Host, "bypass")
 	l.Identity = start.Identity
 	l.Prompt = start.Prompt
 	l.Cell.Env = env

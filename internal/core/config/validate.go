@@ -1,11 +1,13 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
@@ -44,7 +46,13 @@ func (c *Config) Validate(reg engine.Registry) error {
 			return fmt.Errorf("config: isolation.engines: unknown engine %q; ctxloom knows: %s", name, known())
 		}
 	}
-	return c.validateAgentAuth(reg)
+	if err := c.validateAgentAuth(reg); err != nil {
+		return err
+	}
+	if err := c.validatePermissions(reg); err != nil {
+		return err
+	}
+	return c.validateMayDelegate()
 }
 
 // validateAgentAuth runs engine.CheckAuth — the one auth check, which
@@ -84,4 +92,105 @@ func (c *Config) EffectiveType(entry LLMConfig) string {
 		return c.defaultEngine
 	}
 	return entry.Type
+}
+
+// ErrPermissions refuses, at load, a permission declaration or a
+// may_delegate no launch could honour.
+var ErrPermissions = errors.New("config: permissions")
+
+// validatePermissions refuses, at load, a permission declaration no launch
+// could honour: a neutral value outside its vocabulary; an agent's block
+// for an engine ctxloom does not know, or one that engine refuses; an llm
+// label's engine keys its engine (the label's type) refuses. An engine
+// without a permission model accepts no engine keys at all.
+func (c *Config) validatePermissions(reg engine.Registry) error {
+	if err := checkNeutral("permissions", c.permissions); err != nil {
+		return err
+	}
+	for _, label := range slices.Sorted(maps.Keys(c.lm.Configs)) {
+		entry := c.lm.Configs[label]
+		at := "llm.configs." + label + ".permissions"
+		if err := checkNeutral(at, entry.Permissions.NeutralPermissions); err != nil {
+			return err
+		}
+		if err := checkEngineDoc(reg, at, c.EffectiveType(entry), entry.Permissions.Engine); err != nil {
+			return err
+		}
+	}
+	for _, a := range c.LoadAgents() {
+		at := "agents." + a.Name + ".permissions"
+		if err := checkNeutral(at, a.Permissions.NeutralPermissions); err != nil {
+			return err
+		}
+		for _, name := range slices.Sorted(maps.Keys(a.Permissions.Engines)) {
+			if err := checkEngineDoc(reg, at+"."+name, name, a.Permissions.Engines[name]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// checkNeutral parses each declared neutral field.
+func checkNeutral(at string, n agents.NeutralPermissions) error {
+	if n.Approver != "" {
+		if _, ok := engine.ParseApprover(n.Approver); !ok {
+			return fmt.Errorf("%w: %s: approver %q (known: %s)", ErrPermissions, at, n.Approver, strings.Join(engine.ApproverNames(), "|"))
+		}
+	}
+	if n.Sandbox != "" {
+		if _, ok := engine.ParseSandbox(n.Sandbox); !ok {
+			return fmt.Errorf("%w: %s: sandbox %q (known: %s)", ErrPermissions, at, n.Sandbox, strings.Join(engine.SandboxNames(), "|"))
+		}
+	}
+	if n.ApprovalTimeout != "" {
+		if _, err := engine.ParseApprovalTimeout(n.ApprovalTimeout); err != nil {
+			return fmt.Errorf("%w: %s: %w", ErrPermissions, at, err)
+		}
+	}
+	return nil
+}
+
+// checkEngineDoc has the named engine validate its document.
+func checkEngineDoc(reg engine.Registry, at, name string, doc map[string]any) error {
+	if doc == nil {
+		return nil
+	}
+	kind, ok := reg.Lookup(engine.Name(name))
+	if !ok {
+		return fmt.Errorf("%w: %s: no engine %q; ctxloom knows: %s", ErrPermissions, at, name, strings.Join(engineNames(reg), ", "))
+	}
+	model, ok := kind.Permissions().Get()
+	if !ok {
+		if len(doc) == 0 {
+			return nil
+		}
+		return fmt.Errorf("%w: %s: engine %s declares no permission keys (%s)", ErrPermissions, at, name, kind.Permissions().AbsentReason())
+	}
+	if err := model.Validate(doc); err != nil {
+		return fmt.Errorf("%w: %s: %w", ErrPermissions, at, err)
+	}
+	return nil
+}
+
+// validateMayDelegate refuses a may_delegate naming no agent binding.
+func (c *Config) validateMayDelegate() error {
+	names := slices.Sorted(maps.Keys(c.agents))
+	for _, name := range names {
+		for _, role := range c.agents[name].MayDelegate {
+			if !slices.Contains(names, role) {
+				return fmt.Errorf("%w: agents.%s.may_delegate: %q names no agent binding (agents: %s)", ErrPermissions, name, role, strings.Join(names, ", "))
+			}
+		}
+	}
+	return nil
+}
+
+func engineNames(reg engine.Registry) []string {
+	names := reg.Names(nil)
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = string(n)
+	}
+	return out
 }

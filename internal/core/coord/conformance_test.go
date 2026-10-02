@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -87,11 +86,11 @@ func TestAgentRun_UnknownAgentIsHardError(t *testing.T) {
 func TestAgentRun_ChildTakesItsPosture(t *testing.T) {
 	for _, tc := range []struct {
 		name, perm string
-		want       agent.PermissionMode
+		want       string
 	}{
-		{"absent enum", "", agent.PermissionDefault},
-		{"prompting enum", "acceptEdits", agent.PermissionAcceptEdits},
-		{"dontAsk", "dontAsk", agent.PermissionDontAsk},
+		{"absent", "", "default"},
+		{"prompting", "acceptEdits", "acceptEdits"},
+		{"read-only", "plan", "plan"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resetStrictness(t)
@@ -120,7 +119,7 @@ func TestAgentRun_D3DegradedDropsAMisspellingToPlan(t *testing.T) {
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 	require.Eventually(t, func() bool { return len(sp.chat(0).RecordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond)
-	assert.Equal(t, agent.PermissionPlan, sp.lastPerm(), "degraded narrows a misspelt posture to the most restrictive one")
+	assert.Equal(t, "plan", sp.lastPerm(), "degraded narrows a misspelt posture to the most restrictive one")
 }
 
 // TestAgentRun_QueuePastCap pins D4/D5: the second spawn past cap=1 enqueues
@@ -166,10 +165,15 @@ func TestAgentRun_GrandchildAllowed(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
-	childCaller := Identity{Harp: "some-child", RunID: "run-child", Depth: 1}
+	// A caller the coordinator launched: its ceiling is on record, so the
+	// grandchild can be capped at it.
+	child, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "delegate", "", "")
+	require.NoError(t, err)
+	childHome(t, c, child.RunID)
+	childCaller := c.inProject(Identity{Harp: child.Harp, RunID: child.RunID, Depth: 1})
 	out, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper", "", "")
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
 
 	var rec *RunRecord
 	c.runs.View(func() {
@@ -179,8 +183,8 @@ func TestAgentRun_GrandchildAllowed(t *testing.T) {
 		}
 	})
 	require.NotNil(t, rec)
-	assert.Equal(t, "some-child", rec.ParentHarp)
-	assert.Equal(t, "run-child", rec.ParentRunID, "the grandchild's durable lineage names the SPAWNING run, not just its harp")
+	assert.Equal(t, child.Harp, rec.ParentHarp)
+	assert.Equal(t, child.RunID, rec.ParentRunID, "the grandchild's durable lineage names the SPAWNING run, not just its harp")
 	assert.Equal(t, 2, rec.Depth)
 }
 

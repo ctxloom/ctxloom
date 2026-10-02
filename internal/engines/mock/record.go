@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
@@ -79,6 +80,9 @@ type Record struct {
 	// HomeEnvKeys are the engine home-relocation variables to echo when
 	// set, so a test can prove what config-home env the engine received.
 	HomeEnvKeys []string
+	// Posture is the permission posture a structured turn ran at; nil for
+	// a run that has none (the mock binary's own launches).
+	Posture *engine.TurnPosture
 }
 
 // WriteRecord renders one record to file. WHERE THE ENGINE RAN is recorded
@@ -124,6 +128,7 @@ func WriteRecord(file string, in Record) error {
 	for _, s := range in.Skills {
 		_, _ = fmt.Fprintf(&input, "%s\n", s)
 	}
+	writePosture(&input, in.Posture)
 	input.WriteString("=== Context ===\n")
 	input.WriteString(in.Context)
 	input.WriteString("\n=== Prompt ===\n")
@@ -168,4 +173,22 @@ func Response(custom string, hasCustom bool, contextStr, prompt string, mode int
 		response.WriteString("[mock] distilled=Compressed content for testing\n")
 	}
 	return response.String()
+}
+
+// writePosture renders a structured turn's posture section; nothing for a
+// run that has none.
+func writePosture(b *strings.Builder, p *engine.TurnPosture) {
+	if p == nil {
+		return
+	}
+	b.WriteString("=== Posture ===\n")
+	_, _ = fmt.Fprintf(b, "mode=%s\n", p.Mode)
+	for _, g := range p.Grants {
+		_, _ = fmt.Fprintf(b, "grant=%s\n", g)
+	}
+	trust := "untrusted"
+	if p.Trust == engine.TrustTrusted {
+		trust = "trusted"
+	}
+	_, _ = fmt.Fprintf(b, "trust=%s\n", trust)
 }

@@ -69,7 +69,8 @@ run:
       # pre_tool_fallback: the bind is first-bind-wins idempotent, so on
       # agents without a session-start event it may fire on
       # PreToolUse instead — the session binds at the first tool call.
-      - command: ctxloom hook session-bind
+      - command: ctxloom
+        args: [hook, session-bind]
         type: command
         pre_tool_fallback: true
     post_file_edit:
@@ -77,7 +78,8 @@ run:
       # internal/lm/backends/hooks.go::PostFileEdit translation. Plan-file
       # filtering happens inside stamp-plan via memory.IsPlanFile so the
       # hook is cheap to install on every Edit/Write call.
-      - command: ctxloom hook stamp-plan
+      - command: ctxloom
+        args: [hook, stamp-plan]
         type: command
 
   mcp:

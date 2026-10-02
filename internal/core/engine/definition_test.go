@@ -77,6 +77,14 @@ func (stub) Hooks() engine.HookCodec                { return nil }
 func (stub) Wake() engine.Declared[engine.WakeSpec] {
 	return engine.Absent[engine.WakeSpec]("a test double wakes nothing")
 }
+func (stub) Approvals() engine.Declared[engine.ApprovalCodec] {
+	return engine.Absent[engine.ApprovalCodec]("a test double approves nothing")
+}
+
+// Permissions: the doubles declare no permission model unless a test gives one.
+func (stub) Permissions() engine.Declared[engine.PermissionModel] {
+	return engine.Absent[engine.PermissionModel]("a test double declares no permission model")
+}
 
 func stubEngine(name engine.Name, dist engine.Distribution) engine.Engine {
 	return stub{engine.Base{Definition: engine.Definition{Name: name, Distribution: dist}}}

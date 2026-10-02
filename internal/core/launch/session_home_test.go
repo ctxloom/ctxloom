@@ -65,7 +65,7 @@ func TestResolve_TheCellsSessionHomeIsTheRule(t *testing.T) {
 			opts = append(opts, launchtest.RelocatableHome())
 		}
 		env := launchtest.Deps(t, opts...)
-		l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
+		l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
 		require.NoError(t, err)
 		req := env.LastCellRequest()
 		want, ok := launch.SessionHome(req.SessionDir, req.Engine, agents.HomeMode(req.HomeMode))

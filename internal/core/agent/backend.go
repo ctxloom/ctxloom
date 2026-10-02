@@ -441,7 +441,6 @@ type ExecuteRequest struct {
 	Env         map[string]string
 	Verbosity   uint32
 	DryRun      bool
-	Permissions PermissionMode
 	Temperature float32
 
 	// Stdin and Resize carry the frontend's terminal input into an interactive

@@ -50,7 +50,7 @@ func TestProdSpawner_Resolve_Allowlist(t *testing.T) {
 	}
 
 	t.Run("an unreviewed backend type is refused at Resolve", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nllm:\n  configs:\n    weird:\n      type: futurebackend\nagents:\n  dev:\n    llm: weird\n    permissions: bypass\n")
+		s := newSpawner(t, "version: 6\nllm:\n  configs:\n    weird:\n      type: futurebackend\nagents:\n  dev:\n    llm: weird\n    permissions:\n      weird:\n        mode: bypass\n")
 		_, err := s.Resolve(context.Background(), "dev")
 		require.Error(t, err, "an llm type outside viaStartRunBackends must refuse")
 		assert.Contains(t, err.Error(), "futurebackend")
@@ -58,7 +58,7 @@ func TestProdSpawner_Resolve_Allowlist(t *testing.T) {
 	})
 
 	t.Run("a reviewed backend resolves", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n")
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypass\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err)
 		assert.Equal(t, "claude-code", plan.Backend)
@@ -76,7 +76,7 @@ func TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt(t *testing.T) {
 		resetStrictness(t)
 		t.Setenv("HOME", t.TempDir())
 		appDir := filepath.Join(t.TempDir(), ".ctxloom")
-		writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: mock\n    permissions: bypass\n")
+		writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: mock\n    permissions:\n      mock:\n        mode: bypass\n")
 		return newSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), starter)
 	}
 

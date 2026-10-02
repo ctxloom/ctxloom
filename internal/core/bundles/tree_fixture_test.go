@@ -51,7 +51,7 @@ func writeTree(t testing.TB, fsys afero.Fs, root, name, doc string) string {
 		hookName := fmt.Sprintf("hook-%d", e.Index+1)
 		put(trust.KindHook, e.Event+"/"+hookName, content.Hook{
 			Event: e.Event, Name: hookName, Order: &order,
-			Matcher: h.Matcher, Type: h.Type, Command: h.Command, Prompt: h.Prompt,
+			Matcher: h.Matcher, Type: h.Type, Command: h.Command, Args: h.Args, Prompt: h.Prompt,
 			Timeout: h.Timeout, Async: h.Async, PreToolFallback: h.PreToolFallback,
 		})
 	}

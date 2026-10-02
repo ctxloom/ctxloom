@@ -108,7 +108,7 @@ func TestCallbacksConsolidatedUnderHook(t *testing.T) {
 	// All callbacks live under hook; the meta namespace is gone, and the
 	// user-facing session/tasks namespaces no longer carry callbacks.
 	assert.ElementsMatch(t,
-		[]string{"inject-context", "hud", "session-bind", "stamp-plan", "tool-reflect", "skill-mates", "next-step", "mail-drain"},
+		[]string{"inject-context", "hud", "session-bind", "stamp-plan", "tool-reflect", "skill-mates", "next-step", "mail-drain", "permission"},
 		subNames(hook),
 		"every machine callback should be consolidated under hook")
 	assert.Nil(t, findSub(rootCmd, "meta"), "the meta namespace should be removed")
@@ -120,23 +120,14 @@ func TestCallbacksConsolidatedUnderHook(t *testing.T) {
 // TestCallbackCommandsAreHidden locks in the invariant that every machine
 // callback (invoked by generated harness files, never typed by a user) is
 // hidden at the leaf — defense in depth against a parent being un-hidden or a
-// command being re-parented under a visible namespace. Keep this list in sync
-// with the callback paths baked into generated settings.
+// command being re-parented under a visible namespace. The callbacks are the
+// hook namespace's own children, so a new one is covered without a list.
 func TestCallbackCommandsAreHidden(t *testing.T) {
-	callbacks := [][]string{
-		{"hook", "inject-context"},
-		{"hook", "hud"},
-		{"hook", "session-bind"},
-		{"hook", "stamp-plan"},
-		{"hook", "tool-reflect"},
-		{"hook", "skill-mates"},
-		{"hook", "next-step"},
-	}
-	for _, path := range callbacks {
-		c, _, err := rootCmd.Find(path)
-		require.NoError(t, err, "callback %v must resolve", path)
-		require.Equal(t, path[len(path)-1], c.Name(), "callback %v must resolve to the leaf", path)
-		assert.True(t, c.Hidden, "callback %v must be hidden so it never overwhelms the user surface", path)
+	hook := findSub(rootCmd, "hook")
+	require.NotNil(t, hook)
+	require.NotEmpty(t, hook.Commands())
+	for _, c := range hook.Commands() {
+		assert.True(t, c.Hidden, "callback hook %s must be hidden so it never overwhelms the user surface", c.Name())
 	}
 }
 

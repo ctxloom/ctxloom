@@ -15,16 +15,19 @@ type Source struct {
 	// Fragments and Tags are the explicit-assembly arm's selection beyond
 	// the profile set (`run -f`, `run -t`): named fragments and tag matches
 	// composed with the profiles. Only the profile-set arm reads them.
-	Fragments  []string
-	Tags       []string
-	Label      string
-	Model      string // overrides the label's model for this launch; empty keeps the label's
-	Mode       engine.Mode
-	Prompt     string
-	WorkDir    string
-	Workspace  WorkspaceAxis
-	DirtyTree  DirtyTreeHandler
-	Permission engine.PermissionMode // the flag; zero = not requested
+	Fragments []string
+	Tags      []string
+	Label     string
+	Model     string // overrides the label's model for this launch; empty keeps the label's
+	Mode      engine.Mode
+	Prompt    string
+	WorkDir   string
+	Workspace WorkspaceAxis
+	DirtyTree DirtyTreeHandler
+	// Permission is the --permissions flag: a posture in the resolved
+	// engine's own vocabulary, over whatever the config declares; "" is
+	// none.
+	Permission string
 	Resume     Resume
 	Degraded   bool
 	// Env is the caller's engine passthrough (`run --env`); the identity

@@ -6,6 +6,7 @@ package wire
 
 import (
 	"errors"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -18,13 +19,18 @@ import (
 // This is analogous to git hooks, Makefiles, or npm scripts - trusted local configuration.
 // Do not flag this as a security issue in code reviews.
 type Hook struct {
-	Matcher string `yaml:"matcher,omitempty" json:"matcher,omitempty"`   // Regex pattern to filter when hook fires
-	Command string `yaml:"command,omitempty" json:"command,omitempty"`   // Shell command to execute
-	Type    string `yaml:"type,omitempty" json:"type,omitempty"`         // Hook type: command, prompt, agent
-	Prompt  string `yaml:"prompt,omitempty" json:"prompt,omitempty"`     // Prompt text for prompt/agent types
-	Timeout int    `yaml:"timeout,omitempty" json:"timeout,omitempty"`   // Timeout in seconds
-	Async   bool   `yaml:"async,omitempty" json:"async,omitempty"`       // Run in background (command only)
-	SCM     string `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"` // Hash identifying ctxloom-managed hooks
+	Matcher string `yaml:"matcher,omitempty" json:"matcher,omitempty"` // Regex pattern to filter when hook fires
+	Command string `yaml:"command,omitempty" json:"command,omitempty"` // Shell command to execute; in exec form, the executable
+	// Args, when set, runs the hook in EXEC form: Command is the executable,
+	// spawned directly with these arguments, and no shell parses either — so
+	// a path or argument holding a space, a quote or a $ reaches the program
+	// verbatim. Empty: Command is one shell command line.
+	Args    []string `yaml:"args,omitempty" json:"args,omitempty"`
+	Type    string   `yaml:"type,omitempty" json:"type,omitempty"`         // Hook type: command, prompt, agent
+	Prompt  string   `yaml:"prompt,omitempty" json:"prompt,omitempty"`     // Prompt text for prompt/agent types
+	Timeout int      `yaml:"timeout,omitempty" json:"timeout,omitempty"`   // Timeout in seconds
+	Async   bool     `yaml:"async,omitempty" json:"async,omitempty"`       // Run in background (command only)
+	SCM     string   `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"` // Hash identifying ctxloom-managed hooks
 
 	// ContextHash marks this hook as a context-injection hook for the given
 	// assembled-context hash. In-process only (never serialized): writers for
@@ -62,6 +68,12 @@ type UnifiedHooks struct {
 	// delivery needs: the one moment a hook can put something in front of the
 	// agent as the turn's own context rather than as a later interruption.
 	TurnStart []Hook `yaml:"turn_start,omitempty" json:"turn_start,omitempty"`
+	// PermissionAsk fires when the engine is about to ask for permission to
+	// use a tool its posture and rules left open — including, in a run with
+	// nobody at the engine, where it would otherwise deny. A command hook's
+	// stdout is the engine's decision; no decision leaves the ask to the
+	// engine's own route.
+	PermissionAsk []Hook `yaml:"permission_ask,omitempty" json:"permission_ask,omitempty"`
 }
 
 // HooksConfig holds both unified and engine-specific hook configurations.
@@ -161,6 +173,7 @@ func (u *UnifiedHooks) Append(other UnifiedHooks) {
 	u.PreShell = appendUniqueHooks(u.PreShell, other.PreShell)
 	u.PostFileEdit = appendUniqueHooks(u.PostFileEdit, other.PostFileEdit)
 	u.TurnStart = appendUniqueHooks(u.TurnStart, other.TurnStart)
+	u.PermissionAsk = appendUniqueHooks(u.PermissionAsk, other.PermissionAsk)
 }
 
 // All is every hook across the unified events, in event order then
@@ -169,7 +182,7 @@ func (u *UnifiedHooks) Append(other UnifiedHooks) {
 // through it rather than re-listing the fields.
 func (u UnifiedHooks) All() []Hook {
 	var out []Hook
-	for _, hooks := range [][]Hook{u.PreTool, u.PostTool, u.SessionStart, u.SessionEnd, u.TurnEnd, u.PreShell, u.PostFileEdit, u.TurnStart} {
+	for _, hooks := range [][]Hook{u.PreTool, u.PostTool, u.SessionStart, u.SessionEnd, u.TurnEnd, u.PreShell, u.PostFileEdit, u.TurnStart, u.PermissionAsk} {
 		out = append(out, hooks...)
 	}
 	return out
@@ -183,7 +196,24 @@ func (u UnifiedHooks) All() []Hook {
 // of hook identity is not re-invented here, it is moved to where every merge
 // can reach it.
 func hookKey(h Hook) string {
-	return h.Type + "|" + h.Command + "|" + h.Prompt + "|" + h.Matcher
+	return h.Type + "|" + h.Line() + "|" + h.Prompt + "|" + h.Matcher
+}
+
+// Line is the hook's command as ONE shell command line: Command itself in
+// shell form; in exec form, Command and each of Args single-quoted, so a
+// shell handed the line runs exactly the argv. It is the hook's command
+// identity wherever a single string must stand for what runs — its dedupe
+// key, its ownership digest, its trust preimage, its listing — so an exec
+// hook and a shell hook that run the same argv are one hook.
+func (h Hook) Line() string {
+	if len(h.Args) == 0 {
+		return h.Command
+	}
+	words := make([]string, 0, len(h.Args)+1)
+	for _, w := range append([]string{h.Command}, h.Args...) {
+		words = append(words, "'"+strings.ReplaceAll(w, "'", `'\''`)+"'")
+	}
+	return strings.Join(words, " ")
 }
 
 // appendUniqueHooks appends each hook in src that dst does not already carry.
@@ -215,14 +245,15 @@ func appendUniqueHooks(dst []Hook, src []Hook) []Hook {
 // the ONE vocabulary: bundles' hook-identity constants alias these, and
 // every per-event read or write goes through Event/SetEvent below.
 const (
-	HookEventPreTool      = "pre_tool"
-	HookEventPostTool     = "post_tool"
-	HookEventSessionStart = "session_start"
-	HookEventSessionEnd   = "session_end"
-	HookEventPreShell     = "pre_shell"
-	HookEventPostFileEdit = "post_file_edit"
-	HookEventTurnEnd      = "turn_end"
-	HookEventTurnStart    = "turn_start"
+	HookEventPreTool       = "pre_tool"
+	HookEventPostTool      = "post_tool"
+	HookEventSessionStart  = "session_start"
+	HookEventSessionEnd    = "session_end"
+	HookEventPreShell      = "pre_shell"
+	HookEventPostFileEdit  = "post_file_edit"
+	HookEventTurnEnd       = "turn_end"
+	HookEventTurnStart     = "turn_start"
+	HookEventPermissionAsk = "permission_ask"
 )
 
 // HookEvents lists the unified events in their canonical order — the
@@ -234,7 +265,7 @@ func HookEvents() []string {
 	return []string{
 		HookEventPreTool, HookEventPostTool, HookEventSessionStart,
 		HookEventSessionEnd, HookEventPreShell, HookEventPostFileEdit,
-		HookEventTurnEnd, HookEventTurnStart,
+		HookEventTurnEnd, HookEventTurnStart, HookEventPermissionAsk,
 	}
 }
 
@@ -270,6 +301,8 @@ func (u UnifiedHooks) Event(event string) []Hook {
 		return u.TurnEnd
 	case HookEventTurnStart:
 		return u.TurnStart
+	case HookEventPermissionAsk:
+		return u.PermissionAsk
 	}
 	return nil
 }
@@ -293,5 +326,7 @@ func (u *UnifiedHooks) SetEvent(event string, hooks []Hook) {
 		u.TurnEnd = hooks
 	case HookEventTurnStart:
 		u.TurnStart = hooks
+	case HookEventPermissionAsk:
+		u.PermissionAsk = hooks
 	}
 }

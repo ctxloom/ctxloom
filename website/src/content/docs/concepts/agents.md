@@ -18,7 +18,9 @@ agents:
     llm: claude-code
     profiles: [default, go-developer]
     runtime: container-rootless
-    permissions: acceptEdits
+    permissions:
+      mode: acceptEdits
+      deny: ["Bash(git push *)"]
 ```
 
 Agents are also the unit ctxloom's coordinator/child [delegation](/concepts/agent-delegation/)
@@ -30,7 +32,27 @@ An agent names:
 - **`llm`** — the LLM config label or engine to run. It overrides the constituent profiles' own `llm:`; omit it to use the project default.
 - **`profiles`** — one or more profiles that compose into a single assembled context.
 - **`runtime`** (optional) — where the engine process executes: `host`, `container-rootless`, or `container-rootful` (the two container values name WHO OWNS the container runtime daemon and are not interchangeable — a rootful daemon maps the engine's writes to a different uid than a rootless one). Omit to inherit the project's `runtime:` default.
-- **`permissions`** (optional) — the launch-time permission posture the engine starts in: `default`, `acceptEdits`, `plan`, `bypass`, `dontAsk` (deny whatever the rules do not allow) or `auto` (the engine's own classifier decides). A headless run (a one-shot or a delegated child) has nobody to answer a prompt, so the engine denies whatever its posture would have asked about, and a delegated child's parent hears that turn as *blocked*. Omit it and the agent inherits the engine label's configured posture, then **this project directory's [`permissions:` default](/guides/configuration/#permissions)**, then the engine's built-in default. `run --permissions` overrides it for one session. Declaring it here always beats the project default — a project-wide `bypass` never widens a `reviewer` that asked for `plan`.
+- **`permissions`** (optional) — the agent's permission block: the engine-neutral fields, and one block per engine, keyed by the engine's name, holding that engine's own keys. Every field is optional:
+  - `approver` — who answers a request the posture leaves open: `human` (the default), `none` (nobody: it is denied) or `reviewer` (the engine's own classifier, where the engine has one).
+  - `approval_timeout` — how long a request waits before it is denied (`20m`; default 15m, at most 60m).
+  - `sandbox` — what the engine's own commands may touch: `read-only`, `workspace-write` (the working tree only) or `full`. Undeclared, the engine's default applies; a value the engine cannot enforce where the agent runs is refused.
+  - `network` — whether sandboxed commands may reach the network.
+  - `<engine>:` — that engine's own keys, which it validates at load. For claude-code: `mode` (`default`, `acceptEdits`, `plan`, `bypass`), `after_plan` (the mode an approved plan continues at), and `allow`/`deny`/`ask` rules in claude's syntax (`Tool` or `Tool(content)`, e.g. `Bash(npm test)`, `mcp__server__tool`).
+
+  ```yaml
+  agents:
+    worker:
+      llm: claude-code
+      permissions:
+        approver: none
+        sandbox: workspace-write
+        claude-code:
+          mode: acceptEdits
+          deny: ["Bash(rm *)"]
+  ```
+
+  A binding's engine is only known when it resolves, so a binding may carry blocks for several engines; one that carries blocks but none for the engine it resolves to is refused (under `--degraded`, it runs at that engine's most restrictive posture). Each key the agent leaves empty inherits the engine label's, then — for the neutral fields — this project directory's [`permissions:` default](/guides/configuration/#permissions), then the engine's default. `run --permissions` overrides the mode for one session. A headless run (a one-shot or a delegated child) has nobody at the engine to answer a prompt, so the engine denies whatever its posture and rules leave open, and a delegated child's parent hears that turn as *blocked*.
+- **`may_delegate`** (optional) — the agents this one may launch with `agent_run`. Unset or empty permits any; a list permits exactly those, and `agent_run` refuses any other, naming the ones allowed — whether the agent was delegated or is the root session (`ctxloom run --agent`, or the default agent of a bare `ctxloom run`). A name that is no agent is refused at load. A child's permissions always come from its own binding: `agent_run` cannot set them.
 
 Whether an agent gets the coordinator-only MCP tools (the ones that spawn, observe, control or stop other children, such as `agent_run`, `roster` and `agent_stop`) is **not** an agent-binding setting — it follows from where the agent sits in the delegation tree, not from anything you write on the binding. See the `delegation.depth` project setting on the [Configuration](/reference/config/) page: the session owner is depth 0 and always gets the tools; its subagents are depth 1 and, at the default cap, do not. A leaf still reports to its parent via `agent_send`/`agent_report`.
 

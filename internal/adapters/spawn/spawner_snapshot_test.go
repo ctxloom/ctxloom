@@ -39,7 +39,7 @@ func TestProdSpawner_Resolve_OneSnapshotPerSpawn(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: plan\n")
+	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: plan\n")
 
 	inner, err := configload.New(nil, nil, configload.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestProdSpawner_Resolve_OneSnapshotPerSpawn(t *testing.T) {
 	// The edited definition is visible on the NEXT spawn and never before:
 	// the snapshot published by the second spawn's Reload is what the
 	// third spawn's Resolve reads from the owner after its own Reload.
-	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: plan\n  fresh:\n    llm: claude-code\n    permissions: bypass\n")
+	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: plan\n  fresh:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: bypass\n")
 	plan, err := s.Resolve(context.Background(), "fresh")
 	require.NoError(t, err, "an agent added mid-session resolves on the next spawn")
 	assert.Equal(t, "claude-code", plan.Backend)

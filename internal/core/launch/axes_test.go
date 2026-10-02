@@ -102,7 +102,7 @@ func TestSource_CarriesWhatACallerKnows(t *testing.T) {
 		WorkDir:    "/p",
 		Workspace:  WorkspaceWorktree,
 		DirtyTree:  DirtyTreeHandlerCommit,
-		Permission: engine.PermissionPlan,
+		Permission: "plan",
 		Resume:     Resume{Ref: sessions.ResumeRef{Harp: "quiet-amber-falcon", NativeKey: "k"}, RebindEndpoint: true},
 		Degraded:   false,
 	}

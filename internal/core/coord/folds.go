@@ -66,6 +66,8 @@ type RunRecord struct {
 	// enqueue. Only meaningful while the run is live: the container is
 	// force-removed on teardown.
 	ContainerName string
+	// MayDelegate is the roles the run may launch (runEnqueued.MayDelegate).
+	MayDelegate []string
 }
 
 // TopLevel reports whether the run is a session's OWN run rather than a
@@ -148,6 +150,7 @@ func (f *runsFold) applyEnqueued(p runEnqueued, at time.Time) {
 		EnqueuedAt:   at,
 		LastActivity: at,
 		Permission:   p.Permission,
+		MayDelegate:  p.MayDelegate,
 		MCPServers:   p.MCPServers,
 	}
 	f.byHarp[p.Harp] = p.RunID

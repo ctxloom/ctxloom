@@ -105,8 +105,8 @@ func matrixBundleYAML(nonce string) string {
 func matrixConfigYAML(a liveAgent, llmKey, runtime string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
-	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
-		matrixAgent, llmKey, matrixAgent)
+	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n%s",
+		matrixAgent, llmKey, matrixAgent, permissionsBlock(a.engine, "bypass"))
 	b.WriteString(runtimeBindingLine(runtime))
 	return b.String()
 }

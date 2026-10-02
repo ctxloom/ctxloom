@@ -42,6 +42,7 @@ func DefaultPolicy() Policy {
 		{Path: "agents.*.surfaces.*", Scope: ScopeShared, Note: "a delivery choice validated against the binding's engine; it is only meaningful where that engine is named"},
 		{Path: "agents.*.roots.*", Scope: ScopeShared, Note: "a root selection validated against the kind's offered roots; like surfaces, it is only meaningful where that engine is named"},
 		{Path: "agents.*.permissions", Scope: ScopeShared, Note: "a privilege grant; a team may decide it, but a user's home config must never fill it in for a project"},
+		{Path: "agents.*.may_delegate", Scope: ScopeShared, Note: "which roles an agent may launch — containment a team decides, which a home config or the environment an agent can write must never loosen"},
 		// Shared, same reasoning as agents.*.surfaces.* just above: which
 		// config home a binding gets is a pollution/isolation POLICY decision
 		// about the project's agents, not a fact about this machine — a team

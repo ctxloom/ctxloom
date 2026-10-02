@@ -261,3 +261,29 @@ func TestHook_InsertingAHookLeavesItsNeighboursBytesUntouched(t *testing.T) {
 		}
 	}
 }
+
+// TestHook_ExecArgsRoundTripThroughTheTree: an exec-form hook's argument
+// list survives encode → filesystem → walk → decode, and a shell-form hook's
+// content file carries no args key, so its bytes (and digest) are what they
+// were.
+func TestHook_ExecArgsRoundTripThroughTheTree(t *testing.T) {
+	ctx := context.Background()
+	store := fixtureStore(t)
+	writeFile(t, store.fsys, fixtureRoot+"/code-quality/hooks/pre_tool/guard.yaml", "type: command\ncommand: ctxloom\nargs:\n    - hook\n    - session-bind\n")
+	surf, err := mustHookItem(t, store, "code-quality", "pre_tool/guard").Surface(ctx)
+	if err != nil {
+		t.Fatalf("Surface: %v", err)
+	}
+	if h := surf.(Hook); !slices.Equal(h.Args, []string{"hook", "session-bind"}) {
+		t.Fatalf("Args = %q, want [hook session-bind] — encoded but not decoded", h.Args)
+	}
+
+	exec, _ := splitHookComponents(encodeHook(t, Hook{Event: "pre_tool", Name: "x", Type: "command", Command: "ctxloom", Args: []string{"hook", "session-bind"}}))
+	if !strings.Contains(string(exec.Bytes), "args:") {
+		t.Fatalf("exec hook content %q carries no args", exec.Bytes)
+	}
+	shell, _ := splitHookComponents(encodeHook(t, Hook{Event: "pre_tool", Name: "x", Type: "command", Command: "ctxloom hook session-bind"}))
+	if want := "type: command\ncommand: ctxloom hook session-bind\n"; string(shell.Bytes) != want {
+		t.Fatalf("shell hook content = %q, want %q (byte-identical to before args existed)", shell.Bytes, want)
+	}
+}

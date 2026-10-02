@@ -345,7 +345,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 // truth for which backend and model the live lane drives an engine with —
 // exactly what matrixConfigYAML and probeConfigYAML do, for the same reason.
 //
-// permissions: bypass, deliberately. P3 is not a permission probe (that is P4)
+// permissions mode bypass, deliberately. P3 is not a permission probe (that is P4)
 // and an approval prompt on a headless turn would hang the cell and report as a
 // timeout, which reads like an engine defect. The hook itself is unaffected by
 // the tier: it is exec'd by the engine's own harness, not by a tool call the
@@ -365,8 +365,8 @@ func lastRunes(s string, n int) string {
 func hookProbeConfigYAML(a liveAgent, llmKey, engine, runtime string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
-	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
-		hookProbeAgent, llmKey, hookProbeAgent)
+	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n%s",
+		hookProbeAgent, llmKey, hookProbeAgent, permissionsBlock(a.engine, "bypass"))
 	if hookProbeNeedsSessionHome(engine) {
 		b.WriteString("    engine_home: session\n")
 	}

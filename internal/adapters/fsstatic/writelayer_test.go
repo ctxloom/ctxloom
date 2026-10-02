@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -29,7 +28,7 @@ func TestWriteLayer_NamesEveryFileTheOverlayPutContentUnder(t *testing.T) {
 	overlay := afero.NewCopyOnWriteFs(base, layer)
 
 	testsupport.WriteFile(t, overlay, at("direct"), []byte("d"), 0o600)
-	opened, err := iox.Create(overlay, at("opened"))
+	opened, err := safefs.Create(overlay, at("opened"))
 	require.NoError(t, err)
 	require.NoError(t, opened.Close())
 	require.NoError(t, overlay.Chmod(at("existing"), 0o755))

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // A tight 5-tool surface: list, add, set_status, edit, tag. Search rides on
@@ -210,6 +211,20 @@ type taskTagResult struct {
 	Refused []string `json:"refused,omitempty"`
 }
 
+// remedied renders a handler error's remedy (clifmt.RemedyOf) into the error
+// text the agent reads: the MCP SDK reports a tool error as err.Error(),
+// which a report.Error leaves its Fix out of, and the agent has no
+// RenderError of its own.
+func remedied[In, Out any](h mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+		res, out, err := h(ctx, req, in)
+		if fix, ok := clifmt.RemedyOf(err); ok {
+			err = fmt.Errorf("%w%s", err, clifmt.FixLine("", fix))
+		}
+		return res, out, err
+	}
+}
+
 // This and the sibling registerXTools functions elsewhere in the ctxloom
 // family (registerAgentTools, registerMemoryTools) share a duplicate shape by
 // construction (a run of mcp.AddTool calls). Their tool descriptions are
@@ -221,7 +236,7 @@ func registerTaskTools(server *mcp.Server) {
 			Name:        "task_list",
 			Description: "List tasks, optionally filtered by status, text term, or tag query (tag_query). By default this is scoped to the CURRENT project (resolved from the working directory); pass global=true to aggregate every PRIVATELY-homed project instead (a repo-homed project -- homing: repo -- is registered nowhere global and is never included, even if it is the current project; the result's notice field always says so when global is true). When no project can be resolved at all (not in a git repo, no CTXLOOM_ROOT, no prior task history there), the listing automatically falls back to global too, with the same notice field explaining why. Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs (single-project only). To enumerate MANY tasks, pass compact=true (harp_id, status, checked, tags, and a truncated headline in compact_tasks -- no full text/trigger/detail) and/or limit (caps row count; omitted rows are reported in omitted_by_limit, and status/summary counts stay uncapped) -- an unfiltered listing otherwise returns every task's full body and can overflow the caller; prefer statuses/tag_query filters too. Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
 		},
-		handleTaskList)
+		remedied(handleTaskList))
 
 	mcp.AddTool(server,
 		&mcp.Tool{
@@ -231,21 +246,21 @@ func registerTaskTools(server *mcp.Server) {
 				"If a tag's target is declared scalar (at most one value), setting a DIFFERENT value for it later via task_tag SILENTLY RETRACTS the value set here rather than adding a second one -- it is not a no-op. " +
 				"A tag value violating a declared enum or numeric range is rejected at write, as are the reserved words and/or/not and the tagma.* namespace.",
 		},
-		handleTaskAdd)
+		remedied(handleTaskAdd))
 
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "task_set_status",
 			Description: "Move a task to a different status. Use \"Done\" to complete a task or \"Archived\" to drop it from the active list without losing history. Use \"Deferred\" with a `trigger` to park a task on a named revive condition (it then hides from the active list until the condition fires).",
 		},
-		handleTaskSetStatus)
+		remedied(handleTaskSetStatus))
 
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "task_edit",
 			Description: "Replace a task's text in place, keyed by its harp ID. Pass the full new text (the whole text is replaced, not patched); status and any Deferred trigger are left unchanged.",
 		},
-		handleTaskEdit)
+		remedied(handleTaskEdit))
 
 	mcp.AddTool(server,
 		&mcp.Tool{
@@ -256,7 +271,7 @@ func registerTaskTools(server *mcp.Server) {
 				"A tag value violating a declared enum or numeric range is rejected at write, as are the reserved words and/or/not and the tagma.* namespace. " +
 				"Filter task_list with tag_query using the resulting tags.",
 		},
-		handleTaskTag)
+		remedied(handleTaskTag))
 }
 
 func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, *taskListResult, error) {

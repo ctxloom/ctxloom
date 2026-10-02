@@ -574,6 +574,7 @@ func (c *Coordinator) sweepChildSpool(role string) {
 		return
 	}
 	c.sweepChildDelivered(role)
+	c.noticeUnansweredAsks(role)
 }
 
 // sweepChildOut routes every message sitting in role's out/, oldest first, and
@@ -633,6 +634,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		c.failSpoolOut(role, e.Ref, err)
 		return
 	}
+	c.settleAsk(role, msg.InReplyTo, msg.Structured)
 	c.spoolDeliveryCount.Delivered.Add(1)
 	c.consumeSpool(role, e.Ref)
 }

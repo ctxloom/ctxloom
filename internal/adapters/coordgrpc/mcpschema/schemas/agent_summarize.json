@@ -1,6 +1,6 @@
 {
   "name": "agent_summarize",
-  "description": "Ask one of your delegated children for an on-demand summary of where it stands and WAIT for it. Same mechanism as agent_ask — the request is the child's next turn, the answer is what the child itself sends back quoting the request — but the child sees it as a summary request, not a question. This call BLOCKS until the summary arrives or the budget elapses; on timeout the request is still in the child's inbox. Only your OWN children may be summarized.",
+  "description": "Ask one of your delegated children for an on-demand summary of where it stands. Same mechanism as agent_ask: it returns an ask_id at once, the request is the child's next turn, and the summary is what the child itself sends back quoting the ask_id, which reaches you as mail and triggers your next turn. The child sees it as a summary request, not a question. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be summarized.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -23,23 +23,10 @@
     "type": "object"
   },
   "outputSchema": {
-    "description": "One cooperative answer to a question or summarize ask.",
+    "description": "Answers a question or summarize ask at once, before the child has read it.",
     "properties": {
       "ask_id": {
-        "description": "The id the child's reply quoted — the same id its question carried.",
-        "type": "string"
-      },
-      "from": {
-        "description": "The harp that answered, resolved from the inbox the reply came from, never from anything the reply claimed.",
-        "type": "string"
-      },
-      "structured": {
-        "additionalProperties": true,
-        "description": "The reply's structured companion, when the child attached one.",
-        "type": "object"
-      },
-      "text": {
-        "description": "The reply body: what the child chose to send.",
+        "description": "The ask's id. The child's answer quotes it in in_reply_to, and so does the exited notice if the child ends without answering.",
         "type": "string"
       }
     },

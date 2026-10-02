@@ -219,20 +219,18 @@ func (c *Coordinator) steerAsMail(sender, harp, kind, text string) (msgID string
 	return msgID, SteerOutcome{Delivery: mode}, nil
 }
 
+// askDisposition is what an accepted ask tells its caller beside the ask id.
+// DRAFT(text) worried-chief W6: the owner's voice, awaiting review.
+const askDisposition = "asked %s (ask %s): its answer arrives as mail quoting this id, and its arrival triggers your next turn"
+
 // controlDisposition words an accepted control request's answer, per verb:
 // the text a wire caller reads beside the typed result.
 func controlDisposition(req ControlRequest, out ControlResult) string {
 	switch req.Verb {
 	case ControlVerbSteer:
 		return fmt.Sprintf("steered %s (%s)", req.Harp, out.Delivery)
-	case ControlVerbQuestion:
-		if out.Answer != nil {
-			return fmt.Sprintf("%s answered", out.Answer.From)
-		}
-	case ControlVerbSummarize:
-		if out.Answer != nil {
-			return fmt.Sprintf("%s summarized", out.Answer.From)
-		}
+	case ControlVerbQuestion, ControlVerbSummarize:
+		return fmt.Sprintf(askDisposition, req.Harp, out.AskID)
 	case ControlVerbPause:
 		if out.Changed {
 			return fmt.Sprintf("paused %s: its current turn finishes, nothing new is handed to it until agent_resume", req.Harp)

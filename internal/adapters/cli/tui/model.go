@@ -319,8 +319,8 @@ func (m Model) applyFeedErr(msg feedErrMsg) (tea.Model, tea.Cmd) {
 }
 
 // applyControlResult lands one control round trip's outcome on the hint bar.
-// An ask's answer is flattened onto that one line: the full reply is also in
-// the target's own feed, as the agent_send that carried it.
+// An ask answers with its id at once; the child's answer is mail quoting it,
+// and shows in the target's own feed as the agent_send that carried it.
 func (m Model) applyControlResult(msg controlResultMsg) (tea.Model, tea.Cmd) {
 	harp := msg.req.Harp
 	if msg.err != nil {
@@ -331,15 +331,7 @@ func (m Model) applyControlResult(msg controlResultMsg) (tea.Model, tea.Cmd) {
 	case coord.ControlVerbSteer:
 		m.reportOK(fmt.Sprintf("injected into %s: %s", harp, msg.res.Delivery))
 	case coord.ControlVerbQuestion, coord.ControlVerbSummarize:
-		what := "answer"
-		if msg.req.Verb == coord.ControlVerbSummarize {
-			what = "summary"
-		}
-		text := ""
-		if msg.res.Answer != nil {
-			text = strings.Join(strings.Fields(msg.res.Answer.Text), " ")
-		}
-		m.reportOK(fmt.Sprintf("%s from %s: %s", what, harp, text))
+		m.reportOK(fmt.Sprintf("asked %s (ask %s); its reply arrives as mail", harp, msg.res.AskID))
 	case coord.ControlVerbPause:
 		m.reportOK(changedOr(msg.res.Changed, "paused "+harp, harp+" was already paused"))
 	case coord.ControlVerbResume:
@@ -608,15 +600,13 @@ func (m Model) sendControl(req coord.ControlRequest) (tea.Model, tea.Cmd) {
 	}
 }
 
-// controlPending is the hint while a request is in flight. An ask says it
-// waits for a reply: it resolves when the target answers, not when the
-// request lands.
+// controlPending is the hint while a request is in flight.
 func controlPending(req coord.ControlRequest) string {
 	switch req.Verb {
 	case coord.ControlVerbSteer:
 		return "injecting into " + req.Harp + "…"
 	case coord.ControlVerbQuestion, coord.ControlVerbSummarize:
-		return "asked " + req.Harp + "; waiting for its reply…"
+		return "asking " + req.Harp + "…"
 	case coord.ControlVerbPause:
 		return "pausing " + req.Harp + "…"
 	}

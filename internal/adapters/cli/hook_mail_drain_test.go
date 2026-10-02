@@ -127,6 +127,24 @@ func TestDrainMail_DeliversEveryPendingMessageAsTurnContextAndRecordsIt(t *testi
 	assert.ElementsMatch(t, []string{stem(first), stem(second)}, deliveredIDs(t), "the ack records each identity as delivered")
 }
 
+// TestDrainMail_HeaderCarriesTheMessageIDAndItsCorrelation: the owner reads
+// a child's answer to its ask (worried-chief W6) only through this header, so
+// the header must name the message's own id and the id it answers — without
+// them an answer cannot be matched to the ask that asked for it.
+func TestDrainMail_HeaderCarriesTheMessageIDAndItsCorrelation(t *testing.T) {
+	testsupport.Isolate(t)
+	w, err := spool.NewWriter(spool.NewHomeMapper(), mailDrainOwner, spool.DirIn, "coord")
+	require.NoError(t, err)
+	_, err = w.Write(&spool.Message{Kind: "result", FromHarp: "child-one", To: mailDrainOwner,
+		OriginID: "m-answer-1", InReplyTo: "m-ask-1", Body: "sqlx\n"})
+	require.NoError(t, err)
+
+	var out bytes.Buffer
+	require.NoError(t, drainMail(mailDrainCmd(&out), mailDrainOwner))
+	ctx := drainedEnvelope(t, &out).HookSpecificOutput.AdditionalContext
+	assert.Contains(t, ctx, "[coordinator-delivered message from=child-one kind=result id=m-answer-1 in_reply_to=m-ask-1]\nsqlx")
+}
+
 // TestDrainMail_EmptySpoolWritesNothing: woke for nothing. The engine must
 // receive NO envelope — an empty additionalContext would still be injected as
 // a turn-context event the model sees.

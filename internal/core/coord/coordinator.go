@@ -282,13 +282,11 @@ type Coordinator struct {
 	// answer to one copy would be lost with the channel it arrived on.
 	// Cleaned per-role at terminal (clearReqTrack); lazily initialized.
 	reqTrack map[reqKey]*inflightReq
-	// asks holds the outstanding correlated asks (spoolcontrol.go) — question
-	// and summarize — keyed by the id their request file carries as origin_id,
-	// which is what a reply quotes in in_reply_to. Registered BEFORE the file
-	// is published, so that an answer arriving the instant the file becomes
-	// observable still resolves instead of racing its own registration.
-	// Lazily initialized.
-	asks map[string]*pendingAsk
+	// openAsks holds the asks (spoolcontrol.go) — question and summarize —
+	// their target has not yet answered, keyed by the id the request file
+	// carries as origin_id, which is what a reply quotes in in_reply_to.
+	// Guarded by mu; lazily initialized.
+	openAsks map[string]openAsk
 	// pendingStops holds, per run id, the terminal detail of an agent_stop
 	// whose runner is closing the run: the runner's own RunExited can reach
 	// RunnerExited before the stop's terminal, and must be recorded as the
@@ -298,12 +296,11 @@ type Coordinator struct {
 	// their runner's gate, keyed by run id so a relaunch (a new run) is never
 	// described as paused. Guarded by mu; lazily initialized.
 	pausedRuns map[string]struct{}
-	// onAskPublished, when set, is called by controlAsk between REGISTERING the
-	// waiter and PUBLISHING the ask — the register-before-publish test seam,
-	// It fires on that side
-	// of the publish deliberately: a hook fired after it cannot distinguish a
-	// correct implementation from one that registers between the write and the
-	// hook, since both have registered by then. Nil in production.
+	// onAskPublished, when set, is called by controlAsk between RECORDING the
+	// ask open and PUBLISHING it — the record-before-publish test seam. It
+	// fires on that side of the publish deliberately: a hook fired after it
+	// cannot distinguish a correct implementation from one that records
+	// between the write and the hook. Nil in production.
 	onAskPublished func(askID string)
 	// afterMailWritten, when set, is called by the coordinator's mail courier
 	// once a message is on disk and rung, before the sender learns its
@@ -1018,8 +1015,7 @@ func (c *Coordinator) Roster(caller Identity) []RosterEntry {
 
 // AgentSend delivers a message per §6a delivery-by-state. Children address
 // only their parent (hub-and-spoke); the session owner addresses its
-// children by harp. inReplyTo carries a correlation — see peerSend for the
-// ask-reply interception it enables.
+// children by harp. inReplyTo carries a correlation the recipient reads.
 func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
 	_, disposition, err := c.peerSend(caller, to, kind, body, structured, inReplyTo)
 	return disposition, err
@@ -1030,46 +1026,13 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structur
 // delivery-by-state. delivered reports a completed waiting receive (a local
 // parked poll, or a tentative push into the recipient runner's parked recv).
 //
-// inReplyTo is checked FIRST against outstanding asks (resolveAskReply): a
-// match resolves the parked ask and returns immediately WITHOUT queuing
-// ordinary mail. An UNKNOWN id falls through to ordinary delivery, so a
-// stale/duplicate in_reply_to degrades gracefully rather than erroring the
-// send.
+// inReplyTo rides the mail unchanged: a reply to an ask is ordinary mail to
+// the asker, and routeSpoolOut closes the ask it answers (settleAsk).
 func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, disposition string, err error) {
-	// THE COLLISION, and where it is resolved (spoolturnresult.go).
-	//
-	// A child's AUTOMATIC turn report quotes the id of the message
-	// that started the turn — the correlation a parent wants, and a ruling.
-	// But correlation is AUTHORITY here: an in_reply_to that names an
-	// outstanding ask answers it. An automatic report must not, or the
-	// cooperative-reply ruling ("the answer is what the child CHOSE to send")
-	// is defeated by whatever the model happened to say that turn, arriving
-	// with exactly the right correlation.
-	//
-	// The discriminator is AUTHORSHIP, not kind. Kind cannot draw this line: a
-	// child deliberately answering "here are my findings" naturally sends
-	// KindResult, which is also what an automatic report is, so a resolver
-	// that refused KindResult would silently strand the most natural
-	// cooperative reply there is — this project's characteristic defect, newly
-	// installed. Only the writer knows whether the agent chose to send, so the
-	// writer marks it and this chokepoint reads the mark.
-	if inReplyTo != "" && !IsAutoReport(structured) {
-		// The CORRELATED ASK's answer (spoolcontrol.go): a reply to a
-		// coordinator question/summarize resolves the parked ask and does NOT
-		// also become mail — the asker is this coordinator, not a mailbox, and
-		// delivering the answer onward would give the target's parent a message
-		// it never asked for. A miss falls through, so a stale correlation
-		// degrades to ordinary mail rather than failing the send.
-		if disposition, matched, err := c.resolveAskReply(caller, inReplyTo, body, structured); matched {
-			return inReplyTo, disposition, err
-		}
-	}
 	// The closed-vocabulary ingress guard, at the ONE point both sender surfaces
 	// funnel through (agent_send's bare-MCP handler and the plane-2
 	// PeerSendRequest). It runs before any routing so a sender learns the
-	// vocabulary is wrong even when the recipient is also wrong, and AFTER the
-	// ask-reply interception, whose reply carries its answer in the body rather
-	// than the kind.
+	// vocabulary is wrong even when the recipient is also wrong.
 	if err := SenderMailKind(kind); err != nil {
 		return "", "", err
 	}

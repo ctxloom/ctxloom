@@ -802,10 +802,7 @@ func controlResultToWire(res coord.ControlResult) (*agentcoordpb.ControlRunResul
 	case coord.ControlVerbSteer:
 		return &agentcoordpb.ControlRunResult{Verb: &agentcoordpb.ControlRunResult_Steer{Steer: &agentcoordpb.ControlSteerResult{Delivery: res.Delivery, MessageId: res.MessageID}}}, nil
 	case coord.ControlVerbQuestion, coord.ControlVerbSummarize:
-		ans, err := askResultToWire(res.Answer)
-		if err != nil {
-			return nil, err
-		}
+		ans := &agentcoordpb.ControlAskResult{AskId: res.AskID}
 		if res.Verb == coord.ControlVerbQuestion {
 			return &agentcoordpb.ControlRunResult{Verb: &agentcoordpb.ControlRunResult_Question{Question: ans}}, nil
 		}
@@ -816,21 +813,6 @@ func controlResultToWire(res coord.ControlResult) (*agentcoordpb.ControlRunResul
 		return &agentcoordpb.ControlRunResult{Verb: &agentcoordpb.ControlRunResult_Resume{Resume: &agentcoordpb.ControlResumeResult{NewlyResumed: res.Changed}}}, nil
 	}
 	return nil, fmt.Errorf("control_run: no result for verb %q", res.Verb)
-}
-
-func askResultToWire(ans *coord.AskAnswer) (*agentcoordpb.ControlAskResult, error) {
-	if ans == nil {
-		return &agentcoordpb.ControlAskResult{}, nil
-	}
-	out := &agentcoordpb.ControlAskResult{AskId: ans.AskID, From: ans.From, Text: ans.Text}
-	if len(ans.Structured) > 0 {
-		st := &structpb.Struct{}
-		if err := st.UnmarshalJSON(ans.Structured); err != nil {
-			return nil, fmt.Errorf("the answer from %s carried a structured companion that does not decode: %v", ans.From, err)
-		}
-		out.Structured = st
-	}
-	return out, nil
 }
 
 // OutFrameToWire encodes one coordinator-to-run frame.
@@ -1074,8 +1056,6 @@ func StatusFromErr(err error) *rpcstatus.Status {
 	case errors.Is(err, coord.ErrPeerRouting), errors.Is(err, coord.ErrControlRefused), errors.Is(err, coord.ErrNotAChild),
 		errors.Is(err, coord.ErrRosterIsTheOwners), errors.Is(err, coord.ErrRunNotIssued), errors.Is(err, coord.ErrForbidden):
 		code = codes.PermissionDenied
-	case errors.Is(err, coord.ErrAskTimeout):
-		code = codes.DeadlineExceeded
 	case errors.Is(err, coord.ErrSenderMailKind), errors.Is(err, coord.ErrInvalidRequest):
 		code = codes.InvalidArgument
 	case errors.Is(err, coord.ErrDraining):

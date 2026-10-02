@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
@@ -26,7 +25,6 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -390,34 +388,11 @@ func controlToolHandler[M any, PM interface {
 		if err := unmarshalArgs(req, m); err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
-		if budget := controlWireBudget(name); budget > 0 {
-			if _, has := ctx.Deadline(); !has {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, budget)
-				defer cancel()
-			}
-		}
 		resp, err := home.Request(ctx, &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_ControlRun{ControlRun: arm(m)}})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
 		return coordinationResult(resp, pick(resp.GetControlRun()))
-	}
-}
-
-// controlWireBudget is how long one control tool's plane-2 request may take
-// when the harness hands the handler a deadline-free ctx, or zero to keep
-// Home.Request's default. Only the two ASKS outrun it: they block for the
-// child's cooperative answer, and the coordinator's own verdict on an
-// unanswered one must arrive before the wire gives up (coord.AskWireBudget).
-// Steer, pause and resume are mechanical and keep the default so a wedged
-// runner fails fast.
-func controlWireBudget(name string) time.Duration {
-	switch name {
-	case mcpschema.ToolAgentAsk, mcpschema.ToolAgentSummarize:
-		return coord.AskWireBudget
-	default:
-		return 0
 	}
 }
 

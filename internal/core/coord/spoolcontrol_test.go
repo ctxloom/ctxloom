@@ -2,7 +2,6 @@ package coord
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -230,6 +229,8 @@ func TestSpoolAsk_ChildThatEndsWithoutAnsweringSendsACorrelatedNotice(t *testing
 	require.NotEmpty(t, recvWhere(t, c, func(m Message) bool {
 		return m.InReplyTo == askID && IsAutoReport(m.Structured)
 	}, conformanceWait), "the turn the ask started must have ended and been reported")
+	c.noticeUnansweredAsks(out.Harp)
+	require.True(t, askOpen(c, askID), "a LIVE child may still answer, and is owed no notice")
 
 	c.terminateRun(out.RunID, CauseRunnerExit, "engine crashed")
 
@@ -240,155 +241,60 @@ func TestSpoolAsk_ChildThatEndsWithoutAnsweringSendsACorrelatedNotice(t *testing
 	assert.Contains(t, notice[0].Body, CauseRunnerExit, "the notice says why the child ended")
 }
 
-// TestSpoolAsk_QuestionIsAnsweredByCorrelation is the ask plane's happy path:
-// the question is delivered to the child as a turn it can read, and the answer
-// is the child's OWN send quoting it. Correlation is by in_reply_to and by
-// nothing else.
-func TestSpoolAsk_QuestionIsAnsweredByCorrelation(t *testing.T) {
+// askOpen reports whether askID is still recorded as unanswered.
+func askOpen(c *Coordinator, askID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.openAsks[askID]
+	return ok
+}
+
+// TestSpoolAsk_RecordedOpenBeforeItIsPublished pins the ordering: the ask is
+// recorded open at the instant before its file can exist, so an answer that
+// lands the moment the file is observable finds the record and closes it.
+// Recorded afterwards, that answer would close nothing, and the child's end
+// would report an answered ask as unanswered.
+func TestSpoolAsk_RecordedOpenBeforeItIsPublished(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "first task")
+	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 
-	askIDs := make(chan string, 1)
-	c.onAskPublished = func(id string) { askIDs <- id }
-
-	answers := make(chan AskAnswer, 1)
-	errs := make(chan error, 1)
-	go func() {
-		ans, err := c.ControlQuestion(context.Background(), humanInitiator(), out.Harp, "why sqlx over diesel?")
-		if err != nil {
-			errs <- err
-			return
-		}
-		answers <- ans
-	}()
-
-	var askID string
-	select {
-	case askID = <-askIDs:
-	case err := <-errs:
-		t.Fatalf("the ask failed before it was published: %v", err)
-	case <-time.After(conformanceWait):
-		t.Fatal("the ask was never published")
+	var openAtPublish bool
+	c.onAskPublished = func(id string) {
+		openAtPublish = askOpen(c, id)
+		answerAsk(t, home, id, "answered before the question was even read", nil)
 	}
-	require.NotEmpty(t, askID)
-
-	// The child is IDLE, so its runner PROMPTS it: the question arrives as a
-	// turn within one delivery, not at some later boundary of its own.
-	turns := awaitChatText(t, sp, 0, "why sqlx over diesel?")
-	var delivered string
-	for _, turn := range turns {
-		if strings.Contains(turn, "why sqlx over diesel?") {
-			delivered = turn
-		}
-	}
-	require.NotEmpty(t, delivered)
-	assert.Contains(t, delivered, "kind="+KindQuestion, "the child must be able to see that it is being asked")
-
-	structured, err := structpb.NewStruct(map[string]any{"confidence": "high"})
+	res, err := c.Control(context.Background(), humanInitiator(),
+		ControlRequest{Verb: ControlVerbQuestion, Harp: out.Harp, Body: "are you there?"})
 	require.NoError(t, err)
-	answerAsk(t, home, askID, "compile-time checked queries", structured)
-
-	select {
-	case ans := <-answers:
-		assert.Equal(t, askID, ans.AskID)
-		assert.Equal(t, out.Harp, ans.From, "the answerer is the spool the reply was found in")
-		assert.Equal(t, "compile-time checked queries", ans.Text)
-		require.NotEmpty(t, ans.Structured, "the reply's structured companion must survive the file")
-		var payload map[string]any
-		require.NoError(t, json.Unmarshal(ans.Structured, &payload))
-		assert.Equal(t, "high", payload["confidence"])
-	case err := <-errs:
-		t.Fatalf("the ask went unanswered: %v", err)
-	case <-time.After(conformanceWait):
-		t.Fatal("the correlated reply never resolved the ask")
-	}
-
-	// The answer resolved the ask and did NOT also become mail: the asker is
-	// the coordinator, and delivering it onward would give the target's parent
-	// a message nobody sent it.
-	assert.Empty(t, recvBody(t, c, "compile-time checked queries", 200*time.Millisecond),
-		"an ask's answer is consumed by its waiter, never mailed onward as well")
+	require.True(t, openAtPublish, "the ask must be recorded open before it is published")
+	require.Eventually(t, func() bool { return !askOpen(c, res.AskID) }, conformanceWait, 10*time.Millisecond,
+		"an answer racing the publish must still close the ask")
 }
 
-// TestSpoolAsk_ReplyArrivingAtThePublishInstantStillResolves pins the
-// REGISTER-BEFORE-PUBLISH ordering — the property whose absence is
-// pulpy-whiff: the answer arrives, finds no waiter, degrades to ordinary mail,
-// and the asker sits out its whole budget reporting a timeout that never
-// happened.
-//
-// The reply is sent from INSIDE the publish hook, which is the earliest
-// instant an answer can exist at all. Only a hook fired there can assert the
-// ordering deterministically rather than by racing an Eventually.
-func TestSpoolAsk_ReplyArrivingAtThePublishInstantStillResolves(t *testing.T) {
+// TestSpoolAsk_OnlyTheTargetsDeliberateReplyClosesIt pins the two halves of
+// "answered": an id is not authority, so a reply quoting it from any harp but
+// the target leaves the ask open; and the runner's automatic turn report,
+// which quotes the id of the ask that started the turn, is not the child
+// choosing to answer. Uncorrelated output closes nothing either.
+func TestSpoolAsk_OnlyTheTargetsDeliberateReplyClosesIt(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "first task")
+	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 
-	registered := false
-	c.onAskPublished = func(askID string) {
-		// The STRUCTURAL half, asserted at the one instant that separates this
-		// ordering from every wrong one: the ask is about to be published, and
-		// its waiter is ALREADY in the table. The reply below then exercises
-		// the same fact end to end — one asserts the invariant, the other
-		// asserts that the invariant is what makes the answer land.
-		c.mu.Lock()
-		_, registered = c.asks[askID]
-		c.mu.Unlock()
-		answerAsk(t, home, askID, "answered in the same instant", nil)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer cancel()
-	ans, err := c.ControlQuestion(ctx, humanInitiator(), out.Harp, "are you there?")
-	require.NoError(t, err, "a reply landing at the publish instant must resolve, not time out")
-	assert.Equal(t, "answered in the same instant", ans.Text)
-	assert.NotEmpty(t, ans.AskID)
-	assert.True(t, registered,
-		"the waiter must be in the table BEFORE the ask is observable: a reply that finds no waiter degrades to ordinary mail and the asker times out on an answer it was given")
-}
+	askID := askOverTheWire(t, c, out.Harp, "which migration path?")
+	require.NotEmpty(t, recvWhere(t, c, func(m Message) bool {
+		return m.InReplyTo == askID && IsAutoReport(m.Structured)
+	}, conformanceWait), "the turn the ask started must have been reported automatically")
+	assert.True(t, askOpen(c, askID), "the automatic turn report is not the answer")
 
-// TestSpoolAsk_TurnOutputIsNotTheAnswer pins the COOPERATIVE-REPLY ruling: the
-// answer is what the child CHOSE to send back, correlated by in_reply_to.
-//
-// A child's ordinary turn report — the shape the automatic turn-boundary
-// bridge produces, kind `result` with no correlation — must NOT resolve an
-// outstanding ask. Involuntary capture would answer a question with whatever
-// the child happened to be saying at the time, and report it to a human as the
-// agent's answer.
-func TestSpoolAsk_TurnOutputIsNotTheAnswer(t *testing.T) {
-	resetStrictness(t)
-	teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "first task")
+	c.settleAsk("not-the-target", askID, nil)
+	assert.True(t, askOpen(c, askID), "a reply from a harp that was not asked must not close the ask")
 
-	askIDs := make(chan string, 1)
-	c.onAskPublished = func(id string) { askIDs <- id }
-	answers := make(chan AskAnswer, 1)
-	errs := make(chan error, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer cancel()
-	go func() {
-		ans, err := c.ControlQuestion(ctx, humanInitiator(), out.Harp, "which migration path?")
-		if err != nil {
-			errs <- err
-			return
-		}
-		answers <- ans
-	}()
-	var askID string
-	select {
-	case askID = <-askIDs:
-	case <-time.After(conformanceWait):
-		t.Fatal("the ask was never published")
-	}
-
-	// The child reports its turn the way the bridge does: kind result, no
-	// correlation at all.
 	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
 			ToRole: ParentAddress, Text: "unrelated turn output", Kind: agentcoordpb.MessageKind_MESSAGE_KIND_RESULT,
@@ -396,152 +302,47 @@ func TestSpoolAsk_TurnOutputIsNotTheAnswer(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 0, resp.GetStatus().GetCode())
+	require.NotEmpty(t, recvBody(t, c, "unrelated turn output", conformanceWait))
+	assert.True(t, askOpen(c, askID), "uncorrelated output must not close the ask")
 
-	// It must land as ORDINARY MAIL to the parent...
-	require.NotEmpty(t, recvBody(t, c, "unrelated turn output", conformanceWait),
-		"an uncorrelated report is ordinary mail and must still be delivered")
-	// ...and must NOT have answered the question.
-	select {
-	case ans := <-answers:
-		t.Fatalf("uncorrelated turn output was captured as the answer: %q", ans.Text)
-	case err := <-errs:
-		t.Fatalf("the ask failed instead of staying outstanding: %v", err)
-	default:
-	}
-
-	// The child's own, addressed answer is what resolves it.
 	answerAsk(t, home, askID, "the reversible one", nil)
-	select {
-	case ans := <-answers:
-		assert.Equal(t, "the reversible one", ans.Text, "only the correlated reply is the answer")
-	case err := <-errs:
-		t.Fatalf("the correlated reply did not resolve the ask: %v", err)
-	case <-time.After(conformanceWait):
-		t.Fatal("the correlated reply never resolved the ask")
-	}
+	require.Eventually(t, func() bool { return !askOpen(c, askID) }, conformanceWait, 10*time.Millisecond,
+		"the target's deliberate reply closes the ask")
 }
 
-// TestSpoolAsk_OnlyTheTargetCanAnswer pins resolveAskReply's answerer check:
-// the id alone is not authority. A reply quoting an outstanding ask's id from
-// any harp but the one asked must NOT resolve it — otherwise the asker is
-// handed someone else's words as the target's answer, a WRONG ANSWER rather
-// than an error, with nothing downstream able to tell.
-//
-// The foreign reply is sent from inside the publish hook, before the target
-// can have seen the ask at all, so what is asserted is the check and not who
-// won a race.
-func TestSpoolAsk_OnlyTheTargetCanAnswer(t *testing.T) {
+// TestSpoolAsk_UnreadAskOfAnEndedChildIsNotNoticed: an ask still unread in an
+// ended child's in/ may yet be answered — the ended-child rule resumes the
+// child for it — so it is not reported unanswered until it has been taken.
+func TestSpoolAsk_UnreadAskOfAnEndedChildIsNotNoticed(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "first task")
+	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
+	// Stopped: the one cause the ended-child rule does not resume, so the run
+	// stays ended while the test holds an unread ask in its spool.
+	c.terminateRun(out.RunID, CauseStopped, "test terminal")
 
-	askIDs := make(chan string, 1)
-	var foreignErr error
-	c.onAskPublished = func(id string) {
-		// A harp that is NOT the target quotes the id. The owner is one such
-		// harp; which non-target it is does not matter to the check.
-		_, foreignErr = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "forged answer", nil, id)
-		askIDs <- id
-	}
-	answers := make(chan AskAnswer, 1)
-	errs := make(chan error, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer cancel()
-	go func() {
-		ans, err := c.ControlQuestion(ctx, humanInitiator(), out.Harp, "who may answer this?")
-		if err != nil {
-			errs <- err
-			return
-		}
-		answers <- ans
-	}()
-	var askID string
-	select {
-	case askID = <-askIDs:
-	case <-time.After(conformanceWait):
-		t.Fatal("the ask was never published")
-	}
-	require.NoError(t, foreignErr, "a non-target's correlated send degrades to ordinary mail; it is not refused")
+	const askID = "m-unread-ask"
+	ref := writeInSpool(t, out.Harp, KindQuestion, askID, "still unread")
+	c.mu.Lock()
+	c.openAsks = map[string]openAsk{askID: {target: out.Harp, kind: KindQuestion}}
+	c.mu.Unlock()
 
-	select {
-	case ans := <-answers:
-		t.Fatalf("a non-target's reply was taken as the target's answer: %q from %q", ans.Text, ans.From)
-	case err := <-errs:
-		t.Fatalf("the ask failed instead of staying outstanding: %v", err)
-	default:
-	}
+	c.noticeUnansweredAsks(out.Harp)
+	assert.True(t, askOpen(c, askID), "an unread ask may still be answered and must not be reported unanswered")
 
-	answerAsk(t, home, askID, "the target's own answer", nil)
-	select {
-	case ans := <-answers:
-		assert.Equal(t, "the target's own answer", ans.Text)
-		assert.Equal(t, out.Harp, ans.From)
-	case err := <-errs:
-		t.Fatalf("the target's reply did not resolve the ask: %v", err)
-	case <-time.After(conformanceWait):
-		t.Fatal("the target's reply never resolved the ask")
-	}
-}
-
-// TestSpoolAsk_SummarizeCarriesItsOwnKind pins that the two asks are
-// distinguishable to the child: a summarize is not a question wearing the same
-// label, or the agent cannot tell what it is being asked for.
-func TestSpoolAsk_SummarizeCarriesItsOwnKind(t *testing.T) {
-	resetStrictness(t)
-	teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "first task")
-
-	askIDs := make(chan string, 1)
-	c.onAskPublished = func(id string) { askIDs <- id }
-	answers := make(chan AskAnswer, 1)
-	errs := make(chan error, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer cancel()
-	go func() {
-		ans, err := c.ControlSummarize(ctx, humanInitiator(), out.Harp, "just the schema decisions")
-		if err != nil {
-			errs <- err
-			return
-		}
-		answers <- ans
-	}()
-
-	var askID string
-	select {
-	case askID = <-askIDs:
-	case <-time.After(conformanceWait):
-		t.Fatal("the ask was never published")
-	}
-	// Answer only AFTER the child has actually been given the ask, so the file
-	// this test then reads has genuinely been delivered and consumed rather
-	// than short-circuited by a reply that beat its own question.
-	asked := awaitChatText(t, sp, 0, "just the schema decisions")
-	answerAsk(t, home, askID, "we chose sqlx, then wrote the migrations", nil)
-	select {
-	case ans := <-answers:
-		assert.Equal(t, "we chose sqlx, then wrote the migrations", ans.Text)
-	case err := <-errs:
-		t.Fatalf("the summarize ask failed: %v", err)
-	case <-time.After(conformanceWait):
-		t.Fatal("the summarize ask went unanswered")
-	}
-
-	awaitDelivered(t, out.Harp, askID, "the ask must have been delivered as a file")
-	var frame string
-	for _, turn := range asked {
-		if strings.Contains(turn, "just the schema decisions") {
-			frame = turn
-		}
-	}
-	assert.Contains(t, frame, "kind="+KindSummarize, "a summarize ask must carry its own kind, not a question's")
+	_, err := spool.Withdraw(spool.NewHomeMapper(), ref)
+	require.NoError(t, err)
+	c.noticeUnansweredAsks(out.Harp)
+	assert.False(t, askOpen(c, askID))
+	notice := recvWhere(t, c, func(m Message) bool { return m.Kind == KindExited && m.InReplyTo == askID }, conformanceWait)
+	require.Len(t, notice, 1, "once taken and unanswered, the ask is reported once, correlated to it")
+	assert.Contains(t, notice[0].Body, CauseStopped)
 }
 
 // TestSpoolAsk_EmptyTextIsRefused: empty input fails rather than asking
-// nothing and waiting out a budget for an answer to a question nobody asked.
+// nothing.
 func TestSpoolAsk_EmptyTextIsRefused(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
@@ -554,7 +355,7 @@ func TestSpoolAsk_EmptyTextIsRefused(t *testing.T) {
 	defer upCancel()
 	require.NoError(t, c.awaitChildUp(upCtx, out.Harp))
 
-	_, err = c.ControlQuestion(context.Background(), humanInitiator(), out.Harp, "")
+	_, err = c.controlAsk(humanInitiator(), out.Harp, KindQuestion, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "text is required")
 }
@@ -647,57 +448,6 @@ func TestSpoolControl_PauseRefusesAnotherRunsId(t *testing.T) {
 	_, _, err = c.peerSend(ownerIdentity(), out.Harp, KindMessage, "still running", nil, "")
 	require.NoError(t, err)
 	awaitChatText(t, sp, 0, "still running")
-}
-
-// TestControlBudgets_AsksWaitThirtyMinutesMechanicalVerbsFailFast pins the Q7
-// ruling: a question or summarize waits for a cooperative answer, which can
-// take as long as the child's current turn, so its deadline-free budget is 30
-// minutes; steer, pause and resume are mechanical effects on an attached
-// target and keep the 60s default so a wedged runner fails fast. The wire
-// budget must outlast the ask's, or a transport would replace the
-// coordinator's ErrAskTimeout verdict with a bare deadline.
-func TestControlBudgets_AsksWaitThirtyMinutesMechanicalVerbsFailFast(t *testing.T) {
-	assert.Equal(t, 30*time.Minute, controlAskBudget, "question/summarize budget")
-	assert.Equal(t, 60*time.Second, DefaultRequestTimeout, "pause/resume keep the default request budget")
-	assert.Greater(t, AskWireBudget, controlAskBudget, "the wire must outlast the ask it carries")
-}
-
-// TestSpoolAsk_LateReplyIsDroppedNotMailedOnward pins what a timed-out ask
-// promises its caller: ErrAskTimeout says an answer that still arrives "will
-// be dropped". Review finding F5's failure class is an answer landing where
-// nobody asked for it; a late reply that fell through to ordinary mail would
-// do exactly that — the child's parent (not the asker, who for a human
-// initiator is not a mailbox at all) receives a message quoting an ask it
-// never made, which nothing can place.
-func TestSpoolAsk_LateReplyIsDroppedNotMailedOnward(t *testing.T) {
-	resetStrictness(t)
-	teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "first task")
-
-	askIDs := make(chan string, 1)
-	c.onAskPublished = func(id string) { askIDs <- id }
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	_, err := c.ControlQuestion(ctx, humanInitiator(), out.Harp, "are you still there?")
-	require.ErrorIs(t, err, ErrAskTimeout)
-	askID := <-askIDs
-
-	// Sent as a real agent_send sends it: WITH a kind. A kindless reply is
-	// refused by the sender-vocabulary check once no ask intercepts it, so it
-	// would never reach the parent whatever the ask table did, and this test
-	// would pass for a reason that has nothing to do with the ask.
-	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
-		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
-			ToRole: ParentAddress, Text: "a late answer", InReplyTo: askID,
-			Kind: agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
-		}},
-	})
-	require.NoError(t, err)
-	require.EqualValues(t, 0, resp.GetStatus().GetCode())
-	assert.Empty(t, recvBody(t, c, "a late answer", time.Second),
-		"a reply to a timed-out ask must be dropped, as ErrAskTimeout promised, never mailed onward to the child's parent")
 }
 
 // TestSpoolSteer_ToAPausedTargetIsNotReportedAsANewTurn pins the surviving

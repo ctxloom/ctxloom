@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
@@ -23,20 +22,20 @@ import (
 //     the arbiter. Stale-but-consumed is the accepted cost; withdrawal is the
 //     remedy.
 //
-//   - AN ASK IS COOPERATIVE. A question or a summarize request is a file the
-//     child answers with a file, correlated by in_reply_to. The answer is what
-//     the child CHOSE to send: nothing here captures a turn's output and calls
-//     it the answer, so an ask cannot be resolved by something the child never
-//     addressed to it. An IDLE child answers within one delivery — its runner
-//     prompts it with the ask as a new turn — and a BUSY one at its next
-//     boundary.
+//   - AN ASK DOES NOT WAIT. A question or a summarize request is a file; the
+//     asker gets its id at once and nothing here waits for an answer. The
+//     answer is the child's own agent_send quoting that id: ordinary mail to
+//     the child's parent, whose arrival triggers the asker's next turn like
+//     any other mail. Nothing captures a turn's output and calls it the
+//     answer — the runner's automatic turn report quotes the id too, but it
+//     is marked automatic, and only a reply the child CHOSE to send closes
+//     the ask.
 //
-//   - CORRELATION IS REGISTERED BEFORE THE ASK IS PUBLISHED. The waiter goes
-//     into the table while the file does not yet exist, so a reply that lands
-//     the instant the file becomes observable still resolves it. Registering
-//     afterwards is the pulpy-whiff defect exactly: the answer arrives, finds
-//     no waiter, degrades to ordinary mail, and the asker sits out its whole
-//     budget before reporting a timeout that never happened.
+//   - AN ASK IS OPEN UNTIL ANSWERED, and recorded open BEFORE it is
+//     published, so a reply that lands the instant the file becomes
+//     observable still finds the record to close. A child that ends with an
+//     ask still open leaves its asker a notice correlated to that ask
+//     (noticeUnansweredAsks) instead of silence.
 
 // ErrSteerAlreadyDelivered answers a withdrawal that lost its race: the target
 // already took the instruction, so there is nothing left to retract.
@@ -61,32 +60,6 @@ var ErrNoSuchSteer = errors.New("steer: no instruction with that id is queued fo
 // ask was asked and went unanswered", which are different facts about the
 // world.
 var ErrAskUnavailable = errors.New("ask: this target does not take correlated asks")
-
-// ErrAskTimeout answers an ask whose budget elapsed with no reply.
-//
-// A timed-out ask is NOT a failed one: the request file is still in the
-// target's spool (or already consumed, and being worked on). The distinction
-// matters because the honest report to a human is "it has not answered yet",
-// never "the question failed to send".
-var ErrAskTimeout = errors.New("ask: the target did not answer within the budget")
-
-// controlAskBudget bounds one correlated ask (question or summarize) when the
-// caller's context carries no deadline. It is deliberately NOT the 60s
-// DefaultRequestTimeout the mechanical verbs keep: an ask waits for a
-// cooperative answer, which a busy child gives only at its next turn
-// boundary, so a fail-fast budget would report "unanswered" for a question
-// that is simply queued behind real work. Consequence: an ask routinely
-// outlives a reconnect or the run it was put to, so the request file — not
-// the waiter — is what must survive both.
-const controlAskBudget = 30 * time.Minute
-
-// AskWireBudget is what a TRANSPORT should allow one question/summarize ask
-// to take end to end: controlAskBudget plus slack. The coordinator's own verdict on
-// an unanswered ask (ErrAskTimeout, which says the request is still in the
-// child's spool and a late answer will be dropped) is the one the caller must
-// read; a wire hop that expired at the same instant would replace it with a
-// bare "request timed out" that says nothing about where the question went.
-const AskWireBudget = controlAskBudget + 5*time.Second
 
 // ---- steer -------------------------------------------------------------
 
@@ -207,213 +180,125 @@ func (c *Coordinator) findSpoolMessage(harp string, dir spool.Dir, messageID str
 
 // ---- correlated asks (question / summarize) -----------------------------
 
-// AskAnswer is one cooperative reply to a question or summarize ask: what the
-// child chose to send back, and the id that correlated it.
-type AskAnswer struct {
-	// AskID is the correlation the reply quoted (in_reply_to).
-	AskID string
-	// From is the harp that answered — resolved from the spool the reply was
-	// found in, never from anything the reply claimed.
-	From string
-	// Text is the reply body.
-	Text string
-	// Structured is the reply's JSON companion, when it sent one.
-	Structured json.RawMessage
+// openAsk is one ask its target has not answered by choice: what the
+// unanswered-ask notice needs to name the ask and its kind.
+type openAsk struct {
+	// target is the ONLY harp whose reply closes the ask: an id is not
+	// authority, so a reply quoting it from anyone else is ordinary mail and
+	// leaves the ask open.
+	target string
+	kind   string
 }
 
-// pendingAsk is one outstanding correlated ask, parked on the id the request
-// file carries as its origin_id.
-type pendingAsk struct {
-	// targetHarp is the ONLY identity allowed to answer — defense in depth
-	// beyond "the id exists": a sibling that guessed an in_reply_to must not
-	// be able to answer someone else's ask.
-	targetHarp string
-	kind       string
-	ch         chan AskAnswer // buffered(1)
-	// expired marks an ask whose asker has left (its budget elapsed). It
-	// stays in the table so the target's late reply is still RECOGNISED —
-	// and consumed and dropped, as ErrAskTimeout promised — instead of
-	// falling through to ordinary mail addressed to a parent that never
-	// asked. Guarded by the Coordinator's mu.
-	expired bool
-}
-
-// ControlQuestion asks a running target a question and waits for its answer.
+// controlAsk publishes one correlated ask (KindQuestion or KindSummarize)
+// and returns its id at once; it never waits for the answer.
 //
-// The ask is a file; the answer is the child's own agent_send quoting it. That
-// makes the answer COOPERATIVE by construction — there is no path here that
-// captures the child's turn output and reports it as a reply — and it makes
-// the request durable: a child that is relaunched before it answers finds the
-// question still in its spool.
-func (c *Coordinator) ControlQuestion(ctx context.Context, by ControlInitiator, harp, text string) (AskAnswer, error) {
-	return c.controlAsk(ctx, by, harp, KindQuestion, text)
-}
-
-// ControlSummarize asks a running target for an on-demand summary. Same
-// mechanism as ControlQuestion, different kind: what separates them is what
-// the child is being asked for, and the kind is what tells it.
-func (c *Coordinator) ControlSummarize(ctx context.Context, by ControlInitiator, harp, focus string) (AskAnswer, error) {
-	return c.controlAsk(ctx, by, harp, KindSummarize, focus)
-}
-
-// controlAsk runs one correlated ask to completion.
-//
-// ORDER IS THE CONTRACT: mint the id, register the waiter, THEN publish the
-// file. A reply can only arrive after the file is observable, which is
-// strictly after registration — so there is no window in which an answer
-// arrives to a table that does not know about it.
-func (c *Coordinator) controlAsk(ctx context.Context, by ControlInitiator, harp, kind, text string) (AskAnswer, error) {
+// ORDER IS THE CONTRACT: mint the id, record the ask open, THEN publish. A
+// reply can only exist after the file is observable, so it always finds the
+// record to close. Recorded afterwards, a fast answer would find none, and the
+// child's end would report an answered ask as unanswered.
+func (c *Coordinator) controlAsk(by ControlInitiator, harp, kind, text string) (string, error) {
 	if _, err := c.controlTarget(by, harp); err != nil {
-		return AskAnswer{}, err
+		return "", err
 	}
 	if text == "" {
-		// Empty input must fail rather than deliver a message with nothing in
-		// it and wait out a budget for an answer to a question nobody asked.
-		return AskAnswer{}, fmt.Errorf("%s: text is required", kind)
+		return "", fmt.Errorf("%s: text is required", kind)
 	}
 	if !c.spoolDeliverTo(harp) {
-		return AskAnswer{}, fmt.Errorf("%w: %q has no correlated-ask path "+
+		return "", fmt.Errorf("%w: %q has no correlated-ask path "+
 			"(asks ride the spool, and this run is not delivered by it)", ErrAskUnavailable, harp)
 	}
 	c.audit("agent_"+kind, by.auditName(), map[string]string{"harp": harp})
 
-	// REGISTER BEFORE PUBLISHING. The id is minted here and the waiter is in
-	// the table while the file still does not exist.
 	askID := newMessageID()
-	pa := &pendingAsk{targetHarp: harp, kind: kind, ch: make(chan AskAnswer, 1)}
 	c.mu.Lock()
-	if c.asks == nil {
-		c.asks = make(map[string]*pendingAsk)
+	if c.openAsks == nil {
+		c.openAsks = make(map[string]openAsk)
 	}
-	c.asks[askID] = pa
+	c.openAsks[askID] = openAsk{target: harp, kind: kind}
 	c.mu.Unlock()
-	// Every exit but a timeout forgets the ask. A timeout instead leaves it
-	// EXPIRED: the request file outlives the waiter (it is still in the
-	// child's spool, or being worked on), so a reply can still come, and it
-	// must be recognised to be dropped. An expired entry is removed by the
-	// reply that consumes it.
-	timedOut := false
-	defer func() {
-		c.mu.Lock()
-		if c.asks[askID] == pa {
-			if timedOut {
-				pa.expired = true
-			} else {
-				delete(c.asks, askID)
-			}
-		}
-		c.mu.Unlock()
-	}()
-
 	if hook := c.onAskPublished; hook != nil {
-		// THE ORDERING SEAM, fired between the registration above and the
-		// publish below — the one instant that distinguishes this ordering
-		// from every wrong one.
-		//
-		// It is deliberately NOT fired after the publish, which is where the
-		// analogous approval seam sits: a hook on that side cannot tell a
-		// correct implementation from one that registers in the gap between
-		// the write and the hook, because both have registered by the time it
-		// runs. Fired HERE, "the waiter is already in the table" is exactly
-		// what a test can assert, and any implementation that registers later
-		// fails it.
+		// THE ORDERING SEAM, between recording and publishing: the one
+		// instant at which "the ask is already open" distinguishes this
+		// ordering from one that records after the write.
 		hook(askID)
 	}
-	// The child must be woken for an idle or ended run, or the ask sits in a
-	// spool nothing is reading — the same delivery-by-state wake ordinary mail
-	// gets. THIS is what bounds an idle child's answer to one delivery rather
-	// than to whenever it next happens to run.
+	// The same delivery-by-state wake ordinary mail gets: an idle child is
+	// prompted with the ask as a new turn, an ended one is resumed for it.
 	if _, err := c.deliverMailID(askID, by.auditName(), harp, kind, text, nil, ""); err != nil {
-		return AskAnswer{}, fmt.Errorf("%s %s: %w", kind, harp, err)
-	}
-
-	if _, has := ctx.Deadline(); !has {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, controlAskBudget)
-		defer cancel()
-	}
-	select {
-	case ans := <-pa.ch:
-		return ans, nil
-	case <-ctx.Done():
-		timedOut = true
-		return AskAnswer{}, fmt.Errorf("%w: %s %s (%s) — the request is still in its spool, so an answer may still arrive and will be dropped",
-			ErrAskTimeout, kind, harp, askID)
-	case <-c.baseCtx.Done():
-		return AskAnswer{}, errors.New("coordinator is shutting down")
-	}
-}
-
-// resolveAskReply checks whether inReplyTo names an outstanding ask this
-// caller may answer, and hands the reply to the waiter if so.
-//
-// matched=false falls through to ordinary mail delivery, which is what makes a
-// stale, duplicate or foreign in_reply_to degrade gracefully instead of
-// failing the send: the correlation is a courtesy the sender extends, not a
-// claim the coordinator has to honour.
-//
-// A reply arriving after its waiter is gone (the budget elapsed) is consumed
-// and dropped rather than mailed onward: the asker asked, the asker left, and
-// turning a late answer into unsolicited mail to the parent would make every
-// timed-out ask produce a message nobody can place.
-//
-// The answer is bounded like mail (boundBody) — it never becomes mail, so
-// queueMailPayloadID's bound does not reach it. The overflow is filed under
-// the ANSWERING child, which its parent may read. The structured companion
-// counts toward the bound and overflows with the body. A message past the
-// ceiling is refused with the ask left outstanding.
-func (c *Coordinator) resolveAskReply(caller Identity, inReplyTo, body string, structured json.RawMessage) (disposition string, matched bool, err error) {
-	c.mu.Lock()
-	pa := c.asks[inReplyTo]
-	c.mu.Unlock()
-	if pa == nil || pa.targetHarp != caller.Harp {
-		return "", false, nil
-	}
-	if late, ok := c.dropLateAskReply(caller, inReplyTo, pa); ok {
-		return late, true, nil
-	}
-	if body, structured, err = c.boundBody(caller.Harp, body, structured); err != nil {
-		return "", true, err
-	}
-	c.mu.Lock()
-	if c.asks[inReplyTo] != pa { // answered meanwhile: this reply is ordinary mail
+		c.mu.Lock()
+		delete(c.openAsks, askID)
 		c.mu.Unlock()
-		return "", false, nil
+		return "", fmt.Errorf("%s %s: %w", kind, harp, err)
 	}
-	delete(c.asks, inReplyTo)
-	late := pa.expired
-	c.mu.Unlock()
-	if late { // the budget elapsed while the body was bounded
-		return c.lateAskDisposition(caller, inReplyTo, pa), true, nil
-	}
-
-	c.audit("ask_reply", caller.Harp, map[string]string{"in_reply_to": inReplyTo, "kind": pa.kind})
-	select {
-	case pa.ch <- AskAnswer{AskID: inReplyTo, From: caller.Harp, Text: body, Structured: structured}:
-	default: // the asker already gave up; the answer has nowhere to land
-	}
-	return fmt.Sprintf("answered the coordinator's %s (%s)", pa.kind, inReplyTo), true, nil
+	return askID, nil
 }
 
-// dropLateAskReply consumes a reply to an EXPIRED ask: ok=true means the
-// reply was the late answer and has been dropped, with the disposition the
-// child is told.
-func (c *Coordinator) dropLateAskReply(caller Identity, inReplyTo string, pa *pendingAsk) (string, bool) {
+// settleAsk closes the ask a message routed from sender answers. Only the
+// target's DELIBERATE reply closes it: the runner's automatic turn report
+// quotes the id of the ask that started the turn, and is marked so
+// (IsAutoReport) precisely because it is not the child choosing to answer.
+func (c *Coordinator) settleAsk(sender, inReplyTo string, structured json.RawMessage) {
+	if inReplyTo == "" || IsAutoReport(structured) {
+		return
+	}
 	c.mu.Lock()
-	if c.asks[inReplyTo] != pa || !pa.expired {
-		c.mu.Unlock()
-		return "", false
+	defer c.mu.Unlock()
+	if a, ok := c.openAsks[inReplyTo]; ok && a.target == sender {
+		delete(c.openAsks, inReplyTo)
 	}
-	delete(c.asks, inReplyTo)
-	c.mu.Unlock()
-	return c.lateAskDisposition(caller, inReplyTo, pa), true
 }
 
-// lateAskDisposition audits a dropped late reply and words it for the child,
-// which is owed the truth: its answer reached nobody.
-func (c *Coordinator) lateAskDisposition(caller Identity, inReplyTo string, pa *pendingAsk) string {
-	c.audit("ask_reply_late", caller.Harp, map[string]string{"in_reply_to": inReplyTo, "kind": pa.kind})
-	return fmt.Sprintf("the coordinator's %s (%s) had already timed out; this reply was dropped", pa.kind, inReplyTo)
+// noticeUnansweredAsks tells the asker of every ask harp's ENDED run left
+// unanswered, one notice per ask, correlated to it by in_reply_to. Without it
+// the asker hears only the uncorrelated exit notice (or, for an idle-reaped
+// child, nothing at all), and cannot tell which of its asks will never be
+// answered.
+//
+// It runs after the spool sweep has routed what harp sent, so an answer the
+// child wrote before it ended has already closed its ask. An ask whose file is
+// still unread in harp's in/ is skipped: the ended-child rule resumes the
+// child for it (relaunchForLeftoverMail), so it may yet be answered.
+func (c *Coordinator) noticeUnansweredAsks(harp string) {
+	var due []string
+	c.mu.Lock()
+	for id, a := range c.openAsks {
+		if a.target == harp {
+			due = append(due, id)
+		}
+	}
+	c.mu.Unlock()
+	if len(due) == 0 {
+		return
+	}
+	var rec *RunRecord
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(harp); r != nil {
+			cp := *r
+			rec = &cp
+		}
+	})
+	if rec == nil || !rec.Ended {
+		return
+	}
+	for _, id := range due {
+		if _, unread := c.findSpoolMessage(harp, spool.DirIn, id); unread {
+			continue
+		}
+		c.mu.Lock()
+		a, open := c.openAsks[id]
+		delete(c.openAsks, id)
+		c.mu.Unlock()
+		if !open {
+			continue
+		}
+		body := fmt.Sprintf("agent %q (session %s) ended (%s) without answering your %s %s",
+			rec.Agent, harp, rec.Cause, a.kind, id)
+		if _, err := c.queueMailPayload(harp, rec.ParentHarp, KindExited, body, nil, id); err != nil {
+			c.rep.Warnf("agent %s: the unanswered-%s notice for %s could not be written to %s's spool (%v)",
+				harp, a.kind, id, rec.ParentHarp, err)
+		}
+	}
 }
 
 // ---- pause / resume ------------------------------------------------------

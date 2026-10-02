@@ -379,31 +379,6 @@ func TestSendOverflow_ChildToParentThroughTheSpool(t *testing.T) {
 	}
 }
 
-func TestSendOverflow_AskReplyIsBounded(t *testing.T) {
-	for name, structured := range companions {
-		t.Run(name, func(t *testing.T) {
-			c, child := childAndOwnerInbox(t)
-			ch := make(chan AskAnswer, 1)
-			c.mu.Lock()
-			if c.asks == nil {
-				c.asks = map[string]*pendingAsk{}
-			}
-			c.asks["ask-1"] = &pendingAsk{targetHarp: child.Harp, kind: "question", ch: ch}
-			c.mu.Unlock()
-			full := overLong()
-			if _, err := c.AgentSend(child, ParentAddress, KindResult, full, structured, "ask-1"); !assert.NoError(t, err) {
-				return
-			}
-			select {
-			case a := <-ch:
-				assertOverflowed(t, c, ownerIdentity(), child.Harp, full, structured, a.Text, a.Structured)
-			default:
-				t.Error("the ask was not answered")
-			}
-		})
-	}
-}
-
 // A FINAL report is queued to the parent as mail (notifyParentOfFinalReport),
 // so the fold the agent_report description promises holds there too.
 func TestSendOverflow_FinalReportNotice(t *testing.T) {

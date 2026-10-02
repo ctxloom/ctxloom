@@ -108,7 +108,7 @@ func TestControlSteer_RefusesUnrecognisedInitiator(t *testing.T) {
 func TestCapUnavailable_IsACause(t *testing.T) {
 	err := capUnavailable("run %q does not offer %q", "child-a", "pause")
 	assert.True(t, errors.Is(err, ErrCapabilityUnavailable))
-	assert.False(t, errors.Is(err, ErrAskTimeout))
+	assert.False(t, errors.Is(err, ErrAskUnavailable))
 	assert.Contains(t, err.Error(), "pause")
 }
 

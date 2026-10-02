@@ -104,6 +104,7 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 		HostHome:     hostHome,
 		InstanceHome: req.InstanceHome,
 		WorkDir:      req.WorkDir,
+		Trust:        req.Trust,
 	}, nil)
 	rep.Generated = engineRep.Wrote
 	rep.Warnings = engineRep.Warnings

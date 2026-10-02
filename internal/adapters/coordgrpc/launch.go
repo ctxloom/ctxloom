@@ -179,6 +179,7 @@ func DecodeLaunch(w *pb.Launch) (launch.Launch, error) {
 		Prompt:     w.GetPrompt(),
 		Resume:     sessions.ResumeRef{Harp: w.GetResume().GetHarp(), NativeKey: w.GetResume().GetNativeKey()},
 		Env:        w.GetEnv(),
+		Trust:      decodeTrust(w.GetTrust()),
 	}
 	if err := l.Identity.Validate(); err != nil {
 		return launch.Launch{}, fmt.Errorf("coordgrpc: launch identity: %w", err)

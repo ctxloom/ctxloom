@@ -331,7 +331,7 @@ func (l Launch) Session() engine.Session {
 	return engine.Session{
 		Identity: l.Identity, Label: l.Label, Mode: l.Mode, Permission: l.Permission,
 		Roots: l.Cell.Paths.Paths(), WorkDir: l.Cell.Workspace, Home: l.Home, MCP: l.MCP,
-		Prompt: l.Prompt, Resume: l.Resume, Env: l.Env,
+		Prompt: l.Prompt, Resume: l.Resume, Env: l.Env, Trust: l.Trust,
 	}
 }
 

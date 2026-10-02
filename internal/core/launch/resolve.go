@@ -83,6 +83,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		Axes:       axes,
 		Cell:       cell,
 		Home:       cell.Home,
+		Trust:      cell.Trust,
 		Prompt:     src.Prompt,
 		Env:        passthrough,
 	}

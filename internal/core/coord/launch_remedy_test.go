@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const launchRemedyFix = "declare `auth: token` on a container agent, or run it with `runtime: host`"
+const launchRemedyFix = "run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN"
 
 var errLaunchRemedyCause = errors.New("container: no credential to forward")
 

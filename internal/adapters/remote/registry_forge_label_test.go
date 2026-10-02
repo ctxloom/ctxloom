@@ -6,6 +6,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // A forge label bound with SetForge must change how that remote's URL
@@ -18,8 +20,8 @@ func TestRegistry_ResolveForgeForURL_HonoursStoredForgeLabel(t *testing.T) {
 		customURL = "https://code.custom.example/team/bundles"
 	)
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, path, []byte(
-		"forges:\n  corp:\n    type: github\n    base_url: https://github.corp.example\n    token_env: CORP_TOKEN\n"), 0o644))
+	testsupport.WriteFileString(t, fs, path,
+		"forges:\n  corp:\n    type: github\n    base_url: https://github.corp.example\n    token_env: CORP_TOKEN\n", 0o644)
 	reg, err := NewRegistry(path, WithRegistryFS(fs))
 	require.NoError(t, err)
 	require.NoError(t, reg.Add("team", customURL))

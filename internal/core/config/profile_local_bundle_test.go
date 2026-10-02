@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -26,8 +27,8 @@ func TestProfileLoader_LocalBundleWinsOverSameSpelledRemoteAlias(t *testing.T) {
 	bundletree.Write(t, fs, paths.BundlesLayoutRoot(paths.LocalBundlesPath(appDir), paths.LayoutV2),
 		"team/reviews", "version: \"1.0\"\ndescription: local reviews\n")
 	profileDir := paths.ProfilesPath(appDir)
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(profileDir, "dev.yaml"), []byte("bundles:\n  - team/reviews\n"), 0o644))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(profileDir, "ctl.yaml"), []byte("bundles:\n  - team/absent\n"), 0o644))
+	testsupport.WriteFileString(t, fs, filepath.Join(profileDir, "dev.yaml"), "bundles:\n  - team/reviews\n", 0o644)
+	testsupport.WriteFileString(t, fs, filepath.Join(profileDir, "ctl.yaml"), "bundles:\n  - team/absent\n", 0o644)
 
 	b := NewBuilder(fs, true, appDir, SourceProject)
 	b.BindProfileResolvers(nil, func(alias string) string {

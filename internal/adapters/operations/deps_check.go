@@ -367,17 +367,9 @@ func detectUpdates(ctx context.Context, cfg *config.Config, auth remote.AuthConf
 		if e.Entry.SelectorKind().IsPin() {
 			continue
 		}
-		ref, err := remote.ParseReference(string(e.Ref))
-		if err != nil {
-			unchecked = append(unchecked, UncheckedDependency{Ref: string(e.Ref), Reason: UncheckedUnparseable, Err: err})
-			continue
-		}
-		if ref.URL == "" {
-			unchecked = append(unchecked, UncheckedDependency{Ref: string(e.Ref), Reason: UncheckedNoRepositoryURL})
-			continue
-		}
-		if ferr, failed := notRefreshed[ref.URL]; failed {
-			unchecked = append(unchecked, UncheckedDependency{Ref: string(e.Ref), URL: ref.URL, Reason: UncheckedNotRefreshed, Err: ferr})
+		ref, skip := checkableRef(string(e.Ref), notRefreshed)
+		if skip != nil {
+			unchecked = append(unchecked, *skip)
 			continue
 		}
 		fetcher, err := fetcherFor(ref.URL)
@@ -396,6 +388,23 @@ func detectUpdates(ctx context.Context, cfg *config.Config, auth remote.AuthConf
 		updates = append(updates, DependencyUpdate{Type: e.Type, Ref: string(e.Ref), CurrentSHA: e.Entry.SHA, LatestSHA: latest, RequestedVersion: e.Entry.RequestedVersion, Kind: e.Entry.SelectorKind(), Version: e.Entry.Version})
 	}
 	return updates, unchecked, skipped
+}
+
+// checkableRef parses a lockfile reference for the update check, or says why
+// it cannot be checked: it does not parse, names no repository, or names one
+// this run could not fetch (notRefreshed), whose clone is stale.
+func checkableRef(lockRef string, notRefreshed map[string]error) (*remote.Reference, *UncheckedDependency) {
+	ref, err := remote.ParseReference(lockRef)
+	if err != nil {
+		return nil, &UncheckedDependency{Ref: lockRef, Reason: UncheckedUnparseable, Err: err}
+	}
+	if ref.URL == "" {
+		return nil, &UncheckedDependency{Ref: lockRef, Reason: UncheckedNoRepositoryURL}
+	}
+	if ferr, failed := notRefreshed[ref.URL]; failed {
+		return nil, &UncheckedDependency{Ref: lockRef, URL: ref.URL, Reason: UncheckedNotRefreshed, Err: ferr}
+	}
+	return ref, nil
 }
 
 // latestWithinConstraint returns the newest commit the entry's version

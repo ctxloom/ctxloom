@@ -3,7 +3,7 @@ package archlint
 import (
 	"go/ast"
 	"go/token"
-	"strings"
+	"go/types"
 
 	"golang.org/x/tools/go/analysis"
 
@@ -15,13 +15,13 @@ import (
 var writeDisciplineScopes = []string{"internal", "cmd"}
 
 // writeDisciplineExemptDirs are the packages that ARE the write library, and
-// so are structurally exempt: they are not a second copy of iox, they are
-// the thing this rule protects. The lock primitive is github.com/gofrs/flock,
+// so are structurally exempt: they hold the decorators and the atomic writer
+// every other package is sent to. The lock primitive is github.com/gofrs/flock,
 // a third-party module; internal/shared/filelock wraps it (creating only the
-// lock file and its directory) and is not a write library, so iox is the
+// lock file and its directory) and is not a write library, so safefs is the
 // only in-tree write library to name here.
 var writeDisciplineExemptDirs = []string{
-	"internal/shared/iox",
+	"internal/shared/safefs",
 }
 
 // forbiddenOSCalls are the raw-fs-write entry points forbidden outside the
@@ -55,22 +55,29 @@ var forbiddenAferoPackageCalls = map[string]bool{
 	"TempFile":  true,
 }
 
-// forbiddenAferoMethodCalls are the write-shaped afero.Fs methods forbidden on
-// a receiver that looks like an afero.Fs. OpenFile is handled separately
-// because only its write-mode calls count.
+// forbiddenAferoMethodCalls are the write-shaped afero methods forbidden on
+// any receiver whose method resolves into package afero — an afero.Fs, a
+// concrete afero filesystem, or a struct embedding one. OpenFile is handled
+// separately because only its write-mode calls count.
 var forbiddenAferoMethodCalls = map[string]bool{
 	"Create": true,
 	"Rename": true,
 }
 
 // WriteDisciplineAnalyzer enforces that raw filesystem writes route through
-// internal/shared/iox.
+// internal/shared/safefs.
 //
-// A raw os.WriteFile leaves a half-written file behind on a crash or a short
-// write, and leaves no ownership record. iox is the one place the atomic
-// write-temp-then-rename sequence and the ownership ledger live, so a call
-// that bypasses it is a durability and provenance hole rather than a style
-// preference.
+// A raw write bypasses the two things safefs carries as afero decorators: the
+// empty-write guard (safefs.NewGuardFs), which refuses zero bytes over an
+// existing file, and durability (safefs.NewDurableFs). It also bypasses the
+// atomic write-temp-then-rename (safefs.WriteFile), so a crash or short write
+// leaves a half-written file. A guard on the fs cannot see a write that never
+// went through the fs, so a raw call is a hole in it, not a style choice.
+//
+// Calls are classified through type information, never by spelling: an os or
+// afero qualifier is resolved through its import (a renamed import is still
+// caught, and a package that merely ends in "fs" is not mistaken for one),
+// and a method counts when it resolves into package afero.
 //
 // Test code is judged too, by a narrower arm: raw AFERO writes in a _test.go
 // file that imports afero must route through the test-support writers, so a
@@ -84,7 +91,7 @@ var forbiddenAferoMethodCalls = map[string]bool{
 // stopped being a violation is reported so the baseline can only shrink.
 var WriteDisciplineAnalyzer = &analysis.Analyzer{
 	Name: "archwritediscipline",
-	Doc:  "raw filesystem writes must route through internal/shared/iox",
+	Doc:  "raw filesystem writes must route through internal/shared/safefs",
 	Run:  runWriteDiscipline,
 }
 
@@ -109,15 +116,16 @@ var (
 	prodWriteArm = writeArm{
 		allowed:   archrules.WriteDisciplineAllowed,
 		allowName: "archrules.WriteDisciplineAllowed",
-		remedy: "route through internal/shared/iox, which is where the atomic write-then-rename " +
-			"sequence and the ownership ledger live",
+		remedy: "route through internal/shared/safefs (safefs.WriteFile, or safefs.NewAtomicFile for a " +
+			"stream), whose writes pass the empty-write guard (safefs.NewGuardFs) and, with safefs.Durable(), " +
+			"the durability decorator (safefs.NewDurableFs)",
 	}
 	testWriteArm = writeArm{
 		aferoOnly: true,
 		allowed:   archrules.TestWriteDisciplineAllowed,
 		allowName: "archrules.TestWriteDisciplineAllowed",
 		remedy: "route through testsupport.WriteFile/WriteFileString/SeedTree (or a sanctioned writer " +
-			"such as iox.WriteFileAtomicFs), so a fixture never disagrees with production about what " +
+			"such as safefs.WriteFile), so a fixture never disagrees with production about what " +
 			"\"write a file\" means",
 	}
 )
@@ -156,7 +164,7 @@ func checkRawWrites(pass *analysis.Pass, f *ast.File, seen map[string]bool) {
 	rel := FileRel(pass, f)
 	eachWriteSubject(f, func(node ast.Node, sym string) {
 		key := rel + "#" + sym
-		collectRawWrites(node, arm.aferoOnly, func(pos token.Pos, call string) {
+		collectRawWrites(pass.TypesInfo, node, arm.aferoOnly, func(pos token.Pos, call string) {
 			seen[key] = true
 			if _, ok := arm.allowed[key]; ok {
 				return
@@ -206,7 +214,7 @@ func fileImports(f *ast.File, importPath string) bool {
 // attributing every hit — including inside a nested closure — to the
 // enclosing subject, whose job it is to fix them. aferoOnly drops the os.*
 // set, for the test arm.
-func collectRawWrites(node ast.Node, aferoOnly bool, report func(pos token.Pos, call string)) {
+func collectRawWrites(info *types.Info, node ast.Node, aferoOnly bool, report func(pos token.Pos, call string)) {
 	ast.Inspect(node, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -216,7 +224,7 @@ func collectRawWrites(node ast.Node, aferoOnly bool, report func(pos token.Pos, 
 		if !ok {
 			return true
 		}
-		if name := rawWriteCallee(sel, call, aferoOnly); name != "" {
+		if name := rawWriteCallee(info, sel, call, aferoOnly); name != "" {
 			report(call.Pos(), name)
 		}
 		return true
@@ -225,28 +233,54 @@ func collectRawWrites(node ast.Node, aferoOnly bool, report func(pos token.Pos, 
 
 // rawWriteCallee names the forbidden write a call makes, or "" for none.
 //
-// Package-qualified calls are checked against their own forbidden-name sets
-// and never fall through to the afero.Fs receiver heuristic, so the two checks
-// stay visibly disjoint.
-func rawWriteCallee(sel *ast.SelectorExpr, call *ast.CallExpr, aferoOnly bool) string {
-	if pkgIdent, ok := sel.X.(*ast.Ident); ok && (pkgIdent.Name == "os" || pkgIdent.Name == "afero") {
-		return packageWriteCallee(pkgIdent.Name, sel, call, aferoOnly)
+// A package-qualified call is judged against that package's forbidden-name
+// set and never falls through to the method check, so the two stay visibly
+// disjoint.
+func rawWriteCallee(info *types.Info, sel *ast.SelectorExpr, call *ast.CallExpr, aferoOnly bool) string {
+	if path, ok := qualifierPath(info, sel.X); ok {
+		return packageWriteCallee(path, sel, call, aferoOnly)
 	}
 	name := sel.Sel.Name
-	if aferoFsMethodCall(sel) && (forbiddenAferoMethodCalls[name] || isWriteModeOpen(sel, call)) {
+	if aferoMethod(info, sel) && (forbiddenAferoMethodCalls[name] || isWriteModeOpen(sel, call)) {
 		return "(afero.Fs)." + name
 	}
 	return ""
 }
 
-// packageWriteCallee is rawWriteCallee's arm for a call qualified by the os or
-// afero package, or "" when that package's call is not a forbidden write.
-func packageWriteCallee(pkg string, sel *ast.SelectorExpr, call *ast.CallExpr, aferoOnly bool) string {
+// qualifierPath is the import path x names when x is a package qualifier.
+func qualifierPath(info *types.Info, x ast.Expr) (string, bool) {
+	id, ok := x.(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+	pkg, ok := info.Uses[id].(*types.PkgName)
+	if !ok {
+		return "", false
+	}
+	return pkg.Imported().Path(), true
+}
+
+// aferoMethod reports whether sel selects a method that resolves into package
+// afero: a method of afero.Fs or a concrete afero filesystem, including one
+// promoted through an embedded field, and a method expression such as
+// (*afero.MemMapFs).Create.
+func aferoMethod(info *types.Info, sel *ast.SelectorExpr) bool {
+	s, ok := info.Selections[sel]
+	if !ok {
+		return false
+	}
+	pkg := s.Obj().Pkg()
+	return pkg != nil && pkg.Path() == aferoImportPath
+}
+
+// packageWriteCallee is rawWriteCallee's arm for a call qualified by an
+// imported package, or "" when that package's call is not a forbidden write.
+func packageWriteCallee(path string, sel *ast.SelectorExpr, call *ast.CallExpr, aferoOnly bool) string {
 	name := sel.Sel.Name
 	switch {
-	case pkg == "afero" && forbiddenAferoPackageCalls[name]:
+	case path == aferoImportPath && forbiddenAferoPackageCalls[name]:
 		return "afero." + name
-	case pkg == "os" && !aferoOnly && (forbiddenOSCalls[name] || isWriteModeOpen(sel, call)):
+	case path == "os" && !aferoOnly && (forbiddenOSCalls[name] || isWriteModeOpen(sel, call)):
 		return "os." + name
 	}
 	return ""
@@ -256,26 +290,6 @@ func packageWriteCallee(pkg string, sel *ast.SelectorExpr, call *ast.CallExpr, a
 // asks for a write.
 func isWriteModeOpen(sel *ast.SelectorExpr, call *ast.CallExpr) bool {
 	return sel.Sel.Name == "OpenFile" && len(call.Args) >= 2 && exprMentionsWriteFlag(call.Args[1])
-}
-
-// isAferoFsLikeName reports whether name looks like it holds an afero.Fs, by
-// the codebase's naming convention rather than by type information.
-func isAferoFsLikeName(name string) bool {
-	lower := strings.ToLower(name)
-	return strings.HasSuffix(lower, "fs") || strings.HasPrefix(lower, "fsys")
-}
-
-// aferoFsMethodCall reports whether sel's receiver is a name
-// isAferoFsLikeName accepts: a bare identifier, or the final selector of a
-// field access.
-func aferoFsMethodCall(sel *ast.SelectorExpr) bool {
-	switch x := sel.X.(type) {
-	case *ast.Ident:
-		return isAferoFsLikeName(x.Name)
-	case *ast.SelectorExpr:
-		return isAferoFsLikeName(x.Sel.Name)
-	}
-	return false
 }
 
 // exprMentionsWriteFlag reports whether an os.OpenFile flags argument contains

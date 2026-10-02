@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -33,7 +34,7 @@ func TestWriteLayer_NamesEveryFileTheOverlayPutContentUnder(t *testing.T) {
 	require.NoError(t, opened.Close())
 	require.NoError(t, overlay.Chmod(at("existing"), 0o755))
 	testsupport.WriteFile(t, overlay, at("tmp"), []byte("r"), 0o600)
-	require.NoError(t, overlay.Rename(at("tmp"), at("renamed")))
+	require.NoError(t, safefs.Rename(overlay, at("tmp"), at("renamed")))
 	testsupport.WriteFile(t, overlay, at("gone"), []byte("g"), 0o600)
 	require.NoError(t, overlay.Remove(at("gone")))
 

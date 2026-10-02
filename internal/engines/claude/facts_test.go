@@ -29,12 +29,12 @@ func TestHome_IsBuiltFromClaudesOwnConstants(t *testing.T) {
 	assert.NotNil(t, home.InstanceConfig, "claude generates its own instance config into a provisioned home")
 }
 
-// claude declares its auth capability with every mode the shared vocabulary
-// has: the human's login, a minted token, and a pay-per-use key.
-func TestHome_DeclaresAuthWithEveryMode(t *testing.T) {
+// claude declares the token every agent runs on and the login the human's
+// own session may share -- nothing else.
+func TestHome_DeclaresLoginAndToken(t *testing.T) {
 	a, ok := claudeKind(t).Home().Auth.Get()
 	require.True(t, ok)
-	assert.Equal(t, []engine.AuthMode{engine.AuthLogin, engine.AuthToken, engine.AuthAPIKey, engine.AuthCloud}, a.Modes())
+	assert.Equal(t, []engine.AuthMode{engine.AuthLogin, engine.AuthToken}, a.Modes())
 }
 
 // The container declaration is how the image is built and what it overlays;

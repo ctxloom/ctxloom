@@ -168,16 +168,6 @@ type Agent struct {
 	// rather than blocking the launch — never onto the real home, which a
 	// typo must not select.
 	HomeMode string `yaml:"engine_home,omitempty"`
-	// Auth is how this agent's engine authenticates, in the engine-neutral
-	// vocabulary (engine.AuthModeNames: login, token, api-key). Purely per
-	// agent: a binding declaring login gets the human's own login whether it
-	// runs top-level, as a delegated child or as a one-shot. Undeclared is
-	// token (engine.ParseAuthMode), so the human's login is only ever reached
-	// by name. Validated against the bound engine's Auth.Modes when WRITTEN
-	// (operations.SetAgent); a credential is never written here, only the
-	// mode — the credential itself is stored owner-only under the ctxloom
-	// home, out of any repository.
-	Auth string `yaml:"auth,omitempty"`
 	// HostEnv is which of the launching environment's variables this
 	// agent's engine inherits on the HOST runtime (HostEnv's doc). Undeclared
 	// inherits all of them; a container forwards only what it names anyway.
@@ -320,6 +310,22 @@ var ErrRetiredCoordinatorKey = errors.New(
 	"agent uses the removed key 'coordinator:'; delegation privilege is no longer declared per " +
 		"binding — a run may spawn while its depth is below delegation.depth (the session owner " +
 		"is depth 0, its subagents depth 1), so raise delegation.depth to allow deeper trees")
+
+// RetiredAuthKey is the REMOVED per-agent auth mode. A removal, not a move:
+// every run ctxloom spawns authenticates with the engine's long-lived token,
+// so an agent has no auth to choose; how the HUMAN's own session
+// authenticates is the top-level `auth:`. Refused at load because the
+// `agents:` decode is lenient: an untouched `auth: login` would be dropped in
+// silence and a binding written to share the login would quietly need a
+// token instead.
+const RetiredAuthKey = "auth"
+
+// ErrRetiredAuthKey names both replacements: the token every agent runs on,
+// and where the human's own login is selected.
+var ErrRetiredAuthKey = errors.New(
+	"agent uses the removed key 'auth:'; every agent ctxloom spawns authenticates with the engine's " +
+		"long-lived token (claude: run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN), so delete " +
+		"the key; to have your own `ctxloom run` share your login, set the top-level `auth: login`")
 
 // Delegates reports whether this agent may launch role: any role when
 // MayDelegate is unset or empty, else exactly the roles it lists.

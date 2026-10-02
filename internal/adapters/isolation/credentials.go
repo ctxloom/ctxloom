@@ -23,10 +23,8 @@ type sharedStore struct {
 }
 
 // stageStores resolves each store the run's credentials declare to its host
-// directory and refuses one that is missing. The rule is the same in every
-// environment: a login shared in place and a login mounted into a container
-// both start logged out when the store is not there, and refusing loudly
-// beats that.
+// directory and refuses one that is missing: a login shared in place starts
+// logged out when the store is not there, and refusing loudly beats that.
 func stageStores(eng string, stores []engine.SharedStore) ([]sharedStore, error) {
 	if len(stores) == 0 {
 		return nil, nil
@@ -41,7 +39,7 @@ func stageStores(eng string, stores []engine.SharedStore) ([]sharedStore, error)
 		if st.hostDir != "" {
 			if fi, err := os.Stat(st.hostDir); err != nil || !fi.IsDir() {
 				return nil, report.Errorf(
-					fmt.Sprintf("sign %s in on this host so %s exists, or declare `auth: token` on the agent", eng, st.hostDir),
+					fmt.Sprintf("sign %s in on this host so %s exists, or set `auth: token` in your config", eng, st.hostDir),
 					"%s: the credential store %s this auth mode shares is missing: %w", eng, st.hostDir, engine.ErrNoCredential)
 			}
 		}

@@ -46,37 +46,10 @@ func (c *Config) Validate(reg engine.Registry) error {
 			return fmt.Errorf("config: isolation.engines: unknown engine %q; ctxloom knows: %s", name, known())
 		}
 	}
-	if err := c.validateAgentAuth(reg); err != nil {
-		return err
-	}
 	if err := c.validatePermissions(reg); err != nil {
 		return err
 	}
 	return c.validateMayDelegate()
-}
-
-// validateAgentAuth runs engine.CheckAuth — the one auth check, which
-// `agent create/edit` and every launch also run — for each agent whose
-// engine its own `llm:` names. An agent whose engine comes from its
-// profiles is checked when it launches, where that engine is known.
-func (c *Config) validateAgentAuth(reg engine.Registry) error {
-	for _, a := range c.LoadAgents() {
-		if a.Auth == "" {
-			continue
-		}
-		name := a.LLM
-		if entry, ok := c.lm.Configs[a.LLM]; ok {
-			name = c.EffectiveType(entry)
-		}
-		kind, ok := reg.Lookup(engine.Name(name))
-		if !ok {
-			continue
-		}
-		if _, err := engine.CheckAuth(kind.Root().Name, kind.Home().Auth, a.Auth); err != nil {
-			return fmt.Errorf("config: agents.%s: %w", a.Name, err)
-		}
-	}
-	return nil
 }
 
 // DefaultEngine is the engine an untyped llm entry or a missed label

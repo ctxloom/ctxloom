@@ -121,7 +121,7 @@ func TestPingEngineAuth_Succeeds(t *testing.T) {
 	stubPingHosts(t, stub)
 
 	cfg := authPingTestConfig(t)
-	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, "claude-code", t.TempDir())
+	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), "claude-code", t.TempDir())
 	require.NoError(t, err)
 
 	// The smallest possible prompt actually reached the engine, as a turn on
@@ -145,7 +145,7 @@ func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
 	stubPingHosts(t, stub)
 
 	cfg := authPingTestConfig(t)
-	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, "claude-code", t.TempDir())
+	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), "claude-code", t.TempDir())
 	require.NoError(t, err)
 
 	require.NotNil(t, stub.gotLaunch)
@@ -217,7 +217,7 @@ func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
 			stubPingHosts(t, stub)
 
 			cfg := authPingTestConfig(t)
-			err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, engine, t.TempDir())
+			err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), engine, t.TempDir())
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), engine, "error must name the engine that failed")
 			assert.Contains(t, err.Error(), engineAuthFixHint(App().Engines(), engine),
@@ -242,7 +242,7 @@ func TestPingEngineAuth_ReportsTheEngineError_NotAnAuthVerdict(t *testing.T) {
 	stubPingHosts(t, stub)
 
 	cfg := authPingTestConfig(t)
-	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, "claude-code", t.TempDir())
+	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), "claude-code", t.TempDir())
 	require.Error(t, err)
 
 	assert.Contains(t, err.Error(), refusal.Error(),
@@ -261,7 +261,7 @@ func TestPingEngineAuth_UnlistedEngine_GetsGenericFix(t *testing.T) {
 	stubPingHosts(t, stub)
 
 	cfg := authPingTestConfig(t)
-	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, "some-future-engine", t.TempDir())
+	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), "some-future-engine", t.TempDir())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "authenticate the engine")
 }
@@ -469,7 +469,7 @@ func TestPingEngineAuth_RunsInTheDefaultAgentsAuthMode(t *testing.T) {
 			deps := testLaunchDeps(t, cfg)
 			var got launch.CellRequest
 			deps.Cells = recordingCells{inner: deps.Cells, got: &got}
-			require.NoError(t, pingEngineAuth(context.Background(), deps, cfg, "claude-code", t.TempDir()))
+			require.NoError(t, pingEngineAuth(context.Background(), deps, "claude-code", t.TempDir()))
 			assert.Equal(t, tc.want, got.Auth)
 		})
 	}

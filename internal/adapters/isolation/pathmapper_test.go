@@ -1,14 +1,12 @@
 package isolation
 
 import (
-	"path"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
@@ -59,38 +57,17 @@ func TestPathSeam_Expose_RoutesThroughTarget(t *testing.T) {
 // relocateRoot under the Windows mapper: the root and its mount are produced
 // together from the native path, and a share path is refused by name.
 func TestRelocateRoot_DriveLetterMapper(t *testing.T) {
-	got, err := relocateRoot(windowsDocker, `C:\p`, "", false)
+	got, err := relocateRoot(windowsDocker, `C:\p`, "")
 	require.NoError(t, err)
 	assert.Equal(t, present.Root{Host: `C:\p`, Engine: "/mnt/c/p"}, got.root)
 	assert.Equal(t, mount{Host: `C:\p`, Container: "/mnt/c/p"}, got.mount)
 
-	home, err := relocateRoot(windowsDocker, `D:\ctxloom\home`, "/ctxloom/home/.claude", false)
+	home, err := relocateRoot(windowsDocker, `D:\ctxloom\home`, "/ctxloom/home/.claude")
 	require.NoError(t, err)
 	assert.Equal(t, mount{Host: `D:\ctxloom\home`, Container: "/ctxloom/home/.claude"}, home.mount,
 		"a fixed target is kept; only its source is routed")
 
-	_, err = relocateRoot(windowsDocker, `\\wsl.localhost\Ubuntu\home\u\proj`, "", false)
-	require.ErrorIs(t, err, present.ErrUnreachableRoot)
-	require.ErrorIs(t, err, errUNCPath)
-}
-
-// A shared credential store is a mount like any other: its Windows host
-// directory is routed through the mapper (a share path refused by name), its
-// target stays at its place under the container's $HOME, and its read-only
-// declaration rides the mount.
-func TestRelocateStores_DriveLetterMapper(t *testing.T) {
-	r := containerRelocator{rt: windowsDocker, home: defaultContainerHome}
-	store := sharedStore{
-		SharedStore: engine.SharedStore{Var: "CODEX_HOME", HomeRel: ".codex", ReadOnly: true},
-		hostDir:     `C:\Users\u\.codex`,
-	}
-	env, mounts, err := r.relocateStores([]sharedStore{store})
-	require.NoError(t, err)
-	assert.Equal(t, []mount{{Host: `C:\Users\u\.codex`, Container: path.Join(defaultContainerHome, ".codex"), ReadOnly: true}}, mounts)
-	assert.Equal(t, map[string]string{"CODEX_HOME": ""}, env)
-
-	store.hostDir = `\\wsl.localhost\Ubuntu\home\u\.codex`
-	_, _, err = r.relocateStores([]sharedStore{store})
+	_, err = relocateRoot(windowsDocker, `\\wsl.localhost\Ubuntu\home\u\proj`, "")
 	require.ErrorIs(t, err, present.ErrUnreachableRoot)
 	require.ErrorIs(t, err, errUNCPath)
 }

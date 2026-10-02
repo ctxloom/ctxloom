@@ -249,6 +249,33 @@ func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing
 	assert.NoDirExists(t, ownerHome, "the owner's session home is never consulted")
 }
 
+// A spawned agent never borrows the human's login: with login configured
+// for the human's own session and the login present on the host, a delegated
+// child and a one-shot still run in the token, and with none exported they
+// are refused, typed, naming how to mint and export one.
+func TestCellsPrepare_ASpawnedRunWithNoTokenIsRefusedDespiteTheHumansLogin(t *testing.T) {
+	for name, id := range map[string]sessions.Identity{
+		"a delegated child": {Harp: harpA, Depth: 1},
+		"a one-shot":        {Harp: harpA, OneShot: true, Leaf: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resetStrictness(t)
+			fakeHostHome(t, "login")
+			t.Setenv("PATH", t.TempDir())
+			req := claudeKind(t)
+			req.ProjectRoot = t.TempDir()
+			req.HomeMode = launch.HomeModeSession
+			req.Identity = id
+			req.Auth = launch.RunAuth(id, engine.AuthLogin)
+			req.Env = map[string]string{sessions.EnvHarp: harpA}
+			_, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{Auth: engine.AuthLogin})}.Prepare(context.Background(), req)
+			require.ErrorIs(t, err, engine.ErrNoCredential)
+			assert.Contains(t, remedyOf(t, err), "claude setup-token")
+			assert.Contains(t, remedyOf(t, err), claude.OAuthTokenEnv)
+		})
+	}
+}
+
 // With no token exported the cell is refused before anything is built,
 // naming how the human mints and exports one.
 func TestCellsPrepare_WithNoTokenExportedIsRefused(t *testing.T) {

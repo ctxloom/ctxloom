@@ -85,6 +85,8 @@ type fixture struct {
 	withoutContainer bool
 	// trust is the verdict the fake Cells' placement carries.
 	trust engine.WorkspaceTrust
+	// sessionAuth is the configured top-level `auth:`.
+	sessionAuth engine.AuthMode
 }
 
 // WithAgent declares an agent binding named name, composed over the "base"
@@ -124,10 +126,6 @@ func EngineHome(s string) AgentOption {
 	return func(d *agentDecl) { d.binding.HomeMode = s }
 }
 
-// Auth sets the binding's `auth:` declaration, unparsed.
-func Auth(s string) AgentOption {
-	return func(d *agentDecl) { d.binding.Auth = s }
-}
 
 // HostEnv sets the binding's `host_env:` declaration.
 func HostEnv(h agents.HostEnv) AgentOption {
@@ -193,6 +191,10 @@ func RelocatableHome() Option { return func(f *fixture) { f.relocatableHome = tr
 // verdict the cells adapter takes from the engine.
 func WithRepoTrust(v engine.WorkspaceTrust) Option { return func(f *fixture) { f.trust = v } }
 
+// SessionAuth sets the configured top-level `auth:`, the mode the human's own
+// session runs in ("" undeclared).
+func SessionAuth(m engine.AuthMode) Option { return func(f *fixture) { f.sessionAuth = m } }
+
 // ProfileLLM makes the composed profiles declare a label.
 func ProfileLLM(label string) Option { return func(f *fixture) { f.profileLLM = label } }
 
@@ -230,6 +232,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 		Runtime:          f.projectRuntime,
 		Permissions:      f.projectPermissions,
 		DirtyTreeHandler: f.projectDirtyTree,
+		Auth:             f.sessionAuth,
 	})
 	snap := &config.Snapshot{Config: cfg, Trust: composite.Trust{}}
 

@@ -119,13 +119,20 @@ const (
 	OriginOneShot Origin = "oneshot"
 )
 
-// Origin is the origin this seed mints. One-shot-ness wins over depth: a
-// one-shot spawned below a coordinator is still internal work.
-func (s Seed) Origin() Origin {
+// Origin is the origin this seed mints (originOf).
+func (s Seed) Origin() Origin { return originOf(s.OneShot, s.Depth) }
+
+// Origin is the origin of the run this identity names, by the same rule its
+// seed was stamped with (originOf).
+func (id Identity) Origin() Origin { return originOf(id.OneShot, id.Depth) }
+
+// originOf is the one origin rule. One-shot-ness wins over depth: a one-shot
+// spawned below a coordinator is still internal work.
+func originOf(oneShot bool, depth int) Origin {
 	switch {
-	case s.OneShot:
+	case oneShot:
 		return OriginOneShot
-	case s.Depth > 0:
+	case depth > 0:
 		return OriginAgent
 	default:
 		return OriginSession

@@ -255,7 +255,6 @@ func TestCredentials_AContainerRefusesALogin(t *testing.T) {
 	require.ErrorIs(t, err, engine.ErrNoCredential)
 	fix, ok := clifmt.RemedyOf(err)
 	require.True(t, ok)
-	assert.Contains(t, fix, "claude setup-token")
 	assert.Contains(t, fix, "auth: token")
 	assert.Empty(t, mounts)
 }
@@ -274,24 +273,6 @@ func TestPrepare_AContainerLoginIsRefusedBeforeAnythingIsPrepared(t *testing.T) 
 	_, err = Prepare(context.Background(), s)
 	require.ErrorIs(t, err, engine.ErrHostOnlyStore)
 	assert.NoDirExists(t, sessionDir(home, harpA), "refused before anything was created")
-}
-
-// CONTAINER + CLOUD: each provider credential directory the human has is
-// mounted READ-ONLY at its place under the container's $HOME; one the human
-// does not have is not declared, so nothing is mounted for it.
-func TestCredentials_ContainerCloudMountsTheProviderDirsReadOnly(t *testing.T) {
-	home := fakeHostHome(t, "")
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".aws"), 0o700))
-	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
-	creds := claudeCredentials(t, engine.AuthCloud)
-
-	pl, mounts := placeOn(t, credSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession, creds), t.TempDir(), containerOf)
-	assert.Contains(t, mounts, mount{Host: filepath.Join(home, ".aws"), Container: defaultContainerHome + "/.aws", ReadOnly: true})
-	for _, m := range mounts {
-		assert.NotContains(t, m.Host, "gcloud", "a provider login the human never made is not mounted")
-	}
-	assert.Equal(t, secretsTarget+"/CLAUDE_CODE_USE_BEDROCK", pl.SecretFiles["CLAUDE_CODE_USE_BEDROCK"], "the provider switch reaches the engine through its secret file, like the mode's keys")
-	assert.NotContains(t, pl.Env, "CLAUDE_CODE_USE_BEDROCK")
 }
 
 // F7: a declared store that is missing refuses the run on EVERY environment

@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // stubKind is the smallest engine kind a registry can hold.
@@ -147,43 +148,41 @@ func TestOpen_WithEngines_ValidatesEveryGeneration(t *testing.T) {
 	assert.Empty(t, unvalidated.Current().Warnings, "without engines there is nothing to validate against")
 }
 
-// authKind is a stub kind whose Auth supports only the token.
-type authKind struct{ stubKind }
-
-type tokenOnlyAuth struct{}
-
-func (tokenOnlyAuth) Modes() []engine.AuthMode { return []engine.AuthMode{engine.AuthToken} }
-func (tokenOnlyAuth) Credentials(engine.AuthMode, func(string) (string, bool)) (engine.Credentials, error) {
-	return engine.Credentials{}, nil
-}
-
-func (authKind) Home() engine.HomeSpec {
-	return engine.HomeSpec{Vars: []engine.HomeVar{{Name: "X_HOME", Subdir: "x"}}, Auth: engine.Provide[engine.Auth](tokenOnlyAuth{})}
-}
-
-// Config load runs the same auth check `agent create/edit` and every launch
-// run (engine.CheckAuth): an agent whose own llm names an engine is refused
-// at load for a mode that engine lacks, an unknown mode, or any mode on an
-// engine with no auth — typed, with a remedy.
-func TestConfig_Validate_RefusesAnAgentsInvalidAuthAtLoad(t *testing.T) {
-	reg, err := engine.NewRegistry(
-		authKind{stubKind{engine.Base{Definition: engine.Definition{Name: "withauth", Distribution: engine.DistributionDefault}}}},
-		stubKind{engine.Base{Definition: engine.Definition{Name: "noauth", Distribution: engine.DistributionTestOnly}}},
-	)
-	require.NoError(t, err)
-	for _, tc := range []struct {
-		llm, mode string
-		sentinel  error
-	}{
-		{"withauth", "login", engine.ErrAuthModeUnsupported},
-		{"withauth", "apikey", engine.ErrUnknownAuthMode},
-		{"noauth", "token", engine.ErrEngineHasNoAuth},
-	} {
-		cfg := config.NewFixture(config.Fixture{Agents: map[string]agents.Agent{"a": {Name: "a", LLM: tc.llm, Auth: tc.mode}}})
-		err := cfg.Validate(reg)
-		require.ErrorIs(t, err, tc.sentinel, "%s/%s", tc.llm, tc.mode)
-		assert.Contains(t, err.Error(), "agents.a")
+// An agent binding has no auth to choose: every run ctxloom spawns
+// authenticates with the token. A binding still carrying `auth:` -- any
+// value, the retired api-key and cloud and the human's login among them -- is
+// refused at load, typed, naming the token and where the human's own login
+// is chosen instead; never dropped in silence by the lenient decode.
+func TestParseConfig_RefusesAnAgentAuthKey(t *testing.T) {
+	for _, mode := range []string{"login", "api-key", "cloud", "token"} {
+		_, err := config.ParseConfig([]byte("version: 6\nagents:\n  dev:\n    profiles: [base]\n    auth: " + mode + "\n"))
+		require.ErrorIs(t, err, agents.ErrRetiredAuthKey, mode)
+		assert.Contains(t, err.Error(), `"dev"`, mode)
+		assert.Contains(t, err.Error(), "claude setup-token", mode)
+		assert.Contains(t, err.Error(), "CLAUDE_CODE_OAUTH_TOKEN", mode)
+		assert.Contains(t, err.Error(), "auth: login", mode)
 	}
-	ok := config.NewFixture(config.Fixture{Agents: map[string]agents.Agent{"a": {Name: "a", LLM: "withauth", Auth: "token"}, "b": {Name: "b", LLM: "noauth"}}})
-	require.NoError(t, ok.Validate(reg))
+}
+
+// The top-level `auth:` is how the HUMAN's own session authenticates:
+// login or token, undeclared the token. api-key and cloud are gone for
+// everyone -- refused, typed, naming what is accepted.
+func TestParseConfig_SessionAuth(t *testing.T) {
+	for doc, want := range map[string]engine.AuthMode{
+		"version: 6\n":              engine.AuthToken,
+		"version: 6\nauth: token\n": engine.AuthToken,
+		"version: 6\nauth: login\n": engine.AuthLogin,
+	} {
+		cfg, err := config.ParseConfig([]byte(doc))
+		require.NoError(t, err, doc)
+		assert.Equal(t, want, cfg.SessionAuth(), doc)
+	}
+	for _, mode := range []string{"api-key", "cloud", "keychain"} {
+		_, err := config.ParseConfig([]byte("version: 6\nauth: " + mode + "\n"))
+		require.ErrorIs(t, err, engine.ErrUnknownAuthMode, mode)
+		var r report.Remediable
+		require.ErrorAs(t, err, &r, mode)
+		assert.Contains(t, r.Remedy(), "login", mode)
+		assert.Contains(t, r.Remedy(), "token", mode)
+	}
 }

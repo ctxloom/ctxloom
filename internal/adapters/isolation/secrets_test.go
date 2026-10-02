@@ -52,29 +52,6 @@ func TestContainerCell_StartRunCarriesTheCredentialByReferenceNeverByValue(t *te
 	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, pl.Unset, "what the engine must not inherit is untouched")
 }
 
-// A cloud mode's FileVars carry a PATH, which relocateFiles already rewrote
-// to the container side: it stays in env. Every other credential variable
-// is a secret.
-func TestContainerCell_FileVarsStayInEnvAsTheirContainerPath(t *testing.T) {
-	home := fakeHostHome(t, "")
-	f := cloudFileFixture(t, home, "aws/credentials")
-	creds := engine.Credentials{
-		Env:      map[string]string{"AWS_SHARED_CREDENTIALS_FILE": f, "AWS_SECRET_ACCESS_KEY": fixtureSecret, "CLAUDE_CODE_USE_BEDROCK": "1"},
-		FileVars: []string{"AWS_SHARED_CREDENTIALS_FILE"},
-	}
-	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
-	pl, _, err := c.relocator().relocate(layout{cwd: "/proj", creds: creds})
-	require.NoError(t, err)
-
-	assert.NotContains(t, string(startRunBytes(t, pl)), fixtureSecret)
-	assert.Equal(t, []string{"AWS_SECRET_ACCESS_KEY", "CLAUDE_CODE_USE_BEDROCK"}, secretVars(creds))
-	assert.Contains(t, pl.SecretFiles, "AWS_SECRET_ACCESS_KEY")
-	assert.Contains(t, pl.SecretFiles, "CLAUDE_CODE_USE_BEDROCK")
-	assert.NotContains(t, pl.SecretFiles, "AWS_SHARED_CREDENTIALS_FILE")
-	assert.NotEqual(t, f, pl.Env["AWS_SHARED_CREDENTIALS_FILE"], "the file var names the container side, not the host path")
-	assert.NotEmpty(t, pl.Env["AWS_SHARED_CREDENTIALS_FILE"])
-}
-
 // The host runtime is out of the mount's scope: its runner is a same-uid
 // process the launching process spawned, dialling the loopback-only
 // listener, so the value stays in env and no file is named.

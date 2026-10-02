@@ -18,6 +18,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -223,6 +224,9 @@ type Config struct {
 	// empty means the sweep reports its purge rows and acts on none. Machine
 	// scope, like sessionReapAge.
 	sessionPurgeAge string
+	// auth is the top-level `auth:` as written ("" undeclared): how the
+	// HUMAN's own session authenticates (SessionAuth). Validated at decode.
+	auth engine.AuthMode
 
 	// Runtime-only fields: populated during Load, never part of the persisted
 	// config — configDoc (their yaml counterpart) simply omits them, which
@@ -343,6 +347,7 @@ type configDoc struct {
 	UI                           UIConfig                  `yaml:"ui,omitempty"`
 	SessionReapAge               string                    `yaml:"session_reap_age,omitempty"`
 	SessionPurgeAge              string                    `yaml:"session_purge_age,omitempty"`
+	Auth                         engine.AuthMode           `yaml:"auth,omitempty"`
 }
 
 // MarshalYAML emits d as a plain map, so every key is written sorted at every
@@ -398,6 +403,7 @@ func (c *Config) toDoc() configDoc {
 		UI:                           cloneUIConfig(c.ui),
 		SessionReapAge:               c.sessionReapAge,
 		SessionPurgeAge:              c.sessionPurgeAge,
+		Auth:                         c.auth,
 	}
 }
 
@@ -427,6 +433,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.ui = doc.UI
 	c.sessionReapAge = doc.SessionReapAge
 	c.sessionPurgeAge = doc.SessionPurgeAge
+	c.auth = doc.Auth
 
 	// lm.Configs is pre-populated before every decode precisely so downstream
 	// code may write into it, and a document is free to null it back out.
@@ -473,6 +480,9 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	if name, found := findRetiredAgentKey(node, agents.RetiredCoordinatorKey); found {
 		return fmt.Errorf("agent %q: %w", name, agents.ErrRetiredCoordinatorKey)
 	}
+	if name, found := findRetiredAgentKey(node, agents.RetiredAuthKey); found {
+		return fmt.Errorf("agent %q: %w", name, agents.ErrRetiredAuthKey)
+	}
 	if mappingValue(node, retiredAgentTurnCapKey) != nil {
 		return errRetiredAgentTurnCapKey
 	}
@@ -484,6 +494,9 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	if err := validateIdleTimeout(doc.Delegation.IdleTimeout); err != nil {
+		return err
+	}
+	if _, err := engine.ParseAuthMode(string(doc.Auth)); err != nil {
 		return err
 	}
 	c.fromDoc(doc)
@@ -687,6 +700,18 @@ func (c *Config) SessionReapAge() string {
 		return DefaultSessionReapAge
 	}
 	return c.sessionReapAge
+}
+
+// SessionAuth is how the HUMAN's own session authenticates: the top-level
+// `auth:`, undeclared the token. Only that session reads it; every run
+// ctxloom spawns authenticates with the token (launch.RunAuth).
+func (c *Config) SessionAuth() engine.AuthMode {
+	m, err := engine.ParseAuthMode(string(c.auth))
+	if err != nil {
+		// Refused at decode; a Fixture is the only way here.
+		return engine.AuthToken
+	}
+	return m
 }
 
 // SessionPurgeAge returns the configured session_purge_age, or "" when

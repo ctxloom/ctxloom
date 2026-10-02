@@ -162,6 +162,18 @@ func resolveEngineMode(deps Deps, cfg *config.Config, src Source, label string) 
 	return eng, labelCfg, labelPerm, nil
 }
 
+// RunAuth is the auth mode a run authenticates in, decided by WHO runs it,
+// never by its binding: the human's own session (sessions.OriginSession)
+// takes session, the configured top-level `auth:`; every run ctxloom spawns
+// -- a delegated child, a one-shot -- takes the token, whatever the human
+// chose for themselves, so no agent ever reaches the human's login.
+func RunAuth(id sessions.Identity, session engine.AuthMode) engine.AuthMode {
+	if id.Origin() == sessions.OriginSession {
+		return session
+	}
+	return engine.AuthToken
+}
+
 // prepareCell is Cells.Prepare for the launch, returning the engine
 // passthrough env (the label's env overlaid by the source's) with the cell.
 func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, axes Axes, dirty DirtyTreeHandler, sel selection, label string) (map[string]string, Cell, error) {
@@ -183,7 +195,7 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 		Host:        deps.Host,
 		Degraded:    src.Degraded,
 		HomeMode:    sel.homeMode,
-		Auth:        sel.auth,
+		Auth:        RunAuth(src.Identity, deps.Snapshot.Config.SessionAuth()),
 		HostEnv:     sel.hostEnv,
 		Env:         env,
 	})
@@ -257,7 +269,6 @@ type selection struct {
 	runtime     string
 	permissions agents.Permissions
 	homeMode    HomeMode
-	auth        string
 	hostEnv     agents.HostEnv
 	surfaces    map[string]string
 	roots       map[string]string
@@ -269,7 +280,7 @@ type selection struct {
 func selectSource(cfg *config.Config, src Source) (selection, error) {
 	switch {
 	case src.Internal:
-		return selection{auth: src.Auth}, nil
+		return selection{}, nil
 	case src.Agent != "":
 		return bindingSelection(cfg, src.Agent, src.Degraded)
 	case len(src.Profiles) == 0 && len(src.Fragments) == 0 && len(src.Tags) == 0:
@@ -297,10 +308,6 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		}
 		home = HomeModeSession
 	}
-	// The declared auth travels as written: the cells adapter checks it
-	// against the engine it binds (engine.CheckAuth), the one check config
-	// load and `agent create/edit` also run.
-	auth := binding.Auth
 	if err := binding.HostEnv.Validate(); err != nil {
 		return selection{}, fmt.Errorf("agent %q: %w", name, err)
 	}
@@ -311,7 +318,6 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		runtime:     binding.Runtime,
 		permissions: binding.Permissions,
 		homeMode:    home,
-		auth:        auth,
 		hostEnv:     agents.HostEnv{Curated: binding.HostEnv.Curated, Passthrough: slices.Clone(binding.HostEnv.Passthrough)},
 		surfaces:    maps.Clone(binding.Surfaces),
 		roots:       maps.Clone(binding.Roots),

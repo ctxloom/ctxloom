@@ -630,8 +630,8 @@ const discoveryPosture = "default"
 const authPingTask = "Reply with exactly: ok"
 
 // engineAuthFixHint names the fix for a failed auth probe. An engine that
-// declares auth (Engine.Home().Auth) gets pointed at the credential its
-// mode reads from the environment, which `ctxloom auth status` names; one
+// declares auth (Engine.Home().Auth) gets pointed at the token the probe, a
+// one-shot, reads from the environment, which `ctxloom auth status` names; one
 // that declares none — or is not registered at all — gets a generic but
 // actionable fix rather than a blank, since the probe still failed.
 func engineAuthFixHint(reg enginepkg.Registry, name string) string {
@@ -642,7 +642,7 @@ func engineAuthFixHint(reg enginepkg.Registry, name string) string {
 	if !ok {
 		return "authenticate the engine (subscription login or its API-key env var) and try again"
 	}
-	return fmt.Sprintf("export the credential the agent's auth mode reads — `ctxloom auth status` shows, for %s, which variable each mode reads and whether it is set — and try again", name)
+	return fmt.Sprintf("export the token every agent authenticates with — `ctxloom auth status` shows, for %s, which variable it is read from and whether it is set — and try again", name)
 }
 
 // authPingHosts is a test seam: nil runs the probe on the command's
@@ -663,14 +663,14 @@ func pingHosts() operations.RunHosts {
 // internal one-shot of its own — its own harp, ended when it answers — on
 // the engine init selected, at bypass: a throwaway liveness probe with a
 // fixed trivial prompt wants no permission gating, whatever posture the
-// engine's label declares, and says so out loud. Any failure (missing
-// binary, no credentials, a dead subscription token, a real backend error)
-// fails loud, naming the fix for THIS engine; auth itself stays ambient —
-// this is a liveness gate, not a login flow.
-func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, engine, workDir string) error {
+// engine's label declares, and says so out loud. Being a one-shot it
+// authenticates as every agent does, with the token (launch.RunAuth): the
+// credential every run ctxloom spawns needs. Any failure (missing binary, no
+// token, a dead subscription token, a real backend error) fails loud, naming
+// the fix for THIS engine; this is a liveness gate, not a login flow.
+func pingEngineAuth(ctx context.Context, deps launch.Deps, engine, workDir string) error {
 	src := operations.InternalSource(engine, "", workDir)
 	src.Permission = permissionBypass
-	src.Auth = defaultAgentAuth(cfg)
 	probe, err := operations.StartOneShot(ctx, deps, pingHosts(), sessions.Seed{ProjectDir: workDir}, src)
 	if err != nil {
 		return probeFailure(engine, probeFailedToStart, err)
@@ -680,20 +680,6 @@ func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, e
 		return probeFailure(engine, probeDidNotAnswer, err)
 	}
 	return nil
-}
-
-// defaultAgentAuth is the auth mode the default agent declares: the probe
-// checks the credential the session init is about to launch will use (the
-// default agent's own login, as init writes it), so it never mints a token
-// that session would not use.
-func defaultAgentAuth(cfg *config.Config) string {
-	if cfg == nil {
-		return ""
-	}
-	if a, ok := cfg.Agent(cfg.GetDefaultAgent()); ok {
-		return a.Auth
-	}
-	return ""
 }
 
 // The probe's two failure points, named for WHAT FAILED rather than for auth.
@@ -801,7 +787,7 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 	}
 	cfg := deps.Snapshot.Config
 
-	if err := pingEngineAuth(cmd.Context(), deps, cfg, engine, workDir); err != nil {
+	if err := pingEngineAuth(cmd.Context(), deps, engine, workDir); err != nil {
 		return err
 	}
 

@@ -361,14 +361,14 @@ func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string) (i
 }
 
 // runCredentials is what the request's agent authenticates with
-// (resolveRunAuth), from the mode the binding declared — settled before the
+// (resolveRunAuth), in the mode the resolver settled (launch.RunAuth) — before the
 // environment exists, so a missing credential refuses before anything is
 // built. A preview resolves them with every value redacted (previewRunAuth),
 // so the environment sees the stores the run would share; a refusal the run
 // would return is recorded for the dry run's gate and the preview carries on
 // without credentials.
 func (c Cells) runCredentials(req launch.CellRequest) (engine.Credentials, error) {
-	in := runAuth{Backend: string(req.Engine.Root().Name), Declared: req.Auth}
+	in := runAuth{Backend: string(req.Engine.Root().Name), Mode: req.Auth}
 	if !c.preview {
 		return resolveRunAuth(c.engines, in)
 	}

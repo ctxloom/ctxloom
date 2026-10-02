@@ -1,12 +1,9 @@
 package isolation
 
 import (
-	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path"
-	"path/filepath"
 	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
@@ -186,9 +183,8 @@ func inPlace(dir string) present.Root { return present.Root{Host: dir, Engine: d
 // that makes it true (relocateRoot). The project is placed where the
 // runtime's mapper routes it; a relocated session home at its declared leaf
 // under the fixed instance root; a non-relocating engine's session home as
-// the container's $HOME (the SCRATCH ruling); each shared store at its place
-// under the container's $HOME, with its var blanked so the engine looks
-// there.
+// the container's $HOME (the SCRATCH ruling). A shared credential store is
+// never presented: a run declaring one is refused (refuseStores).
 type containerRelocator struct {
 	rt           Runtime
 	instanceHome string
@@ -204,7 +200,7 @@ func (r containerRelocator) relocate(l layout) (launch.Placement, []mount, error
 		}
 		refused = err
 	}
-	project, err := relocateRoot(r.rt, l.cwd, "", false)
+	project, err := relocateRoot(r.rt, l.cwd, "")
 	if err != nil {
 		refuse("project root", err)
 	}
@@ -217,7 +213,7 @@ func (r containerRelocator) relocate(l layout) (launch.Placement, []mount, error
 			// host's separator.
 			target = path.Join(r.instanceHome, l.homeVar.Subdir)
 		}
-		home, err := relocateRoot(r.rt, l.sessionHome, target, false)
+		home, err := relocateRoot(r.rt, l.sessionHome, target)
 		if err != nil {
 			refuse("session home", err)
 		}
@@ -225,115 +221,27 @@ func (r containerRelocator) relocate(l layout) (launch.Placement, []mount, error
 		mounts = append(mounts, home.mount)
 	}
 	if refused != nil {
-		return containerPlacement(paths, l, nil), nil, refused
+		return containerPlacement(paths, l), nil, refused
 	}
-	storeEnv, storeMounts, err := r.relocateStores(l.stores)
-	if err != nil {
-		return containerPlacement(paths, l, nil), nil, err
+	if err := refuseStores(l.stores); err != nil {
+		return containerPlacement(paths, l), nil, err
 	}
-	fileEnv, fileMounts, err := r.relocateFiles(l.creds)
-	if err != nil {
-		return containerPlacement(paths, l, nil), nil, err
-	}
-	maps.Copy(storeEnv, fileEnv)
-	// Files after stores: a file inside a store's directory must not be
-	// shadowed by that directory's mount.
-	return containerPlacement(paths, l, storeEnv), append(append(mounts, storeMounts...), fileMounts...), nil
+	return containerPlacement(paths, l), mounts, nil
 }
 
-// relocateFiles binds each credential file the credentials declare
-// (engine.Credentials.FileVars) read-only where the runtime's seam routes it
-// — a single-file bind — and points its var at that path: the human's path
-// means nothing inside the container. A path the seam cannot route is
-// present.ErrUnreachableRoot; one naming no file the runtime could bind
-// refuses, since the daemon would reject the mount anyway. The host needs
-// none of this: there the var already names the file.
-func (r containerRelocator) relocateFiles(c engine.Credentials) (map[string]string, []mount, error) {
-	env := map[string]string{}
-	var mounts []mount
-	bound := map[string]bool{}
-	for _, v := range c.FileVars {
-		host := c.Env[v]
-		if host == "" {
-			continue
-		}
-		rel, err := relocateRoot(r.rt, host, "", true)
-		if err != nil {
-			return nil, nil, fmt.Errorf("credential file %s: %w", v, err)
-		}
-		if err := isBindableFile(host); err != nil {
-			return nil, nil, report.Errorf(fmt.Sprintf("point %s at an existing credential file by its absolute path, or unset it", v),
-				"%s names the credential file %s, which %w: %w", v, host, err, engine.ErrNoCredential)
-		}
-		env[v] = rel.root.Engine
-		if !bound[rel.mount.Container] {
-			bound[rel.mount.Container] = true
-			mounts = append(mounts, rel.mount)
-		}
-	}
-	return env, mounts, nil
-}
+// hostOnlyRemedy is the fix for a container run whose mode shares a store:
+// only the human's own session in login mode declares one, and the token is
+// what a container carries.
+const hostOnlyRemedy = "set `auth: token` in your config, or run this agent with `runtime: host`"
 
-var (
-	errCredentialFileRelative = errors.New("is not an absolute path")
-	errCredentialFileMissing  = errors.New("does not exist")
-	errCredentialFileNotAFile = errors.New("is not a regular file")
-)
-
-// isBindableFile refuses what a single-file bind cannot carry.
-func isBindableFile(host string) error {
-	if !filepath.IsAbs(host) {
-		return errCredentialFileRelative
-	}
-	fi, err := os.Stat(host)
-	if err != nil {
-		return fmt.Errorf("%w (%w)", errCredentialFileMissing, err)
-	}
-	if !fi.Mode().IsRegular() {
-		return errCredentialFileNotAFile
-	}
-	return nil
-}
-
-// hostOnlyRemedy is the remedy for a host-only store that names none of its
-// own: a store that is no directory (an OS keychain).
-const hostOnlyRemedy = "declare another auth mode on a container agent, or run it with `runtime: host`"
-
-// relocateStores mounts each shared store at its place under the
-// container's $HOME — never AS $HOME, and read-only when the store is — and
-// blanks its var, which points the engine at that place. A host-only store
-// refuses (engine.ErrHostOnlyStore): one declaring a ContainerRemedy, and one
-// with no place under $HOME, which no container can reach.
-func (r containerRelocator) relocateStores(stores []sharedStore) (map[string]string, []mount, error) {
-	env := map[string]string{}
-	var mounts []mount
-	for _, st := range stores {
-		if err := refuseHostOnly(st.SharedStore); err != nil {
-			return nil, nil, err
-		}
-		rel, err := relocateRoot(r.rt, st.hostDir, path.Join(r.home, st.HomeRel), st.ReadOnly)
-		if err != nil {
-			return nil, nil, fmt.Errorf("credential store: %w", err)
-		}
-		mounts = append(mounts, rel.mount)
-		if st.Var != "" {
-			env[st.Var] = ""
-		}
-	}
-	return env, mounts, nil
-}
-
-// refuseHostOnly is the refusal of a store no container is given, carrying
-// its remedy, or nil for a store a container can mount.
-func refuseHostOnly(st engine.SharedStore) error {
-	remedy := st.ContainerRemedy
-	if remedy == "" && st.HomeRel != "" {
+// refuseStores refuses a container run whose credentials declare any shared
+// store (engine.ErrHostOnlyStore): no container is given the human's own
+// credential store, so the run would start logged out.
+func refuseStores(stores []sharedStore) error {
+	if len(stores) == 0 {
 		return nil
 	}
-	if remedy == "" {
-		remedy = hostOnlyRemedy
-	}
-	return report.Errorf(remedy, "%w: a container cannot be given the human's own credential store this auth mode shares: %w", engine.ErrHostOnlyStore, engine.ErrNoCredential)
+	return report.Errorf(hostOnlyRemedy, "%w: a container cannot be given the human's own credential store this auth mode shares: %w", engine.ErrHostOnlyStore, engine.ErrNoCredential)
 }
 
 // unrouted is the Placement of a layout no runtime routes: every root
@@ -355,7 +263,7 @@ type relocated struct {
 // target (the instance home, $HOME) still has its host side routed, so a
 // source the runtime cannot reach fails here rather than at the daemon,
 // returning the root unreachable: its Host side, no Engine side, no mount.
-func relocateRoot(rt Runtime, host, target string, readOnly bool) (relocated, error) {
+func relocateRoot(rt Runtime, host, target string) (relocated, error) {
 	seam := rt.paths()
 	routed, err := seam.targetFor(host)
 	if err != nil {
@@ -364,7 +272,7 @@ func relocateRoot(rt Runtime, host, target string, readOnly bool) (relocated, er
 	if target == "" {
 		target = routed
 	}
-	return relocated{root: present.Root{Host: host, Engine: target}, mount: seam.bind(host, target, readOnly)}, nil
+	return relocated{root: present.Root{Host: host, Engine: target}, mount: seam.bind(host, target, false)}, nil
 }
 
 // workspaceEnv is what a prepared workspace provisioned for the run, or nil

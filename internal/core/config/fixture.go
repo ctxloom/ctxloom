@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
@@ -50,6 +51,7 @@ type Fixture struct {
 	UI                           UIConfig
 	SessionReapAge               string
 	SessionPurgeAge              string
+	Auth                         engine.AuthMode
 
 	// Runtime-only fields, mirroring Config's own (see Config's doc).
 	AppPaths           []string
@@ -102,6 +104,7 @@ func (c *Config) ToFixture() Fixture {
 		UI:                           d.UI,
 		SessionReapAge:               d.SessionReapAge,
 		SessionPurgeAge:              d.SessionPurgeAge,
+		Auth:                         d.Auth,
 		AppPaths:                     slices.Clone(c.appPaths),
 		AppRoot:                      c.appRoot,
 		AppDir:                       c.appDir,
@@ -152,6 +155,7 @@ func NewFixture(f Fixture) *Config {
 		ui:                           cloneUIConfig(f.UI),
 		sessionReapAge:               f.SessionReapAge,
 		sessionPurgeAge:              f.SessionPurgeAge,
+		auth:                         f.Auth,
 		appPaths:                     slices.Clone(f.AppPaths),
 		appRoot:                      f.AppRoot,
 		appDir:                       f.AppDir,

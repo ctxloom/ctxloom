@@ -83,73 +83,41 @@ func TestHomeSpec_Validate_RefusesAnUnselectableAuth(t *testing.T) {
 }
 
 // Undeclared auth is the token: the default never reaches the human's own
-// login. An unknown spelling is refused, typed, never defaulted.
+// login. The vocabulary is the token every agent runs on and the login the
+// human's own session may share; anything else -- the retired api-key and
+// cloud among them -- is refused, typed, never defaulted.
 func TestParseAuthMode(t *testing.T) {
-	for in, want := range map[string]AuthMode{"": AuthToken, " login ": AuthLogin, "token": AuthToken, "api-key": AuthAPIKey, "cloud": AuthCloud} {
+	for in, want := range map[string]AuthMode{"": AuthToken, " login ": AuthLogin, "token": AuthToken} {
 		got, err := ParseAuthMode(in)
 		require.NoError(t, err, in)
 		assert.Equal(t, want, got, in)
 	}
-	_, err := ParseAuthMode("apikey")
-	require.ErrorIs(t, err, ErrUnknownAuthMode)
-	var r report.Remediable
-	require.ErrorAs(t, err, &r)
-	for _, m := range AuthModeNames() {
-		assert.Contains(t, r.Remedy(), m)
+	assert.Equal(t, []string{"login", "token"}, AuthModeNames())
+	for _, in := range []string{"api-key", "cloud", "apikey"} {
+		_, err := ParseAuthMode(in)
+		require.ErrorIs(t, err, ErrUnknownAuthMode, in)
+		var r report.Remediable
+		require.ErrorAs(t, err, &r)
+		for _, m := range AuthModeNames() {
+			assert.Contains(t, r.Remedy(), m)
+		}
 	}
 }
 
-// CheckAuth is the one check of an auth selection. Every invalid selection
-// is refused with its own sentinel and a remedy; where the fix is another
-// mode, the remedy names exactly the modes THIS engine supports, read from
-// its Modes().
-func TestCheckAuth_EveryInvalidSelectionIsTypedWithARemedy(t *testing.T) {
-	withAuth := Provide[Auth](fakeAuth{modes: []AuthMode{AuthToken, AuthCloud}})
-	noAuth := Absent[Auth]("authenticates against no vendor")
-	for _, tc := range []struct {
-		name     string
-		declared Declared[Auth]
-		mode     string
-		sentinel error
-		modes    bool
-	}{
-		{"an unknown spelling", withAuth, "apikey", ErrUnknownAuthMode, true},
-		{"a mode the engine lacks", withAuth, "login", ErrAuthModeUnsupported, true},
-		{"undeclared, and the engine lacks the token default", Provide[Auth](fakeAuth{modes: []AuthMode{AuthCloud}}), "", ErrAuthModeUnsupported, false},
-		{"any mode on an engine with no auth", noAuth, "token", ErrEngineHasNoAuth, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := CheckAuth("x", tc.declared, tc.mode)
-			require.ErrorIs(t, err, tc.sentinel)
-			var r report.Remediable
-			require.ErrorAs(t, err, &r)
-			require.NotEmpty(t, r.Remedy())
-			if a, ok := tc.declared.Get(); ok {
-				for _, m := range a.Modes() {
-					assert.Contains(t, r.Remedy(), string(m), "the remedy names the engine's own modes")
-				}
-			}
-		})
-	}
-}
-
-func TestCheckAuth_ValidSelections(t *testing.T) {
-	withAuth := Provide[Auth](fakeAuth{modes: []AuthMode{AuthToken, AuthCloud}})
-	m, err := CheckAuth("x", withAuth, "")
-	require.NoError(t, err)
-	assert.Equal(t, AuthToken, m, "undeclared is the token")
-	m, err = CheckAuth("x", withAuth, " cloud ")
-	require.NoError(t, err)
-	assert.Equal(t, AuthCloud, m)
-	m, err = CheckAuth("x", Absent[Auth]("none"), "")
-	require.NoError(t, err)
-	assert.Empty(t, m, "an engine with no auth and no declaration has nothing to check")
+// Every run ctxloom spawns authenticates with the token, so an engine that
+// declares auth at all must offer it.
+func TestHomeSpec_AnAuthWithoutTheTokenIsRefused(t *testing.T) {
+	h := validHome()
+	h.Auth = Provide[Auth](fakeAuth{modes: []AuthMode{AuthLogin}})
+	assert.ErrorContains(t, h.Validate(), "token")
+	h.Auth = Provide[Auth](fakeAuth{modes: []AuthMode{AuthToken}})
+	assert.NoError(t, h.Validate())
 }
 
 func TestSupportsMode(t *testing.T) {
 	a := fakeAuth{modes: []AuthMode{AuthToken}}
 	assert.True(t, SupportsMode(a, AuthToken))
-	assert.False(t, SupportsMode(a, AuthAPIKey))
+	assert.False(t, SupportsMode(a, AuthLogin))
 }
 
 func validContainer() ContainerSpec {
@@ -193,7 +161,7 @@ func TestSharedStore_HostDir(t *testing.T) {
 	home := filepath.Join("h", "ben")
 	assert.Equal(t, filepath.Join(home, ".claude"), SharedStore{Var: "V", HomeRel: ".claude"}.HostDir(home), "an empty Value is the engine's default")
 	assert.Equal(t, "/elsewhere", SharedStore{Var: "V", Value: "/elsewhere", HomeRel: ".claude"}.HostDir(home), "the launching env's value wins")
-	assert.Equal(t, filepath.Join(home, ".config", "gcloud"), SharedStore{HomeRel: ".config/gcloud", ReadOnly: true}.HostDir(home), "HomeRel is slash-separated")
+	assert.Equal(t, filepath.Join(home, ".config", "gcloud"), SharedStore{HomeRel: ".config/gcloud"}.HostDir(home), "HomeRel is slash-separated")
 	assert.Equal(t, "", SharedStore{Var: "V"}.HostDir(home), "a keychain-backed store has no directory")
 	assert.Equal(t, "", SharedStore{Value: "/ignored"}.HostDir(home), "a Value with no Var names nothing")
 }

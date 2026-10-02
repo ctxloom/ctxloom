@@ -286,16 +286,17 @@ func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([
 	//
 	// Runtime and HomeMode are both written OUT even though each equals its
 	// parser's default: the isolation axes a binding declares should be visible
-	// in a fresh config, not inferred from what is missing. Auth is login: the
-	// agent a human launches with `ctxloom run` shares their own login, with
-	// its refresh; every other agent keeps the token default.
+	// in a fresh config, not inferred from what is missing. The top-level
+	// auth is login: the human's own `ctxloom run` shares their login, with
+	// its refresh; every agent ctxloom spawns authenticates with the token
+	// regardless (launch.RunAuth).
+	f.Auth = enginepkg.AuthLogin
 	f.DefaultAgent = SeedProfileName
 	f.Agents = map[string]agents.Agent{
 		SeedProfileName: {
 			LLM:      primaryLabel,
 			Runtime:  "host",
 			HomeMode: string(agents.HomeModeSession),
-			Auth:     string(enginepkg.AuthLogin),
 			Profiles: []string{SeedProfileName},
 		},
 	}

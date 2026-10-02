@@ -73,10 +73,6 @@ type fakeSpawner struct {
 	nextBackend   func() engine.Instance
 	engineWorkDir string
 	engineEnv     map[string]string
-	// engineCaps is the Hello advertisement StartEngine's in-process Home
-	// makes; empty is what an engine-hosting runner advertises
-	// (RunnerCapabilities(true)).
-	engineCaps []string
 	// spoolSweepInterval is handed to every in-process Home this fake builds
 	// (HomeConfig.SpoolSweepInterval). A cutover test that has to prove the
 	// SWEEP recovers a dropped doorbell sets it small; everything else leaves
@@ -340,7 +336,6 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 		s.chats = append(s.chats, sc)
 		inst = sc
 	}
-	caps := s.engineCaps
 	sweepInterval := s.spoolSweepInterval
 	s.mu.Unlock()
 
@@ -348,14 +343,13 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 	host := runnerHooks.NewEngineHost(sctx, nil, string(l.Engine), runnerEnv[EnvRunID])
 	runnerHooks.BindTestRunner(host, inst, func() bool { return s.refuseBind(sctx) })
 	home, err := runnerHooks.NewHome(sctx, TestHomeConfig{
-		Reporter:     termSink(),
-		URL:          runnerEnv[EnvCoordURL],
-		Token:        runnerEnv[EnvCoordCred],
-		RunID:        runnerEnv[EnvRunID],
-		Harness:      string(l.Engine),
-		Version:      "test",
-		Engine:       host.Handle,
-		Capabilities: caps,
+		Reporter: termSink(),
+		URL:      runnerEnv[EnvCoordURL],
+		Token:    runnerEnv[EnvCoordCred],
+		RunID:    runnerEnv[EnvRunID],
+		Harness:  string(l.Engine),
+		Version:  "test",
+		Engine:   host.Handle,
 		// The trio is read out of the STAMPED runner env rather than handed
 		// in by the test, mirroring production's consumeCoordinatorReachBack
 		// (llm_runner_common.go). The run's identity is NOT here: it arrives

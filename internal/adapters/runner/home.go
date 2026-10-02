@@ -188,8 +188,7 @@ type HomeConfig struct {
 	// caller wires it (llm_serve.go).
 	Engine RunnerRequestHandler
 	// Capabilities is this runner's Hello advertisement: what its hosted engine
-	// can actually execute (RunnerCapabilities). Empty advertises nothing —
-	// the mailbox surface every runner has is not a capability.
+	// can actually execute. Empty advertises nothing.
 	Capabilities []string
 	// Harp is set for the session owner's plugin-hosted runner ALONE: no
 	// StartRun ever reaches it, so its harp — the name of its spool — rides

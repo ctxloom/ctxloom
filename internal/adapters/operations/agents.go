@@ -659,7 +659,7 @@ func hasAnyProfiles(cfg *config.Config) bool {
 	if len(cfg.DefaultAgentProfiles()) > 0 {
 		return true
 	}
-	list, _ := cfg.GetProfileLoader().List()
+	list, _, _ := cfg.GetProfileLoader().List()
 	return len(list) > 0
 }
 

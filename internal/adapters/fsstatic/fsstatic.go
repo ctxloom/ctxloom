@@ -68,7 +68,7 @@ func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, root engine.B
 	undo := func(context.Context) error { return s.reverse(target.Ownership, within, target.Writer) }
 	b := s.batch()
 	st := target.Ownership.In(b)
-	if err := releaseWriters(st, target.Ownership, within, target.Writer); err != nil {
+	if err := releaseWriters(st, target.Ownership, within, carried(lo.Package.CarryForward), target.Writer); err != nil {
 		return delivery.Delivered{}, err
 	}
 	out := delivery.Delivered{Undo: undo}
@@ -178,9 +178,16 @@ func (s *Static) stageWritten(layer afero.Fs, path string, target delivery.Targe
 	return nil
 }
 
+// carried keeps a claim made through one of the sources the package carries
+// forward (composite.Package.CarryForward): a companion whose probe failed
+// keeps its entries as the record says it left them.
+func carried(sources []string) func(pointer, via string) bool {
+	return func(_, via string) bool { return slices.Contains(sources, via) }
+}
+
 // releaseWriters stages the release of each writer's claims in every file the
-// record names for it that within admits.
-func releaseWriters(st delivery.Staging, ownership delivery.Ownership, within func(string) bool, writers ...delivery.Writer) error {
+// record names for it that within admits, keeping the claims keep names.
+func releaseWriters(st delivery.Staging, ownership delivery.Ownership, within func(string) bool, keep func(pointer, via string) bool, writers ...delivery.Writer) error {
 	for _, w := range writers {
 		targets, err := ownership.Targets(w)
 		if err != nil {
@@ -190,7 +197,7 @@ func releaseWriters(st delivery.Staging, ownership delivery.Ownership, within fu
 			if !within(path) {
 				continue
 			}
-			if err := st.Release(path, w, nil); err != nil {
+			if err := st.Release(path, w, keep); err != nil {
 				return fmt.Errorf("fsstatic: release %s for %s: %w", path, w, err)
 			}
 		}
@@ -207,7 +214,7 @@ func (s *Static) Reverse(_ context.Context, ownership delivery.Ownership, writer
 // reverse releases writers from each file within admits, in one batch.
 func (s *Static) reverse(ownership delivery.Ownership, within func(string) bool, writers ...delivery.Writer) error {
 	b := s.batch()
-	if err := releaseWriters(ownership.In(b), ownership, within, writers...); err != nil {
+	if err := releaseWriters(ownership.In(b), ownership, within, nil, writers...); err != nil {
 		return err
 	}
 	if _, err := b.Commit(); err != nil {

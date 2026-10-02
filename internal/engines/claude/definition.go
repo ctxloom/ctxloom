@@ -286,7 +286,8 @@ func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in 
 }
 
 // mcpClaims is each server as a claim on its own entry under mcpServers,
-// spelled as the chat scratch file spells it (desiredMCPServers).
+// spelled as the chat scratch file spells it (desiredMCPServers), through the
+// bundle that shipped it (its provenance stamp, wire.MCPServer.SCM).
 func mcpClaims(servers map[string]wire.MCPServer) ([]present.Claim, error) {
 	desired, err := (&ClaudeCodeHookWriter{}).desiredMCPServers(servers)
 	if err != nil {
@@ -294,7 +295,7 @@ func mcpClaims(servers map[string]wire.MCPServer) ([]present.Claim, error) {
 	}
 	claims := make([]present.Claim, 0, len(desired))
 	for _, name := range collections.SortedKeys(desired) {
-		claims = append(claims, present.Claim{Pointer: present.PointerKey(mcpServersKey) + present.PointerKey(name), Value: desired[name]})
+		claims = append(claims, present.Claim{Pointer: present.PointerKey(mcpServersKey) + present.PointerKey(name), Value: desired[name], Via: servers[name].SCM})
 	}
 	return claims, nil
 }

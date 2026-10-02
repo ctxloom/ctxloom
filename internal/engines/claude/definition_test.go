@@ -393,3 +393,22 @@ func TestDeliverMCP_SessionHomeRefusesAnUnrootedRun(t *testing.T) {
 	_, err := def.MCP.DeliverMCP(start, present.RootSessionHome, engine.MCPInputs{Servers: map[string]wire.MCPServer{"probe": {Command: "probe-mcp"}}}, nil)
 	require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
 }
+
+// TestDeliverMCP_AClaimNamesTheBundleItCameThrough: each server's claim
+// carries the provenance stamp of the bundle that shipped it, so a delivery
+// can keep the entries of a source whose content is unknown this time.
+func TestDeliverMCP_AClaimNamesTheBundleItCameThrough(t *testing.T) {
+	def := claudeDef(t)
+	start, project, _ := hostStart(t)
+	in := engine.MCPInputs{Servers: map[string]wire.MCPServer{
+		"tasks": {Command: "taskloom", Args: []string{"mcp"}, SCM: "bundle:ctxloom+companion:taskloom"},
+		"own":   {Command: "own-mcp"},
+	}}
+	d, err := def.MCP.DeliverMCP(start, present.RootProjectRoot, in, nil)
+	require.NoError(t, err)
+	via := map[string]string{}
+	for _, c := range d.Claims[filepath.Join(project, MCPFileName)] {
+		via[c.Pointer] = c.Via
+	}
+	require.Equal(t, map[string]string{"/mcpServers/tasks": "bundle:ctxloom+companion:taskloom", "/mcpServers/own": ""}, via)
+}

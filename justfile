@@ -1761,7 +1761,7 @@ docs:
     cd website && npm run dev
 
 # `docs-deps` (npm ci) and `docs-build` (npm run build) come from
-# build/ci.justfile — .github/workflows/docs.yml runs them, so they are shared
+# build/ci.justfile — CI's `docs` job runs them, so they are shared
 # with justfile.container rather than defined only here.
 
 # Preview production docs build
@@ -1779,8 +1779,9 @@ docs-preview:
 # produced fresh from this run's capture, so they can never be stale. Neither
 # `docs` (dev server) nor `docs-build` depends on this — like `gen-docs`
 # (the CLI/MCP/config reference generator), it is a separate, explicit step so
-# a docs preview never forces a full acceptance run. CI's docs deploy workflow
-# (.github/workflows/docs.yml) runs it explicitly before `npm run build`.
+# a docs preview never forces a full acceptance run. CI
+# (the `docs` job in .github/workflows/ci.yml) runs it explicitly before
+# `npm run build`.
 gen-living-docs: build
     #!/usr/bin/env bash
     set -euo pipefail

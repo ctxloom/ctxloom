@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -83,9 +84,9 @@ func TestTriggerCache_SaveLoadRoundTrip(t *testing.T) {
 			Verdict:     triggers.Verdict{HarpID: "swift-amber-falcon", Outcome: triggers.Fired, Reasoning: "it shipped"},
 		},
 	}}
-	saveTriggerCache("proj-1", c)
+	saveTriggerCache(afero.NewOsFs(), "proj-1", c)
 
-	got := loadTriggerCache("proj-1")
+	got := loadTriggerCache(afero.NewOsFs(), "proj-1")
 	require.Contains(t, got.Tasks, "swift-amber-falcon")
 	assert.Equal(t, "abc123", got.Tasks["swift-amber-falcon"].Fingerprint)
 	assert.Equal(t, triggers.Fired, got.Tasks["swift-amber-falcon"].Verdict.Outcome)
@@ -94,15 +95,15 @@ func TestTriggerCache_SaveLoadRoundTrip(t *testing.T) {
 func TestTriggerCache_DifferentProjectsAreIsolated(t *testing.T) {
 	testsupport.Isolate(t)
 
-	saveTriggerCache("proj-a", triggerVerdictCache{Tasks: map[string]triggerCacheEntry{
+	saveTriggerCache(afero.NewOsFs(), "proj-a", triggerVerdictCache{Tasks: map[string]triggerCacheEntry{
 		"task-a": {Fingerprint: "fp-a", Verdict: triggers.Verdict{HarpID: "task-a", Outcome: triggers.Fired}},
 	}})
-	saveTriggerCache("proj-b", triggerVerdictCache{Tasks: map[string]triggerCacheEntry{
+	saveTriggerCache(afero.NewOsFs(), "proj-b", triggerVerdictCache{Tasks: map[string]triggerCacheEntry{
 		"task-b": {Fingerprint: "fp-b", Verdict: triggers.Verdict{HarpID: "task-b", Outcome: triggers.NotFired}},
 	}})
 
-	a := loadTriggerCache("proj-a")
-	b := loadTriggerCache("proj-b")
+	a := loadTriggerCache(afero.NewOsFs(), "proj-a")
+	b := loadTriggerCache(afero.NewOsFs(), "proj-b")
 	assert.Contains(t, a.Tasks, "task-a")
 	assert.NotContains(t, a.Tasks, "task-b")
 	assert.Contains(t, b.Tasks, "task-b")
@@ -111,14 +112,14 @@ func TestTriggerCache_DifferentProjectsAreIsolated(t *testing.T) {
 
 func TestLoadTriggerCache_MissingFileIsEmptyNotError(t *testing.T) {
 	testsupport.Isolate(t)
-	got := loadTriggerCache("never-saved-project")
+	got := loadTriggerCache(afero.NewOsFs(), "never-saved-project")
 	assert.NotNil(t, got.Tasks)
 	assert.Empty(t, got.Tasks)
 }
 
 func TestLoadTriggerCache_EmptyProjectIDIsEmpty(t *testing.T) {
 	testsupport.Isolate(t)
-	got := loadTriggerCache("")
+	got := loadTriggerCache(afero.NewOsFs(), "")
 	assert.Empty(t, got.Tasks)
 }
 
@@ -136,7 +137,7 @@ func TestLoadTriggerCache_CorruptFileDegradesToEmpty(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("{not valid json"), 0o644))
 
 	assert.NotPanics(t, func() {
-		got := loadTriggerCache("busted-project")
+		got := loadTriggerCache(afero.NewOsFs(), "busted-project")
 		assert.Empty(t, got.Tasks)
 	})
 }
@@ -144,7 +145,7 @@ func TestLoadTriggerCache_CorruptFileDegradesToEmpty(t *testing.T) {
 func TestSaveTriggerCache_EmptyProjectIDIsNoop(t *testing.T) {
 	testsupport.Isolate(t)
 	assert.NotPanics(t, func() {
-		saveTriggerCache("", triggerVerdictCache{Tasks: map[string]triggerCacheEntry{"x": {}}})
+		saveTriggerCache(afero.NewOsFs(), "", triggerVerdictCache{Tasks: map[string]triggerCacheEntry{"x": {}}})
 	})
 	dir, err := paths.TriggerCacheDir()
 	require.NoError(t, err)

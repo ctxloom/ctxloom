@@ -141,6 +141,24 @@ func (o *Ownership) Targets(writer delivery.Writer) ([]string, error) {
 	return out, nil
 }
 
+// Writers lists every writer named in any target's record, sorted.
+func (o *Ownership) Writers() ([]delivery.Writer, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	seen := map[delivery.Writer]struct{}{}
+	for _, byWriter := range o.entries {
+		for w := range byWriter {
+			seen[w] = struct{}{}
+		}
+	}
+	out := make([]delivery.Writer, 0, len(seen))
+	for w := range seen {
+		out = append(out, w)
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
 // AllOwned is every entry a writer owns across every target, sorted: what
 // the tests compare against the files under a root.
 func (o *Ownership) AllOwned(writer delivery.Writer) []string {

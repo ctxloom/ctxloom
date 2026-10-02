@@ -188,6 +188,8 @@ func (noDelivery) Deliver(context.Context, delivery.Loadout, engine.Base, delive
 	return delivery.Delivered{}, nil
 }
 
+func (noDelivery) Reverse(context.Context, delivery.Ownership, delivery.Writer) error { return nil }
+
 // ResolveLaunch resolves the worker's launch: it composes no context (the
 // tap renders the turn's own words).
 func (s *liveTapSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
@@ -221,7 +223,8 @@ func (s *liveTapSpawner) Start(_ context.Context, l launch.Launch, reach session
 	sctx, cancel := context.WithCancel(context.Background())
 	backend := string(l.Engine)
 	host := runner.NewEngineHost(sctx, nil, backend, runnerEnv[coord.EnvRunID])
-	host.BindRunner(runner.Host{Deps: runner.Deps{
+	host.BindRunner(&runner.Host{Deps: runner.Deps{
+		Locks:      &launchtest.Locks{},
 		Kind:       liveTapKind{Engine: mock.NewNamed(l.Engine), inst: s.chat},
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
 		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},

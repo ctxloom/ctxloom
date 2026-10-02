@@ -18,7 +18,9 @@ type Edit func(cur []byte, exists bool) (next []byte, keep bool, err error)
 // Seal runs under the path's lock once every edit has folded and before the
 // write, with the file as read and as it is about to be. It is where a record
 // of the change is made durable BEFORE its target changes, so a crash between
-// the two leaves a record that knows the write may not have happened.
+// the two leaves a record that knows the write may not have happened. It runs
+// whether or not the bytes changed: a record can change while its target
+// does not.
 type Seal func(before []byte, existed bool, after []byte, keep bool) error
 
 // Locker serializes one path's commit. It is injected because the lock-file
@@ -79,7 +81,8 @@ func (f fold) changed() bool {
 
 // Commit takes every path's lock in sorted order — one order for every batch,
 // so two batches cannot deadlock — then reads and folds every path, and only
-// when every edit has succeeded seals and writes each changed path once. A
+// when every edit has succeeded seals each path and writes each changed one
+// once. A
 // failed edit therefore writes nothing at all. A failed seal or write stops
 // the commit there: the paths before it are written, which is the residual
 // of having no cross-file atomicity.
@@ -137,14 +140,14 @@ func (b *Batch) fold(path string) (fold, error) {
 }
 
 func (b *Batch) land(f fold, out *Committed) error {
-	if !f.changed() {
-		out.Unchanged = append(out.Unchanged, f.path)
-		return nil
-	}
 	for _, s := range f.seals {
 		if err := s(f.before, f.existed, f.after, f.keep); err != nil {
 			return err
 		}
+	}
+	if !f.changed() {
+		out.Unchanged = append(out.Unchanged, f.path)
+		return nil
 	}
 	if !f.keep {
 		if err := b.fs.Remove(f.path); err != nil {

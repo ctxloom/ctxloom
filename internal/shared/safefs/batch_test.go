@@ -152,23 +152,43 @@ func TestBatchSealsRunBeforeTheWriteWithBothImages(t *testing.T) {
 	assert.Equal(t, 2, calls)
 }
 
-func TestBatchSkipsSealsForAnUnchangedPath(t *testing.T) {
+// A path whose bytes do not change is still SEALED: a record can change
+// while its target does not (a second writer joining an entry the file
+// already holds), and the seal is where that record is written. The target
+// itself is not written.
+func TestBatchSealsAnUnchangedPathWithoutWritingIt(t *testing.T) {
 	fs := newCountingFs()
 	put(t, fs, "/p/t", "same")
 	b := NewBatch(fs, noLock)
 	b.Edit("/p/t", func(cur []byte, e bool) ([]byte, bool, error) { return cur, e, nil })
-	b.Seal("/p/t", func([]byte, bool, []byte, bool) error { t.Fatal("sealed an unchanged path"); return nil })
-	_, err := b.Commit()
-	require.NoError(t, err)
-}
-
-// A path with a seal and no edit still runs through the fold: nothing changes.
-func TestBatchASealAloneIsUnchanged(t *testing.T) {
-	fs := newCountingFs()
-	b := NewBatch(fs, noLock)
-	b.Seal("/p/t", func([]byte, bool, []byte, bool) error { t.Fatal("sealed an unchanged path"); return nil })
+	var sealed int
+	b.Seal("/p/t", func(before []byte, existed bool, after []byte, keep bool) error {
+		sealed++
+		assert.Equal(t, "same", string(before))
+		assert.Equal(t, "same", string(after))
+		assert.True(t, existed && keep)
+		return nil
+	})
 	got, err := b.Commit()
 	require.NoError(t, err)
+	assert.Equal(t, 1, sealed)
+	assert.Equal(t, Committed{Unchanged: []string{"/p/t"}}, got)
+	assert.Zero(t, fs.renames["/p/t"])
+}
+
+// A path with a seal and no edit is sealed with the file as it stands.
+func TestBatchASealAloneSealsTheFileAsItStands(t *testing.T) {
+	fs := newCountingFs()
+	b := NewBatch(fs, noLock)
+	var sealed int
+	b.Seal("/p/t", func(before []byte, existed bool, after []byte, keep bool) error {
+		sealed++
+		assert.False(t, existed || keep)
+		return nil
+	})
+	got, err := b.Commit()
+	require.NoError(t, err)
+	assert.Equal(t, 1, sealed)
 	assert.Equal(t, Committed{Unchanged: []string{"/p/t"}}, got)
 }
 

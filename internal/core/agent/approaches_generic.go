@@ -17,27 +17,23 @@ import (
 // not "might a future engine want it".
 
 // NativeContextFile is the native managed-section context file every file
-// engine has (claude's CLAUDE.md, the mock's context file): the engine's own
-// ContextWriter merges the run's context into the file at rel beneath the
-// project root, and the handle strips the managed section back out.
+// engine has (claude's CLAUDE.md, the mock's context file) at rel beneath the
+// project root: where it is presented, and the managed section a currency
+// check reads (State).
 //
-// It is a Construct factory rather than a Construct because the things that
-// vary per engine — the writer, where the file lives, and the label the
-// shared-cwd warning names it by — are STATIC facts about the engine, bound at
-// registration, while the content is a per-run fact bound at construction.
-func NativeContextFile(name, rel string, writer func(fs afero.Fs) ContextWriter) Construct {
-	return func(in SurfaceInputs, fs afero.Fs) Approach {
-		fs = GetFS(fs)
-		return &nativeContextFile{name: name, rel: rel, fs: fs, writer: writer(fs), content: in.Context}
+// It is a Construct factory rather than a Construct because what varies per
+// engine — where the file lives, and the label the shared-cwd warning names
+// it by — are STATIC facts about the engine, bound at registration.
+func NativeContextFile(name, rel string) Construct {
+	return func(_ SurfaceInputs, fs afero.Fs) Approach {
+		return &nativeContextFile{name: name, rel: rel, fs: GetFS(fs)}
 	}
 }
 
 type nativeContextFile struct {
-	name    string
-	rel     string
-	fs      afero.Fs
-	writer  ContextWriter
-	content string
+	name string
+	rel  string
+	fs   afero.Fs
 }
 
 // UnsafeInfo names this surface for the shared-cwd fallback's warning.

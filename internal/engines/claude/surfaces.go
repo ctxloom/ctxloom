@@ -97,11 +97,6 @@ func underPrivateRoot(start present.Start, rel string) present.Rooted {
 // serve runs that lack it, with a bare relative path.
 func privateRooted(start present.Start) error { return agent.SessionHomeRooted(start) }
 
-// claudeContextWriter is the ContextWriter the native-file context approach
-// merges through — the same core WriteContext (claude.go) every CLAUDE.md
-// write uses.
-func claudeContextWriter(fs afero.Fs) agent.ContextWriter { return &ClaudeCodeHookWriter{FS: fs} }
-
 // systemPromptContext is claude's system-prompt context approach.
 //
 // It writes the framed <hash>.sysprompt.md beneath the run's private root via

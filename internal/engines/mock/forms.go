@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/afero"
 
@@ -51,32 +50,11 @@ var mockRel = map[agent.SurfaceKind]string{
 	agent.SurfaceCommands: commandsRel,
 }
 
-// mockContextWriter implements agent.ContextWriter for the mock engine: it
-// merges the assembled context into MOCK_CONTEXT.md's ctxloom-managed section,
-// preserving anything a user hand-wrote outside the markers. This is the exact
-// shape claude's CLAUDE.md writer uses — the same
-// shared core, a different filename.
-type mockContextWriter struct {
-	FS afero.Fs
-}
-
-// WriteContext merges req.Context into MOCK_CONTEXT.md's managed section via
-// the shared marker-merge core.
-func (w *mockContextWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
-	fs := agent.GetFS(w.FS)
-	path := mockContextPath(req.ProjectDir)
-	return agent.WriteManagedContext(fs, path, ContextFileName, req.Context, ContextFileName)
-}
-
 // newMockContext is mock's context approach: the SHARED native-file
-// implementation (agent.NativeContextFile) bound to mockContextWriter and
-// MOCK_CONTEXT.md — the same merge core and the same read side
-// (agent.StateReader) claude's CLAUDE.md goes through, differing only in the
-// writer and the filename. A second managed-section implementation here would
-// prove the mock, not the seam.
-var newMockContext = agent.NativeContextFile("mock/context", ContextFileName, func(fs afero.Fs) agent.ContextWriter {
-	return &mockContextWriter{FS: fs}
-})
+// implementation (agent.NativeContextFile) bound to MOCK_CONTEXT.md — the same
+// read side (agent.StateReader) claude's CLAUDE.md goes through, differing
+// only in the filename.
+var newMockContext = agent.NativeContextFile("mock/context", ContextFileName)
 
 // mockSkillsPath returns the mock skills directory's path under dir, via the
 // declared skills presenter.
@@ -164,19 +142,10 @@ func readMockSettings(fs afero.Fs, path string) (map[string]json.RawMessage, err
 	return doc, nil
 }
 
-// newMockCommandsSurface builds mock's commands surface: the SHARED
-// agent.ManagedCommandsDelivery bound to the SHARED
-// agent.WriteManagedCommandFiles, exactly as the skills surface binds the
-// shared skill-package writer. The render func contributes a filename and a
-// body; everything that makes a command file land correctly lives in the
-// shared writer.
-func newMockCommandsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-	return agent.NewManagedCommandsDelivery("mock/commands", commandsRel, in.Commands, func(dir string, cmds []agent.CommandExport) error {
-		return agent.WriteManagedCommandFiles(agent.GetFS(fs), mockCommandsPath(dir), cmds,
-			func(c agent.CommandExport) (string, []byte, error) {
-				return filepath.Base(c.Name) + ".md", []byte(c.Content), nil
-			}, agent.WithWriteReporter(in.Reporter))
-	})
+// newMockCommandsSurface builds mock's commands form: the SHARED
+// agent.ManagedCommandsDelivery at the mock's commands directory.
+func newMockCommandsSurface(agent.SurfaceInputs, afero.Fs) agent.Approach {
+	return agent.NewManagedCommandsDelivery("mock/commands", commandsRel)
 }
 
 // MockSessionFile is the mock's session-rooted form of every surface: the
@@ -249,7 +218,6 @@ func (m Mock) Declaration() agent.Declaration {
 
 // Compile-time capability contracts.
 var (
-	_ agent.ContextWriter = (*mockContextWriter)(nil)
-	_ agent.Approach      = (*mockMCPSurface)(nil)
-	_ agent.Approach      = (*mockSettingsSurface)(nil)
+	_ agent.Approach = (*mockMCPSurface)(nil)
+	_ agent.Approach = (*mockSettingsSurface)(nil)
 )

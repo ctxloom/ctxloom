@@ -1,73 +1,77 @@
 package mock
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
-// MockSettingsReader is mock's agent.SettingsReader — the install/uninstall/
-// status half of an engine's settings capability, sibling to the delivery-seam
-// mockSettingsSurface.
-//
-// BOTH exist because they answer different callers, not because one is a copy
-// of the other: the SURFACE is what a run's delivery cell writes for a live
-// session, while the WRITER is what `ctxloom manage hooks install|uninstall`
-// and `ctxloom doctor` reach through by backend name. Every real engine
-// carries both; mock carrying only one would make it unusable as the second
-// engine in exactly the scenarios that exercise the management commands.
-//
-// It writes the SAME file, through the SAME merge helpers
-// (readMockSettings/writeMockSettings), so the two paths cannot disagree about
-// the document's shape — which is the failure a second implementation would
-// invite.
+// MockSettingsReader is mock's agent.SettingsReader: what `ctxloom manage
+// status` and `ctxloom doctor` reach by backend name to ask what the at-rest
+// delivery wired into a project. It reads the files mock's own approaches
+// write (surfaces.go), so the report and the delivery cannot disagree about
+// where things live.
 type MockSettingsReader struct {
 	FS afero.Fs
 }
 
-// NewMockSettingsReader builds mock's settings writer from resolved options.
-// It reads only FS: mock has no statusline and no deny-tool policy of its own
-// to honour, and inventing handling for options it does not model would make
-// the double claim a capability the engines it stands in for would then be
-// compared against.
+// NewMockSettingsReader builds mock's settings reader from resolved options.
+// It reads only FS: mock's files are its own whole-file writes, so there are
+// no claims to consult, and it models no statusline.
 func NewMockSettingsReader(opts agent.SettingsOptions) agent.SettingsReader {
 	return &MockSettingsReader{FS: opts.FS}
 }
-
-// mockSettingsMCPKey is the settings document key mock's managed MCP servers
-// live under. Named beside mockSettingsHooksKey so install and removal cannot
-// disagree about which keys ctxloom owns.
-const mockSettingsMCPKey = "mcpServers"
 
 // Status reports which managed artifacts are currently wired in. StatusLine is
 // always false: mock models no statusline, and reporting one it never writes
 // would be the silent-no-op inversion — a status that claims a capability the
 // delivery does not have.
-func (w *MockSettingsReader) Status(projectDir string) (agent.SettingsStatus, error) {
-	fs := agent.GetFS(w.FS)
-	path := mockSettingsPath(projectDir)
+func (r *MockSettingsReader) Status(projectDir string) (agent.SettingsStatus, error) {
+	fs := agent.GetFS(r.FS)
+	at := func(rel string) string { return present.ProjectOnHost(projectDir).UnderProjectRoot(rel).Build().HostPath }
 
-	if _, err := fs.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return agent.SettingsStatus{}, nil
-		}
-		return agent.SettingsStatus{}, fmt.Errorf("mock: stat %s: %w", path, err)
-	}
-
-	doc, err := readMockSettings(fs, path)
+	var status agent.SettingsStatus
+	settings, err := afero.Exists(fs, at(settingsRel))
 	if err != nil {
-		return agent.SettingsStatus{}, err
+		return status, fmt.Errorf("mock: stat %s: %w", at(settingsRel), err)
 	}
-	_, hooks := doc[mockSettingsHooksKey]
-	_, mcp := doc[mockSettingsMCPKey]
-	return agent.SettingsStatus{
-		SettingsExists: true,
-		HooksPresent:   hooks,
-		MCPPresent:     mcp,
-	}, nil
+	status.SettingsExists = settings
+
+	var hooks wire.UnifiedHooks // the hooks file is the unified set (DeliveredHooksFile)
+	if err := readJSON(fs, at(hooksRel), &hooks); err != nil {
+		return status, err
+	}
+	status.HooksPresent = len(hooks.All()) > 0
+
+	var mcp struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := readJSON(fs, at(mcpRel), &mcp); err != nil {
+		return status, err
+	}
+	status.MCPPresent = len(mcp.MCPServers) > 0
+	return status, nil
+}
+
+// readJSON decodes path into v; an absent file leaves v as it was.
+func readJSON(fs afero.Fs, path string, v any) error {
+	data, err := afero.ReadFile(fs, path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("mock: read %s: %w", path, err)
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("mock: parse %s: %w", path, err)
+	}
+	return nil
 }
 
 // Compile-time capability contract.

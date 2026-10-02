@@ -203,7 +203,7 @@ type contextApproach struct{ traits }
 func (*contextApproach) Name() string { return ApproachSystemPrompt }
 func (*contextApproach) Forms() agent.Presentations {
 	return agent.Presents(EngineName, agent.SurfaceContext, agent.ApproachUnsafeFile,
-		agent.NativeContextFile("claude/context", ContextFileName, claudeContextWriter)).
+		agent.NativeContextFile("claude/context", ContextFileName)).
 		Or(ApproachSystemPrompt, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 			return &systemPromptContext{content: in.Context, fs: agent.GetFS(fs)}
 		}).

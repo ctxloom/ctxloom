@@ -24,7 +24,7 @@ import (
 )
 
 // TestDeliver_OverTheProductionRecord_MaterializeThenUninstallLeavesTheProjectClean
-// pairs the writer with confpatch.Records on a real filesystem: a materialize
+// pairs the writer with fsstatic.Records on a real filesystem: a materialize
 // into a project root delivers the mock's files and one record per file;
 // the empty plan removes exactly them, record included, and leaves the
 // user's own file untouched.
@@ -188,4 +188,91 @@ func TestDeliver_RefusesAnInPlaceWriteToAnExistingFile(t *testing.T) {
 			fileperm.Equal(t, 0o644, info.Mode(), "the refused write left the mode")
 		})
 	}
+}
+
+// deliverMock delivers the mock's package into project under w, through rec.
+func deliverMock(t *testing.T, fs afero.Fs, rec delivery.Ownership, root engine.Base, project string, w delivery.Writer, empty bool) error {
+	t.Helper()
+	pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "hello"))
+	lo := delivery.Loadout{Package: pkg}
+	if !empty {
+		items := pkg.EngineItems(root.Name)
+		pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Context: present.RootProjectRoot}}
+		plan, err := delivery.Route(items, root, pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
+		require.NoError(t, err)
+		lo.Plan = plan
+	}
+	_, err := fsstatic.New(fs).Deliver(context.Background(), lo, root, delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: w})
+	return err
+}
+
+// TestDeliver_AnUninstallReachesOnlyItsOwnTarget: the project writer is one
+// writer across every project; uninstalling it from one project leaves what
+// it delivered into another.
+func TestDeliver_AnUninstallReachesOnlyItsOwnTarget(t *testing.T) {
+	fs := afero.NewOsFs()
+	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+	require.NoError(t, err)
+	root := mock.New().Root()
+	a, b := t.TempDir(), t.TempDir()
+	require.NoError(t, deliverMock(t, fs, rec, root, a, delivery.ProjectWriter, false))
+	require.NoError(t, deliverMock(t, fs, rec, root, b, delivery.ProjectWriter, false))
+	require.NoError(t, deliverMock(t, fs, rec, root, a, delivery.ProjectWriter, true))
+	require.Empty(t, deliverytest.RelativeFiles(fs, a))
+	require.Equal(t, []string{mock.ContextFileName}, deliverytest.RelativeFiles(fs, b), "the other project's delivery stands")
+}
+
+// contextBy is a context approach whose delivery is the given func.
+type contextBy struct {
+	engine.ContextApproach
+	deliver func(fs afero.Fs) (present.Delivered, error)
+}
+
+func (a contextBy) DeliverContext(_ present.Start, _ present.RootKind, _ engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
+	return a.deliver(fs)
+}
+
+// TestDeliver_RefusesAnApproachThatClaimsAndWritesOneFile: a file is either
+// written whole or claimed into, never both by one approach.
+func TestDeliver_RefusesAnApproachThatClaimsAndWritesOneFile(t *testing.T) {
+	fs := afero.NewOsFs()
+	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+	require.NoError(t, err)
+	project := t.TempDir()
+	path := filepath.Join(project, mock.ContextFileName)
+	root := mock.New().Root()
+	root.Context = contextBy{ContextApproach: root.Context, deliver: func(fs afero.Fs) (present.Delivered, error) {
+		if err := safefs.WriteFile(fs, path, []byte("whole\n"), 0o644); err != nil {
+			return present.Delivered{}, err
+		}
+		return present.Delivered{Claims: map[string][]present.Claim{path: {{Pointer: present.AppendedSection, Value: []byte("section")}}}}, nil
+	}}
+	err = deliverMock(t, fs, rec, root, project, delivery.ProjectWriter, false)
+	require.ErrorContains(t, err, "both claims")
+	require.NoFileExists(t, path)
+}
+
+// TestDeliver_WritesThroughAnApproachsOwnStateOutsideTheTarget: a file an
+// approach writes outside every target root is its own state — written as
+// it wrote it, and never claimed under the writer.
+func TestDeliver_WritesThroughAnApproachsOwnStateOutsideTheTarget(t *testing.T) {
+	fs := afero.NewOsFs()
+	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+	require.NoError(t, err)
+	project := t.TempDir()
+	own := filepath.Join(t.TempDir(), "state", "own.yaml")
+	root := mock.New().Root()
+	root.Context = contextBy{ContextApproach: root.Context, deliver: func(fs afero.Fs) (present.Delivered, error) {
+		if err := fs.MkdirAll(filepath.Dir(own), 0o700); err != nil {
+			return present.Delivered{}, err
+		}
+		return present.Delivered{}, safefs.WriteFile(fs, own, []byte("mine\n"), 0o600)
+	}}
+	require.NoError(t, deliverMock(t, fs, rec, root, project, delivery.ProjectWriter, false))
+	got, err := os.ReadFile(own)
+	require.NoError(t, err)
+	require.Equal(t, "mine\n", string(got))
+	targets, err := rec.Targets(delivery.ProjectWriter)
+	require.NoError(t, err)
+	require.NotContains(t, targets, own)
 }

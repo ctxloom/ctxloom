@@ -3,6 +3,8 @@ package fsstatic
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,43 +15,39 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/spf13/afero"
 	yamlv3 "gopkg.in/yaml.v3"
 
-	// The formats a structured reversal is diffed in: registered HERE, by
-	// the record that needs them, so a file's reversal never depends on
-	// which engine happens to be linked into the binary.
+	// The formats a claim's place is found in: registered HERE, by the
+	// record that needs them, so a file's claims never depend on which
+	// engine happens to be linked into the binary.
 	_ "github.com/benjaminabbitt/hew/go/ext/json"
 	_ "github.com/benjaminabbitt/hew/go/ext/toml"
 	_ "github.com/benjaminabbitt/hew/go/ext/yaml"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// Records is the ONE ownership record (delivery.Ownership): per target file,
-// the entries each writer owns in it and how to take that writer's
-// contribution back out. A session's delivery and a materialize meet on one
-// project file and each keeps its own tag; reconcile-to-empty removes only
-// the calling writer's.
+// Records is the ownership record: one record per TARGET FILE, naming for each
+// place in the file the writers that put a value there and the values they
+// put. A writer's release takes out only what no other writer still claims,
+// so two writers sharing an entry, or one creating the container another
+// writes under, never take each other's out.
 //
-// The reversal is DIFFED from the before and after images through
-// confpatch's hew machinery, as confpatch.Store's is:
-// for a format hew reads (JSON, YAML, TOML) it is a hew patch, so the user's
-// own entries in a shared file survive a writer's removal; for any other
-// file the writer's contribution is the whole file, and the record keeps
-// the bytes that stood there before it (none when ctxloom created it).
+// The record holds ctxloom's own values and nothing else. A place is claimed
+// only where it is absent, already holds the claimed value, or holds an entry
+// that runs ctxloom (confpatch.OwnedBy); a user's value there is refused
+// (ErrNotOurs), never displaced, so no user value — and no user secret — is
+// ever copied into the record.
 //
-// Records are home-rooted, beside confpatch.Store's, for the same reason: the target
-// is FOREIGN, so ctxloom never leaves its own state beside it. That is what
-// replaced the ledger sidecar (.ctxloom-managed) every managed directory
-// used to carry.
+// Records live under the home, never beside the target, because the target is
+// FOREIGN.
 type Records struct {
 	fs  afero.Fs
 	dir string
@@ -57,10 +55,39 @@ type Records struct {
 
 var _ delivery.Ownership = (*Records)(nil)
 
-// NewRecords opens the record store at dir on fs; dir is created on the
-// first record written. An EXISTING dir is tightened to owner-only here as
-// well as by Prepare; Prepare is the one a delivery relies on
-// (delivery.Ownership.Prepare says why).
+// ownershipSuffix names the per-writer record this one replaced: deleted by
+// its exact name on the first write to its target.
+const ownershipSuffix = ".ownership.yaml"
+
+// ErrNotOurs refuses a write over a value that is not ctxloom's: a user's
+// value at a place a claim names, or a claimed value the user has since
+// changed.
+var ErrNotOurs = errors.New("the value there is not ctxloom's")
+
+// NotOursError is ErrNotOurs naming the place.
+type NotOursError struct{ Target, Pointer string }
+
+func (e *NotOursError) Error() string {
+	where := e.Pointer
+	if where == "" {
+		where = "the whole file"
+	}
+	return fmt.Sprintf("fsstatic: %s: %s: %v; refusing to change it", e.Target, where, ErrNotOurs)
+}
+
+// Unwrap makes errors.Is(err, ErrNotOurs) true.
+func (e *NotOursError) Unwrap() error { return ErrNotOurs }
+
+const (
+	claimsSuffix  = ".claims.yaml"
+	claimsVersion = 2
+	// ctxloomOwner is the executable basename that proves an unclaimed entry
+	// is ctxloom's own (confpatch.OwnedBy).
+	ctxloomOwner = "ctxloom"
+)
+
+// NewRecords opens the record store at dir on fs. dir is created on the first
+// record written; an existing one is tightened to owner-only.
 func NewRecords(recordFS afero.Fs, dir string) (*Records, error) {
 	if recordFS == nil {
 		return nil, errors.New("fsstatic: nil record filesystem")
@@ -68,262 +95,1204 @@ func NewRecords(recordFS afero.Fs, dir string) (*Records, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, errors.New("fsstatic: empty record directory")
 	}
-	r := &Records{fs: recordFS, dir: dir}
-	if err := r.tighten(); err != nil {
-		return nil, err
-	}
-	return r, nil
+	c := &Records{fs: recordFS, dir: dir}
+	return c, c.Prepare(context.Background())
 }
 
-// Prepare tightens the record dir to owner-only on the real filesystem. The
-// same directory (paths.HomeRecordsDir) holds the undo records engine
-// approaches write through the delivery's copy-on-write overlay, which
-// cannot chmod it (see confpatch.EnsureRecordDir).
-func (r *Records) Prepare(context.Context) error { return r.tighten() }
-
-// tighten brings an EXISTING record dir to owner-only; a missing one is left
-// missing, and the first record written creates it owner-only.
-func (r *Records) tighten() error {
-	exists, err := afero.DirExists(r.fs, r.dir)
+// Prepare tightens an EXISTING record dir to owner-only (delivery.Ownership's
+// security invariant); a missing one is left missing.
+func (c *Records) Prepare(context.Context) error {
+	exists, err := afero.DirExists(c.fs, c.dir)
 	if err != nil {
-		return fmt.Errorf("fsstatic: stat %s: %w", r.dir, err)
+		return fmt.Errorf("fsstatic: stat %s: %w", c.dir, err)
 	}
 	if !exists {
 		return nil
 	}
-	return confpatch.EnsureRecordDir(r.fs, r.dir)
+	return confpatch.EnsureRecordDir(c.fs, c.dir)
 }
 
-// ownershipRecord is one target file's record on disk.
-type ownershipRecord struct {
-	Target  string `yaml:"target"`
-	Created bool   `yaml:"created"` // ctxloom created the file: reconcile-to-empty by the last writer removes it
-	// Writers is every writer's contribution, keyed by delivery.Writer.
-	Writers map[string]writerRecord `yaml:"writers"`
+// claimsRecord is one target's record on disk.
+type claimsRecord struct {
+	Version    int                     `yaml:"claims"`
+	Target     string                  `yaml:"target"`
+	Created    bool                    `yaml:"created"`
+	Containers []string                `yaml:"containers,omitempty"`
+	Found      []string                `yaml:"found,omitempty"`
+	Seq        uint64                  `yaml:"seq"`
+	Paths      map[string][]claimEntry `yaml:"paths"`
+	Pending    *pendingWrite           `yaml:"pending,omitempty"`
 }
 
-// writerRecord is one writer's contribution to a target: the entries it
-// owns, and the reversal — a hew patch for a structured format, else the
-// bytes that stood there before this writer wrote (Before, with Existed
-// saying whether the file was there at all).
-type writerRecord struct {
-	Entries   []string  `yaml:"entries"`
-	AppliedAt time.Time `yaml:"applied_at"`
-	Reversal  string    `yaml:"reversal,omitempty"`
-	Existed   bool      `yaml:"existed"`
-	Before    []byte    `yaml:"before,omitempty"`
+// claimEntry is one writer's claim at one place. Seq orders claims of one
+// writer kind: the latest staged is on top.
+type claimEntry struct {
+	Writer string `yaml:"writer"`
+	Via    string `yaml:"via,omitempty"`
+	Seq    uint64 `yaml:"seq"`
+	Value  any    `yaml:"value"`
+	Bytes  []byte `yaml:"bytes,omitempty"`
 }
 
-const ownershipSuffix = ".ownership.yaml"
-
-func (r *Records) path(target string) string {
-	return filepath.Join(r.dir, confpatch.RecordPrefix(target)+ownershipSuffix)
+// pendingWrite is written WITH the record, before the target: the target's
+// digest before and after the write, and the state the file was in before
+// it. The next load tells from the target's digest whether the write landed.
+type pendingWrite struct {
+	Before string    `yaml:"before"`
+	After  string    `yaml:"after"`
+	Prior  fileState `yaml:"prior"`
 }
 
-// Apply reverses the writer's previous contribution to target, hands the
-// restored file to build, writes what build returns and records the
-// writer's entries with the reversal that takes them back out. A nil
-// desired reconciles the writer to empty.
-func (r *Records) Apply(_ context.Context, targetFS afero.Fs, target string, writer delivery.Writer, build delivery.Build) (delivery.Result, error) {
-	var res delivery.Result
-	if targetFS == nil || build == nil || strings.TrimSpace(target) == "" || writer == "" {
-		return res, errors.New("fsstatic: Apply needs a target filesystem, a target, a writer and a build")
+// fileState is what ctxloom holds in a file: the effective claim at each
+// place, the containers it created, the places whose value it FOUND there
+// already (which the last release leaves) and whether it created the file.
+type fileState struct {
+	Created    bool                  `yaml:"created"`
+	Containers []string              `yaml:"containers,omitempty"`
+	Found      []string              `yaml:"found,omitempty"`
+	Values     map[string]claimEntry `yaml:"values,omitempty"`
+}
+
+func (c *Records) path(target string) string {
+	return filepath.Join(c.dir, confpatch.RecordPrefix(target)+claimsSuffix)
+}
+
+func (c *Records) load(target string) (claimsRecord, []byte, error) {
+	data, err := afero.ReadFile(c.fs, c.path(target))
+	if os.IsNotExist(err) {
+		return claimsRecord{Version: claimsVersion, Target: target}, nil, nil
 	}
-	binding, format, structured := bindingFor(target)
-	err := sessions.WithFileLock(targetFS, target, func() error {
-		before, existed, err := confpatch.ReadTarget(targetFS, target)
-		if err != nil {
-			return err
+	if err != nil {
+		return claimsRecord{}, nil, err
+	}
+	var rec claimsRecord
+	if err := yamlv3.Unmarshal(data, &rec); err != nil {
+		return claimsRecord{}, nil, fmt.Errorf("fsstatic: read claims record %s: %w", c.path(target), err)
+	}
+	if rec.Version != claimsVersion {
+		return claimsRecord{}, nil, fmt.Errorf("fsstatic: claims record %s is version %d; this ctxloom reads version %d", c.path(target), rec.Version, claimsVersion)
+	}
+	return rec, data, nil
+}
+
+// rank orders writer kinds: a session's value is effective over the
+// project's at the same place, whichever staged last (SESSION OVER PROJECT).
+func rank(w string) int {
+	if _, ok := delivery.Writer(w).SessionHarp(); ok {
+		return 1
+	}
+	return 0
+}
+
+// ordered is entries effective first: by writer kind, then latest staged.
+func ordered(entries []claimEntry) []claimEntry {
+	out := slices.Clone(entries)
+	sort.SliceStable(out, func(i, j int) bool {
+		if ri, rj := rank(out[i].Writer), rank(out[j].Writer); ri != rj {
+			return ri > rj
 		}
-		rec, err := r.load(target)
-		if err != nil {
-			return err
-		}
-		restored, restoredExists, err := restore(binding, target, before, existed, rec.Writers[string(writer)], structured)
-		if err != nil {
-			return err
-		}
-		desired, entries, err := build(restored)
-		if err != nil {
-			return err
-		}
-		if desired == nil {
-			return r.reconcile(targetFS, target, writer, rec, before, existed, restored, restoredExists, &res)
-		}
-		wr, err := newWriterRecord(binding, format, target, structured, restored, restoredExists, desired, entries)
-		if err != nil {
-			return err
-		}
-		rec.setWriter(writer, wr, existed)
-		if err := r.save(target, rec); err != nil {
-			return err
-		}
-		return writeDesired(targetFS, target, before, existed, desired, &res)
+		return out[i].Seq > out[j].Seq
 	})
-	return res, err
+	return out
 }
 
-// newWriterRecord is the writer's record of desired over restored: its
-// entries and the reversal that takes them back out — a proven hew patch for
-// a structured format, else the pre-image when a file stood there.
-func newWriterRecord(binding hew.Binding, format hew.FormatID, target string, structured bool, restored []byte, restoredExists bool, desired []byte, entries []string) (writerRecord, error) {
-	wr := writerRecord{Entries: slices.Clone(entries), AppliedAt: time.Now().UTC(), Existed: restoredExists}
-	switch {
-	case structured && (restoredExists || len(confpatch.EmptyDocument(format)) > 0):
-		// A created file's reversal is diffed against the format's empty
-		// document, so a reapply still takes the old entries out first.
-		// A format with no empty document to diff from (YAML) leaves a
-		// created file owned whole, like an opaque one.
-		base := restored
-		if !restoredExists || len(bytes.TrimSpace(base)) == 0 {
-			base = confpatch.EmptyDocument(format)
+func (rec *claimsRecord) clone() claimsRecord {
+	out := *rec
+	out.Paths = make(map[string][]claimEntry, len(rec.Paths))
+	for p, entries := range rec.Paths {
+		out.Paths[p] = slices.Clone(entries)
+	}
+	return out
+}
+
+func (rec *claimsRecord) state() fileState {
+	s := fileState{Created: rec.Created, Containers: slices.Clone(rec.Containers), Found: slices.Clone(rec.Found), Values: map[string]claimEntry{}}
+	for p, entries := range rec.Paths {
+		if len(entries) > 0 {
+			s.Values[p] = ordered(entries)[0]
 		}
-		reversal, err := provenReversal(binding, format, target, base, desired)
+	}
+	return s
+}
+
+func (rec *claimsRecord) stage(w delivery.Writer, claims []stagedClaim) {
+	rec.Seq++
+	if rec.Paths == nil {
+		rec.Paths = map[string][]claimEntry{}
+	}
+	for _, cl := range claims {
+		e := claimEntry{Writer: string(w), Via: cl.via, Seq: rec.Seq, Value: cl.value, Bytes: cl.bytes}
+		rec.Paths[cl.key] = append(dropWriter(rec.Paths[cl.key], string(w), nil, cl.key), e)
+	}
+}
+
+// settle gives every claim that was already in was, unchanged, its place
+// back: a redelivery restating a claim is not a newer claim, and a record
+// that changed on every redelivery would be written on every redelivery.
+func (rec *claimsRecord) settle(was claimsRecord) {
+	changed := false
+	for p, entries := range rec.Paths {
+		for i, e := range entries {
+			j := slices.IndexFunc(was.Paths[p], func(x claimEntry) bool { return x.Writer == e.Writer && sameClaim(x, e) })
+			if j < 0 {
+				changed = true
+				continue
+			}
+			entries[i].Seq = was.Paths[p][j].Seq
+		}
+	}
+	if !changed && len(rec.Paths) == len(was.Paths) {
+		rec.Seq = was.Seq
+	}
+}
+
+func sameClaim(a, b claimEntry) bool {
+	return a.Via == b.Via && bytes.Equal(a.Bytes, b.Bytes) && reflect.DeepEqual(a.Value, b.Value)
+}
+
+func (rec *claimsRecord) release(w delivery.Writer, keep func(pointer, via string) bool) {
+	for p, entries := range rec.Paths {
+		if rest := dropWriter(entries, string(w), keep, p); len(rest) > 0 {
+			rec.Paths[p] = rest
+		} else {
+			delete(rec.Paths, p)
+		}
+	}
+}
+
+func dropWriter(entries []claimEntry, w string, keep func(pointer, via string) bool, pointer string) []claimEntry {
+	var out []claimEntry
+	for _, e := range entries {
+		if e.Writer != w || (keep != nil && keep(pointer, e.Via)) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// Staging stages claim changes into one Batch: every Stage and Release on a
+// target folds into that target's ONE write, and its record is written by the
+// target's seal, under the target's lock, before the target.
+type Staging struct {
+	c       *Records
+	b       *safefs.Batch
+	targets map[string]*targetOps
+}
+
+// In is a staging bound to b.
+func (c *Records) In(b *safefs.Batch) delivery.Staging {
+	return &Staging{c: c, b: b, targets: map[string]*targetOps{}}
+}
+
+type claimOp struct {
+	writer delivery.Writer
+	claims []stagedClaim // nil for a release
+	keep   func(pointer, via string) bool
+	stage  bool
+}
+
+type targetOps struct {
+	c      *Records
+	target string
+	ops    []claimOp
+	// set by the fold for the seal
+	rec   claimsRecord
+	disk  []byte
+	prior fileState
+}
+
+func (s *Staging) touch(target string) *targetOps {
+	t, ok := s.targets[target]
+	if !ok {
+		t = &targetOps{c: s.c, target: target}
+		s.targets[target] = t
+		s.b.Edit(target, t.fold)
+		s.b.Seal(target, t.seal)
+	}
+	return t
+}
+
+// Stage puts w's claims into target, each replacing w's earlier claim at the
+// same place. A place w claimed before and does not name here keeps its
+// claim; Release is what drops claims.
+func (s *Staging) Stage(target string, w delivery.Writer, claims []present.Claim) error {
+	if w == "" || strings.TrimSpace(target) == "" {
+		return errors.New("fsstatic: a stage needs a target and a writer")
+	}
+	staged := make([]stagedClaim, 0, len(claims))
+	seen := map[string]bool{}
+	opaque := false
+	for _, cl := range claims {
+		sc, err := stageable(target, cl)
 		if err != nil {
-			return writerRecord{}, err
+			return err
 		}
-		wr.Reversal = string(reversal)
-	case restoredExists:
-		wr.Before = slices.Clone(restored)
+		if seen[sc.key] {
+			return fmt.Errorf("fsstatic: %s: %s is claimed twice in one stage", target, cl.Pointer)
+		}
+		seen[sc.key] = true
+		opaque = opaque || isOpaque(sc.key)
+		staged = append(staged, sc)
 	}
-	return wr, nil
+	if opaque && len(staged) > 1 {
+		return fmt.Errorf("fsstatic: %s: a whole-file or appended-section claim cannot share a stage with another claim", target)
+	}
+	t := s.touch(target)
+	t.ops = append(t.ops, claimOp{writer: w, claims: staged, stage: true})
+	return nil
 }
 
-// setWriter records writer's contribution, marking the file ctxloom-created
-// when it did not exist before.
-func (rec *ownershipRecord) setWriter(writer delivery.Writer, wr writerRecord, existed bool) {
-	if !existed {
-		rec.Created = true
-	}
-	if rec.Writers == nil {
-		rec.Writers = map[string]writerRecord{}
-	}
-	rec.Writers[string(writer)] = wr
+// stagedClaim is a claim checked and keyed for the record: an element is
+// keyed by its array and its value, everything else by its pointer.
+type stagedClaim struct {
+	key, via string
+	value    any
+	bytes    []byte
 }
 
-// writeDesired writes desired to target unless the file already holds
-// exactly those bytes, marking res changed when it writes.
-func writeDesired(targetFS afero.Fs, target string, before []byte, existed bool, desired []byte, res *delivery.Result) error {
-	if existed && bytes.Equal(before, desired) {
+func isOpaque(key string) bool { return key == "" || key == present.AppendedSection }
+
+func stageable(target string, cl present.Claim) (stagedClaim, error) {
+	sc := stagedClaim{key: cl.Pointer, via: cl.Via}
+	if isOpaque(cl.Pointer) {
+		b, ok := cl.Value.([]byte)
+		if !ok {
+			return stagedClaim{}, fmt.Errorf("fsstatic: %s: a whole-file or appended-section claim's value is its bytes", target)
+		}
+		sc.bytes = b
+		return sc, nil
+	}
+	if _, _, ok := bindingFor(target); !ok {
+		return stagedClaim{}, fmt.Errorf("fsstatic: %s: claims %s, but no format hew reads names this file", target, cl.Pointer)
+	}
+	container, elem := strings.CutSuffix(cl.Pointer, "/-")
+	if err := validPointer(container); err != nil {
+		return stagedClaim{}, fmt.Errorf("fsstatic: %s: %w", target, err)
+	}
+	v, err := canon(cl.Value)
+	if err != nil {
+		return stagedClaim{}, fmt.Errorf("fsstatic: %s: the value claimed at %s: %w", target, cl.Pointer, err)
+	}
+	sc.value = v
+	if elem {
+		sc.key = elementKey(container, v)
+	}
+	return sc, nil
+}
+
+// elementKey keys an array element by its array and the digest of its
+// canonical value: the same element claimed by two writers is one place.
+func elementKey(container string, v any) string {
+	j, _ := json.Marshal(v) // canon's output: maps, slices and scalars only
+	sum := sha256.Sum256(j)
+	return container + elementInfix + hex.EncodeToString(sum[:])
+}
+
+const elementInfix = "/-/"
+
+// elementOf is the array an element key names; ok is false for any other key.
+func elementOf(key string) (container string, ok bool) {
+	i := strings.LastIndex(key, elementInfix)
+	if i < 0 || len(key)-i-len(elementInfix) != sha256.Size*2 {
+		return "", false
+	}
+	return key[:i], true
+}
+
+// claimPointer is a record key as the claim's pointer: an element's is its
+// array's append position.
+func claimPointer(key string) string {
+	if container, ok := elementOf(key); ok {
+		return container + "/-"
+	}
+	return key
+}
+
+// Release drops w's claims in target, except those keep names (keep may be
+// nil). What no writer still claims leaves the file; a place another writer
+// claims takes that writer's value.
+func (s *Staging) Release(target string, w delivery.Writer, keep func(pointer, via string) bool) error {
+	if w == "" || strings.TrimSpace(target) == "" {
+		return errors.New("fsstatic: a release needs a target and a writer")
+	}
+	t := s.touch(target)
+	t.ops = append(t.ops, claimOp{writer: w, keep: keep})
+	return nil
+}
+
+// fold loads the record under the target's lock, completes a write a crash
+// left behind, applies every staged op to the record and moves the file from
+// the state the record described to the state it now describes: one
+// transition, so the file changes once however many ops it took.
+func (t *targetOps) fold(cur []byte, exists bool) ([]byte, bool, error) {
+	rec, disk, err := t.c.load(t.target)
+	if err != nil {
+		return nil, false, err
+	}
+	t.disk, t.prior = disk, rec.state()
+	// A pending note whose write landed is left as it is: it is still true,
+	// and clearing it would be a record write that changes nothing.
+	if p := rec.Pending; p != nil && digest(cur, exists) != p.After {
+		rec.Pending = nil
+		if digest(cur, exists) == p.Before {
+			// The record landed and the target did not: redo the write the
+			// record describes, from the state the file is still in.
+			t.prior = p.Prior
+			if cur, exists, err = t.transition(cur, exists, p.Prior, &rec); err != nil {
+				return nil, false, err
+			}
+		}
+	}
+	from, was := rec.state(), rec.clone()
+	for _, op := range t.ops {
+		if op.stage {
+			rec.stage(op.writer, op.claims)
+		} else {
+			rec.release(op.writer, op.keep)
+		}
+	}
+	rec.settle(was)
+	next, keep, err := t.transition(cur, exists, from, &rec)
+	t.rec = rec
+	return next, keep, err
+}
+
+// seal writes the record before the target: with a pending note when the
+// target is about to change, and not at all when nothing in it changed. A
+// record left with no claims is removed once its target is settled — kept,
+// with its note, while the write that emptied it may not have landed. The
+// record this one replaced is deleted by its exact name.
+func (t *targetOps) seal(before []byte, existed bool, after []byte, keep bool) error {
+	rec := t.rec
+	changing := digest(before, existed) != digest(after, keep)
+	if changing {
+		rec.Pending = &pendingWrite{Before: digest(before, existed), After: digest(after, keep), Prior: t.prior}
+	}
+	if err := t.c.dropOldRecord(t.target); err != nil {
+		return err
+	}
+	path := t.c.path(t.target)
+	if len(rec.Paths) == 0 && !changing {
+		if err := t.c.fs.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 		return nil
 	}
-	res.Changed = true
-	return confpatch.WriteTarget(targetFS, target, desired)
-}
-
-// reconcile is the empty build: the writer's tag leaves the record and the
-// file becomes the restored image. A file ctxloom created leaves with its
-// last writer; while another writer's tag remains, a contribution that was
-// the whole file leaves the file to that writer.
-func (r *Records) reconcile(targetFS afero.Fs, target string, writer delivery.Writer, rec ownershipRecord, before []byte, existed bool, restored []byte, restoredExists bool, res *delivery.Result) error {
-	if _, owned := rec.Writers[string(writer)]; !owned {
-		return nil
-	}
-	delete(rec.Writers, string(writer))
-	othersRemain, err := r.dropWriterRecord(target, rec)
+	rec.Version, rec.Target = claimsVersion, t.target
+	data, err := yamlv3.Marshal(rec)
 	if err != nil {
 		return err
 	}
-	if !existed {
+	if bytes.Equal(data, t.disk) {
 		return nil
 	}
-	if reconcileRemovesFile(othersRemain, rec.Created, restoredExists) {
-		res.Changed = true
-		return targetFS.Remove(target)
+	if err := confpatch.EnsureRecordDir(t.c.fs, t.c.dir); err != nil {
+		return err
 	}
-	if !restoredExists || bytes.Equal(before, restored) {
-		return nil
-	}
-	res.Changed = true
-	return confpatch.WriteTarget(targetFS, target, restored)
+	return safefs.WriteFile(t.c.fs, path, data, owneronly.FileMode, safefs.Durable())
 }
 
-// dropWriterRecord persists rec after a writer left it: saved while other
-// writers remain, else removed. It reports whether others remain.
-func (r *Records) dropWriterRecord(target string, rec ownershipRecord) (bool, error) {
-	if len(rec.Writers) > 0 {
-		return true, r.save(target, rec)
+// dropOldRecord deletes the per-writer ownership record this record replaces,
+// recognized by its exact name.
+func (c *Records) dropOldRecord(target string) error {
+	old := filepath.Join(c.dir, confpatch.RecordPrefix(target)+ownershipSuffix)
+	if err := c.fs.Remove(old); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("fsstatic: remove the superseded record %s: %w", old, err)
 	}
-	if err := r.fs.Remove(r.path(target)); err != nil && !os.IsNotExist(err) {
-		return false, err
-	}
-	return false, nil
+	return nil
 }
 
-// reconcileRemovesFile reports whether reconciling the last writer out
-// removes the file: ctxloom created it, or nothing stands once restored.
-func reconcileRemovesFile(othersRemain, created, restoredExists bool) bool {
-	return !othersRemain && created || !restoredExists && !othersRemain
+// digest names a target's content, or its absence, for the pending note.
+func digest(data []byte, exists bool) string {
+	if !exists {
+		return "absent"
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// restore takes the writer's previous contribution back out of before: the
-// recorded hew reversal for a structured file, the recorded pre-image for an
-// opaque one. It reports whether a file stands after the restoration.
-func restore(binding hew.Binding, target string, before []byte, existed bool, prev writerRecord, structured bool) ([]byte, bool, error) {
-	if prev.AppliedAt.IsZero() || !existed {
-		return before, existed, nil
+// transition moves cur from the state from describes to the state rec now
+// describes, recording in rec the containers and the file it creates.
+func (t *targetOps) transition(cur []byte, exists bool, from fileState, rec *claimsRecord) ([]byte, bool, error) {
+	to := rec.state()
+	kind, err := claimKind(from, to)
+	switch {
+	case err != nil:
+		return nil, false, fmt.Errorf("fsstatic: %s: %w", t.target, err)
+	case kind == "":
+		return t.wholeFile(cur, exists, from, to, rec)
+	case kind == present.AppendedSection:
+		return t.section(cur, exists, from, to, rec)
+	case len(from.Values) == 0 && len(to.Values) == 0 && len(to.Containers) == 0:
+		return cur, exists, nil
 	}
-	if structured {
-		if prev.Reversal == "" {
-			// Nothing was diffed: a contribution identical to what stood
-			// there, or a created file in a format with no empty document
-			// (owned whole).
-			if !prev.Existed {
-				return nil, false, nil
-			}
-			return before, true, nil
+	return t.structured(cur, exists, from, to, rec)
+}
+
+// byPlace is claimKind's answer for a file claimed place by place.
+const byPlace = "/"
+
+// claimKind is how a file is claimed across both states: whole (""), by
+// appended section, or byPlace. Whole and section claims stand alone.
+func claimKind(from, to fileState) (string, error) {
+	keys := unionKeys(from.Values, to.Values)
+	opaque := slices.DeleteFunc(slices.Clone(keys), func(k string) bool { return !isOpaque(k) })
+	switch {
+	case len(opaque) == 0:
+		return byPlace, nil
+	case len(keys) > 1:
+		return "", errors.New("writers claim it in different ways (whole, by section, by place); refusing to guess which wins")
+	}
+	return opaque[0], nil
+}
+
+// section is the transition of text appended after the file's own: the
+// section ctxloom put there is found at the end, the user's text before it
+// kept, and the effective section appended in its place.
+func (t *targetOps) section(cur []byte, exists bool, from, to fileState, rec *claimsRecord) ([]byte, bool, error) {
+	o, hasO := from.Values[present.AppendedSection]
+	n, hasN := to.Values[present.AppendedSection]
+	user, leave, err := t.sectionUser(cur, exists, o, hasO, n, hasN)
+	if err != nil || leave {
+		return cur, exists, err
+	}
+	if hasN {
+		if !hasO && len(bytes.TrimSpace(user)) == 0 {
+			rec.Created = true // nothing of the user's to keep: the file leaves with the section
 		}
-		// The reversed document STANDS even when this writer created the
-		// file: another writer's entries may be in it, and a created file
-		// with no writer left is the record's Created flag to remove.
-		restored, err := confpatch.ApplyPatchText(binding, before, []byte(prev.Reversal), target)
-		if err != nil {
-			return nil, false, fmt.Errorf("fsstatic: %s has drifted since it was last written, so the previous contribution could not be reversed; refusing to write rather than clobber the change: %w", target, err)
-		}
-		return restored, true, nil
+		return appendSection(user, n.Bytes), true, nil
 	}
-	if !prev.Existed {
+	if !exists {
+		return cur, exists, nil
+	}
+	if rec.Created && len(bytes.TrimSpace(user)) == 0 {
+		rec.Created = false
 		return nil, false, nil
 	}
-	return prev.Before, true, nil
+	return user, true, nil
 }
 
-// provenReversal diffs after back to before and proves the patch applies to
-// after. A byte-exact round trip is not demanded: a writer that re-renders
-// the file in its own layout leaves the reversal semantically exact and
-// byte-inexact, and the user's entries are what the reversal keeps.
-func provenReversal(binding hew.Binding, format hew.FormatID, target string, before, after []byte) ([]byte, error) {
-	if bytes.Equal(before, after) {
-		return nil, nil
+// sectionUser is the user's text before ctxloom's section, found at the end
+// of cur. leave is an unchanged claim the user has since edited, left alone;
+// a section no longer at the end otherwise is not ctxloom's to cut out.
+func (t *targetOps) sectionUser(cur []byte, exists bool, o claimEntry, hasO bool, n claimEntry, hasN bool) ([]byte, bool, error) {
+	if !hasO || !exists {
+		return cur, false, nil
 	}
-	reversal, err := confpatch.RenderReversal(format, before, after, target)
+	if u, ok := stripSection(cur, o.Bytes); ok {
+		return u, false, nil
+	}
+	if hasN && bytes.Equal(o.Bytes, n.Bytes) {
+		return cur, true, nil
+	}
+	return nil, false, &NotOursError{Target: t.target, Pointer: present.AppendedSection}
+}
+
+// appendSection is safefs.AppendSection's layout: the file's own text, a
+// blank line, the section, one trailing newline.
+func appendSection(user, sec []byte) []byte {
+	out := bytes.TrimRight(slices.Clone(user), "\n")
+	if len(out) > 0 {
+		out = append(out, '\n', '\n')
+	}
+	out = append(out, bytes.TrimRight(sec, "\n")...)
+	return append(out, '\n')
+}
+
+// stripSection is the user's text before sec at the end of cur, with the
+// trailing newline the layout took; ok is false when cur does not end with it.
+func stripSection(cur, sec []byte) ([]byte, bool) {
+	tail := append(bytes.TrimRight(slices.Clone(sec), "\n"), '\n')
+	if bytes.Equal(cur, tail) {
+		return nil, true
+	}
+	sep := append([]byte("\n\n"), tail...)
+	if !bytes.HasSuffix(cur, sep) {
+		return nil, false
+	}
+	return append(slices.Clone(cur[:len(cur)-len(sep)]), '\n'), true
+}
+
+// wholeFile is the transition of a file claimed whole.
+func (t *targetOps) wholeFile(cur []byte, exists bool, from, to fileState, rec *claimsRecord) ([]byte, bool, error) {
+	o, hasO := from.Values[""]
+	n, hasN := to.Values[""]
+	if exists {
+		if leave, err := t.wholeFileEdited(cur, o, hasO, n, hasN); err != nil || leave {
+			return cur, exists, err
+		}
+	}
+	if hasN {
+		if !exists {
+			rec.Created = true
+		}
+		return n.Bytes, true, nil
+	}
+	if !exists || !rec.Created {
+		return cur, exists, nil
+	}
+	rec.Created = false
+	return nil, false, nil
+}
+
+// wholeFileEdited judges a file that stands against its whole-file claims:
+// it holds one of them (ours), or it is an unchanged claim the user has
+// since edited (leave it), or it is not ctxloom's.
+func (t *targetOps) wholeFileEdited(cur []byte, o claimEntry, hasO bool, n claimEntry, hasN bool) (bool, error) {
+	if (hasO && bytes.Equal(cur, o.Bytes)) || (hasN && bytes.Equal(cur, n.Bytes)) {
+		return false, nil
+	}
+	if hasO && hasN && bytes.Equal(o.Bytes, n.Bytes) {
+		return true, nil
+	}
+	return false, &NotOursError{Target: t.target}
+}
+
+// structured is the transition of a file hew reads, place by place: only the
+// places whose effective value changed are checked and touched, plus a
+// claimed place the file has lost, which is put back.
+func (t *targetOps) structured(cur []byte, exists bool, from, to fileState, rec *claimsRecord) ([]byte, bool, error) {
+	binding, format, ok := bindingFor(t.target)
+	if !ok {
+		return nil, false, fmt.Errorf("fsstatic: %s: no format hew reads names this file", t.target)
+	}
+	doc := cur
+	if !exists {
+		doc = confpatch.EmptyDocument(format)
+	}
+	e := &editor{target: t.target, binding: binding, format: format, doc: doc}
+	pointers := unionKeys(from.Values, to.Values)
+	if err := e.removeAll(pointers, from, to, rec); err != nil {
+		return nil, false, err
+	}
+	if err := e.setAll(pointers, from, to, rec); err != nil {
+		return nil, false, err
+	}
+	rec.Containers = e.prune(rec.Containers)
+	if err := e.err(); err != nil {
+		return nil, false, err
+	}
+	return e.settle(cur, exists, doc, to, rec)
+}
+
+// removeAll takes out each place no claim holds any longer, deepest first so
+// a member leaves before its container is judged. A place whose value
+// ctxloom found there is left as found.
+func (e *editor) removeAll(pointers []string, from, to fileState, rec *claimsRecord) error {
+	for i := len(pointers) - 1; i >= 0; i-- {
+		p := pointers[i]
+		if _, hasN := to.Values[p]; hasN {
+			continue
+		}
+		if slices.Contains(rec.Found, p) {
+			rec.Found = slices.DeleteFunc(rec.Found, func(f string) bool { return f == p })
+			continue
+		}
+		remove := e.remove
+		if container, ok := elementOf(p); ok {
+			remove = func(_ string, v any) error { return e.removeElement(container, v) }
+		}
+		if err := remove(p, from.Values[p].Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// setAll puts each place's effective value, shallowest first, recording the
+// containers it creates and the values it finds there already.
+func (e *editor) setAll(pointers []string, from, to fileState, rec *claimsRecord) error {
+	for _, p := range pointers {
+		n, hasN := to.Values[p]
+		if !hasN {
+			continue
+		}
+		o, hasO := from.Values[p]
+		set := e.set
+		if container, ok := elementOf(p); ok {
+			set = func(_ string, _ any, had bool, v any) ([]string, bool, error) { return e.setElement(container, had, v) }
+		}
+		created, found, err := set(p, o.Value, hasO, n.Value)
+		if err != nil {
+			return err
+		}
+		rec.Containers = appendNew(rec.Containers, created...)
+		if found {
+			rec.Found = appendNew(rec.Found, p)
+		}
+	}
+	return nil
+}
+
+// settle is the file the edits leave: created when it was not there and now
+// holds something, removed when ctxloom created it and nothing of anyone's is
+// left, untouched when it was not there and still holds nothing.
+func (e *editor) settle(cur []byte, exists bool, seed []byte, to fileState, rec *claimsRecord) ([]byte, bool, error) {
+	if !exists && !bytes.Equal(e.doc, seed) {
+		rec.Created = true
+	}
+	if rec.Created && len(to.Values) == 0 && bytes.Equal(bytes.TrimSpace(e.doc), bytes.TrimSpace(confpatch.EmptyDocument(e.format))) {
+		rec.Created = false
+		return nil, false, nil
+	}
+	if !exists && bytes.Equal(e.doc, seed) {
+		return cur, exists, nil
+	}
+	return e.doc, true, nil
+}
+
+// editor applies one place's change at a time to doc through hew, reading the
+// document again for the next: each change is judged against the document
+// the previous one produced.
+type editor struct {
+	target  string
+	binding hew.Binding
+	format  hew.FormatID
+	doc     []byte
+	failed  error
+}
+
+func (e *editor) err() error { return e.failed }
+
+// at locates pointer in the current document: the node, and the hew path that
+// addresses it (a selected element by its index, never by its selector).
+func (e *editor) at(pointer string) (hew.Node, hew.Path, bool, error) {
+	d, err := e.binding.Document(e.target, e.doc)
+	if err != nil {
+		return nil, hew.Path{}, false, fmt.Errorf("fsstatic: %s does not parse: %w", e.target, err)
+	}
+	n, args, ok, err := locate(d.Root(), parsePointer(pointer))
+	if errors.Is(err, errNotAnArray) {
+		return nil, hew.Path{}, false, &NotOursError{Target: e.target, Pointer: pointer}
+	}
+	return n, hew.NewPath(args...), ok, err
+}
+
+func (e *editor) node(pointer string) (hew.Node, bool, error) {
+	n, _, ok, err := e.at(pointer)
+	return n, ok, err
+}
+
+func (e *editor) applyAt(p hew.Path, op func(*hew.Sel)) error {
+	d, err := hew.OpenBytes(e.target, e.doc, hew.As(e.format))
+	if err != nil {
+		return fmt.Errorf("fsstatic: %s does not parse: %w", e.target, err)
+	}
+	op(d.AtPath(p))
+	out, err := d.Bytes()
+	if err != nil {
+		return fmt.Errorf("fsstatic: %s: %s: %w", e.target, p.String(), err)
+	}
+	e.doc = out
+	return nil
+}
+
+// remove takes ctxloom's value at pointer out; a value there that is neither
+// what ctxloom put nor an entry that runs ctxloom is the user's edit.
+func (e *editor) remove(pointer string, was any) error {
+	n, p, ok, err := e.at(pointer)
+	if err != nil || !ok {
+		return err
+	}
+	if !same(n, was) && !confpatch.OwnedBy(n, ctxloomOwner) {
+		return &NotOursError{Target: e.target, Pointer: pointer}
+	}
+	return e.applyAt(p, func(s *hew.Sel) { s.Remove() })
+}
+
+// set puts want at pointer. The place may hold the value ctxloom put there
+// (was), nothing, or an entry that runs ctxloom; anything else is the user's.
+// An unchanged claim over a user's edit is left alone. A first claim on a
+// place that already holds exactly the wanted value, and that does not run
+// ctxloom, is FOUND: it is someone else's value that happens to be ctxloom's
+// too, and the last release must leave it. It returns the containers it
+// created to hold the value.
+func (e *editor) set(pointer string, was any, hadClaim bool, want any) (created []string, found bool, err error) {
+	n, p, ok, err := e.at(pointer)
+	if err != nil {
+		return nil, false, err
+	}
+	if ok {
+		owned := confpatch.OwnedBy(n, ctxloomOwner)
+		if same(n, want) {
+			return nil, !hadClaim && !owned, nil
+		}
+		if hadClaim && reflect.DeepEqual(was, want) {
+			return nil, false, nil
+		}
+		if ours := owned || (hadClaim && same(n, was)); !ours {
+			return nil, false, &NotOursError{Target: e.target, Pointer: pointer}
+		}
+		return nil, false, e.applyAt(p, func(s *hew.Sel) { s.Set(want) })
+	}
+	return e.create(parsePointer(pointer), want)
+}
+
+// create builds what is missing of segs and puts want at its end: from the
+// deepest place that stands, a member is set or a selected element appended,
+// holding every missing container down to want. It returns those containers.
+func (e *editor) create(segs []pseg, want any) ([]string, bool, error) {
+	k := len(segs) - 1
+	var base hew.Path
+	for ; k >= 0; k-- {
+		_, p, ok, err := e.at(joinSegs(segs[:k]))
+		if k == 0 {
+			p, ok, err = hew.NewPath(), true, nil
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		if ok {
+			base = p
+			break
+		}
+	}
+	var created []string
+	for j := k + 1; j < len(segs); j++ {
+		created = append(created, joinSegs(segs[:j]))
+	}
+	value, err := build(segs[k:], want)
+	if err != nil {
+		return nil, false, err
+	}
+	if s := segs[k]; s.sel {
+		el, err := withSelector(s, value)
+		if err != nil {
+			return nil, false, err
+		}
+		return created, false, e.applyAt(base, func(sel *hew.Sel) { sel.Add(el) })
+	}
+	return created, false, e.applyAt(base.Append(hew.Key(segs[k].key).(hew.Segment)), func(sel *hew.Sel) { sel.Set(value) })
+}
+
+// build is the value the place rest[0] names holds so that want sits at the
+// end of rest: a map for a member below, an array holding the selected
+// element for a selector below.
+func build(rest []pseg, want any) (any, error) {
+	if len(rest) == 1 {
+		return want, nil
+	}
+	child, err := build(rest[1:], want)
 	if err != nil {
 		return nil, err
 	}
-	roundTripped, err := confpatch.ApplyPatchText(binding, after, reversal, target)
-	if err != nil {
-		return nil, fmt.Errorf("fsstatic: the reversal computed for %s does not apply to the document it was derived from; refusing to write: %w", target, err)
+	if next := rest[1]; next.sel {
+		el, err := withSelector(next, child)
+		if err != nil {
+			return nil, err
+		}
+		return []any{el}, nil
 	}
-	if !bytes.Equal(roundTripped, before) && !sameDocument(format, roundTripped, before, target) {
-		return nil, fmt.Errorf("fsstatic: the reversal computed for %s applies but does not restore the document it was derived from; refusing to write an undo that does not undo", target)
-	}
-	return reversal, nil
+	return map[string]any{rest[1].key: child}, nil
 }
 
-// sameDocument reports whether two images are the same document under the
-// format: parsed equality for JSON (a writer's re-rendering of the user's
-// layout is not a change of content), an empty hew inverse otherwise.
-func sameDocument(format hew.FormatID, a, b []byte, target string) bool {
-	switch format {
-	case hew.FormatJSON, hew.FormatJSONC:
-		var da, db any
-		if json.Unmarshal(a, &da) != nil || json.Unmarshal(b, &db) != nil {
+// withSelector is v made selectable by s: the selector's field set to its
+// value, or left out when the value is empty (what an empty value selects).
+func withSelector(s pseg, v any) (any, error) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("fsstatic: %s selects an object, and what is claimed there is not one", s)
+	}
+	out := maps.Clone(m)
+	if s.value != "" {
+		out[s.field] = s.value
+	}
+	return out, nil
+}
+
+// elementIndex finds the element of the array at container that holds v.
+func (e *editor) elementIndex(container string, v any) (int, hew.Node, hew.Path, error) {
+	n, p, ok, err := e.at(container)
+	if err != nil || !ok {
+		return -1, nil, p, err
+	}
+	if n.Kind() != hew.KindSeq {
+		return -1, nil, p, &NotOursError{Target: e.target, Pointer: container}
+	}
+	for i := 0; i < n.Len(); i++ {
+		if el, ok := n.Elem(i); ok && same(el, v) {
+			return i, el, p, nil
+		}
+	}
+	return -1, nil, p, nil
+}
+
+// removeElement takes the element holding v out of the array; one that is no
+// longer there was taken out by someone else.
+func (e *editor) removeElement(container string, v any) error {
+	i, _, p, err := e.elementIndex(container, v)
+	if err != nil || i < 0 {
+		return err
+	}
+	return e.applyAt(p.Append(hew.Index(i).(hew.Segment)), func(s *hew.Sel) { s.Remove() })
+}
+
+// setElement appends v to the array at container unless an element already
+// holds it: one that is ctxloom's own is taken over, any other is FOUND on a
+// first claim. A missing array is created holding v.
+func (e *editor) setElement(container string, hadClaim bool, v any) ([]string, bool, error) {
+	if _, ok, err := e.node(container); err != nil {
+		return nil, false, err
+	} else if !ok {
+		created, _, err := e.create(parsePointer(container), []any{v})
+		return append(created, container), false, err
+	}
+	i, el, p, err := e.elementIndex(container, v)
+	if err != nil {
+		return nil, false, err
+	}
+	if i >= 0 {
+		return nil, !hadClaim && !ownedElement(el), nil
+	}
+	return nil, false, e.applyAt(p, func(s *hew.Sel) { s.Add(v) })
+}
+
+// ownedElement reports whether an array element is ctxloom's own: an entry
+// that runs ctxloom (a hook), or a hook group every hook of which does.
+func ownedElement(n hew.Node) bool {
+	if confpatch.OwnedBy(n, ctxloomOwner) {
+		return true
+	}
+	if n.Kind() != hew.KindMap {
+		return false
+	}
+	hooks, ok := n.Member("hooks")
+	if !ok || hooks.Kind() != hew.KindSeq {
+		return false
+	}
+	for i := 0; i < hooks.Len(); i++ {
+		if h, ok := hooks.Elem(i); !ok || !confpatch.OwnedBy(h, ctxloomOwner) {
 			return false
 		}
-		return reflect.DeepEqual(da, db)
 	}
-	residue, err := hew.Invert(format, a, b, confpatch.InversionOptions(target))
-	return err == nil && len(residue.Transform) == 0
+	return true
+}
+
+// prune removes each container ctxloom created that is now empty, deepest
+// first, and returns the containers it created that still stand. A selected
+// element holding nothing but its selector is empty. A container a claim sits
+// under is not empty: every claim has been set by now.
+func (e *editor) prune(containers []string) []string {
+	sorted := slices.Clone(containers)
+	sort.Slice(sorted, func(i, j int) bool { return len(parsePointer(sorted[i])) > len(parsePointer(sorted[j])) })
+	var keep []string
+	for _, c := range sorted {
+		n, p, ok, err := e.at(c)
+		if err != nil || !ok {
+			continue
+		}
+		if !emptied(n, parsePointer(c)) {
+			keep = append(keep, c)
+			continue
+		}
+		if err := e.applyAt(p, func(s *hew.Sel) { s.Remove() }); err != nil {
+			e.failed = err
+			return containers
+		}
+	}
+	sort.Strings(keep)
+	return keep
+}
+
+// emptied reports whether a created container holds nothing anyone put
+// there: no member, or only the selector that made it selectable.
+func emptied(n hew.Node, segs []pseg) bool {
+	size := n.Len()
+	if last := segs[len(segs)-1]; last.sel {
+		if _, ok := n.Member(last.field); ok {
+			size--
+		}
+	}
+	return size == 0
+}
+
+// same reports whether node holds v, compared as decoded values.
+func same(node hew.Node, v any) bool {
+	var got any
+	if err := node.Value().Decode(&got); err != nil {
+		return false
+	}
+	want, err := canon(v)
+	if err != nil {
+		return false
+	}
+	return reflect.DeepEqual(got, want)
+}
+
+// canon is v as hew decodes it, so a value from the caller, one read back from
+// the record and one read out of the file compare alike.
+func canon(v any) (any, error) {
+	hv, err := hew.ValueOf(v)
+	if err != nil {
+		return nil, err
+	}
+	var out any
+	if err := hv.Decode(&out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// pseg is one segment of a claim pointer: an RFC 6901 key, or a SELECTOR
+// field=value naming the first element of an array whose field holds value —
+// an element without the field is selected by the empty value. "~2" escapes a
+// "=" in a key, as hew's own paths do.
+type pseg struct {
+	key          string
+	sel          bool
+	field, value string
+}
+
+func (s pseg) String() string {
+	if s.sel {
+		return present.PointerSelect(s.field, s.value)
+	}
+	return present.PointerKey(s.key)
+}
+
+func parsePointer(pointer string) []pseg {
+	if pointer == "" {
+		return nil
+	}
+	raw := strings.Split(strings.TrimPrefix(pointer, "/"), "/")
+	out := make([]pseg, len(raw))
+	for i, r := range raw {
+		if field, value, ok := strings.Cut(r, "="); ok {
+			out[i] = pseg{sel: true, field: present.UnescapeSegment(field), value: present.UnescapeSegment(value)}
+			continue
+		}
+		out[i] = pseg{key: present.UnescapeSegment(r)}
+	}
+	return out
+}
+
+func joinSegs(segs []pseg) string {
+	var b strings.Builder
+	for _, s := range segs {
+		b.WriteString(s.String())
+	}
+	return b.String()
+}
+
+// errNotAnArray is a selector meeting something that is not an array.
+var errNotAnArray = errors.New("a selector names an element of something that is not an array")
+
+// locate walks segs down from root: a key through map members, a selector to
+// the first element it selects. It returns the node and the hew segments that
+// address it; ok is false when a place on the way is missing.
+func locate(root hew.Node, segs []pseg) (hew.Node, []hew.SegmentArg, bool, error) {
+	n := root
+	var args []hew.SegmentArg
+	for _, s := range segs {
+		if !s.sel {
+			next, ok := n.Member(s.key) // a key into anything but a map is absent
+
+			if !ok {
+				return nil, args, false, nil
+			}
+			n, args = next, append(args, hew.Key(s.key))
+			continue
+		}
+		if n.Kind() != hew.KindSeq {
+			return nil, args, false, errNotAnArray
+		}
+		i := selected(n, s)
+		if i < 0 {
+			return nil, args, false, nil
+		}
+		n, _ = n.Elem(i)
+		args = append(args, hew.Index(i))
+	}
+	return n, args, true, nil
+}
+
+// selected is the index of the first element of seq s selects, or -1.
+func selected(seq hew.Node, s pseg) int {
+	for i := 0; i < seq.Len(); i++ {
+		el, ok := seq.Elem(i)
+		if !ok || el.Kind() != hew.KindMap {
+			continue
+		}
+		f, ok := el.Member(s.field)
+		if !ok {
+			if s.value == "" {
+				return i
+			}
+			continue
+		}
+		var v string
+		if f.Kind() == hew.KindScalar && f.Value().Decode(&v) == nil && v == s.value {
+			return i
+		}
+	}
+	return -1
+}
+
+// validPointer refuses a pointer that names no member.
+func validPointer(pointer string) error {
+	if !strings.HasPrefix(pointer, "/") || pointer == "/" {
+		return fmt.Errorf("%q is not a pointer to a member", pointer)
+	}
+	return nil
+}
+
+func unionKeys(a, b map[string]claimEntry) []string {
+	seen := map[string]bool{}
+	for k := range a {
+		seen[k] = true
+	}
+	for k := range b {
+		seen[k] = true
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if di, dj := len(parsePointer(out[i])), len(parsePointer(out[j])); di != dj {
+			return di < dj
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+func appendNew(list []string, add ...string) []string {
+	for _, a := range add {
+		if !slices.Contains(list, a) {
+			list = append(list, a)
+		}
+	}
+	return list
+}
+
+// Paths lists target's claimed places, sorted, each with its writers
+// effective first and whether the file on fs holds the effective value.
+func (c *Records) Paths(fs afero.Fs, target string) ([]delivery.PathState, error) {
+	rec, _, err := c.load(target)
+	if err != nil {
+		return nil, err
+	}
+	cur, exists, err := confpatch.ReadTarget(fs, target)
+	if err != nil {
+		return nil, err
+	}
+	var doc hew.Document
+	if binding, _, ok := bindingFor(target); ok && exists {
+		if d, derr := binding.Document(target, cur); derr == nil {
+			doc = d
+		}
+	}
+	out := make([]delivery.PathState, 0, len(rec.Paths))
+	for _, p := range slices.Sorted(mapsKeys(rec.Paths)) {
+		entries := ordered(rec.Paths[p])
+		st := delivery.PathState{Pointer: p}
+		for _, e := range entries {
+			st.Writers = append(st.Writers, delivery.Writer(e.Writer))
+		}
+		st.Pointer = claimPointer(p)
+		st.Live = live(doc, cur, exists, p, entries[0])
+		out = append(out, st)
+	}
+	return out, nil
+}
+
+// live reports whether the file holds the effective claim at key.
+func live(doc hew.Document, cur []byte, exists bool, key string, top claimEntry) bool {
+	switch container, elem := elementOf(key); {
+	case key == "":
+		return exists && bytes.Equal(cur, top.Bytes)
+	case key == present.AppendedSection:
+		_, ok := stripSection(cur, top.Bytes)
+		return ok
+	case doc == nil:
+		return false
+	case elem:
+		return elementLive(doc, container, top.Value)
+	}
+	n, _, ok, _ := locate(doc.Root(), parsePointer(key))
+	return ok && same(n, top.Value)
+}
+
+func elementLive(doc hew.Document, container string, v any) bool {
+	n, _, ok, _ := locate(doc.Root(), parsePointer(container))
+	if !ok || n.Kind() != hew.KindSeq {
+		return false
+	}
+	for i := 0; i < n.Len(); i++ {
+		if el, ok := n.Elem(i); ok && same(el, v) {
+			return true
+		}
+	}
+	return false
+}
+
+func mapsKeys(m map[string][]claimEntry) func(func(string) bool) {
+	return func(yield func(string) bool) {
+		for k := range m {
+			if !yield(k) {
+				return
+			}
+		}
+	}
+}
+
+// Targets lists the files w claims anything in, sorted.
+func (c *Records) Targets(w delivery.Writer) ([]string, error) {
+	var out []string
+	err := c.each(func(rec claimsRecord) {
+		for _, entries := range rec.Paths {
+			if slices.ContainsFunc(entries, func(e claimEntry) bool { return e.Writer == string(w) }) {
+				out = append(out, rec.Target)
+				return
+			}
+		}
+	})
+	sort.Strings(out)
+	return out, err
+}
+
+// Writers lists every writer that claims anything in any file, sorted.
+func (c *Records) Writers() ([]delivery.Writer, error) {
+	seen := map[delivery.Writer]bool{}
+	err := c.each(func(rec claimsRecord) {
+		for _, entries := range rec.Paths {
+			for _, e := range entries {
+				seen[delivery.Writer(e.Writer)] = true
+			}
+		}
+	})
+	out := make([]delivery.Writer, 0, len(seen))
+	for w := range seen {
+		out = append(out, w)
+	}
+	slices.Sort(out)
+	return out, err
+}
+
+func (c *Records) each(visit func(claimsRecord)) error {
+	entries, err := afero.ReadDir(c.fs, c.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), claimsSuffix) {
+			continue
+		}
+		data, err := afero.ReadFile(c.fs, filepath.Join(c.dir, e.Name()))
+		if err != nil {
+			return err
+		}
+		var rec claimsRecord
+		if err := yamlv3.Unmarshal(data, &rec); err != nil {
+			return fmt.Errorf("fsstatic: read claims record %s: %w", e.Name(), err)
+		}
+		visit(rec)
+	}
+	return nil
 }
 
 // bindingFor names the hew binding a target's format has, when it has one.
@@ -337,92 +1306,4 @@ func bindingFor(target string) (hew.Binding, hew.FormatID, bool) {
 		return hew.Binding{}, "", false
 	}
 	return binding, format, true
-}
-
-// Owned is one writer's entries in one target.
-func (r *Records) Owned(target string, writer delivery.Writer) ([]string, error) {
-	rec, err := r.load(target)
-	if err != nil {
-		return nil, err
-	}
-	return slices.Clone(rec.Writers[string(writer)].Entries), nil
-}
-
-// Targets lists the files a writer owns entries in, sorted.
-func (r *Records) Targets(writer delivery.Writer) ([]string, error) {
-	var out []string
-	err := r.each(func(rec ownershipRecord) {
-		if _, ok := rec.Writers[string(writer)]; ok {
-			out = append(out, rec.Target)
-		}
-	})
-	sort.Strings(out)
-	return out, err
-}
-
-// Writers lists every writer named in any record, sorted.
-func (r *Records) Writers() ([]delivery.Writer, error) {
-	seen := map[delivery.Writer]struct{}{}
-	err := r.each(func(rec ownershipRecord) {
-		for w := range rec.Writers {
-			seen[delivery.Writer(w)] = struct{}{}
-		}
-	})
-	out := slices.Collect(maps.Keys(seen))
-	slices.Sort(out)
-	return out, err
-}
-
-// each reads every record in the store; a missing store holds none.
-func (r *Records) each(visit func(ownershipRecord)) error {
-	entries, err := afero.ReadDir(r.fs, r.dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ownershipSuffix) {
-			continue
-		}
-		rec, err := r.read(filepath.Join(r.dir, e.Name()))
-		if err != nil {
-			return err
-		}
-		visit(rec)
-	}
-	return nil
-}
-
-func (r *Records) load(target string) (ownershipRecord, error) {
-	rec, err := r.read(r.path(target))
-	if os.IsNotExist(err) {
-		return ownershipRecord{Target: target}, nil
-	}
-	return rec, err
-}
-
-func (r *Records) read(path string) (ownershipRecord, error) {
-	data, err := afero.ReadFile(r.fs, path)
-	if err != nil {
-		return ownershipRecord{}, err
-	}
-	var rec ownershipRecord
-	if err := yamlv3.Unmarshal(data, &rec); err != nil {
-		return ownershipRecord{}, fmt.Errorf("fsstatic: read ownership record %s: %w", path, err)
-	}
-	return rec, nil
-}
-
-func (r *Records) save(target string, rec ownershipRecord) error {
-	rec.Target = target
-	data, err := yamlv3.Marshal(rec)
-	if err != nil {
-		return err
-	}
-	if err := confpatch.EnsureRecordDir(r.fs, r.dir); err != nil {
-		return err
-	}
-	return safefs.WriteFile(r.fs, r.path(target), data, owneronly.FileMode)
 }

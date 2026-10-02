@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,30 +62,37 @@ func TestDelivery_PrefaceItemsRideTheEndpoint_EveryOtherItemIsAFile(t *testing.T
 	ep := sessions.Endpoint{URL: "http://127.0.0.1:43111/mcp", Credential: "bearer-probe"}
 	fs := afero.NewOsFs()
 	start := present.New(present.OnHost(roots))
+	// A claim is what a file will hold once the static writer lands it, so
+	// each counts toward the file it names.
+	claimed := map[string]string{}
 	for _, item := range plan.Static {
-		var err error
+		var (
+			d   present.Delivered
+			err error
+		)
 		switch item.Kind {
 		case present.Context:
 			// The static context is every UNPREMISED fragment; the preface
 			// item was withheld by the delegation.
-			_, err = root.Context.DeliverContext(start, item.Root, engine.ContextInputs{Text: []byte(alwaysBody)}, fs)
+			d, err = root.Context.DeliverContext(start, item.Root, engine.ContextInputs{Text: []byte(alwaysBody)}, fs)
 		case present.MCP:
 			// The endpoint entry rides under the dynamic approach's own name: the
 			// writer rebuilds an entry named for ctxloom's OWN stdio server from
 			// its own definition (agent.ResolveManagedMCPServers), which is the
 			// control-plane guard, not this channel.
 			servers := map[string]wire.MCPServer{root.Dynamic.Name(): root.Dynamic.Endpoint(ep), "probe": items.MCP[0]}
-			_, err = root.MCP.DeliverMCP(start, item.Root, engine.MCPInputs{Servers: servers}, fs)
+			d, err = root.MCP.DeliverMCP(start, item.Root, engine.MCPInputs{Servers: servers}, fs)
 		case present.Hooks:
-			_, err = root.Hooks.DeliverHooks(start, item.Root, engine.HooksInputs{Hooks: wire.UnifiedHooks{SessionStart: items.Hooks}}, fs)
+			d, err = root.Hooks.DeliverHooks(start, item.Root, engine.HooksInputs{Hooks: wire.UnifiedHooks{SessionStart: items.Hooks}}, fs)
 		case present.Commands:
-			_, err = root.Commands.DeliverCommands(start, item.Root, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "go", Body: []byte(commandBody), Enabled: true}}}, fs)
+			d, err = root.Commands.DeliverCommands(start, item.Root, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "go", Body: []byte(commandBody), Enabled: true}}}, fs)
 		case present.Settings:
-			_, err = root.Settings.DeliverSettings(start, item.Root, engine.SettingsInputs{}, fs)
+			d, err = root.Settings.DeliverSettings(start, item.Root, engine.SettingsInputs{}, fs)
 		case present.Skills:
-			_, err = root.Skills.DeliverSkills(start, item.Root, engine.SkillsInputs{}, fs)
+			d, err = root.Skills.DeliverSkills(start, item.Root, engine.SkillsInputs{}, fs)
 		}
 		require.NoError(t, err, "deliver %v", item.Kind)
+		addClaimed(claimed, d)
 	}
 
 	// The file set: every regular file under both roots, with its bytes.
@@ -101,6 +109,9 @@ func TestDelivery_PrefaceItemsRideTheEndpoint_EveryOtherItemIsAFile(t *testing.T
 			files[strings.TrimPrefix(p, dir)] = string(b)
 			return nil
 		}))
+	}
+	for p, body := range claimed {
+		files[strings.TrimPrefix(p, dir)] += body
 	}
 	contains := func(needle string) []string {
 		var hits []string
@@ -119,6 +130,19 @@ func TestDelivery_PrefaceItemsRideTheEndpoint_EveryOtherItemIsAFile(t *testing.T
 	byURL, byBearer := contains(ep.URL), contains(ep.Credential)
 	require.NotEmpty(t, byURL, "the MCP file names the session endpoint the preface items are served on")
 	require.Equal(t, byURL, byBearer, "the endpoint's bearer rides beside its URL, in the same file")
+}
+
+// addClaimed adds each value d claims to the text of the file it names.
+func addClaimed(into map[string]string, d present.Delivered) {
+	for path, claims := range d.Claims {
+		for _, c := range claims {
+			if b, ok := c.Value.([]byte); ok {
+				into[path] += string(b)
+				continue
+			}
+			into[path] += fmt.Sprint(c.Value)
+		}
+	}
 }
 
 func keys(m map[string]string) []string {

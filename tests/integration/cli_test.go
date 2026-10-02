@@ -66,6 +66,24 @@ func writeFragment(t *testing.T, env *testenv.TestEnvironment, name string, tags
 	require.NoError(t, bundles.NewFSStore(fsys, nil).Save(b), "failed to write fragment")
 }
 
+// writeSkill adds a skill (its SKILL.md) to the project's authored bundle
+// tree, beside writeFragment's fragments, through the same store.
+func writeSkill(t *testing.T, env *testenv.TestEnvironment, name, description string) {
+	t.Helper()
+	fsys := afero.NewOsFs()
+	manifest := filepath.Join(env.ProjectDir, filepath.FromSlash(testenv.TreeBundleManifestPath(localBundleName)))
+	b, err := bundles.ReadTreeAt(context.Background(), fsys, manifest)
+	require.NoError(t, err, "read the authored bundle (writeFragment first)")
+	skillMD := filepath.Join(filepath.Dir(manifest), "skills", name, "SKILL.md")
+	require.NoError(t, os.MkdirAll(filepath.Dir(skillMD), 0o755))
+	require.NoError(t, os.WriteFile(skillMD, []byte("---\nname: "+name+"\ndescription: "+description+"\n---\n"+description+"\n"), 0o644))
+	if b.Skills == nil {
+		b.Skills = map[string]bundles.BundleSkill{}
+	}
+	b.Skills[name] = bundles.BundleSkill{}
+	require.NoError(t, bundles.NewFSStore(fsys, nil).Save(b), "failed to write skill")
+}
+
 func writeProfile(t *testing.T, env *testenv.TestEnvironment, name, content string) {
 	t.Helper()
 	path := fmt.Sprintf(".ctxloom/profiles/%s.yaml", name)

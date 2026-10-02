@@ -10,7 +10,8 @@ package delivery_test
 import (
 	"context"
 	"errors"
-	"slices"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -26,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 var (
@@ -110,7 +112,7 @@ func TestStatic_SessionAndMaterialize_ShareWritersAndDifferOnlyInTarget(t *testi
 	eng := mock.New()
 	fs := afero.NewMemMapFs()
 	static := fsstatic.New(fs)
-	rec := deliverytest.NewOwnership(fs)
+	rec := newRecord(t, fs)
 	sessionW, projectW := delivery.SessionWriter("harp-1"), delivery.ProjectWriter
 
 	session := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: rec, Writer: sessionW}
@@ -125,15 +127,15 @@ func TestStatic_SessionAndMaterialize_ShareWritersAndDifferOnlyInTarget(t *testi
 	require.Equal(t, d1.Wrote, d2.Wrote)
 	require.NotEmpty(t, deliverytest.RelativeFiles(fs, "/s/home"))
 	require.Equal(t, deliverytest.RelativeFiles(fs, "/s/home"), deliverytest.RelativeFiles(fs, "/p"))
-	require.ElementsMatch(t, rec.AllOwned(sessionW), deliverytest.RelativeFiles(fs, "/s/home"))
-	require.ElementsMatch(t, rec.AllOwned(projectW), deliverytest.RelativeFiles(fs, "/p"))
+	require.ElementsMatch(t, owned(t, rec, sessionW, "/s/home"), deliverytest.RelativeFiles(fs, "/s/home"))
+	require.ElementsMatch(t, owned(t, rec, projectW, "/p"), deliverytest.RelativeFiles(fs, "/p"))
 
 	// Uninstall is delivering the EMPTY plan against the same target.
 	empty := delivery.Loadout{Package: lo.Package}
 	_, err = static.Deliver(context.Background(), empty, eng.Root(), project)
 	require.NoError(t, err)
 	require.Empty(t, deliverytest.RelativeFiles(fs, "/p"))
-	require.Empty(t, rec.AllOwned(projectW))
+	require.Empty(t, owned(t, rec, projectW, "/p"))
 	require.NotEmpty(t, deliverytest.RelativeFiles(fs, "/s/home"), "the session's delivery is untouched")
 }
 
@@ -145,7 +147,7 @@ func TestStatic_TwoWritersOneTarget_ReconcileRemovesOnlyOwnEntries(t *testing.T)
 	eng := mock.New()
 	fs := afero.NewMemMapFs()
 	static := fsstatic.New(fs)
-	rec := deliverytest.NewOwnership(fs)
+	rec := newRecord(t, fs)
 	pkg := compositetest.Fixture(t, compositetest.WithMCP("tasks", tasks))
 	plan, err := delivery.Route(items(pkg, eng), eng.Root(), delivery.Preference{Root: map[present.Kind]present.RootKind{present.MCP: present.RootProjectRoot}}, projectRoots)
 	require.NoError(t, err)
@@ -161,8 +163,8 @@ func TestStatic_TwoWritersOneTarget_ReconcileRemovesOnlyOwnEntries(t *testing.T)
 	// The project writer uninstalls; the session's entries survive.
 	_, err = static.Deliver(context.Background(), delivery.Loadout{Package: pkg}, eng.Root(), projectT)
 	require.NoError(t, err)
-	require.Empty(t, rec.AllOwned(delivery.ProjectWriter))
-	require.NotEmpty(t, rec.AllOwned(delivery.SessionWriter("harp-1")))
+	require.Empty(t, owned(t, rec, delivery.ProjectWriter, "/p"))
+	require.NotEmpty(t, owned(t, rec, delivery.SessionWriter("harp-1"), "/p"))
 	require.NotEmpty(t, deliverytest.RelativeFiles(fs, "/p"), "the file another writer still owns entries in stays")
 }
 
@@ -185,45 +187,81 @@ func TestStatic_PreparesTheRecordOnceBeforeAnyWrite(t *testing.T) {
 	eng := mock.New()
 	fs := afero.NewMemMapFs()
 	static := fsstatic.New(fs)
-	rec := deliverytest.NewOwnership(fs)
+	rec := &noting{Ownership: newRecord(t, fs)}
 	target := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: rec, Writer: delivery.SessionWriter("harp-1")}
 	lo := loadoutFor(t, eng, sessionRoots)
 
-	for range 2 { // the second delivery reverses the first before writing
+	for range 2 { // the second delivery releases the first before staging
 		_, err := static.Deliver(context.Background(), lo, eng.Root(), target)
 		require.NoError(t, err)
 	}
 
-	calls := rec.Calls()
-	require.Greater(t, len(calls), 2, "the delivery must have written through the record")
-	firstApply := slices.Index(calls, deliverytest.CallApply)
-	second := slices.Index(calls[1:], deliverytest.CallPrepare) + 1
-	require.Equal(t, deliverytest.CallPrepare, calls[0])
-	require.Greater(t, second, firstApply, "the first delivery prepares exactly once")
-	require.NotContains(t, calls[firstApply:second], deliverytest.CallPrepare)
-	require.NotContains(t, calls[second+1:], deliverytest.CallPrepare, "the second delivery prepares exactly once")
-	require.Contains(t, calls[second+1:], deliverytest.CallApply)
+	require.Equal(t, []string{callPrepare, callStage, callPrepare, callStage}, rec.calls,
+		"each delivery prepares once, before it stages anything")
+}
+
+const (
+	callPrepare = "prepare"
+	callStage   = "stage"
+)
+
+// noting is the production record, noting the calls a delivery makes on it.
+type noting struct {
+	delivery.Ownership
+	calls []string
+}
+
+func (n *noting) Prepare(ctx context.Context) error {
+	n.calls = append(n.calls, callPrepare)
+	return n.Ownership.Prepare(ctx)
+}
+
+func (n *noting) In(b *safefs.Batch) delivery.Staging {
+	n.calls = append(n.calls, callStage)
+	return n.Ownership.In(b)
 }
 
 var errPrepare = errors.New("prepare refused")
 
 // refusingPrepare is a record whose storage cannot be made owner-only.
-type refusingPrepare struct{ *deliverytest.Ownership }
+type refusingPrepare struct{ *noting }
 
 func (refusingPrepare) Prepare(context.Context) error { return errPrepare }
 
 // TestStatic_PrepareFails_NothingIsWritten: a record that cannot be prepared
-// aborts the delivery before anything is reversed or written.
+// aborts the delivery before anything is staged or written.
 func TestStatic_PrepareFails_NothingIsWritten(t *testing.T) {
 	eng := mock.New()
 	fs := afero.NewMemMapFs()
-	rec := deliverytest.NewOwnership(fs)
+	rec := &noting{Ownership: newRecord(t, fs)}
 	target := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: refusingPrepare{rec}, Writer: delivery.SessionWriter("harp-1")}
 
 	_, err := fsstatic.New(fs).Deliver(context.Background(), loadoutFor(t, eng, sessionRoots), eng.Root(), target)
 	require.ErrorIs(t, err, errPrepare)
-	require.Empty(t, rec.Calls(), "nothing is reversed or recorded")
+	require.Empty(t, rec.calls, "nothing is staged")
 	require.Empty(t, deliverytest.RelativeFiles(fs, "/"))
+}
+
+// newRecord is the production record on fs.
+func newRecord(t *testing.T, fs afero.Fs) delivery.Ownership {
+	t.Helper()
+	rec, err := fsstatic.NewRecords(fs, "/records")
+	require.NoError(t, err)
+	return rec
+}
+
+// owned lists the files under root w claims anything in, relative to root.
+func owned(t *testing.T, rec delivery.Ownership, w delivery.Writer, root string) []string {
+	t.Helper()
+	targets, err := rec.Targets(w)
+	require.NoError(t, err)
+	var out []string
+	for _, path := range targets {
+		if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
+			out = append(out, filepath.ToSlash(rel))
+		}
+	}
+	return out
 }
 
 // TestStatic_UnrootableApproach_RefusesWithRemedy_NeverSubstitutes: an
@@ -235,7 +273,7 @@ func TestStatic_UnrootableApproach_RefusesWithRemedy_NeverSubstitutes(t *testing
 	plan, err := delivery.Route(items(pkg, eng), eng.Root(), delivery.Preference{Root: map[present.Kind]present.RootKind{present.MCP: present.RootProjectRoot}}, projectRoots)
 	require.NoError(t, err)
 	fs := afero.NewMemMapFs()
-	noProject := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: deliverytest.NewOwnership(fs), Writer: delivery.SessionWriter("h")}
+	noProject := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: newRecord(t, fs), Writer: delivery.SessionWriter("h")}
 	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), noProject)
 	require.ErrorIs(t, err, delivery.ErrUnrootable)
 	var u delivery.Unrootable
@@ -257,18 +295,18 @@ func TestStatic_SharedRootIsASelection_NotAFallback(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, present.RootProjectRoot, plan.Static[0].Root)
 	fs := afero.NewMemMapFs()
-	rec := deliverytest.NewOwnership(fs)
+	rec := newRecord(t, fs)
 	withProject := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.SessionWriter("h")}
 	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), withProject)
 	require.NoError(t, err)
 	require.Equal(t, []present.Kind{present.MCP}, d.Wrote)
-	require.ElementsMatch(t, rec.AllOwned(delivery.SessionWriter("h")), deliverytest.RelativeFiles(fs, "/p"))
+	require.ElementsMatch(t, owned(t, rec, delivery.SessionWriter("h"), "/p"), deliverytest.RelativeFiles(fs, "/p"))
 }
 
 // TestTarget_Validate_RefusesAnUnrootableTarget: a target needs a root, a
 // record and a writer; each absence is ErrNoRoot.
 func TestTarget_Validate_RefusesAnUnrootableTarget(t *testing.T) {
-	rec := deliverytest.NewOwnership(afero.NewMemMapFs())
+	rec := newRecord(t, afero.NewMemMapFs())
 	full := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.ProjectWriter}
 	require.NoError(t, full.Validate())
 	require.NoError(t, delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: rec, Writer: delivery.SessionWriter("h")}.Validate())

@@ -19,9 +19,12 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"os"
+	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -76,6 +79,10 @@ type Deps struct {
 	// Injected like MainDeps.Unsetenv, so the refusal is testable; nil
 	// refuses any launch that names something to unset.
 	Unsetenv func(string) error
+	// Environ is this process's environment (os.Environ in production): what
+	// a curated launch (Cell.HostEnv) narrows before the engine inherits it.
+	// nil refuses a curated launch.
+	Environ func() []string
 }
 
 // Driver is the engine-drive port: EngineHost implements it.
@@ -127,7 +134,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	if err := checkVersionFloor(ctx, deps); err != nil {
 		return Outcome{}, err
 	}
-	if err := scrubEngineEnv(deps, l.Cell.Unset); err != nil {
+	if err := scrubEngineEnv(deps, l.Cell.Placement); err != nil {
 		return Outcome{}, err
 	}
 	pkg, err := composite.Open(ctx, deps.Inline, deps.ClaimCheck, l.Package)
@@ -185,6 +192,11 @@ func prepareLaunch(deps Deps, l launch.Launch) (launch.Launch, engine.Instance, 
 	// which one it is under. Rewritten once, before anything reads the cell:
 	// the engine session's roots, the static target, the drive's paths.
 	l.Cell.Paths = l.Cell.Paths.EngineSide()
+	cell, err := redeemSecrets(l.Cell)
+	if err != nil {
+		return l, nil, err
+	}
+	l.Cell = cell
 	hosted := deps.Kind.Root().Name
 	if l.Engine != hosted {
 		return l, nil, fmt.Errorf("%w: hosts %q, launch names %q", ErrWrongEngine, hosted, l.Engine)
@@ -254,11 +266,13 @@ func serveEndpoint(ctx context.Context, deps Deps, lo delivery.Loadout) (func(),
 // sweepDeparted reverses, through the ownership record, the delivery of
 // every session whose liveness lock proves it gone — the run that was
 // killed before its teardown, whose files (a project .mcp.json among them)
-// would otherwise keep its entries forever. The lock is held across the
-// reversal, so a session resuming under that harp waits rather than racing
-// it. Only a proven-dead owner is swept: a held, missing or untrustworthy
-// lock leaves the record alone. Best effort: a failure is reported and the
-// run goes on, as the worktree reaper's startup sweep does.
+// would otherwise keep its entries forever. Every departed session is
+// reversed in ONE batch, so a file N of them claimed in is written once.
+// Each one's lock is held across the reversal, so a session resuming under
+// that harp waits rather than racing it. Only a proven-dead owner is swept:
+// a held, missing or untrustworthy lock leaves the record alone. Best
+// effort: a failure is reported and the run goes on, as the worktree
+// reaper's startup sweep does.
 func sweepDeparted(ctx context.Context, deps Deps) {
 	if deps.Records == nil {
 		return // the delivery itself refuses the missing record (delivery.ErrNoRoot)
@@ -268,18 +282,26 @@ func sweepDeparted(ctx context.Context, deps Deps) {
 		reportSweep(deps, "list the ownership record's writers", err)
 		return
 	}
+	var dead []delivery.Writer
+	var releases []func()
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
 	for _, w := range writers {
 		harp, ok := w.SessionHarp()
 		if !ok {
 			continue
 		}
 		probe, release := deps.Locks.Acquire(harp)
+		releases = append(releases, release)
 		if probe.Dead {
-			if err := deps.Static.Reverse(ctx, deps.Records, w); err != nil {
-				reportSweep(deps, fmt.Sprintf("reverse departed session %s's delivery", harp), err)
-			}
+			dead = append(dead, w)
 		}
-		release()
+	}
+	if err := deps.Static.Reverse(ctx, deps.Records, dead...); err != nil {
+		reportSweep(deps, fmt.Sprintf("reverse departed sessions %v's deliveries", dead), err)
 	}
 }
 
@@ -365,12 +387,36 @@ func firstTurn(pkg composite.Package, l launch.Launch) string {
 	return textblocks.Join(pkg.Context.Text, l.Prompt)
 }
 
+// uncuratedEnv is every variable of this process a curated engine must not
+// inherit (agents.HostEnv.Inherits). None when the launch is not curated.
+func uncuratedEnv(deps Deps, h agents.HostEnv) ([]string, error) {
+	if !h.Curated {
+		return nil, nil
+	}
+	if deps.Environ == nil {
+		return nil, fmt.Errorf("%w: no environment to curate is composed", ErrEngineEnvUnscrubbed)
+	}
+	var drop []string
+	for _, kv := range deps.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); k != "" && !h.Inherits(k) {
+			drop = append(drop, k)
+		}
+	}
+	return drop, nil
+}
+
 // scrubEngineEnv removes every variable the launch says the engine must not
-// inherit from this process's environment before anything is spawned: every
-// engine spawn starts from it (os.Environ), and this process hosts exactly
-// one run. The launch's own env is laid over it afterwards, so a variable the
-// launch SETS still reaches the engine.
-func scrubEngineEnv(deps Deps, unset []string) error {
+// inherit — pl.Unset, and under a curated pl.HostEnv everything else it does
+// not keep — from this process's environment before anything is spawned:
+// every engine spawn starts from it (os.Environ), and this process hosts
+// exactly one run. The launch's own env is laid over it afterwards, so a
+// variable the launch SETS still reaches the engine.
+func scrubEngineEnv(deps Deps, pl launch.Placement) error {
+	uninherited, err := uncuratedEnv(deps, pl.HostEnv)
+	if err != nil {
+		return err
+	}
+	unset := append(slices.Clone(pl.Unset), uninherited...)
 	if len(unset) == 0 {
 		return nil
 	}
@@ -427,3 +473,31 @@ func hookEndpoint(ep sessions.Endpoint) (sessions.Endpoint, error) {
 // HookEventParam is the query parameter naming the engine event an approval
 // hook POST carries the payload of.
 const HookEventParam = "event"
+
+// ErrSecretUnreadable refuses a launch whose cell names a secret file the
+// runner cannot read (launch.Placement.SecretFiles).
+var ErrSecretUnreadable = errors.New("runner: a secret file the launch names could not be read")
+
+// redeemSecrets lays each secret file the cell names into the cell's env —
+// a copy, in this process's memory — so Launch.EngineEnv hands the value to
+// the engine's process alone. The value never crossed the coordinator link:
+// the originator wrote it to a file mounted read-only into this runner's
+// container. The exact bytes are the value.
+func redeemSecrets(c launch.Cell) (launch.Cell, error) {
+	if len(c.SecretFiles) == 0 {
+		return c, nil
+	}
+	env := maps.Clone(c.Env)
+	if env == nil {
+		env = map[string]string{}
+	}
+	for v, file := range c.SecretFiles {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return c, fmt.Errorf("%w: %s from %s: %w", ErrSecretUnreadable, v, file, err)
+		}
+		env[v] = string(b)
+	}
+	c.Env = env
+	return c, nil
+}

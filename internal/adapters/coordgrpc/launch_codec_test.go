@@ -118,3 +118,41 @@ func TestDecodeLaunch_AnUnsetVerdictIsUntrusted(t *testing.T) {
 		require.Equal(t, engine.TrustUntrusted, back.Trust, "wire %v", w)
 	}
 }
+
+// TestCell_WireFieldNumbersArePinned: a field's number IS its wire identity
+// — a runner built from one branch reads field 8 as whatever its own .proto
+// says field 8 is. Branches adding fields in parallel each reach for the
+// next free number, and renumbering one on merge is only safe while nothing
+// has shipped; this pins the whole set and the reserved hole by name, so a
+// renumbering or reuse fails here instead of misreading bytes in production.
+func TestCell_WireFieldNumbersArePinned(t *testing.T) {
+	want := map[protoreflect.Name]protoreflect.FieldNumber{
+		"paths": 1, "mounts": 2, "workspace": 3, "env": 4, "home": 5,
+		"unset_env": 7, "host_env": 8, "secret_files": 9,
+	}
+	desc := (&pb.Cell{}).ProtoReflect().Descriptor()
+	got := map[protoreflect.Name]protoreflect.FieldNumber{}
+	for i := 0; i < desc.Fields().Len(); i++ {
+		f := desc.Fields().Get(i)
+		got[f.Name()] = f.Number()
+	}
+	require.Equal(t, want, got)
+	require.True(t, desc.ReservedRanges().Has(6), "6 is the retired container half's number; reusing it would misread old bytes")
+}
+
+// TestCell_HostEnvAndSecretFilesCrossTheWireTogether: the two newest cell
+// fields each come back as sent, from serialised bytes, in one message.
+func TestCell_HostEnvAndSecretFilesCrossTheWireTogether(t *testing.T) {
+	l := launchtest.FullLaunch(t)
+	require.NotEmpty(t, l.Cell.SecretFiles)
+	require.True(t, l.Cell.HostEnv.Curated)
+
+	raw, err := proto.Marshal(coordgrpc.EncodeLaunch(l))
+	require.NoError(t, err)
+	var parsed pb.Launch
+	require.NoError(t, proto.Unmarshal(raw, &parsed))
+	back, err := coordgrpc.DecodeLaunch(&parsed)
+	require.NoError(t, err)
+	require.Equal(t, l.Cell.SecretFiles, back.Cell.SecretFiles)
+	require.Equal(t, l.Cell.HostEnv, back.Cell.HostEnv)
+}

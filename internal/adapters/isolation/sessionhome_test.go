@@ -288,7 +288,8 @@ func TestCredentials_ContainerCloudMountsTheProviderDirsReadOnly(t *testing.T) {
 	for _, m := range mounts {
 		assert.NotContains(t, m.Host, "gcloud", "a provider login the human never made is not mounted")
 	}
-	assert.Equal(t, "1", pl.Env["CLAUDE_CODE_USE_BEDROCK"], "the provider switch rides the engine's env")
+	assert.Equal(t, secretsTarget+"/CLAUDE_CODE_USE_BEDROCK", pl.SecretFiles["CLAUDE_CODE_USE_BEDROCK"], "the provider switch reaches the engine through its secret file, like the mode's keys")
+	assert.NotContains(t, pl.Env, "CLAUDE_CODE_USE_BEDROCK")
 }
 
 // F7: a declared store that is missing refuses the run on EVERY environment
@@ -356,14 +357,16 @@ func TestCredentials_AKeychainStoreIsHostOnly(t *testing.T) {
 	assert.Contains(t, err.Error(), "Keychain")
 }
 
-// A token run's credential rides the engine's env, in a container as on the
-// host; it shares no store, so nothing of the human's is mounted.
+// A token run's credential reaches a container's engine through a secret
+// file the Placement names, never the launch's env; it shares no store, so
+// nothing of the human's is mounted.
 func TestCredentials_ATokenAuthenticatesAContainerFromItsEnv(t *testing.T) {
 	home := fakeHostHome(t, "")
 	creds := engine.Credentials{Env: map[string]string{claude.OAuthTokenEnv: tokenFixture}, Unset: []string{claude.SecureStorageEnv}}
 
 	pl, mounts := placeOn(t, credSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession, creds), t.TempDir(), containerOf)
-	assert.Equal(t, tokenFixture, pl.Env[claude.OAuthTokenEnv])
+	assert.Equal(t, secretsTarget+"/"+claude.OAuthTokenEnv, pl.SecretFiles[claude.OAuthTokenEnv])
+	assert.NotContains(t, pl.Env, claude.OAuthTokenEnv)
 	assert.Equal(t, []string{claude.SecureStorageEnv}, pl.Unset)
 	assert.NotContains(t, pl.Env, claude.SecureStorageEnv, "a token run never points at the human's storage")
 	for _, m := range mounts {

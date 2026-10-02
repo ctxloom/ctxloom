@@ -145,7 +145,7 @@ func TestContainerEnvironment_MountsTheHomeAndNoCredential(t *testing.T) {
 	cw := &containerWorkspace{dir: "/proj"}
 	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: hostSessionHome, homeVar: claudeHomeVar})
 	require.NoError(t, err)
-	_, err = c.environment(cw, pl, roots)
+	_, err = c.environment(cw, pl, roots, engine.Credentials{})
 	require.NoError(t, err)
 
 	spec := c.buildRunnerSpec("claude-code", "name", cw, nil)
@@ -176,7 +176,7 @@ func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
 	sessionHome := filepath.Join(t.TempDir(), "home", "claude")
 	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: sessionHome, homeVar: claudeHomeVar, stores: stores})
 	require.NoError(t, err)
-	_, err = c.environment(cw, pl, roots)
+	_, err = c.environment(cw, pl, roots, engine.Credentials{})
 	require.NoError(t, err)
 
 	argv := strings.Join(mustRunArgs(t, c.runtime, c.buildRunnerSpec("claude-code", "name", cw, nil)), " ")

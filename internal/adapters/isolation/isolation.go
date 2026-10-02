@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -185,7 +186,10 @@ type policy interface {
 	relocator() relocator
 	// environment is the Environment over a workspace this policy prepared,
 	// holding the relocator's Placement and the mounts produced with it.
-	environment(ws workspace, pl launch.Placement, roots []mount) (Environment, error)
+	// creds are the run's credentials: an environment that names secret
+	// files in pl (Placement.SecretFiles) writes them from creds here, before
+	// anything starts.
+	environment(ws workspace, pl launch.Placement, roots []mount, creds engine.Credentials) (Environment, error)
 	// preview is what a Preview of this policy probes: the listen its runner
 	// would need and how it describes itself. It creates nothing.
 	preview(ctx context.Context) (present.Listen, Description)

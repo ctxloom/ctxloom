@@ -32,9 +32,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -42,6 +46,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -276,17 +281,50 @@ func deliverIntoInstance(t *testing.T, workDir, instance string) {
 		SessionHome: present.Root{Host: instance, Engine: instance},
 	}))
 	managed := launchManaged()
-	if _, err := def.Context.DeliverContext(start, present.RootProjectRoot, engine.ContextInputs{Text: []byte("project rules")}, nil); err != nil {
-		t.Fatalf("claude context delivery: %v", err)
+	var delivered []present.Delivered
+	for kind, deliver := range map[string]func() (present.Delivered, error){
+		"context": func() (present.Delivered, error) {
+			return def.Context.DeliverContext(start, present.RootProjectRoot, engine.ContextInputs{Text: []byte("project rules")}, nil)
+		},
+		"MCP": func() (present.Delivered, error) {
+			return def.MCP.DeliverMCP(start, present.RootProjectRoot, engine.MCPInputs{Servers: managed.BundleMCP}, nil)
+		},
+		"hooks": func() (present.Delivered, error) {
+			return def.Hooks.DeliverHooks(start, present.RootProjectRoot, engine.HooksInputs{Hooks: managed.Hooks.Unified}, nil)
+		},
+	} {
+		d, err := deliver()
+		if err != nil {
+			t.Fatalf("claude %s delivery: %v", kind, err)
+		}
+		delivered = append(delivered, d)
 	}
-	if _, err := def.MCP.DeliverMCP(start, present.RootProjectRoot, engine.MCPInputs{Servers: managed.BundleMCP}, nil); err != nil {
-		t.Fatalf("claude MCP delivery: %v", err)
-	}
-	if _, err := def.Hooks.DeliverHooks(start, present.RootProjectRoot, engine.HooksInputs{Hooks: managed.Hooks.Unified}, nil); err != nil {
-		t.Fatalf("claude hooks delivery: %v", err)
-	}
+	landClaims(t, delivered)
 	if _, err := os.Stat(filepath.Join(workDir, claude.ConfigDirName)); err != nil {
 		t.Fatalf("claude's delivery landed nothing in the project (%v); the invariant below would be vacuous", err)
+	}
+}
+
+// landClaims lands what the approaches claimed the way the static writer
+// does: through the ownership record, in one batch.
+func landClaims(t *testing.T, delivered []present.Delivered) {
+	t.Helper()
+	fs := afero.NewOsFs()
+	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := safefs.NewBatch(fs, func(_ string, fn func() error) error { return fn() })
+	st := rec.In(b)
+	for _, d := range delivered {
+		for path, claims := range d.Claims {
+			if err := st.Stage(path, delivery.ProjectWriter, claims); err != nil {
+				t.Fatalf("stage %s: %v", path, err)
+			}
+		}
+	}
+	if _, err := b.Commit(); err != nil {
+		t.Fatalf("land the claims: %v", err)
 	}
 }
 

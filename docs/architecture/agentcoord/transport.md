@@ -114,7 +114,10 @@ it is not inferred from scattered call sites:
   route home (`present.Listen.Public`, e.g. rootless docker) has the
   coordinator listen on the host's primary address, which is LAN-visible, so
   a bearer crosses a LAN-visible socket in the clear whenever such a child
-  reaches back over it.
+  reaches back over it. The human's ENGINE credential does not: a container
+  cell's StartRun names it by file (`Cell.secret_files`), and the runner reads
+  the read-only secret mount (`runner.redeemSecrets`). Only a host cell's
+  launch carries it, and a host cell's runner dials loopback.
 - **What is listened on, and what bounds it.** `coordServing` never binds
   `0.0.0.0`. A plain host session binds loopback and nothing else
   (`TestServe_BindsLoopbackOnly`); a further listener exists only when a

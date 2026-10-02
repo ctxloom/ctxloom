@@ -3,8 +3,7 @@
 // launch in launch.Resolve and carried on the Launch. The Dynamic port is
 // declared here and implemented by the runner's mcp package; the Static
 // port and the ownership record arrive with the writers. It must never know
-// engine argv, transport, or config. Imports: engine, present, composite,
-// sessions.
+// engine argv, transport, or config.
 package delivery
 
 import (
@@ -21,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Preference is the binding's delivery preference: per kind, the ROOT it
@@ -326,11 +326,11 @@ func (t Target) Validate() error {
 // endpoint's rendering (InputsFor) — and nothing else about the engine.
 type Static interface {
 	Deliver(ctx context.Context, lo Loadout, root engine.Base, target Target) (Delivered, error)
-	// Reverse takes writer's contribution back out of EVERY file the
-	// record names for it, whatever root it lies under: the sweep of a
-	// writer whose session is gone, which has no target of its own to
-	// deliver against.
-	Reverse(ctx context.Context, ownership Ownership, writer Writer) error
+	// Reverse takes each writer's claims back out of EVERY file the record
+	// names for it, whatever root it lies under, in one batch: the sweep of
+	// writers whose sessions are gone, which have no target of their own to
+	// deliver against. A file several of them claimed in is written once.
+	Reverse(ctx context.Context, ownership Ownership, writers ...Writer) error
 }
 
 // Delivered is what one static delivery reports: the presentations the
@@ -342,40 +342,49 @@ type Delivered struct {
 	Undo      func(ctx context.Context) error
 }
 
-// Ownership is the ONE ownership mechanism: a record per target file naming
-// the entries each writer owns in it. Apply records under the writer;
-// Owned reads one writer's entries; Targets lists the files a writer owns
-// entries in, which is what delivering the EMPTY plan walks. fsstatic.Records
-// implements it.
+// Ownership is the ONE ownership mechanism: a record per target file naming,
+// for each place in it, the writers that put a value there. A delivery
+// stages its writer's claims into one batch (In) and the record moves each
+// file once from what it held to what its claims now say; Paths reads one
+// file's claims back; Targets lists the files a writer claims anything in,
+// which is what delivering the EMPTY plan walks. fsstatic.Records implements
+// it.
 type Ownership interface {
 	// Prepare readies the record's own storage for a delivery about to write
-	// through it. Static.Deliver calls it once, FIRST, before it reverses or
-	// delivers anything, and an error aborts the delivery.
+	// through it. Static.Deliver calls it once, FIRST, before it stages
+	// anything, and an error aborts the delivery.
 	//
 	// SECURITY: the record store must be owner-only before any delivery
-	// writes through it. Its records, and the undo records approaches keep
-	// beside them, hold the previous values of the entries they reverse,
-	// which may be anything the user kept in the file. A delivery writes
-	// through a copy-on-write overlay, which cannot chmod a directory that
-	// already exists underneath it, so only Prepare, on the real filesystem,
-	// can tighten a store left loose. A skipped Prepare either leaves the
-	// records readable and tamperable by other users, or fails the delivery
-	// mid-write. Prepare creates nothing a read would not.
+	// writes through it: its records hold the values ctxloom put into the
+	// files they describe. A skipped Prepare leaves the records readable and
+	// tamperable by other users. Prepare creates nothing a read would not.
 	Prepare(ctx context.Context) error
-	Apply(ctx context.Context, fs afero.Fs, target string, writer Writer, build Build) (Result, error)
-	Owned(target string, writer Writer) ([]string, error)
+	// In is a staging bound to b: what it stages lands in b's Commit, each
+	// file written once.
+	In(b *safefs.Batch) Staging
+	// Paths lists target's claimed places, each with its writers effective
+	// first and whether the file on fs holds the effective value.
+	Paths(fs afero.Fs, target string) ([]PathState, error)
 	Targets(writer Writer) ([]string, error)
-	// Writers lists every writer that owns an entry in any file the record
+	// Writers lists every writer that claims anything in any file the record
 	// covers, sorted: what a sweep of departed sessions walks.
 	Writers() ([]Writer, error)
 }
 
-// Build is one writer's contribution to a target file: given the file as it
-// stands with this writer's PREVIOUS contribution reversed, the bytes the
-// file should hold and the entries the writer now owns in it. A nil desired
-// is reconcile-to-empty: the writer contributes nothing, and a file nobody
-// owns anything in that ctxloom created is removed.
-type Build func(current []byte) (desired []byte, entries []string, err error)
+// Staging stages one batch's claim changes.
+type Staging interface {
+	// Stage puts writer's claims into target, each replacing the writer's
+	// earlier claim at the same place.
+	Stage(target string, writer Writer, claims []present.Claim) error
+	// Release drops writer's claims in target, except those keep names
+	// (keep may be nil): what no writer still claims leaves the file.
+	Release(target string, writer Writer, keep func(pointer, via string) bool) error
+}
 
-// Result reports what one Apply did.
-type Result struct{ Changed bool }
+// PathState is one claimed place in a file: its writers, the one whose value
+// the file holds first, and whether the file holds that value now.
+type PathState struct {
+	Pointer string
+	Writers []Writer
+	Live    bool
+}

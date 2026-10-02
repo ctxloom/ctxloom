@@ -12,12 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNewRecords_TightensAnExistingRecordDir: the records directory also holds
-// undo records that keep the previous value of the key they undo, so it is
-// owner-only. Opening the store tightens a looser existing directory on the
-// REAL filesystem, before any delivery runs: an approach writing its record
-// through fsstatic's copy-on-write overlay cannot chmod a directory that lives
-// in the overlay's base. Opening creates nothing — `manage check` opens it too.
+// TestNewRecords_TightensAnExistingRecordDir: the records directory holds the
+// claims records, which keep every value ctxloom put into the files they
+// describe, so it is owner-only. Opening the store tightens a looser existing
+// directory before any delivery runs. Opening creates nothing — `manage
+// check` opens it too.
 func TestNewRecords_TightensAnExistingRecordDir(t *testing.T) {
 	fs := afero.NewOsFs()
 	dir := filepath.Join(t.TempDir(), "records")
@@ -52,8 +51,8 @@ func TestRecords_Prepare_TightensADirLoosenedAfterOpen(t *testing.T) {
 }
 
 // TestWriteThrough_CreatesAMissingDirectoryOwnerOnly: what an approach writes
-// outside the target is its own state (claude's undo record), so a directory
-// writeThrough has to create for it is owner-only.
+// outside the target is its own state, so a directory writeThrough has to
+// create for it is owner-only.
 func TestWriteThrough_CreatesAMissingDirectoryOwnerOnly(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "records")
 	path := filepath.Join(dir, "x.hew-record.yaml")

@@ -725,12 +725,14 @@ top-level config, including the `mcpServers` entries for your own personal
 integrations. Copying it into every agent's config home to save one dialog
 would hand each agent read access to those integrations and whatever secrets
 they carry. So a provisioned home gets a **generated** `.claude.json` carrying
-the hardened keys (and, for a trusted repository, its trust answer), and no
-credential is copied into it: a `login` agent shares the human's own
-credential (in place on the host, the credential file alone in a container;
-see Known gaps), since a copy of a single-use refresh token falls out of step
-with the original. The engine auto-creates whatever else it needs on first
-launch.
+the hardened keys (and, for a trusted repository, its trust answer), plus the
+host keys `ambientConfigKeys` copies by name — among them the account identity
+and an API-key login's `primaryApiKey`. No credential file is seeded into the
+home: the run authenticates by the agent's declared auth mode
+(`claudeAuth.Credentials`), which sets a token, key or cloud configuration in
+the engine's environment by value, or, for `login`, shares the human's own
+credential storage (`loginStore`). The engine auto-creates whatever else it
+needs on first launch.
 
 ## Lifecycle
 
@@ -1065,7 +1067,14 @@ never permitted in the committable project store.
     and request on any listener needs a per-run bearer (`Coordinator.Identify`),
     carried in cleartext h2c (see `docs/architecture/agentcoord/transport.md`).
     The outbound address is kept because without it a rootless container
-    cannot reach the coordinator at all. Ruled and accepted.
+    cannot reach the coordinator at all. Ruled and accepted. What crosses it
+    is that per-run bearer and the launch, never the human's engine
+    credential: a container cell names its credential by file
+    (`launch.Placement.SecretFiles`), written on the originator's side to an
+    owner-only dir on `$XDG_RUNTIME_DIR` and mounted read-only
+    (`isolation.containerPlacement`, `isolation.materializeSecrets`). A host
+    cell still carries its credential in the launch's env, over the
+    loopback-only listener.
 19. **A container `login` agent holds the human's refresh token, and can fall
     out of step with it.** NARROWED. A container run in `auth: login` is
     given the human's claude credential file alone, read-write, at

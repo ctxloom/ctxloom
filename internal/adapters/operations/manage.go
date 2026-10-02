@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -280,8 +281,8 @@ func intendedContextFile(ctx context.Context, reg engine.Registry, cfg *config.C
 // record does not own it, and the verdict is then nobody's business.
 func contextFileCurrency(fs afero.Fs, records delivery.Ownership, workDir, rel, intended string) (cur agent.Currency, owned bool, err error) {
 	path := filepath.Join(workDir, filepath.FromSlash(rel))
-	entries, err := records.Owned(path, delivery.ProjectWriter)
-	if err != nil || len(entries) == 0 {
+	places, err := records.Paths(fs, path)
+	if err != nil || !slices.ContainsFunc(places, func(p delivery.PathState) bool { return slices.Contains(p.Writers, delivery.ProjectWriter) }) {
 		return agent.Currency{}, false, err
 	}
 	raw, err := afero.ReadFile(fs, path)

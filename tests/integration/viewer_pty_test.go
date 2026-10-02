@@ -33,62 +33,21 @@ import (
 // schema again, pass -y (runAssumeYes) to auto-commit the upgrade rather
 // than reintroducing the hang.
 //
-// Timing note (why engage/quit keys are pre-queued, not sent reactively):
-// the mock backend's Execute (internal/engines/mock/backend.go) writes its
-// response and returns immediately — there is no real interactive engine
-// session to hold the process open. Empirically (repeated local runs,
-// serially and under 8-way parallel load, all with a fresh env per run) the
-// ENTIRE hot window from the surround bar's first paint to process exit is
-// on the order of 10ms, and successive engine writes inside it are often
-// delivered to a reading test process as one coalesced read — by the time a
-// reactive poll observes ANY signature, the whole lifecycle has frequently
-// already completed. Bytes written to the pty before the child even starts
-// are instead queued by the kernel and delivered whole to the interceptor's
-// first Read once the child puts its tty in raw mode, which happens
-// deterministically (confirmed over dozens of runs): this is why engage is
-// pre-queued immediately after Start rather than triggered after polling for
-// the bar to appear. A 'q' pre-queued alongside it is still delivered and
-// processed by the real overlay (the roster panel reliably renders first),
-// but empirically NEVER wins the race to produce the explicit user-release
-// atomic sequence (panel-clear + resume + DECRC) ahead of the natural
-// process-exit path's own Controller.Close-triggered abort-and-restore
-// (0/15 in a local sample) — both paths converge on the same restored
-// terminal, so this file asserts that convergent, always-true outcome
-// (region restored on exit) rather than which path produced it. See the F2
-// completion report for the full reasoning; a production-side hold-open
-// affordance would be needed to test the explicit-release ordering
-// deterministically at this level, which is out of scope for a test-only
-// change.
+// Ordering: a mock turn ends the instant it has written its reply, and the
+// viewer cannot engage once the session has closed (Controller.Close makes
+// engage a no-op). A keystroke whose effect is asserted is therefore sent
+// only to a session the test has PROVED is live and reading: the mock runs
+// its interactive echo (CTXLOOM_MOCK_ECHO_STDIN=1), the test types a
+// sentinel line and waits for the engine to echo it, and the session ends
+// only when the test types "quit". Pre-queuing keys and hoping the stdin pump
+// reads them before the turn ends is the race this replaces: under load the
+// turn ended first and the overlay never drew.
 
 const ptyRows, ptyCols = 24, 80
 
 // ptyRunTimeout is generous for CI: the plugin subprocess spawn (a real
 // `ctxloom serve` re-exec + go-plugin handshake) alone has been observed to
 // take over a second under load.
-//
-// KNOWN FLAKY UNDER HEAVY CONCURRENT LOAD, recorded rather than smoothed.
-// TestRunPTY_CtrlBracketEngagesOverlay's engage poll has been observed to
-// exhaust this budget and fail on `require.True(t, engaged, ...)` while the
-// same commit passed the same gate twice with the box otherwise idle. The
-// load that produced it was heavier than the 8-way parallel `go test` the
-// timing note above was validated against: a full acceptance suite (itself
-// spawning binaries per scenario) running concurrently with a separate agent
-// build. The note's load claim is therefore accurate for the case it names
-// and does NOT extend to this one.
-//
-// The mechanism is BUDGET EXHAUSTION, not a lost race, and it is measured
-// rather than inferred: the failing run burned exactly 20.05s — the whole
-// deadline — without reaching the engage signature, while three isolated
-// runs of the same commit on an idle box finished the ENTIRE package in
-// 22.0s, 20.1s and 19.8s. So on a saturated machine this one test alone can
-// consume the budget that normally covers every test here.
-//
-// DO NOT RAISE THIS TIMEOUT TO SILENCE IT. A threshold tuned until a gate
-// stops complaining measures nothing afterwards, and this one is load-bearing:
-// it is the only binary-level proof that the viewer engages through real CLI
-// dispatch. The correct fix is to stop running saturating work concurrently
-// with this suite, or to make the engage signal observable without a wall
-// clock. Serialize the gate before believing a red here.
 const ptyRunTimeout = 20 * time.Second
 
 // setupPTYTestEnv builds an env wired for a MockLM-backed `ctxloom run` over
@@ -134,68 +93,83 @@ func TestRunPTY_SurroundBarPaints(t *testing.T) {
 		"process exit restores the full scroll region and clears the bar row (Surround.Restore)")
 }
 
-// TestRunPTY_CtrlBracketEngagesOverlay drives the Ctrl-] viewer prefix
-// through the real binary: the engage signature fires (the Controller's
-// synchronous hold+cursor-save+region-handoff, controller.go's engage), the
-// REAL bubbletea overlay Program renders its roster panel (proving this is
-// the genuine tui.NewOverlay wiring from run_terminal_ui.go, not a stub), a
-// 'q' is sent (the ordinary release key), and the process exit leaves the
-// scroll region restored. See the file-level comment for why the explicit
-// atomic-release ordering itself isn't independently asserted here.
-func TestRunPTY_CtrlBracketEngagesOverlay(t *testing.T) {
+// startLiveViewerSession starts `ctxloom run` over a pty with the mock
+// engine held open on its interactive echo, and returns once the engine has
+// echoed a typed sentinel: proof that the session is live and that keystrokes
+// reach the engine through whatever the run put between pty and engine.
+func startLiveViewerSession(t *testing.T, args ...string) *testenv.PTYSession {
+	t.Helper()
 	env := setupPTYTestEnv(t)
-
-	sess, err := env.RunPTY(ptyCols, ptyRows, nil, "run", "-f", "viewer-fragment", "hello from the engage test")
+	sess, err := env.RunPTY(ptyCols, ptyRows, []string{"CTXLOOM_MOCK_ECHO_STDIN=1"}, append([]string{"run"}, args...)...)
 	require.NoError(t, err)
-	defer sess.Close()
+	t.Cleanup(sess.Close)
+	typeLineAndAwaitEcho(t, sess, "session-live")
+	return sess
+}
 
-	// Pre-queued immediately: the kernel holds these bytes until the child
-	// puts its tty in raw mode and the interceptor's first Read fires — see
-	// the file-level timing note. 'q' rides along as the ordinary release key;
-	// see the file-level comment for why its exact effect isn't independently
-	// asserted.
-	_, err = sess.Write([]byte{0x1d, 'j', 'q'})
+// typeLineAndAwaitEcho types line into the session and waits for the mock
+// engine's echo of it.
+func typeLineAndAwaitEcho(t *testing.T, sess *testenv.PTYSession, line string) {
+	t.Helper()
+	_, err := sess.Write([]byte(line + "\n"))
 	require.NoError(t, err)
+	echoed := sess.WaitForOutput(ptyRunTimeout, func(out string) bool { return strings.Contains(out, "mock echo: "+line) })
+	require.True(t, echoed, "the engine never echoed %q within %s; captured so far: %q", line, ptyRunTimeout, sess.Output())
+}
 
-	// Deadline-poll for the engage signature (alternate screen + bare
-	// region-reset, the Controller's synchronous engage handoff) and the real
-	// overlay's roster panel hint line — proving the actual bubbletea Program
-	// rendered, not a stub — rather than waiting for the whole run to finish
-	// first.
+// quitAndAwaitCleanExit ends the held mock session and requires a clean exit.
+func quitAndAwaitCleanExit(t *testing.T, sess *testenv.PTYSession) {
+	t.Helper()
+	_, err := sess.Write([]byte("quit\n"))
+	require.NoError(t, err)
+	exited, waitErr := sess.Wait(ptyRunTimeout)
+	require.True(t, exited, "ctxloom run did not exit within %s; captured so far: %q", ptyRunTimeout, sess.Output())
+	require.NoError(t, waitErr)
+	assert.Equal(t, 0, sess.ExitCode())
+}
+
+// TestRunPTY_CtrlBracketEngagesOverlay drives the Ctrl-] viewer prefix
+// through the real binary against a live session: the engage signature
+// fires (the Controller's hold + alternate-screen + region handoff), the
+// REAL bubbletea overlay renders its roster panel (the genuine tui.NewOverlay
+// wiring from run_terminal_ui.go, not a stub), 'q' releases it back to the
+// engine's screen, keystrokes reach the engine again, and the process exit
+// leaves the scroll region restored.
+func TestRunPTY_CtrlBracketEngagesOverlay(t *testing.T) {
+	sess := startLiveViewerSession(t, "-f", "viewer-fragment", "hello from the engage test")
+
+	_, err := sess.Write([]byte{0x1d})
+	require.NoError(t, err)
 	engaged := sess.WaitForOutput(ptyRunTimeout, func(out string) bool {
 		return strings.Contains(out, "\x1b[?1049h\x1b[r") && strings.Contains(out, "j/k move")
 	})
 	require.True(t, engaged, "overlay never engaged/rendered within %s; captured so far: %q", ptyRunTimeout, sess.Output())
 
-	exited, waitErr := sess.Wait(ptyRunTimeout)
-	require.True(t, exited, "ctxloom run did not exit within %s; captured so far: %q", ptyRunTimeout, sess.Output())
-	require.NoError(t, waitErr)
-	assert.Equal(t, 0, sess.ExitCode())
+	_, err = sess.Write([]byte{'q'})
+	require.NoError(t, err)
+	released := sess.WaitForOutput(ptyRunTimeout, func(out string) bool {
+		_, after, _ := strings.Cut(out, "j/k move")
+		return strings.Contains(after, "\x1b[?1049l\x1b7")
+	})
+	require.True(t, released, "'q' never returned the screen to the engine within %s; captured so far: %q", ptyRunTimeout, sess.Output())
+	typeLineAndAwaitEcho(t, sess, "after-release")
 
+	quitAndAwaitCleanExit(t, sess)
 	assert.Contains(t, sess.Output(), "\x1b[r\x1b[24;1H\x1b[2K",
 		"process exit restores the full scroll region and clears the bar row")
 }
 
 // TestRunPTY_PlainTerminalNeverEngages proves --plain-terminal opts a pty
-// session out of the whole observation layer: even with the Ctrl-] prefix
-// and a viewer key written to the pty, no bar/region/engage signature ever
-// appears (run.go only wraps the seams with setupTerminalUI when
-// !runPlainTerminal).
+// session out of the whole observation layer: a Ctrl-] typed into a live
+// session reaches the engine as a literal byte instead of engaging a viewer,
+// and no bar/region/engage signature ever appears (run.go only wraps the
+// seams with setupTerminalUI when !runPlainTerminal).
 func TestRunPTY_PlainTerminalNeverEngages(t *testing.T) {
-	env := setupPTYTestEnv(t)
+	sess := startLiveViewerSession(t, "--plain-terminal", "-f", "viewer-fragment", "hello from the plain-terminal test")
 
-	sess, err := env.RunPTY(ptyCols, ptyRows, nil, "run", "--plain-terminal", "-f", "viewer-fragment", "hello from the plain-terminal test")
-	require.NoError(t, err)
-	defer sess.Close()
+	typeLineAndAwaitEcho(t, sess, "\x1dliteral-prefix")
 
-	_, err = sess.Write([]byte{0x1d, 'j', 'q'})
-	require.NoError(t, err)
-
-	exited, waitErr := sess.Wait(ptyRunTimeout)
-	require.True(t, exited, "ctxloom run did not exit within %s; captured so far: %q", ptyRunTimeout, sess.Output())
-	require.NoError(t, waitErr)
-	assert.Equal(t, 0, sess.ExitCode())
-
+	quitAndAwaitCleanExit(t, sess)
 	out := sess.Output()
 	assert.NotContains(t, out, "\x1b[1;", "--plain-terminal never establishes the surround's protected region")
 	assert.NotContains(t, out, "^] viewer", "--plain-terminal never paints the bar")

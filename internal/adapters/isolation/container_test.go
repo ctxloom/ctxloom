@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -209,7 +210,7 @@ func TestContainer_RunnerSpecRendersTheRelocatedRoots(t *testing.T) {
 	cw := &containerWorkspace{dir: live, agentID: "m"}
 	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: sessionHome})
 	require.NoError(t, err)
-	_, err = c.environment(cw, pl, roots)
+	_, err = c.environment(cw, pl, roots, engine.Credentials{})
 	require.NoError(t, err)
 
 	spec := c.buildRunnerSpec("mock", "name", cw, nil)

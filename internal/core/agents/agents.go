@@ -178,6 +178,10 @@ type Agent struct {
 	// mode — the credential itself is stored owner-only under the ctxloom
 	// home, out of any repository.
 	Auth string `yaml:"auth,omitempty"`
+	// HostEnv is which of the launching environment's variables this
+	// agent's engine inherits on the HOST runtime (HostEnv's doc). Undeclared
+	// inherits all of them; a container forwards only what it names anyway.
+	HostEnv HostEnv `yaml:"host_env,omitempty"`
 }
 
 // HomeMode is the EFFECTIVE engine-home policy a declaration parses to: one

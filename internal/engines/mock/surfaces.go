@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"github.com/spf13/afero"
@@ -39,13 +40,19 @@ const (
 	skillsRel   = ConfigDirName + "/skills"
 )
 
-// The argv flags the mock's presentations announce their files on; the
-// mock's CLI grammar declares both. HooksFlag is exported for the mock
-// binary's interactive loop (mock/runtime), which reads the delivered hook
-// file off its own argv to fire turn_start per typed line.
+// The argv flags the mock's presentations announce their files on, one per
+// surface; the mock's CLI grammar declares each. Every surface is announced,
+// not only the two the mock reads to act (context, hooks), so a turn can
+// record where each one was delivered (recordTurn). HooksFlag is exported for
+// the mock binary's interactive loop (mock/runtime), which reads the
+// delivered hook file off its own argv to fire turn_start per typed line.
 const (
-	contextFlag = "--context"
-	HooksFlag   = "--hooks"
+	contextFlag  = "--context"
+	mcpFlag      = "--mcp"
+	settingsFlag = "--settings"
+	HooksFlag    = "--hooks"
+	commandsFlag = "--commands"
+	skillsFlag   = "--skills"
 )
 
 // surface is the shared half of every mock approach: its name and traits.
@@ -80,24 +87,19 @@ func writeFile(fs afero.Fs, p present.Presentation, bytes []byte, mode os.FileMo
 	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil
 }
 
-// contextFile appends the assembled context to MOCK_CONTEXT.md — after
-// whatever a human already wrote there, which stays theirs — and announces
-// the file on --context.
+// contextFile claims the assembled context as a section of MOCK_CONTEXT.md —
+// after whatever a human already wrote there, which stays theirs — and
+// announces the file on --context.
 type contextFile struct{ surface }
 
-func (a *contextFile) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
+func (a *contextFile) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, _ afero.Fs) (present.Delivered, error) {
 	r, err := a.rooted(start, root, ContextFileName)
 	if err != nil {
 		return present.Delivered{}, err
 	}
 	p := r.AnnounceFlag(contextFlag).Build()
-	// A context file the mock creates is owner-only: the engine reads it
-	// itself and nothing else needs to. One that already stood keeps its
-	// mode.
-	if err := safefs.AppendSection(fs, p.HostPath, in.Text, 0o600); err != nil {
-		return present.Delivered{}, err
-	}
-	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil
+	return present.Delivered{Presented: p, Wrote: []string{p.HostPath},
+		Claims: map[string][]present.Claim{p.HostPath: {{Pointer: present.AppendedSection, Value: slices.Clone(in.Text)}}}}, nil
 }
 
 // mcpFile writes the server set as {"mcpServers": {...}}.
@@ -113,7 +115,7 @@ func (a *mcpFile) DeliverMCP(start present.Start, root present.RootKind, in engi
 		return present.Delivered{}, err
 	}
 	// Owner-only: the session endpoint's bearer rides in this file.
-	return writeFile(fs, r.Build(), append(bytes, '\n'), 0o600)
+	return writeFile(fs, r.AnnounceFlag(mcpFlag).Build(), append(bytes, '\n'), 0o600)
 }
 
 // settingsFile writes the deny list and the statusline policy.
@@ -128,7 +130,7 @@ func (a *settingsFile) DeliverSettings(start present.Start, root present.RootKin
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	return writeFile(fs, r.Build(), append(bytes, '\n'), 0o644)
+	return writeFile(fs, r.AnnounceFlag(settingsFlag).Build(), append(bytes, '\n'), 0o644)
 }
 
 // hooksFile writes the unified hook set as the mock's native hook file and
@@ -156,7 +158,7 @@ func (a *commandsDir) DeliverCommands(start present.Start, root present.RootKind
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	dir := r.Build()
+	dir := r.AnnounceFlag(commandsFlag).Build()
 	out := present.Delivered{Presented: dir}
 	for _, c := range in.Commands {
 		if !c.Enabled {
@@ -182,7 +184,7 @@ func (a *skillsDir) DeliverSkills(start present.Start, root present.RootKind, in
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	dir := r.Build()
+	dir := r.AnnounceFlag(skillsFlag).Build()
 	out := present.Delivered{Presented: dir}
 	for _, s := range in.Skills {
 		if !s.Enabled {

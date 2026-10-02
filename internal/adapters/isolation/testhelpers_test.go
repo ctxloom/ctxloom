@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
@@ -261,7 +262,7 @@ func placeRoots(c Container, cw *containerWorkspace) {
 	if err != nil {
 		panic(err)
 	}
-	if _, err := c.environment(cw, pl, roots); err != nil {
+	if _, err := c.environment(cw, pl, roots, engine.Credentials{}); err != nil {
 		panic(err)
 	}
 }

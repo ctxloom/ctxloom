@@ -476,6 +476,21 @@ message Cell {
   // Variables the engine's process must NOT inherit (launch.Cell.Unset): the
   // runner removes them from its own env before it drives the engine.
   repeated string unset_env = 7;
+  // Which of the runner's own variables the engine inherits
+  // (launch.Cell.HostEnv): absent inherits every one Unset leaves.
+  HostEnv host_env = 8;
+  // Each credential variable whose VALUE never crosses this link, to the
+  // engine-side path of the read-only file holding it
+  // (launch.Placement.SecretFiles). The runner reads the file and sets the
+  // variable for the engine alone; env never names one of these.
+  map<string, string> secret_files = 9;
+}
+
+// HostEnv is agents.HostEnv: a curated engine keeps only the curated base and
+// the passthrough names.
+message HostEnv {
+  bool curated = 1;
+  repeated string passthrough = 2;
 }
 
 // Paths is present.Paths: every root a presentation builds from.

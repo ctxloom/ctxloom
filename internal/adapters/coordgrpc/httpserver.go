@@ -13,11 +13,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spf13/afero"
 	"google.golang.org/grpc"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // MCPPath is retained in the advertised CTXLOOM_COORD_URL shape
@@ -196,10 +199,21 @@ func (s *coordServing) saveEndpointLocked() {
 		ep.LoopbackPort = s.loopback.Addr().(*net.TCPAddr).Port
 	}
 	ep.ConsumerCred = s.c.ConsumerCredential()
-	raw, _ := json.Marshal(ep)
-	if err := os.WriteFile(s.endpointPath(), raw, 0o600); err != nil {
+	if err := writeEndpoint(afero.NewOsFs(), s.endpointPath(), ep); err != nil {
 		s.c.Reporter().Warnf("coordinator: persist endpoint: %v", err)
 	}
+}
+
+// writeEndpoint replaces endpoint.json whole and owner-only: a reader (a
+// relaunched coordinator, a viewer) sees the old file or the new one, never a
+// torn one, and a file left looser than owner-only does not keep its mode —
+// it carries the consumer credential.
+func writeEndpoint(fs afero.Fs, path string, ep endpointState) error {
+	raw, err := json.Marshal(ep)
+	if err != nil {
+		return err
+	}
+	return safefs.WriteFile(fs, path, raw, owneronly.FileMode)
 }
 
 // LoopbackURL is the loopback listener's URL — the coordinator's

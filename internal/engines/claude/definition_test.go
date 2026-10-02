@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"io/fs"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,11 +12,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/engine/conformance"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // hostStart advises a project root and a session home on the host.
@@ -81,43 +79,74 @@ func TestDeliverContext_WritesTheFramedPromptUnderTheSessionHome(t *testing.T) {
 	require.Error(t, err, "a root the approach does not offer is refused")
 }
 
-// TestDeliverContext_AtTheProjectRoot_AppendsToCLAUDEmd: the at-rest form
-// is the well-known file, the context appended after whatever the user
-// already wrote; the ownership record, not a marker, owns the write.
-func TestDeliverContext_AtTheProjectRoot_AppendsToCLAUDEmd(t *testing.T) {
+// TestDeliverContext_AtTheProjectRoot_ClaimsASectionOfCLAUDEmd: at the
+// project root the context is a SECTION appended after whatever the user
+// already wrote in CLAUDE.md. The approach claims it and writes nothing; the
+// static writer lands it, and the ownership record takes it back out.
+func TestDeliverContext_AtTheProjectRoot_ClaimsASectionOfCLAUDEmd(t *testing.T) {
 	def := claudeDef(t)
 	start, project, _ := hostStart(t)
 	path := filepath.Join(project, ContextFileName)
 	require.NoError(t, os.WriteFile(path, []byte("# theirs\n"), 0o644))
 	d, err := def.Context.DeliverContext(start, present.RootProjectRoot, engine.ContextInputs{Text: []byte("project rules")}, nil)
 	require.NoError(t, err)
-	require.Equal(t, []string{path}, d.Wrote)
+	require.Equal(t, path, d.Presented.HostPath)
+	require.Equal(t, map[string][]present.Claim{path: {{Pointer: present.AppendedSection, Value: []byte("project rules")}}}, d.Claims)
 	body, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Equal(t, "# theirs\n\nproject rules\n", string(body))
-	require.NotContains(t, string(body), "ctxloom:context", "no marker section")
+	require.Equal(t, "# theirs\n", string(body), "the approach writes nothing")
 }
 
-func TestDeliverMCP_WritesTheServerSetUnderTheSelectedRoot(t *testing.T) {
+// mcpClaimsIn is the claims d makes on the .mcp.json under dir, by pointer.
+func mcpClaimsIn(t *testing.T, d present.Delivered, dir string) map[string]any {
+	t.Helper()
+	out := map[string]any{}
+	for _, c := range d.Claims[filepath.Join(dir, MCPFileName)] {
+		out[c.Pointer] = c.Value
+	}
+	return out
+}
+
+// TestDeliverMCP_ClaimsEachServerUnderTheSelectedRoot: each server is a
+// claim on its own entry in the .mcp.json under the root, so the user's
+// entries — and another writer's — are never the approach's to rewrite.
+func TestDeliverMCP_ClaimsEachServerUnderTheSelectedRoot(t *testing.T) {
 	def := claudeDef(t)
 	start, project, home := hostStart(t)
 	in := engine.MCPInputs{Servers: map[string]wire.MCPServer{"probe": {Command: "probe-mcp"}}}
 	for root, dir := range map[present.RootKind]string{present.RootSessionHome: home, present.RootProjectRoot: project} {
-		_, err := def.MCP.DeliverMCP(start, root, in, nil)
+		d, err := def.MCP.DeliverMCP(start, root, in, nil)
 		require.NoError(t, err)
-		body, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
-		require.NoError(t, err, "root %v", root)
-		require.Contains(t, string(body), "probe-mcp")
+		got := mcpClaimsIn(t, d, dir)
+		require.Len(t, got, 1, "root %v", root)
+		require.Equal(t, "probe-mcp", got["/mcpServers/probe"].(map[string]any)["command"], "root %v", root)
+		_, err = os.Stat(filepath.Join(dir, MCPFileName))
+		require.True(t, os.IsNotExist(err), "the approach writes nothing (root %v)", root)
 	}
 }
 
-// TestDeliverMCP_AtTheProjectRoot_TheFileNeverHoldsTheRelayBearer: the
-// project .mcp.json is a file teams commit, and a run that dies before its
-// teardown leaves it as written. The session entry names the bearer by
-// reference and the value rides claude's environment (the presentation's env
-// channel, which Exec copies into claude's env); claude expands the reference
-// itself. The private session-home file is ctxloom's own and keeps the value.
-func TestDeliverMCP_AtTheProjectRoot_TheFileNeverHoldsTheRelayBearer(t *testing.T) {
+// TestDeliverMCP_ThePrivateFileExistsEvenWithNoServers: --mcp-config names
+// the session-home file whatever the run registers, and claude refuses to
+// start against a path that does not exist; the project file is the user's
+// and is not conjured.
+func TestDeliverMCP_ThePrivateFileExistsEvenWithNoServers(t *testing.T) {
+	def := claudeDef(t)
+	start, project, home := hostStart(t)
+	d, err := def.MCP.DeliverMCP(start, present.RootSessionHome, engine.MCPInputs{}, nil)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"/mcpServers": map[string]any{}}, mcpClaimsIn(t, d, home))
+	d, err = def.MCP.DeliverMCP(start, present.RootProjectRoot, engine.MCPInputs{}, nil)
+	require.NoError(t, err)
+	require.Empty(t, mcpClaimsIn(t, d, project))
+}
+
+// TestDeliverMCP_AtTheProjectRoot_NoClaimHoldsTheRelayBearer: the project
+// .mcp.json is a file teams commit, and the record keeps every claimed value.
+// The session entry names the bearer by reference and the value rides
+// claude's environment (the presentation's env channel, which Exec copies
+// into claude's env); claude expands the reference itself. The private
+// session-home file is ctxloom's own and keeps the value.
+func TestDeliverMCP_AtTheProjectRoot_NoClaimHoldsTheRelayBearer(t *testing.T) {
 	def := claudeDef(t)
 	start, project, home := hostStart(t)
 	const bearer = "bearer-value-under-test"
@@ -126,11 +155,9 @@ func TestDeliverMCP_AtTheProjectRoot_TheFileNeverHoldsTheRelayBearer(t *testing.
 
 	d, err := def.MCP.DeliverMCP(start, present.RootProjectRoot, in, nil)
 	require.NoError(t, err)
-	body, err := os.ReadFile(filepath.Join(project, ".mcp.json"))
-	require.NoError(t, err)
-	require.NotContains(t, string(body), bearer, "the project file holds the relay bearer")
-	require.Contains(t, string(body), relayBearerRef, "the entry names the bearer by reference")
-	require.Contains(t, string(body), "probe-mcp")
+	claimed := fmt.Sprint(mcpClaimsIn(t, d, project))
+	require.NotContains(t, claimed, bearer, "a project-file claim holds the relay bearer")
+	require.Contains(t, claimed, relayBearerRef, "the entry names the bearer by reference")
 	require.Equal(t, map[string]string{EnvRelayBearer: bearer}, d.Presented.Env, "the value rides claude's environment")
 	require.Equal(t, bearer, in.Servers["ctxloom"].Env[EnvRelayBearer], "the caller's server set is not rewritten")
 
@@ -140,44 +167,8 @@ func TestDeliverMCP_AtTheProjectRoot_TheFileNeverHoldsTheRelayBearer(t *testing.
 
 	d, err = def.MCP.DeliverMCP(start, present.RootSessionHome, in, nil)
 	require.NoError(t, err)
-	private, err := os.ReadFile(filepath.Join(home, ".mcp.json"))
-	require.NoError(t, err)
-	require.Contains(t, string(private), bearer, "the private session-home file is not rewritten by reference")
+	require.Contains(t, fmt.Sprint(mcpClaimsIn(t, d, home)), bearer, "the private session-home file is not rewritten by reference")
 	require.Empty(t, d.Presented.Env[EnvRelayBearer])
-}
-
-// TestDeliverMCP_AtTheProjectRoot_TheRecordNeverHoldsTheRelayBearer: the
-// project .mcp.json write goes through the §9.7 record store, whose record
-// keeps the applied transforms, their inverse and the reversal patch — each
-// a copy of what was written. A record holding the value would put the bearer
-// on disk beside a file that was careful to name it only by reference.
-func TestDeliverMCP_AtTheProjectRoot_TheRecordNeverHoldsTheRelayBearer(t *testing.T) {
-	testsupport.Isolate(t)
-	def := claudeDef(t)
-	start, _, _ := hostStart(t)
-	const bearer = "bearer-value-under-test"
-	entry := def.Dynamic.Endpoint(sessions.Endpoint{URL: "http://127.0.0.1:1/mcp", Credential: bearer})
-	in := engine.MCPInputs{Servers: map[string]wire.MCPServer{"ctxloom": entry}}
-	_, err := def.MCP.DeliverMCP(start, present.RootProjectRoot, in, nil)
-	require.NoError(t, err)
-
-	dir, err := paths.HomeRecordsDir()
-	require.NoError(t, err)
-	var records int
-	require.NoError(t, filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		body, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		records++
-		require.NotContains(t, string(body), bearer, "the record %s holds the relay bearer", p)
-		require.Contains(t, string(body), relayBearerRef, "the record %s states the entry as written, by reference", p)
-		return nil
-	}))
-	require.Positive(t, records, "the project write left no record under %s to inspect", dir)
 }
 
 // TestBearerByReference_RefusesTwoDifferentBearers: claude's environment
@@ -204,33 +195,77 @@ func TestBearerByReference_RefusesTwoDifferentBearers(t *testing.T) {
 	}
 }
 
-// TestDeliverHooks_RegistersTheHookInSettings is the ruling's proof for the
-// definition: Hooks is a surface of its own, and delivering it writes a real
-// hook registration into claude's native form — the hooks section of
-// settings.json. Settings delivers its own part (statusline, the deny
-// list) into the same file; each kind ADDS its entries and removes
-// nothing, and the ownership record that owns the file takes them back
-// out (deliverSettingsFile).
-func TestDeliverHooks_RegistersTheHookInSettings(t *testing.T) {
-	def := claudeDef(t)
-	start, project, _ := hostStart(t)
-	hooks := wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}}}
-	_, err := def.Hooks.DeliverHooks(start, present.RootProjectRoot, engine.HooksInputs{Hooks: hooks}, nil)
-	require.NoError(t, err)
-	body, err := os.ReadFile(filepath.Join(project, ".claude", "settings.json"))
-	require.NoError(t, err)
-	require.Contains(t, string(body), "session-bind")
+// settingsClaimsIn is the claims d makes on the project's settings.json, by
+// pointer; an element claim is listed under its value.
+func settingsClaimsIn(t *testing.T, d present.Delivered, project string) []present.Claim {
+	t.Helper()
+	return d.Claims[filepath.Join(project, ConfigDirName, SettingsFileName)]
 }
 
-func TestDeliverSettings_WritesStatuslineAndDenyList(t *testing.T) {
+// TestDeliverHooks_ClaimsTheHookInTheGroupItsMatcherSelects is the ruling's
+// proof for the definition: Hooks is a surface of its own, and delivering it
+// claims a real hook registration in claude's native form — a hook in the
+// matcher group of its event in settings.json. Settings claims its own part
+// (statusline, the deny list) in the same file; the static writer folds both
+// into one write.
+func TestDeliverHooks_ClaimsTheHookInTheGroupItsMatcherSelects(t *testing.T) {
 	def := claudeDef(t)
 	start, project, _ := hostStart(t)
-	_, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{DenyTools: []string{"Task"}, Statusline: true}, nil)
+	hooks := wire.UnifiedHooks{
+		SessionStart: []wire.Hook{{Command: "ctxloom", Args: []string{"hook", "session-bind"}, Type: "command"}},
+		PreShell:     []wire.Hook{{Command: "ltk", Args: []string{"evaluate"}}, {Command: "ltk", Args: []string{"evaluate"}}},
+	}
+	d, err := def.Hooks.DeliverHooks(start, present.RootProjectRoot, engine.HooksInputs{Hooks: hooks}, nil)
 	require.NoError(t, err)
-	body, err := os.ReadFile(filepath.Join(project, ".claude", "settings.json"))
+	require.ElementsMatch(t, []present.Claim{
+		{Pointer: "/hooks/SessionStart/matcher=/hooks/-", Value: map[string]any{"type": "command", "command": "ctxloom", "args": []any{"hook", "session-bind"}}},
+		{Pointer: "/hooks/PreToolUse/matcher=Bash/hooks/-", Value: map[string]any{"type": "command", "command": "ltk", "args": []any{"evaluate"}}},
+	}, settingsClaimsIn(t, d, project), "one claim per distinct hook, the shell hook in the Bash group")
+	_, err = os.Stat(filepath.Join(project, ConfigDirName, SettingsFileName))
+	require.True(t, os.IsNotExist(err), "the approach writes nothing")
+}
+
+// TestDeliverSettings_ClaimsTheStatuslineAndEachDeny: the statusline is one
+// claimed object and each denied tool an element of permissions.deny.
+func TestDeliverSettings_ClaimsTheStatuslineAndEachDeny(t *testing.T) {
+	def := claudeDef(t)
+	start, project, _ := hostStart(t)
+	d, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{DenyTools: []string{"Task", "", "Task", "WebFetch"}, Statusline: true}, nil)
 	require.NoError(t, err)
-	require.Contains(t, string(body), `"Task"`)
-	require.Contains(t, string(body), "statusLine")
+	require.ElementsMatch(t, []present.Claim{
+		{Pointer: "/statusLine", Value: map[string]any{"type": "command", "command": ctxloomStatusLineCommand()}},
+		{Pointer: "/permissions/deny/-", Value: "Task"},
+		{Pointer: "/permissions/deny/-", Value: "WebFetch"},
+	}, settingsClaimsIn(t, d, project))
+}
+
+// TestDeliverSettings_LeavesAStatuslineThatIsNotCtxloomsCanonicalOne: a
+// statusline the user set — their own program, or the ctxloom binary with
+// arguments of their choosing — is theirs, and is not claimed.
+func TestDeliverSettings_LeavesAStatuslineThatIsNotCtxloomsCanonicalOne(t *testing.T) {
+	def := claudeDef(t)
+	for _, cmd := range []string{"my-hud", agent.CtxloomCommand() + " hook hud --theme mine"} {
+		start, project, _ := hostStart(t)
+		path := filepath.Join(project, ConfigDirName, SettingsFileName)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(`{"statusLine": {"type": "command", "command": "`+cmd+`"}}`), 0o644))
+		d, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{Statusline: true}, nil)
+		require.NoError(t, err)
+		require.Empty(t, settingsClaimsIn(t, d, project), cmd)
+	}
+}
+
+// TestDeliverSettings_ClaimsItsOwnCanonicalStatuslineAgain: the canonical
+// command is ctxloom's, so a redelivery restates its claim.
+func TestDeliverSettings_ClaimsItsOwnCanonicalStatuslineAgain(t *testing.T) {
+	def := claudeDef(t)
+	start, project, _ := hostStart(t)
+	path := filepath.Join(project, ConfigDirName, SettingsFileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(`{"statusLine": {"type": "command", "command": "`+ctxloomStatusLineCommand()+`"}}`), 0o644))
+	d, err := def.Settings.DeliverSettings(start, present.RootProjectRoot, engine.SettingsInputs{Statusline: true}, nil)
+	require.NoError(t, err)
+	require.Len(t, settingsClaimsIn(t, d, project), 1)
 }
 
 func TestDeliverCommandsAndSkills_LandUnderTheProjectRoot(t *testing.T) {
@@ -346,4 +381,34 @@ func TestDeliverCommandsAndSkills_SessionHomeRefusesAnUnrootedRun(t *testing.T) 
 	require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
 	home, _ := os.UserHomeDir()
 	require.NoDirExists(t, filepath.Join(home, ConfigDirName), "the real home is never written")
+}
+
+// TestDeliverMCP_SessionHomeRefusesAnUnrootedRun: with no session home
+// advised there is no private file to claim into, and the project's is not
+// a fallback.
+func TestDeliverMCP_SessionHomeRefusesAnUnrootedRun(t *testing.T) {
+	def := claudeDef(t)
+	project := t.TempDir()
+	start := present.New(present.OnHost(present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}}))
+	_, err := def.MCP.DeliverMCP(start, present.RootSessionHome, engine.MCPInputs{Servers: map[string]wire.MCPServer{"probe": {Command: "probe-mcp"}}}, nil)
+	require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
+}
+
+// TestDeliverMCP_AClaimNamesTheBundleItCameThrough: each server's claim
+// carries the provenance stamp of the bundle that shipped it, so a delivery
+// can keep the entries of a source whose content is unknown this time.
+func TestDeliverMCP_AClaimNamesTheBundleItCameThrough(t *testing.T) {
+	def := claudeDef(t)
+	start, project, _ := hostStart(t)
+	in := engine.MCPInputs{Servers: map[string]wire.MCPServer{
+		"tasks": {Command: "taskloom", Args: []string{"mcp"}, SCM: "bundle:ctxloom+companion:taskloom"},
+		"own":   {Command: "own-mcp"},
+	}}
+	d, err := def.MCP.DeliverMCP(start, present.RootProjectRoot, in, nil)
+	require.NoError(t, err)
+	via := map[string]string{}
+	for _, c := range d.Claims[filepath.Join(project, MCPFileName)] {
+		via[c.Pointer] = c.Via
+	}
+	require.Equal(t, map[string]string{"/mcpServers/tasks": "bundle:ctxloom+companion:taskloom", "/mcpServers/own": ""}, via)
 }

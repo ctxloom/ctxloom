@@ -72,8 +72,8 @@ func Run(ctx context.Context, cfg Config, down mcp.Transport) error {
 	// subscriber that is gone, and a wake fires into nothing.
 	cancel()
 	<-watched
-	// A refusal outranks how the pump ended: claude may close its side on the
-	// failed initialize before the endpoint's failure reaches the pump.
+	// The pump's error is the MCP client's, which does not type which status
+	// failed the connection; only the transport saw that it was a 401.
 	if refused.Load() {
 		return errors.Join(fmt.Errorf("%w: %s", ErrEndpointRefused, url), err)
 	}
@@ -103,6 +103,12 @@ func (b bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 // pump connects both sides and relays each way until one ends.
+//
+// A side that ends cleanly does not make the relay's end clean: claude closes
+// its side BECAUSE the endpoint failed (relayUp answered a call with the
+// failure), and that close can reach the pump before the endpoint-to-claude
+// side reads the failure, which it may not be reading at all while it is busy
+// writing to claude. So a clean end still reports what the endpoint holds.
 func pump(ctx context.Context, down, up mcp.Transport) error {
 	dc, err := down.Connect(ctx)
 	if err != nil {
@@ -117,7 +123,25 @@ func pump(ctx context.Context, down, up mcp.Transport) error {
 	ended := make(chan error, 2)
 	go func() { ended <- upward(ctx, dc, uc) }()
 	go func() { ended <- downward(ctx, uc, dc) }()
-	return <-ended
+	if err := <-ended; err != nil {
+		return err
+	}
+	return endpointFailure(uc)
+}
+
+// endpointFailure returns the failure the endpoint's connection holds, or nil
+// when it holds none. It asks with a context already done, so it never waits:
+// a failed connection answers a read with its failure before it looks at the
+// context, and a healthy one answers with the context's error (or a message
+// nobody is left to relay).
+func endpointFailure(uc mcp.Connection) error {
+	probe, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := uc.Read(probe)
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
+		return nil
+	}
+	return fmt.Errorf("claude relay: the session endpoint stopped answering: %w", err)
 }
 
 // upward relays claude's messages to the endpoint, and returns nil when

@@ -83,6 +83,8 @@ type fixture struct {
 	// withoutContainer makes the fake Cells refuse a container axis with
 	// the engine's own ErrUnsupported, the way Engine.Container() will.
 	withoutContainer bool
+	// trust is the verdict the fake Cells' placement carries.
+	trust engine.WorkspaceTrust
 }
 
 // WithAgent declares an agent binding named name, composed over the "base"
@@ -182,6 +184,10 @@ func ProjectDirtyTree(s string) Option { return func(f *fixture) { f.projectDirt
 // it, a host-home run advises none.
 func RelocatableHome() Option { return func(f *fixture) { f.relocatableHome = true } }
 
+// WithRepoTrust makes the fake Cells prepare a placement carrying v, the
+// verdict the cells adapter takes from the engine.
+func WithRepoTrust(v engine.WorkspaceTrust) Option { return func(f *fixture) { f.trust = v } }
+
 // ProfileLLM makes the composed profiles declare a label.
 func ProfileLLM(label string) Option { return func(f *fixture) { f.profileLLM = label } }
 
@@ -237,7 +243,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 	entry, err := store.AssignHarp(project, "")
 	require.NoError(t, err)
 
-	c := &cells{available: f.available, withoutContainer: f.withoutContainer}
+	c := &cells{available: f.available, withoutContainer: f.withoutContainer, trust: f.trust}
 	asm := &assembler{profileLLM: f.profileLLM}
 	return Env{
 		cells: c,
@@ -379,6 +385,11 @@ func (fixtureCodec) DecodeAsk(string, []byte) (engine.PermissionAsk, error) {
 
 // Permissions is FixtureModel unless NoPermissionModel declared it absent.
 func (e fixtureEngine) Permissions() engine.Declared[engine.PermissionModel] { return e.permissions }
+
+// Trust: the fixture runs no repository surfaces, so it trusts none.
+func (fixtureEngine) Trust() engine.Declared[engine.RepoTrust] {
+	return engine.Absent[engine.RepoTrust]("the fixture engine runs no repository surfaces")
+}
 func (fixtureCodec) EncodeAnswer(string, engine.PermissionAsk, engine.PermissionAnswer) ([]byte, error) {
 	return nil, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
 }
@@ -484,6 +495,7 @@ func Redeem(ctx context.Context, inline, claim composite.Transport, c composite.
 type cells struct {
 	available        map[launch.RuntimeAxis]bool
 	withoutContainer bool
+	trust            engine.WorkspaceTrust
 	last             launch.CellRequest
 }
 
@@ -507,7 +519,7 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 	if dir, ok := launch.SessionHome(req.SessionDir, req.Engine, homeMode); ok {
 		roots.SessionHome = present.Root{Host: dir}
 	}
-	return launch.Cell{Placement: launch.Placement{Paths: present.OnHost(roots)}, Workspace: req.ProjectRoot, HomeMode: req.HomeMode, Cleanup: func() error { return nil }}, nil
+	return launch.Cell{Placement: launch.Placement{Paths: present.OnHost(roots), Trust: c.trust}, Workspace: req.ProjectRoot, HomeMode: req.HomeMode, Cleanup: func() error { return nil }}, nil
 }
 
 // Structured is a resolved structured-mode launch for one harp on the

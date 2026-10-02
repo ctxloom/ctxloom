@@ -100,8 +100,10 @@ type PermissionPolicy struct {
 	Network bool
 }
 
-// WorkspaceTrust is one turn's verdict on the repository the session works
-// in: whether the repository's own executable surfaces may load.
+// WorkspaceTrust is a session's verdict on the repository it works in:
+// whether the repository's own executable surfaces (its settings, hooks,
+// agents and MCP servers) may load. The engine supplies it (RepoTrust) and
+// the engine's instance enforces it on every launch of the session.
 type WorkspaceTrust int
 
 const (
@@ -114,7 +116,7 @@ const (
 
 // TurnPosture is the permission posture one structured turn runs at: it
 // rides Turn, so a posture that changes between turns (a plan approval, a
-// session grant, a trust verdict) reaches the next turn's process.
+// session grant) reaches the next turn's process.
 type TurnPosture struct {
 	// Mode is the turn's starting posture, in the engine's own vocabulary
 	// (PermissionModel.Postures); "" asks for none.
@@ -122,6 +124,4 @@ type TurnPosture struct {
 	// Grants are the session grants ctxloom holds for the run, as
 	// engine-native rules.
 	Grants []string
-	// Trust is this turn's verdict on the repository.
-	Trust WorkspaceTrust
 }

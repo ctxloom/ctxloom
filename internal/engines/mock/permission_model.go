@@ -16,6 +16,12 @@ func (m Mock) Permissions() engine.Declared[engine.PermissionModel] {
 	return engine.Provide[engine.PermissionModel](permissionModel{})
 }
 
+// Trust: the mock loads no repository surfaces, so there is nothing for a
+// verdict to let in; every repository is untrusted.
+func (m Mock) Trust() engine.Declared[engine.RepoTrust] {
+	return engine.Absent[engine.RepoTrust]("the mock loads no repository surfaces")
+}
+
 type permissionModel struct{}
 
 var errMockPermissions = errors.New("mock permissions")

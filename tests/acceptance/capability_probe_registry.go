@@ -83,6 +83,7 @@ var capabilityInventory = []capabilityRow{
 	{18, "structured output contract — JSON only, no preamble"},
 	{19, "launch.RuntimeAxis=container — container runtime and per-engine container auth"},
 	{20, "engine.LabelConfig.Model — model resolution and pinning"},
+	{21, "engine.Engine.Trust / engine.RepoTrust — repository trust: the engine's verdict, and an untrusted repository's own surfaces kept out of every launch"},
 }
 
 // capabilitiesProvenElsewhere are inventory rows the ladder deliberately does
@@ -458,14 +459,15 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 9.5s. With --permission-prompts none on the argv the PermissionRequest hook is STILL consulted first: it fired on Bash, the gated call's tool_result is stamped after the hook's post-sleep marker, and the hook's allow ran the call (the file exists). none denies only what no hook decided."},
 		},
 	},
-	// P13 measures the VENDOR half of ctxloom's repo trust: claude's own trust
+	// P13 measures ctxloom's repo trust: the VENDOR half — claude's own trust
 	// does not stop an untrusted repo's committed hooks in -p, and
-	// --setting-sources user does — for its skills and agents too. It runs the vendor binary directly, as P12
-	// does, so a red names claude alone.
+	// --setting-sources user does, for its skills and agents too — with the
+	// vendor binary run directly, as P12 does, so a red names claude alone;
+	// and ctxloom's own launch of an untrusted repo (ctxloom-launch-untrusted).
 	{
 		Name:         probeP13,
 		Title:        "untrusted repo hooks: claude -p runs a never-trusted repo's committed hooks and loads its skills and agents, and --setting-sources user --strict-mcp-config suppresses all of them",
-		Capabilities: []int{7},
+		Capabilities: []int{7, 21},
 		Channel:      channelRepoHookMarker,
 		Feature:      "probes/capability_untrusted_repo_hooks.feature",
 		Paid:         true,
@@ -476,6 +478,8 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With --setting-sources user --strict-mcp-config NO settings or frontmatter marker was written and the init frame listed neither the repo's skill nor its agent, while the echo still ran and printed \"hi\" — suppressed, not untriggered. Every leak and listing predicate is MUTATION-CONFIRMED hermetically (TestP13_SettingSourcesSuppresses, TestP13_SettingSourcesSuppressesFrontmatter)."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13TrustedFrontmatter), Status: probeLiveVerified,
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With the repo trusted in CLAUDE_CONFIG_DIR/.claude.json the init frame listed the skill and agent, and the agent's frontmatter Stop hook and inline stdio MCP server both wrote their markers — the fixture's frontmatter executes when loaded. The skill's frontmatter PreToolUse hook did not fire under -p even here, which is why skills are judged by the init frame."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13CtxloomUntrusted), Status: probeLiveVerified,
+				Reason: "measured 2026-10-02 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. ctxloom's own launch of a repo the human never trusted — the verdict, the session home and the argv from claude.Claude.Trust, the instance-config writer and Instance.Exec (p13CtxloomLaunch) — wrote NO settings or frontmatter marker while the echo ran; the trusted control, re-run in the same session, wrote all four. The composition is pinned hermetically (TestP13_CtxloomLaunch_Untrusted, TestP13_CtxloomLaunch_IsTheEngines) and its judge is MUTATION-CONFIRMED (TestP13_CtxloomLaunchUntrusted)."},
 		},
 	},
 	{

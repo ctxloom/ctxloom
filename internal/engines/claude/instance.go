@@ -170,11 +170,20 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 // the first carries.
 var errSettingsTwice = errors.New("claude: the launch would name --settings twice, and claude keeps only the last one — a presentation already names a settings file; deliver settings to the session home instead")
 
+// errTurnSettingsPresented refuses a structured turn whose exec already
+// names --settings: a flag source is one --setting-sources does not filter,
+// so a named file would load whatever it holds into the turn whatever the
+// repository's verdict. The turn's own posture document is its only
+// --settings; ctxloom's settings reach it through the session home.
+var errTurnSettingsPresented = errors.New("claude: a structured turn's only --settings is its posture, and a presentation names another settings file — deliver settings to the session home instead")
+
 // execArgs is the argv up to the prompt: the label's args, the permission
 // posture (headless: permissionArgs; interactive: the human's own session,
 // interactivePermissionArgs), the model, the session name (interactive) or
-// --print, every presentation's args in delivery order, then the resumed
-// native key. It refuses an argv naming --settings twice.
+// --print, the repository's sources unless the verdict trusts it
+// (repoSourceArgs), every presentation's args in delivery order, then the
+// resumed native key. It refuses an argv naming --settings twice, and an
+// untrusted session's presented --settings.
 func (i *instance) execArgs(presented []present.Presentation) ([]string, error) {
 	args := slices.Clone(i.s.Label.Args)
 	interactive := i.s.Mode == engine.Interactive
@@ -196,9 +205,12 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 	if !interactive {
 		args = append(args, flagPrint)
 	}
-	for _, p := range presented {
-		args = append(args, p.Args...)
+	args = append(args, repoSourceArgs(i.s.Trust)...)
+	surfaces, err := presentedArgs(presented, i.s.Trust, path.Join(i.s.Roots.ProjectRoot.Engine, MCPFileName))
+	if err != nil {
+		return nil, err
 	}
+	args = append(args, surfaces...)
 	if i.key != "" {
 		args = append(args, flagResume, i.key)
 	}
@@ -206,6 +218,34 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 		return nil, errSettingsTwice
 	}
 	return args, nil
+}
+
+// presentedArgs is every presentation's args in delivery order. An
+// untrusted session refuses one naming --settings (a source
+// --setting-sources does not filter) and one that is the project's own
+// .mcp.json, projectMCP (a file --strict-mcp-config ignores).
+func presentedArgs(presented []present.Presentation, trust engine.WorkspaceTrust, projectMCP string) ([]string, error) {
+	var args []string
+	for _, p := range presented {
+		if trust != engine.TrustTrusted {
+			if err := untrustedRefusal(p, projectMCP); err != nil {
+				return nil, err
+			}
+		}
+		args = append(args, p.Args...)
+	}
+	return args, nil
+}
+
+// untrustedRefusal is why an untrusted session cannot take p, or nil.
+func untrustedRefusal(p present.Presentation, projectMCP string) error {
+	switch {
+	case slices.Contains(p.Args, flagSettings):
+		return errUntrustedSettingsPresented
+	case p.EnginePath == projectMCP:
+		return errUntrustedProjectMCP
+	}
+	return nil
 }
 
 // countFlag counts the occurrences of flag in args.
@@ -273,10 +313,15 @@ func (i *instance) Resume(key string) error {
 // session is findable in claude's /resume picker.
 type streamJSONDriver struct{ inst *instance }
 
-// argv is the per-turn process's argv: Exec plus the protocol, and the
-// turn's posture as the process's one --settings (turnSettings). It refuses
-// an Exec that already names --settings: the turn's would replace it.
+// argv is the per-turn process's argv: Exec (which already keeps an
+// untrusted repository's sources out) plus the protocol, and the turn's
+// posture as the process's one --settings (turnSettings). It refuses an
+// Exec that already names --settings, whether or not the turn has a
+// posture to say.
 func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) ([]string, error) {
+	if slices.Contains(ex.Args, flagSettings) {
+		return nil, errTurnSettingsPresented
+	}
 	args := slices.Clone(ex.Args)
 	args = append(args, flagInputFormat, "stream-json", flagOutputFormat, "stream-json", flagVerbose)
 	if in.Resume != "" && !slices.Contains(ex.Args, flagResume) {
@@ -290,9 +335,6 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) ([]string, error
 		return nil, err
 	}
 	if doc != "" {
-		if slices.Contains(ex.Args, flagSettings) {
-			return nil, errSettingsTwice
-		}
 		args = append(args, flagSettings, doc)
 	}
 	return args, nil

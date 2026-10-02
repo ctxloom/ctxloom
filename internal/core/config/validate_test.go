@@ -40,6 +40,10 @@ func (stubKind) Permissions() engine.Declared[engine.PermissionModel] {
 	return engine.Provide[engine.PermissionModel](stubModel{})
 }
 
+func (stubKind) Trust() engine.Declared[engine.RepoTrust] {
+	return engine.Absent[engine.RepoTrust]("a test double trusts no repository")
+}
+
 type stubModel struct{}
 
 func (stubModel) Keys() []string     { return []string{"mode"} }

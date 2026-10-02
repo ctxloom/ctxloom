@@ -111,12 +111,31 @@ type InstanceConfigWriter interface {
 // InstanceConfigRequest is what the writer is handed: the host user's real
 // home (the ambient values it may copy), the session home it writes into —
 // the directory the engine's home var names, placed by launch.SessionHome,
-// with no leaf of the writer's own appended — and the run's working
-// directory.
+// with no leaf of the writer's own appended — the run's working directory,
+// and the engine's verdict on its repository: only a trusted one may have
+// the engine's trust answer written for it.
 type InstanceConfigRequest struct {
 	HostHome     string
 	InstanceHome string
 	WorkDir      string
+	Trust        WorkspaceTrust
+}
+
+// RepoTrust is an engine's verdict on a repository: whether the human
+// trusted it to run its own executable surfaces. The engine reads its OWN
+// record of that answer (claude: the workspace-trust flag in its config),
+// so ctxloom keeps no trust store of its own and never answers for the
+// human. An error is no verdict; the caller treats it as untrusted.
+type RepoTrust interface {
+	Verdict(fs afero.Fs, q TrustQuery) (WorkspaceTrust, error)
+}
+
+// TrustQuery is what a verdict is taken over: the host user's real home,
+// where the engine keeps the human's own answers, and the run's working
+// directory on the host.
+type TrustQuery struct {
+	HostHome string
+	WorkDir  string
 }
 
 // InstanceConfigReport is what it wrote and what it skipped.

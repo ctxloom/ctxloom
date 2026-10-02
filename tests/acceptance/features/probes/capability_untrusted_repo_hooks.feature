@@ -30,7 +30,7 @@ Feature: P13 — claude -p runs an untrusted repo's committed hooks, and --setti
 
   Each cell self-skips LOUDLY when claude is absent, and when no token was
   captured at launch: a throwaway config dir cannot use the subscription login.
-  Three paid haiku turns for the set.
+  Four paid haiku turns for the set.
   Scenario Outline: A repo's committed hooks, skill and agent under the <variant> posture
     Given the untrusted-repo-hooks probe targets "<engine>" under runtime "<runtime>" and workspace "<workspace>" in the "<variant>" posture
     When it asks the engine to run echo hi in one turn
@@ -66,3 +66,15 @@ Feature: P13 — claude -p runs an untrusted repo's committed hooks, and --setti
     Examples:
       | engine      | runtime | workspace | variant                   |
       | claude-code | host    | none      | trusted-frontmatter-fires |
+
+    # CTXLOOM-LAUNCH-UNTRUSTED exists because the other arms run claude by
+    # hand: this one launches the repo the way ctxloom does — claude's verdict
+    # read from a human home that never trusted it, the session home claude's
+    # instance-config writer generates for that verdict, and the argv and
+    # stdin prompt the engine's Exec composes. Asserts what the suppressing
+    # arm asserts: NO marker, neither the skill nor the agent listed, the echo
+    # ran and printed "hi".
+    @claude-code @host @ws-none @var-ctxloom-launch-untrusted
+    Examples:
+      | engine      | runtime | workspace | variant                  |
+      | claude-code | host    | none      | ctxloom-launch-untrusted |

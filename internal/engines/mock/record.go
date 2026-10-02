@@ -187,9 +187,4 @@ func writePosture(b *strings.Builder, p *engine.TurnPosture) {
 	for _, g := range p.Grants {
 		_, _ = fmt.Fprintf(b, "grant=%s\n", g)
 	}
-	trust := "untrusted"
-	if p.Trust == engine.TrustTrusted {
-		trust = "trusted"
-	}
-	_, _ = fmt.Fprintf(b, "trust=%s\n", trust)
 }

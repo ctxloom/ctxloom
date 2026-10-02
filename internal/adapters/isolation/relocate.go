@@ -37,6 +37,8 @@ type layout struct {
 	// resolved on the host (stageStores).
 	creds  engine.Credentials
 	stores []sharedStore
+	// trust is the engine's verdict on cwd's repository (repoTrust).
+	trust engine.WorkspaceTrust
 }
 
 // relocator is stage 2: it presents a layout to the engine. PURE — Preview
@@ -53,9 +55,9 @@ type relocator interface {
 // stageLayout builds stage 1 for a prepared workspace: the session home is
 // CREATED and prepared here, so stage 2 maps it with everything else.
 func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore) layout {
-	l := layout{cwd: cwd, env: env, creds: s.creds, stores: stores}
+	l := layout{cwd: cwd, env: env, creds: s.creds, stores: stores, trust: repoTrust(s.eng, cwd)}
 	dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home)
-	if !ok || !prepareSessionHome(s.eng, dir, cwd) {
+	if !ok || !prepareSessionHome(s.eng, dir, cwd, l.trust) {
 		return l
 	}
 	placeHome(&l, s.eng, dir)
@@ -66,7 +68,7 @@ func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore
 // cwd (Preview puts a worktree's checkout there) and the session home the run
 // WOULD create.
 func previewLayout(s Spec, stores []sharedStore) layout {
-	l := layout{cwd: s.project, creds: s.creds, stores: stores}
+	l := layout{cwd: s.project, creds: s.creds, stores: stores, trust: repoTrust(s.eng, s.project)}
 	if dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home); ok {
 		placeHome(&l, s.eng, dir)
 	}
@@ -82,6 +84,27 @@ func placeHome(l *layout, eng engine.Engine, dir string) {
 	}
 }
 
+// repoTrust is eng's verdict on cwd's repository, read from the human's own
+// record under the host home. An engine that declares none trusts nothing;
+// a record that cannot be read is untrusted, and said so — the run goes
+// ahead without the repository's surfaces rather than not at all.
+func repoTrust(eng engine.Engine, cwd string) engine.WorkspaceTrust {
+	t, ok := eng.Trust().Get()
+	if !ok {
+		return engine.TrustUntrusted
+	}
+	home, err := hostHomeDir()
+	if err != nil {
+		home = ""
+	}
+	v, err := t.Verdict(nil, engine.TrustQuery{HostHome: home, WorkDir: cwd})
+	if err != nil {
+		clidiag.Warn("ctxloom", "%s: %v — running %s as an untrusted repository (its own settings, hooks and MCP servers will not load)", eng.Root().Name, err, cwd)
+		return engine.TrustUntrusted
+	}
+	return v
+}
+
 // sessionHomeRemedy is the fix-it on an unpreparable session home. It names
 // no --degraded: the finding is non-degradable, because the only fallback
 // would be the SHARED host home — the one thing the session home exists to
@@ -95,10 +118,10 @@ const sessionHomeRemedy = "fix what kept the session home from being prepared (t
 //
 // An unpreparable home is NON-DEGRADABLE: falling back to the real home
 // would hand the engine what only the binding may select.
-func prepareSessionHome(eng engine.Engine, dir, cwd string) bool {
+func prepareSessionHome(eng engine.Engine, dir, cwd string, trust engine.WorkspaceTrust) bool {
 	name := string(eng.Root().Name)
 	if home := eng.Home(); home.Relocates() {
-		if _, err := PrepareInstanceHome(InstanceHomeRequest{Engine: name, InstanceHome: dir, WorkDir: cwd}); err != nil {
+		if _, err := PrepareInstanceHome(InstanceHomeRequest{Engine: name, InstanceHome: dir, WorkDir: cwd, Trust: trust}); err != nil {
 			strictness.FailAlways(report.KindIsolation, sessionHomeRemedy,
 				"session home for %s: %v — refusing to point %s at an unprepared %s, and refusing to substitute the SHARED host config home for the per-session one this agent asked for",
 				name, err, home.Vars[0].Name, dir)
@@ -127,7 +150,7 @@ func placementOf(paths present.Paths, l layout, storeEnv map[string]string) laun
 	}
 	maps.Copy(env, l.creds.Env)
 	maps.Copy(env, storeEnv)
-	return launch.Placement{Paths: present.Advised(paths), Env: env, Unset: slices.Clone(l.creds.Unset), Home: home}
+	return launch.Placement{Paths: present.Advised(paths), Env: env, Unset: slices.Clone(l.creds.Unset), Home: home, Trust: l.trust}
 }
 
 // hostRelocator presents every root in place: the engine opens the host

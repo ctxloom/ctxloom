@@ -185,6 +185,19 @@ func TestLaunch_Session_IsTheOnlyProjection(t *testing.T) {
 	require.Equal(t, l.Cell.Paths.Paths(), s.Roots)
 	require.Equal(t, l.MCP, s.MCP)
 	require.Equal(t, "hello", s.Prompt)
+	require.Equal(t, engine.TrustUntrusted, s.Trust, "no verdict from the cell is no trust")
+}
+
+// TestResolve_TheCellsVerdictReachesTheSession: the cells adapter takes the
+// engine's verdict on the repository where it prepared the cell; the launch
+// carries it (across the wire to the runner) and the engine's session is
+// bound with it, which is what decides the repository-source flags.
+func TestResolve_TheCellsVerdictReachesTheSession(t *testing.T) {
+	env := launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.WithRepoTrust(engine.TrustTrusted))
+	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Interactive, Prompt: "hello", WorkDir: env.Project})
+	require.NoError(t, err)
+	require.Equal(t, engine.TrustTrusted, l.Trust)
+	require.Equal(t, engine.TrustTrusted, l.Session().Trust)
 }
 
 // TestResolve_InternalSource_BindsNoAgent: an internal one-shot names no

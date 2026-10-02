@@ -17,8 +17,10 @@ import (
 // TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol pins the
 // structured drive's argv: the Exec the Instance composed, then the
 // stream-json protocol flags, the resume key the turn names and the harp
-// the session is named after (testdata/chat_parity.golden holds the same
-// flags; the ORDER is now Exec's, since one place composes argv).
+// the session is named after; the session having no trust verdict, Exec
+// already carries the untrusted repository's user-only sources
+// (testdata/chat_parity.golden holds the same flags; the ORDER is Exec's,
+// since one place composes argv).
 func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 	kind, err := Build()
 	require.NoError(t, err)
@@ -34,7 +36,7 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 	mcp := present.Presentation{HostPath: "/h/.mcp.json", EnginePath: "/h/.mcp.json", Args: []string{flagMCPConfig, "/h/.mcp.json"}}
 	ex, err := inst.Exec([]present.Presentation{mcp})
 	require.NoError(t, err)
-	require.Equal(t, "--disallowedTools Bash,Edit,Write,NotebookEdit --allowedTools mcp__probe --model claude-opus-5 --print --mcp-config /h/.mcp.json", strings.Join(ex.Args, " "))
+	require.Equal(t, "--disallowedTools Bash,Edit,Write,NotebookEdit --allowedTools mcp__probe --model claude-opus-5 --print --setting-sources user --strict-mcp-config --mcp-config /h/.mcp.json", strings.Join(ex.Args, " "))
 	drivers := inst.Drivers()
 	require.Len(t, drivers, 1)
 	d, ok := drivers[0].(*streamJSONDriver)

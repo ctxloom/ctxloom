@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 )
@@ -103,4 +104,17 @@ func TestCell_CarriesNoContainerHalf(t *testing.T) {
 	require.Nil(t, d.Fields().ByNumber(6), "wire Cell field 6 is gone")
 	require.True(t, d.ReservedRanges().Has(protoreflect.FieldNumber(6)), "wire Cell field 6 is reserved")
 	require.True(t, d.ReservedNames().Has("container"), "wire Cell name \"container\" is reserved")
+}
+
+// TestDecodeLaunch_AnUnsetVerdictIsUntrusted: a launch whose originator set
+// no verdict — or one this runner does not know — lets no repository surface
+// load.
+func TestDecodeLaunch_AnUnsetVerdictIsUntrusted(t *testing.T) {
+	for _, w := range []pb.WorkspaceTrust{pb.WorkspaceTrust_WORKSPACE_TRUST_UNSPECIFIED, pb.WorkspaceTrust_WORKSPACE_TRUST_UNTRUSTED, pb.WorkspaceTrust(99)} {
+		wire := coordgrpc.EncodeLaunch(launchtest.FullLaunch(t))
+		wire.Trust = w
+		back, err := coordgrpc.DecodeLaunch(wire)
+		require.NoError(t, err)
+		require.Equal(t, engine.TrustUntrusted, back.Trust, "wire %v", w)
+	}
 }

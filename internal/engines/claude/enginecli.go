@@ -115,6 +115,14 @@ const (
 	flagMCPConfig        = "--mcp-config"
 	flagSettings         = "--settings"
 	flagOutputFormat     = "--output-format"
+	// flagSettingSources limits the setting sources claude loads; "user"
+	// alone drops the repository's project and local settings (its hooks,
+	// agents' and skills' frontmatter, permission rules) while keeping the
+	// session home's.
+	flagSettingSources = "--setting-sources"
+	// flagStrictMCPConfig makes --mcp-config the only MCP servers claude
+	// loads: the repository's .mcp.json is not layered under them.
+	flagStrictMCPConfig = "--strict-mcp-config"
 	// flagPermissionPrompts tells claude who answers a prompt; "none" =
 	// nobody, so what the posture and rules leave open is denied.
 	flagPermissionPrompts = "--permission-prompts"
@@ -135,7 +143,11 @@ func commonFlags() []agent.CLIFlag {
 		{Name: flagMCPConfig, Value: agent.ValuePath,
 			Note: "layers over the project .mcp.json unless --strict-mcp-config is also present"},
 		{Name: flagSettings, Value: agent.ValuePath,
-			Note: "ONE per launch — claude keeps only the last one given. A settings file a presentation names, or inline JSON: the interactive launch's declared rules; a structured turn's posture, which the driver appends"},
+			Note: "ONE per launch — claude keeps only the last one given. A settings file a presentation names (a trusted repository only: the flag bypasses --setting-sources), or inline JSON: the interactive launch's declared rules; a structured turn's posture, which the driver appends"},
+		{Name: flagSettingSources, Value: agent.ValueString,
+			Note: "\"user\" on every launch into a repository its verdict does not trust (repoSourceArgs)"},
+		{Name: flagStrictMCPConfig, Value: agent.ValueNone,
+			Note: "beside --setting-sources user: the repository's .mcp.json does not load"},
 	}
 }
 

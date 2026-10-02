@@ -25,6 +25,15 @@
 //     runs NO repo hook — while the echo still runs, so the hooks were
 //     suppressed rather than never triggered. If this goes red, an untrusted
 //     repo's hooks reach ctxloom's children.
+//   - ctxloom-launch-untrusted: the same repo launched the way ctxloom launches
+//     it — claude's verdict (claude.Claude.Trust) read from a human home that
+//     never trusted it, the session home claude's instance-config writer
+//     generates for that verdict, and the argv and stdin prompt the engine's
+//     Exec composes. Nothing the repo commits may run. Before the verdict
+//     existed ctxloom answered claude's trust prompt for every run directory
+//     and passed neither flag, which made its launch the trusted control below:
+//     the agent's frontmatter executed. If this goes red, ctxloom's own launch
+//     lets an untrusted repo run code.
 //   - trusted-frontmatter-fires: the positive control for the repo's committed
 //     SKILL and AGENT, whose frontmatter can declare hooks and mcpServers of
 //     its own. claude honours agent frontmatter only from a folder it trusts,
@@ -41,6 +50,8 @@
 //
 // THE CELL RUNS THE VENDOR BINARY DIRECTLY, not through ctxloom, for P12's
 // reason: the claim is about claude, so a red must name claude alone. The
+// ctxloom-launch cell is the exception by design: its argv and config dir are
+// the engine's, so a red there names ctxloom's launch. The
 // permission that lets `echo hi` run comes from --settings (flag scope), which
 // --setting-sources does not filter, so the echo runs in both cells and only
 // the repo's own settings differ in whether they load.
@@ -51,9 +62,13 @@ package acceptance
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // p13Family is this rung's name in a skip line, a failure message and the
@@ -67,6 +82,7 @@ const (
 	p13Fires              p13Variant = "untrusted-fires"
 	p13Suppresses         p13Variant = "setting-sources-suppresses"
 	p13TrustedFrontmatter p13Variant = "trusted-frontmatter-fires"
+	p13CtxloomUntrusted   p13Variant = "ctxloom-launch-untrusted"
 )
 
 // The turn every cell takes: invoke the repo's skill, then one Bash call the
@@ -131,16 +147,71 @@ var p13Markers = map[string]string{
 // with; nothing else differs between the arms. The trusted control's trust is
 // in its config dir (p13TrustJSON), not its argv.
 func p13Args(v p13Variant) []string {
-	args := []string{
-		"-p", p13Prompt,
-		"--settings", p13FlagSettings,
-		"--output-format", "stream-json", "--verbose",
-		"--model", liveClaudeModel,
-	}
+	args := append([]string{"-p", p13Prompt}, p13Observe()...)
+	args = append(args, "--model", liveClaudeModel)
 	if v == p13Suppresses {
 		args = append(args, "--setting-sources", "user", "--strict-mcp-config")
 	}
 	return args
+}
+
+// p13Observe are the flags every cell adds to read the run: the flag-scope
+// permission that lets the echo run, and the stream-json channel.
+func p13Observe() []string {
+	return []string{"--settings", p13FlagSettings, "--output-format", "stream-json", "--verbose"}
+}
+
+// p13Launch is ctxloom's launch of the ctxloom-launch cell: the engine's
+// verdict on the repo, and the argv (after the binary) and stdin the cell
+// runs claude with.
+type p13Launch struct {
+	Verdict engine.WorkspaceTrust
+	Args    []string
+	Stdin   []byte
+}
+
+// errP13NoTrustContract is a claude build that declares no repo-trust
+// verdict: the cell has no ctxloom launch to measure.
+var errP13NoTrustContract = errors.New(p13Family + ": claude declares no repo-trust verdict")
+
+// p13CtxloomLaunch composes the ctxloom-launch cell from claude's engine as
+// a launch does: the verdict (Engine.Trust) over repo from home, the human's
+// own home; the session home cfg generated for that verdict by the engine's
+// instance-config writer; and the structured -p launch the instance's Exec
+// composes for that session, plus p13Observe.
+func p13CtxloomLaunch(home, cfg, repo string) (p13Launch, error) {
+	kind, err := claude.Build()
+	if err != nil {
+		return p13Launch{}, err
+	}
+	trust, ok := kind.Trust().Get()
+	if !ok {
+		return p13Launch{}, errP13NoTrustContract
+	}
+	verdict, err := trust.Verdict(nil, engine.TrustQuery{HostHome: home, WorkDir: repo})
+	if err != nil {
+		return p13Launch{}, err
+	}
+	if _, err := kind.Home().InstanceConfig.WriteInstanceConfig(engine.InstanceConfigRequest{HostHome: home, InstanceHome: cfg, WorkDir: repo, Trust: verdict}, nil); err != nil {
+		return p13Launch{}, err
+	}
+	inst, err := kind.Instance(engine.Session{
+		Label:      engine.LabelConfig{Label: claude.EngineName, Model: liveClaudeModel},
+		Mode:       engine.Structured,
+		Permission: engine.PermissionPolicy{Posture: engine.Posture{Engine: claude.EngineName, Document: map[string]any{"mode": "default"}}, Sandbox: engine.SandboxFull},
+		WorkDir:    repo,
+		Home:       []engine.HomeBinding{{Var: claude.ConfigDirEnv, Path: cfg}},
+		Prompt:     p13Prompt,
+		Trust:      verdict,
+	})
+	if err != nil {
+		return p13Launch{}, err
+	}
+	ex, err := inst.Exec(nil)
+	if err != nil {
+		return p13Launch{}, err
+	}
+	return p13Launch{Verdict: verdict, Args: append(ex.Args, p13Observe()...), Stdin: ex.StdinPrompt}, nil
 }
 
 // p13RepoSettingsJSON renders the repo's committed .claude/settings.json: one
@@ -283,12 +354,12 @@ func (o p13Outcome) judgeVariant(v probeVerdict, s p12Stream) error {
 	switch o.Variant {
 	case p13Fires:
 		return o.judgeFires(v, s)
-	case p13Suppresses:
+	case p13Suppresses, p13CtxloomUntrusted:
 		return o.judgeSuppresses(v, s)
 	case p13TrustedFrontmatter:
 		return o.judgeTrustedControl(v, s)
 	}
-	return fmt.Errorf("%s %s: unknown variant %q (want %q, %q or %q)", p13Family, o.Cell, o.Variant, p13Fires, p13Suppresses, p13TrustedFrontmatter)
+	return fmt.Errorf("%s %s: unknown variant %q (want %q, %q, %q or %q)", p13Family, o.Cell, o.Variant, p13Fires, p13Suppresses, p13TrustedFrontmatter, p13CtxloomUntrusted)
 }
 
 // judgeFires: every committed settings hook fired, and the repo's skill and
@@ -305,12 +376,13 @@ func (o p13Outcome) judgeFires(v probeVerdict, s p12Stream) error {
 }
 
 // judgeSuppresses: no settings hook and no frontmatter surface left a marker,
-// and the repo's skill and agent were not loaded at all.
+// and the repo's skill and agent were not loaded at all — under the flags
+// alone, or under ctxloom's whole launch of an untrusted repo.
 func (o p13Outcome) judgeSuppresses(v probeVerdict, s p12Stream) error {
 	fired, _ := p13Split(p13Markers, o.Fired)
 	surfaced, _ := p13Split(p13FrontmatterMarkers, o.Frontmatter)
 	if leaked := append(fired, surfaced...); len(leaked) > 0 {
-		return v.fail(shapeRepoHookLeaked, fmt.Sprintf("the repo's committed %v ran despite --setting-sources user --strict-mcp-config", leaked), o.evidence())
+		return v.fail(shapeRepoHookLeaked, fmt.Sprintf("the repo's committed %v ran despite --setting-sources user --strict-mcp-config (%s)", leaked, o.Variant), o.evidence())
 	}
 	if listed, _ := p13Listing(s); len(listed) > 0 {
 		return v.fail(shapeRepoSurfaceLoaded, fmt.Sprintf("the init frame listed the repo's %v despite --setting-sources user", listed), o.evidence())

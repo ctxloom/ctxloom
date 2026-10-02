@@ -460,11 +460,11 @@ var probeRegistry = []probeSpec{
 	},
 	// P13 measures the VENDOR half of ctxloom's repo trust: claude's own trust
 	// does not stop an untrusted repo's committed hooks in -p, and
-	// --setting-sources user does. It runs the vendor binary directly, as P12
+	// --setting-sources user does — for its skills and agents too. It runs the vendor binary directly, as P12
 	// does, so a red names claude alone.
 	{
 		Name:         probeP13,
-		Title:        "untrusted repo hooks: claude -p runs a never-trusted repo's committed hooks, and --setting-sources user --strict-mcp-config suppresses them",
+		Title:        "untrusted repo hooks: claude -p runs a never-trusted repo's committed hooks and loads its skills and agents, and --setting-sources user --strict-mcp-config suppresses all of them",
 		Capabilities: []int{7},
 		Channel:      channelRepoHookMarker,
 		Feature:      "probes/capability_untrusted_repo_hooks.feature",
@@ -474,6 +474,7 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. A repo with no projects entry in a throwaway CLAUDE_CONFIG_DIR ran BOTH its committed hooks (PreToolUse on Bash and SessionStart wrote their markers) under -p, and the flag-scope-allowed echo printed \"hi\"."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13Suppresses), Status: probeLiveVerified,
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With --setting-sources user --strict-mcp-config NO committed hook wrote its marker, while the echo still ran and printed \"hi\" — suppressed, not untriggered. MUTATION-CONFIRMED live: inverting the leak check reds the same run as REPO-HOOK-LEAKED."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13TrustedFrontmatter), Status: probeWired},
 		},
 	},
 	{

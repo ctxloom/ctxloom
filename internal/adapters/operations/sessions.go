@@ -151,7 +151,7 @@ func GetSession(harp string) (*sessions.Entry, error) {
 }
 
 // RenameSession renames a harp entry; the backend transcript is unaffected.
-// The new name is validated by sessions.Manager.Rename (harp.Validate), not
+// The new name is validated by sessions.Manager.Rename (harp.ValidateRename), not
 // here — a harp name is a filesystem path component, so the refusal belongs
 // where the data is, guarding every caller rather than this one.
 func RenameSession(oldName, newName string) error {

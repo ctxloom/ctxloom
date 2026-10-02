@@ -771,14 +771,15 @@ func (m *Manager) SetSourceEntries(harpName string, sourceEntries int) error {
 // Rename moves the session directory from oldName to newName — the directory
 // IS the record, so its essence, persisted files and sidecar all travel
 // together. Errors if oldName is not a session, if anything already sits at
-// newName, or if newName is not a usable harp identifier.
+// newName, or if newName is not a usable harp identifier or runs past
+// harp.MaxNameLen.
 //
 // The validation lives HERE, where the data is, not in
 // operations.RenameSession: the new name becomes a path component under the
 // sessions root, and `ctxloom session edit <old> --name ../..` was previously
 // a pass-through all the way to MkdirAll/Symlink.
 func (m *Manager) Rename(oldName, newName string) error {
-	if err := harp.Validate(newName); err != nil {
+	if err := harp.ValidateRename(newName); err != nil {
 		return err
 	}
 	m.mu.Lock()

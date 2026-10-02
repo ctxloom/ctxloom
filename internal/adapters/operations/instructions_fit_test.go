@@ -9,15 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// worstCaseHarp is the longest name the session generator mints: the default
-// three components, each the default group's longest word (5 runes). A
-// user-renamed harp is unbounded (harp.Validate caps no length), so this is
-// the bound for MINTED names; a rename past it costs the tail of the static
-// text, never the session line, because the session line leads.
-const worstCaseHarp = "aaaaa-bbbbb-ccccc"
+// worstCaseHarp is the longest harp a session can carry: harp.MaxNameLen, the
+// rename limit (a minted name is shorter). This test is what holds that limit
+// to the instructions budget.
+var worstCaseHarp = strings.Repeat("a", harp.MaxNameLen)
 
 // worstCaseHome is the longest ordinary Linux home: /home/<user> at useradd's
 // 32-character username limit. The plan dir and its worked example both embed

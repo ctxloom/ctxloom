@@ -246,6 +246,27 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the output contains "demo"
 
+    # The lock rebuild after a pull keeps the previous entries of whatever part
+    # of the closure it could not reach. That is safe only if it is SAID: a
+    # summary with no such line reads as a complete lock.
+    Scenario: A pull whose lock could not reach part of the closure names what it kept
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --bundle origin/demo"
+      And the project already has the file ".ctxloom/profiles/orphan.yaml":
+        """
+        parents:
+          - file:///nonexistent-ctxloom-remote@bundles/kit#profiles/parent
+        """
+      When Alice pulls with part of the closure unreachable:
+        """
+        ctxloom deps pull
+        """
+      Then the output contains "Lock incomplete"
+      And the output contains "nonexistent-ctxloom-remote"
+      And the output contains "previous lock entries were kept"
+
     # The same rule for the commands that report currency. A check that could
     # not fetch the remote has only the clone it fetched LAST time to read, and
     # an answer read from that clone is about the past: it is unchecked, never

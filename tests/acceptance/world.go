@@ -288,6 +288,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerCompanionConsentSteps(ctx)
 	registerContentDecisionSteps(ctx)
 	registerTrustSurfaceSteps(ctx)
+	registerSigCheckSteps(ctx)
 	registerTrustVocabularySteps(ctx)
 	registerSkillSteps(ctx)
 	registerRecoverSessionSteps(ctx)

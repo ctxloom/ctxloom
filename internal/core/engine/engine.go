@@ -138,6 +138,9 @@ type Engine interface {
 	// Permissions is the engine's permission model. Undeclared, no posture
 	// can be resolved for it and a launch on it is refused.
 	Permissions() Declared[PermissionModel]
+	// Trust is the engine's repository-trust verdict. Undeclared, every
+	// repository is untrusted: its own surfaces never load.
+	Trust() Declared[RepoTrust]
 }
 
 // Instance is one engine kind bound to one session.

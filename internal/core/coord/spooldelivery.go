@@ -469,7 +469,7 @@ func (c *Coordinator) mailCourier() *SpoolCourier {
 		KeyFor:  func(to string) string { return to },
 		Ring:    c.ringSpool,
 		OnSent: func(to string, msg Message, ref spool.Ref) {
-			c.audit("spool_mail_out", to, map[string]string{"message_id": msg.ID, "from": msg.From, "kind": msg.Kind, "ref": ref.String()})
+			c.audit("spool_mail_out", to, map[string]string{"message_id": msg.ID, "from": msg.From, "kind": msg.Kind, "in_reply_to": msg.InReplyTo, "ref": ref.String()})
 			c.mu.Lock()
 			seam := c.afterMailWritten
 			c.mu.Unlock()
@@ -590,6 +590,7 @@ func (c *Coordinator) sweepChildSpool(role string) {
 		return
 	}
 	c.sweepChildDelivered(role)
+	c.noticeUnansweredAsks(role)
 }
 
 // sweepChildOut routes every message sitting in role's out/, oldest first, and
@@ -649,6 +650,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		c.failSpoolOut(role, e.Ref, err)
 		return
 	}
+	c.settleAsk(role, msg.InReplyTo, msg.Structured)
 	c.spoolDeliveryCount.Delivered.Add(1)
 	c.consumeSpool(role, e.Ref)
 }

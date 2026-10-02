@@ -17,10 +17,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
@@ -42,6 +44,72 @@ var degradedFlag bool
 // has installed; this makes a run reproducible (and is what CI and hermetic tests
 // want). Env fallback: CTXLOOM_NO_COMPANIONS=1.
 var noCompanionsFlag bool
+
+// sigCheckFlag backs the persistent --disable-sig-check flag: this invocation
+// decides without the bundle signature step (composite.WithoutSignatureCheck).
+// Env fallback: CTXLOOM_DISABLE_SIG_CHECK=1, which an explicitly set flag beats
+// in either direction. Deliberately NO config key: the waiver belongs to the
+// invocation that asked for it.
+var sigCheckFlag bool
+
+// sigCheckEnv is what the process environment said about the signature-check
+// switch, read ONCE (consumeEnvSwitch).
+var sigCheckEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(bundles.SigCheckEnv) })
+
+// sessionSigCheckEnv is what the process environment said about the SESSION
+// carrier (sessions.EnvSigCheckWaived) — the waiver a waived session's launch
+// hands its engine for the engine's own ctxloom children — read ONCE.
+var sessionSigCheckEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(sessions.EnvSigCheckWaived) })
+
+// consumeEnvSwitch reads one of the signature-check switches and removes it
+// from this process's environment. Every child ctxloom starts is built from
+// os.Environ(), so after this nothing inherits a waiver by the ordinary
+// route: the switch is per invocation, and a session's posture reaches the
+// engine's own children only through its launch.
+func consumeEnvSwitch(name string) bool {
+	on := envSwitchOn(name)
+	if err := os.Unsetenv(name); err != nil {
+		clidiag.Warn("ctxloom", "cannot remove %s from the environment, so processes ctxloom starts may inherit it: %v", name, err)
+	}
+	return on
+}
+
+// servesSessionAnnotation marks a command tree whose processes serve a
+// running session — the engine's own ctxloom children — and so share that
+// session's signature-check posture through the session carrier.
+const servesSessionAnnotation = "ctxloom/serves-session"
+
+// servesSession reports whether cmd sits under a command marked
+// servesSessionAnnotation.
+func servesSession(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Annotations[servesSessionAnnotation] == "true" {
+			return true
+		}
+	}
+	return false
+}
+
+// sigCheckDisabled resolves the signature-check switch: the environment's
+// answer — the session carrier counting only for a command that serves a
+// session — with an explicitly set --disable-sig-check winning in either
+// direction. Both environment switches are consumed whichever command runs.
+func sigCheckDisabled(cmd *cobra.Command) bool {
+	session := sessionSigCheckEnv()
+	off := sigCheckEnv() || (session && servesSession(cmd))
+	if cmd != nil && cmd.Root().PersistentFlags().Changed(bundles.SigCheckFlag) {
+		off = sigCheckFlag
+	}
+	return off
+}
+
+// switches are this invocation's process switches.
+func switches(cmd *cobra.Command) operations.Switches {
+	if cmd == nil {
+		return operations.Switches{NoCompanions: envSwitchOn("CTXLOOM_NO_COMPANIONS"), SigCheckDisabled: sigCheckDisabled(nil), SessionSigCheckWaived: sessionSigCheckEnv()}
+	}
+	return operations.Switches{NoCompanions: companionsOff(cmd), SigCheckDisabled: sigCheckDisabled(cmd), SessionSigCheckWaived: sessionSigCheckEnv()}
+}
 
 // ExitError is returned when a command needs to exit with a specific code.
 // This allows deferred cleanup to run before the process exits.
@@ -104,7 +172,8 @@ func NewCoordinator(opts coord.Options) (*coord.Coordinator, error) {
 // environment on first use; SetAppForTesting installs a fixture instead.
 func App() *operations.App {
 	if theApp == nil {
-		installApp(nil, os.Environ(), envSwitchOn("CTXLOOM_NO_COMPANIONS"), strictnessMode(nil))
+		sw := switches(nil)
+		installApp(nil, os.Environ(), sw, strictnessMode(nil))
 	}
 	return theApp
 }
@@ -118,10 +187,14 @@ func SetAppForTesting(app *operations.App) func() {
 }
 
 // installApp composes the process's Sources from flags, environ and the
-// companion switch and holds them in theApp. A flag or env override that
+// process switches and holds them in theApp. A flag or env override that
 // cannot be bound degrades to a warning: each individual override is still
-// resolved, and warned about, per generation.
-func installApp(flags *pflag.FlagSet, environ []string, noCompanions bool, mode strictness.Mode, opts ...configload.Option) {
+// resolved, and warned about, per generation. A composition that waives the
+// signature check says so, once per process.
+func installApp(flags *pflag.FlagSet, environ []string, sw operations.Switches, mode strictness.Mode, opts ...configload.Option) {
+	if sw.SigCheckDisabled {
+		clidiag.WarnOnce("ctxloom", "%s", bundles.SigCheckDisabledNotice)
+	}
 	// A process composed with an embedded loadout is ctxloom itself and
 	// probes itself as a companion at the path selfexec resolves; one
 	// without (a test process) has nothing to emit and must not exec itself.
@@ -129,11 +202,11 @@ func installApp(flags *pflag.FlagSet, environ []string, noCompanions bool, mode 
 	if len(theComposition.Loadout.YAML) > 0 {
 		selfLoadout = selfexec.Path
 	}
-	src, err := operations.ComposeSources(operations.Compose{Flags: flags, Environ: environ, NoCompanions: noCompanions, SelfLoadout: selfLoadout, Options: opts})
+	src, err := operations.ComposeSources(operations.Compose{Flags: flags, Environ: environ, NoCompanions: sw.NoCompanions, SelfLoadout: selfLoadout, Options: opts})
 	if err != nil {
 		clidiag.Warn("ctxloom", "config overrides: %v", err)
 	}
-	theApp = operations.NewApp(src, noCompanions, selfLoadout, mode, operations.Handed{
+	theApp = operations.NewApp(src, sw, selfLoadout, mode, operations.Handed{
 		Open:          theComposition.OpenConfig,
 		Reporter:      theComposition.Reporter,
 		Engines:       theComposition.Engines,
@@ -163,7 +236,8 @@ func pinAppDir(cmd *cobra.Command, appDir string) error {
 	if theApp != nil && theApp.Opened() {
 		return fmt.Errorf("cannot pin the configuration directory to %s: the configuration is already open", appDir)
 	}
-	installApp(cmd.Flags(), os.Environ(), companionsOff(cmd), strictnessMode(cmd), configload.WithAppDir(appDir))
+	sw := switches(cmd)
+	installApp(cmd.Flags(), os.Environ(), sw, strictnessMode(cmd), configload.WithAppDir(appDir))
 	return nil
 }
 
@@ -292,7 +366,8 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 	// companion switch (CTXLOOM_NO_COMPANIONS, with an explicitly set
 	// --no-companions winning in either direction) are captured exactly ONCE
 	// per process, here, as inputs to the one config.Owner.
-	installApp(cmd.Flags(), os.Environ(), companionsOff(cmd), strictnessMode(cmd))
+	sw := switches(cmd)
+	installApp(cmd.Flags(), os.Environ(), sw, strictnessMode(cmd))
 	// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
 	// --format, off (today's plain "<prog>: warning: <msg>" stderr) for
 	// text/markdown or an unresolvable value — an invalid --format is
@@ -444,6 +519,11 @@ func init() {
 	// Env fallback: CTXLOOM_NO_COMPANIONS=1.
 	rootCmd.PersistentFlags().BoolVar(&noCompanionsFlag, "no-companions", false,
 		"skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context")
+
+	// Signature verification waived for THIS invocation only (see
+	// sigCheckFlag). Env fallback: CTXLOOM_DISABLE_SIG_CHECK=1.
+	rootCmd.PersistentFlags().BoolVar(&sigCheckFlag, bundles.SigCheckFlag, false,
+		"disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)")
 
 	// --config-set is the ONLY source of CLI-layer config overrides (see
 	// confload.ConfigSetFlagName's doc): a dedicated, repeatable, PERSISTENT flag

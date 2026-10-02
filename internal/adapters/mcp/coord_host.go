@@ -69,6 +69,8 @@ func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectD
 		// The idle reaper's bound — delegation.idle_timeout, resolved by config.
 		IdleTimeout: cfg.GetDelegationIdleTimeout(),
 		OwnerHarp:   ownerHarp,
+		// A parked request's engine judges what a session grant covers.
+		Engines: base.Engines,
 	})
 	if err != nil {
 		return nil, err

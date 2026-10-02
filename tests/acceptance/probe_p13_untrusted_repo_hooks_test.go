@@ -3,11 +3,16 @@ package acceptance
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // The P13 verdicts, argv and fixture wire, exercised without an engine. Frames
@@ -222,4 +227,90 @@ func TestP13_FrontmatterFixtureWire(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &cfg))
 	require.Len(t, cfg.Projects, 1)
 	require.True(t, cfg.Projects["/cell/repo"].HasTrustDialogAccepted)
+}
+
+// p13LaunchFixture is a committed-looking repo (a .git dir), a human home
+// whose ~/.claude.json answers projects as given, and an empty config dir.
+func p13LaunchFixture(t *testing.T, trusted bool) (home, cfg, repo string) {
+	t.Helper()
+	testsupport.ProjectDir(t) // the instance-config writer locks under HOME; the cwd walk-up must not reach the checkout
+	home, cfg, repo = t.TempDir(), t.TempDir(), t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
+	projects := map[string]any{}
+	if trusted {
+		projects[repo] = map[string]any{"hasTrustDialogAccepted": true}
+	}
+	raw, err := json.Marshal(map[string]any{"projects": projects})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), raw, 0o600))
+	return home, cfg, repo
+}
+
+// p13CfgTrusts reports whether the generated config dir answers claude's
+// trust prompt for repo.
+func p13CfgTrusts(t *testing.T, cfg, repo string) bool {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(cfg, ".claude.json"))
+	require.NoError(t, err)
+	var got struct {
+		Projects map[string]map[string]any `json:"projects"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &got))
+	return got.Projects[repo]["hasTrustDialogAccepted"] == true
+}
+
+// TestP13_CtxloomLaunch_Untrusted: the ctxloom-launch cell is ctxloom's
+// launch of a repo the human never trusted — the engine's verdict is
+// untrusted, the session home it generates does not answer claude's trust
+// prompt, and its argv carries both repository-source flags with the prompt
+// on stdin, not on argv.
+func TestP13_CtxloomLaunch_Untrusted(t *testing.T) {
+	home, cfg, repo := p13LaunchFixture(t, false)
+	l, err := p13CtxloomLaunch(home, cfg, repo)
+	require.NoError(t, err)
+	require.Equal(t, engine.TrustUntrusted, l.Verdict)
+	require.False(t, p13CfgTrusts(t, cfg, repo), "ctxloom answered claude's trust prompt for an untrusted repo")
+	i := slices.Index(l.Args, "--setting-sources")
+	require.GreaterOrEqual(t, i, 0, "argv: %v", l.Args)
+	require.Equal(t, "user", l.Args[i+1])
+	require.Contains(t, l.Args, "--strict-mcp-config")
+	require.Contains(t, l.Args, "--print")
+	require.NotContains(t, l.Args, p13Prompt)
+	require.Equal(t, p13Prompt, string(l.Stdin))
+	require.Equal(t, p13Observe(), l.Args[len(l.Args)-len(p13Observe()):], "the cell adds only the observation flags")
+}
+
+// TestP13_CtxloomLaunch_IsTheEngines: the same composition over a repo the
+// human trusted answers the prompt and drops the flags — the cell's argv
+// and config dir are the engine's, not a hand copy that cannot regress.
+func TestP13_CtxloomLaunch_IsTheEngines(t *testing.T) {
+	home, cfg, repo := p13LaunchFixture(t, true)
+	l, err := p13CtxloomLaunch(home, cfg, repo)
+	require.NoError(t, err)
+	require.Equal(t, engine.TrustTrusted, l.Verdict)
+	require.True(t, p13CfgTrusts(t, cfg, repo))
+	require.NotContains(t, l.Args, "--setting-sources")
+	require.NotContains(t, l.Args, "--strict-mcp-config")
+}
+
+// TestP13_CtxloomLaunchUntrusted: the cell is judged as the suppressing arm.
+func TestP13_CtxloomLaunchUntrusted(t *testing.T) {
+	t.Run("nothing ran or loaded and the echo ran is green", func(t *testing.T) {
+		require.NoError(t, p13Assert(p13TestOutcome(p13CtxloomUntrusted, p13TestStream(t, p13Echoed, false, false), p13NoneFired)))
+	})
+	for surface := range p13FrontmatterMarkers {
+		t.Run("a leaked "+surface+" is REPO-HOOK-LEAKED", func(t *testing.T) {
+			o := p13TestOutcome(p13CtxloomUntrusted, p13TestStream(t, p13Echoed, false, false), p13NoneFired)
+			o.Frontmatter = map[string]bool{surface: true}
+			p12RequireShape(t, p13Assert(o), shapeRepoHookLeaked)
+		})
+	}
+	for event := range p13Markers {
+		t.Run("a leaked "+event+" hook is REPO-HOOK-LEAKED", func(t *testing.T) {
+			p12RequireShape(t, p13Assert(p13TestOutcome(p13CtxloomUntrusted, p13TestStream(t, p13Echoed, false, false), map[string]bool{event: true})), shapeRepoHookLeaked)
+		})
+	}
+	t.Run("a listed skill or agent is REPO-SURFACE-LOADED", func(t *testing.T) {
+		p12RequireShape(t, p13Assert(p13TestOutcome(p13CtxloomUntrusted, p13TestStream(t, p13Echoed, false, true), p13NoneFired)), shapeRepoSurfaceLoaded)
+	})
 }

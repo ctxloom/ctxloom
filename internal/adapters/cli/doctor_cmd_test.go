@@ -385,10 +385,9 @@ func materializeLayoutEntries(t *testing.T, root string, skip map[string]bool) {
 // Keyed by Rel alone (not Root): no directory-shaped Rel collides with one of
 // these names, so root is irrelevant to the question "is this a file".
 var layoutFileEntries = map[string]bool{
-	filepath.Join(paths.AppDirName, paths.ProjectIDFileName):                true,
-	filepath.Join(paths.AppDirName, paths.AllowedSignersFileName):           true,
-	filepath.Join(paths.AppDirName, paths.DistrustedSignersFileName):        true,
-	filepath.Join(paths.AppDirName, paths.CompanionConsentFileName+".yaml"): true,
+	filepath.Join(paths.AppDirName, paths.ProjectIDFileName):         true,
+	filepath.Join(paths.AppDirName, paths.AllowedSignersFileName):    true,
+	filepath.Join(paths.AppDirName, paths.DistrustedSignersFileName): true,
 }
 
 // materializeLayoutEntry creates one Layout path under base as the KIND it

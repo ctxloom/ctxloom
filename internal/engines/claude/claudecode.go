@@ -326,17 +326,6 @@ func turnSettings(p posture, mcpServers []string, t engine.TurnPosture) (string,
 	return settingsDocument(doc, p.sandboxDoc())
 }
 
-// buildArgs is the request's argv: Instance.Exec's, and nothing composed
-// here (TestBuildArgs_IsInstanceExec pins the delegation; the launch golden
-// pins the bytes).
-func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
-	ex, err := b.exec(req)
-	if err != nil {
-		panic(err) // the kind carries a context surface; Instance cannot refuse it
-	}
-	return ex.Args
-}
-
 // promptStdin returns the oneshot task as a stdin reader for claude -p, or nil
 // when there is no prompt. Delivering the task on stdin instead of argv keeps a
 // large prompt off the command line, which the OS length-limits (E2BIG).

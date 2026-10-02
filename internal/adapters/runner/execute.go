@@ -48,6 +48,11 @@ type Deps struct {
 	Static delivery.Static
 	// Records is the ownership record the delivery writes under.
 	Records delivery.Ownership
+	// Locks answers whether a session is gone: before delivering, the run
+	// reverses every departed session's delivery through Records
+	// (sweepDeparted), which is what reclaims a run killed before its
+	// teardown.
+	Locks sessions.Locks
 	// Dynamic BINDS the session's MCP endpoint — the one the Launch carries
 	// — before the engine is driven, and returns its closer. nil serves
 	// nothing.
@@ -99,6 +104,9 @@ var (
 	ErrNoKind = errors.New("runner: no engine kind is composed")
 	// ErrNoStatic refuses to execute with no static writer composed.
 	ErrNoStatic = errors.New("runner: no static writer is composed")
+	// ErrNoLocks refuses to execute with no session-liveness port: without
+	// one, a killed run's delivery is never swept.
+	ErrNoLocks = errors.New("runner: no session-liveness port is composed")
 	// ErrEngineEnvUnscrubbed refuses to drive an engine that would inherit a
 	// variable its launch says it must not (Cell.Unset).
 	ErrEngineEnvUnscrubbed = errors.New("runner: a variable the engine must not inherit could not be removed")
@@ -138,6 +146,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, err
 	}
+	sweepDeparted(ctx, deps)
 	closeServed, err := serveEndpoint(ctx, deps, lo)
 	if err != nil {
 		return Outcome{}, err
@@ -165,6 +174,9 @@ func prepareLaunch(deps Deps, l launch.Launch) (launch.Launch, engine.Instance, 
 	}
 	if deps.Static == nil {
 		return l, nil, ErrNoStatic
+	}
+	if deps.Locks == nil {
+		return l, nil, ErrNoLocks
 	}
 	// The runner shares the engine's filesystem wherever it runs (a
 	// container's foreground process, or beside the engine on the host), so
@@ -239,18 +251,72 @@ func serveEndpoint(ctx context.Context, deps Deps, lo delivery.Loadout) (func(),
 	return func() { _ = served.Close() }, nil
 }
 
+// sweepDeparted reverses, through the ownership record, the delivery of
+// every session whose liveness lock proves it gone — the run that was
+// killed before its teardown, whose files (a project .mcp.json among them)
+// would otherwise keep its entries forever. The lock is held across the
+// reversal, so a session resuming under that harp waits rather than racing
+// it. Only a proven-dead owner is swept: a held, missing or untrustworthy
+// lock leaves the record alone. Best effort: a failure is reported and the
+// run goes on, as the worktree reaper's startup sweep does.
+func sweepDeparted(ctx context.Context, deps Deps) {
+	if deps.Records == nil {
+		return // the delivery itself refuses the missing record (delivery.ErrNoRoot)
+	}
+	writers, err := deps.Records.Writers()
+	if err != nil {
+		reportSweep(deps, "list the ownership record's writers", err)
+		return
+	}
+	for _, w := range writers {
+		harp, ok := w.SessionHarp()
+		if !ok {
+			continue
+		}
+		probe, release := deps.Locks.Acquire(harp)
+		if probe.Dead {
+			if err := deps.Static.Reverse(ctx, deps.Records, w); err != nil {
+				reportSweep(deps, fmt.Sprintf("reverse departed session %s's delivery", harp), err)
+			}
+		}
+		release()
+	}
+}
+
+// reportSweep reports one sweep failure.
+func reportSweep(deps Deps, what string, err error) {
+	report.To(deps.Reporter).Report(report.Finding{Kind: report.KindApply, Text: fmt.Sprintf("runner: sweep: %s: %v", what, err),
+		Remedy: "a departed session's files stay as it left them until a later run's sweep succeeds"})
+}
+
 // deliverAndDrive delivers the loadout under the session's writer, composes
 // the engine's exec over what was presented — with the approval hook's
 // address when the run serves the approval route — and drives the first
-// turn. The caller tears the served endpoint down on error.
+// turn. Once delivered, any failure reverses the delivery before it
+// returns: the caller gets no Outcome to tear down. The caller tears the
+// served endpoint down on error.
 func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance, pkg composite.Package, inputs delivery.Inputs, approval *approvalSpec) (delivery.Delivered, error) {
 	delivered, err := deps.Static.Deliver(ctx, l.Loadout(pkg), deps.Kind.Root(), l.Target(deps.Records))
 	if err != nil {
 		return delivery.Delivered{}, fmt.Errorf("runner: deliver the launch: %w", err)
 	}
+	if err := drive(ctx, deps, l, inst, pkg, inputs, approval, delivered); err != nil {
+		if delivered.Undo != nil {
+			if uerr := delivered.Undo(context.WithoutCancel(ctx)); uerr != nil {
+				err = errors.Join(err, fmt.Errorf("runner: reverse the delivery: %w", uerr))
+			}
+		}
+		return delivery.Delivered{}, err
+	}
+	return delivered, nil
+}
+
+// drive composes the engine's exec over what was delivered and drives the
+// first turn.
+func drive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance, pkg composite.Package, inputs delivery.Inputs, approval *approvalSpec, delivered delivery.Delivered) error {
 	ex, err := inst.Exec(delivered.Presented)
 	if err != nil {
-		return delivery.Delivered{}, fmt.Errorf("runner: compose the engine's exec: %w", err)
+		return fmt.Errorf("runner: compose the engine's exec: %w", err)
 	}
 	// The exec's env holds ONLY the engine-native variables; the launch's
 	// engine env — the identity carriers, the label's env, the caller's
@@ -259,7 +325,7 @@ func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engin
 	if approval != nil {
 		hook, err := hookEndpoint(l.MCP)
 		if err != nil {
-			return delivery.Delivered{}, err
+			return err
 		}
 		maps.Copy(env, sessions.EncodeHookReach(hook))
 	}
@@ -275,10 +341,7 @@ func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engin
 		Presented:  delivered.Presented,
 		approval:   approval,
 	}
-	if err := deps.Driver.Drive(ctx, turn); err != nil {
-		return delivery.Delivered{}, err
-	}
-	return delivered, nil
+	return deps.Driver.Drive(ctx, turn)
 }
 
 // mcpFileOf is the host path the MCP kind's presentation names, "" when the

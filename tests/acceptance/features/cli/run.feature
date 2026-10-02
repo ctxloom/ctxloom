@@ -194,6 +194,21 @@ Feature: run — assembling a project's context and handing it to an engine
       And the output contains "FRAGMENT-BODY-testing"
       And the output does not contain "MOCK-REPLY-NEVER-SENT"
 
+    # A run that waives signature verification must be distinguishable from
+    # one that does not BEFORE it is sent: the preview names the posture.
+    Scenario: A dry run says whether bundle signatures will be verified
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a fragment "testing" in bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      And the mock LLM responds "MOCK-REPLY-NEVER-SENT"
+      When I run "ctxloom run --dry-run --format json --profile dev hello"
+      Then the command succeeds
+      And the output reports "signature_check" as "enforced"
+      When I run "ctxloom --disable-sig-check run --dry-run --format json --profile dev hello"
+      Then the command succeeds
+      And the output reports "signature_check" as "disabled"
+
     # U082-F03 regression: an explicit -t selection matching zero fragments
     # previously assembled Context: "" with a nil error and NO warning at all —
     # `ctxloom run -t <tag-that-matches-nothing>` exited 0 having delivered no

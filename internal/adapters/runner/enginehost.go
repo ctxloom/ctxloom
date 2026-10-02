@@ -160,14 +160,19 @@ type EngineHost struct {
 	// the boundary of the turn in flight (closed when it ends; nil when
 	// parked). ended is set once the run reached its terminal — a failed
 	// turn — and refuses every later turn.
-	driver  engine.StructuredDriver
-	exec    engine.Exec
-	posture engine.TurnPosture // every turn's permission posture: none of its own yet, so the launch's
+	driver engine.StructuredDriver
+	exec   engine.Exec
+	// posture is every turn's permission posture; each turn adds the
+	// session grants its approval route holds (approvals.heldGrants).
+	posture engine.TurnPosture
 	// approvals is the run's approval route (nil when its approver is not
 	// the human): fed each turn's tool calls, ended with each turn.
 	approvals *approvals
-	nativeKey string
-	turnBusy  chan struct{}
+	// seedGrants are the grants the StartRun carried, which the approval
+	// route holds before the first turn (Drive).
+	seedGrants []string
+	nativeKey  string
+	turnBusy   chan struct{}
 	// turnCancel interrupts the turn in flight: each turn runs under its own
 	// context, a child of the run's, so ending the TURN (InterruptRun, a
 	// stop's first step) leaves the run alive. nil when parked.
@@ -327,6 +332,9 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 	case <-time.After(homeBindTimeout):
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, "runner engine host is not bound to its coordinator link yet")}
 	}
+	if resp := eh.turnControl(req); resp != nil {
+		return resp
+	}
 	switch kind := req.GetKind().(type) {
 	case *agentcoordpb.RunnerRequest_StartRun:
 		return eh.startRun(kind.StartRun)
@@ -336,8 +344,6 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 		return eh.resumeRun(kind.ResumeRun)
 	case *agentcoordpb.RunnerRequest_Turn:
 		return eh.turnFrame(kind.Turn)
-	case *agentcoordpb.RunnerRequest_InterruptRun:
-		return eh.interruptRun(kind.InterruptRun)
 	case *agentcoordpb.RunnerRequest_StopRun:
 		return eh.stopRun(kind.StopRun)
 	case *agentcoordpb.RunnerRequest_KillRun:
@@ -348,6 +354,19 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 	default:
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unimplemented, "request kind not offered by this runner")}
 	}
+}
+
+// turnControl answers the requests that act on the run's turns without
+// starting one — cutting the turn in flight short, and replacing the grants
+// the next turn runs with; nil for any other kind.
+func (eh *EngineHost) turnControl(req *agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse {
+	switch kind := req.GetKind().(type) {
+	case *agentcoordpb.RunnerRequest_InterruptRun:
+		return eh.interruptRun(kind.InterruptRun)
+	case *agentcoordpb.RunnerRequest_SetGrants:
+		return eh.setGrants(kind.SetGrants)
+	}
+	return nil
 }
 
 // startRun launches the hosted engine for the run this runner was spawned
@@ -371,6 +390,7 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.PermissionDenied, fmt.Sprintf("this runner was spawned for run %s, not %s (A9 correlation)", eh.runID, sr.GetRunId()))}
 	}
 	runner := eh.runner
+	eh.seedGrants = sr.GetGrants()
 	eh.mu.Unlock()
 	if runner == nil {
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, ErrNoRunner.Error())}
@@ -445,13 +465,7 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	home.BindIdentity(t.Launch.Identity)
 
 	// The approval route is bound before the first turn can ask anything.
-	if spec := t.approval; spec != nil {
-		a := newApprovals(*spec, askTheRoot(home, *spec, spec.timeout+approvalRequestSlack))
-		eh.mu.Lock()
-		eh.approvals = a
-		eh.mu.Unlock()
-		home.SetApprovalRoute(a)
-	}
+	eh.bindApprovals(home, t.approval)
 
 	// RunStarted first: the log is self-contained (the first turn and the
 	// launch's facts, including whether this attempt resumed a prior native
@@ -508,6 +522,30 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 		eh.finish(home, nil, ctx.Err())
 	})
 	return nil
+}
+
+// bindApprovals binds the run's approval route, when it has one, holding
+// the grants the run was started with. A grant the engine's rule syntax
+// refuses, or any grant on a run with no route, is dropped with a finding:
+// the record's fault costs the run that grant, never its start.
+func (eh *EngineHost) bindApprovals(home engineHome, spec *approvalSpec) {
+	eh.mu.Lock()
+	seed := eh.seedGrants
+	eh.mu.Unlock()
+	if spec == nil {
+		if len(seed) > 0 {
+			eh.rep.Warnf("engine host: the session grants the run was started with are dropped: %v", errNoApprovalRoute)
+		}
+		return
+	}
+	a := newApprovals(*spec, askTheRoot(home, *spec, spec.timeout+approvalRequestSlack))
+	for _, err := range a.seedGrants(seed) {
+		eh.rep.Warnf("engine host: a session grant the run was started with is dropped: %v", err)
+	}
+	eh.mu.Lock()
+	eh.approvals = a
+	eh.mu.Unlock()
+	home.SetApprovalRoute(a)
 }
 
 // openRunRecorder opens harp's canonical transcript recorder; nil for no harp,
@@ -639,6 +677,11 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	rec := eh.rec
 	appr := eh.approvals
 	eh.mu.Unlock()
+	if appr != nil {
+		// Taken once, here: a SetGrants landing mid-turn reaches the next
+		// turn, never the process already running at this one.
+		posture.Grants = appr.heldGrants()
+	}
 
 	eh.beginTurn()
 	home.setTurning(true)
@@ -1152,8 +1195,10 @@ const CoordinatorFrameOpen = "[coordinator-delivered message"
 const coordinatorFrameQuote = "[quoted-"
 
 // FrameCoordinatorDelivery renders one coordinator-delivered message as the text
-// of a new engine turn: a provenance header naming the sender and the message
-// kind, then the body. It is THE model-visible shape of delivered mail on
+// of a new engine turn: a provenance header naming the sender, the message
+// kind, the message's id and the id it answers, then the body. The ids are
+// what a model quotes and matches: a child quotes an ask's id to answer it,
+// and an asker reads in_reply_to to know which ask an answer answers. It is THE model-visible shape of delivered mail on
 // every path — the hosted turn sink here, and the session owner's turn-start
 // hook (`ctxloom hook mail-drain`), which is why it is exported: a second
 // renderer would be a second place for the invariants below to be forgotten.
@@ -1163,23 +1208,29 @@ const coordinatorFrameQuote = "[quoted-"
 //     function's — every occurrence inside body is rewritten inert;
 //   - the rendered kind is a name from the closed mail vocabulary
 //     (knownMailKind), never sender bytes;
-//   - the rendered sender id holds header-safe characters only, so it cannot
-//     close the header early and append attributes of its own.
+//   - the rendered sender id and message ids hold header-safe characters
+//     only, so none can close the header early and append attributes.
 //
 // The header is hand-written here and in exactly one other place (the legacy
 // mail path funnels through this function). Rendering frames from generated
 // encoders is what makes the invariants structural rather than remembered.
-func FrameCoordinatorDelivery(from, kind, body string) string {
+func FrameCoordinatorDelivery(m coord.Message) string {
 	var b strings.Builder
 	b.WriteString(CoordinatorFrameOpen)
-	if f := frameHeaderToken(from); f != "" {
+	if f := frameHeaderToken(m.From); f != "" {
 		fmt.Fprintf(&b, " from=%s", f)
 	}
-	if coord.KnownMailKind(kind) {
-		fmt.Fprintf(&b, " kind=%s", kind)
+	if coord.KnownMailKind(m.Kind) {
+		fmt.Fprintf(&b, " kind=%s", m.Kind)
+	}
+	if id := frameHeaderToken(m.ID); id != "" {
+		fmt.Fprintf(&b, " id=%s", id)
+	}
+	if re := frameHeaderToken(m.InReplyTo); re != "" {
+		fmt.Fprintf(&b, " in_reply_to=%s", re)
 	}
 	b.WriteString("]\n")
-	b.WriteString(quoteFrameHeaders(body))
+	b.WriteString(quoteFrameHeaders(m.Body))
 	return b.String()
 }
 
@@ -1189,7 +1240,10 @@ func FrameCoordinatorDelivery(from, kind, body string) string {
 // opaque companion and is never consulted — a "kind" key in it is sender bytes,
 // which is exactly what the header must not be built from.
 func FrameCoordinatorMessage(pm *agentcoordpb.PeerMessage) string {
-	return FrameCoordinatorDelivery(pm.GetFromAgentId(), agentcoordpb.LegacyKindName(pm.GetKind()), pm.GetText())
+	return FrameCoordinatorDelivery(coord.Message{
+		From: pm.GetFromAgentId(), Kind: agentcoordpb.LegacyKindName(pm.GetKind()),
+		ID: pm.GetMessageId(), InReplyTo: pm.GetInReplyTo(), Body: pm.GetText(),
+	})
 }
 
 // frameHeaderToken reduces one value to characters that cannot alter the

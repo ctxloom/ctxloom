@@ -94,26 +94,25 @@ func ownerDeliveredFrom(w *World, harp, kind string) (bool, error) {
 	if owner == "" {
 		return false, fmt.Errorf("the scenario never pinned the coordinator's own harp, so there is no owner spool to read")
 	}
-	record, err := ownerSpoolDir(w, "in/delivered")
-	if err != nil {
-		return false, err
-	}
 	ids, err := routedToOwner(w, owner, harp, kind)
 	if err != nil {
 		return false, err
 	}
-	for _, id := range ids {
-		if _, err := os.Stat(filepath.Join(record, id)); err == nil {
-			return true, nil
-		}
-	}
-	return false, nil
+	return ownerDelivered(w, ids)
 }
 
 // routedToOwner lists the ids of every message of kind the coordinator wrote
 // into owner's in/ from harp, read from its audit journal's spool_mail_out
 // entries (~/.ctxloom/coord/<project-key>/interactions.jsonl).
 func routedToOwner(w *World, owner, harp, kind string) ([]string, error) {
+	return routedToOwnerWhere(w, owner, func(d map[string]string) bool {
+		return d["from"] == harp && d["kind"] == kind
+	})
+}
+
+// routedToOwnerWhere lists the ids of every message the coordinator wrote
+// into owner's in/ whose spool_mail_out detail satisfies match.
+func routedToOwnerWhere(w *World, owner string, match func(detail map[string]string) bool) ([]string, error) {
 	pattern := filepath.Join(w.env.HomeDir, ".ctxloom", "coord", "*", "interactions.jsonl")
 	journals, err := filepath.Glob(pattern)
 	if err != nil {
@@ -126,17 +125,17 @@ func routedToOwner(w *World, owner, harp, kind string) ([]string, error) {
 			return nil, err
 		}
 		for _, line := range strings.Split(string(raw), "\n") {
-			if id, ok := spoolMailOutID(line, owner, harp, kind); ok {
-				ids = append(ids, id)
+			if d, ok := spoolMailOutTo(line, owner); ok && d["message_id"] != "" && match(d) {
+				ids = append(ids, d["message_id"])
 			}
 		}
 	}
 	return ids, nil
 }
 
-// spoolMailOutID is the message id of one audit line, when it records the
-// coordinator writing a message of kind from harp into owner's in/.
-func spoolMailOutID(line, owner, harp, kind string) (string, bool) {
+// spoolMailOutTo is the detail of one audit line, when it records the
+// coordinator writing a message into owner's in/.
+func spoolMailOutTo(line, owner string) (map[string]string, bool) {
 	var f struct {
 		Kind string `json:"kind"`
 		Data struct {
@@ -145,14 +144,24 @@ func spoolMailOutID(line, owner, harp, kind string) (string, bool) {
 			Detail map[string]string `json:"detail"`
 		} `json:"data"`
 	}
-	if json.Unmarshal([]byte(line), &f) != nil || f.Kind != "interaction" || f.Data.Kind != "spool_mail_out" {
-		return "", false
+	if json.Unmarshal([]byte(line), &f) != nil || f.Kind != "interaction" || f.Data.Kind != "spool_mail_out" || f.Data.Actor != owner {
+		return nil, false
 	}
-	d := f.Data.Detail
-	if f.Data.Actor != owner || d["from"] != harp || d["kind"] != kind || d["message_id"] == "" {
-		return "", false
+	return f.Data.Detail, true
+}
+
+// ownerDelivered reports whether the owner's delivered record holds any of ids.
+func ownerDelivered(w *World, ids []string) (bool, error) {
+	record, err := ownerSpoolDir(w, "in/delivered")
+	if err != nil {
+		return false, err
 	}
-	return d["message_id"], true
+	for _, id := range ids {
+		if _, err := os.Stat(filepath.Join(record, id)); err == nil {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // deliveredReportFrom is harp's turn result, read from the child's routed copy

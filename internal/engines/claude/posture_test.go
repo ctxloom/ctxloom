@@ -187,11 +187,15 @@ var workspaceWriteSandbox = map[string]any{
 	"network": map[string]any{"strictAllowlist": true},
 }
 
+// interactiveExec and headlessTurnArgv bind a TRUSTED session: these tests
+// pin the posture and the --settings collisions, which an untrusted session
+// would refuse first (errUntrustedSettingsPresented); the verdict's own
+// behaviour is repotrust_test.go's.
 func interactiveExec(t *testing.T, p engine.PermissionPolicy, presented ...present.Presentation) (engine.Exec, error) {
 	t.Helper()
 	kind, err := Build()
 	require.NoError(t, err)
-	inst, err := kind.Instance(engine.Session{Mode: engine.Interactive, Permission: p, MCPServers: []string{"ctxloom"}})
+	inst, err := kind.Instance(engine.Session{Mode: engine.Interactive, Permission: p, MCPServers: []string{"ctxloom"}, Trust: engine.TrustTrusted})
 	require.NoError(t, err)
 	return inst.Exec(presented)
 }
@@ -266,7 +270,7 @@ func headlessTurnArgv(t *testing.T, p engine.PermissionPolicy, in engine.Turn, p
 	t.Helper()
 	kind, err := Build()
 	require.NoError(t, err)
-	inst, err := kind.Instance(engine.Session{Mode: engine.Structured, Permission: p, MCPServers: []string{"ctxloom"}})
+	inst, err := kind.Instance(engine.Session{Mode: engine.Structured, Permission: p, MCPServers: []string{"ctxloom"}, Trust: engine.TrustTrusted})
 	require.NoError(t, err)
 	ex, err := inst.Exec(presented)
 	require.NoError(t, err)
@@ -288,6 +292,22 @@ func TestTurnArgv_CarriesThePostureAsInlineSettings(t *testing.T) {
 		"deny":        []any{"Bash(rm *)"},
 		"ask":         []any{"WebFetch"},
 	}}, settingsDoc(t, args), "a turn naming no mode runs at the launch's")
+}
+
+// Deny beats grant: a session grant never displaces a declared deny or ask.
+// Both ride the SAME document as the grant, and claude evaluates deny, then
+// ask, then allow — so a grant colliding with a deny (or covering it, as a
+// whole-tool grant does) still leaves the call denied, and one colliding
+// with an ask still sends it to the human.
+func TestTurnArgv_AGrantNeverDisplacesADeclaredDenyOrAsk(t *testing.T) {
+	p := policy(map[string]any{keyMode: modeDefault, keyDeny: []string{"Bash(rm *)"}, keyAsk: []string{"WebFetch"}})
+	args, err := headlessTurnArgv(t, p, engine.Turn{Posture: engine.TurnPosture{Grants: []string{"Bash(rm *)", "Bash", "WebFetch"}}})
+	require.NoError(t, err)
+	perms, ok := settingsDoc(t, args)["permissions"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"Bash(rm *)"}, perms["deny"])
+	assert.Equal(t, []any{"WebFetch"}, perms["ask"])
+	assert.Equal(t, []any{"Bash(rm *)", "Bash", "WebFetch"}, perms["allow"])
 }
 
 // The reviewer rides the turn as claude's auto; the sandbox rides beside
@@ -329,10 +349,4 @@ func TestTurnArgv_NeverCarriesBypass(t *testing.T) {
 	args, err := headlessTurnArgv(t, modePolicy(modeBypass), engine.Turn{Posture: engine.TurnPosture{Mode: modeBypass}})
 	require.NoError(t, err)
 	assert.NotContains(t, args, flagSettings)
-}
-
-func TestTurnArgv_RefusesASecondSettings(t *testing.T) {
-	file := present.Presentation{Args: []string{flagSettings, "/p/.claude/settings.json"}}
-	_, err := headlessTurnArgv(t, policy(map[string]any{keyMode: modeDefault, keyDeny: []string{"Bash"}}), engine.Turn{}, file)
-	assert.ErrorIs(t, err, errSettingsTwice)
 }

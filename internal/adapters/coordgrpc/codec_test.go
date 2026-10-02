@@ -161,7 +161,6 @@ func TestStatusFromErr_MapsTypedCausesOnly(t *testing.T) {
 		{coord.ErrNotInjectable, codes.NotFound},
 		{coord.ErrCapabilityUnavailable, codes.FailedPrecondition},
 		{coord.ErrAskUnavailable, codes.FailedPrecondition},
-		{coord.ErrAskTimeout, codes.DeadlineExceeded},
 		{errors.New("permission denied: something that only SAYS so"), codes.Internal},
 	} {
 		st := StatusFromErr(fmt.Errorf("agent_x: %w", errors.Join(tc.err)))

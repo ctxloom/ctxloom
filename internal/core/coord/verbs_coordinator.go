@@ -125,18 +125,16 @@ func (c *Coordinator) Control(ctx context.Context, by ControlInitiator, req Cont
 			return ControlResult{}, err
 		}
 		return ControlResult{Verb: req.Verb, Delivery: out.Delivery, MessageID: out.MessageID}, nil
-	case ControlVerbQuestion:
-		ans, err := c.ControlQuestion(ctx, by, req.Harp, req.Body)
+	case ControlVerbQuestion, ControlVerbSummarize:
+		kind := KindQuestion
+		if req.Verb == ControlVerbSummarize {
+			kind = KindSummarize
+		}
+		askID, err := c.controlAsk(by, req.Harp, kind, req.Body)
 		if err != nil {
 			return ControlResult{}, err
 		}
-		return ControlResult{Verb: req.Verb, Answer: &ans}, nil
-	case ControlVerbSummarize:
-		ans, err := c.ControlSummarize(ctx, by, req.Harp, req.Body)
-		if err != nil {
-			return ControlResult{}, err
-		}
-		return ControlResult{Verb: req.Verb, Answer: &ans}, nil
+		return ControlResult{Verb: req.Verb, AskID: askID}, nil
 	case ControlVerbPause:
 		changed, err := c.ControlPause(ctx, by, req.Harp, req.Body)
 		return ControlResult{Verb: req.Verb, Changed: changed}, err

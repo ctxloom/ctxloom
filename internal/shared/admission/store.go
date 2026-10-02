@@ -240,8 +240,7 @@ func WithClock[K comparable](now func() time.Time) Option[K] {
 
 // WithLockPathFor overrides how the store derives its write lock's sidecar
 // path from the records file's own path. The default is paths.PathFor
-// (beside the file), right for a home-rooted store (companion_consent's
-// ~/.ctxloom/companion_consent.yaml). A domain whose store instead lives
+// (beside the file), right for a home-rooted store. A domain whose store instead lives
 // inside a PROJECT .ctxloom tree (dirty_tree_ack's
 // .ctxloom/state/dirty_tree_commit_ack.yaml) passes paths.ProjectPathFor
 // here — its signature already matches LockPathFor exactly.

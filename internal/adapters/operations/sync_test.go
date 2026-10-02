@@ -37,6 +37,7 @@ package operations
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1616,4 +1617,39 @@ remotes:
 	require.Len(t, puller.pulled, len(refs), "every link in the chain must be pulled")
 	assert.NotContains(t, warnings.String(), "still revealing new references",
 		"the graph converged on the final allowed pass; warning here sends the user on a no-op re-run")
+}
+
+// TestRunSyncPostSteps_CarriesAnIncompleteLock is green-envoy's ruled
+// follow-on: the post-sync lock rebuild's incomplete signal reached no caller,
+// because runSyncPostSteps discarded the result. The sync result now carries
+// it, with the unreachable items named, and a complete lock adds nothing.
+func TestRunSyncPostSteps_CarriesAnIncompleteLock(t *testing.T) {
+	origLock, origHooks := syncLockStep, syncHooksStep
+	t.Cleanup(func() { syncLockStep, syncHooksStep = origLock, origHooks })
+	syncHooksStep = func(context.Context, engine.Registry, ApplyHooksRequest) (*ApplyHooksResult, error) {
+		return &ApplyHooksResult{}, nil
+	}
+	run := func(lock *LockDependenciesResult) *SyncDependenciesResult {
+		syncLockStep = func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error) {
+			return lock, nil
+		}
+		result := &SyncDependenciesResult{Installed: 1, Total: 1}
+		runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, SyncDependenciesRequest{Lock: true}, result, afero.NewMemMapFs())
+		return result
+	}
+
+	incomplete := run(&LockDependenciesResult{Status: "generated", Incomplete: true, Unreachable: []string{"https://x/a@bundles/p"}})
+	assert.True(t, incomplete.Incomplete)
+	assert.Equal(t, []string{"https://x/a@bundles/p"}, incomplete.Unreachable)
+	encoded, err := json.Marshal(incomplete)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"incomplete":true`)
+	assert.Contains(t, string(encoded), `"unreachable":["https://x/a@bundles/p"]`)
+
+	complete := run(&LockDependenciesResult{Status: "generated"})
+	assert.False(t, complete.Incomplete)
+	encoded, err = json.Marshal(complete)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "incomplete", "a complete lock says nothing about it")
+	assert.NotContains(t, string(encoded), "unreachable")
 }

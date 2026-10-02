@@ -47,6 +47,8 @@ func (r EffectiveTrustResult) State() trust.State {
 	switch {
 	case r.Source == trust.SourceRejected || r.Source == trust.SourceRetracted:
 		return trust.StateRejected
+	case r.Source == trust.SourceSigCheckDisabled, r.Source == trust.SourceSigCheckDisabledEditedTree:
+		return trust.StatePending
 	case r.Decision == trust.Allow:
 		return trust.StateAccepted
 	default:
@@ -739,11 +741,16 @@ func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamp
 // trustOverRecords is the ONE gate shape an operation builds when it must
 // decide with review records other than the generation's — the ones it just
 // wrote, or a caller's injected stores: the generation's trust root and
-// lockfile, over r.
+// lockfile, over r — and the generation's signature-check posture, so a
+// review-path gate never decides differently from the one that delivered.
 func trustOverRecords(cfg *config.Config, r composite.ReviewRecords, fs afero.Fs) composite.Trust {
 	root := reviewTrustRoot(cfg, nil)
 	retraction := remote.NewLockfileRetraction(remote.NewLockfileManager(ProjectAppDir(cfg), remote.WithLockfileFS(getFS(fs))))
-	tr, err := composite.NewTrust(root, r, retraction)
+	var opts []composite.TrustOption
+	if cfg != nil && cfg.Trust().SignatureCheckDisabled() {
+		opts = append(opts, composite.WithoutSignatureCheck())
+	}
+	tr, err := composite.NewTrust(root, r, retraction, opts...)
 	if err != nil {
 		panic(err) // every port is supplied above
 	}
@@ -848,27 +855,29 @@ func (ts *TrustStamper) resolve(br trust.BundleRef, read bundles.BundleRead, pay
 }
 
 // resultOf projects a gate's Verdict onto the stamped result: the Source is
-// the cascade STEP the Reason names, and Detail travels as the verdict's.
+// the cascade STEP the Reason names (reasonSources; any other reason is
+// pending), and Detail travels as the verdict's.
 func resultOf(v bundles.Verdict) EffectiveTrustResult {
 	res := EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending, Detail: v.Detail}
 	if v.Allow {
 		res.Decision = trust.Allow
 	}
-	switch v.Reason {
-	case bundles.ReasonRejected:
-		res.Source = trust.SourceRejected
-	case bundles.ReasonRetracted:
-		res.Source = trust.SourceRetracted
-	case bundles.ReasonLocal, bundles.ReasonStaleLocalSignature:
-		res.Source = trust.SourceLocal
-	case bundles.ReasonCompanion:
-		res.Source = trust.SourceCompanion
-	case bundles.ReasonTrustedSigner:
-		res.Source = trust.SourceTrustedSigner
-	case bundles.ReasonApproved:
-		res.Source = trust.SourceAccepted
-	case bundles.ReasonRecordsUnreadable:
-		res.Source = trust.SourceUnreadable
+	if src, ok := reasonSources[v.Reason]; ok {
+		res.Source = src
 	}
 	return res
+}
+
+// reasonSources is the cascade step each Reason names, for resultOf.
+var reasonSources = map[bundles.Reason]trust.Source{
+	bundles.ReasonRejected:                   trust.SourceRejected,
+	bundles.ReasonRetracted:                  trust.SourceRetracted,
+	bundles.ReasonLocal:                      trust.SourceLocal,
+	bundles.ReasonStaleLocalSignature:        trust.SourceLocal,
+	bundles.ReasonCompanion:                  trust.SourceCompanion,
+	bundles.ReasonTrustedSigner:              trust.SourceTrustedSigner,
+	bundles.ReasonApproved:                   trust.SourceAccepted,
+	bundles.ReasonRecordsUnreadable:          trust.SourceUnreadable,
+	bundles.ReasonSigCheckDisabled:           trust.SourceSigCheckDisabled,
+	bundles.ReasonSigCheckDisabledEditedTree: trust.SourceSigCheckDisabledEditedTree,
 }

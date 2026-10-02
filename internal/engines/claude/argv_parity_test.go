@@ -24,9 +24,22 @@ type argvLine struct {
 	args []string
 }
 
+// buildArgs is the request's argv: Instance.Exec's, and nothing composed
+// here (TestBuildArgs_IsInstanceExec pins the delegation; the launch golden
+// pins the bytes). A request Exec refuses is a broken fixture, so it panics
+// rather than hand a test an empty argv to assert against.
+func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
+	ex, err := b.exec(req)
+	if err != nil {
+		panic(err)
+	}
+	return ex.Args
+}
+
 // argvMatrix composes the argv for the fixed launch matrix: a launch whose
-// runner delivered every out-of-cwd surface (the three flag-carrying
-// presentations), one that delivered the MCP config alone, and a bare
+// runner delivered every out-of-cwd flag-carrying surface (the framed
+// system prompt and the MCP config; settings reach the session home with no
+// flag), one that delivered the MCP config alone, and a bare
 // launch × interactive/oneshot × every posture × with/without a model. The
 // presentations are what the runner hands Execute (ExecuteRequest.Presented)
 // after its static writer delivered the launch's package.
@@ -45,7 +58,6 @@ func argvMatrix(t *testing.T) []argvLine {
 		{"delivered", []present.Presentation{
 			flag(flagAppendSystemFile, "abc123.sysprompt.md"),
 			flag(flagMCPConfig, ".mcp.json"),
-			flag(flagSettings, "settings.json"),
 		}},
 		{"mcp-only", []present.Presentation{flag(flagMCPConfig, ".mcp.json")}},
 		{"bare", nil},

@@ -1,6 +1,8 @@
 package bundles
 
 import (
+	"slices"
+
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -214,6 +216,45 @@ const (
 	// content, or the store. Still LISTED for review (NeedsReview), so a store
 	// fault never silently empties the review queue.
 	ReasonRecordsUnreadable
+
+	// ReasonSigCheckDisabled: REMOTE content nothing else justified, admitted
+	// because this invocation waived signature verification by name
+	// (--disable-sig-check / CTXLOOM_DISABLE_SIG_CHECK). It is an ALLOW that
+	// stands in for the signature step only: a rejection, a retraction or an
+	// unreadable approvals store has already refused before it is reached.
+	ReasonSigCheckDisabled
+	// ReasonSigCheckDisabledEditedTree: an INSTALLED signed tree whose bytes no
+	// longer match the manifest its publisher signed, admitted because this
+	// invocation waived signature verification. It is the waiver hiding what
+	// would otherwise be refused as ReasonTampered, which is why it is a reason
+	// of its own: the owner accepted that the flag also hides tampering, on the
+	// condition that every surface names it when it does.
+	ReasonSigCheckDisabledEditedTree
+)
+
+// The per-invocation switch that waives signature verification. It has no
+// config key, deliberately: the bypass is carried by whoever invokes ctxloom
+// (a task-runner recipe for bundle development), never persisted in a
+// project where every later run would silently inherit it.
+const (
+	// SigCheckFlag is the persistent flag's name, without its dashes.
+	SigCheckFlag = "disable-sig-check"
+	// SigCheckEnv is the environment switch. An explicitly set flag wins
+	// over it in either direction.
+	SigCheckEnv = "CTXLOOM_DISABLE_SIG_CHECK"
+	// SigCheckDisabledNotice is said once per process whose composition
+	// waived the check.
+	SigCheckDisabledNotice = "signature verification is DISABLED for this invocation (--" + SigCheckFlag + " / " + SigCheckEnv + "): " +
+		"remote bundle content that is unsigned, signed by a key you do not trust, or edited after it was signed is admitted without review. " +
+		"Rejections and retractions still hold, this session's own hooks and MCP server and the agents it delegates to share the waiver, and signing itself is unaffected."
+	// SessionSigCheckNotice is what a command that runs INSIDE a waived session
+	// without honouring it (a doctor, a run typed in the session's shell) says:
+	// it verifies, and the session around it does not.
+	SessionSigCheckNotice = "this invocation verifies bundle signatures, but the session it runs in waives them (--" + SigCheckFlag + " / " + SigCheckEnv + "): " +
+		"that session's hooks, its MCP server and the agents it delegates to decide without signature verification."
+	// EditedSignedTreeWords is what every surface says about an installed
+	// signed tree the waiver accepted although its bytes were edited.
+	EditedSignedTreeWords = "an installed signed tree was edited after it was signed"
 )
 
 // NeedsReview reports whether a WITHHELD item is one a human can act on by
@@ -244,16 +285,16 @@ func (r Reason) NeedsReview() bool {
 // indistinguishable from no signature at all — precisely the state a reviewer
 // most needs named.
 //
-// THERE IS NO REMOTE-TAMPERED ARM, and its absence is load-bearing rather than
-// an omission. A remote bundle is a TREE, and a tree is verified against its
-// signed manifest at the READ (bundles.ReadRemoteRef, repoFSReader.verifyTree):
-// bytes that moved are refused with ErrTreeBundleWithheld, so no read carrying
-// SignatureInvalid ever reaches this function with a remote trust context.
-// Keeping an arm for it would be a branch nothing can enter, asserting a state
-// the read path makes impossible (DECISIONS.md P12). SignatureInvalid here is
-// therefore LOCAL by construction — an author who edited and did not re-sign.
+// A REMOTE read reaches here with SignatureInvalid only when a waived
+// generation's tree reader carried an installed signed tree whose bytes were
+// edited (WithEditedTreesCarried); an enforced reader refuses that tree with
+// ErrTreeBundleWithheld before any read exists. That is tampering, and it is
+// named as such. SignatureInvalid on a LOCAL read is an author who edited and
+// did not re-sign.
 func PublisherOf(read BundleRead) Reason {
 	switch {
+	case read.Signature() == SignatureInvalid && read.TrustCtx() == TrustCtxRemote:
+		return ReasonTampered
 	case read.Signature() == SignatureInvalid:
 		return ReasonStaleLocalSignature
 	case read.Signature() == SignatureValid && read.Signer() == SignerTrusted:
@@ -265,6 +306,21 @@ func PublisherOf(read BundleRead) Reason {
 	default:
 		return ReasonUnset
 	}
+}
+
+// EditedSignedTrees names, sorted, the reads that are REMOTE with an invalid
+// signature: installed signed trees whose bytes were edited after signing,
+// which only a waived generation's reader carries (WithEditedTreesCarried).
+// It is what doctor and the dry run list when the waiver accepted any.
+func EditedSignedTrees(reads []BundleRead) []string {
+	var out []string
+	for _, r := range reads {
+		if r.TrustCtx() == TrustCtxRemote && r.Signature() == SignatureInvalid {
+			out = append(out, r.DisplayName())
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // String renders the reason as its stable wire spelling — the token that
@@ -295,6 +351,10 @@ var reasonNames = map[Reason]string{
 	ReasonUnestablished:       "unestablished",
 	ReasonUngoverned:          "ungoverned",
 	ReasonRecordsUnreadable:   "records-unreadable",
+	ReasonSigCheckDisabled:    "sig-check-disabled",
+	// ReasonSigCheckDisabledEditedTree is the waiver accepting an edited
+	// signed tree.
+	ReasonSigCheckDisabledEditedTree: "sig-check-disabled-edited-tree",
 }
 
 // MarshalJSON emits the wire spelling rather than the iota, so a JSON consumer
@@ -336,11 +396,14 @@ func (r Reason) Explain(detail string) string {
 
 // fixedExplanations are the sentences a verdict's detail does not extend.
 var fixedExplanations = map[Reason]string{
-	ReasonRejected:        "rejected",
-	ReasonUntrustedSigner: "signed by a key this machine does not trust to publish — awaiting review — run 'ctxloom review'",
-	ReasonUnaddressable:   "its ref could not be parsed, so nothing could decide about it",
-	ReasonUnestablished:   "it reached the gate without established provenance",
-	ReasonUngoverned:      "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content",
+	ReasonRejected:         "rejected",
+	ReasonUntrustedSigner:  "signed by a key this machine does not trust to publish — awaiting review — run 'ctxloom review'",
+	ReasonUnaddressable:    "its ref could not be parsed, so nothing could decide about it",
+	ReasonUnestablished:    "it reached the gate without established provenance",
+	ReasonUngoverned:       "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content",
+	ReasonSigCheckDisabled: "allowed without signature verification: --" + SigCheckFlag + " / " + SigCheckEnv + " is set for this invocation",
+	ReasonSigCheckDisabledEditedTree: "allowed without signature verification although " + EditedSignedTreeWords +
+		": --" + SigCheckFlag + " / " + SigCheckEnv + " is set for this invocation",
 }
 
 // detailedExplanations are the sentences a verdict's detail follows as a

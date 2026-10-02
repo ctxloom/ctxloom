@@ -242,6 +242,8 @@ type testRunner struct {
 	// refuse, when set and true, refuses the launch the way a runner whose
 	// endpoint cannot be bound does.
 	refuse func() bool
+	// approval, when set, is the approval route the drive serves.
+	approval *approvalSpec
 }
 
 func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) error {
@@ -264,7 +266,7 @@ func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) erro
 	if err != nil {
 		return err
 	}
-	return r.eh.Drive(ctx, Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: prompt})
+	return r.eh.Drive(ctx, Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: prompt, approval: r.approval})
 }
 
 // newTestEngineHost is NewEngineHost with the test runner bound over the
@@ -521,7 +523,7 @@ func TestEngineHost_TurnSinkDeliversFramedMail(t *testing.T) {
 	require.True(t, ok)
 	require.Eventually(t, func() bool { return len(sc.RecordedTexts()) == 2 }, 5*time.Second, 10*time.Millisecond)
 	got := sc.RecordedTexts()[1]
-	assert.Contains(t, got, "[coordinator-delivered message from=parent-harp kind=result]")
+	assert.Contains(t, got, "[coordinator-delivered message from=parent-harp kind=result id=m-9]")
 	assert.Contains(t, got, "next assignment")
 
 	// A kind OUTSIDE the closed vocabulary is not interpolated into the header.

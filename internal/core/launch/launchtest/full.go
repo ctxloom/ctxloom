@@ -47,6 +47,7 @@ func FullLaunch(t *testing.T) launch.Launch {
 			Workspace: "/proj/.worktrees/harp-1",
 		},
 		Home:    []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
+		Trust:   engine.TrustTrusted,
 		Package: composite.Carrier{Inline: enc.Bytes, Digest: enc.Digest},
 		Exports: engine.Exports{
 			Commands:  []engine.CommandExport{{Name: "b-c", Body: []byte("cmd"), Enabled: true, Description: "d", ArgumentHint: "[x]", AllowedTools: []string{"Read"}, Model: "m"}},

@@ -35,7 +35,7 @@ var knownUncoveredTools = []string{
 	// agent_run is exercised by J002100 (steps_j002100_delegation.go,
 	// j002100_delegation.feature — a coordinator spawning delegated children
 	// and auditing their journaled privilege grant); agent_send by J002300
-	// (the real two-way bus, both directions, content asserted on each side); agent_stop by J002100's failure-path scenario. evaluate_triggers,
+	// (the real two-way bus, both directions, content asserted on each side); agent_stop by J002100's failure-path scenario, agent_ask by its ask scenario. evaluate_triggers,
 	// compact_session, get_previous_session and list_sessions are INVOKED by
 	// mcp_tools.feature — being named in a feature's prose is not coverage,
 	// which is the hole ranAsTool closes.
@@ -45,7 +45,6 @@ var knownUncoveredTools = []string{
 	// internal/adapters/mcp (mcp_runner_control_test.go) and on the wire in
 	// internal/core/coord (controlwire_test.go); no scenario here drives them
 	// yet. Backfill still needed.
-	"agent_ask",
 	"agent_fetch_artifact",
 	"agent_pause",
 	"agent_report",
@@ -182,7 +181,7 @@ var excludedTemplates = map[string]string{}
 // internal/core/coord (controlwire_test.go). The harness now dials the
 // session endpoint (a standing owner) — the same surface — so the backfill
 // is scenarios that drive them, nothing structural.
-const maxKnownUncoveredTotal = 8
+const maxKnownUncoveredTotal = 7
 
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.

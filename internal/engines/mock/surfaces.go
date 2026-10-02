@@ -112,7 +112,7 @@ func (a *mcpFile) DeliverMCP(start present.Start, root present.RootKind, in engi
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	// The session endpoint's bearer rides in this file: nobody else reads it.
+	// Owner-only: the session endpoint's bearer rides in this file.
 	return writeFile(fs, r.Build(), append(bytes, '\n'), 0o600)
 }
 

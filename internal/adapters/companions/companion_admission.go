@@ -59,10 +59,11 @@ const (
 // (admission.Decision — Allow, Reason, Detail). Both are embedded, so a
 // caller still reads a.Bin, a.Path, a.Allow and a.Reason directly.
 //
-// Path is empty when the name is not installed. SHA256 is empty for a
-// first-party admission (decided by location, which never hashes — hashing
-// three ~60MB binaries on every startup would be a cost bought for nothing)
-// and for every pre-hash refusal.
+// Path is empty when the name is not installed. SHA256 is the hash of the
+// bytes admission read — set on an admission and on a refusal for bytes the
+// release statement does not hash, and empty for every refusal decided before
+// the bytes were read. It costs nothing extra: verification reads and hashes
+// the whole binary either way.
 type CompanionAdmission struct {
 	CompanionKey
 	admission.Decision[CompanionAdmissionReason]
@@ -261,7 +262,9 @@ func admitCompanionVerified(bin string, root trust.TrustRoot) (CompanionAdmissio
 		clidiag.Warn("ctxloom", "companion %q: cannot read %s to verify it, withholding: %v", bin, resolved, readErr)
 		return newCompanionAdmission(key, false, CompanionAdmissionUnreadable), verifiedCompanion{}
 	}
-	if sum := sha256.Sum256(payload); hex.EncodeToString(sum[:]) != rel.sha256 {
+	sum := sha256.Sum256(payload)
+	key.SHA256 = hex.EncodeToString(sum[:])
+	if key.SHA256 != rel.sha256 {
 		clidiag.WarnOnce("ctxloom", "companion %q at %s: its bytes are not the ones %s signed as %s %s, refusing to execute it",
 			bin, resolved, principal, rel.name, rel.version)
 		return newCompanionAdmission(key, false, CompanionAdmissionTampered), verifiedCompanion{}

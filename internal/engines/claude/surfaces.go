@@ -1,6 +1,8 @@
 package claude
 
 import (
+	"errors"
+	"maps"
 	"path/filepath"
 
 	"github.com/spf13/afero"
@@ -311,18 +313,71 @@ func (s *mcpConfig) Path() string { return s.path }
 // (deliverOneShared's warning), because it is the same decision about the same
 // kind of file: one rule for both surfaces. Into an isolated cell it is simply
 // the native write, race-free by construction.
-type mcpUnsafeFile struct{ mcpWriter }
-
-// Present declares the well-known project .mcp.json. No flag: claude reads
-// this path itself, and announcing it as well would load the same servers
-// twice.
-func (s *mcpUnsafeFile) Present(start present.Start) present.Presentation {
-	return start.UnderProjectRoot(MCPFileName).Build()
+//
+// The session relay's bearer NEVER lands in this file: the project's
+// .mcp.json is a file teams commit, and a run that dies before its teardown
+// leaves whatever it wrote there. The entry names the bearer by reference
+// (relayBearerRef), and the value rides claude's own environment on the
+// presentation's env channel — claude expands ${VAR} in a project .mcp.json
+// from its environment (measured on claude 2.1.286), so the relay it spawns
+// receives the value while the file holds only the name.
+type mcpUnsafeFile struct {
+	mcpWriter
+	// env is what Deliver lifted out of the file: the values the entries
+	// name by reference, for claude's environment.
+	env map[string]string
 }
 
-// Deliver writes .mcp.json beneath the advised project root.
+// relayBearerRef is how the project .mcp.json names the relay's bearer.
+var relayBearerRef = "${" + EnvRelayBearer + "}"
+
+// errTwoRelayBearers refuses a server set naming two different relay
+// bearers: claude's environment holds one value per name.
+var errTwoRelayBearers = errors.New("claude: two MCP entries carry different relay bearers, and claude's environment can hold only one")
+
+// Present declares the well-known project .mcp.json, with the values its
+// entries name by reference on the env channel. No flag: claude reads this
+// path itself, and announcing it as well would load the same servers twice.
+func (s *mcpUnsafeFile) Present(start present.Start) present.Presentation {
+	p := start.UnderProjectRoot(MCPFileName).Build()
+	if len(s.env) > 0 {
+		p.Env = maps.Clone(s.env)
+	}
+	return p
+}
+
+// Deliver writes .mcp.json beneath the advised project root, every relay
+// bearer replaced by its reference.
 func (s *mcpUnsafeFile) Deliver(start present.Start) (agent.Delivered, error) {
-	return s.deliver(start.Paths().ProjectRoot.Host)
+	bundle, env, err := bearerByReference(s.bundle)
+	if err != nil {
+		return nil, err
+	}
+	s.env = env
+	return mcpWriter{bundle: bundle, fs: s.fs}.deliver(start.Paths().ProjectRoot.Host)
+}
+
+// bearerByReference returns bundle with every relay bearer value replaced by
+// relayBearerRef, and the value it replaced, keyed by its variable. The
+// caller's servers are not modified.
+func bearerByReference(bundle map[string]wire.MCPServer) (map[string]wire.MCPServer, map[string]string, error) {
+	out := make(map[string]wire.MCPServer, len(bundle))
+	var env map[string]string
+	for name, srv := range bundle {
+		v, ok := srv.Env[EnvRelayBearer]
+		if !ok || v == relayBearerRef {
+			out[name] = srv
+			continue
+		}
+		if prev, seen := env[EnvRelayBearer]; seen && prev != v {
+			return nil, nil, errTwoRelayBearers
+		}
+		env = map[string]string{EnvRelayBearer: v}
+		srv.Env = maps.Clone(srv.Env)
+		srv.Env[EnvRelayBearer] = relayBearerRef
+		out[name] = srv
+	}
+	return out, env, nil
 }
 
 // UnsafeInfo returns claude's MCP identity for the shared-cwd warning

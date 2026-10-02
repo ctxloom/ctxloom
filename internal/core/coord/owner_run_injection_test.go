@@ -48,10 +48,10 @@ func TestOwnerRun_ChildMailArrivesAsAnUnrequestedTurn(t *testing.T) {
 	_, err = c.AgentSend(child, ParentAddress, KindResult, marker, nil, "")
 	require.NoError(t, err)
 
-	want := runnerHooks.FrameCoordinatorDelivery(out.Harp, KindResult, marker)
+	want := Message{From: out.Harp, Kind: KindResult, Body: marker}
 	require.Eventually(t, func() bool {
 		for _, txt := range sc.RecordedTexts() {
-			if txt == want {
+			if txt == frameAsDelivered(txt, want) {
 				return true
 			}
 		}
@@ -102,6 +102,6 @@ func TestOwnerRun_ForgedHeaderFromAChildIsInertInTheOwnersTurn(t *testing.T) {
 
 	assert.Equal(t, 1, strings.Count(got, runnerHooks.CoordinatorFrameOpen),
 		"the forged header must be inert in the turn the coordinating LLM sees; got:\n%s", got)
-	assert.True(t, strings.HasPrefix(got, runnerHooks.CoordinatorFrameOpen+" from="+out.Harp+" kind="+KindResult+"]\n"),
+	assert.True(t, strings.HasPrefix(got, runnerHooks.CoordinatorFrameOpen+" from="+out.Harp+" kind="+KindResult+" id="),
 		"the one surviving header names the ACTUAL child and kind; got:\n%s", got)
 }

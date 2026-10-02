@@ -34,12 +34,12 @@ func TestPeerSend_RoutingAndDispositions(t *testing.T) {
 	id, disposition, err := c.peerSend(child, ParentAddress, "result", "finding A", nil, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, id)
-	assert.Equal(t, "sent to the coordinator", disposition)
+	assert.Equal(t, childSendDisposition, disposition)
 
 	id, disposition, err = c.peerSend(child, ownerIdentity().Harp, "result", "finding B", nil, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, id)
-	assert.Equal(t, "sent to the coordinator", disposition)
+	assert.Equal(t, childSendDisposition, disposition)
 
 	// Owner → child: the disposition names the state the delivery observed.
 	id, disposition, err = c.peerSend(ownerIdentity(), out.Harp, KindMessage, "next assignment", nil, "")

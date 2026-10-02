@@ -95,7 +95,8 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 	// package opened for real; delivery is a no-op (the fake spawner's cell
 	// is not a directory), and the host drives the real kind's driver, with
 	// what the runner handed it recorded on the way.
-	host.BindRunner(runner.Host{Deps: runner.Deps{
+	host.BindRunner(&runner.Host{Deps: runner.Deps{
+		Locks:      &launchtest.Locks{},
 		Kind:       recordingKind{Engine: kind, rec: engine},
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
 		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
@@ -191,6 +192,8 @@ type noDelivery struct{}
 func (noDelivery) Deliver(context.Context, delivery.Loadout, engine.Base, delivery.Target) (delivery.Delivered, error) {
 	return delivery.Delivered{}, nil
 }
+
+func (noDelivery) Reverse(context.Context, delivery.Ownership, delivery.Writer) error { return nil }
 
 // Close kills every runner spawned so far.
 func (r *Runners) Close() {

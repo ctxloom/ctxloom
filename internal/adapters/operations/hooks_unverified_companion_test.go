@@ -1,8 +1,11 @@
 package operations
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -10,9 +13,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func probeWithCandidates(cands ...bundles.CompanionCandidate) bundles.CompanionProber {
@@ -60,15 +68,17 @@ func TestApplyHooks_UnverifiableCompanion_LeavesEverySurfaceUnchanged(t *testing
 }
 
 // TestApplyHooks_AbsentOrProbeFailedCompanion_StillApplies is the control: a
-// companion that is not installed contributes nothing by fact, and one that
-// was verified and ran but produced no loadout is reported by its probe. Only
-// an UNVERIFIABLE companion's contribution is unknown.
+// companion that is not installed, or that answered it has no loadout,
+// contributes nothing by fact, and one whose probe failed with nothing on
+// record to carry has already been warned about by its probe. Only an
+// UNVERIFIABLE companion refuses the apply.
 func TestApplyHooks_AbsentOrProbeFailedCompanion_StillApplies(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
 	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
 	cfg = withCompanionProbe(t, cfg, probeWithCandidates(
 		bundles.CompanionCandidate{Bin: "reprise", Reason: bundles.CandidateAbsent},
 		bundles.CompanionCandidate{Bin: "wedged", Path: "/opt/bin/wedged", Reason: bundles.CandidateProbeFailed},
+		bundles.CompanionCandidate{Bin: "plain", Path: "/opt/bin/plain", Reason: bundles.CandidateNoLoadout},
 	))
 
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
@@ -113,4 +123,85 @@ func TestApplyHooks_SurfacesNeverNameTheRunningBinary(t *testing.T) {
 	if mcp, rerr := os.ReadFile(filepath.Join(root, ".mcp.json")); rerr == nil {
 		assert.NotContains(t, string(mcp), `"ctxloom"`, "ctxloom's own server is served by a session's endpoint and renders nothing at rest")
 	}
+}
+
+// ltkGuardEnvelope is an ltk loadout contributing one MCP server, as its
+// probe prints it.
+func ltkGuardEnvelope(t *testing.T) []byte {
+	t.Helper()
+	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout("mcp:\n  ltk-guard:\n    command: ltk\n    args: [mcp]\n"), nil, "")
+	require.NoError(t, err)
+	return envelope
+}
+
+// applyWithLtkAnswering applies hooks through the REAL companion prober, with
+// ltk verified at /opt/bin/ltk and its loadout probe answering out/err,
+// returning the apply's outcome and every warning printed.
+func applyWithLtkAnswering(t *testing.T, base *config.Config, root string, out []byte, perr error) (*ApplyHooksResult, string, error) {
+	t.Helper()
+	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
+	t.Cleanup(companions.SetLookPathForTesting(func(bin string) (string, error) {
+		if bin == "ltk" {
+			return "/opt/bin/ltk", nil
+		}
+		return "", exec.ErrNotFound
+	}))
+	t.Cleanup(companions.AdmitEveryDiscoveredCompanionForTesting())
+	restoreProbe := companions.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return out, perr })
+	defer restoreProbe()
+	var warnings bytes.Buffer
+	restoreSink := clidiag.SetSink(&warnings)
+	defer restoreSink()
+	cfg := withCompanionProbe(t, base, func(ctx context.Context) (bundles.CompanionProbe, error) {
+		return companions.Prober{}.ProbeCompanionLoadouts(ctx, nil)
+	})
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
+		Cfg: cfg, Backend: "claude-code", WorkDir: root, RegenerateContext: true,
+	})
+	return result, warnings.String(), err
+}
+
+// TestApplyHooks_VerifiedCompanionProbeFails_WarnsAndApplies is
+// unread-spectrum's ruled follow-on: a VERIFIED companion whose loadout probe
+// errors or times out contributes something UNKNOWN. The apply does not block
+// on it, and it says which companion and what must answer. (Carrying that
+// companion's existing entries forward is deferred to the safefs writer's
+// per-path ownership record.)
+func TestApplyHooks_VerifiedCompanionProbeFails_WarnsAndApplies(t *testing.T) {
+	root, base := setupProject(t, "claude-code")
+
+	result, warned, err := applyWithLtkAnswering(t, base, root, nil, context.DeadlineExceeded)
+
+	require.NoError(t, err, "an unknown contribution is warned about, not a refusal")
+	assert.Equal(t, "applied", result.Status)
+	assert.Contains(t, warned, `companion "ltk"`)
+	assert.Contains(t, warned, "/opt/bin/ltk loadout --format json", "the warning names the remedy")
+}
+
+// TestApplyHooks_VerifiedCompanionAnswersNoLoadout_ContributesNothing is the
+// other half of the split: a clean "no loadout support" answer is a fact, so
+// the apply proceeds without that companion and its old entries go.
+func TestApplyHooks_VerifiedCompanionAnswersNoLoadout_ContributesNothing(t *testing.T) {
+	root, base := setupProject(t, "claude-code")
+	_, _, err := applyWithLtkAnswering(t, base, root, ltkGuardEnvelope(t), nil)
+	require.NoError(t, err)
+	require.Contains(t, readFileString(t, filepath.Join(root, ".mcp.json")), "ltk-guard")
+
+	answered := exec.Command("sh", "-c", "exit 2").Run()
+	result, warned, err := applyWithLtkAnswering(t, base, root, nil, answered)
+
+	require.NoError(t, err)
+	assert.Equal(t, "applied", result.Status)
+	assert.NotContains(t, readFileString(t, filepath.Join(root, ".mcp.json")), "ltk-guard", "a companion with no loadout contributes nothing")
+	assert.NotContains(t, warned, `companion "ltk"`, "an answer is not a warning")
+}
+
+func readFileString(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path) //nolint:gosec // a test fixture path
+	if errors.Is(err, os.ErrNotExist) {
+		return ""
+	}
+	require.NoError(t, err)
+	return string(b)
 }

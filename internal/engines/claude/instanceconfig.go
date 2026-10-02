@@ -93,14 +93,15 @@ var hardenedConfigKeys = map[string]any{
 	"autoUpdates":                   false,
 }
 
-// projectTrustKeys is the per-project entry ctxloom GENERATES — it is not
-// copied from the host and never reads the host's `projects` map at all, so
-// there is no confidentiality question here to answer.
+// projectTrustKeys is the per-project entry ctxloom writes for a TRUSTED
+// repository — fixed values, never the host's own `projects` entry, so none
+// of the human's per-project history is carried into a session home.
 //
 // This is a VENDOR-DOCUMENTED surface: claude's own error text instructs
 // setting `projects.<dir>.hasTrustDialogAccepted` when a headless run meets an
-// untrusted directory (probe-verified). ctxloom answers the trust prompt only for homes it
-// created and only for the directory the run was asked for. See
+// untrusted directory (probe-verified). ctxloom writes it only for homes it
+// created, only for the directory the run was asked for, and only when the
+// human's own claude already trusted that repository (claudeRepoTrust). See
 // docs/trust-model.md, "Engine workspace-trust prompts", for the normative
 // statement of that boundary.
 var projectTrustKeys = map[string]any{
@@ -121,8 +122,8 @@ var _ engine.InstanceConfigWriter = claudeInstanceConfig{}
 
 // WriteInstanceConfig generates `<InstanceHome>/.claude.json` from three
 // disjoint sources, in this order: the ambient allow-list copied out of the
-// user's real `~/.claude.json`, ctxloom's hardened policy keys, and the
-// generated project-trust entry for WorkDir.
+// user's real `~/.claude.json`, ctxloom's hardened policy keys, and — for a
+// trusted repository only (req.Trust) — the project-trust entry for WorkDir.
 //
 // An EXISTING instance file is the base, not a casualty: two runs share one
 // session instance (a coordinator and its in-tree delegated child), and claude
@@ -176,8 +177,10 @@ func (w claudeInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigReque
 		for name, value := range hardenedConfigKeys {
 			cfg[name] = value
 		}
-		if warn := applyProjectTrust(cfg, req.WorkDir); warn != "" {
-			rep.Warnings = append(rep.Warnings, warn)
+		if req.Trust == engine.TrustTrusted {
+			if warn := applyProjectTrust(cfg, req.WorkDir); warn != "" {
+				rep.Warnings = append(rep.Warnings, warn)
+			}
 		}
 
 		data, err := json.MarshalIndent(cfg, "", "  ")
@@ -254,11 +257,14 @@ func (w claudeInstanceConfig) applyAmbient(fs afero.Fs, hostHome string, cfg map
 // file (claude's own accumulated per-project state) and every other key of THIS
 // project's entry.
 //
+// It is called only for a repository the human already trusted in their own
+// claude (claudeRepoTrust): the entry carries that answer into the session
+// home, it never makes one.
+//
 // The key is the ABSOLUTE, cleaned workDir — the directory the run actually
 // works in — and deliberately NOT the instance path: trusting the config home
 // would answer a question claude never asks and leave the real workspace
-// untrusted, which headless means proceeding without tools rather than
-// prompting.
+// untrusted.
 func applyProjectTrust(cfg map[string]any, workDir string) string {
 	if workDir == "" {
 		return "this run named no working directory, so no workspace-trust answer was generated; claude may refuse tools or re-prompt"

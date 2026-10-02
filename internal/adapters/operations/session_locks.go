@@ -9,6 +9,10 @@ import (
 // (sessionlock): the one adapter every reap decides liveness through.
 type sessionLocks struct{}
 
+// SessionLocks is the session-liveness port over the on-disk lock, for a
+// composition outside this package (the runner's sweep).
+func SessionLocks() sessions.Locks { return sessionLocks{} }
+
 // Acquire is sessionlock.Acquire projected onto the port: Dead is the lock's
 // one permitting verdict (sessionlock.Verdict.MayReclaim); held, missing,
 // untrusted and unreadable all arrive as not dead with the lock's own

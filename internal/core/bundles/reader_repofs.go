@@ -217,6 +217,19 @@ func (r *repoFSReader) openTreeBundle() (content.Bundle, error) {
 	return tree, nil
 }
 
+// editedFacts are the signature facts of an installed signed tree whose bytes
+// were edited after signing (WithEditedTreesCarried): the signature does not
+// cover what is read, and the signer axis says whose key made the signature
+// the edit broke. No principal: stamp writes no publisher identity for an
+// invalid signature.
+func editedFacts(v attest.Verdict, detail string) SignatureFacts {
+	signer := SignerUntrusted
+	if v.Principal != "" {
+		signer = SignerTrusted
+	}
+	return SignatureFacts{Signature: SignatureInvalid, Signer: signer, Detail: detail, Fingerprint: v.UntrustedSignerFingerprint}
+}
+
 // tamperedCause is how a StatusTampered verdict's cause is carried. The verdict
 // holds a manifest parse failure only as text; when the manifest's own parse
 // error says it is in the retired format, that error is carried TYPED instead,
@@ -240,11 +253,18 @@ func (r *repoFSReader) verifyTree(ctx context.Context, tree content.Bundle) (Sig
 		return SignatureFacts{}, fmt.Errorf("bundles: verifying the pinned tree for %q: %w", r.ref, err)
 	}
 	if verdict.Contents != nil {
+		if r.cfg.carryEdited {
+			return editedFacts(verdict.Verdict, verdict.Contents.Error()), nil
+		}
 		return SignatureFacts{}, fmt.Errorf("%w: %q — %v", ErrTreeBundleWithheld, r.ref, verdict.Contents)
 	}
 	if verdict.Status == attest.StatusTampered {
 		_, merr := tree.Manifest(ctx)
-		return SignatureFacts{}, fmt.Errorf("%w: %q — %w", ErrTreeBundleWithheld, r.ref, tamperedCause(merr, verdict.Detail))
+		cause := tamperedCause(merr, verdict.Detail)
+		if r.cfg.carryEdited && !errors.Is(cause, content.ErrManifestSuperseded) {
+			return editedFacts(verdict.Verdict, cause.Error()), nil
+		}
+		return SignatureFacts{}, fmt.Errorf("%w: %q — %w", ErrTreeBundleWithheld, r.ref, cause)
 	}
 	if verdict.OK() {
 		return SignatureFacts{Signature: SignatureValid, Signer: SignerTrusted, Principal: verdict.Principal}, nil

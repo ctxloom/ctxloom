@@ -296,8 +296,9 @@ func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
 		return "/usr/bin/" + bin, nil
 	})
 	defer restoreLook()
+	answered := exitErr(t, "exit 2")
 	restoreLoadout := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) {
-		return nil, &exec.ExitError{}
+		return nil, answered
 	})
 	defer restoreLoadout()
 

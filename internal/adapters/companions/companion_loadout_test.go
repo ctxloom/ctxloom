@@ -105,8 +105,8 @@ func lookPathOnly(bins map[string]string) func(string) (string, error) {
 // whose subject is what a companion CONTRIBUTES once it runs, not whether it
 // was allowed to run at all. Those two questions are answered by different
 // code and are worth failing separately: the gate itself is proven in
-// companion_consent_test.go, against real files, a real hash and a real
-// record. Faking it here also keeps every loadout test from needing an actual
+// companion_admission_gate_test.go, against real signed files. Faking it here
+// also keeps every loadout test from needing an actual
 // executable at the fake path lookPath hands back.
 func admitEveryDiscoveredCompanion(t *testing.T) {
 	t.Helper()

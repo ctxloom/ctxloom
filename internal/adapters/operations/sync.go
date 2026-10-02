@@ -140,6 +140,11 @@ type SyncDependenciesResult struct {
 	Updated   int        `json:"updated"`
 	Errors    int        `json:"errors"`
 	Message   string     `json:"message,omitempty"`
+	// Incomplete and Unreachable are the post-sync lock rebuild's
+	// (LockDependenciesResult): part of the closure could not be reached, and
+	// these items' previous lock entries were kept rather than rebuilt.
+	Incomplete  bool     `json:"incomplete,omitempty"`
+	Unreachable []string `json:"unreachable,omitempty"`
 }
 
 // SyncDependencies syncs remote bundles and profiles referenced in config.
@@ -403,9 +408,12 @@ func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Conf
 		// The puller already wrote the lockfile inline during this sync, so the
 		// lock step only needs to surface it — SkipSync avoids a redundant
 		// second sync pass.
-		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs}); err != nil {
+		lock, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs})
+		if err != nil {
 			clidiag.Warn("ctxloom", "failed to generate lockfile after sync: %v", err)
 			zap.L().Warn("failed to generate lockfile", zap.Error(err))
+		} else {
+			result.Incomplete, result.Unreachable = lock.Incomplete, lock.Unreachable
 		}
 	}
 

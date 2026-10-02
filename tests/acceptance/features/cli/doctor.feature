@@ -134,6 +134,18 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
       Then the command succeeds
       And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-APPROVALS-STORE-a2" and whose "status" is "ok"
 
+    # --disable-sig-check is per invocation, so doctor reports the invocation
+    # it is part of: a waiver is a warning, never "ok", and the very next
+    # invocation without it is back to enforced.
+    Scenario: A waived signature check is reported as a warning, for the invocation that waived it
+      Given an initialized ctxloom project
+      When I run "ctxloom --disable-sig-check --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-SIG-CHECK-e2" and whose "status" is "warn"
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-SIG-CHECK-e2" and whose "status" is "ok"
+
     Scenario: A blanket ignore rule is reported as a warning, with exit 0
       Given an initialized ctxloom project
       And the project already has the file ".gitignore":

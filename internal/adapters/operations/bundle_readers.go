@@ -113,12 +113,20 @@ func treeBundleReader(cfg *config.Config, canonical trust.BundleKey, entry remot
 	if err != nil {
 		return nil, fmt.Errorf("the tree installed for %q at %s cannot be opened: %w", canonical, dir, err)
 	}
-	return bundles.NewRepoFSReader(tree, string(canonical),
+	opts := []bundles.ReaderOption{
 		bundles.WithTrustRoot(root),
 		bundles.WithReaderReporter(cfg.Reporter()),
 		bundles.WithInstalledDir(dir),
 		bundles.WithPinnedRevision(entry.SHA),
-		bundles.WithRepoURL(entry.URL)), nil
+		bundles.WithRepoURL(entry.URL),
+	}
+	// The owner ruled that --disable-sig-check also accepts an installed signed
+	// tree edited after signing. The verifier still says so; the generation's
+	// waived gate decides, and names it.
+	if cfg.Trust().SignatureCheckDisabled() {
+		opts = append(opts, bundles.WithEditedTreesCarried())
+	}
+	return bundles.NewRepoFSReader(tree, string(canonical), opts...), nil
 }
 
 // treeBundleDir resolves the directory `deps pull` checked a tree bundle out

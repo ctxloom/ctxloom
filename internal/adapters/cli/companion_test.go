@@ -1,9 +1,12 @@
 // Tests for companion.go's `companion show` — the read-one gap-fill:
 // companion previously had `list` and no way to inspect ONE binary's
-// exec-consent decision without scanning the whole listing by eye.
+// admission decision without scanning the whole listing by eye.
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// writeFakeCompanionBinary drops a real, executable file the exec-consent
+// writeFakeCompanionBinary drops a real, executable file the admission
 // cascade can stat/hash — AdmitCompanions resolves symlinks and reads the
 // file's bytes, so a bare fake path is not enough.
 func writeFakeCompanionBinary(t *testing.T, name string) string {
@@ -46,9 +49,9 @@ func TestRunCompanionShow_UnsignedIsReportedAsUnsigned(t *testing.T) {
 }
 
 // TestRunCompanionShow_TrustedThenShown proves show's answer agrees with
-// what `companion trust` just recorded — the same decision cascade the real
-// probes consult (config.AdmitCompanions), not a second, potentially
-// diverging implementation.
+// the signature just written — the same decision cascade the real probes
+// consult (companions.AdmitCompanions), not a second, potentially diverging
+// implementation.
 func TestRunCompanionShow_TrustedThenShown(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	bin := writeFakeCompanionBinary(t, "acme-tool")
@@ -87,4 +90,33 @@ func TestRunCompanionShow_NotOnPathReportsNotInstalled(t *testing.T) {
 	require.NoError(t, runCompanionShowCmd(cmd, []string{"nonexistent-tool"}))
 	output := out.String()
 	assert.Contains(t, output, "not-installed")
+}
+
+// TestRunCompanionShow_PrintsTheAdmittedBinarysHash: show prints the sha256
+// of the binary it would execute, and --format json carries it, so a user can
+// check the bytes against what the publisher released.
+func TestRunCompanionShow_PrintsTheAdmittedBinarysHash(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	bin := writeFakeCompanionBinary(t, "acme-tool")
+	t.Cleanup(companions.SetLookPathForTesting(func(name string) (string, error) {
+		if name == "acme-tool" {
+			return bin, nil
+		}
+		return "", os.ErrNotExist
+	}))
+	testsupport.SignCompanionForTesting(t, bin, filepath.Join(os.Getenv("HOME"), ".ctxloom", "allowed_signers"))
+	raw, err := os.ReadFile(bin) //nolint:gosec // the fixture just written
+	require.NoError(t, err)
+	sum := sha256.Sum256(raw)
+	want := hex.EncodeToString(sum[:])
+
+	cmd, out := textCmd()
+	require.NoError(t, runCompanionShowCmd(cmd, []string{"acme-tool"}))
+	assert.Contains(t, out.String(), "sha256: "+want)
+
+	jcmd, jout := formatCmd("json")
+	require.NoError(t, runCompanionShowCmd(jcmd, []string{"acme-tool"}))
+	var shown companionShow
+	require.NoError(t, json.Unmarshal(jout.Bytes(), &shown))
+	assert.Equal(t, want, shown.SHA256)
 }

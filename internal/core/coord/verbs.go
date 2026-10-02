@@ -103,9 +103,9 @@ type SendRequest struct {
 
 // Validate is the ONLY validation site for a send: a recipient is required,
 // the body must be non-empty (a structured companion alone is payload too),
-// and the kind must be one a sender may set — unless the send answers an ask
-// (InReplyTo), whose kind the reply's authority supplies. The body's LENGTH is
-// not a request error: boundBody bounds it where every route converges.
+// and the kind must be one a sender may set — a reply included, since an
+// answer is ordinary mail. The body's LENGTH is not a request error: boundBody
+// bounds it where every route converges.
 func (r SendRequest) Validate() error {
 	if err := requireNonEmpty("agent_send", "to", r.To); err != nil {
 		return err
@@ -113,10 +113,8 @@ func (r SendRequest) Validate() error {
 	if strings.TrimSpace(r.Body) == "" && len(r.Structured) == 0 {
 		return fmt.Errorf("%w: agent_send: body is required (a structured companion alone is payload too)", ErrInvalidRequest)
 	}
-	if r.InReplyTo == "" {
-		if err := SenderMailKind(r.Kind); err != nil {
-			return fmt.Errorf("%w: %v", ErrInvalidRequest, err)
-		}
+	if err := SenderMailKind(r.Kind); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
 	return nil
 }
@@ -242,13 +240,13 @@ func (r ControlRequest) Validate() error {
 }
 
 // ControlResult is the verb's answer: the delivery mode and withdraw handle
-// of a steer, the answer to a question or summarize, or whether a pause or
-// resume changed anything.
+// of a steer, the id a question's or summarize's answer will quote, or
+// whether a pause or resume changed anything.
 type ControlResult struct {
 	Verb      string
 	Delivery  string
 	MessageID string
-	Answer    *AskAnswer
+	AskID     string
 	Changed   bool
 }
 

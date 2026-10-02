@@ -386,12 +386,14 @@ func TestSessionHome_NoSessionDoesNotBuild(t *testing.T) {
 	assert.Contains(t, err.Error(), "session")
 }
 
-// The workspace-trust answer names the directory the engine RUNS in (a
-// worktree's checkout), not the project root it never enters.
+// A trusted repository's workspace-trust answer names the directory the
+// engine RUNS in (a worktree's checkout), not the project root it never
+// enters.
 func TestSessionHome_TrustNamesTheRunCwd(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	s := homeSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession)
 	checkout := t.TempDir()
+	trustedByHuman(t, home, checkout, true)
 
 	placeOn(t, s, checkout, hostRelocator{})
 

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/afero"
 
@@ -272,8 +273,18 @@ func InputsFor(lo Loadout, dynamic engine.DynamicApproach) (Inputs, error) {
 // reconcile-to-empty removes only THIS writer's entries.
 type Writer string
 
+// sessionWriterPrefix is what SessionWriter puts ahead of the harp.
+const sessionWriterPrefix = "session:"
+
 // SessionWriter is the writer tag of one session's delivery.
-func SessionWriter(harp string) Writer { return Writer("session:" + harp) }
+func SessionWriter(harp string) Writer { return Writer(sessionWriterPrefix + harp) }
+
+// SessionHarp is the harp a SessionWriter tag names; ok is false for any
+// other writer (the project's).
+func (w Writer) SessionHarp() (harp string, ok bool) {
+	harp, ok = strings.CutPrefix(string(w), sessionWriterPrefix)
+	return harp, ok && harp != ""
+}
 
 // ProjectWriter is the writer tag of a human materialize into the project
 // root.
@@ -315,6 +326,11 @@ func (t Target) Validate() error {
 // endpoint's rendering (InputsFor) — and nothing else about the engine.
 type Static interface {
 	Deliver(ctx context.Context, lo Loadout, root engine.Base, target Target) (Delivered, error)
+	// Reverse takes writer's contribution back out of EVERY file the
+	// record names for it, whatever root it lies under: the sweep of a
+	// writer whose session is gone, which has no target of its own to
+	// deliver against.
+	Reverse(ctx context.Context, ownership Ownership, writer Writer) error
 }
 
 // Delivered is what one static delivery reports: the presentations the
@@ -349,6 +365,9 @@ type Ownership interface {
 	Apply(ctx context.Context, fs afero.Fs, target string, writer Writer, build Build) (Result, error)
 	Owned(target string, writer Writer) ([]string, error)
 	Targets(writer Writer) ([]string, error)
+	// Writers lists every writer that owns an entry in any file the record
+	// covers, sorted: what a sweep of departed sessions walks.
+	Writers() ([]Writer, error)
 }
 
 // Build is one writer's contribution to a target file: given the file as it

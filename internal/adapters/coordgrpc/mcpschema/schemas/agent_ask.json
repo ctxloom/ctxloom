@@ -1,6 +1,6 @@
 {
   "name": "agent_ask",
-  "description": "Ask one of your delegated children a question and WAIT for its answer. The question is delivered as the child's next turn (an idle child is woken for it; a busy one sees it at its next boundary) and the answer is whatever the child itself sends back quoting the question's id — the child answers cooperatively, and nothing captures its turn output and calls that the answer. This call BLOCKS until the answer arrives or the budget elapses; on timeout the question is still in the child's inbox and a late answer is dropped, so a timed-out ask is unanswered, not failed. Only your OWN children may be asked.",
+  "description": "Ask one of your delegated children a question. Returns an ask_id at once; it does not wait for the answer. The question becomes the child's next turn (an idle child is woken for it; a busy one sees it at its next boundary). The answer is whatever the child itself sends back quoting the ask_id in in_reply_to: it reaches you as mail, and its arrival triggers your next turn. The child's automatic turn report may quote the ask_id too; it is marked automatic and is not the answer. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be asked.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -23,23 +23,10 @@
     "type": "object"
   },
   "outputSchema": {
-    "description": "One cooperative answer to a question or summarize ask.",
+    "description": "Answers a question or summarize ask at once, before the child has read it.",
     "properties": {
       "ask_id": {
-        "description": "The id the child's reply quoted — the same id its question carried.",
-        "type": "string"
-      },
-      "from": {
-        "description": "The harp that answered, resolved from the inbox the reply came from, never from anything the reply claimed.",
-        "type": "string"
-      },
-      "structured": {
-        "additionalProperties": true,
-        "description": "The reply's structured companion, when the child attached one.",
-        "type": "object"
-      },
-      "text": {
-        "description": "The reply body: what the child chose to send.",
+        "description": "The ask's id. The child's answer quotes it in in_reply_to, and so does the exited notice if the child ends without answering.",
         "type": "string"
       }
     },

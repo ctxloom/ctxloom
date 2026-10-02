@@ -140,6 +140,8 @@ func absUnder(base, p string) string {
 // of.
 var errUntrustedSettingsPresented = errors.New("claude: an untrusted repository's session takes no presented --settings (the file would load whatever the repository committed into it) — deliver settings to the session home instead")
 
+var errUntrustedProjectMCP = errors.New("claude: stub")
+
 // repoSourceArgs keeps an untrusted repository's own surfaces out of a
 // launch: settings from the user source alone (the session home, where
 // ctxloom's hooks live) and MCP servers from --mcp-config alone. Anything

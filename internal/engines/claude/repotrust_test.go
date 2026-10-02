@@ -43,6 +43,7 @@ func launchArgv(t *testing.T, path launchPath, trust engine.WorkspaceTrust, pres
 	inst, err := kind.Instance(engine.Session{
 		Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName},
 		Mode: path.mode, Permission: modePolicy(modeDefault), Prompt: "p", Trust: trust,
+		Roots: present.Paths{ProjectRoot: present.Root{Host: "/host/p", Engine: "/p"}},
 	})
 	require.NoError(t, err)
 	if path.resume != "" {
@@ -96,6 +97,25 @@ func TestLaunch_UntrustedRefusesAPresentedSettingsFile(t *testing.T) {
 		_, err := launchArgv(t, path, engine.TrustUntrusted, file)
 		assert.ErrorIs(t, err, errUntrustedSettingsPresented, path.name)
 	}
+}
+
+// The unsafe-file MCP approach writes ctxloom's servers into the project's
+// own .mcp.json and names no flag. --strict-mcp-config makes claude ignore
+// that file, so an untrusted session would launch without ctxloom's
+// endpoint, silently; loading it instead would load the servers the
+// repository committed there. Refused on every launch path; a trusted
+// session reads it as claude always has.
+func TestLaunch_UntrustedRefusesTheProjectMCPFile(t *testing.T) {
+	file := present.Presentation{HostPath: "/host/p/.mcp.json", EnginePath: "/p/.mcp.json"}
+	for _, path := range launchPaths {
+		_, err := launchArgv(t, path, engine.TrustUntrusted, file)
+		assert.ErrorIs(t, err, errUntrustedProjectMCP, path.name)
+		_, err = launchArgv(t, path, engine.TrustTrusted, file)
+		assert.NoError(t, err, path.name)
+	}
+	elsewhere := present.Presentation{HostPath: "/home/s/.mcp.json", EnginePath: "/home/s/.mcp.json", Args: []string{flagMCPConfig, "/home/s/.mcp.json"}}
+	_, err := launchArgv(t, launchPaths[0], engine.TrustUntrusted, elsewhere)
+	assert.NoError(t, err, "the session-home MCP file rides --mcp-config, which strict mode keeps")
 }
 
 // The structured turn's posture is its one --settings whatever the verdict:

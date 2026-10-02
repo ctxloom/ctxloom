@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 func newLog(t *testing.T, session string) *Store {
@@ -674,7 +674,7 @@ func TestAppend_LeavesPriorEntriesIntactWhenAWriteFailsPartway(t *testing.T) {
 
 	boom := errors.New("the write failed after delivering some bytes")
 	prev := writeInPlace
-	writeInPlace = func(p string, mode iox.InPlaceMode, data []byte, perm os.FileMode, opts ...iox.Option) error {
+	writeInPlace = func(p string, mode safefs.InPlaceMode, data []byte, perm os.FileMode, opts ...safefs.Option) error {
 		// A SHORT write, not none: the torn half-line is what must not
 		// survive, and a seam that wrote nothing would pass a broken
 		// implementation.
@@ -989,9 +989,9 @@ func blockLockPath(t *testing.T, path string) {
 }
 
 // TestAppend_CreatesLogInAFreshDirectory is the characterization half of
-// append()'s directory-sync-on-create step (see iox.SyncDir's call site in
+// append()'s directory-sync-on-create step (see safefs.SyncDir's call site in
 // log.go): moved here from the now-collapsed syncdir_unix_test.go, whose
-// own low-level primitive test (TestSyncDir) lives in package iox now,
+// own low-level primitive test (TestSyncDir) lives in package safefs now,
 // where the primitive itself lives. This pins that the added directory
 // flush does not change what append() does on the happy path — a first
 // event into a not-yet-existing nested directory still lands and still

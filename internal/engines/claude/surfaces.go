@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file holds claude's runtime FORMS on the surface-delivery seam
@@ -103,13 +102,6 @@ func privateRooted(start present.Start) error { return agent.SessionHomeRooted(s
 // write uses.
 func claudeContextWriter(fs afero.Fs) agent.ContextWriter { return &ClaudeCodeHookWriter{FS: fs} }
 
-// newMCPWriter builds the .mcp.json recipe both MCP approaches embed, from the
-// one set of run inputs. It exists so the two constructors cannot come apart
-// on a field.
-func newMCPWriter(in agent.SurfaceInputs, fs afero.Fs) mcpWriter {
-	return mcpWriter{bundle: in.BundleMCP, fs: agent.GetFS(fs)}
-}
-
 // systemPromptContext is claude's system-prompt context approach.
 //
 // It writes the framed <hash>.sysprompt.md beneath the run's private root via
@@ -195,137 +187,32 @@ func (s *systemPromptContext) Path() string { return s.path }
 // should take by default.
 const ApproachMCPConfig = "mcp-config"
 
-// mcpWriter is the ONE .mcp.json recipe both MCP approaches run: build the
-// reused file-template writer against dir, thread the ctxloom-MCP command
-// override onto it (settingsSurface has no analogous knob, since hooks +
-// statusline carry no stdio command), and write the merged config.
-//
-// The two approaches EMBED it and differ only in where the bytes go and what
-// the engine is told — which is the whole of what distinguishes them. Sharing
-// the writer rather than the type is what keeps "one .mcp.json recipe" true
-// while still letting the two say different things about placement: a single
-// type with two methods is what made the silent conversion expressible in the
-// first place.
-type mcpWriter struct {
-	bundle map[string]wire.MCPServer
-	fs     afero.Fs
-}
-
-// deliver writes the merged .mcp.json into dir.
-func (w mcpWriter) deliver(dir string) (agent.Delivered, error) {
-	return newFileTemplateDelivery(dirPlacement{dir: dir}, w.fs).DeliverMCP(w.bundle)
-}
-
-// mcpConfig is claude's DEFAULT MCP approach: the merged .mcp.json beneath the
-// run's private root, announced on --mcp-config <file>. Used WITHOUT
-// --strict-mcp-config, so claude LAYERS ctxloom's servers over the user's own
-// project .mcp.json rather than replacing it (a buildArgs concern).
-//
-// It is LaunchOnly: at rest there is no argv sink for the flag, so DeliverUnder
-// refuses it and the at-rest callers name the project file explicitly.
-//
-// This approach and mcpUnsafeFile used to be two FORMS of one type, and a
-// shared-cwd delivery ran the private form whichever the caller had named —
-// so a caller that explicitly asked for the project .mcp.json got this instead
-// and was told it succeeded. They are separate approaches now: which one runs
-// is the selection, never a conversion applied underneath it.
-type mcpConfig struct {
-	mcpWriter
-	path string // set by Deliver: the private .mcp.json
-}
+// mcpConfig is claude's DEFAULT MCP approach's presentation: the private
+// .mcp.json beneath the run's session home, announced on --mcp-config <file>.
+// Used WITHOUT --strict-mcp-config, so claude LAYERS ctxloom's servers over
+// the user's own project .mcp.json rather than replacing it (a buildArgs
+// concern). The write is mcpApproach.DeliverMCP's claims.
+type mcpConfig struct{}
 
 // LaunchOnly marks the approach as refused at rest.
 func (*mcpConfig) LaunchOnly() {}
 
 // Present declares the private .mcp.json and the flag it is announced with.
-func (s *mcpConfig) Present(start present.Start) present.Presentation {
+func (*mcpConfig) Present(start present.Start) present.Presentation {
 	return underPrivateRoot(start, MCPFileName).AnnounceFlag(flagMCPConfig).Build()
 }
 
-// Deliver writes the merged .mcp.json beneath the advised private root and
-// records its path for --mcp-config. An unresolved private root REFUSES
-// (ErrUnrootedSessionHome) rather than falling back to the project file — the
-// fallback IS the defect. A FAILED write clears the path: Path() promises ""
-// for a file that does not exist, and the delivered presentation must never
-// hand claude --mcp-config naming one.
-//
-// The file is MATERIALIZED even when the run registers no servers, because
-// Present announces --mcp-config unconditionally and claude REFUSES to start
-// against a path that does not exist ("Invalid MCP configuration: MCP config
-// file not found"), exiting before it emits anything — which reaches the
-// caller as an empty answer and gets reported as a dead or unauthenticated
-// engine. The merge alone does not guarantee the file: an empty server set
-// records no edits, so confpatch writes nothing and reports success. Under
-// the PRIVATE session root the file is ctxloom's own to create, so the flag
-// is kept honest by construction. mcpUnsafeFile deliberately does NOT do
-// this — its target is the user's project .mcp.json, which ctxloom does not
-// conjure just to satisfy a flag.
-func (s *mcpConfig) Deliver(start present.Start) (agent.Delivered, error) {
-	if err := privateRooted(start); err != nil {
-		return nil, err
-	}
-	handle, err := s.deliver(privateRoot(start).Host)
-	if err != nil {
-		s.path = ""
-		return nil, err
-	}
-	// The recorded path comes from the DECLARED leaf, not from a second
-	// hand-written join: it is what --mcp-config is pointed at, so a wrong rel
-	// path cannot pass unnoticed.
-	p := underPrivateRoot(start, MCPFileName).Build().HostPath
-	if err := materializeEmptyMCPConfig(agent.GetFS(s.fs), p); err != nil {
-		s.path = ""
-		return nil, err
-	}
-	s.path = p
-	return handle, nil
-}
+// mcpUnsafeFile is claude's project-file MCP approach's presentation: the
+// well-known .mcp.json in the project root, which claude reads directly — so
+// it announces no flag. The write is mcpApproach.DeliverMCP's claims, which
+// name the relay's bearer by reference (bearerByReference).
+type mcpUnsafeFile struct{}
 
-// materializeEmptyMCPConfig writes an empty {"mcpServers":{}} document at
-// path when the merge left no file there. It never touches one that exists:
-// the merged document is the authority whenever there is one.
-func materializeEmptyMCPConfig(fs afero.Fs, path string) error {
-	switch ok, err := afero.Exists(fs, path); {
-	case err != nil:
-		return err
-	case ok:
-		return nil
-	}
-	doc, err := agent.MarshalChatMCPConfig(nil)
-	if err != nil {
-		return err
-	}
-	// safefs.WriteFile, not afero.WriteFile: 0o600 must land EXACTLY,
-	// and a torn write here is a config file claude refuses to start against.
-	return safefs.WriteFile(fs, path, doc, 0o600)
-}
-
-// Path returns the private .mcp.json written by Deliver (for --mcp-config
-// <file>), or "" before delivery and after a FAILED one.
-func (s *mcpConfig) Path() string { return s.path }
-
-// mcpUnsafeFile is claude's project-file MCP approach: the merged .mcp.json
-// written to the well-known path in the project root, which claude reads
-// directly — so it announces no flag.
-//
-// It is reachable ONLY by naming it. On a SHARED cwd it is warned and
-// performed, exactly as context:unsafe-file is and through the very same path
-// (deliverOneShared's warning), because it is the same decision about the same
-// kind of file: one rule for both surfaces. Into an isolated cell it is simply
-// the native write, race-free by construction.
-//
-// The session relay's bearer NEVER lands in this file: the project's
-// .mcp.json is a file teams commit, and a run that dies before its teardown
-// leaves whatever it wrote there. The entry names the bearer by reference
-// (relayBearerRef), and the value rides claude's own environment on the
-// presentation's env channel — claude expands ${VAR} in a project .mcp.json
-// from its environment (measured on claude 2.1.286), so the relay it spawns
-// receives the value while the file holds only the name.
-type mcpUnsafeFile struct {
-	mcpWriter
-	// env is what Deliver lifted out of the file: the values the entries
-	// name by reference, for claude's environment.
-	env map[string]string
+// Present declares the well-known project .mcp.json. No flag: claude reads
+// this path itself, and announcing it as well would load the same servers
+// twice.
+func (*mcpUnsafeFile) Present(start present.Start) present.Presentation {
+	return start.UnderProjectRoot(MCPFileName).Build()
 }
 
 // relayBearerRef is how the project .mcp.json names the relay's bearer.
@@ -334,28 +221,6 @@ var relayBearerRef = "${" + EnvRelayBearer + "}"
 // errTwoRelayBearers refuses a server set naming two different relay
 // bearers: claude's environment holds one value per name.
 var errTwoRelayBearers = errors.New("claude: two MCP entries carry different relay bearers, and claude's environment can hold only one")
-
-// Present declares the well-known project .mcp.json, with the values its
-// entries name by reference on the env channel. No flag: claude reads this
-// path itself, and announcing it as well would load the same servers twice.
-func (s *mcpUnsafeFile) Present(start present.Start) present.Presentation {
-	p := start.UnderProjectRoot(MCPFileName).Build()
-	if len(s.env) > 0 {
-		p.Env = maps.Clone(s.env)
-	}
-	return p
-}
-
-// Deliver writes .mcp.json beneath the advised project root, every relay
-// bearer replaced by its reference.
-func (s *mcpUnsafeFile) Deliver(start present.Start) (agent.Delivered, error) {
-	bundle, env, err := bearerByReference(s.bundle)
-	if err != nil {
-		return nil, err
-	}
-	s.env = env
-	return mcpWriter{bundle: bundle, fs: s.fs}.deliver(start.Paths().ProjectRoot.Host)
-}
 
 // bearerByReference returns bundle with every relay bearer value replaced by
 // relayBearerRef, and the value it replaced, keyed by its variable. The
@@ -380,49 +245,17 @@ func bearerByReference(bundle map[string]wire.MCPServer) (map[string]wire.MCPSer
 	return out, env, nil
 }
 
-// UnsafeInfo returns claude's MCP identity for the shared-cwd warning
-// (deliverOneShared's unsafeNamed check, cells.go).
-func (s *mcpUnsafeFile) UnsafeInfo() string { return "claude/mcp" }
+// UnsafeInfo returns claude's MCP identity for the shared-cwd warning.
+func (*mcpUnsafeFile) UnsafeInfo() string { return "claude/mcp" }
 
-// settingsSurface is claude's settings approach (hooks + statusline; claude
-// keeps them in a single .claude/settings.json).
-//
-// Deliver (well-known) writes .claude/settings.json into the project root via
-// the reused fileTemplateDelivery.DeliverSettings.
-type settingsSurface struct {
-	hooks            *wire.HooksConfig
-	manageStatusline bool
-	reporter         report.Sink // SurfaceInputs.Reporter, forwarded to the settings writer
-	// denyTools is the resolved deny_tools union (SurfaceInputs.DenyTools) —
-	// per-tool identifiers (e.g. "Task") this run's settings.json denies via
-	// permissions.deny. Threaded to fileTemplateDelivery as a RECEIVER field
-	// (below) so DeliverSettings's signature stays unchanged for an
-	// engine-specific extra.
-	denyTools []string
-	fs        afero.Fs
-}
+// settingsSurface is claude's settings approach's presentation:
+// .claude/settings.json, which holds hooks, the statusline and the deny list.
+// The write is settingsApproach.DeliverSettings's claims.
+type settingsSurface struct{}
 
-// Present declares .claude/settings.json (hooks + statusline) and names it on
-// --settings.
-func (s *settingsSurface) Present(start present.Start) present.Presentation {
+// Present declares .claude/settings.json and names it on --settings.
+func (*settingsSurface) Present(start present.Start) present.Presentation {
 	return start.UnderProjectRoot(relSettings).AnnounceFlag(flagSettings).Build()
-}
-
-// deliver is the .claude/settings.json recipe (see mcpWriter.deliver for the
-// shape): build the reused file-template writer
-// against dir, thread the resolved deny_tools union onto it, and write the
-// settings JSON including hooks and the statusline policy.
-func (s *settingsSurface) deliver(dir string) (agent.Delivered, error) {
-	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
-	d.reporter = s.reporter
-	d.denyTools = s.denyTools
-	return d.DeliverSettings(s.hooks, s.manageStatusline)
-}
-
-// Deliver writes .claude/settings.json beneath the advised project root via
-// the reused file-template settings writer.
-func (s *settingsSurface) Deliver(start present.Start) (agent.Delivered, error) {
-	return s.deliver(start.Paths().ProjectRoot.Host)
 }
 
 // commandsSurface is claude's commands approach: the slash-command exports
@@ -467,7 +300,7 @@ func (s *commandsSurface) UnsafeInfo() string { return "claude/commands" }
 // The shared delivery type is reusable here (unlike commands) because claude's
 // skill writer needs no home-dir dedup and no out-of-cwd form: no engine has
 // an out-of-cwd flag for a skill package.
-func newSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+func newSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) *agent.ManagedSkillPackagesDelivery {
 	fs = agent.GetFS(fs)
 	return agent.NewManagedSkillPackagesDelivery("claude/skills", relSkills, in.Skills, func(dir string, skills []agent.SkillExport) error {
 		return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs), agent.WithReporter(in.Reporter))

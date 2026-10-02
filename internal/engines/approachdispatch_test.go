@@ -119,12 +119,12 @@ func hostedDeclaration(name string) agent.Declaration {
 	return h.Declaration()
 }
 
-// hostedSettingsWriter is the named engine's settings writer (agent.Hosted);
+// hostedSettingsReader is the named engine's settings reader (agent.Hosted);
 // nil for an unregistered name.
-func hostedSettingsWriter(name string, o agent.SettingsOptions) agent.SettingsWriter {
+func hostedSettingsReader(name string, o agent.SettingsOptions) agent.SettingsReader {
 	h, ok := Hosted(name)
 	if !ok {
 		return nil
 	}
-	return h.SettingsWriter(o)
+	return h.SettingsReader(o)
 }

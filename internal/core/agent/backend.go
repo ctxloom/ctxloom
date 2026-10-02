@@ -12,10 +12,8 @@ import (
 )
 
 // Backend is the LAUNCH facet of an agent — running the LLM and its session
-// lifecycle. It is deliberately separate from the SettingsWriter (settings)
-// facet so a consumer can depend on one without the other. Each agent
-// (claude) implements both facets; ltk implements/consumes only
-// SettingsWriter.
+// lifecycle. It is deliberately separate from the SettingsReader (settings)
+// facet so a consumer can depend on one without the other.
 
 // BackendConfig is the decoded, typed configuration for one labeled LLM entry.
 // Each agent owns a concrete struct implementing it; shared code carries the

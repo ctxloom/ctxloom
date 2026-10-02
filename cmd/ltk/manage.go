@@ -130,10 +130,10 @@ func newInstallCmd() *cobra.Command {
 // own flag struct.
 //
 // The read-modify-write against path (readIfExists through writeFile) runs
-// under agent.WithFileLock, closing lively-skillet: `ltk manage install`
+// under sessions.WithFileLock, closing lively-skillet: `ltk manage install`
 // writes the SAME engine settings files (~/.claude/settings.json, a
-// project's .mcp.json, ...) ctxloom's own SettingsWriter family locks via the
-// identical helper (C6, and the D7-remainder sites this fix's other units
+// project's .mcp.json, ...) ctxloom's own static writer (fsstatic's batch)
+// locks via the identical helper (C6, and the D7-remainder sites this fix's other units
 // close) — an unlocked ltk was the one companion binary racing that lock
 // from outside it. --print is included in the locked span too: a preview
 // that raced a concurrent install could show content that was never

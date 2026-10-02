@@ -402,14 +402,11 @@ func (m Mock) Exports(items engine.Items) (engine.Exports, error) {
 
 var _ engine.Engine = Mock{}
 
-// SettingsWriter is agent.Hosted's: the writer over .mock/settings.json.
-func (Mock) SettingsWriter(opts agent.SettingsOptions) agent.SettingsWriter {
-	return NewMockSettingsWriter(opts)
+// SettingsReader is agent.Hosted's: the status read over .mock/settings.json.
+func (Mock) SettingsReader(opts agent.SettingsOptions) agent.SettingsReader {
+	return NewMockSettingsReader(opts)
 }
 
-// HookGlobalScope is agent.Hosted's: none unless declared (WithHookGlobalScope)
-// — the mock's settings surface is a project-relative file with no
-// user-global twin to collapse onto.
 func (m Mock) HookGlobalScope() (agent.HookGlobalScope, bool) {
 	if m.hookScope == nil {
 		return agent.HookGlobalScope{}, false

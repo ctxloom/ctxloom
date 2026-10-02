@@ -1,14 +1,9 @@
 package agent
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"time"
-
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/spf13/afero"
@@ -52,8 +47,7 @@ func CtxloomCommand() string {
 // surfaces × cells seam — each engine's settings approach — not this struct,
 // which is shared by every backend.
 type SettingsOptions struct {
-	FS       afero.Fs    // filesystem to use; nil means the real OS filesystem
-	Reporter report.Sink // where the writer reports what it skips; nil discards
+	FS afero.Fs // filesystem to use; nil means the real OS filesystem
 	// ProjectClaims lists the places in a file that the ownership record says
 	// the project writer claims AND the file holds now — what a status read
 	// reports as installed. nil knows of none.
@@ -75,35 +69,12 @@ func WithSettingsProjectClaims(claims func(target string) ([]string, error)) Set
 	return func(o *SettingsOptions) { o.ProjectClaims = claims }
 }
 
-// WithSettingsReporter names where the settings writer reports.
-func WithSettingsReporter(sink report.Sink) SettingsOption {
-	return func(o *SettingsOptions) { o.Reporter = sink }
-}
-
 // GetFS returns fs, or the OS filesystem when fs is nil.
 func GetFS(fs afero.Fs) afero.Fs {
 	if fs == nil {
 		return afero.NewOsFs()
 	}
 	return fs
-}
-
-func ComputeCommandDigest(command string) string {
-	sum := sha256.Sum256([]byte(command))
-	return hex.EncodeToString(sum[:8])
-}
-
-func ComputeHookHash(h wire.Hook) string {
-	parts := []string{
-		h.Line(),
-		h.Matcher,
-		h.Type,
-		h.Prompt,
-		fmt.Sprintf("%d", h.Timeout),
-		fmt.Sprintf("%t", h.Async),
-	}
-	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
-	return hex.EncodeToString(hash[:8]) // first 8 bytes for brevity
 }
 
 // RefuseCorrupt is the one refusal shape for "part of this user-owned file

@@ -66,11 +66,11 @@ func TestHarnessStatus_ASessionsEntryIsNotTheProjectsInstall(t *testing.T) {
 	root := kind.Root()
 	pkg := composite.Package{MCP: installedServer}
 	items := pkg.EngineItems(root.Name)
-	plan, err := ProjectPlan(root, items, dir)
+	plan, err := delivery.ProjectPlan(root, items, dir)
 	require.NoError(t, err)
 	records, err := OwnershipRecordsOn(fs)
 	require.NoError(t, err)
-	target := ProjectTarget(dir, records)
+	target := delivery.ProjectTarget(dir, records)
 	target.Writer = delivery.SessionWriter("brisk-otter")
 	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, WorkDir: dir}, root, target)
 	require.NoError(t, err)

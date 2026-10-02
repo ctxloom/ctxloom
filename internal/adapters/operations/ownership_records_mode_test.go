@@ -70,13 +70,13 @@ func TestDeliver_PreparesTheRecordDirItself(t *testing.T) {
 	dir := t.TempDir()
 	root := kind.Root()
 	items := pkg.EngineItems(root.Name)
-	plan, err := ProjectPlan(root, items, dir)
+	plan, err := delivery.ProjectPlan(root, items, dir)
 	require.NoError(t, err)
 	exports, err := kind.Exports(items)
 	require.NoError(t, err)
 
 	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports, WorkDir: dir}
-	_, err = fsstatic.New(fs).Deliver(context.Background(), lo, root, ProjectTarget(dir, records))
+	_, err = fsstatic.New(fs).Deliver(context.Background(), lo, root, delivery.ProjectTarget(dir, records))
 	require.NoError(t, err)
 
 	require.NotEmpty(t, claimsRecordsIn(t, recordsDir), "the delivery must have written its claims record into the directory under test")

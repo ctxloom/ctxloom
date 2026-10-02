@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +23,7 @@ func ctxloomManagedHooks() *wire.HooksConfig {
 	}
 }
 
-func TestClaudeCodeRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
+func TestClaudeCodeUninstall_StripsManagedPreservesUser(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const dir = "/project"
 
@@ -33,18 +35,18 @@ func TestClaudeCodeRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, dir+"/.mcp.json", []byte(userMCP), 0644))
 
 	// Wire ctxloom hooks, statusline (auto), and ctxloom's own MCP server.
-	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}}, true, dir, fs)
+	p := deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}}, true, dir, fs)
 
 	// Sanity: ctxloom is wired before removal.
-	before, err := hostedSettingsWriter("claude-code", agent.SettingsOptions{FS: fs}).Status(dir)
+	before, err := hostedSettingsReader("claude-code", p.Settings()).Status(dir)
 	require.NoError(t, err)
 	require.True(t, before.Wired(), "ctxloom should be wired after delivery")
 	require.True(t, before.StatusLine)
 	require.True(t, before.MCPPresent)
 
-	require.NoError(t, hostedSettingsWriter("claude-code", agent.SettingsOptions{FS: fs}).RemoveSettings(dir))
+	require.NoError(t, p.Uninstall())
 
-	after, err := hostedSettingsWriter("claude-code", agent.SettingsOptions{FS: fs}).Status(dir)
+	after, err := hostedSettingsReader("claude-code", p.Settings()).Status(dir)
 	require.NoError(t, err)
 	assert.False(t, after.Wired(), "no ctxloom artifacts should remain")
 
@@ -55,19 +57,18 @@ func TestClaudeCodeRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 	assert.Contains(t, mustMarshal(t, mcp), "user-server")
 }
 
-func TestRemoveSettings_AbsentFilesAreNoOp(t *testing.T) {
+func TestUninstall_AbsentFilesAreNoOp(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	require.NoError(t, hostedSettingsWriter("claude-code", agent.SettingsOptions{FS: fs}).RemoveSettings("/empty"))
-	require.NoError(t, hostedSettingsWriter("mock", agent.SettingsOptions{FS: fs}).RemoveSettings("/empty"))
+	for _, name := range []string{"claude-code", "mock"} {
+		kind, ok := Registry().Lookup(engine.Name(name))
+		require.True(t, ok)
+		require.NoError(t, atrest.New(t, fs, kind, "/empty").Uninstall())
+	}
 
 	// Uninstall must never create config files.
-	exists, _ := afero.Exists(fs, "/empty/.claude/settings.json")
-	assert.False(t, exists)
-	exists, _ = afero.Exists(fs, "/empty/.agents/hooks.json")
-	assert.False(t, exists)
-	exists, _ = afero.Exists(fs, "/empty/.agents/mcp_config.json")
-	assert.False(t, exists)
+	exists, _ := afero.Exists(fs, "/empty")
+	assert.False(t, exists, "an uninstall of nothing touches nothing")
 }
 
 func readJSON(t *testing.T, fs afero.Fs, path string) map[string]any {

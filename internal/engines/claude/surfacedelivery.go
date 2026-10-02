@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -51,21 +50,6 @@ func newFileTemplateDelivery(place placement, fs afero.Fs) *fileTemplateDelivery
 	return &fileTemplateDelivery{place: place, fs: agent.GetFS(fs)}
 }
 
-// DeliverMCP materializes the MCP surface by delegating to writeMCPConfig
-// targeted at place.Dir(): it merges ctxloom's own server, the profile+builtin
-// bundle servers, and the unified/backend servers into .mcp.json, preserving any
-// user-authored servers. Cleanup reverts via removeMCPConfig, which strips the
-// ctxloom-marked servers back out while leaving user servers in place.
-// reprise:accept-drift
-func (d *fileTemplateDelivery) DeliverMCP(bundle map[string]wire.MCPServer) (agent.Delivered, error) {
-	dir := d.place.Dir()
-	w := &ClaudeCodeHookWriter{FS: d.fs, Reporter: d.reporter}
-	if err := w.writeMCPConfig(dir, bundle); err != nil {
-		return nil, err
-	}
-	return agent.DeliveredFunc(func() error { return w.removeMCPConfig(dir) }), nil
-}
-
 // DeliverCommands materializes the commands surface by delegating to
 // WriteCommandFiles targeted at place.Dir(): it writes the enabled command
 // exports into .claude/commands/ under a ctxloom manifest, sharing the
@@ -105,25 +89,4 @@ func (d *fileTemplateDelivery) DeliverCommands(commands []agent.CommandExport) (
 	return agent.DeliveredFunc(func() error {
 		return WriteCommandFiles(dir, nil, opts...)
 	}), nil
-}
-
-// DeliverSettings materializes the settings surface (hooks + statusline +
-// deny_tools) by delegating to writeSettingsFile targeted at place.Dir(): it
-// replaces ctxloom-managed hooks, (re)configures the managed statusline, and
-// unions d.denyTools into permissions.deny in .claude/settings.json,
-// preserving user-authored entries. manageStatusline maps to the writer's
-// statusLineDisabled inverse — when false the managed statusline is cleared
-// rather than set. Cleanup reverts via removeSettingsFile, which strips the
-// ctxloom hooks and managed statusline while leaving user entries in place —
-// including permissions.deny, which is deliberately NEVER retracted (see
-// mergeDenyTools's doc: a denial can only be safely added, never
-// auto-removed). This surface never touches .mcp.json (that is DeliverMCP's
-// surface).
-func (d *fileTemplateDelivery) DeliverSettings(hooks *wire.HooksConfig, manageStatusline bool) (agent.Delivered, error) {
-	dir := d.place.Dir()
-	w := &ClaudeCodeHookWriter{FS: d.fs, Reporter: d.reporter, statusLineDisabled: !manageStatusline}
-	if err := w.writeSettingsFile(hooks, d.denyTools, dir); err != nil {
-		return nil, err
-	}
-	return agent.DeliveredFunc(func() error { return w.removeSettingsFile(dir) }), nil
 }

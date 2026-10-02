@@ -137,8 +137,9 @@ func (c Claude) Backend(launch agent.Launcher) agent.Backend {
 // decodes into.
 func (Claude) NewConfig() agent.BackendConfig { return &ClaudeConfig{} }
 
-// SettingsWriter is agent.Hosted's: the writer over claude's settings.json.
-func (Claude) SettingsWriter(o agent.SettingsOptions) agent.SettingsWriter { return NewWriter(o) }
+// SettingsReader is agent.Hosted's: the status read over claude's settings
+// files.
+func (Claude) SettingsReader(o agent.SettingsOptions) agent.SettingsReader { return NewWriter(o) }
 
 // HookGlobalScope is agent.Hosted's. claude's project settings.json
 // collapses onto its user-global one exactly when workDir == $HOME — found
@@ -239,9 +240,9 @@ type mcpApproach struct{ traits }
 func (*mcpApproach) Name() string { return ApproachMCPConfig }
 func (*mcpApproach) Forms() agent.Presentations {
 	return agent.Presents(EngineName, agent.SurfaceMCP, ApproachMCPConfig, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &mcpConfig{mcpWriter: newMCPWriter(in, fs)}
+		return &mcpConfig{}
 	}).Or(agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &mcpUnsafeFile{mcpWriter: newMCPWriter(in, fs)}
+		return &mcpUnsafeFile{}
 	})
 }
 
@@ -402,6 +403,12 @@ func hookValue(h wire.Hook) (map[string]any, error) {
 	return v, json.Unmarshal(b, &v)
 }
 
+// ApproachHewRecord is the retired name of claude's record-backed settings
+// write into the engine home. That write is now the default approach's: its
+// claims are recorded, and claude's settings land under the session home by
+// default. A binding still naming it is refused, told to select the default.
+const ApproachHewRecord = "hew-record"
+
 // settingsApproach is claude's settings surface: statusline and the deny
 // list, in .claude/settings.json.
 type settingsApproach struct{ traits }
@@ -409,10 +416,8 @@ type settingsApproach struct{ traits }
 func (*settingsApproach) Name() string { return "settings" }
 func (*settingsApproach) Forms() agent.Presentations {
 	return agent.Presents(EngineName, agent.SurfaceSettings, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, reporter: in.Reporter, fs: agent.GetFS(fs)}
-	}).Or(ApproachHewRecord, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &settingsRecord{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: agent.GetFS(fs)}
-	})
+		return &settingsSurface{}
+	}).Retire(ApproachHewRecord, agent.ApproachUnsafeFile)
 }
 func (a *settingsApproach) DeliverSettings(start present.Start, root present.RootKind, in engine.SettingsInputs, fs afero.Fs) (present.Delivered, error) {
 	return deliverSettingsFile(a.Name(), start, root, func(path string) ([]present.Claim, error) {
@@ -487,7 +492,9 @@ type skillsApproach struct{ traits }
 
 func (*skillsApproach) Name() string { return "skills-dir" }
 func (*skillsApproach) Forms() agent.Presentations {
-	return agent.Presents(EngineName, agent.SurfaceSkills, agent.ApproachUnsafeFile, newSkillsSurface)
+	return agent.Presents(EngineName, agent.SurfaceSkills, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		return newSkillsSurface(in, fs)
+	})
 }
 func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKind, in engine.SkillsInputs, fs afero.Fs) (present.Delivered, error) {
 	skills := make([]agent.SkillExport, 0, len(in.Skills))

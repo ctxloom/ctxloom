@@ -3,8 +3,10 @@
 // The cross-agent equity suite. Gated behind the `conformance` build tag (see
 // doc.go) and kept in its own package so it composes the engine packages without
 // touching their per-module test files — safe alongside concurrent work. Every
-// assertion goes through the public agent.SettingsWriter interface, so it is
-// format-agnostic (a second agent's own format must pass the same suite).
+// write goes through the one static writer at rest (atrest: what `manage hooks
+// install` and `uninstall` run) and every status read through the engine's
+// agent.SettingsReader, so it is format-agnostic (a second agent's own format
+// must pass the same suite).
 package conformance
 
 import (
@@ -19,29 +21,25 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
 )
 
-// settingsWriter is the suite's view of an agent writer: the shared
-// agent.SettingsWriter contract plus the concrete writers' SettingsPath method
-// (no longer part of the interface; every concrete writer still exposes it).
-type settingsWriter interface {
-	agent.SettingsWriter
-	SettingsPath(projectDir string) string
-}
-
-// agentCase is one agent under test: its writer constructor plus a valid
-// settings file carrying a user-authored entry the writer must preserve.
+// agentCase is one agent under test: its engine kind, the settings file its
+// hooks land in, and a valid settings file carrying a user-authored entry
+// the delivery must preserve.
 type agentCase struct {
-	name       string
-	newWriter  func(agent.SettingsOptions) settingsWriter
-	userFile   string // a valid settings file (in the agent's format) with a user entry
-	userMarker string // substring of userFile that must survive write + remove
+	name         string
+	kind         func(t *testing.T) engine.Engine
+	settingsPath func(projectDir string) string
+	userFile     string // a valid settings file (in the agent's format) with a user entry
+	userMarker   string // substring of userFile that must survive install + uninstall
 }
 
-// agentCases returns the agents this suite actually covers today — NOT every
-// agent.SettingsWriter implementation in the repo.
+// agentCases returns the agents this suite actually covers today.
 //
 // WHAT THIS SUITE CURRENTLY PROVES, stated plainly: its premise is CROSS-AGENT
 // EQUITY, and with one row it covers one agent and proves nothing
@@ -54,26 +52,32 @@ type agentCase struct {
 // one) — a new agent here inherits the WHOLE equity suite unconditionally.
 func agentCases() []agentCase {
 	return []agentCase{
-		{"claude-code", concrete[*claude.ClaudeCodeHookWriter](claude.NewWriter), `{"theme":"dark"}`, "dark"},
+		{"claude-code", func(t *testing.T) engine.Engine {
+			k, err := claude.Build()
+			require.NoError(t, err)
+			return k
+		}, claude.ProjectSettingsPath, `{"theme":"dark"}`, "dark"},
 	}
 }
 
-// concrete widens a constructor's agent.SettingsWriter result to this suite's
-// richer settingsWriter view, naming the CONCRETE type it is expected to
-// return.
-//
-// The type parameter is the point. Every NewWriter in the repo is declared as
-// returning the narrow agent.SettingsWriter, so widening needs an assertion
-// somewhere; making it `newWriter(o).(settingsWriter)` put that assertion at
-// RUN time, inside a range expression, where a writer that stopped exposing
-// SettingsPath produced a bare interface-conversion panic with no agent named
-// — a compile-time contract spent as a runtime crash. Binding W instead makes
-// the compiler check it at the call site: a writer whose settings are
-// genuinely multi-file, and which therefore has no single SettingsPath, does
-// not build here at all. That is exactly the failure this table must produce
-// for an agent it cannot yet cover.
-func concrete[W settingsWriter](newWriter func(agent.SettingsOptions) agent.SettingsWriter) func(agent.SettingsOptions) settingsWriter {
-	return func(o agent.SettingsOptions) settingsWriter { return newWriter(o).(W) }
+// project is a's project at projectDir on fs.
+func (a agentCase) project(t *testing.T, fs afero.Fs) *atrest.Project {
+	return atrest.New(t, fs, a.kind(t), projectDir)
+}
+
+// status is the engine's own account of what is wired into p.
+func status(t *testing.T, p *atrest.Project) agent.SettingsStatus {
+	t.Helper()
+	h, ok := p.Kind.(agent.Hosted)
+	require.True(t, ok, "the engine carries a settings reader")
+	st, err := h.SettingsReader(p.Settings()).Status(p.Dir)
+	require.NoError(t, err)
+	return st
+}
+
+// withHooks is the package delivering hooks.
+func withHooks(hooks *wire.HooksConfig) composite.Package {
+	return composite.Package{Hooks: *hooks}
 }
 
 // coveredEvent is one unified hook event: the setter that places it on a
@@ -120,57 +124,50 @@ func onlyHooks(ev coveredEvent) *wire.HooksConfig {
 const projectDir = "/project"
 
 // TestConformance_RefusesToOverwriteUnparseableSettings: a corrupt existing
-// settings file must NEVER be overwritten. WriteSettings must refuse (return a
-// non-nil error naming the offending file) and must leave the original bytes
-// on disk exactly as they were. This is the opposite of what this test used to
-// assert — it formerly required WriteSettings to succeed and apply hooks over
-// the corrupt file, which is precisely the silent-data-loss shape production
-// now refuses (see agent.RefuseCorrupt). claude-code also backs
-// the corrupt bytes up to a sibling "<path>.corrupt-<unix-ts>" file before
-// refusing; that backup is asserted PER-ENGINE below rather than universally,
-// because an engine's loader may instead return a bare error with no backup
-// file — a genuine behavioural divergence between engines, not something this
-// test papers over.
+// settings file must NEVER be overwritten. The install must refuse (return a
+// non-nil error naming the offending file) and leave the original bytes on
+// disk exactly as they were. Whether an engine also backs the corrupt bytes up
+// to a sibling "<path>.corrupt-<unix-ts>" file is asserted PER-ENGINE: nothing
+// is destroyed by a refusal, so a backup is a courtesy an engine may or may
+// not extend.
 func TestConformance_RefusesToOverwriteUnparseableSettings(t *testing.T) {
 	const corrupt = "!!! not valid !!!"
 
-	// engines whose writer backs the corrupt original up to a sibling
-	// "<path>.corrupt-<ts>" file before refusing to write. An engine whose
-	// loader refuses with a bare error and no backup belongs here as false,
-	// not omitted — the map is the per-engine escape hatch, and an absent key
-	// reads as false without saying so.
+	// engines whose delivery backs the corrupt original up to a sibling
+	// "<path>.corrupt-<ts>" file before refusing to write. An engine that
+	// refuses with no backup belongs here as false, not omitted — the map is
+	// the per-engine escape hatch, and an absent key reads as false without
+	// saying so.
 	backsUpCorruptFile := map[string]bool{
-		"claude-code": true,
+		"claude-code": false,
 	}
 
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
-			w := a.newWriter(agent.SettingsOptions{FS: fs})
-			path := w.SettingsPath(projectDir)
+			p := a.project(t, fs)
+			path := a.settingsPath(projectDir)
 			require.NoError(t, afero.WriteFile(fs, path, []byte(corrupt), 0644))
 
-			err := w.WriteSettings(standardHooks(), nil, projectDir)
-			require.Error(t, err, "WriteSettings must refuse rather than overwrite an unparseable prior file")
+			err := p.Install(withHooks(standardHooks()))
+			require.Error(t, err, "the install must refuse rather than overwrite an unparseable prior file")
 			assert.Contains(t, err.Error(), path, "the refusal error must name the offending file")
 
 			data, readErr := afero.ReadFile(fs, path)
 			require.NoError(t, readErr)
 			assert.Equal(t, corrupt, string(data), "the original corrupt bytes must be left untouched, never overwritten")
 
-			if backsUpCorruptFile[a.name] {
-				entries, dirErr := afero.ReadDir(fs, filepath.Dir(path))
-				require.NoError(t, dirErr)
-				prefix := filepath.Base(path) + ".corrupt-"
-				found := false
-				for _, e := range entries {
-					if strings.HasPrefix(e.Name(), prefix) {
-						found = true
-						break
-					}
+			entries, dirErr := afero.ReadDir(fs, filepath.Dir(path))
+			require.NoError(t, dirErr)
+			prefix := filepath.Base(path) + ".corrupt-"
+			found := false
+			for _, e := range entries {
+				if strings.HasPrefix(e.Name(), prefix) {
+					found = true
+					break
 				}
-				assert.True(t, found, "%s must back the corrupt original up to a sibling %q file", a.name, prefix+"<unix-ts>")
 			}
+			assert.Equal(t, backsUpCorruptFile[a.name], found, "%s: a sibling %q backup", a.name, prefix+"<unix-ts>")
 		})
 	}
 }
@@ -227,25 +224,19 @@ func (r *recordingFs) reset() {
 }
 
 // TestConformance_AtomicWriteLeavesNoBackup: overwriting an existing settings
-// file replaces it ATOMICALLY and leaves NO .ctxloom.bak beside it.
-//
-// The absence is the contract, not an omission. Writers deliberately stopped
-// copying the live bytes to a sibling; a backup of a file the user still owns
-// is litter the user did not ask for, and it duplicated secrets into a second
-// path with the same permissions. This suite asserted the backup for every
-// writer and went red when the behaviour was removed, so the assertion is
-// inverted here rather than deleted: the atomicity half was always the half
-// worth having.
+// file replaces it ATOMICALLY and leaves NO .ctxloom.bak beside it. A backup
+// of a file the user still owns is litter the user did not ask for, and it
+// duplicates secrets into a second path with the same permissions.
 func TestConformance_AtomicWriteLeavesNoBackup(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
 			fs := &recordingFs{Fs: afero.NewMemMapFs()}
-			w := a.newWriter(agent.SettingsOptions{FS: fs})
-			path := w.SettingsPath(projectDir)
+			p := a.project(t, fs)
+			path := a.settingsPath(projectDir)
 			require.NoError(t, afero.WriteFile(fs, path, []byte(a.userFile), 0644))
-			fs.reset() // that setup write is the test's, not the writer's
+			fs.reset() // that setup write is the test's, not the delivery's
 
-			require.NoError(t, w.WriteSettings(standardHooks(), nil, projectDir))
+			require.NoError(t, p.Install(withHooks(standardHooks())))
 
 			_, bakErr := fs.Stat(path + ".ctxloom.bak")
 			assert.True(t, os.IsNotExist(bakErr),
@@ -267,25 +258,22 @@ func TestConformance_AtomicWriteLeavesNoBackup(t *testing.T) {
 }
 
 // TestConformance_HookEventCoverage: every unified hook event must reach the
-// settings file. This is what catches an absent per-event mapping — a writer
-// with no PreShell or PostFileEdit translation drops the command silently.
+// settings file. This is what catches an absent per-event mapping — a
+// delivery with no PreShell or PostFileEdit translation drops the command
+// silently.
 //
 // WHAT IT DOES NOT PROVE, deliberately: that a command landed under the RIGHT
 // native event. The assertion is a substring search over the file's bytes,
-// because this suite is format-agnostic by construction (each engine's own
-// format, all through one interface), and asserting slot
+// because this suite is format-agnostic by construction, and asserting slot
 // attachment needs per-agent format knowledge. That knowledge lives — and is
-// asserted — in the per-agent tests: claude/hooks_wire_test.go and
-// claude/surfacedelivery_test.go on "PreToolUse". doc.go used
-// to call this "full hook-event coverage", which reads as the stronger claim.
+// asserted — in the per-agent tests.
 func TestConformance_HookEventCoverage(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
-			w := a.newWriter(agent.SettingsOptions{FS: fs})
-			require.NoError(t, w.WriteSettings(standardHooks(), nil, projectDir))
+			require.NoError(t, a.project(t, fs).Install(withHooks(standardHooks())))
 
-			data, err := afero.ReadFile(fs, w.SettingsPath(projectDir))
+			data, err := afero.ReadFile(fs, a.settingsPath(projectDir))
 			require.NoError(t, err)
 			for _, ev := range coveredEvents {
 				assert.Containsf(t, string(data), ev.marker, "unified event %q must be emitted", ev.marker)
@@ -297,21 +285,19 @@ func TestConformance_HookEventCoverage(t *testing.T) {
 // TestConformance_HookEventsAreEmittedIndependently: each unified event must
 // carry its OWN command through, on its own.
 //
-// The all-at-once test above cannot distinguish a writer that translates five
-// events from one that emits a fixed bundle whenever any hook is configured,
-// or one that cross-wires two events into a single slot — every marker is
-// present either way. Configuring exactly one event and requiring that exactly
-// one marker appears separates those cases, which is as close to per-event
-// attachment as a format-agnostic assertion can get.
+// The all-at-once test above cannot distinguish a delivery that translates
+// five events from one that emits a fixed bundle whenever any hook is
+// configured, or one that cross-wires two events into a single slot — every
+// marker is present either way. Configuring exactly one event and requiring
+// that exactly one marker appears separates those cases.
 func TestConformance_HookEventsAreEmittedIndependently(t *testing.T) {
 	for _, a := range agentCases() {
 		for _, ev := range coveredEvents {
 			t.Run(a.name+"/"+ev.marker, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
-				w := a.newWriter(agent.SettingsOptions{FS: fs})
-				require.NoError(t, w.WriteSettings(onlyHooks(ev), nil, projectDir))
+				require.NoError(t, a.project(t, fs).Install(withHooks(onlyHooks(ev))))
 
-				data, err := afero.ReadFile(fs, w.SettingsPath(projectDir))
+				data, err := afero.ReadFile(fs, a.settingsPath(projectDir))
 				require.NoError(t, err)
 				assert.Containsf(t, string(data), ev.marker,
 					"unified event %q must be emitted when it is the only one configured", ev.marker)
@@ -338,7 +324,9 @@ func TestConformance_HookEventsAreEmittedIndependently(t *testing.T) {
 // independent evidence, and it stays format-agnostic (JSON, TOML) and
 // location-agnostic (claude keeps its MCP registration in a different
 // file — .mcp.json — from its hooks) precisely because it looks at bytes rather than at a
-// path the test would have to know.
+// path the test would have to know. It walks the PROJECT, not the whole fs:
+// the claims record holds the values it claimed too, and it is not a file
+// the engine reads.
 //
 // A "<path>.ctxloom.bak" records the state BEFORE the write that produced it,
 // and a ".corrupt-<ts>" file records bytes ctxloom refused to overwrite.
@@ -346,7 +334,7 @@ func TestConformance_HookEventsAreEmittedIndependently(t *testing.T) {
 func liveFilesContaining(t *testing.T, fs afero.Fs, marker string) []string {
 	t.Helper()
 	var hits []string
-	require.NoError(t, afero.Walk(fs, "/", func(path string, info os.FileInfo, err error) error {
+	require.NoError(t, afero.Walk(fs, projectDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info == nil || info.IsDir() {
 			return err
 		}
@@ -365,14 +353,10 @@ func liveFilesContaining(t *testing.T, fs afero.Fs, marker string) []string {
 	return hits
 }
 
-// TestConformance_MCPWritesExactlyWhatItIsGiven: a writer registers the MCP
-// servers it is handed and invents none.
-//
-// This replaces an auto-registration assertion. ctxloom's own MCP server used
-// to be injected by the writer whenever no explicit config existed; MCP servers
-// now come from bundles only, so a writer handed nothing must write nothing.
-// Both directions are asserted, because only checking the empty case would pass
-// against a writer that had stopped registering anything at all.
+// TestConformance_MCPWritesExactlyWhatItIsGiven: a delivery registers the
+// MCP servers it is handed and invents none. Both directions are asserted,
+// because only checking the empty case would pass against a delivery that had
+// stopped registering anything at all.
 func TestConformance_MCPWritesExactlyWhatItIsGiven(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
@@ -382,58 +366,52 @@ func TestConformance_MCPWritesExactlyWhatItIsGiven(t *testing.T) {
 			const probeName = "conformance-probe-mcp"
 
 			t.Run("given none, registers none", func(t *testing.T) {
-				fs := afero.NewMemMapFs()
-				w := a.newWriter(agent.SettingsOptions{FS: fs})
-				require.NoError(t, w.WriteSettings(standardHooks(), nil, projectDir))
-
-				st, err := w.Status(projectDir)
-				require.NoError(t, err)
-				assert.False(t, st.MCPPresent,
-					"a writer handed no MCP servers must not invent one")
+				p := a.project(t, afero.NewMemMapFs())
+				require.NoError(t, p.Install(withHooks(standardHooks())))
+				assert.False(t, status(t, p).MCPPresent,
+					"a delivery handed no MCP servers must not invent one")
 			})
 
 			t.Run("given one, registers exactly it, in the bytes", func(t *testing.T) {
 				fs := afero.NewMemMapFs()
-				w := a.newWriter(agent.SettingsOptions{FS: fs})
-				given := map[string]wire.MCPServer{
-					probeName: {Command: "probe-bin", Args: []string{"serve"}},
-				}
-				require.NoError(t, w.WriteSettings(standardHooks(), given, projectDir))
+				p := a.project(t, fs)
+				pkg := withHooks(standardHooks())
+				pkg.MCP = map[string]wire.MCPServer{probeName: {Command: "probe-bin", Args: []string{"serve"}}}
+				require.NoError(t, p.Install(pkg))
 
-				st, err := w.Status(projectDir)
-				require.NoError(t, err)
-				assert.True(t, st.MCPPresent, "the handed server must be reported present")
+				assert.True(t, status(t, p).MCPPresent, "the handed server must be reported present")
 				assert.NotEmpty(t, liveFilesContaining(t, fs, probeName),
-					"and must reach a file, not only Status(): a writer whose own account is the only witness proves nothing")
+					"and must reach a file, not only Status(): a reader whose own account is the only witness proves nothing")
 			})
 		})
 	}
 }
 
-// TestConformance_RemovePreservesUser: RemoveSettings strips every managed
+// TestConformance_RemovePreservesUser: the uninstall strips every managed
 // artifact while preserving the user's own settings. The managed hook commands
-// are asserted PRESENT after the write and ABSENT after the removal, so the
-// same predicate is shown to flip — a removal test that only asks Status()
+// are asserted PRESENT after the install and ABSENT after the uninstall, so
+// the same predicate is shown to flip — a removal test that only asks Status()
 // cannot tell "stripped" from "never written".
 func TestConformance_RemovePreservesUser(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
-			w := a.newWriter(agent.SettingsOptions{FS: fs})
-			path := w.SettingsPath(projectDir)
+			p := a.project(t, fs)
+			path := a.settingsPath(projectDir)
 			require.NoError(t, afero.WriteFile(fs, path, []byte(a.userFile), 0644))
 
-			require.NoError(t, w.WriteSettings(standardHooks(), nil, projectDir))
+			pkg := withHooks(standardHooks())
+			pkg.MCP = map[string]wire.MCPServer{"conformance-probe-mcp": {Command: "probe-bin"}}
+			require.NoError(t, p.Install(pkg))
 			for _, ev := range coveredEvents {
 				require.NotEmptyf(t, liveFilesContaining(t, fs, ev.marker),
 					"precondition: managed event %q must be on disk before removal can be shown to strip it", ev.marker)
 			}
+			require.True(t, status(t, p).Wired(), "precondition: the install is reported")
 
-			require.NoError(t, w.RemoveSettings(projectDir))
+			require.NoError(t, p.Uninstall())
 
-			st, err := w.Status(projectDir)
-			require.NoError(t, err)
-			assert.False(t, st.Wired(), "no managed artifacts remain after removal")
+			assert.False(t, status(t, p).Wired(), "no managed artifacts remain after removal")
 			for _, ev := range coveredEvents {
 				assert.Emptyf(t, liveFilesContaining(t, fs, ev.marker),
 					"managed event %q survived removal on disk while Status reported it gone", ev.marker)
@@ -441,7 +419,7 @@ func TestConformance_RemovePreservesUser(t *testing.T) {
 
 			data, err := afero.ReadFile(fs, path)
 			require.NoError(t, err)
-			assert.Contains(t, string(data), a.userMarker, "user settings preserved through write + remove")
+			assert.Contains(t, string(data), a.userMarker, "user settings preserved through install + uninstall")
 		})
 	}
 }

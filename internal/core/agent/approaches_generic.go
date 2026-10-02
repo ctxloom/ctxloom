@@ -62,13 +62,6 @@ func (c *nativeContextFile) Present(start present.Start) present.Presentation {
 	return start.UnderProjectRoot(c.rel).Build()
 }
 
-// Deliver merges the context into the native file via the engine's
-// ContextWriter and returns a handle whose Cleanup strips the managed section
-// — the honest reversal of a MARKER-MERGED write.
-func (c *nativeContextFile) Deliver(start present.Start) (Delivered, error) {
-	return DeliverManagedContext(c.writer, start.Paths().ProjectRoot.Host, c.content)
-}
-
 // HookCarriedContext is context that reaches the engine at RUN TIME through a
 // SessionStart inject-context hook reading a content-addressed cache file.
 // It writes NOTHING of its own: the hook rides the surface whose writer emits
@@ -108,11 +101,6 @@ func (h hookCarriedContext) Present(start present.Start) present.Presentation {
 	leaf := hex.EncodeToString(sum[:8]) + ".md"
 	return start.UnderProjectRoot(filepath.Join(SCMContextSubdir, leaf)).Build()
 }
-
-// Deliver writes nothing and returns a nil handle: the caller's
-// nil-handle-skip convention treats this exactly like any other no-op
-// delivery. Writing a native file here too would DOUBLE the context.
-func (hookCarriedContext) Deliver(present.Start) (Delivered, error) { return nil, nil }
 
 var (
 	_ Approach    = (*nativeContextFile)(nil)

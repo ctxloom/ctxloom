@@ -1637,7 +1637,7 @@ func (c *Coordinator) notifyParentOfDeath(rec RunRecord, cause, detail, runFailu
 		kind = KindError
 		body += ": " + runFailure
 	}
-	if _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
+	if _, err := c.mailParent(rec.Harp, rec.ParentHarp, kind, body, nil, ""); err != nil {
 		// The spool write is what just failed, so the invariant above
 		// ("the parent ALWAYS learns of a child death") does not hold for
 		// this death. Said loudly: there is nothing behind the file.
@@ -1880,7 +1880,7 @@ func (c *Coordinator) parentLiveRunID(parentHarp string) string {
 // failResume warns that harp could not be resumed and tells its parent.
 func (c *Coordinator) failResume(harp string, rec RunRecord, err error) {
 	c.rep.Warnf("agent resume %s: %v", harp, err)
-	if _, qerr := c.queueMail(harp, rec.ParentHarp, KindError, fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err)); qerr != nil {
+	if _, qerr := c.mailParent(harp, rec.ParentHarp, KindError, fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err), nil, ""); qerr != nil {
 		c.rep.Warnf("agent %s: queue resume failure: %v", harp, qerr)
 	}
 }

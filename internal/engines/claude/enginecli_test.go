@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -49,9 +50,12 @@ func (c argvCase) argvFor(t *testing.T, b *ClaudeCode) []string {
 }
 
 // buildArgsMatrix enumerates EVERY argv shape the driver can produce —
-// permission posture × mode × resume — with a harp in the env (so the
-// interactive --name arm fires), a prompt (so the positional arm fires) and
-// the runner-delivered presentations (so every out-of-cwd flag fires).
+// permission posture × mode × resume × repository verdict — with a harp in
+// the env (so the interactive --name arm fires), a prompt (so the
+// positional arm fires) and the runner-delivered presentations (so every
+// out-of-cwd flag fires). An untrusted session is handed them without the
+// settings file, which it refuses (errUntrustedSettingsPresented), and
+// carries the repository-source flags instead.
 // Modulo the opaque ClaudeConfig.Args passthrough, which is user-supplied
 // and undeclarable by construction (left empty here).
 func buildArgsMatrix(presented []present.Presentation) []argvCase {
@@ -73,6 +77,26 @@ func buildArgsMatrix(presented []present.Presentation) []argvCase {
 		{"interactive", agent.ModeInteractive, agent.CLISurfaceInteractive},
 	}
 	var out []argvCase
+	for _, trust := range []engine.WorkspaceTrust{engine.TrustTrusted, engine.TrustUntrusted} {
+		delivered := presented
+		if trust != engine.TrustTrusted {
+			delivered = slices.DeleteFunc(slices.Clone(presented), func(p present.Presentation) bool { return slices.Contains(p.Args, flagSettings) })
+		}
+		out = append(out, verdictCases(perms, modes, delivered, trust)...)
+	}
+	return out
+}
+
+// verdictCases is the posture × mode × resume matrix for one verdict.
+func verdictCases(perms []struct {
+	name string
+	p    engine.PermissionPolicy
+}, modes []struct {
+	name    string
+	m       agent.ExecutionMode
+	surface agent.CLISurface
+}, presented []present.Presentation, trust engine.WorkspaceTrust) []argvCase {
+	var out []argvCase
 	for _, perm := range perms {
 		for _, mode := range modes {
 			for _, resume := range []string{"", "native-key"} {
@@ -89,9 +113,10 @@ func buildArgsMatrix(presented []present.Presentation) []argvCase {
 					Permission: perm.p,
 					Prompt:     "do the thing",
 					MCPServers: []string{"probe"},
+					Trust:      trust,
 				}
 				out = append(out, argvCase{
-					label:   fmt.Sprintf("%s/%s/resume=%q", perm.name, mode.name, resume),
+					label:   fmt.Sprintf("%s/%s/resume=%q/trust=%d", perm.name, mode.name, resume, trust),
 					surface: mode.surface,
 					resume:  resume,
 					req: &agent.ExecuteRequest{
@@ -253,7 +278,8 @@ func TestEngineCLI_SettingsValueIsTheDeliveredPath(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, agent.ValuePath, f.Value)
 
-	args := b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Presented: matrixPresentations(t)})
+	trusted := &engine.Session{Label: engine.LabelConfig{Label: EngineName}, Mode: engine.Structured, Permission: defaultPolicy(), Trust: engine.TrustTrusted}
+	args := b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Presented: matrixPresentations(t), Session: trusted})
 	parsed, err := oneshot.ParseArgv(args)
 	require.NoError(t, err)
 	v, ok := parsed.Value(flagSettings)

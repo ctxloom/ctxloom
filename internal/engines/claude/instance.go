@@ -180,8 +180,10 @@ var errTurnSettingsPresented = errors.New("claude: a structured turn's only --se
 // execArgs is the argv up to the prompt: the label's args, the permission
 // posture (headless: permissionArgs; interactive: the human's own session,
 // interactivePermissionArgs), the model, the session name (interactive) or
-// --print, every presentation's args in delivery order, then the resumed
-// native key. It refuses an argv naming --settings twice.
+// --print, the repository's sources unless the verdict trusts it
+// (repoSourceArgs), every presentation's args in delivery order, then the
+// resumed native key. It refuses an argv naming --settings twice, and an
+// untrusted session's presented --settings.
 func (i *instance) execArgs(presented []present.Presentation) ([]string, error) {
 	args := slices.Clone(i.s.Label.Args)
 	interactive := i.s.Mode == engine.Interactive
@@ -203,7 +205,11 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 	if !interactive {
 		args = append(args, flagPrint)
 	}
+	args = append(args, repoSourceArgs(i.s.Trust)...)
 	for _, p := range presented {
+		if i.s.Trust != engine.TrustTrusted && slices.Contains(p.Args, flagSettings) {
+			return nil, errUntrustedSettingsPresented
+		}
 		args = append(args, p.Args...)
 	}
 	if i.key != "" {
@@ -280,8 +286,8 @@ func (i *instance) Resume(key string) error {
 // session is findable in claude's /resume picker.
 type streamJSONDriver struct{ inst *instance }
 
-// argv is the per-turn process's argv: Exec plus the protocol, the
-// repository's sources unless the turn's verdict trusts it, and the turn's
+// argv is the per-turn process's argv: Exec (which already keeps an
+// untrusted repository's sources out) plus the protocol, and the turn's
 // posture as the process's one --settings (turnSettings). It refuses an
 // Exec that already names --settings, whether or not the turn has a
 // posture to say.
@@ -305,17 +311,6 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) ([]string, error
 		args = append(args, flagSettings, doc)
 	}
 	return args, nil
-}
-
-// repoSourceArgs keeps an untrusted repository's own surfaces out of a
-// turn: settings from the user source alone (the session home, where
-// ctxloom's hooks live) and MCP servers from --mcp-config alone. Anything
-// but an explicit Trusted verdict is untrusted.
-func repoSourceArgs(trust engine.WorkspaceTrust) []string {
-	if trust == engine.TrustTrusted {
-		return nil
-	}
-	return []string{flagSettingSources, "user", flagStrictMCPConfig}
 }
 
 // Turn spawns one stream-json process, writes the one user message, relays

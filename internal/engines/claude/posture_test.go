@@ -187,11 +187,15 @@ var workspaceWriteSandbox = map[string]any{
 	"network": map[string]any{"strictAllowlist": true},
 }
 
+// interactiveExec and headlessTurnArgv bind a TRUSTED session: these tests
+// pin the posture and the --settings collisions, which an untrusted session
+// would refuse first (errUntrustedSettingsPresented); the verdict's own
+// behaviour is repotrust_test.go's.
 func interactiveExec(t *testing.T, p engine.PermissionPolicy, presented ...present.Presentation) (engine.Exec, error) {
 	t.Helper()
 	kind, err := Build()
 	require.NoError(t, err)
-	inst, err := kind.Instance(engine.Session{Mode: engine.Interactive, Permission: p, MCPServers: []string{"ctxloom"}})
+	inst, err := kind.Instance(engine.Session{Mode: engine.Interactive, Permission: p, MCPServers: []string{"ctxloom"}, Trust: engine.TrustTrusted})
 	require.NoError(t, err)
 	return inst.Exec(presented)
 }
@@ -266,7 +270,7 @@ func headlessTurnArgv(t *testing.T, p engine.PermissionPolicy, in engine.Turn, p
 	t.Helper()
 	kind, err := Build()
 	require.NoError(t, err)
-	inst, err := kind.Instance(engine.Session{Mode: engine.Structured, Permission: p, MCPServers: []string{"ctxloom"}})
+	inst, err := kind.Instance(engine.Session{Mode: engine.Structured, Permission: p, MCPServers: []string{"ctxloom"}, Trust: engine.TrustTrusted})
 	require.NoError(t, err)
 	ex, err := inst.Exec(presented)
 	require.NoError(t, err)

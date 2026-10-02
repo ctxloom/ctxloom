@@ -179,8 +179,7 @@ func TestWriteInstanceConfig_WarnsWhenTheHostDropsAnExpectedKey(t *testing.T) {
 
 // TestWriteInstanceConfig_AbsentHostFileStillProducesAUsableInstance: a host
 // with no ~/.claude.json at all (a fresh machine) is not a failure. The
-// fallbacks and the generated trust entry are written, and the drift guard says
-// what could not be carried.
+// fallbacks are written, and the drift guard says what could not be carried.
 func TestWriteInstanceConfig_AbsentHostFileStillProducesAUsableInstance(t *testing.T) {
 	instance := t.TempDir()
 	workDir := t.TempDir()
@@ -194,8 +193,6 @@ func TestWriteInstanceConfig_AbsentHostFileStillProducesAUsableInstance(t *testi
 	cfg := readInstanceConfig(t, instance)
 	assert.Equal(t, true, cfg["hasCompletedOnboarding"])
 	assert.NotContains(t, cfg, "lastOnboardingVersion", "no host value and no invented one — claude writes its own")
-	projects := cfg["projects"].(map[string]any)
-	assert.Contains(t, projects, workDir)
 }
 
 // TestWriteInstanceConfig_NeverWritesTheHostHome: the ambient source is READ.
@@ -272,7 +269,7 @@ func TestWriteInstanceConfig_SecondRunPreservesWhatClaudeWrote(t *testing.T) {
 	instance := t.TempDir()
 	workDir := t.TempDir()
 	w := claudeInstanceConfig{}
-	req := engine.InstanceConfigRequest{HostHome: host, InstanceHome: instance, WorkDir: workDir}
+	req := engine.InstanceConfigRequest{HostHome: host, InstanceHome: instance, WorkDir: workDir, Trust: engine.TrustTrusted}
 
 	_, err := w.WriteInstanceConfig(req, nil)
 	require.NoError(t, err)

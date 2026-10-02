@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -95,7 +95,7 @@ func doctorHome() string {
 // "DOCTOR-CHECK-* [status] detail" line per check, in the fixed order the
 // checks were run.
 func renderDoctorReport(out io.Writer, report operations.DoctorReport) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	w.Println("ctxloom doctor")
 	for _, c := range report.Checks {
 		// A detail is ctxloom's sentence with publisher values (bundle refs,

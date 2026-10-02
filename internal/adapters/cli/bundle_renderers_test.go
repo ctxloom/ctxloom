@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 // =============================================================================
@@ -236,7 +236,7 @@ func TestRenderBundleFragmentEntry_DistilledWinsOverNoDistill(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	renderBundleFragmentEntry(iox.NewErrWriter(&buf), "f", frag)
+	renderBundleFragmentEntry(errwriter.New(&buf), "f", frag)
 	out := buf.String()
 	assert.Contains(t, out, "(distilled)")
 	assert.NotContains(t, out, "(no_distill)")
@@ -249,7 +249,7 @@ func TestRenderBundleFragmentEntry_NoMarkerWhenPlain(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	renderBundleFragmentEntry(iox.NewErrWriter(&buf), "f", frag)
+	renderBundleFragmentEntry(errwriter.New(&buf), "f", frag)
 	out := buf.String()
 	assert.NotContains(t, out, "(distilled)")
 	assert.NotContains(t, out, "(no_distill)")
@@ -264,7 +264,7 @@ func TestRenderBundleFragmentEntry_TruncatesLongFirstLine(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	renderBundleFragmentEntry(iox.NewErrWriter(&buf), "verbose", frag)
+	renderBundleFragmentEntry(errwriter.New(&buf), "verbose", frag)
 	out := buf.String()
 	assert.Contains(t, out, strings.Repeat("x", 67)+"...")
 	assert.NotContains(t, out, strings.Repeat("x", 68), "preview must not exceed 67 chars + ellipsis")
@@ -278,7 +278,7 @@ func TestRenderBundleFragmentEntry_NoTagBracketsWhenEmpty(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	renderBundleFragmentEntry(iox.NewErrWriter(&buf), "f", frag)
+	renderBundleFragmentEntry(errwriter.New(&buf), "f", frag)
 	assert.NotContains(t, buf.String(), "[]")
 }
 
@@ -294,7 +294,7 @@ func TestRenderBundleCommandEntry_DistilledMarker(t *testing.T) {
 		Description: "desc",
 	}
 	var buf bytes.Buffer
-	renderBundleCommandEntry(iox.NewErrWriter(&buf), "p", prompt)
+	renderBundleCommandEntry(errwriter.New(&buf), "p", prompt)
 	assert.Contains(t, buf.String(), "(distilled)")
 }
 
@@ -305,7 +305,7 @@ func TestRenderBundleCommandEntry_NoDistillMarker(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	renderBundleCommandEntry(iox.NewErrWriter(&buf), "p", prompt)
+	renderBundleCommandEntry(errwriter.New(&buf), "p", prompt)
 	assert.Contains(t, buf.String(), "(no_distill)")
 }
 
@@ -313,7 +313,7 @@ func TestRenderBundleCommandEntry_DescriptionOptional(t *testing.T) {
 	// No description means no second line. Just the name line.
 	prompt := bundles.BundleCommand{}
 	var buf bytes.Buffer
-	renderBundleCommandEntry(iox.NewErrWriter(&buf), "p", prompt)
+	renderBundleCommandEntry(errwriter.New(&buf), "p", prompt)
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 	assert.Len(t, lines, 1, "no description → single line (name only)")
 }
@@ -325,7 +325,7 @@ func TestRenderBundleCommandEntry_DescriptionOptional(t *testing.T) {
 func TestRenderBundleMCPEntry_MinimalShowsCommandOnly(t *testing.T) {
 	mcp := bundles.BundleMCP{Command: "mcp-fs"}
 	var buf bytes.Buffer
-	renderBundleMCPEntry(iox.NewErrWriter(&buf), "fs", mcp)
+	renderBundleMCPEntry(errwriter.New(&buf), "fs", mcp)
 	out := buf.String()
 	assert.Contains(t, out, "  - fs\n")
 	assert.Contains(t, out, "Command: mcp-fs")
@@ -348,7 +348,7 @@ func TestRenderBundleMCPEntry_NotesAndInstallationRenderAsBodies(t *testing.T) {
 		Installation: "go install example.com/mcp-fs@latest\nmcp-fs init \x1b[2K" + long,
 	}
 	var buf bytes.Buffer
-	w := iox.NewErrWriter(&buf)
+	w := errwriter.New(&buf)
 	renderBundleMCPEntry(w, "fs", mcp)
 	require.NoError(t, w.Err())
 	out := buf.String()
@@ -608,10 +608,10 @@ func TestRenderBundleMCPEntry_EnvIsSortedAndStable(t *testing.T) {
 	}
 
 	var first bytes.Buffer
-	renderBundleMCPEntry(iox.NewErrWriter(&first), "fs", mcp)
+	renderBundleMCPEntry(errwriter.New(&first), "fs", mcp)
 	for i := 0; i < 50; i++ {
 		var buf bytes.Buffer
-		renderBundleMCPEntry(iox.NewErrWriter(&buf), "fs", mcp)
+		renderBundleMCPEntry(errwriter.New(&buf), "fs", mcp)
 		require.Equal(t, first.String(), buf.String(), "Env lines must not depend on map order (run %d)", i)
 	}
 

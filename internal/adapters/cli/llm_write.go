@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 // `llm create`/`llm edit` — the write half of the parity gap with `agent`
@@ -132,7 +132,7 @@ func buildSetLLMRequest(cmd *cobra.Command, label string) (operations.SetLLMRequ
 // renderLLMWritten writes the one-line confirmation for a created/edited
 // llm, naming which of the two happened.
 func renderLLMWritten(out io.Writer, entry *operations.LLMEntry, edited bool) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	verb := "Created"
 	if edited {
 		verb = "Updated"

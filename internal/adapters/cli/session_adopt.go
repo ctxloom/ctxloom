@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -165,7 +165,7 @@ func runSessionAdopt(cmd *cobra.Command, args []string) error {
 // or would-adopt rows AND skip rows with their reason, so a skip is never a
 // file nobody will ever be told about.
 func renderSessionAdopt(w io.Writer, res sessionAdoptResult, wouldAdopt int) error {
-	ew := iox.NewErrWriter(w)
+	ew := errwriter.New(w)
 	verb := "would adopt"
 	count := wouldAdopt
 	if res.Applied {
@@ -177,7 +177,7 @@ func renderSessionAdopt(w io.Writer, res sessionAdoptResult, wouldAdopt int) err
 		return err
 	}
 	if len(res.Candidates) == 0 {
-		ew2 := iox.NewErrWriter(w)
+		ew2 := errwriter.New(w)
 		ew2.Println("(no candidate vendor transcripts found)")
 		return ew2.Err()
 	}
@@ -190,7 +190,7 @@ func renderSessionAdopt(w io.Writer, res sessionAdoptResult, wouldAdopt int) err
 // outright on the diagnostic channel, every run, not left to verb tense in a
 // table a caller might only skim.
 func reportAdoptPlanOnly(cmd *cobra.Command, harp string, wouldAdopt int) error {
-	w := iox.NewErrWriter(cmd.ErrOrStderr())
+	w := errwriter.New(cmd.ErrOrStderr())
 	w.Printf("ctxloom adopted nothing — this was a report, not an adoption. %d candidate(s) would be adopted. To apply exactly this plan:\n  ctxloom session adopt %s --apply\n", wouldAdopt, harp)
 	return w.Err()
 }
@@ -202,7 +202,7 @@ func reportAdoptPlanOnly(cmd *cobra.Command, harp string, wouldAdopt int) error 
 // names the next step outright rather than leaving a caller to assume
 // adoption alone made the recovered history readable.
 func reportAdoptNextStep(cmd *cobra.Command, harp string, adopted int) error {
-	w := iox.NewErrWriter(cmd.ErrOrStderr())
+	w := errwriter.New(cmd.ErrOrStderr())
 	if adopted == 0 {
 		w.Printf("ctxloom adopted nothing for %s: every candidate was already known or overlapped the existing lineage.\n", harp)
 		return w.Err()

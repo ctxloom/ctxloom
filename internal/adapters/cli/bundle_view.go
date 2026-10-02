@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 // bundleViewResult is emit()'s result for `bundle view`: Content is exactly
@@ -138,7 +138,7 @@ func writeBundleViewText(w io.Writer, ref, itemPath string, content []byte) erro
 // for `view bundle#mcp/default` against bundles that only ship one server
 // under an arbitrary key.
 func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string, useDistilled bool) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 
 	if profName, ok := strings.CutPrefix(itemPath, profileViewPrefix); ok {
 		profile, found := bundle.Profiles[profName]
@@ -198,7 +198,7 @@ const profileViewPrefix = "profiles/"
 // "# <heading>" line followed by its YAML. The mcp and profiles arms of
 // renderBundleViewItem differ only in heading and in what a marshal failure is
 // called, so the shape lives here once. what names the item in that error.
-func writeViewYAML(w *iox.ErrWriter, heading string, v any, what string) error {
+func writeViewYAML(w *errwriter.Writer, heading string, v any, what string) error {
 	data, err := yaml.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("failed to marshal %s: %w", what, err)
@@ -211,7 +211,7 @@ func writeViewYAML(w *iox.ErrWriter, heading string, v any, what string) error {
 // writeViewContent picks between distilled and raw content per the
 // useDistilled flag and ensures a trailing newline. Used by both
 // the fragments and prompts arms of renderBundleViewItem.
-func writeViewContent(w *iox.ErrWriter, raw, distilled string, useDistilled bool) {
+func writeViewContent(w *errwriter.Writer, raw, distilled string, useDistilled bool) {
 	content := raw
 	if useDistilled && distilled != "" {
 		content = distilled

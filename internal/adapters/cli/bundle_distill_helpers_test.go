@@ -18,7 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 // TestRunBundleDistill_AllFilesFailedExitsNonZero pins that per-file
@@ -106,7 +106,7 @@ func TestCountDistillItems_TalliesByStatus(t *testing.T) {
 
 func TestPrintDistillItems_OneLinePerItem(t *testing.T) {
 	var buf bytes.Buffer
-	printDistillItems(iox.NewErrWriter(&buf), []operations.DistillBundleItem{
+	printDistillItems(errwriter.New(&buf), []operations.DistillBundleItem{
 		{Kind: operations.ItemKindFragment, Name: "a", Status: operations.DistillStatusDistilled, ModelID: "m1"},
 		{Kind: operations.ItemKindCommand, Name: "b", Status: operations.DistillStatusSkipped, Reason: "unchanged"},
 		{Kind: operations.ItemKindFragment, Name: "c", Status: operations.DistillStatusPlanned},
@@ -119,13 +119,13 @@ func TestPrintDistillItems_OneLinePerItem(t *testing.T) {
 
 func TestPrintDistillSummary_DryRunReportsWouldDistillCount(t *testing.T) {
 	var buf bytes.Buffer
-	printDistillSummary(iox.NewErrWriter(&buf), 3, 0, 0, true)
+	printDistillSummary(errwriter.New(&buf), 3, 0, 0, true)
 	assert.Contains(t, buf.String(), "Dry run: would distill 3 items")
 }
 
 func TestPrintDistillSummary_NoItemsReportsNothingToDistill(t *testing.T) {
 	var buf bytes.Buffer
-	printDistillSummary(iox.NewErrWriter(&buf), 0, 0, 0, false)
+	printDistillSummary(errwriter.New(&buf), 0, 0, 0, false)
 	assert.Contains(t, buf.String(), "No items to distill.")
 }
 

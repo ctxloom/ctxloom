@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 var cleanYes bool
@@ -153,7 +153,7 @@ type cleanReport struct {
 }
 
 func renderCleanPlan(w io.Writer, rep cleanReport) error {
-	out := iox.NewErrWriter(w)
+	out := errwriter.New(w)
 	res := rep.CleanResult
 	present := 0
 	for _, t := range res.Targets {

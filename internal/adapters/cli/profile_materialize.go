@@ -11,7 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 var (
@@ -80,7 +80,7 @@ func runProfileMaterialize(cmd *cobra.Command, args []string) error {
 		return ferr
 	}
 	return emit(cmd, res, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		w.Printf("Materialized %s → %s (%s)\n", strings.Join(res.Profiles, ", "), res.Target, res.Backend)
 		for _, s := range res.Wrote {
 			w.Printf("  wrote %s\n", s)
@@ -163,7 +163,7 @@ func runProfileMaterializeDiff(cmd *cobra.Command, cfg *config.Config, args []st
 // it goes through publisherBody — without the blank-line collapse, because a
 // diff redirected to a file must still be the diff.
 func renderMaterializeDiff(out io.Writer, label string, result profileMaterializeDiffJSON) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	if result.Identical {
 		w.Printf("%s's materialized context matches %s: no difference.\n", label, result.ComparedTo)
 		return w.Err()

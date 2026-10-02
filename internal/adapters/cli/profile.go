@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/spf13/cobra"
@@ -14,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
@@ -83,7 +83,7 @@ func runProfileList(cmd *cobra.Command, args []string) error {
 // testable without invoking cobra or touching the real config. The
 // per-entry Default flag is resolved by the operations layer.
 func renderProfileList(out io.Writer, list []operations.ProfileEntry) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	w.Printf("Profiles (%d):\n", len(list))
 	for _, p := range list {
 		w.Printf("  %s", p.Name)
@@ -327,7 +327,7 @@ type profileDetailJSON struct {
 // A profile can ship inside a pulled bundle, so every value but Path (the
 // local file) is publisher-authored and goes through termsafe.Field.
 func renderProfileShow(out io.Writer, p *operations.GetProfileResult, isDefault bool) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	w.Printf("Profile: %s\n", termsafe.Field(p.Name))
 	w.Printf("Path: %s\n", p.Path)
 	if p.Bundle != "" {
@@ -356,7 +356,7 @@ func renderProfileShow(out io.Writer, p *operations.GetProfileResult, isDefault 
 	return w.Err()
 }
 
-func writeBulletList(w *iox.ErrWriter, heading string, items []string) {
+func writeBulletList(w *errwriter.Writer, heading string, items []string) {
 	if len(items) == 0 {
 		return
 	}
@@ -429,7 +429,7 @@ func runProfileUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w := errwriter.New(cmd.OutOrStdout())
 	if res.Status == "no_changes" {
 		w.Println("No changes made.")
 		return w.Err()

@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 // Fragment and prompt management under `bundle` was a partial duplicate of the
@@ -57,7 +57,7 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("editor failed: %w", err)
 	}
-	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w := errwriter.New(cmd.OutOrStdout())
 	if newContent == string(mcpYAML) {
 		w.Println("No changes made.")
 		return w.Err()

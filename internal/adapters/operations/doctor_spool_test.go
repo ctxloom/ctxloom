@@ -185,6 +185,26 @@ func TestDoctorCheckSpoolBacklog_ARecordedDeliveryIsNotStuck(t *testing.T) {
 	assert.NotContains(t, check.Detail, claimedRef.Name)
 }
 
+// TestDoctorCheckSpoolBacklog_TheRecordExcusesOnlyTheInbox: the delivered
+// record is the INBOX's memory. An aged out/ file is a message the
+// coordinator never routed, whatever the record holds.
+func TestDoctorCheckSpoolBacklog_TheRecordExcusesOnlyTheInbox(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	old := time.Now().Add(-10 * time.Minute)
+	outRef := writeRawSpoolMessage(t, mapper, harp, spool.DirOut, old.UnixNano(), 1, harp, old)
+	root, err := spool.Root(mapper, harp)
+	require.NoError(t, err)
+	record := filepath.Join(root, "in", "delivered")
+	require.NoError(t, os.MkdirAll(record, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(record, strings.TrimSuffix(outRef.Name, spool.MessageFileExt)), nil, 0o600))
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Contains(t, check.Detail, outRef.String())
+}
+
 // TestDoctorCheckSpoolBacklog_CapsNamedListWithCount proves a machine with
 // many stuck entries gets a bounded, readable line rather than an unbounded
 // wall of refs — the same "cap at ~5 with a count" shape

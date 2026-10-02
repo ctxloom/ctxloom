@@ -739,6 +739,32 @@ func TestSpoolDelivery_PendingCountReadsTheSpool(t *testing.T) {
 	assert.Zero(t, c.pendingCount("no-such-harp"))
 }
 
+// TestSpoolDelivery_PendingCountSkipsARecordedDelivery: a file whose
+// identity is already in the delivered record is a delivery whose delete was
+// interrupted — nothing the child still has to see, so it must not resume an
+// ended child or hold a drain open.
+func TestSpoolDelivery_PendingCountSkipsARecordedDelivery(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
+	home.Crash() // no reader: the file must stay put for the count to read
+
+	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
+	require.NoError(t, err)
+	_, err = w.Write(&spool.Message{Kind: KindMessage, FromHarp: "coordinator-harp", To: out.Harp, OriginID: "m-done", Body: "done"})
+	require.NoError(t, err)
+	_, err = w.Write(&spool.Message{Kind: KindMessage, FromHarp: "coordinator-harp", To: out.Harp, OriginID: "m-owed", Body: "owed"})
+	require.NoError(t, err)
+	root, err := spool.Root(spool.NewHomeMapper(), out.Harp)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "in", "delivered"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "in", "delivered", "m-done"), nil, 0o600))
+
+	assert.Equal(t, 1, c.pendingCount(out.Harp), "only the message nobody delivered is pending")
+}
+
 // TestSpoolDelivery_UnparsableFileIsReportedNeverSkipped pins the loud half of
 // the reader contract. A file in in/ that is not a message must be COUNTED as
 // a failure, because a reader that silently skips what it cannot understand is

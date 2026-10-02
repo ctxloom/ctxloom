@@ -92,10 +92,11 @@ func sweepExisting(harp string, dir Dir, path string) (SweepResult, error) {
 }
 
 // moveUnclaimed moves each unclaimed entry into claimed/ — or deletes it,
-// unseen, when a copy of it was already delivered or is already in flight:
-// the reader is a new process every turn, so the delivered record and the
-// claimed/ directory are its only memory of what it has handed out. An entry
-// another reader took first is ordinary.
+// unseen, when a copy of it is already in flight: the reader is a new process
+// every turn, so the claimed/ directory is its only memory of what it has
+// handed out. A copy of something already DELIVERED is moved like any other
+// and dropped by undelivered, the one place the delivered record is read. An
+// entry another reader took first is ordinary.
 func moveUnclaimed(m PathMapper, harp, inPath, claimedPath string, entries []Entry) error {
 	var inFlight map[string]bool
 	if len(entries) > 0 {
@@ -107,13 +108,9 @@ func moveUnclaimed(m PathMapper, harp, inPath, claimedPath string, entries []Ent
 	for _, e := range entries {
 		from := filepath.Join(inPath, e.Ref.Name)
 		id := e.Identity()
-		delivered, err := Delivered(m, harp, id)
-		if err != nil {
-			return fmt.Errorf("spool: claiming %s: %w", e.Ref, err)
-		}
-		if delivered || inFlight[id] {
+		if inFlight[id] {
 			if err := discard(from); err != nil {
-				return fmt.Errorf("spool: dropping already-delivered copy %s: %w", e.Ref, err)
+				return fmt.Errorf("spool: dropping in-flight copy %s: %w", e.Ref, err)
 			}
 			continue
 		}

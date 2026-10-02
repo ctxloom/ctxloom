@@ -86,7 +86,17 @@ func TestDeliver_ARecordThatCannotBeWrittenLeavesTheFile(t *testing.T) {
 
 	err := Deliver(m, ref, "../escape", time.Now())
 	require.Error(t, err)
-	assert.Equal(t, []string{ref.Name}, filesIn(t, m, DirIn), "nothing recorded, so nothing deleted")
+	assert.Equal(t, []string{ref.Name}, filesIn(t, m, DirIn), "an identity that cannot be recorded deletes nothing")
+
+	// The record's directory cannot be created: a file sits where it goes.
+	// The write fails AFTER every check has passed, so only the ORDER keeps
+	// the message: record first, delete second.
+	block := filepath.Dir(deliveredPath(t, m, "x"))
+	require.NoError(t, os.WriteFile(block, []byte("in the way"), 0o600))
+	err = Deliver(m, ref, entryFor(t, m, ref).Identity(), time.Now())
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrAlreadyGone)
+	assert.Contains(t, filesIn(t, m, DirIn), ref.Name, "nothing recorded, so nothing deleted")
 }
 
 func TestDeliver_AMissingFileIsAlreadyGoneButStillRecorded(t *testing.T) {
@@ -108,6 +118,9 @@ func TestDeliver_RefusesADirectoryThatIsNotAnInbox(t *testing.T) {
 		err := Deliver(m, Ref{Harp: testHarp, Dir: d, Name: "1.1.coord.md"}, "m-1", time.Now())
 		assert.Error(t, err, "%s is not delivered from", d)
 	}
+	recorded, err := Delivered(m, testHarp, "m-1")
+	require.NoError(t, err)
+	assert.False(t, recorded, "a refused delivery records nothing")
 }
 
 // An identity arriving again within the window after its delivery is

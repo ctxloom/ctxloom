@@ -169,6 +169,10 @@ func TestSpoolSteer_WithdrawAfterDeliverySaysSoHonestly(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoSuchSteer)
 	assert.NotErrorIs(t, err, ErrSteerAlreadyDelivered)
+
+	// An id no file or record entry can be named is the same answer, not a
+	// lookup failure.
+	assert.ErrorIs(t, c.WithdrawSteer(humanInitiator(), out.Harp, "../escape"), ErrNoSuchSteer)
 }
 
 // ---- correlated asks ----------------------------------------------------

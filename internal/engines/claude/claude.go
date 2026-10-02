@@ -1236,31 +1236,18 @@ func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, 
 	return status, nil
 }
 
-// mcpPresent asks the RECORD what ctxloom put in mcpPath, not the file.
-// Scanning the user's file for a marker could not tell an entry ctxloom
-// created from one a user copied out of ctxloom's, and the marker is gone.
-// The claims record answers for the static writer's deliveries; the
-// confpatch record for WriteSettings, which writes outside it — an applied
-// set that is EMPTY there is an uninstall (the reversal alone ran).
+// mcpPresent asks the claims RECORD what the project writer put in mcpPath,
+// not the file: scanning the user's file could not tell an entry ctxloom
+// created from one a user copied out of ctxloom's.
 func (w *ClaudeCodeHookWriter) mcpPresent(mcpPath string) (bool, error) {
-	if w.projectClaims != nil {
-		live, err := w.projectClaims(mcpPath)
-		if err != nil {
-			return false, err
-		}
-		if slices.ContainsFunc(live, func(p string) bool { return strings.HasPrefix(p, present.PointerKey(mcpServersKey)+"/") }) {
-			return true, nil
-		}
+	if w.projectClaims == nil {
+		return false, nil
 	}
-	store, err := w.recordStore()
+	live, err := w.projectClaims(mcpPath)
 	if err != nil {
 		return false, err
 	}
-	rec, found, err := store.Last(mcpPath)
-	if err != nil {
-		return false, err
-	}
-	return found && len(rec.Targets) > 0 && len(rec.Targets[0].Transforms) > 0, nil
+	return slices.ContainsFunc(live, func(p string) bool { return strings.HasPrefix(p, present.PointerKey(mcpServersKey)+"/") }), nil
 }
 
 // claudeHasManagedHook reports whether any configured hook is ctxloom-managed.

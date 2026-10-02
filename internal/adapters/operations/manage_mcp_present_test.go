@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -74,4 +75,39 @@ func TestHarnessStatus_ASessionsEntryIsNotTheProjectsInstall(t *testing.T) {
 	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, WorkDir: dir}, root, target)
 	require.NoError(t, err)
 	require.False(t, mcpPresent(t, fs, dir))
+}
+
+// preChangeInstall is .mcp.json as claude's retired confpatch writer left
+// it: ctxloom's server in the file, and the §9.7 record that writer kept
+// for it in the home records directory — no claims record at all.
+func preChangeInstall(t *testing.T, fs afero.Fs, mcpPath string) {
+	t.Helper()
+	testsupport.WriteFileString(t, fs, mcpPath, `{"mcpServers": {"ctxloom": {"command": "ctxloom", "args": ["mcp"]}}}`+"\n", 0o644)
+	dir, err := paths.HomeRecordsDir()
+	require.NoError(t, err)
+	record := "hew-record: 1\n" +
+		"applied_at: \"2026-09-01T00:00:00Z\"\n" +
+		"patch:\n  source: \"-\"\n  digest: sha256:00\n" +
+		"targets:\n" +
+		"  - target: " + mcpPath + "\n" +
+		"    format: json\n    before: sha256:00\n    after: sha256:01\n    committed: true\n" +
+		"    transforms:\n      - op: add\n        path: /mcpServers\n        on_conflict: replace\n" +
+		"        value:\n          ctxloom:\n            command: ctxloom\n            args: [mcp]\n" +
+		"reversal: |\n  remove /mcpServers\n"
+	testsupport.WriteFileString(t, fs, filepath.Join(dir, paths.FlatName(mcpPath)+"__20260901T000000.000000000Z.hew-record.yaml"), record, 0o600)
+}
+
+// TestHarnessStatus_AnUninstallOverAPreChangeInstallIsNotAnInstall: the
+// retired writer's record is not an account of what is installed, so an
+// uninstall of a project installed before the claims record leaves status
+// saying nothing is installed.
+func TestHarnessStatus_AnUninstallOverAPreChangeInstallIsNotAnInstall(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	const dir = "/project"
+	preChangeInstall(t, fs, filepath.Join(dir, ".mcp.json"))
+
+	kind, ok := engines.Registry().Lookup(engine.Name("claude-code"))
+	require.True(t, ok)
+	require.NoError(t, RemoveProject(context.Background(), fs, kind, dir))
+	require.False(t, mcpPresent(t, fs, dir), "status reports MCP present after an uninstall")
 }

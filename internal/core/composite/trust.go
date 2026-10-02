@@ -166,6 +166,13 @@ func (a *authorizer) Admit(e bundles.Exposure) bundles.Verdict {
 	if a.records.Approved(e.Ref(), e.Bytes, e.Form) {
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonApproved}
 	}
+	return a.unjustified(e)
+}
+
+// unjustified is Admit's last step, for an exposure nothing above justified:
+// withheld pending review — unless the only thing missing was a signature the
+// gate was built to stop asking for (WithoutSignatureCheck).
+func (a *authorizer) unjustified(e bundles.Exposure) bundles.Verdict {
 	pending := pendingReason(e.Read)
 	if a.sigCheckWaived && signatureDerived(pending) {
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonSigCheckDisabled}

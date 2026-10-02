@@ -40,9 +40,9 @@ func TestQueueMail_RefusesAnEmptyBody(t *testing.T) {
 	}
 
 	// A recv finds nothing: no phantom delivery was made.
-	msgs, err := c.inbox.recv(context.Background(), role, "", 0)
+	msgs, err := spoolMail(t, c, role, 0)
 	assert.Empty(t, msgs)
-	assert.ErrorIs(t, err, ErrRecvTimeout)
+	assert.ErrorIs(t, err, errNoOwnerMail)
 }
 
 // TestQueueMail_StructuredOnlyMessageIsStillAllowed keeps the guard from

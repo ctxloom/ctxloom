@@ -51,12 +51,11 @@ func newCutoverCoordinator(t *testing.T, sp Spawner, sweep time.Duration) *Coord
 	return c
 }
 
-// cutoverSpawner is startRunSpawner plus the runner capabilities a migrated
-// child advertises. Only a runner-backed child is cut over, so every test
-// here rides the StartRun path.
+// cutoverSpawner is startRunSpawner with the given spool sweep interval. Only
+// a runner-backed child is cut over, so every test here rides the StartRun
+// path.
 func cutoverSpawner(sweep time.Duration) *fakeSpawner {
 	sp := startRunSpawner(nil)
-	sp.engineCaps = RunnerCapabilities(true)
 	sp.spoolSweepInterval = sweep
 	return sp
 }
@@ -249,12 +248,11 @@ func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsConsumed(t *testing.T) {
 		"the consume-rename doorbell is how the coordinator learns the child took its mail")
 }
 
-// TestSpoolDelivery_ChildSendRidesOutAndReachesAgentRecv is the child->parent
+// TestSpoolDelivery_ChildSendRidesOutAndReachesTheParent is the child->parent
 // happy path: agent_send is a LOCAL file write with no coordinator round trip,
-// the coordinator routes it out of the child's out/, the parent's agent_recv
-// long-poll is satisfied with it under the same wait semantics as before, and
-// the file lands in out/consumed/.
-func TestSpoolDelivery_ChildSendRidesOutAndReachesAgentRecv(t *testing.T) {
+// the coordinator routes it out of the child's out/ into the parent's spool,
+// and the file lands in out/consumed/.
+func TestSpoolDelivery_ChildSendRidesOutAndReachesTheParent(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := cutoverSpawner(0)
@@ -277,9 +275,9 @@ func TestSpoolDelivery_ChildSendRidesOutAndReachesAgentRecv(t *testing.T) {
 	msgID := resp.GetPeerSend().GetMessageId()
 	require.NotEmpty(t, msgID, "the file's own name is the message id under the cutover")
 
-	// The parent's agent_recv long-poll is satisfied from the swept file.
+	// The parent reads the swept file from its own spool.
 	got := recvBody(t, c, "a finding", conformanceWait)
-	require.NotEmpty(t, got, "the parent's agent_recv must be satisfied from the child's out/ spool")
+	require.NotEmpty(t, got, "the child's send must reach the parent from the child's out/ spool")
 	assert.Equal(t, out.Harp, got[0].From, "sender identity is the spool the file was found in")
 	assert.Equal(t, KindResult, got[0].Kind)
 	assert.Equal(t, "corr-2", got[0].InReplyTo)

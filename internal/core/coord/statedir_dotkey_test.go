@@ -15,8 +15,8 @@ import (
 // (nor any key that reduces to one), so a project key of "." resolved
 // stateDirForProject to ~/.ctxloom/coord ITSELF — the root every project's own
 // state dir lives under, and the root discover.List globs. Every project
-// landing on that key would have shared one owner.pid/runs.jsonl/mailbox.jsonl
-// set, and the journals would have sat among the per-project directories rather
+// landing on that key would have shared one owner lock and one set of
+// journals, and the journals would have sat among the per-project directories rather
 // than inside one.
 //
 // The assertion is on the resolved PATH, not on the returned string, because

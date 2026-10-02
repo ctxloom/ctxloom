@@ -218,7 +218,7 @@ func (c Container) containerBuildSources(baseOverride string) (sources []buildSo
 
 // identityFor resolves this container's build identity for the given
 // resolved devcontainer base: composedIdentity's engine-aware provenance and
-// slot for a COMPOSABLE spec, else the legacy HostProvenanceDigest with no
+// slot for a COMPOSABLE spec, else the legacy hostProvenanceDigest with no
 // slot. The tag is always c.image, the one containerFor resolved and every
 // presence check reads.
 func (c Container) identityFor(devBase *baseStage) agentImageID {
@@ -226,7 +226,7 @@ func (c Container) identityFor(devBase *baseStage) agentImageID {
 		id.ref = c.image
 		return id
 	}
-	return agentImageID{ref: c.image, provenance: HostProvenanceDigest(c.baseContainerfile)}
+	return agentImageID{ref: c.image, provenance: hostProvenanceDigest(c.baseContainerfile)}
 }
 
 // Name identifies the policy: the injected base names it — "container" for the
@@ -371,7 +371,11 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 	// Order is inert (SD4): every mount targets a distinct in-container path and
 	// renders as an independent --mount. Scoped state rides every axis; the
 	// base mounts (overlays/gitdir mirror, or the worktree .git mirror) layer on.
-	mounts := append(append([]mount(nil), cw.stateMounts...), baseMounts...)
+	lockMounts, err := c.lockMounts(cw.dir, cw.scratchRoot)
+	if err != nil {
+		return mountPlan{}, err
+	}
+	mounts := append(append(append([]mount(nil), cw.stateMounts...), baseMounts...), lockMounts...)
 	// The shared-filesystem probe runs HERE, once every real mount root is
 	// known (mountProbeRoots): cw.dir (the project dir, or the worktree
 	// checkout resolveBase created), cw.scratchRoot (the config overlays), and

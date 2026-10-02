@@ -568,6 +568,19 @@ func (r *Registry) SetDefault(name string) error {
 	return nil
 }
 
+// ResolveForgeForURL resolves the forge for repoURL, honouring the forge label
+// bound to the registered remote naming that repository (SetForge). With no
+// such remote, or no label on it, resolution falls back to URL inference.
+func (r *Registry) ResolveForgeForURL(repoURL string) ResolvedForge {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	label := ""
+	if name, found := r.findByURLLocked(repoURL); found {
+		label = r.remotes[name].Forge
+	}
+	return ResolveForgeForURLWith(repoURL, label, MergeForges(r.forges))
+}
+
 // Forges returns the configured forge instances merged over the built-in
 // defaults, so callers always see github + git even with no forges: block.
 func (r *Registry) Forges() map[string]ForgeConfig {

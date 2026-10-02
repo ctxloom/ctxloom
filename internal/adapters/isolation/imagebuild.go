@@ -144,7 +144,7 @@ func (id agentImageID) stamp(from string) imageStamp {
 // provenance label, slot) for the given base/engine configuration. ok=false
 // when the spec isn't composable (no known engine fragment) or the resolved
 // base's content can't be read — callers fall back to the spec's static image
-// field and the legacy HostProvenanceDigest.
+// field and the legacy hostProvenanceDigest.
 func composedIdentity(p engineContainerSpec, baseContainerfile string, devBase *baseStage, engine string) (agentImageID, bool) {
 	if p.engineInstall == nil {
 		return agentImageID{}, false
@@ -674,7 +674,7 @@ func SetBinaryVersion(v string) { binaryVersion = v }
 
 const provenanceLabel = "ctxloom.provenance"
 
-// HostProvenanceDigest returns the provenance label an agent image built NOW —
+// hostProvenanceDigest returns the provenance label an agent image built NOW —
 // by this ctxloom, on the given base Containerfile config ("" = the embedded
 // default) — would carry: this build's version key (ctxloom's own version plus
 // the staged companions' versions — see hostImageKeys), suffixed with the base
@@ -682,9 +682,7 @@ const provenanceLabel = "ctxloom.provenance"
 // uncommitted (tracked-dirty) rebuild, an updated companion, or a changed base
 // config changes it, and ensureImage rebuilds. Empty when this binary carries no usable stamp or
 // the base config can't be read — the check then disables rather than churn.
-// Exported so the build tooling (`ctxloom container provenance`) can stamp a
-// matching label.
-func HostProvenanceDigest(baseContainerfile string) string {
+func hostProvenanceDigest(baseContainerfile string) string {
 	return combineProvenance(hostImageKeys().provenance, baseContainerfile)
 }
 
@@ -696,7 +694,7 @@ type imageKeys struct {
 }
 
 // hostImageKeys is the running binary's image keys (imageKeys), shared by
-// HostProvenanceDigest and composedIdentity. Both are empty only for a binary
+// hostProvenanceDigest and composedIdentity. Both are empty only for a binary
 // carrying no usable stamp — which internal/adapters/cli's root gate refuses
 // to run — and that emptiness is ANNOUNCED, because a check that silently
 // stops checking is indistinguishable from one that passed.
@@ -764,8 +762,7 @@ func baseContent(baseContainerfile string) ([]byte, error) {
 //
 // The degrade is ANNOUNCED rather than silent, and it does not fall back to
 // rebuilding: imageRunsAsIs turns the staleness comparison off entirely on an
-// empty key, and `ctxloom container provenance` prints the empty key and exits
-// 0. A check that silently stops checking is indistinguishable from one that
+// empty key. A check that silently stops checking is indistinguishable from one that
 // passed.
 func warnProvenanceDisabled(stamp string) {
 	clidiag.WarnOnce("ctxloom", "this ctxloom carries no usable version stamp (%q); the container image-staleness check is DISABLED, so an agent image built by an older ctxloom will be run as-is", stamp)
@@ -1056,7 +1053,7 @@ func (c Container) imageIdentityConfig(ctx context.Context) (imageIdentity, erro
 // whose FROM is an external image; the agent stage over a just-built local
 // base never --pulls (the tag exists only locally) but still skips cache so
 // the client install re-runs. `id` is the PRECOMPUTED identity: its
-// provenance (HostProvenanceDigest for a legacy spec, composedIdentity's
+// provenance (hostProvenanceDigest for a legacy spec, composedIdentity's
 // engine-aware digest for a composable one) is computed once by the caller so
 // the stamped label always equals what the caller's own staleness check used
 // for the same configuration (a mismatch would re-flag the image stale on
@@ -1259,7 +1256,7 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 	}
 	id, composable := composedIdentity(p, opts.BaseContainerfile, devBase, backend)
 	if !composable {
-		id = agentImageID{ref: p.image, provenance: HostProvenanceDigest(opts.BaseContainerfile)}
+		id = agentImageID{ref: p.image, provenance: hostProvenanceDigest(opts.BaseContainerfile)}
 	}
 	if err := buildExplicitFromSources(ctx, rt, id, sources, selfExe, opts); err != nil {
 		return "", err

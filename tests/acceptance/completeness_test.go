@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 )
 
 // ranAsTool reports whether an MCP tool was actually invoked by a scenario (a
@@ -27,16 +27,15 @@ func ranAsTool(corpus, name string) bool {
 }
 
 // knownUncoveredTools is knownUncoveredCLI's MCP-tool counterpart: the exact
-// set of tools registered on the session endpoint (runnermcp.NewDocServer —
+// set of tools registered on the session endpoint (interaction.NewDocServer —
 // the one surface an engine dials, and the one the harness dials through a
 // standing session owner) this gate accepts as uncovered, checked for
 // exact-set equality the same way.
 var knownUncoveredTools = []string{
 	// agent_run is exercised by J002100 (steps_j002100_delegation.go,
 	// j002100_delegation.feature — a coordinator spawning delegated children
-	// and auditing their journaled privilege grant); agent_send/agent_recv by
-	// J002300 (the real two-way bus, both directions, content asserted on each
-	// side); agent_stop by J002100's failure-path scenario. evaluate_triggers,
+	// and auditing their journaled privilege grant); agent_send by J002300
+	// (the real two-way bus, both directions, content asserted on each side); agent_stop by J002100's failure-path scenario. evaluate_triggers,
 	// compact_session, get_previous_session and list_sessions are INVOKED by
 	// mcp_tools.feature — being named in a feature's prose is not coverage,
 	// which is the hole ranAsTool closes.
@@ -273,13 +272,13 @@ func TestCompleteness(t *testing.T) {
 
 // liveSurface enumerates the session endpoint's surface — the tools,
 // resources and templates the runner serves — from the same registration
-// the runner builds (runnermcp.NewDocServer), in memory: nothing is spawned
+// the runner builds (interaction.NewDocServer), in memory: nothing is spawned
 // and nothing is dialed.
-func liveSurface(t *testing.T) runnermcp.DocSurface {
+func liveSurface(t *testing.T) interaction.DocSurface {
 	t.Helper()
 	ctx, cancel := callCtx()
 	defer cancel()
-	surface, err := runnermcp.ListDocSurface(ctx)
+	surface, err := interaction.ListDocSurface(ctx)
 	if err != nil {
 		t.Fatalf("enumerate the MCP surface: %v", err)
 	}

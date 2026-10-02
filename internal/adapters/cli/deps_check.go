@@ -69,7 +69,7 @@ func runDepsCheck(cmd *cobra.Command, args []string) error {
 }
 
 // warnRefreshFailures reports each clone the check could not refresh; its
-// entries were checked against the stale clone.
+// entries are reported unchecked, not read from the stale clone.
 func warnRefreshFailures(failures []operations.RefreshFailure) {
 	for _, f := range failures {
 		clidiag.Warn("ctxloom", "fetch %s: %v", f.URL, f.Err)
@@ -149,6 +149,8 @@ func renderUncheckedDependency(out io.Writer, u operations.UncheckedDependency) 
 		clidiag.Warn("ctxloom", "%s: could not reach %s (%v); skipping the update check for it", u.Ref, u.URL, u.Err)
 	case operations.UncheckedUnresolvable:
 		clidiag.Warn("ctxloom", "%s: could not resolve %q (%v); skipping the update check for it", u.Ref, u.Constraint, u.Err)
+	case operations.UncheckedNotRefreshed:
+		fmt.Fprintf(out, "  %s: not checked — %s could not be fetched (see warning above)\n", u.Ref, u.URL)
 	}
 }
 

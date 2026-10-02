@@ -44,7 +44,7 @@ flowchart TD
   CLI["internal/adapters/cli<br/>(run.go: the session host; runner_deps.go: the runner's composition)"]
   TUI["internal/adapters/cli/tui"]
   MCP["internal/adapters/mcp<br/>(coord_host.go: HostCoordinatorForSession — the one hosting path;<br/>HostApp — the coordinator's host relay, one ctxServer per relayed call)"]
-  RMCP["internal/adapters/runner/mcp<br/>(delivery.Dynamic: Endpoint.Serve binds Launch.MCP;<br/>NewServer — coordination, relay and loadout surfaces)"]
+  RMCP["internal/adapters/runner/interaction<br/>(delivery.Dynamic: Endpoint.Serve binds Launch.MCP;<br/>NewServer — coordination, relay and loadout surfaces)"]
   SPAWN["internal/adapters/spawn<br/>(coord.Spawner: Resolve/ResolveLaunch/Start/Adopt;<br/>StartRunner and its context contract)"]
   COORD["internal/core/coord<br/>(Coordinator, Verbs, Transport port, Event + frames — no proto)"]
   CGRPC["internal/adapters/coordgrpc<br/>(Serve: the h2c listener + coordService/consumerService/artifactService;<br/>the codec; StatusFromErr)"]
@@ -115,7 +115,7 @@ command speaks MCP outside a session) constructs one
 `consumerService` and `artifactService` (`grpcserver.go`, all `adapters/coordgrpc`).
 Its long-lived goroutines are `runnerWatchdog`, `livenessWatchdog` and the
 coordinator-side `SpoolReactor`. Every LLM-facing verb lands on one of
-`Coordinator.AgentRun`, `AgentSend`, `AgentRecv`, `AgentStop`, `StopChildren`,
+`Coordinator.AgentRun`, `AgentSend`, `AgentStop`, `StopChildren`,
 `Roster`/`ListRuns` — whether it arrived in-process (the host-relayed tools,
 `coord.HostApp`) or over the wire (`coordgrpc`'s `handleAgentFrame` decodes
 `AgentRequestFromWire` → `Coordinator.HandleRequest → serveAgentRequest` →
@@ -126,12 +126,12 @@ included; `runner.Main`) decodes its reach-back trio once, constructs a
 `runner.Home` which dials two streams — `RunnerChannel` (lifecycle, one per
 credential, via `DialRunner` / `RunnerLink`) and `RunChannel` (one per run) —
 and hosts the engine through `runner.EngineHost`. It BINDS the session's ONE
-MCP endpoint (`runner/mcp.Endpoint`, `delivery.Dynamic`: Streamable HTTP under
+MCP endpoint (`runner/interaction.Endpoint`, `delivery.Dynamic`: Streamable HTTP under
 `ServePolicy`, a bearer on every request) and delivers the launch into the
 session's home with that endpoint named in the session's registry — ctxloom's
 own companion entry rendered through the engine's dynamic approach
 (`delivery.InputsFor`); the engine dials it directly. The surface is
-`runner/mcp.NewServer`: the coordination tools generated from `mcpschema`, the
+`runner/interaction.NewServer`: the coordination tools generated from `mcpschema`, the
 host relays (`HostRequest` frames the coordinator answers through
 `mcp.HostApp`) and the cell-local tools and `ctxloom://` resources over the
 Loadout. Its goroutines are `Home.runnerChannelLoop`, `runChannelLoop`, the
@@ -183,8 +183,7 @@ the slot/park/idle/one-shot state machine and the exactly-once terminal, is in
 ### Mail
 
 One message's life, both directions, copied from the audit's SM2. The full call
-graphs are the audit's G1 (child → parent), G2 (parent → child) and G3 (`agent_recv`,
-which exists once per side).
+graphs are the audit's G1 (child → parent) and G2 (parent → child).
 
 ```mermaid
 stateDiagram-v2
@@ -192,23 +191,23 @@ stateDiagram-v2
     [*] --> OutFile: Home.sendPeerViaSpool (the child's agent_send) | Home.ReportTurnResult (the runner's automatic turn report, at EngineHost's turn Complete) → Home.writeOutbound → spool.Writer.Write(out/) [fsync] + ringSpool (AgentFrame.spool_changed, drop-counted)
     OutFile --> Swept: coordinator sweepChildOut (doorbell mark | reattach mark | periodic tick | startup pass)
     Swept --> Routed: routeSpoolOut → peerSend (ask-reply intercept; SenderMailKind; childSend lineage) → queueMailPayload
-    Routed --> OwnerInFile: mailCourier.Send → spool.Writer.Write(owner in/) [NEW id] + ringSpool→spoolInbox.wake
+    Routed --> OwnerInFile: mailCourier.Send → spool.Writer.Write(owner in/) [NEW id] + ringSpool (the owner's runner sweeps → Home.wakeOwner)
     Routed --> OutFailed: refused → replySpoolRefusal (to sender) + noticeSpoolDrop (to parent) + spool.Fail(out/failed/)
     OwnerInFile --> OutConsumed: consumeSpool(out/→out/consumed/)
-    OwnerInFile --> Claimed: Recv → spoolInbox.claim (reserve the id; remember the ref)
-    Claimed --> Returned: spoolInbox.recv returns []Message
-    Returned --> InConsumed: NEXT Recv → spoolInbox.ack → spool.Consume(in/→in/consumed/); unreserve
-    Claimed --> OwnerInFile: coordinator crash before ack → re-read under same id
+    OwnerInFile --> Woken: Home.fireWake (spool.ArmWake nonce → engine.Wake.Fire) → the owner's next turn starts
+    Woken --> Claimed: turn_start → `ctxloom hook mail-drain` → spool.Claim(in/→in/claimed/)
+    OwnerInFile --> Claimed: a human's own prompt runs the same hook
+    Claimed --> InConsumed: written as the turn's context → spool.Ack(in/claimed/→in/consumed/) + spool.ClearWakes
+    Claimed --> Claimed: hook dies before the write → the next turn's Claim hands it out again
   }
   state "parent → child" as down {
     [*] --> InFile: ownerSend/steer/notice → queueMailPayloadID → mailCourier.Send (child in/) + ringSpool (CoordinatorNotice.spool_changed, non-blocking)
     InFile --> Delivered: Home.sweepSpoolIn (doorbell | reattach | turn boundary | tick | startup) → mailFromSpool → peerMessageProto → deliverNotice (dedupe h.consumed/turnPending/buffer)
-    Delivered --> TurnQueued: no park ∧ turn sink → turnQ
-    Delivered --> Buffered: else h.buffer; completes parked Recv; else terminalNudge
+    Delivered --> TurnQueued: turn sink → turnQ
+    Delivered --> Buffered: no sink yet → h.buffer (SetTurnSink drains it first)
     TurnQueued --> Accepted: turnPump → sink → EngineHost.enqueueTurn → in chan (engine stdin)
     Accepted --> InConsumed: ackMailConsumed → spool.Consume + Announce('consumed') doorbell → coordinator sweepChildConsumed → noteMailConsumed (budget forgiven)
-    Buffered --> ReturnedToHarness: Home.Recv returns; recordReturned
-    ReturnedToHarness --> InConsumed: NEXT Home.Recv (ackReturned) or Home.Close → ackMailConsumed
+    Buffered --> TurnQueued: SetTurnSink
     TurnQueued --> Buffered: sink returned false (engine gone)
     InFile --> InWithdrawn: WithdrawSteer (rename wins) → ErrSteerAlreadyDelivered if lost
     InFile --> InFailed: unparseable / unknown kind → failSpoolEntry (spool.Fail)
@@ -228,15 +227,15 @@ Reading it:
 - **Downward** (`agent_send`, steer, or a synthesized notice to a child), the
   coordinator writes into the child's `in/` and rings `CoordinatorNotice.spool_changed`;
   the runner's `Home.sweepSpoolIn` picks it up and either hands it to the engine as a
-  turn (`turnPump → EngineHost.enqueueTurn`) or buffers it for a parked `Home.Recv`.
-- **The owner's inbox** has no runner: the `Recv` verb drains the owner's
-  `in/` in the coordinator process through the one `spoolInbox`
-  (`spoolinbox.go`; see mailbox.md). The owner is identified by declaration
-  (`Options.OwnerHarp`), not by a run record.
-- **The ack** on both sides is `spool.Consume` — a rename into `consumed/` —
-  performed one receive late: a reader acknowledges the previous batch when it asks
-  for the next (`Home.ackReturned`, `spoolInbox.ack`), or on a clean
-  `Home.Close`. There is no cursor and no consumption fact.
+  turn (`turnPump → EngineHost.enqueueTurn`) or buffers it until the engine
+  registers its turn sink.
+- **The owner's inbox** is read by its turn-start hook, `ctxloom hook mail-drain`
+  (`spool.Claim`, then `spool.Ack` once the context is written). Its runner reads
+  nothing from it: a sweep only fires the owner's wake (`Home.wakeOwner`), which
+  starts the turn the hook runs in.
+- **The ack** is a rename into `consumed/`: the runner's after the engine accepted
+  the turn (`Home.ackMailConsumed`), the hook's after it wrote the context
+  (`spool.Ack`). There is no cursor and no consumption fact.
 - **Every runner-side node above is a real process**, in the hermetic suite
   too: the delegation journey (`j002300_cross_engine_delegation.feature`)
   delegates to the mock backend through a real `ctxloom mcp` coordinator, which
@@ -269,7 +268,7 @@ false — delete it rather than leave it.
 | I3 | Facts become visible only after they are durable: one writer goroutine serialises every `decide → append → fsync → apply` window. | `Store.writer`, `Store.execLocked` (`journal.go`) |
 | I4 | Folds are single-writer by construction; `Store.View` is a read-lock window and callers must not retain references out of it. | `Store.View` (`journal.go`) |
 | I5 | The file is the message. The wire carries only a `spool.Ref` (harp, dir, name); a doorbell lost on a down stream costs latency, never a message, because every reader's sweep re-derives the whole picture (`spoolReactor`, `spoolSweepInterval`, the startup and reconnect sweeps). | `spool.Writer.Write`, `spool.Sweep`; `AgentFrame.spool_changed` doc in `coordination.proto` |
-| I6 | The ack is the consume-rename. Delivery is at-least-once and one receive late; a reader that crashes before acking is re-delivered the same file, deduped on its id (`Home.deliverNotice`'s `consumed` set; the owner's `spoolInbox` reservation ledger). | `spool.Consume`; `Home.ackReturned` / `Home.ackMailConsumed`; `spoolInbox.ack` |
+| I6 | The ack is the consume-rename. Delivery is at-least-once; a reader that crashes before acking is re-delivered the same file, deduped on its id (`Home.deliverNotice`'s `consumed` set) or re-claimed from `in/claimed/` (the owner's hook). | `spool.Consume`; `Home.ackMailConsumed`; `spool.Claim` / `spool.Ack` |
 | I7 | Each spool directory has one writer: the coordinator writes `in/`, the run's own runner writes `out/`. A sender is who the DIRECTORY says, and a `SpoolChanged.harp` arriving on a child's channel is resolved against THAT child's spool, never against the harp the frame names. | `spool.DirIn` / `spool.DirOut` docs; `Coordinator.handleSpoolChanged`, `spoolSenderIdentity` |
 | I8 | A `Ref` from a less-trusted peer is validated at one chokepoint — harp grammar, closed `Dir` set, bare filename — and rejected, never sanitised. Nothing is silently dropped: a malformed file is a named `spool.Problem`, a lost rename is `spool.ErrAlreadyGone`. | `spool.Ref.Validate`, `spool.HomeMapper.Resolve`, `spool.Sweep` |
 | I9 | Every run death funnels through one exactly-once terminal that claims `factRunEnded` inside the journal window; only the claimant frees the slot, revokes the credential, severs the channel and notices the parent. | `Coordinator.terminateRun` (`children.go`) |

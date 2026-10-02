@@ -141,7 +141,7 @@ every ctxloom rebuild re-runs the vendor's installer. That is how a cell came to
 die repeatedly on a vendor installer exhausting GitHub's anonymous API quota
 before the order was fixed. The engine install goes above
 everything that changes per build; the ctxloom binary goes last.
-Provenance (`HostProvenanceDigest`) is `versionProvenanceKey`, then a digest of
+Provenance (`hostProvenanceDigest`) is `versionProvenanceKey`, then a digest of
 the staged companions' self-reported versions (`companionVersionKey`), then the
 base config's content hash — stamped as `LABEL ctxloom.provenance` and checked
 by `imageStale`. It keys on the VERSION rather than a digest of the running
@@ -670,7 +670,7 @@ image another is between building and running.
 | `SessionState` / `SessionStateFromEnv` | `statemounts.go` | Harp + project id threaded into the seam |
 | `TraceProbe` / `TraceRead` / `ParseStraceReads` | `traceprobe.go` | Read-observation vocabulary |
 | `Diagnosis` / `Diagnose` | `diagnose.go` | `container check` report |
-| `BuildAgentImage` / `ImageBuildOptions` / `HostProvenanceDigest` | `imagebuild.go` | `container build` / `container provenance` |
+| `BuildAgentImage` / `ImageBuildOptions` / `hostProvenanceDigest` | `imagebuild.go` | `container build` |
 | `ReapOrphanedWorktrees` / `WorktreeReapResult` | `worktree_reap.go` | Startup orphan sweep |
 | `PlanImagePrune` / `ApplyImagePrune` / `LiveImageRef` | `image_prune.go` | `container prune` and the doctor superseded-images check |
 

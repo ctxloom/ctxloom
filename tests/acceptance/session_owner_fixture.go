@@ -5,7 +5,7 @@
 // A coordinator is hosted only by a RUNNER: `ctxloom run` stands it up and
 // its runner serves the session's ONE MCP endpoint — the URL and bearer the
 // launch minted into the session record (sessions.Endpoint, session.yaml)
-// — over Streamable HTTP (runner/mcp.Endpoint). A scenario that drives the
+// — over Streamable HTTP (runner/interaction.Endpoint). A scenario that drives the
 // agent_* tools needs a real owner standing first, and this fixture is that
 // owner: a mock-engine `ctxloom run` held open on a pty for the scenario's
 // whole life, torn down with the scenario.

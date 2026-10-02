@@ -13,7 +13,6 @@ var WriteDisciplineAllowed = map[string]string{
 	"internal/adapters/coordgrpc/httpserver.go#coordServing.saveEndpointLocked": "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/core/coord/journal.go#openStoreFromOffset":                        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/core/coord/statedir.go#claimOwner":                                "advisory lock file's own O_EXCL create — mechanically parallel to the old filelock package's (deleted) exemption but never itself part of it (fs-consolidation plan C10 to decide: fold into a shared lock-file-create helper or exempt structurally)",
-	"internal/adapters/coordgrpc/mcpschema/gen/main.go#generateXmlLike":         "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/adapters/coordgrpc/mcpschema/gen/main.go#writeSpec":               "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/core/spool/ops.go#renameInto":                                     "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/core/spool/writer.go#Writer.Write":                                "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",

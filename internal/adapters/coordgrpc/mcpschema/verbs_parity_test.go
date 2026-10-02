@@ -35,7 +35,6 @@ var verbBindings = map[string]verbBinding{
 		// to_agent_id / to_role are the wire's two spellings of the one
 		// recipient (sendRequestFromWire folds them).
 		fields: map[string]string{"to_agent_id": "To", "to_role": "To", "text": "Body", "kind": "Kind", "structured": "Structured", "in_reply_to": "InReplyTo"}},
-	ToolAgentRecv: {request: nil, transportOnly: []string{"wait"}},
 	ToolAgentStop: {request: coord.StopRequest{},
 		// run_id is the wire's address; serveStopRun resolves it to the harp.
 		fields: map[string]string{"run_id": "Harp", "reason": "Reason", "grace": "Grace"}},

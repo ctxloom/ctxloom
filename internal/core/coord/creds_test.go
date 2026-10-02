@@ -3,10 +3,11 @@ package coord
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
 // TestVerifyToken_ConstantTimeMatch pins the credential verify: only the exact
@@ -53,74 +54,43 @@ func TestCredentialRevocation_RevokesTheChildsCredential(t *testing.T) {
 	assert.False(t, ok, "a revoked credential no longer verifies")
 }
 
-// TestMailbox_AtLeastOnceRedeliveryAndDedupe pins the at-least-once contract:
-// a recv that returns a message but is NOT followed by an acking recv leaves
-// the message re-deliverable after a coordinator relaunch (durable), and a
-// duplicate queued message id is deduped.
-func TestMailbox_AtLeastOnceRedeliveryAndDedupe(t *testing.T) {
+// TestMailbox_AtLeastOnceRedelivery pins the at-least-once contract across a
+// coordinator relaunch: mail a reader claimed but never acknowledged (a
+// turn-start hook that died between claim and ack) is delivered again from
+// the same spool, and mail that was acknowledged stays consumed.
+func TestMailbox_AtLeastOnceRedelivery(t *testing.T) {
 	resetStrictness(t)
 	stateDir := mkTempDir(t)
 
-	// Round 1: queue two messages to a role, recv them (delivered, NOT acked),
-	// then simulate a crash (close without the acking recv).
+	// Round 1: queue two messages to the owner, claim them, and never
+	// acknowledge (the reader crashed); the coordinator goes down too.
 	c1 := newTestCoordinatorAt(t, stateDir)
 	role := ownerIdentity().Harp
 	_, err := c1.queueMail("sender", role, KindMessage, "first")
 	require.NoError(t, err)
 	_, err = c1.queueMail("sender", role, KindMessage, "second")
 	require.NoError(t, err)
-
-	msgs, err := c1.inbox.recv(context.Background(), role, "", 0)
+	claimed, err := spool.Claim(c1.mapper, role)
 	require.NoError(t, err)
-	require.Len(t, msgs, 2, "both pending messages are delivered")
-	c1.Close() // crash before the acking recv appends consume facts
+	require.Len(t, claimed.Entries, 2, "both pending messages are claimed")
+	c1.Close()
 
-	// Round 2: a fresh coordinator adopts the SAME journals. The undelivered
-	// (unacked) messages are re-delivered — at-least-once.
+	// Round 2: a fresh coordinator over the SAME state: the claimed but
+	// unacknowledged messages are delivered again.
 	c2 := newTestCoordinatorAt(t, stateDir)
-	redelivered, err := c2.inbox.recv(context.Background(), role, "", 0)
+	redelivered, err := spoolMail(t, c2, role, 0)
 	require.NoError(t, err)
 	require.Len(t, redelivered, 2, "unacknowledged deliveries survive a relaunch and re-deliver")
 	assert.Equal(t, "first", redelivered[0].Body)
 	assert.Equal(t, "second", redelivered[1].Body)
 
-	// A subsequent recv ACKS them (cursor-ack); nothing re-delivers after.
-	_, err = c2.inbox.recv(context.Background(), role, "", 0)
-	require.ErrorIs(t, err, ErrRecvTimeout, "after the acking recv the mailbox is empty")
+	// That read acknowledged them; nothing re-delivers after.
+	_, err = spoolMail(t, c2, role, 0)
+	require.ErrorIs(t, err, errNoOwnerMail, "after the acknowledging read the spool is empty")
 	c2.Close()
 
 	c3 := newTestCoordinatorAt(t, stateDir)
-	_, err = c3.inbox.recv(context.Background(), role, "", 0)
-	require.ErrorIs(t, err, ErrRecvTimeout, "consumed messages stay consumed across a relaunch")
+	_, err = spoolMail(t, c3, role, 0)
+	require.ErrorIs(t, err, errNoOwnerMail, "consumed messages stay consumed across a relaunch")
 	c3.Close()
-}
-
-// TestMailbox_PollPreemption pins the one-active-poll-per-role rule: a newer
-// long-poll preempts the older one (ErrRecvPreempted).
-func TestMailbox_PollPreemption(t *testing.T) {
-	resetStrictness(t)
-	c := newTestCoordinatorAt(t, mkTempDir(t))
-	defer c.Close()
-	role := ownerIdentity().Harp
-
-	old := make(chan error, 1)
-	go func() {
-		_, err := c.inbox.recv(context.Background(), role, "", conformanceWait)
-		old <- err
-	}()
-	require.Eventually(t, func() bool {
-		c.inbox.mu.Lock()
-		defer c.inbox.mu.Unlock()
-		return c.inbox.polls[role] != nil
-	}, conformanceWait, 5*time.Millisecond)
-
-	// A newer poll preempts the older.
-	go func() { _, _ = c.inbox.recv(context.Background(), role, "", conformanceWait) }()
-
-	select {
-	case err := <-old:
-		require.ErrorIs(t, err, ErrRecvPreempted)
-	case <-time.After(conformanceWait):
-		t.Fatal("the older poll was never preempted")
-	}
 }

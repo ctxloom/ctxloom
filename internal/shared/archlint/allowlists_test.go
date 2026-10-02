@@ -27,8 +27,6 @@ func TestAllowlists_NameFilesThatExist(t *testing.T) {
 	}{
 		{"testSupportImporters", keysOf(testSupportImporters)},
 		{"bindSessionAllowedCallers", keysOf(bindSessionAllowedCallers)},
-		{"generatedFrameEncoders", keysOf(generatedFrameEncoders)},
-		{"frameDeclarers", keysOf(frameDeclarers)},
 		{"lockDisciplineScopes", lockDisciplineScopes},
 		{"lockDisciplineExemptFiles", keysOf(lockDisciplineExemptFiles)},
 		{"writeDisciplineExemptDirs", writeDisciplineExemptDirs},

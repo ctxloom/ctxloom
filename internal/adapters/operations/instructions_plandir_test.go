@@ -57,6 +57,6 @@ func TestSessionInstructions_NoHarpAddsNoPlanDir(t *testing.T) {
 	// addition leaking into the identity-less arm. The premise catalog is named
 	// explicitly because it is session-INDEPENDENT — every caller gets it, harp
 	// or no harp — so admitting it here weakens nothing.
-	assert.Equal(t, mcpServerInstructions+premiseCatalogInstruction(), got)
+	assert.Equal(t, strings.TrimRight(premiseCatalogInstruction(), "\n")+"\n\n"+strings.TrimRight(mcpServerInstructions, "\n"), got)
 	assert.NotContains(t, got, paths.PlanFileExt)
 }

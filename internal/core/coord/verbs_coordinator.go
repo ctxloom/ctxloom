@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 )
 
 // The Coordinator implements Verbs. Each verb validates its request FIRST
@@ -50,11 +49,6 @@ func (c *Coordinator) Send(_ context.Context, caller Identity, req SendRequest) 
 		return SendResult{}, err
 	}
 	return SendResult{MessageID: msgID, Disposition: disposition}, nil
-}
-
-// Recv is agent_recv: the caller's bounded long poll on its own inbox.
-func (c *Coordinator) Recv(ctx context.Context, caller Identity, wait time.Duration) ([]Message, error) {
-	return c.AgentRecv(ctx, caller, wait)
 }
 
 // Stop is agent_stop, in its two shapes: one child by harp, or every live

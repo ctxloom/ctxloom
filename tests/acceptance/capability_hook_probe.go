@@ -15,8 +15,8 @@
 // the right hook bytes into each engine's own native hook surface. Row 7 —
 // bundles.HookEvent*, the hooks actually FIRING — is proven NOWHERE, hermetic or
 // live. Those two rows are one step apart and the step is a vendor binary we do
-// not control: ctxloom writes .claude/settings.json / $CODEX_HOME/config.toml,
-// and then CLAUDE or CODEX decides whether to
+// not control: ctxloom writes the engine's native hook file (claude's
+// .claude/settings.json), and then the vendor binary decides whether to
 // read that file and exec the command in it. Carriage is our behaviour; firing
 // is theirs. A suite that only ever checks carriage is measuring the half it
 // already controls.
@@ -44,8 +44,7 @@
 // TWO HARPS, TWO CHANNELS, DELIBERATELY NOT ONE. Stage (a) — firing — plants
 // its harp in the hook command's ARGV. Stage (b) — output ingestion — plants a
 // DIFFERENT harp in the hook's STDOUT, and only for an engine whose declared
-// context approach IS the hook (agent.ApproachHook first in its ApproachTable:
-// codex, and codex alone at this base). One harp used for both stages could be
+// context approach IS the hook (hookProbeIngestsHookStdout). One harp used for both stages could be
 // satisfied in stage (b) by an engine that had reached the stamp file on disk,
 // and the whole ladder rests on a planted value being reachable through exactly
 // one channel. Two mints cost nothing and close that door.
@@ -69,14 +68,11 @@ import (
 // hook's stdout as conversation context — the condition for stage (b).
 //
 // It is not a guess and not a preference: it mirrors production's own declared
-// dispatch. codex's ApproachTable (codexApproaches, internal/codex/surfaces.go)
-// lists agent.ApproachHook FIRST for agent.SurfaceContext, which makes the hook
-// codex's DEFAULT context route — ctxloom really does deliver a codex agent's
-// composed context by writing a SessionStart hook and letting codex ingest what
-// it prints. claude declares ApproachHook too, but claude's SurfaceFor resolves
-// that pair to the shared HookCarriedContext — a Rider whose own Deliver is a documented no-op —
-// so ctxloom does not deliver claude's context that way and this probe must not
-// pretend it can observe it. opencode has no hook mechanism.
+// dispatch, and is true only for an engine whose ApproachTable makes the hook its
+// DEFAULT context route for agent.SurfaceContext. claude declares ApproachHook,
+// but resolves it to the shared HookCarriedContext — a Rider whose own Deliver
+// is a documented no-op — so ctxloom does not deliver claude's context that way
+// and this probe must not pretend it can observe it.
 //
 // Getting this wrong in the permissive direction is the expensive mistake: it
 // would red claude's cell for failing to do something ctxloom never
@@ -304,7 +300,7 @@ func (h *hookProbeState) echoCell() probeCellID {
 //
 // A cell that reaches stage (b) has already proven firing. That ordering is
 // what lets stage (b)'s red be read as "the hook fired but its output never
-// reached the model" — a statement about codex's ingestion, not about hooks.
+// reached the model" — a statement about the engine's ingestion, not about hooks.
 func hookProbeAssert(h *hookProbeState) error {
 	v := probeVerdict{Family: "hook-probe", Cell: h.cell(), Channel: channelHookStamp}
 

@@ -433,6 +433,19 @@ test-vendor-claude:
 validate-vendor-claude root=(env("HOME") / ".claude/projects"):
     VALIDATE_VENDOR_CLAUDE_ROOT="{{root}}" go test -trimpath -count=1 -v -run '^TestValidateLocalClaudeTranscripts$' ./internal/adapters/transcript/vendorreader/claude/
 
+# REQUIRED on every claude pin bump (owner ruling D-K), beside
+# validate-vendor-claude. Drives the INSTALLED claude interactively on
+# a pty in a throwaway HOME/CLAUDE_CONFIG_DIR with this tree's ctxloom first on
+# PATH, and proves: claude exports its messaging endpoint to the stdio relay it
+# spawns (`ctxloom claude-relay`); a wake the runner fires starts a turn in the
+# idle session; UserPromptSubmit sees the BARE wake line and mail-drain redeems
+# it. Makes no model call (the woken prompt is blocked as a stale wake), but
+# claude must be authenticated from the environment: run it from a shell that
+# carries the credential (e.g. `zsh -ic 'just validate-wake-claude'`).
+# Live wake gate: a runner-fired wake starts a turn in an idle installed claude.
+validate-wake-claude claude=`command -v claude || true`: build
+    VALIDATE_WAKE_CLAUDE_CTXLOOM="{{justfile_directory()}}/ctxloom" VALIDATE_WAKE_CLAUDE_BIN="{{claude}}" go test -trimpath -count=1 -v -timeout 6m -run '^TestValidateWakeClaude$' ./internal/engines/claude/relay/
+
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
 # doesn't touch CGO/treesitter, just the generated proto stubs (`just build`
@@ -996,7 +1009,7 @@ isolation-probe ENGINE AXIS: build
 # name. It spawns a real delegated child on that
 # engine and asserts the marker phrase that exists ONLY in the child's own
 # composed context comes back to the coordinator's mailbox over the
-# agent_send/agent_recv bus — the round trip agent_run's own success value
+# agent_send bus — the round trip agent_run's own success value
 # famously does not prove (see that feature's header). Makes real, paid engine
 # calls; self-skips loudly, naming the engine and the reason, when that engine
 # is missing or unauthenticated. -timeout 20m because a live turn on a slow
@@ -1683,8 +1696,7 @@ gen-mcp-schemas:
     trap 'rm -f "$tmp"' EXIT
     buf build -o "$tmp"
     go run ./internal/adapters/coordgrpc/mcpschema/gen -descriptor "$tmp" \
-        -out internal/adapters/coordgrpc/mcpschema/schemas \
-        -xmllike-out internal/adapters/coordgrpc/pb/xmllike_gen.go
+        -out internal/adapters/coordgrpc/mcpschema/schemas
 
 # Generate the reference docs for all three binaries from their sources of
 # truth: the CLI reference (man pages + website markdown) from each cobra
@@ -1748,7 +1760,7 @@ docs:
     cd website && npm run dev
 
 # `docs-deps` (npm ci) and `docs-build` (npm run build) come from
-# build/ci.justfile — .github/workflows/docs.yml runs them, so they are shared
+# build/ci.justfile — CI's `docs` job runs them, so they are shared
 # with justfile.container rather than defined only here.
 
 # Preview production docs build
@@ -1766,8 +1778,9 @@ docs-preview:
 # produced fresh from this run's capture, so they can never be stale. Neither
 # `docs` (dev server) nor `docs-build` depends on this — like `gen-docs`
 # (the CLI/MCP/config reference generator), it is a separate, explicit step so
-# a docs preview never forces a full acceptance run. CI's docs deploy workflow
-# (.github/workflows/docs.yml) runs it explicitly before `npm run build`.
+# a docs preview never forces a full acceptance run. CI
+# (the `docs` job in .github/workflows/ci.yml) runs it explicitly before
+# `npm run build`.
 gen-living-docs: build
     #!/usr/bin/env bash
     set -euo pipefail

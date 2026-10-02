@@ -48,6 +48,12 @@ var retiredKeys = map[string]string{
 	"llm.default":    "`llm.default` was REPLACED by `llm.defaults.primary`",
 	"llm.compaction": "`llm.compaction` was REPLACED by `llm.defaults.fast`",
 	"subagents":      "`subagents` was RENAMED to `agents`",
+	// Deliberately NOT migrated into the state record: a value from a
+	// committed, env-overridable file is not a human's consent, so the old
+	// grant is dropped (fails closed) and the user is told how to re-grant.
+	"dirty_tree_commit_ack": "`dirty_tree_commit_ack` was RETIRED: the consent is no longer a config key, and a value here " +
+		"grants nothing. Re-grant it for this checkout with `ctxloom manage commit trust`, " +
+		"or answer the dirty-tree question in `ctxloom init`",
 }
 
 // additionalPropsRe extracts the offending key names from a jsonschema

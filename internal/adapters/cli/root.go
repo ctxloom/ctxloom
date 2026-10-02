@@ -75,6 +75,11 @@ type Composition struct {
 	// SessionClaims constructs the per-session claim store a launch roots
 	// at its minted harp.
 	SessionClaims launch.SessionClaims
+	// EngineCommands are the machine callbacks an ENGINE owns — hidden
+	// subcommands the engine itself spawns (claude's session relay). The
+	// root composes them from the engine packages, which the cli does not
+	// import.
+	EngineCommands []*cobra.Command
 }
 
 // theComposition is the root's Composition for this process; theApp is the
@@ -334,6 +339,7 @@ func rootCommand() *cobra.Command {
 			panic("cli: the command tree was assembled without a composed engine registry; hand it through the Composition (Run or GetRootCmd)")
 		}
 		applyEngineNamedHelp(theComposition.Engines)
+		rootCmd.AddCommand(theComposition.EngineCommands...)
 
 		// version.Version is read HERE and not in init() because a TEST binary
 		// receives its stamp from TestMain (testsupport.StampTestBinary), which

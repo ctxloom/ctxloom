@@ -310,7 +310,7 @@ func (m *MemStore) RecordEngineVersion(harpName, version string) error {
 // tests run against, and a fake that accepts a name the real store refuses is
 // how a validation defect stays invisible.
 func (m *MemStore) Rename(oldName, newName string) error {
-	if err := harp.Validate(newName); err != nil {
+	if err := harp.ValidateRename(newName); err != nil {
 		return err
 	}
 	m.mu.Lock()

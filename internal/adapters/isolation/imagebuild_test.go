@@ -394,7 +394,7 @@ func TestHostProvenanceDigest_TracksTheVersionNotTheBinary(t *testing.T) {
 		orig := binaryVersion
 		SetBinaryVersion(stamp)
 		defer SetBinaryVersion(orig)
-		return HostProvenanceDigest("")
+		return hostProvenanceDigest("")
 	}
 
 	first := stampedDigest(testStamp)
@@ -553,7 +553,7 @@ func TestEnsureImage_ParallelCallersShareOneBuild(t *testing.T) {
 	// current, so a caller landing after the flight re-checks cheaply instead
 	// of rebuilding. This spec is COMPOSABLE (engineInstall != nil), so its
 	// real provenance comes from composedIdentity (content+engine-keyed),
-	// never the legacy HostProvenanceDigest — computed here with the same
+	// never the legacy hostProvenanceDigest — computed here with the same
 	// nil devBase; the engine is the one ensureImage itself resolves for this Container
 	// (appRoot == "" short-circuits devcontainer auto-detection to nil).
 	id, ok := composedIdentity(spec, "", nil, "claude-code")
@@ -759,7 +759,7 @@ exit 0
 // a gate that was switched off.
 func forceProvenance(t *testing.T) {
 	t.Helper()
-	require.NotEmpty(t, HostProvenanceDigest(""), "the staleness gate must be live, or the assertions below prove nothing")
+	require.NotEmpty(t, hostProvenanceDigest(""), "the staleness gate must be live, or the assertions below prove nothing")
 }
 
 // TestEnsureImage_UnverifiableProvenanceIsNotCurrent pins that the

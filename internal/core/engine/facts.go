@@ -144,6 +144,12 @@ type ContainerSpec struct {
 	// engine's writers target under the run's cwd, shadowed by scratch
 	// overlays so the host project stays clean. Directories only.
 	OverlayDirs []string
+	// InPlaceFiles are the project-relative FILES the engine's writers
+	// rewrite in place in the bind-mounted project during a container run —
+	// not overlaid, because a single-file overlay breaks the writers' atomic
+	// rename. Host processes write the same files, so each one's lock is the
+	// only lock that crosses the container boundary.
+	InPlaceFiles []string
 	// TranscriptStoreRel is the engine's native transcript store ROOT
 	// relative to the container home, bind-mapped so transcripts survive
 	// teardown. "" when the engine keeps no transcripts.

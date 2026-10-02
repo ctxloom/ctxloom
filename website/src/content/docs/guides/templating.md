@@ -62,7 +62,7 @@ variables:
 
 ### Simple Variables
 
-```mustache
+```handlebars
 Hello, {{name}}!
 ```
 
@@ -77,7 +77,7 @@ variables:
   DEBUG: "true"
 ```
 
-```mustache
+```handlebars
 {{#DEBUG}}
 Debug mode is enabled.
 {{/DEBUG}}
@@ -85,7 +85,7 @@ Debug mode is enabled.
 
 ### Inverted Sections (Falsy Check)
 
-```mustache
+```handlebars
 {{^PRODUCTION}}
 This is not production - be careful!
 {{/PRODUCTION}}
@@ -93,13 +93,13 @@ This is not production - be careful!
 
 ### Raw Output (Unescaped)
 
-```mustache
+```handlebars
 {{{HTML_CONTENT}}}
 ```
 
 ### Comments
 
-```mustache
+```handlebars
 {{! This comment won't appear in output }}
 ```
 
@@ -126,7 +126,7 @@ silences the warning entirely (not just the corruption), by temporarily
 switching delimiters, writing the literal braces as plain text, then
 switching back.
 
-```mustache
+```handlebars
 {{=<% %>=}}
 Use `{{ARGS}}` to forward recipe arguments; `{{justfile_directory()}}` is
 scoped to the local file, not a composing parent.

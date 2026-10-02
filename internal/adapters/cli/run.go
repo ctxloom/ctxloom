@@ -1224,9 +1224,6 @@ func (st *runState) seedTask() {
 	}
 }
 
-// teardownTransport kills whichever transport this run stood up. See runRun's
-// own comment at the deferral site for why it is registered before the
-// workspace is prepared rather than after the transport is chosen.
 // teardownAll unwinds a run in the ONE order that is safe: the transport
 // first, then the workspace it was running in.
 //
@@ -1250,6 +1247,7 @@ func (st *runState) teardownAll() {
 	_ = launch.Discard(context.Background(), st.launch)
 }
 
+// teardownTransport kills whichever transport this run stood up.
 func (st *runState) teardownTransport() {
 	if st.pty != nil {
 		st.pty.Kill()

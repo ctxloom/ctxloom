@@ -6,6 +6,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"path/filepath"
 )
 
 // This file is the mock ENGINE KIND: the conformance double and the first
@@ -301,9 +302,9 @@ func (m Mock) Transcripts() []engine.TranscriptReader { return m.transcripts }
 // (hooks.go).
 func (m Mock) Hooks() engine.HookCodec { return hookCodec{m.Name} }
 
-// Wake is declared absent: the mock has no out-of-band way to start a turn.
+// Wake is the mock's own socket (EnvWakeSocket).
 func (m Mock) Wake() engine.Declared[engine.WakeSpec] {
-	return engine.Absent[engine.WakeSpec]("the mock listens on nothing a wake could post to")
+	return engine.Provide[engine.WakeSpec](socketWake{})
 }
 
 // Instance is where REQUIREDNESS is checked, loudly: the mock cannot run a
@@ -339,7 +340,13 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 			env[k] = v
 		}
 	}
-	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: i.s.Mode == engine.Interactive}, nil
+	interactive := i.s.Mode == engine.Interactive
+	if root := i.s.Roots.SessionHome.Engine; interactive && root != "" {
+		// The session owner's wake: the interactive echo listens here, and
+		// the runner binds the mock's wake from this same env.
+		env[EnvWakeSocket] = filepath.Join(root, wakeSocketName)
+	}
+	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: interactive}, nil
 }
 func (i *instance) Drivers() []engine.StructuredDriver {
 	return []engine.StructuredDriver{driver{fires: i.fires, approver: i.s.Permission.Approver}}

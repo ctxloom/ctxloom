@@ -2,6 +2,7 @@ package runtime_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
@@ -72,6 +74,13 @@ func startInteractive(t *testing.T, vendorArgv []string) *interactiveRun {
 // startInteractiveOn is startInteractive against an explicit L1 grammar.
 func startInteractiveOn(t *testing.T, cli agent.EngineCLI, vendorArgv []string) *interactiveRun {
 	t.Helper()
+	return startInteractiveEnv(t, cli, vendorArgv, map[string]string{})
+}
+
+// startInteractiveEnv is startInteractiveOn with env as the session's
+// environment.
+func startInteractiveEnv(t *testing.T, cli agent.EngineCLI, vendorArgv []string, env map[string]string) *interactiveRun {
+	t.Helper()
 	parsed, err := cli.ParseArgv(vendorArgv)
 	if err != nil {
 		t.Fatalf("parse argv %v: %v", vendorArgv, err)
@@ -88,8 +97,8 @@ func startInteractiveOn(t *testing.T, cli agent.EngineCLI, vendorArgv []string) 
 		CLI:       cli,
 		Argv:      parsed,
 		Res:       runtime.Resolver{Cwd: t.TempDir(), Home: t.TempDir(), Getenv: func(string) string { return "" }},
-		Getenv:    func(string) string { return "" },
-		LookupEnv: func(string) (string, bool) { return "", false },
+		Getenv:    func(k string) string { return env[k] },
+		LookupEnv: func(k string) (string, bool) { v, ok := env[k]; return v, ok },
 		Stdin:     pr,
 		Stdout:    s.stdout,
 		Stderr:    s.stderr,
@@ -242,17 +251,17 @@ func TestRuntime_Interactive_FailSentinelExitsNonzero(t *testing.T) {
 	}
 }
 
-// TestRuntime_Interactive_FiresTurnStartPerNonBlankLine: the interactive loop
-// is the mock's stand-in for a TUI a human types at, so every non-blank line
-// it reads is a prompt submitted — and a turn_start hook delivered to the
-// session fires once for each, with the mock's payload on its stdin. Blank
-// and whitespace-only lines are not prompts and fire nothing; the quit
-// sentinel ends the session without firing.
-//
-// The hooks are the mock's own delivered hook file, named on argv by the
-// mock kind's hooks flag; the grammar under test is the interactive surface
-// extended with that flag.
-func TestRuntime_Interactive_FiresTurnStartPerNonBlankLine(t *testing.T) {
+// turnStartPayload is the part of the mock's hook payload these tests read.
+type turnStartPayload struct {
+	Event  string `json:"hook_event_name"`
+	Prompt string `json:"prompt"`
+}
+
+// turnStartSession starts an interactive session whose delivered hooks
+// append every turn_start payload to a marker file, with env as its
+// environment, and returns it with the marker's path.
+func turnStartSession(t *testing.T, env map[string]string) (*interactiveRun, string) {
+	t.Helper()
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "fired")
 	hooksFile := filepath.Join(dir, "hooks.json")
@@ -263,35 +272,92 @@ func TestRuntime_Interactive_FiresTurnStartPerNonBlankLine(t *testing.T) {
 	if err := os.WriteFile(hooksFile, raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
-
 	cli := claudeInteractive(t)
 	cli.Flags = append(cli.Flags, agent.CLIFlag{Name: mock.HooksFlag, Value: agent.ValuePath})
-	s := startInteractiveOn(t, cli, []string{mock.HooksFlag, hooksFile, "hello"})
+	return startInteractiveEnv(t, cli, []string{mock.HooksFlag, hooksFile, "hello"}, env), marker
+}
+
+// quitAndReadTurnStarts ends the session and returns the turn_start payloads
+// its hooks recorded, in order.
+func (s *interactiveRun) quitAndReadTurnStarts(t *testing.T, marker string) []turnStartPayload {
+	t.Helper()
+	s.typeLine(t, runtime.InteractiveQuit)
+	if code := s.exitCode(t); code != 0 {
+		t.Fatalf("exit code = %d, want 0\nstderr:\n%s", code, s.stderr.String())
+	}
+	got, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("the turn_start hook never ran: %v\nstderr:\n%s", err, s.stderr.String())
+	}
+	var payloads []turnStartPayload
+	for _, line := range strings.Split(strings.TrimSpace(string(got)), "\n") {
+		var p turnStartPayload
+		if err := json.Unmarshal([]byte(line), &p); err != nil {
+			t.Fatalf("payload %q: %v", line, err)
+		}
+		payloads = append(payloads, p)
+	}
+	return payloads
+}
+
+// TestRuntime_Interactive_FiresTurnStartPerNonBlankLine: the interactive loop
+// is the mock's stand-in for a TUI a human types at, so every non-blank line
+// it reads is a prompt submitted — and a turn_start hook delivered to the
+// session fires once for each, with the mock's payload on its stdin, the
+// typed line as its prompt. Blank and whitespace-only lines are not prompts
+// and fire nothing; the quit sentinel ends the session without firing.
+//
+// The hooks are the mock's own delivered hook file, named on argv by the
+// mock kind's hooks flag; the grammar under test is the interactive surface
+// extended with that flag.
+func TestRuntime_Interactive_FiresTurnStartPerNonBlankLine(t *testing.T) {
+	s, marker := turnStartSession(t, map[string]string{})
 	s.typeLine(t, "one")
 	s.waitFor(t, runtime.InteractiveEchoPrefix+"one\n")
 	s.typeLine(t, "")
 	s.typeLine(t, "   ")
 	s.typeLine(t, "two")
 	s.waitFor(t, runtime.InteractiveEchoPrefix+"two\n")
-	s.typeLine(t, runtime.InteractiveQuit)
-	if code := s.exitCode(t); code != 0 {
-		t.Fatalf("exit code = %d, want 0\nstderr:\n%s", code, s.stderr.String())
-	}
 
-	got, err := os.ReadFile(marker)
+	got := s.quitAndReadTurnStarts(t, marker)
+	want := []turnStartPayload{{Event: "turn_start", Prompt: "one"}, {Event: "turn_start", Prompt: "two"}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("turn_start payloads = %+v, want %+v (one per non-blank line, carrying it)", got, want)
+	}
+}
+
+// TestRuntime_Interactive_AWakePostedToItsSocketIsTakenAsATypedLine: the
+// mock's own wake (mock.EnvWakeSocket). A line posted to the socket starts a
+// turn exactly as a typed line does — turn_start fires with the line as its
+// prompt, and the line is echoed — so the mail-drain hook redeems a wake the
+// same way it would under a real engine.
+func TestRuntime_Interactive_AWakePostedToItsSocketIsTakenAsATypedLine(t *testing.T) {
+	sockDir, err := os.MkdirTemp("", "mw")
 	if err != nil {
-		t.Fatalf("the turn_start hook never ran: %v\nstderr:\n%s", err, s.stderr.String())
+		t.Fatal(err)
 	}
-	lines := strings.Split(strings.TrimSpace(string(got)), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("turn_start fired %d time(s), want 2 (one per non-blank line):\n%s", len(lines), got)
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	sock := filepath.Join(sockDir, "w.sock")
+	s, marker := turnStartSession(t, map[string]string{mock.EnvWakeSocket: sock})
+	// The session listens before it writes the reply to its positional
+	// prompt; waiting for the reply orders this post after the listener.
+	s.waitFor(t, "mock-engine: ok")
+
+	spec, _ := mock.Mock{}.Wake().Get()
+	wake, err := spec.Bind(context.Background(), func(k string) (string, bool) { return sock, k == mock.EnvWakeSocket })
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, line := range lines {
-		var payload struct {
-			Event string `json:"hook_event_name"`
-		}
-		if err := json.Unmarshal([]byte(line), &payload); err != nil || payload.Event != "turn_start" {
-			t.Errorf("payload %q: event=%q err=%v; want turn_start", line, payload.Event, err)
-		}
+	if err := wake.Fire(context.Background(), "0123456789abcdef"); err != nil {
+		t.Fatalf("posting the wake: %v", err)
+	}
+	s.waitFor(t, runtime.InteractiveEchoPrefix+engine.WakeText("0123456789abcdef")+"\n")
+
+	got := s.quitAndReadTurnStarts(t, marker)
+	if len(got) != 1 || got[0] != (turnStartPayload{Event: "turn_start", Prompt: engine.WakeText("0123456789abcdef")}) {
+		t.Fatalf("turn_start payloads = %+v, want one carrying the wake text", got)
+	}
+	if _, err := os.Stat(sock); !os.IsNotExist(err) {
+		t.Errorf("the wake socket outlived the session: %v", err)
 	}
 }

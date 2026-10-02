@@ -110,6 +110,25 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheStuckEntry(t *testing.T) {
 	assert.NotContains(t, check.Detail, "coord.md", "the fresh in/ entry must not be reported as stuck")
 }
 
+// TestDoctorCheckSpoolBacklog_NamesAClaimNoHookFinished pins in/claimed/ in
+// the scan: a message the owner's turn-start hook claimed (spool.Claim) and
+// never acknowledged has left in/, so without this look it would be invisible
+// to every other clause here.
+func TestDoctorCheckSpoolBacklog_NamesAClaimNoHookFinished(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	old := time.Now().Add(-10 * time.Minute)
+	ref := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 1, "coord", old)
+	res, err := spool.Claim(mapper, harp)
+	require.NoError(t, err)
+	require.Len(t, res.Entries, 1, "the entry must now be in flight in in/claimed/")
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Contains(t, check.Detail, string(spool.ClaimedDirName)+"/"+ref.Name, "the unacknowledged claim must be named where it sits")
+}
+
 // TestDoctorCheckSpoolBacklog_CapsNamedListWithCount proves a machine with
 // many stuck entries gets a bounded, readable line rather than an unbounded
 // wall of refs — the same "cap at ~5 with a count" shape

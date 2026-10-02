@@ -25,7 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner/coordtest"
-	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
@@ -35,6 +35,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
@@ -89,7 +90,7 @@ func newContractLane(t *testing.T) *contractLane {
 	served := make(chan delivery.Loadout, 4)
 	runners.Static, runners.Records = fsstatic.New(afero.NewOsFs()), records
 	runners.Endpoint = func(h *runner.Home) delivery.Dynamic {
-		return recordedEndpoint{Endpoint: runnermcp.Endpoint{Home: h}, served: served}
+		return recordedEndpoint{Endpoint: interaction.Endpoint{Home: h}, served: served}
 	}
 	t.Cleanup(runners.Close)
 
@@ -137,18 +138,27 @@ func (l *contractLane) parked(t *testing.T) coord.PendingApproval {
 	return pending[0]
 }
 
-// turnReport is the child's automatic turn report, as the owner receives it.
+// turnReport is the child's automatic turn report, as the owner receives it:
+// read from the owner's spool the way its turn-start hook does
+// (`ctxloom hook mail-drain`) — claim what waits, then acknowledge it.
 func (l *contractLane) turnReport(t *testing.T, childHarp string) coord.Message {
 	t.Helper()
+	mapper := spool.NewHomeMapper()
 	deadline := time.Now().Add(laneWait)
 	for time.Now().Before(deadline) {
-		msgs, err := l.c.AgentRecv(context.Background(), l.owner, time.Until(deadline))
+		res, err := spool.Claim(mapper, l.owner.Harp)
 		require.NoError(t, err)
-		for _, m := range msgs {
+		for _, e := range res.Entries {
+			m, err := coord.MailFromSpool(e, e.Message.FromHarp)
+			require.NoError(t, err)
+			if err := spool.Ack(mapper, l.owner.Harp, e.Ref.Name); err != nil {
+				require.ErrorIs(t, err, spool.ErrAlreadyGone)
+			}
 			if m.From == childHarp && coord.IsAutoReport(m.Structured) {
 				return m
 			}
 		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("the child's turn never reported")
 	return coord.Message{}
@@ -264,7 +274,7 @@ func TestPermissionContract_TurnEndReleasesHeldAsks(t *testing.T) {
 // recordedEndpoint serves the real session endpoint and hands the test the
 // loadout it served — the child's endpoint address and bearer.
 type recordedEndpoint struct {
-	runnermcp.Endpoint
+	interaction.Endpoint
 	served chan<- delivery.Loadout
 }
 

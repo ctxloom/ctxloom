@@ -10,15 +10,9 @@
 //     the injection vector (a sender could name a coordinator-reserved kind
 //     and have it interpolated into a delivered frame). An
 //     enum validates at DECODE, renders as a name from a closed set, and is
-//     attribute-eligible by construction. This BREAKS `agent_recv`'s output
-//     shape: `kind` moves out of `structured` and onto the message. A
-//     deliberate prerelease break, human-sanctioned, per the
+//     attribute-eligible by construction. `kind` is on the message, never in
+//     `structured`: a deliberate prerelease break, human-sanctioned, per the
 //     no-backward-compat-shims rule.
-//   - the presentation-only reminder message (MailPendingReminder). NEVER
-//     WIRE TRAFFIC: it exists to be rendered into an injected
-//     `<ctxloom-reminder>` frame by its GENERATED `.XmlLike()` encoder
-//     (annotations.proto's XmlRole). No RPC, oneof, or field anywhere
-//     carries it.
 //   - ControlInitiatorKind — the closed HUMAN/AGENT privilege
 //     discriminator for control verbs, journaled into durable facts.
 //
@@ -1114,13 +1108,13 @@ message UserInputResult {
 
 // Delegation: agent asks the coordinator to spawn a sub-agent. The
 // coordinator owns placement and lifecycle; the child gets its own run and
-// RunChannel. Fan-in happens via peer messages (agent_send/agent_recv) and
+// RunChannel. Fan-in happens via peer messages (agent_send) and
 // the child's reports (agent_report), which the parent reads from the
 // roster. There is no budget carve-out and no result push — see the fields
 // removed below.
 message SpawnAgentRequest {
   option (message_schema) = {
-    doc: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and run headless: any permission posture is accepted, and a tool call the posture would prompt for is denied instead — that turn comes back BLOCKED, naming the tool."
+    doc: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages; mail sent to you triggers your next turn and arrives there as context, so there is nothing to poll or wait on. Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and run headless: any permission posture is accepted, and a tool call the posture would prompt for is denied instead — that turn comes back BLOCKED, naming the tool."
   };
 
   // e.g. "test-writer"
@@ -1187,9 +1181,8 @@ message SpawnAgentResult {
 // coordinator notice. Three properties come from making it an enum rather than
 // validating strings at each call site: an unrecognised value is a
 // DECODE-time reject, not a string to sanitise; the value renders as a NAME
-// from a closed set, which makes it attribute-eligible in a generated
-// `<ctxloom-reminder>` frame by construction rather than by remembering to
-// escape; and the vocabulary is discoverable to the agent through the
+// from a closed set, so it can be interpolated into a delivered frame without
+// escaping; and the vocabulary is discoverable to the agent through the
 // generated MCP tool schemas, with no parallel documentation to drift.
 //
 // TWO CLASSES, one enum. The split is INGRESS POLICY, not two types:
@@ -1247,8 +1240,8 @@ enum MessageKind {
 
   // COORDINATOR-RESERVED: the notice a child's FINAL agent_report queues to
   // its parent. The report's content lives in the reports fold (roster); this
-  // is its ARRIVAL, so a parent's waiting agent_recv is not silent when the
-  // child files the deliverable.
+  // is its ARRIVAL, so a parent is told when the child files the
+  // deliverable.
   MESSAGE_KIND_REPORT = 15;
 
   // COORDINATOR-RESERVED: the coordinator's own on-demand summary ask,
@@ -1264,7 +1257,7 @@ enum MessageKind {
 // mesh, one policy chokepoint, and offline targets get queued delivery.
 message PeerSendRequest {
   option (message_schema) = {
-    doc: "Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with \"keep reading for more detail\", so put nothing essential below the fold."
+    doc: "Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with \"keep reading for more detail\", so put nothing essential below the fold."
   };
 
   // or...
@@ -1622,10 +1615,9 @@ message CustomRequest {
 // It is a closed enum rather than a bool because a bool made four states
 // representable where two are valid, and because this value is journaled into
 // DURABLE facts (audit, InteractionRecorded) — and this project's durable facts
-// are proto. It also has to be an ENUM, not a string, to be eligible to render
-// as an attribute in a generated `<ctxloom-reminder>` frame: "the human paused
-// you" and "your parent paused you" are a distinction an agent genuinely
-// needs, and XmlRole refuses free text as an attribute.
+// are proto. "The human paused you" and "your parent paused you" are a
+// distinction an agent genuinely needs, and an enum renders it as a name from
+// a closed set, never as free text a caller could shape.
 //
 // It is NEVER a request payload field. The coordinator DERIVES it — from the
 // authenticated caller identity on the agent path, from the in-process call on
@@ -1644,42 +1636,6 @@ enum ControlInitiatorKind {
   CONTROL_INITIATOR_KIND_HUMAN = 1;
   // A coordinating agent — specifically the target's own parent.
   CONTROL_INITIATOR_KIND_AGENT = 2;
-}
-
-// ----- injected reminder frames (PRESENTATION ONLY, never wire traffic) -------
-//
-// These messages are the source of the DATA STRUCTURE for the tiny
-// `<ctxloom-reminder>` notices ctxloom injects into a session's turn stream.
-// They are rendered to text by their GENERATED `.XmlLike()` encoders
-// (annotations.proto's XmlRole) and are NEVER SENT: no RPC takes one, no oneof
-// arm carries one, nothing marshals one onto a channel. If you find one on the
-// wire, that is a bug.
-//
-// Why they are protos at all: generation can FAIL THE BUILD. Declaring the
-// frame shape in field options means an un-annotated field, or free text
-// smuggled into an attribute, is a compile error rather than a runtime
-// warning — and because no hand-written frame construction exists anywhere, a
-// sender-supplied string can never be interpolated into a frame. Escaping is a
-// property of the encoder, not a convention someone has to remember.
-//
-// The frame is DELIBERATELY tiny and content-free: the spool stays
-// authoritative and the agent PULLS the payload with agent_recv. Sender
-// identity and correlation ids have NO frame representation on purpose — they
-// are structured data on the pulled message, and as proto `string`s they are
-// attribute-INELIGIBLE anyway.
-
-// Mail is waiting. `<ctxloom-reminder kind="mail-pending" count="2">call
-// agent_recv</ctxloom-reminder>`
-message MailPendingReminder {
-  option (message_schema) = {
-    xml_like: true,
-    xml_text: "call agent_recv"
-  };
-
-  // How many messages are pending. A count is a number, so it is
-  // attribute-eligible; it is also the only sender-influenced quantity in any
-  // frame, and it cannot carry sender BYTES.
-  uint32 count = 1 [(xml_role) = XML_ATTRIBUTE];
 }
 
 // ----- coordinator -> agent notices (fire-and-forget) -------------------------
@@ -1719,8 +1675,8 @@ message BudgetUpdate {
   BudgetSpec budget = 1;  // absolute new limits, not deltas
 }
 
-// A delivered message, as agent_recv returns it: the runner's projection of a
-// file swept from the run's in/ spool (or the coordinator's, from the owner's).
+// A delivered message: the runner's projection of a file swept from the run's
+// in/ spool.
 // Reply via PeerSendRequest.in_reply_to. It never rides the wire between
 // coordinator and runner: the file is the message, and it is durable there.
 message PeerMessage {
@@ -1732,8 +1688,8 @@ message PeerMessage {
     doc: "Structured companion the sender attached, when there is one. This object no longer carries the message kind — read the `kind` field."
   }];
   // 6 was artifacts (repeated ArtifactRef), REMOVED:
-  // no producer ever set it, so agent_recv advertised an artifacts array
-  // that could never appear. See PeerSendRequest's reserved 5.
+  // no producer ever set it, so an artifacts array was advertised that
+  // could never appear. See PeerSendRequest's reserved 5.
   reserved 6;
   string in_reply_to = 7;
   // The message's kind, from the closed MessageKind vocabulary — including the

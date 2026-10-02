@@ -250,3 +250,123 @@ func TestArch_CIWorkflows_KeepInlineShellOutOfSteps(t *testing.T) {
 		}
 	}
 }
+
+// devcontainerImageTagRE captures the tag a job runs the project's own
+// devcontainer image under.
+var devcontainerImageTagRE = regexp.MustCompile(`-devcontainer:(.+)$`)
+
+// commitPinnedImageTags are the only tags a job may run the devcontainer under:
+// the image build-container pushed for THIS commit, or — inside a reusable
+// workflow — the tag its caller passed in.
+var commitPinnedImageTags = map[string]bool{
+	"${{ github.sha }}":       true,
+	"${{ inputs.image-tag }}": true,
+}
+
+// TestArch_CIWorkflows_DevcontainerJobsPinTheCommitImage fails when a job runs
+// the devcontainer image under a floating tag such as `latest`.
+//
+// build-container publishes `latest` only from the default branch, so a job on
+// `latest` runs whatever toolchain the default branch last published — correct
+// only while the triggering branch happens to BE the default branch, a repo
+// setting nothing in the workflow states. The SHA tag is the image this commit
+// was built against, so it cannot be stale by construction.
+func TestArch_CIWorkflows_DevcontainerJobsPinTheCommitImage(t *testing.T) {
+	checked := 0
+	for _, wf := range workflowFiles(t) {
+		raw, err := os.ReadFile(wf)
+		if err != nil {
+			t.Fatalf("read %s: %v", wf, err)
+		}
+		n, floating, err := devcontainerJobsOnFloatingTags(raw)
+		if err != nil {
+			t.Fatalf("parse %s: %v", wf, err)
+		}
+		checked += n
+		for _, job := range sortedKeys(floating) {
+			t.Errorf("%s: job %q runs the devcontainer under tag %q — want the commit's image (%s). A floating tag runs whatever the default branch last published, not what this commit was built against; give the job `needs: [build-container]` and the SHA tag.",
+				wf, job, floating[job], "${{ github.sha }}")
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no job running the devcontainer image was found — this gate checked nothing")
+	}
+	t.Logf("checked %d devcontainer jobs", checked)
+}
+
+// The gate above reads the live workflows, which are all pinned, so on its
+// own it cannot show that it would catch anything. This holds both shapes of
+// `container:` and both pinned tags against the floating one.
+func TestArch_CIWorkflows_PinGateFlagsOnlyFloatingTags(t *testing.T) {
+	const wf = `
+jobs:
+  mapped-latest:
+    container:
+      image: ghcr.io/${{ github.repository }}-devcontainer:latest
+  bare-latest:
+    container: ghcr.io/${{ github.repository }}-devcontainer:latest
+  sha:
+    container:
+      image: ghcr.io/${{ github.repository }}-devcontainer:${{ github.sha }}
+  reusable:
+    container: ghcr.io/${{ github.repository }}-devcontainer:${{ inputs.image-tag }}
+  other-image:
+    container: golang:latest
+  host: {}
+`
+	checked, floating, err := devcontainerJobsOnFloatingTags([]byte(wf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"mapped-latest": "latest", "bare-latest": "latest"}
+	if checked != 4 || len(floating) != len(want) || floating["mapped-latest"] != "latest" || floating["bare-latest"] != "latest" {
+		t.Errorf("checked=%d floating=%v; want checked=4 floating=%v", checked, floating, want)
+	}
+}
+
+// devcontainerJobsOnFloatingTags parses one workflow and returns how many of its
+// jobs run the devcontainer image, and the tag of each that does so unpinned.
+func devcontainerJobsOnFloatingTags(raw []byte) (int, map[string]string, error) {
+	var doc struct {
+		Jobs map[string]struct {
+			Container any `yaml:"container"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return 0, nil, err
+	}
+	checked, floating := 0, map[string]string{}
+	for name, j := range doc.Jobs {
+		m := devcontainerImageTagRE.FindStringSubmatch(containerImage(j.Container))
+		if m == nil {
+			continue
+		}
+		checked++
+		if !commitPinnedImageTags[m[1]] {
+			floating[name] = m[1]
+		}
+	}
+	return checked, floating, nil
+}
+
+// containerImage reads a job's `container:`, which GitHub accepts either as a
+// bare image string or as a mapping with an `image` key.
+func containerImage(c any) string {
+	switch v := c.(type) {
+	case string:
+		return v
+	case map[string]any:
+		s, _ := v["image"].(string)
+		return s
+	}
+	return ""
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}

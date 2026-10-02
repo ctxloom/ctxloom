@@ -1075,7 +1075,7 @@ func StatusFromErr(err error) *rpcstatus.Status {
 	case errors.Is(err, coord.ErrPeerRouting), errors.Is(err, coord.ErrControlRefused), errors.Is(err, coord.ErrNotAChild),
 		errors.Is(err, coord.ErrRosterIsTheOwners), errors.Is(err, coord.ErrRunNotIssued), errors.Is(err, coord.ErrForbidden):
 		code = codes.PermissionDenied
-	case errors.Is(err, coord.ErrRecvTimeout), errors.Is(err, coord.ErrAskTimeout):
+	case errors.Is(err, coord.ErrAskTimeout):
 		code = codes.DeadlineExceeded
 	case errors.Is(err, coord.ErrSenderMailKind), errors.Is(err, coord.ErrInvalidRequest):
 		code = codes.InvalidArgument

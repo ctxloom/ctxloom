@@ -411,12 +411,31 @@ func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKin
 	return delivered(form, start, h), nil
 }
 
+// RelayCommand is the hidden ctxloom subcommand claude spawns as its ctxloom
+// MCP server: the session relay (internal/engines/claude/relay). It relays
+// MCP between claude's stdio and the session's endpoint, and posts claude's
+// wake as claude's own descendant — the one standing that makes the post
+// self-sent. EnvRelayURL and EnvRelayBearer hand it the endpoint.
+const (
+	RelayCommand   = "claude-relay"
+	EnvRelayURL    = "CTXLOOM_CLAUDE_RELAY_URL"
+	EnvRelayBearer = "CTXLOOM_CLAUDE_RELAY_BEARER"
+)
+
 // sessionEndpoint is the dynamic approach claude PROVIDES: the session's MCP
-// endpoint as a URL entry in .mcp.json with the bearer as a header.
+// endpoint reached through claude's own relay, a stdio entry whose env names
+// the endpoint and its bearer. Only claude renders this entry; no other engine
+// spawns the relay.
 type sessionEndpoint struct{ traits }
 
-func (*sessionEndpoint) Name() string                                 { return "session-endpoint" }
-func (*sessionEndpoint) Endpoint(ep sessions.Endpoint) wire.MCPServer { return engine.BearerEntry(ep) }
+func (*sessionEndpoint) Name() string { return "session-endpoint" }
+func (*sessionEndpoint) Endpoint(ep sessions.Endpoint) wire.MCPServer {
+	return wire.MCPServer{
+		Command: agent.CtxloomCommand(),
+		Args:    []string{RelayCommand},
+		Env:     map[string]string{EnvRelayURL: ep.URL, EnvRelayBearer: ep.Credential},
+	}
+}
 
 // Compile-time contracts: each typed approach fills its kind's field and,
 // where today's launch path constructs by name, carries its runtime forms.

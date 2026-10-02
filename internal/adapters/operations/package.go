@@ -47,6 +47,9 @@ type PackageRequest struct {
 	Consumer ContextConsumer
 	// WorkDir is the project root the managed hooks are composed for.
 	WorkDir string
+	// Mode is the mode of the session the package is assembled for; the
+	// zero value is engine.Interactive, the session a human drives.
+	Mode engine.Mode
 	// Pipeline is the injected-stage seam: a pre-built process stage in
 	// place of the generation's gated one (tests).
 	Pipeline *bundles.Pipeline
@@ -105,7 +108,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		// resolvers take the set THIS assembly resolved, so a profile that
 		// did not resolve is reported once, here.
 		opts.MCP = cfg.ResolveBundleMCPServersFor(resolved)
-		opts.Hooks = *managedhooks.AssembleFor(report.To(cfg.Reporter()), cfg, req.WorkDir, "", resolved).Wire()
+		opts.Hooks = *managedhooks.AssembleFor(report.To(cfg.Reporter()), cfg, req.WorkDir, "", resolved, req.Mode).Wire()
 		opts.Statusline = managedStatuslineEnabled(cfg)
 	}
 	sel, err := composite.Select(resolved, cat, composite.SelectRequest{Fragments: req.Fragments, Tags: req.Tags, Versions: versions, VersionRoot: versionRoot})

@@ -22,7 +22,7 @@ import (
 // session-endpoint declaration, never a command.
 const (
 	CtxloomBinary = "ctxloom"
-	MCPServerName = wire.CtxloomServerName
+	MCPServerName = wire.LayerServerName
 )
 
 // CtxloomCommand returns the command to write into a materialized surface

@@ -10,8 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
-	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -56,19 +55,13 @@ func runRunner(cmd *cobra.Command, args []string) error {
 		Getenv:   os.Getenv,
 		Unsetenv: os.Unsetenv,
 		Ports: func(host *runner.EngineHost, home *runner.Home) (runner.Deps, error) {
-			// The engine's own input-state gate, discovered like every other
-			// optional capability; a backend without one makes the injector
-			// REFUSE to inject rather than assume the terminal is safe to
-			// write into (runner.TerminalInjector).
-			gate, _ := backend.(agent.InputGate)
 			host.BindTerminal(stdioTerminal{
-				backend:  backend,
-				injector: runner.NewTerminalInjector(home, gate),
-				stdin:    os.Stdin,
-				stdout:   os.Stdout,
-				stderr:   os.Stderr,
+				backend: backend,
+				stdin:   os.Stdin,
+				stdout:  os.Stdout,
+				stderr:  os.Stderr,
 			})
-			return runnerDepsFor(backend, engineName, host, runnermcp.Endpoint{Home: home, Reporter: App().Reporter})
+			return runnerDepsFor(backend, engineName, host, interaction.Endpoint{Home: home, Wake: interaction.NewWakeSignal(home.SetWake), Reporter: App().Reporter})
 		},
 	})
 }

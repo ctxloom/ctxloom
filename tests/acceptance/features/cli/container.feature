@@ -21,8 +21,7 @@ Feature: container — the images isolated agents run in, and the questions you 
   j002400_container.feature, behind a tag the default suite skips.
   What IS specifiable without a runtime is everything around it: the read-only
   diagnosis, the file scaffold, the trust-gated collection, and the namespace's
-  own dispatch. `container provenance` is hidden plumbing (the digest the
-  ahead-of-time build recipes stamp) and is not part of the public surface.
+  own dispatch.
 
   Rule: The namespace answers what it holds, and refuses what it does not
 
@@ -326,17 +325,13 @@ Feature: container — the images isolated agents run in, and the questions you 
     # from a companion that is trusted (must come through — the positive
     # control that makes "none reported" mean something).
     #
-    # DECIDED 2026-08-08 (taskloom vivacious-overlook), NOT YET IMPLEMENTED:
-    # `container tooling` will gain a section naming what was withheld BY
-    # REF — never the publisher-authored declaration body. A ref is a
-    # ctxloom-controlled identifier; the body is attacker-controlled text, and
-    # rendering it to an operator's terminal is a confirmed hazard (taskloom
-    # delicious-goatskin: publisher content reaches the terminal with no
-    # sanitiser, measured).
-    #
-    # So the "does not contain TOOLING-DECL-SHADY" assertion below becomes MORE
-    # load-bearing when that lands, not less: it is what pins that adding the
-    # ref section did not start leaking the body.
+    # WITHHELD CONTENT IS NAMED BY REF, NEVER BY BODY. A ref is a
+    # ctxloom-controlled identifier; the declaration body is publisher-authored,
+    # attacker-controlled text, and rendering it to an operator's terminal is a
+    # hazard. Today CollectTooling surfaces a gate-withheld item only through
+    # warnWithheld's per-ref warning on stderr; the command's own output names
+    # nothing withheld. The "does not contain TOOLING-DECL-SHADY" assertions
+    # are what pin that no route — output or warning — carries the body.
     Scenario Outline: An untrusted declaration is withheld, and a trusted one comes through
       Given an initialized ctxloom project
       And a companion "shady" declaring container tooling "TOOLING-DECL-SHADY", signed by a key this project does not trust

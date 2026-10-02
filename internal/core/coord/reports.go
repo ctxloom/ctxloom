@@ -293,12 +293,12 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s Summary) e
 }
 
 // notifyParentOfFinalReport queues a child's FINAL report to its parent as
-// mail, so a parent waiting in agent_recv learns of it.
+// mail, so a waiting parent learns of it.
 //
 // WHY THIS IS NEEDED AT ALL: a report and a message live in different stores.
 // recordSummary journals a factSummary into the REPORTS fold, which is what
 // roster reads — so a parent could see "FINAL: ..." in roster for a report
-// agent_recv had nothing to return. A child filing the report its own
+// the parent's mailbox never carried. A child filing the report its own
 // instructions call "the deliverable" was, from a waiting parent's view,
 // silent. That divergence made a reporting-vocabulary gap read as lost
 // delivery.

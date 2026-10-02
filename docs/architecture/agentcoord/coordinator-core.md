@@ -27,7 +27,7 @@ flowchart TD
   IS --> IF["itemsFold<br/>items.go"]
   RF --> CR["creds.go<br/>mintToken · hashToken · verifyToken"]
   CR --> ID["Identity<br/>identity.go"]
-  C --> API(("public verbs<br/>Roster · Identify · AgentSend<br/>AgentRecv · AgentStop · Inject"))
+  C --> API(("public verbs<br/>Roster · Identify · AgentSend<br/>AgentStop · Inject"))
 ```
 
 ## The durability engine
@@ -58,7 +58,7 @@ on a marshal failure — loud, and correct for own-struct payloads).
 | `runsFold` | `runs` (run_id → `RunRecord`), `byHarp` (harp → latest run_id), `creds` (token hash → `Identity`), `project` | run registry and credential store folded from one journal so a terminal fact revokes atomically (`folds.go`) |
 | `queueFold` | spawn order + the **exact** `executing` counter the concurrency ceiling reads | correctness rests entirely on `transition` — the most load-bearing 20 lines in the file |
 | `rosterFold` | per-harp coordinator-visible state, latest attempt wins | `touch` silently no-ops for a superseded run — that guard is the point |
-| `mailFold` | role-addressed durable queues + dedupe set + consume cursor | see [mailbox.md](mailbox.md) |
+| `mailFold` | role-addressed durable queues + dedupe set + consume cursor | |
 | `itemsFold` | plane-1 counting projection: `counts`, `chars`, `maxSeq` keyed by **run_id** | never stores delta text, only sizes |
 | `reportsFold` | latest summary / checkpoint / per-artifact revision / per-harp seq watermark | see [artifacts.md](artifacts.md) |
 
@@ -145,7 +145,6 @@ created; `closePartial` discards all four journal `Close()` errors.
 | `Roster` | sorted roster snapshot under `View` |
 | `Identify` | token → `Identity`; the auth root for every transport |
 | `AgentSend` | approval-reply interception → routing policy (I1) → durable queue → delivery-by-state |
-| `AgentRecv` | audit + `recvMail` long poll |
 | `AgentStop` | children refused (I2); `cancelLaunch` on **both** paths, then `terminateRun` |
 | `Inject` | user-typed text as a turn, plus a `KindUserInjected` mirror notice to the target's parent |
 | `WatchRuns` / `ListRuns` | see [observation.md](observation.md) |

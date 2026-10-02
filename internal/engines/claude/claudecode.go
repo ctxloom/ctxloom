@@ -37,12 +37,6 @@ type ClaudeCode struct {
 	// kind is the engine KIND this backend projects requests onto: every
 	// argv this backend runs is kind.Instance(session).Exec(presented).
 	kind engine.Engine
-	// gate tracks whether claude is currently showing a modal, so a
-	// coordinator wake is withheld rather than answering the prompt for the
-	// human. It satisfies agent.InputGate; see inputgate.go for the
-	// measurement it rests on. Kept by VALUE, so a ClaudeCode must not be
-	// copied once in use — nothing copies one today (it is always *ClaudeCode).
-	gate inputGate
 }
 
 // NewClaudeCode creates a new Claude Code backend with default settings.

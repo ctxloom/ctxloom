@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/spf13/cobra"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -38,7 +40,8 @@ func compose(sink report.Sink) cli.Composition {
 		Engines: engines.Registry(),
 		// The claim store is rooted per session, so the root hands a
 		// constructor: the session dir's package store, once the harp exists.
-		SessionClaims: fsstore.SessionClaims,
+		SessionClaims:  fsstore.SessionClaims,
+		EngineCommands: []*cobra.Command{claudeRelayCommand()},
 		OpenConfig: func(ctx context.Context, src config.Sources, opts ...config.Option) (*config.Owner, error) {
 			owner, err := (*config.Owner)(nil), errSecondOwner
 			owners.Do(func() {

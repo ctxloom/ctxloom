@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -60,7 +61,7 @@ func TestDrainMail_AWakeWithNothingPendingIsBlockedAndConsumed(t *testing.T) {
 	nonce := armOwnerWake(t)
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(promptCmd(t, &out, spool.WakeText(nonce)), mailDrainOwner))
+	require.NoError(t, drainMail(promptCmd(t, &out, engine.WakeText(nonce)), mailDrainOwner))
 
 	env := decoded(t, &out)
 	assert.Equal(t, claude.DecisionBlock, env.Decision, "a stale wake must not cost a model turn")
@@ -74,7 +75,7 @@ func TestDrainMail_AWakeWithNothingPendingIsBlockedAndConsumed(t *testing.T) {
 func TestDrainMail_AnAlreadyRedeemedWakeIsStillBlocked(t *testing.T) {
 	testsupport.Isolate(t)
 	var out bytes.Buffer
-	require.NoError(t, drainMail(promptCmd(t, &out, spool.WakeText("0123456789abcdef")), mailDrainOwner))
+	require.NoError(t, drainMail(promptCmd(t, &out, engine.WakeText("0123456789abcdef")), mailDrainOwner))
 	assert.Equal(t, claude.DecisionBlock, decoded(t, &out).Decision)
 }
 
@@ -84,7 +85,7 @@ func TestDrainMail_AWakeWithMailDeliversItAndConsumesTheNonce(t *testing.T) {
 	name := seedOwnerMail(t, "child-one", "report", "FINAL: done\n")
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(promptCmd(t, &out, spool.WakeText(nonce)), mailDrainOwner))
+	require.NoError(t, drainMail(promptCmd(t, &out, engine.WakeText(nonce)), mailDrainOwner))
 
 	env := drainedEnvelope(t, &out)
 	assert.Empty(t, env.Decision, "a wake that found mail is a turn")
@@ -93,19 +94,18 @@ func TestDrainMail_AWakeWithMailDeliversItAndConsumesTheNonce(t *testing.T) {
 	assert.Equal(t, []string{name}, spoolNames(t, spool.DirInConsumed))
 }
 
-// A human prompt delivers the mail and leaves the wake armed: it was not the
-// wake's turn, and the wake — when it lands — finds nothing and is blocked.
-func TestDrainMail_AHumanPromptDeliversWithoutConsumingTheWake(t *testing.T) {
+// A human prompt that QUOTES the wake text is not the wake: it is never
+// blocked and redeems nothing. (A human prompt that delivers mail answers
+// every wake — TestDrainMail_ADrainClearsEveryOutstandingWake — so the
+// distinction shows on a turn with nothing to deliver.)
+func TestDrainMail_AHumanPromptQuotingTheWakeIsNotTheWake(t *testing.T) {
 	testsupport.Isolate(t)
 	nonce := armOwnerWake(t)
-	seedOwnerMail(t, "child-one", "report", "FINAL: done\n")
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(promptCmd(t, &out, "what did the child say? "+spool.WakeText(nonce)), mailDrainOwner))
+	require.NoError(t, drainMail(promptCmd(t, &out, "what did the child say? "+engine.WakeText(nonce)), mailDrainOwner))
 
-	env := drainedEnvelope(t, &out)
-	assert.Empty(t, env.Decision, "a human's prompt is never blocked")
-	assert.Contains(t, env.HookSpecificOutput.AdditionalContext, "FINAL: done")
+	assert.Empty(t, out.String(), "a human's prompt is never blocked, and there is nothing to deliver")
 	assert.Equal(t, []string{nonce}, outstanding(t), "quoting the wake text is not the wake")
 }
 
@@ -151,4 +151,36 @@ func TestDrainMail_ADuplicateMessageIsDeliveredOnce(t *testing.T) {
 	require.NoError(t, drainMail(promptCmd(t, &out, "again"), mailDrainOwner))
 	assert.Empty(t, out.String(), "a re-send of a delivered message is not delivered again")
 	assert.Len(t, spoolNames(t, spool.DirInConsumed), 3)
+}
+
+// TestDrainMail_ADrainClearsEveryOutstandingWake is F1 at the hook: a human's
+// prompt that drains the mail a wake announced also answers that wake —
+// otherwise its nonce stays armed and refuses every later wake. Every nonce
+// is cleared, not only one the prompt names.
+// MUTATION — drop the ClearWakes call after a delivering drain — turns this red.
+func TestDrainMail_ADrainClearsEveryOutstandingWake(t *testing.T) {
+	testsupport.Isolate(t)
+	armOwnerWake(t)
+	armOwnerWake(t)
+	seedOwnerMail(t, "child", "result", "done\n")
+
+	var out bytes.Buffer
+	require.NoError(t, drainMail(promptCmd(t, &out, "what did the child say?"), mailDrainOwner))
+
+	require.NotNil(t, decoded(t, &out).HookSpecificOutput, "the mail was delivered")
+	assert.Empty(t, outstanding(t), "a delivering turn answers every wake that announced its mail")
+}
+
+// TestDrainMail_ATurnWithNoMailLeavesWakesArmed: a prompt that delivered
+// nothing answered nothing — a wake in flight for mail that arrives next is
+// still owed its turn.
+func TestDrainMail_ATurnWithNoMailLeavesWakesArmed(t *testing.T) {
+	testsupport.Isolate(t)
+	armOwnerWake(t)
+
+	var out bytes.Buffer
+	require.NoError(t, drainMail(promptCmd(t, &out, "hello"), mailDrainOwner))
+
+	assert.Empty(t, out.String())
+	assert.Len(t, outstanding(t), 1)
 }

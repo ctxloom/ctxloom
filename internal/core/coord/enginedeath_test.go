@@ -94,7 +94,7 @@ func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	// terminates the run and mails the parent.
 	c.RunnerExited(credHash, RunExited{RunID: out.RunID, TerminalEventSeen: true})
 
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 2*time.Second)
+	msgs, err := ownerMail(t, c, 2*time.Second)
 	require.NoError(t, err)
 	require.NotEmpty(t, msgs, "the parent must learn the child died")
 
@@ -174,7 +174,7 @@ func TestRunnerLoss_StderrTailReachesParentMailbox(t *testing.T) {
 	// declared lost, and the coordinator synthesizes the terminal.
 	c.runnerLost(credHash, "missed heartbeats past the loss bound")
 
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 2*time.Second)
+	msgs, err := ownerMail(t, c, 2*time.Second)
 	require.NoError(t, err)
 	var body string
 	for _, m := range msgs {
@@ -265,7 +265,7 @@ func assertDeadRunnerIsReportedPromptly(t *testing.T, exitErr error, wantReason 
 		StateDir:   t.TempDir(),
 		Spawner:    sp,
 		// Minutes, as in production. If this test passes only because this
-		// elapsed, it would take minutes to do it — the 2s AgentRecv below
+		// elapsed, it would take minutes to do it — the 2s owner read below
 		// would have long since returned empty.
 		RunnerAwaitTimeout: 5 * time.Minute,
 		OwnerHarp:          ownerIdentity().Harp,
@@ -277,7 +277,7 @@ func assertDeadRunnerIsReportedPromptly(t *testing.T, exitErr error, wantReason 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err, "agent_run is async: the launch failure surfaces on the mailbox, not here")
 
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 2*time.Second)
+	msgs, err := ownerMail(t, c, 2*time.Second)
 	require.NoError(t, err)
 	// Every message the child's death produced is read together (the death
 	// notice and the exit notice are two files, swept as one batch), so the

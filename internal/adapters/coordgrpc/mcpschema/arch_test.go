@@ -94,15 +94,12 @@ var handlerScopes = map[string]handlerScope{
 		// handler (validation + plan-manifest stamping) and the codec's
 		// decode into the coordinator's Summary.
 		funcs: []string{
-			"../../runner/mcp/server.go:reportHandler",
+			"../../runner/interaction/server.go:reportHandler",
 			"../codec.go:SummaryFromWire",
 		},
 	},
-	ToolAgentRecv: {
-		funcs: []string{"../../runner/mcp/server.go:RecvHandler"},
-	},
 	ToolAgentFetchArtifact: {
-		funcs: []string{"../../runner/mcp/server.go:fetchArtifactHandler"},
+		funcs: []string{"../../runner/interaction/server.go:fetchArtifactHandler"},
 	},
 	// The five control tools share one decoder: each arm's fields are read
 	// in its case of controlRequestFromWire.
@@ -192,8 +189,7 @@ func collectPaths(schema map[string]any, prefix string, out *[]string) {
 // readsInScope parses the named files and collects, for every declared
 // function in scope, the set of field names it reads: a `GetFooBar()` call
 // yields "foo_bar", and any string literal in the body yields itself (which
-// is how synthetic inputs and Struct keys are consumed — agent_recv's `wait`
-// arrives as a `json:"wait"` struct tag, not a proto accessor).
+// is how synthetic inputs and Struct keys are consumed).
 func readsInScope(specs []string) (map[string]bool, error) {
 	byFile := map[string][]string{}
 	for _, s := range specs {

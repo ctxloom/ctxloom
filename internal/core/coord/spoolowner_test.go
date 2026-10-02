@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,19 +14,20 @@ import (
 )
 
 // Tests for the OWNER HOP of the mail-plane cutover: the session owner is a
-// spool recipient, and its in/ is drained in-process by AgentRecv.
+// spool recipient, and its in/ is read by its turn-start hook (ownerMail
+// reads it the same way).
 //
 // The owner is the highest-traffic recipient on the bus — every child's FINAL
 // report lands there — so every test below asserts the CONTENT arrived, never
 // that a call returned true.
 
-// recvNothing performs one bounded owner receive and asserts it returned no
+// recvNothing performs one bounded owner read and asserts it returned no
 // message whose body is body.
 func recvNothing(t *testing.T, c *Coordinator, body string) {
 	t.Helper()
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 50*time.Millisecond)
+	msgs, err := ownerMail(t, c, 50*time.Millisecond)
 	if err != nil {
-		require.ErrorIs(t, err, ErrRecvTimeout)
+		require.ErrorIs(t, err, errNoOwnerMail)
 	}
 	for _, m := range msgs {
 		assert.NotEqual(t, body, m.Body, "a message acked by a prior receive must never be delivered again")
@@ -33,8 +35,7 @@ func recvNothing(t *testing.T, c *Coordinator, body string) {
 }
 
 // TestSpoolOwner_FinalReportReachesTheOwnerThroughTheSpool is the row's
-// settling proof: a child's FINAL report arrives at the owner's agent_recv
-// FROM A FILE in the owner's own in/, and no mailbox fact was ever journaled
+// settling proof: a child's FINAL report reaches the owner FROM A FILE in the owner's own in/, and no mailbox fact was ever journaled
 // for it. Make spoolDeliverTo refuse the owner again and the mailbox-twin
 // assertion goes red.
 func TestSpoolOwner_FinalReportReachesTheOwnerThroughTheSpool(t *testing.T) {
@@ -47,22 +48,22 @@ func TestSpoolOwner_FinalReportReachesTheOwnerThroughTheSpool(t *testing.T) {
 	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable")))
 
 	got := recvBody(t, c, "FINAL: the deliverable", conformanceWait)
-	require.NotEmpty(t, got, "the child's FINAL report must reach the owner's agent_recv")
+	require.NotEmpty(t, got, "the child's FINAL report must reach the owner")
 	assert.Equal(t, KindReport, got[0].Kind)
 	assert.Equal(t, out.Harp, got[0].From, "the notice is authored by the child that filed it")
 
-	// THE FILE IS THE MESSAGE: it is in the owner's in/claimed/ (delivered,
-	// not yet acked) and nowhere in the mailbox fold.
-	entry, ok := spoolEntryWithBody(t, ownerIdentity().Harp, spool.ClaimedDirName, "FINAL: the deliverable")
-	require.True(t, ok, "the delivered report must sit in the owner's in/claimed/ until the next receive acks it")
+	// THE FILE IS THE MESSAGE: it is in the owner's in/consumed/ (delivered
+	// and acknowledged) and nowhere in the mailbox fold.
+	entry, ok := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirInConsumed, "FINAL: the deliverable")
+	require.True(t, ok, "the delivered report must be the file the owner's reader acknowledged")
 	assert.Equal(t, got[0].ID, entry.Message.OriginID, "the mailbox id the owner saw is the file's origin id")
 	assertNoMailboxJournal(t, c)
 }
 
-// TestSpoolOwner_ChildSendRidesTheFileIntoAgentRecv pins the ordinary
+// TestSpoolOwner_ChildSendRidesTheFileToTheOwner pins the ordinary
 // child->parent send end to end over files: out/ of the child, routed by the
-// coordinator into in/ of the owner, read by agent_recv.
-func TestSpoolOwner_ChildSendRidesTheFileIntoAgentRecv(t *testing.T) {
+// coordinator into in/ of the owner, read by the owner's reader.
+func TestSpoolOwner_ChildSendRidesTheFileToTheOwner(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := cutoverSpawner(0)
@@ -81,109 +82,55 @@ func TestSpoolOwner_ChildSendRidesTheFileIntoAgentRecv(t *testing.T) {
 	require.NotEmpty(t, got)
 	assert.Equal(t, out.Harp, got[0].From)
 	assert.Equal(t, KindResult, got[0].Kind)
-	_, inOwnerSpool := spoolEntryWithBody(t, ownerIdentity().Harp, spool.ClaimedDirName, "a finding")
-	assert.True(t, inOwnerSpool, "the routed message must be a file in the owner's spool — claimed by the receive, awaiting its ack")
+	_, inOwnerSpool := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirInConsumed, "a finding")
+	assert.True(t, inOwnerSpool, "the routed message must be a file in the owner's spool, acknowledged by its reader")
 	assertNoMailboxJournal(t, c)
 }
 
-// TestSpoolOwner_AckIsConsumeOnNextRecv pins at-least-once for the owner:
-// a delivered file sits in in/claimed/ — taken, not acknowledged — until a
-// SUBSEQUENT receive proves the harness took the batch, at which point it is
-// renamed into in/consumed/ — and it is never delivered twice inside one
-// process.
-func TestSpoolOwner_AckIsConsumeOnNextRecv(t *testing.T) {
+// TestSpoolOwner_ClaimHoldsUntilAck pins at-least-once for the owner: a
+// claimed file sits in in/claimed/ — taken, not acknowledged — so nothing
+// counts it as waiting in in/, until its ack renames it into in/consumed/;
+// and it is never delivered twice.
+func TestSpoolOwner_ClaimHoldsUntilAck(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
+	owner := ownerIdentity().Harp
 
 	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: once")))
-	got := recvBody(t, c, "FINAL: once", conformanceWait)
-	require.NotEmpty(t, got)
-
-	_, stillIn := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirIn, "FINAL: once")
-	require.False(t, stillIn, "delivered: the file has left in/, so no peek counts it as waiting")
-	_, claimed := spoolEntryWithBody(t, ownerIdentity().Harp, spool.ClaimedDirName, "FINAL: once")
-	require.True(t, claimed, "delivered but unacked: the file must be in in/claimed/ — the reservation is on disk")
-
-	// The next receive is the ack — and returns the message no second time.
-	recvNothing(t, c, "FINAL: once")
-	_, consumed := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirInConsumed, "FINAL: once")
-	assert.True(t, consumed, "the ack is the consume-rename into in/consumed/")
-	_, claimed = spoolEntryWithBody(t, ownerIdentity().Harp, spool.ClaimedDirName, "FINAL: once")
-	assert.False(t, claimed, "an acked file must have left in/claimed/")
-	recvNothing(t, c, "FINAL: once")
-}
-
-// TestSpoolOwner_ParkedRecvIsWokenByTheDoorbell pins park/wake: an owner
-// already blocked in agent_recv is completed by the arrival, not by a timer.
-// The coordinator runs the PRODUCTION sweep cadence, so a receive satisfied
-// within the test budget can only have been woken.
-func TestSpoolOwner_ParkedRecvIsWokenByTheDoorbell(t *testing.T) {
-	resetStrictness(t)
-	teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
-	// Drain the first turn's RESULT, so the receive below has nothing to
-	// return and genuinely parks. Drained BY NAME, not until a short receive
-	// comes back empty: the result travels the child's out/ spool and
-	// doorbell independently of the roster reaching idle, so under load it
-	// lands after an empty receive and then satisfies the "parked" receive
-	// without it ever parking — the arrival under test is not what it gets.
+	var entry spool.Entry
 	require.Eventually(t, func() bool {
-		msgs, _ := c.AgentRecv(context.Background(), ownerIdentity(), 20*time.Millisecond)
-		for _, m := range msgs {
-			if m.From == out.Harp && m.Kind == KindResult {
+		res, err := spool.Claim(c.mapper, owner)
+		if err != nil {
+			return false
+		}
+		for _, e := range res.Entries {
+			if e.Message.Body == "FINAL: once" {
+				entry = e
 				return true
 			}
 		}
 		return false
-	}, conformanceWait, time.Millisecond, "the child's first-turn result never reached the owner")
+	}, conformanceWait, time.Millisecond, "the child's FINAL report never reached the owner's spool")
 
-	type recvOut struct {
-		msgs []Message
-		err  error
-	}
-	parked := make(chan recvOut, 1)
-	go func() {
-		msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), conformanceWait)
-		parked <- recvOut{msgs, err}
-	}()
-	require.Eventually(t, func() bool {
-		c.inbox.mu.Lock()
-		defer c.inbox.mu.Unlock()
-		p := c.inbox.polls[ownerIdentity().Harp]
-		return p != nil && !p.done
-	}, conformanceWait, 5*time.Millisecond, "the owner never parked")
+	_, stillIn := spoolEntryWithBody(t, owner, spool.DirIn, "FINAL: once")
+	require.False(t, stillIn, "claimed: the file has left in/, so no peek counts it as waiting")
+	_, claimed := spoolEntryWithBody(t, owner, spool.ClaimedDirName, "FINAL: once")
+	require.True(t, claimed, "claimed but unacked: the file must be in in/claimed/ — the reservation is on disk")
 
-	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
-		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
-			ToRole: ParentAddress, Text: "wake up", Kind: agentcoordpb.MessageKind_MESSAGE_KIND_RESULT,
-		}},
-	})
-	require.NoError(t, err)
-	require.EqualValues(t, 0, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
-
-	select {
-	case r := <-parked:
-		require.NoError(t, r.err)
-		found := false
-		for _, m := range r.msgs {
-			if m.Body == "wake up" && m.From == out.Harp {
-				found = true
-			}
-		}
-		require.True(t, found, "the parked receive must return the arrival that woke it, got %+v", r.msgs)
-	case <-time.After(conformanceWait):
-		t.Fatal("the parked owner receive was never woken by the child's send")
-	}
+	require.NoError(t, spool.Ack(c.mapper, owner, entry.Ref.Name))
+	_, consumed := spoolEntryWithBody(t, owner, spool.DirInConsumed, "FINAL: once")
+	assert.True(t, consumed, "the ack is the consume-rename into in/consumed/")
+	_, claimed = spoolEntryWithBody(t, owner, spool.ClaimedDirName, "FINAL: once")
+	assert.False(t, claimed, "an acked file must have left in/claimed/")
+	recvNothing(t, c, "FINAL: once")
 }
 
 // TestSpoolOwner_UnackedMailSurvivesRelaunch pins the durable half of
-// at-least-once: mail delivered but not acked before the coordinator went
-// down is delivered AGAIN by the next coordinator, under the same id.
+// at-least-once: mail claimed but not acked before the coordinator went down
+// is delivered AGAIN from the same spool, under the same id.
 func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
@@ -205,10 +152,11 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, runnerHooks.Serve(first))
-	got := recvBody(t, first, "written while the owner was down", conformanceWait)
-	require.NotEmpty(t, got, "a cold coordinator must find what is already in the owner's in/")
-	assert.Equal(t, "m-durable", got[0].ID)
-	first.Close() // delivered, never acked
+	claimed, err := spool.Claim(first.mapper, owner)
+	require.NoError(t, err)
+	require.Len(t, claimed.Entries, 1, "what is already in the owner's in/ must be claimable under a cold coordinator")
+	assert.Equal(t, "m-durable", claimed.Entries[0].Message.OriginID)
+	first.Close() // claimed, never acked
 
 	teeHome(t)
 	second, err := New(Options{
@@ -291,14 +239,14 @@ func TestSpoolOwner_MailToAQueuedChildIsNotStranded(t *testing.T) {
 // routes a child's, or the owner's every send is a message written to a
 // directory nothing reads, with DELIVERY_QUEUED reported back.
 //
-// Asserted on the child's receive and on the owner's out/ being routed
+// Asserted on the child's delivered turn and on the owner's out/ being routed
 // (consumed), never on the send's own status.
 func TestSpoolOwner_TheOwnersRunnerSendReachesTheChild(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, childHome := awaitCutoverChildIdle(t, c, sp, "first task")
+	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 
 	url, err := c.ReachURL("host")
 	require.NoError(t, err)
@@ -324,21 +272,15 @@ func TestSpoolOwner_TheOwnersRunnerSendReachesTheChild(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 0, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 
-	// THE PAYLOAD: the child's runner receives the owner's words.
-	var got []*agentcoordpb.PeerMessage
-	require.Eventually(t, func() bool {
-		msgs, rerr := childHome.Recv(ctx, 50*time.Millisecond)
-		if rerr != nil {
-			return false
+	// THE PAYLOAD: the child's engine is handed the owner's words as a turn,
+	// authored by the owner — the identity of the spool it was found in.
+	var delivered string
+	for _, text := range awaitChatText(t, sp, 0, body) {
+		if strings.Contains(text, body) {
+			delivered = text
 		}
-		for _, m := range msgs {
-			if m.GetText() == body {
-				got = append(got, m)
-			}
-		}
-		return len(got) > 0
-	}, conformanceWait, 20*time.Millisecond, "the owner's send never reached the child's runner")
-	assert.Equal(t, ownerIdentity().Harp, got[0].GetFromAgentId(), "the message is authored by the owner — the identity of the spool it was found in")
+	}
+	assert.Contains(t, delivered, "from="+ownerIdentity().Harp, "the message is authored by the owner")
 
 	// AND THE ROUTE: the owner's out/ file was routed and consumed, not left
 	// in place for a sweep that never comes. Deliver-then-consume is the

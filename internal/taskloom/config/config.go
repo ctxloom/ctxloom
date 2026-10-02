@@ -38,6 +38,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/spf13/pflag"
@@ -82,9 +83,9 @@ const (
 	homingFlagName = "homing"
 )
 
-// DefaultTagSchema is the tag_schema shipped when a project's config leaves
-// the key unset at every layer: the triage-classification standard's
-// baseline. Shipping this by default means a fresh project gets the full
+// DefaultTagSchema is the triage-classification standard's baseline: every
+// resolved tag_schema starts from it, and a project's own declarations extend
+// it (see Config.ResolvedTagSchema). Shipping this by default means a fresh project gets the full
 // standard — scalar-collapse, derived priority, and lint coverage — with no
 // opt-in required, the same ergonomics `homing`'s own default (see the
 // package doc) established the precedent for.
@@ -202,22 +203,21 @@ type Config struct {
 	// TagSchema declares taskloom's tag-schema: a list of tagma-syntax
 	// DECLARATION strings (see internal/shared/tasks/tagschema.Parse). The
 	// dotted config key is "tag_schema", spelled directly in the yaml tag
-	// below and in the JSON Schema, since nothing else binds it. Empty means
-	// unset at every config layer;
-	// ResolvedTagSchema falls back to DefaultTagSchema in that case, exactly
-	// mirroring how Homing/ResolveMode default when unset (see this
-	// package's doc).
+	// below and in the JSON Schema, since nothing else binds it. These are
+	// the project's OWN declarations only; ResolvedTagSchema layers them over
+	// DefaultTagSchema.
 	TagSchema []string `yaml:"tag_schema,omitempty"`
 }
 
-// ResolvedTagSchema returns c's TagSchema, falling back to DefaultTagSchema
-// when c declares none — the same "absent is fine, defaults silently"
-// policy Homing/ResolveMode already establishes for this config surface.
+// ResolvedTagSchema returns DefaultTagSchema followed by c's own TagSchema.
+// The project EXTENDS the baseline rather than replacing it: tagschema.Parse
+// is last-wins per facet+target, so a project declaration overrides the
+// baseline's entry for the same facet+target and adds one otherwise. A
+// replacement would let a project that adds one rule silently drop every
+// baseline check, while `taskloom lint` — which validates only what the
+// resolved schema declares — kept reporting green.
 func (c Config) ResolvedTagSchema() []string {
-	if len(c.TagSchema) > 0 {
-		return c.TagSchema
-	}
-	return DefaultTagSchema
+	return slices.Concat(DefaultTagSchema, c.TagSchema)
 }
 
 // ParsedTagSchema resolves (ResolvedTagSchema) and parses (tagschema.Parse)

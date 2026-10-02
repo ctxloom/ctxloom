@@ -24,19 +24,16 @@ package acceptance
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/cucumber/godog"
 
 	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -594,95 +591,4 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			})
 		})
 
-	// --- CAPABILITY NEGOTIATION. Hello.capabilities has been in the wire
-	// contract from the start and neither end read it. Now the coordinator
-	// captures each run's advertisement AND journals it with the attach, which
-	// is what makes it observable from outside the process at all.
-	ctx.Step(`^the coordinator's audit trail records the child runner's advertised capabilities$`,
-		func(c context.Context) error {
-			w := worldFrom(c)
-			// agent_run returns at ENQUEUE; the child's runner subprocess dials
-			// home afterwards, so the advertisement appears on its own schedule
-			// — and the session owner's own runner attached BEFORE it, so the
-			// wait is for the child's advertisement specifically, not for any.
-			//
-			// What tells an engine-hosting child from the session owner is the
-			// ABSENCE of terminal_delivery: the owner advertises it because
-			// nothing on its side pulls mail at a turn boundary; a child hosting
-			// an engine does, so it must not. (The mailbox surface every runner
-			// has is not advertised: mail rides the spool, and the string that
-			// once named it is retired.)
-			var (
-				caps []string
-				err  error
-			)
-			deadline := time.Now().Add(30 * time.Second)
-			for {
-				caps, err = j002100AttachedCapabilities(w)
-				if err == nil {
-					for _, adv := range caps {
-						if !strings.Contains(adv, coord.CapTerminalDelivery) {
-							w.docStepMaterialized = fmt.Sprintf("interactions.jsonl — run_channel advertisements:\n  %s", strings.Join(caps, "\n  "))
-							return nil // an engine-hosting child: pulls its own mail, advertises no terminal delivery
-						}
-					}
-				}
-				if time.Now().After(deadline) {
-					if err != nil {
-						return err
-					}
-					if len(caps) == 0 {
-						return errors.New("no run_channel attach was journaled within 30s — did any runner dial home?")
-					}
-					return fmt.Errorf("no attached runner advertised as an engine host within 30s (every advertisement carried terminal_delivery, the session owner's marker); advertisements seen: %v", caps)
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
-		})
-}
-
-// j002100AttachedCapabilities reads every run_channel interaction's advertised
-// capability list out of the coordinator's audit journal on disk — the same
-// "external, disk-durable observable" discipline the rest of this journey uses
-// for runs.jsonl, applied to interactions.jsonl.
-func j002100AttachedCapabilities(w *World) ([]string, error) {
-	pattern := filepath.Join(w.env.HomeDir, ".ctxloom", "coord", "*", "interactions.jsonl")
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("glob %q: %w", pattern, err)
-	}
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("no interactions.jsonl found under %q", pattern)
-	}
-	var out []string
-	for _, m := range matches {
-		data, rerr := os.ReadFile(m)
-		if rerr != nil {
-			return nil, fmt.Errorf("read %s: %w", m, rerr)
-		}
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			var jl j002100JournalLine
-			if json.Unmarshal([]byte(line), &jl) != nil || jl.Kind != "interaction" {
-				continue
-			}
-			var in struct {
-				Kind   string            `json:"kind"`
-				Detail map[string]string `json:"detail"`
-			}
-			if json.Unmarshal(jl.Data, &in) != nil || in.Kind != "run_channel" {
-				continue
-			}
-			// Every attach is recorded with its advertisement, EMPTY included:
-			// an engine-hosting child advertises nothing (its turn boundary
-			// owns delivery), and that absence is the fact the step reads.
-			if adv, ok := in.Detail["capabilities"]; ok {
-				out = append(out, adv)
-			}
-		}
-	}
-	return out, nil
 }

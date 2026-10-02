@@ -19,7 +19,7 @@ import (
 // an owner declared, and nothing else said about delivery — and both
 // directions must ride files: an owner send to a migrated child lands in the
 // child's in/ and is consumed by rename with NO mailbox twin, and the child's
-// agent_send lands in its out/ and satisfies the owner's agent_recv. Neither
+// agent_send lands in its out/ and reaches the owner's own spool. Neither
 // end may need telling: the runner learns nothing from a per-spawn stamp
 // because there is nothing left to learn.
 //
@@ -61,7 +61,7 @@ func TestSpoolCutover_MailRidesTheSpoolWithNothingAsked(t *testing.T) {
 	assertNoMailboxJournal(t, c)
 
 	// Up: the child's agent_send is a local file write that the coordinator
-	// routes into the owner's agent_recv.
+	// routes into the owner's own spool.
 	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
 			ToRole: ParentAddress,
@@ -72,7 +72,7 @@ func TestSpoolCutover_MailRidesTheSpoolWithNothingAsked(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 0, resp.GetStatus().GetCode(), "the local write must succeed: %s", resp.GetStatus().GetMessage())
 	got := recvBody(t, c, "a finding", conformanceWait)
-	require.NotEmpty(t, got, "the owner's agent_recv must be satisfied from the child's out/ spool")
+	require.NotEmpty(t, got, "the child's send must reach the owner from the child's out/ spool")
 	assert.Equal(t, out.Harp, got[0].From)
 	awaitSpoolEntryWithBody(t, out.Harp, spool.DirOutConsumed, "a finding", "after routing")
 	assertNoMailboxJournal(t, c)

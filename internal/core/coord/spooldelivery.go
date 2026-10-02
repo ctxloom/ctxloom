@@ -25,7 +25,7 @@ import (
 //     everything it sends. One writer per direction, always.
 //   - CONSUMPTION IS A RENAME, and the rename is the ACK. A reader moves the
 //     file into consumed/ only after the delivery it made is real (the engine
-//     accepted the turn, or a later Recv proved the harness took the batch).
+//     accepted the turn, or the owner's turn-start hook wrote it out).
 //     Renaming earlier would silently convert at-least-once into at-most-once.
 //   - THE DOORBELL IS ONLY A WAKE. It carries a reference and no state, it is
 //     dropped freely when the channel is down, and receiving one means "sweep",
@@ -41,9 +41,8 @@ import (
 //     trusted the file's interior claim would let a child aim the coordinator
 //     at a sibling's parent.
 //
-// SCOPE (S5a): ordinary mail only, in both directions. Steer, question,
-// summarize, pause/resume, approvals and the up-asks still ride the mailbox
-// and the request plane.
+// SCOPE: ordinary mail, in both directions. Where each control verb travels
+// is control.go's to state, not this file's.
 //
 // agent_report's REPORT still rides the events plane and is journaled into the
 // reports fold, which remains its store of record — but a FINAL report now also
@@ -54,7 +53,7 @@ import (
 // is the wake.
 //
 // THE SESSION OWNER is a spool recipient too. Its in/ is read by its
-// turn-start hook and in-process by AgentRecv. The owner is identified by
+// turn-start hook. The owner is identified by
 // DECLARATION (Options.OwnerHarp), never by a run record — no launch minted it,
 // so it has none (spoolRoles).
 //
@@ -338,8 +337,8 @@ func MailFromSpool(e spool.Entry, from string) (Message, error) {
 //
 // Two recipient classes have one:
 //
-//   - THE OWNER: this session's own harp, whose in/ is read by AgentRecv
-//     in-process and by its turn-start hook (ownerSpool). It is a class of
+//   - THE OWNER: this session's own harp, whose in/ is read by its
+//     turn-start hook (ownerSpool). It is a class of
 //     its own because it is identified by declaration, not by a run record.
 //   - A CHILD, drained by its runner: a run this coordinator tracks, whose
 //     ctxloom runner sweeps its own spool. Mail written while the child waits
@@ -404,8 +403,8 @@ func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured j
 // somewhere before the mail is observable: this function publishes, and after
 // it returns a reply quoting the id can already arrive.
 func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
-	// Role "" is undrainable by construction — agent_recv drains the caller's
-	// own harp and no session has the empty harp. Refused here, at the one
+	// Role "" is undrainable by construction — every reader drains its own
+	// harp and no session has the empty harp. Refused here, at the one
 	// point every sender funnels through, rather than at each sender.
 	if to == "" {
 		return "", fmt.Errorf("coordinator mail: refusing to queue a %q message from %q with no recipient: no session can drain role %q", kind, from, to)
@@ -698,8 +697,8 @@ func (c *Coordinator) replySpoolRefusal(role string, msg Message, cause error) {
 // incident was made of. A child writes its final report, the sweep cannot
 // route it, replySpoolRefusal answers the SENDER — a session that has by then
 // usually exited, whose reply therefore lands in a spool directory nothing
-// will ever read again — the file is consumed, and the parent sits in
-// agent_recv until it times out and concludes the child never reported. The
+// will ever read again — the file is consumed, and the parent waits until it
+// concludes the child never reported. The
 // only trace is a clidiag warning on a runner's stderr. Every signal the
 // parent can see says the child was silent.
 //

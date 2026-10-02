@@ -9,11 +9,10 @@ import "testing"
 // returning the next marker as content made every "no credential file"
 // assertion read a copied credential that was never there.
 func TestIsoParseSpySection_EmptySectionIsEmpty(t *testing.T) {
-	body := "===ENV===\nA=1\n===CLAUDE_CONFIG_DIR_CREDS===\n===CODEX_HOME_CREDS===\n===CONFIG_HOME_LISTING===\nDIR /x\n"
+	body := "===ENV===\nA=1\n===CLAUDE_CONFIG_DIR_CREDS===\n===CONFIG_HOME_LISTING===\nDIR /x\n"
 	cases := map[string]string{
 		"===ENV===":                     "A=1",
 		"===CLAUDE_CONFIG_DIR_CREDS===": "",
-		"===CODEX_HOME_CREDS===":        "",
 		"===CONFIG_HOME_LISTING===":     "DIR /x",
 		"===ABSENT===":                  "",
 	}

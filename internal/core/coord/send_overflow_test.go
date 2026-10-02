@@ -337,9 +337,7 @@ func childAndOwnerInbox(t *testing.T) (*Coordinator, Identity) {
 
 func ownerReceivesOverflow(t *testing.T, c *Coordinator, full string, structured json.RawMessage) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer cancel()
-	msgs, err := c.inbox.recv(ctx, ownerIdentity().Harp, "", conformanceWait)
+	msgs, err := spoolMail(t, c, ownerIdentity().Harp, conformanceWait)
 	if !assert.NoError(t, err) {
 		return
 	}

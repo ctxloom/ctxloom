@@ -154,11 +154,18 @@ func TestDeliverCommandsAndSkills_LandUnderTheProjectRoot(t *testing.T) {
 	require.Contains(t, string(body), "body")
 }
 
-func TestDynamic_NamesTheSessionEndpointWithItsBearer(t *testing.T) {
+// Claude reaches the session's endpoint through its own relay, which claude
+// spawns as a stdio server: only claude's descendant can post claude's wake
+// as self-sent. The relay is handed the endpoint and its bearer in its env.
+func TestDynamic_RendersTheSessionRelayAsAStdioEntry(t *testing.T) {
 	def := claudeDef(t)
 	entry := def.Dynamic.Endpoint(sessions.Endpoint{URL: "http://127.0.0.1:1/mcp", Credential: "tok"})
-	require.Equal(t, "http://127.0.0.1:1/mcp", entry.URL)
-	require.Equal(t, "Bearer tok", entry.Headers["Authorization"])
+	require.Equal(t, wire.MCPServer{
+		Command: agent.CtxloomCommand(),
+		Args:    []string{RelayCommand},
+		Env:     map[string]string{EnvRelayURL: "http://127.0.0.1:1/mcp", EnvRelayBearer: "tok"},
+	}, entry)
+	require.Equal(t, "claude-relay", RelayCommand, "the command name is what an already-written MCP file spawns")
 }
 
 // TestDeclaration_IsDerivedFromTheDefinition: the named-form table today's

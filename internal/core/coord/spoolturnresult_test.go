@@ -31,19 +31,28 @@ func bridgedResultFor(t *testing.T, c *Coordinator, wait time.Duration) Message 
 	return msgs[0]
 }
 
-// ownerResultsFrom reads the owner's SPOOL off disk — in/, in/claimed/ and
-// in/consumed/ together — and returns every result-kind message routed to it
-// from harp.
-//
-// All three directories, because a file is in exactly one of them: unclaimed,
-// delivered but unacked, or acked. None alone can answer "how many reports
-// were there", and the owner's spool is the durable record of what reached
-// it, the way the mailbox journal was before the owner became a spool
-// recipient.
+// ownerResultsFrom reads the owner's SPOOL off disk — in/ and in/claimed/
+// together — and returns every result-kind message routed to it from harp
+// that the owner has NOT yet delivered (a delivered file is deleted). For a
+// count that includes delivered ones, see ownerResultsRouted.
+// ownerResultsRouted counts every result-kind message the coordinator wrote
+// into the owner's in/ FROM harp, delivered or not: the audit journal's
+// spool_mail_out entries, which outlive the files they record.
+func ownerResultsRouted(t *testing.T, c *Coordinator, harp string) int {
+	t.Helper()
+	n := 0
+	for _, e := range readAuditKind(t, c, "spool_mail_out") {
+		if e.Actor == ownerIdentity().Harp && e.Detail["from"] == harp && e.Detail["kind"] == KindResult {
+			n++
+		}
+	}
+	return n
+}
+
 func ownerResultsFrom(t *testing.T, harp string) []Message {
 	t.Helper()
 	var out []Message
-	for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName, spool.DirInConsumed} {
+	for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName} {
 		for _, e := range spoolEntries(t, ownerIdentity().Harp, dir) {
 			if e.Message.FromHarp != harp {
 				continue
@@ -112,23 +121,22 @@ func TestSpoolTurnResult_ExactlyOnceFileXorBridge(t *testing.T) {
 	first := bridgedResultFor(t, c, conformanceWait)
 	require.NotEmpty(t, first.Body)
 
-	// EXACTLY ONE REPORT, read off the owner's spool on DISK rather than
-	// through a receive: a message that was delivered and then acked is gone
-	// from a receive's view, so a test that read that would call a double
-	// delivery a success.
+	// EXACTLY ONE REPORT, counted from the audit journal rather than through
+	// a receive: a message that was delivered and then acked is gone from a
+	// receive's view — and, deleted, from the disk — so a test that read
+	// either would call a double delivery a success.
 	//
 	// Both carriers end as a file in the owner's in/ — the routing hop turns
 	// the runner's out/ file into mail for the owner, and a bridge would queue
 	// mail for the owner too — and what separates them is the marker. So the
 	// assertion is "one report, and it is the runner's": a bridge that also
 	// fired would add an unmarked second one.
-	reports := ownerResultsFrom(t, out.Harp)
-	require.Len(t, reports, 1,
+	require.Equal(t, 1, ownerResultsRouted(t, c, out.Harp),
 		"the coordinator must not ALSO bridge a cut-over child's turn: the parent would read the same turn twice")
-	assert.True(t, IsAutoReport(reports[0].Structured),
+	assert.True(t, IsAutoReport(first.Structured),
 		"the surviving report must be the one the RUNNER wrote; an unmarked one is the bridge having fired")
 
-	// Hammer every in-process trigger. The consume-rename is the arbiter.
+	// Hammer every in-process trigger. The delivered record is the arbiter.
 	for i := 0; i < 20; i++ {
 		c.spoolReactor.Mark(out.Harp)
 		home.SweepSpoolIn()
@@ -136,7 +144,7 @@ func TestSpoolTurnResult_ExactlyOnceFileXorBridge(t *testing.T) {
 	// A synchronous window, not require.Never: Never runs its condition on a
 	// goroutine it does not join when its timer fires, and this condition is
 	// a receive — it claims and acks in the owner's in/ spool. Left running,
-	// it recreates in/claimed/ or in/consumed/ under a HOME the test's
+	// it recreates in/claimed/ or in/delivered/ under a HOME the test's
 	// cleanup is already removing.
 	again := recvWhere(t, c, func(m Message) bool { return m.Body == first.Body }, 500*time.Millisecond)
 	require.Empty(t, again, "repeated sweeps of a routed report must not deliver it again")

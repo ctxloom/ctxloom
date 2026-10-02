@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -82,4 +83,31 @@ func WriteMail(t *testing.T, harp, from, spoolKind, body, writerID string) {
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: spoolKind, FromHarp: from, To: harp, Body: body})
 	require.NoError(t, err)
+}
+
+// Delivered lists harp's delivered record: every identity a reader has
+// delivered and deleted, still inside the record's retention.
+func Delivered(t *testing.T, harp string) map[string]time.Time {
+	t.Helper()
+	ids, err := spool.DeliveredIdentities(spool.NewHomeMapper(), harp)
+	require.NoError(t, err)
+	return ids
+}
+
+// AwaitDelivered waits until harp's delivered record holds identity AND no
+// in/ file still carries it: the message was delivered and deleted.
+func AwaitDelivered(t *testing.T, harp, identity string, wait time.Duration, why string) {
+	t.Helper()
+	require.NotEmpty(t, identity, "an EMPTY identity names no message")
+	require.Eventually(t, func() bool {
+		if _, ok := Delivered(t, harp)[identity]; !ok {
+			return false
+		}
+		for _, e := range Entries(t, harp, spool.DirIn) {
+			if e.Identity() == identity {
+				return false
+			}
+		}
+		return true
+	}, wait, 10*time.Millisecond, "%s: %s was never delivered to %s (recorded and deleted)", why, identity, harp)
 }

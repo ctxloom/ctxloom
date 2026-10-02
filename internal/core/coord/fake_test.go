@@ -789,7 +789,7 @@ func spoolMail(t *testing.T, c *Coordinator, harp string, wait time.Duration) ([
 			if err != nil {
 				return nil, err
 			}
-			if err := spool.Ack(c.mapper, harp, e.Ref.Name); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
+			if err := spool.Deliver(c.mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
 				return nil, err
 			}
 			out = append(out, msg)

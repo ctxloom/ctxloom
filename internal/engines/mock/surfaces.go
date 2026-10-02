@@ -39,13 +39,19 @@ const (
 	skillsRel   = ConfigDirName + "/skills"
 )
 
-// The argv flags the mock's presentations announce their files on; the
-// mock's CLI grammar declares both. HooksFlag is exported for the mock
-// binary's interactive loop (mock/runtime), which reads the delivered hook
-// file off its own argv to fire turn_start per typed line.
+// The argv flags the mock's presentations announce their files on, one per
+// surface; the mock's CLI grammar declares each. Every surface is announced,
+// not only the two the mock reads to act (context, hooks), so a turn can
+// record where each one was delivered (recordTurn). HooksFlag is exported for
+// the mock binary's interactive loop (mock/runtime), which reads the
+// delivered hook file off its own argv to fire turn_start per typed line.
 const (
-	contextFlag = "--context"
-	HooksFlag   = "--hooks"
+	contextFlag  = "--context"
+	mcpFlag      = "--mcp"
+	settingsFlag = "--settings"
+	HooksFlag    = "--hooks"
+	commandsFlag = "--commands"
+	skillsFlag   = "--skills"
 )
 
 // surface is the shared half of every mock approach: its name and traits.
@@ -113,7 +119,7 @@ func (a *mcpFile) DeliverMCP(start present.Start, root present.RootKind, in engi
 		return present.Delivered{}, err
 	}
 	// Owner-only: the session endpoint's bearer rides in this file.
-	return writeFile(fs, r.Build(), append(bytes, '\n'), 0o600)
+	return writeFile(fs, r.AnnounceFlag(mcpFlag).Build(), append(bytes, '\n'), 0o600)
 }
 
 // settingsFile writes the deny list and the statusline policy.
@@ -128,7 +134,7 @@ func (a *settingsFile) DeliverSettings(start present.Start, root present.RootKin
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	return writeFile(fs, r.Build(), append(bytes, '\n'), 0o644)
+	return writeFile(fs, r.AnnounceFlag(settingsFlag).Build(), append(bytes, '\n'), 0o644)
 }
 
 // hooksFile writes the unified hook set as the mock's native hook file and
@@ -156,7 +162,7 @@ func (a *commandsDir) DeliverCommands(start present.Start, root present.RootKind
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	dir := r.Build()
+	dir := r.AnnounceFlag(commandsFlag).Build()
 	out := present.Delivered{Presented: dir}
 	for _, c := range in.Commands {
 		if !c.Enabled {
@@ -182,7 +188,7 @@ func (a *skillsDir) DeliverSkills(start present.Start, root present.RootKind, in
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	dir := r.Build()
+	dir := r.AnnounceFlag(skillsFlag).Build()
 	out := present.Delivered{Presented: dir}
 	for _, s := range in.Skills {
 		if !s.Enabled {

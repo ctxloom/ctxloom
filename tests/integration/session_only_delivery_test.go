@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -111,7 +112,8 @@ func setupSessionOnlyProject(t *testing.T) (*testenv.TestEnvironment, *testenv.M
 	require.NoError(t, err)
 	require.NoError(t, mockLM.SetResponse("MOCK-REPLY"))
 	writeFragment(t, env, "rules", []string{"rules"}, "Project rules for the session.")
-	writeProfile(t, env, "dev", "name: dev\ndescription: dev\nbundles:\n  - local#fragments/rules\n")
+	writeSkill(t, env, "review", "Review the change.")
+	writeProfile(t, env, "dev", "name: dev\ndescription: dev\nbundles:\n  - local#fragments/rules\n  - local#skills/review\n")
 	return env, mockLM
 }
 
@@ -174,10 +176,37 @@ func TestRun_ProjectRootSelectedForOneSurface(t *testing.T) {
 	assert.Equal(t, filepath.Join(env.ProjectDir, "MOCK_CONTEXT.md"), contextFile, "the selected surface lands in the project")
 	assert.Contains(t, context, "Project rules for the session.", "the project's file carried the session's context")
 	assert.NoFileExists(t, contextFile, "the run's teardown reverses its write into the project")
-	for _, f := range mockProjectFiles[1:] {
-		assert.NoFileExists(t, filepath.Join(env.ProjectDir, f), "an unselected surface %s landed in the project", f)
+	// Where every OTHER surface was delivered is read off the mock's record,
+	// written DURING the turn: the runner's teardown erases a stray write
+	// into the project before anything after the run could see it.
+	dirs := sessionDirs(t, env)
+	require.NotEmpty(t, dirs)
+	surfaces := mockRecordedSurfaces(t, mockLM)
+	for _, key := range []string{mock.RecordMCPFile, mock.RecordSettingsFile, mock.RecordHooksFile, mock.RecordCommandsDir, mock.RecordSkillsDir} {
+		path, ok := surfaces[key]
+		if !assert.True(t, ok, "the mock's record names no %s", key) {
+			continue
+		}
+		assert.False(t, strings.HasPrefix(path, env.ProjectDir+string(filepath.Separator)), "an unselected surface %s landed in the project: %s", key, path)
+		assert.True(t, slices.ContainsFunc(dirs, func(d string) bool { return strings.HasPrefix(path, d+string(filepath.Separator)) }),
+			"the unselected surface %s was delivered to %s, not under the session's directory %v", key, path, dirs)
 	}
 	assert.NoDirExists(t, filepath.Join(env.HomeDir, ".mock"), "the real home is never written")
+}
+
+// mockRecordedSurfaces is where the mock's record says each surface was
+// delivered during its turn, by record key.
+func mockRecordedSurfaces(t *testing.T, mockLM *testenv.MockLM) map[string]string {
+	t.Helper()
+	rec, err := mockLM.GetRecordedInput()
+	require.NoError(t, err, "the mock wrote no record")
+	out := map[string]string{}
+	for _, line := range strings.Split(rec, "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok && slices.Contains(mock.RecordSurfaceKeys(), k) {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // mockRecordedContext is the context file the mock read during its turn
@@ -187,7 +216,7 @@ func mockRecordedContext(t *testing.T, mockLM *testenv.MockLM) (file, context st
 	rec, err := mockLM.GetRecordedInput()
 	require.NoError(t, err, "the mock wrote no record")
 	for _, line := range strings.Split(rec, "\n") {
-		if v, ok := strings.CutPrefix(line, "context_file="); ok {
+		if v, ok := strings.CutPrefix(line, mock.RecordContextFile+"="); ok {
 			file = v
 		}
 	}

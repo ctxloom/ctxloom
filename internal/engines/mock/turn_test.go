@@ -171,16 +171,30 @@ func TestTurn_HangMarkerStallsSilentlyUntilCancelled(t *testing.T) {
 // TestTurn_WritesTheRecordFromWhatWasDelivered: CTXLOOM_MOCK_RECORD_FILE
 // gets the turn's evidence — the prompt as delivered, the deny list the
 // delivered settings file carries, the skills the delivered skills dir
-// holds, the working directory, the context file's path — read back off the FILES the runner
-// delivered (the exec's --context names the root), never a Setup of its own.
+// holds, the working directory, and WHERE every surface was delivered —
+// read back off the FILES the runner delivered (each surface announces its
+// own path on argv, and the context and the settings need not share a root),
+// never a Setup of its own.
 func TestTurn_WritesTheRecordFromWhatWasDelivered(t *testing.T) {
-	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, ConfigDirName, "skills", "review"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, ConfigDirName, "settings.json"), []byte(`{"denyTools":["WebFetch","Bash"]}`), 0o644))
+	root, other := t.TempDir(), t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(other, ConfigDirName, "skills", "review"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(other, ConfigDirName, "settings.json"), []byte(`{"denyTools":["WebFetch","Bash"]}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(other, hooksRel), []byte(`{}`), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, ContextFileName), []byte("RULES"), 0o600))
 	record := filepath.Join(t.TempDir(), "record.txt")
+	paths := map[string]string{
+		RecordContextFile:  filepath.Join(root, ContextFileName),
+		RecordMCPFile:      filepath.Join(other, mcpRel),
+		RecordSettingsFile: filepath.Join(other, settingsRel),
+		RecordHooksFile:    filepath.Join(other, hooksRel),
+		RecordCommandsDir:  filepath.Join(other, commandsRel),
+		RecordSkillsDir:    filepath.Join(other, skillsRel),
+	}
 	ex := engine.Exec{
-		Args:    []string{contextFlag, filepath.Join(root, ContextFileName)},
+		Args: []string{
+			contextFlag, paths[RecordContextFile], mcpFlag, paths[RecordMCPFile], settingsFlag, paths[RecordSettingsFile],
+			HooksFlag, paths[RecordHooksFile], commandsFlag, paths[RecordCommandsDir], skillsFlag, paths[RecordSkillsDir],
+		},
 		Env:     map[string]string{"CTXLOOM_MOCK_RECORD_FILE": record},
 		WorkDir: "/work/dir",
 	}
@@ -189,7 +203,9 @@ func TestTurn_WritesTheRecordFromWhatWasDelivered(t *testing.T) {
 	got, err := os.ReadFile(record)
 	require.NoError(t, err)
 	assert.Contains(t, string(got), "workdir=/work/dir")
-	assert.Contains(t, string(got), "context_file="+filepath.Join(root, ContextFileName)+"\n", "the record says WHERE the context was delivered, which outlives the run's teardown")
+	for key, path := range paths {
+		assert.Contains(t, string(got), key+"="+path+"\n", "the record says WHERE %s was delivered, which outlives the run's teardown", key)
+	}
 	assert.Contains(t, string(got), "=== DenyTools ===\nWebFetch\nBash\n")
 	assert.Contains(t, string(got), "=== Skills ===\nreview\n")
 	assert.Contains(t, string(got), "=== Prompt ===\nFRAGMENT-BODY: seeded\n\nthe prompt\n")

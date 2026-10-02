@@ -28,12 +28,15 @@ type WakeSpec interface {
 	Bind(ctx context.Context, env WakeEnv) (Wake, error)
 }
 
-// WakeEnv reads the environment of the process that binds and fires the wake
-// (os.LookupEnv in production). It is that process's OWN environment, never
-// one assembled for it, because what makes a wake land is engine-specific
-// standing that only the engine can hand out: claude delivers a post as its
-// own session's only when the poster is claude's descendant holding what
-// claude exported to it.
+// WakeEnv reads the environment the ENGINE handed out, which is the only
+// place a wake can bind from, because what makes a wake land is
+// engine-specific standing that only the engine can grant. Claude's is the
+// environment it exports to the stdio servers it spawns: it delivers a post
+// as its own session's only when the poster is its descendant holding that,
+// so claude's spec binds in its relay, from the relay's own environment. An
+// engine that names its wake in the exec env it composes for its session
+// (the mock's socket) is bound by the runner from that env. A spec that finds
+// nothing it can bind to returns ErrWakeUnbound.
 type WakeEnv func(key string) (string, bool)
 
 // WakeURI is the session's wake channel on its ctxloom MCP endpoint: an

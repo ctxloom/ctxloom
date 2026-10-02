@@ -340,7 +340,13 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 			env[k] = v
 		}
 	}
-	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: i.s.Mode == engine.Interactive}, nil
+	interactive := i.s.Mode == engine.Interactive
+	if interactive && i.s.Identity.Harp != "" {
+		// The session owner's wake: the interactive echo listens here, and
+		// the runner binds the mock's wake from this same env.
+		env[EnvWakeSocket] = wakeSocketPath(i.s.Identity.Harp)
+	}
+	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: interactive}, nil
 }
 func (i *instance) Drivers() []engine.StructuredDriver {
 	return []engine.StructuredDriver{driver{fires: i.fires}}

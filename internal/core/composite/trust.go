@@ -41,15 +41,41 @@ type Trust struct {
 	external bundles.Authorizer
 }
 
+// TrustOption adjusts the gate NewTrust builds.
+type TrustOption func(*authorizer)
+
+// WithoutSignatureCheck waives the signature step, by name: remote content
+// nothing else justified because it is unsigned, or signed by a key the root
+// does not trust, is admitted as bundles.ReasonSigCheckDisabled instead of
+// withheld pending review.
+//
+// It is NOT an admit-everything gate, and that is the point of building it
+// here rather than as a Trust of its own: every port is still required and
+// every step above the signature step still decides first — a rejection, a
+// retraction or an unreadable approvals store refuses exactly as before. The
+// trust root is untouched, so the readers and companion admission verify as
+// they always do.
+func WithoutSignatureCheck() TrustOption {
+	return func(a *authorizer) { a.sigCheckWaived = true }
+}
+
 // NewTrust holds the three ports and decides with them. The cascade consults
 // no clock of its own: validity windows are the ports' concern, asked at
 // their own call sites.
-func NewTrust(root TrustRoot, records ReviewRecords, retraction RetractionRecords) (Trust, error) {
+func NewTrust(root TrustRoot, records ReviewRecords, retraction RetractionRecords, opts ...TrustOption) (Trust, error) {
 	if root == nil || records == nil || retraction == nil {
 		return Trust{}, ErrTrustPortMissing
 	}
-	return Trust{gate: &authorizer{root: root, records: records, retraction: retraction}}, nil
+	gate := &authorizer{root: root, records: records, retraction: retraction}
+	for _, opt := range opts {
+		opt(gate)
+	}
+	return Trust{gate: gate}, nil
 }
+
+// SignatureCheckDisabled reports whether this Trust was built
+// WithoutSignatureCheck. False for a zero or Gated Trust.
+func (t Trust) SignatureCheckDisabled() bool { return t.gate != nil && t.gate.sigCheckWaived }
 
 // Gated is a Trust over a gate built elsewhere: the injected-stage seam,
 // for a caller holding a process stage whose gate it did not build here (a
@@ -90,6 +116,8 @@ type authorizer struct {
 	root       TrustRoot
 	records    ReviewRecords
 	retraction RetractionRecords
+	// sigCheckWaived is WithoutSignatureCheck.
+	sigCheckWaived bool
 
 	withheldMu sync.Mutex
 	withheld   map[string]bundles.Verdict
@@ -138,7 +166,17 @@ func (a *authorizer) Admit(e bundles.Exposure) bundles.Verdict {
 	if a.records.Approved(e.Ref(), e.Bytes, e.Form) {
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonApproved}
 	}
-	return a.record(e, bundles.Verdict{Reason: pendingReason(e.Read), Detail: pendingDetail(e.Ref())})
+	pending := pendingReason(e.Read)
+	if a.sigCheckWaived && signatureDerived(pending) {
+		return bundles.Verdict{Allow: true, Reason: bundles.ReasonSigCheckDisabled}
+	}
+	return a.record(e, bundles.Verdict{Reason: pending, Detail: pendingDetail(e.Ref())})
+}
+
+// signatureDerived reports whether a pending reason is the signature step's
+// answer — the only answer WithoutSignatureCheck waives.
+func signatureDerived(r bundles.Reason) bool {
+	return r == bundles.ReasonUnsigned || r == bundles.ReasonUntrustedSigner
 }
 
 // retractionVerdict is Admit's retraction step: a refusal verdict and true when

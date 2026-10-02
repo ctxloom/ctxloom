@@ -406,3 +406,49 @@ func TestRelay_ClosingClaudeEndsTheWakeSubscription(t *testing.T) {
 
 	require.ErrorIs(t, sig.Fire(context.Background(), nonce), interaction.ErrNoWakeSubscriber)
 }
+
+// runRefused runs the relay against url with relayBearer, has a claude
+// stand-in initialize through it, and returns Run's result. Under mint-fresh
+// a relay holding another launch's bearer is the stale case.
+func runRefused(t *testing.T, url, relayBearer string) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), bound)
+	t.Cleanup(cancel)
+	claudeSide, relaySide := mcp.NewInMemoryTransports()
+	env := map[string]string{claude.EnvRelayURL: url, claude.EnvRelayBearer: relayBearer}
+	stderr := make(lines, 16)
+	done := make(chan error, 1)
+	go func() {
+		done <- relay.Run(ctx, relay.Config{Env: func(k string) (string, bool) { v, ok := env[k]; return v, ok }, Stderr: stderr}, relaySide)
+	}()
+	_, err := mcp.NewClient(&mcp.Implementation{Name: "claude-stand-in", Version: "0"}, nil).Connect(ctx, claudeSide, nil)
+	require.Error(t, err, "claude's initialize is answered with the failure")
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		t.Fatal("the relay did not end after the endpoint failed it")
+		return nil
+	}
+}
+
+// TestRelay_StaleBearer_EndsWithErrEndpointRefused: the endpoint refuses a
+// bearer its launch did not mint (401), and the relay ends with the typed
+// refusal rather than an anonymous transport error, so a stale relay is
+// told apart from an endpoint that went away.
+func TestRelay_StaleBearer_EndsWithErrEndpointRefused(t *testing.T) {
+	url, _ := endpoint(t)
+	err := runRefused(t, url, "bearer-of-the-previous-launch")
+	require.ErrorIs(t, err, relay.ErrEndpointRefused)
+	assert.NotContains(t, err.Error(), "bearer-of-the-previous-launch", "the refusal never names the bearer")
+}
+
+// TestRelay_EndpointFailure_IsNotARefusal: any other failed answer is not
+// the refusal: only a 401 says the bearer is wrong.
+func TestRelay_EndpointFailure_IsNotARefusal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	t.Cleanup(srv.Close)
+	err := runRefused(t, srv.URL+"/mcp", bearer)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, relay.ErrEndpointRefused)
+}

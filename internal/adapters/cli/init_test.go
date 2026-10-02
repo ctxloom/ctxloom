@@ -16,6 +16,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -49,6 +51,17 @@ func TestGenerateConfig_DefaultsBlock(t *testing.T) {
 	// The engine's role pair is wired into llm.defaults.
 	assert.Contains(t, body, "primary: claude-code")
 	assert.Contains(t, body, "fast: claude-fast")
+}
+
+// init gives the HUMAN's own session their login (the top-level `auth:`),
+// and no binding an auth of its own: every agent ctxloom spawns runs on the
+// token. A scaffold carrying a binding `auth:` would not even load.
+func TestGenerateConfig_TheHumansSessionSharesTheLogin(t *testing.T) {
+	data, err := operations.BuildInitialConfig("claude-code", "", "")
+	require.NoError(t, err)
+	cfg, err := config.ParseConfig(data)
+	require.NoError(t, err, string(data))
+	assert.Equal(t, engine.AuthLogin, cfg.SessionAuth())
 }
 
 // TestCtxloomDefaultTrusted pins init's trust claim about the seeded

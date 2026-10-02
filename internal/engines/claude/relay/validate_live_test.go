@@ -145,14 +145,28 @@ func validateWake(t *testing.T, ctxloomBin, claudeBin string) {
 	}
 	t.Logf("fact 3: mail-drain redeemed wake %s", nonce)
 
-	// (4) Not fatal: facts 1-3 stand on their own and are already logged.
+	// (4) Not fatal: facts 1-3 stand on their own and are already logged. The
+	// absence of a truncation line means something only if claude logged the
+	// ctxloom connection it would have been logged beside.
+	connected, truncated := false, false
 	for _, line := range debugLines(cfg) {
+		connected = connected || ctxloomConnected.MatchString(line)
 		if m := truncatedInstructions.FindStringSubmatch(line); m != nil {
+			truncated = true
 			t.Errorf("fact 4: claude truncated the server instructions from %s to %s chars (operations.InstructionsCharCap is %d): the tail never reaches the agent",
 				m[1], m[2], operations.InstructionsCharCap)
 		}
 	}
+	switch {
+	case !connected:
+		t.Errorf("fact 4: claude's debug log never recorded the ctxloom connection, so the absence of a truncation line proves nothing")
+	case !truncated:
+		t.Logf("fact 4: claude kept the server instructions whole")
+	}
 }
+
+// ctxloomConnected is claude's --debug line for the relay's MCP connection.
+var ctxloomConnected = regexp.MustCompile(`MCP server "ctxloom": Successfully connected`)
 
 // truncatedInstructions is claude's --debug line for server instructions it
 // cut to its cap; on 2.1.286: `MCP server "ctxloom": Server instructions

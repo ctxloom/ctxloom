@@ -53,11 +53,6 @@ const (
 	// hooks, statusline, and permission denies (claude has no separate hooks
 	// file).
 	SettingsFileName = "settings.json"
-	// CredentialsFileName is claude's plaintext login credential inside its
-	// secure-storage directory (SecureStorageEnv). A token refresh rewrites
-	// it: a temp file renamed over it, falling back to an in-place rewrite
-	// when the rename is refused, as it is onto a single-file bind.
-	CredentialsFileName = ".credentials.json"
 	// CommandsDirName is the slash-command directory inside ConfigDirName.
 	CommandsDirName = "commands"
 	// SkillsDirName is the Agent Skill package directory inside ConfigDirName.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -171,7 +172,32 @@ func decodeContentBlocks(raw json.RawMessage) []contentBlock {
 	return blocks
 }
 
-// convertLines runs the two-pass conversion via vendorreader.ConvertJSONLLines:
+// convertLines runs a full conversion of lines already in memory, offering no
+// checkpoint — the entry point for tooling that audits real transcripts
+// (validate_local_test.go) and reads the accounting back. It is convert, the
+// one conversion, not a second one.
+func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) (importAccounting, error) {
+	ls := make([]vendorreader.Line, len(lines))
+	for i, l := range lines {
+		ls[i] = vendorreader.Line{Bytes: l}
+	}
+	return convert(ctx, rec, ls, vendorreader.Checkpoint{}, nil)
+}
+
+// convertFrom reads r (named name, for errors) from `from` and converts what
+// it holds. See Adapter.ConvertFrom.
+func convertFrom(ctx context.Context, rec transcript.Recorder, r io.ReadSeeker, name string, from vendorreader.Checkpoint, onCheckpoint func(vendorreader.Checkpoint) error) (importAccounting, error) {
+	if err := from.Seek(r); err != nil {
+		return importAccounting{}, fmt.Errorf("claude: resume %s: %w", name, err)
+	}
+	lines, err := vendorreader.ReadJSONLLines(r, from.Offset)
+	if err != nil {
+		return importAccounting{}, fmt.Errorf("claude: read %s: %w", name, err)
+	}
+	return convert(ctx, rec, lines, from, onCheckpoint)
+}
+
+// convert runs the two-pass conversion via vendorreader.ConvertJSONLLines:
 // scanSessionInfo first (one Session ChatEvent recorded once up front), then
 // a streamed second pass in the file's own order for every user/assistant
 // line. What is genuinely claude-specific — no envelope, dual-shaped content,
@@ -181,19 +207,98 @@ func decodeContentBlocks(raw json.RawMessage) []contentBlock {
 // boundary, and the outer scan/stream/flush shell itself) lives once in the
 // reader package, not copied here.
 //
+// Resuming (a non-zero from) skips the first pass: the header was recorded by
+// the conversion that took the checkpoint, and is only checkpointed once it
+// is settled (headerSettled), so nothing later could have changed it.
+//
 // The accounting is returned as well as acted on (reportDrops, checkFloor) so
 // a caller auditing real transcripts can read the counts themselves rather
 // than parse the warning they were rendered into.
-func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) (importAccounting, error) {
-	c := &converter{record: vendorreader.RecordFunc(rec, "claude")}
-	err := vendorreader.ConvertJSONLLines(ctx, rec, lines, "claude", scanSessionInfo(lines),
-		c.handleLine,
+func convert(ctx context.Context, rec transcript.Recorder, lines []vendorreader.Line, from vendorreader.Checkpoint, onCheckpoint func(vendorreader.Checkpoint) error) (importAccounting, error) {
+	c, err := newConverter(rec, from)
+	if err != nil {
+		return importAccounting{}, err
+	}
+	raws := vendorreader.LineBytes(lines)
+	var info *agent.ChatSessionInfo
+	if from.Offset == 0 {
+		info = scanSessionInfo(raws)
+	}
+	cp := checkpointer{lines: lines, offer: onCheckpoint, last: lastTerminated(lines)}
+	if from.Offset == 0 && !headerSettled(info) {
+		cp.offer = nil
+	}
+	if err := cp.offerUnchanged(from); err != nil {
+		return c.importAccounting, err
+	}
+	err = vendorreader.ConvertJSONLLines(ctx, rec, raws, "claude", info,
+		func(raw []byte) error { return cp.dispatch(c, raw) },
 		c.flushPending)
 	if err != nil {
 		return c.importAccounting, err
 	}
 	c.reportDrops()
-	return c.importAccounting, c.checkFloor(len(lines))
+	return c.importAccounting, c.checkFloor(c.lines)
+}
+
+// checkpointer offers the conversion's one checkpoint: right after the last
+// TERMINATED line has been handled, before anything provisional — an
+// unterminated line that may still be mid-write, the end-of-file Complete —
+// is recorded. offer is nil when this conversion must not checkpoint.
+type checkpointer struct {
+	lines []vendorreader.Line
+	offer func(vendorreader.Checkpoint) error
+	last  int // index of the last terminated line; -1 for none
+	next  int
+}
+
+// dispatch handles one line and offers the checkpoint once it was the last
+// terminated one.
+func (p *checkpointer) dispatch(c *converter, raw []byte) error {
+	i := p.next
+	p.next++
+	if err := c.handleLine(raw); err != nil {
+		return err
+	}
+	c.lines++
+	if i != p.last || p.offer == nil {
+		return nil
+	}
+	state, err := json.Marshal(c.resumeState())
+	if err != nil {
+		return fmt.Errorf("claude: checkpoint: %w", err)
+	}
+	return p.offer(vendorreader.NewCheckpoint(p.lines[i], state))
+}
+
+// offerUnchanged hands a resume that will reach no new terminated line its
+// own checkpoint back (a full conversion never gets here with an offer: a
+// settled header takes more than one line, so it has a terminated one), before anything provisional is recorded: the file has
+// not grown past it, and dropping it would cost the next refresh a full read.
+func (p *checkpointer) offerUnchanged(from vendorreader.Checkpoint) error {
+	if p.last >= 0 || p.offer == nil {
+		return nil
+	}
+	return p.offer(from)
+}
+
+// lastTerminated is the index of the last line that reached its newline, or
+// -1 when none did.
+func lastTerminated(lines []vendorreader.Line) int {
+	for i := len(lines) - 1; i >= 0; i-- {
+		if lines[i].Terminated {
+			return i
+		}
+	}
+	return -1
+}
+
+// headerSettled reports whether info carries every field claude's format can
+// supply (see sessionScan). Until then a later line could still fill one in,
+// and the header — recorded once, at the top — would differ from what a full
+// conversion of the grown file writes.
+func headerSettled(info *agent.ChatSessionInfo) bool {
+	return info != nil && info.SessionID != "" && info.Model != "" && info.PermissionMode != ""
 }
 
 // handleLine converts one raw line.
@@ -465,6 +570,42 @@ type converter struct {
 	importAccounting
 }
 
+// resumeState is the converter's cross-line state as a checkpoint carries it:
+// the open turn boundary, and the counters checkFloor reads at end of file.
+// The drop tallies are not carried — reportDrops speaks for the lines THIS
+// conversion read.
+type resumeState struct {
+	PendingID      string          `json:"pending_id,omitempty"`
+	Pending        *agent.TurnMeta `json:"pending,omitempty"`
+	Lines          int             `json:"lines"`
+	Conversational int             `json:"conversational"`
+	Malformed      int             `json:"malformed"`
+	Entries        int             `json:"entries"`
+}
+
+func (c *converter) resumeState() resumeState {
+	return resumeState{
+		PendingID: c.pendingID, Pending: c.pending,
+		Lines: c.lines, Conversational: c.conversational, Malformed: c.malformed, Entries: c.entries,
+	}
+}
+
+// newConverter returns the converter for a conversion starting at from: a
+// fresh one at the beginning, else one restored from from.State.
+func newConverter(rec transcript.Recorder, from vendorreader.Checkpoint) (*converter, error) {
+	c := &converter{record: vendorreader.RecordFunc(rec, "claude")}
+	if from.Offset == 0 {
+		return c, nil
+	}
+	var st resumeState
+	if err := json.Unmarshal(from.State, &st); err != nil {
+		return nil, fmt.Errorf("claude: checkpoint state: %w: %w", vendorreader.ErrCheckpointMismatch, err)
+	}
+	c.pendingID, c.pending = st.PendingID, st.Pending
+	c.lines, c.conversational, c.malformed, c.entries = st.Lines, st.Conversational, st.Malformed, st.Entries
+	return c, nil
+}
+
 // importAccounting is read by checkFloor/reportDrops once the stream is done,
 // and returned by convertLines: how many lines this adapter claimed to
 // understand, how many it could not parse at all, how many canonical entries
@@ -472,6 +613,9 @@ type converter struct {
 // whole lines of a type this build does not know, and message content blocks
 // of a type it does not model.
 type importAccounting struct {
+	// lines counts every non-empty line read, including any before a resume's
+	// checkpoint — the total checkFloor judges against.
+	lines          int
 	conversational int
 	malformed      int
 	// vendorTruncated counts the cut-off fragments of torn lines whose glued

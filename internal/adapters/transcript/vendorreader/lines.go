@@ -8,10 +8,23 @@ import (
 	"os"
 )
 
-// readJSONLLines splits r into non-empty, trimmed lines using an UNBOUNDED
-// bufio.Reader rather than a capped bufio.Scanner. Every JSONL-per-session
-// vendor store this package's adapters read (claude's <uuid>.jsonl)
-// routinely carries a single line running to tens of kilobytes (a base_instructions
+// Line is one non-empty, trimmed line of a JSONL source and where it sits in
+// that source. Start and End bracket the RAW line — leading whitespace and the
+// terminating newline included — so End is where the next read resumes.
+// Terminated is false only for a last line that has not reached its newline:
+// in a vendor file being written live that line may still be mid-write, which
+// is why a resumable conversion never checkpoints past one.
+type Line struct {
+	Bytes      []byte
+	Start, End int64
+	Terminated bool
+}
+
+// ReadJSONLLines splits r into non-empty, trimmed lines using an UNBOUNDED
+// bufio.Reader rather than a capped bufio.Scanner, reporting each line's
+// position as an offset from base (where r starts in its source). Every
+// JSONL-per-session vendor store this package's adapters read (claude's
+// <uuid>.jsonl) routinely carries a single line running to tens of kilobytes (a base_instructions
 // blob, a large tool result/diff, an extended-thinking block, a
 // PLANNER_RESPONSE's "thinking" field) — a Scanner's default token cap would
 // hard-fail the ENTIRE file on the first such line, which is exactly the
@@ -23,16 +36,19 @@ import (
 // by it — "split on newlines, trim, drop empties" — so a second copy has no
 // behavioral reason to exist, and a structurally different rewrite (an
 // os.ReadFile+bytes.Split variant, say) that only dodges the duplicate-
-// detection gate is still a second copy.
-func readJSONLLines(r io.Reader) ([][]byte, error) {
+// detection gate is still a second copy. A resumed read (Checkpoint) uses it
+// too, which is what keeps a resumed conversion splitting lines exactly as a
+// full one does.
+func ReadJSONLLines(r io.Reader, base int64) ([]Line, error) {
 	reader := bufio.NewReaderSize(r, 64*1024)
-	var lines [][]byte
+	var lines []Line
+	off := base
 	for {
-		line, err := reader.ReadBytes('\n')
-		if len(line) > 0 {
-			if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
-				lines = append(lines, trimmed)
-			}
+		raw, err := reader.ReadBytes('\n')
+		start := off
+		off += int64(len(raw))
+		if trimmed := bytes.TrimSpace(raw); len(trimmed) > 0 {
+			lines = append(lines, Line{Bytes: trimmed, Start: start, End: off, Terminated: err == nil})
 		}
 		if err == io.EOF {
 			break
@@ -44,12 +60,22 @@ func readJSONLLines(r io.Reader) ([][]byte, error) {
 	return lines, nil
 }
 
+// LineBytes is lines' content alone, for the dispatch shell
+// (ConvertJSONLLines) and the scans that take raw lines.
+func LineBytes(lines []Line) [][]byte {
+	out := make([][]byte, len(lines))
+	for i, l := range lines {
+		out[i] = l.Bytes
+	}
+	return out
+}
+
 // OpenAndReadJSONLLines opens the JSONL file at path and reads every line
-// via readJSONLLines, wrapping either failure with vendor's own error
+// via ReadJSONLLines, wrapping either failure with vendor's own error
 // prefix ("claude: open ...", "claude: read ...") — the "open, read, hand the
 // lines to convertLines" shell every JSONL-per-session engine's Convert
 // repeats verbatim once its actual line-reading delegates to
-// readJSONLLines.
+// ReadJSONLLines.
 func OpenAndReadJSONLLines(vendor, path string) ([][]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -57,9 +83,9 @@ func OpenAndReadJSONLLines(vendor, path string) ([][]byte, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	lines, err := readJSONLLines(f)
+	lines, err := ReadJSONLLines(f, 0)
 	if err != nil {
 		return nil, fmt.Errorf("%s: read %s: %w", vendor, path, err)
 	}
-	return lines, nil
+	return LineBytes(lines), nil
 }

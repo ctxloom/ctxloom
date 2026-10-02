@@ -135,7 +135,7 @@ func TestConvertVendorTranscript_DanglingBoundPath(t *testing.T) {
 // TestConvertVendorTranscript_Idempotent covers the exit-seam contract: once
 // a canonical transcript exists for a harp, a second call is a permanent
 // no-op for it — never a re-import (which would duplicate every entry, since
-// Convert has no incremental/resume concept; see ConvertVendorTranscript's
+// Convert reads from the beginning; see ConvertVendorTranscript's
 // own doc comment).
 func TestConvertVendorTranscript_Idempotent(t *testing.T) {
 	testsupport.Isolate(t)

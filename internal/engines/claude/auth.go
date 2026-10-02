@@ -63,6 +63,12 @@ func (claudeAuth) Modes() []engine.AuthMode {
 	return []engine.AuthMode{engine.AuthLogin, engine.AuthToken}
 }
 
+// SetupArgs: `claude setup-token`, claude's own long-lived token flow.
+func (claudeAuth) SetupArgs() []string { return []string{"setup-token"} }
+
+// TokenEnv is where claude reads the token setup-token creates.
+func (claudeAuth) TokenEnv() string { return OAuthTokenEnv }
+
 // Credentials: the mode decides. Only that mode's credential reaches claude,
 // and everything that would outrank or replace it is unset.
 //

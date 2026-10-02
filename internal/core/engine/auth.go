@@ -136,6 +136,18 @@ type Auth interface {
 	Credentials(mode AuthMode, shell func(string) (string, bool)) (Credentials, error)
 }
 
+// TokenSetup is declared by an Auth whose AuthToken credential the human
+// creates with the engine's OWN CLI. ctxloom runs that flow on the human's
+// terminal and reads nothing it prints: the token goes from the engine's flow
+// to the human, who exports it. Nothing here hands a token to ctxloom.
+type TokenSetup interface {
+	// SetupArgs are the arguments to the engine's binary that start its
+	// token-creation flow.
+	SetupArgs() []string
+	// TokenEnv is the variable the human exports the token in.
+	TokenEnv() string
+}
+
 // SupportsMode reports whether a lists mode among its Modes.
 func SupportsMode(a Auth, mode AuthMode) bool {
 	return slices.Contains(a.Modes(), mode)

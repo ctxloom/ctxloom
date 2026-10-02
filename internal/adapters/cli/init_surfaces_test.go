@@ -80,6 +80,7 @@ func TestLaunchDiscovery_LaunchesTheInterviewInItsOwnSessionHome(t *testing.T) {
 	t.Cleanup(func() { initSkipLaunch = origSkip })
 
 	captureStdout(t, func() {
+		withAgentToken(t)
 		require.NoError(t, launchDiscovery(initTestCmd(), "claude-code", appDir, true))
 	})
 

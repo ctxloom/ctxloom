@@ -776,7 +776,13 @@ var launchEngineWithPromptFn = launchEngineWithPrompt
 // default too, so init's own working outcome not happening is never
 // mistaken for success.
 func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool) error {
-	if !interactive || initSkipLaunch {
+	if initSkipLaunch {
+		return nil
+	}
+	if err := ensureAgentToken(cmd.Context(), App().Engines(), engine, interactive, os.LookupEnv, cmd.OutOrStdout()); err != nil {
+		return err
+	}
+	if !interactive {
 		return nil
 	}
 

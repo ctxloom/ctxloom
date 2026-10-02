@@ -167,6 +167,7 @@ func discoveryLaunch(t *testing.T, cfg *config.Config) launch.Launch {
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
+	withAgentToken(t)
 	_ = captureStdout(t, func() { require.NoError(t, launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)) })
 	require.NotEmpty(t, got.Identity.Harp, "the discovery session resolved")
 	// The probe ran under its OWN harp; the session the human works in is
@@ -286,6 +287,7 @@ func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 
+	withAgentToken(t)
 	err := launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
 	require.Error(t, err, "a failed ping must fail init loud, not degrade")
 	assert.False(t, launchCalled, "the engine must never be launched after a failed auth ping")
@@ -314,6 +316,7 @@ func TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint(t *testing.
 
 	var err error
 	out := captureStdout(t, func() {
+		withAgentToken(t)
 		err = launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
 	})
 	require.NoError(t, err)
@@ -360,6 +363,7 @@ func TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag(t *tes
 
 		var err error
 		out := captureStdout(t, func() {
+			withAgentToken(t)
 			err = launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
 		})
 		require.Error(t, err, "a session that failed to launch must refuse, not exit clean")
@@ -373,6 +377,7 @@ func TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag(t *tes
 
 		var err error
 		out := captureStdout(t, func() {
+			withAgentToken(t)
 			err = launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
 		})
 		require.NoError(t, err, "degraded mode is the escape hatch — it must not abort init")
@@ -404,6 +409,7 @@ func TestLaunchDiscovery_NonInteractive_SkipsPingAndLaunch(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 
+	withAgentToken(t)
 	err := launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", false)
 	require.NoError(t, err)
 	assert.False(t, pingCalled, "non-interactive must not ping the engine's auth")
@@ -428,6 +434,7 @@ func TestLaunchDiscovery_SkipLaunch_SkipsPingToo(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 
+	withAgentToken(t)
 	err := launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
 	require.NoError(t, err)
 	assert.False(t, pingCalled)

@@ -119,3 +119,14 @@ func TestClaudeAuth_Credentials_RefusalsAreTypedWithARemedy(t *testing.T) {
 	_, err = testAuth().Credentials("api-key", shellOf(everyCredentialExported))
 	require.ErrorIs(t, err, engine.ErrAuthModeUnsupported)
 }
+
+// claude's token is created by its own `setup-token` flow and carried in
+// OAuthTokenEnv: init runs exactly those arguments on the human's terminal
+// and names exactly that variable in the export line it prints.
+func TestClaudeAuth_DeclaresItsTokenSetup(t *testing.T) {
+	var a engine.Auth = testAuth()
+	setup, ok := a.(engine.TokenSetup)
+	require.True(t, ok, "claude's token is minted by its own CLI, so its Auth declares how")
+	assert.Equal(t, []string{"setup-token"}, setup.SetupArgs())
+	assert.Equal(t, OAuthTokenEnv, setup.TokenEnv())
+}

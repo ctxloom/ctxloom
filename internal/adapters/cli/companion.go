@@ -183,9 +183,9 @@ func printCompanionShow(w io.Writer, s companionShow) error {
 	return err
 }
 
-// shortSHA abbreviates a hex digest for human display. Full digests are in the
-// record and in --format json; a 64-char hex string in a status line is noise a
-// human cannot check by eye anyway.
+// shortSHA abbreviates a hex digest for human display. Full digests are in
+// --format json; a 64-char hex string in a status line is noise a human cannot
+// check by eye anyway.
 func shortSHA(sum string) string {
 	if len(sum) <= 16 {
 		return sum

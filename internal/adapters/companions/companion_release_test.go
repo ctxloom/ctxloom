@@ -1,6 +1,8 @@
 package companions
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,6 +49,8 @@ func TestAdmitCompanions_BytesTheStatementDoesNotHashAreRefused(t *testing.T) {
 	got := admissionFor(t, f.admit([]string{"ltk"}), "ltk")
 	assert.False(t, got.Allow)
 	assert.Equal(t, CompanionAdmissionTampered, got.Reason)
+	evil := sha256.Sum256([]byte("#!/bin/sh\necho evil\n"))
+	assert.Equal(t, hex.EncodeToString(evil[:]), got.SHA256, "the refusal names the bytes actually there")
 }
 
 func TestAdmitCompanions_ASignatureWithNoReleaseStatementIsUnsigned(t *testing.T) {
@@ -93,6 +97,18 @@ func TestAdmitCompanions_AMatchingSignedStatementIsAdmitted(t *testing.T) {
 	assert.True(t, got.Allow)
 	assert.Equal(t, CompanionAdmissionSigned, got.Reason)
 	assert.Equal(t, filepath.Join(f.elsewhere, "ltk"), got.Path)
+	sum := sha256.Sum256([]byte("#!/bin/sh\n"))
+	assert.Equal(t, hex.EncodeToString(sum[:]), got.SHA256, "an admission carries the hash of the bytes it admitted")
+}
+
+// TestAdmitCompanions_AnUnsignedRefusalCarriesNoHash: a binary refused before
+// its bytes were read has no hash to report, and must not invent one.
+func TestAdmitCompanions_AnUnsignedRefusalCarriesNoHash(t *testing.T) {
+	f := newConsentFixture(t)
+	f.writeBin(t, f.elsewhere, "ltk", "#!/bin/sh\n")
+	got := admissionFor(t, f.admit([]string{"ltk"}), "ltk")
+	assert.Equal(t, CompanionAdmissionUnsigned, got.Reason)
+	assert.Empty(t, got.SHA256)
 }
 
 func replaceOnce(s, old, repl string) string { return strings.Replace(s, old, repl, 1) }

@@ -48,7 +48,7 @@ channel. Nothing states this.
 
 ## Fact vocabulary and folds
 
-The 11 fact payload structs live at `facts.go`; `factAt` is the
+The fact payload structs live at `facts.go`; `factAt` is the
 single minting helper (a pass-through to `journal.go`'s `newFact`, which **panics**
 on a marshal failure — loud, and correct for own-struct payloads).
 
@@ -64,7 +64,7 @@ on a marshal failure — loud, and correct for own-struct payloads).
 twice from one journal, with two reap policies (`runsFold` never prunes `byHarp`;
 `rosterFold` prunes `byRun` only). The duplication buys fold independence.
 
-Every fold arm decodes with `if fact.decode(&p) != nil { return }` — 12 occurrences.
+Every fold arm decodes with `if fact.decode(&p) != nil { return }`.
 Forward-compatible by design; a *corrupt* payload is indistinguishable from an unknown
 one, and neither warns.
 
@@ -82,7 +82,7 @@ children.
 | `Message` | one mailbox message (id, from, to, kind, body, structured, in_reply_to) |
 | `Identity` | `Harp`, `RunID`, `Depth`, `Project` (persisted) + `Consumer` (`json:"-"`, in-memory only — a journaled consumer bit would outlive the process that minted it) |
 
-`RunRecord` is copied by value at four sites (`cp := *r`) to escape the `View` window;
+`RunRecord` is copied by value (`cp := *r`) to escape the `View` window;
 those copies are **shallow**, so `Ladder` and `MCPServers` share backing arrays. Safe
 because both are fixed at enqueue and never mutated.
 
@@ -132,7 +132,7 @@ this package's `identity.go` re-exports them under the coordinator's names, and
 | `Close` | closing → cancel → kill attachments → `srv.close` → join → close journals |
 | `audit` | appends one interaction fact; **warns, never gates** (I8) |
 
-`New`'s five post-`WithCancel` failure paths call `closePartial`
+`New`'s post-`WithCancel` failure paths call `closePartial`
 but never `c.cancel()`; `closePartial` discards every journal's `Close()` error.
 
 ## Public verbs on `Coordinator`
@@ -141,7 +141,7 @@ but never `c.cancel()`; `closePartial` discards every journal's `Close()` error.
 | --- | --- |
 | `Roster` | sorted roster snapshot under `View` |
 | `Identify` | token → `Identity`; the auth root for every transport |
-| `AgentSend` | approval-reply interception → routing policy (I1) → durable queue → delivery-by-state |
+| `AgentSend` | approval-reply interception → routing policy (I1) → one file in the recipient's `in/` spool (`queueMailPayloadID`) → delivery-by-state |
 | `AgentStop` | children refused (I2); `cancelLaunch` on **both** paths, then `terminateRun` |
 | `Inject` | user-typed text as a turn, plus a `KindUserInjected` mirror notice to the target's parent |
 | `WatchRuns` / `ListRuns` | see [observation.md](observation.md) |

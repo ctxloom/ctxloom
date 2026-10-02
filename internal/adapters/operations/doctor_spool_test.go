@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,6 +147,62 @@ func TestDoctorCheckSpoolBacklog_NamesAClaimNoHookFinished(t *testing.T) {
 	check := doctorCheckSpoolBacklog()
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, string(spool.ClaimedDirName)+"/"+ref.Name, "the unacknowledged claim must be named where it sits")
+}
+
+// TestDoctorCheckSpoolBacklog_ARecordedDeliveryIsNotStuck: an inbox file
+// whose identity is already in the delivered record is a delivery whose
+// delete was interrupted (spool.Deliver records first, deletes second). The
+// reader's next sweep finishes it; it is not mail anybody is still owed, and
+// naming it stuck would send an operator after a message that arrived.
+func TestDoctorCheckSpoolBacklog_ARecordedDeliveryIsNotStuck(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	old := time.Now().Add(-10 * time.Minute)
+	inRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 1, "coord", old)
+	claimedRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 2, "coord", old)
+	res, err := spool.Claim(mapper, harp)
+	require.NoError(t, err)
+	require.Len(t, res.Entries, 2)
+	// Put one back in in/: the runner's shape. The other stays claimed: the
+	// owner's.
+	claimedDir, err := spool.DirPath(mapper, harp, spool.ClaimedDirName)
+	require.NoError(t, err)
+	inDir, err := spool.DirPath(mapper, harp, spool.DirIn)
+	require.NoError(t, err)
+	require.NoError(t, os.Rename(filepath.Join(claimedDir, inRef.Name), filepath.Join(inDir, inRef.Name)))
+	root, err := spool.Root(mapper, harp)
+	require.NoError(t, err)
+	record := filepath.Join(root, "in", "delivered")
+	require.NoError(t, os.MkdirAll(record, 0o700))
+	for _, ref := range []spool.Ref{inRef, claimedRef} {
+		require.NoError(t, os.WriteFile(filepath.Join(record, strings.TrimSuffix(ref.Name, spool.MessageFileExt)), nil, 0o600))
+	}
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, DoctorOK, check.Status, check.Detail)
+	assert.NotContains(t, check.Detail, inRef.Name)
+	assert.NotContains(t, check.Detail, claimedRef.Name)
+}
+
+// TestDoctorCheckSpoolBacklog_TheRecordExcusesOnlyTheInbox: the delivered
+// record is the INBOX's memory. An aged out/ file is a message the
+// coordinator never routed, whatever the record holds.
+func TestDoctorCheckSpoolBacklog_TheRecordExcusesOnlyTheInbox(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	old := time.Now().Add(-10 * time.Minute)
+	outRef := writeRawSpoolMessage(t, mapper, harp, spool.DirOut, old.UnixNano(), 1, harp, old)
+	root, err := spool.Root(mapper, harp)
+	require.NoError(t, err)
+	record := filepath.Join(root, "in", "delivered")
+	require.NoError(t, os.MkdirAll(record, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(record, strings.TrimSuffix(outRef.Name, spool.MessageFileExt)), nil, 0o600))
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Contains(t, check.Detail, outRef.String())
 }
 
 // TestDoctorCheckSpoolBacklog_CapsNamedListWithCount proves a machine with

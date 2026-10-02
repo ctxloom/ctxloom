@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,7 +65,9 @@ func TestClaim_TakesEveryUnclaimedMessageIntoClaimedAndReturnsItInOrder(t *testi
 
 	assert.Empty(t, filesIn(t, m, DirIn), "a claimed message has LEFT in/")
 	assert.ElementsMatch(t, []string{first.Name, second.Name}, filesIn(t, m, ClaimedDirName), "…and sits in in/claimed/ until acknowledged")
-	assert.Empty(t, filesIn(t, m, DirInConsumed), "claiming is not consuming")
+	delivered, err := DeliveredIdentities(m, testHarp)
+	require.NoError(t, err)
+	assert.Empty(t, delivered, "claiming is not delivering")
 }
 
 // TestClaim_RedeliversWhatWasClaimedButNeverAcknowledged is the crash between
@@ -106,49 +109,30 @@ func TestClaim_InterleavesLeftoversWithNewerMailChronologically(t *testing.T) {
 	assert.Equal(t, []string{"older\n", "newer\n"}, bodiesOf(res.Entries))
 }
 
-func TestAck_MovesAClaimedMessageIntoConsumedAndClaimNeverReturnsItAgain(t *testing.T) {
+func TestDeliver_AClaimedMessageIsNeverClaimedAgain(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	ref, before := seedIn(t, m, "delivered for good\n")
+	seedIn(t, m, "delivered for good\n")
 	res, err := Claim(m, testHarp)
 	require.NoError(t, err)
 	require.Len(t, res.Entries, 1)
 
-	require.NoError(t, Ack(m, testHarp, ref.Name))
+	require.NoError(t, Deliver(m, res.Entries[0].Ref, res.Entries[0].Identity(), time.Now()))
 
-	assert.Empty(t, filesIn(t, m, ClaimedDirName), "an acknowledged message has left in/claimed/")
-	consumed := filesIn(t, m, DirInConsumed)
-	require.Equal(t, []string{ref.Name}, consumed, "the ack is the rename into in/consumed/ — the audit trail, never a delete")
-	path, err := DirPath(m, testHarp, DirInConsumed)
-	require.NoError(t, err)
-	after, err := os.ReadFile(filepath.Join(path, ref.Name))
-	require.NoError(t, err)
-	assert.Equal(t, before, after, "the consumed copy is byte-identical to what was delivered")
-
+	assert.Empty(t, filesIn(t, m, ClaimedDirName), "a delivered message has left in/claimed/")
 	again, err := Claim(m, testHarp)
 	require.NoError(t, err)
-	assert.Empty(t, again.Entries, "a consumed message is never delivered again")
+	assert.Empty(t, again.Entries, "a delivered message is never delivered again")
 }
 
-// TestAck_OfAMessageNotInClaimedIsAlreadyGone: the other consumer won (or
-// nothing was ever claimed under that name). The typed sentinel is what lets
-// a caller distinguish a lost race from a broken spool.
-func TestAck_OfAMessageNotInClaimedIsAlreadyGone(t *testing.T) {
+func TestDeliver_RefusesANameOutsideTheBareFilenameGrammar(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	ref, _ := seedIn(t, m, "never claimed\n")
-
-	err := Ack(m, testHarp, ref.Name)
-	require.ErrorIs(t, err, ErrAlreadyGone)
-	assert.Equal(t, []string{ref.Name}, filesIn(t, m, DirIn), "an ack of the wrong state must not touch in/")
-}
-
-func TestAck_RefusesANameOutsideTheBareFilenameGrammar(t *testing.T) {
-	hostHome(t)
-	m := NewHomeMapper()
-	err := Ack(m, testHarp, "../escape")
+	err := Deliver(m, Ref{Harp: testHarp, Dir: ClaimedDirName, Name: "../escape"}, "m-1", time.Now())
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrAlreadyGone, "a traversal attempt is a refusal, not a lost race")
+	_, statErr := os.Stat(deliveredPath(t, m, "m-1"))
+	assert.True(t, os.IsNotExist(statErr), "a refused delivery records nothing")
 }
 
 func TestPending_IsTrueOnlyWhileInHoldsAnUnclaimedFile(t *testing.T) {
@@ -264,26 +248,6 @@ func seedOrigin(t *testing.T, m PathMapper, origin, body string) Ref {
 	return ref
 }
 
-// TestClaim_ADuplicateOfWhatWasAlreadyConsumedGoesStraightToConsumed is
-// at-least-once meeting a reader with no memory: the hook is a new process
-// every turn, so the only record of "already delivered" is in/consumed/.
-func TestClaim_ADuplicateOfWhatWasAlreadyConsumedGoesStraightToConsumed(t *testing.T) {
-	hostHome(t)
-	m := NewHomeMapper()
-	seedOrigin(t, m, "mail-1", "first copy\n")
-	res, err := Claim(m, testHarp)
-	require.NoError(t, err)
-	require.Len(t, res.Entries, 1)
-	require.NoError(t, Ack(m, testHarp, res.Entries[0].Ref.Name))
-
-	dup := seedOrigin(t, m, "mail-1", "second copy\n")
-	res, err = Claim(m, testHarp)
-	require.NoError(t, err)
-	assert.Empty(t, res.Entries, "a message whose identity is already consumed is not delivered again")
-	assert.Empty(t, filesIn(t, m, ClaimedDirName))
-	assert.Contains(t, filesIn(t, m, DirInConsumed), dup.Name, "the duplicate is kept in the audit trail, not deleted")
-}
-
 // Two copies arriving together, or one arriving while its twin is claimed and
 // unacknowledged, are one delivery.
 func TestClaim_DuplicatesInFlightAreDeliveredOnce(t *testing.T) {
@@ -299,7 +263,8 @@ func TestClaim_DuplicatesInFlightAreDeliveredOnce(t *testing.T) {
 	res, err = Claim(m, testHarp)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a\n"}, bodiesOf(res.Entries), "a copy of a claimed-but-unacknowledged message is not a second delivery")
-	assert.Len(t, filesIn(t, m, DirInConsumed), 2)
+	assert.Empty(t, filesIn(t, m, DirIn), "the copies are dropped, not left to be re-read")
+	assert.Len(t, filesIn(t, m, ClaimedDirName), 1, "only the original is in flight")
 }
 
 // Without an origin id, a message's identity is its filename stem, so two

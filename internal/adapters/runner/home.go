@@ -78,10 +78,11 @@ type Home struct {
 	// human binds one.
 	approvalRoute ApprovalRoute
 	turnPending   map[string]bool
-	// acking holds the ids the engine has ACCEPTED whose consume-rename the
-	// pump has not yet performed; ackWake is closed and replaced whenever
-	// turnPending or acking shrinks. Together they let AwaitMailAcked answer
-	// "is any of these still on its way to consumed/" without polling.
+	// acking holds the ids the engine has ACCEPTED whose delivery ack
+	// (spool.Deliver) the pump has not yet performed; ackWake is closed and
+	// replaced whenever turnPending or acking shrinks. Together they let
+	// AwaitMailAcked answer "is any of these still unacknowledged" without
+	// polling.
 	acking  map[string]bool
 	ackWake chan struct{}
 	// exited is set once ReportRunExited has run for a spawned run: the
@@ -1088,9 +1089,9 @@ func (h *Home) wakeAckWaitersLocked() {
 	h.ackWake = make(chan struct{})
 }
 
-// AwaitMailAcked blocks until none of ids is still on its way to consumed/:
-// neither queued for the engine (turnPending) nor accepted with its
-// consume-rename in flight (acking). An id this runner never delivered, or
+// AwaitMailAcked blocks until none of ids is still unacknowledged: neither
+// queued for the engine (turnPending) nor accepted with its delivery ack in
+// flight (acking). An id this runner never delivered, or
 // one already acked, needs no wait. Bounded by ctx.
 //
 // The engine host calls this before it reports RunExited, for the turns the
@@ -1359,9 +1360,9 @@ func (h *Home) reissueUnacked() {
 // writer LAST so nothing lands after the join.
 func (h *Home) Crash() {
 	// Torn down means nothing here can take a turn: the sweep and the
-	// consume-rename refuse from this point (a consume mkdirs its target,
-	// and a late one would recreate a spool under a root the run is done
-	// with). Marked BEFORE the join, so a caller the join gives up on still
+	// delivery ack refuse from this point (an ack mkdirs the delivered
+	// record, and a late one would recreate a spool under a root the run is
+	// done with). Marked BEFORE the join, so a caller the join gives up on still
 	// sees it.
 	h.exited.Store(true)
 	h.tracked.Seal()

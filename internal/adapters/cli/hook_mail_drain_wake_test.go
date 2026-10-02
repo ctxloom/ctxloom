@@ -91,7 +91,7 @@ func TestDrainMail_AWakeWithMailDeliversItAndConsumesTheNonce(t *testing.T) {
 	assert.Empty(t, env.Decision, "a wake that found mail is a turn")
 	assert.Contains(t, env.HookSpecificOutput.AdditionalContext, "FINAL: done")
 	assert.Empty(t, outstanding(t), "the wake was redeemed")
-	assert.Equal(t, []string{name}, spoolNames(t, spool.DirInConsumed))
+	assert.Equal(t, []string{stem(name)}, deliveredIDs(t))
 }
 
 // A human prompt that QUOTES the wake text is not the wake: it is never
@@ -150,7 +150,9 @@ func TestDrainMail_ADuplicateMessageIsDeliveredOnce(t *testing.T) {
 	out.Reset()
 	require.NoError(t, drainMail(promptCmd(t, &out, "again"), mailDrainOwner))
 	assert.Empty(t, out.String(), "a re-send of a delivered message is not delivered again")
-	assert.Len(t, spoolNames(t, spool.DirInConsumed), 3)
+	assert.Equal(t, []string{"msg-1"}, deliveredIDs(t), "one identity, delivered once")
+	assert.Empty(t, spoolNames(t, spool.DirIn), "the re-sends are dropped, not left to be re-read")
+	assert.Empty(t, spoolNames(t, spool.ClaimedDirName))
 }
 
 // TestDrainMail_ADrainClearsEveryOutstandingWake is F1 at the hook: a human's

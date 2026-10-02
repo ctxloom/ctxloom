@@ -976,7 +976,6 @@ func SendRequestFromWire(send *agentcoordpb.PeerSendRequest) (coord.SendRequest,
 var spoolDirToWire = map[spool.Dir]agentcoordpb.SpoolDir{
 	spool.DirIn:          agentcoordpb.SpoolDir_SPOOL_DIR_IN,
 	spool.DirOut:         agentcoordpb.SpoolDir_SPOOL_DIR_OUT,
-	spool.DirInConsumed:  agentcoordpb.SpoolDir_SPOOL_DIR_IN_CONSUMED,
 	spool.DirOutConsumed: agentcoordpb.SpoolDir_SPOOL_DIR_OUT_CONSUMED,
 	spool.DirInWithdrawn: agentcoordpb.SpoolDir_SPOOL_DIR_IN_WITHDRAWN,
 }

@@ -274,7 +274,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 				return fmt.Errorf("p6: no session harp remembered for %q", name)
 			}
 			root := p6SpoolRoot(w.env.HomeDir, childHarp)
-			census, err := p6ReadSpoolCensus(root, p6.harp)
+			census, err := p6Census(root, p6.harp)
 			if err != nil {
 				return fmt.Errorf("p6: the child's spool must exist, it is the only carrier: %w", err)
 			}

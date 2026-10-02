@@ -289,7 +289,7 @@ func awaitChildOverflow(t *testing.T, harp string) string {
 	t.Helper()
 	var delivered string
 	assert.Eventually(t, func() bool {
-		for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName, spool.DirInConsumed} {
+		for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName} {
 			for _, e := range spoolEntries(t, harp, dir) {
 				if strings.Contains(e.Message.Body, OverflowMarkerPhrase) {
 					delivered = e.Message.Body

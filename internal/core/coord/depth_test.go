@@ -11,7 +11,6 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
 // TestRunnerEnv_CarriesTheReachBackTrioOnly: a hosted run's runner process
@@ -166,27 +165,25 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, codes.OK, sendResp.GetStatus().GetCode())
 
-	// The marker lands in the CHILD's own spool, authored by the grandchild
-	// (in in/ until the child's engine takes it as a turn, in/consumed/
-	// after).
-	var marker spool.Entry
+	// The marker lands in the CHILD's own spool, authored by the grandchild.
+	// The file itself is deleted once the child's engine takes it, so the
+	// write is read back from the audit journal, which outlives it.
 	require.Eventually(t, func() bool {
-		for _, dir := range []spool.Dir{spool.DirIn, spool.DirInConsumed} {
-			if e, ok := spoolEntryWithBody(t, child.Harp, dir, "marker-from-grandchild"); ok {
-				marker = e
+		for _, e := range readAuditKind(t, c, "spool_mail_out") {
+			if e.Actor == child.Harp && e.Detail["from"] == grandchildHarp {
 				return true
 			}
 		}
 		return false
-	}, conformanceWait, 10*time.Millisecond, "the marker must land in the CHILD's inbox, not root's")
-	assert.Equal(t, grandchildHarp, marker.Message.FromHarp)
+	}, conformanceWait, 10*time.Millisecond, "the marker must land in the CHILD's inbox, authored by the grandchild, not root's")
+	const markerBody = "marker-from-grandchild"
 
 	// Hop 2: the child relays up to ITS OWN parent (root) — an explicit,
 	// agent-driven relay (the peer model dissolves multi-level trees this
 	// way: no automatic pass-through).
 	relayResp, err := childH.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
-			ToRole: ParentAddress, Text: "relayed: " + marker.Message.Body, Kind: agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
+			ToRole: ParentAddress, Text: "relayed: " + markerBody, Kind: agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
 		}},
 	})
 	require.NoError(t, err)

@@ -247,8 +247,8 @@ type Coordinator struct {
 	// lazy (one per child, on its first message), so a run that never sends
 	// never gets a spool directory.
 	spoolIn *SpoolWriterCache
-	// spoolReactor serialises the coordinator's own spool reading (out/ and
-	// in/consumed sweeps) — see its type.
+	// spoolReactor serialises the coordinator's own spool reading (out/
+	// sweeps and delivered-record reads) — see its type.
 	spoolReactor *SpoolReactor
 	// spoolSweepInterval overrides the reconciliation cadence
 	// (Options.SpoolSweepInterval; 0 = spoolSweepInterval). Test seam: a
@@ -256,11 +256,9 @@ type Coordinator struct {
 	// only honest way to do that is to let the sweep actually run.
 	spoolSweepInterval time.Duration
 	spoolDeliveryCount SpoolDeliveryCounters
-	// spoolSeen remembers which in/consumed entries have already been credited
-	// as progress, per role. consumed/ is an audit trail nothing prunes yet, so
-	// without this every sweep would re-credit the whole history.
-	spoolSeenMu sync.Mutex
-	spoolSeen   map[string]map[string]bool
+	// spoolCredit is what sweepChildDelivered has already credited as
+	// progress (spoolcredit.go).
+	spoolCredit spoolCredit
 
 	mu      sync.Mutex
 	attach  map[string]*childRt       // runID → runtime attachment

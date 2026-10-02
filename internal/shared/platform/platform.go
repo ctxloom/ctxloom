@@ -15,7 +15,3 @@ const LoginShell = loginShell
 // LinuxHost reports that the host kernel is Linux: a container shares it, so
 // the running binary can serve as the in-container one.
 const LinuxHost = linuxHost
-
-// EnvNamesFoldCase reports that environment variable names compare without
-// case (Windows: Path and PATH are one variable).
-const EnvNamesFoldCase = envNamesFoldCase

@@ -4,8 +4,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-
-	"github.com/ctxloom/ctxloom/internal/shared/platform"
 )
 
 // HostEnv is a binding's `host_env:` block: which of the launching
@@ -65,7 +63,7 @@ func (h HostEnv) Validate() error {
 }
 
 func envNameEqual(a, b string) bool {
-	if platform.EnvNamesFoldCase {
+	if envNamesFoldCase {
 		return strings.EqualFold(a, b)
 	}
 	return a == b

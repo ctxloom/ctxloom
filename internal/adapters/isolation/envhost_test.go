@@ -43,7 +43,7 @@ func TestEnvironment_OnlyTheHostCuratesTheEngineEnv(t *testing.T) {
 
 // Undeclared stays undeclared on the host: nothing is narrowed, and the
 // home var is not added to an env list that does not apply.
-func TestEnvironment_AnUndeclaredHostEnvInheritsAll(t *testing.T) {
+func TestEnvironment_AnUndeclaredEnvHostInheritsAll(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	pl := prepared(t, envHostSpec(t, hostAxes, claudeEngine(t), home, t.TempDir(), agents.EnvHost{})).Placement()
 	assert.Equal(t, agents.EnvHost{}, pl.EnvHost)

@@ -52,7 +52,7 @@ func driveUnder(t *testing.T, h agents.EnvHost, environ func() []string) (*child
 // Curated: an unrelated exported variable never reaches the engine, a
 // env-listed one does, the base (PATH) does, and what the launch
 // sets by value (the token) still arrives.
-func TestExecute_ACuratedEngineInheritsOnlyTheBaseAndThePassthrough(t *testing.T) {
+func TestExecute_ACuratedEngineInheritsOnlyTheBaseAndTheEnvNames(t *testing.T) {
 	drive, err := driveUnder(t, agents.EnvHost{Curated: true, Env: []string{passedThrough}}, os.Environ)
 	require.NoError(t, err)
 	require.NotNil(t, drive.env, "the engine was driven")
@@ -115,7 +115,7 @@ func TestExecute_CurationNeverStripsOrShadowsARedeemedSecret(t *testing.T) {
 // Env never re-exposes what the launch unsets: a variable the auth
 // mode removes (Cell.Unset) stays removed even when the binding's
 // env names it.
-func TestExecute_PassthroughNeverReExposesAnUnsetVariable(t *testing.T) {
+func TestExecute_EnvNeverReExposesAnUnsetVariable(t *testing.T) {
 	restoreEnviron(t)
 	t.Setenv(storageVar, "/home/human/.claude")
 	l, env := tokenChildLaunch(t)

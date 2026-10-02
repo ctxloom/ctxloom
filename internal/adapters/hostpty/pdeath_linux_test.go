@@ -19,14 +19,16 @@ import (
 func TestStart_TheChildIsArmedToDieWithItsParent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cmd := exec.Command("sh", "-c", "exit 0")
-	s, err := Start(ctx, cmd)
+	s, err := start(ctx, exec.Command("sh", "-c", "exit 0"), endGrace)
 	require.NoError(t, err)
 	defer s.Kill()
-	require.NotNil(t, cmd.SysProcAttr)
-	require.Equal(t, syscall.SIGTERM, cmd.SysProcAttr.Pdeathsig, "the child dies with a hard-killed originator")
-	require.True(t, cmd.SysProcAttr.Setsid, "the child is its own session")
-	require.True(t, cmd.SysProcAttr.Setctty, "the slave is its controlling terminal")
+	// The attributes the child was STARTED with: the command go-pty ran,
+	// not the caller's, which is only ever a template.
+	attr := s.cmd.SysProcAttr
+	require.NotNil(t, attr)
+	require.Equal(t, syscall.SIGTERM, attr.Pdeathsig, "the child dies with a hard-killed originator")
+	require.True(t, attr.Setsid, "the child is its own session")
+	require.True(t, attr.Setctty, "the slave is its controlling terminal")
 	_, err = s.Wait()
 	require.NoError(t, err)
 }

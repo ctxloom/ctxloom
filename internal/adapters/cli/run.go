@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -427,7 +428,7 @@ type runState struct {
 	// container's is removed by name with it); runnerHandle is a --one-shot
 	// launch's plain runner process.
 	ownedRun     *ownedRunSession
-	pty          runnerTTY
+	pty          hostpty.Session
 	runnerHandle *isolation.RunnerHandle
 }
 
@@ -1255,7 +1256,7 @@ func (st *runState) startTransport() error {
 	var starter coord.OwnedRunStarter
 	if st.launch.Mode == engine.Interactive {
 		st.launch.Env = stampTerminalEnv(st.launch.Env)
-		starter = st.ptyStarter()
+		starter = st.ptyStarter(hostpty.Start)
 	} else {
 		starter = st.processStarter()
 	}

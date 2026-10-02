@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 )
 
 // TestStart_TheRunCLIIsOnAPtyAndKillTearsDownByName: the container's
@@ -26,7 +28,7 @@ func TestStart_TheRunCLIIsOnAPtyAndKillTearsDownByName(t *testing.T) {
 	remove := func(<-chan struct{}) { order = append(order, "remove") }
 	// A stand-in for the runtime CLI: it proves it is on a tty, echoes one
 	// line, then parks like an attached container does.
-	s, err := Start(ctx, exec.Command("sh", "-c", "[ -t 0 ] && echo ATTACHED; read line; echo got:$line; sleep 30"), "ctr-1", remove)
+	s, err := Start(ctx, hostpty.Start, exec.Command("sh", "-c", "[ -t 0 ] && echo ATTACHED; read line; echo got:$line; sleep 30"), "ctr-1", remove)
 	require.NoError(t, err)
 	out := &lockedBuffer{}
 	drained := make(chan struct{})
@@ -67,7 +69,7 @@ func (b *lockedBuffer) String() string {
 // is Kill's alone.
 func TestStart_WaitReapsTheCLIWithoutTouchingTheContainer(t *testing.T) {
 	removed := false
-	s, err := Start(context.Background(), exec.Command("sh", "-c", "exit 3"), "ctr-2", func(<-chan struct{}) { removed = true })
+	s, err := Start(context.Background(), hostpty.Start, exec.Command("sh", "-c", "exit 3"), "ctr-2", func(<-chan struct{}) { removed = true })
 	require.NoError(t, err)
 	code, err := s.Wait()
 	require.NoError(t, err)

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -45,9 +46,15 @@ type Config struct {
 // ErrNoEndpoint refuses a relay whose entry named no endpoint to relay to.
 var ErrNoEndpoint = errors.New("claude relay: no session endpoint to relay to")
 
+// ErrEndpointRefused is the session endpoint answering 401 to the relay's
+// bearer. Every launch mints its own endpoint and bearer, so a refusal means
+// this relay holds another launch's bearer, typically one that outlived its
+// runner. A retry cannot fix that; only the current launch's config can.
+var ErrEndpointRefused = errors.New("claude relay: the session endpoint refused this relay's bearer")
+
 // Run relays until claude closes down (its stdio), which is the relay's
 // lifetime, and returns nil then; it returns an error when the endpoint
-// stops answering.
+// stops answering, and ErrEndpointRefused when it refused the bearer.
 func Run(ctx context.Context, cfg Config, down mcp.Transport) error {
 	url, _ := cfg.Env(claude.EnvRelayURL)
 	bearer, _ := cfg.Env(claude.EnvRelayBearer)
@@ -55,7 +62,8 @@ func Run(ctx context.Context, cfg Config, down mcp.Transport) error {
 		return fmt.Errorf("%w: %s and %s must both be set", ErrNoEndpoint, claude.EnvRelayURL, claude.EnvRelayBearer)
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	httpc := &http.Client{Transport: bearerTransport{bearer: bearer}}
+	refused := &atomic.Bool{}
+	httpc := &http.Client{Transport: bearerTransport{bearer: bearer, refused: refused}}
 	watched := make(chan struct{})
 	go func() { defer close(watched); watchWake(ctx, cfg, url, httpc) }()
 	err := pump(ctx, down, &mcp.StreamableClientTransport{Endpoint: url, HTTPClient: httpc})
@@ -64,17 +72,34 @@ func Run(ctx context.Context, cfg Config, down mcp.Transport) error {
 	// subscriber that is gone, and a wake fires into nothing.
 	cancel()
 	<-watched
+	// A refusal outranks how the pump ended: claude may close its side on the
+	// failed initialize before the endpoint's failure reaches the pump.
+	if refused.Load() {
+		return errors.Join(fmt.Errorf("%w: %s", ErrEndpointRefused, url), err)
+	}
 	return err
 }
 
 // bearerTransport puts the endpoint's bearer on every request. An HTTP error
 // names the URL, never the headers, so the bearer reaches no diagnostic.
-type bearerTransport struct{ bearer string }
+//
+// A 401 is RECORDED in refused and the response passed through, rather than
+// returned as an error: the MCP client wraps a round-trip error as a
+// transient rejection that keeps the connection open, so the relay would
+// never end, while a 401 response fails the connection.
+type bearerTransport struct {
+	bearer  string
+	refused *atomic.Bool
+}
 
 func (b bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r := req.Clone(req.Context())
 	r.Header.Set("Authorization", "Bearer "+b.bearer)
-	return http.DefaultTransport.RoundTrip(r)
+	resp, err := http.DefaultTransport.RoundTrip(r)
+	if err == nil && resp.StatusCode == http.StatusUnauthorized {
+		b.refused.Store(true)
+	}
+	return resp, err
 }
 
 // pump connects both sides and relays each way until one ends.

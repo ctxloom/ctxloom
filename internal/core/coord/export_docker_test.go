@@ -57,3 +57,15 @@ func ProgressMonitor(thr liveness.Thresholds, now func() time.Time) *liveness.Mo
 func (c *Coordinator) PeerSend(caller Identity, to, kind, body string) (msgID, disposition string, err error) {
 	return c.peerSend(caller, to, kind, body, nil, "")
 }
+
+// ReapIdleRuns runs one idle-reaper sweep now, against the coordinator's clock.
+func (c *Coordinator) ReapIdleRuns() { c.reapIdleRuns() }
+
+// CurrentRunID is the run id harp's current incarnation runs under.
+func (c *Coordinator) CurrentRunID(harp string) string { return currentRunID(c, harp) }
+
+// RunCause is the terminal cause the journal folded for runID.
+func (c *Coordinator) RunCause(runID string) string { return runCause(c, runID) }
+
+// OwnerMail drains the owner's spool, as the owner's turn-start hook does.
+var OwnerMail = ownerMail

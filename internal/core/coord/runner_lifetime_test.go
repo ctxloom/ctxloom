@@ -143,10 +143,10 @@ func TestRunnerLifetime_IdleReaper_EndsAParkedRunnerAfterIdleTimeout(t *testing.
 }
 
 // TestRunnerLifetime_EndpointUnavailable_RebindsAndReissuesToTheSameRunner:
-// the runner refuses to bind the recorded address (another process took the
-// port between two incarnations); the coordinator answers that ONE refusal
-// by re-resolving with RebindEndpoint and re-issuing StartRun to the SAME
-// runner — a new endpoint, no new spawn, and the run comes up.
+// the runner refuses to bind the minted address (another process took the
+// port between mint and bind); the coordinator answers that ONE refusal by
+// re-resolving and re-issuing StartRun to the SAME runner — a new endpoint,
+// no new spawn, and the run comes up.
 func TestRunnerLifetime_EndpointUnavailable_RebindsAndReissuesToTheSameRunner(t *testing.T) {
 	resetStrictness(t)
 	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
@@ -159,9 +159,7 @@ func TestRunnerLifetime_EndpointUnavailable_RebindsAndReissuesToTheSameRunner(t 
 	require.NotEmpty(t, res, "the run comes up after the rebind")
 
 	launches := sp.resolvedLaunches()
-	require.Len(t, launches, 2, "the launch is resolved twice: once, then again with a rebind")
-	assert.False(t, sp.rebinds()[0])
-	assert.True(t, sp.rebinds()[1], "the second resolution asks for a rebind")
+	require.Len(t, launches, 2, "the launch is resolved twice: once, then again for the rebind")
 	assert.NotEqual(t, launches[0].MCP, launches[1].MCP, "the rebind minted a new endpoint")
 	assert.Equal(t, 1, sp.spawnCount(), "the same runner: a rebind is a frame, not a spawn")
 	assert.Equal(t, out.RunID, currentRunID(c, out.Harp))

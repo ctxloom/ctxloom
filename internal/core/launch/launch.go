@@ -109,8 +109,9 @@ type Selection struct {
 }
 
 // EndpointMinter mints the session's MCP endpoint: loopback URL and bearer.
-// Called by Resolve ONCE per harp; the result is bound on the session
-// record, so every one-shot turn and every resume reuses it.
+// Called by Resolve for EVERY launch, a resume included, and by
+// RebindEndpoint; nothing persists the result, so a bearer dies with the
+// launch that minted it.
 type EndpointMinter interface {
 	MintMCP(ctx context.Context, id sessions.Identity, axes Axes) (sessions.Endpoint, error)
 }
@@ -250,7 +251,7 @@ type Launch struct {
 	Exports  engine.Exports
 	Plan     delivery.Plan
 	Index    composite.Index
-	MCP      sessions.Endpoint // minted per harp in Resolve; the runner BINDS it
+	MCP      sessions.Endpoint // minted per launch in Resolve, never persisted; the runner BINDS it
 	Prompt   string
 	Resume   sessions.ResumeRef
 	Env      map[string]string // engine passthrough only

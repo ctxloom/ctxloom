@@ -871,13 +871,12 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 		return
 	}
 	// THE REBIND: the runner is up and dialed home but could not bind the
-	// session's recorded endpoint — another process took the port between
-	// two incarnations. Re-resolve with a rebind (a new address is minted and
-	// bound on the session record; the static plan is re-delivered, which a
+	// minted endpoint — a mint only reserves the port until it returns, so
+	// another process can take it before the runner binds. Re-resolve (every
+	// resolve mints a new address; the static plan is re-delivered, which a
 	// resume does anyway) and re-issue StartRun to the SAME runner. Once: a
 	// runner that cannot bind a freshly minted address has a problem no
 	// second mint fixes.
-	start.Rebind = true
 	rebound, rerr := c.spawner.ResolveLaunch(ctx, rt.plan, start)
 	if rerr != nil {
 		c.failChild(rt, fmt.Errorf("rebind the session endpoint: %w", rerr))
@@ -888,9 +887,9 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 }
 
 // errEndpointUnavailable is issueStartRun's report that the runner refused
-// the launch because its recorded endpoint could not be bound — returned
+// the launch because its minted endpoint could not be bound — returned
 // WITHOUT failing the child when the caller may still rebind.
-var errEndpointUnavailable = errors.New("coord: the runner could not bind the session's recorded endpoint")
+var errEndpointUnavailable = errors.New("coord: the runner could not bind the session's minted endpoint")
 
 // issueStartRun is the shared StartRun-issuing tail (Phase 2a-B factored this
 // out of runChildViaStartRun so the owner-owned run, StartOwnedRun, reuses the
@@ -995,7 +994,7 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	}
 	if resp.Err != nil {
 		if mayRebind && errors.Is(resp.Err, ErrRunnerUnavailable) {
-			// The runner could not bind the recorded endpoint: the caller
+			// The runner could not bind the minted endpoint: the caller
 			// answers with ONE rebind on this same runner, so the child is
 			// not failed here.
 			return fmt.Errorf("%w: %s", errEndpointUnavailable, resp.Err.Error())

@@ -2,6 +2,8 @@ package launch_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,9 +14,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestResolve_EverySource_OneResolver: every way a launch is asked for goes
@@ -118,36 +122,46 @@ func TestResolve_Permission_HeadlessTakesItsPosture(t *testing.T) {
 	}
 }
 
-// TestResolve_MCPEndpoint_PerSession_StableAcrossResume: the endpoint is
-// minted once per harp in Resolve; a resume of the same harp reuses it; only
-// an explicit rebind mints a fresh one.
-func TestResolve_MCPEndpoint_PerSession_StableAcrossResume(t *testing.T) {
+// TestResolve_MCPEndpoint_FreshPerLaunch: every launch mints its own
+// endpoint, a resume of the same harp included, and nothing about it is
+// persisted. A bearer that outlived its launch must not authenticate the next
+// one, and an orphan of incarnation N must not reach incarnation N+1. The
+// store is the on-disk Manager so the sidecar's bytes can be read.
+func TestResolve_MCPEndpoint_FreshPerLaunch(t *testing.T) {
+	testsupport.Isolate(t)
+	store, err := sessions.Open(nil)
+	require.NoError(t, err)
 	env := launchtest.Deps(t, launchtest.WithAgent("dev"))
-	env.Deps.Endpoints = &launchtest.StableMinter{}
-	first, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
+	entry, err := store.AssignHarp(env.Project, "")
 	require.NoError(t, err)
-	resumed, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: "bypass", WorkDir: env.Project,
-		Resume: launch.Resume{Ref: sessions.ResumeRef{Harp: env.Identity.Harp, NativeKey: "k1"}}})
-	require.NoError(t, err)
-	require.Equal(t, first.MCP, resumed.MCP, "a resumed session keeps its endpoint and credential")
-	require.Equal(t, "k1", resumed.Resume.NativeKey)
+	env.Deps.Sessions = store
+	id := sessions.Identity{Harp: entry.HarpName, Project: env.Identity.Project}
 
-	entry, err := env.Deps.Sessions.Find(env.Identity.Harp)
+	first, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: id, Agent: "dev", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
 	require.NoError(t, err)
-	require.Equal(t, first.MCP, entry.MCP, "the endpoint is bound on the session record")
-	require.Equal(t, string(first.Engine), entry.Backend, "the engine Resolve decided is recorded on the session")
+	require.NoError(t, store.BindSession(id.Harp, "native-1", ""))
+	resumed, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: id, Agent: "dev", Mode: engine.Structured, Permission: "bypass", WorkDir: env.Project,
+		Resume: launch.Resume{Ref: sessions.ResumeRef{Harp: id.Harp}}})
+	require.NoError(t, err)
+	require.NotEqual(t, first.MCP.URL, resumed.MCP.URL, "a resume binds a fresh address")
+	require.NotEqual(t, first.MCP.Credential, resumed.MCP.Credential, "and presents a fresh credential")
+	require.Equal(t, "native-1", resumed.Resume.NativeKey, "the resume still continues the native session the record names")
 
-	rebound, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: "bypass", WorkDir: env.Project,
-		Resume: launch.Resume{Ref: sessions.ResumeRef{Harp: env.Identity.Harp}, RebindEndpoint: true}})
+	got, err := store.Find(id.Harp)
 	require.NoError(t, err)
-	require.NotEqual(t, first.MCP.URL, rebound.MCP.URL, "an explicit rebind mints a fresh address")
+	require.Equal(t, string(first.Engine), got.Backend, "the engine Resolve decided is still recorded on the session")
+	raw, err := os.ReadFile(filepath.Join(store.Root(), id.Harp, paths.SessionSidecarFileName))
+	require.NoError(t, err)
+	for _, l := range []launch.Launch{first, resumed} {
+		require.NotContains(t, string(raw), l.MCP.Credential, "no bearer is written at rest")
+		require.NotContains(t, string(raw), l.MCP.URL, "nor the address")
+	}
 }
 
-// TestRebindEndpoint_MintsAndRecordsANewAddressOnly: a held launch whose
-// runner could not bind its address gets a fresh one, bound on the session
-// record (so a later resume finds what the runner serves), and nothing else
-// about the launch moves.
-func TestRebindEndpoint_MintsAndRecordsANewAddressOnly(t *testing.T) {
+// TestRebindEndpoint_MintsANewAddressOnly: a held launch whose runner could
+// not bind its address gets a fresh one, and nothing else about the launch
+// moves.
+func TestRebindEndpoint_MintsANewAddressOnly(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("dev"))
 	env.Deps.Endpoints = &launchtest.StableMinter{}
 	first, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
@@ -157,10 +171,6 @@ func TestRebindEndpoint_MintsAndRecordsANewAddressOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, first.MCP.URL, rebound.MCP.URL, "a rebind mints a fresh address")
 	require.NotEqual(t, first.MCP.Credential, rebound.MCP.Credential, "and a fresh credential")
-
-	entry, err := env.Deps.Sessions.Find(env.Identity.Harp)
-	require.NoError(t, err)
-	require.Equal(t, rebound.MCP, entry.MCP, "the session record names the rebound endpoint, not the lost one")
 
 	// Launch holds func values (the cell's handles), which no deep equality
 	// compares; the fields a rebind could plausibly disturb are checked.

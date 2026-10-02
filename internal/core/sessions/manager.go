@@ -48,8 +48,10 @@ const (
 )
 
 // sidecarFileMode and sessionDirMode keep a session private to its owner: the
-// sidecar records the session's MCP endpoint INCLUDING its bearer credential
-// (Entry.MCP), which authenticates as this session to the runner. A container
+// directory holds the session's transcript, essence and delivered engine
+// config, and the sidecar names the native session key that resumes it. The
+// engine endpoint's bearer is deliberately NOT here: it is minted per launch
+// and lives only in that launch's memory and delivered config. A container
 // run reaches these files as the launching uid (the isolation identity
 // contract), so owner-only access costs it nothing.
 const (
@@ -84,11 +86,6 @@ type Entry struct {
 	// engine-transcript-* symlink is best-effort and is deliberately not
 	// created for a transcript that already lives inside the session dir.
 	TranscriptPath string `yaml:"transcript_path,omitempty" json:"transcript_path,omitempty"`
-	// MCP is the session's MCP endpoint, minted once per harp by the launch
-	// resolver and bound here so a resume of the same harp reuses it; the
-	// credential rides with it because the runner that binds the address
-	// needs both. Omitted until bound.
-	MCP Endpoint `yaml:"mcp,omitempty" json:"mcp,omitempty"`
 
 	// Summary is essence.md's frontmatter `summary:` line, read on demand
 	// (fillFromEssence) for a fast one-line render. Never persisted here —
@@ -391,19 +388,6 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 		return Entry{}, err
 	}
 	return entry, nil
-}
-
-// BindMCP records the session's MCP endpoint. Called by the launch resolver
-// once per harp; a resume reads it back through Find and reuses it unless
-// it asks for a rebind, which calls this again with the fresh endpoint.
-func (m *Manager) BindMCP(harpName string, ep Endpoint) error {
-	return m.update(harpName, func(e *Entry) (bool, error) {
-		if e.MCP == ep {
-			return false, nil
-		}
-		e.MCP = ep
-		return true, nil
-	})
 }
 
 // BindEngine records the engine the launch resolver decided for the

@@ -172,11 +172,6 @@ func (m *MemStore) BindSession(harpName, sessionID, transcriptPath string) error
 	return fmt.Errorf("harp not found in index: %q", harpName)
 }
 
-// BindMCP matches *Manager.BindMCP.
-func (m *MemStore) BindMCP(harpName string, ep Endpoint) error {
-	return m.mutate(harpName, func(e *Entry) { e.MCP = ep })
-}
-
 // BindEngine matches *Manager.BindEngine.
 func (m *MemStore) BindEngine(harpName, engine string) error {
 	return m.mutate(harpName, func(e *Entry) { e.Backend = engine })

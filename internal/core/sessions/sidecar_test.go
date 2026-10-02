@@ -314,3 +314,31 @@ func TestIsSessionDir(t *testing.T) {
 		"link-to-session":   false, // never follow a symlink into (or out of) the root
 	}, got)
 }
+
+// TestSidecar_OldFormatMCPBlock_LoadsAndIsDroppedOnNextWrite: a session.yaml
+// written while the record still carried the engine endpoint (an `mcp:`
+// block with url and bearer) loads, and the next write of that entry leaves
+// neither behind. No launch reads the block, so a stale bearer is dead.
+func TestSidecar_OldFormatMCPBlock_LoadsAndIsDroppedOnNextWrite(t *testing.T) {
+	m, root := openSidecarRoot(t)
+	writeSidecar(t, root, "swift-amber-falcon", `project_dir: /proj/a
+backend: claude-code
+session_id: sess-1
+started_at: 2026-09-01T10:00:00Z
+mcp:
+  url: http://127.0.0.1:41234/mcp
+  credential: bearer-old
+`)
+	e, err := m.Find("swift-amber-falcon")
+	require.NoError(t, err)
+	require.NotNil(t, e)
+	assert.Equal(t, "sess-1", e.SessionID)
+	assert.Equal(t, "/proj/a", e.ProjectDir)
+
+	require.NoError(t, m.BindEngine("swift-amber-falcon", "mock"))
+	raw, err := os.ReadFile(filepath.Join(root, "swift-amber-falcon", testSidecarName))
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "mcp:")
+	assert.NotContains(t, string(raw), "bearer-old")
+	assert.Contains(t, string(raw), "session_id: sess-1", "the rest of the record survives the rewrite")
+}

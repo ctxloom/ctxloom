@@ -103,10 +103,10 @@ func TestSource_CarriesWhatACallerKnows(t *testing.T) {
 		Workspace:  WorkspaceWorktree,
 		DirtyTree:  DirtyTreeHandlerCommit,
 		Permission: "plan",
-		Resume:     Resume{Ref: sessions.ResumeRef{Harp: "quiet-amber-falcon", NativeKey: "k"}, RebindEndpoint: true},
+		Resume:     Resume{Ref: sessions.ResumeRef{Harp: "quiet-amber-falcon", NativeKey: "k"}},
 		Degraded:   false,
 	}
 	assert.Equal(t, "dev", src.Agent)
-	assert.True(t, src.Resume.RebindEndpoint)
+	assert.Equal(t, "k", src.Resume.Ref.NativeKey)
 	assert.Equal(t, ImageConfig{}, ImageConfig{Image: ""}, "the zero ImageConfig means the engine's defaults")
 }

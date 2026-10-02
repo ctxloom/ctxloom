@@ -8,7 +8,7 @@ a resume — and `launch.Resolve(ctx, deps, src)` returns a `launch.Launch`
 carrying everything a runner needs, typed: the identity the caller minted,
 the engine and label, the permission floored once, both isolation axes, the
 prepared cell with its advised roots, the package, the delivery plan, the
-session's MCP endpoint minted once per harp, the prompt and the resume ref.
+session's MCP endpoint minted for this launch, the prompt and the resume ref.
 `Launch.Session()` is the only constructor of the engine-facing projection
 (`engine.Session`).
 
@@ -44,9 +44,9 @@ flowchart LR
 
 Select → Assemble → the engine and its mode → the axes → the permission
 floored ONCE → the managed surfaces → `Cells.Prepare` (the roots) →
-`delivery.Route` over those roots → the endpoint once per harp (reused on a
-resume, moved only by `Resume.RebindEndpoint`; bound on the session record
-with the engine, `Store.BindMCP` / `Store.BindEngine`) → the Launch.
+`delivery.Route` over those roots → the endpoint, minted fresh for every
+launch, a resume included, and never persisted (the engine is recorded on the
+session, `Store.BindEngine`) → the Launch.
 `Discard` tears the cell down.
 
 The refusals are typed: `ErrNoIdentity` (the caller mints; a zero identity

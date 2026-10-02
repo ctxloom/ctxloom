@@ -130,9 +130,9 @@ func (PauseRunResult) runnerResultKind()  {}
 func (ResumeRunResult) runnerResultKind() {}
 func (TurnResult) runnerResultKind()      {}
 
-// ErrRunnerUnavailable is the runner's UNAVAILABLE: the recorded endpoint
+// ErrRunnerUnavailable is the runner's UNAVAILABLE: the minted endpoint
 // could not be bound. The spawn path answers it with ONE rebind.
-var ErrRunnerUnavailable = errors.New("coord: the runner could not bind the recorded endpoint")
+var ErrRunnerUnavailable = errors.New("coord: the runner could not bind the minted endpoint")
 
 // ErrRunnerSessionEnded answers every request still in flight when its
 // runner session dies before answering.

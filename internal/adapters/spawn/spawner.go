@@ -337,7 +337,7 @@ func (s *spawner) stampChild(store sessions.Store, harp string, tr composite.Tru
 
 // childSource is what a delegated child's launch is asked from: the plan's
 // selection, the coordinator's identity and first turn, and the resume arm
-// on a resume or rebind — never its permissions, which are its own
+// on a resume — never its permissions, which are its own
 // binding's. A child
 // defaults to its OWN worktree when neither the call nor the project chose a
 // workspace: needing a private cwd is a property of how the parent fans,
@@ -356,8 +356,8 @@ func childSource(plan *coord.SpawnPlan, start coord.SpawnStart, projectDir strin
 		Workspace: workspace,
 		DirtyTree: plan.DirtyTreeHandler,
 	}
-	if start.Resumed || start.Rebind {
-		src.Resume = launch.Resume{Ref: sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey}, RebindEndpoint: start.Rebind}
+	if start.Resumed {
+		src.Resume = launch.Resume{Ref: sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey}}
 	}
 	return src
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/engine/conformance"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // The missing-skills arm has a subject: NoSkills exports no skill while
@@ -62,5 +63,23 @@ func TestRoute_DefaultBindingPlansOnlySessionHomeRoots(t *testing.T) {
 	require.NotEmpty(t, plan.Static)
 	for _, it := range plan.Static {
 		assert.Equal(t, present.RootSessionHome, it.Root, "kind %v routes through %s under %v", it.Kind, it.Approach, it.Root)
+	}
+}
+
+// The primary double renders the session endpoint into its MCP config, as
+// claude does: the endpoint is minted per launch and persisted nowhere, so
+// the delivered config is the only place outside the runner that names the
+// current launch's endpoint (the acceptance owner fixture reads it there).
+// The other doubles stay static-only, so each keeps the arm it exists for.
+func TestDoubles_OnlyThePrimaryRendersTheSessionEndpoint(t *testing.T) {
+	ep := sessions.Endpoint{URL: "http://127.0.0.1:1/mcp", Credential: "b"}
+	for _, e := range Doubles() {
+		root := e.Root()
+		if root.Name != Name {
+			assert.Nil(t, root.Dynamic, "%s is static-only", root.Name)
+			continue
+		}
+		require.NotNil(t, root.Dynamic)
+		assert.Equal(t, engine.BearerEntry(ep), root.Dynamic.Endpoint(ep))
 	}
 }

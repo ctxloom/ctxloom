@@ -7,6 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"path/filepath"
+	"slices"
 )
 
 // This file is the mock ENGINE KIND: the conformance double and the first
@@ -24,7 +25,10 @@ import (
 // kind under another name with one declared difference each: Lossy carries
 // every surface and drops two hook kinds at export time; Launch keeps only
 // its context surface (the rest arrive per session, inside an engine home);
-// NoSkills carries a skills surface and exports nothing to it.
+// NoSkills carries a skills surface and exports nothing to it. Only the
+// primary renders the session endpoint into its MCP config (WithDynamic), as
+// claude does; the doubles stay static-only so each keeps the arm it exists
+// to exercise.
 const (
 	Name         engine.Name = "mock"
 	NameLossy    engine.Name = "mock-lossy"
@@ -93,7 +97,8 @@ func WithTranscripts(readers ...engine.TranscriptReader) Option {
 }
 
 // ConfigDirName is the mock engine's project-relative managed-config
-// directory: the one directory its container overlays shadow.
+// directory — its analogue of each real engine's own ConfigDirName, and the
+// one directory its container overlays shadow.
 const ConfigDirName = ".mock"
 
 // installFragment asserts `cat` (the shared-fs probe runs `cat /probe/marker`
@@ -156,7 +161,8 @@ func WithDistribution(d engine.Distribution) Option {
 	return func(m *Mock) { m.Distribution = d }
 }
 
-// WithDynamic provides a dynamic approach (the delegation tests use it).
+// WithDynamic provides a dynamic approach: the session endpoint rendered
+// into the mock's MCP config (the primary double carries it).
 func WithDynamic() Option {
 	return func(m *Mock) { m.Dynamic = &endpointEntry{name: "session-endpoint"} }
 }
@@ -204,9 +210,9 @@ func NewNamed(name engine.Name, opts ...Option) engine.Engine {
 func Doubles(opts ...Option) []engine.Engine {
 	shipped := append([]Option{WithContainer()}, opts...)
 	return []engine.Engine{
-		New(shipped...),
-		NewNamed(NameLossy, append(shipped, WithoutHookEvents("session_start", "session_end"))...),
-		NewNamed(NameLaunch, append(shipped, Without(present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills))...),
+		New(append(slices.Clone(shipped), WithDynamic())...),
+		NewNamed(NameLossy, append(slices.Clone(shipped), WithoutHookEvents("session_start", "session_end"))...),
+		NewNamed(NameLaunch, append(slices.Clone(shipped), Without(present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills))...),
 		NewNoSkills(shipped...),
 	}
 }

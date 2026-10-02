@@ -412,7 +412,7 @@ func (c Cells) settleDirtyParentTree(ctx context.Context, req launch.CellRequest
 
 // endpointMinter mints the session's MCP endpoint on the host: a reserved
 // loopback port and a fresh bearer. Nothing binds it yet; it is carried on
-// the launch and recorded on the session so a resume reuses it.
+// the launch only, and each launch, a resume included, mints its own.
 type endpointMinter struct{}
 
 func (endpointMinter) MintMCP(_ context.Context, _ sessions.Identity, _ launch.Axes) (sessions.Endpoint, error) {

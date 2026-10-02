@@ -91,11 +91,6 @@ type SpawnStart struct {
 	// package's context ahead of it, so the launch carries the prompt and
 	// never the context.
 	Prompt string
-	// Rebind asks the resolver for a NEW MCP endpoint instead of the one the
-	// session record holds: the coordinator's answer to the runner's one
-	// refusal, delivery.ErrEndpointUnavailable (another process took the
-	// port between two incarnations of the session).
-	Rebind bool
 }
 
 // Resolved is a resolved launch: the Launch the coordinator journals, reads
@@ -147,8 +142,8 @@ type Spawner interface {
 	// what a resume continues — "" while unbound or unreadable.
 	NativeSession(harp string) string
 	// ResolveLaunch RESOLVES the child's launch (the one resolver: the cell
-	// prepared, the permission floored, the endpoint minted or reused —
-	// re-minted when start.Rebind). On success plan.Launch is set. It starts
+	// prepared, the permission floored, the endpoint minted fresh for this
+	// launch). On success plan.Launch is set. It starts
 	// nothing: a rebind re-resolves for a runner that is already up.
 	ResolveLaunch(ctx context.Context, plan *SpawnPlan, start SpawnStart) (Resolved, error)
 	// Start starts the runner for a resolved launch with the reach-back

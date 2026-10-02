@@ -239,3 +239,24 @@ func TestServe_CellLocalTools_ServeFromPackageAndIndex(t *testing.T) {
 	assert.Contains(t, string(body), `"query":"nothing-matches"`)
 	assert.Contains(t, string(body), `"count":0`)
 }
+
+// TestServe_APreviousIncarnationsBearerIsRefused: every launch mints its own
+// bearer, so an orphan of incarnation N (a relay, a hook) that reaches
+// incarnation N+1 is refused on every guarded path, even at the same address
+// (a reused port, the worst case), and N+1's own bearer is served.
+func TestServe_APreviousIncarnationsBearerIsRefused(t *testing.T) {
+	port := freePort(t)
+	first := loadoutAt(port)
+	first.MCP.Credential = "bearer-incarnation-1"
+	require.NoError(t, serve(t, first).Close())
+	second := loadoutAt(port)
+	second.MCP.Credential = "bearer-incarnation-2"
+	serve(t, second)
+	base := strings.TrimSuffix(second.MCP.URL, "/mcp")
+	for _, path := range []string{"/mcp", runner.HookPath} {
+		t.Run(path, func(t *testing.T) {
+			assert.Equal(t, http.StatusUnauthorized, post(t, base+path, map[string]string{"Authorization": "Bearer bearer-incarnation-1"}), "the previous incarnation's bearer")
+			assert.NotEqual(t, http.StatusUnauthorized, post(t, base+path, map[string]string{"Authorization": "Bearer bearer-incarnation-2"}), "this incarnation's own bearer")
+		})
+	}
+}

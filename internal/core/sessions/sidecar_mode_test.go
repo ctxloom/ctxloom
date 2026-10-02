@@ -11,9 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
-// TestSidecar_IsPrivateToTheOwner: session.yaml carries the engine-to-runner
-// MCP bearer (Entry.MCP.Credential), so neither the file nor the session
-// directory may be readable by another local user. The directory usually
+// TestSidecar_IsPrivateToTheOwner: neither session.yaml nor the session
+// directory may be readable by another local user (sidecarFileMode). The directory usually
 // exists BEFORE the first sidecar write (launch creates persist/ and friends
 // under it), so the test pre-creates it world-readable: tightening only on
 // creation would leave the common path open.
@@ -31,11 +30,11 @@ func TestSidecar_IsPrivateToTheOwner(t *testing.T) {
 	require.NoError(t, os.Chmod(dir, 0o755))
 	require.NoError(t, os.Chmod(filepath.Join(dir, paths.SessionSidecarFileName), 0o644))
 
-	require.NoError(t, m.BindMCP(e.HarpName, Endpoint{URL: "http://127.0.0.1:1/mcp", Credential: "bearer-1"}))
+	require.NoError(t, m.BindEngine(e.HarpName, "claude"))
 
 	info, err := os.Stat(filepath.Join(dir, paths.SessionSidecarFileName))
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "session.yaml holds a bearer credential")
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "session.yaml is private to its owner")
 	dinfo, err := os.Stat(dir)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o700), dinfo.Mode().Perm(), "the session directory is private to its owner")

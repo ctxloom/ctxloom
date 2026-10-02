@@ -15,7 +15,7 @@ The MCP surface is for **working inside a session**: assembling context, searchi
 
 ### agent_ask
 
-Ask one of your delegated children a question and WAIT for its answer. The question is delivered as the child's next turn (an idle child is woken for it; a busy one sees it at its next boundary) and the answer is whatever the child itself sends back quoting the question's id — the child answers cooperatively, and nothing captures its turn output and calls that the answer. This call BLOCKS until the answer arrives or the budget elapses; on timeout the question is still in the child's inbox and a late answer is dropped, so a timed-out ask is unanswered, not failed. Only your OWN children may be asked.
+Ask one of your delegated children a question. Returns an ask_id at once; it does not wait for the answer. The question becomes the child's next turn (an idle child is woken for it; a busy one sees it at its next boundary). The answer is whatever the child itself sends back quoting the ask_id in in_reply_to: it reaches you as mail, and its arrival triggers your next turn. The child's automatic turn report may quote the ask_id too; it is marked automatic and is not the answer. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be asked.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -107,7 +107,7 @@ Stop delegated child sessions. This verb has TWO SHAPES, chosen by whether run_i
 
 ### agent_summarize
 
-Ask one of your delegated children for an on-demand summary of where it stands and WAIT for it. Same mechanism as agent_ask — the request is the child's next turn, the answer is what the child itself sends back quoting the request — but the child sees it as a summary request, not a question. This call BLOCKS until the summary arrives or the budget elapses; on timeout the request is still in the child's inbox. Only your OWN children may be summarized.
+Ask one of your delegated children for an on-demand summary of where it stands. Same mechanism as agent_ask: it returns an ask_id at once, the request is the child's next turn, and the summary is what the child itself sends back quoting the ask_id, which reaches you as mail and triggers your next turn. The child sees it as a summary request, not a question. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be summarized.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|

@@ -12,7 +12,7 @@ and a staleness fingerprint (`SetSummary`); `session list` and the MCP memory
 tools read through `Find` / `ListForProject` / `ListAll` / `Reconcile`.
 
 Dependency direction is clean: this package depends on `internal/core/paths`, `internal/shared/{harp,
-iox,upgrade,clidiag}`, and `github.com/gofrs/flock` (a third-party module, not an internal/shared
+safefs,upgrade,clidiag}`, and `github.com/gofrs/flock` (a third-party module, not an internal/shared
 package), and nothing above it.
 
 ---
@@ -61,7 +61,7 @@ classDiagram
     Index "1" o-- "*" Entry
     Manager ..> paths : HarpDir · SessionIndexPath · HarpTranscriptStoreDir
     Manager ..> flock : Lock(path + ".lock")
-    Manager ..> iox : WriteFileAtomic
+    Manager ..> safefs : WriteFile
     Manager ..> harp : GenerateName
 ```
 
@@ -110,7 +110,7 @@ flowchart LR
 | `MarkEnded` / `Rename` / `Forget` | `index.go:597`, `:625`, `:661` | flock → load → mutate → save; unknown harp errors actionably |
 | `Reconcile` | `index.go:691` | flock → load → filter by the caller's `isDead` predicate → **save only if something was dropped** → fill located transcripts on the survivors |
 | `SetSummary` | `index.go:732` | Overwrites `Summary`, `Detail`, `SourceSize`. One production call site: `internal/adapters/memory/compactor.go:579` |
-| `saveLocked` | `index.go:758` | Marshal + `iox.WriteFileAtomic` + clear `pendingUpgrade` |
+| `saveLocked` | `index.go:758` | Marshal + `safefs.WriteFile` + clear `pendingUpgrade` |
 | `generateUniqueHarp` | `index.go:775` | 100 tries against a used-set, then one unredeemed fallback — a verbatim reimplementation of the shared `harp.UniqueFrom` (`internal/shared/harp/harp.go:185-193`) |
 
 ---
@@ -120,7 +120,7 @@ flowchart LR
 **Hold, and are load-bearing:**
 
 1. **Every mutation is one atomic load+save under a cooperative flock** on `<index path>.lock`
-   (eight sites: `index.go:194,232,272,601,632,665,695,736`), written via `iox.WriteFileAtomic`.
+   (eight sites: `index.go:194,232,272,601,632,665,695,736`), written via `safefs.WriteFile`.
 2. **First bind wins.** `BindSession` fills `SessionID`/`TranscriptPath` only when currently
    empty (`index.go:291`) — the TOCTOU guard for a concurrent second bind.
 3. **`Reconcile` performs no write when nothing was dropped** (`index.go:691-723`).

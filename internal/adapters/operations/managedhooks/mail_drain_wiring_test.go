@@ -80,7 +80,7 @@ func TestAppendManagedDynamicHooks_MailDrainIsTheOwnersOnly(t *testing.T) {
 		appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil, mode)
 		var cmds []string
 		for _, h := range m.For(bundles.HookEventTurnStart) {
-			cmds = append(cmds, h.Hook.Command)
+			cmds = append(cmds, strings.Join(append([]string{h.Hook.Command}, h.Hook.Args...), " "))
 		}
 		return strings.Join(cmds, " ")
 	}

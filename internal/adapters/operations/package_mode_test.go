@@ -31,7 +31,7 @@ func TestAssemblePackage_AStructuredPackageCarriesNoMailDrain(t *testing.T) {
 		require.NoError(t, err)
 		var cmds []string
 		for _, h := range pkg.Hooks.Unified.TurnStart {
-			cmds = append(cmds, h.Command)
+			cmds = append(cmds, strings.Join(append([]string{h.Command}, h.Args...), " "))
 		}
 		return strings.Join(cmds, " ")
 	}
@@ -52,6 +52,6 @@ func TestAssembler_HandsTheLaunchModeToThePackage(t *testing.T) {
 	pkg, err := (&assembler{engines: engines.Registry()}).Assemble(context.Background(), snap, launch.Selection{Mode: engine.Structured})
 	require.NoError(t, err)
 	for _, h := range pkg.Hooks.Unified.TurnStart {
-		assert.NotContains(t, h.Command, "hook mail-drain")
+		assert.NotContains(t, strings.Join(append([]string{h.Command}, h.Args...), " "), "hook mail-drain")
 	}
 }

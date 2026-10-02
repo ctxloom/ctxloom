@@ -102,9 +102,8 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 		return nil, fmt.Errorf("failed to build config.yaml: %w", err)
 	}
 	// No AllowEmpty: BuildInitialConfig always renders a non-empty document.
-	// (Whether init should OVERWRITE an existing config.yaml at all is a
-	// separate, already-filed question — task gray-wick — orthogonal to this
-	// write's atomicity.)
+	// The overwrite of an existing config.yaml is deliberate (InitializeProject's
+	// doc: scaffold files are overwritten, the seed profile is not).
 	if err := iox.WriteFileAtomicFs(fs, paths.ConfigPath(req.AppDir), configData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to create config.yaml: %w", err)
 	}

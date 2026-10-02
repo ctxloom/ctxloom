@@ -3,12 +3,13 @@
 package claude
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -144,17 +145,18 @@ func TestClaudeLifecycle_MergeManaged_MergesHooksAndMCP(t *testing.T) {
 
 // TestClaudeLifecycle_MergeManaged_Statusline verifies the ManageStatusline bit
 // drives the settings surface end-to-end through the real settings.json write:
-// true installs the ctxloom statusline, false omits it. The settings surface (not
-// the lifecycle) owns this write now that delivery rides the surfaces × cells
-// seam; the surface receives the bit from SurfaceInputs.ManageStatusline.
+// true installs the ctxloom statusline, false omits it. The at-rest delivery
+// (not the lifecycle) owns this write; it receives the bit as the package's
+// Statusline.
 func TestClaudeLifecycle_MergeManaged_Statusline(t *testing.T) {
 	deliverSettings := func(t *testing.T, manage bool) string {
 		t.Helper()
 		fs := afero.NewMemMapFs()
-		surfaces := newSurfaces(agent.SurfaceInputs{Hooks: &wire.HooksConfig{}, ManageStatusline: manage}, fs)
-		_, err := surfaces.Settings.Deliver(present.ProjectOnHost("/proj"))
-		require.NoError(t, err)
+		require.NoError(t, atRest(t, fs, "/proj").Install(composite.Package{Statusline: manage}))
 		data, err := afero.ReadFile(fs, filepath.Join("/proj", ".claude", "settings.json"))
+		if os.IsNotExist(err) {
+			return ""
+		}
 		require.NoError(t, err)
 		return string(data)
 	}

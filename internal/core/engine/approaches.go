@@ -94,11 +94,13 @@ type SettingsInputs struct {
 	Exports    Exports
 }
 
-// HooksInputs is the hook set by unified event and the unified→native
-// event map.
+// HooksInputs is the hook set by unified event, the unified→native event
+// map, and the hooks declared by NATIVE event per engine name
+// (wire.HooksConfig.Ext): an engine delivers its own entry as given.
 type HooksInputs struct {
 	Hooks     wire.UnifiedHooks
 	HookEvent map[string]string
+	Ext       map[string]wire.BackendHooks
 }
 
 // CommandsInputs is the command export set.

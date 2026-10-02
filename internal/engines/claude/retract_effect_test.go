@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -49,12 +50,11 @@ func hookCommands(t *testing.T, projectDir string) []string {
 // the outcome that would cost a user their configuration.
 func TestClaudeCodeHookWriter_EmptyHookSet_RetractsOnlyWhatCtxloomInstalled(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
 
 	installed := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		PreTool: []wire.Hook{{Command: "./ctxloom-managed.sh", Matcher: "Bash"}},
 	}}
-	require.NoError(t, writer.WriteSettings(installed, ctxloomBundleMCP(), tmpDir))
+	require.NoError(t, atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(installed, ctxloomBundleMCP())))
 	require.Contains(t, hookCommands(t, tmpDir), "./ctxloom-managed.sh",
 		"precondition: the hook must actually be installed, or the retraction below proves nothing")
 
@@ -73,7 +73,7 @@ func TestClaudeCodeHookWriter_EmptyHookSet_RetractsOnlyWhatCtxloomInstalled(t *t
 	require.NoError(t, os.WriteFile(settingsPath, out, 0o644))
 
 	// Nothing configured this round.
-	require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, nil, tmpDir))
+	require.NoError(t, atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(&wire.HooksConfig{}, nil)))
 
 	after := hookCommands(t, tmpDir)
 	assert.NotContains(t, after, "./ctxloom-managed.sh",

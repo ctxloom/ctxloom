@@ -364,16 +364,17 @@ func statuslineClaimable(fs afero.Fs, path string) (bool, error) {
 	return settings.StatusLine == nil || settings.StatusLine.Command == ctxloomStatusLineCommand(), nil
 }
 
-// hookClaims is each unified hook as a claim on its entry in the group of its
-// event that its matcher selects — the user's own group included, so the
-// file keeps the shape claude writes. A hook routed twice is claimed once.
-func hookClaims(unified wire.UnifiedHooks) ([]present.Claim, error) {
+// hookClaims is each unified hook, and each hook declared by claude's own
+// event name (native), as a claim on its entry in the group of its event that
+// its matcher selects — the user's own group included, so the file keeps the
+// shape claude writes. A hook routed twice is claimed once.
+func hookClaims(unified wire.UnifiedHooks, native wire.BackendHooks) ([]present.Claim, error) {
 	var (
 		claims []present.Claim
 		seen   = map[string]bool{}
 		failed error
 	)
-	agent.RouteUnifiedHooks(report.To(strictness.Sink("ctxloom")), EngineName, unifiedHookRoutes(unified), func(event string, h wire.Hook) {
+	claim := func(event string, h wire.Hook) {
 		v, err := hookValue(h)
 		if err != nil {
 			failed = errors.Join(failed, err)
@@ -384,7 +385,13 @@ func hookClaims(unified wire.UnifiedHooks) ([]present.Claim, error) {
 			seen[key] = true
 			claims = append(claims, present.Claim{Pointer: ptr, Value: v})
 		}
-	})
+	}
+	agent.RouteUnifiedHooks(report.To(strictness.Sink("ctxloom")), EngineName, unifiedHookRoutes(unified), claim)
+	for _, event := range collections.SortedKeys(native) {
+		for _, h := range native[event] {
+			claim(event, h)
+		}
+	}
 	return claims, failed
 }
 
@@ -432,7 +439,7 @@ type hooksApproach struct{ traits }
 
 func (*hooksApproach) Name() string { return "settings-hooks" }
 func (a *hooksApproach) DeliverHooks(start present.Start, root present.RootKind, in engine.HooksInputs, _ afero.Fs) (present.Delivered, error) {
-	return deliverSettingsFile(a.Name(), start, root, func(string) ([]present.Claim, error) { return hookClaims(in.Hooks) })
+	return deliverSettingsFile(a.Name(), start, root, func(string) ([]present.Claim, error) { return hookClaims(in.Hooks, in.Ext[EngineName]) })
 }
 
 // commandsApproach is claude's commands surface: <config dir>/commands/

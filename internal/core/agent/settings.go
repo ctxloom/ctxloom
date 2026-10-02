@@ -1,6 +1,5 @@
 package agent
 
-
 // SettingsReader reports what ctxloom has wired into an agent's settings
 // files. It is the SETTINGS facet of an agent, deliberately separate from the
 // launch facet (Backend). It only reads: every write to those files is a

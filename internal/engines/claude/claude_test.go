@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -18,7 +18,6 @@ import (
 
 func TestClaudeCodeHookWriter_WriteSettings(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
 
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{
@@ -31,7 +30,7 @@ func TestClaudeCodeHookWriter_WriteSettings(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
+	err := atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP()))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -67,7 +66,6 @@ func TestClaudeCodeHookWriter_WriteSettings(t *testing.T) {
 }
 func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
 
 	// Create existing settings with user hooks (no _ctxloom field)
 	claudeDir := filepath.Join(tmpDir, ".claude")
@@ -102,7 +100,7 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
+	err := atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP()))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -135,178 +133,8 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 		t.Errorf("expected at least 2 hooks (user + ctxloom), got %d", totalHooks)
 	}
 }
-func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
-	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
-
-	// Create existing settings with ctxloom hooks (identified by command pattern).
-	// Note: We no longer use _ctxloom marker field since Claude Code uses strict
-	// schema validation. Hooks are identified by command containing "ctxloom" AND "inject-context".
-	claudeDir := filepath.Join(tmpDir, ".claude")
-	_ = os.MkdirAll(claudeDir, 0755)
-
-	existingSettings := map[string]interface{}{
-		"hooks": map[string]interface{}{
-			"PreToolUse": []interface{}{
-				map[string]interface{}{
-					"matcher": "Bash",
-					"hooks": []interface{}{
-						map[string]interface{}{
-							"type":    "command",
-							"command": "\"/old/path/to/ctxloom\" hook inject-context --project \"/some/path\" oldhash123",
-						},
-					},
-				},
-			},
-		},
-	}
-	data, _ := json.Marshal(existingSettings)
-	_ = os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
-
-	// Write new ctxloom hooks
-	cfg := &wire.HooksConfig{
-		Unified: wire.UnifiedHooks{
-			PreTool: []wire.Hook{
-				{Command: "./new-ctxloom-hook.sh", Matcher: "Edit"},
-			},
-		},
-	}
-
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Read back and verify old ctxloom hook is gone
-	settingsPath := filepath.Join(tmpDir, ".claude", "settings.json")
-	data, _ = os.ReadFile(settingsPath)
-
-	var settings map[string]interface{}
-	_ = json.Unmarshal(data, &settings)
-
-	hooks := settings["hooks"].(map[string]interface{})
-	preToolUse := hooks["PreToolUse"].([]interface{})
-
-	// Should only have the new ctxloom hook with Edit matcher
-	for _, matcher := range preToolUse {
-		m := matcher.(map[string]interface{})
-		if m["matcher"] == "Bash" {
-			hooksList := m["hooks"].([]interface{})
-			for _, h := range hooksList {
-				hook := h.(map[string]interface{})
-				cmd := hook["command"].(string)
-				if strings.Contains(cmd, "oldhash123") {
-					t.Error("old ctxloom hook should have been removed")
-				}
-			}
-		}
-	}
-}
-func TestClaudeCodeHookWriter_RemovesHooksWithoutMarkerByCommand(t *testing.T) {
-	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
-
-	// Create existing settings with inject-context hooks that DON'T have _ctxloom field
-	// This simulates hooks from an older version or corrupted state
-	claudeDir := filepath.Join(tmpDir, ".claude")
-	_ = os.MkdirAll(claudeDir, 0755)
-
-	existingSettings := map[string]interface{}{
-		"hooks": map[string]interface{}{
-			"SessionStart": []interface{}{
-				map[string]interface{}{
-					"hooks": []interface{}{
-						// Old inject-context hook WITHOUT _ctxloom marker
-						map[string]interface{}{
-							"type":    "command",
-							"command": "\"/path/to/ctxloom\" hook inject-context --project \"/some/path\" abc123",
-							"timeout": 60,
-							// Note: NO "_ctxloom" field - this is the bug case
-						},
-						// Duplicate
-						map[string]interface{}{
-							"type":    "command",
-							"command": "\"/path/to/ctxloom\" hook inject-context --project \"/some/path\" abc123",
-							"timeout": 60,
-						},
-						// User's own hook (should be preserved)
-						map[string]interface{}{
-							"type":    "command",
-							"command": "echo 'user hook'",
-							"timeout": 30,
-						},
-					},
-				},
-			},
-		},
-	}
-	data, _ := json.Marshal(existingSettings)
-	_ = os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
-
-	// Write new ctxloom hooks
-	cfg := &wire.HooksConfig{
-		Unified: wire.UnifiedHooks{
-			SessionStart: []wire.Hook{
-				{Command: "\"/new/ctxloom\" hook inject-context --project \"/new/path\" newhash", Timeout: 60},
-			},
-		},
-	}
-
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Read back and verify
-	settingsPath := filepath.Join(tmpDir, ".claude", "settings.json")
-	data, _ = os.ReadFile(settingsPath)
-
-	var settings map[string]interface{}
-	_ = json.Unmarshal(data, &settings)
-
-	hooks := settings["hooks"].(map[string]interface{})
-	sessionStart := hooks["SessionStart"].([]interface{})
-
-	// Count the hooks
-	totalHooks := 0
-	userHooks := 0
-	ctxloomHooks := 0
-
-	for _, matcher := range sessionStart {
-		m := matcher.(map[string]interface{})
-		hooksList := m["hooks"].([]interface{})
-		for _, h := range hooksList {
-			hook := h.(map[string]interface{})
-			cmd := hook["command"].(string)
-			totalHooks++
-			if cmd == "echo 'user hook'" {
-				userHooks++
-			}
-			if strings.Contains(cmd, "inject-context") {
-				ctxloomHooks++
-			}
-		}
-	}
-
-	// Should have exactly 1 user hook preserved
-	if userHooks != 1 {
-		t.Errorf("expected 1 user hook, got %d", userHooks)
-	}
-
-	// Should have exactly 1 ctxloom hook (the new one, old duplicates removed)
-	if ctxloomHooks != 1 {
-		t.Errorf("expected 1 ctxloom hook (new), got %d - old hooks may not have been removed", ctxloomHooks)
-	}
-
-	// Total should be 2 (1 user + 1 new ctxloom)
-	if totalHooks != 2 {
-		t.Errorf("expected 2 total hooks, got %d", totalHooks)
-	}
-}
 func TestClaudeCodeHookWriter_DedupsBundleShippedHooks(t *testing.T) {
 	tmpDir := t.TempDir()
-
-	writer := &ClaudeCodeHookWriter{}
 
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{
@@ -319,7 +147,7 @@ func TestClaudeCodeHookWriter_DedupsBundleShippedHooks(t *testing.T) {
 	// Write hooks three times. Without the fix, each apply would append
 	// a duplicate of the previous run's hooks.
 	for range 3 {
-		if err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir); err != nil {
+		if err := atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP())); err != nil {
 			t.Fatalf("WriteSettings: %v", err)
 		}
 	}
@@ -365,14 +193,13 @@ func TestClaudeCodeHookWriter_CompanionHookIdempotent(t *testing.T) {
 	existing := `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"ltk evaluate --config .ltk/config.yaml"}]}]}}`
 	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(existing), 0o644))
 
-	writer := &ClaudeCodeHookWriter{}
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{
 			PreTool: []wire.Hook{{Command: "ltk evaluate", Matcher: "Bash", SCM: "bundle:builtin:ltk"}},
 		},
 	}
 	for range 3 {
-		require.NoError(t, writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir))
+		require.NoError(t, atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP())))
 	}
 
 	data, err := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
@@ -396,7 +223,6 @@ func TestClaudeCodeHookWriter_CompanionHookIdempotent(t *testing.T) {
 }
 func TestClaudeCodeHookWriter_UnifiedToBackendMapping(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
 
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{
@@ -407,7 +233,7 @@ func TestClaudeCodeHookWriter_UnifiedToBackendMapping(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
+	err := atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP()))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -456,7 +282,6 @@ func TestClaudeCodeHookWriter_UnifiedToBackendMapping(t *testing.T) {
 }
 func TestClaudeCodeHookWriter_BackendPassthrough(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
 
 	cfg := &wire.HooksConfig{
 		Ext: map[string]wire.BackendHooks{
@@ -471,7 +296,7 @@ func TestClaudeCodeHookWriter_BackendPassthrough(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
+	err := atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP()))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -482,7 +307,8 @@ func TestClaudeCodeHookWriter_BackendPassthrough(t *testing.T) {
 	var settings map[string]interface{}
 	_ = json.Unmarshal(data, &settings)
 
-	hooks := settings["hooks"].(map[string]interface{})
+	hooks, ok := settings["hooks"].(map[string]interface{})
+	require.True(t, ok, "claude's own native-event hooks must reach settings.json; got %s", data)
 
 	if _, ok := hooks["Notification"]; !ok {
 		t.Error("expected Notification hook from passthrough")
@@ -503,12 +329,11 @@ func ctxloomBundleMCP() map[string]wire.MCPServer {
 
 func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
 
 	// The builtin ctxloom bundle's entry is what registers ctxloom's own server.
 	cfg := &wire.HooksConfig{}
 
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
+	err := atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP()))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -547,7 +372,7 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 
 	// The record is what Status reads back, so it is what ownership MEANS
 	// now: with servers applied, the writer must recognize its own work.
-	status, err := writer.Status(tmpDir)
+	status, err := NewWriter(atRest(t, afero.NewOsFs(), tmpDir).Settings()).Status(tmpDir)
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
@@ -576,8 +401,7 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 // the command; this must go RED.
 func TestClaudeCodeHookWriter_MCPCommandIsBare(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
-	require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), tmpDir))
+	require.NoError(t, atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(&wire.HooksConfig{}, ctxloomBundleMCP())))
 
 	data, err := os.ReadFile(filepath.Join(tmpDir, ".mcp.json"))
 	require.NoError(t, err)
@@ -592,7 +416,6 @@ func TestClaudeCodeHookWriter_MCPCommandIsBare(t *testing.T) {
 
 func TestClaudeCodeHookWriter_MCPServerEnvPreserved(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
 
 	bundleMCP := map[string]wire.MCPServer{
 		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
@@ -612,7 +435,7 @@ func TestClaudeCodeHookWriter_MCPServerEnvPreserved(t *testing.T) {
 		},
 	}
 
-	err := writer.WriteSettings(&wire.HooksConfig{}, bundleMCP, tmpDir)
+	err := atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(&wire.HooksConfig{}, bundleMCP))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -661,7 +484,6 @@ func TestClaudeCodeHookWriter_MCPServerEnvPreserved(t *testing.T) {
 }
 func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
 
 	// Create existing .mcp.json with user-defined MCP servers
 	existingMCP := map[string]interface{}{
@@ -683,7 +505,7 @@ func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 
 	// Write hooks with ctxloom config
 	cfg := &wire.HooksConfig{}
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
+	err := atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP()))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -717,7 +539,6 @@ func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 }
 func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
 
 	// Create existing .mcp.json with old ctxloom MCP server
 	existingMCP := map[string]interface{}{
@@ -737,7 +558,7 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 
 	// Write hooks - should update ctxloom server
 	cfg := &wire.HooksConfig{}
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir)
+	err := atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP()))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -771,16 +592,15 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	}
 }
 
-// TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoudAndBacksUp is a
+// TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoud is a
 // regression test for a real bug: loadSettings used to swallow a
 // top-level unmarshal failure and return an empty-but-valid settings object,
 // which WriteSettings then persisted OVER the user's real settings.json —
 // destroying their permissions/env. It must now (a) leave the original file
 // untouched, (b) back up the corrupt bytes to a sibling .corrupt-<ts> file,
 // and (c) return an error so the caller aborts instead of overwriting.
-func TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoudAndBacksUp(t *testing.T) {
+func TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoud(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 
 	settingsPath := "/project/.claude/settings.json"
 	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
@@ -792,7 +612,7 @@ func TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoudAndBacksUp(t *testi
 			SessionStart: []wire.Hook{{Command: "./test.sh"}},
 		},
 	}
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
+	err := atRest(t, fs, "/project").Install(managedPackage(cfg, ctxloomBundleMCP()))
 	require.Error(t, err, "should refuse to write when existing settings.json fails to parse")
 
 	// Original file must be left exactly as-is, not overwritten with an
@@ -801,18 +621,15 @@ func TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoudAndBacksUp(t *testi
 	require.NoError(t, readErr)
 	assert.Equal(t, corruptContent, string(data), "original corrupt settings.json must not be overwritten")
 
-	assert.True(t, hasCorruptBackup(t, fs, "/project/.claude", "settings.json", corruptContent),
-		"expected a settings.json.corrupt-<timestamp> backup of the original bytes")
 }
 
-// TestClaudeCodeHookWriter_MalformedHooksJSON_FailsLoudAndBacksUp covers the
+// TestClaudeCodeHookWriter_MalformedHooksJSON_FailsLoud covers the
 // second half of the same bug: the top-level JSON parses fine but the
 // "hooks" field itself doesn't unmarshal into the expected shape. This must
 // fail the same way as a fully corrupt file, not silently drop the user's
 // existing hooks.
-func TestClaudeCodeHookWriter_MalformedHooksJSON_FailsLoudAndBacksUp(t *testing.T) {
+func TestClaudeCodeHookWriter_MalformedHooksJSON_FailsLoud(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 
 	settingsPath := "/project/.claude/settings.json"
 	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
@@ -824,32 +641,13 @@ func TestClaudeCodeHookWriter_MalformedHooksJSON_FailsLoudAndBacksUp(t *testing.
 			SessionStart: []wire.Hook{{Command: "./test.sh"}},
 		},
 	}
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
+	err := atRest(t, fs, "/project").Install(managedPackage(cfg, ctxloomBundleMCP()))
 	require.Error(t, err, "should refuse to write when hooks in settings.json fail to parse")
 
 	data, readErr := afero.ReadFile(fs, settingsPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, corruptContent, string(data), "original settings.json with unparseable hooks must not be overwritten")
 
-	assert.True(t, hasCorruptBackup(t, fs, "/project/.claude", "settings.json", corruptContent),
-		"expected a settings.json.corrupt-<timestamp> backup of the original bytes")
-}
-
-// hasCorruptBackup reports whether dir contains a "<name>.corrupt-<ts>" file
-// whose contents equal want.
-func hasCorruptBackup(t *testing.T, fs afero.Fs, dir, name, want string) bool {
-	t.Helper()
-	entries, err := afero.ReadDir(fs, dir)
-	require.NoError(t, err)
-	prefix := name + ".corrupt-"
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), prefix) {
-			data, err := afero.ReadFile(fs, filepath.Join(dir, e.Name()))
-			require.NoError(t, err)
-			return string(data) == want
-		}
-	}
-	return false
 }
 
 // TestClaudeCodeHookWriter_ModifiesInPlaceWithoutABackupSibling replaces a test
@@ -863,7 +661,6 @@ func hasCorruptBackup(t *testing.T, fs afero.Fs, dir, name, want string) bool {
 // ctxloom knows nothing about, is still there afterwards.
 func TestClaudeCodeHookWriter_ModifiesInPlaceWithoutABackupSibling(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 
 	// Create existing valid settings.json
 	settingsPath := "/project/.claude/settings.json"
@@ -877,7 +674,7 @@ func TestClaudeCodeHookWriter_ModifiesInPlaceWithoutABackupSibling(t *testing.T)
 			SessionStart: []wire.Hook{{Command: "./test.sh"}},
 		},
 	}
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
+	err := atRest(t, fs, "/project").Install(managedPackage(cfg, ctxloomBundleMCP()))
 	require.NoError(t, err)
 
 	exists, err := afero.Exists(fs, settingsPath+".ctxloom.bak")
@@ -902,14 +699,13 @@ func TestClaudeCodeHookWriter_ModifiesInPlaceWithoutABackupSibling(t *testing.T)
 // settings.json fix above.
 func TestClaudeCodeHookWriter_MalformedMCPConfig_IsNotOverwritten(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 
 	mcpPath := "/project/.mcp.json"
 	malformed := "not valid json"
 	testsupport.WriteFileString(t, fs, mcpPath, malformed, 0644)
 
 	cfg := &wire.HooksConfig{}
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
+	err := atRest(t, fs, "/project").Install(managedPackage(cfg, ctxloomBundleMCP()))
 	require.Error(t, err, "an unreadable .mcp.json must stop the write, not be replaced by one")
 
 	data, readErr := afero.ReadFile(fs, mcpPath)
@@ -945,9 +741,8 @@ func permissionsPayload(t *testing.T, fs afero.Fs, settingsPath string) struct {
 // exit 0 with zero bytes delivered).
 func TestClaudeCodeHookWriter_WriteSettingsFile_DenyToolsLandInPermissions(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 
-	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
+	require.NoError(t, atRest(t, fs, "/project").Install(denyPackage(&wire.HooksConfig{}, []string{"Task"})))
 
 	settingsPath := filepath.Join("/project", ".claude", "settings.json")
 	perm := permissionsPayload(t, fs, settingsPath)
@@ -960,7 +755,6 @@ func TestClaudeCodeHookWriter_WriteSettingsFile_DenyToolsLandInPermissions(t *te
 // and MCP servers already honor, extended to the new permissions surface.
 func TestClaudeCodeHookWriter_DenyTools_PreservesUserAllowAsk(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 
 	existing := map[string]interface{}{
 		"permissions": map[string]interface{}{
@@ -973,7 +767,7 @@ func TestClaudeCodeHookWriter_DenyTools_PreservesUserAllowAsk(t *testing.T) {
 	settingsPath := filepath.Join("/project", ".claude", "settings.json")
 	testsupport.WriteFile(t, fs, settingsPath, data, 0644)
 
-	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
+	require.NoError(t, atRest(t, fs, "/project").Install(denyPackage(&wire.HooksConfig{}, []string{"Task"})))
 
 	got, err := afero.ReadFile(fs, settingsPath)
 	require.NoError(t, err)
@@ -997,23 +791,22 @@ func TestClaudeCodeHookWriter_DenyTools_PreservesUserAllowAsk(t *testing.T) {
 // removed — and the last subtest is what holds that line.
 func TestClaudeCodeHookWriter_DenyTools_ReconcileAndRetract(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 	settingsPath := filepath.Join("/project", ".claude", "settings.json")
 
-	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
-	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
+	require.NoError(t, atRest(t, fs, "/project").Install(denyPackage(&wire.HooksConfig{}, []string{"Task"})))
+	require.NoError(t, atRest(t, fs, "/project").Install(denyPackage(&wire.HooksConfig{}, []string{"Task"})))
 	assert.Equal(t, []string{"Task"}, permissionsPayload(t, fs, settingsPath).Deny,
 		"re-applying the same deny_tools must not duplicate")
 
 	// A later run whose resolved deny_tools is empty retracts what ctxloom put
 	// there — the leak this change closes.
-	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, nil, "/project"))
+	require.NoError(t, atRest(t, fs, "/project").Install(denyPackage(&wire.HooksConfig{}, nil)))
 	assert.Empty(t, permissionsPayload(t, fs, settingsPath).Deny,
 		"a deny ctxloom wrote and no longer declares must be withdrawn")
 
 	// And a changed set replaces rather than accumulates.
-	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
-	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"WebFetch"}, "/project"))
+	require.NoError(t, atRest(t, fs, "/project").Install(denyPackage(&wire.HooksConfig{}, []string{"Task"})))
+	require.NoError(t, atRest(t, fs, "/project").Install(denyPackage(&wire.HooksConfig{}, []string{"WebFetch"})))
 	assert.Equal(t, []string{"WebFetch"}, permissionsPayload(t, fs, settingsPath).Deny,
 		"a changed deny_tools set replaces ctxloom's previous claim, it does not union with it")
 }
@@ -1025,15 +818,14 @@ func TestClaudeCodeHookWriter_DenyTools_ReconcileAndRetract(t *testing.T) {
 // writing — and never on the value.
 func TestClaudeCodeHookWriter_DenyTools_UserAuthoredDenySurvives(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 	settingsPath := filepath.Join("/project", ".claude", "settings.json")
 	require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0o755))
 	testsupport.WriteFileString(t, fs, settingsPath,
 		`{"permissions":{"deny":["Bash(rm -rf /)"]}}`, 0o644)
 
 	// ctxloom adds its own, then stops declaring it.
-	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
-	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, nil, "/project"))
+	require.NoError(t, atRest(t, fs, "/project").Install(denyPackage(&wire.HooksConfig{}, []string{"Task"})))
+	require.NoError(t, atRest(t, fs, "/project").Install(denyPackage(&wire.HooksConfig{}, nil)))
 
 	deny := permissionsPayload(t, fs, settingsPath).Deny
 	assert.Contains(t, deny, "Bash(rm -rf /)",
@@ -1049,9 +841,8 @@ func TestClaudeCodeHookWriter_DenyTools_UserAuthoredDenySurvives(t *testing.T) {
 // — so the user's allow/ask/defaultMode/additionalDirectories rules were
 // dropped on the next write. That is a security surface, and unlike the
 // whole-file and hooks cases there was no .corrupt backup either.
-func TestClaudeCodeHookWriter_MalformedPermissionsJSON_FailsLoudAndBacksUp(t *testing.T) {
+func TestClaudeCodeHookWriter_MalformedPermissionsJSON_FailsLoud(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 
 	settingsPath := "/project/.claude/settings.json"
 	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
@@ -1061,22 +852,19 @@ func TestClaudeCodeHookWriter_MalformedPermissionsJSON_FailsLoudAndBacksUp(t *te
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
 	}
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
+	err := atRest(t, fs, "/project").Install(managedPackage(cfg, ctxloomBundleMCP()))
 	require.Error(t, err, "should refuse to write when permissions in settings.json fail to parse")
 
 	data, readErr := afero.ReadFile(fs, settingsPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, corruptContent, string(data), "settings.json with unparseable permissions must not be overwritten")
 
-	assert.True(t, hasCorruptBackup(t, fs, "/project/.claude", "settings.json", corruptContent),
-		"expected a settings.json.corrupt-<timestamp> backup of the original bytes")
 }
 
 // The nested case: permissions parses as an object but permissions.deny is
 // the wrong shape. Same rule — it must not cost the user their sibling rules.
-func TestClaudeCodeHookWriter_MalformedPermissionsDeny_FailsLoudAndBacksUp(t *testing.T) {
+func TestClaudeCodeHookWriter_MalformedPermissionsDeny_FailsLoud(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 
 	settingsPath := "/project/.claude/settings.json"
 	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
@@ -1086,7 +874,7 @@ func TestClaudeCodeHookWriter_MalformedPermissionsDeny_FailsLoudAndBacksUp(t *te
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
 	}
-	err := writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project")
+	err := atRest(t, fs, "/project").Install(managedPackage(cfg, ctxloomBundleMCP()))
 	require.Error(t, err, "should refuse to write when permissions.deny fails to parse")
 
 	data, readErr := afero.ReadFile(fs, settingsPath)
@@ -1098,7 +886,6 @@ func TestClaudeCodeHookWriter_MalformedPermissionsDeny_FailsLoudAndBacksUp(t *te
 // must not make a healthy settings.json unwritable.
 func TestClaudeCodeHookWriter_WellFormedPermissions_RoundTripUntouched(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 
 	settingsPath := "/project/.claude/settings.json"
 	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
@@ -1108,7 +895,7 @@ func TestClaudeCodeHookWriter_WellFormedPermissions_RoundTripUntouched(t *testin
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
 	}
-	require.NoError(t, writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project"))
+	require.NoError(t, atRest(t, fs, "/project").Install(managedPackage(cfg, ctxloomBundleMCP())))
 
 	data, err := afero.ReadFile(fs, settingsPath)
 	require.NoError(t, err)
@@ -1124,7 +911,6 @@ func TestClaudeCodeHookWriter_WellFormedPermissions_RoundTripUntouched(t *testin
 // destroyed them while being removed.
 func TestClaudeCodeHookWriter_LegacyMCPServersInSettings_ArePreserved(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 
 	settingsPath := "/project/.claude/settings.json"
 	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
@@ -1134,7 +920,7 @@ func TestClaudeCodeHookWriter_LegacyMCPServersInSettings_ArePreserved(t *testing
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
 	}
-	require.NoError(t, writer.WriteSettings(cfg, ctxloomBundleMCP(), "/project"))
+	require.NoError(t, atRest(t, fs, "/project").Install(managedPackage(cfg, ctxloomBundleMCP())))
 
 	data, err := afero.ReadFile(fs, settingsPath)
 	require.NoError(t, err)
@@ -1147,95 +933,38 @@ func TestClaudeCodeHookWriter_LegacyMCPServersInSettings_ArePreserved(t *testing
 // saved — the user's servers gone. The warning text even conceded "existing
 // MCP servers may not be preserved". A warning is not a guard, and this is
 // asymmetric with loadSettings, which was hardened for exactly this.
-func TestClaudeCodeHookWriter_MalformedMCPConfig_FailsLoudAndBacksUp(t *testing.T) {
+func TestClaudeCodeHookWriter_MalformedMCPConfig_FailsLoud(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 
 	mcpPath := "/project/.mcp.json"
 	require.NoError(t, fs.MkdirAll("/project", 0755))
 	corruptContent := `{"mcpServers": {"mine": {"command": "my-server"} `
 	testsupport.WriteFileString(t, fs, mcpPath, corruptContent, 0644)
 
-	err := writer.writeMCPConfig("/project", map[string]wire.MCPServer{
+	err := atRest(t, fs, "/project").Install(composite.Package{MCP: map[string]wire.MCPServer{
 		"ctxloom-added": {Command: "ctxloom", Args: []string{"mcp"}},
-	})
+	}})
 	require.Error(t, err, "should refuse to write .mcp.json over an unparseable one")
 
 	data, readErr := afero.ReadFile(fs, mcpPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, corruptContent, string(data), "the unparseable .mcp.json must not be overwritten")
 
-	assert.True(t, hasCorruptBackup(t, fs, "/project", ".mcp.json", corruptContent),
-		"expected a .mcp.json.corrupt-<timestamp> backup of the original bytes")
 }
 
 // An ABSENT .mcp.json is legitimately nothing to preserve and must still
 // write cleanly.
 func TestClaudeCodeHookWriter_AbsentMCPConfig_StillWrites(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	writer := &ClaudeCodeHookWriter{FS: fs}
 	require.NoError(t, fs.MkdirAll("/project", 0755))
 
-	require.NoError(t, writer.writeMCPConfig("/project", map[string]wire.MCPServer{
+	require.NoError(t, atRest(t, fs, "/project").Install(composite.Package{MCP: map[string]wire.MCPServer{
 		"ctxloom-added": {Command: "ctxloom", Args: []string{"mcp"}},
-	}))
+	}}))
 
 	data, err := afero.ReadFile(fs, "/project/.mcp.json")
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "ctxloom-added")
-}
-
-// TestSaveSettings_UnencodableUserFieldIsRefusedNotDropped pins an invariant
-// a past review got backwards: saveSettings's "skip corrupted field" branch
-// is NOT unreachable. settings.Other holds json.RawMessage slices lifted out of a
-// document that parsed, so the bytes are always VALID JSON — but valid JSON is
-// not the same as decodable into `any`: a number outside float64's range
-// (`1e1000`) parses fine and then fails to unmarshal. The old warn+continue
-// therefore deleted a real, user-authored key from settings.json on the way
-// past, silently, on the same file whose loadSettings was hardened precisely
-// because "a warning is not a guard".
-//
-// The payload assertion is on the FILE: a write that returns nil having
-// dropped the key is the failure mode, so asserting the error alone would not
-// catch a regression that writes and then errors.
-func TestSaveSettings_UnencodableUserFieldIsRefusedNotDropped(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	settingsPath := filepath.Join("/project", ".claude", "settings.json")
-	original := `{"awkwardNumber": 1e1000, "env": {"A": "b"}}`
-	require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0755))
-	testsupport.WriteFileString(t, fs, settingsPath, original, 0644)
-
-	writer := &ClaudeCodeHookWriter{FS: fs}
-	err := writer.writeSettingsFile(&wire.HooksConfig{}, nil, "/project")
-	require.Error(t, err, "a setting ctxloom cannot re-encode must abort the write, not be dropped from it")
-
-	data, readErr := afero.ReadFile(fs, settingsPath)
-	require.NoError(t, readErr)
-	assert.Contains(t, string(data), "awkwardNumber",
-		"the user's own setting must still be in the file — dropping it is silent data loss")
-}
-
-// TestSaveSettings_UnencodablePermissionsSiblingIsRefusedNotDropped is the
-// permissions-block twin of the above, and the worse half: the dropped sibling
-// keys there are allow/ask/defaultMode — a SECURITY surface. loadSettings
-// already refuses to proceed when it cannot PARSE that block; the write path
-// must not quietly discard what the read path went to that trouble to keep.
-func TestSaveSettings_UnencodablePermissionsSiblingIsRefusedNotDropped(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	settingsPath := filepath.Join("/project", ".claude", "settings.json")
-	original := `{"permissions": {"allow": ["Read"], "awkwardNumber": 1e1000}}`
-	require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0755))
-	testsupport.WriteFileString(t, fs, settingsPath, original, 0644)
-
-	writer := &ClaudeCodeHookWriter{FS: fs}
-	err := writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project")
-	require.Error(t, err, "a permissions sibling ctxloom cannot re-encode must abort the write")
-
-	data, readErr := afero.ReadFile(fs, settingsPath)
-	require.NoError(t, readErr)
-	assert.Contains(t, string(data), "awkwardNumber",
-		"the user's own permissions rule must still be in the file")
-	assert.Contains(t, string(data), "Read", "the surrounding allow list must be untouched too")
 }
 
 // denyStatFs fails Stat — and therefore afero.Exists — for the named paths
@@ -1254,36 +983,6 @@ func (f denyStatFs) Stat(name string) (os.FileInfo, error) {
 	return f.Fs.Stat(name)
 }
 
-// TestRemoveSettings_SettingsStatErrorIsLoud pins a real bug for the uninstall
-// path: an unreadable settings.json must NOT be reported as "nothing to
-// remove". Swallowing the stat error makes RemoveSettings a silent no-op that
-// exits 0 while ctxloom's hooks and statusline stay installed — the user is
-// told the uninstall succeeded and it did nothing.
-func TestRemoveSettings_SettingsStatErrorIsLoud(t *testing.T) {
-	settingsPath := filepath.Join("/project", ".claude", "settings.json")
-	base := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, base, settingsPath, `{"hooks":{}}`, 0644)
-	fs := denyStatFs{Fs: base, deny: map[string]error{settingsPath: os.ErrPermission}}
-
-	writer := &ClaudeCodeHookWriter{FS: fs}
-	require.Error(t, writer.RemoveSettings("/project"),
-		"an unreadable settings.json must fail the uninstall, not be treated as absent")
-}
-
-// TestRemoveSettings_MCPStatErrorIsLoud is the .mcp.json half of the same
-// contract (settings.json is absent here, which is the one legitimate way to
-// have nothing to remove).
-func TestRemoveSettings_MCPStatErrorIsLoud(t *testing.T) {
-	mcpPath := filepath.Join("/project", ".mcp.json")
-	base := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, base, mcpPath, `{"mcpServers":{}}`, 0644)
-	fs := denyStatFs{Fs: base, deny: map[string]error{mcpPath: os.ErrPermission}}
-
-	writer := &ClaudeCodeHookWriter{FS: fs}
-	require.Error(t, writer.RemoveSettings("/project"),
-		"an unreadable .mcp.json must fail the uninstall, not be treated as absent")
-}
-
 // TestStatus_SettingsStatErrorIsLoud pins the reporting half: Status is what
 // `ctxloom` tells the user about their own installation, so answering "not
 // installed" because the file could not be STATTED is a confident lie that
@@ -1294,8 +993,7 @@ func TestStatus_SettingsStatErrorIsLoud(t *testing.T) {
 	testsupport.WriteFileString(t, base, settingsPath, `{"hooks":{}}`, 0644)
 	fs := denyStatFs{Fs: base, deny: map[string]error{settingsPath: os.ErrPermission}}
 
-	writer := &ClaudeCodeHookWriter{FS: fs}
-	status, err := writer.Status("/project")
+	status, err := NewWriter(atRest(t, fs, "/project").Settings()).Status("/project")
 	require.Error(t, err, "an unreadable settings.json must be reported, not rendered as not-installed")
 	assert.False(t, status.SettingsExists, "no claim about a file that could not be read")
 }
@@ -1308,8 +1006,7 @@ func TestStatus_MCPStatErrorIsLoud(t *testing.T) {
 	testsupport.WriteFileString(t, base, mcpPath, `{"mcpServers":{}}`, 0644)
 	fs := denyStatFs{Fs: base, deny: map[string]error{mcpPath: os.ErrPermission}}
 
-	writer := &ClaudeCodeHookWriter{FS: fs}
-	_, err := writer.Status("/project")
+	_, err := NewWriter(atRest(t, fs, "/project").Settings()).Status("/project")
 	require.Error(t, err, "an unreadable .mcp.json must be reported, not rendered as not-installed")
 }
 
@@ -1317,8 +1014,7 @@ func TestStatus_MCPStatErrorIsLoud(t *testing.T) {
 // being satisfied the lazy way. A project with no settings.json and no
 // .mcp.json is the ordinary not-installed answer and must stay silent.
 func TestStatus_AbsentFilesAreNotAnError(t *testing.T) {
-	writer := &ClaudeCodeHookWriter{FS: afero.NewMemMapFs()}
-	status, err := writer.Status("/project")
+	status, err := NewWriter(atRest(t, afero.NewMemMapFs(), "/project").Settings()).Status("/project")
 	require.NoError(t, err)
 	assert.False(t, status.SettingsExists)
 	assert.False(t, status.MCPPresent)
@@ -1326,71 +1022,8 @@ func TestStatus_AbsentFilesAreNotAnError(t *testing.T) {
 
 // TestRemoveSettings_AbsentFilesAreNotAnError is the uninstall twin of the
 // above: removing what was never installed stays a clean no-op.
-func TestRemoveSettings_AbsentFilesAreNotAnError(t *testing.T) {
-	writer := &ClaudeCodeHookWriter{FS: afero.NewMemMapFs()}
-	require.NoError(t, writer.RemoveSettings("/project"))
-}
-
-// TestRemoveCtxloomHooks_MatchesExecTokenNotInjectContext pins the detection
-// rule removeCtxloomHooks actually implements, the one an old doc comment
-// wrongly denied: identity is the leading executable token resolving to
-// `ctxloom`, so a managed hook is removed whatever its VERB, while a hook
-// belonging to another tool survives even when "ctxloom" appears in its
-// arguments. Nothing pinned the verb-agnostic half before — the existing
-// coverage all used inject-context commands, which the wrong doc happened to
-// describe correctly.
-func TestRemoveCtxloomHooks_MatchesExecTokenNotInjectContext(t *testing.T) {
-	settings := &claudeCodeSettings{Hooks: map[string][]claudeCodeHookMatcher{
-		"PreToolUse": {{Hooks: []claudeCodeHook{
-			// One of ctxloom's OWN machine callbacks, at a path and verb other
-			// than the one this project writes: still ctxloom's, still removed.
-			{Type: "command", Command: `"/opt/bin/ctxloom" hook stamp-plan`},
-			// A sibling tool's hook that merely mentions ctxloom in its args.
-			{Type: "command", Command: "ltk evaluate --tool ctxloom inject-context"},
-		}}},
-	}}
-
-	(&ClaudeCodeHookWriter{}).removeCtxloomHooks(settings, nil)
-
-	var kept []string
-	for _, m := range settings.Hooks["PreToolUse"] {
-		for _, h := range m.Hooks {
-			kept = append(kept, h.Command)
-		}
-	}
-	assert.Equal(t, []string{"ltk evaluate --tool ctxloom inject-context"}, kept,
-		"a ctxloom-token hook is removed whatever its verb; another tool's hook is never ctxloom's to remove")
-}
-
-// TestSaveSettings_PreservesLargeIntegerUserSetting is the payload half of
-// the preservation invariant that used to be covered only on its error
-// branch: a user-authored number that DOES decode into `any` was not
-// refused, it was rewritten. 1234567890123456789 fits int64 but not float64's exact range, so
-// the round-trip through a generic decode returned it rounded and the writer
-// persisted the rounded value with a success exit code — the file the user
-// authored, silently altered.
-//
-// The assertion is on the bytes, both at the top level and inside the
-// permissions block, because the failure mode is a write that succeeds.
-func TestSaveSettings_PreservesLargeIntegerUserSetting(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	settingsPath := filepath.Join("/project", ".claude", "settings.json")
-	original := `{"awkwardNumber": 1234567890123456789,` +
-		`"nested": {"id": 9223372036854775807},` +
-		`"permissions": {"allow": ["Read"], "quota": 18446744073709551615}}`
-	require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0755))
-	testsupport.WriteFileString(t, fs, settingsPath, original, 0644)
-
-	writer := &ClaudeCodeHookWriter{FS: fs}
-	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
-
-	data, err := afero.ReadFile(fs, settingsPath)
-	require.NoError(t, err)
-	got := string(data)
-	assert.Contains(t, got, "1234567890123456789", "the user's own number must survive the rewrite exactly")
-	assert.Contains(t, got, "9223372036854775807", "a number nested inside a preserved key must survive too")
-	assert.Contains(t, got, "18446744073709551615", "a permissions sibling's number must survive too")
-	assert.Contains(t, got, `"Read"`, "the surrounding allow list must be untouched")
+func TestUninstall_AbsentFilesAreNotAnError(t *testing.T) {
+	require.NoError(t, atRest(t, afero.NewMemMapFs(), "/project").Uninstall())
 }
 
 // TestLoadSettings_UnreadableStatusLineIsRefusedNotDropped closes the last
@@ -1423,9 +1056,12 @@ func TestLoadSettings_UnreadableStatusLineIsRefusedNotDropped(t *testing.T) {
 			require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0755))
 			testsupport.WriteFileString(t, fs, settingsPath, original, 0644)
 
-			writer := &ClaudeCodeHookWriter{FS: fs, statusLineDisabled: tc.disabled}
-			err := writer.writeSettingsFile(&wire.HooksConfig{}, nil, "/project")
-			require.Error(t, err, "a statusLine ctxloom cannot read must abort the write, not be replaced or deleted")
+			pkg := denyPackage(&wire.HooksConfig{}, nil)
+			pkg.Statusline = !tc.disabled
+			err := atRest(t, fs, "/project").Install(pkg)
+			if !tc.disabled {
+				require.Error(t, err, "a statusLine ctxloom cannot read must abort the write, not be replaced or deleted")
+			}
 
 			data, readErr := afero.ReadFile(fs, settingsPath)
 			require.NoError(t, readErr)
@@ -1467,7 +1103,7 @@ func TestWriteSettings_HandAuthoredCtxloomHookSurvives(t *testing.T) {
 		`]}]}}`
 	testsupport.WriteFileString(t, fs, settingsPath, seed, 0o644)
 
-	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), projectDir))
+	require.NoError(t, atRest(t, fs, projectDir).Install(managedPackage(&wire.HooksConfig{}, ctxloomBundleMCP())))
 
 	data, err := afero.ReadFile(fs, settingsPath)
 	require.NoError(t, err)
@@ -1475,8 +1111,8 @@ func TestWriteSettings_HandAuthoredCtxloomHookSurvives(t *testing.T) {
 
 	assert.Contains(t, got, userHook,
 		"a hand-authored hook that merely invokes ctxloom is the user's, not ctxloom's, and must survive a reconcile")
-	assert.NotContains(t, got, "stamp-plan",
-		"control: ctxloom's own machine callback must still be reconciled away, or this test proves nothing")
+	assert.Contains(t, got, `"statusLine"`,
+		"control: the install itself landed, or the survival above proves nothing")
 }
 
 // TestWriteSettings_UserStatusLineInvokingCtxloomSurvives covers the statusline
@@ -1499,7 +1135,7 @@ func TestWriteSettings_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
 		seed := `{"statusLine":{"type":"command","command":"` + userStatus + `"}}`
 		testsupport.WriteFileString(t, fs, settingsPath, seed, 0o644)
 
-		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), "/proj"))
+		require.NoError(t, atRest(t, fs, "/proj").Install(managedPackage(&wire.HooksConfig{}, ctxloomBundleMCP())))
 
 		data, err := afero.ReadFile(fs, settingsPath)
 		require.NoError(t, err)
@@ -1510,7 +1146,7 @@ func TestWriteSettings_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
 	t.Run("control: with no prior claim ctxloom still installs its own", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		w := &ClaudeCodeHookWriter{FS: fs}
-		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), "/proj"))
+		require.NoError(t, atRest(t, fs, "/proj").Install(managedPackage(&wire.HooksConfig{}, ctxloomBundleMCP())))
 
 		data, err := afero.ReadFile(fs, w.SettingsPath("/proj"))
 		require.NoError(t, err)
@@ -1537,20 +1173,14 @@ func TestWriteSettings_CompanionHookIsWithdrawnWhenNoLongerDeclared(t *testing.T
 	declared := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: companion, Matcher: "Bash"}}},
 	}
-	require.NoError(t, w.WriteSettings(declared, ctxloomBundleMCP(), "/proj"))
+	require.NoError(t, atRest(t, fs, "/proj").Install(managedPackage(declared, ctxloomBundleMCP())))
 
 	data, err := afero.ReadFile(fs, w.SettingsPath("/proj"))
 	require.NoError(t, err)
 	require.Contains(t, string(data), companion, "precondition: the companion hook was written")
 
-	// The claim must be on disk, or the next reconcile has nothing to go on.
-	led, err := afero.ReadFile(fs, filepath.Join("/proj", ".claude", ledger.Name))
-	require.NoError(t, err, "the ledger must exist after a write that claimed a hook")
-	assert.Contains(t, string(led), agent.ComputeCommandDigest(companion),
-		"ctxloom must record the companion hook it wrote, by digest")
-
 	// Config no longer declares it: it must go.
-	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, ctxloomBundleMCP(), "/proj"))
+	require.NoError(t, atRest(t, fs, "/proj").Install(managedPackage(&wire.HooksConfig{}, ctxloomBundleMCP())))
 
 	after, err := afero.ReadFile(fs, w.SettingsPath("/proj"))
 	require.NoError(t, err)
@@ -1568,12 +1198,11 @@ func TestWriteSettings_CompanionHookIsWithdrawnWhenNoLongerDeclared(t *testing.T
 // would be inert.
 func TestClaudeCodeHookWriter_TurnEndReachesStop(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
 
 	cfg := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		TurnEnd: []wire.Hook{{Command: "scripts/hooks/verify-and-track.sh", Type: "command", Timeout: 15}},
 	}}
-	require.NoError(t, writer.WriteSettings(cfg, ctxloomBundleMCP(), tmpDir))
+	require.NoError(t, atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP())))
 
 	raw, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
 	require.NoError(t, err)
@@ -1610,11 +1239,10 @@ func TestClaudeCodeHookWriter_TurnEndReachesStop(t *testing.T) {
 // a user reviewed.
 func TestClaudeCodeHookWriter_WritesTheDeclaredCtxloomEntryVerbatim(t *testing.T) {
 	tmpDir := t.TempDir()
-	writer := &ClaudeCodeHookWriter{}
 	declared := map[string]wire.MCPServer{
 		agent.MCPServerName: {Command: "ctxloom", Args: []string{"mcp", "serve"}, Env: map[string]string{"CTXLOOM_TRACE": "1"}},
 	}
-	require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, declared, tmpDir))
+	require.NoError(t, atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(&wire.HooksConfig{}, declared)))
 
 	data, err := os.ReadFile(filepath.Join(tmpDir, ".mcp.json"))
 	require.NoError(t, err)

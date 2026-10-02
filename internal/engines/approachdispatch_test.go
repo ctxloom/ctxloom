@@ -12,8 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
-// allSurfaceKinds is every kind the SurfaceSelection builder can ask a backend
-// about (cells.go's surfaceOrder), plus one out-of-range value to prove an
+// allSurfaceKinds is every kind a backend can be asked about (cells.go's
+// surfaceOrder), plus one out-of-range value to prove an
 // unknown kind is reported absent rather than panicking.
 var allSurfaceKinds = []agent.SurfaceKind{
 	agent.SurfaceContext,
@@ -97,11 +97,11 @@ func TestApproachDispatch_DeclaredIsConstructible(t *testing.T) {
 			decl := hostedDeclaration(name)
 			for _, kind := range allSurfaceKinds {
 				for _, n := range decl.Names(kind) {
-					a, ok := decl.Construct(kind, n, agent.SurfaceInputs{Context: "ctx"}, afero.NewMemMapFs())
+					a, ok := decl[kind].Construct(n, agent.SurfaceInputs{Context: "ctx"}, afero.NewMemMapFs())
 					require.True(t, ok, "%s: %s declares %s but Construct rejects it", name, kind, n)
 					require.NotNil(t, a, "%s: %s via %s constructed a nil Approach", name, kind, n)
-					// Present must not panic against advised roots; a Rider may
-					// legitimately present nothing.
+					// Present must not panic against advised roots; hook-carried
+					// context may legitimately present nothing.
 					_ = a.Present(present.ProjectOnHost("/p"))
 				}
 			}

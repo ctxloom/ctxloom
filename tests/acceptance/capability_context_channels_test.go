@@ -52,17 +52,19 @@ const channelProbeHarp = "probe-structural-harp"
 // TestClaudeHookApproach_DeliversNothing pins the mechanism behind P1's one red.
 //
 // claude's context at ApproachHook is the shared agent.HookCarriedContext —
-// a Rider with no writer of its own: the context rides the settings-borne
+// a form with no writer of its own: the context rides the settings-borne
 // inject hook plus a cache file, both of which the LAUNCH installs once it
 // sees the rider resolved. The form therefore cannot write anything, and this
 // pins that: if it ever gains a writer, the launch would double the context
 // and P1's red cell must be re-measured rather than assumed.
 func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
-	form, ok := hostedDeclaration("claude-code").Construct(agent.SurfaceContext, agent.ApproachHook, agent.SurfaceInputs{
+	form, ok := hostedDeclaration("claude-code")[agent.SurfaceContext].Construct(agent.ApproachHook, agent.SurfaceInputs{
 		Context: "The nonce for this session is " + channelProbeHarp,
 	}, afero.NewMemMapFs())
 	require.True(t, ok, "claude must declare its hook-carried context — the P1 cell that pins it depends on it")
-	_, writes := form.(agent.Delivery)
+	_, writes := form.(interface {
+		Deliver(present.Start) (agent.Delivered, error)
+	})
 	require.False(t, writes, "claude's context form at ApproachHook carries no writer; one that writes would double the context")
 }
 

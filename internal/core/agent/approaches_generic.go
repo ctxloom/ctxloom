@@ -20,23 +20,17 @@ import (
 // (claude's CLAUDE.md, the mock's context file) at rel beneath the project
 // root: where it is presented.
 //
-// It is a Construct factory rather than a Construct because what varies per
-// engine — where the file lives, and the label the shared-cwd warning names
-// it by — are STATIC facts about the engine, bound at registration.
-func NativeContextFile(name, rel string) Construct {
-	return func(_ SurfaceInputs, fs afero.Fs) Approach {
-		return &nativeContextFile{name: name, rel: rel, fs: GetFS(fs)}
+// It is a Construct factory rather than a Construct because where the file
+// lives is a STATIC fact about the engine, bound at registration.
+func NativeContextFile(rel string) Construct {
+	return func(SurfaceInputs, afero.Fs) Approach {
+		return &nativeContextFile{rel: rel}
 	}
 }
 
 type nativeContextFile struct {
-	name string
-	rel  string
-	fs   afero.Fs
+	rel string
 }
-
-// UnsafeInfo names this surface for the shared-cwd fallback's warning.
-func (c *nativeContextFile) UnsafeInfo() string { return c.name }
 
 // Present declares the native file beneath the advised project root. No flag:
 // an engine started in this dir finds it by name.
@@ -46,9 +40,9 @@ func (c *nativeContextFile) Present(start present.Start) present.Presentation {
 
 // HookCarriedContext is context that reaches the engine at RUN TIME through a
 // SessionStart inject-context hook reading a content-addressed cache file.
-// It writes NOTHING of its own: the hook rides the surface whose writer emits
-// hook registrations (Rides), and the launch installs the cache file and the hook entry once it
-// sees this approach resolved for the context surface — on EVERY cell, so a
+// It writes NOTHING of its own: the hook rides the settings surface, whose
+// writer emits hook registrations, and the launch installs the cache file and
+// the hook entry once it sees this approach resolved for the context surface — on EVERY cell, so a
 // worktree or container launch pinned to it gets its context exactly as a
 // shared one does. At rest (apply) the hook is assembled into the settings
 // payload by the caller, so this delivery is the documented no-op there too.
@@ -65,13 +59,6 @@ type hookCarriedContext struct {
 	fragments []*Fragment
 }
 
-// Rides reports the surface the injection hook is written into. Hooks are a
-// Kind of their own (SurfaceHooks), but no shipped engine declares a separate
-// approach for it: every one delivers its hook registrations inside the
-// settings file, so the settings writer is the hooks writer and the rider
-// rides Settings. This is the one place that names that route.
-func (hookCarriedContext) Rides() SurfaceKind { return SurfaceSettings }
-
 // Present names the content-addressed cache file the hook reads; a run with
 // no context names nothing.
 func (h hookCarriedContext) Present(start present.Start) present.Presentation {
@@ -87,5 +74,4 @@ func (h hookCarriedContext) Present(start present.Start) present.Presentation {
 var (
 	_ Approach = (*nativeContextFile)(nil)
 	_ Approach = hookCarriedContext{}
-	_ Rider    = hookCarriedContext{}
 )

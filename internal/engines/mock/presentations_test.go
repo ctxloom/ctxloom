@@ -97,7 +97,7 @@ func mockPresent(t *testing.T, kind agent.SurfaceKind, start present.Start) pres
 
 func mockPresentNamed(t *testing.T, kind agent.SurfaceKind, name string, start present.Start) present.Presentation {
 	t.Helper()
-	a, ok := New().(Mock).Declaration().Construct(kind, name, agent.SurfaceInputs{}, nil)
+	a, ok := New().(Mock).Declaration()[kind].Construct(name, agent.SurfaceInputs{}, nil)
 	require.True(t, ok)
 	return a.Present(start)
 }
@@ -147,7 +147,7 @@ func TestMockSessionForm_KeepsTheSessionHomesEngineSide(t *testing.T) {
 func TestMockDeclaration_UnsupportedApproach_IsRefused(t *testing.T) {
 	decl := New().(Mock).Declaration()
 
-	_, ok := decl.Construct(agent.SurfaceContext, agent.ApproachHook, agent.SurfaceInputs{Context: "X"}, nil)
+	_, ok := decl[agent.SurfaceContext].Construct(agent.ApproachHook, agent.SurfaceInputs{Context: "X"}, nil)
 	assert.False(t, ok, "an undeclared approach is refused")
 	assert.NotContains(t, decl.Names(agent.SurfaceContext), agent.ApproachHook)
 }
@@ -165,7 +165,7 @@ func TestMockDeclaration_UnsupportedKind_IsAbsent(t *testing.T) {
 	decl := New().(Mock).Declaration()
 
 	const notASurface = agent.SurfaceKind(9999)
-	a, ok := decl.Construct(notASurface, agent.ApproachUnsafeFile, agent.SurfaceInputs{}, nil)
+	a, ok := decl[notASurface].Construct(agent.ApproachUnsafeFile, agent.SurfaceInputs{}, nil)
 	assert.False(t, ok)
 	assert.Nil(t, a)
 	assert.Nil(t, decl.Names(notASurface))

@@ -55,20 +55,6 @@ type Approach interface {
 // carries no roots: the built Approach receives them at Present/Deliver time.
 type Construct func(in SurfaceInputs, fs afero.Fs) Approach
 
-// LaunchOnly is implemented by an Approach whose bytes reach the engine only
-// through a launch — its out-of-cwd form is announced on argv, and an at-rest
-// delivery (materialize, apply, remove) has no argv sink to hand that flag to.
-// DeliverUnder refuses it, naming the surface; selecting it there is a caller
-// error, not a launch.
-type LaunchOnly interface{ LaunchOnly() }
-
-// Rider is implemented by an Approach that writes no bytes of its own and
-// RIDES another surface's write — hook-carried context rides the surface
-// whose writer emits the hook registrations. Build refuses a selection naming
-// a Rider without its ridden kind: a rider delivered alone would report
-// success having carried nothing.
-type Rider interface{ Rides() SurfaceKind }
-
 // Declaration is an engine's whole static declaration — registration, phase
 // one. Per surface kind, every approach the engine can construct for it and
 // which one it falls back to. It is what --help, completion and config
@@ -98,20 +84,6 @@ func (d Declaration) Default(kind SurfaceKind) (string, bool) {
 		return "", false
 	}
 	return p.Default(), true
-}
-
-// Construct builds the named approach for kind from a run's content. false
-// means the engine declares no such (kind, name): the caller decides the
-// failure — Build errors, a config loader raises its finding. There is
-// deliberately no fallback here: a name that resolved to the default behind
-// the caller's back would deliver a different presentation than the one
-// asked for, and that is the silent substitution this file exists to refuse.
-func (d Declaration) Construct(kind SurfaceKind, name string, in SurfaceInputs, fs afero.Fs) (Approach, bool) {
-	p, ok := d[kind]
-	if !ok {
-		return nil, false
-	}
-	return p.Construct(name, in, fs)
 }
 
 // Retired reports the approach that replaces a retired name for kind; false

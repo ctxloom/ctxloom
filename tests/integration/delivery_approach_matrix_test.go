@@ -35,12 +35,11 @@ import (
 // until it is given an expected destination here.
 //
 // Why payload and not exit code: this codebase's characteristic bug is exit 0 +
-// a success line + zero bytes (see the agent.ErrNoArgvSinkAtRest refusal,
-// which exists because silent no-ops shipped). Every assertion below names a SENTINEL string, the
+// a success line + zero bytes. Every assertion below names a SENTINEL string, the
 // FILE it must reach, and — for the hook approach — the emitted hook JSON.
 
-// matrixKinds is every surface kind the agent.SurfaceSelection builder can ask a
-// backend about (agent's surfaceOrder), in delivery order.
+// matrixKinds is every surface kind a backend can be asked about (agent's
+// surfaceOrder), in delivery order.
 var matrixKinds = []agent.SurfaceKind{
 	agent.SurfaceContext,
 	agent.SurfaceMCP,
@@ -397,12 +396,18 @@ func TestDeliveryApproach_DefaultIsDeclared(t *testing.T) {
 	}
 }
 
+// deliverer is a form that writes its own bytes, as opposed to one that only
+// presents (its write being the typed approach's claims).
+type deliverer interface {
+	Deliver(present.Start) (agent.Delivered, error)
+}
+
 // TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload is the core matrix
 // test: for every declared (backend, kind, approach) it resolves the concrete
 // agent.Approach via the Declaration, delivers it into a fresh root, and
 // asserts the pair's SENTINEL landed in the file that approach promises.
 //
-// It deliberately does NOT assert on a returned error alone: agent.Delivery
+// It deliberately does NOT assert on a returned error alone: a form's Deliver
 // returns a nil error for a delivery that wrote nothing (that is the shared
 // "nothing to write" convention), so an error-only assertion cannot tell
 // delivered from silently-skipped.
@@ -424,9 +429,9 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 					root := "/cell"
 					require.NoError(t, fs.MkdirAll(root, 0o755))
 
-					form, ok := decl.Construct(k, a, matrixSentinelInputs(), fs)
+					form, ok := decl[k].Construct(a, matrixSentinelInputs(), fs)
 					require.True(t, ok, "%s: declared but Construct refused it", key)
-					d, delivers := form.(agent.Delivery)
+					d, delivers := form.(deliverer)
 					if !delivers {
 						t.Skipf("%s only presents: its bytes are the typed approach's claims through the static writer (delivery_approach_bearer_test, fsstatic)", key)
 					}
@@ -454,8 +459,6 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 					}
 					if spec.underScratch {
 						const scratch = "/session-scratch"
-						_, unrooted := d.Deliver(present.ProjectOnHost(root))
-						require.ErrorIs(t, unrooted, agent.ErrUnrootedDelivery, "%s: a session form must refuse a Start that advises no session home", key)
 						start = present.New(present.OnHost(present.Paths{
 							ProjectRoot: present.Root{Host: root},
 							SessionHome: present.Root{Host: scratch},
@@ -514,8 +517,8 @@ func assertSentinelAt(t *testing.T, key string, tree map[string]string, want, se
 //
 // The one deliberate exception is a kind a backend FOLDS or omits entirely
 // (a backend whose MCP rides its config surface): SurfaceFor
-// still refuses it loudly, but agent.SurfaceSelection.Build treats selecting it
-// as a permitted no-op. That asymmetry is documented, so it is pinned here
+// still refuses it loudly, but the agent.Declaration treats selecting it as a
+// permitted no-op. That asymmetry is documented, so it is pinned here
 // rather than left to chance.
 func TestDeliveryApproach_UndeclaredPairsAreRefusedLoudly(t *testing.T) {
 	for _, name := range matrixBackends(t) {
@@ -532,7 +535,7 @@ func TestDeliveryApproach_UndeclaredPairsAreRefusedLoudly(t *testing.T) {
 					continue
 				}
 				t.Run("refuse/"+pairKey(name, k, a), func(t *testing.T) {
-					d, ok := decl.Construct(k, a, matrixSentinelInputs(), afero.NewMemMapFs())
+					d, ok := decl[k].Construct(a, matrixSentinelInputs(), afero.NewMemMapFs())
 					assert.False(t, ok, "%s: undeclared pair constructed a surface instead of being refused", pairKey(name, k, a))
 					assert.Nil(t, d, "a refused pair must not also hand back an Approach")
 				})
@@ -559,10 +562,10 @@ func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(root, 0o755))
 	require.NoError(t, fs.MkdirAll(private, 0o755))
 
-	a, ok := claudeDeclaration(t).Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+	a, ok := claudeDeclaration(t)[agent.SurfaceContext].Construct(claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
 	require.True(t, ok)
 
-	handle, err := a.(agent.Delivery).Deliver(present.New(present.OnHost(present.Paths{
+	handle, err := a.(deliverer).Deliver(present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: root},
 		SessionHome: present.Root{Host: private},
 	})))
@@ -594,10 +597,10 @@ func TestDeliveryApproach_SystemPromptRefusesAnUnrootedRun(t *testing.T) {
 	root := "/cell"
 	require.NoError(t, fs.MkdirAll(root, 0o755))
 
-	a, ok := claudeDeclaration(t).Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+	a, ok := claudeDeclaration(t)[agent.SurfaceContext].Construct(claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
 	require.True(t, ok)
 
-	_, err := a.(agent.Delivery).Deliver(present.ProjectOnHost(root))
+	_, err := a.(deliverer).Deliver(present.ProjectOnHost(root))
 	require.Error(t, err, "an unrooted run must be refused, never served the project file")
 	assert.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
 	assert.Empty(t, matrixTree(t, fs, root), "a refused delivery must write zero files")

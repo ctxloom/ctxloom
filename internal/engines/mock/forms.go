@@ -40,7 +40,7 @@ var mockRel = map[agent.SurfaceKind]string{
 // newMockContext is mock's context approach: the SHARED native-file
 // implementation (agent.NativeContextFile) bound to MOCK_CONTEXT.md, differing
 // from claude's CLAUDE.md only in the filename.
-var newMockContext = agent.NativeContextFile("mock/context", ContextFileName)
+var newMockContext = agent.NativeContextFile(ContextFileName)
 
 // mockSkillsPath returns the mock skills directory's path under dir, via the
 // declared skills presenter.
@@ -56,7 +56,7 @@ func mockSkillsPath(dir string) string {
 // on each file, the manifest-scoped reversal — lives in that shared body, not
 // here; this function contributes a directory and a manifest name.
 func newMockSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-	return agent.NewManagedSkillPackagesDelivery("mock/skills", skillsRel, in.Skills, func(dir string, skills []agent.SkillExport) error {
+	return agent.NewManagedSkillPackagesDelivery(skillsRel, in.Skills, func(dir string, skills []agent.SkillExport) error {
 		return agent.WriteManagedSkillPackages(agent.GetFS(fs), mockSkillsPath(dir), skills, agent.WithWriteReporter(in.Reporter))
 	})
 }
@@ -75,9 +75,6 @@ func (s *mockMCPSurface) Present(start present.Start) present.Presentation {
 	return start.UnderProjectRoot(mockRel[agent.SurfaceMCP]).Build()
 }
 
-// UnsafeInfo names mock's MCP surface for the DeliverShared fallback warning.
-func (s *mockMCPSurface) UnsafeInfo() string { return "mock/mcp" }
-
 // mockSettingsSurface is mock's settings form's presentation:
 // .mock/settings.json. The write is settingsFile.DeliverSettings's
 // (surfaces.go).
@@ -88,13 +85,10 @@ func (s *mockSettingsSurface) Present(start present.Start) present.Presentation 
 	return start.UnderProjectRoot(mockRel[agent.SurfaceSettings]).Build()
 }
 
-// UnsafeInfo names mock's settings surface for the DeliverShared fallback.
-func (s *mockSettingsSurface) UnsafeInfo() string { return "mock/settings" }
-
 // newMockCommandsSurface builds mock's commands form: the SHARED
 // agent.ManagedCommandsDelivery at the mock's commands directory.
 func newMockCommandsSurface(agent.SurfaceInputs, afero.Fs) agent.Approach {
-	return agent.NewManagedCommandsDelivery("mock/commands", commandsRel)
+	return agent.NewManagedCommandsDelivery(commandsRel)
 }
 
 // MockSessionFile is the mock's session-rooted form of every surface: the

@@ -11,70 +11,23 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// This file is the type-level FOUNDATION of ctxloom's unified surface-delivery
-// seam: the Delivery interface every surface implements, the typed isolation
-// cells that land a well-known write in a private dir, and the name-keyed
-// SurfaceSelection builder that resolves a caller's named per-surface approach
-// against the engine's Declaration and constructs it. Race-safety is handled
-// by the CELL and by the APPROACH, not a parallel type hierarchy: an isolated
-// cell's private dir makes any well-known write race-free by construction, and
-// on a SHARED cwd an approach that presents outside the project root is already
-// safe, while a well-known write gets a loud warning — the caller's
-// ApproachUnsafeFile choice IS that warning's acknowledgment.
-//
-// What a shared cwd never does is SUBSTITUTE. A caller that named an approach
-// gets that approach or an error, never a different one reported as success
-// (see deliverOneShared).
-//
-// (Delivered — the handle owning a delivery's cleanup — is defined in
-// delivery.go and reused here.)
-
-// Delivery writes one surface of a loadout to its well-known path — the
-// engine's native location (CLAUDE.md, .mcp.json, AGENTS.md, .claude/…) —
-// beneath the ADVISED roots it is handed. Every surface implements it. It
-// returns a Delivered handle owning the cleanup that reverses the write.
-//
-// Deliver receives what the pre-advice produced, never a bare directory
-// string: the same present.Start every Presenter composes from, with every
-// root already resolved for THIS run (host, worktree or container). The
-// presenter DECIDES where bytes go; Deliver ACTS. A surface therefore cannot
-// compute a location of its own from a string it was handed, and a run whose
-// roots differ from the last one (a worktree, a relocated home) reaches the
-// writer through the same value that reached its presenter.
-type Delivery interface {
-	// Deliver materializes the surface at its well-known location beneath the
-	// advised roots and returns a handle owning its cleanup.
-	Deliver(start present.Start) (Delivered, error)
-}
-
-// ErrUnrootedDelivery is returned when a delivery is attempted against a Start
-// whose project root was never resolved. A "" root joined into a well-known
-// path yields a BARE RELATIVE path that looks well-formed and lands wherever
-// the process happens to be — the silent failure the open-sets ruling names as
-// the dangerous one — so the seam refuses it loudly at the point the Start
-// enters, before any surface can act on it.
-var ErrUnrootedDelivery = errors.New("delivery: the project root was never resolved")
+// This file holds the cross-backend surface vocabulary (SurfaceKind and its
+// parser), the per-run inputs every approach is built from (SurfaceInputs),
+// and the refusal an approach gives when the root it writes beneath was never
+// resolved for the run.
 
 // ErrUnrootedSessionHome is returned by an approach that writes beneath the
-// SESSION HOME when that root was never resolved for the run. The same
-// bare-relative-path hazard ErrUnrootedDelivery names applies, and one
-// more: the tempting fallback — the engine's REAL home, ~/.claude and the
+// SESSION HOME when that root was never resolved for the run. A "" root
+// joined into a well-known path yields a bare relative path that lands
+// wherever the process happens to be; and the tempting fallback — the engine's REAL home, ~/.claude and the
 // like — is the user's own, shared across every session, and writing it
 // because a private one was not advised is the shared/dangerous default the
 // seam refuses to take on anyone's behalf. The remedy is in the message,
 // because the refusal is the whole interface for the failure.
 var ErrUnrootedSessionHome = errors.New("delivery: the session home was never resolved — this approach writes beneath the session's private home, which a run whose agent binding selects engine_home: host does not have; drop that selection, or select a project-file approach for this surface")
 
-// ErrNoArgvSinkAtRest is returned for a LaunchOnly approach asked to deliver AT
-// REST. Such an approach announces its payload on a launch flag, and at rest
-// there is no argv to carry one — so the delivery would write a file nothing
-// ever points the engine at. Refusing is the declared behaviour, not a failure
-// of the run: callers that legitimately deliver the whole surface set at rest
-// match on this sentinel rather than on the message text.
-var ErrNoArgvSinkAtRest = errors.New("delivery has no argv sink at rest")
-
 // SessionHomeRooted is the entry check for an approach that lands beneath the
-// session home: the counterpart of rooted for that root. It is exported
+// session home. It is exported
 // because the approaches that need it live in the engine packages, and the
 // seam wants them to refuse the same way rather than each inventing its
 // own check.
@@ -136,21 +89,12 @@ func SurfaceKindNames() []string {
 	return names
 }
 
-// KindedDelivery is a Delivery that knows its SurfaceKind, so the SurfaceSelection
-// builder can opt kinds in without a per-backend type switch (it asks each surface
-// its kind). Every concrete backend surface implements it.
-type KindedDelivery interface {
-	Delivery
-	// Kind reports which cross-backend surface category this delivery is.
-	Kind() SurfaceKind
-}
-
 // SurfaceInputs is the shared, per-run superset of everything a backend's
 // surfaces write: the assembled context (as a string, and as the raw fragments
 // for an approach that assembles its own), the merged MCP config
 // + profile/companion bundle servers, the merged hook set + statusline policy, and
 // the command exports. A caller fills it once and hands it to every
-// approach's Construct (Declaration.Construct), which picks the fields IT
+// approach's Construct, which picks the fields IT
 // needs. It is the cross-backend contract that lets a caller build any
 // engine's approaches without importing the concrete engine.
 type SurfaceInputs struct {

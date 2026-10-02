@@ -12,13 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // On Windows owner-only is a DACL, not a mode. A records directory that
 // already exists carrying the ACL it inherited from its parent is made
-// owner-only by opening the store and by Prepare, and an ownership record
+// owner-only by opening the store and by Prepare, and a claims record
 // saved into it inherits the protection.
 func TestRecords_AnExistingDirAndItsRecordsAreOwnerOnly_ADACL(t *testing.T) {
 	fs := afero.NewOsFs()
@@ -33,13 +35,15 @@ func TestRecords_AnExistingDirAndItsRecordsAreOwnerOnly_ADACL(t *testing.T) {
 
 	target := filepath.Join(t.TempDir(), "settings.json")
 	testsupport.WriteFileString(t, fs, target, "{}\n", 0o644)
-	_, err = rec.Apply(context.Background(), fs, target, delivery.ProjectWriter, addKey("project", "p"))
+	b := safefs.NewBatch(fs, func(_ string, fn func() error) error { return fn() })
+	require.NoError(t, rec.In(b).Stage(target, delivery.ProjectWriter, []present.Claim{{Pointer: "/project", Value: "p"}}))
+	_, err = b.Commit()
 	require.NoError(t, err)
 	fileperm.OwnerOnly(t, rec.path(target))
 }
 
-// A directory writeThrough creates for an approach's own state (claude's undo
-// record) is owner-only as an ACL, and the file landed in it inherits that.
+// A directory writeThrough creates for an approach's own state is owner-only
+// as an ACL, and the file landed in it inherits that.
 func TestWriteThrough_CreatesAMissingDirectoryOwnerOnly_ADACL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "records", "x.hew-record.yaml")
 

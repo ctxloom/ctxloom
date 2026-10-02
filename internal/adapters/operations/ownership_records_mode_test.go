@@ -20,12 +20,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir: claude's MCP approach
-// writes its undo record into the home records directory THROUGH fsstatic's
-// copy-on-write overlay, which cannot chmod a directory that already exists
-// underneath it. So a records directory an older binary left 0755 must be
-// tightened on the real filesystem before the approach runs; Deliver prepares
-// the ownership record (delivery.Ownership.Prepare) to do exactly that.
+// TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir: the claims record
+// for claude's .mcp.json holds every value ctxloom put there, so a records
+// directory an older binary left 0755 must be tightened before the record
+// lands in it; Deliver prepares the ownership record
+// (delivery.Ownership.Prepare) to do exactly that.
 func TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir(t *testing.T) {
 	testsupport.Isolate(t)
 	recordsDir, err := paths.HomeRecordsDir()
@@ -41,7 +40,7 @@ func TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir(t *testing.T) {
 	_, _, err = DeliverProject(context.Background(), afero.NewOsFs(), kind, pkg, dir)
 	require.NoError(t, err)
 
-	require.NotEmpty(t, hewRecordsIn(t, recordsDir), "claude's MCP approach must have written its record into the directory under test")
+	require.NotEmpty(t, claimsRecordsIn(t, recordsDir), "the delivery must have written its claims record into the directory under test")
 	require.FileExists(t, filepath.Join(dir, ".mcp.json"))
 	info, err := os.Stat(recordsDir)
 	require.NoError(t, err)
@@ -50,10 +49,9 @@ func TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir(t *testing.T) {
 
 // TestDeliver_PreparesTheRecordDirItself: a delivery path that opened its
 // ownership record while the records directory did not exist yet, so opening
-// tightened nothing, still delivers claude's MCP record over the 0755
-// directory an older binary then left. Deliver prepares the record store
-// itself before any approach writes through the overlay; no caller ordering
-// is involved.
+// tightened nothing, still lands its record over the 0755 directory an older
+// binary then left. Deliver prepares the record store itself before anything
+// is staged; no caller ordering is involved.
 func TestDeliver_PreparesTheRecordDirItself(t *testing.T) {
 	testsupport.Isolate(t)
 	recordsDir, err := paths.HomeRecordsDir()
@@ -81,20 +79,20 @@ func TestDeliver_PreparesTheRecordDirItself(t *testing.T) {
 	_, err = fsstatic.New(fs).Deliver(context.Background(), lo, root, ProjectTarget(dir, records))
 	require.NoError(t, err)
 
-	require.NotEmpty(t, hewRecordsIn(t, recordsDir), "claude's MCP approach must have written its record into the directory under test")
+	require.NotEmpty(t, claimsRecordsIn(t, recordsDir), "the delivery must have written its claims record into the directory under test")
 	require.FileExists(t, filepath.Join(dir, ".mcp.json"))
 	info, err := os.Stat(recordsDir)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 }
 
-func hewRecordsIn(t *testing.T, dir string) []string {
+func claimsRecordsIn(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	var out []string
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".hew-record.yaml") {
+		if strings.HasSuffix(e.Name(), ".claims.yaml") {
 			out = append(out, e.Name())
 		}
 	}

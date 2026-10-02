@@ -79,12 +79,12 @@ func ownedRemovals(binding hew.Binding, format hew.FormatID, target string, doc 
 	}
 	for _, c := range candidates {
 		ptr := c.Pointer
-		node, present := nodeAt(cur.Root(), ptr)
+		node, present := NodeAt(cur.Root(), ptr)
 		if !present {
 			// Already gone: nothing of ctxloom's left to take out here.
 			continue
 		}
-		if !ctxloomWrote(node, c.Recorded) && !ownedBy(node, owner) {
+		if !ctxloomWrote(node, c.Recorded) && !OwnedBy(node, owner) {
 			unowned = append(unowned, ptr)
 			continue
 		}
@@ -127,11 +127,11 @@ func createdPaths(prev Record, target string) []ownedCandidate {
 	return out
 }
 
-// nodeAt walks an RFC 6901 pointer down from root through map members. It
+// NodeAt walks an RFC 6901 pointer down from root through map members. It
 // deliberately handles only the map spine: every path this heals is a named
 // entry ctxloom added to a named container, and a pointer into a sequence
 // cannot be shown to be ctxloom's by name.
-func nodeAt(root hew.Node, pointer string) (hew.Node, bool) {
+func NodeAt(root hew.Node, pointer string) (hew.Node, bool) {
 	if root == nil {
 		return nil, false
 	}
@@ -158,7 +158,7 @@ func unescapePointer(seg string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(seg, "~1", "/"), "~0", "~")
 }
 
-// ownedBy reports whether node is an entry the writer whose executable basename
+// OwnedBy reports whether node is an entry the writer whose executable basename
 // is owner wrote: an object whose `command` invokes that binary, or the command
 // string itself.
 //
@@ -166,7 +166,7 @@ func unescapePointer(seg string) string {
 // name. A name proves nothing — a user may keep a "ctxloom" key pointing at
 // their own wrapper, and taking that out would be the clobber this whole
 // package exists to prevent.
-func ownedBy(node hew.Node, owner string) bool {
+func OwnedBy(node hew.Node, owner string) bool {
 	switch node.Kind() {
 	case hew.KindScalar:
 		return exectoken.IsManaged(scalarString(node), owner)

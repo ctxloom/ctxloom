@@ -116,6 +116,11 @@ type Package struct {
 	Links      []LinkGroup
 	DenyTools  []string
 	Statusline bool
+	// CarryForward names the sources whose content is UNKNOWN this time — a
+	// companion whose loadout probe failed — by the provenance stamp their
+	// items carry (bundles.BundleSCM). A delivery carries forward what such a
+	// source delivered before rather than taking it out for being absent now.
+	CarryForward []string `json:",omitempty"`
 	// Selection is the selection this package was assembled from, for the
 	// consumers that report it (the profile set, the engine the profiles
 	// prefer).
@@ -305,4 +310,7 @@ type Options struct {
 	MCP        map[string]wire.MCPServer
 	DenyTools  []string
 	Statusline bool
+	// CarryForward is the caller's account of the sources whose content is
+	// unknown this time (Package.CarryForward); Assemble carries it.
+	CarryForward []string
 }

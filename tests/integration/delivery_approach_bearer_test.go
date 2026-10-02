@@ -30,9 +30,7 @@ import (
 // Session A delivers, is swept the way a departed session is
 // (Static.Reverse), and session B delivers into the same file. At every step
 // the file holds the relay bearer by reference only, and the user's server
-// survives; B's delivery is not refused by anything A's left behind (claude
-// keeps its own confpatch record of the same file beside the ownership
-// record).
+// survives; B's delivery is not refused by anything A's left behind.
 func TestDeliveryApproach_ClaudeProjectMCPNeverHoldsTheBearerAcrossSessions(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
@@ -88,8 +86,7 @@ func TestDeliveryApproach_ClaudeProjectMCPNeverHoldsTheBearerAcrossSessions(t *t
 // by BOTH of claude's writers of that file: the at-rest hooks install
 // (operations.DeliverProject, the project writer — what applyHooksToBackend
 // runs) and a run's unsafe-file delivery (a session writer), over the one
-// production record store. Both reach the file through claude's own
-// confpatch writer too, so each step is where one writer's reversal could
+// production record store, so each step is where one writer's release could
 // take out the other's entry.
 type sharedMCPFile struct {
 	t       *testing.T
@@ -187,4 +184,21 @@ func TestDeliveryApproach_AtRestThenARunShareTheProjectMCPFile(t *testing.T) {
 	s.expect("4 at rest again", bearer, true, false)
 	require.NoError(t, operations.RemoveProject(context.Background(), s.fs, s.kind, s.project))
 	s.expect("5 uninstalled", bearer, false, false)
+}
+
+// TestDeliveryApproach_AnAtRestApplyMidRunKeepsTheRunsEntry: the run
+// delivers first, the hooks install applies while it runs, then the run
+// tears down. The install must not take out the LIVE run's relay entry, and
+// the run's teardown must not take out the install's.
+func TestDeliveryApproach_AnAtRestApplyMidRunKeepsTheRunsEntry(t *testing.T) {
+	s := newSharedMCPFile(t)
+	const bearer = "bearer-of-the-run"
+	teardown := s.run("run-a", bearer)
+	s.expect("1 the run delivered", bearer, true, true)
+	s.atRest()
+	s.expect("2 at rest mid-run", bearer, true, true)
+	teardown()
+	s.expect("3 the run tore down", bearer, true, false)
+	require.NoError(t, operations.RemoveProject(context.Background(), s.fs, s.kind, s.project))
+	s.expect("4 uninstalled", bearer, false, false)
 }

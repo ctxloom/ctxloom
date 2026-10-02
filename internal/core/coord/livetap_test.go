@@ -188,7 +188,9 @@ func (noDelivery) Deliver(context.Context, delivery.Loadout, engine.Base, delive
 	return delivery.Delivered{}, nil
 }
 
-func (noDelivery) Reverse(context.Context, delivery.Ownership, delivery.Writer) error { return nil }
+func (noDelivery) Reverse(context.Context, delivery.Ownership, ...delivery.Writer) error {
+	return nil
+}
 
 // ResolveLaunch resolves the worker's launch: it composes no context (the
 // tap renders the turn's own words).

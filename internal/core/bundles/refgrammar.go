@@ -70,6 +70,7 @@ func (e Exclusions) Excludes(name string) bool {
 // carries (wire.MCPServer.SCM, wire.Hook.SCM): the identity of the bundle
 // that shipped it. The resolver stamps it and the link grant reads it back,
 // so "granted from THIS bundle" is one spelling.
-func BundleSCM(src trust.BundleRef) string {
-	return "bundle:" + string(src.BundleIdentity())
-}
+func BundleSCM(src trust.BundleRef) string { return SCMOf(src.BundleIdentity()) }
+
+// SCMOf is the provenance stamp of the bundle whose identity is key.
+func SCMOf(key trust.BundleKey) string { return "bundle:" + string(key) }

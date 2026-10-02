@@ -2,8 +2,8 @@ package claude
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -29,27 +29,15 @@ func TestHooks_ADeliveredPreToolHook_RoundTripsThroughTheCodec(t *testing.T) {
 	start, project, _ := hostStart(t)
 	const marker = "cat > /tmp/marker"
 	hooks := wire.UnifiedHooks{PreTool: []wire.Hook{{Type: "command", Command: marker}}}
-	_, err = def.Hooks.DeliverHooks(start, present.RootProjectRoot, engine.HooksInputs{Hooks: hooks}, nil)
+	d, err := def.Hooks.DeliverHooks(start, present.RootProjectRoot, engine.HooksInputs{Hooks: hooks}, nil)
 	require.NoError(t, err)
 
-	body, err := os.ReadFile(filepath.Join(project, ".claude", "settings.json"))
-	require.NoError(t, err)
-	var settings struct {
-		Hooks map[string][]struct {
-			Hooks []struct {
-				Command string `json:"command"`
-			} `json:"hooks"`
-		} `json:"hooks"`
-	}
-	require.NoError(t, json.Unmarshal(body, &settings))
+	// The registration is the claim on the hook's entry in settings.json:
+	// /hooks/<native event>/matcher=<m>/hooks/-.
 	var nativeEvent string
-	for event, matchers := range settings.Hooks {
-		for _, m := range matchers {
-			for _, h := range m.Hooks {
-				if h.Command == marker {
-					nativeEvent = event
-				}
-			}
+	for _, c := range d.Claims[filepath.Join(project, ".claude", "settings.json")] {
+		if v, ok := c.Value.(map[string]any); ok && v["command"] == marker {
+			nativeEvent = present.UnescapeSegment(strings.Split(c.Pointer, "/")[2])
 		}
 	}
 	require.Equal(t, hookEventPreToolUse, nativeEvent, "the delivered pre_tool hook is registered under the event claude fires before a tool")

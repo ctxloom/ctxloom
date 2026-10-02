@@ -121,6 +121,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 	// (composite assembly's companionAsks) through the same gate as every
 	// selected fragment.
 	opts.Commands = builtinCommands()
+	opts.CarryForward = carriedSources(cat.Candidates())
 
 	pkg, err := composite.Assemble(ctx, cat, sel, tr, opts)
 	if err != nil {
@@ -133,6 +134,20 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 	warnWithheld(gate)
 	warnGuttedProfiles(sel.Declared, pkg.Loaded, gate)
 	return pkg, nil
+}
+
+// carriedSources names, by the stamp their items carry, the companions whose
+// loadout probe FAILED: their content is unknown this time, so a delivery
+// keeps what they delivered before. A companion that answered it has none,
+// and one not consented to or absent contributes nothing to keep.
+func carriedSources(cands []bundles.Candidate) []string {
+	var out []string
+	for _, c := range cands {
+		if c.Reason == bundles.CandidateProbeFailed {
+			out = append(out, bundles.SCMOf(c.Ref))
+		}
+	}
+	return out
 }
 
 // packageProfileNames picks the profiles to assemble from: the explicit set,

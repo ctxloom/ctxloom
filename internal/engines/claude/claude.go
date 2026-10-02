@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -24,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -32,7 +34,7 @@ import (
 
 // NewWriter constructs the Claude Code settings writer.
 func NewWriter(o agent.SettingsOptions) agent.SettingsWriter {
-	return &ClaudeCodeHookWriter{FS: o.FS, Reporter: o.Reporter}
+	return &ClaudeCodeHookWriter{FS: o.FS, Reporter: o.Reporter, projectClaims: o.ProjectClaims}
 }
 
 // ClaudeCodeHookWriter writes hooks to Claude Code's settings.json format.
@@ -43,6 +45,9 @@ type ClaudeCodeHookWriter struct {
 	Reporter report.Sink
 	// statusLineDisabled opts out of managing the ctxloom HUD statusline.
 	statusLineDisabled bool
+	// projectClaims is the ownership record's account of what the project
+	// writer has installed (agent.SettingsOptions.ProjectClaims).
+	projectClaims func(target string) ([]string, error)
 }
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem. It is
@@ -270,36 +275,6 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 			statusNow = []string{agent.ComputeCommandDigest(settings.StatusLine.Command)}
 		}
 		return led.Write(ledger.SurfaceStatusLine, statusNow)
-	})
-}
-
-// addToSettingsFile is the ADDITIVE settings write the typed approaches
-// deliver through: the unified and claude-native hooks are added, the
-// ctxloom statusline set when asked for (a statusline that is not
-// ctxloom's is left alone), the deny list merged; nothing present is
-// removed. No ledger: the ownership record that owns this write is what
-// takes the entries back out.
-func (w *ClaudeCodeHookWriter) addToSettingsFile(path string, hooks *wire.HooksConfig, statusline bool, denyTools []string) error {
-	fs := w.getFS()
-	return sessions.WithFileLock(fs, path, func() error {
-		if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return fmt.Errorf("failed to create %s: %w", filepath.Dir(path), err)
-		}
-		settings, err := w.loadSettings(path)
-		if err != nil {
-			return fmt.Errorf("failed to load existing settings: %w", err)
-		}
-		if hooks != nil {
-			w.addUnifiedHooks(settings, hooks.Unified)
-			if backendHooks, ok := hooks.Ext[EngineName]; ok {
-				w.addBackendHooks(settings, backendHooks)
-			}
-		}
-		if statusline {
-			w.ensureStatusLine(settings, false)
-		}
-		w.mergeDenyTools(settings, denyTools, nil)
-		return w.saveSettings(path, settings)
 	})
 }
 
@@ -980,7 +955,14 @@ func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings, 
 
 // addUnifiedHooks translates unified hooks to Claude Code format and adds them.
 func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, unified wire.UnifiedHooks) {
-	agent.RouteUnifiedHooks(report.To(strictness.Sink("ctxloom")), EngineName, []agent.HookRoute{
+	agent.RouteUnifiedHooks(report.To(strictness.Sink("ctxloom")), EngineName, unifiedHookRoutes(unified), func(event string, h wire.Hook) {
+		w.addHook(settings, event, h)
+	})
+}
+
+// unifiedHookRoutes maps each unified hook kind to claude's native event.
+func unifiedHookRoutes(unified wire.UnifiedHooks) []agent.HookRoute {
+	return []agent.HookRoute{
 		{Hooks: unified.PreTool, Event: "PreToolUse"},
 		{Hooks: unified.PostTool, Event: "PostToolUse"},
 		{Hooks: unified.SessionStart, Event: "SessionStart"},
@@ -993,9 +975,7 @@ func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, uni
 		{Hooks: unified.PreShell, Event: "PreToolUse", DefaultMatcher: "Bash"},
 		{Hooks: unified.PostFileEdit, Event: "PostToolUse", DefaultMatcher: "Edit|Write"},
 		{Hooks: unified.PermissionAsk, Event: hookEventPermissionRequest},
-	}, func(event string, h wire.Hook) {
-		w.addHook(settings, event, h)
-	})
+	}
 }
 
 // addBackendHooks adds backend-specific passthrough hooks.
@@ -1247,24 +1227,40 @@ func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, 
 		return status, err
 	}
 	if mcpExists {
-		// Ask the RECORD what ctxloom put here, not the file. Scanning the
-		// user's file for a marker could not tell an entry ctxloom created
-		// from one a user copied out of ctxloom's, and the marker is gone.
-		//
-		// An uninstall leaves a record whose applied set is EMPTY (the
-		// reversal alone ran), which is what distinguishes "ctxloom installed
-		// servers here" from "ctxloom took its servers back out".
-		store, serr := w.recordStore()
-		if serr != nil {
-			return status, serr
+		mcp, err := w.mcpPresent(mcpPath)
+		if err != nil {
+			return status, err
 		}
-		rec, found, rerr := store.Last(mcpPath)
-		if rerr != nil {
-			return status, rerr
-		}
-		status.MCPPresent = found && len(rec.Targets) > 0 && len(rec.Targets[0].Transforms) > 0
+		status.MCPPresent = mcp
 	}
 	return status, nil
+}
+
+// mcpPresent asks the RECORD what ctxloom put in mcpPath, not the file.
+// Scanning the user's file for a marker could not tell an entry ctxloom
+// created from one a user copied out of ctxloom's, and the marker is gone.
+// The claims record answers for the static writer's deliveries; the
+// confpatch record for WriteSettings, which writes outside it — an applied
+// set that is EMPTY there is an uninstall (the reversal alone ran).
+func (w *ClaudeCodeHookWriter) mcpPresent(mcpPath string) (bool, error) {
+	if w.projectClaims != nil {
+		live, err := w.projectClaims(mcpPath)
+		if err != nil {
+			return false, err
+		}
+		if slices.ContainsFunc(live, func(p string) bool { return strings.HasPrefix(p, present.PointerKey(mcpServersKey)+"/") }) {
+			return true, nil
+		}
+	}
+	store, err := w.recordStore()
+	if err != nil {
+		return false, err
+	}
+	rec, found, err := store.Last(mcpPath)
+	if err != nil {
+		return false, err
+	}
+	return found && len(rec.Targets) > 0 && len(rec.Targets[0].Transforms) > 0, nil
 }
 
 // claudeHasManagedHook reports whether any configured hook is ctxloom-managed.

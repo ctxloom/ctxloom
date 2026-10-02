@@ -1,6 +1,10 @@
 package present
 
-import "github.com/spf13/afero"
+import (
+	"strings"
+
+	"github.com/spf13/afero"
+)
 
 // Kind is a surface category: the CROSS-ENGINE union of every engine's
 // surfaces. The set is closed. It is deliberately NOT a dispatch key — no
@@ -151,8 +155,54 @@ type Approach interface {
 // Delivered is what a typed Deliver reports: where the bytes landed on both
 // sides, what was written, and how to undo it. A nil Undo means nothing was
 // written.
+//
+// Claims are the values the approach puts into files it does not own whole,
+// keyed by each file's host path. The approach writes nothing for them: the
+// static writer stages them under its writer, so a file several writers put
+// values into is written once, and each writer's values leave with it.
 type Delivered struct {
 	Presented Presentation
 	Wrote     []string
 	Undo      func(fs afero.Fs) error
+	Claims    map[string][]Claim
+}
+
+// Claim is one value put at one place in a file. Pointer is an RFC 6901
+// pointer into a file hew reads, Value anything hew encodes; a Pointer ending
+// in "/-" claims an ELEMENT of that array, identified by its value. The empty
+// Pointer claims the whole file and AppendedSection a section after the
+// file's own text; Value is then the bytes. Via names what the claim came
+// through — a companion — so a release can keep it.
+type Claim struct {
+	Pointer string
+	Via     string
+	Value   any
+}
+
+// AppendedSection is the Claim pointer for text appended after a file's own,
+// separated from it by a blank line: a context file a user also writes.
+const AppendedSection = "@section"
+
+// A Claim pointer's segments are RFC 6901 keys, plus one form of hew's: a
+// SELECTOR field=value names the first element of an array whose field holds
+// value, an element without the field being selected by the empty value. A
+// missing selected element is created holding the field. "~2" escapes a "="
+// that is part of a key or value, as hew's own paths do.
+
+// PointerKey is s as one key segment of a Claim pointer, "/" included.
+func PointerKey(s string) string { return "/" + EscapeSegment(s) }
+
+// PointerSelect is a selector segment of a Claim pointer, "/" included.
+func PointerSelect(field, value string) string {
+	return "/" + EscapeSegment(field) + "=" + EscapeSegment(value)
+}
+
+// EscapeSegment escapes s for one segment of a Claim pointer.
+func EscapeSegment(s string) string {
+	return strings.NewReplacer("~", "~0", "/", "~1", "=", "~2").Replace(s)
+}
+
+// UnescapeSegment reverses EscapeSegment.
+func UnescapeSegment(s string) string {
+	return strings.NewReplacer("~1", "/", "~2", "=", "~0", "~").Replace(s)
 }

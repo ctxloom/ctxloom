@@ -20,8 +20,8 @@ flowchart TB
     ROUTE["delivery.Route(items, engine root, pref, cell roots) → Plan{Static routes, Dynamic refs, Losses} | ErrUncarried | Unrootable"]:::decide
     LO["delivery.Loadout — launch.Launch.Loadout(pkg): the ONE builder the runner and the local launcher share; delivery.InputsFor(lo) projects it into every kind's typed inputs once"]:::consume
     TGT["delivery.Target{Root (absolute), Ownership, Writer} — Validate refuses the zero value and a relative root; launch.Launch.Target(records) for a session, operations.ProjectTarget for a materialize"]:::decide
-    STATIC["fsstatic.Static.Deliver(lo, surfaces, target): PREPARE the record (Ownership.Prepare: owner-only before anything writes through it) → reconcile the writer to EMPTY from the record → per static item: the engine's typed Deliver over an OVERLAY of the target fs → every written file recorded under the writer (Ownership.Apply)"]:::consume
-    REC[("fsstatic.Records — ONE record per target file, writer-tagged, home-rooted: a hew reversal for JSON/YAML/TOML (the user's own entries survive), the pre-image for opaque files; a created file leaves with its last writer; drift is refused")]:::store
+    STATIC["fsstatic.Static.Deliver(lo, surfaces, target): PREPARE the record (Ownership.Prepare: owner-only before anything writes through it) → ONE safefs.Batch: release the writer's claims under the target's roots → per static item: the engine's typed Deliver stages its claims (a place in a file, a section, an array element) and every file it writes over an OVERLAY of the target fs is staged as a claim on the whole file → Commit writes each changed file once"]:::consume
+    REC[("fsstatic.Records — ONE claims record per target file, home-rooted: per place, the writers that put a value there (a session's value over the project's; the latest among sessions); a place leaves the file with its last writer; a user's value is never claimed, and ctxloom's own drifted value is refused")]:::store
     DYN["Dynamic.Serve(lo, ServePolicy) — the runner's MCP package BINDS Launch.MCP"]:::consume
     EMPTY["the EMPTY plan = uninstall for that writer: only what the record names under the target's roots is removed (manage uninstall / hooks uninstall → operations.RemoveProject)"]:::consume
 
@@ -81,13 +81,10 @@ ctxloom never mints or stores one. See
 | `manage uninstall` / `manage hooks uninstall` | the project root | `delivery.ProjectWriter` | `operations.RemoveHooks` → `operations.RemoveProject` (the empty plan) |
 
 The record store is owner-only before any delivery writes through it, and
-that is a security invariant: records and the approaches' undo records
-beside them keep the values they reverse verbatim. `Static.Deliver` calls
-`delivery.Ownership.Prepare` first, on the real filesystem, because the
-copy-on-write overlay the approaches write through cannot change the
-protection of a directory that already exists beneath it, so
-`confpatch.EnsureRecordDir` only creates through it; Prepare is the one
-place the protection is applied. `fsstatic.Records.Prepare` makes the
+that is a security invariant: a claims record keeps every value ctxloom put
+into the file it describes. `Static.Deliver` calls
+`delivery.Ownership.Prepare` first, on the real filesystem, before anything
+is staged; Prepare is the one place the protection is applied. `fsstatic.Records.Prepare` makes the
 store's directory owner-only with `confpatch.EnsureRecordDir` on the real
 filesystem, which goes through the per-OS `owneronly` seam (a mode on unix,
 an owner-only DACL on Windows). It does not depend on
@@ -96,10 +93,11 @@ when, or whether, a caller opened the store
 `TestStatic_PreparesTheRecordOnceBeforeAnyWrite`).
 
 Two writers meet on one project-root file (a session whose binding selected
-the shared root, and a materialize): each keeps its own entries in the one
-record and each reconcile-to-empty leaves the other's in place —
-`TestStatic_TwoWritersOneTarget_ReconcileRemovesOnlyOwnEntries` and
-`TestRecords_TwoWritersOneStructuredFile_EachRemovesOnlyItsOwnEntries`.
+the shared root, and a materialize): each keeps its own claims in the one
+record and each release leaves what the other still claims —
+`TestStatic_TwoWritersOneTarget_ReconcileRemovesOnlyOwnEntries`,
+`TestClaimsASharedEntrySurvivesEitherWritersRelease` and
+`TestClaimsAnAtRestApplyMidRunKeepsTheRunsEntry`.
 
 ## The at-rest plan
 
@@ -130,11 +128,9 @@ without a launch.
 
 The ledger sidecar (`.ctxloom-managed` beside every managed directory) and
 the marker section inside a context file were two in-place ownership
-mechanisms. Under the record, a context file is APPENDED after the user's
-bytes (`safefs.AppendSection`) and the record keeps the pre-image; a
-structured file keeps a hew reversal. An old sidecar is not read: the
-legacy writers that still consult one (the host plugin arm's `Setup`, until
-slice 13 moves that arm onto the runner) keep writing it, and the new
-static writer records whatever an approach wrote — a sidecar an approach
-still writes is owned by the record like any other file and leaves with the
-empty plan.
+mechanisms. Under the record, a context file's section is claimed after the
+user's text (`present.AppendedSection`) and a structured file's entries are
+claimed place by place. An old sidecar is not read: the writers that still
+consult one keep writing it, and the static writer claims whatever an
+approach wrote whole — a sidecar an approach still writes is claimed like
+any other file and leaves with the empty plan.

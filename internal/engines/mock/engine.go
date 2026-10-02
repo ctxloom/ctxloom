@@ -25,7 +25,10 @@ import (
 // kind under another name with one declared difference each: Lossy carries
 // every surface and drops two hook kinds at export time; Launch keeps only
 // its context surface (the rest arrive per session, inside an engine home);
-// NoSkills carries a skills surface and exports nothing to it.
+// NoSkills carries a skills surface and exports nothing to it. Only the
+// primary renders the session endpoint into its MCP config (WithDynamic), as
+// claude does; the doubles stay static-only so each keeps the arm it exists
+// to exercise.
 const (
 	Name         engine.Name = "mock"
 	NameLossy    engine.Name = "mock-lossy"
@@ -158,7 +161,7 @@ func WithDistribution(d engine.Distribution) Option {
 }
 
 // WithDynamic provides a dynamic approach: the session endpoint rendered
-// into the mock's MCP config (Doubles carries it).
+// into the mock's MCP config (the primary double carries it).
 func WithDynamic() Option {
 	return func(m *Mock) { m.Dynamic = &endpointEntry{name: "session-endpoint"} }
 }
@@ -205,16 +208,11 @@ func NewNamed(name engine.Name, opts ...Option) engine.Engine {
 // runs on, and the readers the root hands every one of them.
 func Doubles(opts ...Option) []engine.Engine {
 	shipped := append([]Option{WithContainer()}, opts...)
-	// Every double that carries an MCP surface renders the session endpoint
-	// into it, as claude does: the endpoint is minted per launch and
-	// persisted nowhere, so the delivered config is the only place a test
-	// can read the current launch's endpoint from.
-	rendered := append(slices.Clone(shipped), WithDynamic())
 	return []engine.Engine{
-		New(rendered...),
-		NewNamed(NameLossy, append(slices.Clone(rendered), WithoutHookEvents("session_start", "session_end"))...),
-		NewNamed(NameLaunch, append(shipped, Without(present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills))...),
-		NewNoSkills(rendered...),
+		New(append(slices.Clone(shipped), WithDynamic())...),
+		NewNamed(NameLossy, append(slices.Clone(shipped), WithoutHookEvents("session_start", "session_end"))...),
+		NewNamed(NameLaunch, append(slices.Clone(shipped), Without(present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills))...),
+		NewNoSkills(shipped...),
 	}
 }
 

@@ -147,9 +147,6 @@ func (m *MockLM) WriteConfig() error {
 	return os.WriteFile(configPath, buf.Bytes(), 0644)
 }
 
-// quotedYAMLString builds a double-quoted string scalar node, letting the
-// yaml library own the escaping rather than hand-rolling it (the old
-// escapeYAMLString covered only backslash/quote/newline).
 // EnsureHomeMockLabel merges an `llm.configs.<label>: {type: mock}` entry into
 // the isolated HOME's config.yaml (the machine layer), leaving everything
 // else in that file as it was. It exists for a fixture that must launch a
@@ -200,6 +197,8 @@ func (e *TestEnvironment) mergeHomeConfig(edit func(root *yaml.Node)) error {
 	return os.WriteFile(configPath, buf.Bytes(), 0o644)
 }
 
+// quotedYAMLString builds a double-quoted string scalar node, letting the
+// yaml library own the escaping rather than hand-rolling it.
 func quotedYAMLString(v string) *yaml.Node {
 	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v, Style: yaml.DoubleQuotedStyle}
 }

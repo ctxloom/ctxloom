@@ -40,6 +40,9 @@ import (
 //     (see containerConfigOverlay; directories only — single-file overlays would
 //     break the writers' atomic write+rename). The engine declares its own;
 //     ctxloom's framed-context cache dir rides along for every engine.
+//   - inPlaceFiles: the engine's project-relative files written in place
+//     through the project bind; their host lock files are the only host locks
+//     a container reaches (Container.lockMounts).
 //   - transcriptStoreRel: the engine's native transcript/session STORE ROOT,
 //     relative to the container HOME — the bind target sessionStateMounts maps
 //     the harp's persist/transcripts dir onto so in-container transcripts
@@ -63,6 +66,7 @@ type engineContainerSpec struct {
 	validate           string
 	declared           bool
 	overlayDirs        []string
+	inPlaceFiles       []string
 	transcriptStoreRel string
 }
 
@@ -138,6 +142,7 @@ func specFromDeclaration(c engine.ContainerSpec) engineContainerSpec {
 		engineInstall:      c.Install,
 		validate:           c.ValidateCommand,
 		overlayDirs:        append(append([]string{}, c.OverlayDirs...), ctxloomCacheOverlayDir),
+		inPlaceFiles:       c.InPlaceFiles,
 		transcriptStoreRel: c.TranscriptStoreRel,
 		declared:           true,
 	}

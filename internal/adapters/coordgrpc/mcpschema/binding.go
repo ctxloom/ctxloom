@@ -21,7 +21,6 @@ import "time"
 const (
 	ToolAgentRun           = "agent_run"
 	ToolAgentSend          = "agent_send"
-	ToolAgentRecv          = "agent_recv"
 	ToolAgentStop          = "agent_stop"
 	ToolAgentReport        = "agent_report"
 	ToolRoster             = "roster"
@@ -39,7 +38,7 @@ const (
 // NOT receive (the trust-boundary gate, internal/adapters/mcp/mcp_runner.go's
 // registration loop): every tool here spawns, observes, controls or stops
 // OTHER children — capabilities that make sense only for a coordinator. A
-// leaf keeps agent_send/agent_recv/agent_report (parent reporting), and
+// leaf keeps agent_send/agent_report (parent reporting), and
 // agent_fetch_artifact: a message body past the coordinator's inline cap
 // reaches it as a head plus a marker naming an artifact filed under its OWN
 // harp, which it could not otherwise open. The coordinator's
@@ -67,8 +66,7 @@ func CoordinatorOnlyTools() map[string]bool {
 // Binding maps one coordination tool onto its proto messages. Input/Output
 // name agentcoord.v1 messages; an empty name means the shape is SYNTHETIC —
 // declared by the corresponding builder below because no wire frame exists
-// for it (agent_recv parks against the runner's local notice buffer; no
-// polling frame exists or is added).
+// for it.
 type Binding struct {
 	Tool   string
 	Input  string // proto full name, e.g. "agentcoord.v1.SpawnAgentRequest"
@@ -81,7 +79,7 @@ type Binding struct {
 
 	// SyntheticInput / SyntheticOutput build the schema for a side with no
 	// bound message. They receive the Projector so they can embed generated
-	// message projections (agent_recv's output embeds PeerMessage).
+	// message projections.
 	SyntheticInput  func(p *Projector) (map[string]any, error)
 	SyntheticOutput func(p *Projector) (map[string]any, error)
 
@@ -110,41 +108,6 @@ func CoordinationBindings() []Binding {
 			Tool:   ToolAgentSend,
 			Input:  "agentcoord.v1.PeerSendRequest",
 			Output: "agentcoord.v1.PeerSendResult",
-		},
-		{
-			Tool:        ToolAgentRecv,
-			Description: "Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. One receive is live per session: a newer call supersedes an older parked one, and the superseded call completes SUCCESSFULLY with no messages and a `disposition` saying it yielded — nothing was lost, do not retry it. On timeout the verdict follows the caller's role: a coordinator gets a SUCCESSFUL empty result whose `disposition` says nothing arrived and to receive again if children are still running; a leaf gets an error telling it to finish.",
-			SyntheticInput: func(*Projector) (map[string]any, error) {
-				return map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"wait": map[string]any{
-							"type":        "integer",
-							"description": RecvWaitDoc,
-						},
-					},
-					"additionalProperties": false,
-				}, nil
-			},
-			SyntheticOutput: func(p *Projector) (map[string]any, error) {
-				msg, err := p.MessageSchema("agentcoord.v1.PeerMessage")
-				if err != nil {
-					return nil, err
-				}
-				return map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"messages": map[string]any{
-							"type":  "array",
-							"items": msg,
-						},
-						"disposition": map[string]any{
-							"type":        "string",
-							"description": "Set only when this call yielded to a newer receive for the same session: a successful receive that delivered nothing and must not be retried. Absent on a delivering receive.",
-						},
-					},
-				}, nil
-			},
 		},
 		{
 			Tool:   ToolAgentStop,
@@ -245,11 +208,6 @@ const (
 	// the file cell-locally — never a typed AgentRequest/
 	// CoordinatorResponse round-trip.
 	RouteArtifactFetch
-	// RouteApprovalHost is the engine's permission host: served by the
-	// runner against the run's own approval route (runner.ApprovalHost),
-	// never relayed — it holds a request open while the approval hook
-	// carries the human's decision, and it never decides.
-	RouteApprovalHost
 )
 
 // Routes returns the classification of EVERY tool on the ctxloom MCP
@@ -260,7 +218,6 @@ func Routes() map[string]Route {
 		// Coordination — typed frames (binding table above).
 		ToolAgentRun:    RouteCoordination,
 		ToolAgentSend:   RouteCoordination,
-		ToolAgentRecv:   RouteCoordination,
 		ToolAgentStop:   RouteCoordination,
 		ToolAgentReport: RouteCoordination,
 		ToolRoster:      RouteCoordination,
@@ -294,9 +251,6 @@ func Routes() map[string]Route {
 		// session's other persisted state (~/.ctxloom/sessions/<harp>/persist),
 		// which an isolated child cell does not mount.
 		"context_status": RouteHostRelay,
-
-		// The engine's permission host — the run's approval route.
-		"permission_host": RouteApprovalHost,
 	}
 }
 

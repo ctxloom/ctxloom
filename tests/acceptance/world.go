@@ -145,15 +145,50 @@ func (w *World) expiredCommand() error {
 	return w.env.TakeExpired()
 }
 
+// needsHostContainerRuntime reports whether sc drives the host's REAL
+// docker/podman: @container launches real containers, an @live cell may run
+// its engine in one, and a scenario declaring a suite image asks the runtime
+// that image was built in. Every other scenario is the hermetic lane, which
+// must not depend on — or wait on — whatever daemons the machine running it
+// happens to have.
+func needsHostContainerRuntime(sc *godog.Scenario) bool {
+	if scenarioHasTag(sc, "@container") || scenarioHasTag(sc, "@live") {
+		return true
+	}
+	for _, img := range suiteImages {
+		if scenarioHasTag(sc, img.tag) {
+			return true
+		}
+	}
+	return false
+}
+
+// newScenarioEnv is the environment every scenario starts in. hostRuntimes
+// false is the hermetic lane: the host's container runtimes are hidden.
+func newScenarioEnv(hostRuntimes bool) (*testenv.TestEnvironment, error) {
+	env, err := testenv.NewTestEnvironment()
+	if err != nil {
+		return nil, err
+	}
+	if err := env.Setup(); err != nil {
+		_ = env.Cleanup()
+		return nil, err
+	}
+	if !hostRuntimes {
+		if err := env.HideHostContainerRuntimes(); err != nil {
+			_ = env.Cleanup()
+			return nil, err
+		}
+	}
+	return env, nil
+}
+
 // InitializeScenario wires the lifecycle hooks and registers every step. godog
 // calls this once per scenario.
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
-		env, err := testenv.NewTestEnvironment()
+		env, err := newScenarioEnv(needsHostContainerRuntime(sc))
 		if err != nil {
-			return ctx, err
-		}
-		if err := env.Setup(); err != nil {
 			return ctx, err
 		}
 		w := &World{scenario: sc, env: env}

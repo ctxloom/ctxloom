@@ -1,0 +1,1 @@
+`next: Read the task log to identify the merged work, then verify the acceptance run gate and work through the closeout checklist`

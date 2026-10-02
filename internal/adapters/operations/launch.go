@@ -191,7 +191,7 @@ type assembler struct {
 }
 
 func (a *assembler) Assemble(ctx context.Context, snap *config.Snapshot, sel launch.Selection) (composite.Package, error) {
-	req := PackageRequest{Profiles: sel.Profiles, Fragments: sel.Fragments, Tags: sel.Tags, WorkDir: sel.WorkDir, Pipeline: a.pipe}
+	req := PackageRequest{Profiles: sel.Profiles, Fragments: sel.Fragments, Tags: sel.Tags, WorkDir: sel.WorkDir, Mode: sel.Mode, Pipeline: a.pipe}
 	pkg, err := AssemblePackage(ctx, snap.Config, req)
 	if err != nil {
 		return composite.Package{}, fmt.Errorf("assemble context: %w", err)

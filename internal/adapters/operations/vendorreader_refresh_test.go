@@ -64,8 +64,8 @@ func claudeEntry(harp, vendorPath string) sessions.Entry {
 // verb exists to avoid, and the reason it could not simply be
 // ConvertVendorTranscript with its guard removed.
 //
-// A Recorder APPENDS, and no VendorAdapter can resume from an offset — it
-// re-reads its source from the beginning every time. So a re-conversion that
+// A Recorder APPENDS, and a conversion from the beginning records the whole
+// source again. So a re-conversion that
 // wrote to the canonical file directly would leave TWO full copies of the
 // transcript concatenated, which reads back as a session where every turn
 // happened twice. Nothing downstream would report an error; the distillation

@@ -12,11 +12,9 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
   refused from a sender, and there is nowhere left to write a kind that means
   something the vocabulary does not.
 
-  This is a DELIBERATE BREAK to what `agent_recv` returns, taken before 1.0
-  rather than carried forever: `kind` moved out of `structured` and onto the
-  message. These scenarios are what makes that break visible — a silent
-  reversion to the free-string convention, or an accidental widening of the
-  vocabulary, comes back red here.
+  These scenarios are what keeps that closed — a silent reversion to the
+  free-string convention, or an accidental widening of the vocabulary, comes
+  back red here.
 
   # WHAT THIS FEATURE CAN AND CANNOT SEE (see steps_coordination_contract.go):
   # it reads the runner-terminated MCP surface — the proto-canonical one a real
@@ -40,33 +38,11 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
     And it does not advertise "envelope whose `kind` names the message kind"
     And it does not advertise "result | question | error"
 
-  Scenario: agent_recv's result carries the kind on the message itself — the sanctioned break
-    When I read the "agent_recv" tool's result contract
-    Then it advertises "MESSAGE_KIND_EXITED"
-    And it advertises "MESSAGE_KIND_REPORT"
-    # The break, stated as the assertion: a recipient is told to read `kind`,
-    # and is no longer told that `structured` carries it.
-    And it advertises "read the `kind` field"
-    And it does not advertise "`kind` names the message kind"
-
   # The vocabulary is CLOSED, and closed means enumerated: a value that is not
   # on this list cannot be named at all, and one that is added to the proto
   # without a decision shows up here rather than in a model's context.
-  Scenario: the advertised vocabulary is exactly the declared one, on both tools
+  Scenario: the advertised vocabulary is exactly the declared one
     When I read the "agent_send" tool's input contract
-    Then the kind vocabulary it advertises is exactly:
-      | MESSAGE_KIND_UNSPECIFIED   |
-      | MESSAGE_KIND_MESSAGE       |
-      | MESSAGE_KIND_RESULT        |
-      | MESSAGE_KIND_ERROR         |
-      | MESSAGE_KIND_QUESTION      |
-      | MESSAGE_KIND_USER_INJECTED |
-      | MESSAGE_KIND_USER_CONTROL  |
-      | MESSAGE_KIND_EXITED        |
-      | MESSAGE_KIND_STEER         |
-      | MESSAGE_KIND_REPORT        |
-      | MESSAGE_KIND_SUMMARIZE     |
-    When I read the "agent_recv" tool's result contract
     Then the kind vocabulary it advertises is exactly:
       | MESSAGE_KIND_UNSPECIFIED   |
       | MESSAGE_KIND_MESSAGE       |
@@ -103,13 +79,3 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
     When I read the "agent_send" tool's description
     Then it advertises "`kind` is REQUIRED and its vocabulary is CLOSED"
     And it advertises "is REFUSED rather than accepted-and-ignored"
-
-  # A recipient's guarantee is the mirror image of the sender's constraint: a
-  # kind it reads is trustworthy as to PROVENANCE, because a sender could not
-  # have set the reserved ones. That is the whole point of the split, and it is
-  # what makes a coordinator notice believable.
-  Scenario: agent_recv tells a recipient which kinds a sender could not have set
-    When I read the "agent_recv" tool's result contract
-    Then it advertises "A SENDER could only have set one of"
-    And it advertises "minted by the coordinator itself and are therefore trustworthy as to provenance"
-    And it advertises "an unrecognised value is refused at ingress rather than delivered unclassified"

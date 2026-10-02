@@ -57,11 +57,35 @@ func SandboxNames() []string {
 }
 
 // Posture is an engine's resolved permission posture as core carries it:
-// the engine's name and its own document. Core never reads the document;
-// the engine's PermissionModel wrote it and the engine reads it back.
+// the engine's name, its own document, and the engine's display name for
+// the posture the document names. Core never reads the document; the
+// engine's PermissionModel wrote it and the engine reads it back. Core
+// shows Label and never compares it.
 type Posture struct {
 	Engine   Name
 	Document map[string]any
+	Label    string
+}
+
+// Named is p carrying its engine's display name (PermissionModel.Label of
+// the posture Decode names); a document the engine cannot name leaves it
+// unnamed.
+func (p Posture) Named(m PermissionModel) Posture {
+	if posture, err := m.Decode(p.Document); err == nil {
+		p.Label = m.Label(posture)
+	}
+	return p
+}
+
+// PostureTransition is one posture an approval may move a session to.
+// Posture is the engine's token, opaque to core and handed back to the
+// engine as the decision's mode; Label is the engine's display name for
+// it; Default marks the one the engine continues at when the approver does
+// not choose. The default is explicit, never an offer's position.
+type PostureTransition struct {
+	Posture string
+	Label   string
+	Default bool
 }
 
 // Clone copies the posture so a copy's edits never reach the original.
@@ -129,6 +153,10 @@ type PermissionModel interface {
 	Keys() []string
 	// Postures are the engine's mode vocabulary.
 	Postures() []string
+	// Label is the engine's display name for one of its postures; "" for a
+	// token it does not name. It is the one naming source: a posture's
+	// Label and a transition's Label both come from here.
+	Label(posture string) string
 	// Validate refuses a document the engine cannot honour, naming the
 	// offending key or value; it runs where the document is written and
 	// where it is resolved.
@@ -144,8 +172,9 @@ type PermissionModel interface {
 	// and names its posture.
 	Decode(doc map[string]any) (string, error)
 	// Transitions are the postures an approval may move a session at doc
-	// to (a plan's continuation, a mode change riding an allow).
-	Transitions(doc map[string]any) []string
+	// to (a plan's continuation, a mode change riding an allow), exactly
+	// one of them the Default when there are any.
+	Transitions(doc map[string]any) []PostureTransition
 	// Sandboxes are the sandbox values the engine can enforce on runtime
 	// (launch.RuntimeAxis spelling); DefaultSandbox is the one it takes
 	// when none is declared.

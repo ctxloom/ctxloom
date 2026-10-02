@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -106,12 +107,14 @@ func Assemble(rep report.Reporter, cfg *config.Config, workDir, contextHash stri
 	if cfg == nil {
 		return newHooks()
 	}
-	return AssembleFor(rep, cfg, workDir, contextHash, cfg.ResolveProfileSet(profileNames))
+	return AssembleFor(rep, cfg, workDir, contextHash, cfg.ResolveProfileSet(profileNames), engine.Interactive)
 }
 
 // AssembleFor is Assemble over an already resolved
-// profile set — the one assembly resolved, so its faults are reported once.
-func AssembleFor(rep report.Reporter, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) *Hooks {
+// profile set — the one assembly resolved, so its faults are reported once —
+// for a session of the given mode. Assemble's at-rest writers serve the
+// sessions a human drives, so they assemble for engine.Interactive.
+func AssembleFor(rep report.Reporter, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile, mode engine.Mode) *Hooks {
 	hooks := newHooks()
 	if cfg == nil {
 		return hooks
@@ -136,7 +139,7 @@ func AssembleFor(rep report.Reporter, cfg *config.Config, workDir, contextHash s
 		}))
 	}
 	// Bundle-shipped hooks + (optional) the context-injection hook.
-	appendManagedDynamicHooks(rep, hooks, cfg, workDir, contextHash, set)
+	appendManagedDynamicHooks(rep, hooks, cfg, workDir, contextHash, set, mode)
 	return hooks
 }
 
@@ -150,7 +153,7 @@ func AssembleFor(rep report.Reporter, cfg *config.Config, workDir, contextHash s
 // The bundle set arrives FLAT — builtins, companion loadouts, and each selected
 // profile's bundles in one slice — so it is attributed per hook off the marker
 // config.extractHooksFromBundle stamped (bundleSource), not from this call site.
-func appendManagedDynamicHooks(rep report.Reporter, m *Hooks, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) {
+func appendManagedDynamicHooks(rep report.Reporter, m *Hooks, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile, mode engine.Mode) {
 	if m == nil || cfg == nil {
 		return
 	}
@@ -184,9 +187,14 @@ func appendManagedDynamicHooks(rep report.Reporter, m *Hooks, cfg *config.Config
 	// session owner's only spool reader, so it belongs to ctxloom rather than
 	// to any bundle. Ungated — a session with no mail is handed nothing, so
 	// the only thing to configure would be whether the owner may receive.
-	m.mergeUnified(
-		wire.UnifiedHooks{TurnStart: []wire.Hook{agent.NewMailDrainHook()}},
-		fixedSource(Source{Origin: OriginContext}))
+	// The OWNER's only: a structured run is handed its mail by its runner AS
+	// its turn, consumed once the turn has started, so a second reader there
+	// would claim the same file during that turn and deliver it twice.
+	if mode == engine.Interactive {
+		m.mergeUnified(
+			wire.UnifiedHooks{TurnStart: []wire.Hook{agent.NewMailDrainHook()}},
+			fixedSource(Source{Origin: OriginContext}))
+	}
 	if contextHash != "" {
 		m.mergeUnified(
 			wire.UnifiedHooks{SessionStart: agent.NewContextInjectionHooks(rep, contextHash, workDir)},
@@ -256,7 +264,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 		for i, hook := range hooks {
 			hookRef, err := itemRefFor(ref.Base, trust.KindHook, event+"/"+strconv.Itoa(i))
 			if err != nil {
-				clidiag.Warn("ctxloom", "profile hook %q withheld: %v", hook.Command, err)
+				clidiag.Warn("ctxloom", "profile hook %q withheld: %v", hook.Line(), err)
 				continue
 			}
 			if gateProfileExec(gate, ref, hookRef, hookExecPayload(hook)) {
@@ -264,7 +272,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 			} else {
 				// Same fail-closed-but-diagnosable shape as gateProfileHooks's
 				// warn — the gate's decision is unchanged.
-				clidiag.Warn("ctxloom", "profile hook %q withheld by trust gate (%s); its executable is pending review", hook.Command, hookRef)
+				clidiag.Warn("ctxloom", "profile hook %q withheld by trust gate (%s); its executable is pending review", hook.Line(), hookRef)
 			}
 		}
 		return out
@@ -325,9 +333,10 @@ func gateProfileExec(gate bundles.Authorizer, ref profileGateRef, itemRef string
 // hookExecPayload builds a profile hook's executable-surface preimage via the
 // shared bundle primitive (Matcher+Type+Command+Prompt+PreToolFallback), so a
 // profile-declared hook and an identical bundle-declared one bind to exactly the
-// SAME bytes. nil on an (unreachable) encoding failure — see gateProfileExec.
+// SAME bytes — exec-form arguments included, bound by the primitive's own rule.
+// nil on an (unreachable) encoding failure — see gateProfileExec.
 func hookExecPayload(h wire.Hook) []byte {
-	bh := bundles.BundleHook{Matcher: h.Matcher, Command: h.Command, Type: h.Type, Prompt: h.Prompt, PreToolFallback: h.PreToolFallback}
+	bh := bundles.BundleHook{Matcher: h.Matcher, Command: h.Command, Args: h.Args, Type: h.Type, Prompt: h.Prompt, PreToolFallback: h.PreToolFallback}
 	payload, err := bh.ContentPayload()
 	if err != nil {
 		return nil

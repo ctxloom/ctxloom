@@ -82,8 +82,3 @@ func TestTestSupport_ImportAndReachability(t *testing.T) {
 func TestSessionBind_UnadmittedCaller(t *testing.T) {
 	run(t, archlint.SessionBindAnalyzer, "internal/bindplant")
 }
-
-// TestReminderFrame_HandBuiltFrame plants a frame tag assembled by hand.
-func TestReminderFrame_HandBuiltFrame(t *testing.T) {
-	run(t, archlint.ReminderFrameAnalyzer, "internal/frameplant")
-}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -427,7 +428,7 @@ type runState struct {
 	// container's is removed by name with it); runnerHandle is a --one-shot
 	// launch's plain runner process.
 	ownedRun     *ownedRunSession
-	pty          runnerTTY
+	pty          hostpty.Session
 	runnerHandle *isolation.RunnerHandle
 }
 
@@ -649,6 +650,14 @@ func (st *runState) boundAgent() string {
 		return st.cfg.GetDefaultAgent()
 	}
 	return ""
+}
+
+// mayDelegate is the may_delegate of the binding this run launched under
+// (boundAgent): coord holds the root's own agent_run to it, exactly as it
+// holds a child's. None when no binding was bound.
+func (st *runState) mayDelegate() []string {
+	binding, _ := st.cfg.Agent(st.boundAgent())
+	return binding.MayDelegate
 }
 
 // resumedTranscript is the --session (full resume — no --distill) lead: the
@@ -1216,9 +1225,6 @@ func (st *runState) seedTask() {
 	}
 }
 
-// teardownTransport kills whichever transport this run stood up. See runRun's
-// own comment at the deferral site for why it is registered before the
-// workspace is prepared rather than after the transport is chosen.
 // teardownAll unwinds a run in the ONE order that is safe: the transport
 // first, then the workspace it was running in.
 //
@@ -1242,6 +1248,7 @@ func (st *runState) teardownAll() {
 	_ = launch.Discard(context.Background(), st.launch)
 }
 
+// teardownTransport kills whichever transport this run stood up.
 func (st *runState) teardownTransport() {
 	if st.pty != nil {
 		st.pty.Kill()
@@ -1266,15 +1273,16 @@ func (st *runState) startTransport() error {
 	var starter coord.OwnedRunStarter
 	if st.launch.Mode == engine.Interactive {
 		st.launch.Env = stampTerminalEnv(st.launch.Env)
-		starter = st.ptyStarter()
+		starter = st.ptyStarter(hostpty.Start)
 	} else {
 		starter = st.processStarter()
 	}
 	sess, oerr := startOwnedRun(st.ctx, st.sessionCoord, ownedRunLaunch{
-		Launch:     st.launch,
-		MCPServers: st.managed.ChatMCPServers(),
-		OwnerToken: st.ownerToken,
-		Rebind:     st.rebind,
+		Launch:      st.launch,
+		MCPServers:  st.managed.ChatMCPServers(),
+		OwnerToken:  st.ownerToken,
+		MayDelegate: st.mayDelegate(),
+		Rebind:      st.rebind,
 	}, starter)
 	st.ownedRun = sess
 	// Everything recorded since the startup gate — above all a coordinator

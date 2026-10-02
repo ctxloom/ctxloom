@@ -1,0 +1,1 @@
+`next: read the working directory to locate the four adversarial review findings (likely in a task log, design doc, or report file)`

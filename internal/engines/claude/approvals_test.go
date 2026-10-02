@@ -2,9 +2,7 @@ package claude
 
 import (
 	"encoding/json"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"math/rand"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
@@ -19,9 +18,6 @@ import (
 // and D), trimmed to the members the codec reads plus a few it must ignore.
 const (
 	livePermissionRequest = `{"session_id":"s","transcript_path":"/t.jsonl","cwd":"/w","permission_mode":"default","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"description":"Create file a1","command":"touch a1"},"permission_suggestions":[{"type":"addDirectories","directories":["/w"],"destination":"session"},{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"touch *"},{"toolName":"Read"}],"behavior":"allow","destination":"localSettings"},{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"rm *"}],"behavior":"deny","destination":"session"},{"type":"setMode","mode":"acceptEdits","destination":"session"}]}`
-	liveAskQuestion       = `{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which color should the file contain?","header":"Color choice","options":[{"label":"red","description":"Choose red as the file content"},{"label":"blue","description":"Choose blue as the file content"}],"multiSelect":false}]},"tool_use_id":"toolu_01DviSddxv196p1XDfwBUREg"}`
-	liveExitPlan          = `{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{"plan":"# Plan\n\nRun ` + "`touch c1`" + `.\n","planFilePath":"/home/u/.claude/plans/p.md"},"tool_use_id":"toolu_01HKCaGnUQaH15bCRh51MGBp"}`
-	liveHostCall          = `{"tool_name":"ExitPlanMode","input":{"plan":"# Plan","planFilePath":"/p.md"},"tool_use_id":"toolu_01HKCaGnUQaH15bCRh51MGBp"}`
 )
 
 func codec(t *testing.T) engine.ApprovalCodec {
@@ -54,35 +50,13 @@ func TestApprovalCodec_NeverSuggestsBypass(t *testing.T) {
 	assert.False(t, ok, "a bypass suggestion is never offered")
 }
 
-func TestApprovalCodec_DecodesAQuestion(t *testing.T) {
-	ask, err := codec(t).DecodeAsk(hookEventPreToolUse, []byte(liveAskQuestion))
-	require.NoError(t, err)
-	assert.Equal(t, engine.AskQuestion, ask.Kind)
-	assert.Equal(t, "toolu_01DviSddxv196p1XDfwBUREg", ask.ToolUseID)
-	require.Len(t, ask.Questions, 1)
-	assert.Equal(t, engine.Question{
-		Header: "Color choice", Text: "Which color should the file contain?",
-		Options: []engine.QuestionOption{{Label: "red", Description: "Choose red as the file content"}, {Label: "blue", Description: "Choose blue as the file content"}},
-	}, ask.Questions[0])
-}
-
-func TestApprovalCodec_DecodesAPlan(t *testing.T) {
-	ask, err := codec(t).DecodeAsk(hookEventPreToolUse, []byte(liveExitPlan))
-	require.NoError(t, err)
-	assert.Equal(t, engine.AskPlan, ask.Kind)
-	require.NotNil(t, ask.Plan)
-	assert.Equal(t, engine.PlanProposal{Markdown: "# Plan\n\nRun `touch c1`.\n", Path: "/home/u/.claude/plans/p.md"}, *ask.Plan)
-}
-
 func TestApprovalCodec_DecodeRefuses(t *testing.T) {
 	c := codec(t)
 	for name, tc := range map[string]struct{ event, payload string }{
 		"unknown event":  {"Stop", livePermissionRequest},
 		"not JSON":       {hookEventPermissionRequest, `{`},
 		"no tool name":   {hookEventPermissionRequest, `{"tool_input":{}}`},
-		"pretool no id":  {hookEventPreToolUse, `{"tool_name":"AskUserQuestion","tool_input":{"questions":[]}}`},
-		"plan not plan":  {hookEventPreToolUse, `{"tool_name":"ExitPlanMode","tool_input":{"plan":7},"tool_use_id":"x"}`},
-		"questions junk": {hookEventPreToolUse, `{"tool_name":"AskUserQuestion","tool_input":{"questions":"x"},"tool_use_id":"x"}`},
+		"pre-tool event": {hookEventPreToolUse, livePermissionRequest},
 	} {
 		_, err := c.DecodeAsk(tc.event, []byte(tc.payload))
 		assert.Errorf(t, err, "%s", name)
@@ -92,11 +66,8 @@ func TestApprovalCodec_DecodeRefuses(t *testing.T) {
 // hookOut is the native answer, as claude reads it.
 type hookOut struct {
 	HookSpecificOutput struct {
-		HookEventName            string          `json:"hookEventName"`
-		PermissionDecision       string          `json:"permissionDecision"`
-		PermissionDecisionReason string          `json:"permissionDecisionReason"`
-		UpdatedInput             json.RawMessage `json:"updatedInput"`
-		Decision                 *struct {
+		HookEventName string `json:"hookEventName"`
+		Decision      *struct {
 			Behavior           string           `json:"behavior"`
 			Message            string           `json:"message"`
 			UpdatedPermissions []map[string]any `json:"updatedPermissions"`
@@ -138,34 +109,6 @@ func TestApprovalCodec_EncodesAPlainAllowAndADeny(t *testing.T) {
 	assert.Equal(t, "no", deny.HookSpecificOutput.Decision.Message)
 }
 
-// The answered question echoes the input with the answers keyed by the
-// question text (LIVE-D1): claude rejects an allow without updatedInput.
-func TestApprovalCodec_EncodesAnAnsweredQuestion(t *testing.T) {
-	ask, err := codec(t).DecodeAsk(hookEventPreToolUse, []byte(liveAskQuestion))
-	require.NoError(t, err)
-	out := encode(t, hookEventPreToolUse, ask, engine.PermissionAnswer{Allow: true, Answers: []engine.QuestionAnswer{
-		{Question: "Which color should the file contain?", Labels: []string{"red", "blue"}, Other: "teal"},
-	}})
-	assert.Equal(t, "allow", out.HookSpecificOutput.PermissionDecision)
-	var in map[string]any
-	require.NoError(t, json.Unmarshal(out.HookSpecificOutput.UpdatedInput, &in))
-	assert.Equal(t, map[string]any{"Which color should the file contain?": "red, blue, teal"}, in["answers"])
-	assert.NotNil(t, in["questions"], "the questions are echoed")
-}
-
-func TestApprovalCodec_EncodesAPlanDecision(t *testing.T) {
-	ask, err := codec(t).DecodeAsk(hookEventPreToolUse, []byte(liveExitPlan))
-	require.NoError(t, err)
-	approve := encode(t, hookEventPreToolUse, ask, engine.PermissionAnswer{Allow: true})
-	assert.Equal(t, "allow", approve.HookSpecificOutput.PermissionDecision)
-	assert.JSONEq(t, string(ask.Input), string(approve.HookSpecificOutput.UpdatedInput), "an approved plan echoes its input (LIVE-D2)")
-
-	reject := encode(t, hookEventPreToolUse, ask, engine.PermissionAnswer{Message: "split step 2"})
-	assert.Equal(t, "deny", reject.HookSpecificOutput.PermissionDecision)
-	assert.Equal(t, "split step 2", reject.HookSpecificOutput.PermissionDecisionReason)
-	assert.Empty(t, reject.HookSpecificOutput.UpdatedInput)
-}
-
 func TestApprovalCodec_EncodeRefuses(t *testing.T) {
 	c := codec(t)
 	tool := engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}
@@ -173,15 +116,13 @@ func TestApprovalCodec_EncodeRefuses(t *testing.T) {
 		event string
 		a     engine.PermissionAnswer
 	}{
-		"bypass":              {hookEventPermissionRequest, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(modeBypass)}},
-		"plan":                {hookEventPermissionRequest, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(modePlan)}},
-		"mode on a deny":      {hookEventPermissionRequest, engine.PermissionAnswer{SetMode: engine.Provide(modeDefault)}},
-		"rules on a deny":     {hookEventPermissionRequest, engine.PermissionAnswer{SessionRules: []string{"Bash"}}},
-		"bad rule":            {hookEventPermissionRequest, engine.PermissionAnswer{Allow: true, SessionRules: []string{"Bash("}}},
-		"rules on a pretool":  {hookEventPreToolUse, engine.PermissionAnswer{Allow: true, SessionRules: []string{"Bash"}}},
-		"mode on a pretool":   {hookEventPreToolUse, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(modeDefault)}},
-		"unknown event":       {"Stop", engine.PermissionAnswer{Allow: true}},
-		"answers not a quest": {hookEventPreToolUse, engine.PermissionAnswer{Allow: true, Answers: []engine.QuestionAnswer{{Question: "q"}}}},
+		"bypass":          {hookEventPermissionRequest, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(modeBypass)}},
+		"plan":            {hookEventPermissionRequest, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(modePlan)}},
+		"mode on a deny":  {hookEventPermissionRequest, engine.PermissionAnswer{SetMode: engine.Provide(modeDefault)}},
+		"rules on a deny": {hookEventPermissionRequest, engine.PermissionAnswer{SessionRules: []string{"Bash"}}},
+		"bad rule":        {hookEventPermissionRequest, engine.PermissionAnswer{Allow: true, SessionRules: []string{"Bash("}}},
+		"unknown event":   {"Stop", engine.PermissionAnswer{Allow: true}},
+		"pre-tool event":  {hookEventPreToolUse, engine.PermissionAnswer{Allow: true}},
 	} {
 		_, err := c.EncodeAnswer(tc.event, tool, tc.a)
 		assert.Errorf(t, err, "%s", name)
@@ -227,20 +168,6 @@ func TestApprovalCodec_EncodeProperty_SessionOnlyNoBypass(t *testing.T) {
 	assert.Greater(t, emitted, 200, "the property must actually exercise emitted encodings")
 }
 
-func TestApprovalCodec_HostCall(t *testing.T) {
-	call, err := codec(t).HostCall(json.RawMessage(liveHostCall))
-	require.NoError(t, err)
-	assert.Equal(t, engine.HostCall{Tool: "ExitPlanMode", ToolUseID: "toolu_01HKCaGnUQaH15bCRh51MGBp", Input: json.RawMessage(`{"plan":"# Plan","planFilePath":"/p.md"}`)}, call)
-	_, err = codec(t).HostCall(json.RawMessage(`{"input":{}}`))
-	assert.Error(t, err, "a host call names its tool")
-}
-
-func TestApprovalCodec_HostDeny(t *testing.T) {
-	s, err := codec(t).HostDeny(`the "hook" did not answer`)
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"behavior":"deny","message":"the \"hook\" did not answer"}`, s)
-}
-
 func TestApprovalCodec_RepoSurfaces(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		".claude/settings.json", ".claude/settings.local.json", ".mcp.json",
@@ -261,23 +188,15 @@ func TestApprovalCodec_ValidateRule(t *testing.T) {
 	}
 }
 
-// TestApprovalCodec_HooksAreClaudesTwoRoutesToTheHuman: claude's approval
-// hooks are the permission ask for every tool its posture and rules left
-// open (PermissionRequest, no matcher) and the pre-tool hook for exactly the
-// two tools only rewritten input can answer (PreToolUse), each running
-// `ctxloom hook permission` for its own event and outliving the approval
-// timeout.
-func TestApprovalCodec_HooksAreClaudesTwoRoutesToTheHuman(t *testing.T) {
+// TestApprovalCodec_HooksAreClaudesRouteToTheHuman: claude's approval hook
+// is the permission ask for every tool its posture and rules left open
+// (PermissionRequest, no matcher), running `ctxloom hook permission` and
+// outliving the approval timeout. Nothing else is the route's: with no
+// prompt tool, claude -p offers no question or plan to a pre-tool hook.
+func TestApprovalCodec_HooksAreClaudesRouteToTheHuman(t *testing.T) {
 	const approval = 15 * time.Minute
 	h := approvalCodec{}.Hooks(approval)
 	require.Len(t, h.PermissionAsk, 1)
 	assert.Equal(t, agent.ApprovalHook("PermissionRequest", "", approval), h.PermissionAsk[0])
-	require.Len(t, h.PreTool, 1)
-	assert.Equal(t, agent.ApprovalHook("PreToolUse", "AskUserQuestion|ExitPlanMode", approval), h.PreTool[0])
-	matcher := regexp.MustCompile("^(?:" + h.PreTool[0].Matcher + ")$")
-	for _, tool := range []string{"AskUserQuestion", "ExitPlanMode"} {
-		assert.Regexp(t, matcher, tool)
-	}
-	assert.NotRegexp(t, matcher, "Bash")
-	assert.Len(t, h.All(), 2, "no other hook is the approval route's")
+	assert.Len(t, h.All(), 1, "no other hook is the approval route's")
 }

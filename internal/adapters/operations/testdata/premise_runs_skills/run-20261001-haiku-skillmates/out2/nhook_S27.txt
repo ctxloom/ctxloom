@@ -1,0 +1,1 @@
+`next: Execute pre-flight checklist — establish taskloom queue, verify git baseline, and check environment state`

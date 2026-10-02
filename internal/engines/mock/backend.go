@@ -5,11 +5,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"strconv"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // Backend is the mock kind's agent.Backend: the in-process double that
@@ -28,6 +30,10 @@ type Backend struct {
 	// homeEnvKeys are the kind's home-relocation variables, echoed in the
 	// record when set.
 	homeEnvKeys []string
+	// kind is the engine kind this backend runs: the interactive echo
+	// composes its exec through it, as the runner does, to read what the
+	// session was delivered (its hooks file, its wake socket).
+	kind Mock
 }
 
 // Config is the mock family's typed LLM config, decoded from a labeled
@@ -63,7 +69,7 @@ func (m Mock) NewConfig() agent.BackendConfig { return &Config{kind: m.Name} }
 // constructor rather than a body each that could drift into behaving
 // differently. History is NilSessionHistory — mock keeps no transcripts.
 func (m Mock) Backend(agent.Launcher) agent.Backend {
-	b := &Backend{}
+	b := &Backend{kind: m}
 	b.BaseBackend = agent.NewBaseBackend(string(m.Name), "1.0.0")
 	b.InitLaunch(
 		agent.NewBaseLifecycle(string(m.Name)),
@@ -93,7 +99,7 @@ func (b *Backend) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout
 	// cannot prove the host-pty → exec → turn → engine → back chain. This mode
 	// reflects one typed line and the resize it saw, then exits.
 	if Env(req.Env, "CTXLOOM_MOCK_ECHO_STDIN") == "1" && req.Stdin != nil {
-		return b.executeInteractiveEcho(ctx, req, stdout, modelInfo)
+		return b.executeInteractiveEcho(ctx, req, stdout, stderr, modelInfo)
 	}
 
 	// Assemble context from fragments
@@ -168,77 +174,140 @@ func buildMockResponse(customResponse string, hasCustomResponse bool, contextStr
 
 // executeInteractiveEcho reflects each typed line and the latest terminal
 // resize it has observed — the interactive engine behavior the docker-exec
-// turn's integration test round-trips through the full pty chain. It loops
-// (echoing `mock echo: <line>` plus, once a resize has been seen, `mock
-// winsize: RxC`) until a "quit" line or EOF: a tty rarely EOFs, so the sentinel
-// is what lets a test drive a resize BETWEEN two lines (giving the daemon's
-// SIGWINCH time to propagate) and then end the turn deterministically.
-func (b *Backend) executeInteractiveEcho(ctx context.Context, req *agent.ExecuteRequest, stdout io.Writer, modelInfo *agent.ModelInfo) (*agent.ExecuteResult, error) {
-	var lastWS agent.WindowSize
-	var sawWS bool
-	// drainResize picks up every resize delivered so far without blocking — a
-	// resize sent BETWEEN two lines (the integration test's pattern) is on the
-	// channel by the time the next line's iteration drains it.
-	drainResize := func() {
-		if req.Resize == nil {
-			return
-		}
-		for {
-			select {
-			case ws, ok := <-req.Resize:
-				if !ok {
-					req.Resize = nil
-					return
-				}
-				lastWS, sawWS = ws, true
-			default:
-				return
-			}
-		}
+// turn's integration test round-trips through the full pty chain, and the
+// session owner acceptance drives. It loops (echoing `mock echo: <line>`
+// plus, once a resize has been seen, `mock winsize: RxC`) until a "quit" line
+// or EOF: a tty rarely EOFs, so the sentinel is what lets a test drive a
+// resize BETWEEN two lines (giving the daemon's SIGWINCH time to propagate)
+// and then end the turn deterministically.
+//
+// Every non-blank line is a prompt submitted, so the session's delivered
+// turn_start hooks fire with it before the echo — the hook the session
+// owner's mail rides. A line posted to the session's wake socket (the
+// exec's EnvWakeSocket) is taken exactly as a typed line: the mock's own
+// wake.
+func (b *Backend) executeInteractiveEcho(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer, modelInfo *agent.ModelInfo) (*agent.ExecuteResult, error) {
+	done := func() (*agent.ExecuteResult, error) {
+		return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
 	}
+	ex, err := b.interactiveExec(req)
+	if err != nil {
+		return &agent.ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, err
+	}
+	hooks, err := deliveredHooks(ex)
+	if err != nil {
+		return &agent.ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, err
+	}
+	hookEnv := maps.Clone(req.Env)
+	if hookEnv == nil {
+		hookEnv = map[string]string{}
+	}
+	maps.Copy(hookEnv, ex.Env)
 
-	// ReadString blocks until a line arrives, so a cancelled ctx
-	// checked only AFTER it returns can never interrupt a stdin that never
-	// produces a line (a pty rarely EOFs — see the doc above). Reading on a
-	// goroutine and selecting on ctx.Done() lets THIS function return
-	// promptly on cancellation; the goroutine itself may still leak until the
-	// peer writes or closes, which is the pre-existing, documented tradeoff
-	// (the "quit"/EOF sentinel), not something fixable from this side alone.
-	type readResult struct {
-		line string
-		err  error
+	// ReadString blocks until a line arrives, so a cancelled ctx checked
+	// only AFTER it returns can never interrupt a stdin that never produces
+	// a line (a pty rarely EOFs — see the doc above). Reading on a goroutine
+	// and selecting on ctx.Done() lets THIS function return promptly on
+	// cancellation; the goroutine itself may still leak until the peer
+	// writes or closes, which is the documented tradeoff (the "quit"/EOF
+	// sentinel), not something fixable from this side alone.
+	lines := make(chan echoLine)
+	stop, err := ListenWakes(ex.Env[EnvWakeSocket], lines, func(line string) echoLine { return echoLine{line: line} })
+	if err != nil {
+		return &agent.ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, err
 	}
-	lines := make(chan readResult)
+	defer stop()
 	go func() {
 		r := bufio.NewReader(req.Stdin)
 		for {
 			line, err := r.ReadString('\n')
-			lines <- readResult{line: line, err: err}
+			lines <- echoLine{line: line, err: err}
 			if err != nil {
 				return
 			}
 		}
 	}()
 
+	echo := interactiveEcho{req: req, stdout: stdout, stderr: stderr, hooks: hooks, env: hookEnv}
 	for {
 		select {
 		case <-ctx.Done():
-			return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
+			return done()
 		case res := <-lines:
-			line := strings.TrimRight(res.line, "\r\n")
-			if line == "quit" {
-				return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
+			if echo.take(ctx, res) {
+				return done()
 			}
-			if line != "" {
-				drainResize()
-				_, _ = fmt.Fprintf(stdout, "mock echo: %s\n", line)
-				if sawWS {
-					_, _ = fmt.Fprintf(stdout, "mock winsize: %dx%d\n", lastWS.Rows, lastWS.Cols)
-				}
+		}
+	}
+}
+
+// interactiveExec is the exec this session's runner composed — the same
+// kind over the same session and presentations — or the zero exec when the
+// request names no session (a bare echo with nothing delivered).
+func (b *Backend) interactiveExec(req *agent.ExecuteRequest) (engine.Exec, error) {
+	if req.Session == nil {
+		return engine.Exec{}, nil
+	}
+	inst, err := b.kind.Instance(*req.Session)
+	if err != nil {
+		return engine.Exec{}, err
+	}
+	return inst.Exec(req.Presented)
+}
+
+// echoLine is one line the terminal or the wake socket delivered, or the
+// error that ended the terminal.
+type echoLine struct {
+	line string
+	err  error
+}
+
+// interactiveEcho is one interactive session's line handling.
+type interactiveEcho struct {
+	req            *agent.ExecuteRequest
+	stdout, stderr io.Writer
+	hooks          wire.UnifiedHooks
+	env            map[string]string
+	lastWS         agent.WindowSize
+	sawWS          bool
+}
+
+// take handles one line: quit ends the session; a non-blank line fires the
+// turn_start hooks (a failing hook is reported, and the session goes on —
+// a TUI does not die because a hook did) and is echoed. It reports whether
+// the session ended.
+func (e *interactiveEcho) take(ctx context.Context, res echoLine) bool {
+	line := strings.TrimRight(res.line, "\r\n")
+	if line == "quit" {
+		return true
+	}
+	if strings.TrimSpace(line) != "" {
+		if err := FireHooks(ctx, e.hooks, "turn_start", "", line, e.req.WorkDir, e.env); err != nil {
+			_, _ = fmt.Fprintf(e.stderr, "mock: %v\n", err)
+		}
+		e.drainResize()
+		_, _ = fmt.Fprintf(e.stdout, "mock echo: %s\n", line)
+		if e.sawWS {
+			_, _ = fmt.Fprintf(e.stdout, "mock winsize: %dx%d\n", e.lastWS.Rows, e.lastWS.Cols)
+		}
+	}
+	return res.err != nil
+}
+
+// drainResize picks up every resize delivered so far without blocking — a
+// resize sent BETWEEN two lines (the integration test's pattern) is on the
+// channel by the time the next line's turn drains it.
+func (e *interactiveEcho) drainResize() {
+	for e.req.Resize != nil {
+		select {
+		case ws, ok := <-e.req.Resize:
+			if !ok {
+				e.req.Resize = nil
+				return
 			}
-			if res.err != nil {
-				return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
-			}
+			e.lastWS, e.sawWS = ws, true
+		default:
+			return
 		}
 	}
 }

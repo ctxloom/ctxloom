@@ -33,6 +33,9 @@ on:
     branches: [main, initial-prototyping, 'release/*', 'v*']
   pull_request:
     branches: [main, 'release/*', 'v*']
+  # A manual run on the publishing branch republishes the docs site (see the
+  # `docs` job) without needing a commit.
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -368,8 +371,107 @@ jobs:
 
       # Hermetic only (~@live && ~@network): real CLI subprocesses + a real MCP
       # server + the mock LLM backend. No network, no real agent, no secrets.
+      # CTXLOOM_REQUIRE_DOCKER=1: scenarios declaring a suite image (e.g.
+      # container.feature's capability-check rows) are EXCLUDED before the run
+      # when no container runtime is reachable; here that must fail instead, or a
+      # runner that lost its socket would silently drop the only tests of
+      # `container check` against a present image.
       - name: Run acceptance suite
+        env:
+          CTXLOOM_REQUIRE_DOCKER: "1"
         run: just test-acceptance-cover
+
+  # The documentation site: built here, against this commit's SHA-pinned
+  # image, so its toolchain is the one every other job above was gated with.
+  # The living-docs step needs a real `ctxloom` binary (the godog suite execs
+  # it), which needs generated protobuf code only the devcontainer carries.
+  #
+  # PUBLISHING ONLY, from the ACTIVE release line, pinned deliberately rather
+  # than matched by this workflow's `release/*` trigger. origin carries every
+  # historical release line; running CI on one of those is harmless, but
+  # publishing the site from one is not — a push to an old branch would
+  # overwrite the live docs with its content. Cutting a new release line means
+  # changing the `if:` below, which is meant to be a deliberate edit.
+  #
+  # Gated to that branch rather than built everywhere because gen-living-docs
+  # runs the whole acceptance suite again with capture on — on a PR that
+  # would double the acceptance job's cost to check what it already checks.
+  docs:
+    name: Build Documentation
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release/0.7'
+    runs-on: ubuntu-latest
+    needs: [build-container]
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/${{ github.repository }}-devcontainer:${{ github.sha }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      JUST_JUSTFILE: justfile.container
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark workspace as safe
+        run: just ci-git-safe-directory
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Inject version into docs
+        run: just docs-inject-version
+
+      # The godog suite execs the real ctxloom binary as a subprocess, resolved
+      # from PATH (the acceptance job above has the same requirement).
+      - name: Add binaries to PATH
+        run: just ci-path
+
+      # Renders website/src/content/docs/journeys/ from this run's REAL
+      # captured acceptance output, BEFORE the site build so the pages exist
+      # for npm to pick up. Refuses (nonzero exit, writes nothing) if any @doc
+      # scenario's capture has a non-passed step: a feature that does not work
+      # cannot be documented.
+      - name: Generate living-docs journey pages
+        run: just gen-living-docs
+
+      - name: Install dependencies
+        run: just docs-deps
+
+      - name: Build website
+        run: just docs-build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/dist
+
+  docs-deploy:
+    name: Deploy Documentation
+    needs: [docs]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    # One deployment at a time; a newer push supersedes one still running.
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
   # Diff-only mutation on both PR and push, so a green PR runs the same check
   # that gates the release on main; the whole tree runs weekly instead

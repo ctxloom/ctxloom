@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+I need to understand what the unattended queue run produced: What gate(s) need verifying, what code changed, what does the task log show? I cannot execute the closeout checklist without visibility into the work that ran.

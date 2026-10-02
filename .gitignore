@@ -99,7 +99,7 @@ resources/schema/gen/
 # Generated living-docs journey pages (like generated protobuf/JSON Schema):
 # produced by `just gen-living-docs` from a passing acceptance run's capture,
 # so they cannot be stale by construction. The docs CI workflow generates
-# them fresh before `npm run build`; see .github/workflows/docs.yml.
+# them fresh before `npm run build`; see the `docs` job in .github/workflows/ci.yml.
 website/src/content/docs/journeys/
 
 # Serena's per-project state. Only the LOCAL and rebuildable parts are ignored;

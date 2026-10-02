@@ -47,7 +47,7 @@ func TestRunHookPermission_ForwardsTheAskAndWritesTheDecision(t *testing.T) {
 
 // TestRunHookPermission_AnyFailureDecidesNothing: no endpoint in the
 // environment, an unreachable runner, or a refusal from it all leave stdout
-// EMPTY — no decision, so the engine's held permission host denies — and
+// EMPTY — no decision, which an engine nobody sits at denies — and
 // the reason is returned for the diagnostic channel.
 func TestRunHookPermission_AnyFailureDecidesNothing(t *testing.T) {
 	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

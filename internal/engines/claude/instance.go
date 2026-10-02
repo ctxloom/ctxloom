@@ -58,6 +58,7 @@ func (c Claude) Container() (engine.ContainerSpec, error) {
 		Install:            installFragment,
 		ValidateCommand:    "claude --version",
 		OverlayDirs:        []string{ConfigDirName},
+		InPlaceFiles:       []string{MCPFileName},
 		TranscriptStoreRel: path.Join(ConfigDirName, TranscriptsDirName),
 	}, nil
 }
@@ -70,12 +71,10 @@ func (c Claude) Transcripts() []engine.TranscriptReader { return c.transcripts }
 // Hooks is claude's hook codec.
 func (c Claude) Hooks() engine.HookCodec { return hookCodec{} }
 
-// Wake is claude's cross-session messaging socket, and it is NOT declared
-// yet: a bypass-permissions receiver may hold a post it cannot attribute to
-// its own child, and the runner is its parent. Until that is measured the
-// absence is the truth.
+// Wake is claude's cross-session messaging endpoint, bound in the session
+// relay claude spawns (see messagingWake).
 func (c Claude) Wake() engine.Declared[engine.WakeSpec] {
-	return engine.Absent[engine.WakeSpec]("claude's wake is its cross-session messaging socket, which is not bound until a bypass-permissions session is measured to accept the runner's post")
+	return engine.Provide[engine.WakeSpec](messagingWake{})
 }
 
 // nativeHookEvents is claude's native event for each unified one. Two
@@ -224,8 +223,7 @@ func countFlag(args []string, flag string) int {
 // presentation's env channel, and the classic-screen switch when
 // interactive — or, when structured, background tasks off (the turn's
 // process ends at its result, and a task left running past it would answer
-// into a turn nobody reads) and no idle abort on an MCP call (the
-// permission host holds one while the human decides).
+// into a turn nobody reads).
 func (i *instance) execEnv(presented []present.Presentation) map[string]string {
 	env := map[string]string{}
 	for _, h := range i.s.Home {
@@ -238,7 +236,6 @@ func (i *instance) execEnv(presented []present.Presentation) map[string]string {
 		env[classicScreenEnv] = "1"
 	} else {
 		env[disableBackgroundTasksEnv] = "1"
-		env[mcpToolIdleTimeoutEnv] = "0"
 	}
 	return env
 }

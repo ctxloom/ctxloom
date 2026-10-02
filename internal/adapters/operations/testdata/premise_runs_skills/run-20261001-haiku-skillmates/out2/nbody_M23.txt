@@ -1,0 +1,3 @@
+I need to sweep the current context to find what's actually pending. Let me check the memory system and working directory for any existing items.
+
+`invoke: check-triggers`

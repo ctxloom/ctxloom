@@ -22,8 +22,6 @@ import (
 var (
 	spawnChildAgentIDField = protoFieldName(&pb.SpawnAgentResult{}, "child_agent_id")
 	spawnChildRunIDField   = protoFieldName(&pb.SpawnAgentResult{}, "child_run_id")
-	recvFromAgentIDField   = protoFieldName(&pb.PeerMessage{}, "from_agent_id")
-	recvTextField          = protoFieldName(&pb.PeerMessage{}, "text")
 )
 
 // protoFieldName returns name after asserting m declares a field by it.

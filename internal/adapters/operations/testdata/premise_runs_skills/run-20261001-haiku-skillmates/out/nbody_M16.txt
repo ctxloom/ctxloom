@@ -1,0 +1,1 @@
+`next: I need to ask you to clarify the daemon work scope and your task tracking system — this directory has no git repo or taskloom visible, so I can't verify task references or read the queue. What should run tonight, and where are the candidates tracked?`

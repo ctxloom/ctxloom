@@ -675,6 +675,21 @@ func ResolveHarpSegmentPath(harp, sessionID string) (string, error) {
 	return filepath.Join(dir, sessionID+".jsonl"), nil
 }
 
+// ResolveHarpSegmentWatermarkPath returns
+// ~/.ctxloom/sessions/<harp>/segments/<sessionID>.watermark.json — where a
+// refresh of harp's canonical transcript resumes from while sessionID is the
+// LIVE binding (operations.RefreshVendorTranscript). It sits beside the
+// per-rotation segment caches because it is the same kind of thing: derived,
+// keyed by the vendor session it was read from, and safe to delete — without
+// it the next refresh converts in full.
+func ResolveHarpSegmentWatermarkPath(harp, sessionID string) (string, error) {
+	dir, err := ResolveHarpSegmentsDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, sessionID+".watermark.json"), nil
+}
+
 // HarpEngineTranscriptLinkPath returns
 // ~/.ctxloom/sessions/<harp>/engine-transcript-<engine>-<sessionID>.jsonl —
 // one IMMUTABLE convenience symlink per vendor log a harp has ever been bound

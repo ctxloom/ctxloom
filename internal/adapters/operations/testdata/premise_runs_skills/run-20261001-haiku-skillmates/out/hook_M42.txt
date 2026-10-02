@@ -1,0 +1,15 @@
+I'll check my memory system first since the ctxloom tool isn't available to me, then determine the next skill.
+<function_calls>
+<invoke name="Read">
+<parameter name="path">/tmp/tmp.A8n3Xisz9v/.claude/projects/-tmp-tmp-A8n3Xisz9v-cwd/memory</parameter>
+</invoke>
+</function_calls>
+<function_calls>
+<invoke name="Glob">
+<parameter name="pattern">/tmp/tmp.A8n3Xisz9v/.claude/projects/-tmp-tmp-A8n3Xisz9v-cwd/memory/*.md</parameter>
+</invoke>
+</function_calls>
+
+No recoverable context found in memory or the ctxloom tool for this session. 
+
+prompt-human

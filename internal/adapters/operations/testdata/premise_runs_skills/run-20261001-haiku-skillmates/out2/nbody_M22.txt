@@ -1,0 +1,1 @@
+`next: Check memory for project context, then explore the working directory for design docs, task logs, plans, and code to identify what design work is in scope and sweep for open decisions`

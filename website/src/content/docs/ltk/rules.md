@@ -39,6 +39,24 @@ A deny rule must carry a `message` or a `suggest` — either alone is enough
 with no reason and no alternative, so it simply retries; a rule that cannot say
 why is a load error. `allow` and `mode: disable` rules are exempt.
 
+## Fail-open, with one exception
+
+Every escape hatch on this page (`unless`, `mode: confirm`,
+`defaults.on_parse_error: allow`) is fail-open by design: when ltk cannot fully
+resolve a command, an exception token is present, or a rule is deliberately soft,
+the command goes through rather than being blocked on uncertainty. Every rule you
+write inherits that posture: it redirects a cooperative agent, it does not stop a
+determined one.
+
+The one exception is a tool that fired the installed hook but that ltk does not
+recognize by name. The installed hook matcher and ltk's runtime tool recognition
+come from one list, but a vendor-renamed tool can still fire the matcher while
+the exact-name recognition misses it. ltk then cannot read the payload's fields,
+so no rule can be evaluated against it. Rather than pass a tool you told ltk to
+watch unexamined, ltk denies the call with a reason naming the tool; the fix is
+to add it to the engine's gated tools and reinstall (`ltk manage install`).
+Tools the matcher does not watch (Read, Grep, …) are never affected.
+
 ## How a rule fires
 
 Every command an agent proposes is parsed into a command graph, and each command
@@ -116,6 +134,16 @@ match: { command: "sh -c" }                           # `sh -c …`, `sh -e -c �
 match: { command: [git, push, --force, --no-verify] } # those flags in any order after `push`
 ```
 
+There is deliberately no glob or wildcard in `match.command`, and one should not
+be added. A wildcard over an unparsed command line is the footgun `sudoers` has
+carried for decades: `/usr/bin/vim *` reads as "vim only", but `*` matches any
+words the shell hands it, so `vim -- /bin/sh` matches too. Classifying every
+token by its role keeps a smuggled subcommand from hiding behind a wildcard. When
+an option's value can be anything, `args_any`/`args_all` already express that as
+set membership over classified tokens. `match.path` is a full glob because file
+paths carry no argument-smuggling risk: a glob there cannot reclassify what a
+token is.
+
 ### Refining a match
 
 `args_any` and `args_all` are positive filters on the arguments: the listed
@@ -149,7 +177,15 @@ Bundled short options are expanded before the argument conditions are checked, s
 `-n` in `unless` also matches `rm -rn`, and `args_all: [-r, -f]` catches `rm -rf`,
 `rm -fr`, and `rm -r -f` alike. Only POSIX shells bundle this way; `cmd`
 (`/switch`) and PowerShell (`-LongName`) tokens are never split. The command
-itself is never rewritten — this is a matcher-level convenience.
+itself is never rewritten — this is a matcher-level convenience, and it lives in
+ltk rather than the shell parser because bundling is a per-program getopt
+convention (Go's `flag`, `find`, and `dd` don't follow it).
+
+Short aliases are a different thing and are not expanded. ltk does not know that
+`-f` is short for `--force` or `-n` for `--dry-run`; that mapping is per-program.
+A rule written with only the long form misses the short one:
+`command: [git, push, --force]` does not catch `git push -f`. List every alias
+the target program accepts, for example `args_any: ["--force", "-f"]`.
 
 **`unless` is matched position-blind:** it checks whether a token appears
 *anywhere* in the arguments, with no idea whether that token is a standalone
@@ -163,7 +199,7 @@ confirm`](#rule-mode) over `unless`: it requires the agent to deliberately
 repeat the exact command, so a token elsewhere in the arguments can't silently
 wave a dangerous command through.
 
-### Shells
+### Portability across shells
 
 Flag syntax differs by dialect, so token classification is shell-aware.
 
@@ -177,6 +213,8 @@ The `cmd` case is why this matters: under cmd, `/q` is a switch, while under a
 POSIX shell `/usr/bin/x` is a path. `match.shells` narrows a rule to a list of
 dialects, and an absent or empty `shells` means every shell. Valid entries are
 `sh`, `bash`, `zsh`, `mksh`, `pwsh`, and `cmd`; anything else is a config error.
+The list is an unordered set, and there is no "all-POSIX" shorthand: list the
+dialects explicitly (`shells: [bash, zsh, sh, mksh]`).
 
 ```yaml
 - id: no-cmd-rmdir
@@ -187,12 +225,23 @@ dialects, and an absent or empty `shells` means every shell. Valid entries are
 ```
 
 `shells` is a gate evaluated before the command pattern, so a rule whose shell
-does not match is skipped outright. Reach for it when a rule only classifies
+does not match is skipped outright:
+
+| Command line | Resolved shell | Fires? | Why |
+|---|---|---|---|
+| `rmdir /s build` | cmd | yes | shell in list; `/s` is an option under cmd |
+| `rmdir /s build` | bash | no | shell not in `[cmd]`, so the rule is skipped |
+| `rmdir /something` | cmd | no | shell matches, but `/something` is not the `/s` option |
+
+A rule with only `shells` and no `command` matches every command under those
+shells. Reach for it when a rule only classifies
 correctly on certain dialects, or when it names a shell-specific builtin. Most
 rules (`git`, `go`, `rm`) mean the same thing everywhere and should omit it.
 
 The shell in question is the one ltk resolved for that command, not the one you
-typed it in. A wrapped inner command is re-parsed under the inner shell, so
+typed it in. Resolution takes the first of: the `--shell` override, the engine's
+per-call hint (Claude's PowerShell tool means `pwsh`), `defaults.shell`, `$SHELL`,
+then `bash`. A wrapped inner command is re-parsed under the inner shell, so
 `pwsh -Command "..."` invoked from bash yields commands whose shell is `pwsh`.
 When a rule mysteriously fails to fire, check the resolved shell first.
 
@@ -237,7 +286,8 @@ reproduce it, and a repeat is faster than complying, which is exactly why an age
 reaches for it. A delay inverts that incentive. `delay_seconds` (or
 `defaults.repeat_delay_seconds`) ignores the repeat until N seconds after the
 first denial, then honors it up to the window, so the override lives in the band
-`[delay, window]`. The delay must be shorter than the window.
+`[delay, window]`. The delay must be shorter than the window. A repeat inside the
+delay gets a sharper rebuke and does not reset the timer.
 
 ```yaml
 - id: tests-via-task-runner
@@ -254,7 +304,7 @@ retry. What it buys is behavioral. It removes the "bypass is quicker than
 compliance" incentive and turns a reflexive retry into a deliberate wait. For
 something that must not be overridable, use `mode: enable`.
 
-## Matching file edits
+## Matching file edits (`match.path`)
 
 Most rules guard shell commands. A rule can instead guard the agent's own editing
 tools (Edit, Write, MultiEdit, NotebookEdit) with `match.path`, which is useful
@@ -266,8 +316,9 @@ for files owned by a tool and not meant to be hand-edited.
   message: "VERSION is managed by the release tool — use `just bump`, not a hand edit."
 ```
 
-Unlike `match.command`, `path` patterns are real globs (`*`, `?`, `[…]`, `{a,b}`,
-and `**`, which spans directory separators). Backslashes are normalized to `/`
+Unlike `match.command`, `path` patterns are real globs
+([doublestar](https://github.com/bmatcuk/doublestar#patterns) syntax: `*`, `?`,
+`[…]`, `{a,b}`, and `**`, which spans directory separators). Backslashes are normalized to `/`
 first. The editing tools always pass an absolute path, so each pattern is tried
 three ways: against the file's basename, so `*.lock` catches `/proj/a/b/c.lock`;
 against the full path, so an absolute pattern matches as written; and against the
@@ -278,10 +329,18 @@ A trailing slash is directory sugar. `path: [vendor/]` expands to `vendor/**` an
 blocks every file under any `vendor` directory at any depth — this is how you
 prohibit writes to a whole subtree.
 
+```yaml
+- id: no-edit-vendored
+  match: { path: [vendor/] }   # the whole subtree; same as vendor/**
+  message: "vendor/ is generated by `go mod vendor` — don't hand-edit it."
+```
+
 The reserved pattern `@submodules` expands at evaluate time to a subtree for every
 path in the repo's `.gitmodules`, so one rule blocks edits inside all submodules
-without naming them and stays correct as they come and go. With no `.gitmodules`
-it matches nothing.
+without naming them and stays correct as they come and go. A submodule's working
+tree is a separate repo pinned at a commit, so editing it from the superproject
+is almost always a mistake: the change is not tracked where the agent expects.
+With no `.gitmodules` it matches nothing.
 
 ```yaml
 - id: no-edit-submodules

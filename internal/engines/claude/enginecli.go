@@ -116,12 +116,8 @@ const (
 	flagSettings         = "--settings"
 	flagOutputFormat     = "--output-format"
 	// flagPermissionPrompts tells claude who answers a prompt; "none" =
-	// nobody, so what the posture and rules leave open is denied; "host" =
-	// the permission prompt tool.
+	// nobody, so what the posture and rules leave open is denied.
 	flagPermissionPrompts = "--permission-prompts"
-	// flagPermissionPromptTool names the MCP tool that hosts a prompt in a
-	// run nobody sits at: ctxloom's permission host.
-	flagPermissionPromptTool = "--permission-prompt-tool"
 )
 
 // commonFlags are the flags claude's driver can emit on BOTH surfaces.
@@ -190,12 +186,6 @@ const classicScreenEnv = "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN"
 // (run_in_background, auto-backgrounding) for a structured run.
 const disableBackgroundTasksEnv = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 
-// mcpToolIdleTimeoutEnv is claude's idle timeout on a network MCP tool call;
-// 0 turns it off for a structured run. The permission host holds a call
-// open while the human decides, far past the default idle abort — which
-// would end the hold and lose the approval to it.
-const mcpToolIdleTimeoutEnv = "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"
-
 // EngineCLIs declares claude's oneshot and interactive process surfaces.
 //
 // The two differ in these ways, all of them load-bearing:
@@ -225,11 +215,9 @@ func ClaudeEngineCLIs() []agent.EngineCLI {
 			agent.CLIFlag{Name: flagResume, Value: agent.ValueString,
 				Note: "the native session key a resumed Instance continues (Instance.Resume); the structured driver's own protocol flags (--input-format, --verbose) are appended by the driver and are not Exec's"},
 			agent.CLIFlag{Name: flagPermissionPrompts, Value: agent.ValueString,
-				Note: "host when the human at the root answers (through the permission prompt tool); none when nobody does: a structured run has nobody at the engine to answer a prompt"},
-			agent.CLIFlag{Name: flagPermissionPromptTool, Value: agent.ValueString,
-				Note: "ctxloom's permission host (mcp__ctxloom__permission_host), only beside --permission-prompts host"},
+				Note: "none when nobody answers a prompt; absent when the human at the root does, through the PermissionRequest hook"},
 		),
-		SetEnv: append(setEnv(), disableBackgroundTasksEnv, mcpToolIdleTimeoutEnv),
+		SetEnv: append(setEnv(), disableBackgroundTasksEnv),
 		Probes: probes(),
 	}
 	interactive := agent.EngineCLI{

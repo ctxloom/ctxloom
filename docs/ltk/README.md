@@ -285,7 +285,7 @@ within `defaults.repeat_window_seconds` (or a per-rule `window_seconds`) — an
 explicit, time-boxed escape hatch, not a security control. A `confirm` rule can
 add `delay_seconds` to *ignore* an immediate repeat until N seconds pass — this
 removes the "repeating is quicker than complying" incentive and blocks the
-reflexive instant retry (see [Rule mode](docs/RULES.md#rule-mode)).
+reflexive instant retry (see [Rule mode](https://ctxloom.dev/ltk/rules/#rule-mode)).
 
 The set `ltk` ships with — and writes on `manage install` — is documented rule by
 rule, with the rationale for each, in [docs/DEFAULTS.md](docs/DEFAULTS.md).
@@ -322,7 +322,7 @@ rules:
 `command` is an argv pattern: a **program** (matched by name or basename),
 **positional** args (subcommands, order matters), and **options** (flags, order
 doesn't). The full model — including cross-shell portability — is in
-[docs/RULES.md](docs/RULES.md).
+[the rules reference](https://ctxloom.dev/ltk/rules/).
 
 ### Guarding file edits, not just commands
 
@@ -347,7 +347,7 @@ rules:
 
 `manage install` registers the hook for the editing tools as well as the shell
 tools (matcher `Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit`), so path
-rules fire out of the box. Details in [docs/RULES.md](docs/RULES.md#matching-file-edits-matchpath).
+rules fire out of the box. Details in [the rules reference](https://ctxloom.dev/ltk/rules/#matching-file-edits-matchpath).
 
 ### This repo runs its own rules
 

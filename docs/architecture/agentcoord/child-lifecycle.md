@@ -106,7 +106,6 @@ logic reads.
 | `claimSlotIntent` / `commitSlotClaim` / `releaseSlotIntent` | `children.go` | claim the right to acquire (`slotFree` → `slotClaimed`), promote a landed acquisition to `slotHeld` unless a terminal cancelled the claim meanwhile, and roll the claim back |
 | `acquireRunSlot` | `children.go` | the run-start blocking acquisition under that claim/commit guard; returns `errSlotClaimCancelled` when the run terminated mid-wait, having released the landed slot |
 | `releaseSlot` | `children.go` | release only a `slotHeld` slot; on `slotClaimed` set `slotCancel` so the in-flight acquisition gives its slot back when it lands |
-| `onRolePark` / `onRoleUnpark` | `children.go` | yield the slot when a role parks in `agent_recv` or on an approval; re-acquire (**blocking** on `c.baseCtx`, bounded only by process shutdown) when it resumes |
 
 `childRt.slot` is a tri-state (`slotState`) because "holds a slot" and "is acquiring
 one" are different facts: a terminal that lands while an acquisition is in flight

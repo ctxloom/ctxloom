@@ -162,7 +162,7 @@ type Config struct {
 	// delegation) despite differing in kind (one a resource ceiling, the
 	// other structural/correctness). Renamed from the flat agent_turn_cap:
 	// "turn cap" read as a per-run quota, which it never was — a child
-	// parked in agent_recv yields its slot, so it bounds CONCURRENCY, not
+	// idle at a turn boundary yields its slot, so it bounds CONCURRENCY, not
 	// turns. The retired spelling is REFUSED at load (UnmarshalYAML), not
 	// silently ignored — see errRetiredAgentTurnCapKey.
 	delegation DelegationConfig
@@ -972,12 +972,21 @@ func (c *Config) ProfileLoaderOptions() []profiles.LoaderOption {
 		opts = append(opts, profiles.WithRemoteResolver(resolve))
 	}
 	if resolveURL := c.ProfileRemoteURLResolver(); resolveURL != nil {
-		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL))
+		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL), profiles.WithLocalBundleResolver(c.LocalBundleExists))
 	}
 	// Seed remote profiles read from the git clone cache at their locked SHA, so
 	// every consumer of the loader sees them as references without a materialized
 	// copy on disk (the profile-side mirror of SeededBundleLoader).
 	return append(opts, c.ProfileSeedOptions()...)
+}
+
+// LocalBundleExists reports whether name resolves to one of the project's own
+// authored bundles — the local-file-wins oracle (decision E) for profile bundle
+// refs, at load and at store alike, read from the same directories the
+// catalog's project reader reads.
+func (c *Config) LocalBundleExists(name string) bool {
+	_, err := bundles.NewLoader(bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs())).Find(name)
+	return err == nil
 }
 
 // ProfileSeedOptions returns the loader option that seeds the profiles shipped

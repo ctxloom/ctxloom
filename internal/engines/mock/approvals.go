@@ -15,7 +15,7 @@ import (
 )
 
 // Approvals is the mock's approval codec: a plain JSON vocabulary of its
-// own (an ask names its tool, input and call id; an answer its decision),
+// own (an ask names its tool and input; an answer its decision),
 // so the approval route can be driven end to end without a real engine.
 func (m Mock) Approvals() engine.Declared[engine.ApprovalCodec] {
 	return engine.Provide[engine.ApprovalCodec](approvalCodec{})
@@ -23,14 +23,16 @@ func (m Mock) Approvals() engine.Declared[engine.ApprovalCodec] {
 
 type approvalCodec struct{}
 
-// mockCall is the mock's ask payload and host call alike.
+// mockCall is the mock's ask payload.
 type mockCall struct {
-	Tool      string          `json:"tool"`
-	Input     json.RawMessage `json:"input"`
-	ToolUseID string          `json:"tool_use_id"`
+	Tool  string          `json:"tool"`
+	Input json.RawMessage `json:"input"`
 }
 
-var errMockNoTool = errors.New("mock approval: the payload names no tool")
+var (
+	errMockNoTool      = errors.New("mock approval: the payload names no tool")
+	errMockGrantDenied = errors.New("mock approval: a deny carries no session rules and no mode change")
+)
 
 func (c mockCall) decode() (string, json.RawMessage, error) {
 	if c.Tool == "" {
@@ -50,12 +52,16 @@ func (approvalCodec) DecodeAsk(_ string, payload []byte) (engine.PermissionAsk, 
 	if err != nil {
 		return engine.PermissionAsk{}, err
 	}
-	return engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: in, ToolUseID: c.ToolUseID}, nil
+	return engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: in}, nil
 }
 
-// EncodeAnswer writes {allow, session_rules, set_mode, message}; a mode
-// change the mock's model offers no transition to is refused.
+// EncodeAnswer writes {allow, session_rules, set_mode, message}; a deny
+// that grants anything, and a mode change the mock's model offers no
+// transition to, are refused.
 func (approvalCodec) EncodeAnswer(_ string, _ engine.PermissionAsk, a engine.PermissionAnswer) ([]byte, error) {
+	if _, setMode := a.SetMode.Get(); !a.Allow && (setMode || len(a.SessionRules) > 0) {
+		return nil, errMockGrantDenied
+	}
 	out := struct {
 		Allow        bool     `json:"allow"`
 		SessionRules []string `json:"session_rules,omitempty"`
@@ -63,31 +69,16 @@ func (approvalCodec) EncodeAnswer(_ string, _ engine.PermissionAsk, a engine.Per
 		Message      string   `json:"message,omitempty"`
 	}{Allow: a.Allow, SessionRules: a.SessionRules, Message: a.Message}
 	if m, ok := a.SetMode.Get(); ok {
-		if settable := (permissionModel{}).Transitions(nil); !slices.Contains(settable, m) {
+		var settable []string
+		for _, tr := range (permissionModel{}).Transitions(nil) {
+			settable = append(settable, tr.Posture)
+		}
+		if !slices.Contains(settable, m) {
 			return nil, fmt.Errorf("mock approval: an answer may change mode only to %s, not %s", strings.Join(settable, "|"), m)
 		}
 		out.SetMode = m
 	}
 	return json.Marshal(out)
-}
-
-// HostCall reads a mock host call.
-func (approvalCodec) HostCall(args json.RawMessage) (engine.HostCall, error) {
-	var c mockCall
-	if err := json.Unmarshal(args, &c); err != nil {
-		return engine.HostCall{}, fmt.Errorf("mock permission host call: %w", err)
-	}
-	tool, in, err := c.decode()
-	if err != nil {
-		return engine.HostCall{}, err
-	}
-	return engine.HostCall{Tool: tool, ToolUseID: c.ToolUseID, Input: in}, nil
-}
-
-// HostDeny is {allow: false, message}.
-func (approvalCodec) HostDeny(message string) (string, error) {
-	b, err := json.Marshal(map[string]any{"allow": false, "message": message})
-	return string(b), err
 }
 
 // Hooks are the mock's approval hooks: one permission_ask hook (the mock's

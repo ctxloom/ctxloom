@@ -341,7 +341,7 @@ func GeneratePage(feat Feature, narr Narration, capturesByName map[string][]DocC
 		fmt.Sprintf(
 			"This page is generated from a Gherkin acceptance journey (`%s`) plus real "+
 				"terminal output captured from an actual passing run of it — not "+
-				"hand-written. See [the living-docs proposal](https://github.com/ctxloom/ctxloom/blob/main/docs/living-docs-plan.md) for how.",
+				"hand-written.",
 			filepath.Base(feat.Path),
 		),
 		":::",

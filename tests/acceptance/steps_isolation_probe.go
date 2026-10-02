@@ -52,15 +52,9 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		p := probeStateOf(w)
 		p.Engine, p.Axis = engine, probeAxis(axisStr)
 
-		var authPath probeAuthPath
-		var reason string
-		switch {
-		case p.Axis == probeAxisWorktree:
-			authPath, reason = probeWorktreeAuthAvailable(engine)
-		case isProbeContainerAxis(p.Axis):
-			authPath, reason = probeContainerAuthAvailable(engine)
-		default:
-			return fmt.Errorf("isolation probe: unknown axis %q", axisStr)
+		authPath, reason, err := probeTargetAuth(engine, p.Axis)
+		if err != nil {
+			return err
 		}
 		if authPath == probeAuthNone {
 			return probeSkip(engine, p.Axis, authPath, reason)
@@ -73,7 +67,10 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		p := probeStateOf(w)
 		p.Engine, p.Axis, p.ForcedPath = engine, probeAxisWorktree, probeAuthEnvKey
 
-		authPath, reason := probeWorktreeAuthAvailable(engine)
+		authPath, reason, err := probeTargetAuth(engine, p.Axis)
+		if err != nil {
+			return err
+		}
 		if authPath != probeAuthEnvKey {
 			return probeSkip(engine, p.Axis, authPath, fmt.Sprintf("this scenario forces the env-API-key bypass path specifically, but it is not the ambient path (%s) — %s", authPath, reason))
 		}

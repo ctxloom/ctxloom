@@ -165,7 +165,7 @@ func hookEchoCell(stampHarp, echoHarp, stdout string) *hookProbeState {
 		stampHarp: stampHarp,
 		echoHarp:  echoHarp,
 		stampBody: stampHarp + "\n",
-		stampPath: "/tmp/p3-hook-probe/stamp-codex.txt",
+		stampPath: "/tmp/p3-hook-probe/stamp.txt",
 		stdout:    stdout,
 	}
 	return h
@@ -206,7 +206,7 @@ func TestHookProbeAssert_EchoingTheArgvHarpDoesNotSatisfyTheStdoutChannel(t *tes
 // both failing, the reported shape is the whole assertion: it must be the
 // STAMP channel, because "the hook never fired" explains the missing echo,
 // while "the echo did not arrive" explains nothing about the missing file and
-// would send a reader to codex's ingestion when the hook never ran.
+// would send a reader to the engine's ingestion when the hook never ran.
 func TestHookProbeAssert_FiringIsJudgedBeforeIngestion(t *testing.T) {
 	h := hookEchoCell("swift-amber-falcon", "brave-copper-otter", `{"hook":"something-else-entirely"}`)
 	h.stampBody = ""
@@ -349,11 +349,8 @@ func TestHookProbeBundleYAML_DeclaresASessionStartCommandHookCarryingTheHarp(t *
 			t.Errorf("bundle YAML must declare a session_start command hook whose command carries the harp on argv; %q missing from:\n%s", want, y)
 		}
 	}
-	// session_start and not session_end, deliberately: codex declares
-	// session_end unsupported (unsupportedHookKinds / NoSessionEndReason), so a
-	// probe planted there could never run on all three engines.
 	if strings.Contains(y, "session_end") {
-		t.Error("P3 plants on session_start — the one kind all three hook-carrying engines support")
+		t.Error("P3 plants on session_start only")
 	}
 }
 

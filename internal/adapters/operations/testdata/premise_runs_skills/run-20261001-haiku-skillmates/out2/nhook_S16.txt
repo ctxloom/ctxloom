@@ -1,0 +1,1 @@
+`next: Report there are no open decisions—this is a fresh session with no work in progress—and ask what the user wants to work on.`

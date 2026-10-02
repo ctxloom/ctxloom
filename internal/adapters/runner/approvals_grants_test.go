@@ -62,7 +62,10 @@ func TestApprovals_OnlyAnAllowGrants(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newRouteHarness(t, decide)
-			assert.False(t, askByID(t, h, "t1").Allow)
+			h.toolUse("t1", "Bash", lsInput)
+			// The answer itself is the codec's business (a deny carrying
+			// rules does not even encode); what the run holds is the route's.
+			_, _ = h.a.Hook(context.Background(), "PermissionRequest", []byte(`{"tool":"Bash","input":`+lsInput+`,"tool_use_id":"t1"}`))
 			assert.Empty(t, h.a.heldGrants())
 		})
 	}
@@ -108,7 +111,7 @@ func (e *postureEngine) Turn(ctx context.Context, _ engine.Exec, in engine.Turn,
 	case "ask":
 		send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolCallID: "t1", ToolName: "Bash", ToolInput: json.RawMessage(lsInput)}})
 		e.home.mu.Lock()
-		route := e.home.approvalHost
+		route := e.home.approvalRoute
 		e.home.mu.Unlock()
 		if _, err := route.Hook(ctx, "PermissionRequest", []byte(`{"tool":"Bash","input":`+lsInput+`,"tool_use_id":"t1"}`)); err != nil {
 			return engine.TurnResult{}, err

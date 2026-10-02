@@ -22,7 +22,7 @@ import (
 // session-endpoint declaration, never a command.
 const (
 	CtxloomBinary = "ctxloom"
-	MCPServerName = wire.CtxloomServerName
+	MCPServerName = wire.LayerServerName
 )
 
 // CtxloomCommand returns the command to write into a materialized surface
@@ -85,7 +85,7 @@ func ComputeCommandDigest(command string) string {
 
 func ComputeHookHash(h wire.Hook) string {
 	parts := []string{
-		h.Command,
+		h.Line(),
 		h.Matcher,
 		h.Type,
 		h.Prompt,

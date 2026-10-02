@@ -113,7 +113,7 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 	// spurious drift when nothing changed).
 	plan, err = s.Resolve(context.Background(), "dev")
 	require.NoError(t, err)
-	assert.Equal(t, "plan", plan.Permission, "the binding's declared posture rides the plan; the launch floors it")
+	assert.Equal(t, "plan mode", plan.Permission, "the binding's posture rides the plan by its engine's display name; the launch floors it")
 
 	// The mid-session mutation: config.yaml gains a BRAND NEW agent that
 	// never existed in the snapshot captured at newProdSpawner time.
@@ -125,7 +125,7 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 	freshPlan, err := s.Resolve(context.Background(), "fresh")
 	require.NoError(t, err)
 	assert.Equal(t, "claude-code", freshPlan.Backend)
-	assert.Equal(t, "bypass", freshPlan.Permission, "the newly-written permission enum resolves, not a stale snapshot")
+	assert.Equal(t, "bypass permissions", freshPlan.Permission, "the newly-written posture resolves, not a stale snapshot")
 
 	// The generation the FIRST spawn captured never mutates: a reload is a
 	// new generation, not a rewrite of the one already published.

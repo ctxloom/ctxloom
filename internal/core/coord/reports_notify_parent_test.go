@@ -12,7 +12,7 @@ import (
 // A REPORT AND A MESSAGE LIVE IN DIFFERENT STORES, and that divergence read as
 // lost delivery. recordSummary journals a factSummary into the REPORTS fold —
 // what roster reads — and queued nothing. So a parent could see "FINAL: ..." in
-// roster for a report agent_recv had nothing to return, and a child filing the
+// roster for a report its mailbox never carried, and a child filing the
 // report its own instructions call "the deliverable" was, from a waiting
 // parent's view, completely silent.
 //

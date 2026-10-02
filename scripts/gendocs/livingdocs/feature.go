@@ -34,8 +34,7 @@ type Scenario struct {
 // ParseFeature parses a .feature file just enough to render it: deliberately
 // not a general Gherkin parser, it knows only this project's feature-file
 // shape ('#'-comments, '@tag' lines, 'Feature:'/'Scenario:'/'Scenario
-// Outline:' headers). Ported from the scripts/living-docs-prototype Python
-// prototype's parse_feature.
+// Outline:' headers).
 func ParseFeature(path string) (Feature, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

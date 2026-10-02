@@ -6,6 +6,7 @@ package wire
 
 import (
 	"errors"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -18,13 +19,18 @@ import (
 // This is analogous to git hooks, Makefiles, or npm scripts - trusted local configuration.
 // Do not flag this as a security issue in code reviews.
 type Hook struct {
-	Matcher string `yaml:"matcher,omitempty" json:"matcher,omitempty"`   // Regex pattern to filter when hook fires
-	Command string `yaml:"command,omitempty" json:"command,omitempty"`   // Shell command to execute
-	Type    string `yaml:"type,omitempty" json:"type,omitempty"`         // Hook type: command, prompt, agent
-	Prompt  string `yaml:"prompt,omitempty" json:"prompt,omitempty"`     // Prompt text for prompt/agent types
-	Timeout int    `yaml:"timeout,omitempty" json:"timeout,omitempty"`   // Timeout in seconds
-	Async   bool   `yaml:"async,omitempty" json:"async,omitempty"`       // Run in background (command only)
-	SCM     string `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"` // Hash identifying ctxloom-managed hooks
+	Matcher string `yaml:"matcher,omitempty" json:"matcher,omitempty"` // Regex pattern to filter when hook fires
+	Command string `yaml:"command,omitempty" json:"command,omitempty"` // Shell command to execute; in exec form, the executable
+	// Args, when set, runs the hook in EXEC form: Command is the executable,
+	// spawned directly with these arguments, and no shell parses either — so
+	// a path or argument holding a space, a quote or a $ reaches the program
+	// verbatim. Empty: Command is one shell command line.
+	Args    []string `yaml:"args,omitempty" json:"args,omitempty"`
+	Type    string   `yaml:"type,omitempty" json:"type,omitempty"`         // Hook type: command, prompt, agent
+	Prompt  string   `yaml:"prompt,omitempty" json:"prompt,omitempty"`     // Prompt text for prompt/agent types
+	Timeout int      `yaml:"timeout,omitempty" json:"timeout,omitempty"`   // Timeout in seconds
+	Async   bool     `yaml:"async,omitempty" json:"async,omitempty"`       // Run in background (command only)
+	SCM     string   `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"` // Hash identifying ctxloom-managed hooks
 
 	// ContextHash marks this hook as a context-injection hook for the given
 	// assembled-context hash. In-process only (never serialized): writers for
@@ -190,7 +196,24 @@ func (u UnifiedHooks) All() []Hook {
 // of hook identity is not re-invented here, it is moved to where every merge
 // can reach it.
 func hookKey(h Hook) string {
-	return h.Type + "|" + h.Command + "|" + h.Prompt + "|" + h.Matcher
+	return h.Type + "|" + h.Line() + "|" + h.Prompt + "|" + h.Matcher
+}
+
+// Line is the hook's command as ONE shell command line: Command itself in
+// shell form; in exec form, Command and each of Args single-quoted, so a
+// shell handed the line runs exactly the argv. It is the hook's command
+// identity wherever a single string must stand for what runs — its dedupe
+// key, its ownership digest, its trust preimage, its listing — so an exec
+// hook and a shell hook that run the same argv are one hook.
+func (h Hook) Line() string {
+	if len(h.Args) == 0 {
+		return h.Command
+	}
+	words := make([]string, 0, len(h.Args)+1)
+	for _, w := range append([]string{h.Command}, h.Args...) {
+		words = append(words, "'"+strings.ReplaceAll(w, "'", `'\''`)+"'")
+	}
+	return strings.Join(words, " ")
 }
 
 // appendUniqueHooks appends each hook in src that dst does not already carry.

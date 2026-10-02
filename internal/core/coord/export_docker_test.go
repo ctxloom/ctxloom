@@ -34,10 +34,6 @@ var (
 // BypassAgent is a fake agent binding resolved under the bypass permission.
 func BypassAgent() FakeAgent { return fakeAgent{perm: "bypass"} }
 
-// SetEngineCaps sets the capabilities every runner half this fake stands up
-// advertises.
-func (s *fakeSpawner) SetEngineCaps(caps []string) { s.engineCaps = caps }
-
 // AssessTranscriptProgress is assessTranscriptProgress.
 func AssessTranscriptProgress(mon *liveness.Monitor, harp, path string, startedAt time.Time) ProgressVerdict {
 	return assessTranscriptProgress(mon, harp, path, startedAt)

@@ -54,8 +54,8 @@ const (
 	// config.Config.GetDelegationConcurrency (Options.Concurrency); <= 0
 	// (unset) falls back to this constant. Renamed from agentTurnCap: "turn
 	// cap" read as a per-run quota, which it never was. The cap counts
-	// EXECUTING turns only — a child parked in agent_recv or idle at a turn
-	// boundary yields its slot (Coordinator.slots is a resource limiter: the slot is
+	// EXECUTING turns only — a child idle at a turn boundary yields its
+	// slot (Coordinator.slots is a resource limiter: the slot is
 	// acquired before spawner.Launch/StartEngine, never a serialization
 	// primitive).
 	agentConcurrencyCap = 4
@@ -77,9 +77,9 @@ const (
 // slot cap (Coordinator.slots), replacing a single overloaded bool. The
 // old `slotHeld` bool did double duty as both "I am ATTEMPTING to acquire a
 // slot" (set true by claimSlotIntent BEFORE a potentially long BLOCKING
-// acquire — onRoleUnpark's) and "I actually HOLD a slot" (the only fact
-// releaseSlot/onRolePark may safely act on). Those are different facts with
-// an unbounded gap between them, and a concurrent releaseSlot/onRolePark
+// acquire — acquireRunSlot's) and "I actually HOLD a slot" (the only fact
+// releaseSlot may safely act on). Those are different facts with an unbounded
+// gap between them, and a concurrent releaseSlot
 // landing inside that gap could not tell which one it was looking at:
 //   - reading the bit true while only "claiming" (not yet acquired) and
 //     releasing anyway releases a token nobody holds, which since the cap
@@ -131,7 +131,7 @@ type childRt struct {
 
 	// slot is this childRt's relationship to the D4 execution-slot cap
 	// (Coordinator.slots) — see slotState's doc for why this is a
-	// tri-state, not a bool. slotCancel is set by releaseSlot/onRolePark
+	// tri-state, not a bool. slotCancel is set by releaseSlot
 	// when they find slot == slotClaimed (an acquisition is in flight and
 	// must not be released yet); commitSlotClaim consults it once that
 	// acquisition actually lands. Both guarded by Coordinator.mu.
@@ -354,9 +354,10 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 var ErrDelegationRefused = errors.New("agent_run: refused by may_delegate")
 
 // admitDelegation refuses a role the caller's own binding does not list in
-// its may_delegate, naming the ones it does. A caller whose run the
-// coordinator did not enqueue from a binding (the root session) or whose
-// binding lists none may launch any.
+// its may_delegate, naming the ones it does. It is the one check for every
+// caller: a child's run and the root's owned run (OwnerRun.MayDelegate) both
+// journal their binding's list. A caller with no run, or whose binding lists
+// none, may launch any.
 func (c *Coordinator) admitDelegation(caller Identity, role string) error {
 	var agent string
 	var allowed []string
@@ -1114,8 +1115,8 @@ func (c *Coordinator) runtimeForLocked(role, runID string) *childRt {
 // (tryAcquire): this runs on the RunChannel's receive path, which must not
 // block behind another child's turn — the strict queue discipline lives at
 // spawn time (runChild's blocking acquire). claimSlotIntent (one-shot-
-// resume plan Slice 3) makes the check-then-acquire atomic: a racing
-// onRoleUnpark/onTurnStarted pair for the SAME rt can no longer both
+// resume plan Slice 3) makes the check-then-acquire atomic: two racing
+// claimers for the SAME rt can no longer both
 // tryAcquire and both land a slot — exactly one wins the claim, a failed
 // tryAcquire rolls the claim back via releaseSlotIntent, and a successful
 // one is committed via commitSlotClaim rather than left at
@@ -1135,10 +1136,8 @@ func (c *Coordinator) onTurnStarted(role, runID string) {
 		// (terminateRun journals the end before it drops c.attach), so this
 		// would ACQUIRE a slot for a run whose terminal has already released
 		// everything it held — and nothing would ever give that slot back,
-		// shrinking the execution cap for the rest of the process's life. Its
-		// siblings are already guarded this way (onRoleUnpark on the fold state,
-		// onRolePark/releaseSlot on rt.slot); this arm and onTurnIdle's bridge
-		// were the two that were not.
+		// shrinking the execution cap for the rest of the process's life. releaseSlot
+		// is guarded the same way, on rt.slot, as is onTurnIdle's bridge.
 		return
 	}
 	if c.claimSlotIntent(rt) {
@@ -1146,8 +1145,8 @@ func (c *Coordinator) onTurnStarted(role, runID string) {
 			c.releaseSlotIntent(rt)
 		} else if !c.commitSlotClaim(rt) {
 			// Cancelled between the claim and this (non-blocking)
-			// tryAcquire landing — the same reason onRoleUnpark must
-			// handle it below, just a far smaller window here.
+			// tryAcquire landing — the same reason acquireRunSlot must
+			// handle it, just a far smaller window here.
 			c.slots.Release(1)
 		}
 	}
@@ -1300,15 +1299,14 @@ func (c *Coordinator) runState(runID string) string {
 }
 
 // errSlotClaimCancelled reports that the run's TERMINAL (terminateRun's
-// releaseSlot, or onRolePark) cancelled a slot claim while its BLOCKING
+// releaseSlot) cancelled a slot claim while its BLOCKING
 // acquisition was still parked. The slot that eventually landed was handed
 // straight back, and the caller must abandon the work it was acquiring for:
 // the run it belongs to has already ended.
 var errSlotClaimCancelled = errors.New("execution slot claim cancelled by the run's terminal")
 
 // acquireRunSlot is the run-start BLOCKING execution-slot acquisition, done
-// under the same claimSlotIntent/commitSlotClaim guard onTurnStarted and
-// onRoleUnpark use. Its three callers (runChild, resumeChild, wakeChild) each
+// under the same claimSlotIntent/commitSlotClaim guard onTurnStarted uses. Its three callers (runChild, resumeChild, wakeChild) each
 // used to do a bare c.slots.Acquire followed by an unconditional
 // rt.slot = slotHeld, which is precisely the window releaseSlot's doc
 // describes: a terminateRun landing while the acquirer is parked found
@@ -1380,14 +1378,14 @@ func (c *Coordinator) releaseSlot(rt *childRt) {
 // claimSlotIntent atomically claims rt's "this attempt owns acquiring a
 // slot" right (one-shot-resume plan Slice 3): the check
 // (rt.slot == slotFree) and the mutation (-> slotClaimed) happen inside the
-// SAME c.mu window, so two racing callers for the SAME rt (a concurrent
-// onTurnStarted/onRoleUnpark pair, or either fired twice) can never both
+// SAME c.mu window, so two racing callers for the SAME rt (onTurnStarted
+// racing acquireRunSlot, or either fired twice) can never both
 // decide "I need to acquire" — exactly one wins, matching releaseSlot's own
 // pattern above. Returns false when rt already holds (or already owns
 // claiming) a slot: the caller then does nothing further — the occupancy
 // is already correctly accounted for. Deliberately NOT combined with the
-// actual semaphore acquisition (which can block for onRoleUnpark's caller,
-// runtimeSlots.acquire) — holding c.mu across a blocking acquire would
+// actual semaphore acquisition (which can block, for acquireRunSlot's
+// caller) — holding c.mu across a blocking acquire would
 // stall every OTHER coordinator operation needing c.mu for as long as the
 // slot wait takes. The winner does NOT yet hold a real slot: it
 // MUST call commitSlotClaim once its acquisition actually lands one, or
@@ -1411,13 +1409,13 @@ func (c *Coordinator) claimSlotIntentLocked(rt *childRt) bool {
 // commitSlotClaim finalizes a claimSlotIntent win once its acquisition
 // (TryAcquire or a blocking Acquire) has actually landed a real execution
 // slot. If nothing cancelled the claim while the acquisition was
-// in flight, the state becomes slotHeld — the ONLY state releaseSlot/
-// onRolePark may release against. If a concurrent releaseSlot/onRolePark
+// in flight, the state becomes slotHeld — the ONLY state releaseSlot
+// may release against. If a concurrent releaseSlot
 // fired WHILE the acquisition was still pending (slotCancel), the claim
 // instead reverts to slotFree and the caller MUST immediately give the
 // just-landed slot back (c.slots.Release(1)) — it was rendered unwanted the
 // moment it arrived, and nothing else will ever release it: the racing
-// releaseSlot/onRolePark call already ran and deliberately did NOT call
+// releaseSlot call already ran and deliberately did NOT call
 // the release itself, because at that moment the slot was only
 // claimed, not held (see releaseSlot's doc).
 func (c *Coordinator) commitSlotClaim(rt *childRt) (keep bool) {
@@ -1453,8 +1451,16 @@ func (c *Coordinator) releaseSlotIntent(rt *childRt) {
 // slot release (queue advances), credential revocation + severing, the
 // synthesized terminal notice into the parent's spool, and session-end
 // accounting. The record stays: a later send/inject resumes the harp as a
-// fresh run.
+// fresh run. Whether the run's channel is drained first is drainTerminalTail's
+// doc; a terminal decided in-band, on that channel's own recv goroutine, goes
+// through endRun instead.
 func (c *Coordinator) terminateRun(runID, cause, detail string) {
+	c.endRun(runID, cause, detail, cause == CauseRunnerExit || cause == CauseStopped)
+}
+
+// endRun is terminateRun's body; drainTail says whether the run's channel is
+// drained before anything can sever it.
+func (c *Coordinator) endRun(runID, cause, detail string, drainTail bool) {
 	rec, won := c.claimRunTerminal(runID, cause, detail)
 	if !won {
 		return
@@ -1470,15 +1476,11 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// The pause gate lived in the ended run's runner; the record of it ends here.
 	c.setRunPaused(runID, false)
 
-	// D4: drain BEFORE anything below that can tear the
-	// RunChannel's underlying connection down — closeFn (engine.Kill) closes
-	// the runner's WHOLE gRPC ClientConn, which multiplexes RunChannel too,
-	// so calling it first can win the very race this drain exists to close.
-	// An explicit RunExited (CauseRunnerExit) is the ONLY cause whose
-	// production emitter is contractually guaranteed to have just attempted
-	// a run_completed item on that channel — see drainTerminalTail's doc
-	// for why CauseStopped/CauseRunnerLoss must not pay this wait.
-	if cause == CauseRunnerExit {
+	// Drain BEFORE anything below that can tear the RunChannel's underlying
+	// connection down — closeFn (engine.Kill) closes the runner's WHOLE gRPC
+	// ClientConn, which multiplexes RunChannel too, so calling it first can
+	// win the very race the drain exists to close.
+	if drainTail {
 		c.drainTerminalTail(rec.Harp)
 	}
 
@@ -1494,10 +1496,9 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	if launchCancel != nil {
 		launchCancel()
 	}
-	// Revocation severs the credential's parked long-poll AND its live run
-	// channel (the channel teardown un-reserves tentative deliveries so the
-	// leftover-mail check below sees them).
-	c.inbox.sever(rec.Harp, ErrRevoked)
+	// Revocation severs the credential's live run channel (the channel
+	// teardown un-reserves tentative deliveries so the leftover-mail check
+	// below sees them).
 	c.severChan(rec.Harp)
 	// Both cuts above (closeFn's kill of the runner's connection, and
 	// severChan) can discard a ring the runner already SENT. A stop loses that
@@ -1868,7 +1869,7 @@ func (c *Coordinator) failResume(harp string, rec RunRecord, err error) {
 // claimResumedSlot acquires the resumed run's slot and marks it executing;
 // false when the claim failed (the child failed, unless the claim was
 // cancelled). rt is already published (enqueueRun) at this point, so
-// onRolePark/onRoleUnpark/onTurnStarted/claimSlotIntent can all touch
+// onTurnStarted/releaseSlot/claimSlotIntent can all touch
 // rt.slot concurrently; acquireRunSlot owns the whole check-acquire-commit
 // under c.mu, exactly as runChild does.
 func (c *Coordinator) claimResumedSlot(rt *childRt) bool {
@@ -1989,69 +1990,4 @@ func (c *Coordinator) relaunchIfEndedSinceObserved(harp string) {
 	if ended {
 		c.relaunchForLeftoverMail(rec, rec.Cause, rec.Detail)
 	}
-}
-
-// onRolePark ties recv parking to the execution-slot accounting (§6a slot
-// yield): a child parked in agent_recv consumes no compute, so its slot is
-// released while it waits. Roles without a child attachment (the parent
-// session) park without slot bookkeeping.
-//
-// onRoleUnpark's re-acquisition can be a genuinely long BLOCKING
-// wait (c.slots.Acquire). If onRolePark lands while rt is only
-// slotClaimed for that wait (not yet slotHeld), releasing here would give
-// back a slot nobody has actually taken from the pool yet — see
-// releaseSlot's doc, which this mirrors exactly (kept separate rather than
-// calling releaseSlot because onRolePark alone decides whether to
-// setState(StateParked), and only in the slotHeld case, matching prior
-// behavior).
-func (c *Coordinator) onRolePark(role, runID string) {
-	c.mu.Lock()
-	rt := c.runtimeForLocked(role, runID)
-	var wasHeld bool
-	if rt != nil {
-		switch rt.slot {
-		case slotHeld:
-			wasHeld = true
-			rt.slot = slotFree
-		case slotClaimed:
-			rt.slotCancel = true
-		}
-	}
-	c.mu.Unlock()
-	if wasHeld {
-		c.setState(rt, StateParked)
-		c.slots.Release(1)
-	}
-}
-
-// onRoleUnpark re-acquires the slot before a parked recv completes — the
-// child resumes an EXECUTING turn, and the cap counts executing turns.
-// claimSlotIntent (one-shot-resume plan Slice 3) makes "do I still need
-// to acquire" atomic with claiming ownership of doing so: a duplicate/
-// racing unpark signal for the SAME rt (or a race against onTurnStarted)
-// finds a claim or a held slot already in place, skips the blocking
-// acquire entirely, and just reasserts StateExecuting (idempotent) — never
-// a second acquisition against the same rt. commitSlotClaim
-// finalizes the win once the blocking acquire actually lands a real slot;
-// if a concurrent onRolePark/releaseSlot cancelled the claim while that
-// wait was in flight, the just-landed slot is unwanted and must be given
-// straight back rather than leaked.
-func (c *Coordinator) onRoleUnpark(role, runID string) {
-	c.mu.Lock()
-	rt := c.runtimeForLocked(role, runID)
-	c.mu.Unlock()
-	if rt == nil || c.runState(rt.runID) != StateParked {
-		return
-	}
-	if c.claimSlotIntent(rt) {
-		if err := c.slots.Acquire(c.baseCtx, 1); err != nil {
-			c.releaseSlotIntent(rt)
-			return
-		}
-		if !c.commitSlotClaim(rt) {
-			c.slots.Release(1)
-			return
-		}
-	}
-	c.setState(rt, StateExecuting)
 }

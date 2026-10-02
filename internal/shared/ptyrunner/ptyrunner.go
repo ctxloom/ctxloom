@@ -226,7 +226,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdinCl
 	})
 	defer func() { _ = closeOnce() }()
 
-	c := ptyCommand(ctx, ptty, cmd)
+	c := Command(ctx, ptty, cmd)
 
 	// Signal goroutines to stop once the command finishes.
 	done := make(chan struct{})
@@ -282,7 +282,9 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdinCl
 	return runResult(waitErr, closeErr, tw, &resizeErr)
 }
 
-// ptyCommand builds go-pty's own Cmd from the caller's *exec.Cmd.
+// Command builds go-pty's own Cmd from the caller's *exec.Cmd: the one
+// translation from an os/exec command to a pty-started one, shared by every
+// party that starts a child on a go-pty pty.
 //
 // cmd.Args holds argv[0] at index 0. os/exec defaults an empty Args to a
 // one-element slice containing Path, but it does so inside exec.Cmd.Start,
@@ -293,7 +295,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdinCl
 // argv[0] itself is not ours to set: go-pty's Cmd.start rebuilds the child
 // argv as exec.Command(Path, Args[1:]...), so the child always sees Path as
 // argv[0] and a caller's own Args[0] cannot reach it through this library.
-func ptyCommand(ctx context.Context, ptty pty.Pty, cmd *exec.Cmd) *pty.Cmd {
+func Command(ctx context.Context, ptty pty.Pty, cmd *exec.Cmd) *pty.Cmd {
 	var args []string
 	if len(cmd.Args) > 1 {
 		args = cmd.Args[1:]

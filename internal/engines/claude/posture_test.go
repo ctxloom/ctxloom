@@ -66,32 +66,29 @@ func headlessPosture(t *testing.T, p engine.PermissionPolicy) posture {
 // it. Only what never changes per turn is on the launch argv.
 func TestPermissionArgs_HeadlessLaunch(t *testing.T) {
 	for _, m := range []string{modeDefault, modeAcceptEdits} {
-		assert.Equalf(t, hostArgs, permissionArgs(headlessPosture(t, modePolicy(m)), []string{"ctxloom"}), "%s", m)
+		assert.Emptyf(t, permissionArgs(headlessPosture(t, modePolicy(m)), []string{"ctxloom"}), "%s", m)
 	}
 	assert.Equal(t, []string{flagSkipPermissions, flagPermissionPrompts, "none"},
 		permissionArgs(headlessPosture(t, modePolicy(modeBypass)), nil), "bypass stays on the argv, and asks nobody")
-	assert.Equal(t, append([]string{flagDisallowedTools, "Bash,Edit,Write,NotebookEdit", flagAllowedTools, "mcp__ctxloom"}, hostArgs...),
+	assert.Equal(t, []string{flagDisallowedTools, "Bash,Edit,Write,NotebookEdit", flagAllowedTools, "mcp__ctxloom"},
 		permissionArgs(headlessPosture(t, modePolicy(modePlan)), []string{"ctxloom"}), "plain plan keeps its read-only belt and its MCP grant")
 }
-
-// hostArgs hands what the posture and rules leave open to ctxloom's
-// permission host, which holds it for the human at the root.
-var hostArgs = []string{flagPermissionPromptTool, "mcp__ctxloom__permission_host", flagPermissionPrompts, "host"}
 
 // Plan-first drops the mutating-tool deny list (an approved plan must be
 // able to execute; claude's plan mode is read-only on its own) and the
 // argv MCP grant, which would outlive the plan turn as blanket permission.
 func TestPermissionArgs_PlanFirstCarriesNoReadOnlyBelt(t *testing.T) {
 	args := permissionArgs(headlessPosture(t, planFirst(modeAcceptEdits)), []string{"ctxloom"})
-	assert.Equal(t, hostArgs, args)
+	assert.Empty(t, args)
 }
 
-// A headless child's human approver is reached through ctxloom's permission
-// host; with any other approver nobody is asked, and what the rules leave
-// open is denied (claude's own dontAsk or auto decides first).
-func TestPermissionArgs_OnlyTheHumanIsReachedThroughTheHost(t *testing.T) {
+// A headless child's human approver is reached through the PermissionRequest
+// hook, so no prompt flag is passed — the argv the P12 probe rung pins; with
+// any other approver nobody is asked, and what the rules leave open is
+// denied (claude's own dontAsk or auto decides first).
+func TestPermissionArgs_OnlyTheHumanIsReachedThroughTheHook(t *testing.T) {
 	for a, want := range map[engine.Approver][]string{
-		engine.ApproverHuman:    hostArgs,
+		engine.ApproverHuman:    nil,
 		engine.ApproverNone:     {flagPermissionPrompts, "none"},
 		engine.ApproverReviewer: {flagPermissionPrompts, "none"},
 	} {

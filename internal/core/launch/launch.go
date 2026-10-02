@@ -103,6 +103,9 @@ type Selection struct {
 	Fragments []string
 	Tags      []string
 	WorkDir   string
+	// Mode is the launch's mode: what ctxloom's own managed hooks are
+	// assembled for (a structured run is handed its mail as turns).
+	Mode engine.Mode
 }
 
 // EndpointMinter mints the session's MCP endpoint: loopback URL and bearer.

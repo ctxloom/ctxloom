@@ -1,0 +1,3 @@
+`invoke: admit`
+
+I'm reading the task queue for container work before you leave, to triage against stop conditions and confirm this run is safe unattended.

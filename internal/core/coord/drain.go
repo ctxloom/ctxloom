@@ -15,12 +15,12 @@ import (
 //
 // Every wait the coordinator holds on a child is one of exactly two things:
 //
-//   - a wait on a PROCESS, which is BOUNDED at c.drainBound (agent_recv's own
-//     maximum wait, RecvWaitMax — the one declaration of that
-//     number). Exit is REQUESTED at drain start and FORCED at the bound;
-//   - a wait on a HUMAN — a child parked in agent_recv or on a permission
-//     decision (StateParked) — which is a PARK, not a wait: unbounded, never
-//     forced, and LISTED so it cannot be forgotten.
+//   - a wait on a PROCESS, which is BOUNDED at c.drainBound
+//     (drainProcessBound). Exit is REQUESTED at drain start and FORCED at the
+//     bound;
+//   - a wait on a HUMAN — a child parked on a permission decision
+//     (StateParked) — which is a PARK, not a wait: unbounded, never forced,
+//     and LISTED so it cannot be forgotten.
 //
 // Expiry is LOUD: a forced child is audited, warned about, and reported to
 // its parent as interrupted; a park is named in the outcome.
@@ -31,6 +31,11 @@ import (
 // agent_stop (StopChildren — that session's own children, admission left
 // open, because the sweep exists so the session can spawn again).
 // ---------------------------------------------------------------------------
+
+// drainProcessBound is how long a drain waits on a child PROCESS after
+// requesting its exit before forcing it: long enough for a turn in flight to
+// reach its boundary and report, so an ordinary shutdown interrupts no work.
+const drainProcessBound = 10 * time.Minute
 
 // Drain is one bounded drain's handle. Done closes once the drain has
 // settled — every child it tracked has exited, been forced, or been
@@ -61,8 +66,7 @@ type drainPolicy struct {
 	// parkIsWait: a child parked on a human is a PARK — unbounded, never
 	// forced, listed in the outcome. The shutdown drain's rule. A bulk stop
 	// ENDS a parked child instead: what it waits on is the very caller ending
-	// it (an agent_recv on its parent) or a decision the caller is
-	// overriding, and leaving it would leave the roster live and its
+	// it or a decision the caller is overriding, and leaving it would leave the roster live and its
 	// container up — exactly what the sweep exists to prevent.
 	parkIsWait bool
 	// endCause / endDetail record a child that ended WITHOUT a running turn
@@ -127,8 +131,8 @@ func stopPolicy(caller, reason string, grace time.Duration) drainPolicy {
 // with CauseStopped), and only the detail says which.
 //
 // A PARK IS NOT A WAIT HERE, and that is the whole point. A child that files
-// FINAL and then blocks in agent_recv waiting for a parent that will never
-// send again is StateParked, and it is exactly the leak this policy closes:
+// FINAL while StateParked is waiting on a party that will never answer again,
+// and it is exactly the leak this policy closes:
 // leaving it parked leaves its turn open, its session lock held and its
 // CONTAINER up — with the worktree that container bind-mounts pinned under
 // it. The shutdown drain can afford to leave a park for the morning because
@@ -430,8 +434,13 @@ func (c *Coordinator) drainForce(harp, runID string, bound time.Duration, p drai
 // boundary with an exit requested ends there, with its turn's report already
 // written by its runner, instead of parking idle for a next turn that will
 // never be handed out.
+//
+// It never drains the run's channel: the boundary is a frame of that channel,
+// handled on its recv goroutine, so every frame the runner sent before it is
+// already processed, and a drain here would wait the whole window for a
+// run_completed that only this goroutine could read.
 func (c *Coordinator) drainAtBoundary(rt *childRt, p *drainPolicy) {
-	c.terminateRun(rt.runID, p.endCause, p.endDetail("at its turn boundary"))
+	c.endRun(rt.runID, p.endCause, p.endDetail("at its turn boundary"), false)
 }
 
 // interruptThenClose sends ch's runner the per-run stop (stopAtRunner) on its
@@ -493,7 +502,7 @@ type StoppedChild struct {
 
 // StopChildren is agent_stop with run_id omitted: every live child of
 // caller's session is stopped under the ONE drain bound (c.drainBound — the
-// shutdown drain's, agent_recv's max wait; there is no second number), and
+// shutdown drain's; there is no second number), and
 // the per-child outcome comes back by harp. It is addressed by lineage rather
 // than by run_id on purpose: a resumed child runs under a FRESH run_id, so a
 // run_id captured at spawn is stale after any resume, and the sweep exists so

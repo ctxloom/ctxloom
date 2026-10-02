@@ -100,32 +100,33 @@ func TestConsumeWake_OnASpoolNeverCreatedIsNotAnError(t *testing.T) {
 	assert.Empty(t, out)
 }
 
-func TestWakeText_RoundTripsThroughWakeNonce(t *testing.T) {
+// TestClearWakes_RemovesEveryOutstandingNonce: the hook clears every armed
+// nonce on a turn that delivered mail, because that turn delivered what all of
+// them announced — a wake left armed would refuse every later wake (F1).
+func TestClearWakes_RemovesEveryOutstandingNonce(t *testing.T) {
 	hostHome(t)
-	nonce, err := ArmWake(NewHomeMapper(), testHarp)
+	m := NewHomeMapper()
+	a, err := ArmWake(m, testHarp)
+	require.NoError(t, err)
+	b, err := ArmWake(m, testHarp)
+	require.NoError(t, err)
+	other, err := ArmWake(m, "someone-else")
 	require.NoError(t, err)
 
-	got, ok := WakeNonce(WakeText(nonce))
-	require.True(t, ok)
-	assert.Equal(t, nonce, got)
-
-	got, ok = WakeNonce("  " + WakeText(nonce) + "\n")
-	assert.True(t, ok, "surrounding whitespace is transport, not content")
-	assert.Equal(t, nonce, got)
+	n, err := ClearWakes(m, testHarp)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+	out, err := OutstandingWake(m, testHarp)
+	require.NoError(t, err)
+	assert.Empty(t, out, "both %s and %s are cleared", a, b)
+	out, err = OutstandingWake(m, "someone-else")
+	require.NoError(t, err)
+	assert.Equal(t, []string{other}, out, "another harp's wakes are its own")
 }
 
-// A prompt that merely MENTIONS the wake text is a human's prompt: reading it
-// as a wake would let the hook block — erase — what the human typed.
-func TestWakeNonce_OnlyTheWholePromptIsAWake(t *testing.T) {
-	text := WakeText("0123456789abcdef")
-	for _, prompt := range []string{
-		"",
-		"please look at the mail",
-		"why did I see `" + text + "`?",
-		text + " and also fix the build",
-		"ctxloom: mail pending (wake ../../etc)",
-	} {
-		_, ok := WakeNonce(prompt)
-		assert.False(t, ok, "prompt %q", prompt)
-	}
+func TestClearWakes_ASpoolNeverCreatedHasNoneToClear(t *testing.T) {
+	hostHome(t)
+	n, err := ClearWakes(NewHomeMapper(), testHarp)
+	require.NoError(t, err)
+	assert.Zero(t, n)
 }

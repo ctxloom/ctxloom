@@ -63,34 +63,34 @@ func IsTestOnlyEngine(reg engine.Registry, name string) bool {
 	return ok && e.Root().Distribution == engine.DistributionTestOnly
 }
 
-// EffectivePosture names the posture an unflagged run of backend resolves
-// to over a binding's and a label's declarations, in the engine's own
-// vocabulary (its PermissionModel resolves and names it); "" when the
-// engine has no permission model, or the declarations are ones the launch
-// refuses.
-func EffectivePosture(reg engine.Registry, backend string, binding agents.Permissions, label agents.LabelPermissions) string {
+// EffectivePosture is the posture an unflagged run of backend resolves to
+// over a binding's and a label's declarations, resolved and named by the
+// engine's own PermissionModel (PostureName reads its token, Label its
+// display name); the zero Posture when the engine has no permission model,
+// or the declarations are ones the launch refuses.
+func EffectivePosture(reg engine.Registry, backend string, binding agents.Permissions, label agents.LabelPermissions) engine.Posture {
 	kind, ok := reg.Lookup(engine.Name(backend))
 	if !ok {
-		return ""
+		return engine.Posture{}
 	}
 	model, ok := kind.Permissions().Get()
 	if !ok {
-		return ""
+		return engine.Posture{}
 	}
 	var decls []engine.Declaration
 	if block, ok := binding.Engines[backend]; ok {
 		decls = append(decls, engine.Declaration{Document: block, From: "the agent"})
 	} else if len(binding.Engines) > 0 {
-		return ""
+		return engine.Posture{}
 	}
 	if len(label.Engine) > 0 {
 		decls = append(decls, engine.Declaration{Document: label.Engine, From: "the llm label"})
 	}
 	doc, err := model.Resolve(engine.PostureRequest{Declared: decls})
 	if err != nil {
-		return ""
+		return engine.Posture{}
 	}
-	return PostureName(reg, engine.Posture{Engine: engine.Name(backend), Document: doc})
+	return engine.Posture{Engine: engine.Name(backend), Document: doc}.Named(model)
 }
 
 // PostureName names a resolved posture in its engine's own words; "" when

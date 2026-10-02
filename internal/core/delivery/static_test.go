@@ -331,7 +331,7 @@ func (a sessionEndpointApproach) Endpoint(ep sessions.Endpoint) wire.MCPServer {
 // Every other server is passed through as declared.
 func TestInputsFor_SessionEndpointEntry_IsOneMechanism(t *testing.T) {
 	declared := wire.MCPServer{ServedBy: wire.ServedBySessionEndpoint, Notes: "served by the session"}
-	pkg := compositetest.Fixture(t, compositetest.WithMCP(wire.CtxloomServerName, declared), compositetest.WithMCP("tasks", tasks))
+	pkg := compositetest.Fixture(t, compositetest.WithMCP(wire.LayerServerName, declared), compositetest.WithMCP("tasks", tasks))
 	ep := sessions.Endpoint{URL: "http://127.0.0.1:4242/mcp", Credential: "bearer-1"}
 
 	t.Run("in a session, the engine's dynamic approach renders the endpoint under the declared key", func(t *testing.T) {
@@ -340,8 +340,8 @@ func TestInputsFor_SessionEndpointEntry_IsOneMechanism(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []sessions.Endpoint{ep}, rendered, "the approach renders the endpoint the loadout carries, once")
 		require.Equal(t, map[string]wire.MCPServer{
-			wire.CtxloomServerName: {URL: ep.URL, Notes: "rendered by the engine with bearer-1"},
-			"tasks":                tasks,
+			wire.LayerServerName: {URL: ep.URL, Notes: "rendered by the engine with bearer-1"},
+			"tasks":              tasks,
 		}, in.MCP.Servers)
 	})
 	t.Run("at rest, the entry renders nothing", func(t *testing.T) {
@@ -358,11 +358,11 @@ func TestInputsFor_SessionEndpointEntry_IsOneMechanism(t *testing.T) {
 	})
 	t.Run("a stdio entry under ctxloom's key is NOT swapped by name", func(t *testing.T) {
 		stdio := wire.MCPServer{Command: "ctxloom", Args: []string{"mcp", "serve"}}
-		pkg := compositetest.Fixture(t, compositetest.WithMCP(wire.CtxloomServerName, stdio))
+		pkg := compositetest.Fixture(t, compositetest.WithMCP(wire.LayerServerName, stdio))
 		var rendered []sessions.Endpoint
 		in, err := delivery.InputsFor(delivery.Loadout{Package: pkg, MCP: ep}, sessionEndpointApproach{&rendered})
 		require.NoError(t, err)
 		require.Empty(t, rendered)
-		require.Equal(t, map[string]wire.MCPServer{wire.CtxloomServerName: stdio}, in.MCP.Servers, "the declaration, not the key, selects the dynamic rendering")
+		require.Equal(t, map[string]wire.MCPServer{wire.LayerServerName: stdio}, in.MCP.Servers, "the declaration, not the key, selects the dynamic rendering")
 	})
 }

@@ -116,7 +116,8 @@ type Options struct {
 	// dial-home survives (or doesn't) at a given budget.
 	RunnerAwaitTimeout time.Duration
 	// OwnerHarp is the SESSION OWNER's harp: the one recipient whose inbox is
-	// drained IN THIS PROCESS (AgentRecv) rather than by a runner. The owner
+	// read by its turn-start hook (`ctxloom hook mail-drain`) rather than by a
+	// runner. The owner
 	// is a spool recipient like any migrated child, and it is identified by
 	// this declaration alone — never by holding a run record, because a
 	// host/stdio owner has none. Required: a coordinator that did not know
@@ -261,12 +262,9 @@ type Coordinator struct {
 	spoolSeenMu sync.Mutex
 	spoolSeen   map[string]map[string]bool
 
-	mu     sync.Mutex
-	attach map[string]*childRt // runID → runtime attachment
-	byHarp map[string]*childRt // harp → current attachment
-	// inbox is the owner's ONE inbox: the parked receive and the spool
-	// reader behind agent_recv (spoolinbox.go).
-	inbox   *spoolInbox
+	mu      sync.Mutex
+	attach  map[string]*childRt       // runID → runtime attachment
+	byHarp  map[string]*childRt       // harp → current attachment
 	runners map[string]*RunnerSession // credHash → connected runner
 	// graceExpire holds the runner-loss grace windows adopt armed for the
 	// runs it found live at startup, keyed by run id, until each fires. A key
@@ -378,9 +376,8 @@ type Coordinator struct {
 	admissionClosed atomic.Bool
 	// drainBound is how long BeginDrain waits on a child's PROCESS before
 	// forcing it — resolved at construction (tunables.drainBound) from
-	// agent_recv's own maximum wait, RecvWaitMax, which is the one
-	// declaration of that number. A field so a test can shrink it; no
-	// Options field, because the bound is the policy, not a knob.
+	// drainProcessBound. A field so a test can shrink it; no Options field,
+	// because the bound is the policy, not a knob.
 	drainBound time.Duration
 	// drain is the SHUTDOWN drain BeginDrain started, nil until then; drains
 	// is every drain still running — that one and any bulk agent_stop sweep
@@ -510,7 +507,6 @@ func New(opts Options) (*Coordinator, error) {
 		spoolSweepInterval: opts.SpoolSweepInterval,
 		spoolIn:            NewSpoolWriterCache(mapper, spool.DirIn, spoolWriterIDCoordinator),
 	}
-	c.inbox = newSpoolInbox(rep, mapper, &c.spoolDeliveryCount, c.onRolePark, c.onRoleUnpark, c.liveRun)
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
 		return nil, c.abortNew(errors.New("coord: Options.Spawner is required (adapters/spawn, composed at cmd/*)"))
@@ -598,12 +594,10 @@ func resolveTunables(opts Options) tunables {
 	// operator/env tunable, not a per-call test seam): resolved once, here,
 	// from the environment (resolveLaunchTunables), never per attempt.
 	t.maxLaunchAttempts, t.launchBackoffBase, t.launchBackoffMax = resolveLaunchTunables(report.To(opts.Reporter))
-	// ONE POLICY, TWO BOUNDS: a wait on a process is bounded at the longest
-	// wait agent_recv itself will park for; a wait on a human (a parked
-	// child) is not bounded at all. The drain bound is therefore agent_recv's
-	// maximum, read by name — never a second number that could drift from
-	// it.
-	t.drainBound = RecvWaitMax
+	// ONE POLICY, TWO BOUNDS: a wait on a process is bounded
+	// (drainProcessBound); a wait on a human (a parked child) is not bounded
+	// at all.
+	t.drainBound = drainProcessBound
 	return t
 }
 
@@ -1158,26 +1152,6 @@ func deliveryDisposition(state string) (mode, prose string) {
 	default: // executing / parked race
 		return DeliveryQueued, "queued mid-turn: delivered at the child's next turn boundary"
 	}
-}
-
-// liveRun reports whether a call made as (harp, runID) still speaks for a live
-// run (runsFold.liveRun).
-func (c *Coordinator) liveRun(harp, runID string) bool {
-	var live bool
-	c.runs.View(func() { live = c.runsF.liveRun(harp, runID) })
-	return live
-}
-
-// AgentRecv drains the caller's own durable mailbox, parking up to wait.
-// Delivery is AT-LEAST-ONCE: this call implicitly acknowledges the messages a
-// PRIOR recv returned (cursor-ack); unacknowledged deliveries are re-delivered
-// after a coordinator relaunch. Dupes are deduped on message id at the store.
-func (c *Coordinator) AgentRecv(ctx context.Context, caller Identity, wait time.Duration) ([]Message, error) {
-	c.audit("agent_recv", caller.Harp, nil)
-	if !c.ownerSpool(caller.Harp) {
-		return nil, fmt.Errorf("%w (asked for %q; the owner is %q)", ErrRecvNotOwner, caller.Harp, c.ownerHarp)
-	}
-	return c.inbox.recv(ctx, caller.Harp, caller.RunID, wait)
 }
 
 // AgentStop kills a child run (KillRun semantics): the engine/container dies,

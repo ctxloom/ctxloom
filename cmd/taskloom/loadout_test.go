@@ -27,9 +27,10 @@ func TestLoadout_YAML_IsAValidLoadout(t *testing.T) {
 	assert.NotEmpty(t, b.Fragments["taskloom"].Content)
 
 	require.Len(t, b.Hooks.SessionStart, 1)
-	assert.Contains(t, b.Hooks.SessionStart[0].Command, "session-bind")
+	assert.Equal(t, "ctxloom", b.Hooks.SessionStart[0].Command, "exec form: the executable alone")
+	assert.Equal(t, []string{"hook", "session-bind"}, b.Hooks.SessionStart[0].Args)
 	require.Len(t, b.Hooks.PostFileEdit, 1)
-	assert.Contains(t, b.Hooks.PostFileEdit[0].Command, "stamp-plan")
+	assert.Equal(t, []string{"hook", "stamp-plan"}, b.Hooks.PostFileEdit[0].Args)
 
 	require.Contains(t, b.MCP, "taskloom")
 	assert.Equal(t, "taskloom", b.MCP["taskloom"].Command)
@@ -195,7 +196,7 @@ func TestLoadout_SessionBindKeepsPreToolFallback(t *testing.T) {
 
 	require.Len(t, b.Hooks.SessionStart, 1)
 	h := b.Hooks.SessionStart[0]
-	require.Contains(t, h.Command, "session-bind")
+	require.Equal(t, []string{"hook", "session-bind"}, h.Args)
 	assert.True(t, h.PreToolFallback,
 		"session-bind should keep pre_tool_fallback set for the next harness that ships with no session-start event")
 }

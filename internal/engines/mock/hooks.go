@@ -95,6 +95,9 @@ type hookPayload struct {
 	SessionID string `json:"session_id"`
 	ToolName  string `json:"tool_name,omitempty"`
 	Cwd       string `json:"cwd,omitempty"`
+	// Prompt is the submitted prompt on turn_start, under the field name the
+	// turn-start hooks read (the mail-drain hook redeems a wake from it).
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // hookCodec decodes the mock's own payload.
@@ -176,14 +179,15 @@ func registered(hooks wire.UnifiedHooks, event string) []wire.Hook {
 // whose matcher admits tool, with the mock's payload on stdin, in the turn's
 // working directory and environment.
 func fireHooks(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, event, tool string) error {
-	return FireHooks(ctx, hooks, event, tool, ex.WorkDir, ex.Env)
+	return FireHooks(ctx, hooks, event, tool, "", ex.WorkDir, ex.Env)
 }
 
 // FireHooks is fireHooks for a caller that is not a hosted turn — the mock
 // binary's interactive loop, which fires turn_start for each line it reads
-// in its own working directory. The payload names the mock's one session.
-func FireHooks(ctx context.Context, hooks wire.UnifiedHooks, event, tool, workDir string, env map[string]string) error {
-	payload, err := json.Marshal(hookPayload{Event: event, SessionID: sessionKey, ToolName: tool, Cwd: workDir})
+// in its own working directory. The payload names the mock's one session,
+// and carries prompt (the submitted line on turn_start; "" otherwise).
+func FireHooks(ctx context.Context, hooks wire.UnifiedHooks, event, tool, prompt, workDir string, env map[string]string) error {
+	payload, err := json.Marshal(hookPayload{Event: event, SessionID: sessionKey, ToolName: tool, Cwd: workDir, Prompt: prompt})
 	if err != nil {
 		return err
 	}
@@ -201,19 +205,23 @@ func FireHooks(ctx context.Context, hooks wire.UnifiedHooks, event, tool, workDi
 				continue
 			}
 		}
-		if _, err := runHook(ctx, h.Command, payload, workDir, env); err != nil {
+		if _, err := runHook(ctx, h, payload, workDir, env); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// runHook execs one command hook through the shell with the payload on
-// stdin, in the given working directory with env laid over the process's,
-// and returns what it wrote to stdout — a hook's answer, where its event
-// takes one.
-func runHook(ctx context.Context, command string, payload []byte, workDir string, env map[string]string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+// runHook execs one command hook with the payload on stdin, in the given
+// working directory with env laid over the process's, and returns what it
+// wrote to stdout — a hook's answer, where its event takes one. An
+// exec-form hook (wire.Hook.Args) is spawned directly, as claude spawns one;
+// any other runs through the shell.
+func runHook(ctx context.Context, h wire.Hook, payload []byte, workDir string, env map[string]string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "sh", "-c", h.Command)
+	if len(h.Args) > 0 {
+		cmd = exec.CommandContext(ctx, h.Command, h.Args...)
+	}
 	cmd.Stdin = bytes.NewReader(payload)
 	cmd.Dir = workDir
 	cmd.Env = os.Environ()
@@ -224,7 +232,7 @@ func runHook(ctx context.Context, command string, payload []byte, workDir string
 	var stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("mock: hook %q: %w: %s", command, err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("mock: hook %q: %w: %s", h.Line(), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil
 }

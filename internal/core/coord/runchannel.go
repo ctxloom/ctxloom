@@ -16,12 +16,6 @@ import (
 // Custom event/request names — the namespaced "ctxloom/*" vocabulary riding
 // the contract's open extension points (CustomEvent / CustomRequest).
 const (
-	// CustomRecvParked / CustomRecvUnparked assert the runner-local
-	// agent_recv park state: park yields the child's execution slot
-	// (onRolePark); unpark re-acquires. Runtime state — handled, never
-	// journaled; the runner RE-ASSERTS the current state after a reconnect.
-	CustomRecvParked   = "ctxloom/recv_parked"
-	CustomRecvUnparked = "ctxloom/recv_unparked"
 	// CustomHarnessSession reports the harness-NATIVE session id the moment
 	// the engine host learns it (the ACP Session event) — the coordinator
 	// binds it onto the harp's session entry (bindNativeSession) as the
@@ -332,10 +326,6 @@ func (c *Coordinator) ackThrough(ch *RunChannel, seq uint64) {
 // handleCustomEvent serves the ctxloom/* custom event vocabulary.
 func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) {
 	switch ev.Name {
-	case CustomRecvParked:
-		c.onRolePark(ch.role, ch.id.RunID)
-	case CustomRecvUnparked:
-		c.onRoleUnpark(ch.role, ch.id.RunID)
 	case CustomHarnessSession:
 		sid, _ := ev.Value["session_id"].(string)
 		if sid == "" {
@@ -381,35 +371,32 @@ func (c *Coordinator) ReleaseRun(ch *RunChannel) {
 	ch.cancel()
 }
 
-// terminalDrainWindow bounds drainTerminalTail's safety-net wait: the cap for
-// a runner that reported RunExited (claiming a terminal event was sent) but
-// whose run_completed item somehow never arrives. In the common case the
-// wait resolves in microseconds (ch.completed is usually already closed by
-// the time drainTerminalTail runs) or milliseconds (the race window); this
-// cap only matters on a truly pathological runner and must never hang
-// shutdown indefinitely.
+// terminalDrainWindow bounds drainTerminalTail's wait: the cap for a run whose
+// run_completed item never arrives — a stopped run's runner may never send
+// one, and a pathological runner may claim one it never sent. It must never
+// hang termination indefinitely; when a run_completed does arrive the wait
+// ends there instead.
 const terminalDrainWindow = 500 * time.Millisecond
 
-// drainTerminalTail closes the terminal-tail race: the
-// runner emits a normal exit's final run_completed item on the RunChannel
-// and reports RunExited on the SEPARATE RunnerChannel back-to-back — two
-// different streams, no ordering guarantee between them. Cancelling the
-// RunChannel's context (severChan) the instant RunExited lands can discard
-// an already-in-flight-but-not-yet-processed run_completed frame (a
-// pending/future stream.Recv on a cancelled context returns Canceled even
-// for data already on the wire). A short, bounded wait for the channel's
-// own "run_completed flushed" signal (or the window's expiry) closes the
-// gap without holding up shutdown: in the OVERWHELMINGLY common case
-// ch.completed is already closed by the time this runs (item events process
-// well before the separate RunnerChannel round-trip completes), so the wait
-// costs nothing.
+// drainTerminalTail keeps a terminating run's channel live until its frames
+// already on the wire have been processed, before terminateRun severs it.
+// The runner sends a run's frames in order on its RunChannel, but the
+// decision to terminate arrives on a different path — a RunExited on the
+// separate RunnerChannel, or an agent_stop from the parent — with no ordering
+// between the two. Cancelling the channel the instant that decision lands
+// discards frames already sent but not yet read (a Recv on a cancelled
+// stream returns Canceled even for data already on the wire): the run's
+// final run_completed item, and the session announce that a later resume or
+// relaunch needs as its key. The wait ends when ch.completed closes (the
+// run_completed item is journaled) or at terminalDrainWindow.
 //
-// Scope: only CauseRunnerExit termination calls this — the ONLY cause whose
-// production emitter (the engine host's adapt) is contractually guaranteed
-// to have just attempted a run_completed. CauseStopped (agent_stop / KillRun)
-// and CauseRunnerLoss (disconnect/heartbeat silence — the runner and its
-// harness died together) have no such guarantee and must not pay this
-// wait for no benefit.
+// Scope: terminateRun drains for every cause whose runner is alive and may
+// still be sending on a live channel — an explicit runner exit and a stop. A
+// stop whose runner never sends run_completed therefore pays the whole
+// window. Runner loss does not drain: the runner and its stream died
+// together, so nothing more can arrive. Nor does a terminal decided in-band
+// by a frame of the run's own channel (drainAtBoundary): it runs on the recv
+// goroutine this wait depends on.
 func (c *Coordinator) drainTerminalTail(role string) {
 	c.mu.Lock()
 	ch := c.chans[role]

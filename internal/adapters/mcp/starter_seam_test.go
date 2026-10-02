@@ -71,7 +71,7 @@ func TestStarterSeam_MockChildRidesTheSpool(t *testing.T) {
 	}, 10*time.Second, 10*time.Millisecond, "the delivered file must be consumed by rename in the child's own spool")
 
 	// Up: the child's agent_send is a local file write that the coordinator
-	// routes into the owner's agent_recv.
+	// routes into the owner's own spool, where its turn-start hook reads it.
 	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
 			ToRole: coord.ParentAddress, Text: "a finding", Kind: agentcoordpb.MessageKind_MESSAGE_KIND_RESULT,
@@ -79,18 +79,18 @@ func TestStarterSeam_MockChildRidesTheSpool(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 0, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
-	var got []coord.Message
+	var got []spool.Entry
 	require.Eventually(t, func() bool {
-		msgs, rerr := c.AgentRecv(context.Background(), owner, 200*time.Millisecond)
-		if rerr != nil {
+		res, cerr := spool.Claim(spool.NewHomeMapper(), owner.Harp)
+		if cerr != nil {
 			return false
 		}
-		for _, m := range msgs {
-			if m.Body == "a finding" {
-				got = append(got, m)
+		for _, e := range res.Entries {
+			if e.Message.Body == "a finding" {
+				got = append(got, e)
 			}
 		}
 		return len(got) > 0
-	}, 10*time.Second, 10*time.Millisecond, "the owner's agent_recv must be satisfied from the child's out/ spool")
-	assert.Equal(t, out.Harp, got[0].From)
+	}, 10*time.Second, 10*time.Millisecond, "the child's send must reach the owner's spool from the child's out/")
+	assert.Equal(t, out.Harp, got[0].Message.FromHarp)
 }

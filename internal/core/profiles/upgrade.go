@@ -26,14 +26,18 @@ import (
 // local project profile has no remote), so the pipeline is always built — that
 // keeps future remote-independent upgrades from being skipped for local profiles.
 //
+// localBundleExists reports whether a "<alias>/<bundle>" base names a LOCAL
+// bundle; such a ref stays local (decision E, local-file-wins). Nil skips the
+// check.
+//
 // seeded is the loader's bundle-profile seed ("<bundle>#profiles/<name>" keys):
 // the discovery surface for rewriting retired top-level @profiles/ parents to
 // their bundle-shipped successors.
-func profileUpgrades(ownURL string, aliasToURL func(string) string, seeded map[string]*Profile) upgrade.Pipeline {
+func profileUpgrades(ownURL string, aliasToURL func(string) string, localBundleExists func(string) bool, seeded map[string]*Profile) upgrade.Pipeline {
 	return upgrade.Pipeline{
 		promptSelectorUpgrade{},
 		retiredParentUpgrade{seeded: seeded},
-		bundleRefCanonicalizeUpgrade{ownURL: ownURL, aliasToURL: aliasToURL},
+		bundleRefCanonicalizeUpgrade{ownURL: ownURL, aliasToURL: aliasToURL, localBundleExists: localBundleExists},
 	}
 }
 
@@ -166,7 +170,9 @@ func findBundleProfileKey(seeded map[string]*Profile, url, name string) (string,
 //     remote).
 //   - An "<alias>/<bundle>" ref resolves against the alias' repo URL via
 //     aliasToURL — including the common case where the alias is the profile's
-//     own remote (a redundant prefix the old qualifier produced).
+//     own remote (a redundant prefix the old qualifier produced) — through
+//     remote.CanonicalizeShortRef, so a LOCAL bundle spelled the same way
+//     (localBundleExists) stays local rather than being migrated to the remote.
 //   - An already-canonical ref is left untouched, so the upgrade is idempotent.
 //   - A legacy ":fragments/…" / ":commands/…" / ":mcp" item selector is rewritten
 //     to the canonical "#…" form; a "#…" selector is preserved verbatim.
@@ -174,8 +180,9 @@ func findBundleProfileKey(seeded map[string]*Profile, url, name string) (string,
 //     that fails to parse) is left unchanged — fault tolerant: persist the
 //     authored form rather than drop the ref.
 type bundleRefCanonicalizeUpgrade struct {
-	ownURL     string
-	aliasToURL func(string) string
+	ownURL            string
+	aliasToURL        func(string) string
+	localBundleExists func(string) bool
 }
 
 // Name identifies the upgrade in logs and the rewrite prompt.
@@ -262,24 +269,19 @@ func (u bundleRefCanonicalizeUpgrade) canonicalize(ref string) (string, bool) {
 		return ref, false
 	}
 
-	// Determine the source repo URL and the bundle path within it.
-	var srcURL, bundlePath string
-	if alias, rest, ok := strings.Cut(base, "/"); ok && rest != "" {
-		// "<alias>/<bundle>": resolve the alias to its repo URL.
-		if u.aliasToURL != nil {
-			srcURL = u.aliasToURL(alias)
-		}
-		bundlePath = rest
-	} else if !strings.Contains(base, "/") {
+	var resolved string
+	if strings.Contains(base, "/") {
+		// "<alias>/<bundle>": the shared short-ref resolver, local-file-wins.
+		resolved = remote.CanonicalizeShortRef(base, u.aliasToURL, u.localBundleExists)
+	} else if u.ownURL != "" {
 		// Bare "<bundle>": resolve against the profile's own remote.
-		srcURL = u.ownURL
-		bundlePath = base
+		resolved = u.ownURL + "@" + remote.ItemTypeBundle.DirName() + "/" + base
 	}
-	if srcURL == "" || bundlePath == "" {
+	if !remote.IsCanonicalRef(resolved) {
 		return ref, false
 	}
 
-	canonical := srcURL + "@" + remote.ItemTypeBundle.DirName() + "/" + bundlePath + item
+	canonical := resolved + item
 	// Validate before adopting: an unparseable result means our inputs didn't
 	// compose into a real ref, so keep the authored form rather than corrupt it.
 	if _, err := remote.ParseReference(canonical); err != nil {

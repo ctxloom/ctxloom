@@ -76,7 +76,7 @@ then validated against an embedded JSON Schema.
 | Symbol | file:line | Notes |
 |---|---|---|
 | `Config` | `config.go:182` | `{Homing string, TagSchema []string}`. Both methods are on the **value** receiver — the type is immutable after `Load` |
-| `ResolvedTagSchema` | `config.go:202` | `c.TagSchema`, or `DefaultTagSchema` when empty. This three-line method *is* the "a fresh project gets the full standard with no opt-in" policy |
+| `ResolvedTagSchema` | `config.go:202` | `DefaultTagSchema` followed by `c.TagSchema`: a project extends the baseline, and `tagschema.Parse`'s last-wins lets it override one entry. This method *is* the "a fresh project gets the full standard with no opt-in" policy, and the reason adding one rule cannot drop the rest |
 | `ParsedTagSchema` | `config.go:215` | `tagschema.Parse(c.ResolvedTagSchema())` — fails loud on a bad declaration |
 | `DefaultTagSchema` | `config.go:169-179` | Two ~300-character priority/decay formula strings that hard-code identifiers owned by `priority` (`age_days`, `age_factor`, the `{{ns:key=*}}` composite syntax) and by `tagschema`. A rename there fails at **run time**, on every invocation; `config_test.go:326-352` compiles the default and asserts `diag.NoPriorityFn` is false, which is the only guard |
 | `Load` | `config.go:306` | `loadRaw` → remarshal to YAML → unmarshal into `Config` → validate the **merged** bytes (which is the right layer: it catches an unknown key introduced by an env override) |
@@ -249,8 +249,8 @@ its primary checkout's task store rather than one that dies with the worktree.
 5. **Every renderer has an explicit empty state**: `(no tasks)`, `(no plans)`,
    `(no open tasks; …)`, `(no tags in use — apply one with …)`, `no triage-standard violations
    found`.
-6. **`config.ResolvedTagSchema` cannot yield an empty schema** for an unset key — the default is
-   substituted, so a fresh project always runs with the full triage standard.
+6. **`config.ResolvedTagSchema` cannot yield an empty schema** — the default is always its base,
+   so a project always runs with the full triage standard plus its own declarations.
 7. **`ResolveMode` cannot return an empty mode without an error.**
 8. **`Get` refuses prefix matching** — a typo must error rather than silently pick an engine.
 9. **`watch` emits once before any change** so a subscriber has no initial-query race

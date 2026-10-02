@@ -1,0 +1,1 @@
+next: Report that there is nothing to close out — this conversation has no prior work, code changes, tests, or task log. Ask if there's prior context from a different session or work the human intended to closeout.

@@ -1,0 +1,1 @@
+next: I'll report that there are no pending decisions to surface — this is a fresh session with no prior context, task log, deferrals, or design docs to sweep for open questions.

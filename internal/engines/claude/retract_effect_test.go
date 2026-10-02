@@ -23,7 +23,8 @@ func hookCommands(t *testing.T, projectDir string) []string {
 	var settings struct {
 		Hooks map[string][]struct {
 			Hooks []struct {
-				Command string `json:"command"`
+				Command string   `json:"command"`
+				Args    []string `json:"args"`
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
@@ -32,7 +33,7 @@ func hookCommands(t *testing.T, projectDir string) []string {
 	for _, matchers := range settings.Hooks {
 		for _, m := range matchers {
 			for _, h := range m.Hooks {
-				out = append(out, h.Command)
+				out = append(out, wire.Hook{Command: h.Command, Args: h.Args}.Line())
 			}
 		}
 	}

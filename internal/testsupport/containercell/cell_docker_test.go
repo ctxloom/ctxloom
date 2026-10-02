@@ -27,27 +27,13 @@ package containercell_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
-
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
-)
-
-// The fixture's markers. Long enough that a containment assertion is a real
-// claim about the payload rather than a search for a token that could survive
-// truncation.
-const (
-	fragmentBody = "CELL-FRAGMENT-4a91c2 the published fragment body must cross the process boundary verbatim,\n" +
-		"which is a claim about several lines of prose and not about one marker token.\n"
-	skillBody  = "CELL-SKILL-3e77da the skill package's own bytes, delivered whole."
-	scriptBody = "#!/bin/sh\necho CELL-SCRIPT-7d33e1\n"
 )
 
 // TestContainerCell_DeliversAcrossTheProcessBoundary runs ctxloom INSIDE a
@@ -89,6 +75,9 @@ func assertCellDelivers(t *testing.T, ctx context.Context, rt containercell.Runt
 	t.Helper()
 	root := t.TempDir()
 	project := writeCellFixture(t, root)
+	if err := requireCellBundle(project); err != nil {
+		t.Fatal(err)
+	}
 	target := filepath.Join(root, "target")
 
 	res, err := rt.Run(ctx, containercell.Spec{
@@ -117,8 +106,8 @@ func assertCellDelivers(t *testing.T, ctx context.Context, rt containercell.Runt
 	assertDelivered(t, contextFile, 0o600, "the engine's context file", res)
 	body := readFile(t, contextFile)
 	if !strings.Contains(body, strings.TrimSpace(fragmentBody)) {
-		t.Fatalf("the context file delivered by the %s cell does not carry the fragment body verbatim\n--- published ---\n%s\n--- delivered (%d bytes) ---\n%s",
-			rt.Name, fragmentBody, len(body), body)
+		t.Fatalf("the context file delivered by the %s cell does not carry the fragment body verbatim\n--- published ---\n%s\n--- delivered (%d bytes) ---\n%s\n--- container output ---\n%s",
+			rt.Name, fragmentBody, len(body), body, res.Output)
 	}
 
 	skill := filepath.Join(target, ".mock", "skills", "reviewer", "SKILL.md")
@@ -154,67 +143,4 @@ func assertDelivered(t *testing.T, path string, wantMode os.FileMode, what strin
 	if err := containercell.AssertOwnedByInvoker(path, what); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// writeCellFixture authors a minimal ctxloom project whose default profile
-// selects one fragment and one skill package, and returns the project dir.
-//
-// A directory-form bundle is required, not incidental: a skill package is
-// multi-file and a single-file bundle cannot hold one.
-func writeCellFixture(t *testing.T, root string) string {
-	t.Helper()
-	project := filepath.Join(root, "project")
-	bundlesRoot := paths.LocalBundlesPathFor(filepath.Join(project, ".ctxloom"), paths.LayoutV2)
-	bundle := filepath.Join(bundlesRoot, "cell")
-	mustMkdirAll(t, filepath.Join(root, "home"))
-	mustMkdirAll(t, filepath.Join(project, ".ctxloom", "profiles"))
-
-	var b strings.Builder
-	b.WriteString("version: 1.0.0\ndescription: container cell fixture\nfragments:\n  cell-marker:\n    tags: [cell]\n    content: |\n")
-	for _, line := range strings.Split(strings.TrimRight(fragmentBody, "\n"), "\n") {
-		fmt.Fprintf(&b, "      %s\n", line)
-	}
-	bundletree.WriteOS(t, bundlesRoot, "cell", b.String())
-	mustMkdirAll(t, filepath.Join(bundle, "skills", "reviewer", "scripts"))
-
-	mustWrite(t, filepath.Join(bundle, "skills", "reviewer", "SKILL.md"),
-		"---\nname: reviewer\ndescription: container cell fixture skill\n---\n"+skillBody+"\n", 0o644)
-	// 0755 AT THE SOURCE is what makes the delivered 0755 a real claim: a
-	// fixture that published a non-executable script would assert the harness
-	// rather than the product.
-	mustWrite(t, filepath.Join(bundle, "skills", "reviewer", "scripts", "run.sh"), scriptBody, 0o755)
-
-	mustWrite(t, filepath.Join(project, ".ctxloom", "profiles", "default.yaml"),
-		"name: default\nfragments:\n  - cell#fragments/cell-marker\nskills:\n  - cell#skills/reviewer\n", 0o644)
-	mustWrite(t, filepath.Join(project, ".ctxloom", "config.yaml"), "version: 4\n", 0o644)
-	return project
-}
-
-func mustMkdirAll(t *testing.T, dir string) {
-	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func mustWrite(t *testing.T, path, content string, mode os.FileMode) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), mode); err != nil {
-		t.Fatal(err)
-	}
-	// os.WriteFile applies the process umask, and the exec bit is the whole
-	// point of the 0755 entry — re-assert it rather than publishing a fixture
-	// the umask silently weakened.
-	if err := os.Chmod(path, mode); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
 }

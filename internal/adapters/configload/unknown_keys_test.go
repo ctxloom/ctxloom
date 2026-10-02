@@ -286,3 +286,18 @@ func TestLoad_NonUnknownKeyFaultInsideAnyOfBranch_StillReported(t *testing.T) {
 	require.NotEmpty(t, cfg.GetWarnings(), "a fault inside a branch must still be reported")
 	assert.Equal(t, config.WarnKindValidate, cfg.GetWarnings()[0].Kind)
 }
+
+// `dirty_tree_commit_ack` left the config chain for a state record that only a
+// human surface writes, and nothing carries an old config value across: the
+// consent is gone after upgrade. That fails closed, which is right, but it must
+// not fail SILENTLY — the user has to be told the key is retired and how to
+// re-grant, or a refused spawn reads as a regression with no cause.
+func TestLoad_RetiredDirtyTreeCommitAck_NamesRegrantCommand(t *testing.T) {
+	cfg := loadYAML(t, "version: 6\ndirty_tree_commit_ack: true\n")
+
+	warns := unknownKeyWarnings(cfg)
+	require.Len(t, warns, 1)
+	assert.Contains(t, warns[0].Text, "dirty_tree_commit_ack", "the message must name the retired key")
+	assert.Contains(t, warns[0].Text, "RETIRED", "the user must be told the key is gone, not misspelled")
+	assert.Contains(t, warns[0].Text, "ctxloom manage commit trust", "and how to re-grant the consent")
+}

@@ -33,7 +33,7 @@ const (
 	// It exists because a report and a message are stored in different places.
 	// recordSummary journals a factSummary into the REPORTS fold, which is what
 	// roster reads — so a parent could see "FINAL: ..." in roster for a report
-	// agent_recv had nothing to return, because the fold and the mailbox are
+	// the parent's mailbox never carried, because the fold and the mailbox are
 	// different stores. A child filing the report its instructions call "the
 	// deliverable" was, from a parent's waiting receive, silent.
 	//

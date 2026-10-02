@@ -124,13 +124,36 @@ func TestHookApproach_PayloadReachesTheInjectedContext(t *testing.T) {
 			b, err := os.ReadFile(tc.path)
 			require.NoError(t, err, "%s: the settings surface carrying the hook must exist", tc.name)
 			settings := string(b)
-			assert.Contains(t, settings, "hook inject-context",
+			assert.True(t, sessionStartRegisters(t, b, "hook", "inject-context"),
 				"%s: the SessionStart inject-context hook must be registered", tc.name)
 			assert.Contains(t, settings, hash,
 				"%s: the registered hook must name the hash of the context just regenerated", tc.name)
 		})
 	}
 
+}
+
+// sessionStartRegisters reports whether a claude settings surface carries a
+// SessionStart hook whose exec-form args begin with want. Hooks are exec form
+// (command + args), so the subcommand is never a single substring.
+func sessionStartRegisters(t *testing.T, settings []byte, want ...string) bool {
+	t.Helper()
+	var doc struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Args []string `json:"args"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	require.NoError(t, json.Unmarshal(settings, &doc))
+	for _, group := range doc.Hooks["SessionStart"] {
+		for _, h := range group.Hooks {
+			if len(h.Args) >= len(want) && strings.Join(h.Args[:len(want)], " ") == strings.Join(want, " ") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // TestHookApproach_MissingCacheFileInjectsNothingAndSaysSo is the negative

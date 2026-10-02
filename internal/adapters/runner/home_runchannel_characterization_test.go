@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -115,7 +114,7 @@ func TestRunChannelOnce_HandshakeFailures(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h := recvHome(t)
+			h := channelHome(t)
 			err := runChannelOnceBounded(t, h, runChannelClient(t, tc.srv))
 			require.EqualError(t, err, tc.wantErr)
 			require.Equal(t, "run-1", tc.srv.hello.GetRunId())
@@ -130,21 +129,17 @@ func TestRunChannelOnce_HandshakeFailures(t *testing.T) {
 // TestRunChannelOnce_AttachReissuesThenDetaches: an accepted Hello attaches
 // the stream, sends the attach Heartbeat FIRST and unconditionally (the
 // coordinator's cue to re-sweep out/ — Coordinator.ConfirmAttach), then
-// reissues, in order, every unacked event, every outstanding
-// request with its original id, and — because a recv is parked — a fresh
-// parked event. When the coordinator ends the stream the error is returned
-// and the stream is detached.
+// reissues, in order, every unacked event and every outstanding request
+// with its original id. When the coordinator ends the stream the error is
+// returned and the stream is detached.
 func TestRunChannelOnce_AttachReissuesThenDetaches(t *testing.T) {
-	h := recvHome(t)
+	h := channelHome(t)
 	h.emitCustomEvent("ctxloom/one", nil)
 	h.emitCustomEvent("ctxloom/two", nil)
 	_, ok := h.requests.Register("req-1", &agentcoordpb.AgentRequest{RequestId: "req-1"})
 	require.True(t, ok)
-	h.mu.Lock()
-	h.parked = true
-	h.mu.Unlock()
 
-	srv := &runChannelServer{first: helloAck(true, nil), collect: 5}
+	srv := &runChannelServer{first: helloAck(true, nil), collect: 4}
 	// A frame never sent would leave the fake waiting; tearing the Home down
 	// turns that hang into a failed assertion below.
 	watchdog := time.AfterFunc(conformanceWait, h.cancel)
@@ -157,7 +152,7 @@ func TestRunChannelOnce_AttachReissuesThenDetaches(t *testing.T) {
 	require.Zero(t, srv.hello.GetResumeFromSeq())
 	require.Equal(t, h.helloCapabilities(), srv.hello.GetCapabilities())
 
-	require.Len(t, srv.got, 5)
+	require.Len(t, srv.got, 4)
 	require.Equal(t, "run-1", srv.got[0].GetHeartbeat().GetRunId(), "the attach Heartbeat precedes the reissue")
 	srv.got = srv.got[1:]
 	require.Equal(t, "ctxloom/one", srv.got[0].GetEvent().GetCustom().GetName())
@@ -165,11 +160,16 @@ func TestRunChannelOnce_AttachReissuesThenDetaches(t *testing.T) {
 	require.Equal(t, "ctxloom/two", srv.got[1].GetEvent().GetCustom().GetName())
 	require.Equal(t, uint64(2), srv.got[1].GetEvent().GetSeq())
 	require.Equal(t, "req-1", srv.got[2].GetRequest().GetRequestId())
-	require.Equal(t, coord.CustomRecvParked, srv.got[3].GetEvent().GetCustom().GetName())
-	require.Equal(t, uint64(3), srv.got[3].GetEvent().GetSeq())
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	require.Nil(t, h.stream, "the stream is detached once the channel ends")
 	require.True(t, h.everAttached)
+}
+
+// channelHome is a Home whose coordinator is never reached, with an
+// owner-loss window too long to end a test.
+func channelHome(t *testing.T) *Home {
+	t.Helper()
+	return ownerLossHome(t, "http://127.0.0.1:1/mcp", time.Hour)
 }

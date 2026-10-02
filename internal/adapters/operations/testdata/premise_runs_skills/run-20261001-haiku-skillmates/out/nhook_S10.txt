@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+Closeout verification requires the gate, task log, and context for the prior work. That context was cleared, so I cannot verify what landed, mutate test coverage, or update task tracking for commits before the `/clear`. What should I do with the prior items?

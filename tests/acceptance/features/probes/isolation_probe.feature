@@ -41,8 +41,8 @@ Feature: Isolation probe — live proof against real vendor engines
   # credential path is ambient (env API key, or a host credential file) — exactly
   # ctxloom's own resolveEnvOrMountAuth precedence, so a cell can never claim to
   # have proven a path it did not actually take. Self-skips LOUDLY, per cell, with
-  # the specific missing credential AND axis named — see isolation_probe.go's
-  # probeWorktreeAuthAvailable / probeContainerAuthAvailable.
+  # the specific missing opt-in, credential AND axis named — see isolation_probe.go's
+  # probeTargetAuth.
   # Each Examples block below carries its own @<engine> @<axis> tag pair —
   # not decoration, the addressing mechanism: `just isolation-probe <engine>
   # <axis>` sets ACCEPTANCE_TAGS="@live && @<engine> && @<axis>" to run

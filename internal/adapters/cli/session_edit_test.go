@@ -2,12 +2,14 @@ package cli
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -95,6 +97,21 @@ func TestSessionEdit_UnknownHarpFails(t *testing.T) {
 	_, err := execRootCmd(t, "session", "edit", "no-such-harp", "--name", "bright-keen-hawk")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no-such-harp")
+}
+
+// TestSessionEdit_NameRefusesPastTheLengthLimit: `edit --name` past
+// harp.MaxNameLen is refused with the typed sentinel, and the session keeps
+// its name.
+func TestSessionEdit_NameRefusesPastTheLengthLimit(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	mgr, harpName := seedEndedSession(t, dir, "claude-code")
+	t.Cleanup(resetSessionEditFlags)
+
+	_, err := execRootCmd(t, "session", "edit", harpName, "--name", strings.Repeat("a", harp.MaxNameLen+1))
+	require.ErrorIs(t, err, harp.ErrNameTooLong)
+	got, err := mgr.Find(harpName)
+	require.NoError(t, err)
+	assert.NotNil(t, got, "a refused rename must leave the session under its old name")
 }
 
 // TestSessionEdit_RenameLeafIsGone pins the deletion: `session rename` is not

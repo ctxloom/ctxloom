@@ -59,12 +59,6 @@ var coverageExemptLeaves = map[string]string{
 	"ctxloom session transcript watch": "long-lived file watcher; no hermetic exit",
 	"ctxloom plan watch":               "long-lived file watcher; no hermetic exit",
 	"ctxloom remote discover":          "network discovery search; no deterministic fixture",
-
-	// HIDDEN machine callbacks. Invisible to the text-keyed census, which
-	// skips hidden commands entirely, so this gate is the first thing to
-	// report them at all. They are exempt because nothing a user does reaches
-	// them directly, not because they do not matter.
-	"ctxloom container provenance": "hidden diagnostic reading image labels; needs a built image",
 }
 
 // coverBlock is one entry of a textfmt coverage profile: the statements

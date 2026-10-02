@@ -87,15 +87,12 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | none      |
 
-    # @wip — RED on 2026-08-26 with the shape the row above then had (the
-    # server started in-container and was never called); the row above has
-    # since gone green and this one has not been re-run. Untag when it is.
-    # It DID prove the evidence path: the fixture reaches the per-agent
+    # The evidence path: the fixture reaches the per-agent
     # checkout because it is COMMITTED, and
     # probeCellRunDir resolved that checkout and read the call log out of it —
     # which works here because the server's writes leave the tree dirty and the
     # WIP-safe teardown spares it. P3's worktree row shows the other side.
-    @probe-p2-mcp-round-trip @claude-code @container-rootless @ws-worktree @wip
+    @probe-p2-mcp-round-trip @claude-code @container-rootless @ws-worktree
     Examples:
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | worktree  |

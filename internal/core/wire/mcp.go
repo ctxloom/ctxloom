@@ -27,10 +27,10 @@ import (
 // (claude's `type`) derive it from the URL at write time
 // (agent.ChatMCPServerFromWire) and never persist it.
 //
-// CtxloomServerName is the key ctxloom's own companion loadout declares its
+// LayerServerName is the key ctxloom's own companion loadout declares its
 // server under — the session-endpoint entry every engine with a dynamic
 // approach receives.
-const CtxloomServerName = "ctxloom"
+const LayerServerName = "ctxloom"
 
 // ServedBySessionEndpoint is the one value ServedBy may carry: the server is
 // the running session's MCP endpoint, whichever address and bearer that

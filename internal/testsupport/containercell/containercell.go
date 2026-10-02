@@ -631,7 +631,7 @@ func underAny(path string, roots []string) bool {
 // AssertOwnedByInvoker returns an error unless path is owned by the user
 // running the test. what names the artifact in the message.
 func AssertOwnedByInvoker(path, what string) error {
-	uid, gid, err := Owner(path)
+	uid, gid, err := owner(path)
 	if err != nil {
 		return fmt.Errorf("stat %s at %q: %w", what, path, err)
 	}

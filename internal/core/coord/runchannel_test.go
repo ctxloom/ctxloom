@@ -137,37 +137,6 @@ func TestRunChannel_RequestIdempotency(t *testing.T) {
 	assert.EqualValues(t, 1, calls.Load(), "the handler ran exactly once for the reissued request_id")
 }
 
-// TestRunChannel_RecvPreemptionAndTimeout: the newest recv preempts a parked
-// one (typed error), and a timed-out recv fails with the recv-timeout
-// contract.
-func TestRunChannel_RecvPreemptionAndTimeout(t *testing.T) {
-	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
-	out := spawnResearcher(t, c)
-	h := childHome(t, c, out.RunID)
-
-	firstErr := make(chan error, 1)
-	go func() {
-		_, err := h.Recv(context.Background(), conformanceWait)
-		firstErr <- err
-	}()
-	require.Eventually(t, func() bool {
-		return h.RecvParked()
-	}, conformanceWait, 10*time.Millisecond)
-
-	// The newer receive preempts the parked one...
-	_, err := h.Recv(context.Background(), 50*time.Millisecond)
-	// ...and, with no mail arriving, itself times out.
-	require.ErrorIs(t, err, ErrRecvTimeout)
-
-	select {
-	case ferr := <-firstErr:
-		require.ErrorIs(t, ferr, ErrRecvPreempted)
-	case <-time.After(conformanceWait):
-		t.Fatal("preempted recv never completed")
-	}
-}
-
 // TestRunChannel_StopRunLineage: plane-2 stop_run (rev-7 D1) terminates the
 // caller's own child and refuses a foreign run id.
 func TestRunChannel_StopRunLineage(t *testing.T) {
@@ -518,10 +487,6 @@ func TestRunChannel_LateTurnEventsFromAnEndedRunDoNotMoveTheResumedRun(t *testin
 	c.HandleEvent(stale, Event{Payload: CustomEvent{Name: CustomTurnIdle}})
 	assert.Equal(t, StateExecuting, rosterState(c, out.Harp), "a late TurnIdle from the ended run must not idle the resumed run mid-turn")
 	assert.True(t, slotHeldBy(resumed), "a late TurnIdle from the ended run must not yield the resumed run's slot")
-
-	c.HandleEvent(stale, Event{Payload: CustomEvent{Name: CustomRecvParked}})
-	assert.Equal(t, StateExecuting, rosterState(c, out.Harp), "a late park from the ended run must not park the resumed run")
-	assert.True(t, slotHeldBy(resumed), "a late park from the ended run must not release the resumed run's slot")
 
 	require.NoError(t, c.recordSummary(out.Harp, resumed, 1, finalSummary("FINAL: the resumed run's own")))
 	require.Eventually(t, func() bool { return exitMarked(c, resumed) }, conformanceWait, time.Millisecond)

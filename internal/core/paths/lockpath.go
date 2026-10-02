@@ -126,5 +126,13 @@ func HomePathFor(protected string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("paths: resolve the home lock directory for %s: %w", protected, err)
 	}
-	return filepath.Join(dir, FlatName(abs)+lockSuffix), nil
+	return filepath.Join(dir, HomeLockName(abs)), nil
 }
+
+// HomeLockName is the leaf HomePathFor gives the lock guarding abs, an
+// ALREADY-ABSOLUTE path in whichever filesystem names it. It is exported for
+// the one caller that must name a lock in a filesystem this process is not
+// running in — the container mount builder, which knows a file's
+// in-container path and must land the host's lock file exactly where the
+// container's own HomePathFor will look for it.
+func HomeLockName(abs string) string { return FlatName(abs) + lockSuffix }

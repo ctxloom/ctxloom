@@ -17,8 +17,8 @@ import (
 // ONE POLICY, TWO BOUNDS. Every coordinator wait is either BOUNDED or
 // explicitly PARKED, and expiry is LOUD.
 //
-//   - A wait on a PROCESS (drain) is bounded at agent_recv's own maximum
-//     wait, RecvWaitMax: exit is REQUESTED at drain start (no new
+//   - A wait on a PROCESS (drain) is bounded at drainProcessBound: exit is
+//     REQUESTED at drain start (no new
 //     turn is handed out; a child ends at its next turn boundary) and FORCED
 //     at the bound. A child that dies during drain is not relaunched — drain
 //     is shutdown, not supervision.
@@ -72,14 +72,13 @@ func spawnGatedChild(t *testing.T, sp *fakeSpawner, c *Coordinator) string {
 	return out.Harp
 }
 
-// TestDrainBound_IsAgentRecvsMaxWait pins (d): the drain bound IS agent_recv's
-// maximum wait — one symbol, read by both — never a second number.
-func TestDrainBound_IsAgentRecvsMaxWait(t *testing.T) {
+// TestDrainBound_IsDrainProcessBound pins (d): a coordinator's drain bound is
+// drainProcessBound, read by name — never a second number.
+func TestDrainBound_IsDrainProcessBound(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	assert.Equal(t, RecvWaitMax, c.drainBound,
-		"the drain bound must be agent_recv's max wait, not a value of its own")
+	assert.Equal(t, drainProcessBound, c.drainBound)
 }
 
 // TestBeginDrain_NeverYieldingChildIsForcedAtTheBoundAndNamed pins (a): a
@@ -294,12 +293,19 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	assert.NotEqual(t, runID, currentRunID(c, harp), "the delivery rides a fresh run, not the dead one")
 }
 
-// TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime forces
-// the interleaving the test above must wait out: the child dies before its
-// session announcement is bound (dropBinds — the frame was never read), so
-// there is no key to resume by. The relaunch is then a fresh, context-primed
-// run, and the mail that raced the death is the turn AFTER that prime —
-// still delivered, still consumed, never stranded behind it.
+// TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime pins
+// the relaunch's fallback when the dead run left no key to resume by: a
+// fresh, context-primed run, with the mail that raced the death as the turn
+// AFTER that prime — still delivered, still consumed, never stranded behind
+// it.
+//
+// dropBinds reaches that state by discarding a bind the coordinator DID
+// receive, which is a failure real code cannot produce here: the runner sends
+// the announce ahead of the run's run_completed on one ordered stream, and a
+// RunExited termination drains the channel (drainTerminalTail) before
+// severing it, so an announce the engine sent is bound. The fallback itself
+// is still reachable — an engine that dies before it announces leaves no key
+// — and forcing it this way is what keeps that path pinned.
 func TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
@@ -401,9 +407,12 @@ func TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock(t *testing.T)
 
 	harp := spawnGatedChild(t, sp.fakeSpawner, c)
 	t.Cleanup(func() { sessionlock.Release(harp) })
-	// Park it through the production path: a child waiting in agent_recv
-	// yields its slot mid-turn and holds the turn open.
-	c.onRolePark(harp, currentRunID(c, harp))
+	// Park it mid-turn: the turn stays open under the park.
+	c.mu.Lock()
+	rt := c.byHarp[harp]
+	c.mu.Unlock()
+	require.NotNil(t, rt, "precondition: the spawned child must have a runtime attachment")
+	c.setState(rt, StateParked)
 	require.Equal(t, StateParked, rosterState(c, harp), "precondition: the child is parked")
 	require.Equal(t, sessionlock.Alive, sessionlock.Inspect(harp).Verdict, "precondition: the spawner holds the lock")
 
@@ -424,7 +433,7 @@ func TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock(t *testing.T)
 
 	// Once the human answers, the park lifts and the drain policy applies:
 	// the child ends at its boundary rather than taking another turn.
-	c.onRoleUnpark(harp, currentRunID(c, harp))
+	c.setState(rt, StateExecuting)
 	close(gate)
 	require.Eventually(t, func() bool { return rosterState(c, harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 	assert.Equal(t, CauseDrained, currentRunCause(c, harp))
@@ -469,32 +478,23 @@ func TestBeginDrain_IsIdempotentAndReturnsTheSameDrain(t *testing.T) {
 }
 
 // TestDrainBound_NoSecondLiteralExists pins the other half of (d) at the
-// source: across the drain's reader (this package, which declares the verb's
-// bound), the tool schema's clamp (mcpschema, which reads it by name) and
-// agent_recv's readers (internal/adapters/mcp), the only duration expression
-// equal to the bound is RecvWaitMax's own declaration. A second number,
-// however it is spelled, is the drift this test exists to refuse.
+// source: in this package, the only duration expression equal to the bound is
+// drainProcessBound's own declaration. A second number, however it is
+// spelled, is the drift this test exists to refuse.
 func TestDrainBound_NoSecondLiteralExists(t *testing.T) {
 	coordDir := packageDir(t)
-	dirs := map[string]string{
-		"coord":     coordDir,
-		"mcpschema": filepath.Join(coordDir, "..", "..", "adapters", "coordgrpc", "mcpschema"),
-		"mcp":       filepath.Join(coordDir, "..", "..", "adapters", "mcp"),
-	}
-	const declaring = "verbs.go"
+	const declaring = "drain.go"
 	var seenDeclaration bool
-	for name, dir := range dirs {
-		for _, f := range nonTestGoFiles(t, dir) {
-			for _, hit := range durationLiteralsEqualTo(t, f, RecvWaitMax) {
-				if name == "coord" && filepath.Base(f) == declaring && hit == "RecvWaitMax" {
-					seenDeclaration = true
-					continue
-				}
-				t.Errorf("%s: a second spelling of the drain bound (%s) in %s: cite coord.RecvWaitMax instead", name, RecvWaitMax, f)
+	for _, f := range nonTestGoFiles(t, coordDir) {
+		for _, hit := range durationLiteralsEqualTo(t, f, drainProcessBound) {
+			if filepath.Base(f) == declaring && hit == "drainProcessBound" {
+				seenDeclaration = true
+				continue
 			}
+			t.Errorf("a second spelling of the drain bound (%s) in %s: cite drainProcessBound instead", drainProcessBound, f)
 		}
 	}
 	require.True(t, seenDeclaration, "the walker must find the declaration itself, or it is not finding anything")
-	assert.Contains(t, referencingFiles(t, coordDir, "RecvWaitMax", false), "coordinator.go",
+	assert.Contains(t, referencingFiles(t, coordDir, "drainProcessBound", false), "coordinator.go",
 		"the drain bound must be read by name from its declaration")
 }

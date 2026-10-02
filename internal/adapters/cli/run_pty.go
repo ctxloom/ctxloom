@@ -15,21 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
-// runnerTTY is the interactive runner's terminal as the drive pumps it:
-// the pty master this process holds around the runner — a host process
-// (adapters/hostpty) or the container runtime's attached run
-// (adapters/attach) — with the exit and the teardown behind it.
-type runnerTTY interface {
-	Master() io.ReadWriter
-	Resize(rows, cols uint16) error
-	Exited() <-chan struct{}
-	Wait() (int, error)
-	// End ends the runner and leaves the master to the drive; Kill also
-	// releases it.
-	End()
-	Kill()
-}
-
 // ptyDrainGrace bounds the drain of the pty master after the runner was
 // reaped: its last bytes are already in the pty and arrive at once; only a
 // slave holder that outlived the runner keeps the read open past this.
@@ -68,11 +53,13 @@ func stampTerminalEnv(env map[string]string) map[string]string {
 // the engine's bytes and resizes cross the pty the kernel (and, for a
 // container, the daemon's tty) carries. The reach-back trio rides the
 // runner's process env. The session is recorded on the state for the drive.
+// start is the pty port both shapes start on: the host runner directly, the
+// container's runtime CLI beneath attach's teardown by name.
 // The coordinator is handed End (the container removed by name first), not
 // Kill: it ends the run when the runner reports its exit, which is BEFORE the
 // drive has necessarily read the runner's last bytes, and closing the master
 // there discards them. The drive's own teardown releases the master.
-func (st *runState) ptyStarter() coord.OwnedRunStarter {
+func (st *runState) ptyStarter(start hostpty.Starter) coord.OwnedRunStarter {
 	return func(ctx context.Context, spawnEnv map[string]string) (coord.OwnedRunner, error) {
 		in, err := st.env.Interactive(ctx, isolation.RunnerRequest{Engine: st.backendName, Label: st.label, Env: st.runnerTerminalEnv(spawnEnv)})
 		if err != nil {
@@ -81,14 +68,14 @@ func (st *runState) ptyStarter() coord.OwnedRunStarter {
 		// The launch ctx scopes preparation and attach only; teardown has
 		// one door (Kill), so the child must not die with the ctx.
 		if in.Teardown == nil {
-			s, err := hostpty.Start(context.Background(), in.Cmd)
+			s, err := start(context.Background(), in.Cmd)
 			if err != nil {
 				return coord.OwnedRunner{}, fmt.Errorf("start the runner on a pty: %w", err)
 			}
 			st.pty = s
 			return coord.OwnedRunner{Kill: s.End, Wait: s.ExitErr}, nil
 		}
-		s, err := attach.Start(context.Background(), in.Cmd, in.Name, func(runExited <-chan struct{}) { teardownOnExit(in.Teardown, runExited) })
+		s, err := attach.Start(context.Background(), start, in.Cmd, in.Name, func(runExited <-chan struct{}) { teardownOnExit(in.Teardown, runExited) })
 		if err != nil {
 			return coord.OwnedRunner{}, fmt.Errorf("attach the container runner on a pty: %w", err)
 		}

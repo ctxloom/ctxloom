@@ -1,0 +1,1 @@
+`next: Ask the human to specify which four items they want admitted (task IDs or harp references), then apply the queue tags to each with waived stop conditions noted`

@@ -244,6 +244,7 @@ func (r *reader) finishHooks() {
 			r.appendHook(event, BundleHook{
 				Matcher:         h.Matcher,
 				Command:         h.Command,
+				Args:            h.Args,
 				Type:            h.Type,
 				Prompt:          h.Prompt,
 				Timeout:         h.Timeout,

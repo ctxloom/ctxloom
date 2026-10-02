@@ -36,7 +36,7 @@ func TestGiveUpLaunching_NotifiesTheParentForANonLaunchCause(t *testing.T) {
 	rec := RunRecord{RunID: "run-1", Harp: harp, Agent: "worker", ParentHarp: parent, Ended: true, Cause: CauseRunnerExit}
 	c.relaunchForLeftoverMail(rec, CauseRunnerExit, "engine exited 1")
 
-	msgs, err := c.inbox.recv(context.Background(), parent, "", 2*time.Second)
+	msgs, err := spoolMail(t, c, parent, 2*time.Second)
 	if !assert.NoError(t, err, "the parent must be told its child's launcher gave up") {
 		return
 	}
@@ -70,7 +70,7 @@ func TestGiveUpLaunching_StaysSilentForAnOperatorStop(t *testing.T) {
 	rec := RunRecord{RunID: "run-1", Harp: harp, Agent: "worker", ParentHarp: parent, Ended: true, Cause: CauseRunnerExit}
 	c.relaunchForLeftoverMail(rec, CauseRunnerExit, "engine exited 1")
 
-	msgs, err := c.inbox.recv(context.Background(), parent, "", 200*time.Millisecond)
+	msgs, err := spoolMail(t, c, parent, 200*time.Millisecond)
 	if err == nil {
 		for _, m := range msgs {
 			assert.NotEqual(t, "error", m.Kind, "a stopped harp's refusal is the operator's own decision: no report is due")

@@ -1,12 +1,14 @@
 package managedhooks
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -20,12 +22,12 @@ import (
 // red.
 func TestAppendManagedDynamicHooks_InstallsTheSkillMatesHook(t *testing.T) {
 	m := newHooks()
-	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
+	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil, engine.Interactive)
 
 	var matchers []string
 	for _, h := range m.For(bundles.HookEventPostTool) {
 		if h.Hook.Matcher == "Skill" {
-			matchers = append(matchers, h.Hook.Command)
+			matchers = append(matchers, strings.Join(append([]string{h.Hook.Command}, h.Hook.Args...), " "))
 		}
 	}
 	if assert.Len(t, matchers, 1, "exactly one Skill-matched PostToolUse hook") {

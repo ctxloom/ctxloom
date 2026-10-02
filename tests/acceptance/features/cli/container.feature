@@ -21,8 +21,7 @@ Feature: container — the images isolated agents run in, and the questions you 
   j002400_container.feature, behind a tag the default suite skips.
   What IS specifiable without a runtime is everything around it: the read-only
   diagnosis, the file scaffold, the trust-gated collection, and the namespace's
-  own dispatch. `container provenance` is hidden plumbing (the digest the
-  ahead-of-time build recipes stamp) and is not part of the public surface.
+  own dispatch.
 
   Rule: The namespace answers what it holds, and refuses what it does not
 
@@ -97,6 +96,9 @@ Feature: container — the images isolated agents run in, and the questions you 
     # @image-mock-agent tag has the suite build one before any scenario runs,
     # rather than leaving that claim resting on whatever happens to already
     # be on the machine (dragging-neatness); the Background checks it is there.
+    # On a machine with no container runtime the hermetic lane excludes this
+    # Rule before the run and prints every row it left out, with the reason
+    # (excludeSkippedSuiteImages); CTXLOOM_REQUIRE_DOCKER=1 makes it a failure.
     # The subject is "mock", not a vendor engine, because that build costs
     # nothing beyond the base image — see the Background's own comment.
     #
@@ -126,11 +128,10 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output reports "shared_fs" matching "<reports the shared fs>"
       And the project tree is unchanged
 
-    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+    Examples: no --format at all takes the derived default off a terminal, and an explicit json agrees
       | flags         | names the backend it checked          | says whether it is in a container | names the runtime | reports the shared fs |
       |               | mock                                  | ^(true\|false)$                   | \S               | ok                    |
       | --format json | mock                                  | ^(true\|false)$                   | \S               | ok                    |
-      | --format text | Container capability (backend: mock)  | in a container:                   | runtime:          | shared fs:            |
 
     # Named backend vs. resolved default are two different code paths: with no
     # argument the project's configured default is resolved, and a report that
@@ -152,11 +153,19 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output reports "shared_fs" matching "<reports the shared fs>"
       And the output does not contain "MOCK-REPLY-NEVER-SENT-CONTAINER-CHECK-ONLY-PROBES"
 
-    Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
+    Examples: no --format at all takes the derived default off a terminal, and an explicit json agrees
       | flags         | names the backend it resolved  | reports the shared fs |
       |               | ctxloom-agent-\S               | ok                    |
       | --format json | ctxloom-agent-\S               | ok                    |
-      | --format text | Container capability (backend: | shared fs:            |
+
+  Rule: Check's usage errors and its text labels need no runtime at all
+
+    The rest of what `container check` promises does not depend on what this
+    machine has installed, so it is asserted where no image is built and the
+    host's runtimes are hidden: a backend name is validated before anything is
+    probed, and the text report labels every axis whether or not a probe
+    answered. An explicit `--format text` is also the half of "an explicit
+    format beats the derived default" that the json rows above cannot show.
 
     Scenario: An unknown backend is a usage error, and the real ones are named
       Given an initialized ctxloom project
@@ -168,6 +177,30 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output contains "unknown backend"
       And the output contains "totally-bogus-engine"
       And the output contains "claude-code"
+
+    Scenario: The text report labels every axis, and writes nothing
+      Given an initialized ctxloom project
+      And I record the project tree
+      When Alice asks whether containerized agents could run here:
+        """
+        ctxloom container check mock --format text
+        """
+      Then the command succeeds
+      And the output reports "image" matching "Container capability (backend: mock)"
+      And the output reports "in_container" matching "in a container:"
+      And the output reports "runtime" matching "runtime:"
+      And the output reports "shared_fs" matching "shared fs:"
+      And the project tree is unchanged
+
+    Scenario: With no backend named, the text report still names one
+      Given an initialized ctxloom project
+      And the mock LLM responds "MOCK-REPLY-NEVER-SENT-CONTAINER-CHECK-ONLY-PROBES"
+      When I run "ctxloom container check --format text"
+      Then the command succeeds
+      And the output reports "image" matching "Container capability (backend:"
+      And the output does not contain "(unresolved)"
+      And the output reports "shared_fs" matching "shared fs:"
+      And the output does not contain "MOCK-REPLY-NEVER-SENT-CONTAINER-CHECK-ONLY-PROBES"
 
   Rule: Build validates its backend before touching any daemon
 
@@ -292,17 +325,13 @@ Feature: container — the images isolated agents run in, and the questions you 
     # from a companion that is trusted (must come through — the positive
     # control that makes "none reported" mean something).
     #
-    # DECIDED 2026-08-08 (taskloom vivacious-overlook), NOT YET IMPLEMENTED:
-    # `container tooling` will gain a section naming what was withheld BY
-    # REF — never the publisher-authored declaration body. A ref is a
-    # ctxloom-controlled identifier; the body is attacker-controlled text, and
-    # rendering it to an operator's terminal is a confirmed hazard (taskloom
-    # delicious-goatskin: publisher content reaches the terminal with no
-    # sanitiser, measured).
-    #
-    # So the "does not contain TOOLING-DECL-SHADY" assertion below becomes MORE
-    # load-bearing when that lands, not less: it is what pins that adding the
-    # ref section did not start leaking the body.
+    # WITHHELD CONTENT IS NAMED BY REF, NEVER BY BODY. A ref is a
+    # ctxloom-controlled identifier; the declaration body is publisher-authored,
+    # attacker-controlled text, and rendering it to an operator's terminal is a
+    # hazard. Today CollectTooling surfaces a gate-withheld item only through
+    # warnWithheld's per-ref warning on stderr; the command's own output names
+    # nothing withheld. The "does not contain TOOLING-DECL-SHADY" assertions
+    # are what pin that no route — output or warning — carries the body.
     Scenario Outline: An untrusted declaration is withheld, and a trusted one comes through
       Given an initialized ctxloom project
       And a companion "shady" declaring container tooling "TOOLING-DECL-SHADY", signed by a key this project does not trust

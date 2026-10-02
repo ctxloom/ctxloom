@@ -1,0 +1,3 @@
+`next: Request the task row(s) and current queue state to begin admission triage`
+
+I need the row(s) under consideration, the current queue's date and open items, and access to the task system to verify `sig:`, `touches:`, and gate status before proceeding with admission.

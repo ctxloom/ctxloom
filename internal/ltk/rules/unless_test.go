@@ -71,10 +71,10 @@ func TestUnlessWithBundledFlags(t *testing.T) {
 // Why this is pinned rather than fixed: a correct fix needs per-program
 // argument-arity knowledge (which flags consume a following word, and how
 // many) that ltk deliberately does not carry — see "Matching commands" in
-// RULES.md for why the matcher stays program-agnostic. The documented
+// https://ctxloom.dev/ltk/rules/ for why the matcher stays program-agnostic. The documented
 // mitigation is authoring guidance, not an engine change: prefer `mode:
-// confirm` over `unless` for destructive rules (see RULES.md's "`unless` is
-// matched POSITION-BLIND" section), since confirm requires a deliberate
+// confirm` over `unless` for destructive rules (see the rules reference's note that `unless`
+// is matched position-blind), since confirm requires a deliberate
 // repeat rather than trusting an exception token found anywhere in argv.
 func TestUnlessIsPositionBlindToOptionArguments(t *testing.T) {
 	cfg := &Config{Rules: []Rule{{
@@ -93,7 +93,7 @@ func TestUnlessIsPositionBlindToOptionArguments(t *testing.T) {
 	if !got.Allowed {
 		t.Fatal("this test pins the KNOWN-WRONG behavior (see comment); " +
 			"if this now fails, either the matcher grew arg-arity awareness " +
-			"(great — update this test and RULES.md to describe the fix) or " +
+			"(great — update this test and the rules reference to describe the fix) or " +
 			"something else changed unless-matching in a way that needs review")
 	}
 

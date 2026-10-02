@@ -8,7 +8,6 @@ package launchtest
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -383,11 +382,7 @@ func (e fixtureEngine) Permissions() engine.Declared[engine.PermissionModel] { r
 func (fixtureCodec) EncodeAnswer(string, engine.PermissionAsk, engine.PermissionAnswer) ([]byte, error) {
 	return nil, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
 }
-func (fixtureCodec) HostCall(json.RawMessage) (engine.HostCall, error) {
-	return engine.HostCall{}, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
-}
-func (fixtureCodec) HostDeny(string) (string, error) { return "", nil }
-func (fixtureCodec) RepoSurfaces() []string          { return nil }
+func (fixtureCodec) RepoSurfaces() []string { return nil }
 
 // Hooks is one approval hook on the fixture's own ask event.
 func (fixtureCodec) Hooks(timeout time.Duration) wire.UnifiedHooks {

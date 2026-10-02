@@ -18,7 +18,7 @@ on:
     workflows: ["CI"]
     types:
       - completed
-    # The ACTIVE release line — see docs.yml for the full reasoning. `main` is
+    # The ACTIVE release line — see ci.yml's `docs` job for the reasoning. `main` is
     # dead (0 ahead, 4615 behind release/0.7), so auto-release never fired for
     # the branch being released; and `release/*` is unsafe here for a sharper
     # reason than for docs — it would CUT A RELEASE from any historical line

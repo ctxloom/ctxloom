@@ -49,6 +49,5 @@ func TestPeerSend_RoutingAndDispositions(t *testing.T) {
 		"delivering as a new turn",
 		"queued: the child has not started yet; it will drain its mailbox after its first turn",
 		"queued mid-turn: delivered at the child's next turn boundary",
-		"completed the child's waiting agent_recv",
 	}, disposition, "the prose must be one of deliveryDisposition's, verbatim")
 }

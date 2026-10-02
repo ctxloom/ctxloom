@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
@@ -104,6 +105,36 @@ func TestP12_Deny(t *testing.T) {
 	})
 }
 
+func TestP12_Silent(t *testing.T) {
+	after := p12TestMarker.Add(30 * time.Millisecond)
+
+	t.Run("refused and absent is green", func(t *testing.T) {
+		require.NoError(t, p12Assert(p12TestOutcome(t, p12Silent, p12TestStream(t, "denied", true, after, nil), false)))
+	})
+	t.Run("a call that ran is DECISION-IGNORED", func(t *testing.T) {
+		p12RequireShape(t, p12Assert(p12TestOutcome(t, p12Silent, p12TestStream(t, "", false, after, nil), true)), shapeDecisionIgnored)
+	})
+	t.Run("an unrefused call is DECISION-IGNORED even with no file to show for it", func(t *testing.T) {
+		p12RequireShape(t, p12Assert(p12TestOutcome(t, p12Silent, p12TestStream(t, "", false, after, nil), false)), shapeDecisionIgnored)
+	})
+	t.Run("a refused call whose file exists anyway is DECISION-IGNORED", func(t *testing.T) {
+		p12RequireShape(t, p12Assert(p12TestOutcome(t, p12Silent, p12TestStream(t, "denied", true, after, nil), true)), shapeDecisionIgnored)
+	})
+}
+
+// TestP12_HookScripts: the silent hook prints nothing at all; the
+// prompts-none hook answers allow and the cell adds the flag.
+func TestP12_HookScripts(t *testing.T) {
+	silent, err := p12HookScript("/d", p12Silent)
+	require.NoError(t, err)
+	assert.NotContains(t, silent, "printf", "a silent hook writes no decision")
+	none, err := p12HookScript("/d", p12AllowPromptsNone)
+	require.NoError(t, err)
+	assert.Contains(t, none, `"behavior":"allow"`)
+	assert.Equal(t, []string{"--permission-prompts", "none"}, p12AllowPromptsNone.argv())
+	assert.Empty(t, p12Allow.argv())
+}
+
 func TestP12_CommonHalf(t *testing.T) {
 	after := p12TestMarker.Add(30 * time.Millisecond)
 	green := p12TestStream(t, "", false, after, nil)
@@ -126,6 +157,17 @@ func TestP12_CommonHalf(t *testing.T) {
 		o := p12TestOutcome(t, p12Allow, green, true)
 		o.MarkerAt, o.MarkerErr = time.Time{}, fs.ErrNotExist
 		p12RequireShape(t, p12Assert(o), shapeHookNotFired)
+	})
+	t.Run("a turn with no result frame is OUTPUT-FORMAT", func(t *testing.T) {
+		var frames []string
+		for _, line := range strings.Split(green, "\n") {
+			var f p12Frame
+			require.NoError(t, json.Unmarshal([]byte(line), &f))
+			if f.Type != "result" {
+				frames = append(frames, line)
+			}
+		}
+		p12RequireShape(t, p12Assert(p12TestOutcome(t, p12Allow, strings.Join(frames, "\n"), true)), shapeOutputFormat)
 	})
 	t.Run("a non-frame stdout line is OUTPUT-FORMAT", func(t *testing.T) {
 		p12RequireShape(t, p12Assert(p12TestOutcome(t, p12Allow, green+"\nnot json", true)), shapeOutputFormat)

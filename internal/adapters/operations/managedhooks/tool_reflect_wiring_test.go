@@ -6,6 +6,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -19,11 +20,11 @@ func reflectHooksFor(t *testing.T, setting int) []string {
 		Settings: config.SettingsConfig{ToolReflectBytes: setting},
 	})
 	m := newHooks()
-	appendManagedDynamicHooks(report.Reporter{}, m, cfg, t.TempDir(), "", nil)
+	appendManagedDynamicHooks(report.Reporter{}, m, cfg, t.TempDir(), "", nil, engine.Interactive)
 
 	var cmds []string
 	for _, h := range m.For(bundles.HookEventPostTool) {
-		cmds = append(cmds, h.Hook.Command)
+		cmds = append(cmds, strings.Join(append([]string{h.Hook.Command}, h.Hook.Args...), " "))
 	}
 	return cmds
 }
@@ -105,7 +106,7 @@ func TestWireDeclared_ExcludesCtxloomsOwnHooksButKeepsDeclaredOnes(t *testing.T)
 func wireCommandsOf(hooks []wire.Hook) []string {
 	out := make([]string, 0, len(hooks))
 	for _, h := range hooks {
-		out = append(out, h.Command)
+		out = append(out, strings.Join(append([]string{h.Command}, h.Args...), " "))
 	}
 	return out
 }

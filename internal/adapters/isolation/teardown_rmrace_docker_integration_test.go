@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/attach"
+	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
@@ -46,7 +47,7 @@ func forEachRaced(t *testing.T, what string, body func(t *testing.T, s *attach.S
 			rt := wrappedRuntime{Runtime: real, bin: dockergate.RemoveBeforeCreateWrapper(t, real.Binary(), name)}
 			spec := RunSpec{Image: "docker.io/library/alpine:latest", Name: name, Command: []string{"sleep", "300"}, TTY: true}
 			pol := NewContainerFor(rt, "mock")
-			s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), mustRunArgs(t, rt, spec)...), name, removeOnExit(pol, name))
+			s, err := attach.Start(context.Background(), hostpty.Start, exec.Command(rt.Binary(), mustRunArgs(t, rt, spec)...), name, removeOnExit(pol, name))
 			require.NoError(t, err)
 			t.Cleanup(s.Kill)
 			body(t, s, real.Binary(), name)

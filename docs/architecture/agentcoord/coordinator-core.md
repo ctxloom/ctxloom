@@ -1,7 +1,7 @@
 # Coordinator core — journal, folds, identity
 
 `Coordinator` is the session-owning process's whole
-delegation runtime: four append-only JSONL journals with their in-memory projections,
+delegation runtime: its append-only JSONL journals with their in-memory projections,
 the bearer-credential registry, live child attachments, launch/retry bookkeeping,
 approval parking, transport listeners and liveness. It owns the durability contract —
 **a fact becomes visible only after it is on disk and fsynced** — and the identity
@@ -13,21 +13,20 @@ launch-gate check and a TUI roster read all serialize on `c.mu`.
 
 ```mermaid
 flowchart TD
-  OPT["Options<br/>coordinator.go"] -->|New :251| C["Coordinator<br/>coordinator.go"]
+  OPT["Options<br/>coordinator.go"] -->|New| C["Coordinator<br/>coordinator.go"]
   C --> SD["stateDirForProject / claimOwner<br/>statedir.go"]
   C --> RS[("Store runs.jsonl")]
-  C --> MS[("Store mailbox.jsonl")]
+  C --> SP[("per-harp spool in/ · out/<br/>spooldelivery.go · internal/core/spool")]
   C --> IS[("Store items.jsonl")]
   C --> AS[("Store interactions.jsonl — audit")]
   RS --> RF["runsFold<br/>runs · byHarp · creds · project"]
   RS --> QF["queueFold<br/>order · executing · state"]
   RS --> RoF["rosterFold<br/>entries · current · byRun"]
   RS --> RepF["reportsFold<br/>reports.go"]
-  MS --> MF["mailFold<br/>pending · seen · consumed"]
   IS --> IF["itemsFold<br/>items.go"]
   RF --> CR["creds.go<br/>mintToken · hashToken · verifyToken"]
   CR --> ID["Identity<br/>identity.go"]
-  C --> API(("public verbs<br/>Roster · Identify · AgentSend<br/>AgentRecv · AgentStop · Inject"))
+  C --> API(("public verbs<br/>Roster · Identify · AgentSend<br/>AgentStop · Inject"))
 ```
 
 ## The durability engine
@@ -35,7 +34,7 @@ flowchart TD
 | Symbol | What it is |
 | --- | --- |
 | `Fact` | one durable record: `Kind`, `At`, `Data`. `At` exists so folds never call `time.Now()` and replay is deterministic |
-| `fold` (interface) | one method, `apply(Fact)`. Six implementations |
+| `fold` (interface) | one method, `apply(Fact)` |
 | `Store` | one JSONL journal + its folds under single-writer/fsync-first discipline |
 | `openStore` / `openStoreFromOffset` | open, clamp a distrusted checkpoint offset, replay, start the writer goroutine |
 | `Store.replay` | applies every complete line; truncates a **torn tail**, fails loudly on interior corruption. Reads the whole journal with `io.ReadAll` |
@@ -58,7 +57,6 @@ on a marshal failure — loud, and correct for own-struct payloads).
 | `runsFold` | `runs` (run_id → `RunRecord`), `byHarp` (harp → latest run_id), `creds` (token hash → `Identity`), `project` | run registry and credential store folded from one journal so a terminal fact revokes atomically (`folds.go`) |
 | `queueFold` | spawn order + the **exact** `executing` counter the concurrency ceiling reads | correctness rests entirely on `transition` — the most load-bearing 20 lines in the file |
 | `rosterFold` | per-harp coordinator-visible state, latest attempt wins | `touch` silently no-ops for a superseded run — that guard is the point |
-| `mailFold` | role-addressed durable queues + dedupe set + consume cursor | see [mailbox.md](mailbox.md) |
 | `itemsFold` | plane-1 counting projection: `counts`, `chars`, `maxSeq` keyed by **run_id** | never stores delta text, only sizes |
 | `reportsFold` | latest summary / checkpoint / per-artifact revision / per-harp seq watermark | see [artifacts.md](artifacts.md) |
 
@@ -126,17 +124,16 @@ this package's `identity.go` re-exports them under the coordinator's names, and
 | --- | --- |
 | defaults | `<= 0 means default`, four times; `TurnCap: -1` becomes 4 rather than erroring |
 | state dir | `~/.ctxloom/coord/<base>-<hash12>`, 0700 |
-| owner lock | exclusive `owner.pid` with stale-owner reclaim; `errStateOwned` drives an **ephemeral** state dir fallback |
-| journals | four `openStore` calls; items may open from a checkpoint offset |
+| owner lock | exclusive `owner.pid` (`claimOwner`); a second owner on the project is refused, never given a state dir of its own |
+| journals | one `openStore` call per journal; items may open from a checkpoint offset |
 | adopt | terminates orphaned host runs, grace-times container runs |
 | watchdogs | runner heartbeat watchdog + liveness watchdog |
 | `goTracked` / `waitTracked` | `wg.Add` under `mu`, refused after `closing`; join with a 5s bounded escape |
-| `Close` | closing → cancel → kill attachments → `srv.close` → join → close journals → remove an ephemeral dir |
+| `Close` | closing → cancel → kill attachments → `srv.close` → join → close journals |
 | `audit` | appends one interaction fact; **warns, never gates** (I8) |
 
 `New`'s five post-`WithCancel` failure paths call `closePartial`
-but never `c.cancel()`, and on the ephemeral path never remove the temp dir they just
-created; `closePartial` discards all four journal `Close()` errors.
+but never `c.cancel()`; `closePartial` discards every journal's `Close()` error.
 
 ## Public verbs on `Coordinator`
 
@@ -145,7 +142,6 @@ created; `closePartial` discards all four journal `Close()` errors.
 | `Roster` | sorted roster snapshot under `View` |
 | `Identify` | token → `Identity`; the auth root for every transport |
 | `AgentSend` | approval-reply interception → routing policy (I1) → durable queue → delivery-by-state |
-| `AgentRecv` | audit + `recvMail` long poll |
 | `AgentStop` | children refused (I2); `cancelLaunch` on **both** paths, then `terminateRun` |
 | `Inject` | user-typed text as a turn, plus a `KindUserInjected` mirror notice to the target's parent |
 | `WatchRuns` / `ListRuns` | see [observation.md](observation.md) |

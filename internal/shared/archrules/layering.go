@@ -156,7 +156,7 @@ var LayeringRules = []LayeringRule{
 		// THE ADAPTER RING: adapters import core; they do not import
 		// each other or the engines. The two sanctioned edges — cli → operations
 		// (the CLI is a pure frontend over the application services) and a
-		// package's own subpackage (cli → cli/tui; runner → runner/mcp) — are
+		// package's own subpackage (cli → cli/tui; runner → runner/interaction) — are
 		// allowed entries with a reason that says "sanctioned", so IsLive still
 		// confirms they exist. Every other edge is MEASURED and leaves in the
 		// slice its reason names.
@@ -215,8 +215,8 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/discover":                           "sanctioned: a package's own subpackage — the servers record the endpoint they bound in the file discover reads",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":                                 "sanctioned: a package's own subpackage — the codec speaks its own proto",
 			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "the host relay's distill handlers bound their work to mcpschema.DistillBudget, the one number both sides of the relay share",
-			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":                                "sanctioned: runner/mcp is the session endpoint and speaks the wire (the proto lives only in adapters)",
-			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/mcpschema":                         "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/mcp speaks the wire through it (measured)",
+			"internal/adapters/runner/interaction -> internal/adapters/coordgrpc/pb":                        "sanctioned: runner/interaction is the session endpoint and speaks the wire (the proto lives only in adapters)",
+			"internal/adapters/runner/interaction -> internal/adapters/coordgrpc/mcpschema":                 "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/interaction speaks the wire through it (measured)",
 
 			// edges the prefix form surfaced (packages unit A's explicit
 			// lists did not name); each MEASURED, with the slice that
@@ -249,7 +249,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/engines/claude":            "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
 			"internal/adapters/cli -> internal/engines":                   "slice 11b: engines.Build() is called by the composition root, cmd/*",
 			"internal/adapters/cli -> internal/adapters/isolation":        "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
-			"internal/adapters/cli -> internal/adapters/mcp":              "the session host composes the coordinator's hosting helper and the host relay (mcp.HostCoordinatorForSession); the session endpoint lives in runner/mcp",
+			"internal/adapters/cli -> internal/adapters/mcp":              "the session host composes the coordinator's hosting helper and the host relay (mcp.HostCoordinatorForSession); the session endpoint lives in runner/interaction",
 			"internal/adapters/cli -> internal/adapters/memory":           "slice 14a: memory.NewCompactor(entry, source, llm) is called by operations.Compact",
 			"internal/adapters/cli -> internal/adapters/remote":           "measured: `bundle push` drives remote.PublishManager, `deps list` reads the lockfile, the item listing parses references and `remote discover` normalises URLs directly; they belong behind operations and no slice names them",
 			"internal/adapters/cli -> internal/adapters/signing":          "measured: init and `signer trust` spell signing.NamespacePublish, the trust namespace they write into; leaves when the namespace is a value operations hands back",
@@ -285,18 +285,18 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/spawn -> internal/adapters/operations": "slice 13: spawn holds launch.Deps and the session store, not the App; the launch trunk's operations are reached through them",
 			"internal/adapters/spawn -> internal/adapters/isolation":  "slice 13: spawn.Runtimes is the port; isolation implements it and is injected at cmd/*",
 
-			// runner/mcp — the session endpoint (delivery.Dynamic). The relay
+			// runner/interaction — the session endpoint (delivery.Dynamic). The relay
 			// contract and the shared DTOs it advertises live in operations
 			// beside the application services that answer them.
-			"internal/adapters/runner/mcp -> internal/adapters/operations": "the relays advertise the host-tool contract operations declares (the DTOs and descriptions the relay's handlers decode)",
+			"internal/adapters/runner/interaction -> internal/adapters/operations": "the relays advertise the host-tool contract operations declares (the DTOs and descriptions the relay's handlers decode)",
 			// the session host's hosting helper (mcp.HostCoordinatorForSession)
 			// stands the coordinator's wire up (coordgrpc.Serve) beside the
 			// host relay it composes
 			"internal/adapters/mcp -> internal/adapters/coordgrpc": "the hosting helper serves the coordinator's wire; leaves when hosting moves to the composition root",
-			// runner/mcp is the runner's own subpackage: the endpoint serves over
+			// runner/interaction is the runner's own subpackage: the endpoint serves over
 			// the Home the runner owns
-			"internal/adapters/runner/mcp -> internal/adapters/runner": "sanctioned: a package's own parent tree (runner/*)",
-			"internal/adapters/cli -> internal/adapters/runner/mcp":    "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the runner command stands for the composition root",
+			"internal/adapters/runner/interaction -> internal/adapters/runner": "sanctioned: a package's own parent tree (runner/*)",
+			"internal/adapters/cli -> internal/adapters/runner/interaction":    "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the runner command stands for the composition root",
 
 			// the runner's two halves today
 			"internal/adapters/mcp -> internal/adapters/memory":     "slice 14a: memory off the plugin; the compactor is an operation",
@@ -354,7 +354,7 @@ var LayeringRules = []LayeringRule{
 		From:   []string{"cmd", "internal", "pkg"},
 		Forbid: []string{"internal/adapters/coordgrpc/pb"},
 		Allowed: map[string]string{
-			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":          "sanctioned: runner/mcp is the session endpoint and speaks the wire",
+			"internal/adapters/runner/interaction -> internal/adapters/coordgrpc/pb":  "sanctioned: runner/interaction is the session endpoint and speaks the wire",
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb": "sanctioned: mcpschema projects the proto into the tool schemas, beside it under coordgrpc",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":           "sanctioned: the codec is the proto's owner",
 			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":              "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",

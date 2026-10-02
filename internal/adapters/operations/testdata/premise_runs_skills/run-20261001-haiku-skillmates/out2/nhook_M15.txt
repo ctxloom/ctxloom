@@ -1,0 +1,1 @@
+next: Check the memory system and working directory to see what's in progress, then report what is pending for goodnight.

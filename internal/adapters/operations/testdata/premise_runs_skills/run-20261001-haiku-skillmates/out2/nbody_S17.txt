@@ -1,0 +1,1 @@
+`next: Ask what task or prior work you want help with — the working directory is empty and there's no prior context in this conversation.`

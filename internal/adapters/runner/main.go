@@ -26,7 +26,7 @@ type MainDeps struct {
 	Getenv   func(string) string
 	Unsetenv func(string) error
 	// Ports composes the runner's Deps over the engine host and the dialed
-	// home: the writers, the endpoint (runner/mcp over the home), the engine
+	// home: the writers, the endpoint (runner/interaction over the home), the engine
 	// kind. Called ONCE, after the environment is scrubbed.
 	Ports func(host *EngineHost, home *Home) (Deps, error)
 }
@@ -82,14 +82,13 @@ func Main(ctx context.Context, d MainDeps) error {
 		"a zero or negative window would end this runner the instant its coordinator blinked")
 	host := NewEngineHost(ctx, d.Reporter, d.Harness, runID)
 	home, err := NewHome(ctx, HomeConfig{
-		URL:          reach.URL,
-		Token:        reach.Credential,
-		RunID:        runID,
-		Harness:      d.Harness,
-		Version:      d.Version,
-		Engine:       host.Handle,
-		Capabilities: coord.RunnerCapabilities(true),
-		Reporter:     d.Reporter,
+		URL:      reach.URL,
+		Token:    reach.Credential,
+		RunID:    runID,
+		Harness:  d.Harness,
+		Version:  d.Version,
+		Engine:   host.Handle,
+		Reporter: d.Reporter,
 
 		OwnerLossWindow: window,
 	})

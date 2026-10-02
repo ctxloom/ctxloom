@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -415,4 +416,33 @@ func TestResolve_Permission_DegradedUnparseableIsAnnounced(t *testing.T) {
 			require.Contains(t, got[0].Text, "default|acceptEdits|plan|bypass")
 		})
 	}
+}
+
+// modeAssembler records the Selection it was asked to assemble.
+type modeAssembler struct {
+	emptyAssembler
+	got []launch.Selection
+}
+
+func (a *modeAssembler) Assemble(_ context.Context, _ *config.Snapshot, sel launch.Selection) (composite.Package, error) {
+	a.got = append(a.got, sel)
+	return composite.Package{Context: composite.Context{Text: "ctx"}}, nil
+}
+
+// TestResolve_TheSelectionCarriesTheLaunchMode: what ctxloom's own hooks are
+// assembled for depends on the mode — a structured run is handed its mail as
+// turns, so it must not also be handed the owner's turn-start mail reader
+// (row worried-chief F4). The mode reaches the assembler on the Selection.
+// MUTATION — drop Mode from the Selection Resolve builds — turns this red.
+func TestResolve_TheSelectionCarriesTheLaunchMode(t *testing.T) {
+	env := launchtest.Deps(t)
+	asm := &modeAssembler{}
+	env.Deps.Assembler = asm
+	for _, mode := range []engine.Mode{engine.Interactive, engine.Structured} {
+		_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: mode, Permission: "bypass", WorkDir: env.Project})
+		require.NoError(t, err)
+	}
+	require.Len(t, asm.got, 2)
+	assert.Equal(t, engine.Interactive, asm.got[0].Mode)
+	assert.Equal(t, engine.Structured, asm.got[1].Mode)
 }

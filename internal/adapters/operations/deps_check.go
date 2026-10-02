@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 
@@ -77,7 +78,15 @@ const (
 	// UncheckedUnresolvable: the fetcher answered but Constraint could not be
 	// resolved against the repository's versions; Err is the resolver's.
 	UncheckedUnresolvable
+	// UncheckedNotRefreshed: this run could not fetch URL, so the only clone to
+	// read is the one a previous fetch left, and an answer from it is about
+	// the past; Err is the fetch's.
+	UncheckedNotRefreshed
 )
+
+// ErrCloneNotRefreshed refuses a single-reference check whose repository could
+// not be fetched this run: there is no current state to report it against.
+var ErrCloneNotRefreshed = errors.New("the repository could not be fetched, so whether this reference is current is unknown")
 
 // UncheckedDependency is one entry that was neither verified current nor
 // found outdated, in the order the lockfile lists it.
@@ -90,8 +99,9 @@ type UncheckedDependency struct {
 }
 
 // RefreshFailure is one repository whose clone could not be refreshed before
-// the check. Fault-tolerant by design: its entries are then checked against
-// the stale clone, which risks missing an update, never a crash.
+// the check. Its entries are reported unchecked (UncheckedNotRefreshed), never
+// answered from the stale clone: absence of an update is authority only from a
+// remote this run proved it could read.
 type RefreshFailure struct {
 	URL string
 	Err error
@@ -160,6 +170,9 @@ func checkSingleDependency(ctx context.Context, cfg *config.Config, refStr strin
 	}
 
 	res.Refresh = refreshRemoteClone(ctx, cfg, ref.URL)
+	if len(res.Refresh) > 0 {
+		return res, fmt.Errorf("%w: %s: %w", ErrCloneNotRefreshed, ref.URL, res.Refresh[0].Err)
+	}
 
 	fetcher, err := GetCachedFetcher(cfg, ref.URL)
 	if err != nil {
@@ -246,11 +259,9 @@ func refreshRemoteClone(ctx context.Context, cfg *config.Config, repoURL string)
 	return failures
 }
 
-// fetchIntoClone refreshes one repository's local clone. Fault-tolerant, and
-// deliberately so on both arms: a fetch failure is recorded and leaves the
-// stale clone in place (a stale clone risks missing an update, never a
-// crash), and a URL whose forge cannot be detected has nothing to fetch from
-// at all.
+// fetchIntoClone refreshes one repository's local clone. A fetch failure is
+// recorded for the caller, which must not then answer from the stale clone; a
+// URL whose forge cannot be detected has nothing to fetch from at all.
 func fetchIntoClone(ctx context.Context, cache *remote.RepoCache, repoURL string, failures *[]RefreshFailure) {
 	forgeType, _, ferr := remote.DetectForge(repoURL)
 	if ferr != nil {
@@ -284,7 +295,7 @@ func checkAllDependencies(ctx context.Context, cfg *config.Config, cfgErr error,
 	// Refresh every unique remote once (one git fetch per repo, not two per
 	// entry), then resolve the latest SHA for each entry.
 	res.Refresh = refreshRemoteRepos(ctx, cfg, lockfile)
-	res.Updates, res.Unchecked, res.SkippedEmpty = detectUpdates(ctx, cfg, auth, lockfile)
+	res.Updates, res.Unchecked, res.SkippedEmpty = detectUpdates(ctx, cfg, auth, lockfile, res.Refresh)
 
 	if len(res.Updates) > 0 {
 		if cfgErr != nil {
@@ -324,9 +335,14 @@ func refreshRemoteRepos(ctx context.Context, cfg *config.Config, lockfile *remot
 
 // detectUpdates resolves the latest SHA for every lockfile entry and returns the
 // changed ones. Entries with an empty SHA are counted in skipped and not
-// checked; every other entry that could not be resolved is an Unchecked row
-// (the refresh pass already surfaced fetch errors).
-func detectUpdates(ctx context.Context, cfg *config.Config, auth remote.AuthConfig, lockfile *remote.Lockfile) (updates []DependencyUpdate, unchecked []UncheckedDependency, skipped int) {
+// checked; every other entry that could not be resolved is an Unchecked row,
+// including one whose repository is among the refresh failures — its clone is
+// stale, so it is not read.
+func detectUpdates(ctx context.Context, cfg *config.Config, auth remote.AuthConfig, lockfile *remote.Lockfile, refresh []RefreshFailure) (updates []DependencyUpdate, unchecked []UncheckedDependency, skipped int) {
+	notRefreshed := make(map[string]error, len(refresh))
+	for _, f := range refresh {
+		notRefreshed[f.URL] = f.Err
+	}
 	cachedFactory := NewCachedFetcherFactory(cfg)
 	fetcherByURL := map[string]remote.Fetcher{}
 	fetcherFor := func(url string) (remote.Fetcher, error) {
@@ -351,13 +367,9 @@ func detectUpdates(ctx context.Context, cfg *config.Config, auth remote.AuthConf
 		if e.Entry.SelectorKind().IsPin() {
 			continue
 		}
-		ref, err := remote.ParseReference(string(e.Ref))
-		if err != nil {
-			unchecked = append(unchecked, UncheckedDependency{Ref: string(e.Ref), Reason: UncheckedUnparseable, Err: err})
-			continue
-		}
-		if ref.URL == "" {
-			unchecked = append(unchecked, UncheckedDependency{Ref: string(e.Ref), Reason: UncheckedNoRepositoryURL})
+		ref, skip := checkableRef(string(e.Ref), notRefreshed)
+		if skip != nil {
+			unchecked = append(unchecked, *skip)
 			continue
 		}
 		fetcher, err := fetcherFor(ref.URL)
@@ -376,6 +388,23 @@ func detectUpdates(ctx context.Context, cfg *config.Config, auth remote.AuthConf
 		updates = append(updates, DependencyUpdate{Type: e.Type, Ref: string(e.Ref), CurrentSHA: e.Entry.SHA, LatestSHA: latest, RequestedVersion: e.Entry.RequestedVersion, Kind: e.Entry.SelectorKind(), Version: e.Entry.Version})
 	}
 	return updates, unchecked, skipped
+}
+
+// checkableRef parses a lockfile reference for the update check, or says why
+// it cannot be checked: it does not parse, names no repository, or names one
+// this run could not fetch (notRefreshed), whose clone is stale.
+func checkableRef(lockRef string, notRefreshed map[string]error) (*remote.Reference, *UncheckedDependency) {
+	ref, err := remote.ParseReference(lockRef)
+	if err != nil {
+		return nil, &UncheckedDependency{Ref: lockRef, Reason: UncheckedUnparseable, Err: err}
+	}
+	if ref.URL == "" {
+		return nil, &UncheckedDependency{Ref: lockRef, Reason: UncheckedNoRepositoryURL}
+	}
+	if ferr, failed := notRefreshed[ref.URL]; failed {
+		return nil, &UncheckedDependency{Ref: lockRef, URL: ref.URL, Reason: UncheckedNotRefreshed, Err: ferr}
+	}
+	return ref, nil
 }
 
 // latestWithinConstraint returns the newest commit the entry's version

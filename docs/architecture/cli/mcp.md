@@ -1,7 +1,7 @@
 # `ctxloom mcp` and the MCP surface
 
 ctxloom has ONE MCP surface: the session's endpoint, which the session's
-runner serves (`internal/adapters/runner/mcp` — `Endpoint`, the
+runner serves (`internal/adapters/runner/interaction` — `Endpoint`, the
 `delivery.Dynamic` port; `NewServer`, the surface). No ctxloom command speaks
 the protocol, and nothing is registered in a project at rest.
 

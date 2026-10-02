@@ -2,16 +2,12 @@
 
 // Package acceptance: the @doc capture sidecar.
 //
-// This is a PROTOTYPE seam for a proposed "living docs" pipeline (see
-// docs/living-docs-plan.md at the repo root of this worktree). It is NOT
-// part of the ordinary `just test-acceptance` run — no plain acceptance
-// invocation sets CTXLOOM_DOC_CAPTURE_DIR — but it IS wired into CI: `just
-// gen-living-docs` (invoked by .github/workflows/docs.yml's "Generate
-// living-docs journey pages" step) sets CTXLOOM_DOC_CAPTURE_DIR, runs the
-// acceptance suite with capture on, then renders
-// website/src/content/docs/journeys/ from that run's real captured output
-// (this comment used to claim "not wired into … CI" outright, which stopped
-// being true once docs.yml started calling gen-living-docs).
+// This is the capture seam of the living-docs pipeline (scripts/gendocs/
+// livingdocs). It is NOT part of the ordinary `just test-acceptance` run — no
+// plain acceptance invocation sets CTXLOOM_DOC_CAPTURE_DIR — but `just
+// gen-living-docs` (the docs workflow calls it) sets it, runs the acceptance
+// suite with capture on, then renders website/src/content/docs/journeys/ from
+// that run's real captured output.
 // It is inert unless CTXLOOM_DOC_CAPTURE_DIR is set, in which case every step
 // of every
 // @doc-tagged scenario has its real, run-produced evidence — CLI stdout/
@@ -22,7 +18,7 @@
 // github.com/cucumber/godog v0.15.1: see attachment_test.go and
 // internal/formatters/fmt_cucumber.go's "embeddings" support) and ALSO
 // flushed directly to a per-scenario JSON file for a generator to consume —
-// so this prototype does not additionally require wiring a
+// so the pipeline does not additionally require wiring a
 // "cucumber:<file>.json" formatter into the suite's Options.Format just to
 // exercise the same evidence.
 //
@@ -153,15 +149,6 @@ func scrubTempPaths(w *World, s string) string {
 	return s
 }
 
-func hasDocTag(sc *godog.Scenario) bool {
-	for _, t := range sc.Tags {
-		if t.Name == "@doc" {
-			return true
-		}
-	}
-	return false
-}
-
 // registerDocCaptureHooks wires the capture sidecar. A no-op unless
 // CTXLOOM_DOC_CAPTURE_DIR is set, so every other suite run (`just
 // test-acceptance`, CI) pays nothing and behaves exactly as before this file
@@ -173,7 +160,7 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 	}
 
 	ctx.Before(func(c context.Context, sc *godog.Scenario) (context.Context, error) {
-		if !hasDocTag(sc) {
+		if !scenarioHasTag(sc, "@doc") {
 			return c, nil
 		}
 		w := worldFrom(c)

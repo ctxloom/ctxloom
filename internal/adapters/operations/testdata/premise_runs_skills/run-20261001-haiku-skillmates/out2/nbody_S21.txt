@@ -1,0 +1,3 @@
+`next: read the overnight work state and task log to identify what stopped and why`
+
+I'll search for task logs, reports, or queue state from the overnight run.

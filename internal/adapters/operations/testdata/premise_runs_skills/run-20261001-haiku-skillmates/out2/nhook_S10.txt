@@ -1,0 +1,3 @@
+`invoke: recover`
+
+I need to reconstruct what was in progress before the clear so I can properly close it out with verification against gates and mutation testing.

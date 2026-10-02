@@ -64,7 +64,7 @@ func collectOwnerMail(t *testing.T, c *Coordinator, window time.Duration) []Mess
 	deadline := time.Now().Add(window)
 	var out []Message
 	for time.Now().Before(deadline) {
-		msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
+		msgs, err := ownerMail(t, c, 10*time.Millisecond)
 		if err == nil {
 			out = append(out, msgs...)
 		}

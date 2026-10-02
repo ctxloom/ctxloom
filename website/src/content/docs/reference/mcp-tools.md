@@ -41,14 +41,6 @@ Pause one of your delegated children: hold its turn hand-off so nothing NEW is h
 | `harp` | string | Yes | The child session harp to pause (from agent_run's harp, or the roster) |
 | `reason` | string | No | Why you are pausing — recorded in the coordinator's audit journal so a later reader can tell a deliberate hold from a stall |
 
-### agent_recv
-
-Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. One receive is live per session: a newer call supersedes an older parked one, and the superseded call completes SUCCESSFULLY with no messages and a `disposition` saying it yielded — nothing was lost, do not retry it. On timeout the verdict follows the caller's role: a coordinator gets a SUCCESSFUL empty result whose `disposition` says nothing arrived and to receive again if children are still running; a leaf gets an error telling it to finish.
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `wait` | integer | No | Seconds to wait for a message (default 60, max 600); on timeout a coordinator gets a successful empty result with a disposition, a leaf an error |
-
 ### agent_report
 
 File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with "keep reading for more detail", so put nothing essential below the fold.
@@ -73,7 +65,7 @@ Resume a paused child: turns held at its pause gate are handed to its engine in 
 
 ### agent_run
 
-Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and run headless: any permission posture is accepted, and a tool call the posture would prompt for is denied instead — that turn comes back BLOCKED, naming the tool.
+Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages; mail sent to you triggers your next turn and arrives there as context, so there is nothing to poll or wait on. Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and run headless: any permission posture is accepted, and a tool call the posture would prompt for is denied instead — that turn comes back BLOCKED, naming the tool.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -82,7 +74,7 @@ Launch a configured ctxloom agent as a delegated child session. Async spawn: ret
 
 ### agent_send
 
-Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: "parent"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with "keep reading for more detail", so put nothing essential below the fold.
+Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: "parent"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with "keep reading for more detail", so put nothing essential below the fold.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -186,12 +178,6 @@ Distill and load context from a session. Accepts either session_id (backend UUID
 | `harp_name` | string | No | Harp-named session reference (e.g. "swift-amber-falcon") naming a directory under ~/.ctxloom/sessions. Resolved to a session_id via that session's record; if both are passed, harp_name wins. |
 | `model` | string | No | LLM model to use for distillation if needed |
 | `session_id` | string | No | Backend-native session ID (UUID). Either session_id or harp_name is required. |
-
-### permission_host
-
-ctxloom's permission host for this session's engine. It holds a permission request open while the approval hook carries the human's decision to the engine, and it always answers deny. It grants nothing: calling it yourself is refused.
-
-_No parameters._
 
 ### recover_session
 

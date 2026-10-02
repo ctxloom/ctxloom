@@ -237,7 +237,7 @@ func TestStartOwnedRun_OwnerHarpRoleNoCollision(t *testing.T) {
 	// is suppressed for an owner-owned run (nothing to report to — the host
 	// watches the run directly). An empty mailbox times out with no message,
 	// which is exactly the outcome we want to prove — never a "result".
-	msgs, err := c.AgentRecv(context.Background(), owner, 200*time.Millisecond)
+	msgs, err := spoolMail(t, c, owner.Harp, 200*time.Millisecond)
 	if err == nil {
 		for _, m := range msgs {
 			assert.NotEqual(t, "result", m.Kind, "no self-bridged result may land in the owner's mailbox")

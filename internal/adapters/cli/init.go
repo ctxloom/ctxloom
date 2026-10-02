@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
+	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -746,7 +747,7 @@ func launchEngineWithPrompt(ctx context.Context, deps launch.Deps, workDir strin
 		sessionCoord: c,
 	}
 	st.launch.Env = stampTerminalEnv(st.launch.Env)
-	sess, err := startOwnedRun(ctx, c, ownedRunLaunch{Launch: st.launch, Rebind: endpointRebinder(deps)}, st.ptyStarter())
+	sess, err := startOwnedRun(ctx, c, ownedRunLaunch{Launch: st.launch, Rebind: endpointRebinder(deps)}, st.ptyStarter(hostpty.Start))
 	if err != nil {
 		if st.pty != nil {
 			st.pty.Kill()

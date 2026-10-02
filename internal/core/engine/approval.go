@@ -28,8 +28,9 @@ type PermissionAsk struct {
 	Tool string
 	// Input is the tool call's input as canonical JSON.
 	Input json.RawMessage
-	// ToolUseID correlates the ask to the model's tool call; set whenever the
-	// engine supplies one.
+	// ToolUseID is the model's tool call the ask is about. No codec reads
+	// it: the runner's approval route stamps it from the call the ask
+	// matched in the turn's ledger.
 	ToolUseID string
 	// Suggestions are engine-native session rules derived from the engine's
 	// own suggestions — the choices an allow-for-session picker offers.
@@ -83,13 +84,6 @@ type PermissionAnswer struct {
 	Message string
 }
 
-// HostCall is one call the engine made to ctxloom's permission host: the
-// tool it asks about, the call's id and its input.
-type HostCall struct {
-	Tool, ToolUseID string
-	Input           json.RawMessage
-}
-
 // ApprovalCodec is the engine's half of the approval route: neutral in,
 // native out. Nothing outside the engine knows the native formats.
 type ApprovalCodec interface {
@@ -100,10 +94,6 @@ type ApprovalCodec interface {
 	// It refuses an answer the engine must never be handed: a mode change
 	// other than accept-edits or default.
 	EncodeAnswer(event string, ask PermissionAsk, a PermissionAnswer) ([]byte, error)
-	// HostCall reads the arguments of a call to the permission host.
-	HostCall(args json.RawMessage) (HostCall, error)
-	// HostDeny is the permission host's native deny result.
-	HostDeny(message string) (string, error)
 	// RepoSurfaces are the globs, relative to a repository root, of the
 	// executable surfaces the engine loads from a repository.
 	RepoSurfaces() []string
@@ -114,9 +104,3 @@ type ApprovalCodec interface {
 	// approval timeout is timeout.
 	Hooks(timeout time.Duration) wire.UnifiedHooks
 }
-
-// PermissionHostTool is the tool ctxloom's session endpoint serves as the
-// engine's permission host: an engine whose approver is the human is pointed
-// at it, and it holds each ask open — never deciding it — while the approval
-// hook carries the human's decision back to the engine.
-const PermissionHostTool = "permission_host"

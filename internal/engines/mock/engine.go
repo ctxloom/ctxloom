@@ -6,6 +6,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"path/filepath"
 )
 
 // This file is the mock ENGINE KIND: the conformance double and the first
@@ -301,9 +302,9 @@ func (m Mock) Transcripts() []engine.TranscriptReader { return m.transcripts }
 // (hooks.go).
 func (m Mock) Hooks() engine.HookCodec { return hookCodec{m.Name} }
 
-// Wake is declared absent: the mock has no out-of-band way to start a turn.
+// Wake is the mock's own socket (EnvWakeSocket).
 func (m Mock) Wake() engine.Declared[engine.WakeSpec] {
-	return engine.Absent[engine.WakeSpec]("the mock listens on nothing a wake could post to")
+	return engine.Provide[engine.WakeSpec](socketWake{})
 }
 
 // Instance is where REQUIREDNESS is checked, loudly: the mock cannot run a
@@ -339,25 +340,30 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 			env[k] = v
 		}
 	}
-	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: i.s.Mode == engine.Interactive}, nil
+	interactive := i.s.Mode == engine.Interactive
+	if root := i.s.Roots.SessionHome.Engine; interactive && root != "" {
+		// The session owner's wake: the interactive echo listens here, and
+		// the runner binds the mock's wake from this same env.
+		env[EnvWakeSocket] = filepath.Join(root, wakeSocketName)
+	}
+	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: interactive}, nil
 }
 func (i *instance) Drivers() []engine.StructuredDriver {
 	deny, _ := mockRules(i.s.Permission.Posture.Document["deny"]) // none declared: nothing denied
-	return []engine.StructuredDriver{driver{fires: i.fires, approver: i.s.Permission.Approver, deny: deny, endpoint: i.s.MCP}}
+	return []engine.StructuredDriver{driver{fires: i.fires, approver: i.s.Permission.Approver, deny: deny}}
 }
 func (i *instance) Resume(key string) error { i.key = key; return nil }
 
 // driver is the mock's structured driver (turn.go): it fires the delivered
 // hooks for every event the turn passes through and echoes the prompt. A
-// mock:ask turn asks its session's approver through the session's endpoint
-// (ask.go).
+// mock:ask turn asks its session's approver through the permission_ask
+// hooks (ask.go).
 type driver struct {
 	fires    map[string]bool
 	approver engine.Approver
 	// deny are the session's declared deny rules (a mock rule is a tool
 	// name): they refuse a call before any grant or approver is consulted.
 	deny     []string
-	endpoint sessions.Endpoint
 }
 
 // Exports exports EVERYTHING: no bundle carries a block for a mock (mock is

@@ -1,0 +1,3 @@
+I'll follow the check-triggers skill: list the Deferred tasks, get verdicts on which triggers fired, and then ask you which ones to revive.
+
+invoke: task_list, evaluate_triggers

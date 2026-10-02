@@ -39,10 +39,15 @@ type fakeEngineHome struct {
 		Name  string
 		Value map[string]any
 	}
-	sink         func(*agentcoordpb.PeerMessage) bool
-	approvalHost ApprovalHost
-	spoolSweeps  int
-	exited       []struct {
+	sink          func(*agentcoordpb.PeerMessage) bool
+	approvalRoute ApprovalRoute
+	spoolSweeps   int
+	// owner, wakes and released record the interactive drive's owner
+	// marking and wake registrations (markOwner, SetWake and its release).
+	owner    bool
+	wakes    []engine.Wake
+	released int
+	exited   []struct {
 		Code      int
 		SessionID string
 	}
@@ -105,11 +110,11 @@ func (f *fakeEngineHome) emitCustomEvent(name string, value map[string]any) {
 	}{name, value})
 }
 
-// SetApprovalHost records the approval route the engine host bound.
-func (f *fakeEngineHome) SetApprovalHost(ah ApprovalHost) {
+// SetApprovalRoute records the approval route the engine host bound.
+func (f *fakeEngineHome) SetApprovalRoute(ar ApprovalRoute) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.approvalHost = ah
+	f.approvalRoute = ar
 }
 
 func (f *fakeEngineHome) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) {
@@ -635,3 +640,21 @@ var alwaysPresent = func() chan struct{} { c := make(chan struct{}); close(c); r
 
 func (f *fakeEngineHome) ownerPresent() <-chan struct{} { return alwaysPresent }
 func (f *fakeEngineHome) setTurning(bool)               {}
+
+func (f *fakeEngineHome) markOwner() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.owner = true
+}
+
+// SetWake records the registration; its release records the unbinding.
+func (f *fakeEngineHome) SetWake(w engine.Wake) func() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.wakes = append(f.wakes, w)
+	return func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.released++
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // TestWordListCounts pins the embedded word list sizes. The "long" group
@@ -451,4 +452,26 @@ func TestGroups_EveryAdvertisedGroupGeneratesAName(t *testing.T) {
 			t.Errorf("advertised group %q produced %q, not a three-component name", g, got)
 		}
 	}
+}
+
+// TestMaxNameLen_CoversEveryMintedSessionName: a minted session harp
+// (GenerateName: the default group, the default component count) at its
+// LONGEST must fit MaxNameLen, or the limit would refuse a name the minter
+// hands out. Computed from the word lists, so a longer word added to them
+// reddens this rather than the rename path.
+func TestMaxNameLen_CoversEveryMintedSessionName(t *testing.T) {
+	opts := Options{}.normalize()
+	g := groups[opts.Group]
+	longest := func(words []string) int {
+		n := 0
+		for _, w := range words {
+			n = max(n, utf8.RuneCountInString(w))
+		}
+		return n
+	}
+	minted := (opts.Components-1)*longest(g.adjectives) + longest(g.nouns) + (opts.Components-1)*utf8.RuneCountInString(opts.Separator)
+	if minted > MaxNameLen {
+		t.Fatalf("the longest minted session name is %d runes, past MaxNameLen %d", minted, MaxNameLen)
+	}
+	t.Logf("longest minted session name: %d runes; MaxNameLen %d", minted, MaxNameLen)
 }

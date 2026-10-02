@@ -59,11 +59,11 @@ func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfi
 func TestNewContextInjectionHook_CarriesNoMachineFact(t *testing.T) {
 	h := agent.NewContextInjectionHook("hash1")
 
-	assert.NotContains(t, h.Command, "--project",
-		"the generated hook must not embed a project path; got %q", h.Command)
-	assert.Equal(t, "'ctxloom' hook inject-context hash1", h.Command)
-	assert.True(t, exectoken.IsManaged(h.Command, "ctxloom"),
-		"the quoted bare name must still resolve to the ctxloom exec token; got %q", h.Command)
+	assert.Equal(t, "ctxloom", h.Command, "the bare name, resolved on PATH where the hook fires")
+	assert.Equal(t, []string{"hook", "inject-context", "hash1"}, h.Args,
+		"the generated hook must not embed a project path")
+	assert.True(t, exectoken.IsManaged(h.Line(), "ctxloom"),
+		"the hook's line must still resolve to the ctxloom exec token; got %q", h.Line())
 }
 
 // TestNewContextInjectionHooks_ChunksLargeContext verifies that a large
@@ -83,7 +83,7 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 		writeCtxFile(t, tmpDir, "smallhash", "# tiny\nbody")
 		hooks := agent.NewContextInjectionHooks(report.Reporter{}, "smallhash", tmpDir)
 		require.Len(t, hooks, 1)
-		assert.NotContains(t, hooks[0].Command, "--part",
+		assert.NotContains(t, hooks[0].Args, "--part",
 			"single chunk must use the legacy whole-content form")
 	})
 
@@ -91,7 +91,7 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 		tmpDir := t.TempDir()
 		hooks := agent.NewContextInjectionHooks(report.Reporter{}, "nofile", tmpDir)
 		require.Len(t, hooks, 1)
-		assert.NotContains(t, hooks[0].Command, "--part",
+		assert.NotContains(t, hooks[0].Args, "--part",
 			"missing file degrades to a single whole-content hook")
 	})
 
@@ -107,10 +107,10 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 		n := len(hooks)
 		require.Greater(t, n, 1, "large content must split into multiple chunk hooks")
 		for k, h := range hooks {
-			assert.Containsf(t, h.Command, fmt.Sprintf("--part %d --of %d", k+1, n),
-				"hook %d must be the (k+1)-th of n in order; got %q", k, h.Command)
-			assert.Truef(t, exectoken.IsManaged(h.Command, "ctxloom"),
-				"chunk hook must be recognized as ctxloom-managed; got %q", h.Command)
+			assert.Containsf(t, strings.Join(h.Args, " "), fmt.Sprintf("--part %d --of %d", k+1, n),
+				"hook %d must be the (k+1)-th of n in order; got %q", k, h.Args)
+			assert.Truef(t, exectoken.IsManaged(h.Line(), "ctxloom"),
+				"chunk hook must be recognized as ctxloom-managed; got %q", h.Line())
 			assert.Equal(t, agent.ContextInjectionTimeout, h.Timeout)
 		}
 	})

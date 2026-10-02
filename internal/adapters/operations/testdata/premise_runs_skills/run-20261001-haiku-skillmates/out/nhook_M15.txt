@@ -1,0 +1,5 @@
+next: Report that there is no pending work, because this is a fresh session with an empty directory and no prior context.
+
+---
+
+Nothing pending for tonight. This is a fresh session with no prior work in flight, no open decisions, and no deferred items. The board is clear — you're good to close out.

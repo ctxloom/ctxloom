@@ -55,12 +55,16 @@ type engineHome interface {
 	// ownerPresent is closed while the owner's lifecycle link is up
 	// (Home.ownerPresent): the gate every new turn waits on.
 	ownerPresent() <-chan struct{}
+	// markOwner and SetWake are the interactive drive's: the run is the
+	// session owner's, and its engine's bound wake is registered for it.
+	markOwner()
+	SetWake(w engine.Wake) (release func())
 	// setTurning tells the owner-loss clock a turn started or reached its
 	// boundary (Home.setTurning): progress pauses it.
 	setTurning(on bool)
-	// SetApprovalHost binds the run's approval route for the session's
-	// endpoint to serve (Home.SetApprovalHost).
-	SetApprovalHost(ah ApprovalHost)
+	// SetApprovalRoute binds the run's approval route for the session's
+	// endpoint to serve (Home.SetApprovalRoute).
+	SetApprovalRoute(ar ApprovalRoute)
 }
 
 // Compile-time assertion that Home satisfies the engine host's seam.
@@ -84,9 +88,12 @@ type Runner interface {
 // one discrete engine process per turn (Instance.Drivers); an interactive
 // one on the runner's terminal.
 type Turn struct {
-	Launch     launch.Launch
-	Instance   engine.Instance
-	Exec       engine.Exec
+	Launch   launch.Launch
+	Instance engine.Instance
+	Exec     engine.Exec
+	// Wake is the hosted engine's declared wake (Engine.Wake), bound by an
+	// interactive drive for the session owner.
+	Wake       engine.Declared[engine.WakeSpec]
 	MCPServers []agent.ChatMCPServer
 	Prompt     string
 	Presented  []present.Presentation
@@ -455,11 +462,11 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 
 	// The approval route is bound before the first turn can ask anything.
 	if spec := t.approval; spec != nil {
-		a := newApprovals(*spec, askTheRoot(home, *spec, boundsFor(spec.timeout).request))
+		a := newApprovals(*spec, askTheRoot(home, *spec, spec.timeout+approvalRequestSlack))
 		eh.mu.Lock()
 		eh.approvals = a
 		eh.mu.Unlock()
-		home.SetApprovalHost(a)
+		home.SetApprovalRoute(a)
 	}
 
 	// RunStarted first: the log is self-contained (the first turn and the
@@ -549,23 +556,26 @@ func (eh *EngineHost) startRunResult() *agentcoordpb.RunnerResponse {
 
 // driveInteractive drives an interactive launch on the bound terminal: the
 // human owns the session, so there is no briefing to send and no turn sink
-// — coordinator mail reaches the engine through the terminal injector's
-// nudge (Home.SetTerminalNudge). The engine's exit is the run's terminal:
-// RunCompleted carries its classification and exit status, RunExited its
-// code.
+// — the run is the session owner's, its mail is its turn-start hook's, and
+// the engine's wake starts the turn that hook runs in (bindOwnerWake). The
+// engine's exit is the run's terminal: RunCompleted carries its
+// classification and exit status, RunExited its code.
 func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) error {
 	ctx, cancel := context.WithCancel(eh.baseCtx)
 	eh.mu.Lock()
 	eh.cancel = cancel
 	eh.runCtx = ctx
 	eh.mu.Unlock()
+	home.markOwner()
 	home.BindIdentity(t.Launch.Identity)
+	releaseWake := eh.bindOwnerWake(ctx, home, t)
 	home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunStarted{RunStarted: &agentcoordpb.RunStarted{
 		Input:  runStartedInput(t.Prompt),
 		Config: runStartedConfig(eh.rep, t),
 	}}})
 	eh.goTracked(func() {
 		code, err := term.Run(ctx, t)
+		releaseWake()
 		result := &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_SUCCEEDED}
 		if err == nil && ctx.Err() == nil {
 			// The engine ran and exited: its status (exitstatus.Of)
@@ -592,6 +602,34 @@ func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) e
 		home.ReportRunExited(code, "")
 	})
 	return nil
+}
+
+// bindOwnerWake binds the hosted engine's declared wake from the env the
+// engine is launched with and registers it for the session owner, returning
+// its release. ErrWakeUnbound there is not a fault: an engine whose wake
+// binds in a process it spawns itself (claude's session relay, which reaches
+// this Home through the endpoint's wake subscription) leaves nothing in its
+// launch env to bind. An engine that declares no wake is said so once; its
+// owner's mail waits for the next prompt.
+func (eh *EngineHost) bindOwnerWake(ctx context.Context, home engineHome, t Turn) (release func()) {
+	none := func() {}
+	spec, ok := t.Wake.Get()
+	if !ok {
+		eh.rep.Warnf("engine host: the session owner cannot be woken for its mail (%s); mail waits for the next prompt", t.Wake.AbsentReason())
+		return none
+	}
+	w, err := spec.Bind(ctx, func(key string) (string, bool) {
+		v, ok := t.Exec.Env[key]
+		return v, ok
+	})
+	switch {
+	case errors.Is(err, engine.ErrWakeUnbound):
+		return none
+	case err != nil:
+		eh.rep.Warnf("engine host: the session owner's wake did not bind; mail waits for the next prompt: %v", err)
+		return none
+	}
+	return home.SetWake(w)
 }
 
 // runTurn is ONE structured turn: a discrete engine process through the
@@ -648,9 +686,7 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	var lastMeta *agent.TurnMeta
 	// turn_started is announced at the engine's FIRST entry — the moment
 	// it is observably working — not at the process's spawn: the
-	// coordinator claims the run's execution slot on it, and a park the
-	// engine asks for (agent_recv) must not race an announcement still in
-	// flight from before the engine had said anything.
+	// coordinator claims the run's execution slot on it.
 	started := false
 	announceStarted := func() {
 		if !started {
@@ -667,9 +703,6 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 				if ev.Session.SessionID != "" {
 					sessionID = ev.Session.SessionID
 					eh.announceSession(home, sessionID)
-				}
-				if appr != nil {
-					eh.checkApprovalHost(ev.Session)
 				}
 			case ev.Entry != nil:
 				announceStarted()

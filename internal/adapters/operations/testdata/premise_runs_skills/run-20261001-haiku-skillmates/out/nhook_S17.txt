@@ -1,0 +1,1 @@
+next: Report that I found no pending decisions or deferred work in this session (empty directory, no context provided), and ask what task or code the user wants to work on or what decisions they'd like to walk through.

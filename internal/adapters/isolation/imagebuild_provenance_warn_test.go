@@ -15,8 +15,7 @@ import (
 // image-staleness check is SAID rather than merely happening.
 //
 // An empty provenance key turns imageRunsAsIs's staleness comparison off
-// entirely (`wantProvenance != "" && ...`), and `ctxloom container provenance`
-// prints the same empty value and exits 0. Returning "" quietly is therefore
+// entirely (`wantProvenance != "" && ...`). Returning "" quietly is therefore
 // the house silent-no-op shape — a check reporting success while doing
 // nothing — so the degrade must be announced.
 func TestHostImageKeys_UnstampedBinaryIsAnnounced(t *testing.T) {

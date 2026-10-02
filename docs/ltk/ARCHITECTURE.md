@@ -34,7 +34,7 @@ The `@submodules` sentinel is resolved against `.gitmodules` (`internal/scm`) an
 expanded to one directory pattern per submodule before evaluation, keeping the
 `rules` package free of filesystem I/O. Path globbing is doublestar (`**`), tried
 against basename, full path, and an implicit `**/` prefix so repo-relative
-patterns match the absolute paths the tools pass — see [RULES.md](RULES.md#matching-file-edits-matchpath).
+patterns match the absolute paths the tools pass — see [the rules reference](https://ctxloom.dev/ltk/rules/#matching-file-edits-matchpath).
 
 Two interfaces carry all the variation:
 
@@ -64,7 +64,7 @@ ambiguous between bash and PowerShell, so guessing from text is unreliable.
 
 Rules are matched against the IR, never against raw text. The matching model —
 program/positional/option args and its cross-shell portability — is
-documented in [RULES.md](RULES.md).
+documented in [the rules reference](https://ctxloom.dev/ltk/rules/).
 
 ## Understanding (catching trivial workarounds)
 
@@ -117,7 +117,7 @@ Code on that unanchored-regex path. Either way, once
 the installed matcher fires on a name `Decode` doesn't recognise, that's
 `ToolUngated`.
 
-Everywhere else in ltk, an unresolvable command *allows* (RULES.md's fail-open
+Everywhere else in ltk, an unresolvable command *allows* (the rules reference's fail-open
 default). `ToolUngated` is the one deliberate exception: `cmd/ltk/evaluate.go`
 denies it instead, because the alternative isn't "a slightly weaker guard" —
 it's a tool the operator explicitly told ltk to watch (it's in the installed
@@ -204,7 +204,7 @@ different reasons:
   command line, resolve `$VAR`, unwrap `bash -c`, or classify a token as a
   POSIX operand vs. an option — that parsing and classification (the actual
   hard part of this problem, see "Matching commands" in
-  [RULES.md](RULES.md#matching-commands)) is exactly what ltk's frontend +
+  [the rules reference](https://ctxloom.dev/ltk/rules/#matching-commands)) is exactly what ltk's frontend +
   matcher do, and no policy engine does it for you. Adopting one would mean
   building the same shell-parsing pipeline ltk already has, then handing its
   output to a second engine to re-express the same allow/deny logic in a

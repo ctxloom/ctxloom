@@ -21,13 +21,13 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/creack/pty"
+	"github.com/aymanbagabas/go-pty"
 )
 
 const (
@@ -145,7 +145,15 @@ func main() {
 	// Deliberately NOT --dangerously-skip-permissions: the permission modal is
 	// the thing being measured, and it is a far more deterministic trigger than
 	// persuading the model to call a question tool.
-	cmd := exec.Command("claude", "--model", *model)
+	ptm, err := pty.New()
+	if err == nil {
+		err = ptm.Resize(120, 40)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "pty open:", err)
+		os.Exit(1)
+	}
+	cmd := ptm.Command("claude", "--model", *model)
 	cmd.Dir = *dir
 	// SCRUB THE INHERITED SESSION MARKERS. This harness runs inside a claude
 	// session that itself has bypass permissions; without this the child
@@ -160,17 +168,16 @@ func main() {
 		env = append(env, kv)
 	}
 	cmd.Env = env
-	ptm, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 120})
-	if err != nil {
+	if err := cmd.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "pty start:", err)
 		os.Exit(1)
 	}
 	defer func() {
 		_ = ptm.Close()
 		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		_ = cmd.Wait()
 	}()
-	go func() { _, _ = ptm.WriteTo(t) }()
+	go func() { _, _ = io.Copy(t, ptm) }()
 
 	t.waitIdle(2*time.Second, *settle)
 	// Clear the trust dialog UNCONDITIONALLY. Do not try to detect it by text:

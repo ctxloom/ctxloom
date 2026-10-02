@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cbroglie/mustache v1.4.0
 	github.com/cucumber/godog v0.16.0
@@ -47,7 +48,6 @@ require (
 	charm.land/lipgloss/v2 v2.0.4
 	github.com/benjaminabbitt/hew/go v0.2.1
 	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260905185216-9a2b04465c57
-	github.com/creack/pty v1.1.24
 	github.com/expr-lang/expr v1.17.8
 	github.com/knadh/koanf/maps v0.1.2
 	github.com/knadh/koanf/providers/confmap v1.0.0
@@ -58,6 +58,7 @@ require (
 )
 
 require (
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/cucumber/gherkin/go/v42 v42.0.0 // indirect
 	github.com/cucumber/messages/go/v34 v34.2.0 // indirect
 	golang.org/x/mod v0.39.0 // indirect
@@ -66,7 +67,6 @@ require (
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260525132238-948f4557a654 // indirect

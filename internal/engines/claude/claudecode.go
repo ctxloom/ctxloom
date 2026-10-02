@@ -10,7 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // ClaudeConfig is claude-code's typed LLM config: the fields a claude-code
@@ -38,12 +37,6 @@ type ClaudeCode struct {
 	// kind is the engine KIND this backend projects requests onto: every
 	// argv this backend runs is kind.Instance(session).Exec(presented).
 	kind engine.Engine
-	// gate tracks whether claude is currently showing a modal, so a
-	// coordinator wake is withheld rather than answering the prompt for the
-	// human. It satisfies agent.InputGate; see inputgate.go for the
-	// measurement it rests on. Kept by VALUE, so a ClaudeCode must not be
-	// copied once in use — nothing copies one today (it is always *ClaudeCode).
-	gate inputGate
 }
 
 // NewClaudeCode creates a new Claude Code backend with default settings.
@@ -160,7 +153,7 @@ const sessionHarpEnv = agent.SessionHarpEnv
 // mode rides each turn's --settings (turnSettings), so there is one
 // mechanism for it and a later turn can change it. Nobody sits at a
 // headless engine, so what the posture and rules leave open goes to the
-// human at the root through ctxloom's permission host, or is denied
+// human at the root through the PermissionRequest hook, or is denied
 // (promptArgs).
 //
 // A plan-first posture (plan with after_plan) drops the belt and the argv
@@ -225,19 +218,17 @@ func permissionArgs(p posture, mcpServers []string) []string {
 	return append(postureArgs(p, mcpServers), promptArgs(p)...)
 }
 
-// permissionHostTool is ctxloom's permission host as claude names a tool of
-// an MCP server: the session endpoint's server, ctxloom's own.
-const permissionHostTool = "mcp__" + wire.CtxloomServerName + "__" + engine.PermissionHostTool
-
 // promptArgs says who answers, in a run nobody sits at, what the posture and
-// rules leave open: the human at the root — claude hands the prompt to
-// ctxloom's permission host, which holds it while the approval hook carries
-// the human's decision — or nobody, so it is denied: approver none or
-// reviewer (claude's own dontAsk and auto decide), and bypass, which asks
-// nobody anything.
+// rules leave open. The human at the root: NO prompt flag, so claude awaits
+// the PermissionRequest hook, honours its decision and denies what no hook
+// decided — the argv the P12 rung's allow, deny and silent cells pin.
+// Otherwise nobody, so it is denied: approver none or reviewer (claude's own
+// dontAsk and auto decide), and bypass, which asks nobody anything; those
+// runs carry no approval hook, and --permission-prompts none denies locally
+// (P12's allow-prompts-none cell shows none still consults a hook first).
 func promptArgs(p posture) []string {
 	if p.approver == engine.ApproverHuman && p.mode != modeBypass {
-		return []string{flagPermissionPromptTool, permissionHostTool, flagPermissionPrompts, "host"}
+		return nil
 	}
 	return []string{flagPermissionPrompts, "none"}
 }

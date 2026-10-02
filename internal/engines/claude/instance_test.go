@@ -34,7 +34,7 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 	mcp := present.Presentation{HostPath: "/h/.mcp.json", EnginePath: "/h/.mcp.json", Args: []string{flagMCPConfig, "/h/.mcp.json"}}
 	ex, err := inst.Exec([]present.Presentation{mcp})
 	require.NoError(t, err)
-	require.Equal(t, "--disallowedTools Bash,Edit,Write,NotebookEdit --allowedTools mcp__probe --permission-prompt-tool mcp__ctxloom__permission_host --permission-prompts host --model claude-opus-5 --print --mcp-config /h/.mcp.json", strings.Join(ex.Args, " "))
+	require.Equal(t, "--disallowedTools Bash,Edit,Write,NotebookEdit --allowedTools mcp__probe --model claude-opus-5 --print --mcp-config /h/.mcp.json", strings.Join(ex.Args, " "))
 	drivers := inst.Drivers()
 	require.Len(t, drivers, 1)
 	d, ok := drivers[0].(*streamJSONDriver)
@@ -98,24 +98,23 @@ func TestInstance_HeadlessChildDefaults(t *testing.T) {
 			require.NoError(t, err)
 			argv := strings.Join(ex.Args, " ")
 			if mode == engine.Structured {
-				require.Contains(t, argv, flagPermissionPrompts+" ", "%v %v", mode, perm)
+				// The human at the root answers through the hook, so no
+				// prompt flag is passed; nobody else is asked anything.
+				asksTheHuman := named.p.Approver == engine.ApproverHuman && perm != modeBypass
+				require.Equal(t, !asksTheHuman, strings.Contains(argv, flagPermissionPrompts+" none"), "%v %v", mode, perm)
 				require.Equal(t, "1", ex.Env[disableBackgroundTasksEnv], "%v %v", mode, perm)
-				require.Equal(t, "0", ex.Env[mcpToolIdleTimeoutEnv], "%v %v: the permission host holds a call while the human decides", mode, perm)
 				continue
 			}
 			require.NotContains(t, argv, flagPermissionPrompts, "%v %v", mode, perm)
 			require.NotContains(t, ex.Env, disableBackgroundTasksEnv, "%v %v", mode, perm)
-			require.NotContains(t, ex.Env, mcpToolIdleTimeoutEnv, "%v %v", mode, perm)
 		}
 	}
 	for _, cli := range ClaudeEngineCLIs() {
 		if cli.Surface == agent.CLISurfaceOneshot {
 			require.Contains(t, cli.SetEnv, disableBackgroundTasksEnv)
-			require.Contains(t, cli.SetEnv, mcpToolIdleTimeoutEnv)
 			continue
 		}
 		require.NotContains(t, cli.SetEnv, disableBackgroundTasksEnv, "%v", cli.Surface)
-		require.NotContains(t, cli.SetEnv, mcpToolIdleTimeoutEnv, "%v", cli.Surface)
 	}
 }
 

@@ -122,7 +122,7 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 		_ = ws.Cleanup()
 		return nil, refuseUnreachable(err)
 	}
-	env, err := p.environment(ws, pl, roots)
+	env, err := p.environment(ws, pl, roots, l.creds)
 	if err != nil {
 		_ = ws.Cleanup()
 		return nil, err

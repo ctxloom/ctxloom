@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -102,7 +103,7 @@ func (e *containerEnvironment) Cleanup() error { return e.cw.Cleanup() }
 
 func (None) relocator() relocator { return hostRelocator{} }
 
-func (n None) environment(ws workspace, pl launch.Placement, _ []mount) (Environment, error) {
+func (n None) environment(ws workspace, pl launch.Placement, _ []mount, _ engine.Credentials) (Environment, error) {
 	return &hostEnvironment{p: n, ws: ws, placement: pl, axis: WorkspaceShared}, nil
 }
 
@@ -112,7 +113,7 @@ func (None) preview(context.Context) (present.Listen, Description) {
 
 func (Worktree) relocator() relocator { return hostRelocator{} }
 
-func (w Worktree) environment(ws workspace, pl launch.Placement, _ []mount) (Environment, error) {
+func (w Worktree) environment(ws workspace, pl launch.Placement, _ []mount, _ engine.Credentials) (Environment, error) {
 	return &hostEnvironment{p: w, ws: ws, placement: pl, axis: WorkspaceWorktree}, nil
 }
 
@@ -127,10 +128,18 @@ func (c Container) relocator() relocator {
 // environment binds the relocator's outcome onto the workspace the runner
 // spec renders: the project root's Engine side is the container's workdir,
 // and the root mounts are the ones the relocator produced with it.
-func (c Container) environment(ws workspace, pl launch.Placement, roots []mount) (Environment, error) {
+func (c Container) environment(ws workspace, pl launch.Placement, roots []mount, creds engine.Credentials) (Environment, error) {
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
 		return nil, fmt.Errorf("container environment: unexpected workspace %T (expected a container workspace)", ws)
+	}
+	if len(pl.SecretFiles) > 0 {
+		if cw.secrets == nil {
+			return nil, errSecretUnstaged
+		}
+		if err := materializeSecrets(cw.secrets.dir, pl, creds); err != nil {
+			return nil, err
+		}
 	}
 	cw.workDir = pl.Paths.Paths().ProjectRoot.Engine
 	cw.roots = roots

@@ -1,13 +1,20 @@
 package isolation
 
 import (
+	"errors"
+	"fmt"
 	"maps"
 	"path"
+	"path/filepath"
 	"slices"
+
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // secretsTarget is where a container cell's secret files are mounted,
@@ -50,3 +57,42 @@ func containerPlacement(paths present.Paths, l layout, storeEnv map[string]strin
 	}
 	return pl
 }
+
+// secretScratchPrefix names a container cell's secret dir (newOwnedScratch).
+const secretScratchPrefix = "ctxloom-secret-"
+
+// errSecretUnstaged: a Placement names a secret file but the workspace made
+// no secret dir to hold it.
+var errSecretUnstaged = errors.New("container secrets: the placement names a secret file but the workspace has no secret dir")
+
+// secretParent is where a container cell's secret dir is made: the user's
+// runtime dir when the session has one — a tmpfs the XDG spec makes
+// owner-only, so the value never reaches a disk — else the run's own
+// container scratch root (macOS, Windows), which the shared-filesystem probe
+// covers like every other root.
+func secretParent(getenv func(string) string, scratchRoot string) string {
+	if dir := getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return dir
+	}
+	return scratchRoot
+}
+
+// materializeSecrets writes each secret variable pl names, from creds, as an
+// owner-only file named by the variable in dir — the host side of the
+// read-only mount at secretsTarget. The exact value is written: the runner
+// reads it back byte for byte.
+func materializeSecrets(dir string, pl launch.Placement, creds engine.Credentials) error {
+	for v := range pl.SecretFiles {
+		value, ok := creds.Env[v]
+		if !ok {
+			return fmt.Errorf("container secrets: the placement names %s, which the run's credentials do not set", v)
+		}
+		if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(dir, v), []byte(value), owneronly.FileMode); err != nil {
+			return fmt.Errorf("container secrets: write %s: %w", v, err)
+		}
+	}
+	return nil
+}
+
+// errSecretResidue: teardown could not remove a secret dir.
+var errSecretResidue = errors.New("the secret dir is still present")

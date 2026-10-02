@@ -34,31 +34,35 @@ func (f denyOpenFs) Open(name string) (afero.File, error) {
 	return f.Fs.Open(name)
 }
 
-// TestEffectiveTrust_AbsentApprovalsStore_NormalPending is the CONTROL case
-// for the fail-closed preamble: neither approvals directory has EVER been
-// created (a fresh project, HOME pointed at an empty temp dir — exactly
-// TestEffectiveTrust_DefaultRecords_NothingApprovedOrRejected's setup). This
-// must resolve as an ordinary pending decision — the normal "nothing
-// reviewed yet" outcome — and must NOT record a strictness finding. A fresh
-// checkout with no approvals recorded yet is not a fault.
-func TestEffectiveTrust_AbsentApprovalsStore_NormalPending(t *testing.T) {
+// TestEffectiveTrust_AbsentApprovalsStore_DeniesAllAndNamesInit is a
+// DELIBERATE REVERSAL. Its predecessor, ..._NormalPending, pinned an absent
+// project approvals store as an ordinary "nothing reviewed yet". The store is
+// now provisioned by `ctxloom init` (with a tracked placeholder), so its
+// absence can only mean it went away or failed to mount — and reading that as
+// "nothing rejected" discards every rejection a human recorded. So an absent
+// project store denies everything, records a trust finding, and the finding's
+// remedy is re-provisioning rather than repairing a corrupt store.
+func TestEffectiveTrust_AbsentApprovalsStore_DeniesAllAndNamesInit(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
+	ref := trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true}
 
 	mark := strictness.Checkpoint()
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
-		Ref:        trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
-		Posture:    postureCtxOf(trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"}),
-		Provenance: postureProvOf(trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"}),
+		Ref:        ref,
+		Posture:    postureCtxOf(ref),
+		Provenance: postureProvOf(ref),
 		Payload:    pbytes("x"),
 		Form:       rawForm,
 		FS:         fs,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, trust.Deny, res.Decision)
-	assert.Equal(t, trust.SourcePending, res.Source)
-	assert.Empty(t, strictness.Since(mark), "an absent approvals store must never record a strictness finding")
+	assert.Equal(t, trust.Deny, res.Decision, "an absent project store must withhold even local content")
+	found := strictness.Since(mark)
+	require.Len(t, found, 1)
+	assert.Equal(t, report.KindTrust, found[0].Kind)
+	assert.Contains(t, found[0].Remedy, "ctxloom init")
 }
 
 // TestEffectiveTrust_UnreadableApprovalsStore_DenyAllAndStrictFatal is the
@@ -132,6 +136,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 	userDir := filepath.Join(dir, "user-approvals")
 	projectDir := filepath.Join(dir, "project-approvals")
 
+	require.NoError(t, fs.MkdirAll(projectDir, 0o755))
 	userStore := countersign.NewStore(userDir, fs)
 	projectStore := countersign.NewStore(projectDir, fs)
 
@@ -194,28 +199,25 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 	assert.Equal(t, report.KindTrust, found[0].Kind)
 }
 
-// TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending
-// is the BOUNDARY case the unconditional .Fault() gate must NOT trip: a
-// brand-new install / fresh project whose approvals directories have NEVER
-// been created yet. This is indistinguishable from "corrupt" only if the
-// gate conflates "absent" with "unreadable" — it must not, because that
-// would deny every single item on a first run, which is its own outage (see
-// Store.Readable's own doc: os.IsNotExist degrades to nil, never an error).
+// TestEffectiveTrust_ProductionInjectedRecords_ProvisionedEmptyStore_NormalPending
+// is the BOUNDARY the unconditional .Fault() gate must NOT trip: a project
+// whose approvals store is provisioned (as `ctxloom init` leaves it) but holds
+// no decision yet, beside a user store that has never been created (a CI
+// runner, a new machine). That is the normal first-run shape and must resolve
+// as ordinary pending, with local content still allowed.
 //
-// This exercises the records value in the SAME shape as
-// TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll (built
-// once, injected non-nil, mirroring contentGate's constructor) specifically
-// to prove the new unconditional check point doesn't regress the "fresh
-// project" case now that it also runs on the non-nil/injected path.
-func TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending(t *testing.T) {
+// It replaces ..._FreshEmptyStore_NormalPending, which asserted the same of a
+// project store that did not exist at all. That is now a fault (see
+// TestEffectiveTrust_AbsentApprovalsStore_DeniesAllAndNamesInit): the store is
+// provisioned, so absence means it went away.
+func TestEffectiveTrust_ProductionInjectedRecords_ProvisionedEmptyStore_NormalPending(t *testing.T) {
 	resetStrictness(t)
 	fs := afero.NewOsFs()
 	dir := t.TempDir()
-	// Deliberately never created — WriteApprove/WriteRefReject lazily
-	// MkdirAll on first write, so a fresh install's directories simply do
-	// not exist on disk yet.
+	projectDir := filepath.Join(dir, "project-approvals")
+	require.NoError(t, fs.MkdirAll(projectDir, 0o755))
 	userStore := countersign.NewStore(filepath.Join(dir, "user-approvals"), fs)
-	projectStore := countersign.NewStore(filepath.Join(dir, "project-approvals"), fs)
+	projectStore := countersign.NewStore(projectDir, fs)
 	records := countersign.NewRecords(userStore, projectStore, nil, nil)
 
 	mark := strictness.Checkpoint()
@@ -229,7 +231,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending(
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision)
-	assert.Equal(t, trust.SourcePending, res.Source, "a fresh, never-written approvals store must resolve ordinary pending, not a fail-closed deny")
+	assert.Equal(t, trust.SourcePending, res.Source, "a provisioned, never-written approvals store must resolve ordinary pending, not a fail-closed deny")
 
 	// A local item must STILL be allowed via the local exemption — proving
 	// the guard genuinely did not fire (a false trip would deny this too).
@@ -239,10 +241,10 @@ func TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending(
 		Posture: postureCtxOf(localRef), Provenance: postureProvOf(localRef),
 	})
 	require.NoError(t, err2)
-	assert.Equal(t, trust.Allow, res2.Decision, "a fresh install must not deny local content — the readable() gate must not false-trip on 'never created yet'")
+	assert.Equal(t, trust.Allow, res2.Decision, "a fresh install must not deny local content — the readable() gate must not false-trip on an empty store or an absent user store")
 	assert.Equal(t, trust.SourceLocal, res2.Source)
 
-	assert.Empty(t, strictness.Since(mark), "a fresh/absent approvals store must never record a strictness finding, even reached via the injected-records path")
+	assert.Empty(t, strictness.Since(mark), "a provisioned empty store must never record a strictness finding, even reached via the injected-records path")
 }
 
 // This is the MIRROR trap test. The package's existing trap coverage runs
@@ -264,6 +266,7 @@ func TestEffectiveTrust_CorruptedRejectSignature_StaysDenied(t *testing.T) {
 	userDir := filepath.Join(dir, "user-approvals")
 	signer := testSigner(t)
 
+	require.NoError(t, fs.MkdirAll(filepath.Join(dir, "project-approvals"), 0o755))
 	userStore := countersign.NewStore(userDir, fs)
 	projectStore := countersign.NewStore(filepath.Join(dir, "project-approvals"), fs)
 
@@ -294,4 +297,31 @@ func TestEffectiveTrust_CorruptedRejectSignature_StaysDenied(t *testing.T) {
 	found := strictness.Since(mark)
 	require.NotEmpty(t, found, "an unparseable record in the approvals store must record a strictness finding")
 	assert.Equal(t, report.KindTrust, found[0].Kind)
+}
+
+// TestEffectiveTrust_RemovedProjectStore_RejectionIsNotDiscarded is the proof
+// amused-fondue was ruled on: record a rejection in the project store, remove
+// the store, and the rejected item must NOT be admitted. Before the store was
+// provisioned, absence read as "nothing recorded" and the rejected LOCAL item
+// fell straight through to the local exemption.
+func TestEffectiveTrust_RemovedProjectStore_RejectionIsNotDiscarded(t *testing.T) {
+	resetStrictness(t)
+	fs := afero.NewOsFs()
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "project-approvals")
+	userStore := countersign.NewStore(filepath.Join(dir, "user-approvals"), fs)
+	projectStore := countersign.NewStore(projectDir, fs)
+	rejectedRef := trust.Ref{Bundle: "tooling", Kind: trust.KindFragment, Name: "rejected-thing", IsLocal: true}
+	require.NoError(t, projectStore.WriteRefReject(mustCountersignRef(t, rejectedRef), testSigner(t)))
+	records := countersign.NewRecords(userStore, projectStore, nil, nil)
+
+	require.NoError(t, fs.RemoveAll(projectDir))
+
+	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+		Ref: rejectedRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
+		Posture: postureCtxOf(rejectedRef), Provenance: postureProvOf(rejectedRef),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, trust.Deny, res.Decision, "a removed approvals store must not discard the rejection it held")
+	assert.NotEqual(t, trust.SourceLocal, res.Source, "the local exemption is what a discarded rejection falls through to")
 }

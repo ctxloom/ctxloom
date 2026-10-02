@@ -69,6 +69,7 @@ func TestEffectiveTrust_CorruptLockfile_WithholdsRemoteContent(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 	baseDir := t.TempDir()
+	provisionApprovals(t, afero.NewOsFs(), baseDir)
 	writeLockYAML(t, baseDir, corruptLockYAML)
 	cfg := testConfigWithSCMPath(baseDir)
 
@@ -106,6 +107,7 @@ func TestEffectiveTrust_AbsentLockfile_NormalDecision(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 	baseDir := t.TempDir() // deliberately never given a lock.yaml
+	provisionApprovals(t, afero.NewOsFs(), baseDir)
 	cfg := testConfigWithSCMPath(baseDir)
 
 	mark := strictness.Checkpoint()
@@ -151,6 +153,7 @@ func TestEffectiveTrust_ValidLockfile_RetractionBehaviorUnchanged(t *testing.T) 
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 	baseDir := t.TempDir()
+	provisionApprovals(t, afero.NewOsFs(), baseDir)
 	writeLockYAML(t, baseDir, ""+
 		"version: 2\n"+
 		"bundles:\n"+
@@ -210,6 +213,7 @@ func TestEffectiveTrust_CorruptLockfile_LocalAndBuiltinStillAllowed(t *testing.T
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 	baseDir := t.TempDir()
+	provisionApprovals(t, afero.NewOsFs(), baseDir)
 	writeLockYAML(t, baseDir, corruptLockYAML)
 	cfg := testConfigWithSCMPath(baseDir)
 
@@ -237,6 +241,7 @@ func TestEffectiveTrust_CorruptLockfile_RejectionStillOutranks(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 	baseDir := t.TempDir()
+	provisionApprovals(t, afero.NewOsFs(), baseDir)
 	writeLockYAML(t, baseDir, corruptLockYAML)
 	cfg := testConfigWithSCMPath(baseDir)
 
@@ -266,6 +271,7 @@ func TestEffectiveTrust_CorruptLockfile_FindingNamesTheRecovery(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 	baseDir := t.TempDir()
+	provisionApprovals(t, afero.NewOsFs(), baseDir)
 	lockPath := writeLockYAML(t, baseDir, corruptLockYAML)
 	cfg := testConfigWithSCMPath(baseDir)
 
@@ -302,6 +308,7 @@ func TestContentGate_CorruptLockfile_WithholdsRemoteContent(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
 	baseDir := t.TempDir()
+	provisionApprovals(t, afero.NewOsFs(), baseDir)
 	writeLockYAML(t, baseDir, corruptLockYAML)
 	cfg := testConfigWithSCMPath(baseDir)
 
@@ -327,6 +334,7 @@ func TestEffectiveTrust_CorruptLockfile_DegradedModeWarnsAndContinues(t *testing
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 	baseDir := t.TempDir()
+	provisionApprovals(t, afero.NewOsFs(), baseDir)
 	writeLockYAML(t, baseDir, corruptLockYAML)
 	cfg := testConfigWithSCMPath(baseDir)
 

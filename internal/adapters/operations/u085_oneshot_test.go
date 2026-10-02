@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"github.com/spf13/afero"
+
 	"context"
 	"os"
 	"os/exec"
@@ -38,6 +40,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
+	provisionApprovals(t, afero.NewOsFs(), appDir)
 	bundletree.WriteOS(t, bundlesDir, "mcp-bundle", "version: 1.0.0\n"+
 		"fragments:\n  rules:\n    content: \"ONESHOT-RULE-BODY\"\n"+
 		"mcp:\n"+

@@ -440,6 +440,7 @@ func realExposureProject(t *testing.T, fs afero.Fs) (*config.Config, string) {
 	appDir := "/proj/" + paths.AppDirName
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bundlesDir, 0o755))
+	provisionApprovals(t, fs, appDir)
 	const bundleYAML = `version: "1.0"
 description: local dev
 fragments:

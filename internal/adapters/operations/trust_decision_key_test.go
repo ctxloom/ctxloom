@@ -66,7 +66,7 @@ func TestSetItemTrust_RefusesAKeyUntrustedForApprove(t *testing.T) {
 		Ref:       seedItemRef(t, seededBundleKey, "fragments/solid"),
 		Signer:    rogue,
 		Root:      fx.root, // trusts fx.signer for approve+reject, and nothing else
-		UserStore: fx.user,
+		UserStore: fx.user, ProjectStore: fx.project,
 		Loader:    loader,
 	})
 
@@ -106,7 +106,7 @@ func TestSetBlacklist_RefusesAKeyUntrustedForReject(t *testing.T) {
 		Ref:       seedItemRef(t, seededBundleKey, "fragments/solid"),
 		Signer:    rogue,
 		Root:      fx.root,
-		UserStore: fx.user,
+		UserStore: fx.user, ProjectStore: fx.project,
 		Loader:    loader,
 	})
 

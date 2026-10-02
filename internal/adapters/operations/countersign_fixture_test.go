@@ -61,6 +61,9 @@ func newTrustFixture(t *testing.T) *trustFixture {
 		PublicKey:  signer.PublicKey(),
 	})
 	fs := afero.NewMemMapFs()
+	// The project store exists, as `ctxloom init` leaves it: an absent one
+	// withholds everything (countersign.Store.Readable).
+	require.NoError(t, fs.MkdirAll(projectApprovalsDir, 0o755))
 	return &trustFixture{
 		t: t, signer: signer, pub: signer.PublicKey(),
 		user:    countersign.NewStore(userApprovalsDir, fs),
@@ -200,4 +203,13 @@ func mustCountersignRef(t *testing.T, ref trust.Ref) string {
 	refStr, err := countersign.CountersignRef(ref)
 	require.NoError(t, err)
 	return refStr
+}
+
+// provisionApprovals leaves appDir's approvals store as `ctxloom init` does —
+// the state every initialized project is in. A fixture that builds a project
+// by hand and skips it is an unprovisioned project, which withholds
+// everything.
+func provisionApprovals(t *testing.T, fs afero.Fs, appDir string) {
+	t.Helper()
+	require.NoError(t, ProvisionApprovalsStore(fs, appDir))
 }

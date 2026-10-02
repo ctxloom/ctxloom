@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"github.com/spf13/afero"
+
 	"context"
 	"net/url"
 	"os"
@@ -63,6 +65,7 @@ func pulledProject(t *testing.T) (appDir, repoURL string) {
 
 	appDir = filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(paths.ProfilesPath(appDir), 0o755))
+	provisionApprovals(t, afero.NewOsFs(), appDir)
 	require.NoError(t, os.WriteFile(filepath.Join(paths.ProfilesPath(appDir), "dev.yaml"),
 		[]byte("bundles:\n  - "+bundleRef+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir),

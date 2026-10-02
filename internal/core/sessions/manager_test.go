@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -702,7 +702,7 @@ func TestAppendRotations_SurvivesManagerReload(t *testing.T) {
 }
 
 // TestWriteSidecar_UsesDurableWrite pins the ruled site (taskloom
-// unbounded-bacon): the sidecar write must pass iox.Durable() so a crash
+// unbounded-bacon): the sidecar write must pass safefs.Durable() so a crash
 // cannot silently revert a session's record — its only copy of the rotation
 // lineage — back to a stale prior version. AssignHarp is the simplest public
 // entry point that reaches writeSidecar.
@@ -710,7 +710,7 @@ func TestWriteSidecar_UsesDurableWrite(t *testing.T) {
 	m := newManager(t)
 
 	var synced []string
-	restore := iox.SetSyncDirForTesting(func(d string) error {
+	restore := safefs.SetSyncDirForTesting(func(d string) error {
 		synced = append(synced, d)
 		return nil
 	})
@@ -718,5 +718,5 @@ func TestWriteSidecar_UsesDurableWrite(t *testing.T) {
 
 	_, err := m.AssignHarp("/proj", "claude")
 	require.NoError(t, err)
-	assert.NotEmpty(t, synced, "writeSidecar must pass iox.Durable(): a reverted sidecar after a crash loses rotation lineage with no signal")
+	assert.NotEmpty(t, synced, "writeSidecar must pass safefs.Durable(): a reverted sidecar after a crash loses rotation lineage with no signal")
 }

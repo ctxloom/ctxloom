@@ -28,13 +28,14 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // lockFileMode and lockDirMode are the modes a sidecar's advisory-lock file
@@ -270,7 +271,7 @@ func (m *Manager) writeSidecar(harpName string, e *Entry) error {
 	if err := os.MkdirAll(dir, lockDirMode); err != nil {
 		return fmt.Errorf("mkdir session dir: %w", err)
 	}
-	return iox.WriteFileAtomic(filepath.Join(dir, paths.SessionSidecarFileName), data, 0o644, iox.Durable())
+	return safefs.WriteFile(afero.NewOsFs(), filepath.Join(dir, paths.SessionSidecarFileName), data, 0o644, safefs.Durable())
 }
 
 // lock takes harpName's exclusive sidecar lock (paths.HarpSidecarLockPath)

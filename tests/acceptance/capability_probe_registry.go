@@ -83,6 +83,7 @@ var capabilityInventory = []capabilityRow{
 	{18, "structured output contract — JSON only, no preamble"},
 	{19, "launch.RuntimeAxis=container — container runtime and per-engine container auth"},
 	{20, "engine.LabelConfig.Model — model resolution and pinning"},
+	{21, "engine.Engine.Trust / engine.RepoTrust — repository trust: the engine's verdict, and an untrusted repository's own surfaces kept out of every launch"},
 }
 
 // capabilitiesProvenElsewhere are inventory rows the ladder deliberately does
@@ -458,14 +459,15 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 9.5s. With --permission-prompts none on the argv the PermissionRequest hook is STILL consulted first: it fired on Bash, the gated call's tool_result is stamped after the hook's post-sleep marker, and the hook's allow ran the call (the file exists). none denies only what no hook decided."},
 		},
 	},
-	// P13 measures the VENDOR half of ctxloom's repo trust: claude's own trust
+	// P13 measures ctxloom's repo trust: the VENDOR half — claude's own trust
 	// does not stop an untrusted repo's committed hooks in -p, and
-	// --setting-sources user does — for its skills and agents too. It runs the vendor binary directly, as P12
-	// does, so a red names claude alone.
+	// --setting-sources user does, for its skills and agents too — with the
+	// vendor binary run directly, as P12 does, so a red names claude alone;
+	// and ctxloom's own launch of an untrusted repo (ctxloom-launch-untrusted).
 	{
 		Name:         probeP13,
 		Title:        "untrusted repo hooks: claude -p runs a never-trusted repo's committed hooks and loads its skills and agents, and --setting-sources user --strict-mcp-config suppresses all of them",
-		Capabilities: []int{7},
+		Capabilities: []int{7, 21},
 		Channel:      channelRepoHookMarker,
 		Feature:      "probes/capability_untrusted_repo_hooks.feature",
 		Paid:         true,

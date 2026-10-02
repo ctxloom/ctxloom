@@ -870,7 +870,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 		})
 		require.NoError(t, err)
 		assert.Equal(t, trust.Deny, res.Decision)
-		assert.Equal(t, trust.SourcePending, res.Source,
+		assert.Equal(t, trust.SourceUnreadable, res.Source,
 			"the store-fault gate runs above EVERY exemption, this one included")
 	})
 

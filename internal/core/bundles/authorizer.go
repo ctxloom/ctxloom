@@ -189,9 +189,7 @@ const (
 	// why the two are not one reason.
 	ReasonUntrustedSigner
 	// ReasonPending: nothing positively justified exposure — never reviewed, or
-	// the bytes changed since a human approved them. Also the terminal
-	// fail-closed answer when the decision could not be established at all (an
-	// unreadable approvals store, an unreadable lockfile, an evaluation error).
+	// the bytes changed since a human approved them.
 	ReasonPending
 	// ReasonUnaddressable: the ref could not be parsed, so the decision function
 	// was never able to key on anything. An item we cannot address is one we
@@ -209,6 +207,13 @@ const (
 	// reviewable and no human action clears it. Withheld, because the
 	// alternative is delivering content nothing ever decided about.
 	ReasonUngoverned
+	// ReasonRecordsUnreadable: the trust records the decision reads — an
+	// approvals store, the lockfile — could not be read, so nothing could be
+	// decided. Withheld; the fix is repairing the store Detail names. Distinct
+	// from pending because the two send the reader to different places — the
+	// content, or the store. Still LISTED for review (NeedsReview), so a store
+	// fault never silently empties the review queue.
+	ReasonRecordsUnreadable
 )
 
 // NeedsReview reports whether a WITHHELD item is one a human can act on by
@@ -222,7 +227,7 @@ const (
 // The two fail-closed reasons name a fault to fix, not content to read.
 func (r Reason) NeedsReview() bool {
 	switch r {
-	case ReasonUnsigned, ReasonUntrustedSigner, ReasonPending:
+	case ReasonUnsigned, ReasonUntrustedSigner, ReasonPending, ReasonRecordsUnreadable:
 		return true
 	default:
 		return false
@@ -295,6 +300,8 @@ func (r Reason) String() string {
 		return "unestablished"
 	case ReasonUngoverned:
 		return "ungoverned"
+	case ReasonRecordsUnreadable:
+		return "records-unreadable"
 	default:
 		return "unset"
 	}
@@ -332,6 +339,8 @@ func (r Reason) Explain(detail string) string {
 		return "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content"
 	case ReasonStaleLocalSignature:
 		return withDefault(detail, "its signature no longer covers its bytes — re-sign it")
+	case ReasonRecordsUnreadable:
+		return withDetail("its trust records could not be read, so nothing could be decided — repair them first", detail)
 	case ReasonLocal, ReasonCompanion, ReasonTrustedSigner, ReasonApproved:
 		return "allowed: " + r.String()
 	default:

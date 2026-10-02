@@ -25,11 +25,9 @@ type EffectiveTrustResult struct {
 	Decision trust.Decision `json:"decision"`
 	Source   trust.Source   `json:"source"`
 	// Detail is an OPTIONAL human-readable elaboration on Source, display-only
-	// (never a decision input). Today only step 2 (retraction) populates it,
-	// with the publisher's stated retraction reason (see
-	// RetractionRecords.Retracted) — the same untrusted, informational string
-	// `ctxloom deps pull`'s "Retracted:" bucket already surfaces at sync
-	// time (internal/adapters/cli/remote.go). Empty for every other Source.
+	// (never a decision input): the gate verdict's own Detail. For a retraction
+	// it is the publisher's stated reason (untrusted, informational); for
+	// SourceUnreadable it names the store that could not be read.
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -76,6 +74,8 @@ func (r EffectiveTrustResult) Reason() string {
 			return fmt.Sprintf("retracted by the publisher (%s)", r.Detail)
 		}
 		return "retracted by the publisher"
+	case trust.SourceUnreadable:
+		return bundles.ReasonRecordsUnreadable.Explain(r.Detail)
 	default:
 		// trust.SourcePending, and the fail-closed default for any future
 		// deny source that forgets to add a case here — pending review is
@@ -867,6 +867,8 @@ func resultOf(v bundles.Verdict) EffectiveTrustResult {
 		res.Source = trust.SourceTrustedSigner
 	case bundles.ReasonApproved:
 		res.Source = trust.SourceAccepted
+	case bundles.ReasonRecordsUnreadable:
+		res.Source = trust.SourceUnreadable
 	}
 	return res
 }

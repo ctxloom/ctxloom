@@ -86,7 +86,8 @@ type approvals struct {
 	turn    *approvalTurn
 	// grants are the session rules the human allowed for this run. The
 	// engine's own session rule dies with the turn's process, so each turn
-	// is handed these afresh; the coordinator's SetGrants replaces them.
+	// is handed these afresh. The StartRun seeds them (seedGrants); the
+	// coordinator's SetGrants replaces them.
 	grants []string
 }
 

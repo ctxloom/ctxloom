@@ -272,26 +272,10 @@ func (q *ApprovalQueue) Park(ctx context.Context, from Identity, req PendingAppr
 	}
 	p := &parkedApproval{req: req, answer: make(chan ApprovalDecision, 1)}
 	q.mu.Lock()
-	if gone := q.runGone(from); gone || q.turns[from.RunID] != req.turn {
-		// The turn or the run ended between the request's arrival and this
-		// park: it was dropped with them, only later than the ones already
-		// parked.
+	if d, settled := q.admitLocked(from, req); settled {
 		q.resolved[req.ID] = struct{}{}
 		q.mu.Unlock()
-		d := droppedWithTurn
-		if gone {
-			d = droppedWithRun
-		}
 		_ = q.settle(p, d)
-		return <-p.answer
-	}
-	if q.coveredLocked(req, q.runGrants[keyOf(from)]) {
-		// Judged under the same lock that adds a grant to the run's set
-		// (coverWith), so a request parking as a grant lands is covered
-		// on one side or the other.
-		q.resolved[req.ID] = struct{}{}
-		q.mu.Unlock()
-		_ = q.settle(p, coveredByGrant)
 		return <-p.answer
 	}
 	q.pending[req.ID] = p
@@ -320,6 +304,25 @@ func (q *ApprovalQueue) Park(ctx context.Context, from Identity, req PendingAppr
 	}
 	// Claimed or not, exactly one settle delivers on answer.
 	return <-p.answer
+}
+
+// admitLocked is the decision a request arriving at Park is settled with at
+// once, if any; otherwise it is parked for the human. Call with q.mu held.
+func (q *ApprovalQueue) admitLocked(from Identity, req PendingApproval) (ApprovalDecision, bool) {
+	switch {
+	// The turn or the run ended between the request's arrival and this park:
+	// it was dropped with them, only later than the ones already parked.
+	case q.runGone(from):
+		return droppedWithRun, true
+	case q.turns[from.RunID] != req.turn:
+		return droppedWithTurn, true
+	// Judged under the same lock that adds a grant to the run's set
+	// (coverWith), so a request parking as a grant lands is covered on one
+	// side or the other.
+	case q.coveredLocked(req, q.runGrants[keyOf(from)]):
+		return coveredByGrant, true
+	}
+	return ApprovalDecision{}, false
 }
 
 // Answer resolves a parked request with the human's decision. It succeeds

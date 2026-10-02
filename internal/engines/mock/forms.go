@@ -12,16 +12,8 @@ import (
 // the project form (agent.ApproachUnsafeFile). What survives of the seam is
 // its NAMES — a binding's `surfaces:` preference is validated against them
 // (Mock.Declaration) — and the settings-writer equity suite; the forms'
-// delivery bodies reuse the shared marker-merge and managed-tree writers so
-// the mock proves the seam rather than a second implementation of it.
-
-// mockContextPath returns the mock context file's path under dir, via the
-// declared context presenter. The dir-taking form serves the READ side and
-// the shared writer cores, whose own contracts hand over a directory; a
-// Deliver resolves against the advised Start it received instead.
-func mockContextPath(dir string) string {
-	return mockSurfacePath(agent.SurfaceContext, present.ProjectOnHost(dir))
-}
+// delivery bodies reuse the shared managed-tree writers so the mock proves
+// the seam rather than a second implementation of it.
 
 // mockSurfacePath resolves ONE surface's path against the advised roots,
 // through the same rel table every approach's Present reads. Every mock path
@@ -46,10 +38,9 @@ var mockRel = map[agent.SurfaceKind]string{
 }
 
 // newMockContext is mock's context approach: the SHARED native-file
-// implementation (agent.NativeContextFile) bound to MOCK_CONTEXT.md — the same
-// read side (agent.StateReader) claude's CLAUDE.md goes through, differing
-// only in the filename.
-var newMockContext = agent.NativeContextFile("mock/context", ContextFileName)
+// implementation (agent.NativeContextFile) bound to MOCK_CONTEXT.md, differing
+// from claude's CLAUDE.md only in the filename.
+var newMockContext = agent.NativeContextFile(ContextFileName)
 
 // mockSkillsPath returns the mock skills directory's path under dir, via the
 // declared skills presenter.
@@ -65,7 +56,7 @@ func mockSkillsPath(dir string) string {
 // on each file, the manifest-scoped reversal — lives in that shared body, not
 // here; this function contributes a directory and a manifest name.
 func newMockSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-	return agent.NewManagedSkillPackagesDelivery("mock/skills", skillsRel, in.Skills, func(dir string, skills []agent.SkillExport) error {
+	return agent.NewManagedSkillPackagesDelivery(skillsRel, in.Skills, func(dir string, skills []agent.SkillExport) error {
 		return agent.WriteManagedSkillPackages(agent.GetFS(fs), mockSkillsPath(dir), skills, agent.WithWriteReporter(in.Reporter))
 	})
 }
@@ -84,9 +75,6 @@ func (s *mockMCPSurface) Present(start present.Start) present.Presentation {
 	return start.UnderProjectRoot(mockRel[agent.SurfaceMCP]).Build()
 }
 
-// UnsafeInfo names mock's MCP surface for the DeliverShared fallback warning.
-func (s *mockMCPSurface) UnsafeInfo() string { return "mock/mcp" }
-
 // mockSettingsSurface is mock's settings form's presentation:
 // .mock/settings.json. The write is settingsFile.DeliverSettings's
 // (surfaces.go).
@@ -97,13 +85,10 @@ func (s *mockSettingsSurface) Present(start present.Start) present.Presentation 
 	return start.UnderProjectRoot(mockRel[agent.SurfaceSettings]).Build()
 }
 
-// UnsafeInfo names mock's settings surface for the DeliverShared fallback.
-func (s *mockSettingsSurface) UnsafeInfo() string { return "mock/settings" }
-
 // newMockCommandsSurface builds mock's commands form: the SHARED
 // agent.ManagedCommandsDelivery at the mock's commands directory.
 func newMockCommandsSurface(agent.SurfaceInputs, afero.Fs) agent.Approach {
-	return agent.NewManagedCommandsDelivery("mock/commands", commandsRel)
+	return agent.NewManagedCommandsDelivery(commandsRel)
 }
 
 // MockSessionFile is the mock's session-rooted form of every surface: the

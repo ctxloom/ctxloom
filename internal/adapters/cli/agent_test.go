@@ -355,7 +355,8 @@ func TestBuildSetAgentRequest_OnlySendsChangedFlags(t *testing.T) {
 	registerAgentWriteFlags(cmd)
 	require.NoError(t, cmd.Flags().Parse([]string{"--runtime", "container"}))
 
-	req := buildSetAgentRequest(cmd, "dev")
+	req, err := buildSetAgentRequest(cmd, "dev")
+	require.NoError(t, err)
 	assert.Equal(t, "dev", req.Name)
 	require.NotNil(t, req.Runtime, "the flag that WAS typed must be sent")
 	assert.Equal(t, "container", *req.Runtime)
@@ -372,7 +373,8 @@ func TestBuildSetAgentRequest_ExplicitEmptyIsSentAsAClear(t *testing.T) {
 	registerAgentWriteFlags(cmd)
 	require.NoError(t, cmd.Flags().Parse([]string{"--llm", ""}))
 
-	req := buildSetAgentRequest(cmd, "dev")
+	req, err := buildSetAgentRequest(cmd, "dev")
+	require.NoError(t, err)
 	require.NotNil(t, req.LLM, `--llm "" must be sent, not treated as unnamed`)
 	assert.Equal(t, "", *req.LLM)
 }

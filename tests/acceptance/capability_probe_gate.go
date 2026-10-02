@@ -128,10 +128,9 @@ func probeCellDecide(status engineStatus) (report, skip string) {
 // real home and nowhere else, so this is the only way such a cell can
 // authenticate.
 //
-// WHY NOT A COPY. testenv isolates HOME to a temp dir, and EVERY production
-// credential path resolves from hostHomeDir() — worktree.go's seedCredentials
-// via the engine's declared credential seed, and the container mounts
-// (claudeCredentialCopyMounts read-write) all start there. The obvious
+// WHY NOT A COPY. testenv isolates HOME to a temp dir, and the login mode's
+// credential is the human's own storage, which production shares in place
+// rather than copying (claudeAuth.Credentials' loginStore). The obvious
 // workaround — the harness copying the login into its fake home — would make
 // the cell MORE cautious than the product it verifies, and a rotating login
 // refreshed inside a copy dies with the copy. The cost of the real home is

@@ -1,6 +1,6 @@
 # agent — backend contract and base embeddables
 
-`internal/core/agent` is the engine-agnostic substrate: it declares what every LLM backend must implement (`Backend`, `ContextProvider`, `SessionHistory`, `SettingsWriter`, `ContextWriter`) and supplies the embeddable state every concrete engine reuses (`BaseBackend`, `BaseLifecycle`, `BaseContextProvider`). It owns the process-launch seam (`Launcher`/`LaunchSpec`), so `os/exec` and pty handling stay outside this package. It sits at the bottom of the import graph — 26 internal packages import it and it imports only `internal/core/paths`, `internal/adapters/selfexec`, `internal/shared/{clidiag,collections,safefs,wire}`; nothing here reaches back up into config, bundles, or CLI.
+`internal/core/agent` is the engine-agnostic substrate: it declares what every LLM backend must implement (`Backend`, `ContextProvider`, `SessionHistory`, `SettingsReader`) and supplies the embeddable state every concrete engine reuses (`BaseBackend`, `BaseLifecycle`, `BaseContextProvider`). It owns the process-launch seam (`Launcher`/`LaunchSpec`), so `os/exec` and pty handling stay outside this package. It sits at the bottom of the import graph — 26 internal packages import it and it imports only `internal/core/paths`, `internal/adapters/selfexec`, `internal/shared/{clidiag,collections,safefs,wire}`; nothing here reaches back up into config, bundles, or CLI.
 
 ```mermaid
 classDiagram
@@ -27,10 +27,6 @@ classDiagram
     class SettingsReader {
         <<interface>>
         Status(...) SettingsStatus
-    }
-    class ContextWriter {
-        <<interface>>
-        WriteContext(ContextWriteRequest) ContextReport
     }
     class Launcher {
         <<interface>>
@@ -76,7 +72,6 @@ classDiagram
 | `ContextProvider` | `internal/core/agent/backend.go:83` | Provide/Clear the assembled context; embedded by `HashedContext`. |
 | `SessionHistory` | `internal/core/agent/backend.go:95` | Transcript reads (`Get*`/`List*`) plus `TranscriptPathFromHook`, a pure path computation with no session state. |
 | `SettingsReader` | `internal/core/agent/settings.go` | Report what ctxloom has wired into an engine's settings files. Writes are claims through `delivery.Static`. |
-| `ContextWriter` | `internal/core/agent/settings.go:36` | Write assembled context to an engine's native on-disk surface. Deliberately a sibling interface, not an extension of `SettingsReader` — engines without a native context surface simply do not implement it. |
 | `Launcher` | `internal/core/agent/base.go:42` | The process-execution seam; the only thing that turns a `LaunchSpec` into a child process. |
 
 ## Request / result value types
@@ -91,8 +86,6 @@ classDiagram
 | `ExecuteResult` | `internal/core/agent/backend.go:400` | Outcome of one execution. |
 | `LaunchSpec` | `internal/core/agent/base.go:16` | Fully-resolved process launch description handed to a `Launcher`. |
 | `WindowSize` | `internal/core/agent/base.go:26` | Terminal dimensions carried on a `LaunchSpec`. |
-| `ContextWriteRequest` | `internal/core/agent/settings.go:47` | `{ProjectDir, Context}` parameter object for `WriteContext` (a struct for signature stability). |
-| `ContextReport` | `internal/core/agent/settings.go:54` | `{Wrote, Removed []string}` relative paths a `WriteContext` touched. |
 | `SettingsStatus` | `internal/core/agent/settings.go:61` | `{SettingsExists, HooksPresent, StatusLine, MCPPresent}` — which managed artifacts are wired. |
 
 ## Base embeddables

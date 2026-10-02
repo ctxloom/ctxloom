@@ -9,6 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Sample surfaces for exercising the format. Surface is open, so these need
+// no declaration in the package; any writer may name its own.
+const (
+	mcpSurface   Surface = "mcp"
+	hooksSurface Surface = "hooks"
+)
+
 func newLedger(t *testing.T) (Ledger, afero.Fs, *[]string) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
@@ -29,7 +36,7 @@ func newLedger(t *testing.T) (Ledger, afero.Fs, *[]string) {
 func TestRead_MissingFile_ReturnsNothingAndNoError(t *testing.T) {
 	l, _, _ := newLedger(t)
 
-	names, err := l.Read(SurfaceMCP)
+	names, err := l.Read(mcpSurface)
 
 	require.NoError(t, err)
 	assert.Empty(t, names)
@@ -38,8 +45,8 @@ func TestRead_MissingFile_ReturnsNothingAndNoError(t *testing.T) {
 func TestWriteThenRead_RoundTripsTheNames(t *testing.T) {
 	l, _, _ := newLedger(t)
 
-	require.NoError(t, l.Write(SurfaceMCP, []string{"ctxloom", "taskloom"}))
-	names, err := l.Read(SurfaceMCP)
+	require.NoError(t, l.Write(mcpSurface, []string{"ctxloom", "taskloom"}))
+	names, err := l.Read(mcpSurface)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"ctxloom", "taskloom"}, names)
@@ -122,7 +129,7 @@ func TestRead_UnreadableFile_ReturnsTheError(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, l.Path(), []byte("x\tmcp\n"), 0o644))
 	l.FS = &failingFs{Fs: fs}
 
-	_, err := l.Read(SurfaceMCP)
+	_, err := l.Read(mcpSurface)
 
 	assert.Error(t, err)
 	assert.NotErrorIs(t, err, os.ErrNotExist,
@@ -185,11 +192,11 @@ func TestWrite_SurfaceWithASeparatorOrEmpty_IsRejected(t *testing.T) {
 func TestWrite_IsStableAcrossRuns(t *testing.T) {
 	l, fs, _ := newLedger(t)
 
-	require.NoError(t, l.Write(SurfaceMCP, []string{"taskloom", "ctxloom"}))
+	require.NoError(t, l.Write(mcpSurface, []string{"taskloom", "ctxloom"}))
 	first, err := afero.ReadFile(fs, l.Path())
 	require.NoError(t, err)
 
-	require.NoError(t, l.Write(SurfaceMCP, []string{"ctxloom", "taskloom"}))
+	require.NoError(t, l.Write(mcpSurface, []string{"ctxloom", "taskloom"}))
 	second, err := afero.ReadFile(fs, l.Path())
 	require.NoError(t, err)
 

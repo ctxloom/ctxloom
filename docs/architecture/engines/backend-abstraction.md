@@ -47,7 +47,7 @@ the adapters on the registry's value (`engines.Hosted(name)`):
 |---|---|---|
 | `Backend(Launcher) Backend` | a fresh backend over the runner's launcher | `cli.runRunner` (the interactive launch), `operations.HistoryForBackend` |
 | `NewConfig() BackendConfig` | the zero typed config a labeled LLM entry's body decodes into | `operations.DecodeEngineConfig` |
-| `Declaration() Declaration` | the named-form table a binding's `surfaces:` is validated against | `operations.ResolveAgentSurfaces`, `operations.KnownApproachNames` |
+| `Declaration() Declaration` | the named-form table a binding's `surfaces:` is validated against | `operations.ResolveAgentSurfaces` |
 | `SettingsReader(SettingsOptions) SettingsReader` | the reader whose `Status` `manage status` reports (writes are claims through `delivery.Static`) | `operations.engineSettingsStatus` |
 | `HookGlobalScope() (HookGlobalScope, bool)` | the project/global settings-path collision `manage hooks install` refuses | `operations.checkHookTargetScopeOf` |
 
@@ -70,7 +70,7 @@ The adapters' name-keyed questions are `operations`' (`engine_*.go`):
 by the engine's permission model), `EngineBinary` (the interactive
 grammar's binary), `EngineAvailability`/`EngineAvailable` (resolved on PATH
 or the login-shell PATH), `ProbeEngineVersion` (the shared cached prober
-over `Definition.Version`), `DecodeEngineConfig`, `KnownApproachNames`. None
+over `Definition.Version`), `DecodeEngineConfig`. None
 branches on an engine's name: `tests/arch`'s `no-engine-name-in-core` gate
 holds that.
 

@@ -258,13 +258,11 @@ const WorktreeComment = "# ctxloom per-agent worktree config (isolation; NEVER m
 // would itself merge back. Safe: excludes only affect UNTRACKED files, so a repo
 // that genuinely tracks .mcp.json is unaffected.
 //
-// CLAUDE.md belongs here too: it is a TRACKED per-agent context surface
-// (claude.ClaudeCodeHookWriter.WriteContext), and agent.WriteManagedContext
-// DELETES the file outright when the merged content is empty and the file was
-// wholly ctxloom's. Without this entry the Worktree's skipTrackedConfig cannot
-// hide that mutation: a per-agent run's materialize step turns a repo's
-// committed CLAUDE.md into a tracked deletion that no skip-worktree bit
-// covers, so teardown's WIP-safety check (correctly) reads the worktree as
+// CLAUDE.md belongs here too: it is a TRACKED per-agent context surface that
+// ctxloom mutates (its context is claimed as a section appended to the file).
+// Without this entry the Worktree's skipTrackedConfig cannot hide that
+// mutation: a per-agent run's materialize step turns a repo's committed
+// CLAUDE.md into a tracked change that no skip-worktree bit covers, so teardown's WIP-safety check (correctly) reads the worktree as
 // dirty and refuses `git worktree remove`, permanently orphaning it.
 var WorktreeArtifactPatterns = []string{
 	".mcp.json",

@@ -72,20 +72,8 @@ const fieldSep = "\t"
 type Surface string
 
 const (
-	SurfaceMCP      Surface = "mcp"
 	SurfaceCommands Surface = "commands"
 	SurfaceSkills   Surface = "skills"
-	SurfaceHooks    Surface = "hooks"
-	SurfaceContext  Surface = "context"
-	// SurfacePermissions records permission entries ctxloom merged into an
-	// engine's config (Claude Code's permissions.deny). Without it those
-	// entries are a ONE-WAY leak: the merge appends, and nothing can ever
-	// withdraw an entry ctxloom stops declaring, because nothing recorded that
-	// ctxloom put it there rather than the user.
-	SurfacePermissions Surface = "permissions"
-	// SurfaceStatusLine records the statusline command ctxloom installed, so a
-	// later run updates or withdraws ITS OWN and never the user's.
-	SurfaceStatusLine Surface = "statusline"
 )
 
 // Valid reports whether s can be recorded. It checks the ONLY two things that

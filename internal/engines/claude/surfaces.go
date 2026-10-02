@@ -21,11 +21,7 @@ import (
 // stated ONCE, by the typed fields of its engine.Definition (Build); the
 // named table this seam reads is derived from it (Declaration). Every form
 // here WRAPS an existing claude writer verbatim — appendFlagDelivery
-// (contextdelivery.go), fileTemplateDelivery (surfacedelivery.go), and the
-// ContextWriter core WriteContext (claude.go); the record-backed settings
-// form, which writes through confpatch instead, lives in
-// surfaces_hewrecord.go. buildArgs (claudecode.go) reads each
-// flag-announced form's Path() after delivery, on every cell.
+// (contextdelivery.go) and fileTemplateDelivery (surfacedelivery.go).
 //
 // A surface with TWO forms names both: which one runs is the caller's
 // selection, never a conversion applied underneath it. Where each
@@ -101,8 +97,7 @@ func privateRooted(start present.Start) error { return agent.SessionHomeRooted(s
 //
 // It writes the framed <hash>.sysprompt.md beneath the run's private root via
 // the existing appendFlagDelivery and exposes its path (Path) for
-// --append-system-prompt-file. It is LaunchOnly: at rest there is no argv sink
-// for the flag, so DeliverUnder refuses it.
+// --append-system-prompt-file.
 //
 // It has exactly ONE form, on every cell. It previously had two, and they were
 // named backwards from the cell that ran them: the plain Deliver was the
@@ -123,9 +118,6 @@ type systemPromptContext struct {
 	fs      afero.Fs
 	path    string // set by Deliver: the framed context file under the private root
 }
-
-// LaunchOnly marks the approach as refused at rest.
-func (*systemPromptContext) LaunchOnly() {}
 
 // Present declares the out-of-cwd form's flag, naming the basename Deliver
 // already wrote at Path() — appendFlagDelivery names the file
@@ -189,9 +181,6 @@ const ApproachMCPConfig = "mcp-config"
 // concern). The write is mcpApproach.DeliverMCP's claims.
 type mcpConfig struct{}
 
-// LaunchOnly marks the approach as refused at rest.
-func (*mcpConfig) LaunchOnly() {}
-
 // Present declares the private .mcp.json and the flag it is announced with.
 func (*mcpConfig) Present(start present.Start) present.Presentation {
 	return underPrivateRoot(start, MCPFileName).AnnounceFlag(flagMCPConfig).Build()
@@ -240,9 +229,6 @@ func bearerByReference(bundle map[string]wire.MCPServer) (map[string]wire.MCPSer
 	return out, env, nil
 }
 
-// UnsafeInfo returns claude's MCP identity for the shared-cwd warning.
-func (*mcpUnsafeFile) UnsafeInfo() string { return "claude/mcp" }
-
 // settingsSurface is claude's settings approach's presentation:
 // .claude/settings.json, which holds hooks, the statusline and the deny list.
 // The write is settingsApproach.DeliverSettings's claims.
@@ -255,8 +241,8 @@ func (*settingsSurface) Present(start present.Start) present.Presentation {
 
 // commandsSurface is claude's commands approach: the slash-command exports
 // under .claude/commands/. claude has no out-of-cwd flag for slash-commands,
-// so a SHARED-cwd delivery of it is the loud well-known write; first preference is always an isolated cell. It
-// self-describes via UnsafeInfo for that fallback's warning. (Unlike the
+// so a SHARED-cwd delivery of it is the loud well-known write; first
+// preference is always an isolated cell. (Unlike the
 // mock, claude's commands ride fileTemplateDelivery.DeliverCommands, which
 // owns its own cleanup, so they are NOT the shared
 // agent.ManagedCommandsDelivery.)
@@ -286,10 +272,6 @@ func (s *commandsSurface) Deliver(start present.Start) (agent.Delivered, error) 
 	return d.DeliverCommands(s.commands)
 }
 
-// UnsafeInfo returns claude's commands identity for the DeliverShared fallback's
-// warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
-func (s *commandsSurface) UnsafeInfo() string { return "claude/commands" }
-
 // newSkillsSurface builds claude's skills approach: an
 // agent.ManagedSkillPackagesDelivery bound to WriteSkillFiles (skillfiles.go).
 // The shared delivery type is reusable here (unlike commands) because claude's
@@ -297,22 +279,17 @@ func (s *commandsSurface) UnsafeInfo() string { return "claude/commands" }
 // an out-of-cwd flag for a skill package.
 func newSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) *agent.ManagedSkillPackagesDelivery {
 	fs = agent.GetFS(fs)
-	return agent.NewManagedSkillPackagesDelivery("claude/skills", relSkills, in.Skills, func(dir string, skills []agent.SkillExport) error {
+	return agent.NewManagedSkillPackagesDelivery(relSkills, in.Skills, func(dir string, skills []agent.SkillExport) error {
 		return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs), agent.WithReporter(in.Reporter))
 	})
 }
 
 // Compile-time capability contracts. Every approach is an agent.Approach.
-// The private-root approaches are LaunchOnly; commands and skills have no
-// out-of-cwd form at all, so a SHARED-cwd delivery of them is always the loud
-// well-known write (proved in surfaces_test.go).
 var (
-	_ agent.Approach   = (*systemPromptContext)(nil)
-	_ agent.LaunchOnly = (*systemPromptContext)(nil)
-	_ agent.Approach   = (*mcpConfig)(nil)
-	_ agent.LaunchOnly = (*mcpConfig)(nil)
-	_ agent.Approach   = (*mcpUnsafeFile)(nil)
-	_ agent.Approach   = (*settingsSurface)(nil)
-	_ agent.Approach   = (*commandsSurface)(nil)
-	_ placement        = dirPlacement{}
+	_ agent.Approach = (*systemPromptContext)(nil)
+	_ agent.Approach = (*mcpConfig)(nil)
+	_ agent.Approach = (*mcpUnsafeFile)(nil)
+	_ agent.Approach = (*settingsSurface)(nil)
+	_ agent.Approach = (*commandsSurface)(nil)
+	_ placement      = dirPlacement{}
 )

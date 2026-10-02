@@ -113,7 +113,6 @@
 ./internal/core/agent/commandfiles_golden_test.go|oldWriteManagedCommandFiles fs afero . Fs , dir , manifestName string , cmds [ ] CommandExport , render func CommandExport relPath string , content [ ] byte , err error , opts ... ManagedWriteOption|1|23|oldWriteManagedCommandFiles|23-94
 ./internal/core/agent/enginecli.go|(c EngineCLI)ParseArgv argv [ ] string|1|14|ParseArgv|477-525
 ./internal/core/agent/enginecli.go|(c EngineCLI)Validate|1|17|Validate|294-341
-./internal/core/agent/managedcontext.go|writeManagedContextLocked fs afero . Fs , path , rel , content , desc string|1|12|writeManagedContextLocked|59-104
 ./internal/core/agent/packagefiles.go| T|1|38||55-325
 ./internal/core/bundles/bundles.go|detectLegacySkillsKey data [ ] byte|1|13|detectLegacySkillsKey|1520-1567
 ./internal/core/bundles/loader_content.go|(l*Loader)expandBundleRef ref string|1|11|expandBundleRef|658-730

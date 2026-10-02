@@ -19,116 +19,6 @@ import (
 // message, zero bytes written. Every assertion below is on the actual
 // delivered BYTES (or their deliberate absence), never on an error being nil.
 
-// TestMockContextSurface_State_ReportsMissing_WhenFileAbsent proves the read
-// half's missing verdict when the route was never delivered at all.
-func TestMockContextSurface_State_ReportsMissing_WhenFileAbsent(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/target"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
-
-	s := mockContext(fs)
-	state, err := s.State(dir)
-	require.NoError(t, err)
-
-	assert.Equal(t, ContextFileName, state.Route())
-	got := state.Currency("whatever the intended context is")
-	assert.Equal(t, agent.StatusMissing, got.Status)
-}
-
-// TestMockContextSurface_State_ReportsMissing_WhenFileExistsWithoutManagedSection
-// proves the read half does not confuse "a file the user wrote" with "a
-// route ctxloom ever delivered" — a plain file with no markers is missing,
-// not stale and not delivered.
-func TestMockContextSurface_State_ReportsMissing_WhenFileExistsWithoutManagedSection(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/target"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
-	require.NoError(t, afero.WriteFile(fs, mockContextPath(dir), []byte("just a user file, no markers\n"), 0o644))
-
-	s := mockContext(fs)
-	state, err := s.State(dir)
-	require.NoError(t, err)
-
-	got := state.Currency("anything")
-	assert.Equal(t, agent.StatusMissing, got.Status)
-}
-
-// TestMockContextSurface_State_ReportsDelivered_WhenManagedSectionMatches is
-// the round-trip proof: a managed section, then State+Currency against the
-// SAME intended content, must agree it is current.
-func TestMockContextSurface_State_ReportsDelivered_WhenManagedSectionMatches(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/target"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
-
-	s := mockContext(fs)
-	_, err := agent.WriteManagedContext(fs, mockContextPath(dir), ContextFileName, "CURRENT-COMPOSITION", ContextFileName)
-	require.NoError(t, err)
-
-	state, err := s.State(dir)
-	require.NoError(t, err)
-	got := state.Currency("CURRENT-COMPOSITION")
-	assert.Equal(t, agent.StatusDelivered, got.Status)
-}
-
-// TestMockContextSurface_State_ReportsStale_WhenManagedSectionDiffersFromIntended
-// proves drift detection: what is on disk no longer matches what would be
-// composed today.
-func TestMockContextSurface_State_ReportsStale_WhenManagedSectionDiffersFromIntended(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/target"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
-
-	s := mockContext(fs)
-	_, err := agent.WriteManagedContext(fs, mockContextPath(dir), ContextFileName, "OLD-COMPOSITION", ContextFileName)
-	require.NoError(t, err)
-
-	state, err := s.State(dir)
-	require.NoError(t, err)
-	got := state.Currency("NEW-COMPOSITION-AFTER-A-FRAGMENT-CHANGED")
-	assert.Equal(t, agent.StatusStale, got.Status)
-}
-
-// TestMockContextSurface_State_IgnoresUserContentOutsideMarkersForCurrency is
-// the FileDeliveryState guarantee stated explicitly in the design: a user's
-// own prose outside the markers must never make a current managed section
-// read as stale. This is the payload-level proof that Currency compares the
-// MANAGED SECTION ONLY.
-func TestMockContextSurface_State_IgnoresUserContentOutsideMarkersForCurrency(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/target"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
-
-	s := mockContext(fs)
-	_, err := agent.WriteManagedContext(fs, mockContextPath(dir), ContextFileName, "STABLE-COMPOSITION", ContextFileName)
-	require.NoError(t, err)
-
-	// A user hand-edits the file, adding prose OUTSIDE the managed markers —
-	// exactly what the marker convention exists to permit.
-	path := mockContextPath(dir)
-	existing, err := afero.ReadFile(fs, path)
-	require.NoError(t, err)
-	require.NoError(t, afero.WriteFile(fs, path, append([]byte("# My own heading\n\n"), existing...), 0o644))
-
-	state, err := s.State(dir)
-	require.NoError(t, err)
-	got := state.Currency("STABLE-COMPOSITION")
-	assert.Equal(t, agent.StatusDelivered, got.Status,
-		"user content outside the markers must never make a current managed section read as drift")
-}
-
-// contextApproach is what the mock's context approach is to a test: it
-// presents AND reads its file's state back (agent.StateReader).
-type contextApproach interface {
-	agent.Approach
-	agent.StateReader
-}
-
-// mockContext constructs the mock's native-file context approach.
-func mockContext(fs afero.Fs) contextApproach {
-	return newMockContext(agent.SurfaceInputs{}, fs).(contextApproach)
-}
-
 // TestMockDeclaration_DeclaresEveryKind pins mock's declared scope: EVERY
 // SurfaceKind is declared, because mock is a complete engine with no real
 // model behind it rather than a partial one.
@@ -149,7 +39,7 @@ func TestMockDeclaration_DeclaresEveryKind(t *testing.T) {
 
 		def, ok := decl.Default(kind)
 		require.True(t, ok, "%s must have a default approach", kind)
-		a, ok := decl.Construct(kind, def, agent.SurfaceInputs{Context: "X"}, afero.NewMemMapFs())
+		a, ok := decl[kind].Construct(def, agent.SurfaceInputs{Context: "X"}, afero.NewMemMapFs())
 		require.True(t, ok, "%s must construct at its default", kind)
 		require.NotNil(t, a, "%s constructed a nil approach", kind)
 	}
@@ -198,7 +88,7 @@ func TestMockSkillsSurface_Deliver_WritesEveryFileWithItsBytes(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(agent.Delivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(*agent.ManagedSkillPackagesDelivery)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NotNil(t, handle)
@@ -227,7 +117,7 @@ func TestMockSkillsSurface_Deliver_MaterializesTheDeclaredMode(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(agent.Delivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(*agent.ManagedSkillPackagesDelivery)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -256,7 +146,7 @@ func TestMockSkillsSurface_Deliver_DeclaredModeBeatsAnExistingFilesMode(t *testi
 	require.NoError(t, fs.MkdirAll(filepath.Dir(scriptPath), 0o755))
 	require.NoError(t, afero.WriteFile(fs, scriptPath, []byte("stale\n"), 0o600))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(agent.Delivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(*agent.ManagedSkillPackagesDelivery)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -277,7 +167,7 @@ func TestMockSkillsSurface_Deliver_DisabledSkillWritesNothing(t *testing.T) {
 
 	disabled := reviewerSkillExport()
 	disabled.Enabled = false
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{disabled}}, fs).(agent.Delivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{disabled}}, fs).(*agent.ManagedSkillPackagesDelivery)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -302,7 +192,7 @@ func TestMockSkillsSurface_Cleanup_LeavesWhatItWroteInPlace(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(agent.Delivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(*agent.ManagedSkillPackagesDelivery)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	before, err := afero.Exists(fs, filepath.Join(mockSkillsPath(dir), "reviewer", "SKILL.md"))
@@ -332,7 +222,7 @@ func TestMockSkillsSurface_Cleanup_LeavesUserAuthoredFilesAlone(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Dir(userFile), 0o755))
 	require.NoError(t, afero.WriteFile(fs, userFile, []byte("USER-AUTHORED-4f10"), 0o644))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(agent.Delivery)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(*agent.ManagedSkillPackagesDelivery)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NoError(t, handle.Cleanup())

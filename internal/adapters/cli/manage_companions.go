@@ -71,7 +71,7 @@ func printCompanionStatus(w io.Writer) {
 		case adm.Path == "":
 			fmt.Fprintf(w, "  %s: NOT FOUND — %s disabled (install: %s)\n", adm.Bin, hint.feature, hint.install)
 		case !adm.Allow:
-			fmt.Fprintf(w, "  %s: %s — NOT RUN (%s); %s disabled (allow: ctxloom companion trust %s)\n",
+			fmt.Fprintf(w, "  %s: %s — NOT RUN (%s); %s disabled (why, and how to allow it: ctxloom companion show %s)\n",
 				adm.Bin, adm.Path, adm.Reason, hint.feature, adm.Path)
 		default:
 			fmt.Fprintf(w, "  %s: %s\n", adm.Bin, adm.Path)

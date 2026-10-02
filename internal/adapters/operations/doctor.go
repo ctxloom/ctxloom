@@ -998,7 +998,7 @@ func (d companionDecisions) detail() string {
 		items []string
 		hint  string
 	}{
-		{"NOT RUN", d.notRun, " — allow with 'ctxloom companion trust <path>'"},
+		{"NOT RUN", d.notRun, " — why, and how to allow it: 'ctxloom companion show <path>'"},
 		{"probe failed", d.failed, ""},
 		{"not installed", d.absent, ""},
 	} {

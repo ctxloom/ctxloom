@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -331,16 +332,20 @@ func encodeCell(c launch.Cell) *pb.Cell {
 		Home:      encodeHome(c.Home),
 		UnsetEnv:  c.Unset,
 	}
+	if c.HostEnv.Curated {
+		out.HostEnv = &pb.HostEnv{Curated: true, Passthrough: c.HostEnv.Passthrough}
+	}
 	return out
 }
 
 func decodeCell(w *pb.Cell) launch.Cell {
 	return launch.Cell{
 		Placement: launch.Placement{
-			Paths: present.Advised(decodePaths(w.GetPaths())),
-			Env:   w.GetEnv(),
-			Home:  decodeHome(w.GetHome()),
-			Unset: w.GetUnsetEnv(),
+			Paths:   present.Advised(decodePaths(w.GetPaths())),
+			Env:     w.GetEnv(),
+			Home:    decodeHome(w.GetHome()),
+			Unset:   w.GetUnsetEnv(),
+			HostEnv: agents.HostEnv{Curated: w.GetHostEnv().GetCurated(), Passthrough: w.GetHostEnv().GetPassthrough()},
 		},
 		Workspace: w.GetWorkspace(),
 	}

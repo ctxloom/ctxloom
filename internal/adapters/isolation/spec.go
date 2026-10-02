@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -27,6 +28,7 @@ type Spec struct {
 	img        ImageConfig
 	home       agents.HomeMode
 	creds      engine.Credentials
+	hostEnv    agents.HostEnv
 }
 
 // SpecBuilder assembles a Spec. The first error wins and is reported at
@@ -94,6 +96,27 @@ func (b *SpecBuilder) Home(m agents.HomeMode) *SpecBuilder {
 func (b *SpecBuilder) Credentials(c engine.Credentials) *SpecBuilder {
 	b.s.creds = c
 	return b
+}
+
+// HostEnv is the binding's host_env declaration. Only the host environment
+// applies it (curatedEnv); the zero value inherits everything.
+func (b *SpecBuilder) HostEnv(h agents.HostEnv) *SpecBuilder {
+	b.s.hostEnv = h
+	return b
+}
+
+// curatedEnv is the host_env a host engine is launched under: the
+// declaration, with the engine's own home var names kept when it is curated
+// — on its real home the engine finds the human's config through them.
+func (s Spec) curatedEnv() agents.HostEnv {
+	if !s.hostEnv.Curated {
+		return agents.HostEnv{}
+	}
+	keep := slices.Clone(s.hostEnv.Passthrough)
+	for _, v := range s.eng.Home().Vars {
+		keep = append(keep, v.Name)
+	}
+	return agents.HostEnv{Curated: true, Passthrough: keep}
 }
 
 // Build returns the Spec, or the first error wrapped in ErrSpecIncomplete.

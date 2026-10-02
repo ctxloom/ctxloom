@@ -356,6 +356,7 @@ func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string) (i
 		Image(req.Image).
 		Home(homeMode).
 		Credentials(creds).
+		HostEnv(req.HostEnv).
 		Build()
 }
 

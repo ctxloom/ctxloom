@@ -1,7 +1,8 @@
 package platform
 
 const (
-	containersInVM = true
-	loginShell     = true
-	linuxHost      = false
+	containersInVM   = true
+	loginShell       = true
+	linuxHost        = false
+	envNamesFoldCase = false
 )

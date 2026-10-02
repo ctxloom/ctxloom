@@ -96,9 +96,9 @@ func TestProfileLoaderFactories_AgreeUnderInjectedFS(t *testing.T) {
 	assert.Equal(t, fromConfig.Description, fromOps.Description)
 
 	names := func(l interface {
-		List() ([]*profiles.Profile, error)
+		List() ([]*profiles.Profile, []string, error)
 	}) []string {
-		infos, err := l.List()
+		infos, _, err := l.List()
 		require.NoError(t, err)
 		out := make([]string, 0, len(infos))
 		for _, p := range infos {

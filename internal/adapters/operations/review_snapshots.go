@@ -199,10 +199,9 @@ func copyTrustObjects(fs afero.Fs, src, dst string) error {
 		if readErr != nil {
 			return readErr
 		}
-		// iox chmods to info.Mode().Perm() exactly on every write, closing the
-		// same latent stale-mode gap the content/archive and remote/pull
-		// migrations closed: afero.WriteFile only applies mode at creation, so
-		// a copy onto a pre-existing target used to keep the target's OLD mode.
+		// iox chmods to info.Mode().Perm() exactly on every write:
+		// afero.WriteFile only applies mode at creation, so a copy onto a
+		// pre-existing target would keep the target's OLD mode.
 		return iox.WriteFileAtomicFs(fs, target, data, info.Mode().Perm())
 	})
 }

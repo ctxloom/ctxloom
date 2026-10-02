@@ -460,7 +460,7 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string) (bundleR
 		// already handles a non-nil err from collectRemoteReferences
 		// correctly (abort, or warn-and-continue on a re-collect pass).
 		loader := cfg.GetProfileLoader()
-		dirProfiles, lerr := loader.List()
+		dirProfiles, _, lerr := loader.List()
 		if lerr != nil {
 			return nil, fmt.Errorf("list directory profiles: %w", lerr)
 		}
@@ -847,7 +847,7 @@ func resolveProfilesToCheck(cfg *config.Config, requested []string) []string {
 	}
 	var names []string
 	loader := cfg.GetProfileLoader()
-	dirProfiles, err := loader.List()
+	dirProfiles, _, err := loader.List()
 	if err != nil {
 		// This used to discard the error outright, so an unreadable
 		// profiles directory silently shrank the probed set with no

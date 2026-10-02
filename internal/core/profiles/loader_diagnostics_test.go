@@ -116,7 +116,7 @@ func TestList_WarnsWhenAProfileDirectoryCannotBeRead(t *testing.T) {
 
 	var warnings report.Collector
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs), WithReporter(&warnings))
-	list, err := loader.List()
+	list, _, err := loader.List()
 	require.NoError(t, err, "List still degrades rather than failing the whole command")
 	assert.Empty(t, list)
 	assert.Contains(t, strings.Join(warnings.All().Texts(), "\n"), "/profiles",
@@ -135,7 +135,7 @@ func TestList_WarnsWhenASubdirectoryCannotBeWalked(t *testing.T) {
 
 	var warnings report.Collector
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs), WithReporter(&warnings))
-	list, err := loader.List()
+	list, _, err := loader.List()
 	require.NoError(t, err)
 
 	names := make([]string, 0, len(list))
@@ -158,7 +158,7 @@ func TestList_NamesAreDirRelativeAndNeverEmpty(t *testing.T) {
 	testsupport.WriteFileString(t, fs, "/profiles/team/shared.yml", "bundles:\n  - go\n", 0o644)
 
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
-	list, err := loader.List()
+	list, _, err := loader.List()
 	require.NoError(t, err)
 
 	names := make([]string, 0, len(list))
@@ -189,4 +189,46 @@ func TestCommitUpgrade_RefusesNothingToWrite(t *testing.T) {
 	after, err := afero.ReadFile(fs, "/profiles/p.yaml")
 	require.NoError(t, err)
 	assert.Equal(t, authored, string(after), "the profile must be byte-identical after a refused commit")
+}
+
+// TestList_ReportsTheProfilesItSkipped pins that a skip is RETURNED, not only
+// warned. A warning reaches a human; it does not reach the lock rebuild, which
+// treats an absent profile as a removed one and drops every lock entry reached
+// only through it. The skipped set is what lets that caller tell the two apart.
+func TestList_ReportsTheProfilesItSkipped(t *testing.T) {
+	base := afero.NewMemMapFs()
+	require.NoError(t, base.MkdirAll("/profiles/team", 0o755))
+	testsupport.WriteFileString(t, base, "/profiles/good.yaml", "bundles:\n  - go\n", 0o644)
+	testsupport.WriteFileString(t, base, "/profiles/broken.yaml", "bundles: [unterminated\n", 0o644)
+	testsupport.WriteFileString(t, base, "/profiles/team/shared.yaml", "bundles:\n  - go\n", 0o644)
+	fs := &faultyFs{Fs: base, openErr: map[string]error{"/profiles/team": errors.New("permission denied")}}
+
+	loader := NewLoader([]string{"/profiles"}, WithFS(fs), WithReporter(&report.Collector{}))
+	list, skipped, err := loader.List()
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "good", list[0].Name)
+	assert.ElementsMatch(t, []string{"broken", "/profiles/team"}, skipped,
+		"an unparseable profile is skipped by name, an unwalkable directory by path")
+}
+
+// TestList_SkipsNothingWhenEveryProfileLoads is the negative: a clean listing
+// reports no skips, or every relock would be needlessly marked incomplete.
+func TestList_SkipsNothingWhenEveryProfileLoads(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, "/profiles/good.yaml", "bundles:\n  - go\n", 0o644)
+	_, skipped, err := NewLoader([]string{"/profiles"}, WithFS(fs)).List()
+	require.NoError(t, err)
+	assert.Empty(t, skipped)
+}
+
+// TestList_ReportsAnUninterrogableDirectoryAsSkipped: a profiles directory that
+// cannot be stat'ed hides every profile under it, so it is a skip too.
+func TestList_ReportsAnUninterrogableDirectoryAsSkipped(t *testing.T) {
+	base := afero.NewMemMapFs()
+	require.NoError(t, base.MkdirAll("/profiles", 0o755))
+	fs := &faultyFs{Fs: base, statErr: map[string]error{"/profiles": errors.New("permission denied")}}
+	_, skipped, err := NewLoader([]string{"/profiles"}, WithFS(fs), WithReporter(&report.Collector{})).List()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/profiles"}, skipped)
 }

@@ -870,9 +870,9 @@ func TestProfileLoader_HonoursTheInjectedFSLikeItsTwin(t *testing.T) {
 		}
 		return out
 	}
-	twinList, terr := cfg.GetProfileLoader().List()
+	twinList, _, terr := cfg.GetProfileLoader().List()
 	require.NoError(t, terr)
-	gotList, lerr := profileLoader(cfg).List()
+	gotList, _, lerr := profileLoader(cfg).List()
 	require.NoError(t, lerr)
 	assert.Equal(t, names(twinList), names(gotList), "the two factories must enumerate the same profiles")
 }

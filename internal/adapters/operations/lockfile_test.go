@@ -167,3 +167,49 @@ func testConfigWithSCMPath(path string) *config.Config {
 		AppPaths: []string{path},
 	})
 }
+
+// A directory profile that stops parsing is UNREACHED, not removed. List used
+// to skip it with only a warning, so the relock saw a complete closure without
+// it and dropped every entry reached only through it. One malformed file was
+// enough to erase lock state.
+func TestLockDependencies_UnparseableProfileKeepsItsEntries(t *testing.T) {
+	tmp := t.TempDir()
+	writeLocalProfile(t, tmp, "good",
+		"bundles:\n  - https://github.com/test/repo@bundles/kept@abc123def456\n")
+	writeLocalProfile(t, tmp, "fragile",
+		"bundles:\n  - https://github.com/test/repo@bundles/only-fragile@0123456789ab\n")
+	cfg := testConfigWithSCMPath(tmp)
+
+	first, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
+	require.NoError(t, err)
+	require.Equal(t, 2, first.ItemCount)
+
+	writeLocalProfile(t, tmp, "fragile", "bundles: [unterminated\n")
+	var result *LockDependenciesResult
+	captureStderr(t, func() {
+		result, err = LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
+	})
+	require.NoError(t, err)
+	assert.True(t, result.Incomplete, "a profile that could not be read leaves the closure incomplete")
+
+	lf, err := remote.NewLockfileManager(tmp).Load()
+	require.NoError(t, err)
+	entry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, "https://github.com/test/repo@bundles/only-fragile"))
+	require.True(t, ok, "the entry reached only through the unreadable profile is preserved")
+	assert.Equal(t, "0123456789ab", entry.SHA)
+}
+
+// closureRoots is shared by lock and upgrade, so the skip must surface in its
+// unexpanded set for both to preserve what the skipped profile reached.
+func TestClosureRoots_UnparseableProfileIsUnexpanded(t *testing.T) {
+	tmp := t.TempDir()
+	writeLocalProfile(t, tmp, "good", "bundles:\n  - go\n")
+	writeLocalProfile(t, tmp, "fragile", "bundles: [unterminated\n")
+	cfg := testConfigWithSCMPath(tmp)
+
+	var unexpanded []string
+	captureStderr(t, func() {
+		_, unexpanded = closureRoots(cfg, profileLoader(cfg))
+	})
+	assert.Equal(t, []string{"fragile"}, unexpanded)
+}

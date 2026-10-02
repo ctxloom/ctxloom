@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
@@ -41,16 +43,6 @@ import (
 type Claims struct {
 	fs  afero.Fs
 	dir string
-}
-
-// Claim is one value a writer puts at one place in a target file. Pointer is
-// an RFC 6901 pointer into a file hew reads, and Value anything hew encodes;
-// the empty Pointer claims the whole file, and Value is then its bytes. Via
-// names what the claim came through (a companion), for a release to keep.
-type Claim struct {
-	Pointer string
-	Via     string
-	Value   any
 }
 
 // PathState is one claimed place: its writers, the one whose value the file
@@ -217,19 +209,14 @@ func (rec *claimsRecord) state() fileState {
 	return s
 }
 
-func (rec *claimsRecord) stage(w delivery.Writer, claims []Claim) {
+func (rec *claimsRecord) stage(w delivery.Writer, claims []stagedClaim) {
 	rec.Seq++
 	if rec.Paths == nil {
 		rec.Paths = map[string][]claimEntry{}
 	}
 	for _, cl := range claims {
-		e := claimEntry{Writer: string(w), Via: cl.Via, Seq: rec.Seq}
-		if cl.Pointer == "" {
-			e.Bytes = cl.Value.([]byte)
-		} else {
-			e.Value = cl.Value
-		}
-		rec.Paths[cl.Pointer] = append(dropWriter(rec.Paths[cl.Pointer], string(w), nil, cl.Pointer), e)
+		e := claimEntry{Writer: string(w), Via: cl.via, Seq: rec.Seq, Value: cl.value, Bytes: cl.bytes}
+		rec.Paths[cl.key] = append(dropWriter(rec.Paths[cl.key], string(w), nil, cl.key), e)
 	}
 }
 
@@ -293,7 +280,7 @@ func (c *Claims) In(b *safefs.Batch) *Staging {
 
 type claimOp struct {
 	writer delivery.Writer
-	claims []Claim // nil for a release
+	claims []stagedClaim // nil for a release
 	keep   func(pointer, via string) bool
 	stage  bool
 }
@@ -322,40 +309,97 @@ func (s *Staging) touch(target string) *targetOps {
 // Stage puts w's claims into target, each replacing w's earlier claim at the
 // same place. A place w claimed before and does not name here keeps its
 // claim; Release is what drops claims.
-func (s *Staging) Stage(target string, w delivery.Writer, claims []Claim) error {
+func (s *Staging) Stage(target string, w delivery.Writer, claims []present.Claim) error {
 	if w == "" || strings.TrimSpace(target) == "" {
 		return errors.New("fsstatic: a stage needs a target and a writer")
 	}
+	staged := make([]stagedClaim, 0, len(claims))
 	seen := map[string]bool{}
-	for i, cl := range claims {
-		if seen[cl.Pointer] {
+	opaque := false
+	for _, cl := range claims {
+		sc, err := stageable(target, cl)
+		if err != nil {
+			return err
+		}
+		if seen[sc.key] {
 			return fmt.Errorf("fsstatic: %s: %s is claimed twice in one stage", target, cl.Pointer)
 		}
-		seen[cl.Pointer] = true
-		if cl.Pointer == "" {
-			if _, ok := cl.Value.([]byte); !ok {
-				return fmt.Errorf("fsstatic: %s: a whole-file claim's value is its bytes", target)
-			}
-			continue
-		}
-		if _, _, ok := bindingFor(target); !ok {
-			return fmt.Errorf("fsstatic: %s: claims %s, but no format hew reads names this file", target, cl.Pointer)
-		}
-		if _, err := pointerPath(cl.Pointer); err != nil {
-			return fmt.Errorf("fsstatic: %s: %w", target, err)
-		}
-		v, err := canon(cl.Value)
-		if err != nil {
-			return fmt.Errorf("fsstatic: %s: the value claimed at %s: %w", target, cl.Pointer, err)
-		}
-		claims[i].Value = v
+		seen[sc.key] = true
+		opaque = opaque || isOpaque(sc.key)
+		staged = append(staged, sc)
 	}
-	if seen[""] && len(claims) > 1 {
-		return fmt.Errorf("fsstatic: %s: a whole-file claim cannot share a stage with a claim inside the file", target)
+	if opaque && len(staged) > 1 {
+		return fmt.Errorf("fsstatic: %s: a whole-file or appended-section claim cannot share a stage with another claim", target)
 	}
 	t := s.touch(target)
-	t.ops = append(t.ops, claimOp{writer: w, claims: slices.Clone(claims), stage: true})
+	t.ops = append(t.ops, claimOp{writer: w, claims: staged, stage: true})
 	return nil
+}
+
+// stagedClaim is a claim checked and keyed for the record: an element is
+// keyed by its array and its value, everything else by its pointer.
+type stagedClaim struct {
+	key, via string
+	value    any
+	bytes    []byte
+}
+
+func isOpaque(key string) bool { return key == "" || key == present.AppendedSection }
+
+func stageable(target string, cl present.Claim) (stagedClaim, error) {
+	sc := stagedClaim{key: cl.Pointer, via: cl.Via}
+	if isOpaque(cl.Pointer) {
+		b, ok := cl.Value.([]byte)
+		if !ok {
+			return stagedClaim{}, fmt.Errorf("fsstatic: %s: a whole-file or appended-section claim's value is its bytes", target)
+		}
+		sc.bytes = b
+		return sc, nil
+	}
+	if _, _, ok := bindingFor(target); !ok {
+		return stagedClaim{}, fmt.Errorf("fsstatic: %s: claims %s, but no format hew reads names this file", target, cl.Pointer)
+	}
+	container, elem := strings.CutSuffix(cl.Pointer, "/-")
+	if _, err := pointerPath(container); err != nil {
+		return stagedClaim{}, fmt.Errorf("fsstatic: %s: %w", target, err)
+	}
+	v, err := canon(cl.Value)
+	if err != nil {
+		return stagedClaim{}, fmt.Errorf("fsstatic: %s: the value claimed at %s: %w", target, cl.Pointer, err)
+	}
+	sc.value = v
+	if elem {
+		sc.key = elementKey(container, v)
+	}
+	return sc, nil
+}
+
+// elementKey keys an array element by its array and the digest of its
+// canonical value: the same element claimed by two writers is one place.
+func elementKey(container string, v any) string {
+	j, _ := json.Marshal(v) // canon's output: maps, slices and scalars only
+	sum := sha256.Sum256(j)
+	return container + elementInfix + hex.EncodeToString(sum[:])
+}
+
+const elementInfix = "/-/"
+
+// elementOf is the array an element key names; ok is false for any other key.
+func elementOf(key string) (container string, ok bool) {
+	i := strings.LastIndex(key, elementInfix)
+	if i < 0 || len(key)-i-len(elementInfix) != sha256.Size*2 {
+		return "", false
+	}
+	return key[:i], true
+}
+
+// claimPointer is a record key as the claim's pointer: an element's is its
+// array's append position.
+func claimPointer(key string) string {
+	if container, ok := elementOf(key); ok {
+		return container + "/-"
+	}
+	return key
 }
 
 // Release drops w's claims in target, except those keep names (keep may be
@@ -465,16 +509,84 @@ func digest(data []byte, exists bool) string {
 // describes, recording in rec the containers and the file it creates.
 func (t *targetOps) transition(cur []byte, exists bool, from fileState, rec *claimsRecord) ([]byte, bool, error) {
 	to := rec.state()
-	if _, whole := to.Values[""]; whole {
-		return t.wholeFile(cur, exists, from, to, rec)
+	opaque := map[string]bool{}
+	for _, values := range []map[string]claimEntry{from.Values, to.Values} {
+		for k := range values {
+			if isOpaque(k) {
+				opaque[k] = true
+			}
+		}
 	}
-	if _, whole := from.Values[""]; whole {
+	switch {
+	case len(opaque) > 1 || len(opaque) == 1 && len(unionKeys(from.Values, to.Values)) > 1:
+		return nil, false, fmt.Errorf("fsstatic: %s: writers claim it in different ways (whole, by section, by place); refusing to guess which wins", t.target)
+	case opaque[""]:
 		return t.wholeFile(cur, exists, from, to, rec)
-	}
-	if len(from.Values) == 0 && len(to.Values) == 0 && len(to.Containers) == 0 {
+	case opaque[present.AppendedSection]:
+		return t.section(cur, exists, from, to, rec)
+	case len(from.Values) == 0 && len(to.Values) == 0 && len(to.Containers) == 0:
 		return cur, exists, nil
 	}
 	return t.structured(cur, exists, from, to, rec)
+}
+
+// section is the transition of text appended after the file's own: the
+// section ctxloom put there is found at the end, the user's text before it
+// kept, and the effective section appended in its place.
+func (t *targetOps) section(cur []byte, exists bool, from, to fileState, rec *claimsRecord) ([]byte, bool, error) {
+	o, hasO := from.Values[present.AppendedSection]
+	n, hasN := to.Values[present.AppendedSection]
+	user := cur
+	if hasO && exists {
+		u, ok := stripSection(cur, o.Bytes)
+		switch {
+		case ok:
+			user = u
+		case hasN && bytes.Equal(o.Bytes, n.Bytes):
+			return cur, exists, nil // an unchanged claim the user has since edited: left alone
+		default:
+			return nil, false, &NotOursError{Target: t.target, Pointer: present.AppendedSection}
+		}
+	}
+	if hasN {
+		if !hasO && len(bytes.TrimSpace(user)) == 0 {
+			rec.Created = true // nothing of the user's to keep: the file leaves with the section
+		}
+		return appendSection(user, n.Bytes), true, nil
+	}
+	if !exists {
+		return cur, exists, nil
+	}
+	if rec.Created && len(bytes.TrimSpace(user)) == 0 {
+		rec.Created = false
+		return nil, false, nil
+	}
+	return user, true, nil
+}
+
+// appendSection is safefs.AppendSection's layout: the file's own text, a
+// blank line, the section, one trailing newline.
+func appendSection(user, sec []byte) []byte {
+	out := bytes.TrimRight(slices.Clone(user), "\n")
+	if len(out) > 0 {
+		out = append(out, '\n', '\n')
+	}
+	out = append(out, bytes.TrimRight(sec, "\n")...)
+	return append(out, '\n')
+}
+
+// stripSection is the user's text before sec at the end of cur, with the
+// trailing newline the layout took; ok is false when cur does not end with it.
+func stripSection(cur, sec []byte) ([]byte, bool) {
+	tail := append(bytes.TrimRight(slices.Clone(sec), "\n"), '\n')
+	if bytes.Equal(cur, tail) {
+		return nil, true
+	}
+	sep := append([]byte("\n\n"), tail...)
+	if !bytes.HasSuffix(cur, sep) {
+		return nil, false
+	}
+	return append(slices.Clone(cur[:len(cur)-len(sep)]), '\n'), true
 }
 
 // wholeFile is the transition of a file claimed whole.
@@ -528,7 +640,11 @@ func (t *targetOps) structured(cur []byte, exists bool, from, to fileState, rec 
 			rec.Found = slices.DeleteFunc(rec.Found, func(f string) bool { return f == p })
 			continue
 		}
-		if err := e.remove(p, from.Values[p].Value); err != nil {
+		remove := e.remove
+		if container, ok := elementOf(p); ok {
+			remove = func(_ string, v any) error { return e.removeElement(container, v) }
+		}
+		if err := remove(p, from.Values[p].Value); err != nil {
 			return nil, false, err
 		}
 	}
@@ -538,7 +654,11 @@ func (t *targetOps) structured(cur []byte, exists bool, from, to fileState, rec 
 			continue
 		}
 		o, hasO := from.Values[p]
-		created, found, err := e.set(p, o.Value, hasO, n.Value)
+		set := e.set
+		if container, ok := elementOf(p); ok {
+			set = func(_ string, _ any, had bool, v any) ([]string, bool, error) { return e.setElement(container, had, v) }
+		}
+		created, found, err := set(p, o.Value, hasO, n.Value)
 		if err != nil {
 			return nil, false, err
 		}
@@ -591,6 +711,11 @@ func (e *editor) apply(pointer string, op func(*hew.Sel)) error {
 	if err != nil {
 		return err
 	}
+	return e.applyAt(p, op)
+}
+
+func (e *editor) applyAt(p hew.Path, op func(*hew.Sel)) error {
+	pointer := p.String()
 	d, err := hew.OpenBytes(e.target, e.doc, hew.As(e.format))
 	if err != nil {
 		return fmt.Errorf("fsstatic: %s does not parse: %w", e.target, err)
@@ -658,6 +783,80 @@ func (e *editor) set(pointer string, was any, hadClaim bool, want any) (created 
 		created = append(created, joinPointer(segs[:i]))
 	}
 	return created, false, e.apply(joinPointer(segs[:depth+1]), func(s *hew.Sel) { s.Set(value) })
+}
+
+// elementIndex finds the element of the array at container that holds v.
+func (e *editor) elementIndex(container string, v any) (int, hew.Node, error) {
+	n, ok, err := e.node(container)
+	if err != nil || !ok {
+		return -1, nil, err
+	}
+	if n.Kind() != hew.KindSeq {
+		return -1, nil, &NotOursError{Target: e.target, Pointer: container}
+	}
+	for i := 0; i < n.Len(); i++ {
+		if el, ok := n.Elem(i); ok && same(el, v) {
+			return i, el, nil
+		}
+	}
+	return -1, nil, nil
+}
+
+// removeElement takes the element holding v out of the array; one that is no
+// longer there was taken out by someone else.
+func (e *editor) removeElement(container string, v any) error {
+	i, _, err := e.elementIndex(container, v)
+	if err != nil || i < 0 {
+		return err
+	}
+	p, err := pointerPath(container, hew.Index(i))
+	if err != nil {
+		return err
+	}
+	return e.applyAt(p, func(s *hew.Sel) { s.Remove() })
+}
+
+// setElement appends v to the array at container unless an element already
+// holds it: one that runs ctxloom is ctxloom's, any other is FOUND on a first
+// claim. A missing array is created holding v.
+func (e *editor) setElement(container string, hadClaim bool, v any) ([]string, bool, error) {
+	if _, ok, err := e.node(container); err != nil {
+		return nil, false, err
+	} else if !ok {
+		created, _, err := e.set(container, nil, false, []any{v})
+		return append(created, container), false, err
+	}
+	i, el, err := e.elementIndex(container, v)
+	if err != nil {
+		return nil, false, err
+	}
+	if i >= 0 {
+		return nil, !hadClaim && !ownedElement(el), nil
+	}
+	p, err := pointerPath(container)
+	if err != nil {
+		return nil, false, err
+	}
+	return nil, false, e.applyAt(p, func(s *hew.Sel) { s.Add(v) })
+}
+
+// ownedElement reports whether an array element is ctxloom's own: a hook
+// group every hook of which runs ctxloom. Hook groups are the one element
+// shape ctxloom writes that names what it runs.
+func ownedElement(n hew.Node) bool {
+	if n.Kind() != hew.KindMap {
+		return false
+	}
+	hooks, ok := n.Member("hooks")
+	if !ok || hooks.Kind() != hew.KindSeq {
+		return false
+	}
+	for i := 0; i < hooks.Len(); i++ {
+		if h, ok := hooks.Elem(i); !ok || !confpatch.OwnedBy(h, ctxloomOwner) {
+			return false
+		}
+	}
+	return true
 }
 
 // prune removes each container ctxloom created that is now empty, deepest
@@ -731,16 +930,16 @@ func joinPointer(segs []string) string {
 
 // pointerPath is pointer as a hew path built from typed key segments, so no
 // key is ever parsed as path syntax.
-func pointerPath(pointer string) (hew.Path, error) {
+func pointerPath(pointer string, then ...hew.SegmentArg) (hew.Path, error) {
 	if !strings.HasPrefix(pointer, "/") || pointer == "/" {
 		return hew.Path{}, fmt.Errorf("%q is not a pointer to a member", pointer)
 	}
 	segs := splitPointer(pointer)
-	args := make([]hew.SegmentArg, len(segs))
-	for i, s := range segs {
-		args[i] = hew.Key(s)
+	args := make([]hew.SegmentArg, 0, len(segs)+len(then))
+	for _, s := range segs {
+		args = append(args, hew.Key(s))
 	}
-	return hew.NewPath(args...), nil
+	return hew.NewPath(append(args, then...)...), nil
 }
 
 func unionKeys(a, b map[string]claimEntry) []string {
@@ -798,9 +997,14 @@ func (c *Claims) Paths(fs afero.Fs, target string) ([]PathState, error) {
 			st.Writers = append(st.Writers, delivery.Writer(e.Writer))
 		}
 		top := entries[0]
-		switch {
+		st.Pointer = claimPointer(p)
+		switch container, elem := elementOf(p); {
 		case p == "":
 			st.Live = exists && bytes.Equal(cur, top.Bytes)
+		case p == present.AppendedSection:
+			_, st.Live = stripSection(cur, top.Bytes)
+		case doc != nil && elem:
+			st.Live = elementLive(doc, container, top.Value)
 		case doc != nil:
 			if n, ok := confpatch.NodeAt(doc.Root(), p); ok {
 				st.Live = same(n, top.Value)
@@ -809,6 +1013,19 @@ func (c *Claims) Paths(fs afero.Fs, target string) ([]PathState, error) {
 		out = append(out, st)
 	}
 	return out, nil
+}
+
+func elementLive(doc hew.Document, container string, v any) bool {
+	n, ok := confpatch.NodeAt(doc.Root(), container)
+	if !ok || n.Kind() != hew.KindSeq {
+		return false
+	}
+	for i := 0; i < n.Len(); i++ {
+		if el, ok := n.Elem(i); ok && same(el, v) {
+			return true
+		}
+	}
+	return false
 }
 
 func mapsKeys(m map[string][]claimEntry) func(func(string) bool) {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -50,7 +51,9 @@ var (
 	taskloomEntry = map[string]any{"command": "taskloom", "args": []any{"mcp"}}
 )
 
-func server(name string, v any) Claim { return Claim{Pointer: "/mcpServers/" + name, Value: v} }
+func server(name string, v any) present.Claim {
+	return present.Claim{Pointer: "/mcpServers/" + name, Value: v}
+}
 
 func newClaims(t *testing.T, fs afero.Fs) *Claims {
 	t.Helper()
@@ -74,7 +77,7 @@ func commitOps(t *testing.T, c *Claims, fs afero.Fs, ops ...func(*Staging) error
 	return b.Commit()
 }
 
-func stage(target string, w delivery.Writer, cs ...Claim) func(*Staging) error {
+func stage(target string, w delivery.Writer, cs ...present.Claim) func(*Staging) error {
 	return func(s *Staging) error { return s.Stage(target, w, cs) }
 }
 
@@ -446,7 +449,7 @@ func TestClaimsTargetsAndWriters(t *testing.T) {
 	c := newClaims(t, fs)
 	const second = "/proj/other.json"
 	mustCommit(t, c, fs, stage(mcpTarget, project, server("ctxloom", installEntry)))
-	mustCommit(t, c, fs, stage(second, session, Claim{Pointer: "/x", Value: 1}))
+	mustCommit(t, c, fs, stage(second, session, present.Claim{Pointer: "/x", Value: 1}))
 	got, err := c.Targets(project)
 	require.NoError(t, err)
 	assert.Equal(t, []string{mcpTarget}, got)
@@ -461,14 +464,14 @@ func TestClaimsAWholeFileClaim(t *testing.T) {
 	const cmd = "/proj/.claude/commands/x.md"
 	fs := afero.NewMemMapFs()
 	c := newClaims(t, fs)
-	mustCommit(t, c, fs, stage(cmd, project, Claim{Value: []byte("body\n")}))
+	mustCommit(t, c, fs, stage(cmd, project, present.Claim{Value: []byte("body\n")}))
 	assert.Equal(t, "body\n", read(t, fs, cmd))
 	mustCommit(t, c, fs, release(cmd, project))
 	_, err := fs.Stat(cmd)
 	assert.True(t, os.IsNotExist(err))
 
 	testsupport.WriteFileString(t, fs, cmd, "the user's own\n", 0o644)
-	_, err = commitOps(t, c, fs, stage(cmd, project, Claim{Value: []byte("body\n")}))
+	_, err = commitOps(t, c, fs, stage(cmd, project, present.Claim{Value: []byte("body\n")}))
 	require.ErrorIs(t, err, ErrNotOurs)
 	assert.Equal(t, "the user's own\n", read(t, fs, cmd))
 }
@@ -476,7 +479,7 @@ func TestClaimsAWholeFileClaim(t *testing.T) {
 func TestClaimsRefuseAPointerIntoAFileHewCannotRead(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	c := newClaims(t, fs)
-	_, err := commitOps(t, c, fs, stage("/proj/notes.md", project, Claim{Pointer: "/x", Value: 1}))
+	_, err := commitOps(t, c, fs, stage("/proj/notes.md", project, present.Claim{Pointer: "/x", Value: 1}))
 	require.Error(t, err)
 }
 
@@ -522,7 +525,7 @@ func TestClaimsStageRefusesAMalformedClaim(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	c := newClaims(t, fs)
 	s := c.In(safefs.NewBatch(fs, noLock))
-	for name, claims := range map[string][]Claim{
+	for name, claims := range map[string][]present.Claim{
 		"a place claimed twice":                 {server("x", 1), server("x", 2)},
 		"a whole file whose value is not bytes": {{Value: "text"}},
 		"a whole file beside an inner claim":    {{Value: []byte("x")}, server("x", 1)},
@@ -530,8 +533,8 @@ func TestClaimsStageRefusesAMalformedClaim(t *testing.T) {
 	} {
 		assert.Error(t, s.Stage(mcpTarget, project, claims), name)
 	}
-	assert.Error(t, s.Stage("/proj/notes.md", project, []Claim{{Pointer: "/x", Value: 1}}), "a pointer into a file hew cannot read")
-	assert.Error(t, s.Stage(mcpTarget, "", []Claim{server("x", 1)}), "no writer")
+	assert.Error(t, s.Stage("/proj/notes.md", project, []present.Claim{{Pointer: "/x", Value: 1}}), "a pointer into a file hew cannot read")
+	assert.Error(t, s.Stage(mcpTarget, "", []present.Claim{server("x", 1)}), "no writer")
 	assert.Error(t, s.Release(mcpTarget, "", nil), "no writer")
 }
 
@@ -603,7 +606,7 @@ func TestClaimsAWholeFileFoundThereIsLeft(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	testsupport.WriteFileString(t, fs, cmd, "body\n", 0o644)
 	c := newClaims(t, fs)
-	mustCommit(t, c, fs, stage(cmd, project, Claim{Value: []byte("body\n")}))
+	mustCommit(t, c, fs, stage(cmd, project, present.Claim{Value: []byte("body\n")}))
 	mustCommit(t, c, fs, release(cmd, project))
 	assert.Equal(t, "body\n", read(t, fs, cmd))
 }
@@ -612,7 +615,7 @@ func TestClaimsPathsOfAWholeFileReportWhetherItStillHoldsTheClaim(t *testing.T) 
 	const cmd = "/proj/.claude/commands/x.md"
 	fs := afero.NewMemMapFs()
 	c := newClaims(t, fs)
-	mustCommit(t, c, fs, stage(cmd, project, Claim{Value: []byte("body\n")}))
+	mustCommit(t, c, fs, stage(cmd, project, present.Claim{Value: []byte("body\n")}))
 	got, err := c.Paths(fs, cmd)
 	require.NoError(t, err)
 	assert.True(t, got[0].Live)
@@ -661,9 +664,9 @@ func TestClaimsAnUnchangedWholeFileClaimLeavesTheUsersEdit(t *testing.T) {
 	const cmd = "/proj/.claude/commands/x.md"
 	fs := afero.NewMemMapFs()
 	c := newClaims(t, fs)
-	mustCommit(t, c, fs, stage(cmd, project, Claim{Value: []byte("body\n")}))
+	mustCommit(t, c, fs, stage(cmd, project, present.Claim{Value: []byte("body\n")}))
 	testsupport.WriteFileString(t, fs, cmd, "edited\n", 0o644)
-	mustCommit(t, c, fs, release(cmd, project), stage(cmd, project, Claim{Value: []byte("body\n")}))
+	mustCommit(t, c, fs, release(cmd, project), stage(cmd, project, present.Claim{Value: []byte("body\n")}))
 	assert.Equal(t, "edited\n", read(t, fs, cmd))
 }
 
@@ -691,4 +694,245 @@ func TestClaimsRefuseARecordedPlaceInAFileHewCannotRead(t *testing.T) {
 	_, err := commitOps(t, c, fs, release(notes, project))
 	require.Error(t, err)
 	assert.Equal(t, "mine\n", read(t, fs, notes))
+}
+
+const contextFile = "/proj/CLAUDE.md"
+
+func section(text string) present.Claim {
+	return present.Claim{Pointer: present.AppendedSection, Value: []byte(text)}
+}
+
+// An appended section follows the user's own text, a blank line between;
+// restating it replaces it, and the last release leaves the user's text.
+func TestClaimsAnAppendedSectionFollowsTheUsersText(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, contextFile, "# mine\n", 0o644)
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(contextFile, project, section("ctx A\n")))
+	assert.Equal(t, "# mine\n\nctx A\n", read(t, fs, contextFile))
+	mustCommit(t, c, fs, release(contextFile, project), stage(contextFile, project, section("ctx B")))
+	assert.Equal(t, "# mine\n\nctx B\n", read(t, fs, contextFile))
+	mustCommit(t, c, fs, release(contextFile, project))
+	assert.Equal(t, "# mine\n", read(t, fs, contextFile))
+}
+
+func TestClaimsASectionCreatesItsFileAndLeavesWithIt(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(contextFile, project, section("ctx\n")))
+	assert.Equal(t, "ctx\n", read(t, fs, contextFile))
+	mustCommit(t, c, fs, release(contextFile, project))
+	_, err := fs.Stat(contextFile)
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestClaimsTheSessionsSectionWins(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, contextFile, "# mine\n", 0o644)
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(contextFile, session, section("session ctx\n")))
+	mustCommit(t, c, fs, stage(contextFile, project, section("project ctx\n")))
+	assert.Equal(t, "# mine\n\nsession ctx\n", read(t, fs, contextFile))
+	mustCommit(t, c, fs, release(contextFile, session))
+	assert.Equal(t, "# mine\n\nproject ctx\n", read(t, fs, contextFile))
+}
+
+// Text the user wrote AFTER ctxloom's section means the section is no longer
+// at the end ctxloom put it: refused, not cut out of the middle.
+func TestClaimsRefuseToReleaseASectionTheUserWroteAfter(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, contextFile, "# mine\n", 0o644)
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(contextFile, project, section("ctx\n")))
+	testsupport.WriteFileString(t, fs, contextFile, "# mine\n\nctx\n\nmore of mine\n", 0o644)
+	_, err := commitOps(t, c, fs, release(contextFile, project))
+	require.ErrorIs(t, err, ErrNotOurs)
+	assert.Equal(t, "# mine\n\nctx\n\nmore of mine\n", read(t, fs, contextFile))
+}
+
+const settingsTarget = "/proj/.claude/settings.json"
+
+func element(pointer string, v any) present.Claim {
+	return present.Claim{Pointer: pointer + "/-", Value: v}
+}
+
+func settingsDoc(t *testing.T, fs afero.Fs) map[string]any {
+	t.Helper()
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal([]byte(read(t, fs, settingsTarget)), &doc))
+	return doc
+}
+
+func deny(t *testing.T, fs afero.Fs) []any {
+	t.Helper()
+	perms, _ := settingsDoc(t, fs)["permissions"].(map[string]any)
+	list, _ := perms["deny"].([]any)
+	return list
+}
+
+const userSettings = "{\n  \"permissions\": {\n    \"deny\": [\"Read(./.env)\"]\n  }\n}\n"
+
+// An element is identified by its value: two writers claiming the same one
+// share it, it is in the array once, and it leaves with the last of them.
+func TestClaimsAnElementIsSharedAndLeavesWithItsLastWriter(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, settingsTarget, userSettings, 0o644)
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(settingsTarget, project, element("/permissions/deny", "Task")))
+	mustCommit(t, c, fs, stage(settingsTarget, session, element("/permissions/deny", "Task")))
+	assert.Equal(t, []any{"Read(./.env)", "Task"}, deny(t, fs))
+	mustCommit(t, c, fs, release(settingsTarget, project))
+	assert.Equal(t, []any{"Read(./.env)", "Task"}, deny(t, fs))
+	mustCommit(t, c, fs, release(settingsTarget, session))
+	assert.Equal(t, userSettings, read(t, fs, settingsTarget))
+}
+
+// Two writers' different elements in one array are independent.
+func TestClaimsDifferentElementsAreIndependent(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, settingsTarget, userSettings, 0o644)
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(settingsTarget, project, element("/permissions/deny", "Task")))
+	mustCommit(t, c, fs, stage(settingsTarget, session, element("/permissions/deny", "WebFetch")))
+	mustCommit(t, c, fs, release(settingsTarget, project))
+	assert.Equal(t, []any{"Read(./.env)", "WebFetch"}, deny(t, fs))
+}
+
+// An element the user already has is theirs: claimed alongside, never taken.
+func TestClaimsAnElementTheUserHadIsFoundAndKept(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, settingsTarget, userSettings, 0o644)
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(settingsTarget, project, element("/permissions/deny", "Read(./.env)")))
+	assert.Equal(t, userSettings, read(t, fs, settingsTarget))
+	mustCommit(t, c, fs, release(settingsTarget, project))
+	assert.Equal(t, userSettings, read(t, fs, settingsTarget))
+}
+
+var hookGroup = map[string]any{"matcher": "Bash", "hooks": []any{map[string]any{"type": "command", "command": "ctxloom", "args": []any{"hook", "tool-reflect"}}}}
+
+// An element whose array is missing creates it, and the containers it made
+// leave with it: the file comes back exactly.
+func TestClaimsAnElementCreatesItsArrayAndPrunesIt(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, settingsTarget, "{\n  \"model\": \"opus\"\n}\n", 0o644)
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(settingsTarget, project, element("/hooks/PreToolUse", hookGroup)))
+	hooks := settingsDoc(t, fs)["hooks"].(map[string]any)
+	assert.Equal(t, []any{hookGroup}, hooks["PreToolUse"])
+	mustCommit(t, c, fs, release(settingsTarget, project))
+	assert.Equal(t, "{\n  \"model\": \"opus\"\n}\n", read(t, fs, settingsTarget))
+}
+
+// A hook group an install from before the record left, every hook in it
+// running ctxloom, is ctxloom's own: taken over, and taken out on release.
+func TestClaimsAHookGroupThatRunsCtxloomIsTakenOver(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	g, err := json.Marshal(map[string]any{"hooks": map[string]any{"PreToolUse": []any{hookGroup}}})
+	require.NoError(t, err)
+	testsupport.WriteFileString(t, fs, settingsTarget, string(g), 0o644)
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(settingsTarget, project, element("/hooks/PreToolUse", hookGroup)))
+	mustCommit(t, c, fs, release(settingsTarget, project))
+	hooks, _ := settingsDoc(t, fs)["hooks"].(map[string]any)
+	assert.Empty(t, hooks["PreToolUse"])
+}
+
+// A claimed element the user deleted comes back on the next delivery.
+func TestClaimsALostElementIsPutBack(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, settingsTarget, userSettings, 0o644)
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(settingsTarget, project, element("/permissions/deny", "Task")))
+	testsupport.WriteFileString(t, fs, settingsTarget, userSettings, 0o644)
+	mustCommit(t, c, fs, release(settingsTarget, project), stage(settingsTarget, project, element("/permissions/deny", "Task")))
+	assert.Equal(t, []any{"Read(./.env)", "Task"}, deny(t, fs))
+}
+
+func TestClaimsPathsOfAnElement(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, settingsTarget, userSettings, 0o644)
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(settingsTarget, project, element("/permissions/deny", "Task")))
+	got, err := c.Paths(fs, settingsTarget)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "/permissions/deny/-", got[0].Pointer)
+	assert.True(t, got[0].Live)
+	testsupport.WriteFileString(t, fs, settingsTarget, userSettings, 0o644)
+	got, err = c.Paths(fs, settingsTarget)
+	require.NoError(t, err)
+	assert.False(t, got[0].Live)
+}
+
+func TestClaimsStageRefusesMalformedSectionsAndElements(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	c := newClaims(t, fs)
+	s := c.In(safefs.NewBatch(fs, noLock))
+	assert.Error(t, s.Stage(contextFile, project, []present.Claim{{Pointer: present.AppendedSection, Value: "text"}}), "a section's value is its bytes")
+	assert.Error(t, s.Stage(contextFile, project, []present.Claim{section("a"), {Value: []byte("b")}}), "a section beside a whole file")
+	assert.Error(t, s.Stage(settingsTarget, project, []present.Claim{element("/permissions/deny", "Task"), element("/permissions/deny", "Task")}), "one element twice")
+	assert.NoError(t, s.Stage(settingsTarget, project, []present.Claim{element("/permissions/deny", "Task"), element("/permissions/deny", "Web")}), "two elements of one array")
+}
+
+// A member whose pointer passes through a key named "-" is a member, not an
+// element: only the record's own element keys read as elements.
+func TestClaimsAKeyNamedDashIsAMember(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(settingsTarget, project, present.Claim{Pointer: "/odd/-/name", Value: 1}))
+	odd := settingsDoc(t, fs)["odd"].(map[string]any)
+	assert.Equal(t, map[string]any{"name": float64(1)}, odd["-"])
+}
+
+// Two writers claiming one file in different ways (whole and by section) is
+// refused rather than guessed between.
+func TestClaimsRefuseWritersClaimingAFileInDifferentWays(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(contextFile, project, present.Claim{Value: []byte("whole\n")}))
+	_, err := commitOps(t, c, fs, stage(contextFile, session, section("sec\n")))
+	require.Error(t, err)
+	assert.Equal(t, "whole\n", read(t, fs, contextFile))
+}
+
+// An unchanged section over a file the user has since edited is left alone,
+// so a redelivery does not refuse.
+func TestClaimsAnUnchangedSectionLeavesTheUsersEdit(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, contextFile, "# mine\n", 0o644)
+	c := newClaims(t, fs)
+	mustCommit(t, c, fs, stage(contextFile, project, section("ctx\n")))
+	testsupport.WriteFileString(t, fs, contextFile, "# mine\n\nctx\n\nmore\n", 0o644)
+	mustCommit(t, c, fs, release(contextFile, project), stage(contextFile, project, section("ctx\n")))
+	assert.Equal(t, "# mine\n\nctx\n\nmore\n", read(t, fs, contextFile))
+}
+
+// An element's array that the user has turned into something else is theirs.
+func TestClaimsRefuseAnElementWhoseArrayIsNotOne(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, settingsTarget, `{"permissions": {"deny": "everything"}}`, 0o644)
+	c := newClaims(t, fs)
+	_, err := commitOps(t, c, fs, stage(settingsTarget, project, element("/permissions/deny", "Task")))
+	require.ErrorIs(t, err, ErrNotOurs)
+}
+
+// A hook group that runs ANOTHER tool, already there, is that tool's or the
+// user's — ctxloom delivers companions' hooks too — so it is found and kept.
+func TestClaimsAHookGroupRunningAnotherToolIsFoundAndKept(t *testing.T) {
+	for name, group := range map[string]map[string]any{
+		"another tool":           {"matcher": "Bash", "hooks": []any{map[string]any{"type": "command", "command": "ltk", "args": []any{"evaluate"}}}},
+		"hooks that are no list": {"matcher": "Bash", "hooks": "ctxloom"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			g, err := json.Marshal(map[string]any{"hooks": map[string]any{"PreToolUse": []any{group}}})
+			require.NoError(t, err)
+			testsupport.WriteFileString(t, fs, settingsTarget, string(g), 0o644)
+			c := newClaims(t, fs)
+			mustCommit(t, c, fs, stage(settingsTarget, project, element("/hooks/PreToolUse", group)))
+			mustCommit(t, c, fs, release(settingsTarget, project))
+			assert.Equal(t, string(g), read(t, fs, settingsTarget))
+		})
+	}
 }

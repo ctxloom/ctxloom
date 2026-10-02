@@ -162,7 +162,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg)),
 			doctorCheckApprovalsStore(cfg, cfgErr),
 			doctorCheckContentTrust(cfg, cfgErr),
-			doctorCheckSigCheck(app.SigCheckDisabled, editedSignedTreesOf(cfg, cfgErr)),
+			doctorCheckSigCheck(app.SigCheckDisabled, app.SessionSigCheckWaived, editedSignedTreesOf(cfg, cfgErr)),
 			doctorCheckUpstreamSignatures(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr, app.NoCompanions),
@@ -1203,7 +1203,14 @@ const doctorSigCheckMarker = "DOCTOR-CHECK-SIG-CHECK-e2"
 // edited names the installed signed trees the waiver accepted although their
 // bytes were edited after signing: the owner accepted that the flag hides that
 // tampering only on condition that doctor names every tree it hid.
-func doctorCheckSigCheck(disabled bool, edited []string) DoctorCheck {
+//
+// session is whether the session this doctor runs inside waives the check: a
+// doctor typed in a waived session's shell verifies for itself, and names the
+// session's waiver rather than reporting a clean "enforced".
+func doctorCheckSigCheck(disabled, session bool, edited []string) DoctorCheck {
+	if !disabled && session {
+		return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorWarn, Detail: bundles.SessionSigCheckNotice}
+	}
 	if !disabled {
 		return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorOK, Detail: "bundle signature verification is enforced"}
 	}

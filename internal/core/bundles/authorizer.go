@@ -246,7 +246,12 @@ const (
 	// waived the check.
 	SigCheckDisabledNotice = "signature verification is DISABLED for this invocation (--" + SigCheckFlag + " / " + SigCheckEnv + "): " +
 		"remote bundle content that is unsigned, signed by a key you do not trust, or edited after it was signed is admitted without review. " +
-		"Rejections and retractions still hold, this session's own hooks and MCP server share the waiver but agents it delegates to do not, and signing itself is unaffected."
+		"Rejections and retractions still hold, this session's own hooks and MCP server and the agents it delegates to share the waiver, and signing itself is unaffected."
+	// SessionSigCheckNotice is what a command that runs INSIDE a waived session
+	// without honouring it (a doctor, a run typed in the session's shell) says:
+	// it verifies, and the session around it does not.
+	SessionSigCheckNotice = "this invocation verifies bundle signatures, but the session it runs in waives them (--" + SigCheckFlag + " / " + SigCheckEnv + "): " +
+		"that session's hooks, its MCP server and the agents it delegates to decide without signature verification."
 	// EditedSignedTreeWords is what every surface says about an installed
 	// signed tree the waiver accepted although its bytes were edited.
 	EditedSignedTreeWords = "an installed signed tree was edited after it was signed"

@@ -106,9 +106,9 @@ func sigCheckDisabled(cmd *cobra.Command) bool {
 // switches are this invocation's process switches.
 func switches(cmd *cobra.Command) operations.Switches {
 	if cmd == nil {
-		return operations.Switches{NoCompanions: envSwitchOn("CTXLOOM_NO_COMPANIONS"), SigCheckDisabled: sigCheckDisabled(nil)}
+		return operations.Switches{NoCompanions: envSwitchOn("CTXLOOM_NO_COMPANIONS"), SigCheckDisabled: sigCheckDisabled(nil), SessionSigCheckWaived: sessionSigCheckEnv()}
 	}
-	return operations.Switches{NoCompanions: companionsOff(cmd), SigCheckDisabled: sigCheckDisabled(cmd)}
+	return operations.Switches{NoCompanions: companionsOff(cmd), SigCheckDisabled: sigCheckDisabled(cmd), SessionSigCheckWaived: sessionSigCheckEnv()}
 }
 
 // ExitError is returned when a command needs to exit with a specific code.

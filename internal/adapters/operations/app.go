@@ -30,6 +30,8 @@ type App struct {
 	// switch: every generation this App opens decides without the signature
 	// step (config.WithoutSignatureCheck).
 	SigCheckDisabled bool
+	// SessionSigCheckWaived is Switches.SessionSigCheckWaived.
+	SessionSigCheckWaived bool
 	// SelfLoadout mirrors Compose.SelfLoadout for the probers this App hands out.
 	SelfLoadout func() string
 	// Strictness is the posture this composition runs under — the program
@@ -112,13 +114,18 @@ type Handed struct {
 type Switches struct {
 	NoCompanions     bool
 	SigCheckDisabled bool
+	// SessionSigCheckWaived: this process runs inside a session whose
+	// signature check is waived (sessions.EnvSigCheckWaived reached it),
+	// whether or not this command honours that. A command that does not — a
+	// doctor or a run typed in the session's shell — still names it.
+	SessionSigCheckWaived bool
 }
 
 // NewApp holds src as the process's sources; the owner opens on the first
 // Owner/Snapshot/Config call, so a command that never reads configuration
 // never reads the files either.
 func NewApp(src config.Sources, sw Switches, selfLoadout func() string, mode strictness.Mode, h Handed) *App {
-	return &App{NoCompanions: sw.NoCompanions, SigCheckDisabled: sw.SigCheckDisabled, SelfLoadout: selfLoadout, Strictness: mode, Reporter: h.Reporter, src: src, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
+	return &App{NoCompanions: sw.NoCompanions, SigCheckDisabled: sw.SigCheckDisabled, SessionSigCheckWaived: sw.SessionSigCheckWaived, SelfLoadout: selfLoadout, Strictness: mode, Reporter: h.Reporter, src: src, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
 }
 
 // OpenedApp wraps an owner a test already opened, with what a composition
@@ -190,18 +197,6 @@ func (a *App) Reload(ctx context.Context) (*config.Snapshot, error) {
 		return nil, err
 	}
 	return owner.Reload(ctx)
-}
-
-// DelegationSnapshot is the generation a delegated agent's launch decides
-// with (config.Owner.ReloadForDelegation): enforced even when this App was
-// composed with the signature check waived, because a waiver belongs to the
-// invocation that asked for it and never to an agent it delegates to.
-func (a *App) DelegationSnapshot(ctx context.Context) (*config.Snapshot, error) {
-	owner, err := a.Owner(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return owner.ReloadForDelegation(ctx)
 }
 
 // Update writes fn's changes through to the config file and publishes the

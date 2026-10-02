@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -195,30 +196,18 @@ func backendNames(table map[string]bool) []string {
 // must not break spawning, so it degrades — with a warning — to the
 // generation already published, which is complete and consistent.
 //
-// The generation is the DELEGATION one (App.DelegationSnapshot): this
-// coordinator runs inside a session whose generation may waive the signature
-// check, and a delegated agent never inherits that. For the same reason the
-// fallback to the published generation is taken only when that generation is
-// enforced.
+// The child decides with the same trust posture as the session that spawns
+// it: a session that waived the signature check delegates waived (owner
+// ruling 2026-10-02), and the child's launch hands its own hooks the waiver
+// (launch.Resolve) and records it on the child's session (ResolveLaunch).
 func (s *spawner) spawnGeneration(ctx context.Context) (*config.Snapshot, error) {
-	snap, err := s.app.DelegationSnapshot(ctx)
+	snap, err := s.app.Reload(ctx)
 	if err == nil {
 		return snap, nil
 	}
-	published, perr := s.app.Snapshot(ctx)
-	if perr != nil {
-		return nil, perr
-	}
-	if published.Trust.SignatureCheckDisabled() {
-		return nil, fmt.Errorf("agent_run: reload configuration for agent resolution: %w (%s)", err, errDelegationWaived)
-	}
 	s.rep.Warnf("agent_run: reload configuration for agent resolution: %v (using the published generation)", err)
-	return published, nil
+	return s.app.Snapshot(ctx)
 }
-
-// errDelegationWaived is why a failed spawn reload cannot fall back to the
-// session's own generation when that generation waives the signature check.
-const errDelegationWaived = "the session's own generation waives the signature check, which a delegated agent never inherits"
 
 func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPlan, error) {
 	snap, err := s.spawnGeneration(ctx)
@@ -327,12 +316,23 @@ func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, star
 	if err != nil {
 		return coord.Resolved{}, err
 	}
+	s.stampChild(deps.Sessions, start.Identity.Harp, plan.Snapshot.Trust)
 	l, err := launch.Resolve(ctx, deps.ForSession(start.Identity.Harp), childSource(plan, start, s.projectDir))
 	if err != nil {
 		return coord.Resolved{}, err
 	}
 	plan.Launch = l
 	return coord.Resolved{Launch: l}, nil
+}
+
+// stampChild records on a delegated child's session what its mint knew: that
+// it is an agent's, and whether it decides with the signature check waived —
+// so a child that ran waived can be told apart later. A failed stamp warns:
+// an unstamped session reads as a human's, which a sweep never purges.
+func (s *spawner) stampChild(store sessions.Store, harp string, tr composite.Trust) {
+	if err := store.StampMint(harp, sessions.MintStamp{Origin: sessions.OriginAgent, SigCheckDisabled: tr.SignatureCheckDisabled()}); err != nil {
+		s.rep.Warnf("session %s: cannot record its origin and signature-check posture: %v", harp, err)
+	}
 }
 
 // childSource is what a delegated child's launch is asked from: the plan's

@@ -12,14 +12,15 @@ import "errors"
 //     generation only, EnvSigCheckWaived.
 const (
 	// EnvSigCheckWaived carries a session's --disable-sig-check to the
-	// ENGINE's own ctxloom children (owner ruling 2026-10-02), so the whole
+	// ENGINE's own ctxloom children (owner rulings 2026-10-02), so the whole
 	// session decides alike. The launch sets it on the engine's environment
 	// from the generation's Trust and nothing else (launch.Resolve), and only
-	// the commands that serve a session (`ctxloom hook`) honour it. Every
-	// ctxloom process removes it at start, so neither a `ctxloom run` typed in
-	// the engine's shell nor anything a hook starts inherits it, and an agent
-	// the session delegates to is resolved from an enforced generation that
-	// never sets it.
+	// the commands that serve a session (`ctxloom hook`) honour it. A
+	// delegated agent decides with its parent's generation, so its launch
+	// sets it for the child's own hooks in turn. Every ctxloom process removes
+	// it at start, so a `ctxloom run` or `ctxloom doctor` typed in the
+	// engine's shell is a new invocation that verifies — and names the
+	// session's waiver (operations.Switches.SessionSigCheckWaived).
 	EnvSigCheckWaived = "CTXLOOM_SESSION_DISABLE_SIG_CHECK"
 	// SigCheckWaivedOn is EnvSigCheckWaived's value when set.
 	SigCheckWaivedOn = "1"

@@ -203,7 +203,7 @@ func TestDryRun_ReportsTheSignatureCheckPosture(t *testing.T) {
 
 func TestDryRun_TextSaysNothingAboutAnEnforcedCheck(t *testing.T) {
 	var buf bytes.Buffer
-	printSignatureCheck(&buf, signatureCheckEnforced, []string{"acme/a"})
+	printSignatureCheck(&buf, signatureCheckEnforced, "", []string{"acme/a"})
 	assert.Empty(t, buf.String())
 }
 
@@ -211,12 +211,12 @@ func TestDryRun_TextSaysNothingAboutAnEnforcedCheck(t *testing.T) {
 // tree only on condition that the dry run names every tree it hid.
 func TestDryRun_TextNamesEditedSignedTreesTheWaiverAccepted(t *testing.T) {
 	var buf bytes.Buffer
-	printSignatureCheck(&buf, signatureCheckDisabled, []string{"acme/a", "acme/b"})
+	printSignatureCheck(&buf, signatureCheckDisabled, "", []string{"acme/a", "acme/b"})
 	assert.Contains(t, buf.String(), signatureCheckDisabled+": "+bundles.SigCheckDisabledNotice+"\n")
 	assert.Contains(t, buf.String(), editedSignedTreesLabel+": acme/a, acme/b\n")
 
 	buf.Reset()
-	printSignatureCheck(&buf, signatureCheckDisabled, nil)
+	printSignatureCheck(&buf, signatureCheckDisabled, "", nil)
 	assert.NotContains(t, buf.String(), editedSignedTreesLabel, "no edited tree, no line")
 }
 

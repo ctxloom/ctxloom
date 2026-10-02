@@ -38,6 +38,8 @@ var (
 	errTurnEnded = errors.New("ctxloom: the turn ended before the request was decided")
 	// errNoDecision: the coordinator gave no decision for the request.
 	errNoDecision = errors.New("ctxloom: the coordinator gave no decision")
+	// errInvalidGrant: a session rule the engine's rule syntax refuses.
+	errInvalidGrant = errors.New("ctxloom: a granted session rule is not a rule this engine reads")
 )
 
 const (
@@ -313,10 +315,11 @@ func (a *approvals) grantLocked(rules []string) {
 
 // setGrants replaces the run's grants with the coordinator's set: what a
 // revoke leaves.
-func (a *approvals) setGrants(rules []string) {
+func (a *approvals) setGrants(rules []string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.grants = slices.Clone(rules)
+	return nil
 }
 
 // heldGrants is a copy of the run's grants, for one turn's posture.

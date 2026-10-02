@@ -323,7 +323,9 @@ func (eh *EngineHost) setGrants(req *agentcoordpb.SetGrants) *agentcoordpb.Runne
 	eh.mu.Unlock()
 	switch {
 	case appr != nil:
-		appr.setGrants(req.GetRules())
+		if err := appr.setGrants(req.GetRules()); err != nil {
+			return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.InvalidArgument, err.Error())}
+		}
 	case len(req.GetRules()) > 0:
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, errNoApprovalRoute.Error())}
 	}

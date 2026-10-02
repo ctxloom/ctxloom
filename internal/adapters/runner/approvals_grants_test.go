@@ -79,7 +79,7 @@ func TestApprovals_SetGrantsReplacesTheSet(t *testing.T) {
 	})
 	askByID(t, h, "t1")
 	rules := []string{"Read"}
-	h.a.setGrants(rules)
+	require.NoError(t, h.a.setGrants(rules))
 	rules[0] = "Write"
 	held := h.a.heldGrants()
 	assert.Equal(t, []string{"Read"}, held)
@@ -230,4 +230,39 @@ func TestEngineHost_SetGrantsRefusals(t *testing.T) {
 	assert.EqualValues(t, codes.PermissionDenied, eh.Handle(setGrantsReq("run-2")).GetStatus().GetCode(), "another run's set")
 	assert.EqualValues(t, codes.FailedPrecondition, eh.Handle(setGrantsReq("run-1", "Bash(ls)")).GetStatus().GetCode(), "no approval route")
 	assert.EqualValues(t, codes.OK, eh.Handle(setGrantsReq("run-1")).GetStatus().GetCode())
+}
+
+// TestApprovals_AnAllowCarryingAnInvalidRuleGrantsNothing: every rule an
+// allow grants is checked against the engine's rule syntax. One the codec
+// refuses turns the whole decision into a deny naming it — nothing of the
+// allow is granted, and the engine is never handed a rule it cannot read.
+func TestApprovals_AnAllowCarryingAnInvalidRuleGrantsNothing(t *testing.T) {
+	h := newRouteHarness(t, func(context.Context, engine.PermissionAsk) (engine.PermissionAnswer, error) {
+		return engine.PermissionAnswer{Allow: true, SessionRules: []string{"Read", "Bash\nRead"}}, nil
+	})
+	ans := askByID(t, h, "t1")
+	assert.False(t, ans.Allow)
+	assert.Contains(t, ans.Message, errInvalidGrant.Error())
+	assert.Empty(t, h.a.heldGrants())
+}
+
+// TestApprovals_SetGrantsRefusesAnInvalidSetWhole: the coordinator's set is
+// checked rule by rule; one the codec refuses refuses the set, and the run
+// keeps the grants it held.
+func TestApprovals_SetGrantsRefusesAnInvalidSetWhole(t *testing.T) {
+	h := newRouteHarness(t, nil)
+	require.NoError(t, h.a.setGrants([]string{"Read"}))
+	require.ErrorIs(t, h.a.setGrants([]string{"Edit", "Bash\nRead"}), errInvalidGrant)
+	assert.Equal(t, []string{"Read"}, h.a.heldGrants())
+}
+
+// TestEngineHost_SetGrantsRefusesAnInvalidRule: on the wire, an invalid set
+// is the request's fault.
+func TestEngineHost_SetGrantsRefusesAnInvalidRule(t *testing.T) {
+	eh, eng := drivePostures(t, true)
+	nextPosture(t, eng)
+	assert.EqualValues(t, codes.InvalidArgument, eh.Handle(setGrantsReq("run-1", "Bash\nRead")).GetStatus().GetCode())
+	resp := eh.Handle(turnReq("plain"))
+	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+	assert.Equal(t, []string{"Bash(ls)"}, nextPosture(t, eng).Grants, "the run keeps the set it held")
 }

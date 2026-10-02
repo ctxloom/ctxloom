@@ -344,6 +344,11 @@ message StartRun {
   // The resolved launch, ONE typed message: what the runner redeems, decodes,
   // delivers and drives. coordgrpc.EncodeLaunch/DecodeLaunch are its codec.
   Launch launch = 8;
+  // The session grants (engine-native rules) the run holds from its first
+  // turn: the grants its harp was given in earlier runs on this engine, as
+  // the coordinator's journal holds them. The runner checks each against
+  // the engine's rule syntax and drops, with a finding, one it refuses.
+  repeated string grants = 9;
 }
 
 // Launch is the resolved launch on the wire — the projection of

@@ -100,6 +100,9 @@ type Grant struct {
 	Rule string
 	From ApprovalID
 	At   time.Time
+	// Engine is the engine whose rule syntax Rule is in; only the harp's
+	// runs on that engine hold it.
+	Engine engine.Name
 }
 
 // QueueEventKind says what changed in the queue.
@@ -164,7 +167,7 @@ type ApprovalQueue struct {
 	store      *Store
 	grants     *grantsFold
 	now        Clock
-	pushGrants func(harp string, rules []string) error
+	pushGrants func(harp string, eng engine.Name, rules []string) error
 	// runGone reports that an asker's run can take no decision: it has
 	// ended, or its harp has moved on to a newer run. Read inside Park's
 	// insert window, after the run's end is journaled and before its
@@ -208,10 +211,10 @@ type parkedApproval struct {
 }
 
 // NewApprovalQueue binds a queue to the journal holding its grants fold.
-// pushGrants hands a harp's full remaining grant set to its live run when a
-// grant is revoked; runGone says an asker's run can no longer be answered;
+// pushGrants hands a harp's full remaining grant set on one engine to its
+// live run, if that run is on that engine, when a grant is revoked; runGone says an asker's run can no longer be answered;
 // covers judges whether a granted rule allows a parked request's call.
-func NewApprovalQueue(store *Store, clock Clock, pushGrants func(harp string, rules []string) error, runGone func(Identity) bool, covers func(req PendingApproval, rule string) bool) *ApprovalQueue {
+func NewApprovalQueue(store *Store, clock Clock, pushGrants func(harp string, eng engine.Name, rules []string) error, runGone func(Identity) bool, covers func(req PendingApproval, rule string) bool) *ApprovalQueue {
 	return &ApprovalQueue{
 		covers:     covers,
 		store:      store,
@@ -525,11 +528,11 @@ func (q *ApprovalQueue) decisionFacts(req PendingApproval, d ApprovalDecision) [
 		SetMode: setMode, Answers: d.Answers, Message: d.Message,
 	})}
 	for i, rule := range d.SessionRules {
-		if q.grants.holds(harp, rule) {
+		if q.grants.holds(harp, req.engine, rule) {
 			continue
 		}
 		facts = append(facts, factAt(factGrantAdded, now, grantAdded{
-			ID: fmt.Sprintf("%s-%d", req.ID, i), Harp: harp, Rule: rule, From: req.ID,
+			ID: fmt.Sprintf("%s-%d", req.ID, i), Harp: harp, Rule: rule, From: req.ID, Engine: req.engine,
 		}))
 	}
 	if d.Allow && req.Kind == ApprovalPlan && req.Ask.Plan != nil {
@@ -597,6 +600,34 @@ func (q *ApprovalQueue) Grants(harp string) []Grant {
 	return out
 }
 
+// Seed starts run holding the grants its harp holds on eng — the record a
+// resumed run carries its earlier runs' grants by — and hands them to
+// deliver, which puts them on the run's StartRun. They cover the run's
+// requests from their arrival. While a non-empty seed is delivered no grant
+// of any harp is revoked or added, so the run never starts on a set the
+// record has already moved past; a run that does not take its seed (deliver
+// fails) holds none of it.
+func (q *ApprovalQueue) Seed(run Identity, eng engine.Name, deliver func(rules []string) error) error {
+	var rules []string
+	q.store.View(func() { rules = q.grants.rules(run.Harp, eng, "") })
+	if len(rules) == 0 {
+		// Nothing to carry, and nothing a revoke could take: the run starts
+		// without holding the lock every other launch would queue behind.
+		return deliver(nil)
+	}
+	q.lockGrants()
+	defer q.unlockGrants()
+	q.store.View(func() { rules = q.grants.rules(run.Harp, eng, "") })
+	q.coverWith(run, rules)
+	if err := deliver(rules); err != nil {
+		q.mu.Lock()
+		delete(q.runGrants, keyOf(run))
+		q.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
 // Revoke withdraws one grant. The run is told first — it is handed the rules
 // that remain — and the revoke is journaled only once it has taken them, so
 // the record never says a rule is gone while the run still applies it.
@@ -605,26 +636,26 @@ func (q *ApprovalQueue) Revoke(harp, grantID string) error {
 	defer q.unlockGrants()
 	var (
 		found     bool
-		rule      string
+		revoked   Grant
 		remaining []string
 	)
 	q.store.View(func() {
 		for _, g := range q.grants.byHarp[harp] {
 			if g.ID == grantID {
-				found, rule = true, g.Rule
-				continue
+				found, revoked = true, g
 			}
-			remaining = append(remaining, g.Rule)
 		}
+		remaining = q.grants.rules(harp, revoked.Engine, grantID)
 	})
 	if !found {
 		return fmt.Errorf("%w: %s on %s", ErrNoSuchGrant, grantID, harp)
 	}
+	rule := revoked.Rule
 	// The rule stops covering requests before the run is told, so nothing
 	// is allowed under it once the revoke has begun; it is put back only if
 	// the revoke fails and the grant stands.
 	restore := q.uncover(harp, rule)
-	if err := q.pushGrants(harp, remaining); err != nil {
+	if err := q.pushGrants(harp, revoked.Engine, remaining); err != nil {
 		restore()
 		return fmt.Errorf("revoke %s on %s: %w", grantID, harp, err)
 	}
@@ -656,7 +687,7 @@ func (f *grantsFold) apply(fact Fact) {
 			// monotonic reading and local zone, a replayed one carries
 			// neither, and a restarted coordinator must hold the grants it
 			// held before.
-			f.byHarp[p.Harp] = append(f.byHarp[p.Harp], Grant{ID: p.ID, Harp: p.Harp, Rule: p.Rule, From: p.From, At: at.Round(0).UTC()})
+			f.byHarp[p.Harp] = append(f.byHarp[p.Harp], Grant{ID: p.ID, Harp: p.Harp, Rule: p.Rule, From: p.From, At: at.Round(0).UTC(), Engine: p.Engine})
 		})
 	case factGrantRevoked:
 		applyDecoded(fact, func(p grantRevoked, _ time.Time) {
@@ -665,7 +696,19 @@ func (f *grantsFold) apply(fact Fact) {
 	}
 }
 
-// holds reports whether harp already holds rule.
-func (f *grantsFold) holds(harp, rule string) bool {
-	return slices.ContainsFunc(f.byHarp[harp], func(g Grant) bool { return g.Rule == rule })
+// holds reports whether harp already holds rule on eng.
+func (f *grantsFold) holds(harp string, eng engine.Name, rule string) bool {
+	return slices.ContainsFunc(f.byHarp[harp], func(g Grant) bool { return g.Engine == eng && g.Rule == rule })
+}
+
+// rules are the rules harp holds on eng, oldest first, but for the grant
+// named except.
+func (f *grantsFold) rules(harp string, eng engine.Name, except string) []string {
+	var out []string
+	for _, g := range f.byHarp[harp] {
+		if g.Engine == eng && g.ID != except {
+			out = append(out, g.Rule)
+		}
+	}
+	return out
 }

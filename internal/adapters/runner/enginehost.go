@@ -168,7 +168,10 @@ type EngineHost struct {
 	// approvals is the run's approval route (nil when its approver is not
 	// the human): fed each turn's tool calls, ended with each turn.
 	approvals *approvals
-	nativeKey string
+	// seedGrants are the grants the StartRun carried, which the approval
+	// route holds before the first turn (Drive).
+	seedGrants []string
+	nativeKey  string
 	turnBusy  chan struct{}
 	// turnCancel interrupts the turn in flight: each turn runs under its own
 	// context, a child of the run's, so ending the TURN (InterruptRun, a
@@ -387,6 +390,7 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.PermissionDenied, fmt.Sprintf("this runner was spawned for run %s, not %s (A9 correlation)", eh.runID, sr.GetRunId()))}
 	}
 	runner := eh.runner
+	eh.seedGrants = sr.GetGrants()
 	eh.mu.Unlock()
 	if runner == nil {
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, ErrNoRunner.Error())}
@@ -460,13 +464,22 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	// here, before the first frame it emits.
 	home.BindIdentity(t.Launch.Identity)
 
-	// The approval route is bound before the first turn can ask anything.
+	// The approval route is bound before the first turn can ask anything,
+	// holding the grants the run was started with.
+	eh.mu.Lock()
+	seed := eh.seedGrants
+	eh.mu.Unlock()
 	if spec := t.approval; spec != nil {
 		a := newApprovals(*spec, askTheRoot(home, *spec, spec.timeout+approvalRequestSlack))
+		for _, err := range a.seedGrants(seed) {
+			eh.rep.Warnf("engine host: a session grant the run was started with is dropped: %v", err)
+		}
 		eh.mu.Lock()
 		eh.approvals = a
 		eh.mu.Unlock()
 		home.SetApprovalRoute(a)
+	} else if len(seed) > 0 {
+		eh.rep.Warnf("engine host: the session grants the run was started with are dropped: %v", errNoApprovalRoute)
 	}
 
 	// RunStarted first: the log is self-contained (the first turn and the

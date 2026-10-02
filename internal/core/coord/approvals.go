@@ -25,12 +25,19 @@ func (c *Coordinator) parkApproval(caller Identity, req ApprovalRequest) Approva
 		}
 		p.Lineage = c.lineageOf(caller.Harp)
 	})
-	c.mu.Lock()
-	if rt := c.runtimeForLocked(caller.Harp, caller.RunID); rt != nil && rt.plan != nil {
-		p.engine = engine.Name(rt.plan.Backend)
-	}
-	c.mu.Unlock()
+	p.engine = c.runEngine(caller.Harp, caller.RunID)
 	return c.approvals.Park(c.baseCtx, caller, p, req.Timeout)
+}
+
+// runEngine is the engine harp's run runID was launched on; empty for a
+// run this coordinator holds no runtime for.
+func (c *Coordinator) runEngine(harp, runID string) engine.Name {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if rt := c.runtimeForLocked(harp, runID); rt != nil && rt.plan != nil {
+		return engine.Name(rt.plan.Backend)
+	}
+	return ""
 }
 
 // covers reports whether rule, granted to req's asker, allows req's call, as
@@ -71,9 +78,11 @@ func (c *Coordinator) lineageOf(harp string) []string {
 	return chain
 }
 
-// pushGrants hands harp's live run its full remaining grant set. A harp with
-// no run to reach has nothing to update: the grant set is the journal's.
-func (c *Coordinator) pushGrants(harp string, rules []string) error {
+// pushGrants hands harp's live run its full remaining grant set on eng. A
+// harp with no run to reach has nothing to update: the grant set is the
+// journal's. Nor has a run on another engine, which holds none of eng's
+// rules.
+func (c *Coordinator) pushGrants(harp string, eng engine.Name, rules []string) error {
 	var rec *RunRecord
 	c.runs.View(func() {
 		if r := c.runsF.currentRun(harp); r != nil {
@@ -81,7 +90,7 @@ func (c *Coordinator) pushGrants(harp string, rules []string) error {
 			rec = &cp
 		}
 	})
-	if rec == nil || rec.Ended || !c.runnerReachable(rec) {
+	if rec == nil || rec.Ended || !c.runnerReachable(rec) || c.runEngine(harp, rec.RunID) != eng {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(c.baseCtx, DefaultRequestTimeout)

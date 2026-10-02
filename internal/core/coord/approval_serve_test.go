@@ -342,9 +342,11 @@ func TestCoordinator_AnEngineItCannotFindCoversNothing(t *testing.T) {
 
 // TestApprovals_AGrantCarriesIntoTheHarpsResumedRun: a grant made in a
 // child's run is applied to the harp's next run once the child has ended and
-// is resumed — handed over the real runner link with its StartRun, so the
-// resumed run's first turn already holds it. A grant revoked between the two
-// runs is not.
+// is resumed: its StartRun carries the grant to the runner over the real
+// link, and the grant covers the resumed run's requests from their arrival.
+// A grant revoked between the two runs is neither. (That the runner holds
+// what its StartRun carried before the first turn is the runner's own test:
+// TestEngineHost_StartRunGrantsRideTheFirstTurn.)
 func TestApprovals_AGrantCarriesIntoTheHarpsResumedRun(t *testing.T) {
 	for name, tc := range map[string]struct {
 		revoke bool
@@ -370,21 +372,35 @@ func TestApprovals_AGrantCarriesIntoTheHarpsResumedRun(t *testing.T) {
 
 			_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
 			require.NoError(t, err)
-			var first engine.Turn
+			var resumed string
 			require.Eventually(t, func() bool {
-				sc := sp.chat(1)
-				if sc == nil {
-					return false
-				}
-				sc.Mu.Lock()
-				defer sc.Mu.Unlock()
-				if len(sc.Turns) == 0 {
-					return false
-				}
-				first = sc.Turns[0]
-				return true
-			}, conformanceWait, 10*time.Millisecond, "the resumed run never took a turn")
-			assert.Equal(t, tc.want, first.Posture.Grants)
+				resumed = currentRunID(c, out.Harp)
+				return resumed != out.RunID && c.approvals.turnOf(resumed) == 1
+			}, conformanceWait, 10*time.Millisecond, "the harp's next run never reached its first turn boundary")
+			carried, ok := sp.grantsStartedWith(resumed)
+			require.True(t, ok, "the resumed run's runner never received its StartRun")
+			assert.Equal(t, tc.want, carried)
+
+			next := &RunOutcome{Harp: out.Harp, RunID: resumed}
+			events := c.Approvals().Subscribe(ctx)
+			done := make(chan AgentReply, 1)
+			go func() {
+				done <- c.serveAgentRequest(childOf(next), askNow(c, next, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}))
+			}()
+			if tc.revoke {
+				id := awaitEvent(t, events, QueueAdded).ID
+				require.NoError(t, c.Approvals().Answer(id, ApprovalDecision{}))
+				<-done
+				return
+			}
+			select {
+			case r := <-done:
+				d, ok := r.Result.(ApprovalDecision)
+				require.True(t, ok, "%T", r.Result)
+				assertGrantDecided(t, d)
+			case <-ctx.Done():
+				t.Fatal("the carried grant left the resumed run's request to the human")
+			}
 		})
 	}
 }

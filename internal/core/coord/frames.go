@@ -51,6 +51,8 @@ type RunnerRequestKind interface{ runnerRequestKind() }
 type StartRun struct {
 	RunID  string
 	Launch launch.Launch
+	// Grants are the session grants the run starts holding (Seed).
+	Grants []string
 }
 
 // PauseRun asks the runner to hold the engine at its next boundary.

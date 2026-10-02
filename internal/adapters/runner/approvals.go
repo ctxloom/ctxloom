@@ -332,6 +332,25 @@ func (a *approvals) setGrants(rules []string) error {
 	return nil
 }
 
+// seedGrants is the run's grants as it starts: each rule the engine's rule
+// syntax accepts, and an error naming each one it refuses. A refused rule
+// is the record's fault, not the run's, so it costs the run that rule only.
+func (a *approvals) seedGrants(rules []string) []error {
+	var held []string
+	var refused []error
+	for _, r := range rules {
+		if err := a.codec.ValidateRule(r); err != nil {
+			refused = append(refused, fmt.Errorf("%w %q: %w", errInvalidGrant, r, err))
+			continue
+		}
+		held = append(held, r)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.grants = held
+	return refused
+}
+
 // validRules refuses rules holding one the engine's rule syntax refuses.
 func (a *approvals) validRules(rules []string) error {
 	for _, r := range rules {

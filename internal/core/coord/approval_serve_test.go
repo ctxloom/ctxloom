@@ -404,3 +404,16 @@ func TestApprovals_AGrantCarriesIntoTheHarpsResumedRun(t *testing.T) {
 		})
 	}
 }
+
+// TestApprovals_ARunOnAnotherEngineIsPushedNoGrants: a revoke's remaining
+// set is in the revoked grant's engine syntax, so a live run of the harp on
+// another engine is not handed it. (The harness's runs route no approvals,
+// so a set that does reach one is refused — which is how the push shows.)
+func TestApprovals_ARunOnAnotherEngineIsPushedNoGrants(t *testing.T) {
+	resetStrictness(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
+	require.NoError(t, c.pushGrants(out.Harp, "claude", []string{"Read"}), "another engine's rules are not pushed")
+	require.Error(t, c.pushGrants(out.Harp, mock.Name, []string{"Read"}), "the run's own engine's rules are")
+}

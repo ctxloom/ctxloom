@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,7 @@ import (
 // schemas.
 func TestGenerate_ZeroTargetsIsAnError(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "gen")
-	if _, err := Generate(dir, nil); err == nil {
+	if _, err := Generate(afero.NewOsFs(), dir, nil); err == nil {
 		t.Fatal("generating no schemas must not report success")
 	}
 	if _, err := os.Stat(dir); err == nil {
@@ -40,7 +41,7 @@ func TestGenerate_WritesTheTargetsItIsGiven(t *testing.T) {
 	type sample struct {
 		Field string `json:"field"`
 	}
-	if _, err := Generate(dir, []Target{{Type: reflect.TypeOf(sample{}), Name: "sample"}}); err != nil {
+	if _, err := Generate(afero.NewOsFs(), dir, []Target{{Type: reflect.TypeOf(sample{}), Name: "sample"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "sample-schema.json")); err != nil {
@@ -65,7 +66,7 @@ func TestGenerate_CollidingTargetNamesAreRefused(t *testing.T) {
 		{Type: reflect.TypeOf(first{}), Name: "same"},
 		{Type: reflect.TypeOf(second{}), Name: "same"},
 	}
-	n, err := Generate(dir, targets)
+	n, err := Generate(afero.NewOsFs(), dir, targets)
 	if err == nil {
 		t.Fatal("two targets resolving to the same schema name must be refused, not silently collapsed")
 	}
@@ -91,7 +92,7 @@ func TestGenerate_ReportsFilesWrittenNotTargetsGiven(t *testing.T) {
 	type beta struct {
 		B string `json:"b"`
 	}
-	n, err := Generate(dir, []Target{
+	n, err := Generate(afero.NewOsFs(), dir, []Target{
 		{Type: reflect.TypeOf(alpha{}), Name: "alpha"},
 		{Type: reflect.TypeOf(beta{}), Name: "beta"},
 	})
@@ -131,7 +132,7 @@ func TestGenerate_DoesNotPruneStaleSchemas(t *testing.T) {
 	type current struct {
 		A string `json:"a"`
 	}
-	n, err := Generate(dir, []Target{{Type: reflect.TypeOf(current{}), Name: "current"}})
+	n, err := Generate(afero.NewOsFs(), dir, []Target{{Type: reflect.TypeOf(current{}), Name: "current"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +164,7 @@ func TestGenerate_DoesNotReorderTheCallersSlice(t *testing.T) {
 	}
 	want := []string{"zulu", "alpha"}
 
-	if _, err := Generate(dir, targets); err != nil {
+	if _, err := Generate(afero.NewOsFs(), dir, targets); err != nil {
 		t.Fatal(err)
 	}
 
@@ -212,7 +213,7 @@ func TestGenerate_UnderivableNameIsRefused(t *testing.T) {
 				t.Fatalf("fixture is not underivable: %s has name %q", typ, typ.Name())
 			}
 			dir := filepath.Join(t.TempDir(), "gen")
-			n, err := Generate(dir, []Target{{Type: typ}})
+			n, err := Generate(afero.NewOsFs(), dir, []Target{{Type: typ}})
 			if err == nil {
 				t.Fatal("a target with no derivable schema name must be refused, not published under an empty $id")
 			}
@@ -272,7 +273,7 @@ func TestIDBase_MatchesTheHandMaintainedInputSchemas(t *testing.T) {
 func TestGenerate_PublishesAnAuthoredSchemaVerbatim(t *testing.T) {
 	dir := t.TempDir()
 	authored := []byte(`{"title":"claude-code export block","type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false}`)
-	written, err := Generate(dir, []Target{{Name: "engine-exports-claude-code", Schema: authored}})
+	written, err := Generate(afero.NewOsFs(), dir, []Target{{Name: "engine-exports-claude-code", Schema: authored}})
 	require.NoError(t, err)
 	require.Equal(t, 1, written)
 
@@ -287,6 +288,6 @@ func TestGenerate_PublishesAnAuthoredSchemaVerbatim(t *testing.T) {
 	props, _ := doc["properties"].(map[string]any)
 	assert.Contains(t, props, "enabled")
 
-	_, err = Generate(dir, []Target{{Schema: authored}})
+	_, err = Generate(afero.NewOsFs(), dir, []Target{{Schema: authored}})
 	require.Error(t, err, "an authored schema has no Go type to derive a name from; it must be named")
 }

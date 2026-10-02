@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -303,7 +303,7 @@ func harpPurgeRefusal(harp string, err error, commandPath string) string {
 // reportRefusal writes a refusal to the diagnostic channel and exits refused
 // (2) — an action verb that was asked for something and did not do it.
 func reportRefusal(cmd *cobra.Command, refusal string) error {
-	w := iox.NewErrWriter(cmd.ErrOrStderr())
+	w := errwriter.New(cmd.ErrOrStderr())
 	w.Println(refusal)
 	if werr := w.Err(); werr != nil {
 		return werr
@@ -317,7 +317,7 @@ func reportRefusal(cmd *cobra.Command, refusal string) error {
 // reader to infer from a verb tense is how a caller ends up believing a
 // session was emptied when every byte is still there.
 func reportPlanOnly(cmd *cobra.Command, applyCommand string) error {
-	w := iox.NewErrWriter(cmd.ErrOrStderr())
+	w := errwriter.New(cmd.ErrOrStderr())
 	w.Printf("ctxloom removed nothing — this was a report, not a removal. To apply exactly this plan:\n  %s\n", applyCommand)
 	return w.Err()
 }
@@ -342,7 +342,7 @@ func renderSessionPurgePlan(w io.Writer, res *operations.PurgeSessionResult) err
 	if res == nil {
 		return nil
 	}
-	ew := iox.NewErrWriter(w)
+	ew := errwriter.New(w)
 	verb := "would destroy"
 	if res.Applied {
 		verb = "destroyed"
@@ -361,7 +361,7 @@ func renderSessionPurgePlan(w io.Writer, res *operations.PurgeSessionResult) err
 		rows = append(rows, sessionPurgeRow{Rel: it.Rel, Class: string(it.Class), Action: it.Action, Bytes: it.Bytes, Reason: it.Reason})
 	}
 	if len(rows) == 0 {
-		ew2 := iox.NewErrWriter(w)
+		ew2 := errwriter.New(w)
 		ew2.Println("(nothing found in this harp's directory)")
 		return ew2.Err()
 	}
@@ -376,7 +376,7 @@ func renderSessionSweep(w io.Writer, rep sessionSweepReport) error {
 	if err := renderSessionPurgePlan(w, rep.Files); err != nil {
 		return err
 	}
-	ew := iox.NewErrWriter(w)
+	ew := errwriter.New(w)
 	ew.Println("")
 	if err := ew.Err(); err != nil {
 		return err

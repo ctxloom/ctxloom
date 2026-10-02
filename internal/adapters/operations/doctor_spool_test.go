@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ import (
 // writeRawSpoolMessage drops a spool file directly onto disk with a caller-
 // chosen write stamp, bypassing spool.Writer (which always stamps time.Now)
 // so a test can construct a message that is already old the moment it
-// exists — exactly the "sat unconsumed since before the test even started"
+// exists — exactly the "pending since before the test even started"
 // shape a real stuck entry has. It writes minimal-but-legal frontmatter
 // (spool.Parse requires only kind and created) so spool.Sweep reads it as a
 // real Entry, not a Problem.
@@ -82,14 +83,14 @@ func TestDoctorCheckSpoolBacklog_RightState_HealthySpoolNothingStuck(t *testing.
 	check := doctorCheckSpoolBacklog()
 	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "1 session spool(s) checked")
-	assert.Contains(t, check.Detail, "0 entries stuck")
+	assert.Contains(t, check.Detail, "0 entries "+doctorSpoolPendingPhrase)
 	assert.Contains(t, check.Detail, "0 malformed entries",
 		"a clean spool must say so explicitly, distinguishably from a spool that was never examined")
 }
 
 // TestDoctorCheckSpoolBacklog_WrongState_NamesTheStuckEntry is this check's
 // core proof: an entry backdated well past doctorSpoolStuckAge, sitting
-// unconsumed in out/, must be named in a warn — while a FRESH entry in in/
+// undelivered in out/, must be named in a warn — while a FRESH entry in in/
 // (written moments ago, exactly like a message mid-flight) must NOT be
 // reported. Both directions are asserted so the check cannot pass by always
 // warning, and cannot pass by never looking at out/.
@@ -106,7 +107,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheStuckEntry(t *testing.T) {
 	check := doctorCheckSpoolBacklog()
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, stuckRef.String(), "the stuck entry must be named by its ref")
-	assert.Contains(t, check.Detail, "1 spool entr(ies)")
+	assert.Contains(t, check.Detail, "1 spool entr(ies) "+doctorSpoolPendingPhrase)
 	assert.NotContains(t, check.Detail, "coord.md", "the fresh in/ entry must not be reported as stuck")
 }
 
@@ -148,6 +149,62 @@ func TestDoctorCheckSpoolBacklog_NamesAClaimNoHookFinished(t *testing.T) {
 	assert.Contains(t, check.Detail, string(spool.ClaimedDirName)+"/"+ref.Name, "the unacknowledged claim must be named where it sits")
 }
 
+// TestDoctorCheckSpoolBacklog_ARecordedDeliveryIsNotStuck: an inbox file
+// whose identity is already in the delivered record is a delivery whose
+// delete was interrupted (spool.Deliver records first, deletes second). The
+// reader's next sweep finishes it; it is not mail anybody is still owed, and
+// naming it stuck would send an operator after a message that arrived.
+func TestDoctorCheckSpoolBacklog_ARecordedDeliveryIsNotStuck(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	old := time.Now().Add(-10 * time.Minute)
+	inRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 1, "coord", old)
+	claimedRef := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, old.UnixNano(), 2, "coord", old)
+	res, err := spool.Claim(mapper, harp)
+	require.NoError(t, err)
+	require.Len(t, res.Entries, 2)
+	// Put one back in in/: the runner's shape. The other stays claimed: the
+	// owner's.
+	claimedDir, err := spool.DirPath(mapper, harp, spool.ClaimedDirName)
+	require.NoError(t, err)
+	inDir, err := spool.DirPath(mapper, harp, spool.DirIn)
+	require.NoError(t, err)
+	require.NoError(t, os.Rename(filepath.Join(claimedDir, inRef.Name), filepath.Join(inDir, inRef.Name)))
+	root, err := spool.Root(mapper, harp)
+	require.NoError(t, err)
+	record := filepath.Join(root, "in", "delivered")
+	require.NoError(t, os.MkdirAll(record, 0o700))
+	for _, ref := range []spool.Ref{inRef, claimedRef} {
+		require.NoError(t, os.WriteFile(filepath.Join(record, strings.TrimSuffix(ref.Name, spool.MessageFileExt)), nil, 0o600))
+	}
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, DoctorOK, check.Status, check.Detail)
+	assert.NotContains(t, check.Detail, inRef.Name)
+	assert.NotContains(t, check.Detail, claimedRef.Name)
+}
+
+// TestDoctorCheckSpoolBacklog_TheRecordExcusesOnlyTheInbox: the delivered
+// record is the INBOX's memory. An aged out/ file is a message the
+// coordinator never routed, whatever the record holds.
+func TestDoctorCheckSpoolBacklog_TheRecordExcusesOnlyTheInbox(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-heron"
+	old := time.Now().Add(-10 * time.Minute)
+	outRef := writeRawSpoolMessage(t, mapper, harp, spool.DirOut, old.UnixNano(), 1, harp, old)
+	root, err := spool.Root(mapper, harp)
+	require.NoError(t, err)
+	record := filepath.Join(root, "in", "delivered")
+	require.NoError(t, os.MkdirAll(record, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(record, strings.TrimSuffix(outRef.Name, spool.MessageFileExt)), nil, 0o600))
+
+	check := doctorCheckSpoolBacklog()
+	assert.Equal(t, DoctorWarn, check.Status)
+	assert.Contains(t, check.Detail, outRef.String())
+}
+
 // TestDoctorCheckSpoolBacklog_CapsNamedListWithCount proves a machine with
 // many stuck entries gets a bounded, readable line rather than an unbounded
 // wall of refs — the same "cap at ~5 with a count" shape
@@ -186,7 +243,7 @@ func writeRawSpoolFile(t *testing.T, mapper spool.PathMapper, harp string, dir s
 // TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedFilename proves a
 // filename outside the "<unixnano>.<seq>.<writer>.md" grammar is reported
 // BY NAME, and worded distinctly from a stuck-but-valid entry (it must never
-// say "sat unconsumed" — no amount of waiting turns a bad filename into a
+// say it is pending delivery — no amount of waiting turns a bad filename into a
 // deliverable message). A fresh, validly-named entry in the same session's
 // in/ is asserted absent from the report, so the check cannot pass by
 // flagging everything it sees.
@@ -204,7 +261,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedFilename(t *testing
 	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
 	assert.Contains(t, check.Detail, "not-a-spool-message.txt", "the malformed entry must be named")
 	assert.Contains(t, check.Detail, harp+":out/", "malformed entries are located by harp and direction")
-	assert.NotContains(t, check.Detail, "sat unconsumed",
+	assert.NotContains(t, check.Detail, doctorSpoolPendingPhrase,
 		"a malformed filename is not a stuck-but-valid entry and must not be worded as one")
 }
 
@@ -224,7 +281,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedContent(t *testing.
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
 	assert.Contains(t, check.Detail, name.String(), "the malformed entry must be named")
-	assert.NotContains(t, check.Detail, "sat unconsumed",
+	assert.NotContains(t, check.Detail, doctorSpoolPendingPhrase,
 		"malformed content is not a stuck-but-valid entry and must not be worded as one")
 }
 
@@ -241,8 +298,8 @@ func TestDoctorCheckSpoolBacklog_RightState_MalformedFileDoesNotCountAsStuck(t *
 
 	check := doctorCheckSpoolBacklog()
 	assert.Equal(t, DoctorWarn, check.Status)
-	assert.NotContains(t, check.Detail, "0 spool entr(ies) sat unconsumed")
-	assert.NotContains(t, check.Detail, "sat unconsumed")
+	assert.NotContains(t, check.Detail, "0 spool entr(ies) "+doctorSpoolPendingPhrase)
+	assert.NotContains(t, check.Detail, doctorSpoolPendingPhrase)
 }
 
 // --- in/failed/: spool.Fail's terminal directory, wired into this check ----
@@ -291,8 +348,8 @@ func TestDoctorCheckSpoolBacklog_RightState_EmptyFailedDirDistinctFromAbsent(t *
 // REAL refusal via spool.Fail — the same call coord/spooldelivery.go's
 // failSpoolEntry makes — and proves the resulting in/failed/ entry is named
 // in a warn, worded as a fourth, distinct condition from stuck, malformed,
-// and sweep-I/O-error: it must say the message was REFUSED, never "sat
-// unconsumed" (it wasn't waiting) and never "malformed" (it parsed fine). A
+// and sweep-I/O-error: it must say the message was REFUSED, never
+// pending delivery (it wasn't waiting) and never "malformed" (it parsed fine). A
 // second, live entry in in/ (never failed) is asserted absent from the
 // report so the check cannot pass by flagging everything under in/.
 func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry(t *testing.T) {
@@ -311,7 +368,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry(t *testing.T) {
 	assert.Contains(t, check.Detail, "1 spool entr(ies) were REFUSED into in/failed/")
 	assert.Contains(t, check.Detail, harp+":in/failed/"+failedRef.Name, "the refused entry must be named by harp and filename")
 	assert.Contains(t, check.Detail, "GIVEN this message and REFUSED to deliver it, permanently")
-	assert.NotContains(t, check.Detail, "sat unconsumed",
+	assert.NotContains(t, check.Detail, doctorSpoolPendingPhrase,
 		"a refused entry was actively rejected, not left waiting — must not read as stuck")
 	assert.NotContains(t, check.Detail, "are malformed",
 		"a refused entry parsed fine as a message — must not read as malformed")

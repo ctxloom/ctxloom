@@ -825,8 +825,8 @@ message AgentFrame {
     AgentRequest request = 3;           // plane 2: agent asks coordinator
     Heartbeat heartbeat = 5;            // plane 3
 
-    // The spool doorbell, runner -> coordinator (an out/ create, or an
-    // in/consumed rename). TOP-LEVEL, deliberately NOT an AgentEvent: events
+    // The spool doorbell, runner -> coordinator (an out/ create, or an in/
+    // delivery ack). TOP-LEVEL, deliberately NOT an AgentEvent: events
     // carry a seq, buffer as unacked, and reissue until the durable Ack,
     // machinery that exists to make the WIRE the durable record. The
     // doorbell's durable record is the FILE, so wrapping it in ack/reissue
@@ -1728,12 +1728,13 @@ message PeerMessage {
 // spool.PathMapper. Second, a closed enum for the directory fails loudly on an
 // unknown value at decode instead of reaching a path join as a string.
 //
-// ONE MESSAGE SHAPE COVERS EVERY TRANSITION — create, consume, withdraw —
-// because the consume-rename IS the delivery acknowledgement: a doorbell for
-// in/consumed is what tells the coordinator its mail landed, with no separate
-// ack vocabulary. Handling is therefore uniformly "resolve, read-or-sweep,
-// act", idempotent and stateless: a doorbell naming a file the sweep already
-// consumed resolves to ENOENT and is ignored, never an error.
+// ONE MESSAGE SHAPE COVERS EVERY TRANSITION — create, deliver, consume,
+// withdraw — with no separate ack vocabulary: a runner's delivery ack rings
+// with the in/ ref of the file it delivered and deleted, which tells the
+// coordinator to read the delivered record. Handling is therefore uniformly
+// "resolve, read-or-sweep, act", idempotent and stateless: a doorbell naming
+// a file that is already gone resolves to ENOENT and is ignored, never an
+// error.
 //
 // SECURITY: every field arrives from a less-trusted peer and is validated at
 // the receive chokepoint (spool.Ref.Validate — harp grammar, closed dir,
@@ -1752,9 +1753,9 @@ message SpoolChanged {
 }
 
 // SpoolDir is the closed set of spool subdirectories a doorbell may name,
-// mirroring spool.Dir's five values exactly. The consumed/ and withdrawn/
-// values exist because RENAMES RING THE DOORBELL TOO (the consume-rename is
-// the ack).
+// mirroring spool.Dir's values exactly. The out/consumed/ and withdrawn/
+// values exist because RENAMES RING THE DOORBELL TOO (the out/ consume-rename
+// is the routing ack).
 //
 // SPOOL_DIR_UNSPECIFIED is INVALID at every consumer: a ref that did not
 // decode to a recognised directory is refused, never defaulted. The zero value
@@ -1771,9 +1772,11 @@ enum SpoolDir {
   // out/ — messages FROM that agent. Single writer: its runner.
   SPOOL_DIR_OUT = 2;
 
-  // in/consumed/ — an in/ message the runner accepted. This doorbell is the
-  // DELIVERY CONFIRMATION.
-  SPOOL_DIR_IN_CONSUMED = 3;
+  // 3 was in/consumed/. A delivered in/ message is deleted, not moved, so no
+  // directory remains for a doorbell to name; the runner's delivery
+  // confirmation names the in/ file it delivered.
+  reserved 3;
+  reserved "SPOOL_DIR_IN_CONSUMED";
 
   // out/consumed/ — an out/ message the coordinator processed.
   SPOOL_DIR_OUT_CONSUMED = 4;

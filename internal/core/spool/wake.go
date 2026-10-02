@@ -5,13 +5,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // A WAKE IS A NONCE ON DISK.
@@ -74,7 +75,7 @@ func ArmWake(m PathMapper, harp string) (string, error) {
 	}
 	nonce := hex.EncodeToString(b)
 	path := filepath.Join(dir, nonce)
-	if err := iox.WriteFileAtomic(path, nil, owneronly.FileMode, iox.Durable()); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), path, nil, owneronly.FileMode, safefs.Durable()); err != nil {
 		return "", fmt.Errorf("spool: arming wake %s: %w", path, err)
 	}
 	return nonce, nil

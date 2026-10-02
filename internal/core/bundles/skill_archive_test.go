@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // =============================================================================
@@ -146,7 +148,7 @@ func TestHardenedExtract_RejectsZipSlipDotDotTraversal(t *testing.T) {
 	})
 	fsys := afero.NewMemMapFs()
 
-	_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "traversal")
 
@@ -162,7 +164,7 @@ func TestHardenedExtract_RejectsAbsolutePathZip(t *testing.T) {
 	})
 	fsys := afero.NewMemMapFs()
 
-	_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "absolute")
 
@@ -182,7 +184,7 @@ func TestHardenedExtract_RejectsSecondTopLevelDirectory(t *testing.T) {
 	})
 	fsys := afero.NewMemMapFs()
 
-	_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "top-level directory")
 
@@ -203,7 +205,7 @@ func TestHardenedExtract_RejectsTarSymlinkEscape(t *testing.T) {
 	})
 	fsys := afero.NewMemMapFs()
 
-	_, err := HardenedExtract(fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symlink")
 
@@ -219,7 +221,7 @@ func TestHardenedExtract_RejectsTarSymlinkRelativeEscape(t *testing.T) {
 	})
 	fsys := afero.NewMemMapFs()
 
-	_, err := HardenedExtract(fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symlink")
 
@@ -243,7 +245,7 @@ func TestHardenedExtract_RejectsZipSymlinkEntry(t *testing.T) {
 	})
 	fsys := afero.NewMemMapFs()
 
-	_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symlink")
 
@@ -290,7 +292,7 @@ func TestHardenedExtract_RejectsPreExistingSymlinkEscapeInDestDir(t *testing.T) 
 		{name: "myskill/subdir/evil.txt", content: []byte("pwned")},
 	})
 
-	_, err := HardenedExtract(fsys, archive, FormatZip, destDir, ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, destDir, ExtractOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symlink")
 
@@ -316,7 +318,7 @@ func TestHardenedExtract_PreExistingOrdinaryNestedDirStillWorks(t *testing.T) {
 		{name: "myskill/subdir/fine.txt", content: []byte("ok")},
 	})
 
-	_, err := HardenedExtract(fsys, archive, FormatZip, destDir, ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, destDir, ExtractOptions{})
 	require.NoError(t, err)
 
 	got, err := os.ReadFile(filepath.Join(destDir, "subdir", "fine.txt"))
@@ -345,7 +347,7 @@ func TestHardenedExtract_RejectsTarHardlinkAndDeviceNodes(t *testing.T) {
 			})
 			fsys := afero.NewMemMapFs()
 
-			_, err := HardenedExtract(fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{})
+			_, err := HardenedExtract(t.Context(), fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "special file")
 
@@ -367,7 +369,7 @@ func TestHardenedExtract_RejectsZipBombOverByteCap(t *testing.T) {
 	})
 	fsys := afero.NewMemMapFs()
 
-	_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxTotalBytes: 1024})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxTotalBytes: 1024})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decompression-bomb")
 
@@ -390,7 +392,7 @@ func TestHardenedExtract_DecompressionBombByteBoundary(t *testing.T) {
 		archive := buildRawZip(t, []rawZipEntry{{name: "myskill/SKILL.md", content: content}})
 		fsys := afero.NewMemMapFs()
 
-		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxTotalBytes: byteCap})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxTotalBytes: byteCap})
 		require.NoError(t, err, "exactly cap bytes of uncompressed content must be accepted, not rejected")
 
 		got, rerr := afero.ReadFile(fsys, "/out/skill/SKILL.md")
@@ -407,7 +409,7 @@ func TestHardenedExtract_DecompressionBombByteBoundary(t *testing.T) {
 		archive := buildRawZip(t, []rawZipEntry{{name: "myskill/SKILL.md", content: content}})
 		fsys := afero.NewMemMapFs()
 
-		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxTotalBytes: byteCap})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxTotalBytes: byteCap})
 		require.Error(t, err, "cap+1 bytes of uncompressed content must be rejected")
 		assert.Contains(t, err.Error(), "decompression-bomb")
 
@@ -428,7 +430,7 @@ func TestHardenedExtract_DecompressionBombByteBoundary_TarGz(t *testing.T) {
 		archive := buildRawTarGz(t, []rawTarEntry{{name: "myskill/SKILL.md", content: content}})
 		fsys := afero.NewMemMapFs()
 
-		_, err := HardenedExtract(fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{MaxTotalBytes: byteCap})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{MaxTotalBytes: byteCap})
 		require.NoError(t, err)
 		got, rerr := afero.ReadFile(fsys, "/out/skill/SKILL.md")
 		require.NoError(t, rerr)
@@ -440,7 +442,7 @@ func TestHardenedExtract_DecompressionBombByteBoundary_TarGz(t *testing.T) {
 		archive := buildRawTarGz(t, []rawTarEntry{{name: "myskill/SKILL.md", content: content}})
 		fsys := afero.NewMemMapFs()
 
-		_, err := HardenedExtract(fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{MaxTotalBytes: byteCap})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{MaxTotalBytes: byteCap})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "decompression-bomb")
 	})
@@ -484,7 +486,7 @@ func TestProcessArchiveEntry_RemainingBudgetAccountsForPriorTotal(t *testing.T) 
 	bigContent := bytes.Repeat([]byte("Q"), 10_000)
 	spy := &countingReader{r: bytes.NewReader(bigContent)}
 
-	err := processArchiveEntry(fsys, "/out/skill", &st, "myskill/bomb.bin", kindFile, 0o644, spy, opts)
+	err := processArchiveEntry(t.Context(), fsys, "/out/skill", &st, "myskill/bomb.bin", kindFile, 0o644, spy, opts)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decompression-bomb")
 
@@ -507,14 +509,14 @@ func TestHardenedExtract_ZipEntryCountBoundary(t *testing.T) {
 	t.Run("exactly MaxEntries is accepted", func(t *testing.T) {
 		archive := buildRawZip(t, buildEntries(5))
 		fsys := afero.NewMemMapFs()
-		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxEntries: 5})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxEntries: 5})
 		require.NoError(t, err, "exactly MaxEntries entries must be accepted")
 	})
 
 	t.Run("MaxEntries plus one is rejected", func(t *testing.T) {
 		archive := buildRawZip(t, buildEntries(6))
 		fsys := afero.NewMemMapFs()
-		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxEntries: 5})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxEntries: 5})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "entry-count bomb")
 	})
@@ -534,14 +536,14 @@ func TestHardenedExtract_TarEntryCountBoundary(t *testing.T) {
 	t.Run("exactly MaxEntries is accepted", func(t *testing.T) {
 		archive := buildRawTarGz(t, buildEntries(5))
 		fsys := afero.NewMemMapFs()
-		_, err := HardenedExtract(fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{MaxEntries: 5})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{MaxEntries: 5})
 		require.NoError(t, err)
 	})
 
 	t.Run("MaxEntries plus one is rejected", func(t *testing.T) {
 		archive := buildRawTarGz(t, buildEntries(6))
 		fsys := afero.NewMemMapFs()
-		_, err := HardenedExtract(fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{MaxEntries: 5})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{MaxEntries: 5})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "entry-count bomb")
 	})
@@ -615,7 +617,7 @@ func TestHardenedExtract_RejectsZipDeviceOrSocketEntry(t *testing.T) {
 	})
 	fsys := afero.NewMemMapFs()
 
-	_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "special file")
 
@@ -638,7 +640,7 @@ func TestHardenedExtract_ZipDirectoryMarkerEntry(t *testing.T) {
 		})
 		fsys := afero.NewMemMapFs()
 
-		topDir, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+		topDir, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
 		require.NoError(t, err)
 		assert.Equal(t, "myskill", topDir)
 
@@ -654,7 +656,7 @@ func TestHardenedExtract_ZipDirectoryMarkerEntry(t *testing.T) {
 		})
 		fsys := afero.NewMemMapFs()
 
-		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
 		require.NoError(t, err)
 
 		info, statErr := fsys.Stat("/out/skill/emptydir")
@@ -675,7 +677,7 @@ func TestHardenedExtract_RejectsArchiveWithNoFiles(t *testing.T) {
 		})
 		fsys := afero.NewMemMapFs()
 
-		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no files")
 
@@ -689,7 +691,7 @@ func TestHardenedExtract_RejectsArchiveWithNoFiles(t *testing.T) {
 		})
 		fsys := afero.NewMemMapFs()
 
-		_, err := HardenedExtract(fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no files")
 	})
@@ -705,7 +707,7 @@ func TestHardenedExtract_RejectsAbsolutePathTar(t *testing.T) {
 	})
 	fsys := afero.NewMemMapFs()
 
-	_, err := HardenedExtract(fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "absolute")
 
@@ -721,7 +723,7 @@ func TestHardenedExtract_RejectsEntryCountBomb(t *testing.T) {
 	archive := buildRawZip(t, entries)
 	fsys := afero.NewMemMapFs()
 
-	_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxEntries: 10})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{MaxEntries: 10})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "entry-count bomb")
 
@@ -755,7 +757,7 @@ func TestSkillArchive_ExportImportRoundTrip_TreeByteIdenticalAndExecBitPreserved
 	zipBytes, srcPkg, files := buildValidSkillZip(t, "humanize")
 
 	destFs := afero.NewMemMapFs()
-	finalDir, err := ImportSkillArchive(destFs, zipBytes, "/imported", ExtractOptions{}, nil)
+	finalDir, err := ImportSkillArchive(t.Context(), destFs, zipBytes, "/imported", ExtractOptions{}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "/imported/humanize", finalDir)
 
@@ -792,7 +794,7 @@ func TestImportSkillArchive_TarGzHappyPath(t *testing.T) {
 	})
 
 	fsys := afero.NewMemMapFs()
-	dir, err := ImportSkillArchive(fsys, archive, "/imported", ExtractOptions{}, nil)
+	dir, err := ImportSkillArchive(t.Context(), fsys, archive, "/imported", ExtractOptions{}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "/imported/tarskill", dir)
 
@@ -986,9 +988,9 @@ func TestImportSkillArchive_FailedValidationLeavesDestinationIntact(t *testing.T
 
 	existing := "/imported/humanize/SKILL.md"
 	require.NoError(t, fsys.MkdirAll("/imported/humanize", 0o755))
-	require.NoError(t, afero.WriteFile(fsys, existing, []byte("the good tree\n"), 0o644))
+	testsupport.WriteFile(t, fsys, existing, []byte("the good tree\n"), 0o644)
 
-	_, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{},
+	_, err := ImportSkillArchive(t.Context(), fsys, zipBytes, "/imported", ExtractOptions{},
 		func(afero.Fs, string) error { return fmt.Errorf("nope") })
 	require.Error(t, err)
 
@@ -999,6 +1001,69 @@ func TestImportSkillArchive_FailedValidationLeavesDestinationIntact(t *testing.T
 	// Staging must not be left behind either.
 	leftover, _ := afero.Exists(fsys, "/imported/.ctxloom-import-staging")
 	assert.False(t, leftover, "staging must be cleaned up on rejection")
+}
+
+// cancelOnRead cancels its context on the first Read, then serves data: the
+// entry copy is mid-flight when the cancellation lands, deterministically.
+type cancelOnRead struct {
+	cancel context.CancelFunc
+	data   *bytes.Reader
+}
+
+func (c *cancelOnRead) Read(p []byte) (int, error) {
+	c.cancel()
+	return c.data.Read(p[:1])
+}
+
+// A single entry must not outrun a cancellation: the copy stops at the next
+// read once ctx is done.
+func TestProcessArchiveEntry_CancelledMidCopyStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	fsys := afero.NewMemMapFs()
+	require.NoError(t, fsys.MkdirAll("/out", 0o755))
+	r := &cancelOnRead{cancel: cancel, data: bytes.NewReader([]byte("abcdef"))}
+
+	var st extractState
+	err := processArchiveEntry(ctx, fsys, "/out", &st, "skill/big.txt", kindFile, 0o644, r, ExtractOptions{}.normalized())
+	require.ErrorIs(t, err, context.Canceled)
+	written, _ := afero.Exists(fsys, "/out/big.txt")
+	assert.False(t, written, "a cancelled entry must not be written")
+}
+
+// An entry that reads nothing (a directory) is still refused once cancelled:
+// the per-entry check, not the copy, is what stops a stream of such entries.
+func TestProcessArchiveEntry_CancelledDirectoryEntryIsRefused(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	fsys := afero.NewMemMapFs()
+	require.NoError(t, fsys.MkdirAll("/out", 0o755))
+
+	var st extractState
+	err := processArchiveEntry(ctx, fsys, "/out", &st, "skill/sub/", kindDir, 0o755, bytes.NewReader(nil), ExtractOptions{}.normalized())
+	require.ErrorIs(t, err, context.Canceled)
+	made, _ := afero.DirExists(fsys, "/out/sub")
+	assert.False(t, made, "a cancelled entry must not be created")
+}
+
+// A cancellation that arrives after extraction but before the swap must leave
+// the existing tree in place: past the swap the old tree is already aside.
+func TestImportSkillArchive_CancelledBeforeSwapLeavesDestinationIntact(t *testing.T) {
+	zipBytes, _, _ := buildValidSkillZip(t, "humanize")
+	fsys := afero.NewMemMapFs()
+	existing := "/imported/humanize/SKILL.md"
+	require.NoError(t, fsys.MkdirAll("/imported/humanize", 0o755))
+	testsupport.WriteFile(t, fsys, existing, []byte("the good tree\n"), 0o644)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	_, err := ImportSkillArchive(ctx, fsys, zipBytes, "/imported", ExtractOptions{},
+		func(afero.Fs, string) error { cancel(); return nil })
+	require.ErrorIs(t, err, context.Canceled)
+
+	got, rerr := afero.ReadFile(fsys, existing)
+	require.NoError(t, rerr)
+	assert.Equal(t, "the good tree\n", string(got))
+	leftover, _ := afero.Exists(fsys, "/imported/.ctxloom-import-staging")
+	assert.False(t, leftover, "staging must be cleaned up on cancellation")
 }
 
 // TestImportSkillArchive_ValidatorSeesTheFinalSkillName guards the reason
@@ -1012,7 +1077,7 @@ func TestImportSkillArchive_ValidatorSeesTheFinalSkillName(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 
 	var seen string
-	_, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{},
+	_, err := ImportSkillArchive(t.Context(), fsys, zipBytes, "/imported", ExtractOptions{},
 		func(vfs afero.Fs, staged string) error {
 			seen = staged
 			_, perr := ParseSkillPackage(vfs, staged, 0)
@@ -1039,7 +1104,7 @@ func TestImportSkillArchive_ValidatorSeesTheFinalSkillName(t *testing.T) {
 func TestHardenedExtract_UnsupportedFormatLeavesNoExtractionRoot(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 
-	_, err := HardenedExtract(fsys, []byte("not an archive"), FormatUnknown, "/out/skill", ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, []byte("not an archive"), FormatUnknown, "/out/skill", ExtractOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported archive format")
 
@@ -1166,7 +1231,7 @@ func TestHardenedExtract_MkdirFailureNamesTheEntry(t *testing.T) {
 		})
 		fsys := &mkdirFailFs{Fs: afero.NewMemMapFs(), failOn: "scripts"}
 
-		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "myskill/scripts/",
 			"a directory entry that could not be created must name the entry")
@@ -1178,7 +1243,7 @@ func TestHardenedExtract_MkdirFailureNamesTheEntry(t *testing.T) {
 		})
 		fsys := &mkdirFailFs{Fs: afero.NewMemMapFs(), failOn: "scripts"}
 
-		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+		_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "myskill/scripts/run.sh",
 			"a file whose parent directory could not be created must name the entry")
@@ -1202,7 +1267,7 @@ func TestProcessArchiveEntry_UnclassifiedKindIsRejectedNotWritten(t *testing.T) 
 	var st extractState
 	opts := ExtractOptions{}.normalized()
 
-	err := processArchiveEntry(fsys, "/out/skill", &st, "myskill/payload.sh",
+	err := processArchiveEntry(t.Context(), fsys, "/out/skill", &st, "myskill/payload.sh",
 		entryKind(0), 0o755, bytes.NewReader([]byte("#!/bin/sh\nrm -rf /\n")), opts)
 
 	require.Error(t, err, "entryKind's zero value must be an unclassified entry, and an unclassified entry must be rejected")
@@ -1255,7 +1320,7 @@ func TestImportSkillArchive_FailedFinalRenameLeavesDestinationIntact(t *testing.
 	// AFTER it had already deleted the destination.
 	fsys := &renameFailFs{Fs: mem, failOldName: "/imported/.ctxloom-import-staging/humanize"}
 
-	_, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{}, nil)
+	_, err := ImportSkillArchive(t.Context(), fsys, zipBytes, "/imported", ExtractOptions{}, nil)
 	require.Error(t, err, "a failed swap must be reported, not swallowed")
 
 	got, rerr := afero.ReadFile(mem, existing)
@@ -1279,7 +1344,7 @@ func TestImportSkillArchive_SucceedsOverAnExistingTreeAndLeavesNoBackup(t *testi
 	require.NoError(t, afero.WriteFile(fsys, "/imported/humanize/SKILL.md", []byte("stale\n"), 0o644))
 	require.NoError(t, afero.WriteFile(fsys, "/imported/humanize/leftover.txt", []byte("gone\n"), 0o644))
 
-	final, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{}, nil)
+	final, err := ImportSkillArchive(t.Context(), fsys, zipBytes, "/imported", ExtractOptions{}, nil)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join("/imported", "humanize"), final)
 
@@ -1309,7 +1374,7 @@ func TestImportSkillArchive_UnrestorableTreeSaysWhereItIs(t *testing.T) {
 	// Every rename INTO the destination fails: the swap, and then the restore.
 	fsys := &renameFailFs{Fs: mem, failNewName: "/imported/humanize"}
 
-	_, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{}, nil)
+	_, err := ImportSkillArchive(t.Context(), fsys, zipBytes, "/imported", ExtractOptions{}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could NOT be restored")
 	assert.Contains(t, err.Error(), ".replaced",
@@ -1542,7 +1607,7 @@ func TestProcessArchiveEntry_EmptyEntryNameIsRejected(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	var st extractState
 
-	err := processArchiveEntry(fsys, "/out/skill", &st, "", kindFile, 0o644,
+	err := processArchiveEntry(t.Context(), fsys, "/out/skill", &st, "", kindFile, 0o644,
 		bytes.NewReader([]byte("x")), ExtractOptions{}.normalized())
 
 	require.Error(t, err)
@@ -1556,7 +1621,7 @@ func TestProcessArchiveEntry_NameCleaningToDotIsRejected(t *testing.T) {
 
 	// "./" cleans to "." — a name that addresses the extraction root itself
 	// rather than anything inside it.
-	err := processArchiveEntry(fsys, "/out/skill", &st, "./", kindDir, 0o755,
+	err := processArchiveEntry(t.Context(), fsys, "/out/skill", &st, "./", kindDir, 0o755,
 		bytes.NewReader(nil), ExtractOptions{}.normalized())
 
 	require.Error(t, err)
@@ -1570,7 +1635,7 @@ func TestHardenedExtract_SymlinkCheckFailureIsReportedNotIgnored(t *testing.T) {
 	})
 	fsys := &lstatErrFs{Fs: afero.NewMemMapFs(), failOn: "SKILL.md"}
 
-	_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+	_, err := HardenedExtract(t.Context(), fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
 	require.Error(t, err, "a confinement check that cannot run must fail closed, never be treated as 'no escape'")
 	assert.Contains(t, err.Error(), "checking for a pre-existing symlink escape")
 	assert.Contains(t, err.Error(), "myskill/SKILL.md")

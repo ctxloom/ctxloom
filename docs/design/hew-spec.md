@@ -1717,7 +1717,7 @@ evaluate the after-image before choosing the code.
 Per target file, all-or-nothing. A file is written only if every hunk against it matched and
 applied. There is no `.rej` file, no partial output, no backup file — the write goes through
 an atomic temp-and-rename, and a failed apply leaves the target byte-identical. (This is
-`iox.WriteFileAtomicFs`'s contract and the deliberate no-backup ruling, restated as a format
+`safefs.WriteFile`'s contract and the deliberate no-backup ruling, restated as a format
 property so the Rust port inherits it.)
 
 **Ruled (human, 2026-08-14): across multiple targets, all-or-nothing too.** A multi-target
@@ -2919,7 +2919,7 @@ func NewGitResolver(fsys afero.Fs, workdir string, stdin io.Reader) Resolver
 package hewfs // may import ctxloom
 
 // ApplyFile applies every file section of p under agent.WithFileLock, writing through
-// iox.WriteFileAtomicFs, honoring §10.5 atomicity.
+// safefs.WriteFile, honoring §10.5 atomicity.
 func ApplyFile(fsys afero.Fs, root string, p *hew.Patch, opt hew.Options) ([]FileResult, error)
 
 // Record is the application record (spec §9.7): what was executed, against which

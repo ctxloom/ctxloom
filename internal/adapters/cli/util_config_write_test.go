@@ -325,8 +325,8 @@ func TestConfigWriteCmd_RunE_EndToEnd(t *testing.T) {
 // --- P5 slice 1: JSON path rides hew ---
 
 // TestRunConfigWrite_JSONPatch_ModePreserved locks in that hew's byte-
-// preserving apply did not disturb AtomicWriteFile's existing "reuse the
-// file's own mode" behavior (settings_io.go's AtomicWriteFile doc): the
+// preserving apply did not disturb safefs.WriteFileKeepMode's existing "reuse the
+// file's own mode" behavior (settings_io.go's safefs.WriteFileKeepMode doc): the
 // write path itself is unchanged by this slice, only how the OUT bytes it
 // receives are computed, but that is exactly the kind of thing a refactor
 // can break by accident if a new branch bypassed the shared write helper.

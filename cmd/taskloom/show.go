@@ -11,7 +11,7 @@ import (
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
@@ -147,7 +147,7 @@ func init() {
 // detail `taskloom list` deliberately summarizes into a single line. cfg is
 // applied to t's tags via visibleTags before printing — see hideConfigFor.
 func renderTaskDetail(out io.Writer, t tasks.Task, cfg tagma.HideConfig) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	check := " "
 	if t.Checked {
 		check = "x"

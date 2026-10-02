@@ -83,7 +83,7 @@ func (s CompanionStatus) Executed() bool {
 // skipped by the resolvers, which also emit the install hint); a present
 // binary whose probe fails carries the error. Reporting only — never fatal.
 //
-// EXEC CONSENT applies here too, not only to the loadout probe: `<bin> version
+// ADMISSION applies here too, not only to the loadout probe: `<bin> version
 // --format json` is an exec of a foreign binary exactly like `<bin> loadout` is,
 // and this loop runs unconditionally from reportCompanions on `ctxloom run` /
 // `ctxloom mcp`. Gating only the loadout probe would have left the auto-exec
@@ -94,9 +94,9 @@ func (s CompanionStatus) Executed() bool {
 // Probes run concurrently: each is bounded by companionProbeTimeout, so a
 // sequential loop would add that bound per wedged companion to startup. Running
 // them in parallel keeps the worst-case wall-clock to ~one timeout (CLAUDE.md:
-// never block startup). Admission runs SEQUENTIALLY before the fan-out, so two
-// consent prompts can never interleave on one terminal. Output order is
-// preserved (sorted by bin) since each goroutine writes its own slot.
+// never block startup). Admission runs before the fan-out, so no unadmitted
+// binary is ever exec'd. Output order is preserved (sorted by bin) since each
+// goroutine writes its own slot.
 func (p Prober) ProbeCompanions(root trust.TrustRoot) []CompanionStatus {
 	// Enforced at the exec boundary, not only at each caller: a report path
 	// that forgets the switch must still never exec a companion binary.
@@ -333,9 +333,8 @@ func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot
 	// would lose ctxloom's MCP server and its always-on guidance.
 	var decided []CompanionAdmission
 	if !p.Disabled {
-		// EXEC CONSENT, resolved sequentially BEFORE the fan-out: a companion
-		// this machine's human has not agreed to run is never exec'd, and two
-		// prompts can never interleave on one terminal. See AdmitCompanions.
+		// ADMISSION, resolved BEFORE the fan-out: a companion no trusted
+		// publisher signed is never exec'd. See AdmitCompanions.
 		//
 		// The refused half is KEPT rather than filtered away. It is the only
 		// place a "found on PATH, never allowed to run" companion exists at all
@@ -431,11 +430,11 @@ func collectProbes(slots []*bundles.CompanionLoadout, failed []*bundles.Companio
 // candidate carries.
 //
 // Everything except "nothing on this machine answers to that name" is
-// UNCONSENTED: declined, never confirmed, unhashable, or blocked by an
-// unreadable consent record all mean the same thing to a reader — the binary is
-// here and ctxloom was not allowed to run it — and all four are undone the same
-// way, by deciding about the file. The specific refusal is already announced by
-// admitCompanion itself, which is where the distinction has purchase.
+// UNCONSENTED: unsigned, signed by an untrusted key, a signature that does not
+// cover the bytes, or a binary that cannot be read all mean the same thing to a
+// reader — the binary is here and ctxloom was not allowed to run it. The
+// specific refusal is already announced by admitCompanion itself, which is
+// where the distinction has purchase.
 func candidateReasonFor(r CompanionAdmissionReason) bundles.CandidateReason {
 	if r == CompanionAdmissionNotInstalled {
 		return bundles.CandidateAbsent

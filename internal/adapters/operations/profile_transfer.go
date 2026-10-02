@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // profileLoaderFS builds a profile loader over the given filesystem. It resolves
@@ -114,7 +114,7 @@ func ExportProfile(_ context.Context, cfg *config.Config, req ExportProfileReque
 	dest := filepath.Join(req.DestDir, filepath.Base(profile.Path))
 	// No AllowEmpty: validateProfileDocument above already refuses a hollow
 	// document.
-	if err := iox.WriteFileAtomicFs(fs, dest, srcData, 0644); err != nil {
+	if err := safefs.WriteFile(fs, dest, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write profile: %w", err)
 	}
 	return &ExportProfileResult{Status: "exported", Name: req.Name, Source: profile.Path, Dest: dest}, nil
@@ -177,7 +177,7 @@ func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileReque
 	}
 	// No AllowEmpty: validateProfileDocument above already refuses a hollow
 	// document.
-	if err := iox.WriteFileAtomicFs(fs, dest, srcData, 0644); err != nil {
+	if err := safefs.WriteFile(fs, dest, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write profile: %w", err)
 	}
 	return &ImportProfileResult{Status: "imported", Source: req.SourcePath, Dest: dest}, nil
@@ -242,7 +242,7 @@ func SetProfileContent(_ context.Context, cfg *config.Config, req SetProfileCont
 	}
 	// No AllowEmpty: validateProfileDocument above already refuses a hollow
 	// document, so an empty edit is rejected before this write is reached.
-	if err := iox.WriteFileAtomicFs(fs, profile.Path, []byte(req.Content), 0644); err != nil {
+	if err := safefs.WriteFile(fs, profile.Path, []byte(req.Content), 0644); err != nil {
 		return nil, fmt.Errorf("failed to save profile: %w", err)
 	}
 	return &SetProfileContentResult{Status: "updated", Name: req.Name, Path: profile.Path}, nil

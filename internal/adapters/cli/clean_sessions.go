@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 // The session half of `ctxloom clean`: the age-bounded reap of every
@@ -71,7 +71,7 @@ func reclaimCutoff(olderThan string, now time.Time) (time.Time, error) {
 // must not be silent. Sessions newer than the bound are the one exception:
 // they are counted on a single line, because the reap runs on every clean
 // and a line per session in use would bury the rest.
-func renderSessionReclaim(out *iox.ErrWriter, rep sessions.Report) error {
+func renderSessionReclaim(out *errwriter.Writer, rep sessions.Report) error {
 	members := memberList(rep.Members)
 	if len(rep.Candidates) == 0 {
 		out.Printf("No session %s is older than %s", members, rep.Cutoff.Format(time.RFC3339))

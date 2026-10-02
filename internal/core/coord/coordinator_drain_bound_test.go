@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -286,9 +285,9 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	texts := sp.chat(1).RecordedTexts()
 	assert.Len(t, texts, 1, "the leftover mail is one turn, not several")
 	assert.Contains(t, texts[0], leftover, "the relaunched run's first turn must carry the message that raced the death")
-	// The consume-rename is the runner's ACCEPTANCE of the turn, and it
+	// The delivered record is the runner's ACCEPTANCE of the turn, and it
 	// follows the engine seeing the text; the relaunch is judged on it.
-	awaitSpoolCount(t, harp, spool.DirInConsumed, 1, "after the relaunched run took the leftover mail")
+	awaitDeliveredCount(t, harp, 1, "after the relaunched run took the leftover mail")
 	assert.Zero(t, c.pendingCount(harp), "delivery consumes the mail; nothing is left queued behind the new run")
 	assert.NotEqual(t, runID, currentRunID(c, harp), "the delivery rides a fresh run, not the dead one")
 }
@@ -334,8 +333,8 @@ func TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime(t *te
 
 	require.Eventually(t, func() bool { return sp.chatCount() == 2 }, conformanceWait, 5*time.Millisecond,
 		"a child that dies with mail pending must be relaunched exactly once")
-	awaitSpoolCount(t, harp, spool.DirInConsumed, 1, "after the relaunched run took the leftover mail")
-	// The consume-rename is the turn's hand-off; the engine records the text
+	awaitDeliveredCount(t, harp, 1, "after the relaunched run took the leftover mail")
+	// The delivered record is the turn's hand-off; the engine records the text
 	// on its own goroutine after that, so the second text is waited for.
 	require.Eventually(t, func() bool { return len(sp.chat(1).RecordedTexts()) == 2 }, conformanceWait, 5*time.Millisecond,
 		"the context prime, then the leftover mail")

@@ -665,15 +665,17 @@ func (c *Coordinator) settledFailureCause(runID string) string {
 	return cause
 }
 
-// serveRoster is the roster: the caller's children from the roster/runs
-// folds (single state, N transports — consumer.go's listRunsSnapshot is the
-// shared projection; the ConsumerService is a further transport onto the
-// same state).
+// serveRoster is the roster from the roster/runs folds (single state, N
+// transports — consumer.go's listRunsSnapshot is the shared projection; the
+// ConsumerService is a further transport onto the same state). A delegated
+// child sees its OWN children, the subtree it coordinates; the root keeps
+// read-only sight of every descendant.
 func (c *Coordinator) serveRoster(caller Identity, req RosterRequest) AgentReply {
+	parent := ""
 	if caller.IsChild() {
-		return AgentReply{Err: ErrRosterIsTheOwners}
+		parent = caller.Harp
 	}
-	return AgentReply{Result: c.listRunsSnapshot(req.IncludeTerminal, req.Role)}
+	return AgentReply{Result: c.listRunsSnapshot(req.IncludeTerminal, req.Role, parent)}
 }
 
 // serveStopRun is agent_stop on the wire, in its two shapes. With a run_id

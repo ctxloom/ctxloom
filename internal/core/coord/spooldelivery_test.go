@@ -192,12 +192,12 @@ func awaitSpoolCount(t *testing.T, harp string, dir spool.Dir, n int, why string
 	return got
 }
 
-// TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsConsumed is the
+// TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsDelivered is the
 // coordinator->child happy path, end to end: the send becomes ONE file in the
 // child's in/ and no mailbox entry at all, the runner delivers it into the run
-// as a framed turn with its payload and correlation intact, and the file ends
-// up in in/consumed/ — the rename that IS the delivery acknowledgement.
-func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsConsumed(t *testing.T) {
+// as a framed turn, and the file is then deleted with its identity recorded —
+// the record-and-delete that IS the delivery acknowledgement.
+func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsDelivered(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := cutoverSpawner(0)
@@ -229,23 +229,13 @@ func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsConsumed(t *testing.T) {
 	// so the assertion is about THIS id, not about the fold being empty.)
 	assertNoMailboxJournal(t, c)
 
-	// The file was consumed by RENAME, not deleted: in/ empty, in/consumed/
-	// holding exactly the message that was delivered.
-	awaitSpoolCount(t, out.Harp, spool.DirIn, 0, "after delivery")
-	consumed := awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "after delivery")
-	got := consumed[0].Message
-	assert.Equal(t, msgID, got.OriginID, "the consumed file is the message that was sent")
-	assert.Equal(t, KindQuestion, got.Kind)
-	assert.Equal(t, "second task", got.Body)
-	assert.Equal(t, "corr-1", got.InReplyTo)
-	assert.Equal(t, ownerIdentity().Harp, got.FromHarp)
-	back, err := mailStructured(got.Structured)
-	require.NoError(t, err)
-	assert.JSONEq(t, string(structured), string(back), "the structured payload rode the file")
+	// Delivered: the identity the send returned is in the child's delivered
+	// record, and no file carrying it is left in in/.
+	awaitDelivered(t, out.Harp, msgID, "after delivery")
 
-	// And the coordinator observed the consume-rename as the delivery ack.
+	// And the coordinator credited the delivery from the record.
 	require.Eventually(t, func() bool { return c.SpoolDeliveryStats().Consumed >= 1 }, conformanceWait, 10*time.Millisecond,
-		"the consume-rename doorbell is how the coordinator learns the child took its mail")
+		"the delivered record is how the coordinator learns the child took its mail")
 }
 
 // TestSpoolDelivery_ChildSendRidesOutAndReachesTheParent is the child->parent
@@ -339,8 +329,7 @@ func TestSpoolDelivery_SweepDeliversWhatNoDoorbellEverAnnounced(t *testing.T) {
 	require.NotEmpty(t, ref.Name)
 
 	awaitChatText(t, sp, 0, "nobody rang the bell")
-	awaitSpoolCount(t, out.Harp, spool.DirIn, 0, "after the sweep delivered it")
-	awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "after the sweep delivered it")
+	awaitDelivered(t, out.Harp, "m-unannounced", "after the sweep delivered it")
 	assert.Equal(t, ringsBefore.Rejected, home.SpoolDoorbellStats().Rejected,
 		"an unannounced delivery is an ordinary sweep, not a doorbell fault")
 	assert.Zero(t, home.SpoolDeliveryStats().Failed)
@@ -407,16 +396,16 @@ func TestSpoolDelivery_ColdRunnerDrainsItsSpoolBeforeAnyChannel(t *testing.T) {
 	assert.False(t, home.Attached(), "delivery must not have depended on a coordinator")
 
 	require.Eventually(t, func() bool { return len(spoolEntries(t, harp, spool.DirIn)) == 0 }, conformanceWait, 10*time.Millisecond,
-		"a delivered file must be consumed even with no coordinator to announce it to")
-	assert.Len(t, spoolEntries(t, harp, spool.DirInConsumed), 2)
+		"a delivered file must be deleted even with no coordinator to announce it to")
+	assert.Len(t, spoolDelivered(t, harp), 2, "both identities are in the delivered record")
 }
 
-// TestSpoolDelivery_AwaitMailAckedWaitsForTheConsumeRename pins the wait the
+// TestSpoolDelivery_AwaitMailAckedWaitsForTheDeliveryAck pins the wait the
 // engine host performs before reporting its exit: it returns only once the
-// delivered file has actually been renamed consumed — not when the engine
+// delivered file has actually been recorded and deleted — not when the engine
 // accepted the turn, which is where the sink returns and where the race with
 // the exit report begins.
-func TestSpoolDelivery_AwaitMailAckedWaitsForTheConsumeRename(t *testing.T) {
+func TestSpoolDelivery_AwaitMailAckedWaitsForTheDeliveryAck(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	const harp = "await-ack-harp"
@@ -473,8 +462,8 @@ func TestSpoolDelivery_AwaitMailAckedWaitsForTheConsumeRename(t *testing.T) {
 	case <-time.After(conformanceWait):
 		t.Fatal("AwaitMailAcked never returned after the ack")
 	}
-	assert.Empty(t, spoolEntries(t, harp, spool.DirIn), "by the time the wait returns the file has been renamed consumed")
-	assert.Len(t, spoolEntries(t, harp, spool.DirInConsumed), 1)
+	assert.Empty(t, spoolEntries(t, harp, spool.DirIn), "by the time the wait returns the file has been deleted")
+	assert.Len(t, spoolDelivered(t, harp), 1, "and its identity recorded")
 
 	require.NoError(t, home.AwaitMailAcked(context.Background(), []string{"never-delivered"}),
 		"an id this runner never delivered has no ack in flight: nothing to wait for")
@@ -529,20 +518,22 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 // (the doorbell racing a sweep), and a second process reading a directory the
 // first already read. The first is ruled out by the reactor's serialisation
 // plus the delivery seam's own dedupe, and is asserted here by hammering the
-// sweep; the second is ruled out ONLY by the consume-rename, and is asserted
-// by standing a fresh runner up on the same spool — which is exactly what a
-// relaunch or a reconnecting replacement runner is.
-func TestSpoolDelivery_ConsumedMailIsNeverDeliveredTwice(t *testing.T) {
+// sweep; the second is ruled out by the delivered record, and is asserted by
+// standing a fresh runner up on the same spool — which is exactly what a
+// relaunch or a reconnecting replacement runner is — with a copy of the
+// delivered message put back in in/: the state a crash between Deliver's
+// record and its delete leaves behind.
+func TestSpoolDelivery_DeliveredMailIsNeverDeliveredTwice(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChild(t, c, sp, "first task")
 
-	_, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "exactly once please", nil, "")
+	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "exactly once please", nil, "")
 	require.NoError(t, err)
 	awaitChatText(t, sp, 0, "exactly once please")
-	awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "after the first delivery")
+	awaitDelivered(t, out.Harp, msgID, "after the first delivery")
 
 	// Hammer every in-process trigger there is. Each is a full sweep of the
 	// same directory; none of them may produce a second turn.
@@ -551,10 +542,17 @@ func TestSpoolDelivery_ConsumedMailIsNeverDeliveredTwice(t *testing.T) {
 	}
 	require.Never(t, func() bool { return countChatText(sp, 0, "exactly once please") > 1 },
 		500*time.Millisecond, 10*time.Millisecond,
-		"repeated sweeps of a consumed directory must not re-deliver")
+		"repeated sweeps of a delivered message must not re-deliver")
+
+	// The crash window: the record was written, the delete never happened.
+	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
+	require.NoError(t, err)
+	_, err = w.Write(&spool.Message{Kind: KindMessage, FromHarp: ownerIdentity().Harp, To: out.Harp,
+		OriginID: msgID, Body: "exactly once please"})
+	require.NoError(t, err)
 
 	// A FRESH runner on the same spool — the relaunch case, where the first
-	// runner's in-memory dedupe is gone and only the rename remains.
+	// runner's in-memory dedupe is gone and only the record remains.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	fresh, err := runnerHooks.NewHome(ctx, TestHomeConfig{
@@ -572,11 +570,12 @@ func TestSpoolDelivery_ConsumedMailIsNeverDeliveredTwice(t *testing.T) {
 	})
 	select {
 	case text := <-redelivered:
-		t.Fatalf("a replacement runner re-delivered already-consumed mail: %q", text)
+		t.Fatalf("a replacement runner re-delivered already-delivered mail: %q", text)
 	case <-time.After(500 * time.Millisecond):
 	}
 	assert.Equal(t, 1, countChatText(sp, 0, "exactly once please"),
-		"the consume-rename is the arbiter: delivered exactly once, whatever reads the directory")
+		"the delivered record is the arbiter: delivered exactly once, whatever reads the directory")
+	awaitSpoolCount(t, out.Harp, spool.DirIn, 0, "the interrupted delete is finished, not left to be re-read")
 }
 
 // TestSpoolDelivery_ConsumeThatLostItsRaceIsNotAFailure pins the ENOENT
@@ -660,30 +659,53 @@ func TestSpoolDelivery_SenderIdentityIsTheDirectoryNotTheFile(t *testing.T) {
 // TestSpoolDelivery_NonObjectStructuredSurvivesTheDelivery pins the wrapper on
 // the DELIVERY path, not just at the projection: a payload that is not a JSON
 // object used to be refused, which under the cutover would be the message
-// itself being lost. It now round trips byte for byte, all the way to what the
-// receiving side reads back.
+// itself being lost. Written through the coordinator's own projection, it
+// reaches the engine byte for byte under the wrapper key — the file it rode
+// is deleted once delivered, so what the runner hands the engine is the
+// receiving side's last word on it.
 func TestSpoolDelivery_NonObjectStructuredSurvivesTheDelivery(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newCutoverCoordinator(t, sp, 0)
-	out, _ := awaitCutoverChild(t, c, sp, "first task")
+	const harp = "array-carrier-harp"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	home, err := runnerHooks.NewHome(ctx, TestHomeConfig{
+		Reporter: termSink(),
+		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-array", Harness: "mock", Harp: harp,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { home.Crash() })
+	got := make(chan *agentcoordpb.PeerMessage, 1)
+	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
+		got <- pm
+		return true
+	})
 
 	// A bare array; a number no YAML round trip preserves; a string YAML
 	// would hand back as a number.
 	raw := json.RawMessage(`[1,"two",12345678901234567890123,"0640"]`)
-	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "carrying an array", raw, "")
+	sm, err := spoolMessageForMail(Message{ID: "m-array", From: "coordinator-harp", To: harp, Kind: KindMessage,
+		Body: "carrying an array", Structured: raw}, harp)
 	require.NoError(t, err)
-
-	awaitChatText(t, sp, 0, "carrying an array")
-	consumed := awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "after delivery")
-	require.Equal(t, msgID, consumed[0].Message.OriginID)
-
-	back, err := mailStructured(consumed[0].Message.Structured)
+	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
-	assert.Equal(t, string(raw), string(back),
+	_, err = w.Write(sm)
+	require.NoError(t, err)
+	home.SweepSpoolIn()
+
+	var pm *agentcoordpb.PeerMessage
+	select {
+	case pm = <-got:
+	case <-time.After(conformanceWait):
+		t.Fatal("the runner never delivered the file")
+	}
+	wrapper := pm.GetStructured().GetFields()[spoolRawJSONKey]
+	require.NotNil(t, wrapper, "a non-object payload is delivered under the wrapper key")
+	assert.Equal(t, string(raw), wrapper.GetStringValue(),
 		"a non-object payload must come back byte for byte; a YAML re-rendering would silently change it")
-	assert.Zero(t, c.SpoolDeliveryStats().Failed)
+	awaitDelivered(t, harp, "m-array", "after delivery")
+	assert.Zero(t, home.SpoolDeliveryStats().Failed)
 }
 
 // TestSpoolDelivery_PendingCountReadsTheSpool pins the answer every
@@ -717,36 +739,30 @@ func TestSpoolDelivery_PendingCountReadsTheSpool(t *testing.T) {
 	assert.Zero(t, c.pendingCount("no-such-harp"))
 }
 
-// TestSpoolDelivery_ConsumedAckCreditedWithoutReadableBody pins that
-// sweepChildConsumed reads in/consumed/ NAMES ONLY (deceptive-copartner): it
-// must credit an acknowledgement even when the file's body is unparseable
-// garbage, because the name existing in consumed/ IS the whole signal a
-// rename-based ack carries.
-//
-// This is also the regression pin against the fix regressing to the
-// read-and-parse contract: if sweepChildConsumed still swept via
-// spool.Sweep, this fixture would come back as a Problem (spool.Sweep
-// reports an unparseable body that way, see TestSweepNames_
-// CreditsAnEntryWithAnUnreadableBody in the spool package) and never reach
-// spoolSeen at all, so the stat below would never move.
-func TestSpoolDelivery_ConsumedAckCreditedWithoutReadableBody(t *testing.T) {
+// TestSpoolDelivery_PendingCountSkipsARecordedDelivery: a file whose
+// identity is already in the delivered record is a delivery whose delete was
+// interrupted — nothing the child still has to see, so it must not resume an
+// ended child or hold a drain open.
+func TestSpoolDelivery_PendingCountSkipsARecordedDelivery(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
+	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
+	home.Crash() // no reader: the file must stay put for the count to read
 
-	dir, err := spool.DirPath(spool.NewHomeMapper(), out.Harp, spool.DirInConsumed)
+	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(dir, 0o700))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, "00000000000000000099.00000001.coord.md"),
-		[]byte("not frontmatter, not yaml, just garbage\n"), 0o600))
+	_, err = w.Write(&spool.Message{Kind: KindMessage, FromHarp: "coordinator-harp", To: out.Harp, OriginID: "m-done", Body: "done"})
+	require.NoError(t, err)
+	_, err = w.Write(&spool.Message{Kind: KindMessage, FromHarp: "coordinator-harp", To: out.Harp, OriginID: "m-owed", Body: "owed"})
+	require.NoError(t, err)
+	root, err := spool.Root(spool.NewHomeMapper(), out.Harp)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "in", "delivered"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "in", "delivered", "m-done"), nil, 0o600))
 
-	before := c.SpoolDeliveryStats().Consumed
-	c.sweepChildConsumed(out.Harp)
-	require.Eventually(t, func() bool { return c.SpoolDeliveryStats().Consumed >= before+1 }, conformanceWait, 10*time.Millisecond,
-		"an in/consumed/ entry with an unreadable body must still be credited: the name is the whole signal")
+	assert.Equal(t, 1, c.pendingCount(out.Harp), "only the message nobody delivered is pending")
 }
 
 // TestSpoolDelivery_UnparsableFileIsReportedNeverSkipped pins the loud half of
@@ -826,10 +842,10 @@ func TestSpoolDelivery_UnmappableKindReachesATerminalState(t *testing.T) {
 	// TERMINAL: the file leaves in/ ...
 	require.Eventually(t, func() bool { return len(spoolEntries(t, harp, spool.DirIn)) == 0 }, conformanceWait, 10*time.Millisecond,
 		"the unmappable entry must not sit in in/ forever")
-	// ... but it must NOT be in in/consumed/: it was never delivered, and
-	// that directory's whole meaning is "the reader accepted this".
-	assert.Empty(t, spoolEntries(t, harp, spool.DirInConsumed),
-		"an entry that was never delivered must never be marked consumed — that would lie about delivery")
+	// ... but it must NOT be in the delivered record: it was never
+	// delivered, and the record's whole meaning is "the reader delivered this".
+	assert.Empty(t, spoolDelivered(t, harp),
+		"an entry that was never delivered must never be recorded as delivered — that would lie about delivery")
 	// It must be findable at the distinct, present-but-unreadable location.
 	root, err := spool.Root(spool.NewHomeMapper(), harp)
 	require.NoError(t, err)

@@ -17,13 +17,18 @@ import (
 // racing RMWs is a lost update on a file ctxloom does not own.
 //
 // fs is the caller's own filesystem seam (nil meaning the OS filesystem);
-// a non-OS-backed fs takes no lock (see filelock.WithLock). The lock lives
+// a non-OS-backed fs takes no lock (see filelock.WithLock) and so resolves
+// none: deriving it anyway fails a test double's transaction on a home it
+// would never touch. The lock lives
 // under the ctxloom home at paths.HomePathFor(target), never beside the
 // file: a sidecar for a file this project does NOT own left untracked lock
 // litter in every project and a ctxloom-owned file inside the user's real
 // engine home, a directory ctxloom otherwise never writes to. See
 // paths.HomePathFor's doc for the full reasoning.
 func WithFileLock(fs afero.Fs, target string, fn func() error) error {
+	if !filelock.IsOSBackedFs(fs) {
+		return fn()
+	}
 	lockPath, err := paths.HomePathFor(target)
 	if err != nil {
 		return fmt.Errorf("sessions: deriving home lock path for %s: %w", target, err)

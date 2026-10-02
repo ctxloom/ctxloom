@@ -4,15 +4,40 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/user"
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/shared/realpath"
 )
 
-var (
-	homeRecordsMu       sync.RWMutex
-	homeRecordsOverride string
-)
+// homeOverride is a home-rooted directory a test may redirect: a
+// package-level value, guarded by a mutex, restored through the returned func
+// — selfexec.SetPathForTesting's shape, which is how this codebase already
+// spells "a production resolution a test may redirect".
+type homeOverride struct {
+	mu  sync.RWMutex
+	dir string
+}
+
+func (o *homeOverride) set(dir string) func() {
+	o.mu.Lock()
+	prev := o.dir
+	o.dir = dir
+	o.mu.Unlock()
+	return func() {
+		o.mu.Lock()
+		o.dir = prev
+		o.mu.Unlock()
+	}
+}
+
+func (o *homeOverride) get() string {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.dir
+}
+
+var homeRecordsOverride, homeLocksOverride homeOverride
 
 // SetHomeRecordsDirForTesting points the §9.7 application-record store at dir
 // until the returned func is called (wire it to t.Cleanup). It is the seam an
@@ -23,21 +48,13 @@ var (
 // is a whole-machine lever that also moves the config layer, the trust root and
 // the session store, and this package's own binary discovery reads it. This
 // redirects exactly the store the record lands in.
-//
-// It follows selfexec.SetPathForTesting's shape — package-level value, guarded
-// by a mutex, restored through the returned func — because that is how this
-// codebase already spells "a production resolution a test may redirect".
-func SetHomeRecordsDirForTesting(dir string) func() {
-	homeRecordsMu.Lock()
-	prev := homeRecordsOverride
-	homeRecordsOverride = dir
-	homeRecordsMu.Unlock()
-	return func() {
-		homeRecordsMu.Lock()
-		homeRecordsOverride = prev
-		homeRecordsMu.Unlock()
-	}
-}
+func SetHomeRecordsDirForTesting(dir string) func() { return homeRecordsOverride.set(dir) }
+
+// SetHomeLocksDirForTesting points the home lock directory (HomeLocksDir, and
+// so every HomePathFor lock) at dir until the returned func is called. It is
+// SetHomeRecordsDirForTesting's sibling, for an in-process test that keeps the
+// real $HOME on purpose and must still keep its lock files out of it.
+func SetHomeLocksDirForTesting(dir string) func() { return homeLocksOverride.set(dir) }
 
 // The home-rooted-store guard lives HERE, in the package that resolves every
 // home-rooted path, rather than beside any one store. It began beside the
@@ -116,3 +133,24 @@ func testTempRoots() []string {
 // the ctxloom binary, which is the cost internal/shared/archlint's TestSupportAnalyzer
 // exists to keep out.
 func runningUnderGoTest() bool { return flag.Lookup("test.v") != nil }
+
+// accountHomeError is UnsandboxedHomeError narrowed to the ACCOUNT's real
+// home: it refuses only a dir that sits under the home the passwd database
+// gives this user, which does not move with $HOME and so names the
+// developer's state even inside a test that rebinds HOME.
+//
+// It exists for a resolver whose result a test may legitimately DERIVE for a
+// home that is not this machine's: the container mount builder computes where
+// a container's own HomePathFor looks (HOME=/home/ctxloom), and nothing is
+// written by computing it. Refusing every non-temp path refused that
+// derivation, not a write.
+//
+// An account whose home cannot be looked up falls back to the full
+// temp-root check, so the guard never becomes weaker than UnsandboxedHomeError
+// for want of an answer.
+func accountHomeError(what, dir, remedy string) error {
+	if u, err := user.Current(); err == nil && u.HomeDir != "" && !realpath.Under(dir, u.HomeDir) {
+		return nil
+	}
+	return UnsandboxedHomeError(what, dir, remedy)
+}

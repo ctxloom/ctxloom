@@ -20,7 +20,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 func TestRenderAgentList_EngineAndDefault(t *testing.T) {
@@ -401,11 +401,11 @@ func TestRenderAgentWritten_BlankEngineReadsAsProjectDefault(t *testing.T) {
 
 func TestRenderDefaultAgent_BothArms(t *testing.T) {
 	var unset bytes.Buffer
-	require.NoError(t, renderDefaultAgent(iox.NewErrWriter(&unset), ""))
+	require.NoError(t, renderDefaultAgent(errwriter.New(&unset), ""))
 	assert.Contains(t, unset.String(), "No default agent set.")
 
 	var set bytes.Buffer
-	require.NoError(t, renderDefaultAgent(iox.NewErrWriter(&set), "dev"))
+	require.NoError(t, renderDefaultAgent(errwriter.New(&set), "dev"))
 	assert.Contains(t, set.String(), "Default agent: dev")
 }
 

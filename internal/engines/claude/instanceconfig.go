@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 
@@ -188,7 +188,7 @@ func (w claudeInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigReque
 		if err := fs.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("claude instance config: create %s: %w", dir, err)
 		}
-		if err := iox.AtomicWriteFile(fs, dest, data, InstanceConfigFileName); err != nil {
+		if err := safefs.WriteFileKeepMode(fs, dest, data, InstanceConfigFileName); err != nil {
 			return fmt.Errorf("claude instance config: write %s: %w", dest, err)
 		}
 		rep.Wrote = append(rep.Wrote, dest)

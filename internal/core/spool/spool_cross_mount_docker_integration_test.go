@@ -11,10 +11,10 @@
 //     the host resolves it under the fixture home; the two absolute paths
 //     DIFFER and name the same bytes. A mapper that had baked in a
 //     sender-view path would fail here and nowhere else.
-//   - Host consume-rename is visible in-container: a message the host wrote
-//     into in/ and then consumed is GONE from in/ and PRESENT in in/consumed/
-//     when the container sweeps. That is the whole cursor model crossing the
-//     mount.
+//   - Host delivery is visible in-container: a message the host wrote into
+//     in/ and then delivered is GONE from in/ and its identity is PRESENT in
+//     the delivered record when the container looks. That is the whole
+//     delivery model crossing the mount.
 //   - Container write-fsync-rename is visible on the host BYTE-COMPLETE: the
 //     host sweeps out/ and parses a message with the exact body the container
 //     wrote. Rename-publish is what makes that safe (never tail or read a
@@ -89,16 +89,16 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	m := NewHomeMapper()
 	require.NoError(t, EnsureDirs(m, harp))
 
-	// Host side: write one in/ message and consume it, so the container has
-	// both a rename to observe and an empty in/ to confirm.
+	// Host side: write one in/ message and deliver it, so the container has
+	// both a record entry to observe and an empty in/ to confirm.
 	w, err := NewWriter(m, harp, DirIn, "coord")
 	require.NoError(t, err)
-	inRef, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: harp, Body: marker + "-in\n"})
+	inRef, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: harp, OriginID: marker + "-in", Body: marker + "-in\n"})
 	require.NoError(t, err)
-	consumedRef, err := Consume(m, inRef)
+	require.NoError(t, Deliver(m, inRef, marker+"-in", time.Now()))
+	hostRoot, err := Root(m, harp)
 	require.NoError(t, err)
-	hostConsumedPath, err := m.Resolve(consumedRef)
-	require.NoError(t, err)
+	hostDeliveredPath := filepath.Join(hostRoot, filepath.FromSlash(deliveredDirName), marker+"-in")
 
 	args := []string{"run", "--rm"}
 	if !dockergate.DockerIsRootless() {
@@ -125,17 +125,17 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	require.NoError(t, err, "container probe failed:\n%s", out)
 	require.Contains(t, string(out), "PROBE_OK", "container probe did not reach its end:\n%s", out)
 
-	// The container saw the host's consume-rename — and saw it at a DIFFERENT
-	// absolute path than the host uses, which is the cross-view property the
-	// whole PathMapper seam exists for.
-	containerConsumedPath := probeValue(t, string(out), "PROBE_CONSUMED_PATH")
-	require.True(t, strings.HasPrefix(containerConsumedPath, containerHome+"/"),
-		"container must resolve under its own home, got %q", containerConsumedPath)
-	require.NotEqual(t, hostConsumedPath, containerConsumedPath,
+	// The container saw the host's delivery — and saw its record at a
+	// DIFFERENT absolute path than the host uses, which is the cross-view
+	// property the whole PathMapper seam exists for.
+	containerDeliveredPath := probeValue(t, string(out), "PROBE_DELIVERED_PATH")
+	require.True(t, strings.HasPrefix(containerDeliveredPath, containerHome+"/"),
+		"container must resolve under its own home, got %q", containerDeliveredPath)
+	require.NotEqual(t, hostDeliveredPath, containerDeliveredPath,
 		"host and container views must differ, or this test proves nothing")
 	require.Equal(t,
-		strings.TrimPrefix(hostConsumedPath, fixture),
-		strings.TrimPrefix(containerConsumedPath, containerHome),
+		strings.TrimPrefix(hostDeliveredPath, fixture),
+		strings.TrimPrefix(containerDeliveredPath, containerHome),
 		"the two views must share the identical home-relative tail")
 
 	// The container's write is visible on the host, byte-complete and

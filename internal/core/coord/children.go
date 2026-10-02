@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
 
@@ -1238,12 +1239,30 @@ func (c *Coordinator) failChild(rt *childRt, err error) {
 		c.markAttached(rt)
 		return
 	}
-	c.rep.Warnf("agent_run: child %s (%s) failed to launch: %v", rt.harp, rt.agentName, err)
+	detail := launchFailureDetail(err)
+	c.rep.Warnf("agent_run: child %s (%s) failed to launch: %s", rt.harp, rt.agentName, detail)
 	// Count it BEFORE the terminal: terminateRun's leftover-mail tail reads
 	// this count to decide whether another relaunch is warranted at all.
 	c.noteLaunchFailure(rt.harp)
-	c.terminateRun(rt.runID, CauseLaunchFailed, err.Error())
+	c.terminateRun(rt.runID, CauseLaunchFailed, detail)
 	c.markAttached(rt) // the attempt settled (failed): unblock any awaitChildUp
+}
+
+// launchFixLabel prefixes a launch failure's remedy line. It is the label
+// pkg/clifmt.FixLine renders, written out because core may not import
+// clifmt; TestLaunchFailureDetail binds the two.
+const launchFixLabel = "fix: "
+
+// launchFailureDetail is a launch failure as the parent is told it: err's
+// text, then — when err names its own fix (a report.Remediable anywhere in
+// its %w chain) — that fix on a line of its own. The terminal fact's detail
+// is a string, so the remedy travels as text; err.Error() alone drops it.
+func launchFailureDetail(err error) string {
+	var r report.Remediable
+	if errors.As(err, &r) && r.Remedy() != "" {
+		return err.Error() + "\n" + launchFixLabel + r.Remedy()
+	}
+	return err.Error()
 }
 
 // setState journals a §6a state transition (the folds are the single owner
@@ -1618,7 +1637,7 @@ func (c *Coordinator) notifyParentOfDeath(rec RunRecord, cause, detail, runFailu
 		kind = KindError
 		body += ": " + runFailure
 	}
-	if _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
+	if _, err := c.mailParent(rec.Harp, rec.ParentHarp, kind, body, nil, ""); err != nil {
 		// The spool write is what just failed, so the invariant above
 		// ("the parent ALWAYS learns of a child death") does not hold for
 		// this death. Said loudly: there is nothing behind the file.
@@ -1861,7 +1880,7 @@ func (c *Coordinator) parentLiveRunID(parentHarp string) string {
 // failResume warns that harp could not be resumed and tells its parent.
 func (c *Coordinator) failResume(harp string, rec RunRecord, err error) {
 	c.rep.Warnf("agent resume %s: %v", harp, err)
-	if _, qerr := c.queueMail(harp, rec.ParentHarp, KindError, fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err)); qerr != nil {
+	if _, qerr := c.mailParent(harp, rec.ParentHarp, KindError, fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err), nil, ""); qerr != nil {
 		c.rep.Warnf("agent %s: queue resume failure: %v", harp, qerr)
 	}
 }

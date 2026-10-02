@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/afero"
 )
 
 // mcpToolProperty is the subset of a JSON Schema property node we render into
@@ -39,7 +40,7 @@ type mcpToolSchema struct {
 // registered tools/resources. Output is sorted by name/URI for a
 // byte-deterministic diff. Sections with nothing in them are omitted, so a
 // tools-only product doesn't advertise resources it has none of.
-func GenMCPTools(ctx context.Context, p *Product, dir string) error {
+func GenMCPTools(ctx context.Context, fs afero.Fs, p *Product, dir string) error {
 	if p.MCPServer == nil {
 		return errors.New("docsgen: product " + p.Bin + " has no MCP server to document")
 	}
@@ -49,7 +50,7 @@ func GenMCPTools(ctx context.Context, p *Product, dir string) error {
 	if p.MCPSource == "" || p.MCPCommand == "" {
 		return fmt.Errorf("docsgen: product %s needs both MCPSource and MCPCommand set to document its MCP surface", p.Bin)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := fs.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create MCP tools dir %s: %w", dir, err)
 	}
 
@@ -104,7 +105,7 @@ func GenMCPTools(ctx context.Context, p *Product, dir string) error {
 	}
 
 	out := filepath.Join(dir, "mcp-tools.md")
-	return os.WriteFile(out, []byte(b.String()), 0o644)
+	return safefs.WriteFile(fs, out, []byte(b.String()), 0o644)
 }
 
 // enumerateMCPSurface stands up the doc server and an in-memory client, then

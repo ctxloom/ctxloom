@@ -89,7 +89,7 @@ func TestPrintCompanionStatus_ExecutesNothingEvenWhenAdmissible(t *testing.T) {
 // TestPrintCompanionStatus_ReportsTheRefusedPathNotAnAbsence is the other half
 // of the same report: a companion present on PATH and never confirmed is not
 // missing, and telling a user to install what they already have sends them
-// chasing nothing. The path is what `ctxloom companion trust` has to be pointed
+// chasing nothing. The path is what `ctxloom companion show` has to be pointed
 // at, so it has to be in the line.
 func TestPrintCompanionStatus_ReportsTheRefusedPathNotAnAbsence(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -106,7 +106,7 @@ func TestPrintCompanionStatus_ReportsTheRefusedPathNotAnAbsence(t *testing.T) {
 	line := companionLineFor(t, out.String(), bin)
 	assert.Contains(t, line, "NOT RUN", "found but never approved is not the same fact as not installed")
 	assert.NotContains(t, line, "NOT FOUND", "the binary is on PATH; reporting it missing is a false errand")
-	assert.Contains(t, line, "ctxloom companion trust", "a refusal a user cannot act on is a dead end")
+	assert.Contains(t, line, "ctxloom companion show", "a refusal a user cannot act on is a dead end")
 	assert.NoFileExists(t, sentinel, "reporting a refusal must not run the file it refused")
 }
 

@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 var (
@@ -114,7 +114,7 @@ func runBundleExport(cmd *cobra.Command, args []string) error {
 	}
 
 	return emit(cmd, res, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		w.Printf("Exported: %s -> %s\n", res.Source, res.Dest)
 		return w.Err()
 	})
@@ -155,7 +155,7 @@ func runBundleImport(cmd *cobra.Command, args []string) error {
 	}
 
 	return emit(cmd, res, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		w.Printf("Imported: %s -> %s\n", res.Source, res.Dest)
 		w.Printf("  Version: %s\n", res.Version)
 		w.Printf("  Fragments: %d, Commands: %d, MCP: %d\n", res.Fragments, res.Commands, res.MCP)

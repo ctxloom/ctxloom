@@ -58,7 +58,7 @@ folds its add/remove flag slices into one `operations.UpdateProfile` request.
 strictness gates (`newPhaseGates` over `App().Strictness`), calls
 `operations.MaterializeProfile`, closes the startup phase (exit 3 on a fatal
 surface-write finding unless `--degraded` downgrades it — mirroring how `run`
-gates its own startup findings), and renders through an `iox.ErrWriter`.
+gates its own startup findings), and renders through an `errwriter.Writer`.
 `operations.MaterializeProfile` rejects empty `Profiles` or `Target`, and cobra
 enforces `MinimumNArgs(1)` — so there is no path to a silent zero-payload
 materialize. `--diff` compares instead of writing.

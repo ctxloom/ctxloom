@@ -16,7 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -259,7 +259,7 @@ type toolingJSON struct {
 // declarations, each attributed to its source bundle. Extracted from RunE so
 // the formatting is testable with injected entries.
 func renderTooling(out io.Writer, entries []operations.ToolingDeclaration) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	if len(entries) == 0 {
 		w.Println("No admitted companion declares container tooling (a companion declares it as `tooling` in its loadout's init section).")
 		w.Println("A companion ctxloom may not execute, or one you rejected, declares nothing — see `ctxloom doctor`.")
@@ -305,7 +305,7 @@ func runContainerScaffold(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w := errwriter.New(cmd.OutOrStdout())
 	w.Printf("Base Containerfile: %s\n", path)
 	w.Println("Edit it (the engine's agent stage layers on top), then run `ctxloom container build`.")
 	return w.Err()
@@ -383,7 +383,7 @@ func containerCheckConfigGap(d isolation.Diagnosis, backendGiven bool, cerr erro
 // renderContainerCheck writes the human-readable diagnosis. Extracted from
 // RunE so the formatting is testable with an injected report.
 func renderContainerCheck(out io.Writer, backend string, d isolation.Diagnosis) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	if backend == "" {
 		// An unresolved backend is a real state here (no argument plus an
 		// unloadable config); an empty parenthesis reads as a rendering bug.

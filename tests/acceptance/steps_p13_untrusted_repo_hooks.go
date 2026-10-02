@@ -32,8 +32,8 @@ type p13State struct {
 	claudePath string
 	cred       credentialMapping // the launch credential (liveCredential); never printed
 	dir        string            // the cell's root: the markers live here, outside the repo
-	repo       string            // cwd: a git repo with a COMMITTED .claude/settings.json
-	cfg, home  string            // throwaway CLAUDE_CONFIG_DIR and HOME; cfg holds no .claude.json, so the repo is untrusted
+	repo       string            // cwd: a git repo with a COMMITTED .claude/settings.json, skill and agent
+	cfg, home  string            // throwaway CLAUDE_CONFIG_DIR and HOME; cfg holds a .claude.json trusting the repo only in the trusted control
 
 	run      probeRun
 	started  bool
@@ -60,9 +60,9 @@ func registerP13UntrustedRepoHooksSteps(ctx *godog.ScenarioContext) {
 				return fmt.Errorf("%s: axes %s/%s — this rung is host/none only: the claim is about the vendor binary, which the cell runs directly, so neither ctxloom isolation axis is in play", p13Family, runtime, workspace)
 			}
 			switch p13Variant(variant) {
-			case p13Fires, p13Suppresses:
+			case p13Fires, p13Suppresses, p13TrustedFrontmatter:
 			default:
-				return fmt.Errorf("%s: unknown variant %q (want %q or %q)", p13Family, variant, p13Fires, p13Suppresses)
+				return fmt.Errorf("%s: unknown variant %q (want %q, %q or %q)", p13Family, variant, p13Fires, p13Suppresses, p13TrustedFrontmatter)
 			}
 			p.engine, p.runtime, p.workspace, p.variant = engine, runtime, workspace, p13Variant(variant)
 
@@ -122,16 +122,21 @@ func registerP13UntrustedRepoHooksSteps(ctx *godog.ScenarioContext) {
 		if p13Variant(variant) != p.variant {
 			return fmt.Errorf("%s %s: the Then step asks for %q but the cell runs %q", p13Family, p.cell(), variant, p.variant)
 		}
-		o := p13Outcome{Cell: p.cell(), Variant: p.variant, Started: p.started, TimedOut: p.timedOut, Run: p.run, Fired: map[string]bool{}}
-		for event, marker := range p13Markers {
-			switch _, err := os.Stat(filepath.Join(p.dir, marker)); {
-			case err == nil:
-				o.Fired[event] = true
-			case !errors.Is(err, fs.ErrNotExist):
-				o.MarkerErr = err
+		o := p13Outcome{Cell: p.cell(), Variant: p.variant, Started: p.started, TimedOut: p.timedOut, Run: p.run, Fired: map[string]bool{}, Frontmatter: map[string]bool{}}
+		for _, family := range []struct {
+			markers  map[string]string
+			observed map[string]bool
+		}{{p13Markers, o.Fired}, {p13FrontmatterMarkers, o.Frontmatter}} {
+			for key, marker := range family.markers {
+				switch _, err := os.Stat(filepath.Join(p.dir, marker)); {
+				case err == nil:
+					family.observed[key] = true
+				case !errors.Is(err, fs.ErrNotExist):
+					o.MarkerErr = err
+				}
 			}
 		}
-		fmt.Printf("EVIDENCE %s %s: fired=%v\n", p13Family, p.cell(), o.Fired)
+		fmt.Printf("EVIDENCE %s %s: fired=%v frontmatter=%v\n", p13Family, p.cell(), o.Fired, o.Frontmatter)
 		return p13Assert(o)
 	})
 }
@@ -140,24 +145,31 @@ func registerP13UntrustedRepoHooksSteps(ctx *godog.ScenarioContext) {
 var errP13NotRun = errors.New(p13Family + ": the cell's fixture was not prepared")
 
 // p13Fixture lays the cell out under the scenario's own temp root, which the
-// harness removes: <dir>/{cfg,home,repo}, with the repo's .claude/settings.json
-// COMMITTED — a repo that ships hooks, not a working-tree edit — and the
-// markers its hooks write landing in <dir>, outside the repo. cfg is left
-// empty: no .claude.json, so no projects entry, so the repo is untrusted.
+// harness removes: <dir>/{cfg,home,repo}, with the repo's .claude/settings.json,
+// skill and agent COMMITTED — a repo that ships them, not a working-tree edit —
+// and the markers they write landing in <dir>, outside the repo. cfg is empty
+// (no .claude.json, so no projects entry, so the repo is untrusted) except in
+// the trusted control, whose .claude.json trusts the repo.
 func p13Fixture(w *World, p *p13State) error {
 	p.dir = filepath.Join(w.env.Root, "p13-"+string(p.variant))
 	p.repo, p.cfg, p.home = filepath.Join(p.dir, "repo"), filepath.Join(p.dir, "cfg"), filepath.Join(p.dir, "home")
-	for _, d := range []string{filepath.Join(p.repo, filepath.Dir(p13RepoSettingsPath)), p.cfg, p.home} {
+	for _, d := range []string{p.cfg, p.home} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return err
 		}
 	}
-	settings, err := p13RepoSettingsJSON(p.dir)
-	if err != nil {
-		return err
+	files := map[string]func() ([]byte, error){
+		filepath.Join(p.repo, p13RepoSettingsPath): func() ([]byte, error) { return p13RepoSettingsJSON(p.dir) },
+		filepath.Join(p.repo, p13RepoSkillPath):    func() ([]byte, error) { return p13SkillMD(p.dir) },
+		filepath.Join(p.repo, p13RepoAgentPath):    func() ([]byte, error) { return p13AgentMD(p.dir) },
 	}
-	if err := os.WriteFile(filepath.Join(p.repo, p13RepoSettingsPath), settings, 0o600); err != nil {
-		return err
+	if p.variant == p13TrustedFrontmatter {
+		files[filepath.Join(p.cfg, ".claude.json")] = func() ([]byte, error) { return p13TrustJSON(p.repo) }
+	}
+	for path, render := range files {
+		if err := p13WriteFile(path, render); err != nil {
+			return err
+		}
 	}
 	git := func(args ...string) error {
 		cmd := exec.Command("git", append([]string{"-C", p.repo,
@@ -169,12 +181,24 @@ func p13Fixture(w *World, p *p13State) error {
 	}
 	for _, args := range [][]string{
 		{"init", "-q"},
-		{"add", p13RepoSettingsPath},
-		{"commit", "-q", "--no-verify", "-m", "p13 fixture: a repo that ships hooks"},
+		{"add", "--all"},
+		{"commit", "-q", "--no-verify", "-m", "p13 fixture: a repo that ships hooks, a skill and an agent"},
 	} {
 		if err := git(args...); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// p13WriteFile renders one fixture file and writes it, parents and all.
+func p13WriteFile(path string, render func() ([]byte, error)) error {
+	body, err := render()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, body, 0o600)
 }

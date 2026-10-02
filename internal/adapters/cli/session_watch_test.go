@@ -171,7 +171,7 @@ func TestStreamWatchEvents_PropagatesStreamError(t *testing.T) {
 }
 
 // failingWriter always errors on Write — pins a fix: writeWatchText's text
-// path used iox.ErrWriter's void-returning methods and never called w.Err(),
+// path used errwriter.Writer's void-returning methods and never called w.Err(),
 // so a failed write silently drained the rest of the event stream to nothing
 // while `ctxloom session transcript watch` exited 0.
 type failingWriter struct{ err error }
@@ -180,7 +180,7 @@ func (w *failingWriter) Write(p []byte) (int, error) { return 0, w.err }
 
 // TestStreamWatchEvents_TextSurfacesWriteFailure pins a fix: a write
 // failure partway through the text-mode feed must surface as an error from
-// streamWatchEvents, not be silently swallowed by iox.ErrWriter's
+// streamWatchEvents, not be silently swallowed by errwriter.Writer's
 // void-returning methods.
 func TestStreamWatchEvents_TextSurfacesWriteFailure(t *testing.T) {
 	events, errs := watchChan(entryEvent("assistant", "hello"))

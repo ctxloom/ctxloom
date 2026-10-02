@@ -35,7 +35,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Name is the ONE marker filename, for every engine and every surface. It is
@@ -136,31 +137,24 @@ func (l Ledger) Read(s Surface) ([]string, error) {
 // untouched, and rewrites the marker atomically so a crash cannot leave a torn
 // ledger that silently orphans managed content.
 //
-// THE CALLER MUST HOLD A LOCK ACROSS ITS WHOLE READ-MODIFY-WRITE. This is a
-// read-modify-write of the WHOLE marker (readAll, replace one surface,
-// rewrite every surface) and it does not serialize itself. Atomicity here
-// prevents a TORN marker; it does nothing about writer B reading the marker
+// THE MARKER IS LOCKED ACROSS THE READ-MODIFY-WRITE, here. Write reads the
+// WHOLE marker, replaces one surface and rewrites every surface; atomicity
+// prevents a torn marker but does nothing about writer B reading the marker
 // before writer A's rename lands and then rewriting it without A's surface.
-// MEASURED: 20 concurrent unserialized Writes to 20 different surfaces lose
-// 11 to 15 of them, and lose ZERO once serialized — see
-// TestLedger_IsNotSelfSerializing_TheCallerMustLock.
+// The lock is keyed on the MARKER, not on whatever file a caller is editing,
+// because the writers that share a marker are co-located surfaces in one
+// directory: they hold different settings-file locks, or none, and only a
+// lock on the thing they actually co-write excludes them from each other.
+// See TestLedger_Write_ExcludesACoLocatedWriterFromItsWindow.
 //
-// The lock is deliberately NOT here. Every production caller already wraps
-// its whole load-modify-save-and-ledger-write cycle in agent.WithFileLock,
-// keyed on the settings file it is editing (claude, agent.MCPFileConfig), and archlint's LockDisciplineAnalyzer leaves this
-// package out of its scope for exactly that reason: this is the primitive,
-// and its callers are what must hold the lock. A second lock in here
-// would be a second idiom over the same file with no way to make the two
-// agree.
-//
-// The cost of that placement, stated so nobody has to rediscover it: the
-// caller's lock is keyed on the SETTINGS FILE, not on this marker. Two
-// callers holding two different settings-file locks while writing
-// CO-LOCATED surfaces into one marker do not exclude each other — which is
-// the same directory-sharing case the co-location invariant in this package's
-// doc exists to protect. A lost update there leaves the surviving marker
-// claiming fewer entries than ctxloom actually wrote, so the next cleanup
-// treats the lost surface's files as content nobody claims and orphans them.
+// The lock covers ONLY this marker's own cycle. A caller whose
+// read-modify-write spans more than the marker (it Reads its surface, edits
+// files or settings from that, then Writes) still holds its own lock across
+// that whole span. The marker lock is innermost and Write calls nothing
+// while holding it, so it nests under any such caller lock without an
+// ordering hazard — but a caller must never hold THIS marker's lock around
+// its own call to Write: the lock is not reentrant and that call would wait
+// on itself.
 //
 // The marker is removed only when EVERY surface is empty: removing it because
 // one surface emptied would strand a co-located surface's entries.
@@ -176,6 +170,11 @@ func (l Ledger) Write(s Surface, names []string) error {
 			return fmt.Errorf("ledger: refusing to record %q for surface %q: it contains a field or line separator and could forge another surface's entry", n, s)
 		}
 	}
+	return sessions.WithFileLock(l.FS, l.Path(), func() error { return l.writeLocked(s, names) })
+}
+
+// writeLocked is Write's read-modify-write, run under the marker's lock.
+func (l Ledger) writeLocked(s Surface, names []string) error {
 	all, err := l.readAll()
 	if err != nil {
 		return err
@@ -206,7 +205,7 @@ func (l Ledger) Write(s Surface, names []string) error {
 		}
 		return nil
 	}
-	return iox.WriteFileAtomicFs(l.FS, l.Path(), render(all), 0o644)
+	return safefs.WriteFile(l.FS, l.Path(), render(all), 0o644)
 }
 
 // readAll parses the marker into its per-surface sets. Surfaces with no

@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // SigDirName is the bundle-root directory holding stored signatures.
@@ -156,7 +156,7 @@ func writeSignature(fsys afero.Fs, bundleDir, key string, ns Namespace, by ssh.P
 	// No AllowEmpty: an empty sig is already refused above. A re-write at the
 	// same path is the replace this store promises, made atomic so a reader
 	// never sees a torn entry.
-	if err := iox.WriteFileAtomicFs(fsys, target, sig, 0o644); err != nil {
+	if err := safefs.WriteFile(fsys, target, sig, 0o644); err != nil {
 		return fmt.Errorf("content: writing signature %q: %w", target, err)
 	}
 	return nil

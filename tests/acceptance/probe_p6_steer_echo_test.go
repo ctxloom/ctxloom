@@ -161,7 +161,7 @@ func p6WriteSpoolFile(t *testing.T, root, dir, name, body string) {
 }
 
 func TestP6ReadSpoolCensus_MissingRootIsAnErrorNotAnEmptyCensus(t *testing.T) {
-	_, err := p6ReadSpoolCensus(filepath.Join(t.TempDir(), "never-created"), "swift-amber-falcon")
+	_, err := p6Census(filepath.Join(t.TempDir(), "never-created"), "swift-amber-falcon")
 	require.Error(t, err,
 		"a census over a directory that was never created must fail loudly; reporting an empty census would report 'no evidence' for the most literal reason possible and read as a result")
 }
@@ -169,32 +169,34 @@ func TestP6ReadSpoolCensus_MissingRootIsAnErrorNotAnEmptyCensus(t *testing.T) {
 func TestP6ReadSpoolCensus_CountsPlanesAndLocatesTheHarp(t *testing.T) {
 	root := t.TempDir()
 	const harp = "swift-amber-falcon"
-	p6WriteSpoolFile(t, root, "in/consumed", "0001.msg.md", "kind: message\n---\n"+harp)
+	p6WriteSpoolFile(t, root, "in", "0001.msg.md", "kind: message\n---\n"+harp)
 	p6WriteSpoolFile(t, root, "out", "0002.msg.md", "kind: message\n---\n"+harp)
 	p6WriteSpoolFile(t, root, "out", "0003.msg.md", "kind: message\n---\nsomething else")
+	p6WriteSpoolFile(t, root, "in/delivered", "m-steer", "")
 
-	c, err := p6ReadSpoolCensus(root, harp)
+	c, err := p6Census(root, harp)
 	require.NoError(t, err)
-	require.Equal(t, 3, c.Total)
-	require.Len(t, c.HarpIn, 1, "the consumed rename is the child runner's ACK — in/consumed is still the in plane, and asserting on in/ alone would red a cell for the child being prompt")
-	require.Equal(t, "in/consumed/0001.msg.md", c.HarpIn[0])
+	require.Equal(t, 3, c.Total, "a delivered-record entry is not a message file")
+	require.Len(t, c.HarpIn, 1)
+	require.Equal(t, "in/0001.msg.md", c.HarpIn[0])
+	require.Equal(t, []string{"m-steer"}, c.Delivered)
 	require.Len(t, c.HarpOut, 1)
 	require.Contains(t, c.String(), "0003.msg.md", "the census is the evidence line; a renderer that drops files makes the spool look emptier than it was")
 }
 
 func TestP6ReadSpoolCensus_SubdirectoriesAreStructureNotMessages(t *testing.T) {
 	root := t.TempDir()
-	p6WriteSpoolFile(t, root, "in/consumed", "0001.msg.md", "body")
-	c, err := p6ReadSpoolCensus(root, "")
+	p6WriteSpoolFile(t, root, "in/withdrawn", "0001.msg.md", "body")
+	c, err := p6Census(root, "")
 	require.NoError(t, err)
-	require.Equal(t, 1, c.Total, "in/ contains the consumed/ directory itself; counting it as a message would inflate every census by one and hide an empty in plane")
+	require.Equal(t, 1, c.Total, "in/ contains the withdrawn/ directory itself; counting it as a message would inflate every census by one and hide an empty in plane")
 	require.Empty(t, c.Files["in"])
 }
 
 func TestP6AssertSpoolEvidence_EmptySpoolIsTheSilentNoOp(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "in"), 0o700))
-	c, err := p6ReadSpoolCensus(root, "swift-amber-falcon")
+	c, err := p6Census(root, "swift-amber-falcon")
 	require.NoError(t, err)
 
 	err = p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon")
@@ -207,7 +209,7 @@ func TestP6AssertSpoolEvidence_EmptySpoolIsTheSilentNoOp(t *testing.T) {
 func TestP6AssertSpoolEvidence_FilesWithoutTheHarpAreADeliveryFailure(t *testing.T) {
 	root := t.TempDir()
 	p6WriteSpoolFile(t, root, "in", "0001.msg.md", "kind: message\n---\nsome other traffic entirely")
-	c, err := p6ReadSpoolCensus(root, "swift-amber-falcon")
+	c, err := p6Census(root, "swift-amber-falcon")
 	require.NoError(t, err)
 
 	err = p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon")
@@ -225,7 +227,7 @@ func TestP6AssertSpoolEvidence_OutPlaneAloneIsNotTheClaim(t *testing.T) {
 	// substrate did not do the thing this cell is measuring.
 	root := t.TempDir()
 	p6WriteSpoolFile(t, root, "out", "0009.msg.md", "kind: message\n---\nswift-amber-falcon")
-	c, err := p6ReadSpoolCensus(root, "swift-amber-falcon")
+	c, err := p6Census(root, "swift-amber-falcon")
 	require.NoError(t, err)
 	require.Empty(t, c.HarpIn)
 	require.Len(t, c.HarpOut, 1)
@@ -236,15 +238,40 @@ func TestP6AssertSpoolEvidence_OutPlaneAloneIsNotTheClaim(t *testing.T) {
 func TestP6AssertSpoolEvidence_GreenOnAnInPlaneFileCarryingTheHarp(t *testing.T) {
 	root := t.TempDir()
 	p6WriteSpoolFile(t, root, "in", "0001.msg.md", "kind: message\nto: swift-amber-falcon\n---\nswift-amber-falcon")
-	c, err := p6ReadSpoolCensus(root, "swift-amber-falcon")
+	c, err := p6Census(root, "swift-amber-falcon")
 	require.NoError(t, err)
 	require.NoError(t, p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon"))
+}
+
+// The prompt child: its runner delivered the steer, so the file is gone and
+// its identity recorded, and its reply carries the harp.
+func TestP6AssertSpoolEvidence_GreenOnARecordedDeliveryAnsweredWithTheHarp(t *testing.T) {
+	root := t.TempDir()
+	p6WriteSpoolFile(t, root, "in/delivered", "m-steer", "")
+	p6WriteSpoolFile(t, root, "out/consumed", "0002.msg.md", "kind: message\n---\nswift-amber-falcon")
+	c, err := p6Census(root, "swift-amber-falcon")
+	require.NoError(t, err)
+	require.Empty(t, c.HarpIn)
+	require.NoError(t, p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon"))
+}
+
+// A recorded delivery whose answer does not carry the harp is mail that was
+// not the steer, or a steer the child did not act on.
+func TestP6AssertSpoolEvidence_ARecordedDeliveryWithoutTheHarpIsNotTheClaim(t *testing.T) {
+	root := t.TempDir()
+	p6WriteSpoolFile(t, root, "in/delivered", "m-other", "")
+	p6WriteSpoolFile(t, root, "out", "0002.msg.md", "kind: message\n---\nsomething else")
+	c, err := p6Census(root, "swift-amber-falcon")
+	require.NoError(t, err)
+	err = p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "m-other", "the record rides the failure census")
 }
 
 func TestP6AssertSpoolEvidence_EmptyHarpIsRefused(t *testing.T) {
 	root := t.TempDir()
 	p6WriteSpoolFile(t, root, "in", "0001.msg.md", "anything")
-	c, err := p6ReadSpoolCensus(root, "")
+	c, err := p6Census(root, "")
 	require.NoError(t, err)
 	require.Error(t, p6AssertSpoolEvidence(p6TestVerdict(), c, ""),
 		"scanning a spool for the empty string matches every file that exists — the assertion would pass on unrelated traffic")

@@ -229,17 +229,17 @@ func (r exitRun) requireCellReleased(t *testing.T, why string) {
 }
 
 // persistentMembers is the run's Persist members (persistentMembers).
-func (r exitRun) persistentMembers(t *testing.T) []string {
+func (r exitRun) persistentMembers(t *testing.T) sessionMembers {
 	t.Helper()
 	return persistentMembers(t, r.harp)
 }
 
 // requirePersistentKept: every Persist member present before the end is
 // still there after it (lostPersistent). Cleanup releases ephemerals only.
-func (r exitRun) requirePersistentKept(t *testing.T, before []string, why string) {
+func (r exitRun) requirePersistentKept(t *testing.T, before sessionMembers, why string) {
 	t.Helper()
-	require.NotEmpty(t, before, "the run left no persistent session state to check")
-	t.Logf("%s: %d persistent session member(s) checked: %v", why, len(before), before)
+	require.NotEmpty(t, before.Paths, "the run left no persistent session state to check")
+	t.Logf("%s: %d persistent session member(s) checked: %v", why, len(before.Paths), before.Paths)
 	require.Empty(t, lostPersistent(before), "%s: persistent session member(s) removed", why)
 }
 

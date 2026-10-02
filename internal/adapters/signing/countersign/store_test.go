@@ -17,7 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // denyFs wraps an afero.Fs and fails Open for any path in deny — a fake
@@ -900,9 +900,9 @@ func TestStore_RecordFilenamesMatchTheDocumentedContract(t *testing.T) {
 
 // TestStore_Write_UsesDurableWrite pins the ruled site (taskloom
 // unbounded-bacon): a countersignature is rotation lineage, and Store.write
-// must pass iox.Durable() so a crash cannot silently revert the rename and
+// must pass safefs.Durable() so a crash cannot silently revert the rename and
 // leave a record that was reported "written" actually gone. Durable is a
-// no-op on afero.MemMapFs (see iox.Durable's doc), which is why this test —
+// no-op on afero.MemMapFs (see safefs.Durable's doc), which is why this test —
 // unlike the rest of this file — must use a REAL OS filesystem: only that
 // backend gives the seam anything to fire on.
 func TestStore_Write_UsesDurableWrite(t *testing.T) {
@@ -911,14 +911,14 @@ func TestStore_Write_UsesDurableWrite(t *testing.T) {
 	s := NewStore(dir, afero.NewOsFs())
 
 	var synced []string
-	restore := iox.SetSyncDirForTesting(func(d string) error {
+	restore := safefs.SetSyncDirForTesting(func(d string) error {
 		synced = append(synced, d)
 		return nil
 	})
 	defer restore()
 
 	require.NoError(t, s.WriteApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, []byte("payload"), signer))
-	assert.NotEmpty(t, synced, "Store.write must pass iox.Durable(): a countersignature is unrecoverable rotation lineage")
+	assert.NotEmpty(t, synced, "Store.write must pass safefs.Durable(): a countersignature is unrecoverable rotation lineage")
 }
 
 // TestStore_WriteIndex_UsesDurableWrite is writeIndex's twin of the above:
@@ -929,7 +929,7 @@ func TestStore_WriteIndex_UsesDurableWrite(t *testing.T) {
 	s := NewStore(dir, afero.NewOsFs())
 
 	var synced []string
-	restore := iox.SetSyncDirForTesting(func(d string) error {
+	restore := safefs.SetSyncDirForTesting(func(d string) error {
 		synced = append(synced, d)
 		return nil
 	})
@@ -940,5 +940,5 @@ func TestStore_WriteIndex_UsesDurableWrite(t *testing.T) {
 		Assertion: string(signing.AssertionApprove), Principal: "ben@abbitt.me",
 		PayloadHash: "sha256:whatever", ReviewedAt: "2026-01-01T00:00:00Z",
 	}))
-	assert.NotEmpty(t, synced, "writeIndex must pass iox.Durable(): the index is review-integrity-bearing, not cosmetic")
+	assert.NotEmpty(t, synced, "writeIndex must pass safefs.Durable(): the index is review-integrity-bearing, not cosmetic")
 }

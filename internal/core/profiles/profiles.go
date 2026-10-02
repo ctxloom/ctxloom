@@ -489,9 +489,15 @@ func NewLoader(dirs []string, opts ...LoaderOption) *Loader {
 	return l
 }
 
-// List returns all available profiles (searches subdirectories recursively).
-func (l *Loader) List() ([]*Profile, error) {
+// List returns all available profiles (searches subdirectories recursively),
+// and what it SKIPPED: the name of each profile file that failed to load, and
+// the path of each directory it could not read. A skip degrades with a warning
+// rather than failing the listing, but it is returned as well because a caller
+// that rebuilds state from the listing (the lock closure) must tell "absent"
+// from "unreadable", or it erases what only the unreadable profile reached.
+func (l *Loader) List() ([]*Profile, []string, error) {
 	var profiles []*Profile
+	var skipped []string
 	seen := make(map[string]bool)
 
 	// Seeded remote profiles are emitted first — they carry a non-fs Path (the
@@ -513,6 +519,7 @@ func (l *Loader) List() ([]*Profile, error) {
 			// Degrading silently here reports "you have no profiles" for a
 			// machine whose profiles are all present but unreachable.
 			l.rep.Warnf("skipping profiles directory %s: %v", dir, err)
+			skipped = append(skipped, dir)
 			continue
 		}
 		if !exists {
@@ -524,6 +531,7 @@ func (l *Loader) List() ([]*Profile, error) {
 				// Same reasoning one level down: skip the entry, but say which
 				// one and why, or the profiles under it vanish undiagnosably.
 				l.rep.Warnf("skipping unreadable profiles path %s: %v", path, err)
+				skipped = append(skipped, path)
 				return nil
 			}
 			if info.IsDir() {
@@ -541,6 +549,7 @@ func (l *Loader) List() ([]*Profile, error) {
 				// the guard exists because the alternative is a profile named
 				// "" — which sorts first and addresses nothing.
 				l.rep.Warnf("skipping profile %s: cannot derive a name relative to %s: %v", path, dir, relErr)
+				skipped = append(skipped, path)
 				return nil
 			}
 			profileName := strings.TrimSuffix(strings.TrimSuffix(relPath, ".yaml"), ".yml")
@@ -557,6 +566,7 @@ func (l *Loader) List() ([]*Profile, error) {
 				// Degrade, but say so: a corrupt profile silently vanishing
 				// from list output is undiagnosable.
 				l.rep.Warnf("skipping profile %s: %v", path, err)
+				skipped = append(skipped, profileName)
 				return nil
 			}
 			profile.Name = profileName
@@ -564,7 +574,7 @@ func (l *Loader) List() ([]*Profile, error) {
 			return nil
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan profiles directory %s: %w", dir, err)
+			return nil, nil, fmt.Errorf("failed to scan profiles directory %s: %w", dir, err)
 		}
 	}
 
@@ -573,7 +583,7 @@ func (l *Loader) List() ([]*Profile, error) {
 		return profiles[i].Name < profiles[j].Name
 	})
 
-	return profiles, nil
+	return profiles, skipped, nil
 }
 
 // Load loads a profile by name (supports subdirectory paths like

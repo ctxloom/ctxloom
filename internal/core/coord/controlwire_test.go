@@ -133,9 +133,9 @@ func TestControlRun_ChildSteersItsOwnGrandchild(t *testing.T) {
 	steerFrame := runnerHooks.FrameCoordinatorDelivery(child.Harp, KindSteer, "rebase before you continue")
 	assert.Zero(t, countChatText(sp, 0, steerFrame), "the instruction must reach the target alone")
 
-	// And the instruction is the durable file the handle names.
-	consumed := awaitSpoolCount(t, grandchild, spool.DirInConsumed, 1, "after the grandchild took the steer")
-	assert.Equal(t, steered.GetMessageId(), consumed[0].Message.OriginID)
+	// And the instruction is the durable file the handle names: delivered,
+	// its identity — the handle — in the grandchild's delivered record.
+	awaitDelivered(t, grandchild, steered.GetMessageId(), "after the grandchild took the steer")
 }
 
 // TestControlRun_SteerFromTheOwnerReachesTheChild: the session owner's own

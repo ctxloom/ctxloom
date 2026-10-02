@@ -16,8 +16,8 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // PrivateStatePatterns are the .ctxloom paths that are rebuildable or purely
@@ -209,7 +209,7 @@ func writeNested(projectDir string) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return false, err
 	}
-	if err := iox.WriteFileAtomicFs(afero.NewOsFs(), path, want, 0644); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), path, want, 0644); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -431,7 +431,7 @@ func retireBlock(path string, headers []string, retire func(string) bool) (bool,
 }
 
 // replaceFile overwrites path with data ATOMICALLY, keeping the file's
-// existing mode, through iox.WriteFileAtomicFs (unique temp file, fsync,
+// existing mode, through safefs.WriteFile (unique temp file, fsync,
 // exact-mode chmod, rename).
 //
 // The file being rewritten here is USER-AUTHORED — a project's .gitignore, or
@@ -451,7 +451,7 @@ func replaceFile(path string, data []byte) error {
 	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode().Perm()
 	}
-	return iox.WriteFileAtomicFs(afero.NewOsFs(), path, data, mode, iox.AllowEmpty())
+	return safefs.WriteFile(afero.NewOsFs(), path, data, mode, safefs.AllowEmpty())
 }
 
 // keepLines returns lines with every retired line dropped, along with any
@@ -592,18 +592,18 @@ func missingPatterns(content []byte, patterns []string) []string {
 // appendBlock appends a comment header and the patterns to the file at path,
 // inserting a separating newline when the existing content lacks a trailing one.
 //
-// APPEND, not iox's default write-temp-then-rename replace, because this file
+// APPEND, not safefs's default write-temp-then-rename replace, because this file
 // is the USER'S: ctxloom owns the block it adds and nothing else in it. A
 // whole-file replace would have to rewrite every line the user authored to
 // add one of ours, turning an append into a rewrite that a concurrent editor
 // can lose — and it would fail outright with EBUSY if the project's
-// .gitignore were bind-mounted. iox.AppendInPlace is the primitive for
+// .gitignore were bind-mounted. safefs.AppendInPlace is the primitive for
 // exactly that shape; see WriteFileInPlace's doc for why atomic stays the
 // default everywhere else.
 //
 // The block is composed in memory first so the file is opened once, with the
 // whole block already known: a partial write is then a failed write rather
-// than half a block appended to the user's file. iox surfaces a failed Close
+// than half a block appended to the user's file. safefs surfaces a failed Close
 // (ENOSPC/EDQUOT/EIO) rather than discarding it, which is load-bearing here —
 // the migration path in Ensure has already committed the REMOVAL of the
 // superseded blanket rule before this append runs, so an append that reported
@@ -613,7 +613,7 @@ func appendBlock(path string, content []byte, comment string, patterns []string)
 	if err := writeBlock(&block, content, comment, patterns); err != nil {
 		return err
 	}
-	if err := iox.WriteFileInPlace(path, iox.AppendInPlace, block.Bytes(), 0o644); err != nil {
+	if err := safefs.WriteFileInPlace(path, safefs.AppendInPlace, block.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("gitignore: writing %s: %w", path, err)
 	}
 	return nil

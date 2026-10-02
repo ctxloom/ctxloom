@@ -976,7 +976,6 @@ func SendRequestFromWire(send *agentcoordpb.PeerSendRequest) (coord.SendRequest,
 var spoolDirToWire = map[spool.Dir]agentcoordpb.SpoolDir{
 	spool.DirIn:          agentcoordpb.SpoolDir_SPOOL_DIR_IN,
 	spool.DirOut:         agentcoordpb.SpoolDir_SPOOL_DIR_OUT,
-	spool.DirInConsumed:  agentcoordpb.SpoolDir_SPOOL_DIR_IN_CONSUMED,
 	spool.DirOutConsumed: agentcoordpb.SpoolDir_SPOOL_DIR_OUT_CONSUMED,
 	spool.DirInWithdrawn: agentcoordpb.SpoolDir_SPOOL_DIR_IN_WITHDRAWN,
 }
@@ -1073,7 +1072,7 @@ func StatusFromErr(err error) *rpcstatus.Status {
 	code := codes.Internal
 	switch {
 	case errors.Is(err, coord.ErrPeerRouting), errors.Is(err, coord.ErrControlRefused), errors.Is(err, coord.ErrNotAChild),
-		errors.Is(err, coord.ErrRosterIsTheOwners), errors.Is(err, coord.ErrRunNotIssued), errors.Is(err, coord.ErrForbidden):
+		errors.Is(err, coord.ErrRunNotIssued), errors.Is(err, coord.ErrForbidden):
 		code = codes.PermissionDenied
 	case errors.Is(err, coord.ErrAskTimeout):
 		code = codes.DeadlineExceeded

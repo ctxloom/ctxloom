@@ -52,11 +52,9 @@ func TestSpoolOwner_FinalReportReachesTheOwnerThroughTheSpool(t *testing.T) {
 	assert.Equal(t, KindReport, got[0].Kind)
 	assert.Equal(t, out.Harp, got[0].From, "the notice is authored by the child that filed it")
 
-	// THE FILE IS THE MESSAGE: it is in the owner's in/consumed/ (delivered
-	// and acknowledged) and nowhere in the mailbox fold.
-	entry, ok := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirInConsumed, "FINAL: the deliverable")
-	require.True(t, ok, "the delivered report must be the file the owner's reader acknowledged")
-	assert.Equal(t, got[0].ID, entry.Message.OriginID, "the mailbox id the owner saw is the file's origin id")
+	// THE FILE IS THE MESSAGE: the id the owner saw is the identity its
+	// reader recorded as delivered, and nothing is in the mailbox fold.
+	awaitDelivered(t, ownerIdentity().Harp, got[0].ID, "the delivered report must be the file the owner's reader acknowledged")
 	assertNoMailboxJournal(t, c)
 }
 
@@ -82,15 +80,14 @@ func TestSpoolOwner_ChildSendRidesTheFileToTheOwner(t *testing.T) {
 	require.NotEmpty(t, got)
 	assert.Equal(t, out.Harp, got[0].From)
 	assert.Equal(t, KindResult, got[0].Kind)
-	_, inOwnerSpool := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirInConsumed, "a finding")
-	assert.True(t, inOwnerSpool, "the routed message must be a file in the owner's spool, acknowledged by its reader")
+	awaitDelivered(t, ownerIdentity().Harp, got[0].ID, "the routed message must be a file in the owner's spool, acknowledged by its reader")
 	assertNoMailboxJournal(t, c)
 }
 
 // TestSpoolOwner_ClaimHoldsUntilAck pins at-least-once for the owner: a
 // claimed file sits in in/claimed/ — taken, not acknowledged — so nothing
-// counts it as waiting in in/, until its ack renames it into in/consumed/;
-// and it is never delivered twice.
+// counts it as waiting in in/, until its delivery deletes it and records its
+// identity; and it is never delivered twice.
 func TestSpoolOwner_ClaimHoldsUntilAck(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
@@ -120,9 +117,9 @@ func TestSpoolOwner_ClaimHoldsUntilAck(t *testing.T) {
 	_, claimed := spoolEntryWithBody(t, owner, spool.ClaimedDirName, "FINAL: once")
 	require.True(t, claimed, "claimed but unacked: the file must be in in/claimed/ — the reservation is on disk")
 
-	require.NoError(t, spool.Ack(c.mapper, owner, entry.Ref.Name))
-	_, consumed := spoolEntryWithBody(t, owner, spool.DirInConsumed, "FINAL: once")
-	assert.True(t, consumed, "the ack is the consume-rename into in/consumed/")
+	require.NoError(t, spool.Deliver(c.mapper, entry.Ref, entry.Identity(), time.Now()))
+	_, recorded := spoolDelivered(t, owner)[entry.Identity()]
+	assert.True(t, recorded, "the ack records the identity as delivered")
 	_, claimed = spoolEntryWithBody(t, owner, spool.ClaimedDirName, "FINAL: once")
 	assert.False(t, claimed, "an acked file must have left in/claimed/")
 	recvNothing(t, c, "FINAL: once")
@@ -170,8 +167,8 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 	require.NotEmpty(t, again, "an unacked delivery must be re-delivered after relaunch")
 	assert.Equal(t, "m-durable", again[0].ID, "re-delivery keeps the id, which is what lets the reader dedupe")
 	recvNothing(t, second, "written while the owner was down")
-	_, consumed := spoolEntryWithBody(t, owner, spool.DirInConsumed, "written while the owner was down")
-	assert.True(t, consumed)
+	_, recorded := spoolDelivered(t, owner)["m-durable"]
+	assert.True(t, recorded)
 }
 
 // TestSpoolOwner_RefusesAnUndeclaredOwner pins the fail-loud half of the

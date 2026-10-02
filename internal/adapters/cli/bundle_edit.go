@@ -8,7 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 var bundleCreateDesc string
@@ -56,7 +56,7 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	return emit(cmd, res, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		w.Printf("Created bundle: %s\n", res.Path)
 		w.Println("Edit its item files to add your fragments and prompts.")
 		return w.Err()
@@ -140,7 +140,7 @@ func runBundleEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	return emit(cmd, res, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		if res.Status == "no_changes" {
 			w.Println("No changes made. Use flags to specify what to edit.")
 			if w.Err() != nil {
@@ -241,7 +241,7 @@ func runBundleRemove(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return emit(cmd, res, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		w.Printf("Removed bundle: %s\n", res.Path)
 		return w.Err()
 	})

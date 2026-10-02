@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/benjaminabbitt/hew/go/hewfs"
@@ -254,7 +254,7 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 	if err != nil {
 		return "", err
 	}
-	if err := iox.AtomicWriteFile(s.fs, recordPath, out, filepath.Base(recordPath)); err != nil {
+	if err := safefs.WriteFileKeepMode(s.fs, recordPath, out, filepath.Base(recordPath)); err != nil {
 		return "", fmt.Errorf("confpatch: write %s: %w", recordPath, err)
 	}
 	// The record just written SUPERSEDES every earlier one for this target, so
@@ -338,7 +338,7 @@ func InverseOps(b hew.Binding, format hew.FormatID, target string, after, before
 // FreeRecordPath is the record path under dir that does not already exist,
 // disambiguating with a counter when it does.
 //
-// AtomicWriteFile OVERWRITES, so the timestamp alone was never a defence: two
+// safefs.WriteFileKeepMode OVERWRITES, so the timestamp alone was never a defence: two
 // applies against the same target in the same instant would produce the same
 // name and the second would silently destroy the first — the exact evidence the
 // record exists to preserve, gone on a success path. This loop makes that

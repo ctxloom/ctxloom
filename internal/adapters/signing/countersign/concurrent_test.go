@@ -64,7 +64,7 @@ func TestStore_ConcurrentSignatureWrites_LoseNothing(t *testing.T) {
 //
 // Store.AppendIndex is a read-modify-write of the whole sidecar index:
 // readIndex, append one entry, writeIndex the lot. The write is atomic
-// (iox.WriteFileAtomicFs — unique temp file, fsync, rename) and there is no
+// (safefs.WriteFile — unique temp file, fsync, rename) and there is no
 // lock anywhere in this package. Atomicity prevents a TORN file; it does
 // nothing about writer B reading the index before writer A's rename lands and
 // then rewriting it without A's entry. Those are different problems and only

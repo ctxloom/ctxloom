@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -309,11 +309,11 @@ func TestFwarn_WriteFailureIsObservableThroughAWrappingWriterInBothModes(t *test
 
 		// The fixture must genuinely refuse the write, or "no error recorded"
 		// would mean "nothing was attempted" rather than "nothing was seen".
-		ew := iox.NewErrWriter(failingWriter{err: boom})
+		ew := errwriter.New(failingWriter{err: boom})
 		n, err := ew.Write([]byte("probe"))
 		require.ErrorIs(t, err, boom, "the fixture writer must actually fail")
 		require.Zero(t, n)
-		ew = iox.NewErrWriter(failingWriter{err: boom})
+		ew = errwriter.New(failingWriter{err: boom})
 
 		Fwarn(ew, "ctxloom", "sync failed: %v", "timeout")
 		require.ErrorIs(t, ew.Err(), boom,

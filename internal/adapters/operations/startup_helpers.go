@@ -8,7 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -30,8 +30,8 @@ func SweepOrphanedWorktrees(ctx context.Context, w io.Writer) {
 	if result.Reaped > 0 {
 		// Best-effort reporting on a fault-tolerant startup path; a failed
 		// write is intentionally dropped (captured-but-unchecked via
-		// iox.ErrWriter), matching every other startup reporter in this file.
-		ew := iox.NewErrWriter(w)
+		// errwriter.Writer), matching every other startup reporter in this file.
+		ew := errwriter.New(w)
 		ew.Printf("ctxloom: reaped %d orphaned per-agent worktree(s) left by crashed run(s)\n", result.Reaped)
 	}
 }
@@ -46,8 +46,8 @@ func SweepOrphanedWorktrees(ctx context.Context, w io.Writer) {
 // the one-shot install hint when they skip those entries.
 func ReportCompanions(w io.Writer, prober companions.Prober, root trust.TrustRoot) {
 	// Best-effort reporting on fault-tolerant startup paths; failed writes
-	// are intentionally dropped (captured-but-unchecked via iox.ErrWriter).
-	ew := iox.NewErrWriter(w)
+	// are intentionally dropped (captured-but-unchecked via errwriter.Writer).
+	ew := errwriter.New(w)
 	for _, st := range prober.ProbeCompanions(root) {
 		switch {
 		case st.Path == "":
@@ -93,8 +93,8 @@ func WriteAndRecordSyncSummary(w io.Writer, result *SyncDependenciesResult) {
 	}
 	// Best-effort summary. The startup sync calls this on a fault-tolerant
 	// path that must never block, so a failed write to the summary target is
-	// intentionally dropped (captured-but-unchecked via iox.ErrWriter).
-	ew := iox.NewErrWriter(w)
+	// intentionally dropped (captured-but-unchecked via errwriter.Writer).
+	ew := errwriter.New(w)
 	if result.Status != "up_to_date" && result.Installed+result.Updated > 0 {
 		ew.Printf("ctxloom: %s\n", result.Message)
 	}

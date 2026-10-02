@@ -28,13 +28,14 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // lockFileMode and lockDirMode are the modes a sidecar's advisory-lock file
@@ -44,6 +45,16 @@ import (
 const (
 	lockFileMode = 0o644
 	lockDirMode  = 0o755
+)
+
+// sidecarFileMode and sessionDirMode keep a session private to its owner: the
+// sidecar records the session's MCP endpoint INCLUDING its bearer credential
+// (Entry.MCP), which authenticates as this session to the runner. A container
+// run reaches these files as the launching uid (the isolation identity
+// contract), so owner-only access costs it nothing.
+const (
+	sidecarFileMode = 0o600
+	sessionDirMode  = 0o700
 )
 
 // Entry is one session as a reader sees it: the sidecar's persisted facts
@@ -272,11 +283,18 @@ func (m *Manager) writeSidecar(harpName string, e *Entry) error {
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", paths.SessionSidecarFileName, err)
 	}
+	fs := afero.NewOsFs()
 	dir := filepath.Join(m.root, harpName)
-	if err := os.MkdirAll(dir, lockDirMode); err != nil {
+	if err := fs.MkdirAll(dir, sessionDirMode); err != nil {
 		return fmt.Errorf("mkdir session dir: %w", err)
 	}
-	return iox.WriteFileAtomic(filepath.Join(dir, paths.SessionSidecarFileName), data, 0o644, iox.Durable())
+	// MkdirAll leaves an existing directory's mode alone, and the session dir
+	// normally exists before its first sidecar write (launch lays out
+	// persist/ and ephemeral/ under it with the default mode).
+	if err := fs.Chmod(dir, sessionDirMode); err != nil {
+		return fmt.Errorf("restrict session dir: %w", err)
+	}
+	return safefs.WriteFile(fs, filepath.Join(dir, paths.SessionSidecarFileName), data, sidecarFileMode, safefs.Durable())
 }
 
 // lock takes harpName's exclusive sidecar lock (paths.HarpSidecarLockPath)

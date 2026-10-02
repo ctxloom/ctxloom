@@ -117,8 +117,11 @@ func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) ([]
 // config-default profile.
 func closureRoots(cfg *config.Config, loader *profiles.Loader) ([]*profiles.Profile, []string) {
 	var names []string
-	ps, err := loader.List()
-	var unexpanded []string
+	ps, skipped, err := loader.List()
+	// A profile List skipped (it would not parse, or its directory could not be
+	// read) is UNREACHED, not removed: everything only it reaches must be
+	// preserved by a wholesale rewrite, exactly like a root that fails to load.
+	unexpanded := skipped
 	if err != nil {
 		// Losing the whole directory-profile listing is the same hazard as
 		// losing a single root, one order of magnitude larger: every directory
@@ -298,7 +301,12 @@ func (w *depWalker) record(refStr string, kind remote.ItemType) *remote.Referenc
 	}
 	hash, version, selKind, ok := w.resolvedHash(ref)
 	if !ok {
-		return nil // unresolvable — skip rather than pin an empty hash
+		// Unresolvable: skip rather than pin an empty hash. The resolver has
+		// already warned, but the item (and, for a bundle-profile parent, its
+		// whole subtree) is now missing from pins, so the closure is
+		// incomplete and must be recorded as such.
+		w.unexpanded[refStr] = struct{}{}
+		return nil
 	}
 	identity, err := ref.LockKey()
 	if err != nil {

@@ -253,8 +253,8 @@ func TestSupersededBlanketLines_CleanFileIsEmpty(t *testing.T) {
 // TestRetireSupersededFile_DegeneratesToEmptyFile pins a legitimate empty
 // write: a .gitignore holding NOTHING but the ctxloom-authored header and the
 // blanket rule retires down to a genuinely empty file, and that write must
-// succeed rather than being caught by iox's empty-over-existing guard
-// (replaceFile passes iox.AllowEmpty() for exactly this reason — see
+// succeed rather than being caught by safefs's empty-over-existing guard
+// (replaceFile passes safefs.AllowEmpty() for exactly this reason — see
 // fs-consolidation plan C3/C4).
 func TestRetireSupersededFile_DegeneratesToEmptyFile(t *testing.T) {
 	dir := t.TempDir()

@@ -7,8 +7,9 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
+	"github.com/spf13/afero"
 )
 
 // MaxNextStepBytes bounds a stored next step. It is measured in BYTES because
@@ -51,7 +52,7 @@ func WriteNextStep(harpName, text string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create harp dir %s: %w", dir, err)
 	}
-	if err := iox.WriteFileAtomic(path, []byte(bounded), 0o644); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), path, []byte(bounded), 0o644); err != nil {
 		return fmt.Errorf("write next step %s: %w", path, err)
 	}
 	return nil

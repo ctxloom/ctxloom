@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 var (
@@ -106,7 +106,7 @@ func purgeCutoff(flag string, now time.Time) (time.Time, error) {
 }
 
 func renderSweepReport(w io.Writer, rep operations.SweepReport) error {
-	out := iox.NewErrWriter(w)
+	out := errwriter.New(w)
 	purge := "not set (purges are held)"
 	if !rep.PurgeCutoff.IsZero() {
 		purge = rep.PurgeCutoff.Format(time.DateOnly)

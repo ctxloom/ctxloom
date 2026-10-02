@@ -90,8 +90,8 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
   # turn, and that turn's turn-start hook (`ctxloom hook mail-drain`, the one
   # reader of the owner's in/) delivers the report and acknowledges it.
   # Proven on the owner's TERMINAL (the wake line was taken as a turn) and on
-  # DISK (the report reached in/consumed/, carrying the child's own guidance,
-  # not its sibling's). After the readiness sentinel, only a wake can start an
+  # DISK (the report's id is in the owner's delivered record, and the report
+  # carries the child's own guidance, not its sibling's). After the readiness sentinel, only a wake can start an
   # owner turn, so the two together are the woken turn's delivery.
   #
   # BREAK-POINT: this is the regression gate for an EMPTY COORDINATOR HARP.
@@ -116,7 +116,7 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     Then the tool call succeeds
     And "librarian"'s session harp is remembered
     And the session owner is woken within 60s
-    And the coordinator's own spool shows "librarian"'s report consumed within 30s, carrying its own guidance, not "cartographer"'s
+    And the coordinator's own spool shows "librarian"'s report delivered within 30s, carrying its own guidance, not "cartographer"'s
 
   # THE NEGATIVE PROBE for the two hermetic bus scenarios above. Both are
   # green only because a REAL runner process stands for the child: the
@@ -260,22 +260,11 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
   # fixture still sent the real one — and each went RED with a BUS-DELIVERY
   # shape, so no row is passing because the check cannot fail.
   #
-  # WHAT THE SPOOL CENSUS ACTUALLY SHOWED, on every row: three
-  # message files, and BOTH directions on disk.
-  #
-  #   in/consumed   1: <ts>.00000001.coord.md            <- the coordinator's steer
-  #   out/consumed  2: <ts>.00000001.<childharp>.md      <- the child's wake-up reply
-  #                    <ts>.00000002.<childharp>.md      <- the child's echo
-  #
-  # Two things worth reading off that. First, the steer file is in CONSUMED, not
-  # in/: the rename IS the child runner's acknowledgement, so the full
-  # at-least-once cycle completed rather than a file merely being dropped in a
-  # directory. Second, the OUT plane carried the child's traffic too, harp and
-  # all — so the cutover is running in both directions here, not only the one
-  # this step asserts. That is recorded rather than asserted on purpose: P6's
-  # claim is the coordinator's steer, and a cell must not silently become the
-  # regression gate for a neighbouring subsystem's scope. If child->parent file
-  # delivery is meant to be guaranteed, that belongs in its own assertion.
+  # The OUT plane carries the child's traffic too, harp and all. That is
+  # recorded in the census rather than asserted on purpose: P6's claim is the
+  # coordinator's steer, and a cell must not silently become the regression
+  # gate for a neighbouring subsystem's scope. If child->parent file delivery
+  # is meant to be guaranteed, that belongs in its own assertion.
   #
   # TIMING, for whoever tunes the budget: an echo turn has landed as much as 79
   # seconds after the steer on a slow engine. Do not shorten 240s on the

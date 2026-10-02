@@ -5,13 +5,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/triggers"
+	"github.com/spf13/afero"
 )
 
 // triggerCacheEntry is one task's cached verdict, keyed by harp id in
@@ -73,7 +74,7 @@ func triggerCacheFilePath(projectID string) (string, error) {
 // file, an empty project id, or a corrupt/unreadable file all degrade to an
 // empty cache (never an error, never a panic) — per the cache's design, it
 // must be safe to delete or find absent at any time.
-func loadTriggerCache(projectID string) triggerVerdictCache {
+func loadTriggerCache(fs afero.Fs, projectID string) triggerVerdictCache {
 	empty := triggerVerdictCache{Tasks: map[string]triggerCacheEntry{}}
 	if projectID == "" {
 		return empty
@@ -82,7 +83,7 @@ func loadTriggerCache(projectID string) triggerVerdictCache {
 	if err != nil {
 		return empty
 	}
-	data, err := os.ReadFile(path)
+	data, err := afero.ReadFile(fs, path)
 	if err != nil {
 		return empty
 	}
@@ -101,7 +102,7 @@ func loadTriggerCache(projectID string) triggerVerdictCache {
 // for an empty project id (nothing to key it by); any I/O failure warns and
 // returns rather than failing the evaluation — a verdict cache write is
 // advisory, never load-bearing for correctness.
-func saveTriggerCache(projectID string, c triggerVerdictCache) {
+func saveTriggerCache(fs afero.Fs, projectID string, c triggerVerdictCache) {
 	if projectID == "" {
 		return
 	}
@@ -110,7 +111,7 @@ func saveTriggerCache(projectID string, c triggerVerdictCache) {
 		clidiag.Warn("ctxloom", "trigger cache: resolve path: %v", err)
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		clidiag.Warn("ctxloom", "trigger cache: create dir: %v", err)
 		return
 	}
@@ -119,7 +120,7 @@ func saveTriggerCache(projectID string, c triggerVerdictCache) {
 		clidiag.Warn("ctxloom", "trigger cache: encode: %v", err)
 		return
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := safefs.WriteFile(fs, path, data, 0o644); err != nil {
 		clidiag.Warn("ctxloom", "trigger cache: write: %v", err)
 	}
 }

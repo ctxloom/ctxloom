@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/schemagen"
+	"github.com/spf13/afero"
 )
 
 // schemaDir is a gitignored, generated artifact directory (like generated
@@ -41,7 +42,7 @@ func main() {
 	targets = append(targets, cli.SchemaTargets()...)
 	targets = append(targets, mcp.SchemaTargets()...)
 
-	written, err := schemagen.Generate(schemaDir, targets)
+	written, err := schemagen.Generate(afero.NewOsFs(), schemaDir, targets)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gen-schemas: %v\n", err)
 		os.Exit(1)

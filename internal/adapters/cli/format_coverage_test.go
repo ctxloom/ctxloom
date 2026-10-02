@@ -251,11 +251,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// five encodings to agree on.
 	"companion list": {extraArgs: noExtraArgs},
 	"auth status":    {extraArgs: noExtraArgs},
-	// Both mutate the personal consent record and need a real binary on PATH
-	// to resolve and hash; exercised end to end in trust_cli.feature instead.
-	"companion trust":   {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},
-	"companion untrust": {skip: "needs a recorded decision to remove; covered by trust_cli.feature"},
-	"companion show":    {skip: "needs a real companion binary on PATH to resolve+hash; covered by companion_test.go"},
+	"companion show": {skip: "needs a real companion binary on PATH to resolve+hash; covered by companion_test.go"},
 
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
 	// Three of these ARE format debt too (bundle_hold_cli.go's hold/unhold

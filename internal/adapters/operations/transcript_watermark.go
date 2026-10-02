@@ -20,7 +20,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // errStaleWatermark reports that a watermark no longer describes the files it
@@ -125,7 +126,7 @@ func writeWatermarkFile(p string, wm *transcriptWatermark) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	return iox.WriteFileAtomic(p, raw, 0o644)
+	return safefs.WriteFile(afero.NewOsFs(), p, raw, 0o644)
 }
 
 // copyCanonicalPrefix copies the first wm.CanonicalLength bytes of the
@@ -164,10 +165,10 @@ type resumePoint struct {
 // convertLive converts liveSrc into af's temp file from `from`, returning the
 // watermark taken at the adapter's checkpoint — nil when it offered none,
 // which a non-resumable adapter never does.
-func convertLive(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, af *iox.AtomicFile, liveSrc string, from resumePoint) (*transcriptWatermark, error) {
+func convertLive(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, af *safefs.AtomicFile, liveSrc string, from resumePoint) (*transcriptWatermark, error) {
 	// transcript.Recorder opens its own append handle by PATH — it has no
 	// io.Writer-shaped constructor — so this hands it af's temp path rather
-	// than af itself (iox.AtomicFile.TempPath's documented escape hatch).
+	// than af itself (safefs.AtomicFile.TempPath's documented escape hatch).
 	// commitRebuild stats the temp file's actual on-disk size, so bytes
 	// Recorder writes here are covered by the same empty-guard as anything
 	// written through af.Write.

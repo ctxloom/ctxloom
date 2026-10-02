@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,13 +11,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/spf13/afero"
+
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
 	"github.com/ctxloom/ctxloom/resources"
@@ -1208,7 +1210,7 @@ func (c *Compactor) saveEssence(harpName, rotationPath string, docBytes []byte) 
 	if err != nil {
 		return "", fmt.Errorf("resolve essence path for %s: %w", harpName, err)
 	}
-	if err := iox.WriteFileAtomic(essencePath, docBytes, 0o644); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), essencePath, docBytes, 0o644); err != nil {
 		return "", fmt.Errorf("write essence %s: %w", essencePath, err)
 	}
 	// NB: the active task store already lives at <harpDir>/tasks.md (see
@@ -1219,7 +1221,7 @@ func (c *Compactor) saveEssence(harpName, rotationPath string, docBytes []byte) 
 	//
 	// This rotation's own copy, so a later /clear does not erase the record of
 	// what THIS session was about when essence.md is overwritten.
-	if err := iox.WriteFileAtomic(rotationPath, docBytes, 0o644); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), rotationPath, docBytes, 0o644); err != nil {
 		c.warnf("write rotation essence %s: %v", rotationPath, err)
 	}
 	return essencePath, nil

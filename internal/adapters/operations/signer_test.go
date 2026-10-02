@@ -20,7 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // publishNSOpt scopes a hand-written fixture line to the publish namespace.
@@ -322,8 +322,8 @@ func TestRemoveSigner_RemovesOnlyMatchingPrincipal(t *testing.T) {
 
 // TestRemoveSigner_RemovesLastPrincipal_LeavesEmptyFile pins a legitimate
 // empty write: removing the only entry in the store empties the file, and
-// that write must succeed rather than being caught by iox's empty-over-
-// existing guard (removeFromAllowedSignersFile passes iox.AllowEmpty() for
+// that write must succeed rather than being caught by safefs's empty-over-
+// existing guard (removeFromAllowedSignersFile passes safefs.AllowEmpty() for
 // exactly this reason — see fs-consolidation plan C4's 8-caller audit).
 func TestRemoveSigner_RemovesLastPrincipal_LeavesEmptyFile(t *testing.T) {
 	_, cfg := setupBundleTestDir(t)
@@ -440,7 +440,7 @@ func TestRemoveSigner_EmbeddedPrincipal_SuppressionAlsoFallsBackToUserStore(t *t
 
 // TestSignerWrites_LeaveNoLeftoverTempFile: both write sites
 // (appendAllowedSignersLine via AddSigner, removeFromAllowedSignersFile via
-// RemoveSigner) now go through iox.WriteFileAtomicFs (temp file + rename)
+// RemoveSigner) now go through safefs.WriteFile (temp file + rename)
 // instead of a direct afero.WriteFile, so the trust root is never observed
 // half-written. A leftover `*.tmp` sibling in the store's directory would
 // mean the rename never completed.
@@ -690,23 +690,23 @@ func (f strictMkdirFs) MkdirAll(path string, perm os.FileMode) error {
 }
 
 // TestAppendAllowedSignersLine_UsesDurableWrite pins the ruled site (taskloom
-// unbounded-bacon): the trust root's append must pass iox.Durable() so a
+// unbounded-bacon): the trust root's append must pass safefs.Durable() so a
 // crash cannot silently revert who is trusted back to "nobody was just
-// added". Durable is a no-op on afero.MemMapFs (see iox.Durable's doc), so
+// added". Durable is a no-op on afero.MemMapFs (see safefs.Durable's doc), so
 // this needs a real OS filesystem for the seam to have anything to fire on.
 func TestAppendAllowedSignersLine_UsesDurableWrite(t *testing.T) {
 	fs := afero.NewOsFs()
 	path := filepath.Join(t.TempDir(), "allowed_signers")
 
 	var synced []string
-	restore := iox.SetSyncDirForTesting(func(d string) error {
+	restore := safefs.SetSyncDirForTesting(func(d string) error {
 		synced = append(synced, d)
 		return nil
 	})
 	defer restore()
 
 	require.NoError(t, appendAllowedSignersLine(fs, path, "first@example.com ssh-ed25519 AAAA"))
-	assert.NotEmpty(t, synced, "appendAllowedSignersLine must pass iox.Durable(): the trust root is a human decision, unrecoverable if the rename silently reverts")
+	assert.NotEmpty(t, synced, "appendAllowedSignersLine must pass safefs.Durable(): the trust root is a human decision, unrecoverable if the rename silently reverts")
 }
 
 // TestRemoveFromAllowedSignersFile_UsesDurableWrite is the append side's
@@ -727,7 +727,7 @@ func TestRemoveFromAllowedSignersFile_UsesDurableWrite(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, path, []byte(line+"\n"), 0o600))
 
 	var synced []string
-	restore := iox.SetSyncDirForTesting(func(d string) error {
+	restore := safefs.SetSyncDirForTesting(func(d string) error {
 		synced = append(synced, d)
 		return nil
 	})
@@ -736,7 +736,7 @@ func TestRemoveFromAllowedSignersFile_UsesDurableWrite(t *testing.T) {
 	removed, err := removeFromAllowedSignersFile(fs, path, "drop@example.com")
 	require.NoError(t, err)
 	require.Equal(t, 1, removed)
-	assert.NotEmpty(t, synced, "removeFromAllowedSignersFile must pass iox.Durable(): a reverted distrust after a crash re-opens a door a human closed")
+	assert.NotEmpty(t, synced, "removeFromAllowedSignersFile must pass safefs.Durable(): a reverted distrust after a crash re-opens a door a human closed")
 }
 
 // TestAppendAllowedSignersLine_ParentDirs: the parent directory

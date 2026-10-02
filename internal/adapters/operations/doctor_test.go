@@ -500,7 +500,7 @@ func TestDoctorCheckSetupCompanions_TellsNotRunApartFromNotInstalled(t *testing.
 	assert.NotEqual(t, DoctorWarn, check.Status, "companions are optional add-ons, never a doctor failure")
 	assert.Contains(t, check.Detail, "loadouts read: ltk")
 	assert.Contains(t, check.Detail, "NOT RUN: taskloom (/opt/bin/taskloom)")
-	assert.Contains(t, check.Detail, "ctxloom companion trust",
+	assert.Contains(t, check.Detail, "ctxloom companion show",
 		"a refusal a user cannot act on is a dead end")
 	assert.Contains(t, check.Detail, "not installed: reprise")
 	assert.Contains(t, check.Detail, "probe failed: wedged (/opt/bin/wedged)")

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -152,7 +153,7 @@ func blockStaleWake(cmd *cobra.Command) []string {
 func ackDelivered(mapper spool.PathMapper, harp string, entries []spool.Entry) []string {
 	var problems []string
 	for _, e := range entries {
-		if err := spool.Ack(mapper, harp, e.Ref.Name); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
+		if err := spool.Deliver(mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
 			problems = append(problems, fmt.Sprintf("%s was delivered but could not be acknowledged and will be delivered again: %v", e.Ref, err))
 		}
 	}

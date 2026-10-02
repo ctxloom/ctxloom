@@ -13,6 +13,7 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,6 +46,18 @@ func ownerSpoolMessages(w *World, dir spool.Dir) ([]*spool.Message, error) {
 	if err != nil {
 		return nil, err
 	}
+	return spoolMessagesAt(path, string(dir))
+}
+
+// childSpoolMessages is ownerSpoolMessages for a child harp's spool.
+func childSpoolMessages(w *World, harp string, dir spool.Dir) ([]*spool.Message, error) {
+	path := filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel), harp, "persist", "spool", filepath.FromSlash(string(dir)))
+	return spoolMessagesAt(path, harp+":"+string(dir))
+}
+
+// spoolMessagesAt parses every plain file in one spool directory; label names
+// it in an error.
+func spoolMessagesAt(path, label string) ([]*spool.Message, error) {
 	entries, err := os.ReadDir(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -63,11 +76,98 @@ func ownerSpoolMessages(w *World, dir spool.Dir) ([]*spool.Message, error) {
 		}
 		msg, err := spool.Parse(raw)
 		if err != nil {
-			return nil, fmt.Errorf("%s/%s is not a spool message: %w", dir, e.Name(), err)
+			return nil, fmt.Errorf("%s/%s is not a spool message: %w", label, e.Name(), err)
 		}
 		out = append(out, msg)
 	}
 	return out, nil
+}
+
+// ownerDeliveredFrom reports whether the owner's reader DELIVERED a message
+// of kind that the coordinator routed to it from harp. A delivered inbox file
+// is deleted (spool.Deliver), so the proof is two durable records joined: the
+// coordinator's audit journal names the id of each message it wrote into the
+// owner's in/, with its sender and kind (spool_mail_out), and the owner's
+// delivered record (in/delivered/<id>) holds the ids its reader delivered.
+func ownerDeliveredFrom(w *World, harp, kind string) (bool, error) {
+	owner := w.env.ChildEnv("CTXLOOM_SESSION_HARP")
+	if owner == "" {
+		return false, fmt.Errorf("the scenario never pinned the coordinator's own harp, so there is no owner spool to read")
+	}
+	record, err := ownerSpoolDir(w, "in/delivered")
+	if err != nil {
+		return false, err
+	}
+	ids, err := routedToOwner(w, owner, harp, kind)
+	if err != nil {
+		return false, err
+	}
+	for _, id := range ids {
+		if _, err := os.Stat(filepath.Join(record, id)); err == nil {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// routedToOwner lists the ids of every message of kind the coordinator wrote
+// into owner's in/ from harp, read from its audit journal's spool_mail_out
+// entries (~/.ctxloom/coord/<project-key>/interactions.jsonl).
+func routedToOwner(w *World, owner, harp, kind string) ([]string, error) {
+	pattern := filepath.Join(w.env.HomeDir, ".ctxloom", "coord", "*", "interactions.jsonl")
+	journals, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("glob %q: %w", pattern, err)
+	}
+	var ids []string
+	for _, j := range journals {
+		raw, err := os.ReadFile(j)
+		if err != nil {
+			return nil, err
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if id, ok := spoolMailOutID(line, owner, harp, kind); ok {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids, nil
+}
+
+// spoolMailOutID is the message id of one audit line, when it records the
+// coordinator writing a message of kind from harp into owner's in/.
+func spoolMailOutID(line, owner, harp, kind string) (string, bool) {
+	var f struct {
+		Kind string `json:"kind"`
+		Data struct {
+			Kind   string            `json:"kind"`
+			Actor  string            `json:"actor"`
+			Detail map[string]string `json:"detail"`
+		} `json:"data"`
+	}
+	if json.Unmarshal([]byte(line), &f) != nil || f.Kind != "interaction" || f.Data.Kind != "spool_mail_out" {
+		return "", false
+	}
+	d := f.Data.Detail
+	if f.Data.Actor != owner || d["from"] != harp || d["kind"] != kind || d["message_id"] == "" {
+		return "", false
+	}
+	return d["message_id"], true
+}
+
+// deliveredReportFrom is harp's turn result, read from the child's routed copy
+// in its out/consumed/, once the owner's reader has delivered it — nil until
+// then.
+func deliveredReportFrom(w *World, harp string) (*spool.Message, error) {
+	delivered, err := ownerDeliveredFrom(w, harp, "result")
+	if err != nil || !delivered {
+		return nil, err
+	}
+	routed, err := childSpoolMessages(w, harp, spool.DirOutConsumed)
+	if err != nil {
+		return nil, err
+	}
+	return reportFrom(routed, harp), nil
 }
 
 // reportFrom returns the child's turn RESULT among msgs, by the child's harp.
@@ -122,10 +222,13 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 			return nil
 		})
 
-	// The woken turn's hook acknowledged the report: in/consumed/ holds it.
-	// The kind filter (reportFrom) is the correctness condition, and the
-	// guidance pins it as THIS child's own words.
-	ctx.Step(`^the coordinator's own spool shows "([^"]*)"'s report consumed within (\d+)s, carrying its own guidance, not "([^"]*)"'s$`,
+	// The woken turn's hook delivered the report: the owner's delivered record
+	// holds the id the coordinator routed it under (ownerDeliveredFrom). The
+	// file itself is deleted once delivered, so THIS child's own words are
+	// read from the child's routed copy in its out/consumed/. The kind filter
+	// (reportFrom) is the correctness condition, and the guidance pins the
+	// report as THIS child's own.
+	ctx.Step(`^the coordinator's own spool shows "([^"]*)"'s report delivered within (\d+)s, carrying its own guidance, not "([^"]*)"'s$`,
 		func(c context.Context, self string, secs int, other string) error {
 			w := worldFrom(c)
 			j002300 := j002300Of(w)
@@ -143,13 +246,13 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 			}
 			deadline := time.Now().Add(time.Duration(secs) * time.Second)
 			for {
-				consumed, err := ownerSpoolMessages(w, spool.DirInConsumed)
+				r, err := deliveredReportFrom(w, harp)
 				if err != nil {
 					return err
 				}
-				if r := reportFrom(consumed, harp); r != nil {
+				if r != nil {
 					if !strings.Contains(r.Body, selfSpec.Guidance) {
-						return fmt.Errorf("%s's consumed report does not carry its OWN guidance %q:\n%s", self, selfSpec.Guidance, r.Body)
+						return fmt.Errorf("%s's delivered report does not carry its OWN guidance %q:\n%s", self, selfSpec.Guidance, r.Body)
 					}
 					if strings.Contains(r.Body, otherSpec.Guidance) {
 						return fmt.Errorf("CONTEXT LEAK: %s's report carries %s's guidance %q:\n%s", self, other, otherSpec.Guidance, r.Body)
@@ -157,7 +260,7 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 					return nil
 				}
 				if time.Now().After(deadline) {
-					return fmt.Errorf("after %ds %s's report (harp %s) is not in the owner's in/consumed/ — the woken turn's hook never delivered it", secs, self, harp)
+					return fmt.Errorf("after %ds %s's report (harp %s) is not in the owner's delivered record — the woken turn's hook never delivered it", secs, self, harp)
 				}
 				time.Sleep(100 * time.Millisecond)
 			}

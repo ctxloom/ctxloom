@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // ExportBundleRequest is the input for ExportBundle. Exactly one of OutputFile
@@ -140,7 +140,7 @@ func copyBundleTree(fs afero.Fs, src, dest string) error {
 		// contains. A legitimately empty file in it is covered by SHA256SUMS
 		// like any other, so refusing to copy it would land a tree that reports
 		// content MISSING rather than one that failed to write.
-		if err := iox.WriteFileAtomicFs(fs, target, data, info.Mode().Perm(), iox.AllowEmpty()); err != nil {
+		if err := safefs.WriteFile(fs, target, data, info.Mode().Perm(), safefs.AllowEmpty()); err != nil {
 			return err
 		}
 		return nil

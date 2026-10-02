@@ -131,7 +131,7 @@ without a launch.
 The ledger sidecar (`.ctxloom-managed` beside every managed directory) and
 the marker section inside a context file were two in-place ownership
 mechanisms. Under the record, a context file is APPENDED after the user's
-bytes (`iox.AppendSection`) and the record keeps the pre-image; a
+bytes (`safefs.AppendSection`) and the record keeps the pre-image; a
 structured file keeps a hew reversal. An old sidecar is not read: the
 legacy writers that still consult one (the host plugin arm's `Setup`, until
 slice 13 moves that arm onto the runner) keep writing it, and the new

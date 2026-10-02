@@ -274,8 +274,9 @@ func TestLockDependencies_UnreachableParentPreservesEntries(t *testing.T) {
 
 	// Healthy first lock: both the parent bundle and the bundle its profile
 	// composes pin.
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
+	healthy, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
+	assert.False(t, healthy.Incomplete, "a fully reached closure is a complete lock")
 	active0 := mustLoadActive(t, baseDir)
 	pe0, okP := active0.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, parentBundleID))
 	be0, okB := active0.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, bundleID))
@@ -291,6 +292,7 @@ func TestLockDependencies_UnreachableParentPreservesEntries(t *testing.T) {
 		result, lerr := LockDependencies(ctx, cfg, LockDependenciesRequest{})
 		require.NoError(t, lerr)
 		assert.Equal(t, "generated", result.Status)
+		assert.True(t, result.Incomplete, "an unreachable parent must be reported as an incomplete closure, not a clean lock")
 		assert.Equal(t, 2, result.ItemCount, "both entries survive the incomplete rebuild")
 	})
 	assert.Contains(t, stderr, "ctxloom: warning:", "the failure is warned, not silent")

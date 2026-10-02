@@ -19,7 +19,7 @@ const testHarp = "dizzy-balmy-opium"
 // writes zero bytes is this project's characteristic bug, and only reading the
 // file back catches it.
 //
-// MUTATION — make WriteNextStep return nil before the iox.WriteFileAtomic call
+// MUTATION — make WriteNextStep return nil before the safefs.WriteFile call
 // (or write []byte{} instead of the text) — turns this red at both the file
 // read and the ReadNextStep round trip.
 func TestWriteNextStep_StoresTheTextWhereReadNextStepFindsIt(t *testing.T) {

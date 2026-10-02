@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -873,6 +874,9 @@ func TestInit_CreatesProjectStructure(t *testing.T) {
 	t.Cleanup(func() { assert.NoError(t, env.Cleanup(), "test environment cleanup") })
 	require.NoError(t, env.Setup())
 
+	// A fixture agent token: init now refuses off a terminal without one,
+	// and this test is about what init scaffolds, not about the token.
+	env.SetEnv(claude.OAuthTokenEnv, "integration-fixture-not-a-token")
 	_ = env.Run("init")
 
 	assert.Equal(t, 0, env.LastExitCode())
@@ -893,6 +897,9 @@ func TestInit_ProjectIDMarkerIsIgnored(t *testing.T) {
 	require.NoError(t, env.Setup())
 	require.NoError(t, env.InitGitRepo())
 
+	// A fixture agent token: init now refuses off a terminal without one,
+	// and this test is about what init scaffolds, not about the token.
+	env.SetEnv(claude.OAuthTokenEnv, "integration-fixture-not-a-token")
 	_ = env.Run("init", "--non-interactive")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 	require.True(t, env.FileExists(".ctxloom/project-id"), "init mints the project-id marker")

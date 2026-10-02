@@ -25,6 +25,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -313,7 +314,11 @@ const ptyWaitTimeout = 20 * time.Second
 // exit. Returns the mock's full recorded-input file. initArgs are passed to
 // `init` after the verb, for a row that runs setup with a flag.
 func driveDiscoverySessionViaMock(w *World, recordFile string, initArgs ...string) (string, error) {
-	sess, err := w.env.RunPTY(100, 30, nil, append([]string{"init"}, initArgs...)...)
+	// A fixture agent token keeps init's token gate on its "set" side: the
+	// mock engine declares no auth today, and if the project's engine ever
+	// resolved to claude-code instead, a missing token on this terminal would
+	// run the REAL `claude setup-token`, which opens a browser sign-in.
+	sess, err := w.env.RunPTY(100, 30, []string{claude.OAuthTokenEnv + "=acceptance-fixture-not-a-token"}, append([]string{"init"}, initArgs...)...)
 	if err != nil {
 		return "", fmt.Errorf("start pty session: %w", err)
 	}

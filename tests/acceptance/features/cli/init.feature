@@ -30,7 +30,9 @@ Feature: init — the setup interview, and what it does to a project that alread
 
   The interactive interview needs a terminal too. Off one, init resolves the
   engine and returns without launching anything, which is precisely what makes
-  these scenarios hermetic.
+  these scenarios hermetic. Before that it checks for the token every agent
+  authenticates with: the re-run scenarios export a fixture one, and the rule
+  below covers what happens without it.
 
   Rule: Re-running init on an existing project changes nothing it did not ask to
 
@@ -52,6 +54,7 @@ Feature: init — the setup interview, and what it does to a project that alread
     Scenario: A second init reports the directory and leaves the configuration alone
       Given an initialized ctxloom project
       And the file ".ctxloom/config.yaml" contains "version: 6"
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
       When Alice runs setup again on a project that already has it:
         """
         ctxloom init
@@ -75,6 +78,7 @@ Feature: init — the setup interview, and what it does to a project that alread
     # wrong place would satisfy a stdout-only assertion.
     Scenario: A personal remote named on the command line is registered, not discarded
       Given an initialized ctxloom project
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
       When Alice adds her own content repository while re-running setup:
         """
         ctxloom init --remote file:///tmp/acceptance-remote.git --forge git
@@ -86,6 +90,29 @@ Feature: init — the setup interview, and what it does to a project that alread
       When I run "ctxloom remote list"
       Then the command succeeds
       And the output contains "personal"
+
+  Rule: Init never takes the agent token; without one it says how to create and export it
+
+    Every agent ctxloom launches authenticates with a long-lived token the
+    human creates with the engine's own flow (claude: `claude setup-token`)
+    and exports. ctxloom instructs; it never captures or stores the token. On
+    a terminal with none exported, init runs that flow on the human's own
+    terminal and prints the line to export it. Off a terminal there is nobody
+    to run it for, so init stops and names the steps. It stops AFTER the
+    project is set up: once the token is exported, re-running init finishes
+    the job.
+
+    Scenario: Off a terminal with no token exported, init names how to create and export it
+      Given an initialized ctxloom project
+      And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to ""
+      When Alice re-runs setup with no agent token exported:
+        """
+        ctxloom init
+        """
+      Then the command fails
+      And the output contains "claude setup-token"
+      And the output contains "export CLAUDE_CODE_OAUTH_TOKEN"
+      And the output contains "re-run `ctxloom init`"
 
   Rule: A mistyped subcommand must not be mistaken for a bare init
 

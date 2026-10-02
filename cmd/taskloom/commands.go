@@ -631,10 +631,17 @@ func runTag(cmd *cobra.Command, args []string) error {
 	noteTaskProject(res.ProjectDir, res.ProjectID)
 	task := res.Task
 	return cliemit.Emit(cmd, task, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, strings.Join(task.Tags, ","))
-		return w.Err()
+		return renderTagResult(cmd.OutOrStdout(), task, hideConfigFor(tc))
 	})
+}
+
+// renderTagResult prints `taskloom tag`'s human line for t: harp id, status
+// and its tags, filtered through cfg via visibleTags like every other
+// listing site — see hideConfigFor.
+func renderTagResult(out io.Writer, t tasks.Task, cfg tagma.HideConfig) error {
+	w := iox.NewErrWriter(out)
+	w.Printf("%s\t%s\t%s\n", t.HarpID, t.Status, strings.Join(visibleTags(t.Tags, cfg), ","))
+	return w.Err()
 }
 
 var (

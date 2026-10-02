@@ -141,6 +141,19 @@ func TestRenderTaskDetail_HidesConfiguredTagKeepsOthers(t *testing.T) {
 	assert.NotContains(t, out, "triage:cwe")
 }
 
+// TestRenderTagResult_HidesConfiguredTagKeepsOthers is the `tag` display
+// site's equivalent of TestRenderTaskDetail_HidesConfiguredTagKeepsOthers.
+func TestRenderTagResult_HidesConfiguredTagKeepsOthers(t *testing.T) {
+	schema, err := tagschema.Parse([]string{`tagma.hide:"triage:cwe"=true`})
+	require.NoError(t, err)
+	cfg := hideConfigFor(operations.TaskContext{TagSchema: schema})
+
+	task := tasks.Task{HarpID: "aaa-bbb", Status: "To Do", Tags: []string{"triage:cwe=79", "urgent"}}
+	var b strings.Builder
+	require.NoError(t, renderTagResult(&b, task, cfg))
+	assert.Equal(t, "aaa-bbb\tTo Do\turgent\n", b.String())
+}
+
 // TestRunListCmd_HidesConfiguredTagButShowsOthers exercises `taskloom list`
 // end to end against a real store: a project whose tag_schema declares
 // tagma.hide:"triage:cwe"=true must still print a task's other tags while

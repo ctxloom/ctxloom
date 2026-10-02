@@ -320,11 +320,13 @@ whatever would outrank or replace it:
   `CLAUDE_CONFIG_DIR`, so a session-home run holds the SAME credential and
   lock pair as the human's claude; `TestClaudeSecureStorage_FollowsTheVar`
   (`just test-conformance`) pins that the installed claude honours it on
-  Linux. A container is given the credential file alone
-  (`engine.SharedStore.Files`, claude's `CredentialsFileName`), never the
-  directory: the rest of it is the human's transcripts and the
-  `settings.json` whose hooks their own claude runs. See the trust model's
-  known gap on the login credential in a container for what that costs.
+  Linux. It is a host-only mode: a container run in `login` is refused
+  (`engine.ErrHostOnlyStore`, raised by `relocateStores` from the store's
+  `engine.SharedStore.ContainerRemedy`), before `Prepare` builds anything,
+  with the remedy to run `claude setup-token` and declare `auth: token`. A
+  container never holds the human's refresh token: it could read it, and a
+  bind could not keep its refresh in step with the host's (see the trust
+  model's known gap on the login credential in a container).
 - `token` sets `CLAUDE_CODE_OAUTH_TOKEN`, the long-lived token the human
   mints with `claude setup-token` and exports; claude never refreshes it or
   writes it to disk.
@@ -436,8 +438,8 @@ the container gate (`noContainerHint`).
 **`engine_home: host`.** On the host it runs claude against the real
 `~/.claude` in place, with claude's own lock, and copies nothing; the agent's
 declared auth still applies. In a container it means the container's own
-fresh `$HOME`; of the real `~/.claude` only a `login` agent's credential
-file is mounted.
+fresh `$HOME`; no part of the real `~/.claude` is mounted, since a
+container refuses `login`.
 
 ### On a macOS host
 
@@ -457,19 +459,9 @@ darwin/arm64 and no more. Each claim below is sourced or marked.
   stores nothing and never uses the Keychain.
 - **`cloud`.** The provider's variables from the human's shell; nothing
   stored.
-- **Refused: a macOS container agent declaring `login`.** The Keychain cannot be
-  mounted into a container. claude's darwin build declares its login store
-  with no place under `$HOME` (`loginStoreHomeRel` is `""`), and the
-  container environment refuses any store it cannot place
-  (`errStoreNotADirectory`, wrapping `ErrNoCredential`), naming the Keychain,
-  remedy `auth: token`. The host shares it in place. On Linux the same
-  agent's store is mounted. Both refuse a missing store.
-- **Where an implementation plugs in.** `engine.Auth.Credentials` decides the
-  env and the shared stores per mode; `loginStoreHomeRel` is the per-OS answer
-  to where claude's login lives. OPEN, not decided, for a macOS container
-  with `login`: the human declares `auth: token` for container runs; or the
-  Keychain item is exported into an owner-only file mounted for the run
-  (which reopens the copy-and-refresh problem above).
+- **Refused: a container agent declaring `login`**, as on every OS. The host
+  shares it in place; `loginStoreHomeRel` is the per-OS answer to where it
+  lives, `""` on macOS, which keeps the host from requiring a directory.
 
 ## Engine config homes
 

@@ -730,8 +730,8 @@ host keys `ambientConfigKeys` copies by name — among them the account identity
 and an API-key login's `primaryApiKey`. No credential file is seeded into the
 home: the run authenticates by the agent's declared auth mode
 (`claudeAuth.Credentials`), which sets a token, key or cloud configuration in
-the engine's environment by value, or, for `login`, shares the human's own
-credential storage (`loginStore`). The engine auto-creates whatever else it
+the engine's environment by value, or, for `login` on the host, shares the
+human's own credential storage (`loginStore`); a container refuses `login`. The engine auto-creates whatever else it
 needs on first launch.
 
 ## Lifecycle
@@ -1076,33 +1076,19 @@ never permitted in the committable project store.
     cell still carries its credential in the launch's env, over the
     loopback-only listener.
 19. **A container `login` agent holds the human's refresh token, and can fall
-    out of step with it.** NARROWED. A container run in `auth: login` is
-    given the human's claude credential file alone, read-write, at
-    `$HOME/.claude/.credentials.json` (`engine.SharedStore.Files`, declared by
-    claude's `loginStore`; bound by `containerRelocator.relocateStores`). It
-    used to be given the whole `~/.claude` read-write: every project's
-    transcripts, and the `settings.json` whose hooks the human's own claude
-    runs, so a container agent could plant a hook and have it run on the host.
-    That is closed: nothing else under `~/.claude` enters the container
-    (`TestCredentials_ContainerLoginMountsOnlyTheCredentialFile`), and a write
-    to `settings.json` inside it does not reach the host
-    (`TestLoginStoreBind_OnlyTheCredentialFileReachesTheHost`, build tag
-    `docker_integration`). What remains:
-    - The agent can read the refresh token and act as the human's claude
-      account. Read-write is required, not chosen: claude's refresh rewrites
-      the file (a temp file renamed over it, falling back to an in-place
-      rewrite when the rename is refused, as it is onto a single-file bind).
-      A read-only file would let the container rotate the token at the
-      server and fail to save it, revoking the human's copy.
-    - A single-file bind pins the file's inode. When the human's claude, or
-      a host-runtime agent, refreshes during the container run, its rename
-      replaces the host file and the container keeps the old one: its next
-      refresh replays a rotated token, so the run is logged out, and a
-      server that revokes a token family on reuse would log the human out
-      too [inferred, not measured].
-    - claude's refresh locks are mkdir lock directories created beside the
-      file on each acquisition, which no bind can share, so the container
-      and the host no longer serialize their refreshes.
-    `auth: token` (the long-lived token from `claude setup-token`) has none
-    of these: nothing refreshes it, so there is no second holder to fall out
-    of step with.
+    out of step with it.** CLOSED: a container run in `auth: login` is
+    refused, so no part of the human's `~/.claude` enters a container. Its
+    login store declares `engine.SharedStore.ContainerRemedy` (claude's
+    `loginStore`), `containerRelocator.relocateStores` refuses it with
+    `engine.ErrHostOnlyStore`, and `Prepare` raises that before the chain
+    prepares anything (`TestCredentials_AContainerRefusesALogin`,
+    `TestPrepare_AContainerLoginIsRefusedBeforeAnythingIsPrepared`; live:
+    `TestLoginStore_ALiveContainerRunRefusesTheLogin`, build tag
+    `docker_integration`). The remedy is `auth: token`, the long-lived token
+    from `claude setup-token`: nothing refreshes it, so there is no second
+    holder to fall out of step with. Sharing the login was refused rather
+    than narrowed because no bind can share it safely: the agent could read
+    the refresh token; a single-file bind pins the file's inode, so a host
+    refresh leaves the container replaying a rotated token; and claude's
+    refresh locks are lock directories created beside the file, which no bind
+    shares.

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 )
@@ -97,7 +97,7 @@ func writeManagedContextLocked(fs afero.Fs, path, rel, content, desc string) (Co
 	if err := fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return ContextReport{}, fmt.Errorf("failed to create %s directory: %w", filepath.Dir(path), err)
 	}
-	if err := iox.AtomicWriteFile(fs, path, []byte(merged), desc); err != nil {
+	if err := safefs.WriteFileKeepMode(fs, path, []byte(merged), desc); err != nil {
 		return ContextReport{}, err
 	}
 	return ContextReport{Wrote: []string{rel}}, nil

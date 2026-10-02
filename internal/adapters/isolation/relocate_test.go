@@ -1,8 +1,8 @@
 package isolation
 
 import (
-	"os"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"

@@ -725,9 +725,13 @@ top-level config, including the `mcpServers` entries for your own personal
 integrations. Copying it into every agent's config home to save one dialog
 would hand each agent read access to those integrations and whatever secrets
 they carry. So a provisioned home gets a **generated** `.claude.json` carrying
-the hardened keys (and, for a trusted repository, its trust answer), and only `.credentials.json` is seeded
-from the host (with its refresh token stripped — see the isolation page's
-account of single-use refresh tokens). The engine auto-creates whatever else it
+the hardened keys (and, for a trusted repository, its trust answer), plus the
+host keys `ambientConfigKeys` copies by name — among them the account identity
+and an API-key login's `primaryApiKey`. No credential file is seeded into the
+home: the run authenticates by the agent's declared auth mode
+(`claudeAuth.Credentials`), which sets a token, key or cloud configuration in
+the engine's environment by value, or, for `login`, shares the human's own
+credential storage (`loginStore`). The engine auto-creates whatever else it
 needs on first launch.
 
 ## Lifecycle

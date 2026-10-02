@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -50,26 +51,42 @@ const (
 // that fails is reported on stderr and the session goes on: a TUI does not
 // die because a hook did, and the diagnostic is the evidence a test reads.
 //
+// A line posted to the session's wake socket (mock.EnvWakeSocket, when the
+// environment names one) is taken exactly as a typed line: it is the mock's
+// own native wake. The socket is listening before the reply is written, so a
+// waker that has seen the reply can post.
+//
 // A nil Stdin means there is nothing to type at: the session ends after the
 // reply, the same "no prompt arrived" shape readPrompt gives a nil reader. A
 // nil Resize channel simply never fires.
 func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 	w := r.stdout()
-	if err := echoResponse(w, promptLen, out); err != nil {
+	if r.Stdin == nil {
+		return echoResponse(w, promptLen, out)
+	}
+	lines := readLines(r.Stdin)
+	stop, err := listenWakes(r.getenv(mock.EnvWakeSocket), lines)
+	if err != nil {
 		return err
 	}
-	if r.Stdin == nil {
-		return nil
+	defer stop()
+	if err := echoResponse(w, promptLen, out); err != nil {
+		return err
 	}
 	hooks, err := r.deliveredHooks()
 	if err != nil {
 		return err
 	}
-	lines := readLines(r.Stdin)
+	return r.interact(w, hooks, lines)
+}
+
+// interact takes lines and resizes until the session ends.
+func (r *Runtime) interact(w io.Writer, hooks wire.UnifiedHooks, lines <-chan readResult) error {
 	resize := r.Resize
 	for {
 		select {
 		case ws, ok := <-resize:
+			var err error
 			if resize, err = onResize(w, resize, ws, ok); err != nil {
 				return err
 			}
@@ -77,6 +94,44 @@ func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 			if done, err := r.handleLine(w, hooks, res); done || err != nil {
 				return err
 			}
+		}
+	}
+}
+
+// listenWakes listens on the wake socket at path and hands each line posted
+// to it to lines, beside the typed ones; nothing when path is "". stop closes
+// the listener, which removes the socket file, and releases every reader.
+func listenWakes(path string, lines chan<- readResult) (stop func(), err error) {
+	if path == "" {
+		return func() {}, nil
+	}
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, fmt.Errorf("mock-engine: listening for wakes on %s: %w", path, err)
+	}
+	done := make(chan struct{})
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go readWake(conn, lines, done)
+		}
+	}()
+	return func() { close(done); _ = ln.Close() }, nil
+}
+
+// readWake hands on each line of one posted connection until it ends or the
+// session does.
+func readWake(conn net.Conn, lines chan<- readResult, done <-chan struct{}) {
+	defer conn.Close()
+	sc := bufio.NewScanner(conn)
+	for sc.Scan() {
+		select {
+		case lines <- readResult{line: sc.Text() + "\n"}:
+		case <-done:
+			return
 		}
 	}
 }
@@ -102,7 +157,7 @@ type readResult struct {
 // the reader can deposit its EOF and exit once the peer hangs up after quit;
 // a peer that keeps typing after quit parks it, which is the documented tty
 // tradeoff (see the vocabulary doc).
-func readLines(in io.Reader) <-chan readResult {
+func readLines(in io.Reader) chan readResult {
 	lines := make(chan readResult, 1)
 	go func() {
 		br := bufio.NewReader(in)
@@ -138,7 +193,7 @@ func (r *Runtime) handleLine(w io.Writer, hooks wire.UnifiedHooks, res readResul
 	}
 	if line != "" {
 		if strings.TrimSpace(line) != "" {
-			if err := mock.FireHooks(context.Background(), hooks, "turn_start", "", r.Res.Cwd, nil); err != nil {
+			if err := mock.FireHooks(context.Background(), hooks, "turn_start", "", line, r.Res.Cwd, nil); err != nil {
 				fmt.Fprintf(r.stderr(), "mock-engine: %v\n", err)
 			}
 		}

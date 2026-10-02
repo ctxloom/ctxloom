@@ -95,6 +95,9 @@ type hookPayload struct {
 	SessionID string `json:"session_id"`
 	ToolName  string `json:"tool_name,omitempty"`
 	Cwd       string `json:"cwd,omitempty"`
+	// Prompt is the submitted prompt on turn_start, under the field name the
+	// turn-start hooks read (the mail-drain hook redeems a wake from it).
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // hookCodec decodes the mock's own payload.
@@ -174,14 +177,15 @@ func registered(hooks wire.UnifiedHooks, event string) []wire.Hook {
 // whose matcher admits tool, with the mock's payload on stdin, in the turn's
 // working directory and environment.
 func fireHooks(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, event, tool string) error {
-	return FireHooks(ctx, hooks, event, tool, ex.WorkDir, ex.Env)
+	return FireHooks(ctx, hooks, event, tool, "", ex.WorkDir, ex.Env)
 }
 
 // FireHooks is fireHooks for a caller that is not a hosted turn — the mock
 // binary's interactive loop, which fires turn_start for each line it reads
-// in its own working directory. The payload names the mock's one session.
-func FireHooks(ctx context.Context, hooks wire.UnifiedHooks, event, tool, workDir string, env map[string]string) error {
-	payload, err := json.Marshal(hookPayload{Event: event, SessionID: sessionKey, ToolName: tool, Cwd: workDir})
+// in its own working directory. The payload names the mock's one session,
+// and carries prompt (the submitted line on turn_start; "" otherwise).
+func FireHooks(ctx context.Context, hooks wire.UnifiedHooks, event, tool, prompt, workDir string, env map[string]string) error {
+	payload, err := json.Marshal(hookPayload{Event: event, SessionID: sessionKey, ToolName: tool, Cwd: workDir, Prompt: prompt})
 	if err != nil {
 		return err
 	}

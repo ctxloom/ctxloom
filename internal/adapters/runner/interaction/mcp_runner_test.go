@@ -25,7 +25,7 @@ func newTestServer(harp string, home *runner.Home, leaf bool, cwd string) (*mcp.
 	if cwd == "" {
 		cwd = "/work"
 	}
-	return NewServer(report.To(nil), home, harp, cwd, leaf, loadoutSurface{})
+	return NewServer(report.To(nil), home, harp, cwd, leaf, loadoutSurface{}, NewWakeSignal())
 }
 
 // listServerTools connects an in-memory client and lists the server's tools.

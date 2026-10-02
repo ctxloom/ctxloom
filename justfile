@@ -433,6 +433,19 @@ test-vendor-claude:
 validate-vendor-claude root=(env("HOME") / ".claude/projects"):
     VALIDATE_VENDOR_CLAUDE_ROOT="{{root}}" go test -trimpath -count=1 -v -run '^TestValidateLocalClaudeTranscripts$' ./internal/adapters/transcript/vendorreader/claude/
 
+# REQUIRED on every claude pin bump (owner ruling D-K), beside
+# validate-vendor-claude. Drives the INSTALLED claude interactively on
+# a pty in a throwaway HOME/CLAUDE_CONFIG_DIR with this tree's ctxloom first on
+# PATH, and proves: claude exports its messaging endpoint to the stdio relay it
+# spawns (`ctxloom claude-relay`); a wake the runner fires starts a turn in the
+# idle session; UserPromptSubmit sees the BARE wake line and mail-drain redeems
+# it. Makes no model call (the woken prompt is blocked as a stale wake), but
+# claude must be authenticated from the environment: run it from a shell that
+# carries the credential (e.g. `zsh -ic 'just validate-wake-claude'`).
+# Live wake gate: a runner-fired wake starts a turn in an idle installed claude.
+validate-wake-claude claude=`command -v claude || true`: build
+    VALIDATE_WAKE_CLAUDE_CTXLOOM="{{justfile_directory()}}/ctxloom" VALIDATE_WAKE_CLAUDE_BIN="{{claude}}" go test -trimpath -count=1 -v -timeout 6m -run '^TestValidateWakeClaude$' ./internal/engines/claude/relay/
+
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
 # doesn't touch CGO/treesitter, just the generated proto stubs (`just build`

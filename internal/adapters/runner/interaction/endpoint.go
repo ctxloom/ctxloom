@@ -30,6 +30,9 @@ type Endpoint struct {
 	// Home is the runner's reach-back link: the coordination frames, the
 	// host relays and artifact fetch ride it.
 	Home *runner.Home
+	// Wake is the session's wake signal: the endpoint serves the relay's
+	// subscription to WakeURI on it, and the runner fires it.
+	Wake *WakeSignal
 	// Reporter receives the endpoint's diagnostics; nil discards.
 	Reporter report.Sink
 
@@ -54,21 +57,12 @@ const shutdownBudget = 2 * time.Second
 // and, when it carries an Origin, one on the policy's allowlist (403
 // otherwise); the allowlist may not be empty.
 func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy delivery.ServePolicy) (delivery.Served, error) {
-	if len(policy.AllowedOrigins) == 0 {
-		return delivery.Served{}, delivery.ErrNoAllowedOrigins
-	}
-	if e.Home == nil {
-		return delivery.Served{}, ErrNoHome
-	}
-	if lo.MCP.URL == "" || lo.MCP.Credential == "" {
-		return delivery.Served{}, fmt.Errorf("%w: the loadout names no endpoint to bind", delivery.ErrEndpointUnavailable)
-	}
-	target, err := url.Parse(lo.MCP.URL)
-	if err != nil || target.Host == "" {
-		return delivery.Served{}, fmt.Errorf("%w: %q is not a bindable URL", delivery.ErrEndpointUnavailable, lo.MCP.URL)
+	target, err := e.bindable(lo, policy)
+	if err != nil {
+		return delivery.Served{}, err
 	}
 	rep := report.To(e.Reporter)
-	server, err := NewServer(rep, e.Home, lo.Identity.Harp, lo.WorkDir, lo.Identity.Leaf, loadoutSurface{lo: lo})
+	server, err := NewServer(rep, e.Home, lo.Identity.Harp, lo.WorkDir, lo.Identity.Leaf, loadoutSurface{lo: lo}, e.Wake)
 	if err != nil {
 		return delivery.Served{}, err
 	}
@@ -108,6 +102,27 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 		}
 		return err
 	}}, nil
+}
+
+// bindable refuses what Serve cannot serve — no allowlist, no reach-back
+// home, no wake signal, no endpoint in the loadout — and otherwise returns
+// the address to bind.
+func (e Endpoint) bindable(lo delivery.Loadout, policy delivery.ServePolicy) (*url.URL, error) {
+	switch {
+	case len(policy.AllowedOrigins) == 0:
+		return nil, delivery.ErrNoAllowedOrigins
+	case e.Home == nil:
+		return nil, ErrNoHome
+	case e.Wake == nil:
+		return nil, ErrNoWakeSignal
+	case lo.MCP.URL == "" || lo.MCP.Credential == "":
+		return nil, fmt.Errorf("%w: the loadout names no endpoint to bind", delivery.ErrEndpointUnavailable)
+	}
+	target, err := url.Parse(lo.MCP.URL)
+	if err != nil || target.Host == "" {
+		return nil, fmt.Errorf("%w: %q is not a bindable URL", delivery.ErrEndpointUnavailable, lo.MCP.URL)
+	}
+	return target, nil
 }
 
 // guard is delivery.ServePolicy as an http.Handler: the bearer is checked

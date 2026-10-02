@@ -1,12 +1,15 @@
 package sessions
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -363,6 +366,47 @@ func TestSessionStoreContract_RenameRefusesUnsafeNames(t *testing.T) {
 				if err != nil || got == nil {
 					t.Errorf("after refused rename to %q: Find(%q) = %v, %v; want the original entry", bad, e.HarpName, got, err)
 				}
+			}
+		})
+	}
+}
+
+// TestSessionStoreContract_RenameRefusesOverlongNames holds BOTH adapters to
+// harp.MaxNameLen: a name past it is refused with harp.ErrNameTooLong and the
+// entry keeps its old name; a name exactly at it (counted in runes, so a
+// multibyte name of that many characters) is accepted.
+func TestSessionStoreContract_RenameRefusesOverlongNames(t *testing.T) {
+	adapters := []struct {
+		name string
+		make func(t *testing.T) Store
+	}{
+		{"MemStore", func(t *testing.T) Store { return NewMemStore() }},
+		{"Manager", func(t *testing.T) Store {
+			requireIsolatedSessionRoot(t)
+			m, err := Open(nil)
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			return m
+		}},
+	}
+	for _, a := range adapters {
+		t.Run(a.name, func(t *testing.T) {
+			s := a.make(t)
+			e, err := s.AssignHarp("/proj", "claude")
+			if err != nil {
+				t.Fatalf("AssignHarp: %v", err)
+			}
+			long := strings.Repeat("a", harp.MaxNameLen+1)
+			if err := s.Rename(e.HarpName, long); !errors.Is(err, harp.ErrNameTooLong) {
+				t.Errorf("Rename to a %d-char name = %v; want harp.ErrNameTooLong", harp.MaxNameLen+1, err)
+			}
+			if got, err := s.Find(e.HarpName); err != nil || got == nil {
+				t.Errorf("after the refused rename: Find(%q) = %v, %v; want the original entry", e.HarpName, got, err)
+			}
+			atCap := strings.Repeat("é", harp.MaxNameLen)
+			if err := s.Rename(e.HarpName, atCap); err != nil {
+				t.Errorf("Rename to a %d-rune name = %v; want it accepted", harp.MaxNameLen, err)
 			}
 		})
 	}

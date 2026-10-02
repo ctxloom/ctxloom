@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
@@ -22,7 +21,7 @@ import (
 // turn the wake caused from one a human caused unless the wake says so, and it
 // cannot trust the wake's say-so unless the waker wrote it down first. So a
 // wake is ARMED — a file in/wake/<nonce> — before it is fired, carries the
-// nonce in its text (WakeText), and is CONSUMED by the hook that sees that
+// nonce in its text (engine.WakeText), and is CONSUMED by the hook that sees that
 // text. Consumption is the wake's acknowledgement: a nonce still on disk is a
 // wake nobody has answered.
 //
@@ -44,32 +43,8 @@ const nonceBytes = 8
 // before it is ever joined to a path.
 var nonceRE = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
-// wakePrefix and wakeSuffix frame the nonce in WakeText; wakeTextRE is their
-// inverse. One renderer and one parser, adjacent, so they cannot disagree.
-const (
-	wakePrefix = "ctxloom: mail pending (wake "
-	wakeSuffix = ")"
-)
-
-var wakeTextRE = regexp.MustCompile(`^` + regexp.QuoteMeta(wakePrefix) + `([0-9a-f]{16})` + regexp.QuoteMeta(wakeSuffix) + `$`)
-
 // ErrBadNonce refuses a nonce outside the minted grammar.
 var ErrBadNonce = errors.New("spool: not a wake nonce")
-
-// WakeText is the text a wake delivers as the prompt of the turn it starts.
-func WakeText(nonce string) string { return wakePrefix + nonce + wakeSuffix }
-
-// WakeNonce reports the nonce when prompt IS a wake — the whole prompt, not a
-// prompt that mentions one. The distinction is load-bearing: the hook may
-// block a wake that found no mail, and blocking a human's prompt that merely
-// quoted the wake text would erase what they typed.
-func WakeNonce(prompt string) (string, bool) {
-	m := wakeTextRE.FindStringSubmatch(strings.TrimSpace(prompt))
-	if m == nil {
-		return "", false
-	}
-	return m[1], true
-}
 
 // wakeDir is harp's armed-wake directory in m's view.
 func wakeDir(m PathMapper, harp string) (string, error) {

@@ -59,13 +59,17 @@ type LocalSurface interface {
 // delegation-depth cap, holding an agent_recv inbox plus a roster would
 // infer it has children and stall waiting on notifications that never
 // arrive. It is the launch identity's Leaf, decided by the coordinator that
-// minted it — the runner holds no config to compute it from.
-func NewServer(rep report.Reporter, home *runner.Home, harp, cwd string, leaf bool, local LocalSurface) (*mcp.Server, error) {
+// minted it — the runner holds no config to compute it from. wake serves the
+// session relay's subscription to engine.WakeURI.
+func NewServer(rep report.Reporter, home *runner.Home, harp, cwd string, leaf bool, local LocalSurface, wake *WakeSignal) (*mcp.Server, error) {
+	opts := &mcp.ServerOptions{Instructions: operations.SessionInstructions(harp)}
+	wake.options(opts)
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ctxloom",
 		Title:   harp,
 		Version: version.Version,
-	}, &mcp.ServerOptions{Instructions: operations.SessionInstructions(harp)})
+	}, opts)
+	wake.serve(server)
 
 	routes := mcpschema.Routes()
 	registered := map[string]bool{}

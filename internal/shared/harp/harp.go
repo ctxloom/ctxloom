@@ -11,10 +11,12 @@ import (
 	"crypto/rand"
 	"embed"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io/fs"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // DefaultGroup is the word-list group used when Options.Group is empty or
@@ -218,6 +220,37 @@ func UniqueFrom(used map[string]struct{}, gen func() string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("harp: exhausted 100 attempts to generate a name not already in a set of %d used names", len(used))
+}
+
+// MaxNameLen is the longest name, in runes, a human may RENAME a session harp
+// to. A minted session name is at most 17 (three 5-letter words and two
+// separators; TestMaxNameLen_CoversEveryMintedSessionName holds the minter to
+// this limit).
+//
+// The bound is the MCP server instructions' budget, not taste. A session's
+// harp appears four times in its instructions (its name, a resumed-from name,
+// the plan directory and its worked example), and claude keeps only
+// operations.InstructionsCharCap characters of them. At 24, a worst-case
+// session spends 28 more characters than a minted one and leaves the rest of
+// the headroom for a long home directory, which the plan directory pays for
+// twice. TestSessionInstructions_FitTheClientCap measures the worst case at
+// this limit.
+const MaxNameLen = 24
+
+// ErrNameTooLong refuses a rename past MaxNameLen.
+var ErrNameTooLong = errors.New("harp name too long")
+
+// ValidateRename is Validate plus the MaxNameLen bound: the check for a name a
+// human chose. It is not part of Validate, which guards every harp-derived
+// path, because a name recorded before the bound existed must still resolve.
+func ValidateRename(name string) error {
+	if err := Validate(name); err != nil {
+		return err
+	}
+	if n := utf8.RuneCountInString(name); n > MaxNameLen {
+		return fmt.Errorf("%w: %q is %d characters, the limit is %d", ErrNameTooLong, name, n, MaxNameLen)
+	}
+	return nil
 }
 
 // Validate reports whether name is usable as a harp identifier — the key of a

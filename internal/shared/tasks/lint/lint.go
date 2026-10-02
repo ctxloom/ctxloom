@@ -28,6 +28,10 @@ import (
 // violations surface first.
 const SchemaViolationHarpID = "(schema)"
 
+// unparseableTagReason is the Violation.Reason format for a stored tag
+// string tagma.ParseTag rejects: the raw string, then the parser's error.
+const unparseableTagReason = "tag %q does not parse as a tagma tag: %v"
+
 // Violation is one triage-standard violation Lint found on a task.
 type Violation struct {
 	HarpID string `json:"harp_id"`
@@ -75,13 +79,15 @@ type Result struct {
 //   - any arity=scalar target (tagschema.IsScalar) carrying more than one
 //     DISTINCT value on the same task — should be unreachable after phase
 //     2's write-seam collapse, but foreign/legacy data (an older binary, a
-//     hand-edited log, a union-merge artifact) might still carry it.
+//     hand-edited log, a union-merge artifact) might still carry it;
+//   - any stored tag string tagma.ParseTag rejects. Read paths are
+//     deliberately lenient about such a tag (they skip it rather than fail),
+//     so this sweep is the one place it is surfaced. It needs no schema.
 //
-// A nil schema reports NOTHING at all — every one of the checks above is
-// schema-driven (tagschema.Schema's own nil-receiver-safety means every
-// Targets/Get/Enum/Range/IsScalar call already degrades to "nothing
-// declared"), so a project with no tag_schema resolved has nothing to check
-// tasks against.
+// Every check above except the last is schema-driven (tagschema.Schema's own
+// nil-receiver-safety means every Targets/Get/Enum/Range/IsScalar call
+// already degrades to "nothing declared"), so with a nil schema only
+// unparseable tags are reported.
 //
 // Violations are returned sorted by (HarpID, Reason) for deterministic
 // output; a returned error is reserved for a malformed RANGE DECLARATION
@@ -111,7 +117,8 @@ func Lint(all []tasks.Task, schema *tagschema.Schema) (Result, error) {
 
 	out := formulaEnumRefViolations(schema, enums)
 	for _, t := range all {
-		values := groupByTarget(t.Tags)
+		values, unparseable := groupByTarget(t.HarpID, t.Tags)
+		out = append(out, unparseable...)
 		out = append(out, enumViolations(t.HarpID, enums, values)...)
 		out = append(out, rangeViolations(t.HarpID, ranges, values)...)
 		out = append(out, scalarViolations(schema, t.HarpID, values)...)
@@ -294,7 +301,9 @@ func formulaEnumRefViolations(schema *tagschema.Schema, enums map[string][]strin
 // groupByTarget groups a task's stored tag strings by their "ns:key" target,
 // collecting each value-carrying tag's DISTINCT value (a valueless/modifier
 // tag carries nothing to check or collapse, so it's skipped here — it can
-// never violate an enum/range/cardinality rule).
+// never violate an enum/range/cardinality rule). A tag string tagma cannot
+// parse has no target to group under; it is returned as a Violation for
+// harpID instead.
 //
 // Distinct is on the PARSED value, not the raw string, and the difference is
 // the whole point: tagma accepts a value bare or quoted, so `triage:type=docs`
@@ -303,12 +312,14 @@ func formulaEnumRefViolations(schema *tagschema.Schema, enums map[string][]strin
 // one value as two, in a message that contradicted itself ("2 distinct values
 // [docs docs]"), and made every other check fire once per spelling. Order is
 // preserved so the violation messages stay stable.
-func groupByTarget(tagStrings []string) map[string][]string {
+func groupByTarget(harpID string, tagStrings []string) (map[string][]string, []Violation) {
 	out := map[string][]string{}
 	seen := map[string]map[string]struct{}{}
+	var unparseable []Violation
 	for _, raw := range tagStrings {
 		t, err := tagma.ParseTag(raw)
 		if err != nil {
+			unparseable = append(unparseable, Violation{harpID, fmt.Sprintf(unparseableTagReason, raw, err)})
 			continue
 		}
 		if t.Value == nil {
@@ -324,5 +335,5 @@ func groupByTarget(tagStrings []string) map[string][]string {
 		seen[target][*t.Value] = struct{}{}
 		out[target] = append(out[target], *t.Value)
 	}
-	return out
+	return out, unparseable
 }

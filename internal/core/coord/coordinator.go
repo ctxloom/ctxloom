@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -133,6 +134,11 @@ type Options struct {
 	// prove that a DROPPED doorbell is still delivered by the sweep without
 	// waiting out the production interval.
 	SpoolSweepInterval time.Duration
+	// Engines are the engines a run may be. A parked request's own engine
+	// judges whether a session grant covers it (ApprovalCodec.Covers); an
+	// engine missing here, or one declaring no codec, covers nothing, and
+	// the human is asked.
+	Engines engine.Registry
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -171,6 +177,7 @@ type Coordinator struct {
 	artifacts *artifactStore
 
 	spawner Spawner
+	engines engine.Registry
 	// slots is the execution-slot cap: at most concurrencyCap child turns may
 	// be EXECUTING at once, one token each. Acquisition is FIFO (a waiter
 	// parked on a full semaphore is served before a later TryAcquire), so
@@ -479,6 +486,7 @@ func New(opts Options) (*Coordinator, error) {
 		now:                t.now,
 		releaseOwner:       claim.release,
 		spawner:            opts.Spawner,
+		engines:            opts.Engines,
 		host:               opts.Host,
 		slots:              semaphore.NewWeighted(int64(t.concurrencyCap)),
 		depthCap:           t.depthCap,
@@ -645,7 +653,7 @@ func (c *Coordinator) openJournals() error {
 		return err
 	}
 	c.runs = runs
-	c.approvals = NewApprovalQueue(runs, c.now, c.pushGrants, c.runGone)
+	c.approvals = NewApprovalQueue(runs, c.now, c.pushGrants, c.runGone, c.covers)
 	c.itemsF = newItemsFold()
 	// D4 CHECKPOINT compaction: a prior snapshot (if one exists — the
 	// common case is none, a fresh project) seeds the fold and replay

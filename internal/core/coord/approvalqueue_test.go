@@ -55,11 +55,15 @@ func newTestQueue(t *testing.T) (*ApprovalQueue, *grantPush, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "runs.jsonl")
 	push := &grantPush{}
-	return NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone), push, path
+	return NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone, coversTool), push, path
 }
 
 // noRunGone is a bare queue's view of runs: no asker's run is known to end.
 func noRunGone(Identity) bool { return false }
+
+// coversTool is a bare queue's judge of grants: a rule is a tool name, as the
+// mock engine's is.
+func coversTool(req PendingApproval, rule string) bool { return rule == req.Ask.Tool }
 
 var askerID = Identity{Harp: "child-harp", RunID: "run-1", Depth: 1}
 
@@ -434,7 +438,7 @@ func TestApprovalQueue_SessionGrantsFoldAndRevoke(t *testing.T) {
 	assert.Empty(t, push.calls, "a grant rides the decision itself; only a revoke pushes")
 
 	// The fold survives a restart: a fresh store over the same journal.
-	reopened := NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone)
+	reopened := NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone, coversTool)
 	assert.Equal(t, grants, reopened.Grants(askerID.Harp))
 
 	require.NoError(t, q.Revoke(askerID.Harp, grants[0].ID))
@@ -443,7 +447,7 @@ func TestApprovalQueue_SessionGrantsFoldAndRevoke(t *testing.T) {
 	assert.Equal(t, []Grant{grants[1]}, q.Grants(askerID.Harp))
 	assert.ErrorIs(t, q.Revoke(askerID.Harp, grants[0].ID), ErrNoSuchGrant)
 
-	again := NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone)
+	again := NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone, coversTool)
 	assert.Equal(t, []Grant{grants[1]}, again.Grants(askerID.Harp), "the revoke is journaled too")
 	assert.Equal(t,
 		[]string{factApprovalParked, factApprovalDecided, factGrantAdded, factGrantAdded, factGrantRevoked},
@@ -533,7 +537,7 @@ func TestApprovalQueue_UnjournaledParkFailsClosed(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "runs.jsonl")
 		store := openQueueStore(t, path)
-		q := NewApprovalQueue(store, time.Now, (&grantPush{}).push, noRunGone)
+		q := NewApprovalQueue(store, time.Now, (&grantPush{}).push, noRunGone, coversTool)
 		require.NoError(t, store.Close())
 		start := time.Now()
 		d := q.Park(context.Background(), askerID, toolAsk("Bash"), time.Minute)
@@ -574,7 +578,7 @@ func TestApprovalQueue_AGrantWaitsOutARevokesPush(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "runs.jsonl")
 		push := &gatedPush{}
-		q := NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone)
+		q := NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone, coversTool)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

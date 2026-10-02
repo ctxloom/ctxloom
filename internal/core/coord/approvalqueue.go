@@ -74,6 +74,9 @@ type PendingApproval struct {
 	// turn is the asking run's turn when the coordinator received the
 	// request (turnOf); a request whose turn has since ended never parks.
 	turn uint64
+	// engine is the asking run's engine, whose codec judges what a grant
+	// covers.
+	engine engine.Name
 }
 
 // ApprovalDecision resolves one parked request. Presenters fill everything
@@ -167,6 +170,9 @@ type ApprovalQueue struct {
 	// insert window, after the run's end is journaled and before its
 	// withdrawal, so a request never outlives its run.
 	runGone func(Identity) bool
+	// covers reports whether rule, granted to a request's asker, allows the
+	// request's call.
+	covers func(req PendingApproval, rule string) bool
 
 	mu       sync.Mutex
 	pending  map[ApprovalID]*parkedApproval
@@ -186,6 +192,9 @@ type ApprovalQueue struct {
 	// expireHook, when set (tests), runs after a park's timer or context has
 	// fired and before it claims the request — where an answer can still win.
 	expireHook func(ApprovalID)
+	// grantHook, when set (tests), runs once an allow's grants are journaled
+	// and delivered, before the asker's covered requests are looked for.
+	grantHook func()
 }
 
 type parkedApproval struct {
@@ -197,9 +206,11 @@ type parkedApproval struct {
 
 // NewApprovalQueue binds a queue to the journal holding its grants fold.
 // pushGrants hands a harp's full remaining grant set to its live run when a
-// grant is revoked; runGone says an asker's run can no longer be answered.
-func NewApprovalQueue(store *Store, clock Clock, pushGrants func(harp string, rules []string) error, runGone func(Identity) bool) *ApprovalQueue {
+// grant is revoked; runGone says an asker's run can no longer be answered;
+// covers judges whether a granted rule allows a parked request's call.
+func NewApprovalQueue(store *Store, clock Clock, pushGrants func(harp string, rules []string) error, runGone func(Identity) bool, covers func(req PendingApproval, rule string) bool) *ApprovalQueue {
 	return &ApprovalQueue{
+		covers:     covers,
 		store:      store,
 		grants:     storeFold[*grantsFold](store),
 		now:        clock,

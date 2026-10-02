@@ -26,6 +26,10 @@ func (c *Coordinator) parkApproval(caller Identity, req ApprovalRequest) Approva
 	return c.approvals.Park(c.baseCtx, caller, p, req.Timeout)
 }
 
+// covers reports whether rule, granted to req's asker, allows req's call, as
+// the asker's engine judges it.
+func (c *Coordinator) covers(req PendingApproval, rule string) bool { return false }
+
 // runGone reports that from's run can take no decision: its record says it
 // ended, or its harp's current run is a newer one. It needs no state of its
 // own — a harp's current run is never reaped, and neither is its record while

@@ -13,6 +13,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
 
 func childOf(out *RunOutcome) Identity { return Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1} }
@@ -282,4 +283,58 @@ func TestApprovals_RevokeOnAnEndedRunIsJournaledOnly(t *testing.T) {
 	assert.Equal(t, []Grant{g}, c.Approvals().Grants(out.Harp), "a run's end does not take its harp's grants")
 	require.NoError(t, c.Approvals().Revoke(out.Harp, g.ID))
 	assert.Empty(t, c.Approvals().Grants(out.Harp))
+}
+
+// mockEngines is a registry of the mock engine, the fake spawner's default
+// backend.
+func mockEngines(t *testing.T) engine.Registry {
+	t.Helper()
+	reg, err := engine.NewRegistry(mock.New())
+	require.NoError(t, err)
+	return reg
+}
+
+// TestApprovals_AGrantResolvesTheChildsCoveredRequest: the human's allow for
+// the session on one of a child's requests resolves its other parked request
+// the rule covers, as the child's own engine judges it.
+func TestApprovals_AGrantResolvesTheChildsCoveredRequest(t *testing.T) {
+	resetStrictness(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	events := c.Approvals().Subscribe(ctx)
+	ask := func() <-chan AgentReply {
+		done := make(chan AgentReply, 1)
+		go func() {
+			done <- c.serveAgentRequest(childOf(out), askNow(c, out, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: []byte(`{"command":"ls"}`)}))
+		}()
+		return done
+	}
+	first := ask()
+	id := awaitEvent(t, events, QueueAdded).ID
+	second := ask()
+	awaitEvent(t, events, QueueAdded)
+
+	require.NoError(t, c.Approvals().Answer(id, ApprovalDecision{Allow: true, SessionRules: []string{"Bash"}}))
+	<-first
+	select {
+	case r := <-second:
+		d, ok := r.Result.(ApprovalDecision)
+		require.True(t, ok, "%T", r.Result)
+		assertGrantDecided(t, d)
+	case <-ctx.Done():
+		t.Fatal("the covered request was left to the human")
+	}
+}
+
+// TestCoordinator_AnEngineItCannotFindCoversNothing: a request whose engine
+// is missing from the registry is left to the human.
+func TestCoordinator_AnEngineItCannotFindCoversNothing(t *testing.T) {
+	bash := PendingApproval{Kind: ApprovalTool, Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}, engine: mock.Name}
+	assert.True(t, (&Coordinator{engines: mockEngines(t)}).covers(bash, "Bash"))
+	assert.False(t, (&Coordinator{}).covers(bash, "Bash"), "no engines composed")
+	bash.engine = "absent"
+	assert.False(t, (&Coordinator{engines: mockEngines(t)}).covers(bash, "Bash"), "an engine the registry does not hold")
 }

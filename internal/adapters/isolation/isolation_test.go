@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -52,7 +51,7 @@ func (failingPolicy) interactiveRunner(context.Context, string, workspace, map[s
 	return nil, "", nil
 }
 func (failingPolicy) relocator() relocator { return hostRelocator{} }
-func (failingPolicy) environment(workspace, launch.Placement, []mount, engine.Credentials) (Environment, error) {
+func (failingPolicy) environment(workspace, launch.Placement, []mount, coreengine.Credentials) (Environment, error) {
 	return nil, errors.New("unused: resolution fails first")
 }
 func (failingPolicy) preview(context.Context) (present.Listen, Description) {
@@ -84,7 +83,7 @@ func (passingPolicy) interactiveRunner(context.Context, string, workspace, map[s
 	return nil, "", nil
 }
 func (passingPolicy) relocator() relocator { return hostRelocator{} }
-func (p passingPolicy) environment(ws workspace, pl launch.Placement, _ []mount, _ engine.Credentials) (Environment, error) {
+func (p passingPolicy) environment(ws workspace, pl launch.Placement, _ []mount, _ coreengine.Credentials) (Environment, error) {
 	return &hostEnvironment{p: p, ws: ws, placement: pl}, nil
 }
 func (passingPolicy) preview(context.Context) (present.Listen, Description) {

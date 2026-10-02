@@ -320,7 +320,11 @@ whatever would outrank or replace it:
   `CLAUDE_CONFIG_DIR`, so a session-home run holds the SAME credential and
   lock pair as the human's claude; `TestClaudeSecureStorage_FollowsTheVar`
   (`just test-conformance`) pins that the installed claude honours it on
-  Linux.
+  Linux. A container is given the credential file alone
+  (`engine.SharedStore.Files`, claude's `CredentialsFileName`), never the
+  directory: the rest of it is the human's transcripts and the
+  `settings.json` whose hooks their own claude runs. See the trust model's
+  known gap on the login credential in a container for what that costs.
 - `token` sets `CLAUDE_CODE_OAUTH_TOKEN`, the long-lived token the human
   mints with `claude setup-token` and exports; claude never refreshes it or
   writes it to disk.
@@ -373,7 +377,10 @@ environment makes each piece true where the engine runs:
   container's `$HOME` (never `$HOME` itself, never the session home;
   read-only when declared so) through `relocateRoot`, the same helper that
   produces every presented path with its mount, and sets the var to `""`,
-  which points the engine there;
+  which points the engine there. A store declaring `Files` is given those
+  members alone, each a single-file bind at its place in the store, and a
+  missing member refuses (`relocateStores`, wrapping `ErrNoCredential`); the
+  rest of that place is the container's own;
 - BOTH refuse a declared store whose directory is missing (`stageStores`,
   wrapping `ErrNoCredential`, remedy naming the directory and `auth: token`):
   a run that would start logged out fails loudly instead.
@@ -408,8 +415,8 @@ the container gate (`noContainerHint`).
 **`engine_home: host`.** On the host it runs claude against the real
 `~/.claude` in place, with claude's own lock, and copies nothing; the agent's
 declared auth still applies. In a container it means the container's own
-fresh `$HOME`; the real `~/.claude` is mounted only as a `login` agent's
-shared store.
+fresh `$HOME`; of the real `~/.claude` only a `login` agent's credential
+file is mounted.
 
 ### On a macOS host
 

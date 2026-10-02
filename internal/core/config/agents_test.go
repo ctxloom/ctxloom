@@ -97,13 +97,28 @@ func TestConfigSchema_AcceptsAgents(t *testing.T) {
   dev:
     llm: claude-code
     profiles: [go-developer]
-    host_env:
-      curated: true
-      passthrough: [GITHUB_TOKEN]
+    env_host: false
+    env: [GITHUB_TOKEN]
   finder:
     profiles: [finder]
 `
 	assert.NoError(t, v.ValidateBytes([]byte(yaml)))
+}
+
+// TestConfigSchema_EnvHostKeys pins the schema's env keys: the retired
+// host_env block is unknown, env takes bare names only, and env_host is a
+// bool.
+func TestConfigSchema_EnvHostKeys(t *testing.T) {
+	v, err := schema.NewConfigValidator()
+	require.NoError(t, err)
+	for name, body := range map[string]string{
+		"retired host_env": "host_env:\n      curated: true",
+		"NAME=value":       "env_host: false\n    env: [GITHUB_TOKEN=abc]",
+		"non-bool":         "env_host: maybe",
+	} {
+		doc := "agents:\n  dev:\n    llm: claude-code\n    " + body + "\n"
+		assert.Error(t, v.ValidateBytes([]byte(doc)), name)
+	}
 }
 
 // TestLoadAgents_ReadsTheConfigKey proves the agent view is the `agents:`
@@ -127,9 +142,8 @@ agents:
         mode: bypass
     driving: oneshot
     engine_home: session
-    host_env:
-      curated: true
-      passthrough: [GITHUB_TOKEN]
+    env_host: false
+    env: [GITHUB_TOKEN]
     surfaces:
       context: system-prompt
   finder:
@@ -160,7 +174,7 @@ agents:
 	// agents.HomeMode against string and fails on the type, not the value.
 	assert.Equal(t, "session", dev.HomeMode)
 	assert.Equal(t, map[string]string{"context": "system-prompt"}, dev.Surfaces)
-	assert.Equal(t, agents.HostEnv{Curated: true, Passthrough: []string{"GITHUB_TOKEN"}}, dev.HostEnv)
+	assert.Equal(t, agents.EnvHost{Curated: true, Env: []string{"GITHUB_TOKEN"}}, dev.HostEnv())
 
 	_, ok = cfg.Agent("absent")
 	assert.False(t, ok)

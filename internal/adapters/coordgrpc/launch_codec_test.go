@@ -128,7 +128,7 @@ func TestDecodeLaunch_AnUnsetVerdictIsUntrusted(t *testing.T) {
 func TestCell_WireFieldNumbersArePinned(t *testing.T) {
 	want := map[protoreflect.Name]protoreflect.FieldNumber{
 		"paths": 1, "mounts": 2, "workspace": 3, "env": 4, "home": 5,
-		"unset_env": 7, "host_env": 8, "secret_files": 9,
+		"unset_env": 7, "env_host": 8, "secret_files": 9,
 	}
 	desc := (&pb.Cell{}).ProtoReflect().Descriptor()
 	got := map[protoreflect.Name]protoreflect.FieldNumber{}
@@ -140,12 +140,12 @@ func TestCell_WireFieldNumbersArePinned(t *testing.T) {
 	require.True(t, desc.ReservedRanges().Has(6), "6 is the retired container half's number; reusing it would misread old bytes")
 }
 
-// TestCell_HostEnvAndSecretFilesCrossTheWireTogether: the two newest cell
+// TestCell_EnvHostAndSecretFilesCrossTheWireTogether: the two newest cell
 // fields each come back as sent, from serialised bytes, in one message.
-func TestCell_HostEnvAndSecretFilesCrossTheWireTogether(t *testing.T) {
+func TestCell_EnvHostAndSecretFilesCrossTheWireTogether(t *testing.T) {
 	l := launchtest.FullLaunch(t)
 	require.NotEmpty(t, l.Cell.SecretFiles)
-	require.True(t, l.Cell.HostEnv.Curated)
+	require.True(t, l.Cell.EnvHost.Curated)
 
 	raw, err := proto.Marshal(coordgrpc.EncodeLaunch(l))
 	require.NoError(t, err)
@@ -154,5 +154,5 @@ func TestCell_HostEnvAndSecretFilesCrossTheWireTogether(t *testing.T) {
 	back, err := coordgrpc.DecodeLaunch(&parsed)
 	require.NoError(t, err)
 	require.Equal(t, l.Cell.SecretFiles, back.Cell.SecretFiles)
-	require.Equal(t, l.Cell.HostEnv, back.Cell.HostEnv)
+	require.Equal(t, l.Cell.EnvHost, back.Cell.EnvHost)
 }

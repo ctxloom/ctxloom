@@ -56,6 +56,8 @@ ctxloom agent create <name> [flags]
 ```
       --auth string                How this agent's engine authenticates: login (your own login, shared on the host; refused in a container) | token (the default: a minted token, stored owner-only) | api-key | cloud (a provider or gateway configured in your shell). Refused, naming the engine's modes, when the engine does not support it
       --engine-home string         Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (session|host; empty = session, the default — host is the unsafe selection)
+      --env stringArray            Bare variable name whose host value passes through when --env-host=false, as podman's -e NAME (repeatable; NAME=value is refused; --env '' clears the list)
+      --env-host                   Whether this agent's engine inherits the host environment whole on the host runtime, as podman's --env-host (false = only a curated base plus the --env names) (default true)
       --llm string                 llm.configs label to bind (overrides the profiles' llm; empty = project default)
       --permissions string         Permission mode, in the vocabulary of the engine this agent binds, written into that engine's block (empty clears it)
       --profiles strings           Comma-separated profile name(s)/ref(s) to compose

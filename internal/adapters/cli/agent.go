@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -206,6 +207,10 @@ func renderAgentDeclaration(w *errwriter.Writer, def *operations.AgentEntry) {
 	if def.Auth != "" {
 		w.Printf("Auth (declared): %s\n", def.Auth)
 	}
+	if def.EnvHost != nil {
+		w.Printf("Env host: %t\n", *def.EnvHost)
+	}
+	writeBulletList(w, "Env", def.Env)
 	writeBulletList(w, "Profiles", def.Profiles)
 }
 
@@ -282,6 +287,8 @@ var (
 	agentSetPermissions string
 	agentSetEngineHome  string
 	agentSetAuth        string
+	agentSetEnvHost     bool
+	agentSetEnv         []string
 )
 
 // agentWriteLong is the shared body text for `agent create` and `agent edit`:
@@ -435,7 +442,20 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 	if cmd.Flags().Changed("auth") {
 		req.Auth = &agentSetAuth
 	}
+	envHostFlags(cmd, &req)
 	return req
+}
+
+// envHostFlags sends --env-host and --env when typed; --env "" sends an
+// empty list, which clears the names.
+func envHostFlags(cmd *cobra.Command, req *operations.SetAgentRequest) {
+	if cmd.Flags().Changed("env-host") {
+		req.EnvHost = &agentSetEnvHost
+	}
+	if cmd.Flags().Changed("env") {
+		names := slices.DeleteFunc(slices.Clone(agentSetEnv), func(n string) bool { return n == "" })
+		req.Env = &names
+	}
 }
 
 // surfacesFromFlag is the --surface pairs keyed by surface kind. They are
@@ -507,8 +527,20 @@ func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool
 	if entry.Auth != "" {
 		w.Printf(", auth: %s", entry.Auth)
 	}
+	writeEnvHostSummary(w, entry)
 	w.Println(")")
 	return w.Err()
+}
+
+// writeEnvHostSummary appends the declared env_host and env to the
+// create/edit confirmation, each omitted when undeclared.
+func writeEnvHostSummary(w *errwriter.Writer, entry *operations.AgentEntry) {
+	if entry.EnvHost != nil {
+		w.Printf(", env_host: %t", *entry.EnvHost)
+	}
+	if len(entry.Env) > 0 {
+		w.Printf(", env: %s", strings.Join(entry.Env, ", "))
+	}
 }
 
 // agentDefaultCmd shows or sets the always-bound DEFAULT AGENT — the binding a
@@ -689,6 +721,10 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 		"Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (session|host; empty = session, the default — host is the unsafe selection)")
 	cmd.Flags().StringVar(&agentSetAuth, "auth", "",
 		"How this agent's engine authenticates: login (your own login, shared on the host; refused in a container) | token (the default: a minted token, stored owner-only) | api-key | cloud (a provider or gateway configured in your shell). Refused, naming the engine's modes, when the engine does not support it")
+	cmd.Flags().BoolVar(&agentSetEnvHost, "env-host", true,
+		"Whether this agent's engine inherits the host environment whole on the host runtime, as podman's --env-host (false = only a curated base plus the --env names)")
+	cmd.Flags().StringArrayVar(&agentSetEnv, "env", nil,
+		"Bare variable name whose host value passes through when --env-host=false, as podman's -e NAME (repeatable; NAME=value is refused; --env '' clears the list)")
 	_ = cmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = cmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
 	_ = cmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {

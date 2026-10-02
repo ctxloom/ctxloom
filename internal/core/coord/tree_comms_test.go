@@ -2,12 +2,15 @@ package coord
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
 // The delegation topology is a TREE: every hop addresses its own direct
@@ -136,6 +139,48 @@ func TestTree_GrandchildDeathResumesItsEndedParent(t *testing.T) {
 
 	tr.c.terminateRun(tr.grandchild.RunID, CauseRunnerExit, "engine crashed")
 	tr.awaitParentResumedWith(t, "engine crashed")
+}
+
+// grandchildRecord is a copy of the grandchild's current run record.
+func (tr tree) grandchildRecord(t *testing.T) RunRecord {
+	t.Helper()
+	var rec RunRecord
+	tr.c.runs.View(func() { rec = *tr.c.runsF.currentRun(tr.grandchild.Harp) })
+	require.Equal(t, tr.parent.Harp, rec.ParentHarp)
+	return rec
+}
+
+// TestTree_GrandchildResumeFailureResumesItsEndedParent: a grandchild that
+// cannot be resumed is a failure only its parent can act on, so the notice
+// resumes an ended parent rather than waiting in its spool.
+func TestTree_GrandchildResumeFailureResumesItsEndedParent(t *testing.T) {
+	tr := spawnTree(t, true)
+	tr.endParent(t)
+
+	tr.c.failResume(tr.grandchild.Harp, tr.grandchildRecord(t), errors.New("native session vanished"))
+	tr.awaitParentResumedWith(t, "native session vanished")
+}
+
+// TestTree_GrandchildLaunchGiveUpResumesItsEndedParent: the launcher's
+// give-up is the LOUD end of a bounded retry; a one-shot parent that never
+// hears it waits on a child that will not come back.
+func TestTree_GrandchildLaunchGiveUpResumesItsEndedParent(t *testing.T) {
+	tr := spawnTree(t, true)
+	tr.endParent(t)
+
+	tr.c.giveUpLaunching(tr.grandchildRecord(t), CauseLaunchFailed, "image pull refused")
+	tr.awaitParentResumedWith(t, "image pull refused")
+}
+
+// TestTree_GrandchildDroppedSpoolMailResumesItsEndedParent: a grandchild's
+// spool message the router refuses is handed UP with its text
+// (noticeSpoolDrop); an ended parent is resumed to read it.
+func TestTree_GrandchildDroppedSpoolMailResumesItsEndedParent(t *testing.T) {
+	tr := spawnTree(t, true)
+	tr.endParent(t)
+
+	tr.c.routeSpoolOut(tr.grandchild.Harp, spool.Entry{Message: &spool.Message{V: 1, Kind: "not-a-kind", To: ParentAddress, Body: "the parser is fixed, unroutably"}})
+	tr.awaitParentResumedWith(t, "the parser is fixed, unroutably")
 }
 
 // TestTree_RootAddressesOnlyItsOwnChildren: the root is a tree node (ruling

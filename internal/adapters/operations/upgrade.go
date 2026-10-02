@@ -21,7 +21,9 @@ type UpgradeResult struct {
 	// Advanced counts the entries whose SHA actually moved.
 	Advanced int `json:"advanced"`
 	// Incomplete reports that part of the dependency closure could not be
-	// reached this round, so Advanced==0 does not mean "everything checked out".
+	// reached this round — a parent that did not expand, or a repository that
+	// could not be fetched — so Advanced==0 does not mean "everything checked
+	// out".
 	Incomplete bool `json:"incomplete"`
 	// NothingDeclared reports that the resolved closure was EMPTY and there was
 	// no existing lock state either: nothing in reach of this run declares a
@@ -106,7 +108,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 	// sees the newest commit each constraint permits. The direct refs alone miss
 	// repos reached only through transitive parents; union in every repo URL the
 	// active lock already records so the whole known closure refreshes.
-	refreshRepoCaches(ctx, NewRepoCache(cfg), unionLockedRepoURLs(directRepoURLs(roots), active))
+	fetchFailed := refreshRepoCaches(ctx, NewRepoCache(cfg), unionLockedRepoURLs(directRepoURLs(roots), active))
 
 	// Re-resolve the whole closure (upgrade mode): every unheld ref advances to
 	// the newest commit its constraint allows; held entries stay put. Conflicts
@@ -120,7 +122,11 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 	// preserve-existing-entries guard below alongside the walker's internal
 	// unexpanded set.
 	unexpanded = append(unexpanded, rootsUnexpanded...)
-	result.Incomplete = len(unexpanded) > 0
+	// A repository that could not be fetched was resolved from its stale clone,
+	// so "nothing advanced" is not "everything is current" for it either. It
+	// does not widen the carry-forward below, which is about subtrees the walk
+	// never reached.
+	result.Incomplete = len(unexpanded) > 0 || fetchFailed
 
 	round := upgradeRound{
 		ctx: ctx, cfg: cfg, factory: factory, auth: auth, downgrades: downgrades,
@@ -137,7 +143,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 	// closure no longer reaches, so the wholesale Save(newActive) below cannot
 	// lose lock state to a transient fetch failure. The unexpanded subtrees'
 	// entries simply don't advance this round.
-	if result.Incomplete {
+	if len(unexpanded) > 0 {
 		preserveUnreachedEntries(active, round.newActive, len(unexpanded))
 	}
 

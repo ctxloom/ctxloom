@@ -69,35 +69,42 @@ def build():
                 p += ["What is your next action? Reply with ONE line: `invoke: <skill>[, <skill>]` if your next action is to invoke skills from the list, otherwise `next: <your next step>`."]
             open(os.path.join(HERE, "prompts", f"{arm}_{sid}.txt"), "w").write("\n".join(p) + "\n")
 
+def line_answer(line):
+    """The skill set one line states, or None when the line is prose."""
+    line = line.strip().strip("`*")
+    head, _, tail = line.partition(":")
+    if head.lower() == "next": return set()
+    if head.lower() == "invoke": line = tail
+    toks = [t for t in (t.strip().strip("`*.:") for t in line.replace("Answer", "").split(",")) if t]
+    if toks == ["NONE"]: return set()
+    return set(toks) if toks and all(t in d["fragments"] for t in toks) else None
+
 def answer(text):
     """The first line that is ONLY skill names or NONE; prose lines are skipped."""
-    for line in text.splitlines():
-        line = line.strip().strip("`*")
-        if line.lower().startswith("next:"): return set()
-        if line.lower().startswith("invoke:"): line = line.split(":", 1)[1]
-        toks = [t.strip().strip("`*.:") for t in line.replace("Answer", "").split(",")]
-        toks = [t for t in toks if t]
-        if toks == ["NONE"]: return set()
-        if toks and all(t in d["fragments"] for t in toks): return set(toks)
-    return set()
+    found = (line_answer(l) for l in text.splitlines())
+    return next((a for a in found if a is not None), set())
+
+def merged(arm):
+    final = {sid: set(step1.get(sid, set())) for sid in order}
+    out = os.path.join(HERE, os.environ.get("OUT", "out"))
+    for sid in filter(hook_fires, order):
+        final[sid] |= answer(open(os.path.join(out, f"{arm}_{sid}.txt")).read())
+    return final
+
+def count(pred):
+    return sum(1 for s in order if pred(s))
 
 def score(arm):
-    final = {sid: set(step1.get(sid, set())) for sid in order}
-    added = 0
-    for sid in order:
-        f = os.path.join(HERE, os.environ.get("OUT", "out"), f"{arm}_{sid}.txt")
-        if not hook_fires(sid): continue
-        new = answer(open(f).read())
-        added += len(new - final[sid]); final[sid] |= new
-    two = [s for s in order if len(expect[s]) == 2]
-    both = [s for s in two if expect[s] <= final[s]]
-    tp = sum(len(final[s] & expect[s]) for s in order); fp = sum(len(final[s] - expect[s]) for s in order)
+    final = merged(arm)
+    both = [s for s in order if len(expect[s]) == 2 and expect[s] <= final[s]]
+    tp = sum(len(final[s] & expect[s]) for s in order)
+    fp = sum(len(final[s] - expect[s]) for s in order)
     fn = sum(len(expect[s] - final[s]) for s in order)
-    ff = sum(1 for s in order if not expect[s] and final[s]); nn = sum(1 for s in order if not expect[s])
-    exact = sum(1 for s in order if final[s] == expect[s])
-    single = sum(1 for s in order if len(expect[s]) == 1 and expect[s] <= final[s] and final[s] == expect[s])
-    print(f"{arm:8} both-found {len(both)}/{len(two)} {both}  recall {tp/(tp+fn):.3f} precision {tp/(tp+fp):.3f} "
-          f"false-fire {ff}/{nn} exact {exact}/{len(order)} single-exact {single}/{sum(1 for s in order if len(expect[s])==1)} fp {fp}")
+    print(f"{arm:8} both-found {len(both)}/{count(lambda s: len(expect[s]) == 2)} {both}  "
+          f"recall {tp/(tp+fn):.3f} precision {tp/(tp+fp):.3f} "
+          f"false-fire {count(lambda s: not expect[s] and final[s])}/{count(lambda s: not expect[s])} "
+          f"exact {count(lambda s: final[s] == expect[s])}/{len(order)} "
+          f"single-exact {count(lambda s: len(expect[s]) == 1 and final[s] == expect[s])}/{count(lambda s: len(expect[s]) == 1)} fp {fp}")
     with open(os.path.join(HERE, f"answers_{arm}{os.environ.get('SUFFIX', '')}.txt"), "w") as w:
         for s in order: w.write(f"{s}: {', '.join(sorted(final[s])) or 'NONE'}\n")
 

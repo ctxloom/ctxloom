@@ -172,7 +172,7 @@ type EngineHost struct {
 	// route holds before the first turn (Drive).
 	seedGrants []string
 	nativeKey  string
-	turnBusy  chan struct{}
+	turnBusy   chan struct{}
 	// turnCancel interrupts the turn in flight: each turn runs under its own
 	// context, a child of the run's, so ending the TURN (InterruptRun, a
 	// stop's first step) leaves the run alive. nil when parked.

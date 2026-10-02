@@ -57,7 +57,7 @@ type fakeSpawner struct {
 	// startGrants records, per run, the grants its StartRun carried as the
 	// runner received them.
 	startGrants map[string][]string
-	perms     []string
+	perms       []string
 	// nextChat scripts the MIGRATED (StartRun) path's engine; StartEngine
 	// spawns a REAL runner half (Home + EngineHost over the coordinator's
 	// live gRPC listeners) around it. chats/kills record per spawn.

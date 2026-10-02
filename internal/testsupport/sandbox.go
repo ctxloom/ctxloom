@@ -155,9 +155,10 @@ func AppDirIsolationError() error {
 	return errors.Join(taskstest.AppDirIsolationError(), taskstest.EnvAppDirEscapeError())
 }
 
-// enterSandbox roots HOME and the working directory at fresh temp directories
-// and clears every EnvKeys variable, process-wide (os.Setenv, not t.Setenv:
-// there is no *testing.T at TestMain time). The returned func restores the
+// enterSandbox roots HOME and the working directory at fresh temp directories,
+// clears every EnvKeys variable and scrubs inherited app-dir paths,
+// process-wide (os.Setenv, not t.Setenv: there is no *testing.T at TestMain
+// time). The returned func restores the
 // working directory and removes the sandbox.
 //
 // HOME and cwd each get their own subdirectory under a single per-process
@@ -199,6 +200,12 @@ func enterSandbox() (func(), error) {
 		if err := os.Unsetenv(k); err != nil {
 			return nil, err
 		}
+	}
+	// After pinGoToolchainDirs, which derives from the real home but never
+	// lands in an app dir. What this drops is a session's companion store on
+	// PATH, which HOME and cwd isolation do not reach.
+	if err := taskstest.ScrubAppDirEnv(); err != nil {
+		return nil, err
 	}
 	prev, err := os.Getwd()
 	if err != nil {

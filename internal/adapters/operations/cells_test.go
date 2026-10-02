@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -151,13 +152,22 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 			"two concurrent sessions in one checkout must not share one CLAUDE_CONFIG_DIR")
 	})
 
-	t.Run("a worktree cell gets the same session home as the live tree", func(t *testing.T) {
+	// A worktree cell's home is the session instance under the PROJECT
+	// root, exactly as on the live tree. The trust answer in it is the
+	// engine's verdict on the repository, read from the human's own
+	// ~/.claude.json: seeded for the checkout the engine runs in only when
+	// the human trusted the repository, never otherwise.
+	worktreeCell := func(t *testing.T, trusted bool) map[string]any {
+		t.Helper()
 		if _, err := exec.LookPath("git"); err != nil {
 			t.Skip("git not on PATH; skipping the worktree cell case")
 		}
 		resetStrictness(t)
-		fakeHostHome(t, "login")
+		home := fakeHostHome(t, "login")
 		repo := initIsolationTestRepo(t)
+		if trusted {
+			trustRepoOnHost(t, home, repo)
+		}
 		cell := prepare(t, repo, launch.HomeModeSession, launch.WorkspaceWorktree, "test-harp")
 
 		env, ok := EnvironmentOf(cell)
@@ -168,10 +178,40 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 		assert.Equal(t, want, cell.Env[claude.ConfigDirEnv],
 			"the worktree cell's home is the session instance under the PROJECT root, exactly as on the live tree")
 
-		cfg, err := os.ReadFile(filepath.Join(want, ".claude.json"))
+		raw, err := os.ReadFile(filepath.Join(want, ".claude.json"))
 		require.NoError(t, err)
-		assert.Contains(t, string(cfg), cell.Workspace, "the trust answer names the checkout the engine runs in")
+		var cfg map[string]any
+		require.NoError(t, json.Unmarshal(raw, &cfg))
+		projects, _ := cfg["projects"].(map[string]any)
+		entry, _ := projects[cell.Workspace].(map[string]any)
+		return entry
+	}
+
+	t.Run("a worktree cell of an untrusted repository is seeded no trust answer", func(t *testing.T) {
+		entry := worktreeCell(t, false)
+		assert.NotEqual(t, true, entry["hasTrustDialogAccepted"], "ctxloom answered claude's trust prompt for a repository the human never trusted")
 	})
+
+	t.Run("a worktree cell of a repository the human trusted gets the answer for its own checkout", func(t *testing.T) {
+		entry := worktreeCell(t, true)
+		assert.Equal(t, true, entry["hasTrustDialogAccepted"], "the trust answer names the checkout the engine runs in")
+	})
+}
+
+// trustRepoOnHost records, in the fake host home's ~/.claude.json, the
+// human's acceptance of claude's trust prompt for repo — the record claude's
+// own verdict reads.
+func trustRepoOnHost(t *testing.T, home, repo string) {
+	t.Helper()
+	path := filepath.Join(home, ".claude.json")
+	cfg := map[string]any{}
+	if raw, err := os.ReadFile(path); err == nil {
+		require.NoError(t, json.Unmarshal(raw, &cfg))
+	}
+	cfg["projects"] = map[string]any{repo: map[string]any{"hasTrustDialogAccepted": true}}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, raw, 0o600))
 }
 
 // A claude CHILD of a mock-engine owner. The owner's session keeps no claude

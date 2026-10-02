@@ -90,7 +90,7 @@ func newContractLane(t *testing.T) *contractLane {
 	served := make(chan delivery.Loadout, 4)
 	runners.Static, runners.Records = fsstatic.New(afero.NewOsFs()), records
 	runners.Endpoint = func(h *runner.Home) delivery.Dynamic {
-		return recordedEndpoint{Endpoint: interaction.Endpoint{Home: h}, served: served}
+		return recordedEndpoint{Endpoint: interaction.Endpoint{Home: h, Wake: interaction.NewWakeSignal(h.SetWake)}, served: served}
 	}
 	t.Cleanup(runners.Close)
 

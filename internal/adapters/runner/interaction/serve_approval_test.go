@@ -36,7 +36,7 @@ func (r *recordingRoute) Hook(_ context.Context, event string, payload []byte) (
 // serveWithHome serves lo over home, so a test can bind the run's route.
 func serveWithHome(t *testing.T, lo delivery.Loadout, home *runner.Home) {
 	t.Helper()
-	served, err := interaction.Endpoint{Home: home}.Serve(context.Background(), lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
+	served, err := interaction.Endpoint{Home: home, Wake: interaction.NewWakeSignal(nil)}.Serve(context.Background(), lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = served.Close() })
 }

@@ -329,7 +329,8 @@ func encodeCell(c launch.Cell) *pb.Cell {
 		Workspace: c.Workspace,
 		Env:       c.Env,
 		Home:      encodeHome(c.Home),
-		UnsetEnv:  c.Unset,
+		UnsetEnv:    c.Unset,
+		SecretFiles: c.SecretFiles,
 	}
 	return out
 }
@@ -340,7 +341,8 @@ func decodeCell(w *pb.Cell) launch.Cell {
 			Paths: present.Advised(decodePaths(w.GetPaths())),
 			Env:   w.GetEnv(),
 			Home:  decodeHome(w.GetHome()),
-			Unset: w.GetUnsetEnv(),
+			Unset:       w.GetUnsetEnv(),
+			SecretFiles: w.GetSecretFiles(),
 		},
 		Workspace: w.GetWorkspace(),
 	}

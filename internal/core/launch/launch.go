@@ -196,6 +196,13 @@ type Placement struct {
 	// them before it drives the engine. An empty value in Env is not the
 	// same thing, and for some variables it means something else entirely.
 	Unset []string
+	// SecretFiles maps each credential variable whose VALUE must not cross
+	// the coordinator link to the Engine-side path of the read-only file that
+	// holds it; the runner reads each one and sets the variable for the
+	// engine alone. Env never names a variable named here. A container cell
+	// carries its credential this way, because its runner may dial home over
+	// a LAN-visible cleartext listener (present.Listen.Public).
+	SecretFiles map[string]string
 	// Home is each declared home var as resolved, at its Engine side.
 	Home []engine.HomeBinding
 	// Trust is the engine's verdict on the repository the workspace is in

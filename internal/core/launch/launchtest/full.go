@@ -41,8 +41,9 @@ func FullLaunch(t *testing.T) launch.Launch {
 		Cell: launch.Cell{
 			Placement: launch.Placement{
 				Paths: paths,
-				Env:   map[string]string{"WS_VAR": "ws"},
-				Home:  []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
+				Env:         map[string]string{"WS_VAR": "ws"},
+				SecretFiles: map[string]string{"FIXTURE_TOKEN": "/run/ctxloom/secrets/FIXTURE_TOKEN"},
+				Home:        []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
 			},
 			Workspace: "/proj/.worktrees/harp-1",
 		},

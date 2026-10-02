@@ -720,21 +720,40 @@ func ImportSkillArchive(ctx context.Context, fsys afero.Fs, archive []byte, dest
 	if err := fsys.RemoveAll(stagingRoot); err != nil {
 		return "", fmt.Errorf("skill import: clearing staging directory: %w", err)
 	}
-	extracted := filepath.Join(stagingRoot, "tree")
-
-	topDir, err := HardenedExtract(ctx, fsys, archive, format, extracted, opts)
+	topDir, staged, err := stageSkillArchive(ctx, fsys, archive, format, stagingRoot, opts, validate)
+	if err == nil {
+		// Last point at which a cancellation leaves the destination
+		// untouched: swapIntoPlace moves the existing tree aside.
+		err = ctx.Err()
+	}
 	if err != nil {
 		_ = fsys.RemoveAll(stagingRoot)
 		return "", fmt.Errorf("skill import: %w", err)
 	}
+	final := filepath.Join(destParent, topDir)
+	if err := swapIntoPlace(fsys, stagingRoot, staged, final); err != nil {
+		return "", err
+	}
+	_ = fsys.RemoveAll(stagingRoot)
+	return final, nil
+}
+
+// stageSkillArchive extracts archive under stagingRoot, names the staged tree
+// after the archive's top-level directory, and validates it there. The caller
+// owns stagingRoot's cleanup.
+func stageSkillArchive(ctx context.Context, fsys afero.Fs, archive []byte, format ArchiveFormat, stagingRoot string, opts ExtractOptions, validate func(afero.Fs, string) error) (topDir, staged string, err error) {
+	extracted := filepath.Join(stagingRoot, "tree")
+	topDir, err = HardenedExtract(ctx, fsys, archive, format, extracted, opts)
+	if err != nil {
+		return "", "", err
+	}
 
 	// HardenedExtract STRIPS the top-level directory, so `extracted` holds
 	// what will become destParent/topDir; give it that name in staging.
-	staged := filepath.Join(stagingRoot, topDir)
+	staged = filepath.Join(stagingRoot, topDir)
 	if staged != extracted {
 		if err := fsys.Rename(extracted, staged); err != nil {
-			_ = fsys.RemoveAll(stagingRoot)
-			return "", fmt.Errorf("skill import: naming the staged tree %q: %w", topDir, err)
+			return "", "", fmt.Errorf("naming the staged tree %q: %w", topDir, err)
 		}
 	}
 
@@ -742,35 +761,33 @@ func ImportSkillArchive(ctx context.Context, fsys afero.Fs, archive []byte, dest
 	// a replacement that turns out to be unusable.
 	if validate != nil {
 		if err := validate(fsys, staged); err != nil {
-			_ = fsys.RemoveAll(stagingRoot)
-			return "", fmt.Errorf("skill import: %w", err)
+			return "", "", err
 		}
 	}
+	return topDir, staged, nil
+}
 
-	// Swap, never clear-then-hope. RemoveAll(final) followed by Rename leaves a
-	// window in which the previously-good tree is already gone and the
-	// replacement has not arrived: a rename that fails there (cross-device,
-	// EACCES, a concurrent hold on the directory) leaves the user with NEITHER
-	// tree. So any existing destination is moved ASIDE, and put back if the
-	// swap does not complete. The aside copy lives inside stagingRoot so the
-	// ordinary staging cleanup reclaims it.
-	// Last point at which a cancellation leaves the destination untouched:
-	// past here the existing tree is moved aside.
-	if err := ctx.Err(); err != nil {
-		_ = fsys.RemoveAll(stagingRoot)
-		return "", fmt.Errorf("skill import: %w", err)
-	}
-	final := filepath.Join(destParent, topDir)
+// swapIntoPlace moves staged to final.
+//
+// Swap, never clear-then-hope. RemoveAll(final) followed by Rename leaves a
+// window in which the previously-good tree is already gone and the
+// replacement has not arrived: a rename that fails there (cross-device,
+// EACCES, a concurrent hold on the directory) leaves the user with NEITHER
+// tree. So any existing destination is moved ASIDE, and put back if the
+// swap does not complete. The aside copy lives inside stagingRoot so the
+// ordinary staging cleanup reclaims it — except when the restore fails, when
+// stagingRoot holds the only surviving copy and is left alone.
+func swapIntoPlace(fsys afero.Fs, stagingRoot, staged, final string) error {
 	aside := filepath.Join(stagingRoot, ".replaced")
 	replaced, err := afero.Exists(fsys, final)
 	if err != nil {
 		_ = fsys.RemoveAll(stagingRoot)
-		return "", fmt.Errorf("skill import: inspecting destination %q: %w", final, err)
+		return fmt.Errorf("skill import: inspecting destination %q: %w", final, err)
 	}
 	if replaced {
 		if err := fsys.Rename(final, aside); err != nil {
 			_ = fsys.RemoveAll(stagingRoot)
-			return "", fmt.Errorf("skill import: moving the existing tree at %q aside: %w", final, err)
+			return fmt.Errorf("skill import: moving the existing tree at %q aside: %w", final, err)
 		}
 	}
 	if err := fsys.Rename(staged, final); err != nil {
@@ -780,14 +797,13 @@ func ImportSkillArchive(ctx context.Context, fsys afero.Fs, archive []byte, dest
 				// the only surviving copy is. Reporting just the swap failure
 				// would send the user looking at an empty destination with no
 				// idea their tree is still recoverable.
-				return "", fmt.Errorf("skill import: moving extracted tree into place failed (%w) and the previous tree could NOT be restored to %q (%v) — it is still at %q", err, final, rerr, aside)
+				return fmt.Errorf("skill import: moving extracted tree into place failed (%w) and the previous tree could NOT be restored to %q (%v) — it is still at %q", err, final, rerr, aside)
 			}
 		}
 		_ = fsys.RemoveAll(stagingRoot)
-		return "", fmt.Errorf("skill import: moving extracted tree into place: %w", err)
+		return fmt.Errorf("skill import: moving extracted tree into place: %w", err)
 	}
-	_ = fsys.RemoveAll(stagingRoot)
-	return final, nil
+	return nil
 }
 
 // =============================================================================

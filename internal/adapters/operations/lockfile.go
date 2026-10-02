@@ -128,6 +128,13 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		preserveUnreachedEntries(prev, lockfile, len(unexpanded))
 	}
 
+	return saveRelock(lockManager, lockfile, incomplete)
+}
+
+// saveRelock persists a rebuilt lockfile and reports it. incomplete carries
+// through to the result so neither "generated" nor "empty" reads as a
+// complete, clean lock when part of the closure was never reached.
+func saveRelock(lockManager *remote.LockfileManager, lockfile *remote.Lockfile, incomplete bool) (*LockDependenciesResult, error) {
 	if lockfile.IsEmpty() {
 		msg := "No remote items found"
 		if incomplete {

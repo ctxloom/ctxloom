@@ -3,6 +3,7 @@ package archlint
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 	"regexp"
 
 	"golang.org/x/tools/go/analysis"
@@ -32,6 +33,10 @@ var lockReadPattern = regexp.MustCompile(`(?i)^(read|load)`)
 
 var lockSavePattern = regexp.MustCompile(`(?i)^save`)
 
+// lockWritePrimitives are write callees by bare name. The iox names stay only
+// while an iox caller remains in lockDisciplineScopes; the write library's own
+// entry points are safefsWrites, matched through their import because
+// "WriteFile" alone would also name afero's and os's.
 var lockWritePrimitives = map[string]bool{
 	"AtomicWriteFile":          true,
 	"WriteFileAtomicFs":        true,
@@ -40,6 +45,29 @@ var lockWritePrimitives = map[string]bool{
 	"WriteManagedCommandFiles": true,
 	"WriteServers":             true,
 	"RemoveServers":            true,
+}
+
+// safefsImportPath is the write library, whose writers are judged by import.
+const safefsImportPath = "github.com/ctxloom/ctxloom/internal/shared/safefs"
+
+// safefsWrites are the write library's whole-file writers.
+var safefsWrites = map[string]bool{
+	"WriteFile":         true,
+	"WriteFileKeepMode": true,
+}
+
+// isWriteCall reports whether call is a write by the lock and ledger rules'
+// shared signal: a save*-named callee, a listed primitive, or a safefs writer.
+func isWriteCall(info *types.Info, call *ast.CallExpr, name string) bool {
+	if lockSavePattern.MatchString(name) || lockWritePrimitives[name] {
+		return true
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	path, ok := qualifierPath(info, sel.X)
+	return ok && path == safefsImportPath && safefsWrites[name]
 }
 
 // LockDisciplineAnalyzer enforces that a read-then-write over an engine's
@@ -110,7 +138,7 @@ func runLockDiscipline(pass *analysis.Pass) (any, error) {
 					if at == token.NoPos {
 						at = call.Pos()
 					}
-				case lockSavePattern.MatchString(name) || lockWritePrimitives[name]:
+				case isWriteCall(pass.TypesInfo, call, name):
 					hasWrite = true
 					if at == token.NoPos {
 						at = call.Pos()

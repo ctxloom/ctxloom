@@ -7,3 +7,6 @@ import "github.com/spf13/afero"
 
 // Create stands in for safefs.Create.
 func Create(fs afero.Fs, name string) (afero.File, error) { return fs.Create(name) }
+
+// WriteFile stands in for safefs.WriteFile.
+func WriteFile(afero.Fs, string, []byte, uint32) error { return nil }

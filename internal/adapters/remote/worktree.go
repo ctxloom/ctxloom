@@ -11,7 +11,8 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // ErrNoCloneForWorktree reports that the repository a worktree was asked for
@@ -186,7 +187,7 @@ func narrowToSubpath(ctx context.Context, repoDir, worktreeDir, subpath string) 
 	// embedded slash anchors the pattern to the repository root under gitignore
 	// matching rules — so a bundle cannot be shadowed by a same-named directory
 	// nested somewhere else in the repository.
-	if err := iox.WriteFileAtomic(patternFile, []byte(subpath+"/\n"), 0o644); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), patternFile, []byte(subpath+"/\n"), 0o644); err != nil {
 		return fmt.Errorf("write the sparse pattern for %s: %w", worktreeDir, err)
 	}
 	return nil

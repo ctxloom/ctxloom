@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -259,7 +260,7 @@ func TestSendOverflow_SameBodyToTwoChildren(t *testing.T) {
 		if _, err := c.AgentSend(ownerIdentity(), k.Harp, KindMessage, full, nil, ""); !assert.NoError(t, err) {
 			return
 		}
-		delivered := awaitChildOverflow(t, k.Harp)
+		delivered := awaitChildOverflow(t, sp, k)
 		if delivered == "" {
 			return
 		}
@@ -279,28 +280,91 @@ func TestSendOverflow_SameBodyToTwoChildren(t *testing.T) {
 	}
 }
 
+// An overflowed message a child has ALREADY delivered is still observable.
+// Delivery deletes the spool file (the delivered record keeps only its
+// identity), so a check that looks only at in/ and in/claimed/ can see the
+// message solely in the window before the child's runner acks it. This waits
+// for the ack first — the interleaving a loaded machine produces at random —
+// so an observation that depends on winning that window fails every time.
+func TestSendOverflow_DeliveredMessageIsStillObservable(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	c := newTestCoordinator(t, sp, nil)
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "", "")
+	require.NoError(t, err)
+	kid := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
+	awaitRunnerHome(t, c, sp, kid.Harp)
+	before := len(spoolDelivered(t, kid.Harp))
+	full := overLong()
+	_, err = c.AgentSend(ownerIdentity(), kid.Harp, KindMessage, full, nil, "")
+	require.NoError(t, err)
+	awaitDeliveredCount(t, kid.Harp, before+1, "the child delivers the overflowed message")
+	delivered := awaitChildOverflow(t, sp, kid)
+	if delivered == "" {
+		return
+	}
+	assertOverflowed(t, c, kid, kid.Harp, full, nil, delivered, nil)
+}
+
 // ---- every route -----------------------------------------------------------
 
 // companions is each route's structured variant: none, and one large enough
 // on its own to overflow.
 var companions = map[string]json.RawMessage{"body only": nil, "with structured": bigStructured()}
 
-func awaitChildOverflow(t *testing.T, harp string) string {
+// awaitChildOverflow waits for the overflowed message to reach kid and
+// returns its body. Delivery DELETES the spool file and keeps only its
+// identity in the delivered record, so the body is read wherever it is when
+// the check runs: still in kid's in/ or in/claimed/, or already handed to
+// kid's engine as a turn.
+func awaitChildOverflow(t *testing.T, sp *fakeSpawner, kid Identity) string {
 	t.Helper()
 	var delivered string
 	assert.Eventually(t, func() bool {
-		for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName} {
-			for _, e := range spoolEntries(t, harp, dir) {
-				if strings.Contains(e.Message.Body, OverflowMarkerPhrase) {
-					delivered = e.Message.Body
-					assert.Empty(t, e.Message.Structured, "structured travels in the artifact")
-					return true
-				}
+		if delivered = spooledOverflow(t, kid.Harp); delivered == "" {
+			delivered = engineOverflow(sp, kid.RunID)
+		}
+		return delivered != ""
+	}, conformanceWait, 10*time.Millisecond, "the overflowed message never reached %s", kid.Harp)
+	return delivered
+}
+
+// spooledOverflow is the body of an overflowed message still waiting in
+// harp's spool, "" when none is.
+func spooledOverflow(t *testing.T, harp string) string {
+	t.Helper()
+	for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName} {
+		for _, e := range spoolEntries(t, harp, dir) {
+			if strings.Contains(e.Message.Body, OverflowMarkerPhrase) {
+				assert.Empty(t, e.Message.Structured, "structured travels in the artifact")
+				return e.Message.Body
 			}
 		}
-		return false
-	}, conformanceWait, 10*time.Millisecond, "the overflowed message never reached %s's spool", harp)
-	return delivered
+	}
+	return ""
+}
+
+// engineOverflow is the body of an overflowed message the owner sent that
+// runID's engine was handed as a turn, "" when none was. The delivery frame is
+// cut with the renderer's own header (FrameCoordinatorDelivery over an empty
+// body), so what remains is the body exactly as the spool file held it.
+func engineOverflow(sp *fakeSpawner, runID string) string {
+	header := runnerHooks.FrameCoordinatorDelivery(ownerIdentity().Harp, KindMessage, "")
+	for i := range sp.chatCount() {
+		ch := sp.chat(i)
+		if ch.RunnerEnv()[EnvRunID] != runID {
+			continue
+		}
+		ch.Mu.Lock()
+		texts := slices.Clone(ch.Texts)
+		ch.Mu.Unlock()
+		for _, text := range texts {
+			if body, ok := strings.CutPrefix(text, header); ok && strings.Contains(body, OverflowMarkerPhrase) {
+				return body
+			}
+		}
+	}
+	return ""
 }
 
 func TestSendOverflow_OwnerToChild(t *testing.T) {
@@ -318,7 +382,7 @@ func TestSendOverflow_OwnerToChild(t *testing.T) {
 			if _, err := c.AgentSend(ownerIdentity(), out.Harp, KindMessage, full, structured, ""); !assert.NoError(t, err) {
 				return
 			}
-			if delivered := awaitChildOverflow(t, out.Harp); delivered != "" {
+			if delivered := awaitChildOverflow(t, sp, child); delivered != "" {
 				assertOverflowed(t, c, child, out.Harp, full, structured, delivered, nil)
 			}
 		})

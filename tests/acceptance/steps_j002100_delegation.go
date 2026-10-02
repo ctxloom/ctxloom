@@ -29,11 +29,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cucumber/godog"
 
 	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -63,6 +65,7 @@ type j002100State struct {
 	snapshots  map[string]j002100RunFact    // "remembered as" label -> captured journal fact
 	harps      map[string]string            // agent name -> its most recently spawned session harp
 	runIDs     map[string]string            // agent name -> the run id that spawn minted for it (agent_stop addresses runs)
+	askID      string                       // the id the last agent_ask returned
 }
 
 // j002100RunFact is runEnqueued's (coord/facts.go) payload, decoded straight off
@@ -591,4 +594,116 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			})
 		})
 
+	// --- An ask is asynchronous: agent_ask returns an id at once, and the
+	// child's answer arrives later as mail quoting it.
+	ctx.Step(`^the agent calls tool "agent_ask" for "([^"]*)"'s remembered session with the question "([^"]*)"$`,
+		func(c context.Context, name, question string) error {
+			harp, ok := j002100Of(worldFrom(c)).harps[name]
+			if !ok || harp == "" {
+				return fmt.Errorf("j002100: no session harp remembered for %q", name)
+			}
+			return callTool(c, "agent_ask", map[string]any{"harp": harp, "text": question})
+		})
+
+	ctx.Step(`^the tool result carries the ask's id$`, func(c context.Context) error {
+		w := worldFrom(c)
+		id, ok := w.lastInner[askIDField].(string)
+		if !ok || id == "" {
+			return fmt.Errorf("j002100: the ask returned no %s, so it did not answer at once; result:\n%s", askIDField, w.lastTool.JSON())
+		}
+		j002100Of(w).askID = id
+		return nil
+	})
+
+	ctx.Step(`^"([^"]*)" answers that ask from its own outbox with "([^"]*)"$`,
+		func(c context.Context, name, answer string) error {
+			w := worldFrom(c)
+			j002100 := j002100Of(w)
+			harp, ok := j002100.harps[name]
+			if !ok || harp == "" {
+				return fmt.Errorf("j002100: no session harp remembered for %q", name)
+			}
+			out, err := spool.NewWriter(scenarioSpoolMapper{home: w.env.HomeDir}, harp, spool.DirOut, harp)
+			if err != nil {
+				return err
+			}
+			_, err = out.Write(&spool.Message{Kind: "result", FromHarp: harp, To: "parent", InReplyTo: j002100.askID, Body: answer})
+			return err
+		})
+
+	// A delivered inbox file is deleted, so delivery is proven as
+	// ownerDeliveredFrom proves it: the coordinator's audit names the message
+	// it wrote into the owner's in/, here by its in_reply_to, and the owner's
+	// delivered record holds that id. The answer's words are read from the
+	// child's routed copy, which the coordinator consumed only once routed.
+	ctx.Step(`^within (\d+)s the coordinator's reader delivers "([^"]*)"'s answer "([^"]*)", quoting the ask's id$`,
+		func(c context.Context, secs int, name, answer string) error {
+			w := worldFrom(c)
+			j002100 := j002100Of(w)
+			harp := j002100.harps[name]
+			owner := w.env.ChildEnv("CTXLOOM_SESSION_HARP")
+			if owner == "" {
+				return fmt.Errorf("j002100: the scenario never pinned the coordinator's own harp, so there is no owner spool to read")
+			}
+			deadline := time.Now().Add(time.Duration(secs) * time.Second)
+			for {
+				ids, err := routedToOwnerWhere(w, owner, func(d map[string]string) bool {
+					return d["from"] == harp && d["kind"] == "result" && d["in_reply_to"] == j002100.askID
+				})
+				if err != nil {
+					return err
+				}
+				delivered, err := ownerDelivered(w, ids)
+				if err != nil {
+					return err
+				}
+				if delivered {
+					return routedAnswer(w, harp, j002100.askID, answer)
+				}
+				if time.Now().After(deadline) {
+					return fmt.Errorf("after %ds the coordinator (harp %s) has delivered no result from %s (harp %s) quoting ask %s; routed under ids %v",
+						secs, owner, name, harp, j002100.askID, ids)
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+		})
+}
+
+// routedAnswer checks that harp's routed copy quoting askID is the answer:
+// the automatic turn report quotes the same id, and only the words tell the
+// two apart.
+func routedAnswer(w *World, harp, askID, answer string) error {
+	routed, err := childSpoolMessages(w, harp, spool.DirOutConsumed)
+	if err != nil {
+		return err
+	}
+	var quoting []string
+	for _, m := range routed {
+		if m.InReplyTo != askID {
+			continue
+		}
+		if strings.Contains(m.Body, answer) {
+			w.docStepMaterialized = fmt.Sprintf("%s's routed answer, in_reply_to=%s:\n  %s", harp, m.InReplyTo, m.Body)
+			return nil
+		}
+		quoting = append(quoting, m.Body)
+	}
+	return fmt.Errorf("j002100: no routed message from %s quoting ask %s carries %q; those quoting it:\n%s", harp, askID, answer, strings.Join(quoting, "\n"))
+}
+
+// scenarioSpoolMapper resolves spool refs under the scenario's isolated HOME.
+// spool.HomeMapper resolves against the test process's own $HOME, which is
+// not where the scenario's sessions live. Writing is all it is used for, so
+// it needs no inverse.
+type scenarioSpoolMapper struct{ home string }
+
+func (m scenarioSpoolMapper) Resolve(ref spool.Ref) (string, error) {
+	if err := ref.Validate(); err != nil {
+		return "", err
+	}
+	return filepath.Join(m.home, filepath.FromSlash(harpSessionsRel), ref.Harp, "persist", "spool", filepath.FromSlash(string(ref.Dir)), ref.Name), nil
+}
+
+func (scenarioSpoolMapper) RefOf(path string) (spool.Ref, error) {
+	return spool.Ref{}, fmt.Errorf("scenarioSpoolMapper resolves only; it cannot take a ref from %q", path)
 }

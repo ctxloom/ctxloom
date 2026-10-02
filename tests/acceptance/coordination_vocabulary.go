@@ -22,6 +22,7 @@ import (
 var (
 	spawnChildAgentIDField = protoFieldName(&pb.SpawnAgentResult{}, "child_agent_id")
 	spawnChildRunIDField   = protoFieldName(&pb.SpawnAgentResult{}, "child_run_id")
+	askIDField             = protoFieldName(&pb.ControlAskResult{}, "ask_id")
 )
 
 // protoFieldName returns name after asserting m declares a field by it.

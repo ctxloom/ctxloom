@@ -452,3 +452,99 @@ func TestRelay_EndpointFailure_IsNotARefusal(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, relay.ErrEndpointRefused)
 }
+
+// signalled is the relay's end of claude's stdio. It reports each message the
+// relay starts writing to claude, and holds the write of the response to
+// heldID until held closes: claude not taking a message, which parks the
+// relay goroutine writing it exactly there.
+type signalled struct {
+	mcp.Transport
+	writing chan jsonrpc.Message
+	heldID  jsonrpc.ID
+	held    chan struct{}
+}
+
+func (s signalled) Connect(ctx context.Context) (mcp.Connection, error) {
+	c, err := s.Transport.Connect(ctx)
+	return signalledConn{Connection: c, s: s}, err
+}
+
+type signalledConn struct {
+	mcp.Connection
+	s signalled
+}
+
+func (c signalledConn) Write(ctx context.Context, msg jsonrpc.Message) error {
+	c.s.writing <- msg
+	if resp, ok := msg.(*jsonrpc.Response); ok && resp.ID == c.s.heldID {
+		<-c.s.held
+	}
+	return c.Connection.Write(ctx, msg)
+}
+
+// awaitWriting waits for the relay to start writing the response to id.
+func awaitWriting(t *testing.T, writing <-chan jsonrpc.Message, id int64) *jsonrpc.Response {
+	t.Helper()
+	want, err := jsonrpc.MakeID(float64(id))
+	require.NoError(t, err)
+	msg := testsupport.Await(t, bound, writing, "the relay never answered call %d", id)
+	resp, ok := msg.(*jsonrpc.Response)
+	require.True(t, ok, "the relay wrote a response: %T", msg)
+	require.Equal(t, want, resp.ID)
+	return resp
+}
+
+// TestRelay_ClaudeClosingAfterTheEndpointFailed_IsNotACleanExit: claude
+// closes the relay BECAUSE the endpoint failed (its call was answered with the
+// failure), so its close must not launder that failure into a clean exit.
+// The interleaving is forced: the relay's endpoint-to-claude side is parked
+// writing the initialize result claude does not take, so it cannot be the
+// side that sees the failure; the endpoint then fails the next call, and
+// claude closes only once the relay has answered that call, after the failure.
+func TestRelay_ClaudeClosingAfterTheEndpointFailed_IsNotACleanExit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&req) != nil || req.Method != "initialize" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Mcp-Session-Id", "s1")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":` + string(req.ID) + `,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"upstream","version":"0"}}}`))
+	}))
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), bound)
+	t.Cleanup(cancel)
+	claudeSide, relaySide := mcp.NewInMemoryTransports()
+	writing := make(chan jsonrpc.Message, 4)
+	first, err := jsonrpc.MakeID(float64(1))
+	require.NoError(t, err)
+	held := make(chan struct{})
+	t.Cleanup(sync.OnceFunc(func() { close(held) }))
+	env := baseEnv(srv.URL + "/mcp")
+	done := make(chan error, 1)
+	go func() {
+		done <- relay.Run(ctx, relay.Config{Env: func(k string) (string, bool) { v, ok := env[k]; return v, ok }, Stderr: make(lines, 16)}, signalled{Transport: relaySide, writing: writing, heldID: first, held: held})
+	}()
+	conn, err := claudeSide.Connect(ctx)
+	require.NoError(t, err)
+
+	write := func(id int64, method string, params string) {
+		rid, err := jsonrpc.MakeID(float64(id))
+		require.NoError(t, err)
+		require.NoError(t, conn.Write(ctx, &jsonrpc.Request{ID: rid, Method: method, Params: json.RawMessage(params)}))
+	}
+	write(1, "initialize", `{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"claude-stand-in","version":"0"}}`)
+	require.NoError(t, awaitWriting(t, writing, 1).Error, "the endpoint initialized")
+	write(2, "tools/list", `{}`)
+	require.Error(t, awaitWriting(t, writing, 2).Error, "the endpoint's failure is answered to claude")
+	require.NoError(t, conn.Close())
+
+	err = testsupport.Await(t, bound, (<-chan error)(done), "the relay did not end after claude closed")
+	require.Error(t, err, "an endpoint that failed is not a clean exit")
+	require.NotErrorIs(t, err, relay.ErrEndpointRefused)
+	assert.Contains(t, err.Error(), "Forbidden")
+}

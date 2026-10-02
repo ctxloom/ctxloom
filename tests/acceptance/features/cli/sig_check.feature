@@ -88,9 +88,10 @@ Feature: --disable-sig-check — waiving signature verification for one invocati
     And the mock recorded input does not contain "CTXLOOM_SESSION_DISABLE_SIG_CHECK"
 
   # The carrier reaches whatever the engine starts, its shell included. A
-  # ctxloom hook honours it; a `ctxloom run` started from that shell is a new
-  # invocation — an agent launched by hand — and stays enforced.
-  Scenario: A hook honours the session's waiver, and a run started from the session's shell does not
+  # ctxloom hook honours it; a `ctxloom run` or `ctxloom doctor` typed in that
+  # shell is a new invocation and verifies — but names the waiver of the
+  # session it runs in, so it is never silent.
+  Scenario: A hook honours the session's waiver; a command typed in the session's shell verifies, and names the waiver
     Given an initialized ctxloom project
     And a bundle "demo" exists
     And a fragment "testing" in bundle "demo" exists
@@ -106,3 +107,7 @@ Feature: --disable-sig-check — waiving signature verification for one invocati
     When I run "ctxloom run --dry-run --format json --profile dev hello"
     Then the command succeeds
     And the output reports "signature_check" as "enforced"
+    And the output reports "session_signature_check" as "disabled"
+    When I run "ctxloom --format json doctor"
+    Then the command succeeds
+    And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-SIG-CHECK-e2" and whose "status" is "warn"

@@ -219,3 +219,34 @@ func TestDryRun_TextNamesEditedSignedTreesTheWaiverAccepted(t *testing.T) {
 	printSignatureCheck(&buf, signatureCheckDisabled, nil)
 	assert.NotContains(t, buf.String(), editedSignedTreesLabel, "no edited tree, no line")
 }
+
+// A command run inside a waived session that does not serve it (a doctor, a
+// run typed in the engine's shell) decides enforced, and still knows the
+// session it runs in is waived — so it can say so.
+func TestSwitches_CarryTheSessionsWaiverWithoutWaivingTheInvocation(t *testing.T) {
+	withSigCheckEnv(t, false)
+	withSessionSigCheckEnv(t, true)
+
+	sw := switches(runCmd)
+
+	assert.False(t, sw.SigCheckDisabled, "the invocation verifies")
+	assert.True(t, sw.SessionSigCheckWaived, "and knows its session does not")
+}
+
+func TestDryRun_NamesTheWaiverOfTheSessionItRunsIn(t *testing.T) {
+	runCLIFixture(t)
+	withSigCheckEnv(t, false)
+	withSessionSigCheckEnv(t, true)
+	resetSigCheckFlagAfter(t)
+
+	res := runCLI(t, "run", "--dry-run", "--format", "json", "-p", "dev", "hi")
+	require.NoError(t, res.err, res.all())
+	var got dryRunJSON
+	require.NoError(t, json.Unmarshal([]byte(res.out), &got), "payload: %s", res.out)
+	assert.Equal(t, signatureCheckEnforced, got.SignatureCheck, "a run typed in the session's shell verifies")
+	assert.Equal(t, signatureCheckDisabled, got.SessionSignatureCheck, "and names the waiver of the session it runs in")
+
+	res = runCLI(t, "run", "--dry-run", "--format", "text", "-p", "dev", "hi")
+	require.NoError(t, res.err, res.all())
+	assert.Contains(t, res.stdout, "=== Signature Check ===\nsession: "+bundles.SessionSigCheckNotice+"\n")
+}

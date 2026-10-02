@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -49,7 +50,7 @@ func TestGenConfig_DocumentsOverrideMechanism(t *testing.T) {
 		}
 	}`), 0o644))
 
-	require.NoError(t, GenConfig(&Product{Bin: "ctxloom"}, schemaPath, dir))
+	require.NoError(t, GenConfig(afero.NewOsFs(), &Product{Bin: "ctxloom"}, schemaPath, dir))
 
 	out, err := os.ReadFile(filepath.Join(dir, "config.md"))
 	require.NoError(t, err)
@@ -80,7 +81,7 @@ func TestGenConfig_UsesProductsOwnConventions(t *testing.T) {
 		}
 	}`), 0o644))
 
-	require.NoError(t, GenConfig(&Product{Bin: "taskloom"}, schemaPath, dir))
+	require.NoError(t, GenConfig(afero.NewOsFs(), &Product{Bin: "taskloom"}, schemaPath, dir))
 
 	out, err := os.ReadFile(filepath.Join(dir, "config.md"))
 	require.NoError(t, err)
@@ -104,7 +105,7 @@ func TestGenConfig_EmptySchemaFailsLoudInsteadOfWritingAFieldlessPage(t *testing
 	schemaPath := filepath.Join(dir, "config-schema.json")
 	require.NoError(t, os.WriteFile(schemaPath, []byte(`{"title": "ctxloom configuration", "type": "object"}`), 0o644))
 
-	err := GenConfig(&Product{Bin: "ctxloom"}, schemaPath, dir)
+	err := GenConfig(afero.NewOsFs(), &Product{Bin: "ctxloom"}, schemaPath, dir)
 	require.Error(t, err, "a schema with no properties and no $defs has nothing to document")
 	assert.Contains(t, err.Error(), schemaPath, "the error must name the offending schema file")
 
@@ -121,6 +122,6 @@ func TestGenConfig_NullSchemaFailsLoud(t *testing.T) {
 	schemaPath := filepath.Join(dir, "config-schema.json")
 	require.NoError(t, os.WriteFile(schemaPath, []byte(`null`), 0o644))
 
-	err := GenConfig(&Product{Bin: "ctxloom"}, schemaPath, dir)
+	err := GenConfig(afero.NewOsFs(), &Product{Bin: "ctxloom"}, schemaPath, dir)
 	require.Error(t, err, "a null schema document has nothing to document")
 }

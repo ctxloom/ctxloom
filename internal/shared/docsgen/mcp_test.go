@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/afero"
 )
 
 type gadgetInput struct {
@@ -38,7 +39,7 @@ func TestGenMCPTools(t *testing.T) {
 	p.MCPCommand = "widget mcp"
 	p.MCPIntro = "Widget tools for agents."
 
-	if err := GenMCPTools(context.Background(), p, dir); err != nil {
+	if err := GenMCPTools(context.Background(), afero.NewOsFs(), p, dir); err != nil {
 		t.Fatalf("GenMCPTools: %v", err)
 	}
 
@@ -97,7 +98,7 @@ func TestGenMCPTools_PaginatesBeyondOnePage(t *testing.T) {
 	p.MCPCommand = "widget mcp"
 
 	dir := t.TempDir()
-	if err := GenMCPTools(context.Background(), p, dir); err != nil {
+	if err := GenMCPTools(context.Background(), afero.NewOsFs(), p, dir); err != nil {
 		t.Fatalf("GenMCPTools: %v", err)
 	}
 
@@ -118,7 +119,7 @@ func TestGenMCPTools_PaginatesBeyondOnePage(t *testing.T) {
 // no MCP surface (ltk) is a generator misconfiguration, not a silent no-op.
 func TestGenMCPToolsRequiresServer(t *testing.T) {
 	p := fakeProduct()
-	if err := GenMCPTools(context.Background(), p, t.TempDir()); err == nil {
+	if err := GenMCPTools(context.Background(), afero.NewOsFs(), p, t.TempDir()); err == nil {
 		t.Fatal("expected an error generating an MCP page for a product with no MCP server")
 	}
 }
@@ -174,7 +175,7 @@ func TestGenMCPTools_RequiresSourceAndCommand(t *testing.T) {
 			p.MCPSource = tc.mcpSource
 			p.MCPCommand = tc.mcpCommand
 
-			if err := GenMCPTools(context.Background(), p, t.TempDir()); err == nil {
+			if err := GenMCPTools(context.Background(), afero.NewOsFs(), p, t.TempDir()); err == nil {
 				t.Fatal("expected an error generating an MCP page with an empty MCPSource/MCPCommand")
 			}
 		})
@@ -191,7 +192,7 @@ func TestGenMCPTools_ZeroToolsFailsLoud(t *testing.T) {
 	p.MCPServer = s
 
 	dir := t.TempDir()
-	if err := GenMCPTools(context.Background(), p, dir); err == nil {
+	if err := GenMCPTools(context.Background(), afero.NewOsFs(), p, dir); err == nil {
 		t.Fatal("expected an error generating an MCP page for a server with no registered tools")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "mcp-tools.md")); err == nil {
@@ -225,7 +226,7 @@ func TestGenMCPTools_UndecodableInputSchemaFailsLoud(t *testing.T) {
 	p.MCPServer = s
 
 	dir := t.TempDir()
-	if err := GenMCPTools(context.Background(), p, dir); err == nil {
+	if err := GenMCPTools(context.Background(), afero.NewOsFs(), p, dir); err == nil {
 		t.Fatal("expected an error when a tool's input schema cannot be decoded")
 	}
 }

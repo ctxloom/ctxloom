@@ -290,6 +290,7 @@ func TestSpoolDelivery_ChildSendRidesOutAndReachesTheParent(t *testing.T) {
 	assert.Equal(t, got[0].To, routed[0].Actor, "the audit actor is the recipient")
 	assert.Equal(t, out.Harp, routed[0].Detail["from"], "the audit names the sender the coordinator resolved from the spool directory")
 	assert.Equal(t, KindResult, routed[0].Detail["kind"])
+	assert.Equal(t, "corr-2", routed[0].Detail["in_reply_to"], "the audit records which message this one answers, so a reply's correlation outlives the deleted inbox file")
 
 	// Consumed by rename, not deleted. The message is SELECTED rather than
 	// counted: this run's turn boundary also writes its automatic report into

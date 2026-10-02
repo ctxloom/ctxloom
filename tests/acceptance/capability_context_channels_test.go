@@ -38,6 +38,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // channelProbeHarp is a stand-in nonce for the structural tests. It never
@@ -109,10 +110,9 @@ func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 // because the question here is precisely WHICH root the bytes chose.
 func deliverContextAcrossRoots(t *testing.T, engine, approach string) (inProject, outsideProject map[string]string) {
 	t.Helper()
-	// Delivery takes its write lock on the REAL filesystem under the home lock
-	// directory, even though the bytes land in the in-memory fs below; a test
-	// binary is refused that directory unless HOME is a temp root.
-	t.Setenv("HOME", t.TempDir())
+	// Delivery takes the session's home lock, resolved from HOME and the
+	// working directory; this package's TestMain leaves both real.
+	testsupport.ProjectDir(t)
 	const (
 		projectRoot = "/probe/project"
 		engineHome  = "/probe/engine-home"

@@ -521,7 +521,7 @@ func TestEngineHost_TurnSinkDeliversFramedMail(t *testing.T) {
 	require.True(t, ok)
 	require.Eventually(t, func() bool { return len(sc.RecordedTexts()) == 2 }, 5*time.Second, 10*time.Millisecond)
 	got := sc.RecordedTexts()[1]
-	assert.Contains(t, got, "[coordinator-delivered message from=parent-harp kind=result]")
+	assert.Contains(t, got, "[coordinator-delivered message from=parent-harp kind=result id=m-9]")
 	assert.Contains(t, got, "next assignment")
 
 	// A kind OUTSIDE the closed vocabulary is not interpolated into the header.

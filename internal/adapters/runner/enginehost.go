@@ -1152,8 +1152,10 @@ const CoordinatorFrameOpen = "[coordinator-delivered message"
 const coordinatorFrameQuote = "[quoted-"
 
 // FrameCoordinatorDelivery renders one coordinator-delivered message as the text
-// of a new engine turn: a provenance header naming the sender and the message
-// kind, then the body. It is THE model-visible shape of delivered mail on
+// of a new engine turn: a provenance header naming the sender, the message
+// kind, the message's id and the id it answers, then the body. The ids are
+// what a model quotes and matches: a child quotes an ask's id to answer it,
+// and an asker reads in_reply_to to know which ask an answer answers. It is THE model-visible shape of delivered mail on
 // every path — the hosted turn sink here, and the session owner's turn-start
 // hook (`ctxloom hook mail-drain`), which is why it is exported: a second
 // renderer would be a second place for the invariants below to be forgotten.
@@ -1163,23 +1165,29 @@ const coordinatorFrameQuote = "[quoted-"
 //     function's — every occurrence inside body is rewritten inert;
 //   - the rendered kind is a name from the closed mail vocabulary
 //     (knownMailKind), never sender bytes;
-//   - the rendered sender id holds header-safe characters only, so it cannot
-//     close the header early and append attributes of its own.
+//   - the rendered sender id and message ids hold header-safe characters
+//     only, so none can close the header early and append attributes.
 //
 // The header is hand-written here and in exactly one other place (the legacy
 // mail path funnels through this function). Rendering frames from generated
 // encoders is what makes the invariants structural rather than remembered.
-func FrameCoordinatorDelivery(from, kind, body string) string {
+func FrameCoordinatorDelivery(m coord.Message) string {
 	var b strings.Builder
 	b.WriteString(CoordinatorFrameOpen)
-	if f := frameHeaderToken(from); f != "" {
+	if f := frameHeaderToken(m.From); f != "" {
 		fmt.Fprintf(&b, " from=%s", f)
 	}
-	if coord.KnownMailKind(kind) {
-		fmt.Fprintf(&b, " kind=%s", kind)
+	if coord.KnownMailKind(m.Kind) {
+		fmt.Fprintf(&b, " kind=%s", m.Kind)
+	}
+	if id := frameHeaderToken(m.ID); id != "" {
+		fmt.Fprintf(&b, " id=%s", id)
+	}
+	if re := frameHeaderToken(m.InReplyTo); re != "" {
+		fmt.Fprintf(&b, " in_reply_to=%s", re)
 	}
 	b.WriteString("]\n")
-	b.WriteString(quoteFrameHeaders(body))
+	b.WriteString(quoteFrameHeaders(m.Body))
 	return b.String()
 }
 
@@ -1189,7 +1197,10 @@ func FrameCoordinatorDelivery(from, kind, body string) string {
 // opaque companion and is never consulted — a "kind" key in it is sender bytes,
 // which is exactly what the header must not be built from.
 func FrameCoordinatorMessage(pm *agentcoordpb.PeerMessage) string {
-	return FrameCoordinatorDelivery(pm.GetFromAgentId(), agentcoordpb.LegacyKindName(pm.GetKind()), pm.GetText())
+	return FrameCoordinatorDelivery(coord.Message{
+		From: pm.GetFromAgentId(), Kind: agentcoordpb.LegacyKindName(pm.GetKind()),
+		ID: pm.GetMessageId(), InReplyTo: pm.GetInReplyTo(), Body: pm.GetText(),
+	})
 }
 
 // frameHeaderToken reduces one value to characters that cannot alter the

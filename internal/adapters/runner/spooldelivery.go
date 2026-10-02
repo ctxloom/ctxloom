@@ -225,12 +225,10 @@ func (h *Home) ackMailConsumed(ids []string) {
 // Validation is coord.SendRequest.Validate, the same check the coordinator's
 // Send verb runs, so the refusals an agent can be told about synchronously
 // (no recipient, no body, a kind outside the sender vocabulary) are given
-// here, before anything is written. A reply (InReplyTo set) is exempt from
-// the kind check because this path has no coordinator round trip and cannot
-// ask whether the reply correlates to a pending approval or ask — that state
-// lives coordinator-side. A reply that turns out to correlate to nothing is
-// still refused, one hop later: the coordinator's sweep (routeSpoolOut's
-// peerSend call) refuses it and mails the refusal back (replySpoolRefusal).
+// here, before anything is written — a reply included: an answer to an ask
+// is ordinary mail and carries a sender kind like any other. Whatever the
+// routing refuses one hop later (the coordinator's sweep, routeSpoolOut's
+// peerSend call) is mailed back as a refusal (replySpoolRefusal).
 func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, bool) {
 	send := req.GetPeerSend()
 	if send == nil {

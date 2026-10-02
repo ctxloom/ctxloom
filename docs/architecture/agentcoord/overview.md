@@ -269,7 +269,7 @@ false — delete it rather than leave it.
 
 | # | Invariant | Enforced at |
 |---|---|---|
-| I1 | A child may address only `ParentAddress` or its own parent's harp; anything else is `ErrPeerRouting`. The kind vocabulary is gated once, for both surfaces, by `SenderMailKind`. | `Coordinator.peerSend`, `Coordinator.childSend` (`coordinator.go`) |
+| I1 | A session addresses only its own parent (`ParentAddress` or the parent's harp) and its own children (by harp, `Coordinator.childRun`); a delegated session addressing anything else is `ErrPeerRouting`, the root addressing a non-child is `ErrNotAChild`. The kind vocabulary is gated once, for both surfaces, by `SenderMailKind`. | `Coordinator.peerSend`, `Coordinator.childSend`, `Coordinator.childRun` (`coordinator.go`) |
 | I2 | Only a non-child caller may `agent_stop` or `roster`; a LEAF child's runner never registers the coordinator-only tools at all. | `Coordinator.AgentStop`, `Coordinator.serveListRuns`; `mcpschema.CoordinatorOnlyTools` |
 | I3 | Facts become visible only after they are durable: one writer goroutine serialises every `decide → append → fsync → apply` window. | `Store.writer`, `Store.execLocked` (`journal.go`) |
 | I4 | Folds are single-writer by construction; `Store.View` is a read-lock window and callers must not retain references out of it. | `Store.View` (`journal.go`) |

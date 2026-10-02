@@ -176,6 +176,33 @@ Feature: Coordinator delegates isolated work
     When the agent sends "fixer"'s remembered session a message of kind "result"
     Then the tool call succeeds
 
+  # An ask does not hold the asker: agent_ask returns an ask_id at once, and
+  # the answer is whatever the child itself later sends back quoting that id,
+  # reaching the asker as mail that starts its next turn. A delivered inbox
+  # file is deleted, so delivery is read from the coordinator's audit of the
+  # write (which records the in_reply_to) joined to the owner's delivered
+  # record.
+  #
+  # WHAT THIS HARNESS CAN AND CANNOT SEE: a mock-engine child has no tools, so
+  # it cannot choose to answer. Its runner's automatic turn report DOES quote
+  # the ask id, and is deliberately not the answer. So the harness stands in
+  # for the child's deliberate reply at the one place a child's agent_send
+  # lands — a file in the child's OWN out/ spool, whose sender identity is the
+  # directory, never the file — and the coordinator routes it from there
+  # exactly as it routes any child send. The answer's own words, not the
+  # correlation alone, select it from the turn report that shares its id.
+  Scenario: An ask returns at once, and the child's answer arrives later as mail quoting it
+    When the agent calls tool "agent_run" with:
+      | role         | fixer |
+      | input.prompt | go    |
+    Then the tool call succeeds
+    And "fixer"'s spawned session is remembered
+    When the agent calls tool "agent_ask" for "fixer"'s remembered session with the question "which migration path?"
+    Then the tool call succeeds
+    And the tool result carries the ask's id
+    When "fixer" answers that ask from its own outbox with "the reversible one"
+    Then within 45s the coordinator's reader delivers "fixer"'s answer "the reversible one", quoting the ask's id
+
   # REMOVED with the orchestrator-routed escalation ladder (2026-08-31). The
   # scenario's own Given configured a ladder ("whose escalation ladder relays to
   # a parent that never answers"), so its subject no longer exists.

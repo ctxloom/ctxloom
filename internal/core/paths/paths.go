@@ -787,8 +787,20 @@ func CoordProjectStateDir(projectKey string) (string, error) {
 // HomeLocksDir returns ~/.ctxloom/locks — the home-rooted directory holding
 // advisory-lock sidecars for FOREIGN files a ctxloom-family binary does not
 // own (see HomePathFor, lockpath.go, and HomeLocksDirName's doc).
+//
+// Guarded like HomeRecordsDir: every foreign-file lock resolves through here,
+// and a lock file outlives the run that took it, so an unsandboxed test
+// package would leave one in the developer's real home per locked write.
 func HomeLocksDir() (string, error) {
-	return homeUnder(whatHomeLocks, HomeLocksDirName)
+	dir, err := homeUnder(whatHomeLocks, HomeLocksDirName)
+	if err != nil {
+		return "", err
+	}
+	if err := UnsandboxedHomeError("home lock directory", dir,
+		"testsupport.SandboxedMain / testsupport.Isolate, so HOME points at a temp root"); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // HomeRecordsDir returns ~/.ctxloom/records — the home-rooted directory

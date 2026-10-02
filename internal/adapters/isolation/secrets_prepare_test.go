@@ -121,14 +121,15 @@ func TestContainer_TheNextPrepareSweepsACrashedRunsSecret(t *testing.T) {
 }
 
 // With no user runtime dir (macOS, Windows, a session without one) the
-// secret dir lives in the run's own container scratch root, which the
-// shared-filesystem probe already proved the daemon can see.
-func TestContainer_SecretFallsBackToTheScratchRootWithoutARuntimeDir(t *testing.T) {
+// secret dir lives in the session's ephemeral dir beside the run's scratch
+// root — not inside it, which is new per run and so would never hold a
+// crashed sibling for the next run to reap.
+func TestContainer_SecretFallsBackToTheSessionEphemeralDirWithoutARuntimeDir(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv("XDG_RUNTIME_DIR", "")
 
 	_, cw, spec := preparedSecretCell(t)
 	m := secretMount(t, spec)
-	assert.Equal(t, cw.scratchRoot, filepath.Dir(m.Host))
+	assert.Equal(t, filepath.Dir(cw.scratchRoot), filepath.Dir(m.Host))
 	assert.FileExists(t, filepath.Join(m.Host, secretVar))
 }

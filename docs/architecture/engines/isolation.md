@@ -378,7 +378,21 @@ environment makes each piece true where the engine runs:
   wrapping `ErrNoCredential`, remedy naming the directory and `auth: token`):
   a run that would start logged out fails loudly instead.
 
-`Env` rides the placement's env and `Unset` its `Unset`
+On the host, `Env` rides the placement's env. In a container it does not:
+the container's runner may dial home over a LAN-visible cleartext listener
+(`present.Listen.Public`), so `containerPlacement` moves every credential
+variable except the `FileVars` (`secretVars`) out of the env into
+`launch.Placement.SecretFiles` (the wire's `Cell.secret_files`): the
+variable's name and the engine-side file holding it, never the value.
+`Container.bind` makes an owner-only secret dir (`newOwnedScratch`, prefix
+`secretScratchPrefix`) under `$XDG_RUNTIME_DIR`, a tmpfs, or under the
+session's ephemeral dir where there is none (`secretParent`), and binds it read-only at
+`secretsTarget` inside the shared-filesystem probe; `Container.environment`
+writes one 0600 file per variable (`materializeSecrets`); the runner reads
+each into the engine's env alone (`runner.redeemSecrets`, refusing with
+`ErrSecretUnreadable`). `containerWorkspace.Cleanup` removes the dir, and a
+crashed run's dir is reaped by the next owned secret scratch under the same
+parent, its owner's lock having died with it. `Unset` rides
 (`launch.Placement.Unset`, the wire's `Cell.unset_env`) to the runner, which
 removes those names from its own
 environment before it drives the engine (`runner.Deps.Unsetenv`, refusing with
@@ -388,13 +402,17 @@ refusal, with its remedy (claude's token: run `claude setup-token` and export
 `CLAUDE_CODE_OAUTH_TOKEN`): nothing prompts, and no run starts logged out.
 
 **Where a credential may and may not be.** It lives in the environment
-ctxloom was launched in, in the coordinator's and runner's memory, in the StartRun message between
-them, and in the engine process's environment. It is never journalled (a run
-fact records `cred_hash` and MCP server names, never an env), never in a
-container's `run` argv (it reaches the in-container engine through the
-launch's env over the wire), and never in a file: an interactive launch
-(`runner.RunLaunchSpec`) hands the environment straight to the engine process
-it runs on a pty, and writes no launcher script. `TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed` scans a
+ctxloom was launched in, in the preparing process's and runner's memory, and
+in the engine process's environment. For a HOST cell it also rides the
+StartRun message, over the loopback-only listener to a same-uid runner. For
+a CONTAINER cell it never rides StartRun: it is in the run's secret file,
+on tmpfs where the session has `$XDG_RUNTIME_DIR`, for the run's lifetime
+(`TestContainerCell_StartRunCarriesTheCredentialByReferenceNeverByValue`,
+`TestSecretMount_ARealContainerAuthenticatesFromTheMountedSecret`). It is
+never journalled (a run fact records `cred_hash` and MCP server names, never
+an env) and never in a container's `run` argv or configuration; an
+interactive launch (`runner.RunLaunchSpec`) hands the environment straight to
+the engine process it runs on a pty, and writes no launcher script. `TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed` scans a
 run's output, the ctxloom home, the project and the run's temp dir for a
 sentinel.
 

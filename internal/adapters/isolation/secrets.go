@@ -67,14 +67,16 @@ var errSecretUnstaged = errors.New("container secrets: the placement names a sec
 
 // secretParent is where a container cell's secret dir is made: the user's
 // runtime dir when the session has one — a tmpfs the XDG spec makes
-// owner-only, so the value never reaches a disk — else the run's own
-// container scratch root (macOS, Windows), which the shared-filesystem probe
-// covers like every other root.
+// owner-only, so the value never reaches a disk — else (macOS, Windows) the
+// session's ephemeral dir that holds the run's scratch root. Never the
+// scratch root itself: it is new per run, so a crashed run's secret there
+// would have no later sibling to reap it. The shared-filesystem probe covers
+// either, as it covers every mount.
 func secretParent(getenv func(string) string, scratchRoot string) string {
 	if dir := getenv("XDG_RUNTIME_DIR"); dir != "" {
 		return dir
 	}
-	return scratchRoot
+	return filepath.Dir(scratchRoot)
 }
 
 // materializeSecrets writes each secret variable pl names, from creds, as an

@@ -85,6 +85,14 @@ func WithReporter(sink report.Sink) Option {
 	return func(o *Owner) { o.rep = report.To(sink) }
 }
 
+// WithoutSignatureCheck builds every generation's Trust with the signature
+// step waived (composite.WithoutSignatureCheck). It is an Owner option and not
+// a config value on purpose: the switch belongs to the invocation that asked
+// for it, so no file can carry it into a later run.
+func WithoutSignatureCheck() Option {
+	return func(o *Owner) { o.trustOpts = append(o.trustOpts, composite.WithoutSignatureCheck()) }
+}
+
 // Owner is the one owner of the loaded configuration in a process (the
 // originator; the runner has none). Exactly one exists, constructed at the
 // composition root by Open, reaching every consumer as a *Snapshot parameter.
@@ -92,8 +100,10 @@ type Owner struct {
 	src     Sources
 	engines *engine.Registry // the engines each generation is validated against; nil = none composed
 	rep     report.Reporter  // where every generation's per-item findings go
-	current atomic.Pointer[Snapshot]
-	gen     atomic.Uint64
+	// trustOpts shape every generation's Trust (WithoutSignatureCheck).
+	trustOpts []composite.TrustOption
+	current   atomic.Pointer[Snapshot]
+	gen       atomic.Uint64
 	// writeMu serializes generation builds (Reload, Update): generation
 	// numbers are then monotonic with publication order, and an Update's
 	// read-modify-write cannot interleave with a concurrent Reload.
@@ -163,7 +173,7 @@ func (o *Owner) build(ctx context.Context, read *Config, warnings []Warning) (*S
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving trust: %w", err)
 	}
-	trust, err := composite.NewTrust(root, records, retraction)
+	trust, err := composite.NewTrust(root, records, retraction, o.trustOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving trust: %w", err)
 	}

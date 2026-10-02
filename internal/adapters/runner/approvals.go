@@ -291,6 +291,13 @@ func (a *approvals) settle(turn *approvalTurn, d *decision, ask engine.Permissio
 	if turn.ctx.Err() != nil {
 		err = errTurnEnded
 	}
+	if err == nil && ans.Allow {
+		// The whole allow, not its valid part: the human granted these
+		// rules together.
+		if verr := a.validRules(ans.SessionRules); verr != nil {
+			ans, err = engine.PermissionAnswer{}, verr
+		}
+	}
 	a.mu.Lock()
 	d.ans, d.err = ans, err
 	if err == nil && ans.Allow {
@@ -316,9 +323,22 @@ func (a *approvals) grantLocked(rules []string) {
 // setGrants replaces the run's grants with the coordinator's set: what a
 // revoke leaves.
 func (a *approvals) setGrants(rules []string) error {
+	if err := a.validRules(rules); err != nil {
+		return err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.grants = slices.Clone(rules)
+	return nil
+}
+
+// validRules refuses rules holding one the engine's rule syntax refuses.
+func (a *approvals) validRules(rules []string) error {
+	for _, r := range rules {
+		if err := a.codec.ValidateRule(r); err != nil {
+			return fmt.Errorf("%w: %w", errInvalidGrant, err)
+		}
+	}
 	return nil
 }
 

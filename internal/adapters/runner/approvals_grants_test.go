@@ -266,3 +266,14 @@ func TestEngineHost_SetGrantsRefusesAnInvalidRule(t *testing.T) {
 	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 	assert.Equal(t, []string{"Bash(ls)"}, nextPosture(t, eng).Grants, "the run keeps the set it held")
 }
+
+// TestApprovals_AFailedDecisionKeepsItsOwnRefusal: a decision that failed is
+// refused for its failure, whatever rules it carried.
+func TestApprovals_AFailedDecisionKeepsItsOwnRefusal(t *testing.T) {
+	h := newRouteHarness(t, func(context.Context, engine.PermissionAsk) (engine.PermissionAnswer, error) {
+		return engine.PermissionAnswer{Allow: true, SessionRules: []string{"Bash\nRead"}}, errNoDecision
+	})
+	ans := askByID(t, h, "t1")
+	assert.False(t, ans.Allow)
+	assert.Equal(t, errNoDecision.Error(), ans.Message)
+}

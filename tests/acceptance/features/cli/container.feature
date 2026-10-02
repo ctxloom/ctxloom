@@ -21,8 +21,7 @@ Feature: container — the images isolated agents run in, and the questions you 
   j002400_container.feature, behind a tag the default suite skips.
   What IS specifiable without a runtime is everything around it: the read-only
   diagnosis, the file scaffold, the trust-gated collection, and the namespace's
-  own dispatch. `container provenance` is hidden plumbing (the digest the
-  ahead-of-time build recipes stamp) and is not part of the public surface.
+  own dispatch.
 
   Rule: The namespace answers what it holds, and refuses what it does not
 

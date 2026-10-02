@@ -47,7 +47,6 @@ flowchart TD
 
     subgraph container["container_cmd.go"]
         CB["container build &lt;backend&gt;"] --> BAI[["isolation.BuildAgentImage"]]
-        CP["container provenance (hidden)"] --> HPD[["isolation.HostProvenanceDigest"]]
         CT["container tooling list"] --> RTC["runToolingListCmd → renderTooling"]
         CSF["container scaffold"] --> SCB[["operations.ScaffoldContainerBase"]]
         CC["container check &lt;backend&gt;"] --> CD["renderContainerCheck"]
@@ -123,7 +122,6 @@ resolution.
 ## `ctxloom container`
 
 - `build [backend]` — flag-over-config merge, then `isolation.BuildAgentImage`.
-- `provenance` — hidden; prints `isolation.HostProvenanceDigest` for the `just` recipes.
 - `tooling list` — emits `toolingJSON{Instructions, Declarations}`; `renderTooling`
   explains the trust gate explicitly when there are zero declarations.
 - `scaffold` — `operations.ScaffoldContainerBase` writes a base Containerfile.

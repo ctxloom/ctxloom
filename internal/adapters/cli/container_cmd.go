@@ -194,30 +194,6 @@ func containerBuildOptions(flags containerBuildFlagValues, cfg *config.Config, b
 	return opts
 }
 
-// containerProvenanceCmd prints the content digest of the ctxloom + companion
-// binaries THIS ctxloom would bake into an agent image — the value stamped as
-// the image's ctxloom.provenance label. Hidden plumbing: the ahead-of-time
-// `container-build-*` just recipes run the freshly-built binary through it to
-// stamp a label matching what they bake, so a later run doesn't see the image
-// as stale. Also handy for debugging a rebuild ("does the image's label match
-// `ctxloom container provenance`?").
-var containerProvenanceCmd = &cobra.Command{
-	Use:    "provenance",
-	Short:  "Print the content digest of the binaries baked into agent images",
-	Hidden: true,
-	Args:   cobra.NoArgs,
-	RunE:   runContainerProvenance,
-}
-
-func runContainerProvenance(cmd *cobra.Command, args []string) error {
-	// The DEFAULT-base digest on purpose: the ahead-of-time just recipes
-	// this stamps for bake the embedded default base; a custom
-	// isolation_base_containerfile build stamps its own label inside
-	// BuildAgentImage.
-	fmt.Fprintln(cmd.OutOrStdout(), isolation.HostProvenanceDigest(""))
-	return nil
-}
-
 // toolingPrompt is the instruction preamble `container tooling list`
 // emits above the collected bundle declarations: locate/scaffold the base
 // Containerfile, propose a diff, get EXPLICIT per-change user approval,
@@ -463,7 +439,6 @@ func init() {
 	containerCmd.AddCommand(containerBuildCmd)
 	containerCmd.AddCommand(containerCheckCmd)
 	containerCmd.AddCommand(containerScaffoldCmd)
-	containerCmd.AddCommand(containerProvenanceCmd)
 	// Real home of the deprecated top-level `ctxloom tooling`: the container
 	// image is (today) where declarations land.
 	containerCmd.AddCommand(containerToolingCmd)

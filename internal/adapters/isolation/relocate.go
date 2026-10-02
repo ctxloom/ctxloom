@@ -295,8 +295,11 @@ var errStoreNotADirectory = errors.New("the credential store is not a directory 
 
 // relocateStores mounts each shared store at its place under the
 // container's $HOME — never AS $HOME, and read-only when the store is — and
-// blanks its var, which points the engine at that place. A store with no
-// place under $HOME (claude's login in the macOS Keychain) refuses.
+// blanks its var, which points the engine at that place. A store declaring
+// Files is given those members alone, each a single-file bind at its place
+// in the store; the rest of that place is the container's own. A store with
+// no place under $HOME (claude's login in the macOS Keychain) refuses, and
+// so does a declared member that is no file.
 func (r containerRelocator) relocateStores(stores []sharedStore) (map[string]string, []mount, error) {
 	env := map[string]string{}
 	var mounts []mount
@@ -305,11 +308,26 @@ func (r containerRelocator) relocateStores(stores []sharedStore) (map[string]str
 			return nil, nil, report.Errorf("declare `auth: token` on a container agent, or run it with `runtime: host`",
 				"%w: this auth mode shares a credential store the OS keeps outside any directory (the macOS Keychain, for claude's login), so no container can reach it: %w", errStoreNotADirectory, engine.ErrNoCredential)
 		}
-		rel, err := relocateRoot(r.rt, st.hostDir, path.Join(r.home, st.HomeRel), st.ReadOnly)
-		if err != nil {
-			return nil, nil, fmt.Errorf("credential store: %w", err)
+		place := path.Join(r.home, st.HomeRel)
+		binds := [][2]string{{st.hostDir, place}}
+		if len(st.Files) > 0 {
+			binds = nil
+			for _, f := range st.Files {
+				host := filepath.Join(st.hostDir, filepath.FromSlash(f))
+				if err := isBindableFile(host); err != nil {
+					return nil, nil, report.Errorf("sign the engine in on this host, or declare `auth: token` on the agent",
+						"the credential store's file %s %w: %w", host, err, engine.ErrNoCredential)
+				}
+				binds = append(binds, [2]string{host, path.Join(place, f)})
+			}
 		}
-		mounts = append(mounts, rel.mount)
+		for _, b := range binds {
+			rel, err := relocateRoot(r.rt, b[0], b[1], st.ReadOnly)
+			if err != nil {
+				return nil, nil, fmt.Errorf("credential store: %w", err)
+			}
+			mounts = append(mounts, rel.mount)
+		}
 		if st.Var != "" {
 			env[st.Var] = ""
 		}

@@ -150,8 +150,14 @@ func (c claudeAuth) Credentials(mode engine.AuthMode, shell func(string) (string
 // claude names its macOS keychain item from it. The credential and both
 // refresh locks are then the human's own, shared. Where the OS keeps it
 // under $HOME is loginStoreHomeRel's per-OS answer.
+//
+// A container is given CredentialsFileName alone, read-write: a refresh
+// rewrites it, and the rest of the store is the human's transcripts and the
+// settings.json whose hooks their own claude runs. Its locks are mkdir lock
+// directories claude creates beside the file, so they cannot be shared
+// through a bind; the container's own $HOME/.claude holds them.
 func loginStore(shell func(string) (string, bool)) engine.SharedStore {
-	return engine.SharedStore{Var: SecureStorageEnv, Value: sharedStorage(shell), HomeRel: loginStoreHomeRel}
+	return engine.SharedStore{Var: SecureStorageEnv, Value: sharedStorage(shell), HomeRel: loginStoreHomeRel, Files: []string{CredentialsFileName}}
 }
 
 // modeRemedy is how the human supplies each env mode's credential. The

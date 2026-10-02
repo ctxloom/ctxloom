@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -241,18 +242,27 @@ func TestSessionHome_HostLoginInheritsTheLaunchingRunsStorage(t *testing.T) {
 	assert.Equal(t, "", pl.Env[claude.SecureStorageEnv])
 }
 
-// CONTAINER + LOGIN: the human's credential storage is mounted read-write
-// at its place under the container's $HOME — never the session home, never
-// $HOME itself — and the storage var is blanked, which points claude there.
-// The session home keeps its own mount beside it.
-func TestCredentials_ContainerLoginMountsTheStoreUnderHome(t *testing.T) {
+// CONTAINER + LOGIN: the human's credential FILE alone is mounted
+// read-write at its place under the container's $HOME — never the storage
+// directory, the session home, or $HOME itself — and the storage var is
+// blanked, which points claude there. Nothing else under the human's
+// ~/.claude enters the container: it holds every project's transcripts and
+// the settings.json whose hooks the human's own claude runs. The session
+// home keeps its own mount beside it.
+func TestCredentials_ContainerLoginMountsOnlyTheCredentialFile(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	creds := claudeCredentials(t, engine.AuthLogin)
 	s := credSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession, creds)
 
 	pl, mounts := placeOn(t, s, t.TempDir(), containerOf)
-	store := mount{Host: filepath.Join(home, ".claude"), Container: defaultContainerHome + "/.claude"}
-	assert.Contains(t, mounts, store, "the human's storage at $HOME/.claude, read-write: claude refreshes it")
+	store := filepath.Join(home, ".claude")
+	cred := mount{Host: filepath.Join(store, claude.CredentialsFileName), Container: defaultContainerHome + "/.claude/" + claude.CredentialsFileName}
+	assert.Contains(t, mounts, cred, "the human's credential file at $HOME/.claude, read-write: claude's refresh rewrites it")
+	for _, m := range mounts {
+		if m.Host == store || strings.HasPrefix(m.Host, store+string(filepath.Separator)) {
+			assert.Equal(t, cred, m, "no other path under the human's ~/.claude is mounted")
+		}
+	}
 	assert.Equal(t, "", pl.Env[claude.SecureStorageEnv], "blank: claude reads $HOME/.claude")
 	assert.Contains(t, pl.Env, claude.SecureStorageEnv, "set to empty, not left to inherit")
 	assert.Equal(t, defaultContainerInstanceHome+"/"+claude.HomeLeaf, pl.Env[claude.ConfigDirEnv], "config stays in the session home")

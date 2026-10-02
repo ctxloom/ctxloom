@@ -79,7 +79,7 @@ var capabilityInventory = []capabilityRow{
 	{14, "engine.Turn.Resume / ChatSessionInfo.Resumable — resume and session identity"},
 	{15, "transcript.Record / paths.HarpCanonicalTranscriptPath — canonical transcript capture"},
 	{16, "agentDescriptor.versionCommand / engineversion.Command — version reporting"},
-	{17, "authCheckClaude/Codex/Opencode — availability and auth probing"},
+	{17, "probeEngine/probeTokenAuth — availability and auth probing"},
 	{18, "structured output contract — JSON only, no preamble"},
 	{19, "launch.RuntimeAxis=container — container runtime and per-engine container auth"},
 	{20, "engine.LabelConfig.Model — model resolution and pinning"},
@@ -93,7 +93,7 @@ var capabilityInventory = []capabilityRow{
 // excuse and fails just as loudly as an unprobed row, so this map cannot
 // quietly become a place to park work.
 var capabilitiesProvenElsewhere = map[int]string{
-	17: "every cell's own gate IS this probe: probeEngine + the liveAgent authCheck functions run before any paid turn and print engine+reason on every acceptance run, and CTXLOOM_LIVE_REQUIRE turns a missing engine into a hard red. A separate probe would re-run the gate and prove nothing the gate did not already print.",
+	17: "every cell's own gate IS this probe: probeEngine (the engine's own token-mode Auth, or for a direct-vendor cell directEngineStatus) runs before any paid turn and print engine+reason on every acceptance run, and CTXLOOM_LIVE_REQUIRE turns a missing engine into a hard red. A separate probe would re-run the gate and prove nothing the gate did not already print.",
 	20: "the pinned cheap model in each liveAgents[*].config is carried by EVERY paid cell in the ladder, so a model that failed to resolve reds the cell that used it. A dedicated live cell would buy a turn to re-observe what all ~40 other cells already depend on.",
 }
 

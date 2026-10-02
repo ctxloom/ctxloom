@@ -873,66 +873,35 @@ container-build-acceptance: dev-image
 # acceptance container as the invoking host user, on THIS machine. Builds the
 # image first.
 #
-# CREDENTIALS ARE MAPPED, NEVER COPIED (tasks erased-collar / jovial-employee).
-# Each engine's real credential DIRECTORY is bind-mounted READ-WRITE at the path
-# the container HOME resolves it from, so the engine reads and WRITES the real
-# file and a provider-side token rotation lands on the host. The copy this
-# replaces was strictly one-way: an engine refreshed inside the copy, the provider
-# consumed the old refresh token SERVER-SIDE, the rotated value died with the
-# container, and the host was left with a token that returned
-# `401 refresh_token_reused` until a manual re-login.
+# CREDENTIALS: the token, forwarded by NAME, and no host credential mounted.
+# Every cell that runs through ctxloom authenticates with
+# CLAUDE_CODE_OAUTH_TOKEN alone (mint it with `claude setup-token`); a cell
+# that runs the claude binary directly also takes ANTHROPIC_API_KEY. Each is
+# passed as `-e VAR`, so no value reaches the command line. The host's
+# ~/.claude is deliberately NOT mounted: live cells run in a throwaway HOME
+# and config dir, and a login shared into the container would be refreshed
+# (rotated) from inside it.
 #
-# THE DIRECTORY IS MOUNTED, NEVER THE INDIVIDUAL FILE: credential files are
-# written with an atomic temp-file-plus-rename, which a bind-mounted file does
-# not survive — the rename would fail or land only inside the container,
-# silently recreating the bug. That is why ~/.claude.json (a FILE at HOME level)
-# is no longer carried at all: CLAUDE_CONFIG_DIR points at the mounted ~/.claude
-# instead, and claude auto-creates its own .claude.json inside that directory.
-#
-# UID, and why this no longer runs as the image's `ctxloom` user: rootless
-# docker/podman map that non-root user onto a subuid that cannot read the host's
-# 0600 credential files — which is exactly why this recipe used to stage
-# world-readable copies. Mounting the real directories instead means the
-# container must run as the host uid that OWNS them. Under a rootless daemon
-# that is container uid 0, which maps to the invoking user (so this is NOT root
-# on the host). Under a rootful daemon it is the invoking uid itself — running
-# as root there would leave root-owned files in your real credential
-# directories.
-#
-# Set ANTHROPIC_API_KEY to use the unattended
-# API-key path instead: that path mounts nothing, copies nothing, and rotates
-# nothing. ctxloom is built at runtime from the read-only workspace mount; all
-# other writes go to the container HOME / tmp. Each agent's @live rows self-skip
-# without creds.
+# UID: under a rootless daemon the run is container uid 0, which maps to the
+# invoking user (so this is NOT root on the host); under a rootful daemon it is
+# the invoking uid itself. Either way nothing the run writes is owned by
+# another host uid. ctxloom is built at runtime from the read-only workspace
+# mount; all other writes go to the container HOME / tmp.
 test-acceptance-live-container: container-build-acceptance
     #!/usr/bin/env bash
     set -euo pipefail
     staging="$(mktemp -d)"
     trap 'chmod -R u+w "$staging" 2>/dev/null; rm -rf "$staging"' EXIT
 
-    # Credentials: MAP the real directories read-write. Nothing is copied, so
-    # there is no rotated value to lose. An absent directory is named OUT LOUD
-    # rather than silently skipped — an unmounted credential directory is how a
-    # run comes back mysteriously unauthenticated.
-    creds=()
-    map_cred() { # $1 = host dir, $2 = container path, $3 = engine
-        if [ -d "$1" ]; then
-            creds+=(-v "$1:$2")
-            echo "live-container: MAPPED $3 -> $1 (read-write: a token rotation lands on the host)"
-        else
-            echo "live-container: NOT MAPPED $3 — $1 does not exist; its @live rows will self-skip" >&2
-        fi
-    }
-    map_cred "$HOME/.claude" /home/ctxloom/.claude claude
-    # claude is the one engine CTXLOOM_LIVE_REQUIRE names below, so it is the
-    # one whose absence must fail the run rather than quietly shrink coverage.
-    if [ ! -d "$HOME/.claude" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-        echo "live-container: FATAL — CTXLOOM_LIVE_REQUIRE names claude, but neither $HOME/.claude nor ANTHROPIC_API_KEY is present" >&2
+    # claude is the one engine CTXLOOM_LIVE_REQUIRE names below, and its
+    # through-ctxloom cells take only the token, so its absence must fail the
+    # run rather than quietly shrink coverage.
+    if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+        echo "live-container: FATAL — CTXLOOM_LIVE_REQUIRE names claude, but CLAUDE_CODE_OAUTH_TOKEN is not exported (run \`claude setup-token\`)" >&2
         exit 1
     fi
 
-    # See the UID note above: pick the user whose host identity actually owns
-    # the mounted credential directories.
+    # See the UID note above.
     if {{container_cmd}} info 2>/dev/null | grep -qi 'rootless'; then
         run_as=(--user 0:0)
     else
@@ -954,15 +923,13 @@ test-acceptance-live-container: container-build-acceptance
     tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules . | tar -xf - -C "$staging/src"
     chmod -R a+rX "$staging"
 
-    mounts=(${creds[@]+"${creds[@]}"} -v "$staging/src:/workspace:ro")
+    mounts=(-v "$staging/src:/workspace:ro")
     # Reuse the host module cache read-only so the runtime build doesn't re-download.
     if [ -d "$HOME/go/pkg/mod" ]; then mounts+=(-v "$HOME/go/pkg/mod:/home/ctxloom/go/pkg/mod:ro"); fi
 
-    # Forward API keys when present so the unattended API-key path runs without
-    # touching a subscription credential at all. Absent keys fall back to the
-    # mapped cred dirs above.
+    # Forward each credential by name when present (see CREDENTIALS above).
     keys=()
-    for k in ANTHROPIC_API_KEY; do
+    for k in CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY; do
         if [ -n "${!k:-}" ]; then keys+=(-e "$k"); fi
     done
 
@@ -972,7 +939,6 @@ test-acceptance-live-container: container-build-acceptance
         ${keys[@]+"${keys[@]}"} \
         -e HOME=/home/ctxloom \
         -e CLAUDE_CONFIG_DIR=/home/ctxloom/.claude \
-        -e CTXLOOM_ACCEPTANCE_LIVE=1 \
         -e ACCEPTANCE_TAGS="~@network" \
         -e CTXLOOM_LIVE_REQUIRE=claude \
         -e GOCACHE=/home/ctxloom/.cache/go-build \
@@ -1000,7 +966,6 @@ test-acceptance-live-container: container-build-acceptance
 isolation-probe ENGINE AXIS: build
     ACCEPTANCE_PATHS=features/probes/isolation_probe.feature \
     ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{AXIS}}" \
-    CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -trimpath -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run the LIVE delegation round trip (j002300_cross_engine_delegation.feature's
@@ -1018,7 +983,6 @@ live-delegation ENGINE: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" \
     ACCEPTANCE_PATHS=features/journeys/j002300_cross_engine_delegation.feature \
     ACCEPTANCE_TAGS="@live && @delegation && @{{ENGINE}}" \
-    CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -trimpath -v -timeout 20m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the engine x isolation floor
@@ -1043,7 +1007,6 @@ engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" \
     ACCEPTANCE_PATHS=features/probes/engine_isolation_matrix.feature \
     ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}" \
-    CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the capability-probe ladder (tests/acceptance's probe
@@ -1073,7 +1036,6 @@ capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE VARIANT="": build _ensur
     GOTMPDIR="{{go_tmp}}" \
     ACCEPTANCE_PATHS=features/{{FEATURE}} \
     ACCEPTANCE_TAGS="@live && @probe-{{PROBE}} && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}{{ if VARIANT == '' { '' } else { ' && @var-' + VARIANT } }}" \
-    CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the plan-sentinel probe (P4 of the capability ladder,
@@ -1096,7 +1058,6 @@ capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE VARIANT="": build _ensur
 plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
     ACCEPTANCE_PATHS=features/probes/capability_plan_sentinel.feature \
     ACCEPTANCE_TAGS="@live && @probe-p4-plan-sentinel && @{{ENGINE}} && @host && @ws-none{{ if POSTURE == 'pair' { '' } else { ' && @var-' + POSTURE } }}" \
-    CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run a single package's tests under -race (fast local iteration).

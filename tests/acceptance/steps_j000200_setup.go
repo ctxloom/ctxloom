@@ -171,7 +171,8 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		if !ok {
 			return fmt.Errorf("no live agent config registered for claude")
 		}
-		if !liveAgentAvailable(a) {
+		if ok, reason := engineAvailable(a); !ok {
+			fmt.Printf("SKIP j000200 live: %s\n", reason)
 			return godog.ErrSkip
 		}
 		w.j000200Live = true
@@ -179,7 +180,7 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
 			return err
 		}
-		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.SetChildEnv); err != nil {
+		if err := seedLiveCredentials(a, w.env.SetChildEnv); err != nil {
 			return err
 		}
 		if _, err := seedSource(w, "personal", "fragments", "marker", j000200LivePersonalMark, j000200LivePersonalMark, true, true); err != nil {

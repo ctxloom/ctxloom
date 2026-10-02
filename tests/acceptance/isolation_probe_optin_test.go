@@ -15,10 +15,10 @@ import (
 )
 
 // probeAuthFixture stages a box that carries every credential the token-only
-// model no longer honours for an agent run: a claude binary on PATH that
-// reports itself logged in, a host credential file, and the live opt-in. What
-// is captured at launch is the caller's to set. Every invocation of the fake
-// binary appends one line to the returned counter file.
+// model does not honour for an agent run: a claude binary on PATH that
+// reports itself logged in, and a credential file in HOME. What is captured
+// at launch is the caller's to set. Every invocation of the fake binary
+// appends one line to the returned counter file.
 func probeAuthFixture(t *testing.T, captured map[string]string) (countFile string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -32,12 +32,8 @@ func probeAuthFixture(t *testing.T, captured map[string]string) (countFile strin
 	require.NoError(t, os.WriteFile(filepath.Join(binDir, "claude"), []byte(script), 0o755))
 
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CTXLOOM_ACCEPTANCE_LIVE", "1")
-	t.Setenv("CTXLOOM_LIVE_REQUIRE", "")
+	t.Setenv("HOME", home)
 	withLaunchCredentials(t, captured)
-	saved := realHomeDir
-	t.Cleanup(func() { realHomeDir = saved })
-	realHomeDir = home
 	return countFile
 }
 

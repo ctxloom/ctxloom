@@ -23,7 +23,7 @@
 // to stop agreeing about what production can do.
 //
 // WHY THE AXIS RESOLVERS ARE REUSED RATHER THAN RE-DERIVED.
-// probeTokenAuth (isolation_probe.go) asks the engine's own Auth capability
+// probeTokenAuth (live_engine_registry.go) asks the engine's own Auth capability
 // what an agent run authenticates with, so an engine whose token is absent is
 // refused here exactly as production would refuse its run. A probe that asked the
 // question its own way would eventually disagree with what a run actually does,
@@ -37,8 +37,9 @@ package acceptance
 
 import (
 	"fmt"
+	"maps"
 	"os/exec"
-	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -121,70 +122,25 @@ func probeCellDecide(status engineStatus) (report, skip string) {
 	return report, ""
 }
 
-// probeHostCredentialEnv rewrites a cell's command environment so that
-// ctxloom's OWN per-axis credential machinery resolves against the REAL host
-// home. It is the FALLBACK posture, taken only when no token was captured at
-// launch (probeCellCredentialEnv decides): a subscription login lives in the
-// real home and nowhere else, so this is the only way such a cell can
-// authenticate.
-//
-// WHY NOT A COPY. testenv isolates HOME to a temp dir, and the login mode's
-// credential is the human's own storage, which production shares in place
-// rather than copying (claudeAuth.Credentials' loginStore). The obvious
-// workaround — the harness copying the login into its fake home — would make
-// the cell MORE cautious than the product it verifies, and a rotating login
-// refreshed inside a copy dies with the copy. The cost of the real home is
-// stated plainly: a cell writes session state under the real ~/.ctxloom and
-// lets the engine refresh its own credential in place, exactly as a real run
-// does.
-//
-// The fake entries are REMOVED before the real ones are appended, never merely
-// appended after: a duplicate key in a child environment is resolved by the C
-// library, and glibc's getenv returns the FIRST match, so appending alone
-// would silently lose to the isolated value.
-func probeHostCredentialEnv(env []string, realHome string) []string {
-	shadowed := map[string]bool{
-		"HOME": true, "USERPROFILE": true,
-		"XDG_CONFIG_HOME": true, "XDG_DATA_HOME": true,
-	}
-	out := make([]string, 0, len(env)+4)
-	for _, kv := range env {
-		if k, _, ok := strings.Cut(kv, "="); ok && shadowed[k] {
-			continue
-		}
-		out = append(out, kv)
-	}
-	return append(out,
-		"HOME="+realHome,
-		"USERPROFILE="+realHome,
-		"XDG_CONFIG_HOME="+filepath.Join(realHome, ".config"),
-		"XDG_DATA_HOME="+filepath.Join(realHome, ".local", "share"),
-	)
-}
-
 // probeCellCredentialEnv puts one ctxloom-driven cell's command under its
 // credential posture and returns the HOME the run will use — callers that
 // watch ctxloom's session tree must look under THAT home, not assume one.
 //
-//   - A token captured at launch (liveCredential): the command keeps testenv's
-//     ISOLATED HOME (so claude's config dir, HOME/.claude, is isolated too) and
-//     gains the token. ctxloom's own env-first credential resolution carries it
-//     to the engine on every axis; nothing in the real home is read or written.
-//   - No token: the real-home login (probeHostCredentialEnv), and a REFUSAL
-//     rather than a degraded run when the real home was never captured. With
-//     realHomeDir empty, probeHostCredentialEnv would cheerfully export
-//     HOME="" and XDG_CONFIG_HOME="/.config": the run would start, find no
-//     credential, and report an engine failure that is the harness's doing.
+// The run is a ctxloom run, so it takes the engine's token-mode credential
+// (probeTokenAuth) and nothing else: the command keeps testenv's ISOLATED HOME
+// (so claude's config dir, HOME/.claude, is isolated too) and gains the token.
+// Nothing in the real home is read or written. The gate skips a cell without
+// the token before this runs, so its absence here is the harness's fault and
+// a refusal, never a run on whatever else was lying around.
 func probeCellCredentialEnv(family, engine string, cmd *exec.Cmd) (string, error) {
-	if cred, ok := liveCredential(liveAgents[backendTypeToLiveKey(engine)]); ok {
-		cmd.Env = append(envWithout(cmd.Env, cred.EnvVar), cred.EnvVar+"="+cred.Value)
-		return envValue(cmd.Env, "HOME"), nil
+	auth := probeTokenAuth(engine)
+	if !auth.ok() {
+		return "", fmt.Errorf("%s: this cell's run authenticates only with the token: %s", family, auth.Reason)
 	}
-	if realHomeDir == "" {
-		return "", fmt.Errorf("%s: no token was captured at launch and no real HOME was captured, so this cell has no credential to run under", family)
+	for _, k := range slices.Sorted(maps.Keys(auth.Env)) {
+		cmd.Env = append(envWithout(cmd.Env, k), k+"="+auth.Env[k])
 	}
-	cmd.Env = probeHostCredentialEnv(cmd.Env, realHomeDir)
-	return realHomeDir, nil
+	return envValue(cmd.Env, "HOME"), nil
 }
 
 // envWithout drops every key= entry: glibc's getenv returns the FIRST match,

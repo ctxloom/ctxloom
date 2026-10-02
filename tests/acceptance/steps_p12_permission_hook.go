@@ -32,7 +32,7 @@ type p12State struct {
 	decision                   p12Decision
 
 	claudePath string
-	cred       credentialMapping // the launch credential (liveCredential); never printed
+	cred       credentialMapping // the launch credential (vendorCredential); never printed
 	dir        string            // the cell's root: hook, settings, marker, proof
 	repo       string            // cwd: a fresh git repo
 	cfg, home  string            // throwaway CLAUDE_CONFIG_DIR and HOME
@@ -66,19 +66,14 @@ func registerP12PermissionHookSteps(ctx *godog.ScenarioContext) {
 			}
 			p.engine, p.runtime, p.workspace, p.decision = engine, runtime, workspace, p12Decision(decision)
 
-			a, _, err := probeCellGate(c, w, p12Family, p.cell())
+			// The cell runs claude itself in a throwaway HOME and config dir,
+			// so it takes what claude accepts, captured at launch, and never
+			// the real home's login.
+			a, cred, err := probeDirectCellGate(w, p12Family, p.cell())
 			if err != nil {
 				return err
 			}
-			// The shared gate also passes an engine authenticated only by its
-			// subscription login. This cell cannot use one: its CLAUDE_CONFIG_DIR
-			// and HOME are throwaway, which is the isolation the cell requires,
-			// so only a token captured at launch can authenticate it.
-			var ok bool
-			if p.cred, ok = liveCredential(a); !ok {
-				return probeCellSkip(p12Family, p.cell(), fmt.Sprintf(
-					"this cell runs claude in a throwaway config dir and HOME, so it needs a token captured at launch (one of %v); none was", a.apiKeyEnvs))
-			}
+			p.cred = cred
 			if p.claudePath, err = exec.LookPath(a.binary); err != nil {
 				return err
 			}

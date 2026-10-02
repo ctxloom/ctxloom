@@ -61,10 +61,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,9 +72,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // probeAxis names the isolation axis under test: the WORKSPACE axis
@@ -105,26 +100,6 @@ const (
 func isProbeContainerAxis(a probeAxis) bool {
 	return isolation.IsContainerRuntimeAxis(isolation.RuntimeAxis(a))
 }
-
-// probeAuth is the credential a probe cell's run authenticates with. The run
-// is an agent run (`ctxloom run --agent probe`), and launch.RunAuth gives
-// every run ctxloom spawns engine.AuthToken whatever the owner's own `auth:`
-// says, so the token is the ONLY credential a cell can use, on every axis.
-// The probe hands it over the one way production takes it, on the launching
-// environment: a host run receives it by value, and a container run has it
-// moved out of the environment into the read-only secret mount
-// (launch.Placement.SecretFiles) by isolation's containerPlacement.
-type probeAuth struct {
-	// Env is what the engine's Auth sets for a token-mode run: the token's
-	// variable and its value. Nil when the cell cannot authenticate. Never
-	// printed.
-	Env map[string]string
-	// Reason says why, and is printed: it names variables, never a value.
-	Reason string
-}
-
-// ok reports whether the cell has a credential to run with.
-func (a probeAuth) ok() bool { return len(a.Env) > 0 }
 
 // probeCensusEntry is one file's identity in a census: never its content.
 // ModTime is included deliberately, not just Size+SHA256: a nominally
@@ -239,43 +214,6 @@ func probeCensusRoots(backendType string) ([]string, error) {
 		roots = append(roots, ".claude.json")
 	}
 	return roots, nil
-}
-
-// probeTokenAuth asks backendType's own Auth capability what a run in
-// engine.AuthToken mode needs, reading only the credential captured at launch
-// (launchCredentials: the ambient copy is scrubbed before any cell runs).
-// Asking production rather than re-typing its variable is what stops the
-// probe handing a run a credential production would unset — an API key, say.
-// When the shell that launches the suite lacks the token, the invocation
-// takes it from `zsh -ic`; nothing here reads a file for it.
-//
-// MEASUREMENT SAFETY, load-bearing for every census this file takes: no
-// vendor CLI runs here. A vendor's nominally read-only status command has
-// been measured advancing its own credential store's mtime with the size
-// unchanged; calling one inside a before/after census window would make the
-// probe the source of the very host-state change a cell measures.
-func probeTokenAuth(backendType string) probeAuth {
-	kind, ok := engines.Registry().Lookup(engine.Name(backendType))
-	if !ok {
-		return probeAuth{Reason: fmt.Sprintf("unknown engine %q", backendType)}
-	}
-	auth, ok := kind.Home().Auth.Get()
-	if !ok {
-		return probeAuth{Reason: fmt.Sprintf("%s declares no auth: %s", backendType, kind.Home().Auth.AbsentReason())}
-	}
-	creds, err := auth.Credentials(engine.AuthToken, func(name string) (string, bool) {
-		v := launchCredentials[name]
-		return v, v != ""
-	})
-	if err != nil {
-		reason := err.Error()
-		var r report.Remediable
-		if errors.As(err, &r) {
-			reason += " — " + r.Remedy()
-		}
-		return probeAuth{Reason: reason}
-	}
-	return probeAuth{Env: creds.Env, Reason: strings.Join(slices.Sorted(maps.Keys(creds.Env)), ",") + " captured at launch"}
 }
 
 // --- worktree-axis live observation -----------------------------------
@@ -673,11 +611,9 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 }
 
 // probeTargetAuth is the whole gate an isolation-probe cell passes before its
-// When step may spend a paid turn. The token decides first, because it is
-// pure: a cell without one skips naming it, before any engine binary is run.
-// Only then does it ask the availability question every other @live cell asks
-// (probeEngine), which with a token captured never runs the engine's
-// authCheck — a token is its own proof of intent. Both axes take the same
+// When step may spend a paid turn: the availability question every
+// through-ctxloom @live cell asks (probeEngine), plus the credential it hands
+// the run. No engine binary is run to answer it. Both axes take the same
 // credential (see probeAuth), so the axis is checked only for being one.
 //
 // A probeAuth that is not ok means skip, with its reason; an error is a
@@ -686,19 +622,15 @@ func probeTargetAuth(engineName string, axis probeAxis) (probeAuth, error) {
 	if axis != probeAxisWorktree && !isProbeContainerAxis(axis) {
 		return probeAuth{}, fmt.Errorf("isolation probe: unknown axis %q", axis)
 	}
-	auth := probeTokenAuth(engineName)
-	if !auth.ok() {
-		return auth, nil
-	}
 	key := backendTypeToLiveKey(engineName)
 	a, ok := liveAgents[key]
 	if !ok {
 		return probeAuth{Reason: fmt.Sprintf("%q is not a registered live engine", engineName)}, nil
 	}
-	if status := probeEngine(key, a, realHomeDir, resolveOptIn()); !status.available {
+	if status := probeEngine(key, a); !status.available {
 		return probeAuth{Reason: status.reason}, nil
 	}
-	return auth, nil
+	return probeTokenAuth(a.engine), nil
 }
 
 // probeResult is one cell's full evidence, gathered whether the run PASSED

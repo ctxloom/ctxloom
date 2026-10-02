@@ -440,7 +440,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if strings.TrimSpace(marker) == "" {
 				return fmt.Errorf("j002300: per-engine row for %q carries an EMPTY marker — every body contains the empty string, so this row would pass without the child ever running", engine)
 			}
-			status := probeEngine(key, a, realHomeDir, resolveOptIn())
+			status := probeEngine(key, a)
 			// Loud either way, in the suite's own one-line report shape.
 			w.docStepMaterialized = formatLiveEngineReport([]engineStatus{status})
 			if !status.available {
@@ -466,9 +466,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300PerEngineConfigYAML(a, key, spec, "host", "none")); err != nil {
 				return err
 			}
-			// Subscription path: MAP this engine at its real credential
-			// directory (erased-collar), never copy — see seedLiveCredentials.
-			return seedLiveCredentials(key, a, realHomeDir, w.env.SetChildEnv)
+			return seedLiveCredentials(a, w.env.SetChildEnv)
 		})
 
 	// --- Shared: capture a spawned child's harp -----------------------------

@@ -104,14 +104,9 @@ it, and what would go red if it closed.
   TODAY, not just what ctxloom's own code assumes) is NOT re-proven by this
   matrix's new scenarios — they are deliberately hermetic (a fake spy binary
   stands in for the real engine, by design, so this file never makes a live
-  call). That axis already exists, separately, in this suite's `@live`
-  infrastructure (`live_engine_registry.go`, exercised by J000200/J000400's
-  `a real <engine> agent is available` scenarios) — the SAME
-  `CLAUDE_CONFIG_DIR` wiring this matrix pins underlies those
-  scenarios' credential-copy path already. A dedicated `@live`
-  isolation-specific scenario (proving a real engine authenticates FROM its
-  isolated config-home, never the host's) is future work, not fabricated
-  here.
+  call). The live counterpart, proving a real engine authenticates from its
+  isolated config-home and never the host's, is the `@live` isolation probe
+  (`features/probes/isolation_probe.feature`).
 
 ## UNKNOWN, explicitly
 

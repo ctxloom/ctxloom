@@ -201,7 +201,11 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^her company's companion instructs the assistant to confirm a company codeword$`, func(c context.Context) error {
 		w := worldFrom(c)
 		a, ok := liveAgents["claude"]
-		if !ok || !liveAgentAvailable(a) {
+		if !ok {
+			return fmt.Errorf("no live agent config registered for claude")
+		}
+		if avail, reason := engineAvailable(a); !avail {
+			fmt.Printf("SKIP j000300 live: %s\n", reason)
 			return godog.ErrSkip
 		}
 		w.j000200Live = true
@@ -209,7 +213,7 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
 			return err
 		}
-		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.SetChildEnv); err != nil {
+		if err := seedLiveCredentials(a, w.env.SetChildEnv); err != nil {
 			return err
 		}
 		instruction := fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j000300CompanyCodeword)
@@ -266,7 +270,11 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^its setup guidance instructs the assistant to confirm a companion codeword$`, func(c context.Context) error {
 		w := worldFrom(c)
 		a, ok := liveAgents["claude"]
-		if !ok || !liveAgentAvailable(a) {
+		if !ok {
+			return fmt.Errorf("no live agent config registered for claude")
+		}
+		if avail, reason := engineAvailable(a); !avail {
+			fmt.Printf("SKIP j000300 live: %s\n", reason)
 			return godog.ErrSkip
 		}
 		w.j000200Live = true
@@ -274,7 +282,7 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
 			return err
 		}
-		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.SetChildEnv); err != nil {
+		if err := seedLiveCredentials(a, w.env.SetChildEnv); err != nil {
 			return err
 		}
 		return installSetupGuidanceCompanion(w, "reprise",

@@ -33,7 +33,7 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 		if !ok {
 			return fmt.Errorf("unknown live agent %q", name)
 		}
-		status := probeEngine(key, a, realHomeDir, resolveOptIn())
+		status := probeEngine(key, a)
 		w := worldFrom(c)
 		// Set-and-consume evidence (steps_doc_capture.go): this engine's actual
 		// resolved availability, in the SAME one-line shape as the suite-wide
@@ -50,11 +50,7 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 		if err := w.env.WriteFile(".ctxloom/config.yaml", a.config); err != nil {
 			return err
 		}
-		// Subscription path: MAP the engine at its real credential directory
-		// (erased-collar) so a provider-side token rotation lands on the host
-		// instead of dying with this scenario's temp HOME. The API-key path
-		// needs nothing — it flows through the env.
-		return seedLiveCredentials(key, a, realHomeDir, w.env.SetChildEnv)
+		return seedLiveCredentials(a, w.env.SetChildEnv)
 	})
 
 	// A long, information-dense fragment gives distillation something real to

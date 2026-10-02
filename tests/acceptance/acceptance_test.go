@@ -24,9 +24,6 @@ import (
 // project id, while the spawned MCP server scrubs it — the two would disagree on
 // which home-rooted store to use. Scrubbing once here keeps both axes isolated.
 func TestMain(m *testing.M) {
-	// Capture the real home before any scenario overrides HOME — @live uses it to
-	// locate ~/.claude for the subscription-auth path.
-	realHomeDir = os.Getenv("HOME")
 	launchCredentials = captureLaunchCredentials()
 	for _, k := range testsupport.EnvKeys {
 		_ = os.Unsetenv(k)
@@ -52,7 +49,7 @@ func TestMain(m *testing.M) {
 func TestHermeticChildSeesNoCredential(t *testing.T) {
 	var keys []string
 	for _, a := range liveAgents {
-		keys = append(keys, a.apiKeyEnvs...)
+		keys = append(keys, a.vendorCredEnvs...)
 	}
 	for _, k := range keys {
 		if _, set := os.LookupEnv(k); set {
@@ -90,7 +87,7 @@ func TestAcceptance(t *testing.T) {
 	// credential expiry (or a binary going missing) shows up as a loud line
 	// instead of silently dropping live coverage to zero while the suite
 	// still reports green. See live_engine_registry.go.
-	report := computeLiveEngineReport(realHomeDir, resolveOptIn())
+	report := computeLiveEngineReport()
 	fmt.Println(formatLiveEngineReport(report))
 
 	// THE FLOOR: CTXLOOM_LIVE_REQUIRE names engines that MUST be available —

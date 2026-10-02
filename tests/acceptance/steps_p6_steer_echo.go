@@ -107,7 +107,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			if !ok {
 				return fmt.Errorf("p6: %q is not a known live engine (registry keys: %v) — a row naming an engine the registry cannot probe would skip forever and look like coverage", engine, liveAgentOrder)
 			}
-			status := probeEngine(key, a, realHomeDir, resolveOptIn())
+			status := probeEngine(key, a)
 			// Loud either way, in the suite's own one-line report shape.
 			w.docStepMaterialized = formatLiveEngineReport([]engineStatus{status})
 			if !status.available {
@@ -170,7 +170,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			// setup-token the child env inherits (seedLiveCredentials refuses
 			// without one); a container receives it by name. Nothing is linked
 			// or copied.
-			return seedLiveCredentials(key, a, realHomeDir, w.env.SetChildEnv)
+			return seedLiveCredentials(a, w.env.SetChildEnv)
 		})
 
 	// --- the steer ----------------------------------------------------------

@@ -32,7 +32,7 @@ type p13State struct {
 	variant                    p13Variant
 
 	claudePath string
-	cred       credentialMapping // the launch credential (liveCredential); never printed
+	cred       credentialMapping // the launch credential (vendorCredential); never printed
 	dir        string            // the cell's root: the markers live here, outside the repo
 	repo       string            // cwd: a git repo with a COMMITTED .claude/settings.json, skill and agent
 	cfg, home  string            // throwaway CLAUDE_CONFIG_DIR and HOME; cfg holds a .claude.json trusting the repo only in the trusted control
@@ -69,19 +69,14 @@ func registerP13UntrustedRepoHooksSteps(ctx *godog.ScenarioContext) {
 			}
 			p.engine, p.runtime, p.workspace, p.variant = engine, runtime, workspace, p13Variant(variant)
 
-			a, _, err := probeCellGate(c, w, p13Family, p.cell())
+			// The cell runs claude itself in a throwaway HOME and config dir,
+			// so it takes what claude accepts, captured at launch, and never
+			// the real home's login.
+			a, cred, err := probeDirectCellGate(w, p13Family, p.cell())
 			if err != nil {
 				return err
 			}
-			// Untrusted means a CLAUDE_CONFIG_DIR with no projects entry, so the
-			// config dir must be throwaway — and a throwaway config dir cannot
-			// use the subscription login. Only a token captured at launch can
-			// authenticate this cell.
-			var ok bool
-			if p.cred, ok = liveCredential(a); !ok {
-				return probeCellSkip(p13Family, p.cell(), fmt.Sprintf(
-					"this cell runs claude in a throwaway config dir and HOME, so it needs a token captured at launch (one of %v); none was", a.apiKeyEnvs))
-			}
+			p.cred = cred
 			if p.claudePath, err = exec.LookPath(a.binary); err != nil {
 				return err
 			}

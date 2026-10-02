@@ -40,19 +40,15 @@ func probeCellGate(c context.Context, w *World, family string, cell probeCellID)
 		return liveAgent{}, "", err
 	}
 
-	report, skip := probeCellDecide(probeEngine(key, a, realHomeDir, resolveOptIn()))
+	// The cell's run is a ctxloom run on every axis, so probeEngine's token
+	// question is the whole credential gate.
+	report, skip := probeCellDecide(probeEngine(key, a))
 	w.docStepMaterialized = report
 	if skip != "" {
 		return liveAgent{}, "", probeCellSkip(family, cell, skip)
 	}
 
 	isContainer := launch.IsContainerRuntimeAxis(launch.RuntimeAxis(cell.Runtime))
-	if cell.Workspace == "worktree" || isContainer {
-		if auth := probeTokenAuth(cell.Engine); !auth.ok() {
-			return liveAgent{}, "", probeCellSkip(family, cell,
-				"an isolated agent run authenticates only with the token: "+auth.Reason)
-		}
-	}
 	// probeCellResolve (called above, at the top of this function) already
 	// parsed cell.Runtime via launch.ParseRuntimeAxis and rejected anything
 	// that does not resolve — including the retired undifferentiated
@@ -85,6 +81,25 @@ func probeCellGate(c context.Context, w *World, family string, cell probeCellID)
 		}
 	}
 	return a, key, nil
+}
+
+// probeDirectCellGate is probeCellGate for a cell that runs the vendor binary
+// DIRECTLY on host/none: it takes what that binary accepts (directEngineStatus)
+// rather than the token a ctxloom run is limited to, and returns the credential
+// the cell hands its throwaway environment (liveVendorEnv). Same resolution,
+// same evidence, same skip line.
+func probeDirectCellGate(w *World, family string, cell probeCellID) (liveAgent, credentialMapping, error) {
+	a, key, err := probeCellResolve(family, cell)
+	if err != nil {
+		return liveAgent{}, credentialMapping{}, err
+	}
+	report, skip := probeCellDecide(directEngineStatus(key, a))
+	w.docStepMaterialized = report
+	if skip != "" {
+		return liveAgent{}, credentialMapping{}, probeCellSkip(family, cell, skip)
+	}
+	cred, _ := vendorCredential(a)
+	return a, cred, nil
 }
 
 // probeContainerRuntimeForAxis resolves whether SOME reachable container

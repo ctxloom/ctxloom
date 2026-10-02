@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -39,6 +40,9 @@ type layout struct {
 	stores []sharedStore
 	// trust is the engine's verdict on cwd's repository (repoTrust).
 	trust engine.WorkspaceTrust
+	// hostEnv is what a host engine inherits (Spec.curatedEnv); only the
+	// host relocator places it.
+	hostEnv agents.HostEnv
 }
 
 // relocator is stage 2: it presents a layout to the engine. PURE — Preview
@@ -55,7 +59,7 @@ type relocator interface {
 // stageLayout builds stage 1 for a prepared workspace: the session home is
 // CREATED and prepared here, so stage 2 maps it with everything else.
 func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore) layout {
-	l := layout{cwd: cwd, env: env, creds: s.creds, stores: stores, trust: repoTrust(s.eng, cwd)}
+	l := layout{cwd: cwd, env: env, creds: s.creds, stores: stores, trust: repoTrust(s.eng, cwd), hostEnv: s.curatedEnv()}
 	dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home)
 	if !ok || !prepareSessionHome(s.eng, dir, cwd, l.trust) {
 		return l
@@ -68,7 +72,7 @@ func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore
 // cwd (Preview puts a worktree's checkout there) and the session home the run
 // WOULD create.
 func previewLayout(s Spec, stores []sharedStore) layout {
-	l := layout{cwd: s.project, creds: s.creds, stores: stores, trust: repoTrust(s.eng, s.project)}
+	l := layout{cwd: s.project, creds: s.creds, stores: stores, trust: repoTrust(s.eng, s.project), hostEnv: s.curatedEnv()}
 	if dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home); ok {
 		placeHome(&l, s.eng, dir)
 	}
@@ -171,7 +175,9 @@ func (hostRelocator) relocate(l layout) (launch.Placement, []mount, error) {
 			storeEnv[st.Var] = st.Value
 		}
 	}
-	return placementOf(paths, l, storeEnv), nil, nil
+	pl := placementOf(paths, l, storeEnv)
+	pl.HostEnv = l.hostEnv
+	return pl, nil, nil
 }
 
 func inPlace(dir string) present.Root { return present.Root{Host: dir, Engine: dir} }

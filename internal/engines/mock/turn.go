@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -206,25 +205,26 @@ func toolsTurn(text string) []agent.ChatEvent {
 
 // recordTurn writes the turn's evidence when EnvRecordFile names a file:
 // the prompt as delivered (the context lead is IN it — the runner composes
-// context and prompt into one lead block), and what the runner's delivery
-// left on disk, read back off the FILES — the context file the exec's argv
-// names, the deny list its sibling settings file carries, the skills its
-// sibling skills dir holds — never a Setup of the mock's own.
+// context and prompt into one lead block), where each surface was delivered,
+// and what the runner's delivery left on disk, read back off the FILES the
+// exec's argv names — the context, the deny list the settings file carries,
+// the skills the skills dir holds — never a Setup of the mock's own.
 func recordTurn(ex engine.Exec, prompt string, posture engine.TurnPosture) error {
 	file := Env(ex.Env, EnvRecordFile)
 	if file == "" {
 		return nil
 	}
 	rec := Record{Mode: 1, WorkDir: ex.WorkDir, Env: ex.Env, Prompt: prompt, Posture: &posture}
-	if contextFile := argOf(ex, contextFlag); contextFile != "" {
-		rec.ContextFile = contextFile
-		if body, err := os.ReadFile(contextFile); err == nil {
-			rec.Context = string(body)
+	for _, sf := range surfaceFlags {
+		if p := argOf(ex, sf.flag); p != "" {
+			rec.Surfaces = append(rec.Surfaces, SurfacePath{Key: sf.key, Path: p})
 		}
-		root := filepath.Dir(contextFile)
-		rec.DenyTools = deliveredDenyTools(filepath.Join(root, settingsRel))
-		rec.Skills = deliveredSkills(filepath.Join(root, skillsRel))
 	}
+	if body, err := os.ReadFile(argOf(ex, contextFlag)); err == nil {
+		rec.Context = string(body)
+	}
+	rec.DenyTools = deliveredDenyTools(argOf(ex, settingsFlag))
+	rec.Skills = deliveredSkills(argOf(ex, skillsFlag))
 	return WriteRecord(file, rec)
 }
 

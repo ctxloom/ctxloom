@@ -534,3 +534,20 @@ func TestCellsPrepare_APreviewResolvesCredentialsReadOnly(t *testing.T) {
 		assert.NotContains(t, cell.Env[fakeTokenVar], "env-secret", "and never the secret")
 	})
 }
+
+// The binding's host_env reaches the host cell the run is launched in: the
+// cell carries it (with the engine's own home var kept) for the runner to
+// apply.
+func TestCellsPrepare_TheHostCellCarriesTheBindingsHostEnv(t *testing.T) {
+	resetStrictness(t)
+	fakeHostHome(t, "")
+	t.Setenv(claude.OAuthTokenEnv, tokenFixture)
+	req := claudeKind(t)
+	req.ProjectRoot = t.TempDir()
+	req.SessionDir = harpDir(t, "test-harp")
+	req.HostEnv = agents.HostEnv{Curated: true, Passthrough: []string{"GITHUB_TOKEN"}}
+	cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cell.Cleanup() })
+	assert.Equal(t, agents.HostEnv{Curated: true, Passthrough: []string{"GITHUB_TOKEN", claude.ConfigDirEnv}}, cell.HostEnv)
+}

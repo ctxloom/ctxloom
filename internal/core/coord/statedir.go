@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -50,7 +51,7 @@ func stateDirForProject(projectKey string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("coord: state dir: %w", err)
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := owneronly.EnsureDir(dir); err != nil {
 		return "", fmt.Errorf("coord: state dir: %w", err)
 	}
 	return dir, nil

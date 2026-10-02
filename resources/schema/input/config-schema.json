@@ -280,6 +280,24 @@
               "api-key",
               "cloud"
             ]
+          },
+          "host_env": {
+            "type": "object",
+            "description": "Which of the launching environment's variables this agent's engine inherits on the HOST runtime. Omitted, it inherits all of them (minus what the auth mode removes), so every exported secret reaches the engine and every MCP server, hook and shell it starts. With curated: true the engine starts from a curated base instead (PATH, HOME, USER, LOGNAME, SHELL, TERM, COLORTERM, LANG, TMPDIR, the LC_*, XDG_* and CTXLOOM_* families, the Windows OS essentials, and the engine's own home variable) plus the names in passthrough. The auth mode's credential is not inherited but set by value, so neither list needs to name it. A container already forwards only the variables it names; this setting does not apply there. A passthrough without curated: true is refused at launch.",
+            "properties": {
+              "curated": {
+                "type": "boolean",
+                "description": "Opt in: start the engine from the curated base plus passthrough instead of inheriting everything."
+              },
+              "passthrough": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Exact variable names (case-insensitive on Windows) a curated engine also inherits, e.g. GITHUB_TOKEN or HTTPS_PROXY."
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false

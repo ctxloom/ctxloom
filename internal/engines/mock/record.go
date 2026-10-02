@@ -65,6 +65,41 @@ func Env(env map[string]string, key string) string {
 	return v
 }
 
+// The record's surface keys: each line "<key>=<path>" names where that
+// surface was delivered for the turn — evidence a test can still read after
+// the run's teardown has reversed the delivery.
+const (
+	RecordContextFile  = "context_file"
+	RecordMCPFile      = "mcp_file"
+	RecordSettingsFile = "settings_file"
+	RecordHooksFile    = "hooks_file"
+	RecordCommandsDir  = "commands_dir"
+	RecordSkillsDir    = "skills_dir"
+)
+
+// surfaceFlags pairs each surface's argv flag with its record key, in the
+// order the record lists them.
+var surfaceFlags = []struct{ flag, key string }{
+	{contextFlag, RecordContextFile},
+	{mcpFlag, RecordMCPFile},
+	{settingsFlag, RecordSettingsFile},
+	{HooksFlag, RecordHooksFile},
+	{commandsFlag, RecordCommandsDir},
+	{skillsFlag, RecordSkillsDir},
+}
+
+// RecordSurfaceKeys are the record's surface keys, in record order.
+func RecordSurfaceKeys() []string {
+	keys := make([]string, 0, len(surfaceFlags))
+	for _, sf := range surfaceFlags {
+		keys = append(keys, sf.key)
+	}
+	return keys
+}
+
+// SurfacePath is one delivered surface: its record key and its path.
+type SurfacePath struct{ Key, Path string }
+
 // Record is what a record is written FROM: the mode, the working directory,
 // the env the engine saw, the context and prompt as delivered, and the
 // evidence of the delivered settings (the deny list) and skills. Every arm
@@ -76,10 +111,9 @@ type Record struct {
 	WorkDir string
 	Env     map[string]string
 	Context string
-	// ContextFile is the path the context was read from: WHERE the
-	// runner delivered it, which a test can still read after the run's
-	// teardown has reversed the delivery.
-	ContextFile   string
+	// Surfaces are WHERE the runner delivered each surface, as the exec's
+	// argv announced them.
+	Surfaces      []SurfacePath
 	Prompt        string
 	FragmentCount int
 	DenyTools     []string
@@ -114,8 +148,8 @@ func WriteRecord(file string, in Record) error {
 		_, _ = fmt.Fprintf(&input, "cwd=<error: %v>\n", err)
 	}
 	_, _ = fmt.Fprintf(&input, "workdir=%s\n", in.WorkDir)
-	if in.ContextFile != "" {
-		_, _ = fmt.Fprintf(&input, "context_file=%s\n", in.ContextFile)
+	for _, sp := range in.Surfaces {
+		_, _ = fmt.Fprintf(&input, "%s=%s\n", sp.Key, sp.Path)
 	}
 	if host, err := os.Hostname(); err == nil {
 		_, _ = fmt.Fprintf(&input, "hostname=%s\n", host)

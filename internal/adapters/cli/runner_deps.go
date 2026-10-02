@@ -49,6 +49,7 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *runner.Engin
 		Dynamic:    dynamic,
 		Driver:     host,
 		Unsetenv:   os.Unsetenv,
+		Environ:    os.Environ,
 		EngineVersion: func(ctx context.Context) (string, error) {
 			return App().ProbeEngineVersion(ctx, backendName)
 		},

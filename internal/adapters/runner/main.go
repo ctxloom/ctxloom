@@ -112,16 +112,20 @@ func Main(ctx context.Context, d MainDeps) error {
 	case <-home.OwnerLost():
 		ended = ErrOwnerLost
 	}
-	// The engine host joins first so an in-flight adapt can finish its
-	// terminal RunCompleted while the home is still live. The run's
-	// delivery is reversed once nothing runs against it any more; ctx may
-	// already be cancelled (that is how a Kill arrives), and the reversal
-	// must still run.
+	shutDown(ctx, d.Reporter, host, tail, home)
+	return ended
+}
+
+// shutDown ends the runner. The engine host joins first so an in-flight
+// adapt can finish its terminal RunCompleted while the home is still live.
+// The run's delivery is reversed once nothing runs against it any more; ctx
+// may already be cancelled (that is how a Kill arrives), and the reversal
+// must still run.
+func shutDown(ctx context.Context, reporter report.Sink, host *EngineHost, tail *Host, home *Home) {
 	host.Close()
 	if err := tail.Teardown(context.WithoutCancel(ctx)); err != nil {
-		report.To(d.Reporter).Report(report.Finding{Kind: report.KindApply, Text: err.Error(),
+		report.To(reporter).Report(report.Finding{Kind: report.KindApply, Text: err.Error(),
 			Remedy: "the next run's sweep reverses it once this session is gone"})
 	}
 	home.Close(0, "")
-	return ended
 }

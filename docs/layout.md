@@ -166,9 +166,10 @@ Three classes of content live inside an instance:
 1. **ctxloom-generated** — context, prompts, skills, managed config blocks.
    Regenerated at every launch.
 2. **engine-generated** — the scaffolding an engine needs, written by that
-   engine's own package (`agent.InstanceConfigWriter`): for claude, the
-   `.claude.json` carrying its hardened keys and the workspace-trust answer for
-   the run's working directory.
+   engine's own package (`engine.InstanceConfigWriter`): for claude, the
+   `.claude.json` carrying its hardened keys and — only for a repository you
+   trusted in your own claude — the workspace-trust answer for the run's
+   working directory (see the trust model's "Engine workspace-trust prompts").
 3. **ambient** — content whose origin is your real host home, **copied in one
    way** at instance time and never back (`isolation.CopyAmbient`, over the
    per-engine allow-list `isolation.AmbientSet`).

@@ -37,8 +37,8 @@ currently closed, this matrix goes red and says which cell moved.
 The matrix below is measured, not narrated: every cell traces to either a
 named cucumber scenario in this file's feature (steps_j002200_isolation_matrix.go)
 or a named Go unit test in internal/adapters/isolation. Where cucumber could not
-independently prove a cell (opencode's exact spawned-env payload; the entire
-runtime:container column per engine), that is stated as NOT EXECUTED with the
+independently prove a cell (the entire runtime:container column per engine),
+that is stated as NOT EXECUTED with the
 reason, never silently omitted.
 <!-- /doc:intro -->
 
@@ -50,7 +50,7 @@ Every backend, both runtime axes: workspace "none" shares the live project
 directory AND the engine's shared global config/credentials, unconditionally
 — no config-home is provisioned, no finding fires, nothing is gated. This is
 not a leak (nothing was asked to be isolated) — it is the control the rest of
-the matrix is measured against. Proven for all 4 backends by "workspace
+the matrix is measured against. Proven for every backend by "workspace
 `none` never touches any engine's config-home isolation at all" (Scenario
 Outline, j002200_isolation.feature).
 
@@ -59,8 +59,6 @@ Outline, j002200_isolation.feature).
 | backend | isolates | LEAKS | state |
 |---|---|---|---|
 | **claude-code** | config, credentials (`CLAUDE_CONFIG_DIR`, whole tree) | — | **ISOLATED** |
-| **codex** | config, session state, credentials (`CODEX_HOME`, whole tree) | — | **ISOLATED** |
-| **opencode** | config (`XDG_CONFIG_HOME`), credentials (`XDG_DATA_HOME`) — pinned at the Go level | — (contract-level: proven; exact payload: not independently re-proven by cucumber) | **ISOLATED** (partially NOT EXECUTED at the cucumber level — see note) |
 
 ### workspace "worktree" x runtime "container" — NOT EXECUTED by this cucumber suite
 
@@ -99,28 +97,17 @@ it, and what would go red if it closed.
   the entire runtime:container column, confirmed green via
   `ACCEPTANCE_PATHS=features/journeys/j002200_isolation.feature`.
 - **NOT EXECUTED by cucumber, pinned at the Go level instead**:
-  - opencode's exact spawned-env payload (the `XDG_DATA_HOME` vs.
-    `XDG_DATA_HOME/opencode` nesting subtlety) — opencode's real launch path
-    is ACP (a stateful JSON-RPC handshake over stdio), not a plain oneshot
-    exec; the spy fixture every other backend uses never completes that
-    handshake, so no output reaches it (confirmed by hand: the file this
-    suite's spy would write is never created). opencode's fail-loud/warn
-    CONTRACT (the "refuses to start" / "proceeds once its API key rides the
-    environment" scenarios) IS still proven for it — those fire before any
-    engine spawn is attempted. The exact payload is pinned instead by
-    `internal/adapters/isolation/auth_test.go`'s
-    `TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode`.
   - The entire runtime:container column, every backend — see the table's
     own note above (cost/speed tradeoff; Go-pinned instead).
 - **Live vendor-drift detection** (does the REAL, currently-installed
-  claude/codex/opencode binary still honor these variables
+  engine binary still honor these variables
   TODAY, not just what ctxloom's own code assumes) is NOT re-proven by this
   matrix's new scenarios — they are deliberately hermetic (a fake spy binary
   stands in for the real engine, by design, so this file never makes a live
   call). That axis already exists, separately, in this suite's `@live`
   infrastructure (`live_engine_registry.go`, exercised by J000200/J000400's
   `a real <engine> agent is available` scenarios) — the SAME
-  `CLAUDE_CONFIG_DIR`/`CODEX_HOME` wiring this matrix pins underlies those
+  `CLAUDE_CONFIG_DIR` wiring this matrix pins underlies those
   scenarios' credential-copy path already. A dedicated `@live`
   isolation-specific scenario (proving a real engine authenticates FROM its
   isolated config-home, never the host's) is future work, not fabricated

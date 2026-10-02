@@ -108,6 +108,65 @@ func TestDeliverMCP_WritesTheServerSetUnderTheSelectedRoot(t *testing.T) {
 	}
 }
 
+// TestDeliverMCP_AtTheProjectRoot_TheFileNeverHoldsTheRelayBearer: the
+// project .mcp.json is a file teams commit, and a run that dies before its
+// teardown leaves it as written. The session entry names the bearer by
+// reference and the value rides claude's environment (the presentation's env
+// channel, which Exec copies into claude's env); claude expands the reference
+// itself. The private session-home file is ctxloom's own and keeps the value.
+func TestDeliverMCP_AtTheProjectRoot_TheFileNeverHoldsTheRelayBearer(t *testing.T) {
+	def := claudeDef(t)
+	start, project, home := hostStart(t)
+	const bearer = "bearer-value-under-test"
+	entry := def.Dynamic.Endpoint(sessions.Endpoint{URL: "http://127.0.0.1:1/mcp", Credential: bearer})
+	in := engine.MCPInputs{Servers: map[string]wire.MCPServer{"ctxloom": entry, "probe": {Command: "probe-mcp"}}}
+
+	d, err := def.MCP.DeliverMCP(start, present.RootProjectRoot, in, nil)
+	require.NoError(t, err)
+	body, err := os.ReadFile(filepath.Join(project, ".mcp.json"))
+	require.NoError(t, err)
+	require.NotContains(t, string(body), bearer, "the project file holds the relay bearer")
+	require.Contains(t, string(body), relayBearerRef, "the entry names the bearer by reference")
+	require.Contains(t, string(body), "probe-mcp")
+	require.Equal(t, map[string]string{EnvRelayBearer: bearer}, d.Presented.Env, "the value rides claude's environment")
+	require.Equal(t, bearer, in.Servers["ctxloom"].Env[EnvRelayBearer], "the caller's server set is not rewritten")
+
+	ex, err := (&instance{s: engine.Session{Mode: engine.Structured}}).Exec([]present.Presentation{d.Presented})
+	require.NoError(t, err)
+	require.Equal(t, bearer, ex.Env[EnvRelayBearer], "claude's process env carries the value the file names")
+
+	d, err = def.MCP.DeliverMCP(start, present.RootSessionHome, in, nil)
+	require.NoError(t, err)
+	private, err := os.ReadFile(filepath.Join(home, ".mcp.json"))
+	require.NoError(t, err)
+	require.Contains(t, string(private), bearer, "the private session-home file is not rewritten by reference")
+	require.Empty(t, d.Presented.Env[EnvRelayBearer])
+}
+
+// TestBearerByReference_RefusesTwoDifferentBearers: claude's environment
+// holds one value per name, so two entries carrying different bearers
+// cannot both be named by one reference.
+func TestBearerByReference_RefusesTwoDifferentBearers(t *testing.T) {
+	two := map[string]wire.MCPServer{
+		"a": {Command: "x", Env: map[string]string{EnvRelayBearer: "one"}},
+		"b": {Command: "x", Env: map[string]string{EnvRelayBearer: "two"}},
+	}
+	_, _, err := bearerByReference(two)
+	require.ErrorIs(t, err, errTwoRelayBearers)
+
+	same := map[string]wire.MCPServer{
+		"a": {Command: "x", Env: map[string]string{EnvRelayBearer: "one"}},
+		"b": {Command: "x", Env: map[string]string{EnvRelayBearer: "one"}},
+		"c": {Command: "x", Env: map[string]string{EnvRelayBearer: relayBearerRef}},
+	}
+	out, env, err := bearerByReference(same)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{EnvRelayBearer: "one"}, env)
+	for name, srv := range out {
+		require.Equal(t, relayBearerRef, srv.Env[EnvRelayBearer], name)
+	}
+}
+
 // TestDeliverHooks_RegistersTheHookInSettings is the ruling's proof for the
 // definition: Hooks is a surface of its own, and delivering it writes a real
 // hook registration into claude's native form — the hooks section of

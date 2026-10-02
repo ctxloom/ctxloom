@@ -90,9 +90,9 @@ func (b *SpecBuilder) Home(m agents.HomeMode) *SpecBuilder {
 
 // Credentials are what the run's auth mode needs (engine.Auth.Credentials):
 // the environment makes each true where the engine runs — the env laid over
-// the engine's, the names removed from it, and each shared store in place on
-// the host or mounted at its place under the container's $HOME. The zero
-// value is an engine that needs none.
+// the engine's (a container's as secret files), the names removed from it,
+// and each shared store in place on the host; a container refuses any store.
+// The zero value is an engine that needs none.
 func (b *SpecBuilder) Credentials(c engine.Credentials) *SpecBuilder {
 	b.s.creds = c
 	return b

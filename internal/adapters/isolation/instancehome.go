@@ -66,9 +66,10 @@ var ensureOwnerOnlyDir = owneronly.EnsureDir
 // the run's trust answer and account identity, the same exposure the
 // credential store refuses.
 //
-// No credential is placed in the home: a run authenticates from what its
-// agent's auth mode resolves to (engine.Auth.Credentials), settled before the
-// home is prepared.
+// No credential file is placed in the home: a run authenticates in its mode
+// (engine.Auth.Credentials), settled before the home is prepared. The mode
+// rides req.Auth only so the engine can keep a login's credential half (claude:
+// primaryApiKey) to the human's own login session.
 //
 // The real host home is READ and never written by this call; tests/arch's
 // real-home byte-identity gate is what proves it.

@@ -508,15 +508,10 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 		}
 		// Written from INSIDE the container (its own UTS namespace → a different
 		// hostname) and read here at the HOST path: one file, reached from both
-		// sides through ctxloom's read-write bind mount, NOT a copy. That is
-		// exactly the property claude's real-credential container mount now
-		// relies on — a write on the container side IS the write on the host
-		// side, so the container's single-use token refresh lands in the one
-		// file the host holds and never desyncs it. The credential file itself
-		// is not exercised here (the mock authenticates against nothing); its
-		// mount SOURCE = real ~/.claude/.credentials.json, rw, refresh present is
-		// pinned in auth_test.go, and a real claude refreshing in place is the
-		// @live isolation probe. See this scenario's feature-file note.
+		// sides through ctxloom's read-write bind mount, NOT a copy: the
+		// property the container's session engine home relies on. No
+		// credential rides it — a container refuses `auth: login`
+		// (engine.ErrHostOnlyStore). See this scenario's feature-file note.
 		w.docStepMaterialized = fmt.Sprintf("in-container write (hostname=%s, this host=%s) read at host path %s — same file both sides via a read-write bind mount, not a copy", rec.Hostname, host, j002200.lastContainerRecPath)
 		return nil
 	})

@@ -162,7 +162,7 @@ func TestApprovalQueue_WhatAGrantNoLongerCovers(t *testing.T) {
 				defer q.mu.Unlock()
 				assert.Empty(t, q.runGrants, "the run's set goes with the run")
 			},
-			asker:    Identity{Harp: askerID.Harp, RunID: "run-2", Depth: 1},
+			asker: Identity{Harp: askerID.Harp, RunID: "run-2", Depth: 1},
 		},
 		"denied": {
 			decision: ApprovalDecision{Allow: false, SessionRules: []string{"Bash"}},

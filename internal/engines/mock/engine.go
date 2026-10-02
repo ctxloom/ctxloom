@@ -363,7 +363,7 @@ type driver struct {
 	approver engine.Approver
 	// deny are the session's declared deny rules (a mock rule is a tool
 	// name): they refuse a call before any grant or approver is consulted.
-	deny     []string
+	deny []string
 }
 
 // Exports exports EVERYTHING: no bundle carries a block for a mock (mock is

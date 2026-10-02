@@ -246,7 +246,7 @@ type Launch struct {
 	Cell     Cell
 	Home     []engine.HomeBinding
 	Trust    engine.WorkspaceTrust // the cell's verdict on the repository; the engine enforces it on every launch
-	Package  composite.Carrier // encoded then carried (inline or claim); both consumers redeem then Decode
+	Package  composite.Carrier     // encoded then carried (inline or claim); both consumers redeem then Decode
 	Exports  engine.Exports
 	Plan     delivery.Plan
 	Index    composite.Index

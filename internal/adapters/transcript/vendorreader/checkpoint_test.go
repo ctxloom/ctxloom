@@ -51,6 +51,10 @@ func TestCheckpoint_SeekRefusesASourceThatNoLongerExtendsIt(t *testing.T) {
 		"checkpointed line rewritten":  "{\"a\":1}\n{\"B\":2}\n{\"c\":3}\n",
 		"newline no longer at offset":  "{\"a\":1}\n{\"b\":22}\n{\"c\":3}\n",
 		"replaced by a different file": strings.Repeat("x", 40),
+		// Same trimmed content, so the digest matches: only the newline
+		// check tells the line no longer ends at the offset.
+		"line no longer ends at offset": "{\"a\":1}\n {\"b\":2}{\"c\":3}\n",
+		"shorter than the line's start": "{\"a\"",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -58,6 +62,9 @@ func TestCheckpoint_SeekRefusesASourceThatNoLongerExtendsIt(t *testing.T) {
 			assert.ErrorIs(t, err, ErrCheckpointMismatch)
 		})
 	}
+	neg := cp
+	neg.Start = -1
+	assert.ErrorIs(t, neg.Seek(bytes.NewReader([]byte(checkpointSrc))), ErrCheckpointMismatch, "a negative line start is not a checkpoint")
 	bad := cp
 	bad.Start = bad.Offset
 	assert.ErrorIs(t, bad.Seek(bytes.NewReader([]byte(checkpointSrc))), ErrCheckpointMismatch, "an empty checkpointed line is not a checkpoint")

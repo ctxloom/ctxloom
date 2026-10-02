@@ -25,6 +25,8 @@ package claude
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
@@ -37,7 +39,7 @@ import (
 // concurrent Convert calls for different files.
 type Adapter struct{}
 
-var _ vendorreader.VendorAdapter = Adapter{}
+var _ vendorreader.ResumableAdapter = Adapter{}
 
 // VersionedAdapters declares which claude-code CLI versions this adapter is
 // validated to read. Selection is (engine, RECORDED version) -> adapter
@@ -69,16 +71,23 @@ var VersionedAdapters = []vendorreader.VersionedAdapter{{
 // Convert reads the claude transcript JSONL file at src and appends its
 // conversation to rec in the file's own order. See vendorreader.VendorAdapter's
 // doc comment for the general contract (malformed lines skipped, not fatal;
-// a rec.Record failure or ctx cancellation IS fatal). The shape (open, read
-// lines, convertLines) is the two-pass pattern every
-// vendorreader.VendorAdapter follows (vendorreader.ConvertJSONLLines); the
-// line-reading step is the shared vendorreader.OpenAndReadJSONLLines, not a
-// per-adapter copy.
-func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string) error {
-	lines, err := vendorreader.OpenAndReadJSONLLines("claude", src)
+// a rec.Record failure or ctx cancellation IS fatal). It is ConvertFrom from
+// the beginning with nobody asking for a checkpoint — one conversion, not two.
+func (a Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string) error {
+	return a.ConvertFrom(ctx, rec, src, vendorreader.Checkpoint{}, nil)
+}
+
+// ConvertFrom implements vendorreader.ResumableAdapter. Each line goes
+// through the same decodeLine (torn-line recovery included) whether the
+// conversion starts at the beginning or at a checkpoint; what a checkpoint
+// carries across is the converter's open turn boundary and its end-of-file
+// counters (resumeState).
+func (Adapter) ConvertFrom(ctx context.Context, rec transcript.Recorder, src string, from vendorreader.Checkpoint, onCheckpoint func(vendorreader.Checkpoint) error) error {
+	f, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("claude: open %s: %w", src, err)
 	}
-	_, err = convertLines(ctx, rec, lines)
+	defer func() { _ = f.Close() }()
+	_, err = convertFrom(ctx, rec, f, src, from, onCheckpoint)
 	return err
 }

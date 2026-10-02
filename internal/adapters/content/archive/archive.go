@@ -43,7 +43,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // ErrEmptyArchive reports a store constructed with no archive bytes. It is a
@@ -141,13 +141,13 @@ func reroot(fsys afero.Fs, src, dst string) error {
 		if err := fsys.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		// iox.WriteFileAtomicFs applies perm EXACTLY via its own Chmod (see its
+		// safefs.WriteFile applies perm EXACTLY via its own Chmod (see its
 		// doc), unlike afero.WriteFile which only sets mode at creation — the
 		// manual re-Chmod this used to need is now redundant and dropped.
 		// AllowEmpty: HardenedExtract already normalized every entry's mode and
 		// capped its size; whether an entry is zero-length is a property of the
 		// archive's content, not this function's business to second-guess.
-		if err := iox.WriteFileAtomicFs(fsys, target, body, info.Mode().Perm(), iox.AllowEmpty()); err != nil {
+		if err := safefs.WriteFile(fsys, target, body, info.Mode().Perm(), safefs.AllowEmpty()); err != nil {
 			return fmt.Errorf("content/archive: re-root %q: %w", rel, err)
 		}
 		return nil

@@ -138,7 +138,7 @@ func TestServe_BindsTheLoadoutEndpoint_BearerAndOrigin(t *testing.T) {
 	for _, tl := range tools.Tools {
 		names = append(names, tl.Name)
 	}
-	assert.Subset(t, names, []string{"assemble_context", "search_content", "search_library", "agent_send", "agent_recv", "compact_session"},
+	assert.Subset(t, names, []string{"assemble_context", "search_content", "search_library", "agent_send", "compact_session"},
 		"the cell-local, coordination and host-relayed tools are one surface on the bound endpoint")
 }
 

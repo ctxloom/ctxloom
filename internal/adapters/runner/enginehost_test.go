@@ -46,7 +46,7 @@ type fakeEngineHome struct {
 	owner    bool
 	wakes    []engine.Wake
 	released int
-	exited      []struct {
+	exited   []struct {
 		Code      int
 		SessionID string
 	}

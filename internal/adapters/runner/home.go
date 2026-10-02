@@ -24,14 +24,14 @@ import (
 // Home is the RUNNER's connection home: it owns the coordinator dial (one
 // gRPC conn), the RunnerChannel lifecycle link (Hello/heartbeats/RunExited),
 // and the RunChannel the runner-terminated MCP tools ride — plane-2 requests
-// with reissue-after-reconnect idempotency, the plane-3 notice buffer behind
-// the runner-LOCAL agent_recv, and plane-1 event emission (reports, mail
-// consumption, park state) with cumulative-Ack tracking.
+// with reissue-after-reconnect idempotency, the delivery of pushed mail to the
+// hosted engine, and plane-1 event emission (reports, mail consumption) with
+// cumulative-Ack tracking.
 //
 // Both channels reconnect with backoff. Requests survive a reconnect: the
-// runner re-Hellos with its resume cursor, re-emits unacked events, REISSUES
-// outstanding requests with the SAME request_id (the coordinator treats
-// request_id as the idempotency key), and re-asserts its current park state.
+// runner re-Hellos with its resume cursor, re-emits unacked events, and
+// REISSUES outstanding requests with the SAME request_id (the coordinator
+// treats request_id as the idempotency key).
 type Home struct {
 	cfg HomeConfig
 	rep report.Reporter // HomeConfig.Reporter, or silence
@@ -62,18 +62,13 @@ type Home struct {
 	// the stream reconnects, so frames are written directly under sendMu).
 	requests coord.BidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse]
 
+	// buffer holds mail swept before the hosted engine registered its turn
+	// sink (SetTurnSink drains it first, in arrival order).
 	buffer   []*agentcoordpb.PeerMessage
 	consumed map[string]bool
-	// returned are message ids handed to the harness by the LAST Recv,
-	// not yet acknowledged: the NEXT Recv (cursor-ack) or a clean Close
-	// emits their consumption fact. A crash before either re-delivers
-	// (at-least-once; the safe direction).
-	returned []string
-	park     *homePark
-	parked   bool
 	// turnQ/turnPending are the ENGINE-HOST turn-delivery seam (§6a,
 	// runner-side): once a hosted engine registers a sink (SetTurnSink), a
-	// pushed PeerMessage with no recv parked is queued here in arrival
+	// pushed PeerMessage is queued here in arrival
 	// order and handed to the engine as a NEW TURN; the pump emits the
 	// mail_consumed fact only AFTER the engine accepted it (at-least-once
 	// preserved — a crash between notice and hand-off re-delivers).
@@ -127,9 +122,8 @@ type Home struct {
 	// spoolOut lends this harp's out/ writer: where this agent's sends go.
 	spoolOut *coord.SpoolWriterCache
 	// spoolRefs maps a delivered message's dedupe id to the in/ file it came
-	// from, so the CONSUME-RENAME can happen at the existing acknowledgement
-	// moments (the engine accepted the turn / a later Recv proved the harness
-	// took the batch) rather than at read time. Renaming at read would convert
+	// from, so the CONSUME-RENAME can happen at the acknowledgement moment
+	// (the engine accepted the turn) rather than at read time. Renaming at read would convert
 	// this path's at-least-once guarantee into at-most-once silently.
 	spoolRefs map[string]spool.Ref
 	// spoolIn serialises this runner's own in/ sweeps — see spoolReactor.
@@ -217,11 +211,6 @@ type HomeConfig struct {
 	// and terminal injector built on it raise; the runner's composition
 	// chooses the sink. Nil discards.
 	Reporter report.Sink
-}
-
-type homePark struct {
-	ch   chan []*agentcoordpb.PeerMessage // nil payload = preempted
-	done bool
 }
 
 // HomeRedialBackoff is the default HomeConfig.RedialBackoff.
@@ -435,8 +424,8 @@ func (h *Home) redialWake() <-chan struct{} {
 // Home lives — mid-turn too, so the owner can re-adopt this runner at any
 // moment — and runs the owner-loss clock (ownerClock) while the link is down.
 // The clock spends its budget only while the runner is WAITING on its owner
-// (Home.waiting): idle between turns, parked on a recv, or blocked on a
-// coordinator-bound request. A turn making progress pauses it, so an
+// (Home.waiting): idle between turns, or blocked on a coordinator-bound
+// request. A turn making progress pauses it, so an
 // orphaned turn always runs to its end and the clock starts where it stops.
 // The budget is refilled on every drop. Nothing the loop waits on can outlast
 // it — a dial is cut off at the budget left (dialLink), and the conns'
@@ -559,13 +548,13 @@ func (c *ownerClock) left(now time.Time) time.Duration {
 }
 
 // waiting reports whether the runner is waiting on its owner — the only state
-// the owner-loss clock runs in: no turn in progress, or a turn that is parked
-// on a recv or blocked on a coordinator-bound request (Home.Request). changed
-// is closed at the next change of that state. Caller need not hold mu.
+// the owner-loss clock runs in: no turn in progress, or a turn blocked on a
+// coordinator-bound request (Home.Request). changed is closed at the next
+// change of that state. Caller need not hold mu.
 func (h *Home) waitState() (waiting bool, changed <-chan struct{}) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return !h.turning || h.awaiting > 0 || h.parked, h.waitChange
+	return !h.turning || h.awaiting > 0, h.waitChange
 }
 
 // noteWaitLocked signals a change in the waiting state. Caller holds mu.
@@ -652,7 +641,7 @@ func (h *Home) dialLink(within time.Duration) (*RunnerLink, func(), error) {
 }
 
 // runChannelLoop keeps the RunChannel alive: Hello/HelloAck, reissue of
-// unacked events + outstanding requests + park state, then the receive loop.
+// unacked events + outstanding requests, then the receive loop.
 func (h *Home) runChannelLoop() {
 	client := agentcoordpb.NewCoordinatorServiceClient(h.conn)
 	for {
@@ -723,17 +712,14 @@ func (h *Home) openRunChannel(client agentcoordpb.CoordinatorServiceClient) (run
 	return stream, nil
 }
 
-// attachAndReissue adopts stream, then REISSUES: unacked events in order,
-// outstanding requests with their ORIGINAL request_ids, and a fresh park
-// assertion when a recv is parked (park state is runtime state the
-// coordinator forgot with the old stream).
+// attachAndReissue adopts stream, then REISSUES: unacked events in order, and
+// outstanding requests with their ORIGINAL request_ids.
 func (h *Home) attachAndReissue(stream runChannelStream) {
 	h.sendMu.Lock()
 	h.mu.Lock()
 	h.stream = stream
 	h.everAttached = true
 	events := append([]*agentcoordpb.AgentEvent(nil), h.unacked...)
-	parked := h.parked
 	h.mu.Unlock()
 	// ATTACH CONFIRMATION, sent unconditionally: the coordinator swept this
 	// child's out/ when it READ the Hello, but this side adopts the stream
@@ -757,9 +743,6 @@ func (h *Home) attachAndReissue(stream runChannelStream) {
 	// dropped by design (the file was the truth, so nothing needed reissuing),
 	// and this is the moment that costs nothing to make good.
 	h.SweepSpoolIn()
-	if parked {
-		h.emitCustomEvent(coord.CustomRecvParked, nil)
-	}
 }
 
 // detachStream forgets stream unless a newer channel has already replaced it.
@@ -852,11 +835,9 @@ func (h *Home) advanceAck(seq uint64) {
 // the buffer, the turn queue, and consumption history) by the runner's state
 // — the §6a delivery-by-state seam, runner side:
 //
-//  1. a PARKED recv → complete it (the harness is actively polling);
-//  2. no park but a hosted ENGINE registered a turn sink → queue for
-//     delivery as a NEW TURN (arrival order; the pump below);
-//  3. neither → buffer: a hosted run whose engine has not registered its
-//     sink yet (SetTurnSink flushes it), or a future recv.
+//  1. a hosted ENGINE registered a turn sink → queue for delivery as a NEW
+//     TURN (arrival order; the pump below);
+//  2. none yet → buffer: SetTurnSink drains it first.
 //
 // The session owner's mail never comes here: its spool is its turn-start
 // hook's (sweepSpoolIn).
@@ -866,7 +847,7 @@ func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 		h.mu.Unlock()
 		return
 	}
-	if p := h.park; (p == nil || p.done) && h.turnQ != nil {
+	if h.turnQ != nil {
 		h.turnPending[pm.GetMessageId()] = true
 		q := h.turnQ
 		h.mu.Unlock()
@@ -877,11 +858,7 @@ func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 		return
 	}
 	h.buffer = append(h.buffer, pm)
-	p, msgs := h.takeParkLocked()
 	h.mu.Unlock()
-	if msgs != nil {
-		p.ch <- msgs
-	}
 }
 
 // seenLocked reports whether message id was already consumed, is queued as
@@ -896,21 +873,6 @@ func (h *Home) seenLocked(id string) bool {
 		}
 	}
 	return false
-}
-
-// takeParkLocked completes a live parked recv: it claims the park and the
-// whole buffer, returning both (msgs nil when no recv is parked). Caller
-// holds h.mu and sends msgs on p.ch after unlocking.
-func (h *Home) takeParkLocked() (*homePark, []*agentcoordpb.PeerMessage) {
-	p := h.park
-	if p == nil || p.done {
-		return p, nil
-	}
-	p.done = true
-	h.park = nil
-	msgs := h.buffer
-	h.buffer = nil
-	return p, msgs
 }
 
 // markOwner records that this Home hosts the SESSION OWNER's run: the
@@ -1049,13 +1011,6 @@ func (h *Home) wakeWanted(m spool.PathMapper, harp string) bool {
 	return true
 }
 
-// RecvParked reports whether a receive is currently parked on this Home.
-func (h *Home) RecvParked() bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.parked
-}
-
 // turnQueueCap bounds the engine turn-delivery queue. Far above any realistic
 // mailbox depth; enqueue blocks (never drops) if ever reached.
 const turnQueueCap = 256
@@ -1103,7 +1058,7 @@ func (h *Home) turnPump(q <-chan *agentcoordpb.PeerMessage, sink func(*agentcoor
 				h.consumed[id] = true
 				h.acking[id] = true
 			} else {
-				h.buffer = append(h.buffer, pm) // engine gone: back to the recv buffer
+				h.buffer = append(h.buffer, pm) // engine gone: back to the buffer
 				h.wakeAckWaitersLocked()
 			}
 			h.mu.Unlock()
@@ -1259,144 +1214,6 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	}
 }
 
-// Recv is the runner-LOCAL agent_recv: drain the notice buffer, or park
-// against it for up to wait (one park; a newer receive preempts —
-// ErrRecvPreempted). Returned messages stay TENTATIVE at the coordinator
-// until acknowledged: this call first acks the PREVIOUS Recv's returned ids
-// (cursor-ack — the closest observable point to "the engine actually
-// received them": the harness calling again proves it got the last batch), and
-// a clean Close acks the final batch. A crash before the ack re-delivers
-// (at-least-once, deduped on message_id).
-func (h *Home) Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.PeerMessage, error) {
-	h.ackReturned()
-	msgs, p, newlyParked := h.takeBufferedOrPark()
-	if msgs != nil {
-		h.recordReturned(msgs)
-		return msgs, nil
-	}
-	if newlyParked {
-		h.emitCustomEvent(coord.CustomRecvParked, nil)
-	}
-	return h.awaitPark(ctx, p, wait)
-}
-
-// takeBufferedOrPark drains the buffer when it holds anything; otherwise it
-// installs a fresh park — preempting an older one — and reports whether the
-// runner was not already parked, which is when the parked event is owed.
-func (h *Home) takeBufferedOrPark() ([]*agentcoordpb.PeerMessage, *homePark, bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if len(h.buffer) > 0 {
-		msgs := h.buffer
-		h.buffer = nil
-		return msgs, nil, false
-	}
-	if prev := h.park; prev != nil && !prev.done {
-		// Newest preempts: the older poll completes with the typed error.
-		prev.done = true
-		prev.ch <- nil
-	}
-	p := &homePark{ch: make(chan []*agentcoordpb.PeerMessage, 1)}
-	h.park = p
-	wasParked := h.parked
-	h.parked = true
-	if !wasParked {
-		h.noteWaitLocked()
-	}
-	return nil, p, !wasParked
-}
-
-// awaitPark waits on p for up to wait, ending on a delivery, a preemption,
-// the timeout, the caller's context, or the Home's own teardown.
-func (h *Home) awaitPark(ctx context.Context, p *homePark, wait time.Duration) ([]*agentcoordpb.PeerMessage, error) {
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
-	select {
-	case msgs := <-p.ch:
-		if msgs == nil {
-			// Preempted: the newer poll holds the park — no unpark event.
-			return nil, coord.ErrRecvPreempted
-		}
-		h.unpark()
-		h.recordReturned(msgs)
-		return msgs, nil
-	case <-timer.C:
-		return nil, h.abandonPark(p, coord.ErrRecvTimeout)
-	case <-ctx.Done():
-		return nil, h.abandonPark(p, ctx.Err())
-	case <-h.ctx.Done():
-		return nil, h.abandonPark(p, ErrCoordinatorUnreachable)
-	}
-}
-
-// recordReturned remembers a Recv's returned ids for the cursor-ack.
-func (h *Home) recordReturned(msgs []*agentcoordpb.PeerMessage) {
-	h.mu.Lock()
-	for _, m := range msgs {
-		h.consumed[m.GetMessageId()] = true // never re-deliver to this harness
-		h.returned = append(h.returned, m.GetMessageId())
-	}
-	h.mu.Unlock()
-}
-
-// ackReturned emits the consumption fact for everything a prior Recv handed
-// to the harness (the durable cursor advance).
-func (h *Home) ackReturned() {
-	h.mu.Lock()
-	ids := h.returned
-	h.returned = nil
-	h.mu.Unlock()
-	if len(ids) == 0 {
-		return
-	}
-	h.ackMailConsumed(ids)
-}
-
-// abandonPark resolves the timeout/cancel race against a delivery exactly
-// like the coordinator's local poll: a delivery that already won is
-// authoritative.
-func (h *Home) abandonPark(p *homePark, err error) error {
-	h.mu.Lock()
-	if p.done {
-		h.mu.Unlock()
-		// The delivery (or a preemption, which sends nil — see
-		// Recv's "newest preempts" branch) beat us to it. The caller is
-		// leaving regardless (this Recv is returning err either way), but a
-		// GENUINE delivery must not be silently dropped: put it back on the
-		// buffer for the next Recv to pick up, exactly like this function's
-		// own comment always claimed it would ("the delivery beat us; but
-		// the caller is leaving — requeue") without ever actually doing it.
-		if msgs := <-p.ch; len(msgs) > 0 {
-			h.mu.Lock()
-			h.buffer = append(msgs, h.buffer...)
-			h.mu.Unlock()
-		}
-		return err
-	}
-	p.done = true
-	if h.park == p {
-		h.park = nil
-	}
-	h.mu.Unlock()
-	h.unpark()
-	return err
-}
-
-// unpark clears the park state and tells the coordinator (slot
-// re-acquisition + closes the mail push window).
-func (h *Home) unpark() {
-	h.mu.Lock()
-	was := h.parked
-	h.parked = false
-	if was {
-		h.noteWaitLocked()
-	}
-	h.mu.Unlock()
-	if was {
-		h.emitCustomEvent(coord.CustomRecvUnparked, nil)
-	}
-}
-
 // emitCustomEvent emits one ctxloom/* custom event on the event plane. An
 // event whose value does not encode is DROPPED, not emitted valueless: every
 // value-carrying member of this vocabulary IS its value (mail_consumed's
@@ -1428,7 +1245,7 @@ func (h *Home) emitCustomEvent(name string, value map[string]any) {
 // below the channel's watermark", so an event reaching the wire behind a
 // higher seq is dropped as a duplicate and acked past — and a Report waiting
 // on that ack returns with its fact never journaled. Concurrent emitters
-// (a Report on one goroutine, the engine host's park/turn events on another)
+// (a Report on one goroutine, the engine host's turn events on another)
 // must therefore serialize the whole assign-then-write, not just the assign.
 func (h *Home) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {
 	h.sendMu.Lock()
@@ -1559,13 +1376,10 @@ func (h *Home) Crash() {
 	h.spoolOut.Close()
 }
 
-// Close tears the home down: best-effort final cursor-ack (a CLEAN exit
-// acknowledges what the harness already received — a crash skips this and
-// re-delivers, the safe direction), best-effort RunExited on the lifecycle
-// link, then both loops stop and the conn closes — joined (bounded) before
+// Close tears the home down: best-effort RunExited on the lifecycle link,
+// then both loops stop and the conn closes — joined (bounded) before
 // returning, mirroring crash().
 func (h *Home) Close(exitCode int, harnessSessionID string) {
-	h.ackReturned()
 	h.exited.Store(true) // see Crash: nothing here takes a turn past this point
 	h.tracked.Seal()
 	h.mu.Lock()

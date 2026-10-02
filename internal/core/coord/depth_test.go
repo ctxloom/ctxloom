@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
 // TestRunnerEnv_CarriesTheReachBackTrioOnly: a hosted run's runner process
@@ -155,18 +156,6 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 
 	grandchildH := childHome(t, c, grandchildRunID)
 
-	// The child parks in agent_recv FIRST: its runner hosts an engine, so a
-	// message that lands while no receive is parked is delivered to the
-	// engine as a turn (delivery by state), never held for a later receive.
-	childRecv := make(chan []*agentcoordpb.PeerMessage, 1)
-	go func() {
-		msgs, _ := childH.Recv(context.Background(), conformanceWait)
-		childRecv <- msgs
-	}()
-	require.Eventually(t, func() bool {
-		return childH.RecvParked()
-	}, conformanceWait, 10*time.Millisecond, "the child's receive must be parked before the grandchild sends")
-
 	// Hop 1: grandchild -> ITS OWN direct parent (the child), never root
 	// directly — the peer model's flat-hub semantics (manly-grant (4)).
 	sendResp, err := grandchildH.Request(context.Background(), &agentcoordpb.AgentRequest{
@@ -177,27 +166,27 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, codes.OK, sendResp.GetStatus().GetCode())
 
-	// Select the grandchild's OWN send out of the child's inbox: the
-	// grandchild's runner delivers its automatic turn report there too.
-	var marker *agentcoordpb.PeerMessage
-	select {
-	case msgs := <-childRecv:
-		for _, m := range msgs {
-			if m.GetText() == "marker-from-grandchild" {
-				marker = m
+	// The marker lands in the CHILD's own spool, authored by the grandchild
+	// (in in/ until the child's engine takes it as a turn, in/consumed/
+	// after).
+	var marker spool.Entry
+	require.Eventually(t, func() bool {
+		for _, dir := range []spool.Dir{spool.DirIn, spool.DirInConsumed} {
+			if e, ok := spoolEntryWithBody(t, child.Harp, dir, "marker-from-grandchild"); ok {
+				marker = e
+				return true
 			}
 		}
-	case <-time.After(conformanceWait):
-	}
-	require.NotNil(t, marker, "the marker must land in the CHILD's inbox, not root's")
-	assert.Equal(t, grandchildHarp, marker.GetFromAgentId())
+		return false
+	}, conformanceWait, 10*time.Millisecond, "the marker must land in the CHILD's inbox, not root's")
+	assert.Equal(t, grandchildHarp, marker.Message.FromHarp)
 
 	// Hop 2: the child relays up to ITS OWN parent (root) — an explicit,
 	// agent-driven relay (the peer model dissolves multi-level trees this
 	// way: no automatic pass-through).
 	relayResp, err := childH.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
-			ToRole: ParentAddress, Text: "relayed: " + marker.GetText(), Kind: agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
+			ToRole: ParentAddress, Text: "relayed: " + marker.Message.Body, Kind: agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
 		}},
 	})
 	require.NoError(t, err)

@@ -95,7 +95,7 @@ func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 		"runner loss frees the slot and the queue advances")
 
 	// The parent learned: a synthesized exit notice is in its mailbox.
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	msgs, err := ownerMail(t, c, time.Second)
 	require.NoError(t, err)
 	require.NotEmpty(t, msgs)
 	found := false

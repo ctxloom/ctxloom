@@ -11,19 +11,18 @@ import (
 
 // Trust-boundary gate (alive-prior / civic-kiwi): a LEAF delegated agent must
 // not be handed the coordinator-only MCP tools (mcpschema.CoordinatorOnlyTools).
-// Handing a leaf an agent_recv inbox plus
-// a roster lets it infer it has children and stall waiting for
+// Handing a leaf a roster lets it infer it has children and stall waiting for
 // notifications that never arrive — the root cause of the observed bug.
 //
 // These two tests are the gate's behaviour proof: a leaf runner's advertised
 // tool set differs from a coordinator-capable runner's ONLY in withholding
-// exactly the coordinator-only tools; agent_send/agent_recv/agent_report
+// exactly the coordinator-only tools; agent_send/agent_report
 // (parent reporting) and every cell-local/host-relay/artifact-fetch tool are
 // unaffected either way.
 
 // TestRunnerServer_LeafWithholdsCoordinatorOnlyTools proves the gate fires:
-// a leaf runner (newRunnerMCPServer(..., leaf=true)) registers agent_send,
-// agent_recv, agent_report but none of mcpschema.CoordinatorOnlyTools.
+// a leaf runner (newRunnerMCPServer(..., leaf=true)) registers agent_send and
+// agent_report but none of mcpschema.CoordinatorOnlyTools.
 func TestRunnerServer_LeafWithholdsCoordinatorOnlyTools(t *testing.T) {
 	server, err := newTestServer("leaf-harp", testHome(t), true, "")
 	require.NoError(t, err)
@@ -34,7 +33,7 @@ func TestRunnerServer_LeafWithholdsCoordinatorOnlyTools(t *testing.T) {
 		assert.False(t, ok, "leaf runner must NOT register coordinator-only tool %q", name)
 	}
 
-	for _, name := range []string{mcpschema.ToolAgentSend, mcpschema.ToolAgentRecv, mcpschema.ToolAgentReport} {
+	for _, name := range []string{mcpschema.ToolAgentSend, mcpschema.ToolAgentReport} {
 		_, ok := tools[name]
 		assert.True(t, ok, "leaf runner must still register parent-reporting tool %q", name)
 	}

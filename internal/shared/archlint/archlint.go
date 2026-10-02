@@ -47,7 +47,6 @@ func Analyzers() []*analysis.Analyzer {
 		LockDisciplineAnalyzer,
 		LedgerDisciplineAnalyzer,
 		SessionBindAnalyzer,
-		ReminderFrameAnalyzer,
 		VocabularyAnalyzer,
 		JSONTagsAnalyzer,
 	}

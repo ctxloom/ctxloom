@@ -292,14 +292,6 @@ func TestChildSend_ParentOnly(t *testing.T) {
 	assert.Equal(t, out.Harp, msgs[0].From)
 }
 
-// TestAgentRecv_TimeoutIsTypedFailure pins the recv timeout contract.
-func TestAgentRecv_TimeoutIsTypedFailure(t *testing.T) {
-	resetStrictness(t)
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-	_, err := c.AgentRecv(context.Background(), ownerIdentity(), 20*time.Millisecond)
-	require.ErrorIs(t, err, ErrRecvTimeout)
-}
-
 // TestAgentSend_ResumesEndedChild pins §6a resume delivery. The end is FORCED
 // (terminateRun, the transition itself, after the first turn boundary has
 // recorded the native key) rather than observed: a send that lands while the
@@ -392,13 +384,10 @@ func TestRoster_TracksChildStates(t *testing.T) {
 		assert.NotZero(t, e.LastActivityUnix)
 	}
 
-	// Child 1 parks in agent_recv → roster shows parked, and its slot frees.
-	recvDone := make(chan struct{})
-	go func() {
-		defer close(recvDone)
-		_, _ = childRecv(t, c, first.RunID, conformanceWait)
-	}()
-	require.Eventually(t, func() bool { return rosterState(c, first.Harp) == StateParked }, conformanceWait, 10*time.Millisecond)
+	// Child 1's turn ends → roster shows it idle, and its slot frees for the
+	// queued child.
+	gates[0] <- struct{}{}
+	require.Eventually(t, func() bool { return rosterState(c, first.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
@@ -406,67 +395,6 @@ func TestRoster_TracksChildStates(t *testing.T) {
 		return e != nil && len(e.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 	gates[1] <- struct{}{}
-	require.Eventually(t, func() bool { return rosterState(c, second.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
-
-	_, err = c.AgentSend(ownerIdentity(), first.Harp, KindResult, "42", nil, "")
-	require.NoError(t, err)
-	<-recvDone
-	gates[0] <- struct{}{}
-	require.Eventually(t, func() bool { return rosterState(c, first.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
-}
-
-// TestParkedRecvYieldsSlot pins the §6a slot yield: a parked child releases
-// its slot (the queued child starts) and the answer completes the recv only
-// after a slot re-acquires.
-func TestParkedRecvYieldsSlot(t *testing.T) {
-	resetStrictness(t)
-	gates := []chan struct{}{make(chan struct{}), make(chan struct{})}
-	var spawned int
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
-	sp.nextChat = func() *scriptedChat {
-		e := &scriptedChat{Gate: gates[spawned%len(gates)]}
-		spawned++
-		return e
-	}
-	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises the D4 slot yield past the cap, not the (now-configurable) default cap value
-
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "ask a question", "", "")
-	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		e := sp.chat(0)
-		return e != nil && len(e.RecordedTexts()) == 1
-	}, conformanceWait, 10*time.Millisecond)
-
-	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "other work", "", "")
-	require.NoError(t, err)
-	require.True(t, second.Queued)
-	assert.Equal(t, 1, sp.spawnCount())
-
-	recvDone := make(chan []Message, 1)
-	go func() {
-		msgs, _ := childRecv(t, c, first.RunID, conformanceWait)
-		recvDone <- msgs
-	}()
-
-	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond,
-		"a parked child must not block the queue")
-
-	// The send is a file plus a doorbell; the child's own runner completes
-	// its parked recv, which the coordinator cannot observe synchronously —
-	// so the disposition says what the coordinator knows: queued for a
-	// parked child.
-	disp, err := c.AgentSend(ownerIdentity(), first.Harp, KindResult, "42", nil, "")
-	require.NoError(t, err)
-	assert.NotContains(t, disp, "resum", "a parked child is never resumed for a delivery")
-	select {
-	case msgs := <-recvDone:
-		require.Len(t, msgs, 1)
-		assert.Equal(t, "42", msgs[0].Body)
-	case <-time.After(conformanceWait):
-		t.Fatal("parked recv never completed")
-	}
-
-	gates[1] <- struct{}{} // finish child 2's turn → slot frees → child 1 re-acquires
 	require.Eventually(t, func() bool { return rosterState(c, second.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 }
 
@@ -503,8 +431,8 @@ func TestAgentStop_FreesSlot(t *testing.T) {
 	byKind := map[string]Message{}
 	deadline := time.Now().Add(conformanceWait)
 	for len(byKind) < 2 && time.Now().Before(deadline) {
-		msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
-		if errors.Is(err, ErrRecvTimeout) {
+		msgs, err := ownerMail(t, c, time.Second)
+		if errors.Is(err, errNoOwnerMail) {
 			continue // an empty window, not a verdict: the deadline is
 		}
 		require.NoError(t, err)
@@ -561,7 +489,7 @@ func TestAgentStop_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
 	assert.Contains(t, disp, "stopped child")
 	assert.Equal(t, StateEnded, rosterState(c, first.Harp))
 
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	msgs, err := ownerMail(t, c, time.Second)
 	require.NoError(t, err)
 	var kinds []string
 	for _, m := range msgs {
@@ -595,7 +523,7 @@ func TestInject_DeliveryModes(t *testing.T) {
 	assert.Equal(t, "queued", mode)
 
 	// The O3 mirror reached the parent.
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	msgs, err := ownerMail(t, c, time.Second)
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, KindUserInjected, msgs[0].Kind)
@@ -637,7 +565,7 @@ func TestInject_MirrorDigestTruncatesLongText(t *testing.T) {
 	_, err = injectAsHuman(c, out.Harp, long)
 	require.NoError(t, err)
 
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	msgs, err := ownerMail(t, c, time.Second)
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, KindUserInjected, msgs[0].Kind)
@@ -715,15 +643,11 @@ func TestInject_ResumesEndedChild(t *testing.T) {
 	assert.Equal(t, out.Harp, msgs[0].From)
 }
 
-// TestInject_CompletesParkedRecvWithUserSenderIdentity pins two invariants
-// together: the child mail Inject queues is sent from UserSender ("user"),
-// distinguishable from its parent's own messages — and when the target
-// itself is parked in its OWN agent_recv (independent of the coordinator-
-// driven turn loop — the same parking TestParkedRecvYieldsSlot/
-// TestAgentRun_TwoChildrenAndSlotHandoff exercise), Inject completes that
-// parked receive directly (DeliveryCompletedRecv), not merely a turn-
-// boundary queue.
-func TestInject_CompletesParkedRecvWithUserSenderIdentity(t *testing.T) {
+// TestInject_ReachesTheChildWithUserSenderIdentity pins that the child mail
+// Inject queues is sent from UserSender ("user"), distinguishable from its
+// parent's own messages, and that the O3 mirror still reaches the parent. A
+// child mid-turn is handed the injection as its next turn.
+func TestInject_ReachesTheChildWithUserSenderIdentity(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
@@ -737,33 +661,24 @@ func TestInject_CompletesParkedRecvWithUserSenderIdentity(t *testing.T) {
 		return e != nil && len(e.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
-	recvDone := make(chan []Message, 1)
-	go func() {
-		msgs, _ := childRecv(t, c, out.RunID, conformanceWait)
-		recvDone <- msgs
-	}()
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateParked }, conformanceWait, 10*time.Millisecond)
-
 	mode, err := injectAsHuman(c, out.Harp, "direct note")
 	require.NoError(t, err)
-	// The runner completes the parked recv from the file; the coordinator
-	// reports what it can observe — queued for a parked child.
+	// The runner delivers from the file at the child's turn boundary; the
+	// coordinator reports what it can observe — queued for a busy child.
 	assert.Equal(t, DeliveryQueued, mode)
 
-	select {
-	case msgs := <-recvDone:
-		require.Len(t, msgs, 1)
-		assert.Equal(t, UserSender, msgs[0].From, "the child sees the injection came from the user, not its parent")
-		assert.Equal(t, "direct note", msgs[0].Body)
-	case <-time.After(conformanceWait):
-		t.Fatal("the parked recv never completed")
+	gate <- struct{}{} // end the briefing turn: the injection is the next one
+	var delivered string
+	for _, text := range awaitChatText(t, sp, 0, "direct note") {
+		if strings.Contains(text, "direct note") {
+			delivered = text
+		}
 	}
+	assert.Contains(t, delivered, "from="+UserSender, "the child sees the injection came from the user, not its parent")
 
-	// The O3 mirror still reaches the parent even on the completed-recv path.
-	pmsgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
-	require.NoError(t, err)
+	// The O3 mirror reaches the parent.
+	pmsgs := recvKind(t, c, KindUserInjected, time.Second)
 	require.Len(t, pmsgs, 1)
-	assert.Equal(t, KindUserInjected, pmsgs[0].Kind)
 
-	gate <- struct{}{} // release the held turn so its goroutine doesn't leak past the test
+	gate <- struct{}{} // release the injected turn so its goroutine doesn't leak past the test
 }

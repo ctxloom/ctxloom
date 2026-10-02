@@ -644,9 +644,7 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	var lastMeta *agent.TurnMeta
 	// turn_started is announced at the engine's FIRST entry — the moment
 	// it is observably working — not at the process's spawn: the
-	// coordinator claims the run's execution slot on it, and a park the
-	// engine asks for (agent_recv) must not race an announcement still in
-	// flight from before the engine had said anything.
+	// coordinator claims the run's execution slot on it.
 	started := false
 	announceStarted := func() {
 		if !started {

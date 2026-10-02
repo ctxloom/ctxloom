@@ -6,6 +6,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"path/filepath"
 )
 
 // This file is the mock ENGINE KIND: the conformance double and the first
@@ -341,10 +342,10 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 		}
 	}
 	interactive := i.s.Mode == engine.Interactive
-	if interactive && i.s.Identity.Harp != "" {
+	if root := i.s.Roots.SessionHome.Engine; interactive && root != "" {
 		// The session owner's wake: the interactive echo listens here, and
 		// the runner binds the mock's wake from this same env.
-		env[EnvWakeSocket] = wakeSocketPath(i.s.Identity.Harp)
+		env[EnvWakeSocket] = filepath.Join(root, wakeSocketName)
 	}
 	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: interactive}, nil
 }

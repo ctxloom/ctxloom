@@ -7,7 +7,7 @@
 // the envelope the engine parses (steps_session_hooks.go's rule — a diagnostic
 // on that channel is a corrupted payload, not a warning), or the owner's spool
 // directories ON DISK in the scenario's isolated home. Nothing is read off an
-// in-process struct, and no step calls agent_recv: the point of the scenario
+// in-process struct, and no step receives through a tool: the point of the scenario
 // is that nothing has to.
 package acceptance
 

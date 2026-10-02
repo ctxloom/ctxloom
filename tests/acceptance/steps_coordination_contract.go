@@ -164,9 +164,8 @@ func contractToolNames(st *contractState) []string {
 
 // advertisedKindVocabulary pulls the MESSAGE_KIND_* names out of a schema's raw
 // JSON. Scanning for the token prefix rather than walking the JSON tree keeps
-// the step indifferent to WHERE the enum sits (a top-level property on
-// agent_send, a nested messages[].items property on agent_recv) — the claim is
-// about the vocabulary being closed and complete, not about nesting.
+// the step indifferent to WHERE the enum sits — the claim is about the
+// vocabulary being closed and complete, not about nesting.
 func advertisedKindVocabulary(schema string) []string {
 	seen := map[string]bool{}
 	const prefix = "MESSAGE_KIND_"

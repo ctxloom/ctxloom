@@ -7,10 +7,9 @@
 // journaled audit trail) using `agent_run` alone. This file proves the two
 // things J002100's own comments name as out of reach from this harness: that a
 // child's CONTEXT genuinely differs from a sibling's (asserted on content
-// the child itself emits, not a config diff), and that `agent_send`/
-// `agent_recv` carry real content between coordinator and child —
-// previously exercised only at the unit level
-// (internal/core/coord/*_test.go).
+// the child itself emits, not a config diff), and that the bus carries real
+// content between coordinator and child in both directions — previously
+// exercised only at the unit level (internal/core/coord/*_test.go).
 //
 // j002600 was already taken (steps_j002600_worktree_task_store.go, landed on this
 // base — not one of the features-draft/ placeholders j001000-j002400 reserve), so
@@ -23,7 +22,7 @@
 // established for runs.jsonl) proves requirement 3 (distinct context) and
 // the coordinator->child half of requirement 4 (a real agent_send call,
 // content verified in the child's own recorded next turn); the coordinator's
-// own mailbox, read through agent_recv, proves the child->coordinator half
+// own spool, read on disk, proves the child->coordinator half
 // through the runner's automatic turn report (runner.EngineHost,
 // spoolturnresult.go). The @negative-probe scenario is what makes that
 // dependency checkable rather than asserted: withhold the runner and neither
@@ -48,6 +47,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -68,6 +68,9 @@ type j002300AgentSpec struct {
 type j002300State struct {
 	specs map[string]*j002300AgentSpec
 	harps map[string]string // agent name -> spawned session harp
+	// ownerMail is the owner's mailbox as the last wait on it found it
+	// (j002300OwnerMail); the assertions after that wait read it.
+	ownerMail []*spool.Message
 }
 
 func j002300Of(w *World) *j002300State {
@@ -495,16 +498,16 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if !ok {
 				return fmt.Errorf("j002300: no session harp remembered for %q", self)
 			}
-			if msg, err := j002300FindMessageFrom(w, harp, coord.KindResult); err == nil {
-				body, _ := msg[recvTextField].(string)
-				return fmt.Errorf("a %q-kind message from %s arrived with no runner standing — something answered for the runner; body:\n%s", coord.KindResult, self, body)
+			mail := j002300.ownerMail
+			if msg := j002300MailFrom(mail, harp, coord.KindResult); msg != nil {
+				return fmt.Errorf("a %q-kind message from %s arrived with no runner standing — something answered for the runner; body:\n%s", coord.KindResult, self, msg.Body)
 			}
-			msg, err := j002300FindMessageFrom(w, harp, coord.KindError)
-			if err != nil {
-				return err
+			msg := j002300MailFrom(mail, harp, coord.KindError)
+			if msg == nil {
+				return fmt.Errorf("j002300: no %q-kind message from %s (harp %s) among the %d message(s) in the owner's spool", coord.KindError, self, harp, len(mail))
 			}
-			body, _ := msg[recvTextField].(string)
-			w.docStepMaterialized = fmt.Sprintf("agent_recv — launch failure from %s (harp %s):\n  body: %s", self, harp, body)
+			body := msg.Body
+			w.docStepMaterialized = fmt.Sprintf("owner spool — launch failure from %s (harp %s):\n  body: %s", self, harp, body)
 			if !strings.Contains(body, j002300WithheldRunnerMarker) {
 				return fmt.Errorf("%s's launch failure does not carry the withheld runner's own dying words %q — it failed, but not for the runner's absence; body:\n%s", self, j002300WithheldRunnerMarker, body)
 			}
@@ -631,20 +634,15 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			return nil
 		})
 
-	// --- @live-only: agent_recv, retried within a live-turn-sized budget ----
+	// --- The owner's mailbox, read on disk ---------------------------------
 	//
-	// testenv.MCPCallTimeout hard-caps EVERY single JSON-RPC round trip
-	// this harness makes at 15s, client-side, regardless of the
-	// agent_recv tool's own `wait` argument — shared harness code this task
-	// must not change. A real engine turn (context load + reasoning +
-	// deciding to call agent_send) routinely exceeds that. Retrying
-	// agent_recv from the TEST side tolerates it without touching that file:
-	// each retry is a free mailbox poll, never a second paid model call, so a
-	// generous total budget costs nothing extra. Literally contains `calls
-	// tool "agent_recv"` so completeness_test.go's ranAsTool still credits
-	// this as real coverage.
-	ctx.Step(`^the agent calls tool "agent_recv" repeatedly, waiting up to (\d+)s total, until "([^"]*)" reports$`,
-		func(c context.Context, budgetSec int, name string) error {
+	// Mail reaches the session owner as FILES in its own spool, and its
+	// turn-start hook is its only reader — nothing is received by a tool
+	// call. So these steps wait on the spool itself (j002300OwnerMail), and
+	// every poll is a free local directory read, never a second paid model
+	// call, so a generous budget costs nothing.
+	ctx.Step(`^the coordinator's own spool receives a message from "([^"]*)" within (\d+)s$`,
+		func(c context.Context, name string, budgetSec int) error {
 			w := worldFrom(c)
 			j002300 := j002300Of(w)
 			harp, ok := j002300.harps[name]
@@ -652,55 +650,37 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 				return fmt.Errorf("j002300: no session harp remembered for %q — spawn it first", name)
 			}
 			deadline := time.Now().Add(time.Duration(budgetSec) * time.Second)
-			var lastErr error
 			for {
-				if err := callTool(c, "agent_recv", map[string]any{"wait": 12}); err != nil {
-					return fmt.Errorf("j002300: agent_recv transport error while waiting for %q: %w", name, err)
+				mail, err := j002300OwnerMail(w)
+				if err != nil {
+					return err
 				}
-				// A coordinator's receive that times out is a SUCCESSFUL empty
-				// result carrying a disposition, not an error — so "until X
-				// reports" waits on the payload: a message from X's harp.
-				if isErr, msg := w.lastTool.IsError(); isErr {
-					lastErr = fmt.Errorf("%s", msg)
-				} else if _, ferr := j002300FindMessageFrom(w, harp, ""); ferr == nil {
+				if j002300MailFrom(mail, harp, "") != nil {
+					j002300.ownerMail = mail
 					return nil // subsequent Then steps assert its content
-				} else {
-					lastErr = ferr
 				}
 				if time.Now().After(deadline) {
-					return fmt.Errorf("j002300: agent_recv never returned a message from %q within %ds: %w", name, budgetSec, lastErr)
+					return fmt.Errorf("j002300: no message from %q (harp %s) reached the owner's spool within %ds; it holds %d message(s)", name, harp, budgetSec, len(mail))
 				}
+				time.Sleep(100 * time.Millisecond)
 			}
 		})
 
-	// --- @live-only: agent_recv, retried until the PAYLOAD arrives ----------
+	// The per-engine floor's single assertion: wait until the MARKER BYTES
+	// themselves arrive, not "a message from that child" — two messages reach
+	// a coordinator from the SAME child harp on a live run (the child's own
+	// agent_send, and its runner's automatic turn report), so asserting on
+	// either one alone would let a PASS depend on arrival order rather than
+	// on the payload. On expiry it reports every body it did see from that
+	// child, verbatim: a live failure has to be readable as "the engine said
+	// this instead", never as a bare timeout.
 	//
-	// The per-engine floor's single assertion, and deliberately not the
-	// "wait for any message, then assert on the first one" pair the
-	// cross-engine scenario above uses. Two messages reach a coordinator's
-	// inbox from the SAME child harp on a live run — the child's own
-	// agent_send, and its runner's automatic turn report (coord's
-	// spoolturnresult.go) (plus, when an engine fails to authenticate, a runner-exit
-	// report). Which one lands in which agent_recv batch is a race, so
-	// asserting on "the first message from that harp" would make a genuinely
-	// green engine flake red, and — worse for a floor — would let a
-	// PASS depend on batch ordering rather than on the payload.
-	//
-	// So this drains the mailbox until the MARKER BYTES themselves appear,
-	// and on expiry reports every body it did see from that child, verbatim:
-	// a live failure has to be readable as "the engine said this instead",
-	// never as a bare timeout. Each retry is a free local mailbox poll, never
-	// a second paid model call. Literally contains `calls tool "agent_recv"`
-	// so completeness_test.go's ranAsTool credits it as real coverage.
-	//
-	// An error-kind message from the child (coord.KindError — a launch
-	// failure among them) fails the step AT ONCE with that message's text:
-	// the child is dead, the marker can never come, and waiting out the
-	// budget only buries the cause under a timeout. The whole batch is
-	// scanned for the marker first, so the ordering race above cannot turn
-	// a marker that did arrive into a failure.
-	ctx.Step(`^the agent calls tool "agent_recv" repeatedly, waiting up to (\d+)s total, until "([^"]*)" reports a body containing "([^"]*)"$`,
-		func(c context.Context, budgetSec int, name, want string) error {
+	// An error-kind message from the child (a launch failure among them)
+	// fails the step AT ONCE with that message's text: the child is dead,
+	// the marker can never come, and waiting out the budget only buries the
+	// cause under a timeout. Every message is scanned for the marker first.
+	ctx.Step(`^the coordinator's own spool receives a body containing "([^"]*)" from "([^"]*)" within (\d+)s$`,
+		func(c context.Context, want, name string, budgetSec int) error {
 			w := worldFrom(c)
 			j002300 := j002300Of(w)
 			harp, ok := j002300.harps[name]
@@ -710,156 +690,84 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if strings.TrimSpace(want) == "" {
 				return fmt.Errorf("j002300: waiting for an EMPTY body from %q would be satisfied by any message at all, including a runner-exit report", name)
 			}
-			errKind, err := pb.MessageKindForLegacyName(coord.KindError)
-			if err != nil {
-				return fmt.Errorf("j002300: %w", err)
-			}
 			deadline := time.Now().Add(time.Duration(budgetSec) * time.Second)
-			var seen []string
 			for {
-				done, err := j002300RecvOnce(c, w, name, harp, want, errKind.String(), &seen)
-				if err != nil || done {
+				mail, err := j002300OwnerMail(w)
+				if err != nil {
 					return err
+				}
+				hit, seen, failed := j002300ScanMail(mail, harp, want)
+				if hit != "" {
+					w.docStepMaterialized = fmt.Sprintf("owner spool — message from %s (harp %s):\n  body: %s", name, harp, hit)
+					return nil
+				}
+				if len(failed) > 0 {
+					return fmt.Errorf("j002300: %q reported a %s message instead of a body containing %q — harp %s:\n%s",
+						name, kindLabel(coord.KindError), want, harp, strings.Join(failed, "\n---\n"))
 				}
 				if time.Now().After(deadline) {
 					return fmt.Errorf("j002300: %q never sent its coordinator a body containing %q within %ds — %d message(s) arrived from harp %s:\n%s",
 						name, want, budgetSec, len(seen), harp, strings.Join(seen, "\n---\n"))
 				}
+				time.Sleep(250 * time.Millisecond)
 			}
-		})
-
-	// --- @live-only assertion: the child's OWN agent_send reply, observed --
-	// via agent_recv — the direction the hermetic tier cannot exercise (see
-	// this file's header finding). Kept textually distinct from the
-	// transcript-based steps above so a reader can never mistake one
-	// observable for the other.
-
-	ctx.Step(`^the received message is from "([^"]*)" and its body carries its own guidance, not "([^"]*)"'s$`,
-		func(c context.Context, self, other string) error {
-			w := worldFrom(c)
-			j002300 := j002300Of(w)
-			selfSpec, ok := j002300.specs[self]
-			if !ok {
-				return fmt.Errorf("j002300: unknown agent %q", self)
-			}
-			otherSpec, ok := j002300.specs[other]
-			if !ok {
-				return fmt.Errorf("j002300: unknown agent %q", other)
-			}
-			harp, ok := j002300.harps[self]
-			if !ok {
-				return fmt.Errorf("j002300: no session harp remembered for %q", self)
-			}
-			msg, err := j002300FindMessageFrom(w, harp, coord.KindResult)
-			if err != nil {
-				return err
-			}
-			body, _ := msg[recvTextField].(string)
-			w.docStepMaterialized = fmt.Sprintf("agent_recv — message from %s (harp %s):\n  body: %s", self, harp, body)
-			if !strings.Contains(body, selfSpec.Guidance) {
-				return fmt.Errorf("%s's reported body does not carry its OWN guidance %q; body:\n%s", self, selfSpec.Guidance, body)
-			}
-			if strings.Contains(body, otherSpec.Guidance) {
-				return fmt.Errorf("CONTEXT LEAK: %s's reported body unexpectedly carries %s's guidance %q; body:\n%s", self, other, otherSpec.Guidance, body)
-			}
-			return nil
 		})
 }
 
-// j002300RecvOnce makes one agent_recv call and scans the batch for messages
-// from harp, appending each body to seen. It reports done when a body
-// contains want, and fails at once — with that message's text — when harp
-// sent an errKind message instead. A tool-level error result is not a
-// failure: the caller keeps polling until its budget runs out.
-func j002300RecvOnce(c context.Context, w *World, name, harp, want, errKind string, seen *[]string) (bool, error) {
-	if err := callTool(c, "agent_recv", map[string]any{"wait": 12}); err != nil {
-		return false, fmt.Errorf("j002300: agent_recv transport error while waiting for %q: %w", name, err)
-	}
-	if isErr, _ := w.lastTool.IsError(); isErr {
-		return false, nil
-	}
-	msgs, merr := j002300Messages(w)
-	if merr != nil {
-		return false, merr
-	}
-	var failed []string
-	for _, m := range msgs {
-		if from, _ := m[recvFromAgentIDField].(string); from != harp {
+// j002300ScanMail scans mail from harp: hit is the first body containing want
+// (empty when none does), seen every body from harp, failed the bodies of its
+// error-kind messages.
+func j002300ScanMail(mail []*spool.Message, harp, want string) (hit string, seen, failed []string) {
+	for _, m := range mail {
+		if m.FromHarp != harp {
 			continue
 		}
-		body, _ := m[recvTextField].(string)
-		*seen = append(*seen, body)
-		if strings.Contains(body, want) {
-			w.docStepMaterialized = fmt.Sprintf("agent_recv — message from %s (harp %s):\n  body: %s", name, harp, body)
-			return true, nil
+		seen = append(seen, m.Body)
+		if strings.Contains(m.Body, want) {
+			return m.Body, seen, failed
 		}
-		if k, _ := m["kind"].(string); k == errKind {
-			failed = append(failed, body)
+		if m.Kind == coord.KindError {
+			failed = append(failed, m.Body)
 		}
 	}
-	if len(failed) > 0 {
-		return false, fmt.Errorf("j002300: %q reported a %s message instead of a body containing %q — harp %s:\n%s",
-			name, kindLabel(coord.KindError), want, harp, strings.Join(failed, "\n---\n"))
-	}
-	return false, nil
+	return "", seen, failed
 }
 
-// j002300Messages unwraps an agent_recv result's "messages" array (@live only —
-// see the header finding for why the hermetic tier cannot reach this path).
-func j002300Messages(w *World) ([]map[string]any, error) {
-	raw, ok := w.lastInner["messages"].([]any)
-	if !ok {
-		return nil, fmt.Errorf("j002300: tool result carries no messages array; result:\n%s", w.lastTool.JSON())
-	}
-	out := make([]map[string]any, 0, len(raw))
-	for _, m := range raw {
-		if mm, ok := m.(map[string]any); ok {
-			out = append(out, mm)
+// j002300OwnerMail is every message that has reached the session owner's
+// spool: waiting in in/, claimed by its turn-start hook, or consumed. All
+// three are "delivered to the owner" — a live owner's own hook may take a
+// message before the scenario looks — and none of them is read by a tool.
+func j002300OwnerMail(w *World) ([]*spool.Message, error) {
+	var out []*spool.Message
+	for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName, spool.DirInConsumed} {
+		msgs, err := ownerSpoolMessages(w, dir)
+		if err != nil {
+			return nil, err
 		}
+		out = append(out, msgs...)
 	}
 	return out, nil
 }
 
-// j002300FindMessageFrom returns the received message whose sender is harp
-// and, when kind (a coord mailbox spelling, e.g. coord.KindResult) is
-// non-empty, whose kind is that one's wire name. Pass "" to accept any kind.
+// j002300MailFrom returns the message in mail whose sender is harp and, when
+// kind (a coord mailbox spelling, e.g. coord.KindResult) is non-empty, whose
+// kind is that one. Pass "" to accept any kind.
 //
 // The kind filter is not a refinement, it is the correctness condition: one
-// harp can have several messages pending, so POSITION selects nothing
-// meaningful. Asking for coord.KindResult is how a caller says it wants the
-// child's turn result rather than whatever the coordinator queued first.
-func j002300FindMessageFrom(w *World, harp, kind string) (map[string]any, error) {
-	msgs, err := j002300Messages(w)
-	if err != nil {
-		return nil, err
-	}
-	wantKind := ""
-	if kind != "" {
-		k, err := pb.MessageKindForLegacyName(kind)
-		if err != nil {
-			return nil, fmt.Errorf("j002300: %w", err)
-		}
-		wantKind = k.String()
-	}
-	for _, m := range msgs {
-		if f, _ := m[recvFromAgentIDField].(string); f != harp {
+// harp can have several messages in the owner's spool (its own agent_send
+// and its runner's automatic turn report), so POSITION selects nothing
+// meaningful.
+func j002300MailFrom(mail []*spool.Message, harp, kind string) *spool.Message {
+	for _, m := range mail {
+		if m.FromHarp != harp {
 			continue
 		}
-		// One harp can have SEVERAL messages pending, so position is not a
-		// selector. More than one message from one child can land in one
-		// batch (its own agent_send and its runner's automatic turn report),
-		// and taking the first match silently asserted against whichever
-		// came first — reporting "the body does not carry its own guidance"
-		// for a body that was never the result at all.
-		if wantKind != "" {
-			if k, _ := m["kind"].(string); k != wantKind {
-				continue
-			}
+		if kind != "" && m.Kind != kind {
+			continue
 		}
-		return m, nil
+		return m
 	}
-	return nil, fmt.Errorf("j002300: no %s message from harp %q among %d received message(s); result:\n%s",
-		kindLabel(kind), harp, len(msgs), w.lastTool.JSON())
+	return nil
 }
 
 // kindLabel names the filter in a miss, so "no message from harp X" and "no

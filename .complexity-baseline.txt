@@ -62,7 +62,6 @@
 ./internal/shared/archlint/ledgerdiscipline.go| n ast . Node|1|13||68-106
 ./internal/shared/archlint/ledgerdiscipline.go|runLedgerDiscipline pass * analysis . Pass|1|13|runLedgerDiscipline|47-126
 ./internal/shared/archlint/lockdiscipline.go|runLockDiscipline pass * analysis . Pass|1|13|runLockDiscipline|63-128
-./internal/shared/archlint/reminderframe.go|runReminderFrame pass * analysis . Pass|1|11|runReminderFrame|49-82
 ./internal/shared/archlint/testsupport.go|runTestSupport pass * analysis . Pass|1|17|runTestSupport|65-130
 ./internal/shared/archlint/vocabulary.go| n ast . Node|1|12||98-136
 ./internal/shared/archlint/vocabulary.go|discoverVocabularies files [ ] * ast . File|1|14|discoverVocabularies|211-252

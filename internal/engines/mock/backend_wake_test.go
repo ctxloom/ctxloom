@@ -3,7 +3,6 @@ package mock
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -29,8 +28,18 @@ import (
 // (EnvWakeSocket), and the echo takes it exactly as a typed line — the
 // turn_start hooks fire with it as the prompt, and it is echoed.
 
-func ownerSession(harp, workDir string) engine.Session {
-	return engine.Session{Identity: sessions.Identity{Harp: harp}, Mode: engine.Interactive, WorkDir: workDir}
+// ownerSession is an interactive session whose session-private root is a
+// short temp dir: t.TempDir() nests under the test's name and can outgrow a
+// unix socket path.
+func ownerSession(t *testing.T, harp string) engine.Session {
+	t.Helper()
+	root, err := os.MkdirTemp("", "mw")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	return engine.Session{
+		Identity: sessions.Identity{Harp: harp}, Mode: engine.Interactive, WorkDir: root,
+		Roots: present.Paths{SessionHome: present.Root{Host: root, Engine: root}},
+	}
 }
 
 // TestExec_AnInteractiveSessionNamesItsWakeSocket: the exec names the socket
@@ -38,17 +47,14 @@ func ownerSession(harp, workDir string) engine.Session {
 // wake from that same exec env. A structured turn has nobody to wake.
 func TestExec_AnInteractiveSessionNamesItsWakeSocket(t *testing.T) {
 	m := New().(Mock)
-	inst, err := m.Instance(ownerSession("owner-harp", t.TempDir()))
+	owner := ownerSession(t, "owner-harp")
+	inst, err := m.Instance(owner)
 	require.NoError(t, err)
 	ex, err := inst.Exec(nil)
 	require.NoError(t, err)
-	path := ex.Env[EnvWakeSocket]
-	require.NotEmpty(t, path)
-	assert.True(t, filepath.IsAbs(path))
-	assert.Contains(t, path, "owner-harp", "one socket per session")
-	assert.LessOrEqual(t, len(path), maxUnixSocketPath, "a unix socket path longer than the kernel's limit cannot be listened on")
+	assert.Equal(t, filepath.Join(owner.Roots.SessionHome.Engine, wakeSocketName), ex.Env[EnvWakeSocket], "one socket per session, in its own root")
 
-	s := ownerSession("child-harp", t.TempDir())
+	s := ownerSession(t, "child-harp")
 	s.Mode = engine.Structured
 	inst, err = m.Instance(s)
 	require.NoError(t, err)
@@ -138,7 +144,7 @@ func (w *syncWriter) waitFor(t *testing.T, d time.Duration, want string) {
 // MUTATION — fire turn_start without the line as the prompt — turns this red.
 func TestInteractiveEcho_ATypedLineFiresTurnStartWithItsPrompt(t *testing.T) {
 	presented, payloads := hookRecorder(t)
-	s := ownerSession("typed-harp", t.TempDir())
+	s := ownerSession(t, "typed-harp")
 	req := &agent.ExecuteRequest{
 		Env:       map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"},
 		Stdin:     strings.NewReader("what did the child say?\nquit\n"),
@@ -163,7 +169,7 @@ func TestInteractiveEcho_ATypedLineFiresTurnStartWithItsPrompt(t *testing.T) {
 // MUTATION — do not listen on the exec's wake socket — turns this red.
 func TestInteractiveEcho_AWakeIsTakenAsATypedLine(t *testing.T) {
 	presented, payloads := hookRecorder(t)
-	s := ownerSession(fmt.Sprintf("wake-%d", time.Now().UnixNano()%1_000_000_000), t.TempDir())
+	s := ownerSession(t, "wake-harp")
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { _ = pw.Close() })
 	req := &agent.ExecuteRequest{

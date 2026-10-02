@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,7 +46,7 @@ const doctorSpoolStuckAge = 5 * 30 * time.Second
 const doctorSpoolStuckMaxNamed = 5
 
 // doctorCheckSpoolBacklog surfaces spool entries that have sat UNCONSUMED in
-// a session's live in/ or out/ directory well past the sweep's own
+// a session's live in/, in/claimed/ or out/ directory well past the sweep's own
 // reconciliation cadence (spooldelivery.go's header has the full delivery
 // model: consumption is a rename into consumed/, and that rename IS the
 // acknowledgement).
@@ -174,7 +175,10 @@ func (s *spoolBacklogScan) session(harp string) {
 		return // this session never turned spool delivery on: no spool root at all
 	}
 	s.spoolsFound++
-	for _, dir := range []spool.Dir{spool.DirIn, spool.DirOut} {
+	// in/claimed/ is where the owner's turn-start hook holds what it took
+	// from in/ until it acknowledges it: an entry aged there is a claim no
+	// hook ever finished.
+	for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName, spool.DirOut} {
 		s.sweepDir(harp, dir)
 	}
 	s.failedDirs(harp, root)
@@ -183,6 +187,9 @@ func (s *spoolBacklogScan) session(harp string) {
 // sweepDir records the stuck and malformed entries of one spool direction.
 func (s *spoolBacklogScan) sweepDir(harp string, dir spool.Dir) {
 	res, sweepErr := spool.Sweep(s.mapper, harp, dir)
+	if dir == spool.ClaimedDirName && errors.Is(sweepErr, os.ErrNotExist) {
+		return // created on the first claim, so its absence is normal
+	}
 	if sweepErr != nil {
 		s.sweepErrs = append(s.sweepErrs, fmt.Sprintf("%s/%s: %v", harp, dir, sweepErr))
 		return

@@ -16,7 +16,7 @@ import (
 
 // childMCPServers can compose a set with no ctxloom MCP server in it —
 // and that set is the child's ONLY coordination surface. Without it the child has
-// no agent_send, no agent_recv and no agent_report: it launches, consumes its
+// no agent_send and no agent_report: it launches, consumes its
 // budget, and can never answer its parent or be steered. Nothing reported it.
 //
 // The reachable cause is ctxloom's own loadout server being WITHHELD — a
@@ -69,7 +69,7 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 		require.False(t, hasCtxloom(plan.MCPServers),
 			"precondition: this config really does compose a child set with no ctxloom server")
 		out := buf.String()
-		assert.Contains(t, out, "agent_send/agent_recv/agent_report",
+		assert.Contains(t, out, "agent_send/agent_report",
 			"a child with no coordination surface must be reported, naming what it lost")
 		assert.Contains(t, out, "dev", "the report must name which agent is stranded")
 	})
@@ -85,7 +85,7 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 
 		assert.True(t, hasCtxloom(plan.MCPServers),
 			"the ordinary child gets its reach-back server from ctxloom's own loadout")
-		assert.NotContains(t, buf.String(), "agent_send/agent_recv/agent_report",
+		assert.NotContains(t, buf.String(), "agent_send/agent_report",
 			"the ordinary path must not warn")
 	})
 }

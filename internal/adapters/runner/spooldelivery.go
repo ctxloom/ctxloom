@@ -53,13 +53,12 @@ func (h *Home) SweepSpoolIn() {
 
 // sweepSpoolIn delivers everything currently in this run's in/ spool, oldest
 // first, through the SAME delivery-by-state seam a pushed mailbox notice uses
-// (deliverNotice): a parked recv completes, a live engine gets a new turn,
-// and anything arriving before the engine exists waits in the buffer.
+// (deliverNotice): a live engine gets a new turn, and anything arriving before
+// the engine exists waits in the buffer.
 //
 // Delivery is where the file's journey through this process starts, not where
 // it ends: the consume-rename happens later, at the moment the delivery is
-// proven (the engine accepted the turn, or a subsequent Recv proved the
-// harness took the batch). deliverNotice's own dedupe on message id is what
+// proven (the engine accepted the turn). deliverNotice's own dedupe on message id is what
 // makes a doorbell and a sweep that race resolve to one delivery.
 func (h *Home) sweepSpoolIn() {
 	if h.exited.Load() {
@@ -96,26 +95,32 @@ func (h *Home) sweepSpoolIn() {
 		h.spoolDeliveryCount.Failed.Add(1)
 	}
 	for _, e := range res.Entries {
-		msg, err := coord.MailFromSpool(e, e.Message.FromHarp)
-		if err != nil {
-			h.failSpoolEntry(e, "refusing an undeliverable spool message", err)
-			continue
-		}
-		wire, err := coord.DeliverableStructured(msg.Structured)
-		if err != nil {
-			h.failSpoolEntry(e, fmt.Sprintf("cannot project spool message %s's payload onto the delivery seam", e.Ref), err)
-			continue
-		}
-		msg.Structured = wire
-		pm, err := coordgrpc.PeerMessageToWire(msg)
-		if err != nil {
-			h.failSpoolEntry(e, fmt.Sprintf("cannot project spool message %s onto the delivery seam", e.Ref), err)
-			continue
-		}
-		h.rememberSpoolRef(msg.ID, e.Ref)
-		h.spoolDeliveryCount.Delivered.Add(1)
-		h.deliverNotice(pm)
+		h.deliverSpoolEntry(e)
 	}
+}
+
+// deliverSpoolEntry projects one swept in/ entry onto the delivery seam and
+// delivers it, or moves it to in/failed/ naming why it could not be.
+func (h *Home) deliverSpoolEntry(e spool.Entry) {
+	msg, err := coord.MailFromSpool(e, e.Message.FromHarp)
+	if err != nil {
+		h.failSpoolEntry(e, "refusing an undeliverable spool message", err)
+		return
+	}
+	wire, err := coord.DeliverableStructured(msg.Structured)
+	if err != nil {
+		h.failSpoolEntry(e, fmt.Sprintf("cannot project spool message %s's payload onto the delivery seam", e.Ref), err)
+		return
+	}
+	msg.Structured = wire
+	pm, err := coordgrpc.PeerMessageToWire(msg)
+	if err != nil {
+		h.failSpoolEntry(e, fmt.Sprintf("cannot project spool message %s onto the delivery seam", e.Ref), err)
+		return
+	}
+	h.rememberSpoolRef(msg.ID, e.Ref)
+	h.spoolDeliveryCount.Delivered.Add(1)
+	h.deliverNotice(pm)
 }
 
 // failSpoolEntry is the terminal outcome for an in/ entry this reader parsed
@@ -161,8 +166,8 @@ func (h *Home) takeSpoolRef(id string) (spool.Ref, bool) {
 
 // ackMailConsumed is the ONE acknowledgement point for delivered mail: the
 // consume-rename plus the doorbell that announces it. The ack timing (after
-// the engine accepted / after the next Recv) is a property of the CALLER, and
-// it is the property that keeps at-least-once true.
+// the engine accepted the turn) is a property of the CALLER, and it is the
+// property that keeps at-least-once true.
 func (h *Home) ackMailConsumed(ids []string) {
 	if h.exited.Load() {
 		// The run is over (Crash / Close / the engine's exit): the file is

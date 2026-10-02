@@ -56,8 +56,7 @@ type LocalSurface interface {
 // cell-path boundary agent_report and agent_fetch_artifact confine
 // themselves to (resolveCellPath). leaf withholds the coordinator-only tools
 // (mcpschema.CoordinatorOnlyTools): a one-shot run, or one at the
-// delegation-depth cap, holding an agent_recv inbox plus a roster would
-// infer it has children and stall waiting on notifications that never
+// delegation-depth cap, holding a roster would infer it has children and stall waiting on notifications that never
 // arrive. It is the launch identity's Leaf, decided by the coordinator that
 // minted it — the runner holds no config to compute it from. wake serves the
 // session relay's subscription to engine.WakeURI.
@@ -173,17 +172,16 @@ func registerGeneratedTools(rep report.Reporter, server *mcp.Server, home *runne
 		}
 		// Trust-boundary gate: a LEAF session must not receive the
 		// coordinator-only tools (mcpschema.CoordinatorOnlyTools) — a leaf
-		// holding an agent_recv inbox plus a
-		// roster infers it has children and stalls waiting for notifications
-		// that never arrive. Still marked registered (deliberately withheld),
-		// or the caller's exhaustiveness check fails runner startup;
-		// agent_send/agent_recv/agent_report (parent reporting) are untouched
-		// by this gate.
+		// holding a roster infers it has children and stalls waiting for
+		// notifications that never arrive. Still marked registered
+		// (deliberately withheld), or the caller's exhaustiveness check fails
+		// runner startup; agent_send/agent_report (parent reporting) are
+		// untouched by this gate.
 		if leaf && mcpschema.CoordinatorOnlyTools()[spec.Name] {
 			registered[spec.Name] = true
 			continue
 		}
-		h, herr := generatedToolHandler(rep, home, harp, cwd, route, spec.Name, leaf)
+		h, herr := generatedToolHandler(rep, home, harp, cwd, route, spec.Name)
 		if herr != nil {
 			return herr
 		}
@@ -203,10 +201,10 @@ func registerGeneratedTools(rep report.Reporter, server *mcp.Server, home *runne
 
 // generatedToolHandler picks the handler builder one generated tool's route
 // names. An unclassified tool is a startup error, never a silent fallthrough.
-func generatedToolHandler(rep report.Reporter, home *runner.Home, harp, cwd string, route mcpschema.Route, name string, leaf bool) (mcp.ToolHandler, error) {
+func generatedToolHandler(rep report.Reporter, home *runner.Home, harp, cwd string, route mcpschema.Route, name string) (mcp.ToolHandler, error) {
 	switch route {
 	case mcpschema.RouteCoordination:
-		return coordinationHandler(rep, home, harp, cwd, name, leaf)
+		return coordinationHandler(rep, home, harp, cwd, name)
 	case mcpschema.RouteArtifactFetch:
 		return artifactFetchHandler(home, cwd, name)
 	default:
@@ -263,11 +261,9 @@ func relayTyped[In any](home *runner.Home, name string) mcp.ToolHandlerFor[In, m
 // coordinationHandler builds the handler for one generated coordination
 // tool: protojson-decode the args into the bound contract message (both
 // snake_case and camelCase accepted), run the plane-2 exchange (or the
-// runner-local recv/report), and project the result back with proto names.
-func coordinationHandler(rep report.Reporter, home *runner.Home, harp, cwd, name string, leaf bool) (mcp.ToolHandler, error) {
+// runner-local report), and project the result back with proto names.
+func coordinationHandler(rep report.Reporter, home *runner.Home, harp, cwd, name string) (mcp.ToolHandler, error) {
 	switch name {
-	case mcpschema.ToolAgentRecv:
-		return RecvHandler(rep, home, leaf), nil
 	case mcpschema.ToolAgentReport:
 		return reportHandler(rep, home, harp, cwd), nil
 	}
@@ -468,74 +464,6 @@ func coordinationResult(resp *agentcoordpb.CoordinatorResponse, result proto.Mes
 // protoIsNil guards typed-nil proto results inside the oneof accessors.
 func protoIsNil(m proto.Message) bool {
 	return m == nil || !m.ProtoReflect().IsValid()
-}
-
-// RecvHandler is the runner-LOCAL agent_recv: park against the Home's
-// notice buffer. Returned messages stay tentative at the coordinator until
-// the NEXT recv (cursor-ack) or a clean runner shutdown acknowledges them —
-// the go-sdk streamable server runs tool handlers on session-scoped
-// contexts and holds POST streams open, so there is no per-response write
-// hook to ack on; a crash before the ack re-delivers (at-least-once).
-// leaf selects the timeout verdict (see recvOutcome): a child gets an error
-// telling it to finish, a coordinator a successful empty receive.
-func RecvHandler(rep report.Reporter, home *runner.Home, leaf bool) mcp.ToolHandler {
-	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var in struct {
-			Wait int `json:"wait"`
-		}
-		if len(req.Params.Arguments) > 0 {
-			if err := json.Unmarshal(req.Params.Arguments, &in); err != nil {
-				return nil, fmt.Errorf("agent_recv: %w", err)
-			}
-		}
-		wait := mcpschema.ClampRecvWait(in.Wait)
-		msgs, err := home.Recv(ctx, wait)
-		if err != nil {
-			// Role, not transport, picks the verdict shape; recvOutcome
-			// holds the leaf/coordinator asymmetry and the reason it must
-			// stay.
-			disposition, failure := RecvOutcome(err, wait, leaf)
-			if failure != nil {
-				return nil, failure
-			}
-			return &mcp.CallToolResult{StructuredContent: map[string]any{
-				"messages":    []any{},
-				"disposition": disposition,
-			}}, nil
-		}
-		// home.Recv already committed msgs as RETURNED (the
-		// cursor-ack fires on the NEXT Recv) before this loop even starts —
-		// a message that fails to marshal/decode here is gone for good, not
-		// redelivered. The old code silently `continue`d, so an all-fail
-		// batch answered {"messages": []}, a successful call with zero
-		// payload, structurally the same consume-then-decode shape as the
-		// confirmed approval-reply defect. Never silently dropped now: a
-		// failure is logged AND named in the result, so the caller can tell
-		// "genuinely nothing waiting" from "N messages existed and were
-		// lost to a decode failure".
-		items := make([]any, 0, len(msgs))
-		var dropped []string
-		for _, m := range msgs {
-			raw, merr := protojson.MarshalOptions{UseProtoNames: true}.Marshal(m)
-			if merr != nil {
-				dropped = append(dropped, m.GetMessageId())
-				rep.Warnf("agent_recv: message %s: marshal: %v (already acked as returned — dropped, not redelivered)", m.GetMessageId(), merr)
-				continue
-			}
-			var v any
-			if uerr := json.Unmarshal(raw, &v); uerr != nil {
-				dropped = append(dropped, m.GetMessageId())
-				rep.Warnf("agent_recv: message %s: decode: %v (already acked as returned — dropped, not redelivered)", m.GetMessageId(), uerr)
-				continue
-			}
-			items = append(items, v)
-		}
-		result := map[string]any{"messages": items}
-		if len(dropped) > 0 {
-			result["dropped_message_ids"] = dropped
-		}
-		return &mcp.CallToolResult{StructuredContent: result}, nil
-	}
 }
 
 // reportHandler is agent_report: file the Summary (and auto-stamped plan

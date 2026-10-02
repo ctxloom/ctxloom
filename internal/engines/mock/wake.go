@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"net"
 	"os"
-	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
@@ -46,17 +45,12 @@ func (w boundSocketWake) Fire(ctx context.Context, nonce string) error {
 	return nil
 }
 
-// maxUnixSocketPath is the longest unix socket path every platform the mock
-// runs on can listen on: darwin's sun_path holds 104 bytes with its NUL.
-const maxUnixSocketPath = 103
-
-// wakeSocketPath is the wake socket an interactive mock session listens on,
-// one per session. It lives in the temp dir, not under the session: the mock
-// keeps no home of its own, and a session directory nested in a test's temp
-// home can outgrow maxUnixSocketPath.
-func wakeSocketPath(harp string) string {
-	return filepath.Join(os.TempDir(), "ctxloom-mock-wake-"+harp+".sock")
-}
+// wakeSocketName is the wake socket an interactive mock session listens on,
+// in its session-private root (present.Paths.SessionHome). The name is kept
+// short because a unix socket path is capped (108 bytes on linux, 104 on
+// darwin) and that root nests under the ctxloom home; a path past the cap
+// fails the listen at session start, loudly.
+const wakeSocketName = "wake.sock"
 
 // ListenWakes listens on the wake socket at path and hands each line posted
 // to it to lines, wrapped as the caller's line type, beside the lines the

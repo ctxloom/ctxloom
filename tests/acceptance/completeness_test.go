@@ -34,9 +34,8 @@ func ranAsTool(corpus, name string) bool {
 var knownUncoveredTools = []string{
 	// agent_run is exercised by J002100 (steps_j002100_delegation.go,
 	// j002100_delegation.feature — a coordinator spawning delegated children
-	// and auditing their journaled privilege grant); agent_send/agent_recv by
-	// J002300 (the real two-way bus, both directions, content asserted on each
-	// side); agent_stop by J002100's failure-path scenario. evaluate_triggers,
+	// and auditing their journaled privilege grant); agent_send by J002300
+	// (the real two-way bus, both directions, content asserted on each side); agent_stop by J002100's failure-path scenario. evaluate_triggers,
 	// compact_session, get_previous_session and list_sessions are INVOKED by
 	// mcp_tools.feature — being named in a feature's prose is not coverage,
 	// which is the hole ranAsTool closes.

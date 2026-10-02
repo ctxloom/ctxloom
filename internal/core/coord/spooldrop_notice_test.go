@@ -1,7 +1,6 @@
 package coord
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,8 +17,8 @@ import (
 // the coordinator's sweep cannot route it, and the file is consumed. Before
 // this, the ONLY parties told were the sender — by mail addressed to a session
 // that has usually already exited — and clidiag on a runner's stderr. The
-// parent, the one party whose work depends on the answer, sat in agent_recv
-// until it timed out and concluded the child never reported.
+// parent, the one party whose work depends on the answer, waited until it
+// concluded the child never reported.
 //
 // Both tests below assert receipt AT THE PARENT and assert the child's OWN
 // TEXT survived the drop, because "a notice arrived" is satisfied by a bare
@@ -43,7 +42,7 @@ func assertNoSecondNotice(t *testing.T, c *Coordinator, harp, want string) {
 	c.spoolReactor.Mark(harp)
 	deadline := time.Now().Add(250 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		msgs, err := recvOwner(c)
+		msgs, err := recvOwner(t, c)
 		if err != nil {
 			continue
 		}
@@ -53,9 +52,10 @@ func assertNoSecondNotice(t *testing.T, c *Coordinator, harp, want string) {
 	}
 }
 
-// recvOwner is a single short non-parking drain of the owner's mailbox.
-func recvOwner(c *Coordinator) ([]Message, error) {
-	return c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
+// recvOwner is a single short drain of the owner's mailbox.
+func recvOwner(t *testing.T, c *Coordinator) ([]Message, error) {
+	t.Helper()
+	return ownerMail(t, c, 10*time.Millisecond)
 }
 
 // spoolFailedNames lists the bare filenames in a terminal failed/ directory.

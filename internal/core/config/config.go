@@ -164,7 +164,7 @@ type Config struct {
 	// delegation) despite differing in kind (one a resource ceiling, the
 	// other structural/correctness). Renamed from the flat agent_turn_cap:
 	// "turn cap" read as a per-run quota, which it never was — a child
-	// parked in agent_recv yields its slot, so it bounds CONCURRENCY, not
+	// idle at a turn boundary yields its slot, so it bounds CONCURRENCY, not
 	// turns. The retired spelling is REFUSED at load (UnmarshalYAML), not
 	// silently ignored — see errRetiredAgentTurnCapKey.
 	delegation DelegationConfig

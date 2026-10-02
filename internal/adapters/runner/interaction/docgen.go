@@ -141,8 +141,6 @@ type ToolContract struct {
 // It exists because the OUTPUT schema is where a coordination tool's result
 // SHAPE is advertised, and a change to the proto-canonical shape a real
 // harness is told to expect must be observable without a live session.
-// agent_recv is the case that forced it: its result shape is a projection of
-// PeerMessage, and plane-2 §4.B changes it.
 //
 // Registration reads only static tool literals and the embedded generated
 // schemas, so this dials nothing and invokes no handler.

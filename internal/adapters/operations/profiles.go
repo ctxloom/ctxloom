@@ -263,7 +263,7 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 	// remote parent is recognized as remote (isRemoteReference) rather than looked
 	// up on the local fs.
 	aliasToURL := aliasToURLResolver(cfg)
-	req.Bundles = canonicalizeBundleRefs(req.Bundles, aliasToURL)
+	req.Bundles = canonicalizeBundleRefs(req.Bundles, aliasToURL, cfg.LocalBundleExists)
 	req.Parents = canonicalizeProfileRefs(req.Parents, aliasToURL)
 
 	// Validate that local parents exist.
@@ -358,8 +358,8 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 	// alias. Removals are canonicalized the SAME way so a "remove <remote>/<bundle>"
 	// matches the canonical form already on disk. Bare names stay local (decision A).
 	aliasToURL := aliasToURLResolver(cfg)
-	req.AddBundles = canonicalizeBundleRefs(req.AddBundles, aliasToURL)
-	req.RemoveBundles = canonicalizeBundleRefs(req.RemoveBundles, aliasToURL)
+	req.AddBundles = canonicalizeBundleRefs(req.AddBundles, aliasToURL, cfg.LocalBundleExists)
+	req.RemoveBundles = canonicalizeBundleRefs(req.RemoveBundles, aliasToURL, cfg.LocalBundleExists)
 	req.AddParents = canonicalizeProfileRefs(req.AddParents, aliasToURL)
 	req.RemoveParents = canonicalizeProfileRefs(req.RemoveParents, aliasToURL)
 

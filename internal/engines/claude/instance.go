@@ -297,7 +297,6 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) ([]string, error
 	if harp := d.inst.s.Identity.Harp; harp != "" {
 		args = append(args, flagName, harp)
 	}
-	args = append(args, repoSourceArgs(in.Posture.Trust)...)
 	doc, err := turnSettings(d.inst.pos, d.inst.s.MCPServers, in.Posture)
 	if err != nil {
 		return nil, err

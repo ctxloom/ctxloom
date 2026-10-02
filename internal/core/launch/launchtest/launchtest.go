@@ -379,6 +379,11 @@ func (fixtureCodec) DecodeAsk(string, []byte) (engine.PermissionAsk, error) {
 
 // Permissions is FixtureModel unless NoPermissionModel declared it absent.
 func (e fixtureEngine) Permissions() engine.Declared[engine.PermissionModel] { return e.permissions }
+
+// Trust: the fixture runs no repository surfaces, so it trusts none.
+func (fixtureEngine) Trust() engine.Declared[engine.RepoTrust] {
+	return engine.Absent[engine.RepoTrust]("the fixture engine runs no repository surfaces")
+}
 func (fixtureCodec) EncodeAnswer(string, engine.PermissionAsk, engine.PermissionAnswer) ([]byte, error) {
 	return nil, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
 }

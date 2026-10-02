@@ -86,6 +86,10 @@ func (stub) Permissions() engine.Declared[engine.PermissionModel] {
 	return engine.Absent[engine.PermissionModel]("a test double declares no permission model")
 }
 
+func (stub) Trust() engine.Declared[engine.RepoTrust] {
+	return engine.Absent[engine.RepoTrust]("a test double trusts no repository")
+}
+
 func stubEngine(name engine.Name, dist engine.Distribution) engine.Engine {
 	return stub{engine.Base{Definition: engine.Definition{Name: name, Distribution: dist}}}
 }

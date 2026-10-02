@@ -32,6 +32,9 @@ type Session struct {
 	Prompt     string
 	Resume     sessions.ResumeRef
 	Env        map[string]string // engine PASSTHROUGH additions only; never ctxloom's own vars
+	// Trust is the engine's verdict on the repository WorkDir is in
+	// (Engine.Trust), taken once where the cell was prepared.
+	Trust WorkspaceTrust
 }
 
 // LabelConfig is one llm.configs label resolved: a configuration of the

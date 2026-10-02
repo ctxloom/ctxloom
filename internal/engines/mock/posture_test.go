@@ -37,14 +37,14 @@ func postureTurn(t *testing.T, ex engine.Exec, posture engine.TurnPosture) []age
 func TestTurn_HonoursThePosture(t *testing.T) {
 	record := filepath.Join(t.TempDir(), "record.txt")
 	ex := engine.Exec{Env: map[string]string{EnvRecordFile: record}}
-	events := postureTurn(t, ex, engine.TurnPosture{Mode: "plan", Grants: []string{"Bash(ls)", "Read"}, Trust: engine.TrustTrusted})
+	events := postureTurn(t, ex, engine.TurnPosture{Mode: "plan", Grants: []string{"Bash(ls)", "Read"}})
 	require.NotEmpty(t, events)
 	require.NotNil(t, events[0].Session)
 	assert.Equal(t, "plan", events[0].Session.PermissionMode)
 
 	got, err := os.ReadFile(record)
 	require.NoError(t, err)
-	assert.Contains(t, string(got), "=== Posture ===\nmode=plan\ngrant=Bash(ls)\ngrant=Read\ntrust=trusted\n")
+	assert.Contains(t, string(got), "=== Posture ===\nmode=plan\ngrant=Bash(ls)\ngrant=Read\n")
 }
 
 func TestTurn_NoPostureAsksForNoMode(t *testing.T) {
@@ -53,7 +53,7 @@ func TestTurn_NoPostureAsksForNoMode(t *testing.T) {
 	assert.Empty(t, events[0].Session.PermissionMode)
 	got, err := os.ReadFile(record)
 	require.NoError(t, err)
-	assert.Contains(t, string(got), "=== Posture ===\nmode=\ntrust=untrusted\n")
+	assert.Contains(t, string(got), "=== Posture ===\nmode=\n")
 }
 
 func TestMock_ProvidesAnApprovalCodec(t *testing.T) {

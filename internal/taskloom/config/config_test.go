@@ -397,23 +397,6 @@ func TestTagSchema_BuiltinBaselineCompilesAndEvaluatesWithoutError(t *testing.T)
 	assert.Greater(t, results["wishlist"].Raw, results["untriaged"].Raw)
 }
 
-// TestTagSchema_ExplicitConfigOverridesDefaultEntirely proves an explicit
-// tag_schema REPLACES the built-in default wholesale (confload's list
-// semantics -- see TestKoanf_ListsReplaceNotConcat) rather than merging
-// alongside it: a project that declares its own (smaller) schema loses the
-// triage baseline's scalar declarations entirely unless it restates them.
-func TestTagSchema_ExplicitConfigOverridesDefaultEntirely(t *testing.T) {
-	project := taskstest.ProjectDir(t)
-	writeConfig(t, project, "tag_schema:\n  - 'tagma.arity:\"widget:kind\"=scalar'\n")
-
-	cfg, err := Load(project, nil)
-	require.NoError(t, err)
-	schema, err := cfg.ParsedTagSchema()
-	require.NoError(t, err)
-	assert.True(t, schema.IsScalar("widget:kind"))
-	assert.False(t, schema.IsScalar("triage:kind"), "an explicit tag_schema must replace the default, not merge with it")
-}
-
 // TestTagSchema_MalformedDeclarationFailsLoud proves a tag_schema entry
 // tagschema.Parse rejects surfaces as a ParsedTagSchema error naming the
 // problem, never a silently empty or partial schema.
@@ -459,4 +442,47 @@ func TestProduct_NilValidatorLeavesKnownPathNil(t *testing.T) {
 	require.NoError(t, err, "the real embedded schema must compile, or the other half of this test proves nothing")
 	assert.NotNil(t, product(validator).KnownPath,
 		"a compiled schema must still be handed through, or the nil case above is vacuous")
+}
+
+// TestTagSchema_ProjectDeclarationsExtendTheBaseline: a project that declares
+// tag_schema to add ONE rule must not silently lose every baseline check —
+// `taskloom lint` validates only what the resolved schema declares, so a
+// replacement would report green while checking a fraction of the targets.
+// The project's rule must apply AND the baseline's must still hold.
+func TestTagSchema_ProjectDeclarationsExtendTheBaseline(t *testing.T) {
+	project := taskstest.ProjectDir(t)
+	writeConfig(t, project, "tag_schema:\n  - 'tagma.arity:\"triage:type\"=scalar'\n")
+
+	cfg, err := Load(project, nil)
+	require.NoError(t, err)
+	schema, err := cfg.ParsedTagSchema()
+	require.NoError(t, err)
+
+	assert.True(t, schema.IsScalar("triage:type"), "the project's own rule applies")
+	assert.True(t, schema.IsScalar("triage:level"), "the baseline's arity survives the project's addition")
+	min, max, ok, err := schema.Range("triage:level")
+	require.NoError(t, err)
+	require.True(t, ok, "the baseline's range survives the project's addition")
+	assert.Equal(t, []float64{1, 5}, []float64{min, max})
+	_, hasPriority := schema.Get("priority_fn", "triage:kind")
+	assert.True(t, hasPriority, "the baseline's priority_fn survives the project's addition")
+}
+
+// TestTagSchema_ProjectDeclarationOverridesTheBaselineEntry: extending is not
+// appending blindly — a project declaring the SAME facet+target as the
+// baseline must win, or a project could never retune a shipped bound.
+func TestTagSchema_ProjectDeclarationOverridesTheBaselineEntry(t *testing.T) {
+	project := taskstest.ProjectDir(t)
+	writeConfig(t, project, "tag_schema:\n  - 'tagma.range:\"triage:effort\"=\"0,10\"'\n")
+
+	cfg, err := Load(project, nil)
+	require.NoError(t, err)
+	schema, err := cfg.ParsedTagSchema()
+	require.NoError(t, err)
+
+	min, max, ok, err := schema.Range("triage:effort")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, []float64{0, 10}, []float64{min, max}, "the project's bound replaces the baseline's")
+	assert.True(t, schema.IsScalar("triage:effort"), "while the baseline's other facets on that target survive")
 }

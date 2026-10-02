@@ -174,9 +174,9 @@ func resolveHoming(tc operations.TaskContext) (operations.TaskContext, error) {
 
 // resolveTagSchema resolves tc's tag-schema (taskloom's own layered config —
 // home < project .taskloom/config.yaml < TASKLOOM_CONFIG_* env <
-// --config-set tag_schema=..., via taskloomconfig.Load — falling back to
-// taskloomconfig.DefaultTagSchema when unset at every layer, see
-// Config.ResolvedTagSchema's doc) and sets it on tc. A malformed declaration
+// --config-set tag_schema=..., via taskloomconfig.Load — layered over
+// taskloomconfig.DefaultTagSchema, see Config.ResolvedTagSchema's doc) and
+// sets it on tc. A malformed declaration
 // is a returned error (fail loud: never run with a silently empty or
 // partial schema) naming the offending declaration.
 func resolveTagSchema(tc operations.TaskContext) (operations.TaskContext, error) {

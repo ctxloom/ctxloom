@@ -92,7 +92,11 @@ func updateFrontmatter(path, content, harpName string, mode os.FileMode) error {
 			// because this file couldn't be parsed at all."
 			return fmt.Errorf("stamp: %s: opening frontmatter `---` has no closing `---`; refusing to guess where it ends", path)
 		}
-		block = rest[:end]
+		// The newline ending the block's last line belongs to the block, not
+		// to the fence (plans.frontmatterBlock reads it the same way): a
+		// trailing literal block scalar without it reads one newline short
+		// and re-encodes strip-chomped.
+		block = rest[:end+1]
 		// Normalize leading body whitespace so re-stamping yields exactly one
 		// blank line between the closing `---` and the first body line.
 		body = strings.TrimLeft(rest[end+len("\n---"):], "\n")
@@ -114,7 +118,9 @@ func updateFrontmatter(path, content, harpName string, mode os.FileMode) error {
 		return fmt.Errorf("encode frontmatter: %w", err)
 	}
 
-	newContent := "---\n" + strings.TrimRight(rendered, "\n") + "\n---\n"
+	// Not trimmed: a keep-chomped (`|+`) last value owns trailing blank lines,
+	// and the encoder already ends the document with exactly what it owns.
+	newContent := "---\n" + rendered + "---\n"
 	if body != "" {
 		newContent += "\n" + body
 	}

@@ -63,6 +63,7 @@ func TestAgentPipe(t *testing.T) {
 		{"the pipe prefix matches case-insensitively", `\\.\PIPE\my-agent`, `\\.\PIPE\my-agent`},
 		{"unset falls back to the OpenSSH default", "", defaultAgentPipe},
 		{"a unix-style path falls back to the default", "/tmp/ssh-XXXX/agent.123", defaultAgentPipe},
+		{"exactly the pipe namespace is dialed as given, not defaulted", `\\.\pipe\`, `\\.\pipe\`},
 		{"a bare prefix fragment is not a pipe", `\\.\pip`, defaultAgentPipe},
 		{"a remote pipe is not a local pipe", `\\host\pipe\agent`, defaultAgentPipe},
 	} {

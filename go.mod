@@ -48,7 +48,6 @@ require (
 	charm.land/lipgloss/v2 v2.0.4
 	github.com/benjaminabbitt/hew/go v0.2.1
 	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260905185216-9a2b04465c57
-	github.com/creack/pty v1.1.24
 	github.com/expr-lang/expr v1.17.8
 	github.com/knadh/koanf/maps v0.1.2
 	github.com/knadh/koanf/providers/confmap v1.0.0
@@ -59,6 +58,7 @@ require (
 )
 
 require (
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/cucumber/gherkin/go/v42 v42.0.0 // indirect
 	github.com/cucumber/messages/go/v34 v34.2.0 // indirect
 	golang.org/x/mod v0.39.0 // indirect

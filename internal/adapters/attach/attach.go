@@ -25,21 +25,21 @@ import (
 // Session is a live container attach: the runtime CLI on the pty, the
 // container's name, and the removal that teardown runs before ending it.
 type Session struct {
-	*hostpty.Session
+	hostpty.Session
 	name       string
 	remove     func(runExited <-chan struct{})
 	removeOnce sync.Once
 	endOnce    sync.Once
 }
 
-// Start starts cmd — the runtime's attached run — on a pty and returns the
-// session. name is the container the run names; remove force-removes it,
+// Start starts cmd — the runtime's attached run — on a pty through start and
+// returns the session. name is the container the run names; remove force-removes it,
 // given the channel that closes when the run CLI has exited (a remove that
 // finds nothing is only final once that CLI can no longer create the
 // container), and is teardown's first act. Wait alone reaps the CLI: a
 // container that ended on its own has nothing left to remove.
-func Start(ctx context.Context, cmd *exec.Cmd, name string, remove func(runExited <-chan struct{})) (*Session, error) {
-	s, err := hostpty.Start(ctx, cmd)
+func Start(ctx context.Context, start hostpty.Starter, cmd *exec.Cmd, name string, remove func(runExited <-chan struct{})) (*Session, error) {
+	s, err := start(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}

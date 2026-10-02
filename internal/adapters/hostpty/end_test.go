@@ -17,7 +17,7 @@ import (
 
 // startScript starts `sh -c script` on a pty with the given end grace, $DIR
 // naming a fresh directory, and waits for the script to create $DIR/ready.
-func startScript(t *testing.T, script string, grace time.Duration) (*Session, string) {
+func startScript(t *testing.T, script string, grace time.Duration) (*session, string) {
 	t.Helper()
 	dir := t.TempDir()
 	cmd := exec.Command("sh", "-c", script)

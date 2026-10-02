@@ -6,11 +6,11 @@ originating process holds, and pumps its terminal seams onto that master: keystr
 engine's bytes out, each resize onto the pty. The runner owns the slave and execs the engine on
 it; resize and signals cross the pty, never a proxied stream.
 
-- `hostpty.Start(ctx, cmd)` runs the self-exec'd runner on a pty for a HOST cell: the child is a
-  session leader (`Setsid`, `Setctty`) armed with `PR_SET_PDEATHSIG(SIGTERM)` on Linux, so a
-  runner never outlives the originator. `Session` carries `Master()`, `Resize`, `Exited()`
-  (closed once the child is reaped), `Wait` (the exit code; closes the master) and `Kill`.
-- `attach.Start(ctx, cmd, name, remove)` is the CONTAINER counterpart: the runtime CLI's
+- `hostpty.Session` is the port the frontend drives and `hostpty.Starter` the function that starts
+  an `exec.Cmd` on a pty and returns one. `hostpty.Start` is the one Starter, on go-pty everywhere:
+  a Unix pty, or a ConPTY on Windows. On Unix the child is a session leader (`Setsid`, `Setctty`)
+  armed with `PR_SET_PDEATHSIG(SIGTERM)` on Linux, so a runner never outlives the originator.
+- `attach.Start(ctx, start, cmd, name, remove)` is the CONTAINER counterpart, on the same Starter: the runtime CLI's
   `docker run -i -t … ctxloom runner <engine>` (`isolation.Policy.InteractiveRunner`) on the same
   kind of pty, so the CLI's `-it` attachment IS the terminal the runner's stdio lands on. What
   attach adds is teardown by NAME: the CLI's death does not end the container the daemon runs, so
@@ -18,7 +18,7 @@ it; resize and signals cross the pty, never a proxied stream.
 
 **The contract they own.** *One pty master per interactive run, wherever the runner runs.* The
 frontend (`internal/adapters/cli/run_pty.go`'s `driveOwnedInteractive`, over `termui`) is blind to
-the cell: it pumps onto `runnerTTY` and reads the run's outcome from the coordinator's event stream
+the cell: it pumps onto a `hostpty.Session` and reads the run's outcome from the coordinator's event stream
 (`RunCompleted`), which the runner emitted before it exited. No keepalive, no exec-into, no
 handoff file: the runner is the container's foreground process, started by the coordinator-owned
 run's starter (`runState.ptyStarter`).

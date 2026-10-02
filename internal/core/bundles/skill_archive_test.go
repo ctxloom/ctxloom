@@ -22,6 +22,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // =============================================================================
@@ -1051,7 +1052,7 @@ func TestImportSkillArchive_CancelledBeforeSwapLeavesDestinationIntact(t *testin
 	fsys := afero.NewMemMapFs()
 	existing := "/imported/humanize/SKILL.md"
 	require.NoError(t, fsys.MkdirAll("/imported/humanize", 0o755))
-	require.NoError(t, afero.WriteFile(fsys, existing, []byte("the good tree\n"), 0o644))
+	testsupport.WriteFileString(t, fsys, existing, "the good tree\n", 0o644)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	_, err := ImportSkillArchive(ctx, fsys, zipBytes, "/imported", ExtractOptions{},

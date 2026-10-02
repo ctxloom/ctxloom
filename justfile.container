@@ -593,14 +593,9 @@ gen-docs-check: gen-docs
         exit 1
     fi
 
-# Regenerate the proto-canonical MCP tool schemas AND the <ctxloom-reminder>
-# frame encoders from the buf-built descriptor set (source info included by
-# default). Both outputs are checked in and both are goldens.
-#
-# The encoder half FAILS THE BUILD on an invalid frame declaration — an
-# un-annotated field, or free text smuggled into an attribute (see
-# internal/adapters/coordgrpc/mcpschema/xmllike.go). That is deliberate: it is the whole
-# reason the frames are generated rather than rendered reflectively.
+# Regenerate the proto-canonical MCP tool schemas from the buf-built descriptor
+# set (source info included by default). They are checked in, and they are
+# goldens.
 gen-mcp-schemas:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -608,14 +603,13 @@ gen-mcp-schemas:
     trap 'rm -f "$tmp"' EXIT
     buf build -o "$tmp"
     go run ./internal/adapters/coordgrpc/mcpschema/gen -descriptor "$tmp" \
-        -out internal/adapters/coordgrpc/mcpschema/schemas \
-        -xmllike-out internal/adapters/coordgrpc/pb/xmllike_gen.go
+        -out internal/adapters/coordgrpc/mcpschema/schemas
 
-# Drift gate: the checked-in schemas and frame encoders ARE the goldens —
+# Drift gate: the checked-in schemas ARE the goldens —
 # regenerate and fail on any difference (the gen-docs-check pattern). Run in the
 # CI lint job.
 gen-mcp-schemas-check: gen-mcp-schemas
-    git diff --exit-code -- internal/adapters/coordgrpc/mcpschema/schemas internal/adapters/coordgrpc/pb/xmllike_gen.go
+    git diff --exit-code -- internal/adapters/coordgrpc/mcpschema/schemas
 
 # Per-function cyclomatic complexity (lizard) — human-readable table + warnings.
 # Defaults to repo root; pass paths/flags to scope. Leading `-` ignores lizard's

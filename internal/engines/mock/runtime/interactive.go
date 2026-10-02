@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -65,7 +64,7 @@ func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 		return echoResponse(w, promptLen, out)
 	}
 	lines := readLines(r.Stdin)
-	stop, err := listenWakes(r.getenv(mock.EnvWakeSocket), lines)
+	stop, err := mock.ListenWakes(r.getenv(mock.EnvWakeSocket), lines, func(line string) readResult { return readResult{line: line + "\n"} })
 	if err != nil {
 		return err
 	}
@@ -94,44 +93,6 @@ func (r *Runtime) interact(w io.Writer, hooks wire.UnifiedHooks, lines <-chan re
 			if done, err := r.handleLine(w, hooks, res); done || err != nil {
 				return err
 			}
-		}
-	}
-}
-
-// listenWakes listens on the wake socket at path and hands each line posted
-// to it to lines, beside the typed ones; nothing when path is "". stop closes
-// the listener, which removes the socket file, and releases every reader.
-func listenWakes(path string, lines chan<- readResult) (stop func(), err error) {
-	if path == "" {
-		return func() {}, nil
-	}
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		return nil, fmt.Errorf("mock-engine: listening for wakes on %s: %w", path, err)
-	}
-	done := make(chan struct{})
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go readWake(conn, lines, done)
-		}
-	}()
-	return func() { close(done); _ = ln.Close() }, nil
-}
-
-// readWake hands on each line of one posted connection until it ends or the
-// session does.
-func readWake(conn net.Conn, lines chan<- readResult, done <-chan struct{}) {
-	defer conn.Close()
-	sc := bufio.NewScanner(conn)
-	for sc.Scan() {
-		select {
-		case lines <- readResult{line: sc.Text() + "\n"}:
-		case <-done:
-			return
 		}
 	}
 }

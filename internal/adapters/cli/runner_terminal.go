@@ -15,26 +15,20 @@ import (
 // container's -it tty. The engine is driven through the backend's
 // interactive Execute — on its own pty, with the runner's stdin copied into
 // it and its output relayed to the runner's stdout — over the projection
-// and the presentations the runner delivered, never a Setup of its own. The
-// injector wraps the pair so coordinator mail is typed into the engine
-// between the human's keystrokes (runner.TerminalInjector).
+// and the presentations the runner delivered, never a Setup of its own.
+// Nothing is ever typed into the engine on the human's behalf: coordinator
+// mail reaches the session owner through its turn-start hook.
 type stdioTerminal struct {
-	backend  agent.Backend
-	injector *runner.TerminalInjector
-	stdin    *os.File
-	stdout   io.Writer
-	stderr   io.Writer
+	backend agent.Backend
+	stdin   *os.File
+	stdout  io.Writer
+	stderr  io.Writer
 }
 
 // Run implements runner.Terminal.
 func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 	var stdin io.Reader = t.stdin
 	stdout := t.stdout
-	if t.injector != nil {
-		var release func()
-		stdin, stdout, release = t.injector.Wrap(stdin, stdout)
-		defer release()
-	}
 	session := turn.Launch.Session()
 	for _, srv := range turn.MCPServers {
 		session.MCPServers = append(session.MCPServers, srv.Name)

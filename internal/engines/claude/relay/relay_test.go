@@ -65,7 +65,7 @@ func endpoint(t *testing.T) (string, *interaction.WakeSignal) {
 		Identity: sessions.Identity{Harp: "h", Depth: 1},
 		WorkDir:  "/work",
 	}
-	sig := interaction.NewWakeSignal()
+	sig := interaction.NewWakeSignal(nil)
 	served, err := interaction.Endpoint{Home: home, Wake: sig}.Serve(context.Background(), lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = served.Close() })

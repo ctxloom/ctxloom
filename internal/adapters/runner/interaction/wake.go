@@ -27,23 +27,46 @@ var (
 // engine.WakeURI on the session's endpoint, and Fire, which notifies them. It is an
 // engine.Wake, so the runner fires it exactly as it would fire any bound
 // wake; what makes the turn start is the relay's.
+//
+// A relay's subscription IS the binding: the first subscriber registers this
+// signal as the session owner's wake (register — runner.Home.SetWake in
+// production), and the release runs when the last subscriber unsubscribes or
+// the endpoint is served again. A relay that dies without unsubscribing
+// leaves the registration in place, which costs nothing: Fire reads liveness
+// from the server and fails when no live subscriber remains, and a respawned
+// relay's subscription finds the signal still registered.
 type WakeSignal struct {
-	mu     sync.Mutex
-	server *mcp.Server
-	subs   map[*mcp.ServerSession]bool
+	mu       sync.Mutex
+	server   *mcp.Server
+	subs     map[*mcp.ServerSession]bool
+	register func(engine.Wake) (release func())
+	release  func()
 }
 
-// NewWakeSignal returns a signal no endpoint serves yet.
-func NewWakeSignal() *WakeSignal { return &WakeSignal{subs: map[*mcp.ServerSession]bool{}} }
+// NewWakeSignal returns a signal no endpoint serves yet, which registers
+// itself with register while a relay is subscribed. A nil register registers
+// nowhere (a surface served only to be documented).
+func NewWakeSignal(register func(engine.Wake) (release func())) *WakeSignal {
+	return &WakeSignal{subs: map[*mcp.ServerSession]bool{}, register: register}
+}
 
 // serve makes server the one this signal fires on. A later serve (a rebound
-// incarnation of the endpoint) replaces the earlier server and forgets its
-// subscribers.
+// incarnation of the endpoint) replaces the earlier server, forgets its
+// subscribers and releases their registration.
 func (w *WakeSignal) serve(server *mcp.Server) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.server = server
 	w.subs = map[*mcp.ServerSession]bool{}
+	w.releaseLocked()
+}
+
+// releaseLocked releases the registration, if any. Caller holds w.mu.
+func (w *WakeSignal) releaseLocked() {
+	if w.release != nil {
+		w.release()
+		w.release = nil
+	}
 }
 
 // options installs the subscription handlers, which admit engine.WakeURI alone.
@@ -55,12 +78,18 @@ func (w *WakeSignal) options(opts *mcp.ServerOptions) {
 		w.mu.Lock()
 		defer w.mu.Unlock()
 		w.subs[req.Session] = true
+		if w.release == nil && w.register != nil {
+			w.release = w.register(w)
+		}
 		return nil
 	}
 	opts.UnsubscribeHandler = func(_ context.Context, req *mcp.UnsubscribeRequest) error {
 		w.mu.Lock()
 		defer w.mu.Unlock()
 		delete(w.subs, req.Session)
+		if len(w.subs) == 0 {
+			w.releaseLocked()
+		}
 		return nil
 	}
 }

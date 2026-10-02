@@ -16,12 +16,6 @@ import (
 // Custom event/request names — the namespaced "ctxloom/*" vocabulary riding
 // the contract's open extension points (CustomEvent / CustomRequest).
 const (
-	// CustomRecvParked / CustomRecvUnparked assert the runner-local
-	// agent_recv park state: park yields the child's execution slot
-	// (onRolePark); unpark re-acquires. Runtime state — handled, never
-	// journaled; the runner RE-ASSERTS the current state after a reconnect.
-	CustomRecvParked   = "ctxloom/recv_parked"
-	CustomRecvUnparked = "ctxloom/recv_unparked"
 	// CustomHarnessSession reports the harness-NATIVE session id the moment
 	// the engine host learns it (the ACP Session event) — the coordinator
 	// binds it onto the harp's session entry (bindNativeSession) as the
@@ -332,10 +326,6 @@ func (c *Coordinator) ackThrough(ch *RunChannel, seq uint64) {
 // handleCustomEvent serves the ctxloom/* custom event vocabulary.
 func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) {
 	switch ev.Name {
-	case CustomRecvParked:
-		c.onRolePark(ch.role, ch.id.RunID)
-	case CustomRecvUnparked:
-		c.onRoleUnpark(ch.role, ch.id.RunID)
 	case CustomHarnessSession:
 		sid, _ := ev.Value["session_id"].(string)
 		if sid == "" {

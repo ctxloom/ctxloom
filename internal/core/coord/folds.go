@@ -468,7 +468,7 @@ func (f *rosterFold) snapshot() []RosterEntry {
 	return out
 }
 
-// Message is one mailbox message as delivered to agent_recv.
+// Message is one mailbox message as delivered to its recipient.
 type Message struct {
 	ID   string `json:"id,omitempty"`
 	From string `json:"from"`

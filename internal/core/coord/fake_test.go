@@ -2,13 +2,13 @@ package coord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"sync"
 	"testing"
 	"time"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/testsupport/scriptedchat"
 )
 
@@ -79,8 +80,7 @@ type fakeSpawner struct {
 	// it zero and gets the production cadence, which no test waits on.
 	spoolSweepInterval time.Duration
 	// engineHomes records each StartEngine call's runner-side Home, in spawn
-	// order — the seam a plane-2 test needs to drain the runner-LOCAL
-	// agent_recv a control body is parked in.
+	// order — the seam a test needs to drive a child's runner half.
 	engineHomes []TestHome
 	// attachWaiting, when set, is signalled by awaitCutoverChild as it begins
 	// waiting for the child's run channel to attach — the seam that lets a
@@ -703,7 +703,7 @@ func recvWhere(t *testing.T, c *Coordinator, keep func(Message) bool, wait time.
 	deadline := time.Now().Add(wait)
 	var out []Message
 	for {
-		msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
+		msgs, err := ownerMail(t, c, 10*time.Millisecond)
 		if err == nil {
 			for _, m := range msgs {
 				if keep(m) {
@@ -760,20 +760,48 @@ func nativeSession(c *Coordinator, harp string) string {
 	return c.spawner.NativeSession(harp)
 }
 
-// childRecv is a child's agent_recv: its OWN runner's Home.Recv, projected
-// onto the coordinator-side Message shape so assertions read the same
-// whichever side delivered.
-func childRecv(t *testing.T, c *Coordinator, runID string, wait time.Duration) ([]Message, error) {
+// errNoOwnerMail is spoolMail's answer when nothing reached the spool within
+// the wait.
+var errNoOwnerMail = errors.New("test: no mail reached the spool")
+
+// ownerMail reads the session owner's mail (spoolMail on the owner's harp).
+func ownerMail(t *testing.T, c *Coordinator, wait time.Duration) ([]Message, error) {
 	t.Helper()
-	pms, err := childHome(t, c, runID).Recv(context.Background(), wait)
-	var out []Message
-	for _, pm := range pms {
-		out = append(out, Message{
-			ID: pm.GetMessageId(), From: pm.GetFromAgentId(), Kind: agentcoordpb.LegacyKindName(pm.GetKind()),
-			Body: pm.GetText(), InReplyTo: pm.GetInReplyTo(),
-		})
+	return spoolMail(t, c, ownerIdentity().Harp, wait)
+}
+
+// spoolMail reads harp's mail the way the owner's turn-start hook does
+// (`ctxloom hook mail-drain`): claim what waits in its in/ spool and
+// acknowledge each delivered file. It retries until something is delivered or
+// wait elapses — one attempt for a wait of zero — and answers errNoOwnerMail
+// when nothing came.
+func spoolMail(t *testing.T, c *Coordinator, harp string, wait time.Duration) ([]Message, error) {
+	t.Helper()
+	deadline := time.Now().Add(wait)
+	for {
+		res, err := spool.Claim(c.mapper, harp)
+		if err != nil {
+			return nil, err
+		}
+		var out []Message
+		for _, e := range res.Entries {
+			msg, err := MailFromSpool(e, e.Message.FromHarp)
+			if err != nil {
+				return nil, err
+			}
+			if err := spool.Ack(c.mapper, harp, e.Ref.Name); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
+				return nil, err
+			}
+			out = append(out, msg)
+		}
+		if len(out) > 0 {
+			return out, nil
+		}
+		if !time.Now().Before(deadline) {
+			return nil, errNoOwnerMail
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	return out, err
 }
 
 // ownerLaunch is the test's resolved owner launch: the fields StartOwnedRun

@@ -196,7 +196,7 @@ func TestDiagnosticSink_RendersWhatCoordRenderedToday(t *testing.T) {
 	rep.WarnOncef("runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", "harp/out/1")
 	rep.WarnOncef("runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", "harp/out/1")
 	rep.FailOncef(report.KindConfig,
-		"construct ONE TerminalInjector per Home and call Wrap on it once per turn (see llm_serve.go) instead of building a new injector for each turn",
+		"bind the doorbell ONCE per Home instead of once per turn",
 		"runner: a terminal nudge is already registered for this run; the second registration is refused, which silently disables the session owner's mail wake")
 	rep.Recordf(report.KindApply, "narrow the relayed tool's request before the 4MiB cap fails it",
 		"host-relay tool %s returned %d bytes (watch: >3MiB)", "search_content", 3_200_000)
@@ -209,7 +209,7 @@ func TestDiagnosticSink_RendersWhatCoordRenderedToday(t *testing.T) {
 	clidiag.WarnOnce("ctxloom", "runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", "harp/out/1")
 	clidiag.WarnOnce("ctxloom", "runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", "harp/out/1")
 	strictness.FailOnce(report.KindConfig,
-		"construct ONE TerminalInjector per Home and call Wrap on it once per turn (see llm_serve.go) instead of building a new injector for each turn",
+		"bind the doorbell ONCE per Home instead of once per turn",
 		"runner: a terminal nudge is already registered for this run; the second registration is refused, which silently disables the session owner's mail wake")
 	strictness.Record(report.KindApply, "narrow the relayed tool's request before the 4MiB cap fails it",
 		"host-relay tool %s returned %d bytes (watch: >3MiB)", "search_content", 3_200_000)
@@ -232,7 +232,7 @@ func TestDiagnosticSink_RendersWhatCoordRenderedToday(t *testing.T) {
 	const today = "ctxloom: warning: coordinator: checkpoint snapshot /s/items.snapshot unreadable, falling back to a full replay: unexpected end of JSON input\n" +
 		"ctxloom: warning: runner: spool doorbell dropped (run channel down); harp/out/1 is still on disk and will be delivered by the next sweep\n" +
 		"ctxloom: warning: runner: a terminal nudge is already registered for this run; the second registration is refused, which silently disables the session owner's mail wake\n" +
-		"  fix: construct ONE TerminalInjector per Home and call Wrap on it once per turn (see llm_serve.go) instead of building a new injector for each turn\n"
+		"  fix: bind the doorbell ONCE per Home instead of once per turn\n"
 	assert.Equal(t, today, rendered.String(), "Record is quiet on stderr; FailOnce renders once and ledgers once")
 	require.Len(t, legacyFindings, 2)
 	assert.Equal(t, report.KindConfig, legacyFindings[0].Kind)

@@ -89,16 +89,16 @@ func TestEmitCustomEvent_UnencodableValueIsNotEmittedAsValueless(t *testing.T) {
 	assert.Contains(t, warnings.String(), coord.CustomHarnessSession, "the dropped event must be named on stderr")
 }
 
-// TestEmitCustomEvent_NilValueStillEmits: the park/unpark assertions carry no
-// value by design and must keep emitting.
+// TestEmitCustomEvent_NilValueStillEmits: an event that carries no value by
+// design (turn idle) must keep emitting.
 func TestEmitCustomEvent_NilValueStillEmits(t *testing.T) {
 	h := testHome(t)
 
-	h.emitCustomEvent(coord.CustomRecvParked, nil)
+	h.emitCustomEvent(coord.CustomTurnIdle, nil)
 
 	events := h.emitted()
 	require.Len(t, events, 1)
-	assert.Equal(t, coord.CustomRecvParked, events[0].GetCustom().GetName())
+	assert.Equal(t, coord.CustomTurnIdle, events[0].GetCustom().GetName())
 	assert.Nil(t, events[0].GetCustom().GetValue())
 }
 

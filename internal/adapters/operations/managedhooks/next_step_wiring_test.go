@@ -6,6 +6,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -15,7 +16,7 @@ import (
 func turnEndCommands(t *testing.T) []string {
 	t.Helper()
 	m := newHooks()
-	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
+	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil, engine.Interactive)
 
 	var cmds []string
 	for _, h := range m.For(bundles.HookEventTurnEnd) {
@@ -52,7 +53,7 @@ func TestAppendManagedDynamicHooks_InstallsTheNextStepHookOnTurnEnd(t *testing.T
 // OriginContext — turns this red.
 func TestAppendManagedDynamicHooks_NextStepIsDeliveredNotOnlyDeclared(t *testing.T) {
 	m := newHooks()
-	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
+	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil, engine.Interactive)
 
 	delivered := wireCommandsOf(m.Wire().Unified.TurnEnd)
 	if !strings.Contains(strings.Join(delivered, " "), "hook next-step") {

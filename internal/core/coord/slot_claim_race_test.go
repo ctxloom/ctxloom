@@ -11,8 +11,8 @@ import (
 
 // childRt.slotHeld used to conflate "holds a slot" with "intends
 // to acquire one". claimSlotIntent set the (single) bit true BEFORE a
-// potentially long BLOCKING c.slots.Acquire (onRoleUnpark's shape); a
-// concurrent releaseSlot/onRolePark landing inside that window could not
+// potentially long BLOCKING c.slots.Acquire (acquireRunSlot's shape); a
+// concurrent releaseSlot landing inside that window could not
 // tell "claiming" from "holding" apart:
 //   - releasing against a merely-claimed bit hands back a token nobody has
 //     actually taken from the pool yet — which the semaphore answers with a
@@ -23,8 +23,7 @@ import (
 //
 // This test reproduces the exact interleaving directly against the
 // claimSlotIntent/commitSlotClaim/releaseSlot primitives (rather than through
-// the full onRoleUnpark/mailbox/RunChannel machinery, which needs a live
-// run+journal to reach StateParked) — the review that filed this finding
+// the full run-start machinery, which needs a live run+journal) — the review that filed this finding
 // noted the existing turncap_concurrent invariant test sets TurnCap == the
 // child count, so c.slots.Acquire never actually blocks and this window
 // is never exercised; TurnCap here is 1 specifically to force it to.
@@ -57,7 +56,7 @@ func TestSlotClaim_ReleaseDuringBlockingAcquire_DoesNotLeakOrInflate(t *testing.
 	// Let the goroutine actually reach the blocking acquire before racing it.
 	time.Sleep(30 * time.Millisecond)
 
-	// THE RACE: something (onRolePark/onTurnIdle's releaseSlot) decides rt
+	// THE RACE: something (terminateRun's or onTurnIdle's releaseSlot) decides rt
 	// no longer needs a slot WHILE rt is still only slotClaimed.
 	c.releaseSlot(rt)
 

@@ -128,7 +128,7 @@ func assembleSelection(ctx context.Context, deps Deps, src Source, sel selection
 	if len(sel.profiles) == 0 && len(sel.fragments) == 0 && len(sel.tags) == 0 {
 		return pkg, nil
 	}
-	pkg, err := deps.Assembler.Assemble(ctx, deps.Snapshot, Selection{Profiles: sel.profiles, Fragments: sel.fragments, Tags: sel.tags, WorkDir: src.WorkDir})
+	pkg, err := deps.Assembler.Assemble(ctx, deps.Snapshot, Selection{Profiles: sel.profiles, Fragments: sel.fragments, Tags: sel.tags, WorkDir: src.WorkDir, Mode: src.Mode})
 	if err != nil {
 		return composite.Package{}, err
 	}

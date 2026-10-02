@@ -35,7 +35,6 @@ func TestRelayBudget_DistillationToolsOutrunTheCoordinationDefault(t *testing.T)
 func TestRelayBudget_FastToolsKeepTheDefault(t *testing.T) {
 	for _, tool := range []string{
 		ToolAgentSend,
-		ToolAgentRecv,
 		ToolRoster,
 		"assemble_context",
 		"search_content",

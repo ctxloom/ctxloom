@@ -122,12 +122,12 @@ func TestClaimRoutes_RejectsAMisclassifiedTool(t *testing.T) {
 func TestGeneratedToolHandler_RefusesAnUnclassifiedRoute(t *testing.T) {
 	home := testHome(t)
 
-	h, err := generatedToolHandler(report.To(nil), home, "harp", t.TempDir(), mcpschema.RouteCellLocal, "agent_run", false)
+	h, err := generatedToolHandler(report.To(nil), home, "harp", t.TempDir(), mcpschema.RouteCellLocal, "agent_run")
 	assert.Nil(t, h)
 	require.Error(t, err, "cell-local is not a generated-tool route")
 	assert.Contains(t, err.Error(), "agent_run")
 
-	h, err = generatedToolHandler(report.To(nil), home, "harp", t.TempDir(), mcpschema.RouteCoordination, "agent_run", false)
+	h, err = generatedToolHandler(report.To(nil), home, "harp", t.TempDir(), mcpschema.RouteCoordination, "agent_run")
 	require.NoError(t, err)
 	assert.NotNil(t, h)
 }

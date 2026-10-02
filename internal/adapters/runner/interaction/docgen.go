@@ -52,7 +52,7 @@ func NewDocServer() (server *mcp.Server, closeHome func(), err error) {
 		return nil, nil, fmt.Errorf("docgen: dead-endpoint home: %w", err)
 	}
 	closeHome = func() { home.Close(0, "") }
-	server, err = NewServer(report.To(nil), home, "", "", false, loadoutSurface{}, NewWakeSignal()) // full surface documented, never the leaf-gated subset
+	server, err = NewServer(report.To(nil), home, "", "", false, loadoutSurface{}, NewWakeSignal(nil)) // full surface documented, never the leaf-gated subset
 	if err != nil {
 		closeHome()
 		return nil, nil, fmt.Errorf("docgen: assemble runner MCP surface: %w", err)
@@ -141,8 +141,6 @@ type ToolContract struct {
 // It exists because the OUTPUT schema is where a coordination tool's result
 // SHAPE is advertised, and a change to the proto-canonical shape a real
 // harness is told to expect must be observable without a live session.
-// agent_recv is the case that forced it: its result shape is a projection of
-// PeerMessage, and plane-2 §4.B changes it.
 //
 // Registration reads only static tool literals and the embedded generated
 // schemas, so this dials nothing and invokes no handler.

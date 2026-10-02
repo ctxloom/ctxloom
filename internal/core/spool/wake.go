@@ -123,3 +123,26 @@ func OutstandingWake(m PathMapper, harp string) ([]string, error) {
 	sort.Strings(out)
 	return out, nil
 }
+
+// ClearWakes disarms every outstanding wake for harp and reports how many it
+// cleared. The turn-start hook calls it on every turn that delivers mail:
+// that turn delivered what every armed wake announced, and a nonce left on
+// disk would refuse every later wake. A wake that lands after the clear finds
+// no nonce and no mail, and the hook blocks it.
+func ClearWakes(m PathMapper, harp string) (int, error) {
+	out, err := OutstandingWake(m, harp)
+	if err != nil {
+		return 0, err
+	}
+	cleared := 0
+	for _, nonce := range out {
+		gone, err := ConsumeWake(m, harp, nonce)
+		if err != nil {
+			return cleared, err
+		}
+		if gone {
+			cleared++
+		}
+	}
+	return cleared, nil
+}

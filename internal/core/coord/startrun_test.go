@@ -247,7 +247,7 @@ func TestStartRun_KillMidRunSynthesizesLossAndQueueAdvances(t *testing.T) {
 	require.Eventually(t, func() bool { return sp.chatCount() == 2 }, conformanceWait, 10*time.Millisecond,
 		"the queue must advance once the slot frees")
 
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	msgs, err := ownerMail(t, c, time.Second)
 	require.NoError(t, err)
 	found := false
 	for _, m := range msgs {

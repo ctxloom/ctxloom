@@ -43,7 +43,8 @@ model sees.
 A prompt that IS a ctxloom wake (engine.WakeText) redeems the wake's nonce —
 that is the wake's acknowledgement — and, when the wake finds no mail, blocks
 the prompt so a stale wake costs no model turn. A human's prompt is never
-blocked.`,
+blocked. A turn that delivers mail answers every outstanding wake, since it
+delivered what each of them announced.`,
 	Args:          cobra.NoArgs,
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -112,7 +113,13 @@ func drainMail(cmd *cobra.Command, harp string) error {
 		// where the next turn's Claim hands it out again.
 		return fmt.Errorf("%d message(s) left claimed, not delivered: %w", len(res.Entries), err)
 	}
-	return joinProblems(append(problems, ackDelivered(mapper, harp, res.Entries)...))
+	problems = append(problems, ackDelivered(mapper, harp, res.Entries)...)
+	// This turn delivered what every armed wake announced: answer them all,
+	// or a wake held or lost upstream refuses every later one.
+	if _, err := spool.ClearWakes(mapper, harp); err != nil {
+		problems = append(problems, fmt.Sprintf("the wakes this delivery answered could not be cleared, and may refuse the next wake: %v", err))
+	}
+	return joinProblems(problems)
 }
 
 // redeemWakeNonce consumes the wake nonce a prompt carries, reporting whether

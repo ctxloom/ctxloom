@@ -71,7 +71,7 @@ func TestP6AssertEcho_GreenOnlyWhenAHarpArrives(t *testing.T) {
 	t.Run("the echo arrives among other traffic", func(t *testing.T) {
 		// Two messages reach a coordinator from one child harp on a live run —
 		// the child's own agent_send and bridgeTurnResult's copy of its turn —
-		// and which lands in which agent_recv batch is a race. A verdict that
+		// and which reaches the owner's spool first is a race. A verdict that
 		// only looked at the first would make a green engine flake red.
 		require.NoError(t, p6AssertEcho(v, harp, []string{
 			"I have received your instruction and will comply.",

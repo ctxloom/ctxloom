@@ -9,7 +9,7 @@ import (
 // TestQueueMail_RefusesAnUndrainableRecipient pins that mail with no
 // recipient is refused at the durable boundary rather than appended.
 //
-// Role "" is undrainable by construction: agent_recv drains the CALLER's own
+// Role "" is undrainable by construction: every reader drains its OWN
 // harp, and no session has the empty harp, so a file written for it would be
 // delivered to a directory nobody reads. The invariant belongs at the one
 // place every sender funnels through.

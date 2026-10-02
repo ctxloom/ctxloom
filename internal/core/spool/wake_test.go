@@ -99,3 +99,34 @@ func TestConsumeWake_OnASpoolNeverCreatedIsNotAnError(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, out)
 }
+
+// TestClearWakes_RemovesEveryOutstandingNonce: the hook clears every armed
+// nonce on a turn that delivered mail, because that turn delivered what all of
+// them announced — a wake left armed would refuse every later wake (F1).
+func TestClearWakes_RemovesEveryOutstandingNonce(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	a, err := ArmWake(m, testHarp)
+	require.NoError(t, err)
+	b, err := ArmWake(m, testHarp)
+	require.NoError(t, err)
+	other, err := ArmWake(m, "someone-else")
+	require.NoError(t, err)
+
+	n, err := ClearWakes(m, testHarp)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+	out, err := OutstandingWake(m, testHarp)
+	require.NoError(t, err)
+	assert.Empty(t, out, "both %s and %s are cleared", a, b)
+	out, err = OutstandingWake(m, "someone-else")
+	require.NoError(t, err)
+	assert.Equal(t, []string{other}, out, "another harp's wakes are its own")
+}
+
+func TestClearWakes_ASpoolNeverCreatedHasNoneToClear(t *testing.T) {
+	hostHome(t)
+	n, err := ClearWakes(NewHomeMapper(), testHarp)
+	require.NoError(t, err)
+	assert.Zero(t, n)
+}

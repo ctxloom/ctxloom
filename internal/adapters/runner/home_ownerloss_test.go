@@ -6,7 +6,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -361,24 +360,6 @@ func TestHome_ATurnBlockedOnTheCoordinatorIsWaiting(t *testing.T) {
 	case <-time.After(conformanceWait):
 		t.Fatal("a turn blocked on a coordinator request never counted as waiting")
 	}
-}
-
-// TestDeliverNotice_NoWakeOrNudgeWhileTheOwnerIsAway: the session owner's
-// engine takes mail through a wake or a terminal nudge — each starts a turn.
-// With the owner away neither fires; mail buffers, and the owner's return
-// fires once for what waited.
-func TestDeliverNotice_NoWakeOrNudgeWhileTheOwnerIsAway(t *testing.T) {
-	h := newNoticeHome(t)
-	h.ownerUp, h.present = false, make(chan struct{})
-	var nudges atomic.Int32
-	h.SetTerminalNudge(func() { nudges.Add(1) })
-
-	h.deliverNotice(&agentcoordpb.PeerMessage{MessageId: "m-away"})
-	require.Zero(t, nudges.Load(), "no nudge — no new turn — while the owner is away")
-	require.Equal(t, 1, h.BufferedMailCount())
-
-	h.setOwnerPresent(true)
-	require.Equal(t, int32(1), nudges.Load(), "the owner's return fires for the mail that waited")
 }
 
 // lockedFindings is a Sink a running Home may report into from several

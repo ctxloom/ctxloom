@@ -1009,7 +1009,7 @@ isolation-probe ENGINE AXIS: build
 # name. It spawns a real delegated child on that
 # engine and asserts the marker phrase that exists ONLY in the child's own
 # composed context comes back to the coordinator's mailbox over the
-# agent_send/agent_recv bus — the round trip agent_run's own success value
+# agent_send bus — the round trip agent_run's own success value
 # famously does not prove (see that feature's header). Makes real, paid engine
 # calls; self-skips loudly, naming the engine and the reason, when that engine
 # is missing or unauthenticated. -timeout 20m because a live turn on a slow
@@ -1696,8 +1696,7 @@ gen-mcp-schemas:
     trap 'rm -f "$tmp"' EXIT
     buf build -o "$tmp"
     go run ./internal/adapters/coordgrpc/mcpschema/gen -descriptor "$tmp" \
-        -out internal/adapters/coordgrpc/mcpschema/schemas \
-        -xmllike-out internal/adapters/coordgrpc/pb/xmllike_gen.go
+        -out internal/adapters/coordgrpc/mcpschema/schemas
 
 # Generate the reference docs for all three binaries from their sources of
 # truth: the CLI reference (man pages + website markdown) from each cobra

@@ -116,15 +116,13 @@ func TestLivenessSnapshot_FiresOnStuckChildAndNotOnHealthyOne(t *testing.T) {
 
 // A PARKED child must suppress the verdict even when the transcript looks
 // exactly like the stuck one — a park can hold a child for minutes (waiting
-// in agent_recv, or waiting on a permission decision at its engine), and
-// reaping one turns a working system into one that kills its own children.
+// on a permission decision at its engine), and reaping one turns a working
+// system into one that kills its own children.
 //
-// The briefing turn is held OPEN for the whole test. That is not a
-// convenience: a parked child is one blocked INSIDE its agent_recv tool call
-// (AgentRecv calls onRolePark and then blocks on the poll), so its turn
-// boundary cannot land until it unparks. A fake whose turn auto-completes
-// races that boundary's StateIdle against the park — a sequence production
-// cannot produce — and whichever journals last decides the verdict.
+// The briefing turn is held OPEN for the whole test: a park is entered
+// mid-turn, and a fake whose turn auto-completes would race that boundary's
+// StateIdle against the park, and whichever journals last decides the
+// verdict.
 func TestLivenessSnapshot_ParkSuppressesTheVerdict(t *testing.T) {
 	livenessTestHome(t)
 	gate := make(chan struct{})
@@ -140,14 +138,12 @@ func TestLivenessSnapshot_ParkSuppressesTheVerdict(t *testing.T) {
 	require.NotNil(t, before)
 	require.Equal(t, liveness.StateStalled, before.State, "precondition: %s", before.Reason)
 
-	// Park it through the production path: a child waiting in agent_recv
-	// yields its slot mid-turn.
-	c.onRolePark(harp, currentRunID(c, harp))
 	c.mu.Lock()
 	rt := c.byHarp[harp]
 	c.mu.Unlock()
 	require.NotNil(t, rt, "precondition: the spawned child must have a runtime attachment")
-	require.Equal(t, StateParked, c.runState(rt.runID), "precondition: onRolePark must have journaled the park")
+	c.setState(rt, StateParked)
+	require.Equal(t, StateParked, c.runState(rt.runID), "precondition: the park must be journaled")
 
 	after := reportFor(c.livenessSnapshot(context.Background()), harp)
 	require.NotNil(t, after)

@@ -40,7 +40,7 @@ Tools the session endpoint serves:
   Context:  assemble_context, search_content, search_library
   Sessions: compact_session, list_sessions, load_session, get_previous_session, recover_session
   Health:   context_status (this session's measured context-window occupancy)
-  Agents:   agent_run, agent_send, agent_recv and the other coordination
+  Agents:   agent_run, agent_send and the other coordination
             tools (delegated child sessions + the coordinator message bus)
 
 The catalog listings (fragments, commands, skills) are exposed as MCP

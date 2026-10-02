@@ -3,7 +3,6 @@ package coord
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -35,85 +34,6 @@ func runCause(c *Coordinator, runID string) string {
 		}
 	})
 	return cause
-}
-
-// TestSlotYield_MidTurnParkYieldsSlotToPeer is the §6a SLOT-YIELD gate: a
-// child parked mid-turn consumes no compute, so its execution slot goes back
-// to the pool and a peer queued behind the concurrency cap runs on it.
-//
-// The mechanism is NOT load-sensitive, which is why this proof cannot be
-// masked by a slow machine: if the slot were not yielded (cap 1, A parked and
-// only unparked AFTER the assertion) B could never leave StateQueued at any
-// budget — a hard deadlock, not a slow arrival. B is held mid-turn by a
-// turnGate so "B executing while A parked" is a stable, observable instant
-// rather than a state B might race through before a poll sees it.
-func TestSlotYield_MidTurnParkYieldsSlotToPeer(t *testing.T) {
-	resetStrictness(t)
-	aGate := make(chan struct{})
-	bGate := make(chan struct{})
-	var spawns int
-	sp := startRunSpawner(func() *scriptedChat {
-		spawns++
-		if spawns == 1 {
-			return &scriptedChat{Gate: aGate} // A: held mid-turn, then parks
-		}
-		return &scriptedChat{Gate: bGate} // B: held mid-turn until released
-	})
-	c := newTestCoordinatorCap(t, sp, nil, 1) // cap 1: B can only run if A yields its slot
-
-	a, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task A", "", "")
-	require.NoError(t, err)
-	require.Eventually(t, func() bool { return rosterState(c, a.Harp) == StateExecuting }, conformanceWait, 10*time.Millisecond,
-		"precondition: A holds the only slot")
-
-	// A parks MID-TURN in agent_recv and — crucially — yields its slot while
-	// it waits.
-	aRecv := make(chan []Message, 1)
-	go func() {
-		msgs, _ := childRecv(t, c, a.RunID, conformanceWait)
-		aRecv <- msgs
-	}()
-	require.Eventually(t, func() bool { return rosterState(c, a.Harp) == StateParked }, conformanceWait, 10*time.Millisecond,
-		"A must be parked (slot yielded) while it waits in agent_recv")
-
-	// B, queued behind the cap-1 ceiling, acquires the FREED slot and reaches
-	// StateExecuting — the direct proof A yielded. B is gated mid-turn, so it
-	// holds this state for a stable observation. If the slot were NOT yielded
-	// B would sit in StateQueued forever (A holds the only slot and is
-	// unparked below, AFTER this), so no wall-clock budget can mask a real
-	// starvation.
-	b, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task B", "", "")
-	require.NoError(t, err)
-	require.Eventually(t, func() bool { return rosterState(c, b.Harp) == StateExecuting }, conformanceWait, 10*time.Millisecond,
-		"B must reach StateExecuting (acquire the slot A yielded) while A is parked")
-
-	// Both invariants hold at the same instant: B executing, A still parked —
-	// B did not have to wait for A.
-	assert.Equal(t, StateExecuting, rosterState(c, b.Harp), "B must be executing on the yielded slot")
-	assert.Equal(t, StateParked, rosterState(c, a.Harp), "A must still be parked")
-
-	// Release B: it runs its turn to completion (secondary confirmation; the
-	// slot-yield claim is already proven above and does not hinge on this
-	// engine-turn latency).
-	close(bGate)
-	bRes := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task B") }, conformanceWait)
-	require.NotEmpty(t, bRes, "B completes its turn once released")
-
-	// A is still parked after B has come and gone.
-	assert.Equal(t, StateParked, rosterState(c, a.Harp), "A must still be parked")
-
-	// Unpark A: its recv completes, it reclaims a slot and finishes its turn.
-	_, err = c.AgentSend(ownerIdentity(), a.Harp, KindMessage, "carry on", nil, "")
-	require.NoError(t, err)
-	select {
-	case msgs := <-aRecv:
-		require.Len(t, msgs, 1, "A's parked recv must complete with the send that unparked it")
-	case <-time.After(conformanceWait):
-		t.Fatal("A's parked agent_recv never completed after the send")
-	}
-	close(aGate)
-	aRes := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task A") }, conformanceWait)
-	require.NotEmpty(t, aRes, "A resumes and completes its turn once unparked")
 }
 
 // countRuns returns how many run records the live fold currently holds.

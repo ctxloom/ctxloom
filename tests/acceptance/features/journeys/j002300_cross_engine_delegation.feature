@@ -9,8 +9,8 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
   audit trail) with `agent_run` alone. This journey proves the half
   `agent_run` cannot: that two children genuinely see DIFFERENT content
   (asserted on the payload a child itself emits, never a config diff), that
-  `agent_send`/`agent_recv` carry real words between coordinator and child in
-  both directions, and that a delegated child on a real engine completes that
+  the bus carries real words between coordinator and child in both
+  directions, and that a delegated child on a real engine completes that
   round trip, isolated and not.
 
   # WHAT THE HERMETIC TIER READS, and who writes it. Both observables below
@@ -20,7 +20,7 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
   # internal/adapters/transcript/record.go's documented, first-party schema, not a
   # scrape) proves distinct context and the coordinator->child half of the
   # bus (a REAL agent_send call, content verified in the child's own recorded
-  # next turn); the coordinator's own mailbox, read through agent_recv, proves
+  # next turn); the coordinator's own spool, read on disk, proves
   # the child->coordinator half through the runner's automatic turn report
   # (coord.EngineHost, spoolturnresult.go) — no model reasoning involved. Only
   # agent_send-by-model-decision needs a real engine, and that is the @live
@@ -50,6 +50,11 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     And "cartographer"'s session harp is remembered
     And "cartographer"'s reported turn carries its own guidance, not "librarian"'s
 
+  # The last step is F4 of row worried-chief: a delegated child is handed its
+  # mail ONCE, as its turn, by its runner. The turn-start mail-drain hook is
+  # the session OWNER's reader; declared for a child it would claim the same
+  # file from the child's in/ during that turn and hand it a second time.
+  # Only that hook's claim creates in/claimed/, so its absence is the proof.
   # LOCKED — the coordinator->child half of requirement 4, on real
   # infrastructure: a genuine `agent_send` MCP tool call, addressed by the
   # child's own runtime-minted harp, delivered as its next turn
@@ -72,59 +77,37 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     Then the tool call succeeds
     And the tool result field "delivery" is set
     And "librarian"'s next reported turn carries "J002300-ROUNDTRIP-ECHO-TOKEN-6d2e73"
+    And "librarian"'s spool was never claimed by a turn-start hook
 
-  # LOCKED — the CHILD->coordinator half of requirement 4, hermetically. A
-  # chat child never calls agent_send itself, but its runner writes every
-  # turn's output to the parent's mailbox as the automatic turn report
-  # (coord.EngineHost's ReportTurnResult, spoolturnresult.go), so the
-  # coordinator's own agent_recv observes the child's words over the real,
-  # durable bus with no model reasoning involved. The observable is the
-  # mailbox message body — the same payload class the @live tier asserts —
-  # never a transcript read and never an in-process struct.
+  # LOCKED — the CHILD->coordinator half of requirement 4, hermetically, and
+  # the end of the long poll (row worried-chief). A chat child never calls
+  # agent_send itself, but its runner writes every turn's output to the
+  # parent's spool as the automatic turn report (coord.EngineHost's
+  # ReportTurnResult, spoolturnresult.go). The coordinator dispatches and then
+  # does NOTHING: it never receives, and the harness types nothing more into
+  # it. The report's arrival in the owner's in/ makes the owner's runner fire
+  # its wake (Home.wakeOwner → the mock's own socket), the wake line starts a
+  # turn, and that turn's turn-start hook (`ctxloom hook mail-drain`, the one
+  # reader of the owner's in/) delivers the report and acknowledges it.
+  # Proven on the owner's TERMINAL (the wake line was taken as a turn) and on
+  # DISK (the report reached in/consumed/, carrying the child's own guidance,
+  # not its sibling's). After the readiness sentinel, only a wake can start an
+  # owner turn, so the two together are the woken turn's delivery.
   #
   # BREAK-POINT: this is the regression gate for an EMPTY COORDINATOR HARP.
   # The harp IS the coordinator's mailbox address, and a bare `ctxloom mcp`
   # coordinator has no ambient session to supply one, so with it empty the
   # child's turn report is refused (queueMailPayloadID's `to == ""` guard)
   # while agent_run keeps returning success. Revert selfIdentityFromEnv's
-  # minted-harp fallback and this goes red for exactly that reason —
-  # agent_recv drains role "" forever while agent_run still reports success.
-  @reach-back @R2
-  Scenario: A delegated child's own turn result reaches the coordinator's mailbox over the bus
-    Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
-    And a session owner is standing
-    When the agent calls tool "agent_run" with:
-      | role         | librarian |
-      | input.prompt | go        |
-    Then the tool call succeeds
-    And "librarian"'s session harp is remembered
-    When the agent calls tool "agent_recv" repeatedly, waiting up to 20s total, until "librarian" reports
-    Then the tool call succeeds
-    And the received message is from "librarian" and its body carries its own guidance, not "cartographer"'s
-
-  # LOCKED — the CHILD->coordinator half of requirement 4 WITHOUT A RECEIVE.
-  # @R2 above proves the child's turn result reaches the owner's spool; this
-  # proves the owner is HANDED it at its next turn by the turn-start hook
-  # (`ctxloom hook mail-drain`), the one reader of the owner's in/ — no
-  # agent_recv, nothing parked. The hook is invoked here exactly as an engine
-  # invokes it: a subprocess with the owner's harp in its environment and the
-  # engine's turn-start payload on stdin; what it writes to stdout is what the
-  # engine injects as that turn's context. Delivery is proven on the PAYLOAD
-  # (the child's own guidance, under the coordinator's provenance header
-  # naming the child's harp), on DISK (the file has moved to in/consumed/ and
-  # nothing is left pending), and by a second turn-start that finds nothing —
-  # once per delivery, which a receive loop never had.
-  #
-  # The owner's harp is the one the standing `ctxloom run` minted: the fixture
-  # exports it as CTXLOOM_SESSION_HARP to every process the scenario spawns
-  # after it, and that identity IS the spool the hook reads.
+  # minted-harp fallback and this goes red for exactly that reason — nothing
+  # reaches the owner's spool, so nothing wakes it.
   #
   # CONTAINER AXIS EXCLUDED, stated rather than discovered: a containerized
   # claude never receives ctxloom's hooks at all (pulmonary-eternity), so this
   # delivery is inert for a container-hosted coordinator until that lands. The
   # coordinator here is a host process, which is the axis this claim covers.
   @reach-back @R2
-  Scenario: A delegated child's report reaches the coordinator's next turn through the turn-start hook, with no receive
+  Scenario: An idle coordinator is woken by its child's report, and its turn-start hook delivers it, with no receive
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
     And a session owner is standing
     When the agent calls tool "agent_run" with:
@@ -132,20 +115,8 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | input.prompt | go        |
     Then the tool call succeeds
     And "librarian"'s session harp is remembered
-    And the coordinator's own spool holds "librarian"'s report within 20s
-    When I run "ctxloom hook mail-drain" with input:
-      """
-      {"session_id":"vendor-session-1","hook_event_name":"UserPromptSubmit","prompt":"what did the child say?"}
-      """
-    Then the command succeeds
-    And the drained turn context carries "librarian"'s report with its own guidance, not "cartographer"'s
-    And the coordinator's own spool shows "librarian"'s report consumed, with nothing pending
-    When I run "ctxloom hook mail-drain" with input:
-      """
-      {"session_id":"vendor-session-1","hook_event_name":"UserPromptSubmit","prompt":"and now?"}
-      """
-    Then the command succeeds
-    And the hook writes nothing to stdout
+    And the session owner is woken within 60s
+    And the coordinator's own spool shows "librarian"'s report consumed within 30s, carrying its own guidance, not "cartographer"'s
 
   # THE NEGATIVE PROBE for the two hermetic bus scenarios above. Both are
   # green only because a REAL runner process stands for the child: the
@@ -180,8 +151,7 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | input.prompt | go        |
     Then the tool call succeeds
     And "librarian"'s session harp is remembered
-    When the agent calls tool "agent_recv" repeatedly, waiting up to 20s total, until "librarian" reports
-    Then the tool call succeeds
+    And the coordinator's own spool receives a message from "librarian" within 20s
     And the received message from "librarian" is the withheld runner's launch failure, and no result carrying its guidance arrived
     And "librarian" recorded no turn
 
@@ -236,8 +206,7 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | input.prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
     Then the tool call succeeds
     And "delegate"'s session harp is remembered
-    When the agent calls tool "agent_recv" repeatedly, waiting up to 240s total, until "delegate" reports a body containing "<marker>"
-    Then the tool call succeeds
+    And the coordinator's own spool receives a body containing "<marker>" from "delegate" within 240s
 
     @claude-code
     Examples:
@@ -246,8 +215,8 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
   # P6 — THE STEER ECHO. Capability-probe ladder rung p6-steer-echo
   # (tests/acceptance/capability_probe_registry.go), living here rather than in a
   # file of its own because it extends this journey's machinery rather than
-  # duplicating it: the gate, the harp-remembering step and the payload-draining
-  # agent_recv above are all reused verbatim, and the LOCKED scenarios are left
+  # duplicating it: the gate, the harp-remembering step and the owner-spool
+  # reader above are all reused verbatim, and the LOCKED scenarios are left
   # exactly as they are.
   #
   # WHAT IT ADDS TO THE FLOOR ABOVE. The per-engine floor proves the
@@ -326,12 +295,10 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | input.prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
     Then the tool call succeeds
     And "delegate"'s session harp is remembered
-    When the agent calls tool "agent_recv" repeatedly, waiting up to 240s total, until "delegate" reports a body containing "<marker>"
-    Then the tool call succeeds
+    And the coordinator's own spool receives a body containing "<marker>" from "delegate" within 240s
     When the agent calls tool "agent_send" addressed to "delegate"'s session carrying this cell's minted steer harp
     Then the tool call succeeds
-    When the agent calls tool "agent_recv" repeatedly, waiting up to 240s total, until "delegate" echoes this cell's minted steer harp
-    Then the tool call succeeds
+    And the coordinator's own spool receives "delegate"'s echo of this cell's minted steer harp within 240s
     And the coordinator's steer is on disk in "delegate"'s own spool, in a file carrying that harp
 
     @claude-code @host @ws-none
@@ -341,7 +308,7 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
 
     # THE ISOLATED CELL. Every row above runs host/none — isolated on NEITHER
     # axis — so they prove the round trip works, not that it survives the
-    # isolation boundary. This row is the same eleven steps with the child's
+    # isolation boundary. This row is the same steps with the child's
     # PROCESS in a rootless container and its FILES in a worktree: the two axes
     # are independent (see j002200_isolation.feature's header), and answering
     # "does delegation still work when isolated" needs both set at once, not

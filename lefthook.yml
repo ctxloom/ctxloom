@@ -41,8 +41,8 @@ pre-commit:
       # so what this hook enforces and what `just test-arch` enforces cannot
       # drift apart. An import that crosses
       # a layer, a path segment spelled outside internal/core/paths, a raw
-      # filesystem write, an unlocked read-modify-write, a hand-built
-      # <ctxloom-reminder> frame — each fails here with the rule and the fix.
+      # filesystem write, an unlocked read-modify-write — each fails here with
+      # the rule and the fix.
       #
       # PREBUILT, never `go run`. Compiling an analyzer suite on every commit
       # is slow, and a slow hook is one people learn to bypass — which this

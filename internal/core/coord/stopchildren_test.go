@@ -105,8 +105,8 @@ func TestStopChildren_StopsEveryLiveChildWithinTheBoundAndNamesEach(t *testing.T
 	assert.Empty(t, readAuditKind(t, c, "drain_force"), "nothing was forced")
 }
 
-// TestStopChildren_ParkedChildIsEnded: a child parked in agent_recv is waiting
-// on its parent — the very caller ending it. Unlike the coordinator's
+// TestStopChildren_ParkedChildIsEnded: a parked child is waiting on a human,
+// and the caller ending it is that human's session. Unlike the coordinator's
 // shutdown drain (which leaves a park alone as a wait on a human), the bulk
 // stop ends it: leaving it would leave the roster live and its container up,
 // which is exactly what the sweep exists to prevent.
@@ -119,18 +119,13 @@ func TestStopChildren_ParkedChildIsEnded(t *testing.T) {
 	c.drainBound = time.Minute
 
 	harp := spawnGatedChild(t, sp, c)
-	// Park it through the production path (a child waiting in agent_recv
-	// yields its slot mid-turn and holds the turn open), with a long-poll
-	// registered so the severance can be observed.
-	var runID string
-	c.runs.View(func() { runID = c.runsF.currentRun(harp).RunID })
-	severed := make(chan error, 1)
-	go func() {
-		_, rerr := childRecv(t, c, runID, conformanceWait)
-		severed <- rerr
-	}()
-	require.Eventually(t, func() bool { return rosterState(c, harp) == StateParked }, conformanceWait, 10*time.Millisecond,
-		"precondition: the child is parked")
+	// Park it mid-turn: the turn stays open under the park.
+	c.mu.Lock()
+	rt := c.byHarp[harp]
+	c.mu.Unlock()
+	require.NotNil(t, rt, "precondition: the spawned child must have a runtime attachment")
+	c.setState(rt, StateParked)
+	require.Equal(t, StateParked, rosterState(c, harp), "precondition: the child is parked")
 
 	started := time.Now()
 	stopped, err := c.StopChildren(context.Background(), ownerIdentity(), "batch complete")
@@ -140,12 +135,6 @@ func TestStopChildren_ParkedChildIsEnded(t *testing.T) {
 	assert.Equal(t, StopOutcomeStopped, stopped[0].Outcome)
 	assert.Contains(t, stopped[0].Detail, "while parked")
 	assert.Equal(t, StateEnded, rosterState(c, harp))
-	select {
-	case rerr := <-severed:
-		require.Error(t, rerr, "the parked recv is severed with its runner, like any agent_stop's")
-	case <-time.After(conformanceWait):
-		t.Fatal("the parked recv was never severed")
-	}
 	awaitRelease(t, sp, 0)
 }
 
@@ -380,7 +369,7 @@ func TestStopChildren_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
 	assert.Contains(t, stopped[0].Detail, "fan-out complete", "the reason reaches the child's terminal detail")
 	assert.Equal(t, CauseStopped, runCause(c, out.RunID), "a launch the stop refused is the stop, not a launch failure")
 
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	msgs, err := ownerMail(t, c, time.Second)
 	require.NoError(t, err)
 	var kinds []string
 	for _, m := range msgs {

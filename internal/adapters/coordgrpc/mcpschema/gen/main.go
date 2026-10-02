@@ -27,11 +27,9 @@ import (
 func main() {
 	descriptor := flag.String("descriptor", "", "path to a FileDescriptorSet built with source info (buf build -o)")
 	out := flag.String("out", "internal/adapters/coordgrpc/mcpschema/schemas", "output directory for the generated *.json schemas")
-	xmllikeOut := flag.String("xmllike-out", "", "output file for the generated <ctxloom-reminder> frame encoders (empty: skip)")
-	xmllikePkg := flag.String("xmllike-package", "agentcoord", "Go package name for the generated frame encoders")
 	flag.Parse()
 	if *descriptor == "" {
-		fatalf("usage: gen -descriptor <fds.binpb> [-out <dir>] [-xmllike-out <file>]")
+		fatalf("usage: gen -descriptor <fds.binpb> [-out <dir>]")
 	}
 
 	raw, err := os.ReadFile(*descriptor)
@@ -61,35 +59,6 @@ func main() {
 		fmt.Printf("gen-mcp-schemas: pruned %d stale schema(s): %s\n", len(res.pruned), strings.Join(res.pruned, ", "))
 	}
 
-	if *xmllikeOut == "" {
-		return
-	}
-	frames, err := generateXmlLike(p, *xmllikePkg, *xmllikeOut)
-	if err != nil {
-		// THE BUILD FAILURE (§6.6). An un-annotated field, or free text
-		// smuggled into an attribute, stops the generator here — the whole
-		// reason frame encoders are generated instead of reflected. Nothing is
-		// written, so a rejected run cannot half-update the encoder file.
-		fatalf("%v", err)
-	}
-	fmt.Printf("gen-mcp-schemas: wrote %d <%s> encoder(s) to %s\n", frames, mcpschema.ReminderTag, *xmllikeOut)
-}
-
-// generateXmlLike projects, validates, and emits the frame encoders, reporting
-// how many it wrote.
-func generateXmlLike(p *mcpschema.Projector, pkg, out string) (int, error) {
-	frames, err := p.XmlLikeFrames()
-	if err != nil {
-		return 0, err
-	}
-	src, err := mcpschema.RenderXmlLikeGo(pkg, frames)
-	if err != nil {
-		return 0, err
-	}
-	if err := os.WriteFile(out, src, 0o644); err != nil {
-		return 0, fmt.Errorf("write %s: %w", out, err)
-	}
-	return len(frames), nil
 }
 
 // projector is the slice of mcpschema.Projector generateSchemas needs.

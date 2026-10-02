@@ -32,14 +32,10 @@ type TestHome interface {
 	OwnerLost() <-chan struct{}
 	EmittedSeq() uint64
 	Redial()
-	SetTerminalNudge(fn func())
-	RecvParked() bool
-	BufferedMailCount() int
 	SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool)
 	AwaitMailAcked(ctx context.Context, ids []string) error
 	ReportRunExited(exitCode int, harnessSessionID string)
 	Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error)
-	Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.PeerMessage, error)
 	Report(ctx context.Context, summary *agentcoordpb.Summary, artifacts []*agentcoordpb.ArtifactProduced) error
 	Crash()
 	Close(exitCode int, harnessSessionID string)

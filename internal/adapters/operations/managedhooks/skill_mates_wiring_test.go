@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -20,7 +21,7 @@ import (
 // red.
 func TestAppendManagedDynamicHooks_InstallsTheSkillMatesHook(t *testing.T) {
 	m := newHooks()
-	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
+	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil, engine.Interactive)
 
 	var matchers []string
 	for _, h := range m.For(bundles.HookEventPostTool) {

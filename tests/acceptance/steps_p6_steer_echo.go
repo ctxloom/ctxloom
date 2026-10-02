@@ -8,7 +8,7 @@
 //
 // It lives beside steps_j002300_cross_engine_delegation.go and deliberately
 // REUSES that journey's steps rather than restating them: the harp-remembering
-// step, the payload-draining agent_recv, the bundle/profile writer and the
+// step, the owner-spool reader, the bundle/profile writer and the
 // per-engine config renderer are all j002300's. The three steps below are the
 // ones P6 genuinely adds — a
 // gate that also mints and switches on the mail plane, the steer itself, and
@@ -203,19 +203,18 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 
 	// --- the echo -----------------------------------------------------------
 	//
-	// Drains the coordinator's mailbox until the STEER HARP's bytes appear, and
-	// judges the outcome with p6AssertEcho so the failure carries a shape rather
-	// than a bare timeout. It does not assert on "the first message from that
-	// child": two messages reach a coordinator from one child harp on a live run
-	// (its own agent_send, and its runner's automatic turn report), and which
-	// lands in which agent_recv batch is a race — a floor whose PASS depended on
-	// batch ordering would be measuring the scheduler.
+	// Waits on the coordinator's own spool until the STEER HARP's bytes appear,
+	// and judges the outcome with p6AssertEcho so the failure carries a shape
+	// rather than a bare timeout. It does not assert on "the first message
+	// from that child": two messages reach a coordinator from one child harp
+	// on a live run (its own agent_send, and its runner's automatic turn
+	// report), and a floor whose PASS depended on their order would be
+	// measuring the scheduler.
 	//
-	// Every retry is a free local mailbox poll, never a second paid model call,
-	// so a generous budget costs nothing. Contains `calls tool "agent_recv"` for
-	// the same completeness-gate reason as above.
-	ctx.Step(`^the agent calls tool "agent_recv" repeatedly, waiting up to (\d+)s total, until "([^"]*)" echoes this cell's minted steer harp$`,
-		func(c context.Context, budgetSec int, name string) error {
+	// Every poll is a free local directory read (j002300OwnerMail), never a
+	// second paid model call, so a generous budget costs nothing.
+	ctx.Step(`^the coordinator's own spool receives "([^"]*)"'s echo of this cell's minted steer harp within (\d+)s$`,
+		func(c context.Context, name string, budgetSec int) error {
 			w := worldFrom(c)
 			p6 := p6Of(w)
 			j002300 := j002300Of(w)
@@ -225,36 +224,20 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			}
 			v := p6Verdict(p6.cell)
 			deadline := time.Now().Add(time.Duration(budgetSec) * time.Second)
-			var seen []string
 			for {
-				if err := callTool(c, "agent_recv", map[string]any{"wait": 12}); err != nil {
-					return fmt.Errorf("p6: agent_recv transport error while waiting for %q's echo: %w", name, err)
+				mail, err := j002300OwnerMail(w)
+				if err != nil {
+					return err
 				}
-				if isErr, _ := w.lastTool.IsError(); !isErr {
-					msgs, merr := j002300Messages(w)
-					if merr != nil {
-						return merr
-					}
-					for _, m := range msgs {
-						if from, _ := m["from"].(string); from != childHarp {
-							continue
-						}
-						body, _ := m["body"].(string)
-						seen = append(seen, body)
+				var seen []string
+				for _, m := range mail {
+					if m.FromHarp == childHarp {
+						seen = append(seen, m.Body)
 					}
 				}
-				// ONE evaluation per pass, and the SAME verdict decides both
-				// whether to stop and what to report. An earlier draft re-ran the
-				// assert in the expiry branch, which had a real hole in it: the
-				// echo could arrive between the two calls, and the step would then
-				// fail carrying a wrapped nil ("%!w(<nil>)") instead of either
-				// passing or naming a shape. The mutation run that was supposed to
-				// prove the assertion bites is what surfaced it — which is the
-				// argument for running mutations on the error path too, not only
-				// on the happy one.
 				verdict := p6AssertEcho(v, p6.harp, seen)
 				if verdict == nil {
-					evidence := fmt.Sprintf("agent_recv — %s echoed the steer harp %s over the bus:\n  %s",
+					evidence := fmt.Sprintf("owner spool — %s echoed the steer harp %s over the bus:\n  %s",
 						name, p6.harp, strings.Join(seen, "\n  ---\n  "))
 					w.docStepMaterialized = evidence
 					// LOUD ON GREEN, not only on red. A live cell that passes in
@@ -271,6 +254,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 					// and quotes every body verbatim.
 					return fmt.Errorf("p6: %ds elapsed — %w", budgetSec, verdict)
 				}
+				time.Sleep(250 * time.Millisecond)
 			}
 		})
 

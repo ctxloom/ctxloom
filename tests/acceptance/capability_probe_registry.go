@@ -474,14 +474,14 @@ var probeRegistry = []probeSpec{
 	},
 	{
 		Name:         probeP6,
-		Title:        "steer/mail echo: a minted harp sent over the bus mid-session must come back on agent_recv",
+		Title:        "steer/mail echo: a minted harp sent over the bus mid-session must come back to the coordinator",
 		Capabilities: []int{13},
 		Channel:      channelBusMessage,
 		// P6's cells live in J002300's OWN feature file, beside the delegation
 		// journey they extend, rather than in a file of their own. The design says
 		// so ("extend the outline machinery; do NOT rewrite locked scenarios") and
 		// the machinery says so louder: the steer echo needs agent_run, the
-		// harp-remembering step, the payload-draining agent_recv and the per-engine
+		// harp-remembering step, the owner-spool reader and the per-engine
 		// gate, all four of which already exist there. Copying them into a second
 		// file would fork the one set of steps this journey's history has hardened.
 		//

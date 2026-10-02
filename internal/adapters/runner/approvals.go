@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -37,6 +38,8 @@ var (
 	errTurnEnded = errors.New("ctxloom: the turn ended before the request was decided")
 	// errNoDecision: the coordinator gave no decision for the request.
 	errNoDecision = errors.New("ctxloom: the coordinator gave no decision")
+	// errInvalidGrant: a session rule the engine's rule syntax refuses.
+	errInvalidGrant = errors.New("ctxloom: a granted session rule is not a rule this engine reads")
 )
 
 const (
@@ -81,6 +84,11 @@ type approvals struct {
 	mu      sync.Mutex
 	changed chan struct{} // closed and replaced on every change
 	turn    *approvalTurn
+	// grants are the session rules the human allowed for this run. The
+	// engine's own session rule dies with the turn's process, so each turn
+	// is handed these afresh. The StartRun seeds them (seedGrants); the
+	// coordinator's SetGrants replaces them.
+	grants []string
 }
 
 // approvalTurn is one engine process's ledger. Its context ends with the
@@ -284,11 +292,81 @@ func (a *approvals) settle(turn *approvalTurn, d *decision, ask engine.Permissio
 	if turn.ctx.Err() != nil {
 		err = errTurnEnded
 	}
+	if err == nil && ans.Allow {
+		// The whole allow, not its valid part: the human granted these
+		// rules together.
+		if verr := a.validRules(ans.SessionRules); verr != nil {
+			ans, err = engine.PermissionAnswer{}, verr
+		}
+	}
 	a.mu.Lock()
 	d.ans, d.err = ans, err
+	if err == nil && ans.Allow {
+		// Held before the answer is released, so a turn that starts once
+		// the engine has applied it already carries the grant.
+		a.grantLocked(ans.SessionRules)
+	}
 	close(d.done)
 	a.broadcastLocked()
 	a.mu.Unlock()
+}
+
+// grantLocked adds the rules an allow carried to the run's grants, each
+// once. Call with a.mu held.
+func (a *approvals) grantLocked(rules []string) {
+	for _, r := range rules {
+		if !slices.Contains(a.grants, r) {
+			a.grants = append(a.grants, r)
+		}
+	}
+}
+
+// setGrants replaces the run's grants with the coordinator's set: what a
+// revoke leaves.
+func (a *approvals) setGrants(rules []string) error {
+	if err := a.validRules(rules); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.grants = slices.Clone(rules)
+	return nil
+}
+
+// seedGrants is the run's grants as it starts: each rule the engine's rule
+// syntax accepts, and an error naming each one it refuses. A refused rule
+// is the record's fault, not the run's, so it costs the run that rule only.
+func (a *approvals) seedGrants(rules []string) []error {
+	var held []string
+	var refused []error
+	for _, r := range rules {
+		if err := a.codec.ValidateRule(r); err != nil {
+			refused = append(refused, fmt.Errorf("%w %q: %w", errInvalidGrant, r, err))
+			continue
+		}
+		held = append(held, r)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.grants = held
+	return refused
+}
+
+// validRules refuses rules holding one the engine's rule syntax refuses.
+func (a *approvals) validRules(rules []string) error {
+	for _, r := range rules {
+		if err := a.codec.ValidateRule(r); err != nil {
+			return fmt.Errorf("%w: %w", errInvalidGrant, err)
+		}
+	}
+	return nil
+}
+
+// heldGrants is a copy of the run's grants, for one turn's posture.
+func (a *approvals) heldGrants() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return slices.Clone(a.grants)
 }
 
 // denial is the answer a refusal reaches the engine as.

@@ -973,9 +973,21 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	// the wire, the engine has not answered — with nothing to cancel: the
 	// coordinator stayed parked for the whole DefaultRequestTimeout while the
 	// operator's stop reported success.
-	rctx, rcancel := context.WithTimeout(ctx, DefaultRequestTimeout)
-	resp, err := c.requestRunner(rctx, credHash, RunnerRequest{Kind: StartRun{RunID: rt.runID, Launch: l}})
-	rcancel()
+	//
+	// The run starts holding the grants its harp was given in earlier runs
+	// on this engine (Seed), delivered on the StartRun itself rather than a
+	// SetGrants after it: the StartRun carries the first turn, which a later
+	// set would race.
+	var resp RunnerResponse
+	_ = c.approvals.Seed(Identity{Harp: rt.harp, RunID: rt.runID}, l.Engine, func(grants []string) error {
+		rctx, rcancel := context.WithTimeout(ctx, DefaultRequestTimeout)
+		defer rcancel()
+		resp, err = c.requestRunner(rctx, credHash, RunnerRequest{Kind: StartRun{RunID: rt.runID, Launch: l, Grants: grants}})
+		if err == nil && resp.Err != nil {
+			return resp.Err
+		}
+		return err
+	})
 	if err != nil {
 		err = fmt.Errorf("StartRun never completed: %w", err)
 		c.failChild(rt, err)

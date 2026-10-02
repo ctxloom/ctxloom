@@ -541,7 +541,7 @@ func RunnerRequestToWire(req coord.RunnerRequest, encodeLaunch func(coord.StartR
 	out := &agentcoordpb.RunnerRequest{RequestId: req.RequestID, Timeout: durationToWire(req.Timeout)}
 	switch k := req.Kind.(type) {
 	case coord.StartRun:
-		out.Kind = &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{RunId: k.RunID, Launch: encodeLaunch(k)}}
+		out.Kind = &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{RunId: k.RunID, Launch: encodeLaunch(k), Grants: k.Grants}}
 	case coord.PauseRun:
 		out.Kind = &agentcoordpb.RunnerRequest_PauseRun{PauseRun: &agentcoordpb.PauseRun{RunId: k.RunID, Reason: k.Reason}}
 	case coord.ResumeRun:

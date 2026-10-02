@@ -44,6 +44,7 @@ func newCutoverCoordinator(t *testing.T, sp Spawner, sweep time.Duration) *Coord
 
 		OwnerHarp:          ownerIdentity().Harp,
 		SpoolSweepInterval: sweep,
+		Engines:            mockEngines(t),
 	})
 	require.NoError(t, err, "new cutover coordinator")
 	require.NoError(t, runnerHooks.Serve(c), "serve cutover coordinator")

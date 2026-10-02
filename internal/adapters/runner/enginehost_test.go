@@ -242,6 +242,8 @@ type testRunner struct {
 	// refuse, when set and true, refuses the launch the way a runner whose
 	// endpoint cannot be bound does.
 	refuse func() bool
+	// approval, when set, is the approval route the drive serves.
+	approval *approvalSpec
 }
 
 func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) error {
@@ -264,7 +266,7 @@ func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) erro
 	if err != nil {
 		return err
 	}
-	return r.eh.Drive(ctx, Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: prompt})
+	return r.eh.Drive(ctx, Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: prompt, approval: r.approval})
 }
 
 // newTestEngineHost is NewEngineHost with the test runner bound over the

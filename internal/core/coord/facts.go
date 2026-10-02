@@ -243,6 +243,8 @@ type grantAdded struct {
 	Harp string     `json:"harp"`
 	Rule string     `json:"rule"`
 	From ApprovalID `json:"from"`
+	// Engine is the asking run's engine: the rule is in its syntax.
+	Engine engine.Name `json:"engine"`
 }
 
 // grantRevoked is factGrantRevoked's payload.

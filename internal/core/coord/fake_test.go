@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -53,7 +54,10 @@ type fakeSpawner struct {
 	// which is the shape that separates "queued behind the cap" from
 	// "started and failed".
 	launchErr error
-	perms     []string
+	// startGrants records, per run, the grants its StartRun carried as the
+	// runner received them.
+	startGrants map[string][]string
+	perms       []string
 	// nextChat scripts the MIGRATED (StartRun) path's engine; StartEngine
 	// spawns a REAL runner half (Home + EngineHost over the coordinator's
 	// live gRPC listeners) around it. chats/kills record per spawn.
@@ -353,7 +357,17 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 		RunID:    runnerEnv[EnvRunID],
 		Harness:  string(l.Engine),
 		Version:  "test",
-		Engine:   host.Handle,
+		Engine: func(req *agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse {
+			if sr := req.GetStartRun(); sr != nil {
+				s.mu.Lock()
+				if s.startGrants == nil {
+					s.startGrants = make(map[string][]string)
+				}
+				s.startGrants[sr.GetRunId()] = sr.GetGrants()
+				s.mu.Unlock()
+			}
+			return host.Handle(req)
+		},
 		// The trio is read out of the STAMPED runner env rather than handed
 		// in by the test, mirroring production's consumeCoordinatorReachBack
 		// (llm_runner_common.go). The run's identity is NOT here: it arrives
@@ -823,3 +837,12 @@ func ownerRun(l launch.Launch, oneShot bool) OwnerRun {
 // scriptedChat is the shared scripted engine double, under the name this
 // suite has always used for it.
 type scriptedChat = scriptedchat.Chat
+
+// grantsStartedWith is the grants run's StartRun carried to its runner, and
+// whether the runner received one.
+func (s *fakeSpawner) grantsStartedWith(runID string) ([]string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g, ok := s.startGrants[runID]
+	return g, ok
+}

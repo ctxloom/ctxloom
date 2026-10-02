@@ -13,6 +13,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
 
 func childOf(out *RunOutcome) Identity { return Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1} }
@@ -250,20 +251,20 @@ func grantFor(t *testing.T, c *Coordinator, out *RunOutcome, rule string) Grant 
 	return grants[0]
 }
 
-// TestApprovals_RevokeGoesToTheLiveRunFirst: a revoke is handed to the run
-// before it is journaled, so a run that does not take it keeps the grant — the
-// record never claims a rule is gone while the run still applies it.
-func TestApprovals_RevokeGoesToTheLiveRunFirst(t *testing.T) {
+// TestApprovals_RevokeReachesTheLiveRun: a revoke on a live run is handed to
+// its runner as SetGrants — the set that remains — over the real runner link,
+// and only once the run has taken it is the grant gone from the record. (A
+// run that refuses the set keeps the grant: TestApprovalQueue_
+// RevokeRefusedByTheRunKeepsTheGrant.)
+func TestApprovals_RevokeReachesTheLiveRun(t *testing.T) {
 	resetStrictness(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 	g := grantFor(t, c, out, "Bash(ls:*)")
 
-	err := c.Approvals().Revoke(out.Harp, g.ID)
-	require.Error(t, err, "this runner does not take SetGrants, and says so")
-	assert.Contains(t, err.Error(), "not offered by this runner")
-	assert.Equal(t, []Grant{g}, c.Approvals().Grants(out.Harp))
+	require.NoError(t, c.Approvals().Revoke(out.Harp, g.ID), "the live run takes its remaining set")
+	assert.Empty(t, c.Approvals().Grants(out.Harp))
 }
 
 // TestApprovals_RevokeOnAnEndedRunIsJournaledOnly: with no live run there is
@@ -282,4 +283,137 @@ func TestApprovals_RevokeOnAnEndedRunIsJournaledOnly(t *testing.T) {
 	assert.Equal(t, []Grant{g}, c.Approvals().Grants(out.Harp), "a run's end does not take its harp's grants")
 	require.NoError(t, c.Approvals().Revoke(out.Harp, g.ID))
 	assert.Empty(t, c.Approvals().Grants(out.Harp))
+}
+
+// mockEngines is a registry of the mock engine, the fake spawner's default
+// backend.
+func mockEngines(t *testing.T) engine.Registry {
+	t.Helper()
+	reg, err := engine.NewRegistry(mock.New())
+	require.NoError(t, err)
+	return reg
+}
+
+// TestApprovals_AGrantResolvesTheChildsCoveredRequest: the human's allow for
+// the session on one of a child's requests resolves its other parked request
+// the rule covers, as the child's own engine judges it.
+func TestApprovals_AGrantResolvesTheChildsCoveredRequest(t *testing.T) {
+	resetStrictness(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	events := c.Approvals().Subscribe(ctx)
+	ask := func() <-chan AgentReply {
+		done := make(chan AgentReply, 1)
+		go func() {
+			done <- c.serveAgentRequest(childOf(out), askNow(c, out, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: []byte(`{"command":"ls"}`)}))
+		}()
+		return done
+	}
+	first := ask()
+	id := awaitEvent(t, events, QueueAdded).ID
+	second := ask()
+	awaitEvent(t, events, QueueAdded)
+
+	require.NoError(t, c.Approvals().Answer(id, ApprovalDecision{Allow: true, SessionRules: []string{"Bash"}}))
+	<-first
+	select {
+	case r := <-second:
+		d, ok := r.Result.(ApprovalDecision)
+		require.True(t, ok, "%T", r.Result)
+		assertGrantDecided(t, d)
+	case <-ctx.Done():
+		t.Fatal("the covered request was left to the human")
+	}
+}
+
+// TestCoordinator_AnEngineItCannotFindCoversNothing: a request whose engine
+// is missing from the registry is left to the human.
+func TestCoordinator_AnEngineItCannotFindCoversNothing(t *testing.T) {
+	bash := PendingApproval{Kind: ApprovalTool, Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}, engine: mock.Name}
+	assert.True(t, (&Coordinator{engines: mockEngines(t)}).covers(bash, "Bash"))
+	assert.False(t, (&Coordinator{engines: mockEngines(t)}).covers(bash, "Write"), "the engine's codec judges the rule")
+	assert.False(t, (&Coordinator{}).covers(bash, "Bash"), "no engines composed")
+	bash.engine = "absent"
+	assert.False(t, (&Coordinator{engines: mockEngines(t)}).covers(bash, "Bash"), "an engine the registry does not hold")
+}
+
+// TestApprovals_AGrantCarriesIntoTheHarpsResumedRun: a grant made in a
+// child's run is applied to the harp's next run once the child has ended and
+// is resumed: its StartRun carries the grant to the runner over the real
+// link, and the grant covers the resumed run's requests from their arrival.
+// A grant revoked between the two runs is neither. (That the runner holds
+// what its StartRun carried before the first turn is the runner's own test:
+// TestEngineHost_StartRunGrantsRideTheFirstTurn.)
+func TestApprovals_AGrantCarriesIntoTheHarpsResumedRun(t *testing.T) {
+	for name, tc := range map[string]struct {
+		revoke bool
+		want   []string
+	}{
+		"held":    {want: []string{"Bash"}},
+		"revoked": {revoke: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resetStrictness(t)
+			sp := cutoverSpawner(0)
+			c := newCutoverCoordinator(t, sp, 0)
+			out, _ := awaitCutoverChildIdle(t, c, sp, "task")
+			g := grantFor(t, c, out, "Bash")
+			ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+			defer cancel()
+			_, err := c.Stop(ctx, ownerIdentity(), StopRequest{Harp: out.Harp, Reason: "enough"})
+			require.NoError(t, err)
+			require.Eventually(t, func() bool { return c.runEnded(out.RunID) }, conformanceWait, 10*time.Millisecond)
+			if tc.revoke {
+				require.NoError(t, c.Approvals().Revoke(out.Harp, g.ID))
+			}
+
+			_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
+			require.NoError(t, err)
+			var resumed string
+			require.Eventually(t, func() bool {
+				resumed = currentRunID(c, out.Harp)
+				return resumed != out.RunID && c.approvals.turnOf(resumed) == 1
+			}, conformanceWait, 10*time.Millisecond, "the harp's next run never reached its first turn boundary")
+			carried, ok := sp.grantsStartedWith(resumed)
+			require.True(t, ok, "the resumed run's runner never received its StartRun")
+			assert.Equal(t, tc.want, carried)
+
+			next := &RunOutcome{Harp: out.Harp, RunID: resumed}
+			events := c.Approvals().Subscribe(ctx)
+			done := make(chan AgentReply, 1)
+			go func() {
+				done <- c.serveAgentRequest(childOf(next), askNow(c, next, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}))
+			}()
+			if tc.revoke {
+				id := awaitEvent(t, events, QueueAdded).ID
+				require.NoError(t, c.Approvals().Answer(id, ApprovalDecision{}))
+				<-done
+				return
+			}
+			select {
+			case r := <-done:
+				d, ok := r.Result.(ApprovalDecision)
+				require.True(t, ok, "%T", r.Result)
+				assertGrantDecided(t, d)
+			case <-ctx.Done():
+				t.Fatal("the carried grant left the resumed run's request to the human")
+			}
+		})
+	}
+}
+
+// TestApprovals_ARunOnAnotherEngineIsPushedNoGrants: a revoke's remaining
+// set is in the revoked grant's engine syntax, so a live run of the harp on
+// another engine is not handed it. (The harness's runs route no approvals,
+// so a set that does reach one is refused — which is how the push shows.)
+func TestApprovals_ARunOnAnotherEngineIsPushedNoGrants(t *testing.T) {
+	resetStrictness(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
+	require.NoError(t, c.pushGrants(out.Harp, "claude", []string{"Read"}), "another engine's rules are not pushed")
+	require.Error(t, c.pushGrants(out.Harp, mock.Name, []string{"Read"}), "the run's own engine's rules are")
 }

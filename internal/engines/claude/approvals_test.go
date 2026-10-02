@@ -35,8 +35,8 @@ func TestApprovalCodec_DecodesAPermissionRequest(t *testing.T) {
 	assert.JSONEq(t, `{"command":"touch a1","description":"Create file a1"}`, string(ask.Input))
 	assert.Equal(t, `{"command":"touch a1","description":"Create file a1"}`, string(ask.Input), "the input is canonical: keys sorted")
 	assert.Empty(t, ask.ToolUseID, "a PermissionRequest carries no tool_use_id")
-	assert.Equal(t, []string{"Bash(touch *)", "Read"}, ask.Suggestions,
-		"only allow-rule suggestions become grantable rules; directories and deny rules are not grants")
+	assert.Equal(t, []string{"Bash(touch *)", "Read", "Bash(touch a1)", "Bash"}, ask.Suggestions,
+		"claude's allow-rule suggestions, then the exact call and the whole tool; directories and deny rules are not grants")
 	mode, ok := ask.SuggestsSetMode.Get()
 	require.True(t, ok)
 	assert.Equal(t, modeAcceptEdits, mode)

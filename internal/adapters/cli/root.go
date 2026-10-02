@@ -439,9 +439,6 @@ func RunWithArgs(comp Composition, args []string, stdout io.Writer) int {
 
 func run(comp Composition, args []string, stdout io.Writer) int {
 	theComposition = comp
-	// Consume the signature-check env switch before anything can start a
-	// child process (see consumeSigCheckEnv).
-	sigCheckEnv()
 	// Compose the shipped engines before any command can read the registry.
 	// A refused declaration is a startup failure that names the engine and
 	// slot — never a silently empty registry.

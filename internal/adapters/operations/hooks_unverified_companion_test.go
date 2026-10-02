@@ -78,3 +78,39 @@ func TestApplyHooks_AbsentOrProbeFailedCompanion_StillApplies(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
 }
+
+// TestApplyHooks_SurfacesNeverNameTheRunningBinary is unread-spectrum's
+// second half: a project-side apply run from a dev build must not repoint the
+// project's editor sessions at that build. Every surface names the bare
+// executable (agent.CtxloomCommand) and ctxloom's own MCP server is served by
+// a session's endpoint, so at rest it renders nothing — neither may carry the
+// path of the binary that happened to run the apply.
+func TestApplyHooks_SurfacesNeverNameTheRunningBinary(t *testing.T) {
+	root, cfg := setupProject(t, "claude-code")
+	const devBuild = "/home/dev/workspace/ctxloom/bin/ctxloom"
+	t.Cleanup(selfexec.SetPathForTesting(devBuild))
+	running, err := os.Executable()
+	require.NoError(t, err)
+	cfg = withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
+		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{{
+			Bin: "ctxloom", Path: devBuild, Self: true,
+			Document: []byte("run:\n  version: 1.0.0\n  mcp:\n    ctxloom:\n      served_by: session-endpoint\n"),
+		}}}, nil
+	})
+
+	_, err = ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
+		Cfg: cfg, Backend: "claude-code", WorkDir: root, RegenerateContext: true,
+	})
+	require.NoError(t, err)
+
+	settings, err := os.ReadFile(filepath.Join(root, ".claude", "settings.json"))
+	require.NoError(t, err)
+	require.Contains(t, string(settings), `"ctxloom"`, "the apply must have written ctxloom's own hooks for this to prove anything")
+	for path, body := range snapshotTree(t, afero.NewOsFs(), root) {
+		assert.NotContains(t, body, devBuild, "%s names the binary that ran the apply", path)
+		assert.NotContains(t, body, running, "%s names the binary that ran the apply", path)
+	}
+	if mcp, rerr := os.ReadFile(filepath.Join(root, ".mcp.json")); rerr == nil {
+		assert.NotContains(t, string(mcp), `"ctxloom"`, "ctxloom's own server is served by a session's endpoint and renders nothing at rest")
+	}
+}

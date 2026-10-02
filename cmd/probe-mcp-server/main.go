@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // toolName is the single tool served. The client may namespace it, so calls are
@@ -69,7 +69,7 @@ func (s *server) record(event string, detail map[string]any) {
 	if err != nil {
 		return
 	}
-	_ = iox.WriteFileInPlace(s.callLog, iox.AppendInPlace, append(line, '\n'), 0o600)
+	_ = safefs.WriteFileInPlace(s.callLog, safefs.AppendInPlace, append(line, '\n'), 0o600)
 }
 
 func (s *server) send(msg map[string]any) {

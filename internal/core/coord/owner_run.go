@@ -136,14 +136,11 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// plugin-hosted top-level session: both present depth 0 to the
 	// recursion guard and to the runner-side leaf computation.
 	//
-	// This also flips Identity.IsChild() (Depth > 0) to FALSE for the owned
-	// run's own credential, where it used to be true (depth was 1 before
-	// this depth parameter existed). That corrects three call sites that
-	// gate on IsChild() — peerSend's childSend/ownerSend split, AgentStop,
-	// and serveRoster — each of which was refusing or
-	// misrouting a call the owned run's OWN engine made about ITSELF
-	// (childSend's ParentHarp resolution hit the self-loop below; AgentStop
-	// and roster both explicitly refuse an IsChild() caller).
+	// It also keeps Identity.IsChild() (Depth > 0) FALSE for the owned run's
+	// own credential: the owned run IS the root, and a verb that treats a
+	// delegated child differently from the root must not route the root's
+	// own calls as a child's — its journaled parent is itself, so an upward
+	// send would loop back into its own inbox.
 	rt, token, err := c.enqueueRun(owner, plan, l.Identity.Harp, prompt, false, make(chan struct{}), owner.Depth)
 	if err != nil {
 		return nil, err

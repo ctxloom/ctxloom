@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	tasksops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/triggers"
+	"github.com/spf13/afero"
 )
 
 // Trigger evaluation bounds: a batch call must never blow the fast model's
@@ -192,13 +193,15 @@ func EvaluateTriggers(ctx context.Context, f LaunchFacts, cfg *config.Config, re
 	// This costs git reads even on a cache hit, but never a model call — the
 	// cache's entire point is to save the LLM round-trip, not the local I/O.
 	batch := buildBatch(ctx, deferred, other, since, req)
+	fs := getFS(cfg.FS())
 	ev := triggerEvaluation{
+		fs:             fs,
 		req:            req,
 		batch:          batch,
 		allByHarp:      allByHarp,
 		deferredByHarp: make(map[string]triggers.TaskInput, len(batch.Tasks)),
 		projectID:      listRes.ProjectID,
-		cache:          loadTriggerCache(listRes.ProjectID),
+		cache:          loadTriggerCache(fs, listRes.ProjectID),
 	}
 	for _, ti := range batch.Tasks {
 		ev.deferredByHarp[ti.HarpID] = ti
@@ -243,6 +246,7 @@ func partitionDeferred(all []tasks.Task) (deferred, other []tasks.Task, byHarp m
 // share: the evidence batch, the task indexes, and the verdict cache the
 // fresh verdicts are written back into.
 type triggerEvaluation struct {
+	fs             afero.Fs
 	req            EvaluateTriggersRequest
 	batch          triggers.Batch
 	allByHarp      map[string]tasks.Task
@@ -339,7 +343,7 @@ func (ev *triggerEvaluation) triageMisses(ctx context.Context, f LaunchFacts, cf
 		result.Warning = joinWarning(result.Warning, esc.warning)
 	}
 	fresh := ev.recordFresh(esc.verdicts, cacheable)
-	saveTriggerCache(ev.projectID, ev.cache)
+	saveTriggerCache(ev.fs, ev.projectID, ev.cache)
 	return fresh, nil
 }
 

@@ -32,22 +32,16 @@ import (
 // name-squatted binary is refused because nobody you trust signed it, rather
 // than because you were asked about it once and said no.
 
-// CompanionKey identifies one companion binary to the consent store.
-//
-// It is also the whole record body on disk, so the file can be read, audited
-// and pruned with `cat`. Only Path and SHA256 are the KEY (see
-// companionConsentKey); Bin rides along as display metadata and is never
-// decided on, because a name is exactly what an attacker gets to choose.
+// CompanionKey identifies one companion binary in an admission decision. Bin
+// rides along as display metadata and is never decided on, because a name is
+// exactly what an attacker gets to choose.
 type CompanionKey struct {
 	// Bin is the companion name as discovered (filepath.Base of Path). Display
 	// and grouping only.
 	Bin string `yaml:"bin"`
-	// Path is the resolved, symlink-followed absolute path of the binary. The
-	// SCOPE: a denial recorded here covers this file whatever its bytes become.
+	// Path is the resolved, symlink-followed absolute path of the binary.
 	Path string `yaml:"path"`
-	// SHA256 is the lowercase hex SHA-256 of the binary's bytes at the moment
-	// the decision was recorded. The other half of the key, and the half that
-	// makes a replace-in-place swap re-prompt.
+	// SHA256 is the lowercase hex SHA-256 of the binary's bytes.
 	SHA256 string `yaml:"sha256"`
 }
 

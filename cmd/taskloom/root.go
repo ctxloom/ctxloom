@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -273,7 +273,7 @@ func warnTask(warning string) {
 // machine-readable --format json). cfg is applied to each task's tags via
 // visibleTags before printing — see hideConfigFor.
 func renderTaskTable(out io.Writer, list []tasks.Task, cfg tagma.HideConfig) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	if len(list) == 0 {
 		w.Println("(no tasks)")
 		return w.Err()

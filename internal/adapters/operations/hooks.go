@@ -398,7 +398,7 @@ func trustStoreFindingsError(mark strictness.Mark) error {
 //
 // There is no "all". Writing to engines the project does not use is not merely
 // untidy: an apply that creates another engine's context file wins a race with
-// that engine's own delivery, and agent.AtomicWriteFile REUSES an existing
+// that engine's own delivery, and safefs.WriteFileKeepMode REUSES an existing
 // file's mode rather than widening it, so the delivery inherits whatever mode
 // the apply chose.
 //

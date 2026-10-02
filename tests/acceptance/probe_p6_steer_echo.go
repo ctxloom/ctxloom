@@ -348,7 +348,7 @@ func p6Census(root, harp string) (p6SpoolCensus, error) {
 
 // p6ReadDeliveredRecord lists the identities in the delivered record under
 // root, sorted. A record never created is empty; a staging file (dot-prefixed,
-// iox.WriteFileAtomic's) is not an identity.
+// safefs.WriteFile's) is not an identity.
 func p6ReadDeliveredRecord(root string) ([]string, error) {
 	record, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(p6DeliveredRecord)))
 	if err != nil && !os.IsNotExist(err) {

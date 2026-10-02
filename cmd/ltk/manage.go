@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 func newManageCmd() *cobra.Command {
@@ -26,8 +26,10 @@ func newManageCmd() *cobra.Command {
 	return m
 }
 
-// manageFlags are shared by install and uninstall.
+// manageFlags are shared by install and uninstall. fs is the filesystem both
+// commands read and write through.
 type manageFlags struct {
+	fs             afero.Fs
 	engineName     string
 	settingsPath   string
 	bin            string
@@ -112,7 +114,7 @@ func (f *manageFlags) hookRulesPath() string {
 }
 
 func newInstallCmd() *cobra.Command {
-	f := &manageFlags{}
+	f := &manageFlags{fs: afero.NewOsFs()}
 	c := &cobra.Command{
 		Use:   "install",
 		Short: "Add the pre-tool hook to the most relevant LLM config",
@@ -150,12 +152,12 @@ func (f *manageFlags) runInstall(cmd *cobra.Command, _ []string) error {
 	// --print is a dry run: show the merged settings without touching
 	// the filesystem, so no rules-file scaffold either.
 	if f.configPath != "" && !f.printOnly {
-		if err := scaffoldConfig(f.configPath, !f.noDefaultRules, f.force); err != nil {
+		if err := scaffoldConfig(f.fs, f.configPath, !f.noDefaultRules, f.force); err != nil {
 			return err
 		}
 	}
-	return sessions.WithFileLock(afero.NewOsFs(), path, func() error {
-		existing, err := readIfExists(path)
+	return sessions.WithFileLock(f.fs, path, func() error {
+		existing, err := readIfExists(f.fs, path)
 		if err != nil {
 			return err
 		}
@@ -170,7 +172,7 @@ func (f *manageFlags) runInstall(cmd *cobra.Command, _ []string) error {
 			_, err := cmd.OutOrStdout().Write(merged)
 			return err
 		}
-		if err := writeFile(path, merged); err != nil {
+		if err := writeFile(f.fs, path, merged); err != nil {
 			return err
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(), progName+": installed hook for %s\n  settings: %s\n  command:  %s\n", eng.Name(), path, command)
@@ -179,7 +181,7 @@ func (f *manageFlags) runInstall(cmd *cobra.Command, _ []string) error {
 }
 
 func newUninstallCmd() *cobra.Command {
-	f := &manageFlags{}
+	f := &manageFlags{fs: afero.NewOsFs()}
 	c := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Remove the pre-tool hook from the LLM config",
@@ -198,8 +200,8 @@ func (f *manageFlags) runUninstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	command := eng.HookCommand(f.bin, f.hookRulesPath())
-	return sessions.WithFileLock(afero.NewOsFs(), path, func() error {
-		existing, err := readIfExists(path)
+	return sessions.WithFileLock(f.fs, path, func() error {
+		existing, err := readIfExists(f.fs, path)
 		if err != nil {
 			return err
 		}
@@ -224,7 +226,7 @@ func (f *manageFlags) runUninstall(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintf(cmd.ErrOrStderr(), progName+": no matching hook found in %s (nothing removed)\n", path)
 			return nil
 		}
-		if err := writeFile(path, updated); err != nil {
+		if err := writeFile(f.fs, path, updated); err != nil {
 			return err
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(), progName+": removed hook for %s from %s\n", eng.Name(), path)
@@ -236,7 +238,7 @@ func (f *manageFlags) runUninstall(cmd *cobra.Command, _ []string) error {
 // overwritten unless force is set — your edited rules are never silently
 // clobbered. Without force, an existing file is kept and a warning explains how
 // to overwrite. With force, the old file is backed up to <path>.bak first.
-func scaffoldConfig(path string, withDefaults, force bool) error {
+func scaffoldConfig(fs afero.Fs, path string, withDefaults, force bool) error {
 	// Decide and CHECK the content before touching anything — including the
 	// --force backup — so a refusal leaves the filesystem exactly as it was.
 	content := minimalRules
@@ -258,31 +260,31 @@ func scaffoldConfig(path string, withDefaults, force bool) error {
 		}
 	}
 
-	if _, err := os.Stat(path); err == nil {
+	if _, err := fs.Stat(path); err == nil {
 		if !force {
 			fmt.Fprintf(os.Stderr, "%s: %s already exists — keeping your rules (use --force to overwrite; the old file is backed up to %s.bak)\n", progName, path, path)
 			return nil
 		}
 		backup := path + ".bak"
-		if err := copyFile(path, backup); err != nil {
+		if err := copyFile(fs, path, backup); err != nil {
 			return fmt.Errorf("back up %s: %w", path, err)
 		}
 		fmt.Fprintf(os.Stderr, "%s: backed up existing rules to %s before overwriting\n", progName, backup)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		// Neither "exists" nor "does not exist" — a path component that is a
-		// file, an unreadable parent, a symlink loop. os.Stat's *fs.PathError
+		// file, an unreadable parent, a symlink loop. Stat's *fs.PathError
 		// already names the path; what it cannot say is which of scaffoldConfig's
 		// filesystem steps was underway, so say that, as every sibling here does.
 		return fmt.Errorf("check for an existing rules file: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	// content is always non-empty here: it is one of the two go:embed'd
 	// templates (defaults.go), and the rule-count check above already
-	// refused an empty defaultRules — so iox's default empty-over-existing
+	// refused an empty defaultRules — so safefs's default empty-over-existing
 	// refusal never applies, and no AllowEmpty escape hatch is needed.
-	if err := iox.WriteFileAtomic(path, []byte(content), 0o644); err != nil {
+	if err := safefs.WriteFile(fs, path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write rules file %s: %w", path, err)
 	}
 	fmt.Fprintf(os.Stderr, "%s: wrote rules file %s (edit it to taste)\n", progName, path)
@@ -294,31 +296,31 @@ func scaffoldConfig(path string, withDefaults, force bool) error {
 //
 // The mode is carried across because the backup is a copy of the USER's rules
 // file: writing it at a hardcoded 0o644 republishes a config the user
-// deliberately restricted to 0600 as world-readable. iox.WriteFileAtomic
+// deliberately restricted to 0600 as world-readable. safefs.WriteFile
 // applies perm EXACTLY via its own explicit Chmod (ignoring umask, per its
 // doc), so — unlike the os.WriteFile this replaces — nothing further is
 // needed after the write to get dst's mode right.
 //
-// iox.AllowEmpty(): this is a byte-for-byte MIRROR of src, and src's own
+// safefs.AllowEmpty(): this is a byte-for-byte MIRROR of src, and src's own
 // existence was just confirmed by the caller's Stat — but src's SIZE is not
 // guaranteed non-zero (a user's rules file legitimately can be, per
 // minimalRules' own "valid but empty config" contract). A backup that
 // silently refused to reproduce an empty source would stop matching the
 // thing it is a backup OF.
-func copyFile(src, dst string) error {
-	b, err := os.ReadFile(src)
+func copyFile(fs afero.Fs, src, dst string) error {
+	b, err := afero.ReadFile(fs, src)
 	if err != nil {
 		return err
 	}
 	mode := os.FileMode(0o600) // conservative default; src is readable, so Stat succeeds
-	if fi, err := os.Stat(src); err == nil {
+	if fi, err := fs.Stat(src); err == nil {
 		mode = fi.Mode().Perm()
 	}
-	return iox.WriteFileAtomic(dst, b, mode, iox.AllowEmpty())
+	return safefs.WriteFile(fs, dst, b, mode, safefs.AllowEmpty())
 }
 
-func readIfExists(path string) ([]byte, error) {
-	b, err := os.ReadFile(path)
+func readIfExists(fs afero.Fs, path string) ([]byte, error) {
+	b, err := afero.ReadFile(fs, path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -328,27 +330,27 @@ func readIfExists(path string) ([]byte, error) {
 	return b, nil
 }
 
-// writeFile writes data to path atomically via shared/iox (a sibling temp file
+// writeFile writes data to path atomically via shared/safefs (a sibling temp file
 // fsynced and renamed into place), so an interrupt mid-write can never leave a
 // truncated settings file — those files hold the user's unrelated config too.
 // The parent dir is created and an existing file's permissions are preserved.
-func writeFile(path string, data []byte) error {
+func writeFile(fs afero.Fs, path string, data []byte) error {
 	// These files hold the user's unrelated configuration, and the payload
 	// comes from engine code. An empty one can only be an upstream bug, and
-	// WriteFileAtomic would make the truncation durable while the caller
+	// safefs.WriteFile would make the truncation durable while the caller
 	// printed "installed hook for ...".
 	if len(data) == 0 {
 		return fmt.Errorf("refusing to write an empty %s (the engine produced no settings)", path)
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := fs.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	mode := os.FileMode(0o644)
-	if fi, err := os.Stat(path); err == nil {
+	if fi, err := fs.Stat(path); err == nil {
 		mode = fi.Mode().Perm()
 	}
-	if err := iox.WriteFileAtomic(path, data, mode); err != nil {
+	if err := safefs.WriteFile(fs, path, data, mode); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

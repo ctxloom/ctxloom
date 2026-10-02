@@ -16,12 +16,13 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	corepaths "github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 )
 
@@ -104,7 +105,7 @@ func (m *Manager) saveLocked(reg *registry) error {
 	if err != nil {
 		return fmt.Errorf("marshal registry: %w", err)
 	}
-	return iox.WriteFileAtomic(m.path, data, 0o644)
+	return safefs.WriteFile(afero.NewOsFs(), m.path, data, 0o644)
 }
 
 // ResolveByPath returns a copy of the entry whose path matches projectDir, or

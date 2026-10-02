@@ -11,7 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
@@ -46,7 +46,7 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 	return emit(cmd, newBundleListRows(bundleInfos), func() error {
 		out := cmd.OutOrStdout()
 		if len(bundleDirs) == 0 {
-			w := iox.NewErrWriter(out)
+			w := errwriter.New(out)
 			w.Println("No bundles directory found. Create one with: mkdir -p .ctxloom/content/bundles")
 			return w.Err()
 		}
@@ -60,7 +60,7 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 // Tags/Contains lines, the empty-list hint) can be unit-tested without
 // touching the loader.
 func renderBundleList(out io.Writer, infos []*bundles.BundleInfo) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	if len(infos) == 0 {
 		w.Println("No bundles installed.")
 		w.Println("Add remote bundles to a profile (ctxloom profile create/modify), then ctxloom deps pull")
@@ -103,7 +103,7 @@ func bundleContentParts(info *bundles.BundleInfo) []string {
 // which is info.Name unless another row in the same listing shows that same
 // name. It is passed in rather than derived here because the disambiguation
 // rule needs the whole set and this function sees one row.
-func renderBundleListEntry(w *iox.ErrWriter, info *bundles.BundleInfo, label string) {
+func renderBundleListEntry(w *errwriter.Writer, info *bundles.BundleInfo, label string) {
 	w.Printf("  %s", termsafe.Field(label))
 	if info.Deleted {
 		// Removed upstream: no version/metadata to show — just flag it.
@@ -212,7 +212,7 @@ var bundleShowInteractive bool
 // preview, commands get the optional Description.
 // renderBundleShowHeader writes the bundle metadata header (name, plus optional
 // version/author/description/tags), the path, and a trailing blank line.
-func renderBundleShowHeader(w *iox.ErrWriter, bundle *bundles.Bundle) {
+func renderBundleShowHeader(w *errwriter.Writer, bundle *bundles.Bundle) {
 	w.Printf("Bundle: %s\n", termsafe.Field(bundle.Name))
 	if bundle.Version != "" {
 		w.Printf("Version: %s\n", termsafe.Field(bundle.Version))
@@ -245,7 +245,7 @@ const selfSignedLine = "Signature: ctxloom's own (verified, but circular — it 
 // Installation) through publisherBody; Path is the local install location,
 // ctxloom's own.
 func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	renderBundleShowHeader(w, bundle)
 
 	if bundle.HasMCP() {
@@ -279,7 +279,7 @@ func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
 	return w.Err()
 }
 
-func renderBundleMCPEntry(w *iox.ErrWriter, name string, mcp bundles.BundleMCP) {
+func renderBundleMCPEntry(w *errwriter.Writer, name string, mcp bundles.BundleMCP) {
 	w.Printf("  - %s\n", termsafe.Field(name))
 	w.Printf("      Command: %s\n", termsafe.Field(mcp.Command))
 	if len(mcp.Args) > 0 {
@@ -303,7 +303,7 @@ func renderBundleMCPEntry(w *iox.ErrWriter, name string, mcp bundles.BundleMCP) 
 	}
 }
 
-func renderBundleFragmentEntry(w *iox.ErrWriter, name string, frag bundles.BundleFragment) {
+func renderBundleFragmentEntry(w *errwriter.Writer, name string, frag bundles.BundleFragment) {
 	w.Printf("  - %s", termsafe.Field(name))
 	if len(frag.Tags) > 0 {
 		w.Printf(" [%s]", termsafe.Field(strings.Join(frag.Tags, ", ")))
@@ -319,7 +319,7 @@ func renderBundleFragmentEntry(w *iox.ErrWriter, name string, frag bundles.Bundl
 	w.Printf("      %s\n", termsafe.Field(itemPreview(frag.Content)))
 }
 
-func renderBundleCommandEntry(w *iox.ErrWriter, name string, prompt bundles.BundleCommand) {
+func renderBundleCommandEntry(w *errwriter.Writer, name string, prompt bundles.BundleCommand) {
 	w.Printf("  - %s", termsafe.Field(name))
 	if len(prompt.Tags) > 0 {
 		w.Printf(" [%s]", termsafe.Field(strings.Join(prompt.Tags, ", ")))

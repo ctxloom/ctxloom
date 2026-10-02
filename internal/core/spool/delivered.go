@@ -3,12 +3,13 @@ package spool
 import (
 	"errors"
 	"fmt"
+	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // A DELIVERED MESSAGE IS DELETED; ITS IDENTITY IS WHAT SURVIVES IT.
@@ -114,7 +115,7 @@ func Deliver(m PathMapper, ref Ref, identity string, now time.Time) error {
 
 // recordDelivered writes identity's record entry, durably, unless it is
 // already there: an existing entry already says what a new one would, and
-// iox.WriteFileAtomic refuses to write zero bytes over an existing file.
+// safefs.WriteFile refuses to write zero bytes over an existing file.
 func recordDelivered(entry, identity string) error {
 	if _, err := os.Stat(entry); err == nil {
 		return nil
@@ -124,7 +125,7 @@ func recordDelivered(entry, identity string) error {
 	if err := os.MkdirAll(filepath.Dir(entry), owneronly.DirMode); err != nil {
 		return fmt.Errorf("spool: create %s: %w", filepath.Dir(entry), err)
 	}
-	if err := iox.WriteFileAtomic(entry, nil, owneronly.FileMode, iox.Durable()); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), entry, nil, owneronly.FileMode, safefs.Durable()); err != nil {
 		return fmt.Errorf("spool: recording %s as delivered: %w", identity, err)
 	}
 	return nil
@@ -161,7 +162,7 @@ func DeliveredIdentities(m PathMapper, harp string) (map[string]time.Time, error
 	}
 	out := make(map[string]time.Time, len(entries))
 	for _, e := range entries {
-		// ValidateName refuses the dot-prefixed staging name WriteFileAtomic
+		// ValidateName refuses the dot-prefixed staging name safefs.WriteFile
 		// writes through, so a half-written entry is never listed.
 		if e.IsDir() || ValidateName(e.Name()) != nil {
 			continue

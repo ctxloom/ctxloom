@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -74,7 +74,7 @@ func runLintCmd(out io.Writer, tc operations.TaskContext, format clifmt.Format) 
 			return err
 		}
 	} else {
-		w := iox.NewErrWriter(out)
+		w := errwriter.New(out)
 		// Some checks are not scoped by a declared target, so violations can
 		// coexist with zero checked targets: the note never replaces them.
 		switch {

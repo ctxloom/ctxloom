@@ -17,7 +17,7 @@ const (
 	// built on it — tail, separator, hash, then whatever a caller appends
 	// (a nanosecond timestamp and extension for a record, ".lock" for a
 	// lock, a collision counter, and the "." + name + ".<digits>.tmp" that
-	// agent.AtomicWriteFile stages the write under) — stays well under the
+	// safefs.WriteFileKeepMode stages the write under) — stays well under the
 	// 255-byte NAME_MAX every filesystem ctxloom runs on enforces.
 	flatTailMax = 96
 	// flatHashLen is the hex prefix of the sha256 kept: 64 bits, which is

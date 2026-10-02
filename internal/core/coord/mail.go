@@ -7,7 +7,8 @@ import (
 
 // Typed mail refusals.
 var (
-	// ErrPeerRouting rejects executor→executor addressing (hub-and-spoke).
+	// ErrPeerRouting rejects a child addressing anyone off its tree edges: not
+	// its own parent and not one of its own children.
 	ErrPeerRouting = errors.New(`agent_send: executors may only address "parent"; route via coordinator`)
 	// ErrRevoked refuses a call whose run credential was revoked (run ended /
 	// agent_stop): a report recorded after the run ended is refused with it

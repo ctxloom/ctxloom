@@ -3,10 +3,12 @@ package docsgen
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // GenConfig renders the tracked JSON Schema at schemaPath into a Markdown
@@ -23,12 +25,12 @@ import (
 // TASKLOOM_CONFIG_) — see overrideChainSection. Without this, a second
 // product's generated page would describe ctxloom's own conventions verbatim,
 // which is wrong for every product but ctxloom.
-func GenConfig(p *Product, schemaPath, dir string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+func GenConfig(fs afero.Fs, p *Product, schemaPath, dir string) error {
+	if err := fs.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
-	data, err := os.ReadFile(schemaPath)
+	data, err := afero.ReadFile(fs, schemaPath)
 	if err != nil {
 		return fmt.Errorf("read config schema: %w", err)
 	}
@@ -85,7 +87,7 @@ func GenConfig(p *Product, schemaPath, dir string) error {
 	}
 
 	out := filepath.Join(dir, "config.md")
-	return os.WriteFile(out, []byte(c.b.String()), 0o644)
+	return safefs.WriteFile(fs, out, []byte(c.b.String()), 0o644)
 }
 
 type configDoc struct {

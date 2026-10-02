@@ -33,7 +33,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Store is one physical countersignature store: a directory holding THREE
@@ -247,7 +247,7 @@ func (s *Store) write(header signing.CountersignHeader, payload []byte, signer s
 	// Durable: a countersignature is rotation lineage — the human review
 	// record a verifier trusts — and unrecoverable if the rename silently
 	// reverts to naming nothing after a crash.
-	return iox.WriteFileAtomicFs(s.fs, path, armored, 0o644, iox.Durable())
+	return safefs.WriteFile(s.fs, path, armored, 0o644, safefs.Durable())
 }
 
 // WriteApprove signs and stores a ref-scoped, form-scoped approve
@@ -434,7 +434,7 @@ func (s *Store) writeUnsigned(header signing.CountersignHeader, payload []byte) 
 	// "unsigned\n" — never zero-length — and the filename is
 	// content-addressed, so a re-write at the same path is always identical
 	// bytes.
-	return iox.WriteFileAtomicFs(s.fs, path, []byte("unsigned\n"), 0o644)
+	return safefs.WriteFile(s.fs, path, []byte("unsigned\n"), 0o644)
 }
 
 // hasUnsigned reports whether the unsigned marker for header+payload is
@@ -646,7 +646,7 @@ func (s *Store) AppendIndex(e IndexEntry) error {
 }
 
 // writeIndex replaces the sidecar index with entries, atomically, through
-// iox.WriteFileAtomicFs (unique temp file + fsync + rename) — a crash
+// safefs.WriteFile (unique temp file + fsync + rename) — a crash
 // mid-write cannot leave behind the truncated file that makes readIndex (and
 // therefore every later append) refuse. yaml.Marshal of a []IndexEntry, even
 // nil or empty, always renders "[]\n": this write can never be legitimately
@@ -668,7 +668,7 @@ func (s *Store) writeIndex(entries []IndexEntry) error {
 	// a silently-reverted rename after a crash would corrupt back to a
 	// truncated view, exactly the failure AppendIndex's own refusal-on-bad-
 	// read guards against on the way in.
-	return iox.WriteFileAtomicFs(s.fs, s.indexPath(), data, 0o644, iox.Durable())
+	return safefs.WriteFile(s.fs, s.indexPath(), data, 0o644, safefs.Durable())
 }
 
 // LatestApprove returns the most recently appended approve index entry for

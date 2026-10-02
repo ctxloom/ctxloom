@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -90,7 +90,7 @@ func newSessionRow(v operations.SessionView) SessionRow {
 // almost no rendering code of its own.
 func renderSessionRows(w io.Writer, rows []SessionRow) error {
 	if len(rows) == 0 {
-		ew := iox.NewErrWriter(w)
+		ew := errwriter.New(w)
 		ew.Println("(no sessions)")
 		return ew.Err()
 	}

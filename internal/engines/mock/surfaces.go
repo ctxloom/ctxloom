@@ -12,7 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // The mock's native surfaces: every kind is a FILE the mock reads, under
@@ -68,7 +68,7 @@ func writeFile(fs afero.Fs, p present.Presentation, bytes []byte, mode os.FileMo
 	if err := fs.MkdirAll(filepath.Dir(p.HostPath), 0o755); err != nil {
 		return present.Delivered{}, err
 	}
-	if err := iox.WriteFileAtomicFs(fs, p.HostPath, bytes, mode); err != nil {
+	if err := safefs.WriteFile(fs, p.HostPath, bytes, mode); err != nil {
 		return present.Delivered{}, err
 	}
 	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil
@@ -88,7 +88,7 @@ func (a *contextFile) DeliverContext(start present.Start, root present.RootKind,
 	// A context file the mock creates is owner-only: the engine reads it
 	// itself and nothing else needs to. One that already stood keeps its
 	// mode.
-	if err := iox.AppendSection(fs, p.HostPath, in.Text, 0o600); err != nil {
+	if err := safefs.AppendSection(fs, p.HostPath, in.Text, 0o600); err != nil {
 		return present.Delivered{}, err
 	}
 	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil

@@ -788,15 +788,21 @@ func CoordProjectStateDir(projectKey string) (string, error) {
 // advisory-lock sidecars for FOREIGN files a ctxloom-family binary does not
 // own (see HomePathFor, lockpath.go, and HomeLocksDirName's doc).
 //
-// Guarded like HomeRecordsDir: every foreign-file lock resolves through here,
+// Guarded under a test binary: every foreign-file lock resolves through here,
 // and a lock file outlives the run that took it, so an unsandboxed test
-// package would leave one in the developer's real home per locked write.
+// package would leave one in the developer's real home per locked write. The
+// guard is accountHomeError, not UnsandboxedHomeError, because a test may
+// derive a container's lock path by pointing HOME at a home that is not this
+// account's (see accountHomeError).
 func HomeLocksDir() (string, error) {
+	if override := homeLocksOverride.get(); override != "" {
+		return override, nil
+	}
 	dir, err := homeUnder(whatHomeLocks, HomeLocksDirName)
 	if err != nil {
 		return "", err
 	}
-	if err := UnsandboxedHomeError("home lock directory", dir,
+	if err := accountHomeError("home lock directory", dir,
 		"testsupport.SandboxedMain / testsupport.Isolate, so HOME points at a temp root"); err != nil {
 		return "", err
 	}
@@ -807,10 +813,7 @@ func HomeLocksDir() (string, error) {
 // holding hew §9.7 application records for FOREIGN files `util
 // config-write` merges into (see HomeRecordsDirName's doc).
 func HomeRecordsDir() (string, error) {
-	homeRecordsMu.RLock()
-	override := homeRecordsOverride
-	homeRecordsMu.RUnlock()
-	if override != "" {
+	if override := homeRecordsOverride.get(); override != "" {
 		return override, nil
 	}
 	dir, err := homeUnder(whatHomeRecords, HomeRecordsDirName)

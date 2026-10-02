@@ -267,7 +267,7 @@ func TestAgentSend_UnknownRecipient(t *testing.T) {
 
 	_, err := c.AgentSend(ownerIdentity(), "nonexistent-harp", KindMessage, "hello", nil, "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown recipient")
+	assert.Contains(t, err.Error(), "unknown session")
 
 	_, err = c.AgentSend(ownerIdentity(), ParentAddress, KindMessage, "hello", nil, "")
 	require.Error(t, err)

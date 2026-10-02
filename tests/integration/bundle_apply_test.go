@@ -48,6 +48,7 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 	// and it reads the USER countersignature store out of the real home.
 	isolatedApprovals(t)
 	isolatedRecords(t)
+	isolatedLocks(t)
 
 	// This helper runs IN-PROCESS against the developer's real PATH and real
 	// home, and the `session-bind` hook these tests assert on ships in

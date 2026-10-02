@@ -50,3 +50,13 @@ func isolatedRecords(t *testing.T) {
 	t.Helper()
 	t.Cleanup(paths.SetHomeRecordsDirForTesting(t.TempDir()))
 }
+
+// isolatedLocks redirects the home lock directory to a temp dir for this
+// test. Any IN-PROCESS test that applies hooks needs it for the same reason it
+// needs isolatedRecords: a locked settings write takes its lock under
+// paths.HomeLocksDir, which refuses the developer's real home from a test
+// binary rather than leaving a lock file there per run.
+func isolatedLocks(t *testing.T) {
+	t.Helper()
+	t.Cleanup(paths.SetHomeLocksDirForTesting(t.TempDir()))
+}

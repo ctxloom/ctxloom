@@ -454,7 +454,7 @@ func (c *Coordinator) giveUpLaunching(rec RunRecord, cause, detail string) {
 	if rec.ParentHarp == "" {
 		return
 	}
-	if _, err := c.queueMail(rec.Harp, rec.ParentHarp, "error", body); err != nil {
+	if _, err := c.mailParent(rec.Harp, rec.ParentHarp, KindError, body, nil, ""); err != nil {
 		c.rep.Warnf("agent %s: queue launch give-up notice: %v", rec.Harp, err)
 	}
 }

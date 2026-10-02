@@ -1054,7 +1054,7 @@ func StatusFromErr(err error) *rpcstatus.Status {
 	code := codes.Internal
 	switch {
 	case errors.Is(err, coord.ErrPeerRouting), errors.Is(err, coord.ErrControlRefused), errors.Is(err, coord.ErrNotAChild),
-		errors.Is(err, coord.ErrRosterIsTheOwners), errors.Is(err, coord.ErrRunNotIssued), errors.Is(err, coord.ErrForbidden):
+		errors.Is(err, coord.ErrRunNotIssued), errors.Is(err, coord.ErrForbidden):
 		code = codes.PermissionDenied
 	case errors.Is(err, coord.ErrSenderMailKind), errors.Is(err, coord.ErrInvalidRequest):
 		code = codes.InvalidArgument

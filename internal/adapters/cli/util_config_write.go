@@ -31,7 +31,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Content formats configWriteCmd understands. These are the target FILE's
@@ -312,7 +313,7 @@ func writeConfigFile(fs afero.Fs, file string, out []byte) error {
 			return fmt.Errorf("config-write: create directory for %s: %w", file, err)
 		}
 	}
-	if err := iox.AtomicWriteFile(fs, file, out, filepath.Base(file)); err != nil {
+	if err := safefs.WriteFileKeepMode(fs, file, out, filepath.Base(file)); err != nil {
 		return fmt.Errorf("config-write: write %s: %w", file, err)
 	}
 	return nil
@@ -634,7 +635,7 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, format hew.Forma
 	if err != nil {
 		return "", err
 	}
-	if err := iox.AtomicWriteFile(fs, recordPath, out, filepath.Base(recordPath)); err != nil {
+	if err := safefs.WriteFileKeepMode(fs, recordPath, out, filepath.Base(recordPath)); err != nil {
 		return "", fmt.Errorf("write %s: %w", recordPath, err)
 	}
 	return recordPath, nil
@@ -705,7 +706,7 @@ func normalizeConfigValue(v any) any {
 // renderConfigWriteResult is the human-readable twin of configWriteResult,
 // used in text mode (--format json emits the struct directly via emit).
 func renderConfigWriteResult(out io.Writer, r configWriteResult) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	action := "updated"
 	if r.Created {
 		action = "created"

@@ -103,7 +103,7 @@ const doctorSpoolStuckMaxNamed = 5
 // with os.ReadDir — absence is a normal state, not a sweep failure — and never
 // renames or deletes what it finds. A
 // failed entry is worded a fourth, distinct way from the other three: it did
-// not "sit unconsumed" (it was actively rejected), it is not "malformed"
+// not sit pending delivery (it was actively rejected), it is not "malformed"
 // (the file parsed fine as a message), and it is not a sweep I/O error (the
 // directory itself may not even exist) — it is a message ctxloom was GIVEN
 // and REFUSED to deliver, permanently.
@@ -257,6 +257,21 @@ func (s *spoolBacklogScan) failedDirs(harp, root string) {
 	}
 }
 
+// doctorSpoolPendingPhrase words an entry still sitting in in/ or out/. A
+// handled entry leaves: a delivered in/ message is deleted (its identity kept
+// in in/delivered/), a processed out/ message moves to out/consumed/. So one
+// still present has not been delivered either way. The stuck finding and the
+// all-clear share the phrase so neither can drift from the other or from the
+// tests.
+const doctorSpoolPendingPhrase = "still pending delivery past"
+
+const (
+	doctorSpoolStuckFormat = "%d spool entr(ies) " + doctorSpoolPendingPhrase +
+		" %s (oldest %s): %s — a report or an instruction has not been delivered"
+	doctorSpoolCleanFormat = "%d session spool(s) checked, 0 entries " + doctorSpoolPendingPhrase +
+		" %s, 0 malformed entries"
+)
+
 // report renders the accumulated findings as the check's verdict.
 func (s *spoolBacklogScan) report(sessionsRoot string) DoctorCheck {
 	if s.spoolsFound == 0 {
@@ -279,8 +294,7 @@ func (s *spoolBacklogScan) report(sessionsRoot string) DoctorCheck {
 
 	var parts []string
 	if len(s.stuck) > 0 {
-		parts = append(parts, fmt.Sprintf(
-			"%d spool entr(ies) sat unconsumed past %s (oldest %s): %s — a report or an instruction may not have been delivered",
+		parts = append(parts, fmt.Sprintf(doctorSpoolStuckFormat,
 			len(s.stuck), doctorSpoolStuckAge, s.oldest.Round(time.Second), doctorNamedList(s.stuck, doctorSpoolStuckMaxNamed)))
 	}
 	if len(s.malformed) > 0 {
@@ -303,9 +317,7 @@ func (s *spoolBacklogScan) report(sessionsRoot string) DoctorCheck {
 // cleanDetail words the all-clear, keeping "no failed/ directory exists" and
 // "failed/ directories exist and are empty" as two different sentences.
 func (s *spoolBacklogScan) cleanDetail() string {
-	detail := fmt.Sprintf(
-		"%d session spool(s) checked, 0 entries stuck unconsumed past %s, 0 malformed entries",
-		s.spoolsFound, doctorSpoolStuckAge)
+	detail := fmt.Sprintf(doctorSpoolCleanFormat, s.spoolsFound, doctorSpoolStuckAge)
 	if s.failedDirsSeen == 0 {
 		return detail + "; no session has a failed/ directory (in/ or out/; created lazily on the first refusal, so its absence is normal)"
 	}

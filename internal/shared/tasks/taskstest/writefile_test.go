@@ -85,7 +85,7 @@ func TestWriteFile_FailsTheTestOnMkdirAllError(t *testing.T) {
 }
 
 // TestWriteFile_FailsTheTestOnWriteError is the write-side twin of
-// TestWriteFile_FailsTheTestOnMkdirAllError: iox.WriteFileAtomicFs's last
+// TestWriteFile_FailsTheTestOnMkdirAllError: safefs.WriteFile's last
 // step is fs.Rename(tmpName, path), so a fs whose Rename always errors
 // exercises the write failure path without needing a genuinely broken
 // filesystem.
@@ -148,7 +148,7 @@ type mkdirFailFs struct {
 func (f mkdirFailFs) MkdirAll(string, os.FileMode) error { return f.err }
 
 // renameFailFs is mkdirFailFs's twin for the write-error branch: it forces
-// Rename — iox.WriteFileAtomicFs's final, publishing step — to fail.
+// Rename — safefs.WriteFile's final, publishing step — to fail.
 type renameFailFs struct {
 	afero.Fs
 	err error

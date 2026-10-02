@@ -3,6 +3,7 @@ package docsgen
 import (
 	"fmt"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +51,7 @@ func NewCommand(p *Product) *cobra.Command {
 				fmt.Fprintf(out, "%s markdown pages generated in %s\n", p.Bin, markdownDir)
 			}
 			if mcpDir != "" {
-				if err := GenMCPTools(cmd.Context(), p, mcpDir); err != nil {
+				if err := GenMCPTools(cmd.Context(), afero.NewOsFs(), p, mcpDir); err != nil {
 					return fmt.Errorf("generate MCP tools reference: %w", err)
 				}
 				fmt.Fprintf(out, "%s MCP tools reference generated in %s\n", p.Bin, mcpDir)
@@ -59,7 +60,7 @@ func NewCommand(p *Product) *cobra.Command {
 				if configSchema == "" {
 					return fmt.Errorf("--config needs --config-schema (%s declares no config schema)", p.Bin)
 				}
-				if err := GenConfig(p, configSchema, configDir); err != nil {
+				if err := GenConfig(afero.NewOsFs(), p, configSchema, configDir); err != nil {
 					return fmt.Errorf("generate config reference: %w", err)
 				}
 				fmt.Fprintf(out, "%s config reference generated in %s\n", p.Bin, configDir)

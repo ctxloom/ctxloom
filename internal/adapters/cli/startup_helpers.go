@@ -6,7 +6,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -87,8 +87,8 @@ func loadConfigOrFallback(loader func() (*config.Config, error), w io.Writer) *c
 		// Best-effort warning. This runs in fault-tolerant startup paths
 		// (`ctxloom deps check`, `ctxloom search`) that must proceed
 		// regardless, so a failed warning write has nowhere to go and is
-		// intentionally dropped (captured-but-unchecked via iox.ErrWriter).
-		ew := iox.NewErrWriter(w)
+		// intentionally dropped (captured-but-unchecked via errwriter.Writer).
+		ew := errwriter.New(w)
 		// The fallback trusts no signer (its Trust root is trust.NoSigners), so
 		// every signed companion and bundle reads as untrusted until the config
 		// loads. Saying so here is what stops a typo in config.yaml being

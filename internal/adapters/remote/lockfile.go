@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // LockfileManager handles reading and writing the active lockfile (lock.yaml —
@@ -396,7 +396,7 @@ func (m *LockfileManager) write(lockfile *Lockfile) error {
 
 	// The lockfile is the sole on-disk trust/provenance record; a torn write
 	// would corrupt it, so replace atomically.
-	if err := iox.WriteFileAtomicFs(m.fs, m.Path(), data, 0644); err != nil {
+	if err := safefs.WriteFile(m.fs, m.Path(), data, 0644); err != nil {
 		return fmt.Errorf("failed to write lockfile: %w", err)
 	}
 

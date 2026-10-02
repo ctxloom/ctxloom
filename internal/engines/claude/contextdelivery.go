@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/spf13/afero"
 
@@ -53,13 +53,13 @@ func (d *appendFlagDelivery) Path() string { return d.path }
 // an identical filename. Empty context frames to "" (nothing to deliver): no
 // file is written, Path stays "", and a no-op handle is returned.
 //
-// The write itself routes through agent.AtomicWriteFile (unique temp + fsync
-// + rename via iox), not a raw afero.WriteFile, so archlint's write-discipline
+// The write itself routes through safefs.WriteFileKeepMode (unique temp + fsync
+// + rename via safefs), not a raw afero.WriteFile, so archlint's write-discipline
 // rule has nothing to exempt here. No agent.WithFileLock wraps this:
 // the deterministic hash name means two concurrent deliveries of identical
 // content write identical bytes (idempotent, no lost update to guard), and
 // two DIFFERENT contents land at two DIFFERENT paths, so there is no
-// read-modify-write here to serialize — AtomicWriteFile's rename alone is
+// read-modify-write here to serialize — safefs.WriteFileKeepMode's rename alone is
 // enough to make the write itself atomic.
 func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, error) {
 	framed := agent.FrameProjectContext(context)
@@ -79,7 +79,7 @@ func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, er
 	name := hex.EncodeToString(sum[:8]) + agent.SCMFramedContextSuffix
 	path := filepath.Join(dir, name)
 
-	if err := iox.AtomicWriteFile(d.fs, path, []byte(framed), name); err != nil {
+	if err := safefs.WriteFileKeepMode(d.fs, path, []byte(framed), name); err != nil {
 		d.path = ""
 		return nil, fmt.Errorf("write framed context file: %w", err)
 	}

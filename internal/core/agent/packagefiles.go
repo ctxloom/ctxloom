@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file generalizes WriteManagedCommandFiles's manifest/traversal/cleanup
@@ -274,7 +274,7 @@ func writeManagedPackageFilesLocked[T any](
 		if err := fs.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 			return fmt.Errorf("write managed package files %s: create %s: %w", dir, filepath.Dir(dst), err)
 		}
-		if err := iox.Rename(fs, src, dst); err != nil {
+		if err := safefs.Rename(fs, src, dst); err != nil {
 			return fmt.Errorf("write managed package files %s: swap %s into place: %w", dir, relPath, err)
 		}
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // withProjectDir isolates the per-project task log for the duration of the test.
@@ -319,8 +320,9 @@ func TestHandleTaskList_MalformedTagQueryErrors(t *testing.T) {
 	assert.Error(t, err, "a malformed tag query must fail loud, never silently return an empty/all result")
 	// The agent typing tag_query is the caller MOST likely to get the postfix
 	// grammar wrong, and the only one who cannot read `taskloom list --help`.
-	assert.Contains(t, err.Error(), "queries are postfix",
-		"the MCP tool must carry the same grammar hint the CLI gives, not tagma's bare stack error")
+	fix, _ := clifmt.RemedyOf(err)
+	assert.Equal(t, tagQueryRemedy, fix,
+		"the MCP tool must carry the same grammar remedy the CLI gives, not tagma's bare stack error")
 }
 
 // TestHandleTaskList_MalformedTagQueryErrorMatchesTheCLI pins the two list
@@ -343,7 +345,11 @@ func TestHandleTaskList_MalformedTagQueryErrorMatchesTheCLI(t *testing.T) {
 	_, cliErr := operations.ListTasks(tc, operations.ListOptions{TagQuery: "and"})
 	require.Error(t, cliErr)
 
-	assert.Equal(t, wrapTagQueryError(cliErr).Error(), mcpErr.Error())
+	want := wrapTagQueryError(cliErr)
+	assert.Equal(t, want.Error(), mcpErr.Error())
+	wantFix, _ := clifmt.RemedyOf(want)
+	gotFix, _ := clifmt.RemedyOf(mcpErr)
+	assert.Equal(t, wantFix, gotFix, "one mistake, one remedy, whichever surface asked")
 }
 
 // TestHandleTaskList_DefaultScopesToCurrentProjectOnly pins the headline

@@ -194,7 +194,7 @@ its primary checkout's task store rather than one that dies with the worktree.
 | `taskContextSingle` | `root.go:159` | The three-step combo every single-project command needs — 12 call sites |
 | `noteTaskProject` / `formatProjectLabel` | `root.go:182`, `:191` | Post-mutation stderr attribution. **Note the argument order is opposite between the two**: `noteTaskProject(projectID, projectDir)` delegates to `formatProjectLabel(dir, id)` |
 | `warnTask` | `root.go:204` | Emits a non-empty operations warning via `clidiag` |
-| `renderTaskTable` | `root.go:216` | The human `list` view, through an `iox.ErrWriter` |
+| `renderTaskTable` | `root.go:216` | The human `list` view, through an `errwriter.Writer` |
 
 ### 5.2 Scope policy
 
@@ -227,7 +227,7 @@ its primary checkout's task store rather than one that dies with the worktree.
 | Symbol | file:line | Notes |
 |---|---|---|
 | `showCmd.RunE` | `show.go:27` | Lists **all** tasks including Done, linear-scans via `findTask` (`run.go:84`), emits `renderTaskDetail`. The not-found message names the bad input *and* the command that lists valid ones |
-| `renderTaskDetail` | `show.go:58` | Six writes through one `iox.ErrWriter` with a single terminal `w.Err()` check — the sticky-error pattern done right |
+| `renderTaskDetail` | `show.go:58` | Six writes through one `errwriter.Writer` with a single terminal `w.Err()` check — the sticky-error pattern done right |
 | `versionCmd.RunE` | `version.go:19` | Text form prints the bare version; the structured form is `cliversion.Info{Name:"taskloom", Version:version}`. **`{name, version}` is a wire contract** — ctxloom's boot probe parses it. Stamping verified end to end: `main.version` matches `cmd/taskloom/justfile:11` and `.goreleaser.yml:196` |
 | `watchCmd.RunE` | `watch.go:41` | Hidden, long-lived JSONL change stream for GUI subscribers. Emits once immediately so a subscriber renders current state without an initial-query race, then one debounced event per change burst (`watchDebounce` = 100ms) |
 | `watchEvent` | `watch.go:18` | `{event:"changed", kind:"tasks", project}` — a wire contract with **zero test coverage** |

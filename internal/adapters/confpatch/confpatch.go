@@ -35,7 +35,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/spf13/afero"
@@ -575,7 +575,7 @@ func WriteTarget(fs afero.Fs, target string, out []byte) error {
 			return fmt.Errorf("confpatch: create directory for %s: %w", target, err)
 		}
 	}
-	if err := iox.AtomicWriteFile(fs, target, out, filepath.Base(target)); err != nil {
+	if err := safefs.WriteFileKeepMode(fs, target, out, filepath.Base(target)); err != nil {
 		return fmt.Errorf("confpatch: write %s: %w", target, err)
 	}
 	return nil

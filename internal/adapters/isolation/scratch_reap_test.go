@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
@@ -97,12 +97,12 @@ func TestReapDeadScratch_DeletesOnlyWhileHoldingLock(t *testing.T) {
 }
 
 // TestOwnerLock_ConflictsWithFlock pins the invariant the owner/reaper
-// protocol rests on: the owner's own lock (iox.OpenLockFile + lockOwnerFile)
+// protocol rests on: the owner's own lock (safefs.OpenLockFile + lockOwnerFile)
 // and the reaper's gofrs/flock contend on the same object. A different
 // primitive, byte range or mode would let a reaper take a live owner's dir.
 func TestOwnerLock_ConflictsWithFlock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ownedScratchLockName)
-	f, err := iox.OpenLockFile(path, owneronly.FileMode)
+	f, err := safefs.OpenLockFile(path, owneronly.FileMode)
 	require.NoError(t, err)
 	require.NoError(t, lockOwnerFile(f))
 

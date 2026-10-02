@@ -91,7 +91,7 @@ fails there.
 
 ## Writer conventions
 
-The house style for a render function is `iox.NewErrWriter(cmd.OutOrStdout())`
+The house style for a render function is `errwriter.New(cmd.OutOrStdout())`
 with the sticky error returned at the end; prompts and diagnostics go to
 `cmd.ErrOrStderr()` or through `clidiag`. A command that writes with bare
 `fmt.Printf` to process stdout cannot be output-captured by a cobra test and

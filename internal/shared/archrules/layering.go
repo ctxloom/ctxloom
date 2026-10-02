@@ -108,7 +108,8 @@ var LayeringRules = []LayeringRule{
 			// member rather than as the internal/shared prefix: a package
 			// that merely sits under that directory is not thereby a
 			// toolbox member core may reach.
-			"internal/shared/iox",
+			"internal/shared/safefs",
+			"internal/shared/errwriter",
 			"internal/shared/lockwait",
 			"internal/shared/collections",
 			"internal/shared/keymatch",
@@ -147,7 +148,7 @@ var LayeringRules = []LayeringRule{
 			"internal/core/config -> internal/shared/admission": "slice 5: admission is decided by composite.Trust",
 
 			// shared/agent → its contract half becomes core/engine. Its
-			// lockwait and iox edges reach the toolbox, which is excepted, so they
+			// lockwait and safefs edges reach the toolbox, which is excepted, so they
 			// are not violations.
 			"internal/core/agent -> internal/shared/ledger": "slice 12: shared/ledger is deleted",
 		},
@@ -207,7 +208,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/transcript/vendorreader -> internal/adapters/transcript":                     "sanctioned: a package's own parent tree (transcript/*)",
 			"internal/adapters/transcript -> internal/adapters/transcript/policy":                           "sanctioned: a package's own subpackage (the read-side content policy FilteredSource applies)",
 			"internal/adapters/signing/countersign -> internal/adapters/signing":                            "sanctioned: a package's own parent tree (signing/*)",
-			"internal/adapters/content/archive -> internal/adapters/content":                                "sanctioned: a package's own parent tree (content/*)",
 			"internal/adapters/content/attest -> internal/adapters/content":                                 "sanctioned: a package's own parent tree (content/*)",
 			"internal/adapters/content/remotetree -> internal/adapters/content":                             "sanctioned: a package's own parent tree (content/*)",
 			"internal/adapters/coordgrpc/mcpschema/gen -> internal/adapters/coordgrpc/mcpschema":            "sanctioned: a package's own parent tree (coordgrpc/*)",

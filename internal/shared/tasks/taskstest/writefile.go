@@ -7,11 +7,11 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // WriteFile creates path's parent directory (mode dirPermFor(perm)) on fs and
-// then writes data through iox.WriteFileAtomicFs — the same MkdirAll-then-
+// then writes data through safefs.WriteFile — the same MkdirAll-then-
 // atomic-write sequence production writers use (e.g.
 // internal/adapters/operations/signer.go#appendAllowedSignersLine).
 //
@@ -57,7 +57,7 @@ func writeFile(t fatalReporter, fs afero.Fs, path string, data []byte, perm os.F
 	if err := fs.MkdirAll(dir, dirPermFor(perm)); err != nil {
 		t.Fatalf("taskstest.WriteFile: mkdir %s: %v", dir, err)
 	}
-	if err := iox.WriteFileAtomicFs(fs, path, data, perm); err != nil {
+	if err := safefs.WriteFile(fs, path, data, perm); err != nil {
 		t.Fatalf("taskstest.WriteFile: write %s: %v", path, err)
 	}
 }

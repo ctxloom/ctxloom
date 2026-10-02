@@ -387,6 +387,22 @@ func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, err 
 	return c.queueMailPayload(from, to, kind, body, nil, "")
 }
 
+// mailParent queues child-origin mail to the sender's parent and, when the
+// parent's run has ENDED, hands it to the leftover-mail tail so the parent is
+// resumed to read it. A parent's run can end while its children work on (a
+// one-shot run ends at every turn boundary), and a write alone only rings a
+// runner that no longer exists. The tail rather than driveObserved's explicit
+// resume, because mail from below is not a fresh ask from above: it must
+// honour an agent_stop of the parent and the relaunch bound, never lift them.
+func (c *Coordinator) mailParent(from, parent, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
+	id, err := c.queueMailPayload(from, parent, kind, body, structured, inReplyTo)
+	if err != nil {
+		return "", err
+	}
+	c.relaunchIfEndedSinceObserved(parent)
+	return id, nil
+}
+
 // queueMailPayload delivers one message: the write into the recipient's in/
 // spool IS the delivery, fsynced before return, and the doorbell only bounds
 // latency. Routing policy is the caller's. structured is an optional
@@ -623,10 +639,10 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		return
 	}
 	if _, _, err := c.peerSend(sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
-		// The routing chokepoint refused it (closed kind vocabulary,
-		// hub-and-spoke, unknown recipient). The agent's local write already
-		// returned success, so the refusal is reported back the only way that
-		// still reaches it: as mail.
+		// The routing chokepoint refused it (closed kind vocabulary, a
+		// recipient off the tree's edges, unknown recipient). The agent's
+		// local write already returned success, so the refusal is reported
+		// back the only way that still reaches it: as mail.
 		c.rep.Warnf("coordinator: refusing %s's spool message %s: %v", role, e.Ref, err)
 		c.spoolDeliveryCount.Failed.Add(1)
 		c.replySpoolRefusal(role, msg, err)
@@ -705,8 +721,8 @@ func (c *Coordinator) replySpoolRefusal(role string, msg Message, cause error) {
 // stated reason: the parent always learns. Authorship stays honest — the
 // message is queued FROM the child, because the text below the header is the
 // child's own words — and it borrows no authority the child did not already
-// have, since KindError is in the sender-allowed vocabulary and the parent is
-// a child's only legal recipient anyway.
+// have, since KindError is in the sender-allowed vocabulary and a child may
+// always address its own parent.
 //
 // The original TEXT is carried, not just the fact of the drop. A notice that
 // said only "a message was lost" would tell a coordinator to go and ask an
@@ -732,7 +748,7 @@ func (c *Coordinator) noticeSpoolDrop(role string, e spool.Entry, cause error) {
 			"(spool file %s; its sender was told, but a session that has ended cannot read that reply)\n"+
 			"\n--- the message text, as %s wrote it ---\n%s",
 		kind, role, spoolAddressee(e), cause, e.Ref, role, body)
-	if _, err := c.queueMail(role, parent, KindError, notice); err != nil {
+	if _, err := c.mailParent(role, parent, KindError, notice, nil, ""); err != nil {
 		c.rep.Warnf("coordinator: dropped %s and could not tell %s about it: %v (the original cause was %v)", e.Ref, parent, err, cause)
 	}
 }

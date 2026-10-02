@@ -9,8 +9,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file holds claude's runtime FORMS on the surface-delivery seam
@@ -293,9 +293,9 @@ func materializeEmptyMCPConfig(fs afero.Fs, path string) error {
 	if err != nil {
 		return err
 	}
-	// iox.WriteFileAtomicFs, not afero.WriteFile: 0o600 must land EXACTLY,
+	// safefs.WriteFile, not afero.WriteFile: 0o600 must land EXACTLY,
 	// and a torn write here is a config file claude refuses to start against.
-	return iox.WriteFileAtomicFs(fs, path, doc, 0o600)
+	return safefs.WriteFile(fs, path, doc, 0o600)
 }
 
 // Path returns the private .mcp.json written by Deliver (for --mcp-config

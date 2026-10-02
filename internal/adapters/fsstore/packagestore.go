@@ -15,7 +15,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // ErrBadClaimLocation is Get's refusal of a location that is not one this
@@ -60,7 +61,7 @@ func (s PackageStore) Put(_ context.Context, digest [32]byte, b []byte) (string,
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return "", fmt.Errorf("fsstore: stow package: %w", err)
 	}
-	if err := iox.WriteFileAtomic(full, b, 0o644, iox.AllowEmpty()); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), full, b, 0o644, safefs.AllowEmpty()); err != nil {
 		return "", fmt.Errorf("fsstore: stow package: %w", err)
 	}
 	return loc, nil

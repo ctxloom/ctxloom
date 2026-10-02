@@ -6,14 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"unicode"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/spf13/afero"
 )
 
 // idBase is the published $id prefix; matches the hand-maintained input schemas
@@ -62,7 +63,7 @@ type Target struct {
 // It returns the number of files it wrote, so a caller reports what was
 // generated rather than what it asked for; the two can only differ when
 // something went wrong, and the caller's own count could never disclose that.
-func Generate(dir string, targets []Target) (int, error) {
+func Generate(fs afero.Fs, dir string, targets []Target) (int, error) {
 	// Zero targets used to succeed silently — MkdirAll, a no-op sort,
 	// a loop over nothing, return nil — and the caller printed "wrote 0
 	// schemas" and exited 0. Both target providers sit behind `//go:build
@@ -83,7 +84,7 @@ func Generate(dir string, targets []Target) (int, error) {
 	if err := rejectNameCollisions(targets); err != nil {
 		return 0, err
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := fs.MkdirAll(dir, 0o755); err != nil {
 		return 0, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 	// Ordered on a COPY. The order does not affect any file's bytes — each
@@ -104,7 +105,7 @@ func Generate(dir string, targets []Target) (int, error) {
 		}
 		data = append(data, '\n')
 		path := filepath.Join(dir, n+"-schema.json")
-		if err := os.WriteFile(path, data, 0o644); err != nil {
+		if err := safefs.WriteFile(fs, path, data, 0o644); err != nil {
 			return written, fmt.Errorf("write %s: %w", path, err)
 		}
 		written++

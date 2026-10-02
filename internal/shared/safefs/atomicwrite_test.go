@@ -1,0 +1,41 @@
+package safefs
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/spf13/afero"
+)
+
+func TestWriteFileAtomic_WritesOverwritesAndLeavesNoTemp(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "index.yaml")
+
+	if err := WriteFile(afero.NewOsFs(), p, []byte("v1"), 0o644); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	if got, _ := os.ReadFile(p); string(got) != "v1" {
+		t.Fatalf("after first write got %q, want v1", got)
+	}
+
+	if err := WriteFile(afero.NewOsFs(), p, []byte("v2"), 0o644); err != nil {
+		t.Fatalf("overwrite: %v", err)
+	}
+	if got, _ := os.ReadFile(p); string(got) != "v2" {
+		t.Fatalf("after overwrite got %q, want v2", got)
+	}
+
+	// The unique temp must be renamed away, not left behind.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "index.yaml" {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("expected only index.yaml, got %v", names)
+	}
+}

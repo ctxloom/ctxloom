@@ -36,7 +36,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Name is the ONE marker filename, for every engine and every surface. It is
@@ -205,7 +205,7 @@ func (l Ledger) writeLocked(s Surface, names []string) error {
 		}
 		return nil
 	}
-	return iox.WriteFileAtomicFs(l.FS, l.Path(), render(all), 0o644)
+	return safefs.WriteFile(l.FS, l.Path(), render(all), 0o644)
 }
 
 // readAll parses the marker into its per-surface sets. Surfaces with no

@@ -8,7 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 // The distillation/compaction cluster the session commands share with the MCP
@@ -30,7 +30,7 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 			_ = os.Chdir(origWd)
 		}
 	}()
-	progress := iox.NewErrWriter(cmd.ErrOrStderr())
+	progress := errwriter.New(cmd.ErrOrStderr())
 	for i := range entries {
 		e := &entries[i]
 		_, distilled := operations.SessionEssenceInfo(e.HarpName, e)

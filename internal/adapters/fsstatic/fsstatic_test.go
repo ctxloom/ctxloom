@@ -19,7 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
@@ -155,7 +155,7 @@ func TestDeliver_RefusesAnInPlaceWriteToAnExistingFile(t *testing.T) {
 	changes := map[string]func(afero.Fs, string) error{
 		"append":  writeOpened(func(fs afero.Fs, p string) (afero.File, error) { return fs.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0) }),
 		"write":   writeOpened(func(fs afero.Fs, p string) (afero.File, error) { return fs.OpenFile(p, os.O_WRONLY, 0) }),
-		"create":  writeOpened(iox.Create),
+		"create":  writeOpened(safefs.Create),
 		"chtimes": func(fs afero.Fs, p string) error { return fs.Chtimes(p, stamp, stamp) },
 		"chown":   func(fs afero.Fs, p string) error { return fs.Chown(p, os.Getuid(), os.Getgid()) },
 	}

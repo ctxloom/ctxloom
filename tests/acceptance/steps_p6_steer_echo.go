@@ -170,7 +170,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			// setup-token the child env inherits (seedLiveCredentials refuses
 			// without one); a container receives it by name. Nothing is linked
 			// or copied.
-			return seedLiveCredentials(key, a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
+			return seedLiveCredentials(key, a, realHomeDir, w.env.SetChildEnv)
 		})
 
 	// --- the steer ----------------------------------------------------------

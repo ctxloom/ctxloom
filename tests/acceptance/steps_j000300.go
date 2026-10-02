@@ -209,7 +209,7 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
 			return err
 		}
-		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv); err != nil {
+		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.SetChildEnv); err != nil {
 			return err
 		}
 		instruction := fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j000300CompanyCodeword)
@@ -274,7 +274,7 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
 			return err
 		}
-		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv); err != nil {
+		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.SetChildEnv); err != nil {
 			return err
 		}
 		return installSetupGuidanceCompanion(w, "reprise",

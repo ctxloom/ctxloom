@@ -54,7 +54,7 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 		// (erased-collar) so a provider-side token rotation lands on the host
 		// instead of dying with this scenario's temp HOME. The API-key path
 		// needs nothing — it flows through the env.
-		return seedLiveCredentials(key, a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
+		return seedLiveCredentials(key, a, realHomeDir, w.env.SetChildEnv)
 	})
 
 	// A long, information-dense fragment gives distillation something real to

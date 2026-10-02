@@ -30,7 +30,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -125,8 +124,8 @@ type liveAgent struct {
 	// copied, and no authCheck subprocess runs — a token is its own proof of
 	// intent to use it.
 	apiKeyEnvs []string
-	// credDir is the per-agent credential directory under HOME (documentation
-	// only — copyCreds below hardcodes its own exact paths).
+	// credDir is the engine's config directory under HOME: the root the
+	// isolation probe censuses for writes leaking out of an isolated run.
 	credDir string
 	// config is the ctxloom config.yaml that points primary+fast at this
 	// backend, pinned to ONE CHEAP MODEL where a verified slug exists: live
@@ -142,18 +141,6 @@ type liveAgent struct {
 	// when the real credential material is absent (claude: it has none to
 	// map — its token is exported or the run is refused).
 	mapCreds func(realHome string) ([]credentialMapping, error)
-	// copyCreds is the LEGACY copy path. It copies just the auth files from
-	// the real HOME into the isolated one, and errors when it copied zero
-	// files — a caller that seeded no credentials must not be
-	// indistinguishable from one that seeded correctly.
-	//
-	// It is NO LONGER how an @live scenario gate seeds an engine that has a
-	// mapCreds mapper (seedLiveCredentials prefers mapping, always). It
-	// survives for isolation_probe.go, whose census DELIBERATELY builds
-	// a stand-in host home to measure what production's own seeding leaks —
-	// mapping there would point the measurement at the developer's real
-	// directories and destroy the thing being measured.
-	copyCreds func(realHome, fakeHome string) error
 	// authCheck determines whether the engine is AUTHENTICATED — not merely
 	// installed — via the subscription path. Only consulted when apiKeyEnvs
 	// is unset and the CTXLOOM_ACCEPTANCE_LIVE opt-in is set (see
@@ -197,7 +184,6 @@ var liveAgents = map[string]liveAgent{
     fast: claude
 `,
 		mapCreds:  mapClaudeCredentials,
-		copyCreds: copyClaudeCredentials,
 		authCheck: authCheckClaude,
 	},
 }
@@ -424,10 +410,8 @@ func mapClaudeCredentials(string) ([]credentialMapping, error) {
 //     means engineAvailable already passed, and it only passes the
 //     subscription path with a real HOME in hand.
 //  3. mapCreds set → map, and set every returned var.
-//  4. otherwise copyCreds → the legacy copy, for the engines that cannot be
-//     mapped (see the copyCreds field doc).
-//  5. neither → a loud error rather than an unauthenticated run.
-func seedLiveCredentials(name string, a liveAgent, realHome, fakeHome string, setEnv func(key, value string)) error {
+//  4. otherwise → a loud error rather than an unauthenticated run.
+func seedLiveCredentials(name string, a liveAgent, realHome string, setEnv func(key, value string)) error {
 	if cred, ok := liveCredential(a); ok {
 		setEnv(cred.EnvVar, cred.Value)
 		return nil
@@ -448,54 +432,5 @@ func seedLiveCredentials(name string, a liveAgent, realHome, fakeHome string, se
 		}
 		return nil
 	}
-	if a.copyCreds != nil {
-		return a.copyCreds(realHome, fakeHome)
-	}
-	return fmt.Errorf("seed %s credentials: engine has neither a credential mapping nor a copier configured", name)
-}
-
-// copyOneCredFile reads name from srcDir and, if present, writes it to
-// dstDir (creating dstDir first) under the same name. Reports whether it
-// copied anything, and the first write/mkdir error encountered (a missing
-// source is never an error here — the caller decides whether "copied
-// nothing at all" is fatal).
-func copyOneCredFile(srcDir, dstDir, name string) (copied bool, err error) {
-	data, rerr := os.ReadFile(filepath.Join(srcDir, name))
-	if rerr != nil {
-		return false, nil
-	}
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
-		return false, fmt.Errorf("mkdir %s: %w", dstDir, err)
-	}
-	if err := os.WriteFile(filepath.Join(dstDir, name), data, 0o600); err != nil {
-		return false, fmt.Errorf("write %s: %w", filepath.Join(dstDir, name), err)
-	}
-	return true, nil
-}
-
-// copyClaudeCredentials copies just the auth-relevant files from the real
-// ~/.claude into the isolated home, best effort — never the whole tree (which
-// holds caches, history, and backups). Errors when it copied zero files.
-func copyClaudeCredentials(realHome, fakeHome string) error {
-	srcDir := filepath.Join(realHome, ".claude")
-	dstDir := filepath.Join(fakeHome, ".claude")
-	copiedAny := false
-	for _, name := range []string{".credentials.json", "settings.json", "config.json"} {
-		copied, err := copyOneCredFile(srcDir, dstDir, name)
-		if err != nil {
-			return fmt.Errorf("copy claude credentials: %w", err)
-		}
-		copiedAny = copiedAny || copied
-	}
-	// ~/.claude.json holds onboarding state; copying it stops the CLI from
-	// dropping into an interactive first-run flow under the isolated HOME.
-	copied, err := copyOneCredFile(realHome, fakeHome, ".claude.json")
-	if err != nil {
-		return fmt.Errorf("copy claude credentials: %w", err)
-	}
-	copiedAny = copiedAny || copied
-	if !copiedAny {
-		return fmt.Errorf("copy claude credentials: copied 0 files from %s or %s/.claude.json", srcDir, realHome)
-	}
-	return nil
+	return fmt.Errorf("seed %s credentials: no token was captured at launch and the engine has no credential mapping", name)
 }

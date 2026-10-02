@@ -179,7 +179,7 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
 			return err
 		}
-		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv); err != nil {
+		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.SetChildEnv); err != nil {
 			return err
 		}
 		if _, err := seedSource(w, "personal", "fragments", "marker", j000200LivePersonalMark, j000200LivePersonalMark, true, true); err != nil {

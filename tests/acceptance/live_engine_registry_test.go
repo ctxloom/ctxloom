@@ -386,54 +386,6 @@ func TestLiveAgents_ConfigValidatesAgainstSchema(t *testing.T) {
 	}
 }
 
-// TestCopyCredentials_ZeroFilesCopiedIsAnError pins that every
-// copy*Credentials function used to succeed silently while copying zero
-// bytes — continuing/returning past a missing source with no signal at
-// all — so a caller that seeded no credentials was indistinguishable from
-// one that seeded correctly. Each now returns an error when nothing was
-// copied.
-func TestCopyCredentials_ZeroFilesCopiedIsAnError(t *testing.T) {
-	cases := []struct {
-		name string
-		fn   func(realHome, fakeHome string) error
-	}{
-		{"claude", copyClaudeCredentials},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			realHome := t.TempDir() // deliberately empty: no source credential files
-			fakeHome := t.TempDir()
-			err := tc.fn(realHome, fakeHome)
-			assert.Error(t, err, "copying from an empty HOME must report an error, not silently succeed")
-		})
-	}
-}
-
-// TestCopyClaudeCredentials_CopiesWhatExists pins the success path: at
-// least one real source file present must copy through with no error.
-func TestCopyClaudeCredentials_CopiesWhatExists(t *testing.T) {
-	realHome := t.TempDir()
-	fakeHome := t.TempDir()
-	claudeDir := filepath.Join(realHome, ".claude")
-	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(`{"ok":true}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := copyClaudeCredentials(realHome, fakeHome); err != nil {
-		t.Fatalf("copyClaudeCredentials: %v", err)
-	}
-	got, err := os.ReadFile(filepath.Join(fakeHome, ".claude", "settings.json"))
-	if err != nil {
-		t.Fatalf("copied file missing: %v", err)
-	}
-	if string(got) != `{"ok":true}` {
-		t.Fatalf("copied content = %q, want the source content", got)
-	}
-}
-
 // --- credential MAPPING (task erased-collar / jovial-employee) -------------
 
 // recordEnv is a stand-in for TestEnvironment.SetChildEnv: it records exactly
@@ -494,21 +446,19 @@ func seedFakeRealHome(t *testing.T) string {
 }
 
 // A token captured at launch is SET on the child — exactly that variable and
-// value, because the scrub removed it from what the child inherits — and no
-// byte is written anywhere.
+// value, because the scrub removed it from what the child inherits — and the
+// real HOME is not touched.
 func TestSeedLiveCredentials_CapturedTokenIsSetAndNothingCopied(t *testing.T) {
 	for _, v := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
 		t.Run(v, func(t *testing.T) {
 			realHome := seedFakeRealHome(t)
 			withLaunchCredentials(t, map[string]string{v: "fake-for-this-test"})
-			fakeHome := t.TempDir()
 			before := treeSnapshot(t, realHome)
 			got, setEnv := recordEnv()
-			if err := seedLiveCredentials("claude", liveAgents["claude"], realHome, fakeHome, setEnv); err != nil {
+			if err := seedLiveCredentials("claude", liveAgents["claude"], realHome, setEnv); err != nil {
 				t.Fatalf("seedLiveCredentials: %v", err)
 			}
 			assert.Equal(t, map[string]string{v: "fake-for-this-test"}, got, "the token path sets the captured variable and nothing else")
-			assert.Empty(t, treeSnapshot(t, fakeHome), "the token path copies nothing")
 			assert.Equal(t, before, treeSnapshot(t, realHome), "the real HOME is not touched")
 		})
 	}
@@ -519,15 +469,13 @@ func TestSeedLiveCredentials_CapturedTokenIsSetAndNothingCopied(t *testing.T) {
 // developer's login in the real HOME is neither copied nor touched.
 func TestSeedLiveCredentials_NoExportedTokenIsLoud(t *testing.T) {
 	realHome := seedFakeRealHome(t)
-	fakeHome := t.TempDir()
 	before := treeSnapshot(t, realHome)
 	got, setEnv := recordEnv()
-	err := seedLiveCredentials("claude", liveAgents["claude"], realHome, fakeHome, setEnv)
+	err := seedLiveCredentials("claude", liveAgents["claude"], realHome, setEnv)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "claude setup-token")
 	assert.Contains(t, err.Error(), "CLAUDE_CODE_OAUTH_TOKEN")
 	assert.Empty(t, got)
-	assert.Empty(t, treeSnapshot(t, fakeHome), "nothing is copied into the isolated HOME")
 	assert.Equal(t, before, treeSnapshot(t, realHome), "nothing in the real HOME is written, moved or removed")
 }
 
@@ -537,19 +485,19 @@ func TestSeedLiveCredentials_NoExportedTokenIsLoud(t *testing.T) {
 func TestSeedLiveCredentials_NoRealHomeIsLoud(t *testing.T) {
 	withLaunchCredentials(t, nil) // a captured token would take the token path first
 	got, setEnv := recordEnv()
-	err := seedLiveCredentials("claude", liveAgents["claude"], "", t.TempDir(), setEnv)
+	err := seedLiveCredentials("claude", liveAgents["claude"], "", setEnv)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no real HOME")
 	assert.Empty(t, got)
 }
 
-// TestSeedLiveCredentials_NoMechanismIsLoud: an engine registered with neither
-// a mapper nor a copier must fail loudly rather than run unauthenticated.
+// TestSeedLiveCredentials_NoMechanismIsLoud: an engine with no token captured
+// and no mapper must fail loudly rather than run unauthenticated.
 func TestSeedLiveCredentials_NoMechanismIsLoud(t *testing.T) {
 	got, setEnv := recordEnv()
-	err := seedLiveCredentials("bare", liveAgent{binary: "sh"}, t.TempDir(), t.TempDir(), setEnv)
+	err := seedLiveCredentials("bare", liveAgent{binary: "sh"}, t.TempDir(), setEnv)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "neither a credential mapping nor a copier")
+	assert.Contains(t, err.Error(), "no credential mapping")
 	assert.Empty(t, got)
 }
 
@@ -557,7 +505,7 @@ func TestSeedLiveCredentials_NoMechanismIsLoud(t *testing.T) {
 // floor for the policy. Every engine whose descriptor declares its home var
 // relocates credentials (agent.EngineHome.Credentials provided) must be
 // MAPPED. An engine whose credentials no config-home var relocates cannot
-// be mapped this way and must keep a copier instead; the false arm below is
+// be mapped this way and runs on its captured token alone; the false arm below is
 // what stops a future edit from quietly mapping such an engine at a
 // directory the engine never reads.
 func TestLiveAgents_MappableEnginesAreMappedUnmappableOnesAreNot(t *testing.T) {
@@ -572,7 +520,6 @@ func TestLiveAgents_MappableEnginesAreMappedUnmappableOnesAreNot(t *testing.T) {
 			assert.NotNil(t, a.mapCreds, "%s honours a config-home var for credentials and MUST be mapped, never copied", name)
 		} else {
 			assert.Nil(t, a.mapCreds, "%s has no config-home var that relocates credentials and must not pretend to be mappable", name)
-			assert.NotNil(t, a.copyCreds, "%s cannot be mapped, so it must keep its copier", name)
 		}
 	}
 }

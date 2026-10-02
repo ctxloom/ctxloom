@@ -468,7 +468,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			}
 			// Subscription path: MAP this engine at its real credential
 			// directory (erased-collar), never copy — see seedLiveCredentials.
-			return seedLiveCredentials(key, a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
+			return seedLiveCredentials(key, a, realHomeDir, w.env.SetChildEnv)
 		})
 
 	// --- Shared: capture a spawned child's harp -----------------------------

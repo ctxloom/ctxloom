@@ -352,12 +352,11 @@ the binary runs, rather than after it has already executed.
 **What does not change.** Rejection still reaches companion content (step 1,
 above the exemption). An unreadable approvals store still denies it along with
 everything else. Nothing is fatal and nothing stalls startup. An absent
-companion, or one that answers it has no loadout, contributes nothing. One that
-is admitted but never answers — wedged, timed out, or printing an unusable
-envelope — contributes something UNKNOWN, so its last-known loadout is carried
-forward with a warning rather than its hooks and servers being stripped
-(`~/.ctxloom/companion_loadouts/`). A loadout whose bundle YAML will not parse is
-skipped with a warning. Nothing is dropped silently: reporting replaces
+companion, or one that answers it has no loadout, contributes nothing, quietly.
+One that is admitted but never answers — wedged, timed out, or printing an
+unusable envelope — contributes something UNKNOWN; it contributes nothing this
+time, with a warning naming it and the command that must answer. A loadout whose
+bundle YAML will not parse is skipped with a warning. Nothing is dropped silently: reporting replaces
 filtering throughout.
 
 **Admitting a loadout is not the same as delivering it unconditionally.**

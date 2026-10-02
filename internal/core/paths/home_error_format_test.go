@@ -36,7 +36,6 @@ func TestHomeAccessorErrorsNameTheStoreAndTheExactPath(t *testing.T) {
 		{"approvals", HomeApprovalsPath, whatHomeApprovals, []string{ApprovalsDirName}},
 		{"allowed signers", HomeAllowedSignersPath, whatAllowedSigners, []string{AllowedSignersFileName}},
 		{"distrusted signers", HomeDistrustedSignersPath, whatDistrustedSigners, []string{DistrustedSignersFileName}},
-		{"companion loadouts", HomeCompanionLoadoutsDir, whatCompanionLoadouts, []string{CompanionLoadoutsDirName}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := tc.call()
@@ -67,16 +66,15 @@ func TestHomeAccessorErrorsNameTheStoreAndTheExactPath(t *testing.T) {
 // becomes a deliberate edit rather than a silent drift in what users read.
 func TestHomeStoreDescriptionsAreTheWordsWeThinkTheyAre(t *testing.T) {
 	for name, got := range map[string]string{
-		"the home sessions root":            whatHomeSessions,
-		"the home logs root":                whatHomeLogs,
-		"the trigger verdict cache":         whatTriggerCache,
-		"the coordinator state root":        whatHomeCoord,
-		"the home lock directory":           whatHomeLocks,
-		"the user countersignature store":   whatHomeApprovals,
-		"the user trust root":               whatAllowedSigners,
-		"the user distrust record":          whatDistrustedSigners,
-		"the home records directory":        whatHomeRecords,
-		"the last-known companion loadouts": whatCompanionLoadouts,
+		"the home sessions root":          whatHomeSessions,
+		"the home logs root":              whatHomeLogs,
+		"the trigger verdict cache":       whatTriggerCache,
+		"the coordinator state root":      whatHomeCoord,
+		"the home lock directory":         whatHomeLocks,
+		"the user countersignature store": whatHomeApprovals,
+		"the user trust root":             whatAllowedSigners,
+		"the user distrust record":        whatDistrustedSigners,
+		"the home records directory":      whatHomeRecords,
 	} {
 		require.Equal(t, name, got, "a store's description changed; update the message deliberately, not by accident")
 	}
@@ -88,7 +86,6 @@ func TestHomeStoreDescriptionsAreTheWordsWeThinkTheyAre(t *testing.T) {
 	for _, d := range []string{
 		whatHomeSessions, whatHomeLogs, whatTriggerCache, whatHomeCoord, whatHomeLocks,
 		whatHomeApprovals, whatAllowedSigners, whatDistrustedSigners, whatHomeRecords,
-		whatCompanionLoadouts,
 	} {
 		require.False(t, seen[d], "two stores share the description %q", d)
 		seen[d] = true

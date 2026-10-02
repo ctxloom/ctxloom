@@ -282,7 +282,7 @@ func TestProbeCompanionLoadouts_WedgedCompanionWarns(t *testing.T) {
 
 	out, err := Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
 	require.NoError(t, err)
-	assert.Empty(t, out.Loadouts, "a wedged companion with no earlier loadout on record contributes nothing")
+	assert.Empty(t, out.Loadouts, "a wedged companion still contributes nothing")
 	assert.Contains(t, buf.String(), "loadout probe failed", "a non-benign failure must be diagnosed, not silent")
 }
 

@@ -161,23 +161,19 @@ func applyWithLtkAnswering(t *testing.T, base *config.Config, root string, out [
 	return result, warnings.String(), err
 }
 
-// TestApplyHooks_VerifiedCompanionProbeFails_CarriesItsEntriesForward is
+// TestApplyHooks_VerifiedCompanionProbeFails_WarnsAndApplies is
 // unread-spectrum's ruled follow-on: a VERIFIED companion whose loadout probe
-// errors or times out contributes something UNKNOWN. Its existing entries are
-// carried forward unchanged — the apply neither blocks nor strips them — and
-// it says which companion and what to fix.
-func TestApplyHooks_VerifiedCompanionProbeFails_CarriesItsEntriesForward(t *testing.T) {
+// errors or times out contributes something UNKNOWN. The apply does not block
+// on it, and it says which companion and what must answer. (Carrying that
+// companion's existing entries forward is deferred to the safefs writer's
+// per-path ownership record.)
+func TestApplyHooks_VerifiedCompanionProbeFails_WarnsAndApplies(t *testing.T) {
 	root, base := setupProject(t, "claude-code")
-	_, _, err := applyWithLtkAnswering(t, base, root, ltkGuardEnvelope(t), nil)
-	require.NoError(t, err)
-	require.Contains(t, readFileString(t, filepath.Join(root, ".mcp.json")), "ltk-guard", "the seed apply must carry ltk's contribution")
-	before := snapshotTree(t, afero.NewOsFs(), root)
 
 	result, warned, err := applyWithLtkAnswering(t, base, root, nil, context.DeadlineExceeded)
 
-	require.NoError(t, err, "an unknown contribution is carried, not a refusal")
+	require.NoError(t, err, "an unknown contribution is warned about, not a refusal")
 	assert.Equal(t, "applied", result.Status)
-	assert.Equal(t, before, snapshotTree(t, afero.NewOsFs(), root), "every surface keeps ltk's entries exactly")
 	assert.Contains(t, warned, `companion "ltk"`)
 	assert.Contains(t, warned, "/opt/bin/ltk loadout --format json", "the warning names the remedy")
 }

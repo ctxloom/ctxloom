@@ -312,10 +312,10 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 //
 // A companion that is absent from PATH, not admitted for execution, or that
 // answers it offers no loadout (a first-party name that does not implement
-// `loadout` yet, e.g. reprise today) contributes nothing. One whose probe fails
-// or times out, or whose loadout ENVELOPE is structurally unusable, never
-// answered: its last-known loadout is carried forward with a warning (see
-// failedLoadout). NEVER fatal, NEVER a crash, NEVER a stalled startup.
+// `loadout` yet, e.g. reprise today) contributes nothing, quietly. One whose
+// probe fails or times out, or whose loadout ENVELOPE is structurally
+// unusable, never answered: it contributes nothing this time, with a warning
+// (see failedLoadout). NEVER fatal, NEVER a crash, NEVER a stalled startup.
 //
 // A SIGNATURE that does not verify is NOT one of those cases, and is not even
 // looked at here: companion content is admitted at EXEC, not by signature (see
@@ -390,14 +390,13 @@ func splitAdmissions(decided []CompanionAdmission) ([]CompanionAdmission, []bund
 func probeLoadout(bin, path string) (*bundles.CompanionLoadout, *bundles.CompanionCandidate) {
 	raw, err := companionLoadoutOutput(path)
 	if err != nil {
-		return failedLoadout(bin, path, classifyLoadoutProbe(err))
+		return nil, failedLoadout(bin, path, classifyLoadoutProbe(err))
 	}
 	doc, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
 	if derr != nil {
 		// It printed bytes that are not an envelope: it never answered.
-		return failedLoadout(bin, path, fmt.Errorf("%w: unparseable loadout envelope: %w", ErrLoadoutProbeFailed, derr))
+		return nil, failedLoadout(bin, path, fmt.Errorf("%w: unparseable loadout envelope: %w", ErrLoadoutProbeFailed, derr))
 	}
-	recordLoadout(bin, raw)
 	return &bundles.CompanionLoadout{Bin: bin, Path: path, Document: doc, Signature: sig, Self: bin == SelfCompanion}, nil
 }
 

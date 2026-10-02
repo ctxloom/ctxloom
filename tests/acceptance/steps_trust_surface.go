@@ -391,6 +391,20 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	// (materializes "default" into "out") — reused verbatim; godog rejects an
 	// ambiguous second match for the same step text (steps_j001500.go:229-235).
 
+	// The signature-check waiver, as a developer's task runner carries it:
+	// on the command line, or in the environment of one invocation.
+	ctx.Step(`^Alice starts a session with signature verification disabled$`, func(c context.Context) error {
+		_ = worldFrom(c).env.Run("--"+bundles.SigCheckFlag, "profile", "materialize", "default", "--target", "out")
+		return nil
+	})
+
+	ctx.Step(`^Alice starts a session with signature verification disabled through the environment$`, func(c context.Context) error {
+		w := worldFrom(c)
+		w.env.SetChildEnv(bundles.SigCheckEnv, "1")
+		_ = w.env.Run("profile", "materialize", "default", "--target", "out")
+		return nil
+	})
+
 	ctx.Step(`^the (fragment|command|MCP server|hook) is present in her assistant's delivered surface$`, func(c context.Context, element string) error {
 		return tsAssertPresence(worldFrom(c), element, true)
 	})

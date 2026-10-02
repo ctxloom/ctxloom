@@ -222,6 +222,9 @@ func (approvalCodec) ValidateRule(rule string) error {
 	return err
 }
 
+// Covers reports whether granting rule allows ask's call.
+func (approvalCodec) Covers(string, engine.PermissionAsk) bool { return false }
+
 // parseRule splits a rule into claude's toolName / ruleContent.
 func parseRule(rule string) (nativeRule, error) {
 	bad := func(why string) (nativeRule, error) {

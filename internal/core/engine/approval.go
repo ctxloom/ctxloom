@@ -99,6 +99,10 @@ type ApprovalCodec interface {
 	RepoSurfaces() []string
 	// ValidateRule refuses a rule the engine's rule syntax does not accept.
 	ValidateRule(rule string) error
+	// Covers reports whether granting rule allows ask's call. It is never
+	// wider than the engine's own matching: a rule whose reach the codec
+	// cannot judge exactly covers nothing, and the human is asked instead.
+	Covers(rule string, ask PermissionAsk) bool
 	// Hooks are the hooks that carry the engine's asks to the approval
 	// route, in the engine's own events and matchers, for a run whose
 	// approval timeout is timeout.

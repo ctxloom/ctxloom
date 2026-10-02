@@ -388,6 +388,9 @@ func (fixtureCodec) RepoSurfaces() []string { return nil }
 func (fixtureCodec) Hooks(timeout time.Duration) wire.UnifiedHooks {
 	return wire.UnifiedHooks{PermissionAsk: []wire.Hook{agent.ApprovalHook("fixture_ask", "", timeout)}}
 }
+// Covers: a fixture rule is a tool name.
+func (fixtureCodec) Covers(rule string, ask engine.PermissionAsk) bool { return rule == ask.Tool }
+
 func (fixtureCodec) ValidateRule(rule string) error {
 	if strings.HasPrefix(rule, "!") {
 		return ErrFixtureRule

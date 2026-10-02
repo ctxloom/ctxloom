@@ -99,3 +99,17 @@ func TestDurableFs_ReadOnlyOpenIsUntouched(t *testing.T) {
 	require.NoError(t, f.Close())
 	assert.Empty(t, *synced)
 }
+
+// A read-only open has nothing to make durable: it gets the base's own file,
+// not a wrapper that would fsync on Close.
+func TestDurableFs_ReadOnlyOpenIsTheBaseFile(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/f"
+	require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
+
+	f, err := safefs.NewDurableFs(afero.NewOsFs()).OpenFile(path, os.O_RDONLY, 0)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	_, isOS := f.(*os.File)
+	assert.True(t, isOS, "a read-only open must not be wrapped")
+}

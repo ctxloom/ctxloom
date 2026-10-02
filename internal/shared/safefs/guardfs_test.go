@@ -103,6 +103,9 @@ func TestGuardFs_ZeroLengthWriteDoesNotArmTheTruncate(t *testing.T) {
 	n, err := f.Write(nil)
 	require.NoError(t, err)
 	assert.Zero(t, n)
+	n, err = f.WriteAt(nil, 0)
+	require.NoError(t, err)
+	assert.Zero(t, n)
 
 	require.ErrorIs(t, f.Close(), safefs.ErrEmptyOverwrite)
 	assert.Equal(t, "keep me", content(t, base, guarded))
@@ -166,6 +169,16 @@ func TestGuardFs_CreateOfNewPathIsUntouched(t *testing.T) {
 	assert.Empty(t, content(t, base, "/d/new.txt"))
 }
 
+// A brand-new file has nothing to lose: creating it empty through a
+// truncating open is not an overwrite.
+func TestGuardFs_TruncatingCreateOfNewPathClosesClean(t *testing.T) {
+	base := seeded(t)
+	f, err := safefs.NewGuardFs(base).OpenFile("/d/new.txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	assert.Empty(t, content(t, base, "/d/new.txt"))
+}
+
 func TestGuardFs_NonTruncatingOpenIsUntouched(t *testing.T) {
 	base := seeded(t)
 	f, err := safefs.NewGuardFs(base).OpenFile(guarded, os.O_WRONLY|os.O_APPEND, 0o644)
@@ -177,4 +190,19 @@ func TestGuardFs_NonTruncatingOpenIsUntouched(t *testing.T) {
 func TestGuardFs_IsIdempotent(t *testing.T) {
 	g := safefs.NewGuardFs(afero.NewMemMapFs())
 	assert.Same(t, g, safefs.NewGuardFs(g))
+}
+
+// AllowEmpty is the caller's explicit decision, so it overrides a guard the
+// caller's fs already carries.
+func TestWriteFile_AllowEmptyStripsACallersGuard(t *testing.T) {
+	base := seeded(t)
+	require.NoError(t, safefs.WriteFile(safefs.NewGuardFs(base), guarded, nil, 0o644, safefs.AllowEmpty()))
+	assert.Empty(t, content(t, base, guarded))
+}
+
+func TestWriteFile_GuardedByDefault(t *testing.T) {
+	base := seeded(t)
+	err := safefs.WriteFile(base, guarded, nil, 0o644)
+	require.ErrorIs(t, err, safefs.ErrEmptyOverwrite)
+	assert.Equal(t, "keep me", content(t, base, guarded))
 }

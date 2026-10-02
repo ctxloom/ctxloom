@@ -700,6 +700,35 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 `)
 	})
 
+	// Repository trust is claude's verdict, read from the human's own
+	// ~/.claude.json: ctxloom keeps no trust store and never answers the
+	// prompt for her. "trusted" is her having accepted claude's trust prompt
+	// for the project, merged into whatever config she already has; "not
+	// trusted" leaves her config as it is, with no answer for the project.
+	ctx.Step(`^Alice has (trusted|not trusted) the project in her own claude$`, func(c context.Context, verdict string) error {
+		w := worldFrom(c)
+		if verdict != "trusted" {
+			return nil
+		}
+		cfg := map[string]any{}
+		if raw, err := w.env.ReadHomeFile(".claude.json"); err == nil {
+			if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+				return fmt.Errorf("Alice's ~/.claude.json does not parse: %w", err)
+			}
+		}
+		projects, _ := cfg["projects"].(map[string]any)
+		if projects == nil {
+			projects = map[string]any{}
+		}
+		projects[w.env.ProjectDir] = map[string]any{"hasTrustDialogAccepted": true}
+		cfg["projects"] = projects
+		raw, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			return err
+		}
+		return w.env.WriteHomeFile(".claude.json", string(raw)+"\n")
+	})
+
 	ctx.Step(`^Alice has a "([^"]*)" credential fixture on the host$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
 		rel, err := isoCredHostPath(engine)
@@ -1110,6 +1139,27 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// The unsafe-file MCP approach on a repository Alice never trusted:
+	// strict MCP mode would ignore the project's .mcp.json and launch claude
+	// without ctxloom's servers, so the run is refused, by the typed refusal,
+	// before the engine starts.
+	ctx.Step(`^the run is refused because an untrusted repository's session cannot load the project's MCP file$`, func(c context.Context) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
+		if w.env.LastExitCode() == 0 {
+			return fmt.Errorf("expected the run to be refused, it exited 0; output:\n%s", out)
+		}
+		if !strings.Contains(out, claude.ErrUntrustedProjectMCP.Error()) {
+			return fmt.Errorf("the run failed, but not with the untrusted-repository refusal; output:\n%s", out)
+		}
+		if _, err := isoReadSpyOut(j); err == nil {
+			return fmt.Errorf("engine %q started although the run was refused; output:\n%s", j.engine, out)
+		}
+		return nil
+	})
+
 	ctx.Step(`^the run reports a non-fatal isolation warning naming "([^"]*)"$`, func(c context.Context, needle string) error {
 		w := worldFrom(c)
 		out := w.env.LastOutput()
@@ -1221,11 +1271,13 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	//   - the onboarding answer CROSSED (otherwise every agent session
 	//     re-onboards, which is the cost the field-scoped copy exists to avoid);
 	//   - the workspace-trust answer was GENERATED for the directory the run
-	//     works in (otherwise a headless run proceeds untrusted, silently);
+	//     works in exactly when Alice trusted the repository in her own
+	//     claude, and never otherwise — ctxloom does not answer claude's
+	//     trust prompt for a repository she has not trusted;
 	//   - none of Alice's own config crossed with it — asserted against the raw
 	//     bytes, because a key can be absent while its VALUE rode in under
 	//     another name.
-	ctx.Step(`^the instance's claude config carries the generated trust answer and the account identity, and none of Alice's own registrations or history$`, func(c context.Context) error {
+	ctx.Step(`^the instance's claude config carries (the generated|no) trust answer and the account identity, and none of Alice's own registrations or history$`, func(c context.Context, answer string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
 		body, err := isoReadSpyOut(j)
@@ -1236,7 +1288,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if got == "" {
 			return fmt.Errorf("the spy read no .claude.json out of its config home — claude would meet its onboarding and trust dialogs with nothing answered; full spy dump:\n%s", body)
 		}
-		if err := isoCheckInstanceClaudeConfig(got, isoParseSpyEnv(body)["PWD"]); err != nil {
+		if err := isoCheckInstanceClaudeConfig(got, isoParseSpyEnv(body)["PWD"], answer == "the generated"); err != nil {
 			return err
 		}
 		for _, secret := range []string{isoFixturePersonalSecret, isoFixturePersonalHistory} {
@@ -1277,10 +1329,11 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 }
 
 // isoCheckInstanceClaudeConfig checks the parsed instance .claude.json (got):
-// onboarding crossed, Alice's bypass-permissions answer did not, exactly one
-// project entry — a trust answer for workDir, the run's own working directory
-// — and no mcpServers registrations.
-func isoCheckInstanceClaudeConfig(got, workDir string) error {
+// onboarding crossed, Alice's bypass-permissions answer did not, no
+// mcpServers registrations, and the project entries: exactly one, a trust
+// answer for workDir (the run's own working directory), when trusted; none
+// at all otherwise.
+func isoCheckInstanceClaudeConfig(got, workDir string, trusted bool) error {
 	var cfg struct {
 		HasCompletedOnboarding        bool `json:"hasCompletedOnboarding"`
 		BypassPermissionsModeAccepted bool `json:"bypassPermissionsModeAccepted"`
@@ -1298,9 +1351,15 @@ func isoCheckInstanceClaudeConfig(got, workDir string) error {
 	if cfg.BypassPermissionsModeAccepted {
 		return fmt.Errorf("the instance inherited Alice's standing bypass-permissions answer; that answer belongs to her own interactive session, not an agent run:\n%s", got)
 	}
+	if !trusted {
+		if len(cfg.Projects) != 0 {
+			return fmt.Errorf("the instance carries project entries for a repository Alice never trusted — ctxloom answered claude's trust prompt for her:\n%s", got)
+		}
+		return nil
+	}
 	entry, ok := cfg.Projects[workDir]
 	if !ok || !entry.HasTrustDialogAccepted {
-		return fmt.Errorf("no generated trust answer for the run's own working directory %q — headless, claude proceeds untrusted rather than prompting; instance config:\n%s", workDir, got)
+		return fmt.Errorf("no generated trust answer for the run's own working directory %q, which Alice trusted — headless, claude proceeds untrusted rather than prompting; instance config:\n%s", workDir, got)
 	}
 	if len(cfg.Projects) != 1 {
 		return fmt.Errorf("the instance carries %d project entries, want exactly the one this run works in — Alice's own projects map must never be copied wholesale:\n%s", len(cfg.Projects), got)

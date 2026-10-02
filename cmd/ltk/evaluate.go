@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // evaluateFlags groups `evaluate`'s flag-bound locals so its RunE can be a
@@ -263,9 +264,14 @@ func ungatedToolDenyReason(adapter engine.Adapter, req engine.Request) string {
 	return fmt.Sprintf(
 		"%s could not read %s tool %q's payload — it matched the installed hook but is not in "+
 			"ltk's gated tool set, so no rule could be evaluated against it — and is denying this "+
-			"call rather than letting it through unchecked. To fix: add %q to the engine's gated "+
-			"tools and re-run '%s manage install'.",
-		progName, adapter.Name(), req.ToolName, req.ToolName, progName)
+			"call rather than letting it through unchecked.",
+		progName, adapter.Name(), req.ToolName) + clifmt.FixLine("", ungatedToolRemedy(req.ToolName))
+}
+
+// ungatedToolRemedy is the fix for an ungated tool's deny: gate it and
+// reinstall the hook.
+func ungatedToolRemedy(tool string) string {
+	return fmt.Sprintf("add %q to the engine's gated tools and re-run '%s manage install'", tool, progName)
 }
 
 // failClosed renders reason as a well-formed deny decision in the engine's wire

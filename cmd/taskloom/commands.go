@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/priority"
@@ -366,15 +367,15 @@ func thinCoverageWarnings(d priority.Diagnostics) []string {
 	return out
 }
 
-// wrapTagQueryError adds the postfix-grammar hint to a malformed --tag-query,
-// shared by both the single-project and --global list paths. tagma reports a
-// malformed query as a plain error (no dedicated type to type-assert, unlike
-// the retired pkg/tagquery.ParseError, whose message named the underflowing
-// operator's operand count), so this checks for tasks.ErrTagQuery via
-// errors.Is instead — the sentinel filterTasks wraps every tagma query
-// error with — to tell "the --tag-query itself is bad" apart from an
-// unrelated error (store I/O, project resolution) that shouldn't get the
-// hint appended. The hint itself still names "operand" explicitly (not just
+// wrapTagQueryError names the postfix grammar as a malformed --tag-query's
+// remedy (report.Error), shared by both the single-project and --global list
+// paths; RenderError prints it as the fix line, and the MCP tools' remedied
+// wrapper carries it into the tool error. tagma reports a malformed query as
+// a plain error (no dedicated type to type-assert), so this checks for
+// tasks.ErrTagQuery via errors.Is instead — the sentinel filterTasks wraps
+// every tagma query error with — to tell "the --tag-query itself is bad"
+// apart from an unrelated error (store I/O, project resolution) that
+// shouldn't get the remedy. The remedy names "operand" explicitly (not just
 // tagma's own "stack underflow" wording) so a malformed query keeps failing
 // loud with the problem named in the same vocabulary it always has,
 // independent of the query engine underneath.
@@ -382,8 +383,10 @@ func wrapTagQueryError(err error) error {
 	if err == nil || !errors.Is(err, tasks.ErrTagQuery) {
 		return err
 	}
-	return fmt.Errorf("%w\nqueries are postfix: tags first, operator after — e.g. urgent/release/and, urgent/not; an and/or/not operator needs enough operands already on the query's stack, or it fails (see 'taskloom list --help' for more)", err)
+	return report.Error{Fix: tagQueryRemedy, Err: err}
 }
+
+const tagQueryRemedy = "queries are postfix: tags first, operator after — e.g. urgent/release/and, urgent/not; an and/or/not operator needs enough operands already on the query's stack, or it fails (see 'taskloom list --help' for more)"
 
 // renderGlobalTaskTable prints a --global (or no-project-fallback) listing as
 // one table section per project, reusing renderTaskTable per section so the

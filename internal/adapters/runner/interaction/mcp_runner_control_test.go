@@ -64,18 +64,6 @@ func TestRunnerServer_LeafIsRefusedEachControlTool(t *testing.T) {
 	}
 }
 
-// TestControlWireBudget_OnlyTheAsksOutrunTheDefault: the two blocking asks
-// get the coordinator's ask budget plus slack on the wire, so the
-// coordinator's own "unanswered, still in its spool" verdict is what the
-// caller reads; the mechanical verbs keep the default and fail fast.
-func TestControlWireBudget_OnlyTheAsksOutrunTheDefault(t *testing.T) {
-	assert.Equal(t, coord.AskWireBudget, controlWireBudget(mcpschema.ToolAgentAsk))
-	assert.Equal(t, coord.AskWireBudget, controlWireBudget(mcpschema.ToolAgentSummarize))
-	for _, name := range []string{mcpschema.ToolAgentSteer, mcpschema.ToolAgentPause, mcpschema.ToolAgentResume, mcpschema.ToolAgentStop} {
-		assert.Zero(t, controlWireBudget(name), "%s keeps Home.Request's default budget", name)
-	}
-}
-
 // TestRunnerServer_ControlToolsReachTheCoordinatorVerb drives each control
 // tool through the runner's REAL MCP surface against a live coordinator and
 // reads back the coordinator verb's own verdict: the verb's guard names the

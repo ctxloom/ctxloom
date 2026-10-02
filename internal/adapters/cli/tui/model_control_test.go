@@ -55,19 +55,17 @@ func TestModel_ControlKeysDriveEveryVerb(t *testing.T) {
 	}
 }
 
-func TestModel_AskAndSummarizeRenderTheAnswer(t *testing.T) {
-	for _, tc := range []struct{ key, want string }{
-		{"?", "answer from h1: first line second line"},
-		{"s", "summary from h1: first line second line"},
-	} {
+func TestModel_AskAndSummarizeRenderTheAskID(t *testing.T) {
+	for _, key := range []string{"?", "s"} {
 		f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "executing"})
-		f.controlOut = coord.ControlResult{Answer: &coord.AskAnswer{From: "h1", Text: "first line\n  second line\n"}}
+		f.controlOut = coord.ControlResult{AskID: "m-ask-1"}
 		m := openSelected(t, newTestModel(f), f)
 
-		m, run := sendVia(t, m, tc.key, "anything")
-		assert.Contains(t, m.status, "h1", "the pending ask names its target while it waits")
+		m, run := sendVia(t, m, key, "anything")
+		assert.Contains(t, m.status, "h1", "the pending ask names its target")
 		m, _ = step(t, m, run())
-		assert.Equal(t, tc.want, m.status, "the answer lands on the one-line hint bar, flattened")
+		assert.Equal(t, "asked h1 (ask m-ask-1); its reply arrives as mail", m.status,
+			"an ask answers with its id at once; the reply is mail")
 	}
 }
 
@@ -95,13 +93,13 @@ func TestModel_PauseAndResumeSayWhetherAnythingChanged(t *testing.T) {
 
 func TestModel_ControlErrorNamesTheVerb(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "executing"})
-	f.controlErr = coord.ErrAskTimeout
+	f.controlErr = coord.ErrAskUnavailable
 	m := openSelected(t, newTestModel(f), f)
 
 	m, run := sendVia(t, m, "?", "still there?")
 	m, _ = step(t, m, run())
 	assert.Contains(t, m.errMsg, "ask h1:")
-	assert.Contains(t, m.errMsg, coord.ErrAskTimeout.Error())
+	assert.Contains(t, m.errMsg, coord.ErrAskUnavailable.Error())
 }
 
 func TestModel_ControlKeysNeedATargetAndTheSeam(t *testing.T) {

@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,9 +12,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/engine/conformance"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // hostStart advises a project root and a session home on the host.
@@ -141,6 +144,40 @@ func TestDeliverMCP_AtTheProjectRoot_TheFileNeverHoldsTheRelayBearer(t *testing.
 	require.NoError(t, err)
 	require.Contains(t, string(private), bearer, "the private session-home file is not rewritten by reference")
 	require.Empty(t, d.Presented.Env[EnvRelayBearer])
+}
+
+// TestDeliverMCP_AtTheProjectRoot_TheRecordNeverHoldsTheRelayBearer: the
+// project .mcp.json write goes through the §9.7 record store, whose record
+// keeps the applied transforms, their inverse and the reversal patch — each
+// a copy of what was written. A record holding the value would put the bearer
+// on disk beside a file that was careful to name it only by reference.
+func TestDeliverMCP_AtTheProjectRoot_TheRecordNeverHoldsTheRelayBearer(t *testing.T) {
+	testsupport.Isolate(t)
+	def := claudeDef(t)
+	start, _, _ := hostStart(t)
+	const bearer = "bearer-value-under-test"
+	entry := def.Dynamic.Endpoint(sessions.Endpoint{URL: "http://127.0.0.1:1/mcp", Credential: bearer})
+	in := engine.MCPInputs{Servers: map[string]wire.MCPServer{"ctxloom": entry}}
+	_, err := def.MCP.DeliverMCP(start, present.RootProjectRoot, in, nil)
+	require.NoError(t, err)
+
+	dir, err := paths.HomeRecordsDir()
+	require.NoError(t, err)
+	var records int
+	require.NoError(t, filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		body, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		records++
+		require.NotContains(t, string(body), bearer, "the record %s holds the relay bearer", p)
+		require.Contains(t, string(body), relayBearerRef, "the record %s states the entry as written, by reference", p)
+		return nil
+	}))
+	require.Positive(t, records, "the project write left no record under %s to inspect", dir)
 }
 
 // TestBearerByReference_RefusesTwoDifferentBearers: claude's environment

@@ -25,13 +25,16 @@ var writeDisciplineExemptDirs = []string{
 }
 
 // forbiddenOSCalls are the raw-fs-write entry points forbidden outside the
-// exempt set. os.OpenFile is handled separately: only its write-mode calls
-// count.
+// exempt set: each creates, replaces or empties a file's content or name.
+// os.OpenFile is handled separately: only its write-mode calls count.
 var forbiddenOSCalls = map[string]bool{
-	"WriteFile": true,
-	"Create":    true,
-	"Rename":    true,
-	"Symlink":   true,
+	"WriteFile":  true,
+	"Create":     true,
+	"CreateTemp": true,
+	"Rename":     true,
+	"Symlink":    true,
+	"Link":       true,
+	"Truncate":   true,
 }
 
 // writeFlagConstants are the os.O_* names whose presence in an os.OpenFile

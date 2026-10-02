@@ -16,6 +16,14 @@ func Write() {
 	_ = os.WriteFile("x", nil, 0o600) // want `Write calls os.WriteFile directly`
 }
 
+// Emptied truncates a file outside the guard, and stages a temp outside the
+// atomic writer.
+func Emptied() {
+	_ = os.Truncate("x", 0)          // want `Emptied calls os.Truncate directly`
+	_, _ = os.CreateTemp(".", "x-*") // want `Emptied calls os.CreateTemp directly`
+	_ = os.Link("x", "y")            // want `Emptied calls os.Link directly`
+}
+
 // Renamed resolves the qualifier through its import, not its spelling.
 func Renamed() {
 	_ = xos.WriteFile("x", nil, 0o600) // want `Renamed calls os.WriteFile directly`

@@ -178,10 +178,20 @@ type Agent struct {
 	// mode — the credential itself is stored owner-only under the ctxloom
 	// home, out of any repository.
 	Auth string `yaml:"auth,omitempty"`
-	// HostEnv is which of the launching environment's variables this
-	// agent's engine inherits on the HOST runtime (HostEnv's doc). Undeclared
-	// inherits all of them; a container forwards only what it names anyway.
-	HostEnv HostEnv `yaml:"host_env,omitempty"`
+	// EnvHost is whether this agent's engine inherits the launching
+	// environment whole on the HOST runtime (podman's --env-host). Absent is
+	// true; false curates it (EnvHost the type). A pointer, because an
+	// explicit false must survive omitempty. A container forwards only what
+	// it names anyway.
+	EnvHost *bool `yaml:"env_host,omitempty"`
+	// Env is the bare variable names whose host values pass through when
+	// EnvHost is false (podman's -e NAME).
+	Env []string `yaml:"env,omitempty"`
+}
+
+// HostEnv is the binding's env_host and env keys as the launch applies them.
+func (a Agent) HostEnv() EnvHost {
+	return EnvHost{Curated: a.EnvHost != nil && !*a.EnvHost, Env: slices.Clone(a.Env)}
 }
 
 // HomeMode is the EFFECTIVE engine-home policy a declaration parses to: one

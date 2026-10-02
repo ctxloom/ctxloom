@@ -7,9 +7,9 @@ import (
 )
 
 // Windows names compare without case: the OS's own Path is the base's PATH,
-// and a passthrough spelt in any case keeps its variable.
-func TestHostEnv_WindowsNamesFoldCase(t *testing.T) {
-	h := HostEnv{Curated: true, Passthrough: []string{"github_token"}}
+// and an env name spelt in any case keeps its variable.
+func TestEnvHost_WindowsNamesFoldCase(t *testing.T) {
+	h := EnvHost{Curated: true, Env: []string{"github_token"}}
 	assert.True(t, h.Inherits("Path"))
 	assert.True(t, h.Inherits("GITHUB_TOKEN"))
 	assert.True(t, h.Inherits("xdg_config_home"))

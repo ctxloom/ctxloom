@@ -281,23 +281,17 @@
               "cloud"
             ]
           },
-          "host_env": {
-            "type": "object",
-            "description": "Which of the launching environment's variables this agent's engine inherits on the HOST runtime. Omitted, it inherits all of them (minus what the auth mode removes), so every exported secret reaches the engine and every MCP server, hook and shell it starts. With curated: true the engine starts from a curated base instead (PATH, HOME, USER, LOGNAME, SHELL, TERM, COLORTERM, LANG, TMPDIR, the LC_*, XDG_* and CTXLOOM_* families, the Windows OS essentials, and the engine's own home variable) plus the names in passthrough. The auth mode's credential is not inherited but set by value, so neither list needs to name it. A container already forwards only the variables it names; this setting does not apply there. A passthrough without curated: true is refused at launch.",
-            "properties": {
-              "curated": {
-                "type": "boolean",
-                "description": "Opt in: start the engine from the curated base plus passthrough instead of inheriting everything."
-              },
-              "passthrough": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Exact variable names (case-insensitive on Windows) a curated engine also inherits, e.g. GITHUB_TOKEN or HTTPS_PROXY."
-              }
+          "env_host": {
+            "type": "boolean",
+            "description": "Whether this agent's engine inherits the launching environment whole on the HOST runtime, as podman's --env-host does. Omitted or true, it inherits every variable (minus what the auth mode removes), so every exported secret reaches the engine and every MCP server, hook and shell it starts. false starts the engine from a curated base instead (PATH, HOME, USER, LOGNAME, SHELL, TERM, COLORTERM, LANG, TMPDIR, the LC_*, XDG_* and CTXLOOM_* families, the Windows OS essentials, and the engine's own home variable) plus the names in env. Proxy variables are not in the base: a proxy URL can carry credentials, so name them in env. The auth mode's credential is not inherited but set by value, so env need not name it. A container already forwards only the variables it names; this setting does not apply there."
+          },
+          "env": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[^=]+$"
             },
-            "additionalProperties": false
+            "description": "Bare variable names (case-insensitive on Windows) whose host values pass through to the engine when env_host is false, as podman's -e NAME does, e.g. GITHUB_TOKEN or HTTPS_PROXY. Names only: NAME=value is refused. Set while env_host is true (or omitted), it is refused at launch and when written."
           }
         },
         "additionalProperties": false

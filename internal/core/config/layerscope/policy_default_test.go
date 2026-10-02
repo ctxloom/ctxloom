@@ -123,3 +123,15 @@ func TestDefaultPolicy_MayDelegateIsShared(t *testing.T) {
 		t.Fatalf("agents.*.may_delegate: got %+v (found %v), want ScopeShared", rule, ok)
 	}
 }
+
+// env_host and env decide which host secrets reach every MCP server and hook
+// a project agent starts, so like the binding's permissions they are Shared:
+// a home config must never fill them in for a project.
+func TestDefaultPolicy_EnvHostKeysAreShared(t *testing.T) {
+	for _, key := range []string{"env_host", "env"} {
+		rule, ok := DefaultPolicy().Lookup([]string{"agents", "worker", key})
+		if !ok || rule.Scope != ScopeShared || rule.Path != "agents.*."+key {
+			t.Errorf("agents.*.%s: got %+v (found %v), want its own ScopeShared rule", key, rule, ok)
+		}
+	}
+}

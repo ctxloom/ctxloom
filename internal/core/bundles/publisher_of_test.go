@@ -27,12 +27,13 @@ func TestEditedSignedTrees_NamesOnlyRemoteInvalidReads(t *testing.T) {
 		return NewRead(ref, &Bundle{Name: ref}, ProvenanceRemote, ctx, SignatureFacts{Signature: sig, Signer: SignerTrusted})
 	}
 	reads := []BundleRead{
+		read("mid", TrustCtxRemote, SignatureInvalid),
 		read("zeta", TrustCtxRemote, SignatureInvalid),
 		read("alpha", TrustCtxRemote, SignatureInvalid),
 		read("local-stale", TrustCtxLocal, SignatureInvalid),
 		read("signed", TrustCtxRemote, SignatureValid),
 		read("unsigned", TrustCtxRemote, SignatureNone),
 	}
-	assert.Equal(t, []string{"alpha", "zeta"}, EditedSignedTrees(reads))
+	assert.Equal(t, []string{"alpha", "mid", "zeta"}, EditedSignedTrees(reads))
 	assert.Empty(t, EditedSignedTrees(nil))
 }

@@ -259,6 +259,7 @@ func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engin
 		Launch:     l,
 		Instance:   inst,
 		Exec:       ex,
+		Wake:       deps.Kind.Wake(),
 		MCPServers: agent.ComposeChatMCPServers(inputs.MCP.Servers, nil),
 		Prompt:     firstTurn(pkg, l),
 		Presented:  delivered.Presented,

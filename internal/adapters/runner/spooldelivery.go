@@ -68,6 +68,13 @@ func (h *Home) sweepSpoolIn() {
 		// would consume it into a sink nothing reads.
 		return
 	}
+	if h.isOwner() {
+		// The session owner's in/ is its turn-start hook's to read, claim
+		// and acknowledge: a second reader here would deliver the same mail
+		// twice. All a sweep owes the owner is the wake.
+		h.wakeOwner()
+		return
+	}
 	mapper := h.cfg.Mapper
 	path, err := spool.DirPath(mapper, h.Harp(), spool.DirIn)
 	if err != nil {

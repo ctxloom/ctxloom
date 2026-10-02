@@ -374,8 +374,7 @@ func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
 }
 
 // wrappedStdin hides a reader's concrete type behind a plain io.Reader, the
-// way coord's terminal-wake nudgeReader does in production once llm_serve.go
-// arms wrapStreams. It exists to deny RunInteractive the one thing the old
+// way any caller that wraps its stdin does. It exists to deny RunInteractive the one thing the old
 // cleanup depended on — that stdin IS an *io.PipeReader — without dragging a
 // dependency on internal/adapters/coordgrpc/pb into the substrate.
 type wrappedStdin struct{ r io.Reader }

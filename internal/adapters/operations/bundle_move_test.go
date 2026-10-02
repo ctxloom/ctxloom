@@ -59,7 +59,7 @@ func (f *failWriteFs) Create(name string) (afero.File, error) {
 	return f.Fs.Create(name)
 }
 
-// Rename intercepts the FINAL step of an atomic write (iox.WriteFileAtomicFs:
+// Rename intercepts the FINAL step of an atomic write (safefs.WriteFile:
 // unique temp + fsync + rename into place) by its DESTINATION name. The temp
 // file itself is created under a name like ".seed.yaml.sig.<rand>.tmp", which
 // never matches a suffix-shaped predicate like ".sig" — so without this, a

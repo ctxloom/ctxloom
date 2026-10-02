@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // THE RECORD OF WHAT UPGRADE WOULD NOT DO.
@@ -165,7 +165,7 @@ func saveRefusedAdvances(cfg *config.Config, refused []RefusedAdvance) error {
 	// No AllowEmpty: this branch only runs when refused is non-empty, so data
 	// is always a real, non-empty marshaled doc — the len(refused)==0 case
 	// above deletes the file instead of writing to it.
-	if werr := iox.WriteFileAtomicFs(fsys, path, data, 0o644); werr != nil {
+	if werr := safefs.WriteFile(fsys, path, data, 0o644); werr != nil {
 		return fmt.Errorf("write %s: %w", path, werr)
 	}
 	return nil

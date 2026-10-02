@@ -13,7 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // treeBundleFiles is the fixture a directory-form bundle is made of: the
@@ -37,7 +37,7 @@ func writeTree(t *testing.T, fs afero.Fs, root string, files map[string]string) 
 	for rel, body := range files {
 		target := filepath.Join(root, filepath.FromSlash(rel))
 		require.NoError(t, fs.MkdirAll(filepath.Dir(target), 0755))
-		require.NoError(t, iox.WriteFileAtomicFs(fs, target, []byte(body), 0644))
+		require.NoError(t, safefs.WriteFile(fs, target, []byte(body), 0644))
 	}
 }
 
@@ -189,7 +189,7 @@ func TestImportBundleTree_ExistingTreeRefusedThenReplacedWholesale(t *testing.T)
 	// A file the incoming version does not carry must not survive the replace:
 	// left behind, it is content the incoming SHA256SUMS never covers.
 	stale := filepath.Join(imported.Dest, "skills", "reviewer", "leftover.md")
-	require.NoError(t, iox.WriteFileAtomicFs(fs, stale, []byte("dropped upstream\n"), 0644))
+	require.NoError(t, safefs.WriteFile(fs, stale, []byte("dropped upstream\n"), 0644))
 
 	forced, err := ImportBundle(context.Background(), consumer,
 		ImportBundleRequest{SourcePath: exported.Dest, Force: true, FS: fs})

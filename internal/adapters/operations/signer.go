@@ -22,7 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // SignerNamespaceAliases maps the short vocabulary `ctxloom signer` accepts
@@ -267,7 +267,7 @@ func appendAllowedSignersLine(fs afero.Fs, path, line string) error {
 	// via a same-dir temp file + rename (dir already created above). Durable:
 	// a human's trust decision is unrecoverable if the rename silently
 	// reverts after a crash — there is no other record of it.
-	if err := iox.WriteFileAtomicFs(fs, path, []byte(b.String()), 0o600, iox.Durable()); err != nil {
+	if err := safefs.WriteFile(fs, path, []byte(b.String()), 0o600, safefs.Durable()); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
@@ -587,7 +587,7 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 	// unrecoverable-human-decision reasoning as the append side — a
 	// distrust that silently reverts after a crash is worse than one that
 	// never happened, because nothing tells the human it needs re-doing.
-	if err := iox.WriteFileAtomicFs(fs, path, []byte(out), 0o600, iox.AllowEmpty(), iox.Durable()); err != nil {
+	if err := safefs.WriteFile(fs, path, []byte(out), 0o600, safefs.AllowEmpty(), safefs.Durable()); err != nil {
 		return 0, fmt.Errorf("write %s: %w", path, err)
 	}
 	return removed, nil

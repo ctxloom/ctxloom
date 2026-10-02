@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
@@ -31,7 +32,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // lockFileMode and lockDirMode are the modes the canonical-transcript
@@ -325,7 +326,7 @@ func convertVendorTranscript(ctx context.Context, reg engine.Registry, e session
 	// (DIFFERENT files at the harp ROOT, <harp>/engine-transcript-<engine>-
 	// <sessionID>.jsonl, each pointing at a live vendor file — see its doc
 	// for why there is one per binding rather than one mutable name).
-	// Production never makes THIS path a symlink. iox.AtomicFile's Commit
+	// Production never makes THIS path a symlink. safefs.AtomicFile's Commit
 	// still replaces whatever is at a destination atomically without
 	// following a symlink if it ever were one, so this stays correct even if
 	// that ever changed — but nothing here currently exercises that case.
@@ -381,7 +382,7 @@ func rebuildCanonicalTranscript(ctx context.Context, adapter vendorreader.Vendor
 	// (this can be the very first canonical build for it). Without this, that
 	// append fails ENOENT before the live conversion — which does go through
 	// a Recorder — ever gets a chance to create the dir itself. It also has
-	// to run before iox.NewAtomicFile, whose own precondition (like
+	// to run before safefs.NewAtomicFile, whose own precondition (like
 	// WriteFileAtomicFs's) is that the destination directory already exists.
 	if mkErr := os.MkdirAll(filepath.Dir(dest), 0o755); mkErr != nil {
 		return false, fmt.Errorf("create persist dir for %s: %w", e.HarpName, mkErr)
@@ -392,7 +393,7 @@ func rebuildCanonicalTranscript(ctx context.Context, adapter vendorreader.Vendor
 			return converted, rerr
 		}
 	}
-	af, aerr := iox.NewAtomicFile(dest, 0o644)
+	af, aerr := safefs.NewAtomicFile(afero.NewOsFs(), dest, 0o644)
 	if aerr != nil {
 		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
 	}
@@ -414,7 +415,7 @@ func rebuildCanonicalTranscript(ctx context.Context, adapter vendorreader.Vendor
 // after a commit — exactly as they were. errStaleWatermark when the watermark
 // turns out not to describe the files; the caller rebuilds in full.
 func resumeRebuild(ctx context.Context, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest, liveSrc string, wm *transcriptWatermark) (converted bool, err error) {
-	af, aerr := iox.NewAtomicFile(dest, 0o644)
+	af, aerr := safefs.NewAtomicFile(afero.NewOsFs(), dest, 0o644)
 	if aerr != nil {
 		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
 	}
@@ -426,7 +427,7 @@ func resumeRebuild(ctx context.Context, adapter vendorreader.ResumableAdapter, e
 	return commitRebuild(af, e, next)
 }
 
-func resumeInto(ctx context.Context, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest string, af *iox.AtomicFile, liveSrc string, wm *transcriptWatermark) (*transcriptWatermark, error) {
+func resumeInto(ctx context.Context, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest string, af *safefs.AtomicFile, liveSrc string, wm *transcriptWatermark) (*transcriptWatermark, error) {
 	from := resumePoint{vendor: wm.Vendor, seq: wm.NextSeq, sessionID: wm.SessionID, digest: sha256.New(), length: wm.CanonicalLength}
 	if err := copyCanonicalPrefix(dest, wm, af, from.digest); err != nil {
 		return nil, err
@@ -442,7 +443,7 @@ func resumeInto(ctx context.Context, adapter vendorreader.ResumableAdapter, e se
 // converts the live vendor transcript (when liveOK) into af's temp file from
 // its beginning, returning the watermark the conversion offered (nil for
 // none). The caller aborts af on error.
-func writeRebuildSegments(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, af *iox.AtomicFile, liveSrc string, liveOK bool) (*transcriptWatermark, error) {
+func writeRebuildSegments(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, af *safefs.AtomicFile, liveSrc string, liveOK bool) (*transcriptWatermark, error) {
 	for _, rot := range e.Rotations {
 		if werr := appendRotationSegment(ctx, adapter, e, rot, af); werr != nil {
 			return nil, werr
@@ -458,13 +459,13 @@ func writeRebuildSegments(ctx context.Context, adapter vendorreader.VendorAdapte
 // produced bytes, and otherwise aborts it. Only after a commit is wm — the
 // watermark describing what was just installed, nil for none — recorded:
 // written first, it could describe a transcript that never landed.
-func commitRebuild(af *iox.AtomicFile, e sessions.Entry, wm *transcriptWatermark) (converted bool, err error) {
+func commitRebuild(af *safefs.AtomicFile, e sessions.Entry, wm *transcriptWatermark) (converted bool, err error) {
 	// Convert succeeding is NOT the same fact as bytes landing on disk.
 	// transcript.Recorder only creates its canonical file on the FIRST
 	// SUCCESSFUL Record, so a live Convert that (legitimately, per
 	// vendorreader.VendorAdapter's own degrade-to-partial contract) wrote zero
 	// entries — combined with no rotation contributing a segment either —
-	// leaves the temp file at size zero (iox.NewAtomicFile creates it empty
+	// leaves the temp file at size zero (safefs.NewAtomicFile creates it empty
 	// up front, so it always exists, unlike the old fixed ".rebuild" name).
 	info, serr := os.Stat(af.TempPath())
 	if serr != nil || info.Size() == 0 {
@@ -525,7 +526,7 @@ func tryOwnCanonicalTranscript(harp, dest string) (release func(), acquired bool
 // through clidiag rather than returning an error for that case. Only a
 // genuine I/O failure while converting or caching a segment that DOES exist
 // returns an error.
-func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, af *iox.AtomicFile) error {
+func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, af *safefs.AtomicFile) error {
 	segPath, perr := paths.ResolveHarpSegmentPath(e.HarpName, rot.SessionID)
 	if perr != nil {
 		return fmt.Errorf("resolve segment path for %s/%s: %w", e.HarpName, rot.SessionID, perr)
@@ -547,7 +548,7 @@ func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapt
 		if mkErr := os.MkdirAll(filepath.Dir(segPath), 0o755); mkErr != nil {
 			return fmt.Errorf("create segments dir for %s: %w", e.HarpName, mkErr)
 		}
-		segAF, aerr := iox.NewAtomicFile(segPath, 0o644)
+		segAF, aerr := safefs.NewAtomicFile(afero.NewOsFs(), segPath, 0o644)
 		if aerr != nil {
 			return fmt.Errorf("open segment rebuild file for %s/%s: %w", e.HarpName, rot.SessionID, aerr)
 		}
@@ -581,7 +582,7 @@ func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapt
 }
 
 // appendFileBytes copies src's full contents onto the end of w — the
-// harp-lifetime rebuild in progress (an iox.AtomicFile, which satisfies
+// harp-lifetime rebuild in progress (an safefs.AtomicFile, which satisfies
 // io.Writer via its own Write method) — used to concatenate a harp's cached
 // rotation segments (each already in canonical JSONL form) ahead of the live
 // binding's own conversion.

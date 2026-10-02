@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Approved-content snapshots.
@@ -62,7 +62,7 @@ func writeTrustSnapshot(fs afero.Fs, baseDir, hash string, content []byte) {
 	}
 	path := filepath.Join(dir, snapshotFilename(hash))
 	// No AllowEmpty: len(content) == 0 already returned above.
-	if err := iox.WriteFileAtomicFs(fs, path, content, 0o644); err != nil {
+	if err := safefs.WriteFile(fs, path, content, 0o644); err != nil {
 		clidiag.Warn("ctxloom", "could not write trust snapshot %s: %v", snapshotFilename(hash), err)
 	}
 }
@@ -199,11 +199,11 @@ func copyTrustObjects(fs afero.Fs, src, dst string) error {
 		if readErr != nil {
 			return readErr
 		}
-		// iox chmods to info.Mode().Perm() exactly on every write, closing the
+		// safefs chmods to info.Mode().Perm() exactly on every write, closing the
 		// same latent stale-mode gap the content/archive and remote/pull
 		// migrations closed: afero.WriteFile only applies mode at creation, so
 		// a copy onto a pre-existing target used to keep the target's OLD mode.
-		return iox.WriteFileAtomicFs(fs, target, data, info.Mode().Perm())
+		return safefs.WriteFile(fs, target, data, info.Mode().Perm())
 	})
 }
 

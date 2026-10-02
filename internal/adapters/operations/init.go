@@ -14,7 +14,7 @@ import (
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -104,7 +104,7 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 	// No AllowEmpty: BuildInitialConfig always renders a non-empty document.
 	// The overwrite of an existing config.yaml is deliberate (InitializeProject's
 	// doc: scaffold files are overwritten, the seed profile is not).
-	if err := iox.WriteFileAtomicFs(fs, paths.ConfigPath(req.AppDir), configData, 0644); err != nil {
+	if err := safefs.WriteFile(fs, paths.ConfigPath(req.AppDir), configData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to create config.yaml: %w", err)
 	}
 
@@ -170,7 +170,7 @@ func writeDefaultRemotes(fs afero.Fs, appDir string) error {
 	}
 	// No AllowEmpty: remotesContent is the embedded default remotes resource,
 	// never empty.
-	if err := iox.WriteFileAtomicFs(fs, paths.RemotesPath(appDir), remotesContent, 0644); err != nil {
+	if err := safefs.WriteFile(fs, paths.RemotesPath(appDir), remotesContent, 0644); err != nil {
 		return fmt.Errorf("failed to create remotes.yaml: %w", err)
 	}
 	return nil
@@ -191,7 +191,7 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 	}
 	// No AllowEmpty: data is the embedded seed profile resource, never empty,
 	// and dest was just checked absent above (write-if-absent).
-	if err := iox.WriteFileAtomicFs(fs, dest, data, 0644); err != nil {
+	if err := safefs.WriteFile(fs, dest, data, 0644); err != nil {
 		return fmt.Errorf("write %s: %w", dest, err)
 	}
 	return nil

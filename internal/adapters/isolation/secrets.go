@@ -68,19 +68,28 @@ var errSecretUnstaged = errors.New("container secrets: the placement names a sec
 // either, as it covers every mount. onDisk reports the fallback, which the
 // caller announces (secretsOnDiskNotice).
 func secretParent(getenv func(string) string, scratchRoot string) (dir string, onDisk bool) {
-	if dir := getenv(runtimeDirEnv); dir != "" {
+	if dir, ok := SecretsRuntimeDir(getenv); ok {
 		return dir, false
 	}
 	return filepath.Dir(scratchRoot), true
 }
 
+// SecretsRuntimeDir is the per-user tmpfs a container run's secrets are
+// written to, and whether the platform offers one; when it does not, they go
+// to disk under the session's scratch dir (secretParent). The doctor reports
+// the same decision.
+func SecretsRuntimeDir(getenv func(string) string) (string, bool) {
+	dir := getenv(runtimeDirEnv)
+	return dir, dir != ""
+}
+
 // runtimeDirEnv names the user's per-session tmpfs (XDG base dirs).
 const runtimeDirEnv = "XDG_RUNTIME_DIR"
 
-// secretsOnDiskNotice is the once-per-process announcement that a container
+// SecretsOnDiskNotice is the once-per-process announcement that a container
 // run's secrets are written to disk because the platform offers no per-user
-// tmpfs. The doctor reports the same fact (operations' secrets-storage check).
-func secretsOnDiskNotice(dir string) string {
+// tmpfs, naming the platform and dir. The doctor reports the same text.
+func SecretsOnDiskNotice(dir string) string {
 	return fmt.Sprintf("container secrets: %s has no per-user tmpfs ($%s is unset), so each container run's secrets are written owner-only to disk under %s and removed when the run ends", platform.Name, runtimeDirEnv, dir)
 }
 

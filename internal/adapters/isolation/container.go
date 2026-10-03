@@ -383,7 +383,7 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 	// is swept by the next one made under the same parent.
 	secretDir, onDisk := secretParent(os.Getenv, cw.scratchRoot)
 	if onDisk {
-		clidiag.WarnOnce("ctxloom", "%s", secretsOnDiskNotice(secretDir))
+		clidiag.WarnOnce("ctxloom", "%s", SecretsOnDiskNotice(secretDir))
 	}
 	secrets, err := newOwnedScratch(secretDir, secretScratchPrefix)
 	if err != nil {

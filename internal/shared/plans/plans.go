@@ -410,8 +410,8 @@ func frontmatterBlock(content string) (block string, ok bool) {
 // e.g. the runner's artifact stamper — so a plan an agent was told to write
 // can never be somewhere none of them look.
 //
-// The directory is not walked recursively: its subdirectories hold published
-// reports and segment essences, which are not this session's plans.
+// The directory is not walked recursively: its subdirectories hold segment
+// essences and the like, which are not this session's plans.
 //
 // FAULTS ARE RETURNED, NOT SWALLOWED. A missing directory, or no such
 // session, is genuinely "no plans here" and is silent; a session with no

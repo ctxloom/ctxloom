@@ -65,13 +65,13 @@ func TestSessionPlanPaths_ReadsTheRecordedOutputDir(t *testing.T) {
 	assert.Equal(t, []string{alpha, zeta}, got)
 }
 
-// TestSessionPlanPaths_IsNotRecursive: the output dir's subdirectories hold
-// published reports and segment essences, which are not this session's plans.
+// TestSessionPlanPaths_IsNotRecursive: the output dir's subdirectories (segment
+// essences, anything filed beneath) are not this session's plans.
 func TestSessionPlanPaths_IsNotRecursive(t *testing.T) {
 	testsupport.Isolate(t)
 	harp, out := mintWithOutputDir(t)
 	mine := writePlan(t, out, "design", "# mine")
-	writePlan(t, filepath.Join(out, paths.OutputReportsDirName), "published", "# a report")
+	writePlan(t, filepath.Join(out, paths.SegmentsDirName), "nested", "# not a plan of this session")
 
 	got, problems := SessionPlanPaths(harp)
 	assert.Empty(t, problems)

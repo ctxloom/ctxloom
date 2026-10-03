@@ -302,10 +302,6 @@ const (
 	// <base>/<project>/<harp>/ (DefaultOutputBase, sessions.Entry.OutputDir).
 	OutputDirName = "ctxloom"
 
-	// OutputReportsDirName is the output-dir subdirectory holding the
-	// artifacts an agent published with agent_report.
-	OutputReportsDirName = "reports"
-
 	// CoordDirName is the per-user directory holding in-process coordinator
 	// state: ~/.ctxloom/coord/<project-key>/<root-harp>/ (owner lock,
 	// run/mailbox/interaction journals, last-bound endpoint) — see

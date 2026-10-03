@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1300,4 +1301,23 @@ func TestDoctorCheckOrphanContainers_ReapsOnEveryRuntimePresent(t *testing.T) {
 	assert.Equal(t, DoctorWarn, found.Status)
 	assert.Contains(t, found.Detail, "2 podman")
 	assert.NotContains(t, found.Detail, "docker", "a runtime that held no orphan is not named as having one")
+}
+
+// DOCTOR-CHECK-SECRETS-STORAGE-k1: with a per-user tmpfs the secrets never
+// reach a disk; without one the fallback is allowed but named, with the
+// platform and the place.
+func TestDoctorCheckSecretsStorage(t *testing.T) {
+	ok := doctorCheckSecretsStorage(func(k string) string {
+		if k == "XDG_RUNTIME_DIR" {
+			return "/run/user/1000"
+		}
+		return ""
+	})
+	assert.Equal(t, DoctorOK, ok.Status)
+	assert.Contains(t, ok.Detail, "/run/user/1000")
+
+	disk := doctorCheckSecretsStorage(func(string) string { return "" })
+	assert.Equal(t, DoctorWarn, disk.Status)
+	assert.Contains(t, disk.Detail, platform.Name)
+	assert.Contains(t, disk.Detail, paths.ScratchDirName)
 }

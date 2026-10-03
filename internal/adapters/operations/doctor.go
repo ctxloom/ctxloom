@@ -178,6 +178,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			}),
 			doctorCheckLegacyIndex(),
 			doctorCheckHarpDurability(),
+			doctorCheckSecretsStorage(os.Getenv),
 			doctorCheckSpoolBacklog(),
 			doctorCheckSpoolCounters(ctx),
 			doctorCheckTTYInjection(),
@@ -1619,6 +1620,19 @@ func doctorCheckHarpDurability() DoctorCheck {
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf(
 		"%d authored file(s) sit in a harp directory's unclassified top level, which holds machine state only: %s — move each to its session's output dir (output_dir in the session's %s), where a human reads it and a containerized run keeps it",
 		len(flagged), list, paths.SessionSidecarFileName)}
+}
+
+// doctorCheckSecretsStorage reports where a container run's secrets are
+// written: the per-user tmpfs when the platform has one, else owner-only files
+// on disk under each session's scratch dir — allowed, but said, here and once
+// at launch (isolation.SecretsOnDiskNotice).
+func doctorCheckSecretsStorage(getenv func(string) string) DoctorCheck {
+	const marker = "DOCTOR-CHECK-SECRETS-STORAGE-k1"
+	if dir, ok := isolation.SecretsRuntimeDir(getenv); ok {
+		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "container run secrets are written to the per-user tmpfs " + dir}
+	}
+	where := filepath.Join("~", paths.AppDirName, paths.SessionsDir, "<harp>", paths.ScratchDirName)
+	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: isolation.SecretsOnDiskNotice(where)}
 }
 
 // doctorNamedList sorts items in place and joins at most maxNamed of them,

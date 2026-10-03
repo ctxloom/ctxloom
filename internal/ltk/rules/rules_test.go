@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
@@ -15,10 +16,10 @@ rules:
     message: "Use just test."
     suggest: "just test"
   - id: no-docker-build
-    match: { command: docker, args_any: [build, buildx] }
+    match: { command: [docker], args_any: [build, buildx] }
     message: "Builds go through CI."
   - id: no-shell-wrapper
-    match: { command: "sh -c" }
+    match: { command: [sh], args_all: [-c] }
     message: "No sh -c."
 `
 
@@ -29,6 +30,13 @@ func mustParse(t *testing.T, y string) *Config {
 		t.Fatalf("Parse: %v", err)
 	}
 	return cfg
+}
+
+// matchOf parses one deny rule with the given flow-map match and returns its
+// compiled CommandMatch, for tests that drive the matcher directly.
+func matchOf(t *testing.T, flow string) CommandMatch {
+	t.Helper()
+	return mustParse(t, denyRule(flow)).Rules[0].Match
 }
 
 // cmd builds a one-command script for a shell.
@@ -103,7 +111,7 @@ func TestShellRestriction(t *testing.T) {
 version: 1
 rules:
   - id: cmd-only
-    match: { command: foo, shells: [cmd] }
+    match: { command: [foo], shells: [cmd] }
     message: "no foo on cmd"
 `
 	cfg := mustParse(t, y)
@@ -122,12 +130,12 @@ func TestCommandPatternForms(t *testing.T) {
 	if Evaluate(cfg, cmd(ir.ShellBash, "go", "test", "-run", "X", "./...")).Allowed {
 		t.Error("`go test -run X ./...` should match [go, test] prefix")
 	}
-	// command + flag from the string form "sh -c".
+	// program + option: `sh` with -c anywhere in its args.
 	d := Evaluate(cfg, cmd(ir.ShellBash, "sh", "-c", "rm -rf /"))
 	if d.Allowed || d.RuleID != "no-shell-wrapper" {
 		t.Errorf("`sh -c …` should match the sh-wrapper rule, got %+v", d)
 	}
-	// prefix must match positionally: `sh -e` is not `sh -c`.
+	// `sh -e` carries no -c.
 	if !Evaluate(cfg, cmd(ir.ShellBash, "sh", "-e", "script")).Allowed {
 		t.Error("`sh -e` should not match `sh -c`")
 	}
@@ -143,7 +151,7 @@ func TestCommandPatternForms(t *testing.T) {
 
 func TestOptionsAreOrderIndependent(t *testing.T) {
 	// Options match as a set, in any order; positional `push` stays first.
-	y := "version: 1\nrules:\n  - id: force-push\n    match: { command: [git, push, --force, --no-verify] }\n    message: x\n"
+	y := "version: 1\nrules:\n  - id: force-push\n    match: { command: [git, push], args_all: [--force, --no-verify] }\n    message: x\n"
 	cfg := mustParse(t, y)
 
 	orders := [][]string{
@@ -166,29 +174,6 @@ func TestOptionsAreOrderIndependent(t *testing.T) {
 	}
 }
 
-func TestMixedCommandArray(t *testing.T) {
-	// A pattern array may interleave options and positionals in any order; the
-	// matcher partitions by kind, not by list position.
-	y := "version: 1\nrules:\n  - id: docker-debug-build\n    match: { command: [docker, --debug, build] }\n    message: x\n"
-	cfg := mustParse(t, y)
-
-	deny := [][]string{
-		{"docker", "--debug", "build", "."}, // option before positional in argv
-		{"docker", "build", "--debug"},      // positional before option in argv
-	}
-	for _, argv := range deny {
-		if Evaluate(cfg, cmd(ir.ShellBash, argv...)).Allowed {
-			t.Errorf("mixed pattern should match %v", argv)
-		}
-	}
-	if !Evaluate(cfg, cmd(ir.ShellBash, "docker", "build")).Allowed {
-		t.Error("missing --debug option should not match")
-	}
-	if !Evaluate(cfg, cmd(ir.ShellBash, "docker", "--debug", "push")).Allowed {
-		t.Error("wrong positional (push, not build) should not match")
-	}
-}
-
 func TestOptionsDoNotConsumePositions(t *testing.T) {
 	// An option before the subcommand must not break a positional match.
 	cfg := mustParse(t, sampleYAML)
@@ -202,7 +187,7 @@ func TestOptionsDoNotConsumePositions(t *testing.T) {
 // subsequence, so the real subcommand is still found and the rule still fires —
 // closing an easy evasion of a command-gating tool (e.g. `git -C /repo push`).
 func TestValueOptionBeforeSubcommandDoesNotEvade(t *testing.T) {
-	gitCfg := mustParse(t, "version: 1\nrules:\n  - id: no-force-push\n    match: { command: [git, push, --force] }\n    message: x\n")
+	gitCfg := mustParse(t, "version: 1\nrules:\n  - id: no-force-push\n    match: { command: [git, push], args_all: [--force] }\n    message: x\n")
 	deny := [][]string{
 		{"git", "-C", "/repo", "push", "--force"}, // separated value-option before push
 		{"git", "-c", "k=v", "push", "--force"},   // -c name=value before push
@@ -235,21 +220,26 @@ func TestPositionalSubsequenceRespectsOrder(t *testing.T) {
 	}
 }
 
+// Under cmd a leading "/" marks an option; under POSIX it begins a path
+// operand. So the same token is an operand pattern's target in one shell and
+// an args_* target in the other.
 func TestCmdSlashOptionsArePortable(t *testing.T) {
-	// Under cmd, /c is an option, not a positional path.
-	y := "version: 1\nrules:\n  - id: no-cmd-c\n    match: { command: [cmd.exe, /c] }\n    message: x\n"
-	cfg := mustParse(t, y)
+	cfg := mustParse(t, denyRule(`{ command: [cmd], args_all: ['/c'] }`))
 	if Evaluate(cfg, cmd(ir.ShellCmd, "cmd.exe", "/s", "/c", "dir")).Allowed {
 		t.Error("/c should match as an option under cmd, any order")
 	}
-	// Under a POSIX shell, a leading "/path" is positional, not a flag.
-	if !Evaluate(cfg, cmd(ir.ShellBash, "cmd.exe", "/usr/bin/x")).Allowed {
-		t.Error("under bash, /usr/bin/x is positional and should not match the /c rule")
+
+	operand := mustParse(t, denyRule(`{ command: [tool, '/x'] }`))
+	if Evaluate(operand, cmd(ir.ShellBash, "tool", "/x")).Allowed {
+		t.Error("under bash, /x is an operand and must match the operand pattern")
+	}
+	if !Evaluate(operand, cmd(ir.ShellCmd, "tool", "/x")).Allowed {
+		t.Error("under cmd, /x is an option and must not fill an operand slot")
 	}
 }
 
 func TestBareCommandMatchesAnyInvocation(t *testing.T) {
-	cfg := mustParse(t, "version: 1\nrules:\n  - id: no-go\n    match: { command: go }\n    message: x\n")
+	cfg := mustParse(t, "version: 1\nrules:\n  - id: no-go\n    match: { command: [go] }\n    message: x\n")
 	for _, args := range [][]string{{"go"}, {"go", "build"}, {"go", "test", "./..."}} {
 		if Evaluate(cfg, cmd(ir.ShellBash, args...)).Allowed {
 			t.Errorf("bare `command: go` should match %v", args)
@@ -260,18 +250,16 @@ func TestBareCommandMatchesAnyInvocation(t *testing.T) {
 	}
 }
 
-// An allow rule used to match its positionals as an ordered
-// SUBSEQUENCE of a command's operands, the same permissive operator used for
-// deny rules. That let an allowlisted spelling smuggled into an OPTION'S
-// VALUE (not a real subcommand) short-circuit a later deny — fail-open. Allow
-// rules now use a position-anchored strict prefix instead (see Match.Command,
-// "Allow vs. deny: matching discipline"). These tests pin the fix.
+// An allow rule matching its operand patterns as an ordered SUBSEQUENCE would
+// let an allowlisted spelling smuggled into an OPTION'S VALUE (not a real
+// subcommand) short-circuit a later deny — fail-open. Allow rules use a
+// position-anchored prefix instead (see CommandMatch.Command, "Allow vs. deny:
+// matching discipline"). These tests pin that.
 
 // TestAllowRuleCannotBeSmuggledPastDeny is the canonical red case: with
-// `allow: [git, status]` present ahead of a `[git, commit, --no-verify]` deny,
-// `git commit -m status --no-verify` used to be Allowed:true because `status`
-// (the VALUE of `-m`) counts as an operand and satisfies a one-element
-// subsequence. It must now be denied.
+// `allow: [git, status]` present ahead of a `[git, commit] + --no-verify`
+// deny, `git commit -m status --no-verify` must be denied: `status` (the VALUE
+// of `-m`) is an operand and would satisfy a one-element subsequence.
 func TestAllowRuleCannotBeSmuggledPastDeny(t *testing.T) {
 	y := `
 version: 1
@@ -280,7 +268,7 @@ rules:
     match: { command: [git, status] }
     action: allow
   - id: no-force-commit
-    match: { command: [git, commit, --no-verify] }
+    match: { command: [git, commit], args_all: [--no-verify] }
     action: deny
     message: "no --no-verify commits"
 `
@@ -302,7 +290,7 @@ func TestAllowRuleCannotBeSmuggledPastDeny_WithoutAllowRule(t *testing.T) {
 version: 1
 rules:
   - id: no-force-commit
-    match: { command: [git, commit, --no-verify] }
+    match: { command: [git, commit], args_all: [--no-verify] }
     action: deny
     message: "no --no-verify commits"
 `
@@ -345,31 +333,19 @@ func TestDenySubsequenceStillPermissive(t *testing.T) {
 	}
 }
 
-// TestAllowRuleValueOptionEscapeHatch documents the recommended authoring for
-// an allow rule that must tolerate a leading value-taking option: use
-// args_all (program-agnostic, position-insensitive) instead of a positional
-// command pattern, since strict prefix on `command: [docker, build]` would
-// reject `docker --context prod build` (the option's value `prod` occupies
-// operand[0], not `build`).
-func TestAllowRuleValueOptionEscapeHatch(t *testing.T) {
-	y := `
-version: 1
-rules:
-  - id: allow-docker-build
-    match: { command: [docker], args_all: [build] }
-    action: allow
-  - id: deny-docker
-    match: { command: [docker] }
-    action: deny
-    message: "docker is denied by default"
-`
-	cfg := mustParse(t, y)
-	if d := Evaluate(cfg, cmd(ir.ShellBash, "docker", "--context", "prod", "build")); !d.Allowed {
-		t.Errorf("`docker --context prod build` should match the args_all allow rule, got %+v", d)
+// TestAllowRuleHasNoPositionBlindEscapeHatch pins the accepted cost of
+// purely positional allows: an allow that must tolerate a leading value-option
+// (`docker --context prod build`) is inexpressible. The position-blind way to
+// write it is refused at load, because `args_all: [build]` on an allow also
+// clears `docker run --name build …`; the positional form does not match, so
+// the command falls through to the deny — the safe direction.
+func TestAllowRuleHasNoPositionBlindEscapeHatch(t *testing.T) {
+	re := parseErr(t, allowRule(`{ command: [docker], args_all: [build] }`))
+	if !errors.Is(re, ErrArgsOnAllow) {
+		t.Errorf("args_all on an allow must be refused, got %v", re)
 	}
-	// And the strict-prefix positional form would NOT have matched (documents
-	// why args_all is the recommended escape hatch, not a positional pattern).
-	strictY := `
+
+	strictCfg := mustParse(t, `
 version: 1
 rules:
   - id: allow-docker-build-positional
@@ -379,20 +355,19 @@ rules:
     match: { command: [docker] }
     action: deny
     message: "docker is denied by default"
-`
-	strictCfg := mustParse(t, strictY)
+`)
 	if Evaluate(strictCfg, cmd(ir.ShellBash, "docker", "--context", "prod", "build")).Allowed {
-		t.Error("a strict-prefix positional allow rule should NOT match `docker --context prod build`; that's why args_all is the documented escape hatch")
+		t.Error("a positional allow must NOT match `docker --context prod build`; it falls through to the deny")
 	}
 }
 
 func TestValidationErrors(t *testing.T) {
 	cases := map[string]string{
-		"missing id":          "version: 1\nrules:\n  - match: { command: go }\n",
-		"bad action":          "version: 1\nrules:\n  - id: x\n    action: nuke\n    match: { command: go }\n",
+		"missing id":          "version: 1\nrules:\n  - match: { command: [go] }\n",
+		"bad action":          "version: 1\nrules:\n  - id: x\n    action: nuke\n    match: { command: [go] }\n",
 		"empty match":         "version: 1\nrules:\n  - id: x\n    match: {}\n",
 		"empty command token": "version: 1\nrules:\n  - id: x\n    match: { command: [go, \"\"] }\n",
-		"duplicate id":        "version: 1\nrules:\n  - id: x\n    match: { command: a }\n  - id: x\n    match: { command: b }\n",
+		"duplicate id":        "version: 1\nrules:\n  - id: x\n    match: { command: [a] }\n  - id: x\n    match: { command: [b] }\n",
 		"bad default":         "version: 1\ndefaults: { on_parse_error: maybe }\nrules: []\n",
 	}
 	for name, y := range cases {
@@ -439,23 +414,22 @@ rules:
 	}
 }
 
-// TestMatchCommandResolvesWindowsAbsolutePathBasename pins that
-// matchCommand's basename fallback used path.Base directly, which is
-// POSIX-only (splits on '/' alone) — a Windows-style absolute invocation
-// (`C:\Windows\System32\cmd.exe`) never reduced to a bare `cmd.exe` the way
-// `/usr/bin/git` already reduces to `git`, so a `command: [cmd]` rule
-// silently never fired under the cmd dialect this exact rule targets.
+// TestMatchCommandResolvesWindowsAbsolutePathBasename pins that under cmd a
+// Windows-style absolute invocation (`C:\Windows\System32\cmd.exe`) reduces
+// to the bare, lowercased, .exe-less `cmd` the way `/usr/bin/git` reduces to
+// `git` — path.Base alone splits on '/' only, and would leave a `command:
+// [cmd]` rule silently never firing under the dialect it targets.
 func TestMatchCommandResolvesWindowsAbsolutePathBasename(t *testing.T) {
 	cfg := mustParse(t, `
 version: 1
 rules:
   - id: no-cmd-del
-    match: { command: ["cmd.exe", /c, del], shells: [cmd] }
+    match: { command: [cmd, del], args_all: ['/c'], shells: [cmd] }
     message: "no del via cmd"
 `)
 	d := Evaluate(cfg, cmd(ir.ShellCmd, `C:\Windows\System32\cmd.exe`, "/c", "del", "/f", "x"))
 	if d.Allowed {
-		t.Fatal("an absolute backslash-path invocation of cmd.exe must still match a `command: [cmd.exe, ...]` rule")
+		t.Fatal("an absolute backslash-path invocation of cmd.exe must still match a `command: [cmd, ...]` rule")
 	}
 }
 

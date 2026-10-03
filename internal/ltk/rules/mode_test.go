@@ -55,12 +55,9 @@ func TestConfirmWithoutWindowRejected(t *testing.T) {
 // mode controls whether a rule fires: disable → inert, enable/confirm → fires.
 func TestRuleModeMatching(t *testing.T) {
 	mk := func(mode Mode) *Config {
-		return &Config{Rules: []Rule{{
-			ID:      "no-go-test",
-			Match:   Match{Command: CommandPattern{"go", "test"}},
-			Mode:    mode,
-			Message: "use just test",
-		}}}
+		cfg := mustParse(t, "version: 1\nrules:\n  - id: no-go-test\n    match: { command: [go, test] }\n    message: use just test\n")
+		cfg.Rules[0].Mode = mode
+		return cfg
 	}
 	script := cmd(ir.ShellBash, "go", "test")
 
@@ -91,7 +88,7 @@ rules:
     match: { command: [go, test] }
     mode: disable
   - id: default-rule
-    match: { command: [git, push, --force] }
+    match: { command: [git, push], args_all: [--force] }
     message: force-pushing rewrites shared history
 `))
 	if err != nil {
@@ -106,7 +103,7 @@ rules:
 }
 
 func TestInvalidModeRejected(t *testing.T) {
-	_, err := Parse([]byte("version: 1\nrules:\n  - id: x\n    mode: sometimes\n    match: { command: go }\n"))
+	_, err := Parse([]byte("version: 1\nrules:\n  - id: x\n    mode: sometimes\n    match: { command: [go] }\n"))
 	if err == nil {
 		t.Error("an unknown mode should be a validation error")
 	}
@@ -116,21 +113,21 @@ func TestInvalidModeRejected(t *testing.T) {
 func TestConfirmPolicy(t *testing.T) {
 	cases := []struct {
 		name       string
-		rule       Rule
+		rule       RuleBase
 		defs       Defaults
 		repeatable bool
 		window     int
 		delay      int
 	}{
-		{"enable is inviolate", Rule{Mode: ModeEnable}, Defaults{RepeatWindowSeconds: 30}, false, 0, 0},
-		{"disable is not repeatable", Rule{Mode: ModeDisable}, Defaults{RepeatWindowSeconds: 30}, false, 0, 0},
-		{"confirm uses global window", Rule{Mode: ModeConfirm}, Defaults{RepeatWindowSeconds: 30}, true, 30, 0},
-		{"confirm overrides window", Rule{Mode: ModeConfirm, WindowSeconds: 5}, Defaults{RepeatWindowSeconds: 30}, true, 5, 0},
-		{"confirm with no window is inert", Rule{Mode: ModeConfirm}, Defaults{}, false, 0, 0},
-		{"confirm carries per-rule delay", Rule{Mode: ModeConfirm, DelaySeconds: 10}, Defaults{RepeatWindowSeconds: 30}, true, 30, 10},
-		{"confirm uses default delay", Rule{Mode: ModeConfirm}, Defaults{RepeatWindowSeconds: 30, RepeatDelaySeconds: 10}, true, 30, 10},
-		{"per-rule delay overrides default", Rule{Mode: ModeConfirm, DelaySeconds: 5}, Defaults{RepeatWindowSeconds: 30, RepeatDelaySeconds: 10}, true, 30, 5},
-		{"delay ignored for enable", Rule{Mode: ModeEnable, DelaySeconds: 10}, Defaults{RepeatWindowSeconds: 30}, false, 0, 0},
+		{"enable is inviolate", RuleBase{Mode: ModeEnable}, Defaults{RepeatWindowSeconds: 30}, false, 0, 0},
+		{"disable is not repeatable", RuleBase{Mode: ModeDisable}, Defaults{RepeatWindowSeconds: 30}, false, 0, 0},
+		{"confirm uses global window", RuleBase{Mode: ModeConfirm}, Defaults{RepeatWindowSeconds: 30}, true, 30, 0},
+		{"confirm overrides window", RuleBase{Mode: ModeConfirm, WindowSeconds: 5}, Defaults{RepeatWindowSeconds: 30}, true, 5, 0},
+		{"confirm with no window is inert", RuleBase{Mode: ModeConfirm}, Defaults{}, false, 0, 0},
+		{"confirm carries per-rule delay", RuleBase{Mode: ModeConfirm, DelaySeconds: 10}, Defaults{RepeatWindowSeconds: 30}, true, 30, 10},
+		{"confirm uses default delay", RuleBase{Mode: ModeConfirm}, Defaults{RepeatWindowSeconds: 30, RepeatDelaySeconds: 10}, true, 30, 10},
+		{"per-rule delay overrides default", RuleBase{Mode: ModeConfirm, DelaySeconds: 5}, Defaults{RepeatWindowSeconds: 30, RepeatDelaySeconds: 10}, true, 30, 5},
+		{"delay ignored for enable", RuleBase{Mode: ModeEnable, DelaySeconds: 10}, Defaults{RepeatWindowSeconds: 30}, false, 0, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -58,18 +58,15 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 			if !r.isEnabled() {
 				continue // `mode: disable` keeps a rule in the file but inert
 			}
-			if r.Match.isPathRule() {
-				continue // path rules are evaluated against file edits, not commands
-			}
 			// Match against the shell that actually OWNS this command, not the
 			// top-level script's — a nested wrapper body (e.g. a `cmd.exe /c …`
 			// re-parsed inside a bash script) carries its own dialect, and a
 			// `shells:` rule must be judged against that, not the outer script.
 			shell := owner.Shell
-			// Allow rules match positionals with a strict, position-anchored
-			// prefix; deny rules keep the permissive ordered-subsequence match.
-			// See Match.Command ("Allow vs. deny: matching discipline").
-			if !r.Match.matches(shell, c, r.action() == ActionAllow) {
+			// The operand alignment follows the action unless the rule names
+			// one. See CommandMatch.Command ("Allow vs. deny: matching
+			// discipline").
+			if !r.Match.matches(shell, c, r.alignment()) {
 				continue
 			}
 			if r.action() == ActionDeny {
@@ -97,16 +94,16 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 }
 
 // EvaluatePath matches a file-editing tool call (Edit/Write/…) against the
-// path rules in order; the first matching deny wins. Command rules are ignored
-// here, just as path rules are ignored by Evaluate. mode/confirm/message/suggest
+// path rules in order; the first matching deny wins. It reads only
+// Config.PathRules, as Evaluate reads only Config.Rules. mode/confirm/message/suggest
 // behave exactly as for command rules.
 func EvaluatePath(cfg *Config, filePath string) Decision {
 	if cfg == nil || strings.TrimSpace(filePath) == "" {
 		return Decision{Allowed: true}
 	}
-	for i := range cfg.Rules {
-		r := &cfg.Rules[i]
-		if !r.isEnabled() || !r.Match.isPathRule() {
+	for i := range cfg.PathRules {
+		r := &cfg.PathRules[i]
+		if !r.isEnabled() {
 			continue
 		}
 		if !r.Match.matchesPath(filePath) {

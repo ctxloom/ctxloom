@@ -18,7 +18,7 @@ rules:
     action: deny
     message: no rm
   - id: second
-    match: { command: [git, push, --force] }
+    match: { command: [git, push], args_all: [--force] }
     action: deny
     message: no force push
 `))

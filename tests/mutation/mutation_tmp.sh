@@ -17,6 +17,13 @@
 # worker, and on a tmpfs /tmp that has exhausted RAM; the mutation tmp is on
 # disk.
 #
+# WHY GOTMPDIR TOO: the caller's GOTMPDIR is not neutral. An agent cell exports
+# one into its own session directory, which is deep and sits inside the real app
+# dir; a tool's coverage run inherits it, the suite's longer fixtures then
+# overflow the file-name limit, and its sandbox assertions resolve into the
+# real app dir — zero mutants, exit 1. The run dir is short, on disk, and
+# removed below, so it serves as GOTMPDIR as well as TMPDIR.
+#
 # The command's TMPDIR is exported, so a recipe that must name it to something
 # else (a container mount) reads "$TMPDIR" inside the command.
 set -euo pipefail
@@ -40,5 +47,5 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
 
-export TMPDIR="$run"
+export TMPDIR="$run" GOTMPDIR="$run"
 "$@"

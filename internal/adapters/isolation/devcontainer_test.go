@@ -22,13 +22,13 @@ func writeDevcontainer(t *testing.T, appRoot, content string) {
 // their precedence (.devcontainer/devcontainer.json over .devcontainer.json).
 func TestFindDevcontainerJSON(t *testing.T) {
 	root := t.TempDir()
-	assert.Empty(t, findDevcontainerJSON(root), "absent → empty")
+	assert.Empty(t, FindDevcontainerJSON(root), "absent → empty")
 
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".devcontainer.json"), []byte(`{}`), 0o644))
-	assert.Equal(t, filepath.Join(root, ".devcontainer.json"), findDevcontainerJSON(root))
+	assert.Equal(t, filepath.Join(root, ".devcontainer.json"), FindDevcontainerJSON(root))
 
 	writeDevcontainer(t, root, `{}`)
-	assert.Equal(t, filepath.Join(root, ".devcontainer", "devcontainer.json"), findDevcontainerJSON(root),
+	assert.Equal(t, filepath.Join(root, ".devcontainer", "devcontainer.json"), FindDevcontainerJSON(root),
 		".devcontainer/devcontainer.json wins over the single-file form")
 }
 

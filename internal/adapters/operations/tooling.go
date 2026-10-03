@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/container"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -92,6 +93,9 @@ func (e *DevcontainerBaseError) Error() string {
 //     written (the user already owns one);
 //   - the target file already exists → ADOPTED (config wired to it), its
 //     content never overwritten unless force;
+//   - a detected devcontainer (with devcontainer-base detection on) →
+//     refused with *DevcontainerBaseError unless force: the configured base
+//     outranks the devcontainer, so wiring one would demote it;
 //   - otherwise the embedded default base is written, so edits start from
 //     exactly what the default build was using.
 //
@@ -110,6 +114,9 @@ func ScaffoldContainerBase(ctx context.Context, app *App, cfg *config.Config, re
 	if existing := cfg.IsolationBaseContainerfilePath(); existing != "" && !force {
 		return materializeConfiguredBase(fs, existing)
 	}
+	if err := refuseDevcontainerDemotion(cfg, force); err != nil {
+		return "", err
+	}
 	relPath, abs, err := containerBaseTarget(cfg, relPath)
 	if err != nil {
 		return "", err
@@ -125,6 +132,20 @@ func ScaffoldContainerBase(ctx context.Context, app *App, cfg *config.Config, re
 		return "", fmt.Errorf("wire isolation_base_containerfile: %w", err)
 	}
 	return abs, nil
+}
+
+// refuseDevcontainerDemotion returns a *DevcontainerBaseError when the project
+// builds its agent image from a detected devcontainer — detection on and a
+// devcontainer.json present, decided by the same isolation.FindDevcontainerJSON
+// the image build uses — unless force.
+func refuseDevcontainerDemotion(cfg *config.Config, force bool) error {
+	if force || !cfg.IsolationDevcontainerBaseEnabled() {
+		return nil
+	}
+	if dc := isolation.FindDevcontainerJSON(cfg.GetAppRoot()); dc != "" {
+		return &DevcontainerBaseError{Path: dc}
+	}
+	return nil
 }
 
 // materializeConfiguredBase returns the already-configured base Containerfile

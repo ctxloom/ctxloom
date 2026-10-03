@@ -53,14 +53,14 @@ type devcontainerBuild struct {
 	Args       map[string]string `json:"args"`
 }
 
-// findDevcontainerJSON locates the project's devcontainer.json by the two
+// FindDevcontainerJSON locates the project's devcontainer.json by the two
 // canonical single-config paths the spec defines. The multi-config
 // `.devcontainer/<name>/devcontainer.json` layout is deliberately out of
 // scope — this resolver picks ONE base, and a project with several named
 // configs has no unambiguous "the" devcontainer to auto-adopt (a user with
 // that layout should use isolation_base_containerfile / --base-containerfile
 // explicitly, or opt out and provide their own base).
-func findDevcontainerJSON(appRoot string) string {
+func FindDevcontainerJSON(appRoot string) string {
 	for _, rel := range []string{
 		filepath.Join(".devcontainer", "devcontainer.json"),
 		".devcontainer.json",
@@ -102,7 +102,7 @@ func resolveDevBase(appRoot string, noDevcontainerBase bool, service string) (*b
 //   - malformed JSON, an unreadable file, or an unrecognized shape → an
 //     error, never a silent fallback to the default base.
 func resolveDevcontainerBase(appRoot, service string) (*baseStage, error) {
-	path := findDevcontainerJSON(appRoot)
+	path := FindDevcontainerJSON(appRoot)
 	if path == "" {
 		return nil, nil
 	}

@@ -730,10 +730,9 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("%s: invalid YAML: %w", path, err)
 	}
-	// Report a key the schema does not know BEFORE decoding, because decoding
-	// is what loses it: yaml.v3 drops what it cannot map, so a typo becomes an
-	// empty field and the profile selects less than its author wrote.
-	warnUnknownProfileKeys(l.rep, path, &doc)
+	if err := validateProfileDocument(l.rep, path, &doc, data); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 
 	var profile Profile
 	if err := doc.Decode(&profile); err != nil {

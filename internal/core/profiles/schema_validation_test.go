@@ -27,9 +27,9 @@ var invalidProfiles = map[string]struct{ body, names string }{
 		body:  "select_tagz: [go]\nbundles: [real]\n",
 		names: "select_tagz",
 	},
-	"empty fragments entry": {
-		body:  "fragments:\n  - \n  - real\n",
-		names: "/fragments/0",
+	"empty list entry": {
+		body:  "bundles:\n  - \n  - real\n",
+		names: "/bundles/0",
 	},
 	"parents with null value": {
 		body:  "parents:\nbundles: [real]\n",
@@ -62,7 +62,8 @@ func TestLoad_SchemaViolation_RefusesByDefault(t *testing.T) {
 			assert.Contains(t, said, "bad.yaml", "the finding names the file")
 			assert.Contains(t, said, tc.names, "the finding names the violation")
 
-			err := strictness.Mode{}.ListingError("refusing to start", found)
+			strict := strictness.Mode{}
+			err := strict.ListingError("refusing to start", strict.Actionable(found))
 			require.Error(t, err, "strict mode refuses to launch on an invalid profile")
 		})
 	}
@@ -80,9 +81,22 @@ func TestLoad_SchemaViolation_DegradedWarnsAndLaunches(t *testing.T) {
 			require.NotEmpty(t, found.Fatal(), "degraded still validates: the finding is recorded")
 			degraded := strictness.Mode{Degraded: true}
 			assert.Empty(t, degraded.Actionable(found), "--degraded downgrades the finding to a warning")
-			assert.NoError(t, degraded.ListingError("refusing to start", found), "--degraded launches")
+			assert.NoError(t, degraded.ListingError("refusing to start", degraded.Actionable(found)), "--degraded launches")
 		})
 	}
+}
+
+// TestLoad_EmptyFragmentsEntry_IsRefused: a bare `- ` fragments entry was
+// already a hard decode error (FragmentRef refuses an empty name); the schema
+// now names it too, at its location, before decoding refuses it.
+func TestLoad_EmptyFragmentsEntry_IsRefused(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.yaml"), []byte("fragments:\n  - \n  - real\n"), 0o644))
+	var found report.Collector
+	_, err := NewLoader([]string{dir}, WithReporter(&found)).Load("bad")
+	require.Error(t, err, "an empty fragment reference cannot be decoded")
+	said := strings.Join(found.All().Fatal().Texts(), "\n")
+	assert.Contains(t, said, "/fragments/0", "the schema finding names the entry")
 }
 
 // The control: a profile using every key correctly says NOTHING. Without this,

@@ -36,6 +36,23 @@ import (
 // siblings. The run alone backs off for overloadBackoff, with the same two
 // ways out.
 
+// The audit journal's record of a hold: one auditHold per run a hold parks,
+// one auditHoldRelease per run its release resumes. Each carries the hold's
+// kind and scope (holdDetail): the source key alone cannot say whether a run
+// was parked for its credential's limit or for its own overload.
+const (
+	auditHold        = "hold"
+	auditHoldRelease = "hold_release"
+)
+
+// holdScope is what a hold pauses: every run sharing a credential, or one run.
+type holdScope string
+
+const (
+	holdScopeCredential holdScope = "credential"
+	holdScopeRun        holdScope = "run"
+)
+
 // heldFailures are the turn failures a run parks itself on and its
 // credential's hold releases. The runner parks only on these (HoldsFailure):
 // a self-park on any other kind would be a pause nothing releases.
@@ -115,6 +132,7 @@ type credHold struct {
 	engine engine.Name
 	source engine.CredentialSource
 	kind   agent.FailureKind
+	scope  holdScope
 	since  time.Time
 	runs   map[string]string // run id → harp
 	// until is the hold's deadline (zero once detached); stop disarms its
@@ -179,11 +197,20 @@ func (c *Coordinator) runHolds() map[string]*RunHold {
 	return out
 }
 
-// holdKey is the hold a run that failed with kind belongs to: its source's
-// key, or a hold of its own — for an overload (the server's capacity, not
-// the credential's) and for a run that carries no credential.
-func holdKey(kind agent.FailureKind, src engine.CredentialSource, runID string) string {
+// holdScopeOf is the scope of a hold for a turn that failed with kind on
+// src: the credential's, or the run's own — for an overload (the server's
+// capacity, not the credential's) and for a run that carries no credential.
+func holdScopeOf(kind agent.FailureKind, src engine.CredentialSource) holdScope {
 	if kind != agent.FailureOverloaded && src.Key != "" {
+		return holdScopeCredential
+	}
+	return holdScopeRun
+}
+
+// holdKey is the hold a run that failed with kind belongs to (holdScopeOf):
+// its source's key, or a key of the run's own.
+func holdKey(kind agent.FailureKind, src engine.CredentialSource, runID string) string {
+	if holdScopeOf(kind, src) == holdScopeCredential {
 		return src.Key
 	}
 	return "run:" + runID
@@ -288,7 +315,7 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 		c.step(holdStepTurnFolded)
 		return
 	}
-	h, exists := c.holdForLocked(rt, key)
+	h, exists := c.holdForLocked(rt, key, holdScopeOf(f.Kind, src))
 	c.foldFailureLocked(h, f)
 	_, joined := h.runs[runID]
 	ownPark := !joined && !c.pausedByHumanLocked(runID)
@@ -300,24 +327,28 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 		siblings = c.siblingsLocked(h, key, runID)
 	}
 	c.settleLocked(key, h)
-	until := h.until
+	until, scope := h.until, h.scope
 	c.mu.Unlock()
 	if ownPark {
-		c.audit("credential_park", rt.harp, parkDetail(key, rt.harp, f.Kind, until))
+		d := holdDetail(key, scope, f.Kind, rt.harp, "turn")
+		if !until.IsZero() {
+			d["until"] = until.UTC().Format(time.RFC3339)
+		}
+		c.audit(auditHold, rt.harp, d)
 	}
 	if !exists {
 		c.raiseHoldFinding(h.engine, f.Kind, key, rt.harp, until)
-		c.goTracked(func() { c.parkSiblings(key, h, siblings) })
+		c.goTracked(func() { c.parkSiblings(key, h, scope, f.Kind, siblings) })
 	}
 	c.step(holdStepTurnFolded)
 }
 
-// holdForLocked is the hold under key, made for rt (not yet armed or parked)
-// when none is in force; exists says which.
-func (c *Coordinator) holdForLocked(rt *childRt, key string) (h *credHold, exists bool) {
+// holdForLocked is the hold under key, made for rt with scope (not yet armed
+// or parked) when none is in force; exists says which.
+func (c *Coordinator) holdForLocked(rt *childRt, key string, scope holdScope) (h *credHold, exists bool) {
 	if h, exists = c.credHolds[key]; !exists {
 		eng, src := launchOf(rt)
-		h = &credHold{engine: eng, source: src, since: c.now(), runs: map[string]string{}, parked: make(chan struct{})}
+		h = &credHold{engine: eng, source: src, scope: scope, since: c.now(), runs: map[string]string{}, parked: make(chan struct{})}
 		c.credHolds[key] = h
 	}
 	return h, exists
@@ -334,13 +365,12 @@ func (c *Coordinator) settleLocked(key string, h *credHold) {
 	c.armLocked(key, h)
 }
 
-// parkDetail is the journal detail of a run whose own turn parked it.
-func parkDetail(key, harp string, kind agent.FailureKind, until time.Time) map[string]string {
-	d := map[string]string{"source": key, "kind": string(kind), "harp": harp, "cause": "turn"}
-	if !until.IsZero() {
-		d["until"] = until.UTC().Format(time.RFC3339)
-	}
-	return d
+// holdDetail is the journal detail of one hold or release record: the hold
+// (its key, scope and kind), the run, and what moved it — "turn" (its own
+// turn parked it), "sibling" (another run's turn did), "backoff" (the hold's
+// own release) or "human".
+func holdDetail(key string, scope holdScope, kind agent.FailureKind, harp, cause string) map[string]string {
+	return map[string]string{"source": key, "scope": string(scope), "kind": string(kind), "harp": harp, "cause": cause}
 }
 
 // raiseHoldFinding tells the root human what the hold is and when it ends; a
@@ -404,7 +434,7 @@ func (c *Coordinator) siblingsLocked(h *credHold, key, exceptRunID string) []hel
 // parkSiblings pauses each registered sibling at its runner, then marks h's
 // parking done. One that cannot be paused (ended, or its runner gone) leaves
 // the hold.
-func (c *Coordinator) parkSiblings(key string, h *credHold, siblings []heldRun) {
+func (c *Coordinator) parkSiblings(key string, h *credHold, scope holdScope, kind agent.FailureKind, siblings []heldRun) {
 	defer close(h.parked)
 	for _, r := range siblings {
 		c.step(holdStepParkSibling)
@@ -416,7 +446,7 @@ func (c *Coordinator) parkSiblings(key string, h *credHold, siblings []heldRun) 
 			c.rep.Warnf("coordinator: could not park %s on its credential's hold: %v", r.harp, err)
 			continue
 		}
-		c.audit("credential_park", r.harp, map[string]string{"source": key, "harp": r.harp, "cause": "sibling"})
+		c.audit(auditHold, r.harp, holdDetail(key, scope, kind, r.harp, "sibling"))
 	}
 }
 
@@ -460,7 +490,7 @@ func (c *Coordinator) detachLocked(key string, h *credHold) {
 // backoff's own release.
 func (c *Coordinator) resumeHeld(ctx context.Context, key string, h *credHold, actor string) map[string]error {
 	c.mu.Lock()
-	runs := maps.Clone(h.runs)
+	runs, scope, kind := maps.Clone(h.runs), h.scope, h.kind
 	c.mu.Unlock()
 	out := make(map[string]error, len(runs))
 	for _, id := range slices.Sorted(maps.Keys(runs)) {
@@ -471,9 +501,9 @@ func (c *Coordinator) resumeHeld(ctx context.Context, key string, h *credHold, a
 		case err != nil:
 			c.rep.Warnf("coordinator: could not resume %s from its credential's hold: %v", r.harp, err)
 		case actor == "":
-			c.audit("credential_resume", r.harp, map[string]string{"source": key, "harp": r.harp, "cause": "backoff"})
+			c.audit(auditHoldRelease, r.harp, holdDetail(key, scope, kind, r.harp, "backoff"))
 		default:
-			c.audit("credential_resume", actor, map[string]string{"source": key, "harp": r.harp})
+			c.audit(auditHoldRelease, actor, holdDetail(key, scope, kind, r.harp, "human"))
 		}
 	}
 	return out

@@ -438,6 +438,9 @@ func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
 		assert.Equal(t, fmt.Sprintf("%+v", spec), fmt.Sprintf("%+v", got), "runtime %s: the environment is handed the declared mode's credentials, whatever the runtime", runtime)
 		assert.Equal(t, want.placement, cell.Placement, "runtime %s: the Placement is the environment's, untouched", runtime)
 		assert.Equal(t, present.Listen{Addr: "10.0.0.1"}, cell.Listen, "runtime %s: the Listen is the environment's", runtime)
+		assert.Equal(t, tokenCreds.Source(req.Engine.Root().Name), cell.Credential,
+			"runtime %s: the cell names the source of the credentials it was prepared with — what a refused credential parks together", runtime)
+		assert.NotContains(t, fmt.Sprintf("%#v", cell.Credential), tokenFixture, "runtime %s: never the value", runtime)
 		env, ok := EnvironmentOf(cell)
 		require.True(t, ok)
 		assert.Equal(t, listening{want}, env, "runtime %s: the handle is the environment itself", runtime)

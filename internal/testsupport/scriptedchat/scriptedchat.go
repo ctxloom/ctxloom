@@ -56,6 +56,10 @@ type Chat struct {
 	// Denied event and the turn's completion carries them all — a turn the
 	// engine's posture blocked.
 	Denials []agent.PermissionDenial
+	// Failed, when set, decides per prompt whether the engine turns the turn
+	// away: a non-nil failure relays the turn's words, a Failed event and a
+	// completion, and nothing else — a turn on a spent limit.
+	Failed func(prompt string) *agent.TurnFailure
 	// GotEnv / GotRunnerEnv are what the fake spawner's Start was handed for
 	// this engine: the ENGINE's ambient env and the RUNNER's per-spawn env
 	// (the coordinator reach-back trio rides the latter only).
@@ -143,7 +147,7 @@ func (s *Chat) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out cha
 	if plan.answer != nil {
 		text = plan.answer(in.Prompt)
 	}
-	if !sendTurnBody(send, text, plan.denials) {
+	if !sendTurnBody(send, text, plan) {
 		return engine.TurnResult{}, ctx.Err()
 	}
 	if plan.end {
@@ -161,6 +165,7 @@ type turnPlan struct {
 	fail    bool
 	end     bool
 	denials []agent.PermissionDenial
+	failure *agent.TurnFailure
 }
 
 // take records the turn and decides, under the lock, how it goes.
@@ -172,6 +177,9 @@ func (s *Chat) take(ex engine.Exec, in engine.Turn) turnPlan {
 	s.Texts = append(s.Texts, in.Prompt)
 	s.Keys = append(s.Keys, in.Resume)
 	plan := turnPlan{gate: s.Gate, session: s.SessionGate, answer: s.Answer, first: s.turns == 0, denials: s.Denials}
+	if s.Failed != nil {
+		plan.failure = s.Failed(in.Prompt)
+	}
 	s.turns++
 	plan.fail = s.FailAfterTurns > 0 && s.turns > s.FailAfterTurns
 	plan.end = s.EndAfterTurns > 0 && s.turns >= s.EndAfterTurns
@@ -192,9 +200,28 @@ func awaitGate(ctx context.Context, gate <-chan struct{}) error {
 	}
 }
 
-// sendTurnBody sends the turn's fixed event sequence around text, false as
+// sendTurnBody sends the turn's event sequence around text — or, for a turn
+// the engine turns away, its words, the failure and a completion — false as
 // soon as a send is abandoned.
-func sendTurnBody(send func(agent.ChatEvent) bool, text string, denials []agent.PermissionDenial) bool {
+func sendTurnBody(send func(agent.ChatEvent) bool, text string, plan turnPlan) bool {
+	for _, ev := range turnEvents(text, plan) {
+		if !send(ev) {
+			return false
+		}
+	}
+	return true
+}
+
+// turnEvents is the turn's event sequence around text.
+func turnEvents(text string, plan turnPlan) []agent.ChatEvent {
+	if plan.failure != nil {
+		return []agent.ChatEvent{
+			{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: text}},
+			{Failed: plan.failure},
+			{Complete: &agent.TurnMeta{StopReason: "stop_sequence"}},
+		}
+	}
+	denials := plan.denials
 	evs := []agent.ChatEvent{
 		{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: "pondering"}},
 		{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: text}},
@@ -204,13 +231,7 @@ func sendTurnBody(send func(agent.ChatEvent) bool, text string, denials []agent.
 	for i := range denials {
 		evs = append(evs, agent.ChatEvent{Denied: &denials[i]})
 	}
-	evs = append(evs, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, CostUSD: 0.0000015, Denials: denials}})
-	for _, ev := range evs {
-		if !send(ev) {
-			return false
-		}
-	}
-	return true
+	return append(evs, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, CostUSD: 0.0000015, Denials: denials}})
 }
 
 var _ engine.Instance = (*Chat)(nil)

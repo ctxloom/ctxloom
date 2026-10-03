@@ -1394,8 +1394,23 @@ message ListRunsResult {
     // servers, never a sibling's or the parent's. Empty for a run journaled
     // before this field existed.
     repeated string mcp_servers = 9;
+    // hold is why this run is parked and when it is released; absent for a
+    // run nothing holds.
+    RunHold hold = 10;
   }
   repeated RunInfo runs = 1;
+}
+
+// RunHold is a parked run's hold: the coordinator pauses every run sharing a
+// credential whose engine turned a turn away, and releases them together.
+message RunHold {
+  // The turn failure the hold is for, e.g. "rate_limited".
+  string kind = 1;
+  // The credential's source: the carrier's NAMES (variables, store
+  // locations), never a value.
+  string source = 2;
+  // When the hold releases itself, in Unix seconds; 0 = only when cleared.
+  int64 until_unix = 3;
 }
 
 // ----- agent-initiated control of a child ------------------------------------

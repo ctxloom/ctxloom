@@ -197,16 +197,23 @@ func (eh *EngineHost) pauseRun(req *agentcoordpb.PauseRun) *agentcoordpb.RunnerR
 	if resp := eh.checkRunID(req.GetRunId(), "PauseRun"); resp != nil {
 		return resp
 	}
+	return &agentcoordpb.RunnerResponse{
+		Status: coordgrpc.OKStatus(""),
+		Kind:   &agentcoordpb.RunnerResponse_PauseRun{PauseRun: &agentcoordpb.PauseRunResult{NewlyPaused: eh.installPause()}},
+	}
+}
+
+// installPause puts the pause gate up, reporting whether this call did. It is
+// PauseRun's gate and a held turn failure's self-park alike, so one ResumeRun
+// releases either.
+func (eh *EngineHost) installPause() (newly bool) {
 	eh.mu.Lock()
-	newly := eh.paused == nil
+	defer eh.mu.Unlock()
+	newly = eh.paused == nil
 	if newly {
 		eh.paused = make(chan struct{})
 	}
-	eh.mu.Unlock()
-	return &agentcoordpb.RunnerResponse{
-		Status: coordgrpc.OKStatus(""),
-		Kind:   &agentcoordpb.RunnerResponse_PauseRun{PauseRun: &agentcoordpb.PauseRunResult{NewlyPaused: newly}},
-	}
+	return newly
 }
 
 // resumeRun releases a paused run. Idempotent on the same terms as pauseRun.

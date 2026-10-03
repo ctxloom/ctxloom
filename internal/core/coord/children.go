@@ -13,6 +13,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -1202,8 +1203,9 @@ func (c *Coordinator) captureRunFailure(role, runID string, ev Event) {
 // onTurnIdle folds the turn-boundary: state idle, slot yielded, and any mail
 // that queued mid-turn pushes now (§6a "queued mid-turn → deliver at the
 // next boundary" — the runner-side driver also queues internally; this push
-// covers mail that arrived while no channel push was possible).
-func (c *Coordinator) onTurnIdle(role, runID string) {
+// covers mail that arrived while no channel push was possible). failed is the
+// turn's held failure (nil for none), folded into its credential's hold.
+func (c *Coordinator) onTurnIdle(role, runID string, failed *agent.TurnFailure) {
 	c.mu.Lock()
 	rt := c.runtimeForLocked(role, runID)
 	c.mu.Unlock()
@@ -1225,6 +1227,17 @@ func (c *Coordinator) onTurnIdle(role, runID string) {
 	// like any other and the next mail (or a Turn frame) starts a fresh
 	// engine process resumed by key. The idle reaper is what ends a runner
 	// nobody writes to.
+	// The failure folds BEFORE the run reads idle: a human who resumes a run
+	// the moment it is idle must find its failure already in the hold, or the
+	// resume releases the hold and the failure then opens a stray one. A run
+	// that ended, or ends here, folds nothing (pinned by
+	// TestRateHold_ADrainingRunsLimitOpensNoHold).
+	if failed != nil {
+		c.onTurnFailed(role, runID, *failed)
+	}
+	if hook := c.turnIdleHook; hook != nil {
+		hook(rt.harp)
+	}
 	c.mu.Lock()
 	rt.idleSince = c.now()
 	c.mu.Unlock()

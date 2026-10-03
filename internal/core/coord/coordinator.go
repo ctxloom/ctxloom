@@ -333,6 +333,15 @@ type Coordinator struct {
 	// their runner's gate, keyed by run id so a relaunch (a new run) is never
 	// described as paused. Guarded by mu; lazily initialized.
 	pausedRuns map[string]struct{}
+	// credHolds are the credential holds in force, by holdKey; heldRuns maps
+	// each run a hold parked to its key (credhold.go). Guarded by mu.
+	credHolds map[string]*credHold
+	heldRuns  map[string]string
+	// afterFunc arms a hold's backoff timer (time.AfterFunc's shape, as
+	// fakeclock.Clock has it); holdStep, when set, is told each hold step a
+	// test may need to hold at. Both are test seams.
+	afterFunc func(d time.Duration, f func()) (stop func() bool)
+	holdStep  func(step string)
 	// onAskPublished, when set, is called by controlAsk between RECORDING the
 	// ask open and PUBLISHING it — the record-before-publish test seam. It
 	// fires on that side of the publish deliberately: a hook fired after it
@@ -472,6 +481,11 @@ type Coordinator struct {
 	// "up" with its run channel not yet attached; parking here makes that
 	// window a fact a test can hold open. Nil in production.
 	attachRunHook func(harp string)
+	// turnIdleHook, if set (tests only, same package), runs synchronously in
+	// onTurnIdle with the run's harp at the instant before the run is marked
+	// idle — the moment a human may resume a run that reads idle. Nil in
+	// production.
+	turnIdleHook func(harp string)
 
 	closeOnce sync.Once
 	// closed is set at the START of Close, before it looks for listeners to
@@ -533,6 +547,9 @@ func New(opts Options) (*Coordinator, error) {
 		attach:             make(map[string]*childRt),
 		graceExpire:        make(map[string]func()),
 		byHarp:             make(map[string]*childRt),
+		credHolds:          make(map[string]*credHold),
+		heldRuns:           make(map[string]string),
+		afterFunc:          func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop },
 		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*RunChannel),

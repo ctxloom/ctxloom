@@ -68,6 +68,21 @@ type fakeEngineHome struct {
 	// before the RunExited report.
 	awaitedAcks []string
 	lifecycle   []string
+
+	// atBoundary, when set, observes each turn-idle event ("idle") and each
+	// boundary sweep ("sweep") at the instant it happens, outside the lock —
+	// the seam a test uses to see what was already true at that moment.
+	atBoundary func(what string)
+}
+
+// observe calls atBoundary, read under the lock and called outside it.
+func (f *fakeEngineHome) observe(what string) {
+	f.mu.Lock()
+	fn := f.atBoundary
+	f.mu.Unlock()
+	if fn != nil {
+		fn(what)
+	}
 }
 
 func (f *fakeEngineHome) Request(_ context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
@@ -103,11 +118,14 @@ func (f *fakeEngineHome) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {
 
 func (f *fakeEngineHome) emitCustomEvent(name string, value map[string]any) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.customs = append(f.customs, struct {
 		Name  string
 		Value map[string]any
 	}{name, value})
+	f.mu.Unlock()
+	if name == coord.CustomTurnIdle {
+		f.observe("idle")
+	}
 }
 
 // SetApprovalRoute records the approval route the engine host bound.
@@ -129,18 +147,19 @@ func (f *fakeEngineHome) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) 
 // let a refactor delete the trigger with every test still green.
 func (f *fakeEngineHome) SweepSpoolIn() {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.spoolSweeps++
+	f.mu.Unlock()
+	f.observe("sweep")
 }
 
 // ReportTurnResult records the automatic turn report the engine host composed
 // at a boundary — the text AND the correlation, because the correlation is
 // half of what this report is for and a fake that swallowed it would let the
 // tag plumbing rot with every test still green.
-func (f *fakeEngineHome) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial) error {
+func (f *fakeEngineHome) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, failure *agent.TurnFailure) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.turnReports = append(f.turnReports, turnReport{Text: text, InReplyTo: inReplyTo, Blocked: blocked})
+	f.turnReports = append(f.turnReports, turnReport{Text: text, InReplyTo: inReplyTo, Blocked: blocked, Failure: failure})
 	return nil
 }
 
@@ -169,6 +188,7 @@ type turnReport struct {
 	Text      string
 	InReplyTo string
 	Blocked   []agent.PermissionDenial
+	Failure   *agent.TurnFailure
 }
 
 // spoolSweepCount reports how many boundary sweeps were asked for.
@@ -659,4 +679,108 @@ func (f *fakeEngineHome) SetWake(w engine.Wake) func() {
 		defer f.mu.Unlock()
 		f.released++
 	}
+}
+
+// TestEngineHost_RateLimitedTurnParksItselfAndSaysWhen: a turn that ended on
+// its usage limit leaves the run PARKED at its own pause gate — up already at
+// the turn-idle event and at the boundary sweep, the two moments a next turn
+// could be offered, or the sweep hands the next mail to the spent limit and it
+// is consumed for nothing. The idle event carries the engine's reset time
+// beside the stop_reason (all the coordinator has to time the shared hold by;
+// absent when the engine named none), the parent's report carries the
+// failure, and a resume releases the held turn.
+func TestEngineHost_RateLimitedTurnParksItselfAndSaysWhen(t *testing.T) {
+	resets := time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC)
+	for name, failure := range map[string]*agent.TurnFailure{
+		"with a reset time": {Kind: agent.FailureRateLimited, ResetsAt: resets},
+		"without one":       {Kind: agent.FailureRateLimited},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := &fakeEngineHome{}
+			sc := &scriptedChat{Failed: func(p string) *agent.TurnFailure {
+				if p == "after the failure" {
+					return nil
+				}
+				return failure
+			}}
+			eh := NewEngineHost(context.Background(), &report.Collector{}, "claude-code", "run-1")
+			eh.BindRunner(testRunner{eh: eh, inst: sc})
+			t.Cleanup(eh.Close)
+			var mu sync.Mutex
+			gated := map[string]bool{}
+			home.atBoundary = func(what string) {
+				up := eh.pauseGate() != nil
+				mu.Lock()
+				gated[what] = up
+				mu.Unlock()
+			}
+			eh.BindHome(home)
+
+			resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+			require.Equal(t, int32(0), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+			require.Eventually(t, func() bool { return home.spoolSweepCount() > 0 }, 5*time.Second, 10*time.Millisecond)
+
+			idle := home.customValue(coord.CustomTurnIdle)
+			assert.Equal(t, "rate_limited", idle["stop_reason"])
+			if failure.ResetsAt.IsZero() {
+				assert.NotContains(t, idle, coord.TurnIdleResetsAt)
+			} else {
+				assert.Equal(t, "2026-10-01T17:30:00Z", idle[coord.TurnIdleResetsAt])
+			}
+			mu.Lock()
+			assert.True(t, gated["idle"], "the gate must be up when the coordinator hears the run is idle")
+			assert.True(t, gated["sweep"], "the gate must be up before the boundary sweep offers the next turn")
+			mu.Unlock()
+			reports := home.turnReportsSeen()
+			require.Len(t, reports, 1)
+			assert.Equal(t, failure, reports[0].Failure, "the parent hears the turn was turned away")
+
+			boundary := make(chan turnOutcome, 1)
+			held := make(chan error, 1)
+			go func() { held <- eh.enqueueTurn(context.Background(), turnTag{done: boundary}, "after the failure") }()
+			resumed := eh.resumeRun(&agentcoordpb.ResumeRun{RunId: "run-1"})
+			assert.True(t, resumed.GetResumeRun().GetNewlyResumed(), "the resume is what released the self-park")
+			require.NoError(t, testsupport.Within(t, 5*time.Second, func() error { return <-held }, "the held turn never started"))
+			testsupport.Within(t, 5*time.Second, func() turnOutcome { return <-boundary }, "the held turn never reached its boundary")
+			assert.Contains(t, sc.RecordedTexts(), "after the failure")
+		})
+	}
+}
+
+// TestEngineHost_AFailureNoHoldReleasesDoesNotPark: the run parks only on a
+// failure kind its coordinator holds (coord.HoldsFailure). A self-park on any
+// other kind would be a pause nothing releases.
+func TestEngineHost_AFailureNoHoldReleasesDoesNotPark(t *testing.T) {
+	const unheld = agent.FailureKind("not_a_held_kind")
+	require.False(t, coord.HoldsFailure(unheld))
+	home := &fakeEngineHome{}
+	sc := &scriptedChat{Failed: func(string) *agent.TurnFailure { return &agent.TurnFailure{Kind: unheld} }}
+	eh := NewEngineHost(context.Background(), &report.Collector{}, "claude-code", "run-1")
+	eh.BindRunner(testRunner{eh: eh, inst: sc})
+	t.Cleanup(eh.Close)
+	eh.BindHome(home)
+
+	resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	require.Equal(t, int32(0), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+	require.Eventually(t, func() bool { return home.spoolSweepCount() > 0 }, 5*time.Second, 10*time.Millisecond)
+
+	assert.Nil(t, eh.pauseGate(), "no hold releases this kind, so the run must not park on it")
+	reports := home.turnReportsSeen()
+	require.Len(t, reports, 1)
+	assert.Nil(t, reports[0].Failure)
+}
+
+// TestFailurePreamble_RateLimitedSaysItWaitsAndTheWorkWasNotDone: the parent
+// reads that the run waits on its own (no human needed), when it resumes if
+// the engine said, and — the consumed prompt — that the work was NOT done and
+// must be sent again; nothing re-runs it.
+func TestFailurePreamble_RateLimitedSaysItWaitsAndTheWorkWasNotDone(t *testing.T) {
+	resets := time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC)
+	got := failurePreamble(&agent.TurnFailure{Kind: agent.FailureRateLimited, ResetsAt: resets})
+	assert.True(t, strings.HasPrefix(got, "RATE LIMITED:"), got)
+	assert.Contains(t, got, "2026-10-01T17:30:00Z")
+	assert.Contains(t, got, "resend")
+	assert.Contains(t, got, "on its own")
+	assert.NotContains(t, failurePreamble(&agent.TurnFailure{Kind: agent.FailureRateLimited}), "0001-01-01",
+		"no reset time named is not a reset at the zero time")
 }

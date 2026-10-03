@@ -290,7 +290,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	if err != nil {
 		return launch.Cell{}, err
 	}
-	spec, err := c.spec(ctx, req, harp)
+	spec, credential, err := c.spec(ctx, req, harp)
 	if err != nil {
 		return launch.Cell{}, err
 	}
@@ -327,30 +327,31 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		}
 	}
 	return launch.Cell{
-		Placement: placement,
-		Workspace: cwd,
-		HomeMode:  req.HomeMode,
-		Listen:    env.Listen(),
-		Cleanup:   env.Cleanup,
-		Handle:    env,
+		Placement:  placement,
+		Workspace:  cwd,
+		HomeMode:   req.HomeMode,
+		Listen:     env.Listen(),
+		Credential: credential,
+		Cleanup:    env.Cleanup,
+		Handle:     env,
 	}, nil
 }
 
 // spec is the isolation Spec the request's cell is prepared from, with the
-// credentials its agent authenticates with.
-func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string) (isolation.Spec, error) {
+// credentials its agent authenticates with, and where those come from.
+func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string) (isolation.Spec, engine.CredentialSource, error) {
 	// The resolver settled the home mode from the binding's declaration;
 	// re-parsed here through the vocabulary's own parser so the cell never
 	// asserts a spelling it did not check.
 	homeMode, err := agents.ParseHomeMode(string(req.HomeMode))
 	if err != nil {
-		return isolation.Spec{}, err
+		return isolation.Spec{}, engine.CredentialSource{}, err
 	}
 	creds, err := c.runCredentials(req)
 	if err != nil {
-		return isolation.Spec{}, err
+		return isolation.Spec{}, engine.CredentialSource{}, err
 	}
-	return isolation.NewSpec(req.Axes, req.Engine).
+	spec, err := isolation.NewSpec(req.Axes, req.Engine).
 		Project(req.ProjectRoot).
 		Session(harp, req.SessionDir, isolation.SessionStateFromEnv(req.Env)).
 		Image(req.Image).
@@ -358,6 +359,7 @@ func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string) (i
 		Credentials(creds).
 		EnvHost(req.EnvHost).
 		Build()
+	return spec, creds.Source(req.Engine.Root().Name), err
 }
 
 // runCredentials is what the request's agent authenticates with

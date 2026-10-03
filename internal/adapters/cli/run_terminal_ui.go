@@ -86,6 +86,11 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coor
 	if src.Approvals != nil {
 		go func() { _ = modalPresenter{ui: ui, clock: systemClock{}}.Present(ctx, src.Approvals) }()
 	}
+	// A rate limit parks the runs that share its credential; the bar keeps
+	// the root human told until the hold releases them.
+	if sessionCoord != nil {
+		go presentCredentialHolds(ctx, sessionCoord.CredentialHolds, ui.NoteBar, systemClock{})
+	}
 	return ui
 }
 

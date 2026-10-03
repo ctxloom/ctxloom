@@ -329,6 +329,7 @@ func requeue(ch chan Event, evs []Event) {
 // parent keeps only that harp's direct children; "" keeps every run.
 func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role, parent string) RunsSnapshot {
 	result := RunsSnapshot{}
+	holds := c.runHolds()
 	c.runs.View(func() {
 		for _, e := range c.rosterF.snapshot() {
 			if !includeTerminal && e.State == StateEnded {
@@ -365,6 +366,7 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role, parent string
 				// delegation privilege-scoping guarantee.
 				PermissionMode: rec.Permission,
 				MCPServers:     rec.MCPServers,
+				Hold:           holds[rec.RunID],
 			})
 		}
 	})

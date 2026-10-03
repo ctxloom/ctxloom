@@ -289,6 +289,18 @@ type RunInfo struct {
 	ParentRunID    string
 	PermissionMode string
 	MCPServers     []string
+	// Hold is the hold parking this run, nil when none does.
+	Hold *RunHold
+}
+
+// RunHold is why a run is parked and when it is released: the turn failure
+// its credential's hold is for (an agent.FailureKind value), the hold's
+// credential source (carrier names, never a value), and when it releases
+// itself (zero: only when cleared).
+type RunHold struct {
+	Kind   string
+	Source string
+	Until  time.Time
 }
 
 // RunsSnapshot is the roster at one instant.

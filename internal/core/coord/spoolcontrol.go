@@ -317,7 +317,11 @@ func (c *Coordinator) noticeUnansweredAsks(harp string) {
 // success; a caller who cannot tell them apart cannot tell a deliberate
 // second hold from a pause that never took.
 func (c *Coordinator) ControlPause(ctx context.Context, by ControlInitiator, harp, reason string) (newlyPaused bool, err error) {
-	resp, err := c.runnerControl(ctx, by, harp, "pause", reason)
+	rec, err := c.controlTarget(by, harp)
+	if err != nil {
+		return false, err
+	}
+	resp, err := c.runnerControl(ctx, by, rec, "pause", reason)
 	if err != nil {
 		return false, err
 	}
@@ -327,9 +331,18 @@ func (c *Coordinator) ControlPause(ctx context.Context, by ControlInitiator, har
 
 // ControlResume releases a paused target: turns held at the gate are handed to
 // the engine in arrival order. newlyResumed mirrors ControlPause's
-// newlyPaused: whether this call released the gate or found none.
+// newlyPaused: whether this call released the gate or found none. A target
+// parked on a refused credential is the hold's to release (releaseHold): only
+// the human may, and it releases every run the hold parked.
 func (c *Coordinator) ControlResume(ctx context.Context, by ControlInitiator, harp string) (newlyResumed bool, err error) {
-	resp, err := c.runnerControl(ctx, by, harp, "resume", "")
+	rec, err := c.controlTarget(by, harp)
+	if err != nil {
+		return false, err
+	}
+	if handled, newly, err := c.releaseHold(ctx, by, rec); handled {
+		return newly, err
+	}
+	resp, err := c.runnerControl(ctx, by, rec, "resume", "")
 	if err != nil {
 		return false, err
 	}
@@ -337,20 +350,25 @@ func (c *Coordinator) ControlResume(ctx context.Context, by ControlInitiator, ha
 	return res.NewlyResumed, nil
 }
 
-// runnerControl issues one pause/resume against harp's runner and returns
-// what the runner answered (an OK response; a refusal is the error).
+// runnerControl issues one pause/resume an initiator asked for, against the
+// target controlTarget's guards admitted, journaled as that initiator.
+func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, rec *RunRecord, verb, reason string) (RunnerResponse, error) {
+	return c.sendRunnerControl(ctx, rec, verb, reason, func() {
+		c.audit("agent_"+verb, by.auditName(), map[string]string{"harp": rec.Harp})
+	})
+}
+
+// sendRunnerControl issues one pause/resume against rec's runner and returns
+// what the runner answered (an OK response; a refusal is the error). accepted,
+// when set, runs once the request is known to be deliverable.
 //
-// It runs the SAME ownership guards every control verb runs, and the same
-// cutover predicate the delivery planes use — not because pause needs a spool,
-// but because a run split across the two worlds is the one state nothing
-// reconciles: the predicate is what says "this run is on the new plane", and
-// every control surface has to agree about that or the answer depends on which
-// one you asked.
-func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, harp, verb, reason string) (RunnerResponse, error) {
-	rec, err := c.controlTarget(by, harp)
-	if err != nil {
-		return RunnerResponse{}, err
-	}
+// It runs the same cutover predicate the delivery planes use — not because
+// pause needs a spool, but because a run split across the two worlds is the
+// one state nothing reconciles: the predicate is what says "this run is on the
+// new plane", and every control surface has to agree about that or the answer
+// depends on which one you asked.
+func (c *Coordinator) sendRunnerControl(ctx context.Context, rec *RunRecord, verb, reason string, accepted ...func()) (RunnerResponse, error) {
+	harp := rec.Harp
 	if !c.spoolDeliverTo(harp) {
 		return RunnerResponse{}, fmt.Errorf("%s: %q is not a run this coordinator tracks, so no runner request can reach it: %w",
 			verb, harp, ErrCapabilityUnavailable)
@@ -358,7 +376,9 @@ func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, ha
 	if rec.CredHash == "" {
 		return RunnerResponse{}, fmt.Errorf("%s: %q has no runner credential, so no runner request can reach it: %w", verb, harp, ErrCapabilityUnavailable)
 	}
-	c.audit("agent_"+verb, by.auditName(), map[string]string{"harp": harp})
+	for _, f := range accepted {
+		f()
+	}
 
 	// The run id rides the request and the RUNNER re-checks it (the same A9
 	// correlation StartRun enforces): a runner hosts exactly one run, so a
@@ -390,6 +410,18 @@ func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, ha
 	// one this coordinator issued.
 	c.setRunPaused(rec.RunID, verb == "pause")
 	return resp, nil
+}
+
+// currentRunRecord is a copy of harp's current run record, nil when none.
+func (c *Coordinator) currentRunRecord(harp string) *RunRecord {
+	var rec *RunRecord
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(harp); r != nil {
+			cp := *r
+			rec = &cp
+		}
+	})
+	return rec
 }
 
 // setRunPaused records (or clears) that runID is held at its runner's gate.

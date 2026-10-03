@@ -54,6 +54,35 @@ wire this up; it's there because you're running through `ctxloom run` at all. A 
 that sits at the bottom of the tree gets only the reporting half (`agent_send`,
 `agent_report`); the tools that spawn, observe or control other children are withheld from it.
 
+## When a credential hits its rate limit
+
+Children launched by one coordinator from the same credential share that credential's usage
+limit, so when one child's turn ends on the limit, the coordinator **holds every run that
+shares the credential** instead of letting each child meet the limit on its own next turn.
+Runs on a different credential carry on untouched. A hold belongs to the coordinator that
+raised it and covers only its own children.
+
+- **Nothing is retried silently.** The child whose turn hit the limit did no work; its parent
+  gets an error report leading `RATE LIMITED` that says the prompt was not done and must be
+  resent. Mail sent to a held run waits in its mailbox and runs once the hold lifts.
+- **The hold releases itself.** It lasts until the reset time the engine reported, kept within
+  a floor and a cap (and a fixed default wait when the engine named none), then every held run
+  resumes together. A later reset reported by another held child extends the wait; an earlier
+  one never shortens it. If the limit is still spent, the first turn to meet it holds the runs
+  again.
+- **It is visible while it lasts.** `roster` marks each held run with a `hold` — its `kind`
+  (`rate_limited`), its `source` (the names of the variables or credential stores the
+  credential comes from, never their values) and `until_unix`, when it releases. The root
+  terminal's bar says how many runs are waiting and when they resume, and a held run is never
+  reported as stalled.
+- **Only the human can cut it short.** Resuming any held run from the overlay releases the whole
+  hold early; a coordinator's own resume of a held child is refused, since it would only meet
+  the limit again.
+
+To exercise this without spending a real limit, send a turn to an agent on the `mock` engine
+whose prompt contains `mock:rate-limited` (or `mock:rate-limited=<unix seconds>` to name the
+reset time): that turn ends on a rate limit exactly as a real engine's does.
+
 ## Every session is its own tree
 
 Each `ctxloom run` hosts a coordinator of its own. Run a second session in a

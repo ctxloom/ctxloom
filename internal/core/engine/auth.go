@@ -106,6 +106,56 @@ type SharedStore struct {
 	HomeRel string
 }
 
+// CredentialSource identifies WHERE a run's credential comes from, never what
+// it is: the engine, the NAMES of the variables that carry it, and the
+// locations of the stores it is read from. No value is read, hashed or kept,
+// so a source may be journaled and shown.
+//
+// Two runs of one coordinator with equal Keys authenticate as one principal:
+// every run's credential is resolved from the coordinator's one launching
+// environment, so one carrier there is one credential.
+type CredentialSource struct {
+	// Key is the comparable identity; "" when the run carries no credential.
+	Key string
+	// EnvVars name the variables whose value was captured at launch, sorted.
+	// A value refreshed afterwards never reaches a run already started.
+	EnvVars []string
+	// Stores are the stores read in place, sorted: the location the launching
+	// env names, else where the engine finds it under $HOME, else (a store
+	// that is no directory) the variable that names it.
+	Stores []string
+}
+
+// Source is where c's credential comes from, for engine eng.
+func (c Credentials) Source(eng Name) CredentialSource {
+	src := CredentialSource{}
+	for k := range c.Env {
+		src.EnvVars = append(src.EnvVars, k)
+	}
+	for _, st := range c.Stores {
+		src.Stores = append(src.Stores, st.location())
+	}
+	if len(src.EnvVars) == 0 && len(src.Stores) == 0 {
+		return src
+	}
+	slices.Sort(src.EnvVars)
+	slices.Sort(src.Stores)
+	src.Key = fmt.Sprintf("%s env=%s store=%s", eng, strings.Join(src.EnvVars, ","), strings.Join(src.Stores, ","))
+	return src
+}
+
+// location names the store without resolving $HOME: the launching env's
+// value, else the engine's default under $HOME, else the variable itself.
+func (s SharedStore) location() string {
+	switch {
+	case s.Value != "":
+		return s.Value
+	case s.HomeRel != "":
+		return "~/" + s.HomeRel
+	}
+	return s.Var
+}
+
 // HostDir is the store's directory on the host whose home is hostHome:
 // Value when the launching env names one, else hostHome/HomeRel. "" for a
 // store that is not a directory (HomeRel "" and no Value).

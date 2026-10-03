@@ -31,6 +31,11 @@ const (
 	CustomTurnIdle    = "ctxloom/turn_idle"
 )
 
+// TurnIdleResetsAt is CustomTurnIdle's value key for a rate-limited turn's
+// reset time (RFC 3339), present only when the engine named one: what the
+// coordinator times the credential's shared hold by.
+const TurnIdleResetsAt = "resets_at"
+
 // Relay response size discipline (plan: 4MiB gRPC cap WATCHED): warn at
 // 3MiB, fail with a fix-it before the transport would.
 const (
@@ -351,7 +356,10 @@ func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) {
 		// Keyed by the channel's run: a late boundary from an ended run's
 		// channel must not drop what the harp's next run asks.
 		c.approvals.endTurn(ch.id.RunID)
-		c.onTurnIdle(ch.role, ch.id.RunID)
+		// A turn the engine turned away on a held failure: the runner has
+		// parked the run already; the hold parks the rest that share its
+		// credential.
+		c.onTurnIdle(ch.role, ch.id.RunID, turnFailureOf(ev.Value))
 	}
 }
 

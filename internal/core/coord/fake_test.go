@@ -63,7 +63,11 @@ type fakeSpawner struct {
 	// live gRPC listeners) around it. chats/kills record per spawn.
 	nextChat func() *scriptedChat
 	chats    []*scriptedChat
-	kills    []func()
+	// credentialFor, when set, names each agent's credential source on the
+	// launch it resolves (launch.Cell.Credential), as the cells adapter does
+	// from the credentials it resolved.
+	credentialFor func(agentName string) engine.CredentialSource
+	kills         []func()
 	// released[i] closes when the i-th engine's Kill fired — the seam a
 	// production child's container teardown hangs off. A test that must
 	// prove a stop RELEASED the child watches this rather than inferring it
@@ -292,11 +296,21 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 		Prompt:     start.Prompt,
 		Resume:     sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey},
 	}
+	l.Cell.Credential = s.credentialOf(plan.AgentName)
 	plan.Launch = l
 	s.mu.Lock()
 	s.launches = append(s.launches, l)
 	s.mu.Unlock()
 	return Resolved{Launch: l}, nil
+}
+
+// credentialOf is agentName's credential source: credentialFor's answer, the
+// zero source without one.
+func (s *fakeSpawner) credentialOf(agentName string) engine.CredentialSource {
+	if s.credentialFor == nil {
+		return engine.CredentialSource{}
+	}
+	return s.credentialFor(agentName)
 }
 
 // Start spawns the runner half for real: an in-process Home dialing the

@@ -70,7 +70,7 @@ func TestOnTurnIdle_AfterTheRunsTerminal_DoesNotBridgeAgain(t *testing.T) {
 	// Drain whatever the terminal itself legitimately delivered.
 	recvKind(t, c, KindExited, conformanceWait)
 
-	c.onTurnIdle(out.Harp, out.RunID)
+	c.onTurnIdle(out.Harp, out.RunID, nil)
 
 	assertNoMailKind(t, c, "error", 300*time.Millisecond)
 }

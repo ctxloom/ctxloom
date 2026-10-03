@@ -205,6 +205,29 @@ func TestDoctorCheckSpoolBacklog_TheRecordExcusesOnlyTheInbox(t *testing.T) {
 	assert.Contains(t, check.Detail, outRef.String())
 }
 
+// TestDoctorCheckSpoolBacklog_ARecordedRouteIsNotStuck: an out/ file whose
+// identity is already in the routed record is a route whose delete was
+// interrupted (spool.Consume records first, deletes second); the
+// coordinator's next sweep finishes it without routing it again. An aged out/
+// file with NO record is still named.
+func TestDoctorCheckSpoolBacklog_ARecordedRouteIsNotStuck(t *testing.T) {
+	testsupport.Isolate(t)
+	mapper := spool.NewHomeMapper()
+	harp := "amber-quiet-wren"
+	old := time.Now().Add(-10 * time.Minute)
+	recorded := writeRawSpoolMessage(t, mapper, harp, spool.DirOut, old.UnixNano(), 1, harp, old)
+	owed := writeRawSpoolMessage(t, mapper, harp, spool.DirOut, old.UnixNano(), 2, harp, old)
+	root, err := spool.Root(mapper, harp)
+	require.NoError(t, err)
+	record := filepath.Join(root, "out", "routed")
+	require.NoError(t, os.MkdirAll(record, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(record, strings.TrimSuffix(recorded.Name, spool.MessageFileExt)), nil, 0o600))
+
+	check := doctorCheckSpoolBacklog()
+	assert.NotContains(t, check.Detail, recorded.Name, "a recorded route is finished by the next sweep, not owed")
+	assert.Contains(t, check.Detail, owed.Name, "an unrecorded aged out/ file is still stuck")
+}
+
 // TestDoctorCheckSpoolBacklog_CapsNamedListWithCount proves a machine with
 // many stuck entries gets a bounded, readable line rather than an unbounded
 // wall of refs — the same "cap at ~5 with a count" shape

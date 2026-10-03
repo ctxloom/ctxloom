@@ -48,10 +48,10 @@ const doctorSpoolStuckMaxNamed = 5
 // doctorCheckSpoolBacklog surfaces spool entries that have sat UNDELIVERED in
 // a session's live in/, in/claimed/ or out/ directory well past the sweep's own
 // reconciliation cadence (spooldelivery.go's header has the full delivery
-// model: an out/ message is acknowledged by a rename into out/consumed/, an
-// inbox message by spool.Deliver, which records its identity and deletes it).
-// An inbox file whose identity is already recorded is a delivery whose delete
-// was interrupted, not a stuck one, and is not named.
+// model: an out/ message is acknowledged by spool.Consume and an inbox message
+// by spool.Deliver, each of which records its identity and deletes it). A file
+// whose identity is already recorded is a route or delivery whose delete was
+// interrupted, not a stuck one, and is not named.
 //
 // This exists because four confirmed message losses were previously
 // invisible: a report a child definitely filed never reached the
@@ -199,7 +199,7 @@ func (s *spoolBacklogScan) sweepDir(harp string, dir spool.Dir) {
 		if age < doctorSpoolStuckAge {
 			continue
 		}
-		if dir != spool.DirOut && s.alreadyDelivered(harp, entry) {
+		if s.alreadyHandled(harp, dir, entry) {
 			continue
 		}
 		if age > s.oldest {
@@ -213,17 +213,22 @@ func (s *spoolBacklogScan) sweepDir(harp string, dir spool.Dir) {
 	}
 }
 
-// alreadyDelivered reports whether an inbox entry's identity is in the
-// spool's delivered record: a delivery whose delete was interrupted, which
-// the reader's next sweep finishes. It is not mail anybody is still owed. A
-// record that cannot be read is a sweep error, and the entry is still named.
-func (s *spoolBacklogScan) alreadyDelivered(harp string, entry spool.Entry) bool {
-	delivered, err := spool.Delivered(s.mapper, harp, entry.Identity())
+// alreadyHandled reports whether an entry's identity is in its direction's
+// record — the routed record for out/, the delivered record for the inbox: a
+// route or delivery whose delete was interrupted, which the reader's next
+// sweep finishes. It is not mail anybody is still owed. A record that cannot
+// be read is a sweep error, and the entry is still named.
+func (s *spoolBacklogScan) alreadyHandled(harp string, dir spool.Dir, entry spool.Entry) bool {
+	recorded, which := spool.Delivered, "delivered"
+	if dir == spool.DirOut {
+		recorded, which = spool.Routed, "routed"
+	}
+	done, err := recorded(s.mapper, harp, entry.Identity())
 	if err != nil {
-		s.sweepErrs = append(s.sweepErrs, fmt.Sprintf("%s: reading the delivered record for %s: %v", harp, entry.Ref, err))
+		s.sweepErrs = append(s.sweepErrs, fmt.Sprintf("%s: reading the %s record for %s: %v", harp, which, entry.Ref, err))
 		return false
 	}
-	return delivered
+	return done
 }
 
 // failedDirs lists one session's failed/ directories. They are created
@@ -259,8 +264,8 @@ func (s *spoolBacklogScan) failedDirs(harp, root string) {
 
 // doctorSpoolPendingPhrase words an entry still sitting in in/ or out/. A
 // handled entry leaves: a delivered in/ message is deleted (its identity kept
-// in in/delivered/), a processed out/ message moves to out/consumed/. So one
-// still present has not been delivered either way. The stuck finding and the
+// in in/delivered/), a routed out/ message likewise (in out/routed/). So one
+// still present, and unrecorded, has not been delivered either way. The stuck finding and the
 // all-clear share the phrase so neither can drift from the other or from the
 // tests.
 const doctorSpoolPendingPhrase = "still pending delivery past"

@@ -66,6 +66,7 @@ type j002100State struct {
 	harps      map[string]string            // agent name -> its most recently spawned session harp
 	runIDs     map[string]string            // agent name -> the run id that spawn minted for it (agent_stop addresses runs)
 	askID      string                       // the id the last agent_ask returned
+	answerID   string                       // the identity of the answer the child wrote to its outbox
 }
 
 // j002100RunFact is runEnqueued's (coord/facts.go) payload, decoded straight off
@@ -627,15 +628,21 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return err
 			}
-			_, err = out.Write(&spool.Message{Kind: "result", FromHarp: harp, To: "parent", InReplyTo: j002100.askID, Body: answer})
-			return err
+			ref, err := out.Write(&spool.Message{Kind: "result", FromHarp: harp, To: "parent", InReplyTo: j002100.askID, Body: answer})
+			if err != nil {
+				return err
+			}
+			j002100.answerID = strings.TrimSuffix(ref.Name, spool.MessageFileExt)
+			return nil
 		})
 
 	// A delivered inbox file is deleted, so delivery is proven as
 	// ownerDeliveredFrom proves it: the coordinator's audit names the message
 	// it wrote into the owner's in/, here by its in_reply_to, and the owner's
-	// delivered record holds that id. The answer's words are read from the
-	// child's routed copy, which the coordinator consumed only once routed.
+	// delivered record holds that id. A routed message carries its outbox
+	// file's identity, so THE ANSWER ITSELF is identified by the id: the one
+	// file the previous step wrote, not merely something quoting the ask (the
+	// automatic turn report quotes it too).
 	ctx.Step(`^within (\d+)s the coordinator's reader delivers "([^"]*)"'s answer "([^"]*)", quoting the ask's id$`,
 		func(c context.Context, secs int, name, answer string) error {
 			w := worldFrom(c)
@@ -648,7 +655,8 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			deadline := time.Now().Add(time.Duration(secs) * time.Second)
 			for {
 				ids, err := routedToOwnerWhere(w, owner, func(d map[string]string) bool {
-					return d["from"] == harp && d["kind"] == "result" && d["in_reply_to"] == j002100.askID
+					return d["from"] == harp && d["kind"] == "result" && d["in_reply_to"] == j002100.askID &&
+						d["message_id"] == j002100.answerID
 				})
 				if err != nil {
 					return err
@@ -658,37 +666,17 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 					return err
 				}
 				if delivered {
-					return routedAnswer(w, harp, j002100.askID, answer)
+					w.docStepMaterialized = fmt.Sprintf("%s's answer %q (outbox identity %s, in_reply_to=%s) is in %s's delivered record",
+						harp, answer, j002100.answerID, j002100.askID, owner)
+					return nil
 				}
 				if time.Now().After(deadline) {
-					return fmt.Errorf("after %ds the coordinator (harp %s) has delivered no result from %s (harp %s) quoting ask %s; routed under ids %v",
-						secs, owner, name, harp, j002100.askID, ids)
+					return fmt.Errorf("after %ds the coordinator (harp %s) has not delivered %s's answer (harp %s, outbox identity %s) quoting ask %s; routed under ids %v",
+						secs, owner, name, harp, j002100.answerID, j002100.askID, ids)
 				}
 				time.Sleep(250 * time.Millisecond)
 			}
 		})
-}
-
-// routedAnswer checks that harp's routed copy quoting askID is the answer:
-// the automatic turn report quotes the same id, and only the words tell the
-// two apart.
-func routedAnswer(w *World, harp, askID, answer string) error {
-	routed, err := childSpoolMessages(w, harp, spool.DirOutConsumed)
-	if err != nil {
-		return err
-	}
-	var quoting []string
-	for _, m := range routed {
-		if m.InReplyTo != askID {
-			continue
-		}
-		if strings.Contains(m.Body, answer) {
-			w.docStepMaterialized = fmt.Sprintf("%s's routed answer, in_reply_to=%s:\n  %s", harp, m.InReplyTo, m.Body)
-			return nil
-		}
-		quoting = append(quoting, m.Body)
-	}
-	return fmt.Errorf("j002100: no routed message from %s quoting ask %s carries %q; those quoting it:\n%s", harp, askID, answer, strings.Join(quoting, "\n"))
 }
 
 // scenarioSpoolMapper resolves spool refs under the scenario's isolated HOME.

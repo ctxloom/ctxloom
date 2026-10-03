@@ -124,19 +124,19 @@ type Writer struct {
 // directory fsync after a publish fails.
 const logDirSyncFailed = "spool_publish_dir_sync_failed"
 
-// NewWriter returns a writer for harp's dir (DirIn or DirOut — the
-// consumed/withdrawn directories are reached by rename, never written into
-// directly), publishing under the given writer id.
+// NewWriter returns a writer for harp's dir (DirIn or DirOut — the withdrawn
+// directory is reached by rename, never written into directly), publishing
+// under the given writer id.
 //
 // The sequence counter is re-seeded from the highest seq already on disk
-// across the direction and its consumed/withdrawn siblings, so a restarted
+// across the direction and its withdrawn sibling, so a restarted
 // process cannot reissue a name a still-present file already holds.
 func NewWriter(m PathMapper, harp string, dir Dir, writerID string) (*Writer, error) {
 	if m == nil {
 		return nil, fmt.Errorf("spool: a PathMapper is required")
 	}
 	if dir != DirIn && dir != DirOut {
-		return nil, fmt.Errorf("spool: %q is not a writable direction (write to %q or %q; consumed and withdrawn are reached by rename)", string(dir), string(DirIn), string(DirOut))
+		return nil, fmt.Errorf("spool: %q is not a writable direction (write to %q or %q; withdrawn is reached by rename)", string(dir), string(DirIn), string(DirOut))
 	}
 	if err := validateWriterID(writerID); err != nil {
 		return nil, fmt.Errorf("spool: %w", err)

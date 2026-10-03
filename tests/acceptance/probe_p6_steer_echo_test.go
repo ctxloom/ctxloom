@@ -199,7 +199,7 @@ func TestP6AssertSpoolEvidence_EmptySpoolIsTheSilentNoOp(t *testing.T) {
 	c, err := p6Census(root, "swift-amber-falcon")
 	require.NoError(t, err)
 
-	err = p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon")
+	err = p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon", false)
 	require.Error(t, err, "an existing-but-empty spool is exactly the exit-0-with-zero-bytes failure this assertion exists to catch")
 	shape, ok := probeShapeOf(err)
 	require.True(t, ok)
@@ -212,7 +212,7 @@ func TestP6AssertSpoolEvidence_FilesWithoutTheHarpAreADeliveryFailure(t *testing
 	c, err := p6Census(root, "swift-amber-falcon")
 	require.NoError(t, err)
 
-	err = p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon")
+	err = p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon", false)
 	require.Error(t, err)
 	shape, ok := probeShapeOf(err)
 	require.True(t, ok)
@@ -232,7 +232,8 @@ func TestP6AssertSpoolEvidence_OutPlaneAloneIsNotTheClaim(t *testing.T) {
 	require.Empty(t, c.HarpIn)
 	require.Len(t, c.HarpOut, 1)
 
-	require.Error(t, p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon"))
+	require.Error(t, p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon", true),
+		"an answer with no in-plane evidence of the steer is not the claim")
 }
 
 func TestP6AssertSpoolEvidence_GreenOnAnInPlaneFileCarryingTheHarp(t *testing.T) {
@@ -240,19 +241,34 @@ func TestP6AssertSpoolEvidence_GreenOnAnInPlaneFileCarryingTheHarp(t *testing.T)
 	p6WriteSpoolFile(t, root, "in", "0001.msg.md", "kind: message\nto: swift-amber-falcon\n---\nswift-amber-falcon")
 	c, err := p6Census(root, "swift-amber-falcon")
 	require.NoError(t, err)
-	require.NoError(t, p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon"))
+	require.NoError(t, p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon", false))
 }
 
 // The prompt child: its runner delivered the steer, so the file is gone and
-// its identity recorded, and its reply carries the harp.
+// its identity recorded, and its reply carrying the harp was seen on the
+// coordinator's side. The routed reply itself is gone from out/ too — routed
+// and recorded in out/routed/ — so "answered" is what proves its bytes.
 func TestP6AssertSpoolEvidence_GreenOnARecordedDeliveryAnsweredWithTheHarp(t *testing.T) {
 	root := t.TempDir()
 	p6WriteSpoolFile(t, root, "in/delivered", "m-steer", "")
-	p6WriteSpoolFile(t, root, "out/consumed", "0002.msg.md", "kind: message\n---\nswift-amber-falcon")
+	p6WriteSpoolFile(t, root, "out/routed", "0002.msg", "")
 	c, err := p6Census(root, "swift-amber-falcon")
 	require.NoError(t, err)
 	require.Empty(t, c.HarpIn)
-	require.NoError(t, p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon"))
+	require.Equal(t, []string{"0002.msg"}, c.Routed, "the routed record rides the census")
+	require.NoError(t, p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon", true))
+	require.Error(t, p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon", false),
+		"a recorded delivery and a routed reply with no harp seen anywhere is not the steer's answer")
+}
+
+// A reply still waiting in out/ carries its own bytes: that is the answer.
+func TestP6AssertSpoolEvidence_GreenOnARecordedDeliveryWithAPendingReplyCarryingTheHarp(t *testing.T) {
+	root := t.TempDir()
+	p6WriteSpoolFile(t, root, "in/delivered", "m-steer", "")
+	p6WriteSpoolFile(t, root, "out", "0002.msg.md", "kind: message\n---\nswift-amber-falcon")
+	c, err := p6Census(root, "swift-amber-falcon")
+	require.NoError(t, err)
+	require.NoError(t, p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon", false))
 }
 
 // A recorded delivery whose answer does not carry the harp is mail that was
@@ -263,7 +279,7 @@ func TestP6AssertSpoolEvidence_ARecordedDeliveryWithoutTheHarpIsNotTheClaim(t *t
 	p6WriteSpoolFile(t, root, "out", "0002.msg.md", "kind: message\n---\nsomething else")
 	c, err := p6Census(root, "swift-amber-falcon")
 	require.NoError(t, err)
-	err = p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon")
+	err = p6AssertSpoolEvidence(p6TestVerdict(), c, "swift-amber-falcon", false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "m-other", "the record rides the failure census")
 }
@@ -273,7 +289,7 @@ func TestP6AssertSpoolEvidence_EmptyHarpIsRefused(t *testing.T) {
 	p6WriteSpoolFile(t, root, "in", "0001.msg.md", "anything")
 	c, err := p6Census(root, "")
 	require.NoError(t, err)
-	require.Error(t, p6AssertSpoolEvidence(p6TestVerdict(), c, ""),
+	require.Error(t, p6AssertSpoolEvidence(p6TestVerdict(), c, "", false),
 		"scanning a spool for the empty string matches every file that exists — the assertion would pass on unrelated traffic")
 }
 

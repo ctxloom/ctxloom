@@ -42,6 +42,10 @@ type p6State struct {
 	cell  probeCellID
 	harp  string
 	agent string
+	// answered: the echo step saw the harp's bytes arrive from the child on
+	// the coordinator's side — the spool evidence for an answer the
+	// coordinator has already routed out of the child's out/.
+	answered bool
 }
 
 func p6Of(w *World) *p6State {
@@ -237,6 +241,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 				}
 				verdict := p6AssertEcho(v, p6.harp, seen)
 				if verdict == nil {
+					p6.answered = true
 					evidence := fmt.Sprintf("owner spool — %s echoed the steer harp %s over the bus:\n  %s",
 						name, p6.harp, strings.Join(seen, "\n  ---\n  "))
 					w.docStepMaterialized = evidence
@@ -279,7 +284,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 				return fmt.Errorf("p6: the child's spool must exist, it is the only carrier: %w", err)
 			}
 			w.docStepMaterialized = census.String()
-			if err := p6AssertSpoolEvidence(p6Verdict(p6.cell), census, p6.harp); err != nil {
+			if err := p6AssertSpoolEvidence(p6Verdict(p6.cell), census, p6.harp, p6.answered); err != nil {
 				return err
 			}
 			// The soak's evidence, printed on green for the same reason the echo

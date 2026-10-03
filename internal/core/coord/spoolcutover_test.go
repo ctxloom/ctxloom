@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
 // TestSpoolCutover_MailRidesTheSpoolWithNothingAsked pins the post-cutover
@@ -53,7 +52,7 @@ func TestSpoolCutover_MailRidesTheSpoolWithNothingAsked(t *testing.T) {
 	// Down: the owner's send is ONE file in the child's in/, delivered as a
 	// turn, then deleted with its identity recorded. No mailbox fact exists
 	// for it.
-	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "second task", nil, "")
+	msgID, _, err := c.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindMessage, "second task", nil, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
 	awaitChatText(t, sp, 0, "second task")
@@ -74,6 +73,6 @@ func TestSpoolCutover_MailRidesTheSpoolWithNothingAsked(t *testing.T) {
 	got := recvBody(t, c, "a finding", conformanceWait)
 	require.NotEmpty(t, got, "the child's send must reach the owner from the child's out/ spool")
 	assert.Equal(t, out.Harp, got[0].From)
-	awaitSpoolEntryWithBody(t, out.Harp, spool.DirOutConsumed, "a finding", "after routing")
+	awaitRouted(t, out.Harp, got[0].ID, "after routing, under the identity the owner's copy carries")
 	assertNoMailboxJournal(t, c)
 }

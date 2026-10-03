@@ -5,7 +5,8 @@
 //
 // The container-writes cell runs through ctxloom on the isolation probe's
 // own Given/When steps (one paid turn in a rootless container) and judges the
-// host-side session home watchScratch captured during the run. The
+// host-side native history watchScratch captured during the run, which the
+// container reaches through its engine home's link. The
 // symlinked-projects cell runs the vendor binary directly, as P12 does, so a
 // red names claude alone.
 package acceptance
@@ -44,9 +45,9 @@ func registerP14NativeHistorySteps(ctx *godog.ScenarioContext) {
 		if p.Result == nil {
 			return fmt.Errorf("%s: no result recorded — the When step never ran", p14Family)
 		}
-		err := p14JudgeContainerWrites(p.Result.Scratch.ConfigHome, p.Result.Scratch.ConfigTree)
-		fmt.Printf("EVIDENCE %s %s: exit=%d configHome=%s tree=%v verdict=%v\n",
-			p14Family, p14ContainerWrites, p.Result.ExitCode, p.Result.Scratch.ConfigHome, p.Result.Scratch.ConfigTree, err)
+		err := p14JudgeContainerWrites(p.Result.Scratch.NativeHome, p.Result.Scratch.NativeTree)
+		fmt.Printf("EVIDENCE %s %s: exit=%d nativeHome=%s tree=%v verdict=%v\n",
+			p14Family, p14ContainerWrites, p.Result.ExitCode, p.Result.Scratch.NativeHome, p.Result.Scratch.NativeTree, err)
 		if err == nil && p.Result.ExitCode != 0 {
 			return fmt.Errorf("%s %s: run exited %d; output:\n%s", p14Family, p14ContainerWrites, p.Result.ExitCode, p.Result.Output)
 		}

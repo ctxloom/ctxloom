@@ -228,6 +228,8 @@ type probeScratchSnapshot struct {
 	ConfigHome   string
 	CheckoutTree []string // relative paths seen under the worktree checkout
 	ConfigTree   []string // relative paths seen under the session's engine homes (<leaf>/...)
+	NativeHome   string
+	NativeTree   []string // relative paths seen under the session's native history (<leaf>/...)
 	// TokenFound/TokenContent: the probe's own trivial-write payload
 	// (probeTokenFileName), read live from the checkout WHILE it still
 	// exists — never a credential, safe to capture. "" / false when not yet
@@ -279,6 +281,10 @@ func watchScratch(ctx context.Context, homeDir string) <-chan probeScratchSnapsh
 					last.ConfigHome = snap.ConfigHome
 					last.ConfigTree = snap.ConfigTree
 				}
+				if len(snap.NativeTree) > 0 {
+					last.NativeHome = snap.NativeHome
+					last.NativeTree = snap.NativeTree
+				}
 			}
 		}
 	}()
@@ -300,14 +306,19 @@ func scanScratchOnce(sessionsDir string) probeScratchSnapshot {
 			snap.ConfigHome = homes
 			snap.ConfigTree = tree
 		}
-		ephemeral := filepath.Join(sessionsDir, h.Name(), "ephemeral")
-		entries, err := os.ReadDir(ephemeral)
+		native := filepath.Join(sessionsDir, h.Name(), paths.NativeDirName)
+		if tree := listRelFiles(native); len(tree) > 0 {
+			snap.NativeHome = native
+			snap.NativeTree = tree
+		}
+		work := filepath.Join(sessionsDir, h.Name(), paths.WorkDirName)
+		entries, err := os.ReadDir(work)
 		if err != nil {
 			continue
 		}
 		for _, e := range entries {
 			name := e.Name()
-			full := filepath.Join(ephemeral, name)
+			full := filepath.Join(work, name)
 			switch {
 			case strings.HasPrefix(name, "ctxloom-wt-"):
 				snap.CheckoutDir = full
@@ -850,8 +861,8 @@ func assertProbeWorktree(res *probeResult) error {
 	if err != nil {
 		return err
 	}
-	if !slices.ContainsFunc(res.Scratch.ConfigTree, func(rel string) bool { return isAncestorOf(engineWrites, rel) }) {
-		return fmt.Errorf("(c) config-home evidence: the engine wrote nothing under %s in the session's engine home %s (seen: %v) — either the engine was never pointed at the session home, or the watcher's polling window missed the whole run", engineWrites, res.Scratch.ConfigHome, res.Scratch.ConfigTree)
+	if !slices.ContainsFunc(res.Scratch.NativeTree, func(rel string) bool { return isAncestorOf(engineWrites, rel) }) {
+		return fmt.Errorf("(c) config-home evidence: the engine wrote nothing under %s in the session's native history %s, reached through its engine home %s (seen: %v) — either the engine was never pointed at the session home, its history link was not followed, or the watcher's polling window missed the whole run", engineWrites, res.Scratch.NativeHome, res.Scratch.ConfigHome, res.Scratch.NativeTree)
 	}
 	if len(res.HostDiff) != 0 {
 		return fmt.Errorf("(d) host census: changed under isolation (an unexpected leak): %v", res.HostDiff)
@@ -859,10 +870,11 @@ func assertProbeWorktree(res *probeResult) error {
 	return nil
 }
 
-// probeEngineWriteDir is where, relative to the session's engine homes, an
-// engine leaves state only IT writes. ctxloom writes into the same home before
-// launch (the instance config, the settings), so a non-empty home proves
-// nothing about where the engine wrote; claude's own transcript does.
+// probeEngineWriteDir is where, relative to the session's native history, an
+// engine leaves state only IT writes: claude's own transcript, written through
+// the session home's history link. ctxloom writes into the home before launch
+// (the instance config, the settings), so a non-empty home proves nothing
+// about where the engine wrote.
 func probeEngineWriteDir(backendType string) (string, error) {
 	switch backendType {
 	case "claude-code":

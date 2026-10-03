@@ -51,9 +51,10 @@ var errP14NoHistory = errors.New("no conversation .jsonl")
 // claude swapped the planted projects/ link for a real directory.
 var errP14LinkReplaced = errors.New("claude REPLACED the projects/ symlink with a real entry")
 
-// p14JudgeContainerWrites passes when the session's engine homes, as observed
-// on the host during the run (rel paths under home/), hold a conversation
-// .jsonl under claude's projects/.
+// p14JudgeContainerWrites passes when the session's native history, as
+// observed on the host during the run (rel paths under native/), holds a
+// conversation .jsonl under claude's projects/ — written in the container
+// through the engine home's link.
 func p14JudgeContainerWrites(configHome string, configTree []string) error {
 	prefix := filepath.Join(claude.HomeLeaf, claude.TranscriptsDirName) + string(filepath.Separator)
 	for _, rel := range configTree {
@@ -61,7 +62,7 @@ func p14JudgeContainerWrites(configHome string, configTree []string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("%s %s: %w under %s in the session's engine home %s (seen: %v)",
+	return fmt.Errorf("%s %s: %w under %s in the session's native history %s (seen: %v)",
 		p14Family, p14ContainerWrites, errP14NoHistory, prefix, configHome, configTree)
 }
 

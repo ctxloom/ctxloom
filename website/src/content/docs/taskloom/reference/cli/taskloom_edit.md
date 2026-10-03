@@ -18,8 +18,18 @@ Replace a task's text, keyed by its harp ID.
 The entire text is replaced with what you pass (not patched); the task's
 status and any Deferred trigger are left unchanged.
 
+Text that begins with "-" is parsed as a flag however it is quoted; put --
+before it to end flag parsing.
+
 ```
 taskloom edit <harp-id> <text> [flags]
+```
+
+### Examples
+
+```
+  taskloom edit swift-amber-falcon "the new full text"
+  taskloom edit swift-amber-falcon -- "--json drops the error envelope"
 ```
 
 ### Options

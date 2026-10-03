@@ -35,6 +35,9 @@ type, or exact string to search for — "cloneMCPServer in internal/core/config"
 Line numbers drift on every edit above them and are usually wrong by the
 time anyone reads the task; a symbol name still finds it.
 
+Text that begins with "-" (a subject naming the flag it is about) is parsed
+as a flag however it is quoted; put -- before it to end flag parsing.
+
 ```
 taskloom add <text> [flags]
 ```
@@ -47,6 +50,7 @@ taskloom add <text> [flags]
   taskloom add "revisit caching" --status Deferred --trigger "the v2 API ships"
   taskloom add "dedupe the retry loop in the sync client
 (found 2026-07-19, session icy-weary-chimp, while reviewing config layering)"
+  taskloom add --tag cli -- "--json drops the error envelope"
 ```
 
 ### Options

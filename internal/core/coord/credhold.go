@@ -303,7 +303,6 @@ func turnFailureOf(value map[string]any) *agent.TurnFailure {
 type turnFold struct {
 	opened, moved bool
 	parkedNothing bool // a new hold had nothing to park, so none was opened
-	id            string
 	until         time.Time
 	siblings      []heldRun
 }
@@ -337,23 +336,35 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 	slices.SortFunc(candidates, func(a, b heldRun) int { return cmp.Compare(a.runID, b.runID) })
 
 	c.holdMu.Lock()
+	// A hold that may open here gets its timer armed BEFORE it is journaled,
+	// so no reader ever sees a hold in force with no timer to release it.
+	// Which holds are in force changes only under holdMu, so whether this one
+	// opens is already settled; whether it parks anyone is decide's to say,
+	// and a hold that opens nothing is disarmed again below.
+	now := c.now()
+	var local *holdLocal
+	c.runs.View(func() {
+		if c.holdsF.byKey[key] == nil {
+			local = &holdLocal{id: RandID("hold-", 12), parked: make(chan struct{})}
+		}
+	})
+	if local != nil {
+		c.holds[key] = local
+		c.armLocked(key, local, holdDeadline(now, f))
+	}
 	var d turnFold
 	err := c.runs.Exec(func() ([]Fact, error) {
 		var facts []Fact
-		d, facts = c.decideTurnFailure(f, key, scope, eng, src, heldRun{runID, harp}, candidates)
+		d, facts = c.decideTurnFailure(f, now, local, key, scope, eng, src, heldRun{runID, harp}, candidates)
 		return facts, nil
 	})
-	var local *holdLocal
-	if err == nil {
-		switch {
-		case d.opened:
-			local = &holdLocal{id: d.id, parked: make(chan struct{})}
-			c.holds[key] = local
-			c.armLocked(key, local, d.until)
-		case d.moved:
-			if l := c.holds[key]; l != nil {
-				c.armLocked(key, l, d.until)
-			}
+	switch {
+	case local != nil && (err != nil || !d.opened):
+		c.armLocked(key, local, time.Time{})
+		delete(c.holds, key)
+	case err == nil && d.moved:
+		if l := c.holds[key]; l != nil {
+			c.armLocked(key, l, d.until)
 		}
 	}
 	c.holdMu.Unlock()
@@ -369,8 +380,9 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 }
 
 // decideTurnFailure is onTurnFailed's decision, inside the run journal's
-// Exec: it reads only the folds.
-func (c *Coordinator) decideTurnFailure(f agent.TurnFailure, key string, scope holdScope, eng engine.Name, src engine.CredentialSource, own heldRun, candidates []heldRun) (turnFold, []Fact) {
+// Exec: it reads only the folds. local is the hold onTurnFailed armed for a
+// key with none in force (nil when one is).
+func (c *Coordinator) decideTurnFailure(f agent.TurnFailure, now time.Time, local *holdLocal, key string, scope holdScope, eng engine.Name, src engine.CredentialSource, own heldRun, candidates []heldRun) (turnFold, []Fact) {
 	var d turnFold
 	if r := c.runsF.run(own.runID); r == nil || r.Ended {
 		return d, nil // a turn boundary after the run's terminal folds nothing
@@ -380,7 +392,6 @@ func (c *Coordinator) decideTurnFailure(f agent.TurnFailure, key string, scope h
 		return d, nil
 	}
 	ownPark := other == nil
-	now := c.now()
 	rec := c.holdsF.byKey[key]
 	if rec == nil {
 		for _, s := range candidates {
@@ -392,8 +403,11 @@ func (c *Coordinator) decideTurnFailure(f agent.TurnFailure, key string, scope h
 			d.parkedNothing = true
 			return d, nil
 		}
-		d.opened, d.id, d.until = true, RandID("hold-", 12), holdDeadline(now, f)
-		facts := []Fact{factAt(factHoldOpened, now, holdOpened{ID: d.id, Key: key, Scope: scope, Kind: string(f.Kind), Engine: eng, Source: src, Until: d.until})}
+		if local == nil {
+			return turnFold{}, nil // unreachable: holds come into force only under holdMu
+		}
+		d.opened, d.until = true, holdDeadline(now, f)
+		facts := []Fact{factAt(factHoldOpened, now, holdOpened{ID: local.id, Key: key, Scope: scope, Kind: string(f.Kind), Engine: eng, Source: src, Until: d.until})}
 		if ownPark {
 			facts = append(facts, factAt(factHoldParked, now, holdParked{Key: key, RunID: own.runID, Harp: own.harp, Cause: "turn"}))
 		}

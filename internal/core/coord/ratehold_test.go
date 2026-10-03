@@ -757,6 +757,8 @@ func TestRateHold_TheInProcessRosterShowsTheHold(t *testing.T) {
 	f, clk := newRateFixture(t)
 	f.send(t, f.worker, limitHit+" do the work")
 	f.awaitHold(t, f.worker, f.sibling)
+	// The hold is in force before the worker's turn boundary marks it idle.
+	require.Eventually(t, func() bool { return f.state(f.worker) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
 	for _, harp := range []string{f.worker, f.sibling} {
 		e := f.entry(harp)

@@ -5,6 +5,7 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"path/filepath"
 
 	"github.com/cucumber/godog"
@@ -155,5 +156,5 @@ func seedFinishedSessionFiles(c context.Context, harp string, distilled bool) er
 		return nil
 	}
 	essence := fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-01-02T00:00:00Z\n---\n\nSeeded essence for %s.\n", harp, harp)
-	return w.env.WriteHomeFile(filepath.Join(harpRel, "essence.md"), essence)
+	return writeOutputFile(w, harp, paths.EssenceFileName, essence)
 }

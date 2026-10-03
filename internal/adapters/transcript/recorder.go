@@ -307,7 +307,7 @@ func (r *fileRecorder) ensureFile() error {
 	}
 	if err := r.fs.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
 		r.releaseLock()
-		return fmt.Errorf("transcript: create persist dir: %w", err)
+		return fmt.Errorf("transcript: create transcripts dir: %w", err)
 	}
 	f, err := r.open(r.path)
 	if err != nil {

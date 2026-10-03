@@ -381,7 +381,7 @@ func rebuildCanonicalTranscript(ctx context.Context, adapter vendorreader.Vendor
 	// to run before safefs.NewAtomicFile, whose own precondition (like
 	// safefs.WriteFile's) is that the destination directory already exists.
 	if mkErr := os.MkdirAll(filepath.Dir(dest), 0o755); mkErr != nil {
-		return false, fmt.Errorf("create persist dir for %s: %w", e.HarpName, mkErr)
+		return false, fmt.Errorf("create transcripts dir for %s: %w", e.HarpName, mkErr)
 	}
 	fs := afero.NewOsFs()
 	if ra, wm, ok := loadWatermark(adapter, e, liveSrc); ok {

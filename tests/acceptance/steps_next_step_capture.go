@@ -14,6 +14,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -117,10 +119,11 @@ func writeSessionSidecar(w *World, harp, engine, engineVersion string) error {
 	})
 }
 
-// readCapturedNextStep reads the harp's next-step file straight off disk,
-// under the isolated HOME, at the path the production writer uses.
+// readCapturedNextStep reads the harp's next-step file straight off disk, in
+// the output dir the harp's record states.
 func readCapturedNextStep(w *World, harp string) (string, error) {
-	body, err := w.env.ReadHomeFile(j001200HarpHome(harp) + "/" + paths.NextStepFileName)
+	raw, err := os.ReadFile(filepath.Join(outputDirFor(w, harp), paths.NextStepFileName))
+	body := string(raw)
 	if err != nil {
 		return "", fmt.Errorf("read the captured next step for %s: %w (hook output:\n%s)", harp, err, w.env.LastOutput())
 	}

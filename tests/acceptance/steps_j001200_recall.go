@@ -30,6 +30,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,7 +93,7 @@ func j001200HarpHome(harp string) string { return ".ctxloom/sessions/" + harp }
 // session store derives Entry.Summary from it), so a summary-only marker
 // belongs HERE, not in the pre-migration index row.
 func j001200WriteEssence(w *World, harp, summary, body string) error {
-	return w.env.WriteHomeFile(j001200HarpHome(harp)+"/essence.md",
+	return writeOutputFile(w, harp, paths.EssenceFileName,
 		fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-03-15T00:00:00Z\nsummary: %s\n---\n\n%s\n", harp, summary, body))
 }
 

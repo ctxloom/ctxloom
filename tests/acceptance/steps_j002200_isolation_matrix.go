@@ -39,6 +39,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"os"
 	"path/filepath"
 	"strings"
@@ -326,12 +327,13 @@ func isoIsPerAgentScratch(w *World, val string) bool {
 	// Since slice 14a the session's config-home INSTANCE also lives under the
 	// sessions root (~/.ctxloom/sessions/<harp>/home/<leaf>, paths.HarpSessionEngineHomes),
 	// so "under sessions/" no longer means scratch. The per-agent worktree
-	// scratch is the harp's EPHEMERAL member (paths.HarpEphemeralDir,
-	// Worktree.scratchBase); the instance is its HOME member. Discriminate on
-	// the member RELATIVE TO the sessions root — the absolute path may pass
-	// through an unrelated ".../ephemeral/..." (the outer sandbox worktree).
+	// checkout is the harp's WORK member and its toolchain scratch its
+	// SCRATCH member (Worktree.checkoutBase, Worktree.scratchBase); the
+	// instance is its HOME member. Discriminate on the member RELATIVE TO the
+	// sessions root — the absolute path may pass through an unrelated
+	// directory of the same name (the outer sandbox worktree).
 	segs := strings.Split(strings.TrimPrefix(val, root+sep), sep)
-	return len(segs) >= 2 && segs[1] == "ephemeral"
+	return len(segs) >= 2 && (segs[1] == paths.ScratchDirName || segs[1] == paths.WorkDirName)
 }
 
 // isoMatrixState is this file's per-scenario fixture state: where the spy's

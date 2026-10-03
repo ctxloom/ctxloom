@@ -130,12 +130,9 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 }
 
 // harpEssencePathIn is where this scenario's ctxloom reads and writes a harp's
-// distilled essence: <HOME>/.ctxloom/sessions/<harp>/essence.md, mirroring
-// paths.HarpEssencePath against the test environment's HOME rather than the
-// real one. Computed here rather than imported so the assertion is independent
-// of the production path helper it is checking — a helper that started
-// returning the wrong directory would otherwise move the goalposts and the
-// scenario with them.
+// distilled essence: essence.md in the output dir the harp's record states.
+// Read from the record here rather than from a production helper, so the
+// assertion is independent of the resolver it is checking.
 func harpEssencePathIn(w *World, harp string) string {
-	return filepath.Join(w.env.HomeDir, ".ctxloom", "sessions", harp, "essence.md")
+	return filepath.Join(outputDirFor(w, harp), "essence.md")
 }

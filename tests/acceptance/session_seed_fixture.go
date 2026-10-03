@@ -4,6 +4,8 @@ package acceptance
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 
@@ -26,6 +28,7 @@ type sessionSeed struct {
 	EngineVersion  string             `yaml:"engine_version,omitempty"`
 	Origin         string             `yaml:"origin,omitempty"`
 	Rotations      []sessionSeedEntry `yaml:"rotations,omitempty"`
+	OutputDir      string             `yaml:"output_dir,omitempty"`
 }
 
 // sessionSeedEntry is one prior binding of a seeded session, in the sidecar's
@@ -47,11 +50,45 @@ func seedSessionSidecar(w *World, harp string, seed sessionSeed) error {
 	if seed.ProjectDir == "" {
 		seed.ProjectDir = w.env.ProjectDir
 	}
+	if seed.OutputDir == "" {
+		seed.OutputDir = defaultOutputDirIn(w, seed.ProjectDir, harp)
+	}
 	body, err := yaml.Marshal(seed)
 	if err != nil {
 		return fmt.Errorf("seed session %q: %w", harp, err)
 	}
 	return w.env.WriteHomeFile(".ctxloom/sessions/"+harp+"/"+paths.SessionSidecarFileName, string(body))
+}
+
+// defaultOutputDirIn is where a session minted under the scenario's HOME
+// records its output dir by default: <HOME>/Documents/ctxloom/<project>/<harp>.
+// Spelled out here rather than taken from paths.DefaultOutputBase so a
+// fixture does not move with the helper it checks.
+func defaultOutputDirIn(w *World, projectDir, harp string) string {
+	return filepath.Join(w.env.HomeDir, "Documents", "ctxloom", filepath.Base(projectDir), harp)
+}
+
+// outputDirFor is harp's output dir as its record states it — seeded, or
+// recorded by a real run — else the default a seed would record.
+func outputDirFor(w *World, harp string) string {
+	if raw, err := w.env.ReadHomeFile(".ctxloom/sessions/" + harp + "/" + paths.SessionSidecarFileName); err == nil {
+		var rec struct {
+			OutputDir string `yaml:"output_dir"`
+		}
+		if yaml.Unmarshal([]byte(raw), &rec) == nil && rec.OutputDir != "" {
+			return rec.OutputDir
+		}
+	}
+	return defaultOutputDirIn(w, w.env.ProjectDir, harp)
+}
+
+// writeOutputFile writes name into harp's output dir.
+func writeOutputFile(w *World, harp, name, body string) error {
+	p := filepath.Join(outputDirFor(w, harp), filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte(body), 0o644)
 }
 
 // mergeSessionSidecar overlays seed's SET fields onto harp's existing

@@ -225,5 +225,5 @@ func TestRefreshVendorTranscript_LeavesNoRebuildArtifact(t *testing.T) {
 		names[i] = e.Name()
 	}
 	assert.ElementsMatch(t, []string{filepath.Base(canonPath), filepath.Base(canonPath) + ".lock"}, names,
-		"the persist dir must hold only the canonical transcript and its ownership-lock sidecar, no leftover temp")
+		"the transcripts dir must hold only the canonical transcript and its ownership-lock sidecar, no leftover temp")
 }

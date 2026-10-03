@@ -25,17 +25,16 @@ func NewBaseLifecycle(backendName string) *BaseLifecycle {
 }
 
 // MergeManaged folds the host-assembled ManagedConfig into this lifecycle and
-// appends the agent's own context-injection hook. It is the wire-only successor
-// to MergeConfigHooks: the host now resolves config/profile/bundle hooks and MCP
-// servers (backends.AssembleManagedConfig) and ships them over the wire, so the
-// agent never touches ctxloom config.
+// appends the agent's own context-injection hook. The host resolves
+// config/profile/bundle hooks and MCP servers (operations.AssemblePackage,
+// projected by ManagedConfigFor) and ships them over the wire, so the agent
+// never touches ctxloom config.
 //
-// m.Hooks is the config+default-profile+bundle set WITHOUT context-injection,
-// kept identical to the operations.ApplyHooks write (which also assembles via
-// backends.AssembleManagedHooks) so one delivery can't withdraw a hook the
-// other writer assembled — the failure class that once broke forward-bind. The context-injection hook is
-// appended here from the plugin-side contextHash, the one piece only the agent
-// knows.
+// m.Hooks is the config+profile+bundle set WITHOUT context-injection — the
+// same managedhooks.AssembleFor output the at-rest writer
+// (operations.ApplyHooks) delivers — so one delivery can't withdraw a hook the
+// other writer assembled. The context-injection hook is appended here from the
+// plugin-side contextHash, the one piece only the agent knows.
 func (l *BaseLifecycle) MergeManaged(rep report.Reporter, m *ManagedConfig, workDir string, contextHash string) {
 	if m == nil {
 		return

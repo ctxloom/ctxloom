@@ -85,23 +85,22 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 // hooks, default-profile-shipped hooks, bundle-shipped hooks, and (when
 // contextHash is non-empty) the context-injection hook.
 //
-// Both writers route through this — the `ctxloom run` setup payload
-// (AssembleManagedConfig, which passes contextHash "" so the agent appends its
-// own injection hook) and operations.ApplyHooks (which passes the resolved
-// hash). A hook one writer assembled and the other did not is withdrawn by the
-// next delivery of the other — the failure class that once broke
-// forward-bind. Keeping the full assembly here guarantees both writers produce
-// an identical, complete set.
+// Both writers route through this via operations.AssemblePackage, which
+// passes contextHash "": the `ctxloom run` payload (agent.ManagedConfigFor),
+// whose agent appends its own injection hook in BaseLifecycle.MergeManaged,
+// and operations.ApplyHooks, whose applyHooksToBackend appends it from the
+// regenerated hash. A hook one writer assembled and the other did not is
+// withdrawn by the next delivery of the other. Keeping the full assembly here
+// guarantees both writers produce an identical, complete set.
 //
 // Returns a fresh Hooks each call (never aliases cfg.Hooks), so callers
 // that invoke it in a loop — e.g. apply-hooks across every backend — cannot
 // accumulate duplicate hooks by mutating shared config state.
 //
-// The return value is the RESOLVED MODEL (managed_hooks.go), not a wire config:
-// it keeps each hook's provenance and declared position, which the pure-append
-// merge used to discard at every step, and it is what any project-level hook
-// ORDERING has to act on. Writers take the projection, Hooks.Wire, which
-// is byte-for-byte the wire config this function used to return.
+// The return value is the RESOLVED MODEL (Hooks), not a wire config: it keeps
+// each hook's provenance and declared position, which a pure-append wire merge
+// discards, and it is what any project-level hook ORDERING has to act on.
+// Writers take the projection, Hooks.Wire.
 func Assemble(rep report.Reporter, cfg *config.Config, workDir, contextHash string, profileNames []string) *Hooks {
 	if cfg == nil {
 		return newHooks()

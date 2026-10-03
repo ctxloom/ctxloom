@@ -243,7 +243,7 @@ func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsDelivered(t *testing.T) {
 // TestSpoolDelivery_ChildSendRidesOutAndReachesTheParent is the child->parent
 // happy path: agent_send is a LOCAL file write with no coordinator round trip,
 // the coordinator routes it out of the child's out/ into the parent's spool,
-// and the file is deleted with its identity in out/routed/.
+// and the file lands in out/consumed/.
 func TestSpoolDelivery_ChildSendRidesOutAndReachesTheParent(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)

@@ -53,6 +53,8 @@ const (
 	DirIn Dir = "in"
 	// DirOut holds messages FROM that agent. Single writer: its runner.
 	DirOut Dir = "out"
+	// DirOutConsumed holds out/ messages the coordinator processed.
+	DirOutConsumed Dir = "out/consumed"
 	// DirInWithdrawn holds in/ messages the WRITER retracted before they were
 	// consumed. Rename-won means retracted; ENOENT means the reader won.
 	DirInWithdrawn Dir = "in/withdrawn"
@@ -71,7 +73,7 @@ const SpoolDirName = paths.SpoolDirName
 const tmpDirName = "tmp"
 
 // allDirs is every Dir, in creation order (parents before children).
-var allDirs = []Dir{DirIn, DirOut, DirInWithdrawn}
+var allDirs = []Dir{DirIn, DirOut, DirOutConsumed, DirInWithdrawn}
 
 // Dirs returns every Dir in the closed set, in creation order (parents before
 // children).

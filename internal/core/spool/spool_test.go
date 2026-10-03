@@ -116,7 +116,7 @@ func TestHomeMapper_RefOfRoundTrip(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 
-	for _, dir := range []Dir{DirIn, DirOut, DirInWithdrawn} {
+	for _, dir := range []Dir{DirIn, DirOut, DirOutConsumed, DirInWithdrawn} {
 		ref := Ref{Harp: testHarp, Dir: dir, Name: "00000000000000000042.00000007.coord.md"}
 		path, err := m.Resolve(ref)
 		require.NoError(t, err)
@@ -152,11 +152,11 @@ func TestHomeMapper_RefOfRejectsForeignPaths(t *testing.T) {
 }
 
 func TestDir_ClosedEnum(t *testing.T) {
-	for _, d := range []Dir{DirIn, DirOut, DirInWithdrawn} {
+	for _, d := range []Dir{DirIn, DirOut, DirOutConsumed, DirInWithdrawn} {
 		require.True(t, d.Valid(), "%s must be in the closed set", d)
 		require.NoError(t, d.Validate())
 	}
-	for _, d := range []Dir{"", "IN", "in/", "quarantine", "in/consumed", "in/consumed/deeper", "in/delivered", "out/consumed", "out/routed", "tmp"} {
+	for _, d := range []Dir{"", "IN", "in/", "quarantine", "in/consumed", "in/consumed/deeper", "in/delivered", "tmp"} {
 		require.False(t, Dir(d).Valid(), "%q must not be in the closed set", d)
 		require.Error(t, Dir(d).Validate())
 	}
@@ -182,7 +182,7 @@ func TestEnsureDirs_CreatesTheWholeLayout(t *testing.T) {
 
 	root, err := Root(m, testHarp)
 	require.NoError(t, err)
-	for _, rel := range []string{"in", "out", "in/withdrawn", "tmp"} {
+	for _, rel := range []string{"in", "out", "out/consumed", "in/withdrawn", "tmp"} {
 		path := filepath.Join(root, filepath.FromSlash(rel))
 		st, err := statDir(path)
 		require.NoError(t, err, "EnsureDirs must create %s", rel)

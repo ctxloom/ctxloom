@@ -161,7 +161,7 @@ func TestWriter_NeverPublishesAPartialFile(t *testing.T) {
 func TestNewWriter_RefusesNonWritableDirections(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	for _, d := range []Dir{DirInWithdrawn, Dir("nope"), Dir("")} {
+	for _, d := range []Dir{DirOutConsumed, DirInWithdrawn, Dir("nope"), Dir("")} {
 		_, err := NewWriter(afero.NewOsFs(), m, testHarp, d, "coord")
 		require.Error(t, err, "%q must not be directly writable", d)
 	}

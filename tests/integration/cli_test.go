@@ -960,13 +960,11 @@ config:
 
 // TestConfig_Show and TestConfig_ShowSection assert on the PAYLOAD, not the exit code.
 //
-// Both used to drive `manage config show` / `manage config get llm`. There is
-// no `manage config` subtree — configuration lives at the top-level `config`
-// command — so cobra printed `manage`'s help and exited 0, and an
-// exit-code-only assertion cannot tell that apart from the command having run.
-// They passed for their whole life while exercising nothing. The exit code is
-// still checked, but it is the weakest of the assertions here on purpose: the
-// value written into config.yaml is what proves the command did the work.
+// A command path that names no real subcommand makes cobra print the parent's
+// help and exit 0, so an exit-code-only assertion cannot tell that apart from
+// the command having run. The exit code is still checked, but it is the
+// weakest of the assertions here on purpose: the value written into
+// config.yaml showing up in the output is what proves the command did the work.
 func TestConfig_Show(t *testing.T) {
 	env := setupTestEnv(t)
 	writeConfig(t, env)

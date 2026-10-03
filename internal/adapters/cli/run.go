@@ -164,9 +164,8 @@ var execCommand = exec.CommandContext
 // process so this file doesn't need to depend on the compactor or any LLM
 // machinery itself. Stdout/stderr are piped through to the user.
 //
-// It used to serve a second caller, the automatic exit-time distill, which was
-// removed: distillation is on-demand only now, so a session stays title-less
-// until something explicitly asks for one.
+// Distillation is on-demand only: nothing distills at exit, so a session stays
+// title-less until something explicitly asks for one.
 //
 // ctx bounds the child via exec.CommandContext: when ctx is cancelled the
 // stdlib kills the process.
@@ -214,10 +213,9 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 // resumeDistillEnv is the distilled-resume mode's env source: the
 // CTXLOOM_RESUMED_FROM/CTXLOOM_RESUMED_PARTS pair that hook_inject_context.go's
 // resumedEssenceForInjection (SessionStart hook) and mcp_server.go's
-// sessionInstructions already know how to consume — the exact mechanism the
-// picker-driven --session resume this replaced used. PARTS is "session" (not
-// "tasks" — task restoration was removed along with the picker and is not
-// coming back here) so resumePartsIncludeSession's essence gate opens.
+// sessionInstructions already know how to consume. PARTS is "session" so
+// resumePartsIncludeSession's essence gate opens; a distilled resume restores
+// no tasks.
 //
 // essenceFn/staleFn/distillFn are injected (production: operations.
 // ReadHarpEssence/resumeEssenceStale/shellOutDistill — the `session distill`
@@ -227,12 +225,10 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 // SessionStart hook's own readHarpEssence call then simply finds nothing and
 // omits the essence block.
 //
-// Path C: this used to distill only when the
-// essence was MISSING, never when it was merely stale — so `run --session
-// <harp> --distill` against a harp that had been /clear'd since its last
-// distill silently resumed from a frozen prefix as long as SOME essence
-// existed. staleFn (nil-safe: a nil func means "never stale", matching the
-// pre-unification behavior for callers that don't wire one) closes that.
+// It distills when the essence is MISSING or STALE: a harp /clear'd since its
+// last distill still has SOME essence, and resuming from it would silently
+// resume from a frozen prefix. staleFn decides staleness; a nil staleFn means
+// "never stale".
 func resumeDistillEnv(harp string, essenceFn func(string) ([]byte, error), staleFn func(string) bool, distillFn func(context.Context, string) error) map[string]string {
 	_, err := essenceFn(harp)
 	missing := err != nil
@@ -1422,13 +1418,12 @@ func (st *runState) prepareSessionIO() sessionIO {
 // piped-stdin source a `--one-shot` run may be using, and refuse a `--one-shot` run
 // that ends up with nothing to say.
 //
-// Both steps used to be missing. An unreadable pipe was swallowed
-// (`if data, rerr := io.ReadAll(os.Stdin); rerr == nil`, the error dropped),
-// and nothing downstream rejected an empty ONESHOT prompt, so
-// `broken-producer | ctxloom run --one-shot` launched a headless engine with an
-// empty prompt and exited 0 having asked nothing. A one-shot gets exactly one
-// turn; an empty one delivers nothing at all. Interactive runs are untouched —
-// an empty prompt there legitimately means "open a session".
+// Nothing downstream rejects an empty ONESHOT prompt, so without these steps
+// `broken-producer | ctxloom run --one-shot` would launch a headless engine
+// with an empty prompt and exit 0 having asked nothing. A read error is
+// therefore returned, never swallowed. A one-shot gets exactly one turn; an
+// empty one delivers nothing at all. Interactive runs are untouched — an empty
+// prompt there legitimately means "open a session".
 func finalizeRunPrompt(prompt string, print, stdinPiped bool, stdin io.Reader) (string, error) {
 	if prompt == "" && print && stdinPiped {
 		data, rerr := io.ReadAll(stdin)
@@ -1477,15 +1472,13 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 // never returned, so a transcript-import hiccup can never fail an otherwise-
 // successful interactive run.
 //
-// Path H (the pty-exit defect): this used to call operations.ConvertVendorTranscript directly, whose
-// presence guard makes it a PERMANENT NO-OP once any canonical transcript
-// exists for the harp. A session where the user ran /recover mid-flight
-// materializes exactly such a canonical file — so every session that used
-// /recover got NO final capture at exit, and everything after that /recover
-// was invisible to every later distill: silent no-op, exit 0, looks
-// complete. ResolveAndHeal refreshes once, unconditionally — this IS the
-// call site that rule exists for: a canonical file existing here is not
-// evidence it is complete.
+// It must not go through operations.ConvertVendorTranscript, whose presence
+// guard makes it a PERMANENT NO-OP once any canonical transcript exists for
+// the harp. A session where the user ran /recover mid-flight materializes
+// exactly such a canonical file, so the exit capture would be skipped and
+// everything after that /recover would be invisible to every later distill.
+// ResolveAndHeal refreshes once, unconditionally — a canonical file existing
+// here is not evidence it is complete.
 func convertVendorTranscriptOnExit(harp string) {
 	if harp == "" {
 		return

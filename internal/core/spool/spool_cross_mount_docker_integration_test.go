@@ -99,7 +99,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	require.NoError(t, Deliver(m, inRef, marker+"-in", time.Now()))
 	hostRoot, err := Root(m, harp)
 	require.NoError(t, err)
-	hostDeliveredPath := filepath.Join(hostRoot, filepath.FromSlash(deliveredRecord.rel), marker+"-in")
+	hostDeliveredPath := filepath.Join(hostRoot, filepath.FromSlash(deliveredDirName), marker+"-in")
 
 	args := []string{"run", "--rm"}
 	if !dockergate.DockerIsRootless() {
@@ -159,15 +159,13 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	require.NotEmpty(t, raw, "empty-source guard: a zero-byte file would satisfy a naive 'it exists' check")
 	require.NotEqual(t, probeValue(t, string(out), "PROBE_OUT_PATH"), hostOutPath)
 
-	// And the host can consume what the container wrote: the record and the
-	// delete both work over the same mount.
-	id := res.Entries[0].Identity()
-	require.NoError(t, Consume(m, res.Entries[0].Ref, id, time.Now()))
-	_, err = os.Stat(hostOutPath)
-	require.True(t, os.IsNotExist(err), "a consumed out/ file is deleted, got %v", err)
-	routed, err := Routed(m, harp, id)
+	// And the host can consume what the container wrote: the reverse
+	// direction's rename works over the same mount.
+	outConsumed, err := Consume(m, res.Entries[0].Ref)
 	require.NoError(t, err)
-	require.True(t, routed, "its identity is recorded")
+	after, err := os.ReadFile(mustResolve(t, m, outConsumed))
+	require.NoError(t, err)
+	require.Equal(t, raw, after, "consume must move the container's bytes, not rewrite or drop them")
 }
 
 // buildProbe compiles this package's test binary as a static linux executable
@@ -213,4 +211,11 @@ func probeValue(t *testing.T, out, key string) string {
 	}
 	t.Fatalf("probe output has no %s line:\n%s", key, out)
 	return ""
+}
+
+func mustResolve(t *testing.T, m PathMapper, ref Ref) string {
+	t.Helper()
+	path, err := m.Resolve(ref)
+	require.NoError(t, err)
+	return path
 }

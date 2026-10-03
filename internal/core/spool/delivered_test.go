@@ -114,7 +114,7 @@ func TestDeliver_AMissingFileIsAlreadyGoneButStillRecorded(t *testing.T) {
 func TestDeliver_RefusesADirectoryThatIsNotAnInbox(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	for _, d := range []Dir{DirOut, DirInWithdrawn, FailedDirName} {
+	for _, d := range []Dir{DirOut, DirOutConsumed, DirInWithdrawn, FailedDirName} {
 		err := Deliver(m, Ref{Harp: testHarp, Dir: d, Name: "1.1.coord.md"}, "m-1", time.Now())
 		assert.Error(t, err, "%s is not delivered from", d)
 	}

@@ -133,16 +133,16 @@ type Writer struct {
 // directory fsync after a publish fails.
 const logDirSyncFailed = "spool_publish_dir_sync_failed"
 
-// NewWriter returns a writer for harp's dir (DirIn or DirOut — the withdrawn
-// directory is reached by rename, never written into directly), publishing
-// under the given writer id through fs.
+// NewWriter returns a writer for harp's dir (DirIn or DirOut — the
+// consumed/withdrawn directories are reached by rename, never written into
+// directly), publishing under the given writer id through fs.
 //
 // The spool directories themselves are created by EnsureDirs, on the OS
 // filesystem: their owner-only modes (and, on Windows, the root's protected
 // DACL) are an OS property no afero.Fs carries.
 //
 // The sequence counter is re-seeded from the highest seq already on disk
-// across the direction and its withdrawn sibling, so a restarted
+// across the direction and its consumed/withdrawn siblings, so a restarted
 // process cannot reissue a name a still-present file already holds.
 func NewWriter(fs afero.Fs, m PathMapper, harp string, dir Dir, writerID string) (*Writer, error) {
 	if fs == nil {
@@ -152,7 +152,7 @@ func NewWriter(fs afero.Fs, m PathMapper, harp string, dir Dir, writerID string)
 		return nil, fmt.Errorf("spool: a PathMapper is required")
 	}
 	if dir != DirIn && dir != DirOut {
-		return nil, fmt.Errorf("spool: %q is not a writable direction (write to %q or %q; withdrawn is reached by rename)", string(dir), string(DirIn), string(DirOut))
+		return nil, fmt.Errorf("spool: %q is not a writable direction (write to %q or %q; consumed and withdrawn are reached by rename)", string(dir), string(DirIn), string(DirOut))
 	}
 	if err := validateWriterID(writerID); err != nil {
 		return nil, fmt.Errorf("spool: %w", err)
@@ -179,6 +179,9 @@ func NewWriter(fs afero.Fs, m PathMapper, harp string, dir Dir, writerID string)
 // fail because someone dropped a note in the directory.
 func (w *Writer) highestSeq() (uint64, error) {
 	dirs := []Dir{w.dir}
+	if consumed, err := w.dir.Consumed(); err == nil {
+		dirs = append(dirs, consumed)
+	}
 	if withdrawn, err := w.dir.Withdrawn(); err == nil {
 		dirs = append(dirs, withdrawn)
 	}

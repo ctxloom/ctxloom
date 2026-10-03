@@ -23,20 +23,17 @@ Everything durable in delegation is one of:
   (the plane-1 event stream), `interactions.jsonl` (the audit journal). See
   `Coordinator.openJournals`.
 - **The spool**: one directory per session harp under `paths.HarpPersistDir`
-  (`spool.SpoolDirName`), holding `in/`, `out/`, `in/withdrawn/`,
+  (`spool.SpoolDirName`), holding `in/`, `out/`, `out/consumed/`, `in/withdrawn/`,
   the `failed/` subdirectories (`spool.Dir`, `spool.Dirs`, `spool.FailedDirNames`)
-  and two identity records: `in/delivered/` (`spool.Deliver`) and `out/routed/`
-  (`spool.Consume`).
+  and `in/delivered/`, the delivered-identity record (`spool.Deliver`).
   A message is a file; the file is the payload's only carrier. The package doc of
   `internal/core/spool` is the authority on its properties.
 - **The content-addressed artifact store** (`artifactstore.go`), keyed by sha256.
 
-There is no message journal: a message's durability is the fsynced file. Both
-directions acknowledge the same way, record-then-delete: a routed `out/` message by
-`spool.Consume`, which records its identity in `out/routed/`, and an inbox message by
-`spool.Deliver`, which records it in `in/delivered/`. The routed copy carries the
-`out/` message's identity, so a re-route after a crash is refused by the
-recipient's delivered record.
+There is no message journal: a message's durability is the fsynced file. An `out/`
+message is acknowledged by the rename that moves it into `out/consumed/`; an inbox
+message by `spool.Deliver`, which records its identity in `in/delivered/` and then
+deletes it.
 
 ## Package topology
 
@@ -196,11 +193,10 @@ stateDiagram-v2
   state "child → parent" as up {
     [*] --> OutFile: Home.sendPeerViaSpool (the child's agent_send) | Home.ReportTurnResult (the runner's automatic turn report, at EngineHost's turn Complete) → Home.writeOutbound → spool.Writer.Write(out/) [fsync] + ringSpool (AgentFrame.spool_changed, drop-counted)
     OutFile --> Swept: coordinator sweepChildOut (doorbell mark | reattach mark | periodic tick | startup pass)
-    Swept --> OutRouted: identity already in out/routed/ (a delete a crash interrupted) → consumeSpool, not routed again
-    Swept --> Routed: routeSpoolOut → peerSend(the out/ file's identity) (ask-reply intercept; SenderMailKind; childSend lineage) → queueMailPayloadID
-    Routed --> OwnerInFile: mailCourier.Send → spool.Writer.Write(owner in/) [id = the out/ identity] + ringSpool (the owner's runner sweeps → Home.wakeOwner)
+    Swept --> Routed: routeSpoolOut → peerSend (ask-reply intercept; SenderMailKind; childSend lineage) → queueMailPayload
+    Routed --> OwnerInFile: mailCourier.Send → spool.Writer.Write(owner in/) [NEW id] + ringSpool (the owner's runner sweeps → Home.wakeOwner)
     Routed --> OutFailed: refused → replySpoolRefusal (to sender) + noticeSpoolDrop (to parent) + spool.Fail(out/failed/)
-    OwnerInFile --> OutRouted: consumeSpool → spool.Consume(record out/routed/<id>, delete out/ file)
+    OwnerInFile --> OutConsumed: consumeSpool(out/→out/consumed/)
     OwnerInFile --> Woken: Home.fireWake (spool.ArmWake nonce → engine.Wake.Fire) → the owner's next turn starts
     Woken --> Claimed: turn_start → `ctxloom hook mail-drain` → spool.Claim(in/→in/claimed/)
     OwnerInFile --> Claimed: a human's own prompt runs the same hook

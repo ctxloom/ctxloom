@@ -1018,7 +1018,7 @@ func (c *Coordinator) Roster(caller Identity) []RosterEntry {
 // the delegation tree: a session addresses its parent or its own children by
 // harp (peerSend). inReplyTo carries a correlation the recipient reads.
 func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
-	_, disposition, err := c.peerSend(newMessageID(), caller, to, kind, body, structured, inReplyTo)
+	_, disposition, err := c.peerSend(caller, to, kind, body, structured, inReplyTo)
 	return disposition, err
 }
 
@@ -1027,15 +1027,9 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structur
 // delivery-by-state. delivered reports a completed waiting receive (a local
 // parked poll, or a tentative push into the recipient runner's parked recv).
 //
-// msgID is the identity the recipient's copy carries, and so the key its
-// delivered record dedupes on: an originating send mints one (newMessageID),
-// while routeSpoolOut passes the out/ file's own identity, so routing one file
-// twice — a crash between the route and its routed record — lands a copy the
-// recipient has already delivered and refuses.
-//
 // inReplyTo rides the mail unchanged: a reply to an ask is ordinary mail to
 // the asker, and routeSpoolOut closes the ask it answers (settleAsk).
-func (c *Coordinator) peerSend(msgID string, caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
+func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, disposition string, err error) {
 	// The closed-vocabulary ingress guard, at the ONE point both sender surfaces
 	// funnel through (agent_send's bare-MCP handler and the plane-2
 	// PeerSendRequest). It runs before any routing so a sender learns the
@@ -1049,10 +1043,10 @@ func (c *Coordinator) peerSend(msgID string, caller Identity, to, kind, body str
 	// parent is both, and routing on depth alone gave it no downward edge.
 	if caller.IsChild() {
 		if _, err := c.childRun("agent_send", caller.Harp, to); err != nil {
-			return c.childSend(msgID, caller, to, kind, body, structured, inReplyTo)
+			return c.childSend(caller, to, kind, body, structured, inReplyTo)
 		}
 	}
-	return c.parentSend(msgID, caller, to, kind, body, structured, inReplyTo)
+	return c.parentSend(caller, to, kind, body, structured, inReplyTo)
 }
 
 // childRun resolves harp to its current run when that run is a DIRECT child of
@@ -1085,7 +1079,7 @@ const childSendDisposition = "sent to your parent"
 // childSend is peerSend's UPWARD half: a delegated child addresses its own
 // parent, resolved from journaled lineage — by ParentAddress or by the
 // parent's own harp, nothing else.
-func (c *Coordinator) childSend(msgID string, caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
+func (c *Coordinator) childSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
 	parent := ""
 	c.runs.View(func() {
 		if r := c.runsF.currentRun(caller.Harp); r != nil {
@@ -1099,7 +1093,7 @@ func (c *Coordinator) childSend(msgID string, caller Identity, to, kind, body st
 		return "", "", ErrPeerRouting
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
-	id, err := c.mailParentID(msgID, caller.Harp, parent, kind, body, structured, inReplyTo)
+	id, err := c.mailParent(caller.Harp, parent, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", "", err
 	}
@@ -1109,7 +1103,7 @@ func (c *Coordinator) childSend(msgID string, caller Identity, to, kind, body st
 // parentSend is peerSend's DOWNWARD half: a session — the root or a mid-tree
 // parent — addressing one of its own children by harp. The disposition names
 // the §6a state the delivery observed (deliveryDisposition).
-func (c *Coordinator) parentSend(msgID string, caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
+func (c *Coordinator) parentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
 	if to == ParentAddress {
 		return "", "", errors.New("agent_send: this session is the coordinator — it has no parent; address a child by its harp")
 	}
@@ -1117,6 +1111,7 @@ func (c *Coordinator) parentSend(msgID string, caller Identity, to, kind, body s
 		return "", "", err
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": to, "kind": kind})
+	msgID := newMessageID()
 	observed, err := c.deliverMailID(msgID, caller.Harp, to, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", "", err

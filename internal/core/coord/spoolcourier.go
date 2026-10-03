@@ -98,12 +98,13 @@ func (x *SpoolCourier) SendProjected(to string, sm *spool.Message) (spool.Ref, e
 // Announce rings for a spool mutation this end has ALREADY performed — a
 // rename rather than a write.
 //
-// A delivery ack removes a file from in/ (spool.Deliver), and a withdrawal
-// moves a file out of the directory the runner sweeps; in each case the bytes
-// have already moved and the doorbell is how the other end learns of it
-// without polling. So the invariant the courier owns is not "a write is rung"
-// but the general one: A SPOOL MUTATION IS ANNOUNCED, whether it wrote a file,
-// moved one or removed one.
+// A delivery ack removes a file from in/ (spool.Deliver), a routed out/ file
+// is renamed into out/consumed/, and a withdrawal moves a file out of the
+// directory the runner sweeps; in each case the bytes have already moved and
+// the doorbell is how the other end learns of it without polling. So the
+// invariant the courier owns is not "a write is rung" but the general one: A
+// SPOOL MUTATION IS ANNOUNCED, whether it wrote a file, moved one or removed
+// one.
 //
 // what names the transition for the diagnostic, so a dropped announcement says
 // which one was lost rather than only that something was.

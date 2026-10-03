@@ -1684,7 +1684,7 @@ message CoordinatorNotice {
     BudgetUpdate budget_update = 2;
 
     // The spool doorbell, coordinator -> runner (an in/ create, or an
-    // out/consumed / in/withdrawn rename). Rides the notice arm because a
+    // in/withdrawn rename). Rides the notice arm because a
     // doorbell IS a fire-and-forget notice: no response, no correlation, and
     // a saturated send pump DROPS it with no rollback bookkeeping at all —
     // the file is the truth and the sweep redelivers.
@@ -1781,9 +1781,8 @@ message SpoolChanged {
 }
 
 // SpoolDir is the closed set of spool subdirectories a doorbell may name,
-// mirroring spool.Dir's values exactly. The out/consumed/ and withdrawn/
-// values exist because RENAMES RING THE DOORBELL TOO (the out/ consume-rename
-// is the routing ack).
+// mirroring spool.Dir's values exactly. The withdrawn/ value exists because
+// RENAMES RING THE DOORBELL TOO.
 //
 // SPOOL_DIR_UNSPECIFIED is INVALID at every consumer: a ref that did not
 // decode to a recognised directory is refused, never defaulted. The zero value
@@ -1806,8 +1805,11 @@ enum SpoolDir {
   reserved 3;
   reserved "SPOOL_DIR_IN_CONSUMED";
 
-  // out/consumed/ — an out/ message the coordinator processed.
-  SPOOL_DIR_OUT_CONSUMED = 4;
+  // 4 was out/consumed/. A routed out/ message is deleted, not moved, with
+  // its identity recorded in out/routed/, so no directory remains for a
+  // doorbell to name.
+  reserved 4;
+  reserved "SPOOL_DIR_OUT_CONSUMED";
 
   // in/withdrawn/ — an in/ message its WRITER retracted before it was
   // consumed. Rename-won means retracted; ENOENT means the reader won.

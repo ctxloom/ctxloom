@@ -38,8 +38,8 @@ func TestSpool_TheRootAndWhatIsBeneathItAreOwnerOnly_ADACL(t *testing.T) {
 	msg, err := m.Resolve(ref)
 	require.NoError(t, err)
 	fileperm.OwnerOnly(t, root)
-	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(string(DirOutConsumed))))
-	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(deliveredDirName), "m-perm"))
+	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(string(DirInWithdrawn))))
+	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(deliveredRecord.rel), "m-perm"))
 	fileperm.OwnerOnly(t, msg)
 	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(wakeDirName), nonce))
 }

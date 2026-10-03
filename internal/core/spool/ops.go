@@ -81,13 +81,12 @@ const FailedDirName Dir = "in/failed"
 // FailedOutDirName is the same terminal state for the OTHER direction: an
 // out/ entry the coordinator's sweep parsed but could not route.
 //
-// It exists because consumed/ has one meaning and a reader must be able to
-// trust it. out/consumed/ says "the coordinator routed this to its
-// recipient"; a message the sweep gave up on used to be renamed there too,
-// which made a delivered report and a dropped one indistinguishable on disk —
-// and reading a dropped report's presence in out/consumed/ as proof it had
-// been taken is exactly how a lost report was misdiagnosed as an agent that
-// never wrote one.
+// It exists because the routed record (out/routed/, Consume) has one meaning
+// and a reader must be able to trust it: "the coordinator routed this to its
+// recipient". A message the sweep gave up on and recorded there would make a
+// delivered report and a dropped one indistinguishable on disk — and reading
+// a dropped report as taken is exactly how a lost report gets misdiagnosed as
+// an agent that never wrote one.
 const FailedOutDirName Dir = "out/failed"
 
 // FailedDirNames returns every terminal failed/ directory, so a scanner that

@@ -12,6 +12,7 @@ import (
 	sessionpaths "github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -59,13 +60,18 @@ type relocator interface {
 
 // stageLayout builds stage 1 for a prepared workspace: the session home is
 // CREATED and prepared here, so stage 2 maps it with everything else.
-func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore) layout {
+// inContainer is whether the prepared environment is a container
+// (nativeHomeFor).
+func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore, inContainer bool) layout {
 	l := layout{cwd: cwd, env: env, creds: s.creds, stores: stores, trust: repoTrust(s.eng, cwd), envHost: s.curatedEnv()}
 	dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home)
 	if !ok {
 		return l
 	}
-	native, _ := launch.NativeHome(s.sessionDir, s.eng, s.home)
+	native := nativeHomeFor(s, inContainer)
+	if inContainer && native == "" {
+		clidiag.WarnOnce("ctxloom", "%s", historyInHomeNotice)
+	}
 	if !prepareSessionHome(s.eng, dir, native, cwd, l.trust, s.creds.Mode) {
 		return l
 	}
@@ -77,13 +83,27 @@ func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore
 // previewLayout is stage 1 with no effects on disk: the live project as the
 // cwd (Preview puts a worktree's checkout there) and the session home the run
 // WOULD create.
-func previewLayout(s Spec, stores []sharedStore) layout {
+func previewLayout(s Spec, stores []sharedStore, inContainer bool) layout {
 	l := layout{cwd: s.project, creds: s.creds, stores: stores, trust: repoTrust(s.eng, s.project), envHost: s.curatedEnv()}
 	if dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home); ok {
 		placeHome(&l, s.eng, dir)
-		l.nativeHome, _ = launch.NativeHome(s.sessionDir, s.eng, s.home)
+		l.nativeHome = nativeHomeFor(s, inContainer)
 	}
 	return l
+}
+
+// nativeHomeFor is where the run keeps the engine's native history
+// (launch.NativeHome), or "" for none. A container run on a host whose
+// directory links do not resolve inside a container
+// (platform.DirLinker.LinksResolveInContainers: Windows' junctions name
+// absolute host paths) keeps none: its history stays in the mounted session
+// home, and so is deleted with the home (historyInHomeNotice).
+func nativeHomeFor(s Spec, inContainer bool) string {
+	if inContainer && !hostOS.LinksResolveInContainers() {
+		return ""
+	}
+	native, _ := launch.NativeHome(s.sessionDir, s.eng, s.home)
+	return native
 }
 
 // placeHome records a present session home on the layout.
@@ -115,6 +135,10 @@ func repoTrust(eng engine.Engine, cwd string) engine.WorkspaceTrust {
 	}
 	return v
 }
+
+// historyInHomeNotice is the once-per-process announcement that a container
+// run keeps its conversation history in the session home (nativeHomeFor).
+var historyInHomeNotice = fmt.Sprintf("native history: %s directory links do not resolve inside a container, so a container run keeps its conversation history in the session home, which is deleted when the session closes", platform.Name)
 
 // sessionHomeRemedy is the fix-it on an unpreparable session home. It names
 // no --degraded: the finding is non-degradable, because the only fallback

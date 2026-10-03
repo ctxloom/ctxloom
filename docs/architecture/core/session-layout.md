@@ -169,9 +169,11 @@ the probe registry (`probeP14` in `tests/acceptance/capability_probe_registry.go
   cell observed the host path as the slug), so host and container runs of one session file
   history under the same slug. A worktree checkout is a different directory from the
   project, and so a different slug, on either runtime.
-- **Windows.** Creating the relative link needs symlink privilege (Developer Mode or an
-  elevated process); without it the session home cannot be prepared and the run is refused
-  with the cause named.
+- **Windows.** The history link is a directory junction (`platform.DirLinker`), which
+  needs no privilege but names its target absolutely, so it does not resolve inside a
+  container. A host run links as everywhere else; a container run keeps its history in the
+  mounted session home instead (`nativeHomeFor`), where it is deleted when the session
+  closes, and says so once at launch.
 - **A missing output dir.** Readers treat a missing directory as "nothing written yet". A
   session whose record has no output dir is reported (`sessions.ErrNoOutputDir`); a
   container run of one is refused.

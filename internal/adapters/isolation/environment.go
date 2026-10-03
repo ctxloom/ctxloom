@@ -114,13 +114,13 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	// workspace or an image: a requested container never degrades to the
 	// host. Any other refusal is left to the prepared link.
 	head := chain[0].relocator()
-	if _, _, err := head.relocate(previewLayout(s, stores)); errors.Is(err, present.ErrUnreachableRoot) {
+	if _, _, err := head.relocate(previewLayout(s, stores, IsContainerPolicyName(chain[0].Name()))); errors.Is(err, present.ErrUnreachableRoot) {
 		return nil, refuseUnreachable(err)
 	} else if errors.Is(err, engine.ErrHostOnlyStore) {
 		return nil, err
 	}
 	p, ws := prepareChain(ctx, chain, survey, s.axes.Runtime, s.project, s.harp)
-	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), stores)
+	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), stores, IsContainerPolicyName(p.Name()))
 	pl, roots, err := p.relocator().relocate(l)
 	if err != nil {
 		_ = ws.Cleanup()
@@ -191,7 +191,7 @@ func Preview(ctx context.Context, s Spec) Environment {
 	if err != nil {
 		recordRefusal(err)
 	}
-	l := previewLayout(s, stores)
+	l := previewLayout(s, stores, s.axes.WantsContainer())
 	if s.axes.WantsWorktree() {
 		w := NewWorktree(nil)
 		w.state = s.state

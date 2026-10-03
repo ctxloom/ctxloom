@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -403,6 +404,12 @@ func reportBundleRefLoadFailure(rep report.Reporter, bundleRef string, err error
 	// legitimate empty case, so it stays silent — reporting it would turn
 	// every fragment-scoped profile into a fatal startup finding.
 	if strings.Contains(bundleRef, "#") {
+		return
+	}
+	// A bundle its reader found but could not produce was reported by that
+	// reader, with the remedy for its real cause; reporting the ref too would
+	// make N broken bundles read as 2N findings.
+	if errors.Is(err, errs.ErrBundleUnreadable) {
 		return
 	}
 	rep.FailOncef(report.KindBundle,

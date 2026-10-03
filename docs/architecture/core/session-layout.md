@@ -113,19 +113,30 @@ one destroyer, the explicit `ctxloom session artifacts purge` (`outputEssenceIte
 
 ## Secrets
 
-A container run's credentials are written owner-only to a per-run secret dir and mounted
-read-only at `/run/ctxloom/secrets`, one file per variable (`materializeSecrets`). The dir
-lives on the per-user tmpfs (`$XDG_RUNTIME_DIR`) when the platform has one; otherwise it
-falls back to disk under the session's `scratch/`, which is allowed but announced — once
-at launch (`isolation.SecretsOnDiskNotice`) and by `DOCTOR-CHECK-SECRETS-STORAGE-k1`, both
-naming the platform and the place.
+Each run has ONE secrets file: dotenv, written by `github.com/joho/godotenv`
+(`sessions.EncodeSecrets`), owner-only, in a per-run secret dir (`secretsFile`). The dir
+lives on the platform's per-user tmpfs (`platform.PrivateTmpfs`: `$XDG_RUNTIME_DIR` on
+Linux) when there is one; otherwise it falls back to disk under the session's `scratch/`,
+which is allowed but announced — once at launch (`isolation.SecretsOnDiskNotice`) and by
+`DOCTOR-CHECK-SECRETS-STORAGE-k1`, both naming the platform and the place.
 
-The coordinator credential follows the same path for a container runner: it is written to
-`/run/ctxloom/secrets/CTXLOOM_COORD_CRED` (`stageCoordCred`) and only
-`CTXLOOM_COORD_CRED_FILE` crosses, so the value is in neither the container's environment
-nor the `docker run` client's. The runner reads it back byte for byte
-(`sessions.DecodeReach`) and scrubs the variable with the rest of the reach-back. A host
-runner still receives `CTXLOOM_COORD_CRED` in its environment.
+The writer proves every value by decoding the file back and refuses one that would not
+return byte for byte (`sessions.ErrSecretNotRoundTrippable`, naming the variable, never the
+value). godotenv cannot hold a value ending in a backslash or in a double quote, and writes
+an integer unquoted (a leading zero is lost); every `$` is escaped, so reading expands
+nothing.
+
+A container run's engine credentials go into the file, mounted read-only at
+`/run/ctxloom/secrets`; the Placement names the file for each variable
+(`launch.Placement.SecretFiles`) and the runner reads them out of it (`redeemSecrets`).
+
+The coordinator credential reaches EVERY runner, host and container, through the same
+file: the environment that starts the runner moves it out of the spawn request
+(`stageCoordCred`) and names the file in `CTXLOOM_COORD_CRED_FILE` — the mounted path for a
+container, the host path for a host runner. `sessions.DecodeReach` reads the credential
+from that file only; `CTXLOOM_COORD_CRED` is never a variable in any process's
+environment, and a host runner start that still carries it is refused
+(`errCredInExecEnv`).
 
 ## Rulings and why
 

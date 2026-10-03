@@ -478,11 +478,11 @@ const HookEventParam = "event"
 // runner cannot read (launch.Placement.SecretFiles).
 var ErrSecretUnreadable = errors.New("runner: a secret file the launch names could not be read")
 
-// redeemSecrets lays each secret file the cell names into the cell's env —
-// a copy, in this process's memory — so Launch.EngineEnv hands the value to
+// redeemSecrets lays each secret variable the cell names into the cell's env
+// — a copy, in this process's memory — so Launch.EngineEnv hands the value to
 // the engine's process alone. The value never crossed the coordinator link:
-// the originator wrote it to a file mounted read-only into this runner's
-// container. The exact bytes are the value.
+// the originator wrote it to the run's secrets file (sessions.EncodeSecrets),
+// mounted read-only into this runner's container. Each file is read once.
 func redeemSecrets(c launch.Cell) (launch.Cell, error) {
 	if len(c.SecretFiles) == 0 {
 		return c, nil
@@ -491,12 +491,24 @@ func redeemSecrets(c launch.Cell) (launch.Cell, error) {
 	if env == nil {
 		env = map[string]string{}
 	}
+	files := map[string]map[string]string{}
 	for v, file := range c.SecretFiles {
-		b, err := os.ReadFile(file)
-		if err != nil {
-			return c, fmt.Errorf("%w: %s from %s: %w", ErrSecretUnreadable, v, file, err)
+		vals, ok := files[file]
+		if !ok {
+			b, err := os.ReadFile(file)
+			if err == nil {
+				vals, err = sessions.DecodeSecrets(b)
+			}
+			if err != nil {
+				return c, fmt.Errorf("%w: %s from %s: %w", ErrSecretUnreadable, v, file, err)
+			}
+			files[file] = vals
 		}
-		env[v] = string(b)
+		value, ok := vals[v]
+		if !ok {
+			return c, fmt.Errorf("%w: %s is not in %s", ErrSecretUnreadable, v, file)
+		}
+		env[v] = value
 	}
 	c.Env = env
 	return c, nil

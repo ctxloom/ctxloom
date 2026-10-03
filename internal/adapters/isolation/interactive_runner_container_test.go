@@ -2,7 +2,6 @@ package isolation
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,10 +22,7 @@ func TestInteractiveRunner_Container_IsTheForegroundRunnerOnATTY(t *testing.T) {
 	// The real docker renderer, so the argv is the one a daemon would see.
 	c := NewContainerFor(Docker{rootless: true}, "mock").WithImage("img")
 	cw := newRunnerTestWorkspace()
-	sec, err := newOwnedScratch(t.TempDir(), secretScratchPrefix)
-	require.NoError(t, err)
-	t.Cleanup(sec.release)
-	cw.secrets = sec
+	cw.secrets = newTestSecrets(t)
 	spawnEnv := map[string]string{"CTXLOOM_COORD_URL": "http://host:9000", "CTXLOOM_COORD_CRED": "super-secret-token", "CTXLOOM_RUN_ID": "run-123"}
 
 	cmd, name, err := c.interactiveRunner(context.Background(), "mock", cw, spawnEnv)
@@ -45,9 +41,7 @@ func TestInteractiveRunner_Container_IsTheForegroundRunnerOnATTY(t *testing.T) {
 	assert.NotContains(t, argv, "-e CTXLOOM_COORD_CRED ", "the credential does not cross as an env var")
 	assert.Contains(t, argv, "-e CTXLOOM_COORD_CRED_FILE ", "the name of its secret file does, as a bare name")
 	assert.NotContains(t, strings.Join(cmd.Env, "\n"), "super-secret-token", "nor does its value ride the run process's env")
-	got, err := os.ReadFile(filepath.Join(sec.dir, "CTXLOOM_COORD_CRED"))
-	require.NoError(t, err)
-	assert.Equal(t, "super-secret-token", string(got), "the runner reads it back from the secret file")
+	assert.Equal(t, "super-secret-token", readSecrets(t, cw.secrets)["CTXLOOM_COORD_CRED"], "the runner reads it back from the secrets file")
 	assert.Contains(t, argv, "source="+stateMount.Host+",target="+stateMount.Container, "the session-state mount is preserved")
 	assert.True(t, strings.LastIndex(argv, "-e TERM="+RunnerTerm) > strings.LastIndex(argv, "-e TERM=xterm-256color"), "the runner runs under RunnerTerm, after the workspace's TERM: %s", argv)
 }

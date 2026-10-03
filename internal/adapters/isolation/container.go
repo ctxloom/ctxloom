@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -381,16 +380,12 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 	// the daemon sees it; Container.environment fills it once the relocator
 	// has named its files. Held by its owner's lock, so a crashed run's dir
 	// is swept by the next one made under the same parent.
-	secretDir, onDisk := secretParent(os.Getenv, filepath.Dir(cw.scratchRoot))
-	if onDisk {
-		clidiag.WarnOnce("ctxloom", "%s", SecretsOnDiskNotice(secretDir))
-	}
-	secrets, err := newOwnedScratch(secretDir, secretScratchPrefix)
+	secrets, err := newSecretsFile(filepath.Dir(cw.scratchRoot))
 	if err != nil {
 		return mountPlan{}, fmt.Errorf("container secrets: %w", err)
 	}
 	cw.secrets = secrets
-	mounts = append(mounts, c.runtime.paths().bind(secrets.dir, secretsTarget, true))
+	mounts = append(mounts, c.runtime.paths().bind(secrets.scratch.dir, secretsTarget, true))
 	// The shared-filesystem probe runs HERE, once every real mount root is
 	// known (mountProbeRoots): cw.dir (the project dir, or the worktree
 	// checkout resolveBase created), cw.scratchRoot (the config overlays), and
@@ -953,9 +948,9 @@ type containerWorkspace struct {
 	// Identical to dir for the host base.
 	projectDir  string
 	scratchRoot string // host scratch tree removed by Cleanup
-	// secrets is the owner-only dir mounted read-only at secretsTarget,
-	// holding the run's credential files; released FIRST by Cleanup.
-	secrets *ownedScratch
+	// secrets is the run's secrets file, its owner-only dir mounted
+	// read-only at secretsTarget; released FIRST by Cleanup.
+	secrets *secretsFile
 	// stateMounts/scratchEnv are the scratch's contributions to the
 	// mapping, resolved when the workspace was resolved and consumed by mount.
 	// They are held apart from extraEnv/extraMounts because those two are the
@@ -1000,11 +995,7 @@ func (w *containerWorkspace) Cleanup() error {
 	if w.secrets != nil {
 		s := w.secrets
 		w.secrets = nil
-		s.release()
-		if _, err := os.Lstat(s.dir); !errors.Is(err, fs.ErrNotExist) {
-			warnCleanupResidue("container secrets", s.dir, errSecretResidue)
-			errs = fmt.Errorf("remove container secrets %s: %w", s.dir, errSecretResidue)
-		}
+		errs = s.release()
 	}
 	if w.scratchRoot != "" {
 		dir := w.scratchRoot

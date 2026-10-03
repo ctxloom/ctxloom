@@ -61,6 +61,7 @@ require (
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/cucumber/gherkin/go/v42 v42.0.0 // indirect
 	github.com/cucumber/messages/go/v34 v34.2.0 // indirect
+	github.com/joho/godotenv v1.5.1 // indirect
 	golang.org/x/mod v0.39.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260811182544-a038080d80e5 // indirect
 )

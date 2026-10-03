@@ -38,20 +38,40 @@ func TestIdentity_Validate_IsTheHarpRule(t *testing.T) {
 	assert.Error(t, Identity{Harp: "../escape"}.Validate())
 }
 
+// stagedReach is the spawn request for reach as the environment hands it to
+// a runner: the credential moved into a secrets file at secretsPath, which
+// read serves.
+func stagedReach(t *testing.T, reach Endpoint, runID string) (env map[string]string, read func(string) ([]byte, error)) {
+	t.Helper()
+	const secretsPath = "/run/ctxloom/secrets/run.env"
+	env = EncodeReach(reach, runID)
+	require.Len(t, env, 3, "the reach-back trio and nothing else")
+	file, err := EncodeSecrets(map[string]string{EnvCoordCred: env[EnvCoordCred]})
+	require.NoError(t, err)
+	delete(env, EnvCoordCred)
+	env[EnvCoordCredFile] = secretsPath
+	return env, func(name string) ([]byte, error) {
+		if name == secretsPath {
+			return file, nil
+		}
+		return nil, os.ErrNotExist
+	}
+}
+
 func TestEncodeReach_DecodeReach_RoundTrip(t *testing.T) {
 	reach := Endpoint{URL: "http://127.0.0.1:4321/mcp", Credential: "deadbeef"}
-	env := EncodeReach(reach, "run-7")
-	require.Len(t, env, 3, "the reach-back trio and nothing else")
+	env, read := stagedReach(t, reach, "run-7")
 
-	got, runID, err := DecodeReach(lookup(env), noFiles)
+	got, runID, err := DecodeReach(lookup(env), read)
 	require.NoError(t, err)
 	assert.Equal(t, reach, got)
 	assert.Equal(t, "run-7", runID)
 }
 
-func TestDecodeReach_RefusesAMissingCredential(t *testing.T) {
+// The credential is read from the secrets file only: an environment variable
+// carrying it is not a credential.
+func TestDecodeReach_ReadsTheCredentialOnlyFromTheSecretsFile(t *testing.T) {
 	env := EncodeReach(Endpoint{URL: "http://127.0.0.1:4321/mcp", Credential: "deadbeef"}, "run-7")
-	delete(env, EnvCoordCred)
 	_, _, err := DecodeReach(lookup(env), noFiles)
 	require.ErrorIs(t, err, ErrNoReachBack)
 
@@ -62,25 +82,16 @@ func TestDecodeReach_RefusesAMissingCredential(t *testing.T) {
 // noFiles is a readFile that holds nothing.
 func noFiles(name string) ([]byte, error) { return nil, os.ErrNotExist }
 
-// A container runner reads its credential from the secret file the env names
-// instead of from its own environment.
-func TestDecodeReach_ReadsTheCredentialFromTheFileTheEnvNames(t *testing.T) {
-	env := EncodeReach(Endpoint{URL: "http://h:1/mcp", Credential: "deadbeef"}, "run-7")
-	delete(env, EnvCoordCred)
-	env[EnvCoordCredFile] = "/run/ctxloom/secrets/CTXLOOM_COORD_CRED"
-	read := func(name string) ([]byte, error) {
-		if name == env[EnvCoordCredFile] {
-			return []byte("deadbeef"), nil
-		}
-		return nil, os.ErrNotExist
-	}
-	got, runID, err := DecodeReach(lookup(env), read)
-	require.NoError(t, err)
-	assert.Equal(t, Endpoint{URL: "http://h:1/mcp", Credential: "deadbeef"}, got)
-	assert.Equal(t, "run-7", runID)
+// A named file that cannot be read, or that holds no credential, is no
+// credential.
+func TestDecodeReach_RefusesAnUnreadableOrEmptySecretsFile(t *testing.T) {
+	env, _ := stagedReach(t, Endpoint{URL: "http://h:1/mcp", Credential: "deadbeef"}, "run-7")
+	_, _, err := DecodeReach(lookup(env), noFiles)
+	assert.ErrorIs(t, err, ErrNoReachBack)
 
-	_, _, err = DecodeReach(lookup(env), noFiles)
-	assert.ErrorIs(t, err, ErrNoReachBack, "a named file that cannot be read is no credential")
+	empty := func(string) ([]byte, error) { return []byte("OTHER=\"x\"\n"), nil }
+	_, _, err = DecodeReach(lookup(env), empty)
+	assert.ErrorIs(t, err, ErrNoReachBack)
 }
 
 func TestHookEnv_DecodeHookEnv_RoundTrip(t *testing.T) {

@@ -27,10 +27,11 @@ import (
 )
 
 // fakeEngine stands in for the runner + engine pair: it takes its credential
-// from the file the Placement names (as runner.redeemSecrets does), proves it
-// authenticates by echoing the exact value it holds, proves the mount refuses
-// a write, then stays up so the container can be inspected.
-const fakeEngine = `tok="$(cat "$SECRET_FILE")" && printf 'AUTH:%s\n' "$tok"; ` +
+// out of the dotenv file the Placement names (as runner.redeemSecrets does; the
+// fixture value needs no unescaping), proves it authenticates by echoing the
+// exact value it holds, proves the mount refuses a write, then stays up so the
+// container can be inspected.
+const fakeEngine = `tok="$(sed -n "s/^${SECRET_VAR}=\"\(.*\)\"\$/\1/p" "$SECRET_FILE")" && printf 'AUTH:%s\n' "$tok"; ` +
 	`if { echo x >> "$SECRET_FILE"; } 2>/dev/null; then echo WRITABLE; else echo READONLY; fi; sleep 60`
 
 func TestSecretMount_ARealContainerAuthenticatesFromTheMountedSecret(t *testing.T) {
@@ -57,7 +58,7 @@ func TestSecretMount_ARealContainerAuthenticatesFromTheMountedSecret(t *testing.
 				Image:   "alpine:latest",
 				Name:    cname,
 				WorkDir: "/",
-				Env:     []string{"SECRET_FILE=" + file},
+				Env:     []string{"SECRET_FILE=" + file, "SECRET_VAR=" + secretVar},
 				Command: []string{"sh", "-c", fakeEngine},
 				Mounts:  []mount{m},
 			}

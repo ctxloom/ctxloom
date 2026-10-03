@@ -303,7 +303,7 @@ func TestCredentials_ATokenAuthenticatesAContainerFromItsEnv(t *testing.T) {
 	creds := engine.Credentials{Env: map[string]string{claude.OAuthTokenEnv: tokenFixture}, Unset: []string{claude.SecureStorageEnv}}
 
 	pl, mounts := placeOn(t, credSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession, creds), t.TempDir(), containerOf)
-	assert.Equal(t, secretsTarget+"/"+claude.OAuthTokenEnv, pl.SecretFiles[claude.OAuthTokenEnv])
+	assert.Equal(t, secretsTarget+"/"+secretsFileName, pl.SecretFiles[claude.OAuthTokenEnv])
 	assert.NotContains(t, pl.Env, claude.OAuthTokenEnv)
 	assert.Equal(t, []string{claude.SecureStorageEnv}, pl.Unset)
 	assert.NotContains(t, pl.Env, claude.SecureStorageEnv, "a token run never points at the human's storage")

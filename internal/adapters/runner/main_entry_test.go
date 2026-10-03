@@ -3,6 +3,8 @@ package runner
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -32,8 +34,17 @@ func (e *mainEnv) unsetenv(k string) error {
 	return nil
 }
 
-func reachEnv(url, cred, runID string) map[string]string {
+// reachEnv is a runner's environment as its Environment starts it: the URL
+// and run id, and the credential in a secrets file the env names.
+func reachEnv(t *testing.T, url, cred, runID string) map[string]string {
+	t.Helper()
 	env := sessions.EncodeReach(sessions.Endpoint{URL: url, Credential: cred}, runID)
+	b, err := sessions.EncodeSecrets(map[string]string{sessions.EnvCoordCred: cred})
+	require.NoError(t, err)
+	file := filepath.Join(t.TempDir(), "run.env")
+	require.NoError(t, os.WriteFile(file, b, 0o600))
+	delete(env, sessions.EnvCoordCred)
+	env[sessions.EnvCoordCredFile] = file
 	return env
 }
 
@@ -63,7 +74,7 @@ func TestMain_RefusesWithoutAReachBack(t *testing.T) {
 // the env). That arm is gone: every runner hosts exactly one run, whose
 // identity arrives on the Launch. A runless trio is refused by name.
 func TestMain_RefusesAReachBackWithNoRun(t *testing.T) {
-	env := &mainEnv{vars: reachEnv("http://127.0.0.1:1", "cred", "")}
+	env := &mainEnv{vars: reachEnv(t, "http://127.0.0.1:1", "cred", "")}
 	err := Main(context.Background(), mainDeps(env, nil))
 	require.ErrorIs(t, err, ErrNoRun)
 }
@@ -78,7 +89,7 @@ func TestMain_ScrubsTheReachBackBeforeComposing(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("scrubbed before Ports", func(t *testing.T) {
-		env := &mainEnv{vars: reachEnv(c.LoopbackURL(), token, "run-1")}
+		env := &mainEnv{vars: reachEnv(t, c.LoopbackURL(), token, "run-1")}
 		ctx, cancel := context.WithCancel(context.Background())
 		var seen map[string]string
 		ports := func(host *EngineHost, home *Home) (Deps, error) {
@@ -99,7 +110,7 @@ func TestMain_ScrubsTheReachBackBeforeComposing(t *testing.T) {
 
 	t.Run("an unscrubbable key is fatal", func(t *testing.T) {
 		refused := errors.New("EPERM")
-		env := &mainEnv{vars: reachEnv(c.LoopbackURL(), token, "run-1"), refuse: sessions.EnvCoordCred, refused: refused}
+		env := &mainEnv{vars: reachEnv(t, c.LoopbackURL(), token, "run-1"), refuse: sessions.EnvCoordCred, refused: refused}
 		composed := false
 		ports := func(*EngineHost, *Home) (Deps, error) { composed = true; return Deps{}, nil }
 		err := Main(context.Background(), mainDeps(env, ports))
@@ -119,7 +130,7 @@ func TestMain_DialsHomeThenBlocksUntilTheContextEnds(t *testing.T) {
 	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
 	require.NoError(t, err)
 
-	env := &mainEnv{vars: reachEnv(c.LoopbackURL(), token, "run-1")}
+	env := &mainEnv{vars: reachEnv(t, c.LoopbackURL(), token, "run-1")}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	composed := make(chan struct{})
@@ -163,7 +174,7 @@ func TestMain_TearsTheRunsDeliveryDownWhenItEnds(t *testing.T) {
 	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
 	require.NoError(t, err)
 
-	env := &mainEnv{vars: reachEnv(c.LoopbackURL(), token, "run-1")}
+	env := &mainEnv{vars: reachEnv(t, c.LoopbackURL(), token, "run-1")}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	composed := make(chan *EngineHost, 1)

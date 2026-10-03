@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -55,9 +56,9 @@ func secretMount(t *testing.T, spec RunSpec) mount {
 }
 
 // The originator materializes the credential before the container starts:
-// one owner-only file per secret variable, in an owner-only dir on the
+// the run's one owner-only dotenv secrets file, in an owner-only dir on the
 // user's tmpfs ($XDG_RUNTIME_DIR), bound READ-ONLY at secretsTarget — the
-// path the Placement names. The value is in neither the run's argv nor its
+// file the Placement names. The value is in neither the run's argv nor its
 // env.
 func TestContainer_SecretIsWrittenOwnerOnlyAndMountedReadOnly(t *testing.T) {
 	testsupport.Isolate(t)
@@ -69,10 +70,12 @@ func TestContainer_SecretIsWrittenOwnerOnlyAndMountedReadOnly(t *testing.T) {
 	assert.True(t, m.ReadOnly, "the engine side cannot write the secret")
 	assert.Equal(t, runtimeDir, filepath.Dir(m.Host), "the secret dir lives on the user's runtime tmpfs")
 
-	file := filepath.Join(m.Host, secretVar)
-	got, err := os.ReadFile(file)
+	file := filepath.Join(m.Host, secretsFileName)
+	b, err := os.ReadFile(file)
 	require.NoError(t, err)
-	assert.Equal(t, fixtureSecret, string(got), "the exact value, no newline added")
+	got, err := sessions.DecodeSecrets(b)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{secretVar: fixtureSecret}, got, "the exact value")
 	fi, err := os.Stat(file)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
@@ -80,7 +83,7 @@ func TestContainer_SecretIsWrittenOwnerOnlyAndMountedReadOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o700), di.Mode().Perm())
 
-	assert.Equal(t, secretsTarget+"/"+secretVar, env.Placement().SecretFiles[secretVar], "the Placement names the mounted file")
+	assert.Equal(t, secretsTarget+"/"+secretsFileName, env.Placement().SecretFiles[secretVar], "the Placement names the mounted file")
 	assert.NotContains(t, strings.Join(spec.Env, "\n"), fixtureSecret)
 	assert.NotContains(t, strings.Join(spec.Command, "\n"), fixtureSecret)
 }
@@ -92,7 +95,7 @@ func TestContainer_CleanupRemovesTheSecret(t *testing.T) {
 
 	env, _, spec := preparedSecretCell(t)
 	dir := secretMount(t, spec).Host
-	require.FileExists(t, filepath.Join(dir, secretVar), "premise: materialized")
+	require.FileExists(t, filepath.Join(dir, secretsFileName), "premise: materialized")
 	require.NoError(t, env.Cleanup())
 	assert.NoDirExists(t, dir, "teardown removed the secret")
 }
@@ -131,5 +134,5 @@ func TestContainer_SecretFallsBackToTheSessionEphemeralDirWithoutARuntimeDir(t *
 	_, cw, spec := preparedSecretCell(t)
 	m := secretMount(t, spec)
 	assert.Equal(t, filepath.Dir(cw.scratchRoot), filepath.Dir(m.Host))
-	assert.FileExists(t, filepath.Join(m.Host, secretVar))
+	assert.FileExists(t, filepath.Join(m.Host, secretsFileName))
 }

@@ -338,7 +338,7 @@ signatures that will never verify:
 | `fragment` | distilled | `fragment/distilled` | `signing.FragmentPreimage` over (premise, distilled rewrite) — §3.3.3 | `BundleFragment.ContentPayload` |
 | `prompt` (a command) | raw | `command/raw` | `signing.CommandPreimage` over (description, exports, authored content) — §3.3.4 | `BundleCommand.ContentPayload` |
 | `prompt` (a command) | distilled | `command/distilled` | `signing.CommandPreimage` over (description, exports, distilled rewrite) — §3.3.4 | `BundleCommand.ContentPayload` |
-| `mcp` | raw (its only form) | `exec/mcp` | `BundleMCP` canonical JSON (Command, Args, Env, Installation) | `BundleMCP.ContentPayload` |
+| `mcp` | raw (its only form) | `exec/mcp` | `BundleMCP` canonical JSON (`mcpContentPayload` — §3.3.2) | `BundleMCP.ContentPayload` |
 | `hook` | raw (its only form) | `exec/hook` | `BundleHook` canonical JSON (executable surface) | `BundleHook.ContentPayload` |
 | `skill` | raw (its only form) | `skill` | canonical JSON of (exports, `SkillManifest`) — §3.3.5 | `BundleSkill.ContentPayload` |
 
@@ -1656,7 +1656,7 @@ pretending otherwise would be dishonest.**
   not approved.** *(Implementer trap #2: it is very easy to write the fast path as
   "hash found in store → allow" and never reach the verify. That is the whole bug,
   and it silently restores exactly the forgeable-file weakness we are removing.)*
-- The `content_hash` field authored in bundle YAML remains what it is today:
+- The `content_hash` field authored on a bundle's text items remains
   distillation bookkeeping, never trusted for anything security-relevant.
 
 ### 9.4 The preconditions on the anti-self-approval property — read this

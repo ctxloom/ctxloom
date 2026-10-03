@@ -30,6 +30,8 @@ func TestOverloadHold_BacksOffThatRunAlone(t *testing.T) {
 	held := f.entry(f.worker).Hold
 	require.NotNil(t, held)
 	assert.Equal(t, string(agent.FailureOverloaded), held.Kind)
+	assert.Equal(t, hold.Source.Key, held.Source, "the roster's source is the run's credential carriers, never the hold's own key")
+	assert.Equal(t, held, f.holdOf(t, f.worker), "one hold, both rosters")
 	assert.Nil(t, f.entry(f.sibling).Hold, "the credential's other run is not held")
 
 	f.send(t, f.worker, "held work")

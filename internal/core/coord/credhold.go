@@ -163,14 +163,17 @@ func (c *Coordinator) CredentialHolds() []CredentialHold {
 	return out
 }
 
-// runHolds is the roster's view of every held run, by run id.
+// runHolds is the roster's view of every held run, by run id. Its Source is
+// the credential's carrier names, not the hold's key: a run's own hold (an
+// overload, or a run with no credential) is keyed by its run id, which names
+// no carrier.
 func (c *Coordinator) runHolds() map[string]*RunHold {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	out := make(map[string]*RunHold, len(c.heldRuns))
 	for runID, key := range c.heldRuns {
 		if h := c.credHolds[key]; h != nil {
-			out[runID] = &RunHold{Kind: string(h.kind), Source: key, Until: h.until}
+			out[runID] = &RunHold{Kind: string(h.kind), Source: h.source.Key, Until: h.until}
 		}
 	}
 	return out

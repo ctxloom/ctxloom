@@ -778,3 +778,44 @@ func TestRateHold_LivenessNeverJudgesAHeldRunStalled(t *testing.T) {
 	assert.Equal(t, map[string]bool{f.worker: false, f.sibling: false, f.stranger: false}, awaiting(),
 		"the release takes the exemption with it")
 }
+
+// TestRateHold_TheIdleReaperSparesHeldAndPausedRuns: a hold outlasting
+// delegation.idle_timeout must not end the runs it parked — that would defeat
+// the shared backoff — and neither may a human's pause. Time held or paused is
+// not idle time: once released, a run is reapable again only after a full idle
+// timeout. The clock is advanced and the sweep invoked, never awaited.
+func TestRateHold_TheIdleReaperSparesHeldAndPausedRuns(t *testing.T) {
+	const idle = 5 * time.Minute
+	f, clk := newRateFixture(t, func(c *Coordinator) { c.idleTimeout = idle })
+	_, err := f.c.ControlPause(human(t), humanInitiator(), f.stranger, "reviewing")
+	require.NoError(t, err)
+	f.send(t, f.worker, limitHit+" do the work")
+	f.awaitHold(t, f.worker, f.sibling)
+	f.awaitParks(t, f.worker, f.sibling)
+	require.Eventually(t, func() bool { return f.state(f.worker) == StateIdle }, conformanceWait, 10*time.Millisecond)
+	worker, sibling, stranger := f.runOf(t, f.worker), f.runOf(t, f.sibling), f.runOf(t, f.stranger)
+
+	clk.Advance(idle + time.Minute) // past the idle timeout, short of the reset
+	require.Len(t, f.c.CredentialHolds(), 1, "the hold still stands")
+	f.c.reapIdleRuns()
+	for _, h := range []string{f.worker, f.sibling, f.stranger} {
+		assert.Equal(t, StateIdle, f.state(h), "a held or human-paused run is never idle-reaped")
+	}
+
+	clk.Advance(limitResets.Sub(clk.Now())) // the hold releases itself
+	require.Empty(t, f.c.CredentialHolds())
+	f.c.reapIdleRuns()
+	assert.Equal(t, StateIdle, f.state(f.worker), "the time held does not count as idle")
+
+	clk.Advance(idle)
+	f.c.reapIdleRuns()
+	assert.Equal(t, CauseIdleReaped, runCause(f.c, worker), "a released run is reapable again")
+	assert.Equal(t, CauseIdleReaped, runCause(f.c, sibling), "a released run is reapable again")
+	assert.Equal(t, StateIdle, f.state(f.stranger), "the human's pause still spares its run")
+
+	_, err = f.c.ControlResume(human(t), humanInitiator(), f.stranger)
+	require.NoError(t, err)
+	clk.Advance(idle)
+	f.c.reapIdleRuns()
+	assert.Equal(t, CauseIdleReaped, runCause(f.c, stranger), "a resumed run is reapable again")
+}

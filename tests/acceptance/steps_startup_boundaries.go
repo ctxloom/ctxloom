@@ -4,15 +4,19 @@ package acceptance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cucumber/godog"
 
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // The two arms of the startup gate's verdict, for scenarios about WHOSE
@@ -66,29 +70,40 @@ func registerStartupBoundarySteps(ctx *godog.ScenarioContext) {
 	})
 
 	// A session's delivered surfaces land in ITS home under the session
-	// store; these walk every session the run minted. The positive form is
-	// what a dry run cannot satisfy, and the negative form what a real start
-	// cannot.
-	ctx.Step(`^a session home carries the file "([^"]*)"$`, func(c context.Context, name string) error {
+	// store, and the runner's teardown takes them back when the run ends —
+	// so after the command returns the disk no longer shows them. The
+	// evidence that outlives the teardown is the mock's record: it names
+	// where each surface sat while the engine ran. The positive form is what
+	// a dry run cannot satisfy, and the negative form what a real start
+	// cannot: it also refuses a delivery the teardown left behind.
+	ctx.Step(`^the run delivered the file "([^"]*)" into a session home$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		found, err := sessionHomesCarrying(w, name)
+		found, err := recordedSessionDeliveries(w, name)
 		if err != nil {
 			return err
 		}
 		if len(found) == 0 {
-			return fmt.Errorf("no session home under %s carries %q — the run delivered nothing into its session. output:\n%s", sessionStoreRoot(w), name, w.env.LastOutput())
+			rec, _ := w.mock.GetRecordedInput()
+			return fmt.Errorf("the mock's record names no %q under %s — the run delivered nothing into its session. record:\n%s\noutput:\n%s", name, sessionStoreRoot(w), rec, w.env.LastOutput())
 		}
 		w.docStepMaterialized = fmt.Sprintf("%s delivered into %v", name, found)
 		return nil
 	})
-	ctx.Step(`^no session home carries the file "([^"]*)"$`, func(c context.Context, name string) error {
+	ctx.Step(`^no run delivered the file "([^"]*)" into a session home$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		found, err := sessionHomesCarrying(w, name)
+		recorded, err := recordedSessionDeliveries(w, name)
 		if err != nil {
 			return err
 		}
-		if len(found) > 0 {
-			return fmt.Errorf("%q was delivered into a session home (%v) — a dry run must deliver nothing. output:\n%s", name, found, w.env.LastOutput())
+		if len(recorded) > 0 {
+			return fmt.Errorf("the mock's record shows %q delivered into a session home (%v) — a dry run must deliver nothing. output:\n%s", name, recorded, w.env.LastOutput())
+		}
+		onDisk, err := sessionHomesCarrying(w, name)
+		if err != nil {
+			return err
+		}
+		if len(onDisk) > 0 {
+			return fmt.Errorf("%q sits in a session home (%v) — a dry run must deliver nothing. output:\n%s", name, onDisk, w.env.LastOutput())
 		}
 		return nil
 	})
@@ -235,6 +250,51 @@ func sessionHomesCarrying(w *World, name string) ([]string, error) {
 		return nil, fmt.Errorf("walk the session store at %s: %w", root, err)
 	}
 	return found, nil
+}
+
+// recordedSessionDeliveries lists the surfaces the mock's record says were
+// delivered under the session store with base name name. A mock that was
+// never invoked delivered nothing; a scenario with no mock configured is a
+// fixture error, not an empty answer.
+func recordedSessionDeliveries(w *World, name string) ([]string, error) {
+	if w.mock == nil {
+		return nil, fmt.Errorf("no mock engine is configured — the %q step must run first", "the mock LLM responds")
+	}
+	rec, err := w.mock.GetRecordedInput()
+	if errors.Is(err, testenv.ErrMockNeverInvoked) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read the mock's record: %w", err)
+	}
+	root := sessionStoreRoot(w)
+	var found []string
+	for _, path := range recordedSurfacePaths(rec) {
+		if rel, ok := withinDir(root, path); ok && filepath.Base(path) == name {
+			found = append(found, rel)
+		}
+	}
+	return found, nil
+}
+
+// recordedSurfacePaths is every surface path a mock record names.
+func recordedSurfacePaths(rec string) []string {
+	var out []string
+	for _, line := range strings.Split(rec, "\n") {
+		if key, path, ok := strings.Cut(line, "="); ok && slices.Contains(mock.RecordSurfaceKeys(), key) {
+			out = append(out, path)
+		}
+	}
+	return out
+}
+
+// withinDir is path relative to root, when path lies beneath it.
+func withinDir(root, path string) (string, bool) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
 }
 
 // orphanWorktreePath returns the seeded orphan's path, refusing when no

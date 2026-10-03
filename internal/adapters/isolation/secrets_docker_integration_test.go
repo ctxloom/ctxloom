@@ -50,9 +50,7 @@ func TestSecretMount_ARealContainerAuthenticatesFromTheMountedSecret(t *testing.
 	for _, name := range []string{"docker", "podman"} {
 		t.Run(name, func(t *testing.T) {
 			rt := ProbeRuntime(name)
-			if rt == nil || !rt.Available() {
-				t.Skipf("%s is not available", name)
-			}
+			dockergate.RequireNamedRuntime(t, name, rt != nil && rt.Available(), "the secret-mount integration test")
 			cname := containerName("secret-itest-" + name)
 			t.Cleanup(func() { rm := exec.Command(rt.Binary(), "rm", "-f", cname); rm.Env = realEnv; _ = rm.Run() })
 			spec := RunSpec{

@@ -197,7 +197,6 @@ func (r *reader) addMCP(v content.MCP) {
 		ServedBy:     v.ServedBy,
 		Notes:        v.Notes,
 		Installation: v.Installation,
-		ContentHash:  v.ContentHash,
 	})
 }
 

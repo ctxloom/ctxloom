@@ -379,12 +379,65 @@ func loadBundleForUpdate(store bundles.Store, cfg *config.Config, name string) (
 
 	bundle, err := store.Load(name)
 	if err != nil {
+		if perr := pinnedRemoteBundleRefusal(cfg, name); perr != nil {
+			return nil, perr
+		}
 		return nil, fmt.Errorf("bundle %q not found: %w", name, err)
 	}
 	if err := requireSafeBundlePath(cfg.GetBundleDirs(), bundle.Path); err != nil {
 		return nil, err
 	}
 	return bundle, nil
+}
+
+// ErrPinnedRemoteBundle reports a write aimed at a bundle pinned from a remote.
+// The store loads only project-authored bundles (bundles.Store.Load), so such a
+// write can never land; this names why instead of reporting "not found" about a
+// bundle the same ref reads successfully.
+var ErrPinnedRemoteBundle = errors.New("bundle is pinned from a remote and is read-only here")
+
+// PinnedRemoteBundleError is the ErrPinnedRemoteBundle refusal with what a user
+// needs to act on it: which remote, which pin, and the installed tree that can
+// be imported as a local fork.
+type PinnedRemoteBundleError struct {
+	Bundle string // canonical bundle ref
+	Remote string // the remote's URL
+	Pin    string // locked commit
+	Tree   string // installed tree at Pin
+}
+
+func (e *PinnedRemoteBundleError) Error() string {
+	return fmt.Sprintf("cannot write into bundle %q: it is pinned from remote %s at %s and is read-only here.\n"+
+		"  To change it locally, fork it: ctxloom bundle import %s — then edit the local copy.\n"+
+		"  To change it for everyone, edit it upstream in %s, then: ctxloom deps upgrade",
+		e.Bundle, e.Remote, e.Pin, e.Tree, e.Remote)
+}
+
+func (e *PinnedRemoteBundleError) Unwrap() error { return ErrPinnedRemoteBundle }
+
+// pinnedRemoteBundleRefusal returns a *PinnedRemoteBundleError when name — short
+// or canonical — is a bundle locked in the active lockfile, else nil. An
+// unreadable lockfile yields nil: the caller's own "not found" then stands, and
+// the lockfile failure surfaces on every read path that needs it.
+func pinnedRemoteBundleRefusal(cfg *config.Config, name string) error {
+	lock, err := LoadActiveLockfile(cfg)
+	if err != nil {
+		return nil
+	}
+	locked, ok := findLockedBundle(cfg, lock, name)
+	if !ok {
+		return nil
+	}
+	tree, err := locked.ref.LocalTreePath(ProjectAppDir(cfg))
+	if err != nil {
+		return nil
+	}
+	return &PinnedRemoteBundleError{
+		Bundle: locked.ref.CanonicalString(),
+		Remote: locked.entry.URL,
+		Pin:    locked.entry.SHA,
+		Tree:   tree,
+	}
 }
 
 // ListBundles returns a summary of every bundle to display (ADR 0019: the read
@@ -400,12 +453,11 @@ func ListBundles(ctx context.Context, cfg *config.Config) ([]*bundles.BundleInfo
 	return listBundleInfos(ctx, cfg)
 }
 
-// GetBundle loads a single bundle by name. This is a READ path, so it goes
-// through the seeded loader (like GetItemContent/GetBundleMCP in items.go):
-// remote bundles exist only as lockfile-seeded references, and the unseeded
-// store would report "not found" for every canonical ref ListBundles just
-// displayed. Mutation paths (Update/Delete) keep the unseeded store — seeded
-// bundles are read-only.
+// GetBundle loads a single bundle by name through the seeded loader: remote
+// bundles exist only as lockfile-seeded references, and a loader without them
+// would report "not found" for every canonical ref ListBundles just displayed.
+// Every item reader (GetItemContent, GetBundleMCP) resolves through here so a
+// ref one command accepts, the next does not reject.
 func GetBundle(cfg *config.Config, name string) (*bundles.Bundle, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
@@ -435,13 +487,14 @@ func bundleStore(cfg *config.Config, injected bundles.Store) bundles.Store {
 }
 
 // applyScalarEdits applies the single-value description/version edits, appending
-// a change line for each that was set.
+// a change line for each that actually changed: restating the held value is
+// not a change.
 func applyScalarEdits(bundle *bundles.Bundle, req UpdateBundleRequest, changes []string) []string {
-	if req.SetDescription != nil {
+	if req.SetDescription != nil && *req.SetDescription != bundle.Description {
 		bundle.Description = *req.SetDescription
 		changes = append(changes, "updated description")
 	}
-	if req.SetVersion != nil {
+	if req.SetVersion != nil && *req.SetVersion != bundle.Version {
 		bundle.Version = *req.SetVersion
 		changes = append(changes, "updated version")
 	}
@@ -1256,9 +1309,11 @@ func distillTooShort(original, distilled string) bool {
 // had already drifted in their explanatory comments, which is how they drift in
 // behaviour next.
 //
-// get returns the named entry and its raw content; put applies an ACCEPTED
-// result. Neither is called for a rejected one, so no rejection path can stamp
-// a hash.
+// get returns the named entry, its raw content and the distillation it holds
+// now; put applies an ACCEPTED result. put is not called for a rejected one, so
+// no rejection path can stamp a hash, and a rejection's warning names what the
+// item is left holding — an edit has already discarded the old distillation
+// along with the old content, so there may be none to keep.
 func distillItems[E any](
 	ctx context.Context,
 	b *bundles.Bundle,
@@ -1266,7 +1321,7 @@ func distillItems[E any](
 	d Distiller,
 	kind DistillKind,
 	noun string,
-	get func(name string) (entry E, content string),
+	get func(name string) (entry E, content, distilled string),
 	put func(name string, entry E, res DistillResult),
 ) collections.Set[string] {
 	failed := collections.NewSet[string]()
@@ -1274,7 +1329,11 @@ func distillItems[E any](
 		return failed
 	}
 	for _, name := range names {
-		entry, content := get(name)
+		entry, content, prior := get(name)
+		left := "left undistilled"
+		if prior != "" {
+			left = "keeping the previous distillation"
+		}
 		res, err := d.Distill(ctx, DistillRequest{
 			Kind:    kind,
 			Name:    name,
@@ -1291,7 +1350,7 @@ func distillItems[E any](
 			// one that happened to be empty. Assigning it would overwrite a
 			// previously-good distillation with "" and let distillOutcome
 			// report "distilled" for content nobody can use.
-			clidiag.Warn("ctxloom", "distill of %s %q produced no content; keeping the previous distillation", noun, name)
+			clidiag.Warn("ctxloom", "distill of %s %q produced no content; %s", noun, name, left)
 			failed.Add(name)
 			continue
 		}
@@ -1299,7 +1358,7 @@ func distillItems[E any](
 			// Non-empty but implausibly short (truncated/degenerate) is the same
 			// class of failure as empty — treat it the same way, and do NOT stamp
 			// ContentHash for a rejected result.
-			clidiag.Warn("ctxloom", "distill of %s %q produced only %d bytes from %d — rejecting as truncated, keeping the previous distillation", noun, name, len(res.Distilled), len(content))
+			clidiag.Warn("ctxloom", "distill of %s %q produced only %d bytes from %d — rejecting as truncated, %s", noun, name, len(res.Distilled), len(content), left)
 			failed.Add(name)
 			continue
 		}
@@ -1310,9 +1369,9 @@ func distillItems[E any](
 
 func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) collections.Set[string] {
 	return distillItems(ctx, b, names, d, DistillKindFragment, "fragment",
-		func(name string) (bundles.BundleFragment, string) {
+		func(name string) (bundles.BundleFragment, string, string) {
 			frag := b.Fragments[name]
-			return frag, frag.Content
+			return frag, frag.Content, frag.Distilled
 		},
 		func(name string, frag bundles.BundleFragment, res DistillResult) {
 			frag.Distilled = res.Distilled
@@ -1325,9 +1384,9 @@ func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d 
 // distillPrompts mirrors distillFragments for prompts.
 func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) collections.Set[string] {
 	return distillItems(ctx, b, names, d, DistillKindCommand, "prompt",
-		func(name string) (bundles.BundleCommand, string) {
+		func(name string) (bundles.BundleCommand, string, string) {
 			p := b.Commands[name]
-			return p, p.Content
+			return p, p.Content, p.Distilled
 		},
 		func(name string, p bundles.BundleCommand, res DistillResult) {
 			p.Distilled = res.Distilled

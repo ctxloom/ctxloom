@@ -152,9 +152,6 @@ type MCP struct {
 	// the content file consumable by an MCP client as-is.
 	Notes        string
 	Installation string
-	// ContentHash is change-detection bookkeeping, carried verbatim, never a
-	// trust input.
-	ContentHash string
 }
 
 func (MCP) Kind() trust.ItemKind      { return trust.KindMCP }
@@ -168,11 +165,11 @@ type mcpContent struct {
 	ServedBy string            `yaml:"served_by,omitempty"`
 }
 
-// mcpMeta is the sidecar's shape: our keys only.
+// mcpMeta is the sidecar's shape: our keys only. It decodes non-strictly, so a
+// key it does not model is ignored rather than refused.
 type mcpMeta struct {
 	Notes        string `yaml:"notes,omitempty"`
 	Installation string `yaml:"installation,omitempty"`
-	ContentHash  string `yaml:"content_hash,omitempty"`
 }
 
 type mcpType struct{}
@@ -218,7 +215,6 @@ func (t mcpType) Decode(src Source) (Surface, error) {
 		Env:          content.Env,
 		Notes:        meta.Notes,
 		Installation: meta.Installation,
-		ContentHash:  meta.ContentHash,
 	}, nil
 }
 
@@ -229,7 +225,7 @@ func (t mcpType) Encode(s Surface) ([]Component, error) {
 	}
 	return encodeExecItem(t, m.Name,
 		mcpContent{Command: m.Command, Args: m.Args, Env: m.Env},
-		mcpMeta{Notes: m.Notes, Installation: m.Installation, ContentHash: m.ContentHash})
+		mcpMeta{Notes: m.Notes, Installation: m.Installation})
 }
 
 // -------------------------------------------------------------------- hooks

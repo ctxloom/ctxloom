@@ -436,7 +436,16 @@ func TestBundleCommand_EffectiveContentHash(t *testing.T) {
 // Env keys are canonicalized (order-insensitive); Args order is significant;
 // Notes are excluded (human-only, never executed).
 
-func TestBundleMCP_ComputeContentHash(t *testing.T) {
+// mcpTrustHash is the hash an MCP trust grant binds to: HashPayload over
+// ContentPayload, the same composition every trust reader applies.
+func mcpTrustHash(t *testing.T, m BundleMCP) string {
+	t.Helper()
+	payload, err := m.ContentPayload()
+	require.NoError(t, err)
+	return HashPayload(payload)
+}
+
+func TestBundleMCP_TrustHash(t *testing.T) {
 	base := BundleMCP{
 		Command:      "postgres-mcp",
 		Args:         []string{"--host", "db", "--port", "5432"},
@@ -444,41 +453,41 @@ func TestBundleMCP_ComputeContentHash(t *testing.T) {
 		Installation: "npm i -g postgres-mcp",
 		Notes:        "human-only notes",
 	}
-	baseHash := base.ComputeContentHash()
+	baseHash := mcpTrustHash(t, base)
 	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, baseHash)
 
 	// Deterministic across calls.
-	assert.Equal(t, baseHash, base.ComputeContentHash())
+	assert.Equal(t, baseHash, mcpTrustHash(t, base))
 
 	// Env key order does not affect the hash (json.Marshal sorts map keys).
 	envReordered := base
 	envReordered.Env = map[string]string{"PGDATABASE": "app", "PGPASSWORD": "secret", "PGUSER": "admin"}
-	assert.Equal(t, baseHash, envReordered.ComputeContentHash(), "env key order must not change the hash")
+	assert.Equal(t, baseHash, mcpTrustHash(t, envReordered), "env key order must not change the hash")
 
 	// Notes are excluded.
 	notesChanged := base
 	notesChanged.Notes = "totally different notes"
-	assert.Equal(t, baseHash, notesChanged.ComputeContentHash(), "Notes must be excluded from the hash")
+	assert.Equal(t, baseHash, mcpTrustHash(t, notesChanged), "Notes must be excluded from the hash")
 
 	// Arg order is significant.
 	argsReordered := base
 	argsReordered.Args = []string{"--port", "5432", "--host", "db"}
-	assert.NotEqual(t, baseHash, argsReordered.ComputeContentHash(), "arg order must change the hash")
+	assert.NotEqual(t, baseHash, mcpTrustHash(t, argsReordered), "arg order must change the hash")
 
 	// Installation is part of the hash.
 	installChanged := base
 	installChanged.Installation = "different install steps"
-	assert.NotEqual(t, baseHash, installChanged.ComputeContentHash(), "Installation must be part of the hash")
+	assert.NotEqual(t, baseHash, mcpTrustHash(t, installChanged), "Installation must be part of the hash")
 
 	// Env value changes change the hash.
 	envValueChanged := base
 	envValueChanged.Env = map[string]string{"PGUSER": "admin", "PGPASSWORD": "changed", "PGDATABASE": "app"}
-	assert.NotEqual(t, baseHash, envValueChanged.ComputeContentHash(), "env value must be part of the hash")
+	assert.NotEqual(t, baseHash, mcpTrustHash(t, envValueChanged), "env value must be part of the hash")
 
 	// Command changes change the hash.
 	cmdChanged := base
 	cmdChanged.Command = "mysql-mcp"
-	assert.NotEqual(t, baseHash, cmdChanged.ComputeContentHash(), "Command must be part of the hash")
+	assert.NotEqual(t, baseHash, mcpTrustHash(t, cmdChanged), "Command must be part of the hash")
 }
 
 // =============================================================================
@@ -533,9 +542,6 @@ func TestBundleMCP_ContentPayload_IsHashPreimage(t *testing.T) {
 	// pins the exact byte layout and its field ORDER (JSONEq below is
 	// order-insensitive and would not catch a misplaced version carrier).
 	assert.JSONEq(t, `{"preimage":"ctxloom-exec/2","command":"postgres-mcp","args":["--host","db"],"env":{"PGUSER":"admin"},"url":"","headers":null,"installation":"npm i -g postgres-mcp"}`, string(payload))
-
-	// ComputeContentHash must hash exactly these bytes.
-	assert.Equal(t, hashContent(payload), mcp.ComputeContentHash())
 }
 
 func TestBundleHook_ContentPayload_IsHashPreimage(t *testing.T) {

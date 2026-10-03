@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // activeLockfileManager builds the lockfile manager for cfg's active lockfile
@@ -38,26 +39,44 @@ func SetItemPin(cfg *config.Config, ref string, pinned bool) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("load active lockfile: %w", err)
 	}
-	// Only bundles are locked now (top-level profile distribution was retired).
-	parsed, err := remote.ParseReference(CanonicalizeRemoteRef(cfg, ref, remote.ItemTypeBundle))
-	if err != nil {
-		return false, nil
-	}
-	canonical, err := parsed.LockKey()
-	if err != nil {
-		return false, nil
-	}
-	entry, ok := active.GetEntry(remote.ItemTypeBundle, canonical)
+	locked, ok := findLockedBundle(cfg, active, ref)
 	if !ok {
 		return false, nil
 	}
+	entry := locked.entry
 	if entry.Held == pinned {
 		return true, nil // idempotent
 	}
 	entry.Held = pinned
-	active.AddEntry(remote.ItemTypeBundle, canonical, entry)
+	active.AddEntry(remote.ItemTypeBundle, locked.key, entry)
 	if err := activeMgr.Save(active); err != nil {
 		return true, fmt.Errorf("save active lockfile: %w", err)
 	}
 	return true, nil
+}
+
+// lockedBundle is a bundle ref resolved to its entry in a lockfile.
+type lockedBundle struct {
+	ref   *remote.Reference
+	key   trust.BundleKey
+	entry remote.LockEntry
+}
+
+// findLockedBundle resolves ref — short "<alias>/<path>" or canonical — to its
+// bundle entry in lock. ok is false for a ref that names no locked bundle,
+// including one that is not a remote reference at all. Only bundles are locked.
+func findLockedBundle(cfg *config.Config, lock *remote.Lockfile, ref string) (lockedBundle, bool) {
+	parsed, err := remote.ParseReference(CanonicalizeRemoteRef(cfg, ref, remote.ItemTypeBundle))
+	if err != nil {
+		return lockedBundle{}, false
+	}
+	key, err := parsed.LockKey()
+	if err != nil {
+		return lockedBundle{}, false
+	}
+	entry, ok := lock.GetEntry(remote.ItemTypeBundle, key)
+	if !ok {
+		return lockedBundle{}, false
+	}
+	return lockedBundle{ref: parsed, key: key, entry: entry}, true
 }

@@ -85,7 +85,6 @@ fails safe (more review, never more exposure), but it is a known coarseness; see
 | `installation` | Setup instructions |
 | `tags`, `served_by` | Routing, evaluated by ctxloom; never executed |
 | `notes` | Human-only |
-| `content_hash` | Author-supplied. See below |
 
 Your approval covers `command`, `args`, `env`, `url`, `headers` and `installation`. `notes`
 is excluded — it is never executed and never sent to the agent. Argument order is significant (reordering

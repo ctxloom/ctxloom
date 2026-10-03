@@ -103,7 +103,6 @@ mcp:
     env: {K: V}
     notes: n
     installation: i
-    content_hash: h
 skills:
   s:
     path: skills/s

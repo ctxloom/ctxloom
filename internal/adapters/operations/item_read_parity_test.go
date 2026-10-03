@@ -36,7 +36,7 @@ func seedRemoteFragmentFixture(t *testing.T) (cfg *config.Config, canonicalRef, 
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	const bundleBody = "version: 1.0.0\ndescription: remote tools bundle\nfragments:\n  helper:\n    content: the remote body\n    no_distill: true\n"
+	const bundleBody = "version: 1.0.0\ndescription: remote tools bundle\nfragments:\n  helper:\n    content: the remote body\n    no_distill: true\nmcp:\n  srv:\n    command: srv-bin\n"
 	require.NoError(t, os.MkdirAll(authoredV2(filepath.Join(repoDir, paths.AppDirName)), 0o755))
 	bundletree.WriteOS(t, authoredV2(filepath.Join(repoDir, paths.AppDirName)), "tools", bundleBody)
 	_, err = wt.Add(repoV2("tools"))
@@ -108,5 +108,23 @@ func TestItemRead_BundleResolutionParity(t *testing.T) {
 		})
 		require.NoErrorf(t, err, "GetItemContent must resolve the same %q the show path accepts", ref)
 		assert.Equal(t, frag.Content, got.Content, "%q: both paths must deliver the same bytes", ref)
+	}
+}
+
+// TestGetBundleMCP_BundleResolutionParity holds GetBundleMCP to the same bundle
+// resolution GetBundle applies: the read half of `bundle mcp edit` must accept
+// every ref `bundle show` accepts, including the short "<remote>/<bundle>" form.
+func TestGetBundleMCP_BundleResolutionParity(t *testing.T) {
+	cfg, canonicalRef, shortRef := seedRemoteFragmentFixture(t)
+
+	for _, ref := range []string{canonicalRef, shortRef} {
+		bundle, err := GetBundle(cfg, ref)
+		require.NoErrorf(t, err, "GetBundle must resolve %q", ref)
+		want, ok := bundle.MCP["srv"]
+		require.Truef(t, ok, "%q: the bundle carries the mcp server", ref)
+
+		got, err := GetBundleMCP(context.Background(), cfg, GetBundleMCPRequest{Bundle: ref, Name: "srv"})
+		require.NoErrorf(t, err, "GetBundleMCP must resolve the same %q GetBundle accepts", ref)
+		assert.Equal(t, want, got.MCP, "%q: both paths must deliver the same entry", ref)
 	}
 }

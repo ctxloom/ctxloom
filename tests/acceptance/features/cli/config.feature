@@ -1,7 +1,7 @@
 @doc
 Feature: config — the project's one configuration document, read and scaffolded
 
-  Covers: `ctxloom config show`, `config get`, `config create`, `config edit`,
+  Covers: `ctxloom config show [section]`, `config create`, `config edit`,
   and the bare `ctxloom config` form.
 
   Configuration is a SINGLETON, not a collection. A project has exactly one
@@ -12,7 +12,7 @@ Feature: config — the project's one configuration document, read and scaffolde
 
   THE DOCUMENT IS SHARED, WHICH IS WHY THE SECTION VIEW MATTERS. `agent set`,
   `manage install`, `container scaffold` and the init interview all
-  write into the same file, and `config get <section>` is how a person reads
+  write into the same file, and `config show <section>` is how a person reads
   back what another command just wrote. A section view that silently rendered
   the whole document would look right and answer the wrong question, so every
   scenario here pins the narrowing by what must be ABSENT as well as present.
@@ -91,15 +91,9 @@ Feature: config — the project's one configuration document, read and scaffolde
       And the output is valid JSON
       And the output contains "claude-code"
 
-    # `config show` takes no positional argument and IGNORES anything given —
-    # `ctxloom config show llm` prints the WHOLE document rather than the llm
-    # section or an error. That is a live gap, not a specified behaviour, so
-    # there is deliberately no scenario pinning it: writing one would freeze
-    # the wrong answer. Section narrowing is `config get`'s job below.
-
   Rule: A section view narrows, and narrowing is asserted by what is absent
 
-    `config get <section>` claims to answer a smaller question than `show`.
+    `config show <section>` claims to answer a smaller question than bare `show`.
     Nothing proves that by presence alone — a full dump contains every
     section's contents too — so each scenario names a key that IS in the whole
     document and must NOT be in the section view.
@@ -108,7 +102,7 @@ Feature: config — the project's one configuration document, read and scaffolde
       Given an initialized ctxloom project
       When Alice asks which engines this project is wired for:
         """
-        ctxloom config get llm <flags>
+        ctxloom config show llm <flags>
         """
       Then the command succeeds
       And the output contains "claude-code"
@@ -134,7 +128,7 @@ Feature: config — the project's one configuration document, read and scaffolde
       And a profile "dev" is defined inline in config with bundle "demo"
       When Alice reads a section of the document:
         """
-        ctxloom config get llm
+        ctxloom config show llm
         """
       Then the output contains "RETIRED"
       And the output contains ".ctxloom/profiles/"
@@ -147,7 +141,7 @@ Feature: config — the project's one configuration document, read and scaffolde
       Given an initialized ctxloom project
       When Alice mistypes the section she wanted:
         """
-        ctxloom config get nonsense
+        ctxloom config show nonsense
         """
       Then the command fails
       And the output contains "nonsense"

@@ -9,10 +9,17 @@ This page is generated from `ctxloom config show --help`.
 
 ## ctxloom config show
 
-Show the effective configuration
+Show the effective configuration, or one section
+
+### Synopsis
+
+Show the effective configuration, or one section of it.
+
+Bare, prints the whole document. With a section, prints only that top-level
+section; an unknown section is refused with the list of available ones.
 
 ```
-ctxloom config show [flags]
+ctxloom config show [section] [flags]
 ```
 
 ### Options

@@ -281,8 +281,8 @@ func readExistingConfig(fs afero.Fs, configPath string) ([]byte, map[string]inte
 
 // effectiveDoc is c as every run resolves it: toDoc's lossless copy, role and
 // the shipped default registry included, with the version stamped current
-// (load has already migrated whatever the file held). `config show` and
-// `config get` render it, so they describe the configuration actually in
+// (load has already migrated whatever the file held). `config show`, whole
+// or by section, renders it, so they describe the configuration actually in
 // force rather than only the part a file spells out.
 func (c *Config) effectiveDoc() configDoc {
 	d := c.toDoc()
@@ -309,7 +309,7 @@ func (c *Config) Authored() yaml.Marshaler { return authoredView{c} }
 type authoredView struct{ c *Config }
 
 // MarshalYAML returns the configDoc itself, like Config.MarshalYAML, so
-// `config get --raw` can reflect a section out of it by yaml tag.
+// `config show --raw <section>` can reflect a section out of it by yaml tag.
 func (v authoredView) MarshalYAML() (any, error) { return v.c.persistedDoc(), nil }
 
 // retiredConfigKeys are top-level keys ctxloom once wrote and no longer

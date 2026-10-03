@@ -29,7 +29,7 @@ flowchart TD
 
     subgraph config["config.go"]
         CS["config show"] --> RCY["renderConfigYAML"]
-        CG["config get &lt;section&gt;"] --> RCS["resolveConfigSection → renderConfigSection"]
+        CS --> RCS["resolveConfigSection → renderConfigSection (with a section)"]
         CE["config edit"] --> OIE["openInEditor (env-only editor resolution)"]
         CI["config create"] --> IPJ[["operations.InitializeProject"]]
     end
@@ -94,8 +94,9 @@ starts, and wraps the failure with a per-engine fix (`engineAuthFixHint`).
 
 ## `ctxloom config`
 
-`show`, `get <section>`, `edit`, `create`. `resolveConfigSection` is the whole
-`config get` surface — a switch whose default names every valid section.
+`show [section]`, `edit`, `create`. `resolveConfigSection` scopes `show` to a
+section, reading the valid names off the rendered document itself; an unknown
+section is refused with that list.
 `openInEditor` resolves the editor from the **environment only**, deliberately:
 it must not depend on a config load, since it is how you fix a broken config.
 `projectConfigPath` names the appdir-or-default fallback.

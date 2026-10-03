@@ -445,10 +445,10 @@ func (c *Config) fromDoc(doc configDoc) {
 	}
 }
 
-// MarshalYAML implements yaml.Marshaler so yaml.Marshal(cfg) — `config show`
-// and `config get` — renders effectiveDoc. Anything that WRITES a file renders
+// MarshalYAML implements yaml.Marshaler so yaml.Marshal(cfg) — `config show`,
+// whole or by section — renders effectiveDoc. Anything that WRITES a file renders
 // cfg.Authored() instead. It returns the configDoc itself rather than bytes so
-// `config get` can reflect a section out of it by yaml tag.
+// `config show <section>` can reflect a section out of it by yaml tag.
 func (c *Config) MarshalYAML() (any, error) {
 	if c == nil {
 		return nil, nil

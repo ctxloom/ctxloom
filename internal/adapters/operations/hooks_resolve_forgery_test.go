@@ -42,8 +42,7 @@ func TestResolveHooks_DirectoryProfileHookCannotForgeItsProvenance(t *testing.T)
 	})
 
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
-		Cfg:     cfg,
-		WorkDir: t.TempDir(),
+		Cfg: cfg,
 	})
 	require.NoError(t, err)
 

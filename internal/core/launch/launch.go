@@ -96,13 +96,11 @@ type Assembler interface {
 }
 
 // Selection is what Assemble composes: the profile set, plus the explicit
-// arm's named fragments and tag matches, and the project root the managed
-// hooks are composed for.
+// arm's named fragments and tag matches, for a session of Mode.
 type Selection struct {
 	Profiles  []string
 	Fragments []string
 	Tags      []string
-	WorkDir   string
 	// Mode is the launch's mode: what ctxloom's own managed hooks are
 	// assembled for (a structured run is handed its mail as turns).
 	Mode engine.Mode

@@ -39,8 +39,7 @@ func TestResolveHooks_ReportsFinalOrderPerEvent(t *testing.T) {
 		hooks = append(hooks, wire.Hook{Type: "command", Command: cmd})
 	}
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
-		Cfg:     cfgWithHooks(t, wire.UnifiedHooks{PreTool: hooks}),
-		WorkDir: t.TempDir(),
+		Cfg: cfgWithHooks(t, wire.UnifiedHooks{PreTool: hooks}),
 	})
 	require.NoError(t, err)
 
@@ -59,8 +58,7 @@ func TestResolveHooks_ReportsFinalOrderPerEvent(t *testing.T) {
 // goes unanswered.
 func TestResolveHooks_ReportsAllEventsEvenWhenEmpty(t *testing.T) {
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
-		Cfg:     cfgWithHooks(t, wire.UnifiedHooks{PreTool: []wire.Hook{{Type: "command", Command: "x"}}}),
-		WorkDir: t.TempDir(),
+		Cfg: cfgWithHooks(t, wire.UnifiedHooks{PreTool: []wire.Hook{{Type: "command", Command: "x"}}}),
 	})
 	require.NoError(t, err)
 
@@ -82,7 +80,6 @@ func TestResolveHooks_ReportsDeclaredPositionAlongsideFinal(t *testing.T) {
 			{Type: "command", Command: "two"},
 			{Type: "command", Command: "three"},
 		}}),
-		WorkDir: t.TempDir(),
 	})
 	require.NoError(t, err)
 
@@ -104,10 +101,9 @@ func TestResolveHooks_EventFilterNarrowsWithoutChangingTheAnswer(t *testing.T) {
 			SessionStart: []wire.Hook{{Type: "command", Command: "s1"}},
 		}), nil
 	}
-	dir := t.TempDir()
-	all, err := ResolveHooks(context.Background(), ResolveHooksRequest{Cfg: loaded(t, load), WorkDir: dir})
+	all, err := ResolveHooks(context.Background(), ResolveHooksRequest{Cfg: loaded(t, load)})
 	require.NoError(t, err)
-	one, err := ResolveHooks(context.Background(), ResolveHooksRequest{Cfg: loaded(t, load), WorkDir: dir, Event: "pre_tool"})
+	one, err := ResolveHooks(context.Background(), ResolveHooksRequest{Cfg: loaded(t, load), Event: "pre_tool"})
 	require.NoError(t, err)
 
 	require.Len(t, one.Events, 1)
@@ -119,9 +115,8 @@ func TestResolveHooks_EventFilterNarrowsWithoutChangingTheAnswer(t *testing.T) {
 // 0 with an empty result, and an inspect command is the last place it belongs.
 func TestResolveHooks_UnknownEventIsRefusedNotAnsweredEmpty(t *testing.T) {
 	_, err := ResolveHooks(context.Background(), ResolveHooksRequest{
-		Cfg:     cfgWithHooks(t, wire.UnifiedHooks{}),
-		WorkDir: t.TempDir(),
-		Event:   "pre_toll",
+		Cfg:   cfgWithHooks(t, wire.UnifiedHooks{}),
+		Event: "pre_toll",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pre_toll")
@@ -138,7 +133,6 @@ func TestResolveHooks_BackendNativeHooksAreReportedNotSilentlyDropped(t *testing
 				"claude-code": {"PreCompact": []wire.Hook{{Type: "command", Command: "native"}}},
 			},
 		}, config.Fixture{}),
-		WorkDir: t.TempDir(),
 	})
 	require.NoError(t, err)
 	require.Len(t, res.BackendNative, 1)

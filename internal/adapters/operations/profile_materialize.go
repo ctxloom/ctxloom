@@ -176,7 +176,6 @@ func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Co
 	pkg, err := AssemblePackage(ctx, cfg, PackageRequest{
 		Profiles: req.Profiles,
 		Consumer: MaterializedFor(reg, backend),
-		WorkDir:  req.Target,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("assemble context for %v: %w", req.Profiles, err)

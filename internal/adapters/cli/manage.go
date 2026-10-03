@@ -670,7 +670,6 @@ func runManageHooksList(cmd *cobra.Command, _ []string) error {
 		Cfg:      cfg,
 		Event:    manageHooksListEvent,
 		Profiles: manageHooksListProfiles,
-		WorkDir:  projectroot.WorkDir(),
 	})
 	if err != nil {
 		return err

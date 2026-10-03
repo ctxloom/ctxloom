@@ -150,7 +150,7 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	// the project's STATIC managed config (the `manage hooks install` path)
 	// and there is no per-run `-p` selection here. Its servers, commands and
 	// deny list are what every backend below is written from.
-	pkg, err := AssemblePackage(ctx, freshCfg, PackageRequest{WorkDir: workDir})
+	pkg, err := AssemblePackage(ctx, freshCfg, PackageRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -601,7 +601,7 @@ func applyHooksToBackend(ctx context.Context, reg engine.Registry, backendName s
 // written through the context-file writer. The name each fragment is written
 // under is its ref.
 func regenerateContext(cfg *config.Config, workDir string, opts ...agent.ContextFileOption) (string, error) {
-	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{WorkDir: workDir})
+	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{})
 	if err != nil {
 		return "", err
 	}

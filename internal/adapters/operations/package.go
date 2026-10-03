@@ -45,8 +45,6 @@ type PackageRequest struct {
 	// materialized surface); it decides whether premised fragments are held
 	// back or written.
 	Consumer ContextConsumer
-	// WorkDir is the project root the managed hooks are composed for.
-	WorkDir string
 	// Mode is the mode of the session the package is assembled for; the
 	// zero value is engine.Interactive, the session a human drives.
 	Mode engine.Mode

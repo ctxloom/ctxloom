@@ -47,8 +47,7 @@ type ResolveHooksRequest struct {
 	// configured defaults — the same set an apply would use.
 	Profiles []string `json:"profiles,omitempty"`
 
-	Cfg     *config.Config `json:"-"` // the generation to resolve from; required
-	WorkDir string         `json:"-"`
+	Cfg *config.Config `json:"-"` // the generation to resolve from; required
 }
 
 // ResolvedHook is one hook in its final position.

@@ -487,13 +487,14 @@ func bundleStore(cfg *config.Config, injected bundles.Store) bundles.Store {
 }
 
 // applyScalarEdits applies the single-value description/version edits, appending
-// a change line for each that was set.
+// a change line for each that actually changed: restating the held value is
+// not a change.
 func applyScalarEdits(bundle *bundles.Bundle, req UpdateBundleRequest, changes []string) []string {
-	if req.SetDescription != nil {
+	if req.SetDescription != nil && *req.SetDescription != bundle.Description {
 		bundle.Description = *req.SetDescription
 		changes = append(changes, "updated description")
 	}
-	if req.SetVersion != nil {
+	if req.SetVersion != nil && *req.SetVersion != bundle.Version {
 		bundle.Version = *req.SetVersion
 		changes = append(changes, "updated version")
 	}

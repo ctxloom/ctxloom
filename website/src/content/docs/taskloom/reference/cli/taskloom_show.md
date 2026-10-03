@@ -32,6 +32,12 @@ array, so `jq -r '.[].text'` reads theirs. The shape follows what was ASKED
 FOR, not what happened to be found — a single id that resolves is always an
 object, never a one-element list.
 
+Ids resolve in the same scope `taskloom list` reads: the current project by
+default, every privately-homed project with --global (or when no project can be
+resolved at all, with a notice on stderr). A cross-project read heads each
+block with the project the task came from, and an id held by more than one
+project FAILS naming them rather than picking one.
+
 ```
 taskloom show <harp-id> [harp-id...] [flags]
 ```
@@ -42,12 +48,14 @@ taskloom show <harp-id> [harp-id...] [flags]
   taskloom show swift-amber-falcon
   taskloom show swift-amber-falcon brisk-copper-otter
   taskloom show swift-amber-falcon brisk-copper-otter --format json
+  taskloom show swift-amber-falcon --global
 ```
 
 ### Options
 
 ```
-  -h, --help   help for show
+      --global   resolve the ids across every privately-homed project instead of just the current one (repo-homed projects are never included -- see "taskloom list --help")
+  -h, --help     help for show
 ```
 
 ### Options inherited from parent commands

@@ -75,7 +75,7 @@ func TestFSVCS_ListItems_TreeBundleIsOneItem(t *testing.T) {
 	testsupport.SeedTree(t, fs, bundlesRoot, map[string]string{
 		path.Join(seg, "solo.yaml"):                                  "version: 1.0.0\n",
 		path.Join(seg, "agent-ensemble", paths.BundleManifestName):   "version: 1.0.0\n",
-		path.Join(seg, "agent-ensemble", "profiles", "coord.yaml"):   "name: coord\n",
+		path.Join(seg, "agent-ensemble", "profiles", "coord.yaml"):   "description: coord\n",
 		path.Join(seg, "agent-ensemble", "skills", "s", "meta.yaml"): "kind: skill\n",
 	})
 

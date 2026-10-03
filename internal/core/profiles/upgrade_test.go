@@ -17,7 +17,7 @@ import (
 // migration: legacy "#prompts/" and ":prompts/" item selectors in a profile's
 // bundles/bundle_items are rewritten to the commands section on load.
 func TestPromptSelectorUpgrade_MigratesSelectors(t *testing.T) {
-	in := []byte("name: p\nbundles:\n  - core#prompts/review\n  - alias/other:prompts/lint\nbundle_items:\n  - b#prompts/x\n")
+	in := []byte("bundles:\n  - core#prompts/review\n  - alias/other:prompts/lint\nbundle_items:\n  - b#prompts/x\n")
 	out, applied := upgrade.Pipeline{promptSelectorUpgrade{}}.Run(in)
 	require.NotEmpty(t, applied, "migration should fire on legacy prompt selectors")
 	s := string(out)
@@ -30,7 +30,7 @@ func TestPromptSelectorUpgrade_MigratesSelectors(t *testing.T) {
 // TestPromptSelectorUpgrade_Idempotent confirms a profile already on the
 // commands vocabulary is left untouched.
 func TestPromptSelectorUpgrade_Idempotent(t *testing.T) {
-	in := []byte("name: p\nbundles:\n  - core#commands/review\n")
+	in := []byte("bundles:\n  - core#commands/review\n")
 	_, applied := upgrade.Pipeline{promptSelectorUpgrade{}}.Run(in)
 	assert.Empty(t, applied, "commands-vocabulary profile must not change")
 }

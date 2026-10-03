@@ -73,7 +73,7 @@ func TestListProfiles_UnknownSortByIsDeterministicAndLoud(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "profiles"), 0o755))
 	for _, name := range []string{"zulu", "alpha", "mike"} {
 		require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", name+".yaml"),
-			[]byte("name: "+name+"\nselect_tags: [a]\n"), 0o644))
+			[]byte("select_tags: [a]\n"), 0o644))
 	}
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 

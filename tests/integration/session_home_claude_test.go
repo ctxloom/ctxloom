@@ -76,7 +76,7 @@ func setupClaudeSessionProject(t *testing.T) (env *testenv.TestEnvironment, capt
 	t.Helper()
 	env = setupTestEnv(t)
 	writeFragment(t, env, "rules", []string{"rules"}, "Project rules for the session.")
-	writeProfile(t, env, "dev", "name: dev\ndescription: dev\nbundles:\n  - local#fragments/rules\n")
+	writeProfile(t, env, "dev", "description: dev\nbundles:\n  - local#fragments/rules\n")
 
 	bin := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte(fakeClaudeScript(t)), 0o755))

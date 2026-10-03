@@ -48,7 +48,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 		"  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n"+
 		"  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n")
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte(
-		"name: dev\nbundles:\n  - mcp-bundle\n"), 0o644))
+		"bundles:\n  - mcp-bundle\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(
 		"version: 5\nworkspace: worktree\n"), 0o644))
 

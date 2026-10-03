@@ -115,8 +115,8 @@ func TestListLocalBundleNames_TreeBundleIsOneName(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	testsupport.SeedTree(t, fs, authoredV2(appDir), map[string]string{
 		"agent-ensemble/bundle.yaml":               "version: 1.0.0\n",
-		"agent-ensemble/profiles/coordinator.yaml": "name: coordinator\n",
-		"agent-ensemble/profiles/finder.yaml":      "name: finder\n",
+		"agent-ensemble/profiles/coordinator.yaml": "description: coordinator\n",
+		"agent-ensemble/profiles/finder.yaml":      "description: finder\n",
 		"agent-ensemble/fragments/delegation.md":   "# delegation\n",
 	})
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
@@ -173,7 +173,7 @@ func TestListLocalBundleNames_AStrayDocumentIsNotEnumerated(t *testing.T) {
 	testsupport.SeedTree(t, fs, authoredV2(appDir), map[string]string{
 		"legacy.yaml":                   "version: 1.0.0\n",
 		"converted/bundle.yaml":         "version: 1.0.0\n",
-		"converted/profiles/coder.yaml": "name: coder\n",
+		"converted/profiles/coder.yaml": "description: coder\n",
 	})
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 

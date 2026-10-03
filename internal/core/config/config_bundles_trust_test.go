@@ -171,7 +171,7 @@ func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("name: dev\nbundles:\n  - mcp-bundle\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("bundles:\n  - mcp-bundle\n"), 0o644))
 	bundletree.WriteOS(t, bundlesDir, "mcp-bundle", "version: \"1.0\"\nmcp:\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n")
 
 	cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, appPaths: []string{appDir}}
@@ -190,7 +190,7 @@ func TestResolveBundleHooks_GatedEndToEnd(t *testing.T) {
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("name: dev\nbundles:\n  - hook-bundle\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("bundles:\n  - hook-bundle\n"), 0o644))
 	bundletree.WriteOS(t, bundlesDir, "hook-bundle", hookBundleYAML)
 
 	cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, appPaths: []string{appDir}}

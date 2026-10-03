@@ -35,9 +35,9 @@ func writeLinkedBundleFixture(t *testing.T) *Config {
 	require.NoError(t, os.MkdirAll(skillDir, 0755))
 
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "with.yaml"),
-		[]byte("name: with\nbundles:\n  - linked\n"), 0644))
+		[]byte("bundles:\n  - linked\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "without.yaml"),
-		[]byte("name: without\nbundles:\n  - linked\nexclude_mcp:\n  - think\n"), 0644))
+		[]byte("bundles:\n  - linked\nexclude_mcp:\n  - think\n"), 0644))
 	bundletree.WriteOS(t, bundlesDir, "linked", `version: "1.0"
 mcp:
   think:

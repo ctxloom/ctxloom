@@ -267,7 +267,7 @@ func TestImportBundle_RejectsEmptyBundle(t *testing.T) {
 // later must be added here by hand.
 func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 	const bundleBody = "version: 1.0.0\nfragments:\n  a:\n    content: hi\n"
-	const profileBody = "name: p\ndescription: d\nfragments:\n  - ctxloom:local@fragments/a\n"
+	const profileBody = "description: d\nfragments:\n  - ctxloom:local@fragments/a\n"
 
 	importBundle := func(t *testing.T, fs afero.Fs, cfg *config.Config, src string) error {
 		_, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: src, FS: fs})

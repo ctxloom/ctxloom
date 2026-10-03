@@ -158,7 +158,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("name: dev\nbundles:\n  - mcp-bundle\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("bundles:\n  - mcp-bundle\n"), 0o644))
 	bundletree.WriteOS(t, bundlesDir, "mcp-bundle", "version: 1.0.0\nmcp:\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n")
 
 	cfg := gatedFixture(config.Fixture{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}})
@@ -233,7 +233,7 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("name: dev\nbundles:\n  - hook-bundle\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("bundles:\n  - hook-bundle\n"), 0o644))
 	bundletree.WriteOS(t, bundlesDir, "hook-bundle", "version: 1.0.0\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n  session_start:\n    - command: echo deny\n      type: command\n")
 
 	cfg := gatedFixture(config.Fixture{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}})

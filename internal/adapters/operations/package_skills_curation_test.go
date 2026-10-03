@@ -54,7 +54,7 @@ func writeSkillProfile(t *testing.T, appDir, name, curationYAML string) {
 	t.Helper()
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
-	body := "name: " + name + "\nbundles:\n  - skill-bundle\n" + curationYAML
+	body := "bundles:\n  - skill-bundle\n" + curationYAML
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))
 }
 

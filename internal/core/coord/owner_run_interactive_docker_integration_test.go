@@ -123,12 +123,14 @@ func TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner(t *testing.T) {
 	image := buildBusIntegrationImage(t)
 	projectDir := testsupport.ProjectDir(t)
 
+	// HOME first: the mint writes the sidecar the container launch reads the
+	// output dir from, so it must land in the home the run resolves against.
+	coord.TeeHome(t)
 	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock", filepath.Join(projectDir, ".test-output"))
 	require.NoError(t, err)
 	ownerHarp := entry.HarpName
 
 	starter := &dockerInteractiveStarter{image: image, projectDir: projectDir, harp: ownerHarp}
-	coord.TeeHome(t)
 	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "owner-interactive-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: coord.OwnerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, coordgrpc.Serve(c))

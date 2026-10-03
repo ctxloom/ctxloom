@@ -710,6 +710,27 @@ func TestRateHold_TheRosterShowsTheHold(t *testing.T) {
 	assert.Nil(t, f.holdOf(t, f.sibling))
 }
 
+// TestRateHold_TheInProcessRosterShowsTheHold: the root's in-process roster
+// (Coordinator.Roster, what the overlay renders) carries the same hold as the
+// wire roster, and a held run's state stays idle — held is not a phase.
+func TestRateHold_TheInProcessRosterShowsTheHold(t *testing.T) {
+	f, clk := newRateFixture(t)
+	f.send(t, f.worker, limitHit+" do the work")
+	f.awaitHold(t, f.worker, f.sibling)
+
+	for _, harp := range []string{f.worker, f.sibling} {
+		e := f.entry(harp)
+		require.NotNil(t, e.Hold, "%s is held", harp)
+		assert.Equal(t, f.holdOf(t, harp), e.Hold, "one hold, both rosters")
+		assert.Equal(t, StateIdle, e.State, "a held run stays idle")
+	}
+	assert.Nil(t, f.entry(f.stranger).Hold, "a run on another credential is not held")
+
+	clk.Advance(limitResets.Sub(clk.Now()))
+	assert.Nil(t, f.entry(f.worker).Hold, "the release clears the roster's hold")
+	assert.Nil(t, f.entry(f.sibling).Hold)
+}
+
 // TestRateHold_LivenessNeverJudgesAHeldRunStalled: a held run is waiting on
 // its limit, not stuck — it takes the waiting-for-approval verdict, which
 // outranks every stall rule, until the hold releases it.

@@ -868,3 +868,27 @@ func keyForControlByte(b byte) tea.Key {
 		return tea.Key{Code: '@', Mod: tea.ModCtrl}
 	}
 }
+
+// TestModel_AHeldRowShowsItsHold: a run its credential's hold parks keeps
+// phase idle, so the overlay reads the hold itself — its own glyph in the
+// agents pane, and what it is waiting on and until when in the feed title.
+func TestModel_AHeldRowShowsItsHold(t *testing.T) {
+	until := time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC)
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "held-kid", Agent: "dev", State: coord.StateIdle, Hold: &coord.RunHold{Kind: "rate_limited", Until: until}},
+		RosterRow{Harp: "idle-kid", Agent: "dev", State: coord.StateIdle},
+	)
+	m := openSelected(t, newTestModel(f), f)
+
+	assert.Contains(t, m.feedTitle(), "held: rate limited until 17:30 UTC")
+	lines := m.rosterLines(m.contentHeight())
+	assert.Contains(t, lines[0], heldGlyph+" held-kid")
+	assert.Contains(t, lines[1], stateGlyph(coord.StateIdle)+" idle-kid", "an unheld idle row keeps its glyph")
+}
+
+// TestHoldLabel_NoDeadlineSaysOnlyWhat: a hold with no deadline of its own
+// says what it waits on and nothing about when.
+func TestHoldLabel_NoDeadlineSaysOnlyWhat(t *testing.T) {
+	assert.Equal(t, "held: rate limited", holdLabel(&coord.RunHold{Kind: "rate_limited"}))
+	assert.Empty(t, holdLabel(nil))
+}

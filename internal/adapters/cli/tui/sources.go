@@ -42,6 +42,9 @@ type RosterRow struct {
 	State  string
 	Parent string
 	Depth  int // lineage indent
+	// Hold is the hold parking the child's run (nil when none does). A held
+	// run's State stays idle, so the hold is what tells it apart.
+	Hold *coord.RunHold
 }
 
 // Feed is one open observation feed. Cancel releases the watch (switching

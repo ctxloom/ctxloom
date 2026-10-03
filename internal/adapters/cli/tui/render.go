@@ -49,6 +49,32 @@ func stateGlyph(state string) string {
 	}
 }
 
+// heldGlyph marks a row its hold parks: the phase reads idle, but the run
+// will not take mail until the hold releases it.
+const heldGlyph = "‖"
+
+// rowGlyph is r's agents-pane glyph: the hold's when one parks it, otherwise
+// its state's.
+func rowGlyph(r RosterRow) string {
+	if r.Hold != nil {
+		return heldGlyph
+	}
+	return stateGlyph(r.State)
+}
+
+// holdLabel says what a hold waits on and, when it releases itself, until
+// when ("" for no hold).
+func holdLabel(h *coord.RunHold) string {
+	if h == nil {
+		return ""
+	}
+	label := "held: " + strings.ReplaceAll(h.Kind, "_", " ")
+	if !h.Until.IsZero() {
+		label += " until " + h.Until.UTC().Format("15:04 UTC")
+	}
+	return label
+}
+
 // renderItem renders one feed item into display lines at width. Collapsed,
 // tool calls are one-liners and thinking shows only its first line; expanded
 // (x) shows tool input/output and full thinking. Sidechain entries — an

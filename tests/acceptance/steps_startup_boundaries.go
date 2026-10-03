@@ -269,18 +269,32 @@ func recordedSessionDeliveries(w *World, name string) ([]string, error) {
 	}
 	root := sessionStoreRoot(w)
 	var found []string
-	for _, line := range strings.Split(rec, "\n") {
-		key, path, ok := strings.Cut(line, "=")
-		if !ok || !slices.Contains(mock.RecordSurfaceKeys(), key) || filepath.Base(path) != name {
-			continue
+	for _, path := range recordedSurfacePaths(rec) {
+		if rel, ok := withinDir(root, path); ok && filepath.Base(path) == name {
+			found = append(found, rel)
 		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			continue
-		}
-		found = append(found, rel)
 	}
 	return found, nil
+}
+
+// recordedSurfacePaths is every surface path a mock record names.
+func recordedSurfacePaths(rec string) []string {
+	var out []string
+	for _, line := range strings.Split(rec, "\n") {
+		if key, path, ok := strings.Cut(line, "="); ok && slices.Contains(mock.RecordSurfaceKeys(), key) {
+			out = append(out, path)
+		}
+	}
+	return out
+}
+
+// withinDir is path relative to root, when path lies beneath it.
+func withinDir(root, path string) (string, bool) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
 }
 
 // orphanWorktreePath returns the seeded orphan's path, refusing when no

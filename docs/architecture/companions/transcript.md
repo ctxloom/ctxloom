@@ -25,8 +25,8 @@ flowchart TD
     subgraph live["Regime A — live structured chat"]
       EH["adapters/runner.EngineHost<br/>(the runner's engine host)"]
       CR["CoordinatedRecorder<br/>coordinated.go:32<br/>N producers → 1 owner goroutine"]
-      TEE["Tee / TeeAndClose<br/>recorder.go:233,255"]
-      RUT["RecordUserText<br/>recorder.go:207"]
+      TEE["Tee / TeeAndClose<br/>recorder.go"]
+      RUT["RecordUserText<br/>recorder.go"]
     end
 
     subgraph oneshot["Regime B — oneshot Execute"]
@@ -53,11 +53,11 @@ flowchart TD
     VA --> SIB
     DRV --> RF --> RECI
 
-    RECI{{"transcript.Recorder (interface)<br/>recorder.go:20<br/>Record(ChatEvent) · Close()"}}
-    RECI -.implemented by.-> FR["fileRecorder<br/>recorder.go:33<br/>mu · file · seq · sessionID"]
+    RECI{{"transcript.Recorder (interface)<br/>recorder.go<br/>Record(ChatEvent) · Close()"}}
+    RECI -.implemented by.-> FR["fileRecorder<br/>recorder.go<br/>mu · file · seq · sessionID"]
 
     FR -->|"payloadFromChatEvent<br/>record.go:243"| REC["Record envelope — record.go:64<br/>{v, harp, session_id, engine, seq, ts, kind}<br/>+ one of entry · session · complete · permission · raw"]
-    REC -->|"LAZY open on first Record<br/>recorder.go:162"| DISK[("~/.ctxloom/sessions/&lt;harp&gt;/<br/>persist/transcript.jsonl")]
+    REC -->|"LAZY open on first Record<br/>recorder.go"| DISK[("~/.ctxloom/sessions/&lt;harp&gt;/<br/>persist/transcript.jsonl")]
 
     DISK --> PTF["ParseTranscriptFile<br/>history.go:170"]
     PTF -->|"v != SchemaVersion → hard error<br/>bad JSON → line dropped"| SESS["agent.Session"]
@@ -69,10 +69,10 @@ flowchart TD
 
 **The two things to hold in mind:**
 
-1. **The file is opened lazily, on the first successful `Record`** (`recorder.go:162`). A
+1. **The file is opened lazily, on the first successful `Record`** (`recorder.go`). A
    conversion or chat that produces zero events therefore leaves **no file at all** — this is
    deliberate, so that "file absent" means "nothing was ever recorded" rather than "a zero-byte
-   file exists". `NewRecorder` (`recorder.go:79`) only validates and resolves the path.
+   file exists". `NewRecorder` only validates and resolves the path.
 2. **`operations.hasCanonicalTranscript` gates re-import on file *existence*** (`vendorreader.go:158`).
    Composed with (1), a zero-entry import is retried forever; composed with a *partial* write, the
    harp becomes permanently un-importable.
@@ -93,7 +93,7 @@ flowchart TD
 | `CompletePayload` | `record.go:197` | Mirror of `agent.TurnMeta`, all 11 fields |
 | `PermissionPayload` | `record.go:213` | Mirror of `agent.PermissionRequest`. **Does not carry `ToolCallID`** (`agent/chat.go:371`), so a recorded permission request cannot be re-paired with its tool call |
 | `PermissionOption` | `record.go:228` | |
-| `RawPolicy` | `record.go:269` | `off \| lossy-only \| all`, applied by `fileRecorder.rawToPersist` (`recorder.go:105`) |
+| `RawPolicy` | `record.go:269` | `off \| lossy-only \| all`, applied by `fileRecorder.rawToPersist` (`recorder.go`) |
 
 **Why the mirrors exist.** `agent.SessionEntry` & co. carry **no json tags**
 (`internal/core/agent/backend.go`, `chat.go`), so marshalling the in-memory types directly
@@ -109,21 +109,22 @@ enforcing parity. `record.go:9-12` claims the payloads mirror `agent.ChatEvent` 
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `Recorder` (interface) | `recorder.go:20` | `Record(agent.ChatEvent) error` + `Close() error`. The seam every capture path shares; `vendorreader.VendorAdapter` takes it as a parameter |
-| `NewRecorder` | `recorder.go:79` | Validates harp + engine non-empty, resolves the path via `paths.HarpCanonicalTranscriptPath`, applies options. **Does not open the file** |
-| `RecorderOption` / `WithRawPolicy` | `recorder.go:50`, `:56` | The only option. No production caller passes `WithRawPolicy` — so in production the policy is always `DefaultRawPolicy` |
-| `fileRecorder.Record` | `recorder.go:116` | Classifies via `payloadFromChatEvent`, stamps the envelope, lazily creates dir + file, appends one line, bumps `seq`. Refuses a fully-zero `ChatEvent` |
-| `fileRecorder.Close` | `recorder.go:181` | Idempotent (nil-guarded) |
+| `Recorder` (interface) | `recorder.go` | `Record(agent.ChatEvent) error` + `Close() error`. The seam every capture path shares; `vendorreader.VendorAdapter` takes it as a parameter |
+| `NewRecorder(fs afero.Fs, harp, engine string, opts ...RecorderOption)` | `recorder.go` | Requires a non-nil `fs` (every write goes through it) and a non-empty harp + engine, resolves the path via `paths.HarpCanonicalTranscriptPath`, applies options. **Does not open the file** |
+| `RecorderOption` (the `With*` constructors) | `recorder.go` | No production caller passes `WithRawPolicy` — so in production the policy is always `DefaultRawPolicy`. `WithPath` opts a recorder out of the default canonical path and its shared ownership lock |
+| `fileRecorder.Record` | `recorder.go` | Classifies via `payloadFromChatEvent`, stamps the envelope, lazily creates dir + file, appends one line, bumps `seq`. Refuses a fully-zero `ChatEvent` |
+| `fileRecorder.Close` | `recorder.go` | Idempotent (nil-guarded) |
 | `RecordUserText` | `recorder.go` | The **only** path that captures user turns; called by the runner's engine host |
-| `Tee` / `TeeAndClose` | `recorder.go:233`, `:255` | Passthrough goroutine: `Record` then forward. `TeeAndClose` closes the recorder when the source drains — without it the fd leaks for process lifetime |
+| `Tee` / `TeeAndClose` | `recorder.go` | Passthrough goroutine: `Record` then forward. `TeeAndClose` closes the recorder when the source drains — without it the fd leaks for process lifetime |
 | `RecordOneshot` | `oneshot.go` | Writes a two-entry (user + assistant) transcript for a one-shot run, which emits no event stream. Called by the one-shot drive (`cli/run.go`, `cli/run_owned.go`) and `operations`' one-shots |
 | `CoordinatedRecorder` | `coordinated.go` | Funnels N producers into one owner goroutine so `seq` order is a function of `Submit` arrival, not lock scheduling (a measured 79/80-record drop under the old lock-scheduled wiring) |
 | `NewCoordinatedRecorder` / `ProducerDone` / `Submit` / `Done` | `coordinated.go:67`,`:92`,`:100`,`:115` | `recordRequest` (`coordinated.go:50`) carries an ack channel so `Submit` returns only after `Record` has *returned*, not after the channel handoff |
 
-**Error handling on the live path.** Every `Record`/`Close` error is discarded with `_ =` —
-in `RecordUserText`, `Tee`, `TeeAndClose` and the coordinated recorder's owner goroutine —
-with no counter, warning, or metric; neither live seam passes a logger. The package already
-imports `clidiag`.
+**Error handling on the live path.** Every `Record`/`Close` error is discarded with `_ =` by
+the callers — `RecordUserText`, `Tee`, `TeeAndClose` and the coordinated recorder's owner
+goroutine — so the chat never sees a capture failure. The `fileRecorder` itself surfaces them:
+`noteFailure` counts each failed `Record` and warns (`clidiag`) on the first only, and `Close`
+reports the lost-event total once.
 
 ---
 
@@ -243,13 +244,14 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
 **Hold:**
 
 1. **One `Recorder` instance == one harp + one engine.** `NewRecorder` rejects an empty harp or
-   engine (`recorder.go:79`).
+   engine.
 2. **`seq` is monotonic within a file** and is the truncation-detection signal readers are told to
-   trust (`record.go:87-90`). `Record` advances `seq` only after a successful write
-   (`recorder.go:176`), so a short write leaves the next record reusing the seq.
+   trust (`record.go:87-90`). A write that delivers part of a line
+   still advances `seq` past the lost record (`fileRecorder.salvagePartialLine`), so the loss reads as a
+   seq discontinuity rather than a reused seq.
 3. **A zero-value `ChatEvent` is refused** — `payloadFromChatEvent` (`record.go:243`) errors and
    names every nil field, so no empty line is ever written.
-4. **No events ⇒ no file.** Lazy open (`recorder.go:162`) means "file absent" is distinguishable
+4. **No events ⇒ no file.** Lazy open (`recorder.go`) means "file absent" is distinguishable
    from "captured empty".
 5. **A schema-version mismatch is a whole-file error**, not a per-line skip (`history.go:185-187`).
 6. **The caller owns `Recorder` construction and `Close`** — every `VendorAdapter` doc states it
@@ -268,7 +270,7 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
   `SessionPayload` drops `Resumable`, `PermissionPayload` drops `ToolCallID`.
 - **`GetSession` "returns an error, not an empty Session"** (`history.go:66-70`) — true for an
   absent file, not for a zero-byte or all-corrupt one.
-- **`Tee` "never blocks"** (`recorder.go:231`) — the goroutine blocks unboundedly on `out <- ev`
+- **`Tee` "never blocks"** (`recorder.go`) — the goroutine blocks unboundedly on `out <- ev`
   with no context; an abandoned consumer leaks the goroutine and, via `TeeAndClose`, the open fd.
 - **`NonEmptyRaw`'s stated rationale** (`entries.go:9-18`) — an empty non-nil `json.RawMessage`
   does not round-trip to a literal `null`. With `omitempty` (which `record.go:127` has) it is

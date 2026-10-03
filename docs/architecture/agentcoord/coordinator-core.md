@@ -90,7 +90,7 @@ because both are fixed at enqueue and never mutated.
 
 | Function | Contract |
 | --- | --- |
-| `mintToken` | 256-bit token + its persisted SHA-256; fails loudly |
+| `mintToken` | 256-bit token + its persisted SHA-256; cannot fail (`crypto/rand.Read` aborts the process rather than returning an error) |
 | `hashToken` | the persisted form of a bearer token |
 | `verifyToken` | constant-time-per-candidate token → `Identity`; malformed stored hashes skipped |
 | `Coordinator.RegisterSessionOwner` | mints and journals a **depth-0** credential (the session owner) |

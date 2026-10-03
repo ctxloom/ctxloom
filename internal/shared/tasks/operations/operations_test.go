@@ -475,37 +475,20 @@ func TestListTasksLimitCapsRows(t *testing.T) {
 		}
 	}
 
-	// limit=0 (default): no cap, today's exact behavior.
-	res, err := ListTasks(tc, ListOptions{})
-	if err != nil {
-		t.Fatalf("list limit=0: %v", err)
-	}
-	if len(res.Tasks) != total {
-		t.Fatalf("limit=0 rows = %d, want all %d", len(res.Tasks), total)
-	}
-	if res.OmittedByLimit != 0 {
-		t.Fatalf("limit=0 OmittedByLimit = %d, want 0", res.OmittedByLimit)
-	}
-	// limit=2: only 2 rows come back, 3 are reported omitted.
-	const limit = 2
-	res, err = ListTasks(tc, ListOptions{Limit: limit})
-	if err != nil {
-		t.Fatalf("list limit=%d: %v", limit, err)
-	}
-	if len(res.Tasks) != limit {
-		t.Fatalf("limit=%d rows = %d, want %d", limit, len(res.Tasks), limit)
-	}
-	if want := total - limit; res.OmittedByLimit != want {
-		t.Fatalf("OmittedByLimit = %d, want %d", res.OmittedByLimit, want)
-	}
-
-	// limit larger than the result: no truncation, nothing omitted.
-	res, err = ListTasks(tc, ListOptions{Limit: total + 10})
-	if err != nil {
-		t.Fatalf("list limit>total: %v", err)
-	}
-	if len(res.Tasks) != total || res.OmittedByLimit != 0 {
-		t.Fatalf("limit>total rows=%d omitted=%d, want %d/0", len(res.Tasks), res.OmittedByLimit, total)
+	for _, c := range []struct {
+		limit, rows, omitted int
+	}{
+		{limit: 0, rows: total, omitted: 0},          // no cap
+		{limit: 2, rows: 2, omitted: total - 2},      // capped, the rest reported
+		{limit: total + 10, rows: total, omitted: 0}, // cap above the result
+	} {
+		res, err := ListTasks(tc, ListOptions{Limit: c.limit})
+		if err != nil {
+			t.Fatalf("list limit=%d: %v", c.limit, err)
+		}
+		if len(res.Tasks) != c.rows || res.OmittedByLimit != c.omitted {
+			t.Fatalf("limit=%d: rows=%d omitted=%d, want %d/%d", c.limit, len(res.Tasks), res.OmittedByLimit, c.rows, c.omitted)
+		}
 	}
 }
 

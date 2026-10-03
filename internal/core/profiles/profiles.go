@@ -726,17 +726,9 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 		}
 	}
 
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("%s: invalid YAML: %w", path, err)
-	}
-	if err := validateProfileDocument(l.rep, path, &doc, data); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-
-	var profile Profile
-	if err := doc.Decode(&profile); err != nil {
-		return nil, fmt.Errorf("%s: invalid YAML: %w", path, err)
+	profile, err := decodeProfile(l.rep, path, data)
+	if err != nil {
+		return nil, err
 	}
 	// A zero-byte, `{}`, or fully-commented-out profile parses cleanly into a
 	// profile that selects NOTHING, and used to load with err=nil and record
@@ -751,6 +743,24 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 			"profile %s selects nothing: no parents, bundles, fragments, bundle_items, commands, skills, select_tags, hooks, mcp, variables or llm — a session launched on it composes no context", path)
 	}
 	profile.Path = path
+	return profile, nil
+}
+
+// decodeProfile parses a profile document, validates it against the profile
+// schema as written, and only then decodes it — decoding is what loses a
+// typo'd key or coerces a wrong type (see validateProfileDocument).
+func decodeProfile(rep report.Reporter, path string, data []byte) (*Profile, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("%s: invalid YAML: %w", path, err)
+	}
+	if err := validateProfileDocument(rep, path, &doc, data); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	var profile Profile
+	if err := doc.Decode(&profile); err != nil {
+		return nil, fmt.Errorf("%s: invalid YAML: %w", path, err)
+	}
 	return &profile, nil
 }
 

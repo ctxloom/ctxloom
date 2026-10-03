@@ -294,9 +294,8 @@ func (m *Hooks) Reorder(event string, rank Ranker) error {
 // The nil-vs-empty structure is reproduced, not normalized: an event with no
 // hooks is a nil slice (never an empty one), a backend key declared with no
 // events is an empty map, and an event key declared empty is a present key with
-// a nil value — all of which is what the pure-append merge produced before the
-// model existed. TestAssembleManagedHooks_WireMatchesFrozenReference holds this
-// to deep equality against a frozen copy of that merge.
+// a nil value — the shape a pure-append wire merge produces, which is what the
+// writers consume.
 func (m *Hooks) Wire() *wire.HooksConfig {
 	out := &wire.HooksConfig{Ext: make(map[string]wire.BackendHooks)}
 	if m == nil {

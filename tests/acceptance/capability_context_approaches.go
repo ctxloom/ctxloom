@@ -25,11 +25,9 @@
 // operations.ResolveAgent warns "using <engine>'s default delivery" and launches
 // anyway (deliberately — the binding was already validated at write time, so
 // reaching that arm means a hand-edited config, and a session is worth more than
-// a purist refusal). backends.AssembleManagedConfig degrades the same way when
-// the config read fails, and a nil ManagedConfig drops the pin entirely on the way
-// to the wire.
+// a purist refusal).
 //
-// Either degrade produces a cell that DELIVERS THE NONCE PERFECTLY, exits 0, and
+// That degrade produces a cell that DELIVERS THE NONCE PERFECTLY, exits 0, and
 // proves nothing whatsoever about the approach it claims to have tested — the
 // well-formed report of nothing, in the one shape this probe is most exposed to.
 // So the verdict checks the degrade markers BEFORE it looks at the JSON, and a

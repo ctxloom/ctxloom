@@ -94,11 +94,11 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	}
 
 	// The default profile set (Config.DefaultAgentProfiles, from the default
-	// agent) is read directly off freshCfg by two later steps regardless of
-	// RegenerateContext — ResolveBundleMCPServers (below) and the per-backend
-	// AssembleManagedHooks — so a default agent's bundles' MCP servers and hooks
-	// land in the written settings with no run-only resolution step needed
-	// (profiles.defaults + its home-inheritance were retired).
+	// agent) is resolved inside AssemblePackage regardless of
+	// RegenerateContext — its MCP servers (Config.ResolveBundleMCPServersFor)
+	// and hooks (managedhooks.AssembleFor) — so a default agent's bundles' MCP
+	// servers and hooks land in the written settings with no run-only
+	// resolution step needed.
 
 	// The statusline opt-out (config: settings.statusline: false) rides
 	// SurfaceInputs.ManageStatusline into the settings surface, read per backend in

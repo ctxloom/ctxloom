@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes proves an enabled
@@ -38,11 +39,11 @@ func TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes(t *testing.T) {
 
 	info, err := os.Stat(filepath.Join(base, "scripts", "run.sh"))
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
+	fileperm.Equal(t, 0o755, info.Mode())
 
 	info, err = os.Stat(filepath.Join(base, "assets", "data.txt"))
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0644), info.Mode().Perm())
+	fileperm.Equal(t, 0o644, info.Mode())
 
 	manifest, err := os.ReadFile(filepath.Join(dir, ".claude", "skills", ledger.Name))
 	require.NoError(t, err)

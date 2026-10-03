@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aymanbagabas/go-pty"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,24 +115,52 @@ func TestStart_ChildGetsTheSlaveAsItsControllingTerminal(t *testing.T) {
 // TestStart_ExitedFiresBeforeTheMasterCloses pins the reap/close split the
 // originator's drive relies on: once the child is gone, Exited is closed
 // while the master is still open — its last bytes drain to EIO — and Wait
-// is what closes it.
+// is what closes it. The master is read concurrently, as the drive reads it:
+// on macOS the child's exit cannot complete until its output is drained.
 func TestStart_ExitedFiresBeforeTheMasterCloses(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	s, err := Start(ctx, exec.Command("sh", "-c", "echo LAST"))
 	require.NoError(t, err)
 	defer s.Kill()
+	out, drained := drain(s)
 	select {
 	case <-s.Exited():
 	case <-time.After(5 * time.Second):
 		t.Fatal("the child was never reaped")
 	}
-	var out strings.Builder
-	_, _ = io.Copy(&out, s.Master()) // EIO, after LAST
-	require.Contains(t, out.String(), "LAST", "the master stays readable after the reap")
+	_, err = masterFile(t, s).Stat()
+	require.NoError(t, err, "the reap leaves the master open")
+	<-drained // EIO, after LAST
+	require.Contains(t, out.String(), "LAST", "the master stays readable across the reap")
 	code, err := s.Wait()
 	require.NoError(t, err)
 	require.Equal(t, 0, code)
+	_, err = masterFile(t, s).Stat()
+	require.ErrorIs(t, err, os.ErrClosed, "Wait is what closes the master")
+}
+
+// masterFile is s's pty master as a file, so a test can tell an open master
+// from one Wait closed.
+func masterFile(t *testing.T, s Session) *os.File {
+	t.Helper()
+	gs, ok := s.(*session)
+	require.True(t, ok, "Start returns the go-pty session")
+	up, ok := gs.ptty.(pty.UnixPty)
+	require.True(t, ok, "a unix pty exposes its master")
+	return up.Master()
+}
+
+// drain reads s's master to EIO in the background, as the originator's drive
+// does; out is safe to read once drained is closed.
+func drain(s Session) (out *strings.Builder, drained <-chan struct{}) {
+	out = &strings.Builder{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = io.Copy(out, s.Master())
+	}()
+	return out, done
 }
 
 // TestEnd_LeavesTheChildsLastBytesReadable forces the order an interactive
@@ -153,8 +182,8 @@ func TestEnd_LeavesTheChildsLastBytesReadable(t *testing.T) {
 	require.Eventually(t, func() bool { _, err := os.Stat(written); return err == nil }, 5*time.Second, 5*time.Millisecond)
 
 	s.End()
-	<-s.Exited()
 	out, _ := io.ReadAll(s.Master()) // ends with EIO once the child is gone
+	<-s.Exited()
 	require.Contains(t, string(out), "LAST-BYTES-9f3a")
 }
 
@@ -168,6 +197,7 @@ func TestExitErr_ReportsTheExitAndLeavesTheMasterOpen(t *testing.T) {
 	s, err := Start(ctx, exec.Command("sh", "-c", "echo LAST; exit 3"))
 	require.NoError(t, err)
 	defer s.Kill()
+	out, drained := drain(s)
 
 	done := make(chan error, 1)
 	go func() { done <- s.ExitErr() }()
@@ -180,9 +210,10 @@ func TestExitErr_ReportsTheExitAndLeavesTheMasterOpen(t *testing.T) {
 	require.ErrorContains(t, first, "status 3")
 	require.Equal(t, first.Error(), s.ExitErr().Error(), "every caller sees the same exit")
 
-	var out strings.Builder
-	_, _ = io.Copy(&out, s.Master())
-	require.Contains(t, out.String(), "LAST", "ExitErr must not close the master")
+	_, err = masterFile(t, s).Stat()
+	require.NoError(t, err, "ExitErr must not close the master")
+	<-drained
+	require.Contains(t, out.String(), "LAST")
 }
 
 // TestWait_ReportsTheShellStatus: Wait's code is the one every launch path

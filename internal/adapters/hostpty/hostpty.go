@@ -35,7 +35,11 @@ import (
 // the release point: it closes the master. A caller that wants the child's
 // last bytes drains the master to its end before Wait — on a Unix pty the
 // kernel delivers them ahead of EIO once the slave's last holder is gone, and
-// closing the master first would discard them.
+// closing the master first would discard them. Drain it CONCURRENTLY with
+// waiting for the exit: on macOS (a BSD tty) the child's last close of the
+// slave blocks until its output has been read, so a caller that waits for
+// Exited before reading deadlocks there, where Linux would let the bytes
+// outlive the reap.
 type Session interface {
 	// Master is the pty master: the terminal the frontend reads and writes.
 	Master() io.ReadWriter

@@ -24,11 +24,7 @@
 // concern.
 package procalive
 
-import (
-	"syscall"
-
-	"github.com/ctxloom/ctxloom/internal/shared/procpin"
-)
+import "syscall"
 
 // Alive reports whether pid names a still-running, non-zombie process.
 func Alive(pid int) bool {
@@ -36,15 +32,4 @@ func Alive(pid int) bool {
 		return false
 	}
 	return !isZombie(pid)
-}
-
-// isZombie reports whether procpin.ReadStat marks pid state Z.
-//
-// A read failure (no /proc — ReadStat's ErrUnsupported off Linux — or the pid
-// is already gone) is treated as "cannot tell, so not a zombie" rather than an
-// error: Alive's kill(pid,0) check above is what decides existence; this only
-// narrows an already-confirmed-present pid.
-func isZombie(pid int) bool {
-	st, err := procpin.ReadStat(pid)
-	return err == nil && st.State == 'Z'
 }

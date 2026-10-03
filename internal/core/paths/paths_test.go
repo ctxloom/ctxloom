@@ -258,4 +258,3 @@ func TestHarpDerivedPaths_RefuseTraversingNames(t *testing.T) {
 		assert.NotContains(t, got, "escape", "%s leaked a traversed path: %q", label, got)
 	}
 }
-

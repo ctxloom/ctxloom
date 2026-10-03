@@ -39,9 +39,3 @@ func harpEssencePath(t *testing.T, harp string) (string, error) {
 	t.Helper()
 	return filepath.Join(testOutputDir(t, harp), paths.EssenceFileName), nil
 }
-
-// harpSegmentEssencePath is one rotation's essence path in harp's output dir.
-func harpSegmentEssencePath(t *testing.T, harp, sessionID string) (string, error) {
-	t.Helper()
-	return paths.OutputSegmentEssencePath(testOutputDir(t, harp), sessionID), nil
-}

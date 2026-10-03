@@ -100,22 +100,31 @@ func pruneExpired(dir string, now time.Time) error {
 	}
 	cutoff := now.Add(-DeliveredRetention)
 	for _, e := range entries {
-		if e.IsDir() || ValidateName(e.Name()) != nil {
-			continue
+		if err := pruneIfExpired(dir, e, cutoff); err != nil {
+			return err
 		}
-		info, err := e.Info()
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue // pruned concurrently
-			}
-			return fmt.Errorf("spool: reading %s: %w", dir, err)
-		}
-		if !info.ModTime().Before(cutoff) {
-			continue
-		}
-		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("spool: pruning %s past retention: %w", filepath.Join(dir, e.Name()), err)
-		}
+	}
+	return nil
+}
+
+// pruneIfExpired removes e from dir when it is an entry whose time is before
+// cutoff; a sub-directory, a staging name, or an entry already gone is left.
+func pruneIfExpired(dir string, e os.DirEntry, cutoff time.Time) error {
+	if e.IsDir() || ValidateName(e.Name()) != nil {
+		return nil
+	}
+	info, err := e.Info()
+	if errors.Is(err, os.ErrNotExist) {
+		return nil // pruned concurrently
+	}
+	if err != nil {
+		return fmt.Errorf("spool: reading %s: %w", dir, err)
+	}
+	if !info.ModTime().Before(cutoff) {
+		return nil
+	}
+	if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("spool: pruning %s past retention: %w", filepath.Join(dir, e.Name()), err)
 	}
 	return nil
 }

@@ -107,10 +107,16 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 			return rep, fmt.Errorf("instance home for %s: %w", req.Engine, err)
 		}
 	}
-	writer := f.Home.InstanceConfig
-	if writer == nil {
+	if f.Home.InstanceConfig == nil {
 		return rep, nil
 	}
+	return writeInstanceConfig(req, f.Home.InstanceConfig)
+}
+
+// writeInstanceConfig has the engine write its own instance config into the
+// prepared home, then holds the home and everything written to owner-only.
+func writeInstanceConfig(req InstanceHomeRequest, writer engine.InstanceConfigWriter) (InstanceHomeReport, error) {
+	var rep InstanceHomeReport
 	hostHome, err := hostHomeDir()
 	if err != nil {
 		hostHome = ""

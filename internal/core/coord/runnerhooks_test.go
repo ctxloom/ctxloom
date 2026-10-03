@@ -45,7 +45,7 @@ type TestHome interface {
 	UploadArtifact(ctx context.Context, artifactID, name, mediaType string, sha256Sum [32]byte, size int64, r io.Reader) (*agentcoordpb.ArtifactReceipt, error)
 	DownloadArtifact(ctx context.Context, agentID, artifactID, destPath string) (shaHex string, size int64, err error)
 	SweepSpoolIn()
-	ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial) error
+	ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, failure *agent.TurnFailure) error
 	RingSpool(ref spool.Ref) error
 }
 

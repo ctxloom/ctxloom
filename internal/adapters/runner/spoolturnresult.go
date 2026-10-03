@@ -3,6 +3,7 @@ package runner
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 
@@ -53,8 +54,9 @@ import (
 // coordinator's accumulator did). inReplyTo is the id of the delivered
 // message that started the turn, or empty for a turn nothing delivered
 // started — a briefing, or an engine continuing on its own. blocked is every
-// tool call the turn's engine refused.
-func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial) error {
+// tool call the turn's engine refused; failure is the engine turning the
+// whole turn away, which makes the report an ERROR saying the run is parked.
+func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, failure *agent.TurnFailure) error {
 	if h.Depth() == 0 {
 		return nil
 	}
@@ -67,6 +69,9 @@ func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.Permissi
 	kind := coord.KindResult
 	calls := blockedCalls(blocked)
 	switch {
+	case failure != nil:
+		kind = coord.KindError
+		body = strings.TrimSpace(failurePreamble(failure) + "\n\n" + body)
 	case len(calls) > 0:
 		body = strings.TrimSpace(blockedPreamble(calls) + "\n\n" + body)
 	case body == "":
@@ -105,6 +110,23 @@ func blockedCalls(denials []agent.PermissionDenial) []coord.BlockedCall {
 		out = append(out, coord.BlockedCall{Tool: d.ToolName, Reason: d.Reason, Decider: d.Decider.String()})
 	}
 	return out
+}
+
+// failurePreamble is a turned-away turn's lead: what happened, that the run
+// is parked, and that what is sent meanwhile is held, not lost.
+func failurePreamble(f *agent.TurnFailure) string {
+	if f.Kind == agent.FailureRateLimited {
+		// The turn's prompt was consumed and nothing re-runs it: saying so is
+		// the whole of the no-silent-retry rule from the parent's side.
+		when := "when the limit resets"
+		if !f.ResetsAt.IsZero() {
+			when = "when the limit resets (the engine says " + f.ResetsAt.UTC().Format(time.RFC3339) + ")"
+		}
+		return "RATE LIMITED: this run's engine hit its usage limit, so the turn did no work and its prompt was NOT done — resend it. " +
+			"The run is parked with every run sharing its credential, and resumes on its own " + when +
+			"; anything sent to it meanwhile waits and runs then."
+	}
+	return fmt.Sprintf("TURN FAILED (%s): the turn did no work, and the run is parked until it is resumed.", f.Kind)
 }
 
 // blockedPreamble is the report's lead: one "BLOCKED on <tool>" line per

@@ -47,8 +47,10 @@ type engineHome interface {
 	ReportRunExited(exitCode int, harnessSessionID string)
 	// ReportTurnResult writes this turn's own output to the parent as the
 	// automatic turn report; blocked is every tool call the turn's engine
-	// refused, which makes it a BLOCKED report.
-	ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial) error
+	// refused, which makes it a BLOCKED report, and failure is the engine
+	// turning the whole turn away on a failure its coordinator holds (nil
+	// when it did not).
+	ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, failure *agent.TurnFailure) error
 	// Request runs one plane-2 request to completion (Home.Request) — the
 	// engine host's seam for issuing an agent-initiated request to the
 	// coordinator and awaiting its answer.
@@ -707,6 +709,7 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	items := &itemStream{home: home, final: eh.appendTurnFinal}
 	var sessionID string
 	var lastMeta *agent.TurnMeta
+	var failure *agent.TurnFailure
 	// turn_started is announced at the engine's FIRST entry — the moment
 	// it is observably working — not at the process's spawn: the
 	// coordinator claims the run's execution slot on it.
@@ -736,6 +739,8 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 			case ev.Complete != nil:
 				items.closeOpen()
 				lastMeta = ev.Complete
+			case ev.Failed != nil && coord.HoldsFailure(ev.Failed.Kind):
+				failure = ev.Failed
 			}
 		}
 	}()
@@ -805,7 +810,16 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	// turn-idle event, so the child's answer is durable before the
 	// coordinator is told the child is idle — which is the moment a
 	// leftover-mail resume decision reads the spool.
-	if rerr := home.ReportTurnResult(final, tag.mail, denials); rerr != nil {
+	if failure != nil {
+		// PARKED BEFORE ANYTHING CAN OFFER A NEXT TURN: the coordinator acts
+		// on the idle event and the boundary sweep hands over mail, and either
+		// would put the next turn on the same spent credential — consuming
+		// its mail for nothing. The gate is PauseRun's own, so the hold's
+		// resume releases it and held mail is still in the spool.
+		eh.installPause()
+		eh.rep.Warnf("engine host: the engine turned this turn away (%s); the run is parked until its credential's hold releases it", failure.Kind)
+	}
+	if rerr := home.ReportTurnResult(final, tag.mail, denials, failure); rerr != nil {
 		eh.rep.Warnf("engine host: this turn's report was not written: %v", rerr)
 	}
 	if tag.done != nil {
@@ -817,6 +831,8 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	switch {
 	case interrupted:
 		stop = "interrupted"
+	case failure != nil:
+		stop = string(failure.Kind)
 	case len(denials) > 0:
 		// The engine's own stop reason reads as a clean end; the turn did not
 		// do all it was asked.
@@ -831,7 +847,11 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	announceStarted()
 	// Parked BEFORE the idle event (busy is closed last) so a turn the
 	// coordinator sends on seeing "idle" finds the boundary crossed.
-	home.emitCustomEvent(coord.CustomTurnIdle, map[string]any{"stop_reason": stop})
+	idle := map[string]any{"stop_reason": stop}
+	if failure != nil && !failure.ResetsAt.IsZero() {
+		idle[coord.TurnIdleResetsAt] = failure.ResetsAt.UTC().Format(time.RFC3339)
+	}
+	home.emitCustomEvent(coord.CustomTurnIdle, idle)
 	// TURN-BOUNDARY SWEEP (the §6a drain): mail that arrived mid-turn
 	// becomes the next turn here. It dispatches rather than blocks.
 	home.SweepSpoolIn()

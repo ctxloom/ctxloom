@@ -31,6 +31,11 @@ const (
 	CustomTurnIdle    = "ctxloom/turn_idle"
 )
 
+// TurnIdleResetsAt is CustomTurnIdle's value key for a rate-limited turn's
+// reset time (RFC 3339), present only when the engine named one: what the
+// coordinator times the credential's shared hold by.
+const TurnIdleResetsAt = "resets_at"
+
 // Relay response size discipline (plan: 4MiB gRPC cap WATCHED): warn at
 // 3MiB, fail with a fix-it before the transport would.
 const (

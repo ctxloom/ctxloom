@@ -3,6 +3,8 @@ package coord_test
 import (
 	"context"
 
+	"google.golang.org/grpc/codes"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
@@ -61,6 +63,9 @@ func init() {
 		FrameCoordinatorMessage:   runner.FrameCoordinatorMessage,
 		CoordinatorFrameOpen:      runner.CoordinatorFrameOpen,
 		ErrCoordinatorUnreachable: runner.ErrCoordinatorUnreachable,
+		StartRunRefusal: func(err error) *agentcoordpb.RunnerResponse {
+			return &agentcoordpb.RunnerResponse{Status: coordgrpc.RefusalStatus(codes.InvalidArgument, err)}
+		},
 	})
 }
 

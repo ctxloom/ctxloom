@@ -233,7 +233,7 @@ func TestBundleMCP_TagsAreOutsideTheExecutablePreimage(t *testing.T) {
 	plain := BundleMCP{Command: "think-server", Args: []string{"--x"}}
 	linked := plain
 	linked.Tags = []string{"ctxloom:link_id=think"}
-	assert.Equal(t, plain.ComputeContentHash(), linked.ComputeContentHash())
+	assert.Equal(t, mcpTrustHash(t, plain), mcpTrustHash(t, linked))
 }
 
 // Tags are outside the hook executable preimage too: hooks share

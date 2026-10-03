@@ -167,7 +167,7 @@ func TestExecContentPayload_HeaderKeyOrderDoesNotMoveThePreimage(t *testing.T) {
 func TestExecContentPayload_StdioAndRemoteNeverShareATrustIdentity(t *testing.T) {
 	stdio := BundleMCP{Command: "srv"}
 	remote := BundleMCP{URL: "https://mcp.example.com/mcp"}
-	assert.NotEqual(t, stdio.ComputeContentHash(), remote.ComputeContentHash())
+	assert.NotEqual(t, mcpTrustHash(t, stdio), mcpTrustHash(t, remote))
 }
 
 // The same classification rule the text kinds carry, over an MCP server. It is
@@ -188,7 +188,6 @@ func TestEveryMCPFieldIsClassified(t *testing.T) {
 		Tags:         []string{"tag"},
 		Notes:        "notes",
 		Installation: "installation",
-		ContentHash:  "sha256:recorded",
 	}
 	assertEveryFieldClassified(t, base, func(v reflect.Value) [][]byte {
 		m := v.Interface().(BundleMCP)

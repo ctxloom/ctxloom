@@ -47,7 +47,6 @@ func TreeMCP(name string, m BundleMCP) content.MCP {
 		ServedBy:     m.ServedBy,
 		Notes:        m.Notes,
 		Installation: m.Installation,
-		ContentHash:  m.ContentHash,
 	}
 }
 

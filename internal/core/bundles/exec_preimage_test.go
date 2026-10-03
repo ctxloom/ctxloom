@@ -179,16 +179,11 @@ func TestExecContentPayload_ApproveCountersignRoundTrip(t *testing.T) {
 	assert.Error(t, signing.Verify(changedFrame, armored, sshPub, signing.NamespaceApprove))
 }
 
-// ComputeContentHash must keep hashing EXACTLY ContentPayload's output after
-// versioning — one definition of "the bytes of this item", never two (spec
-// §3.2). If the version were added to the signing path but not the hash path,
-// the store index and the signature would disagree.
+// BundleHook.ComputeContentHash must keep hashing EXACTLY ContentPayload's
+// output after versioning — one definition of "the bytes of this item", never
+// two (spec §3.2). If the version were added to the signing path but not the
+// hash path, the store index and the signature would disagree.
 func TestExecContentPayload_RemainsTheHashPreimage(t *testing.T) {
-	mcp := BundleMCP{Command: "srv", Env: map[string]string{"K": "V"}}
-	mcpPayload, err := mcp.ContentPayload()
-	require.NoError(t, err)
-	assert.Equal(t, hashContent(mcpPayload), mcp.ComputeContentHash())
-
 	hook := BundleHook{Matcher: "Bash", Type: "command", Command: "echo hi"}
 	hookPayload, err := hook.ContentPayload()
 	require.NoError(t, err)

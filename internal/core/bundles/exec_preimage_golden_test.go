@@ -48,7 +48,7 @@ func TestExecPreimage_NilAndEmptyArgsEnvDiffer(t *testing.T) {
 		`{"preimage":"ctxloom-exec/2","command":"srv","args":[],"env":{},"url":"","headers":null,"installation":""}`,
 		string(presentBytes))
 
-	assert.NotEqual(t, absent.ComputeContentHash(), present.ComputeContentHash(),
+	assert.NotEqual(t, mcpTrustHash(t, absent), mcpTrustHash(t, present),
 		"U030-F05: an absent and an empty args/env are the same server but not the same trust identity")
 }
 

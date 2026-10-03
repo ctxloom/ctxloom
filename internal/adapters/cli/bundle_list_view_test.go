@@ -162,7 +162,6 @@ func showViewBundle() *bundles.Bundle {
 				Env:          map[string]string{"DEBUG": "1"},
 				Notes:        "Filesystem access",
 				Installation: "go install ...",
-				ContentHash:  "sha256:deadbeef",
 			},
 		},
 		Skills: map[string]bundles.BundleSkill{
@@ -261,7 +260,6 @@ func TestBundleShowView_NeverCarriesItemBodies(t *testing.T) {
 	s := string(b)
 	assert.NotContains(t, s, "rest of the content")
 	assert.NotContains(t, s, "compressed")
-	assert.NotContains(t, s, "deadbeef")
 	assert.NotContains(t, s, `"content"`)
 	assert.NotContains(t, s, `"content_hash"`)
 }

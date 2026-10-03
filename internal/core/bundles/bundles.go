@@ -546,10 +546,9 @@ type BundleMCP struct {
 	// (checkMCPTargets refuses an entry with no target at all), so an
 	// approval of the declaration approves exactly nothing that runs.
 	ServedBy     string   `yaml:"served_by,omitempty" surface:"selection"`
-	Tags         []string `yaml:"tags,omitempty" surface:"selection"`       // Additional tags (merged with bundle tags); host-evaluated routing, never executed
-	Notes        string   `yaml:"notes,omitempty" surface:"human"`          // Human-readable notes, not sent to AI
-	Installation string   `yaml:"installation,omitempty"`                   // Setup/installation instructions; presented to the user, and inside the preimage
-	ContentHash  string   `yaml:"content_hash,omitempty" surface:"derived"` // recorded hash of the executable surface; circular to sign
+	Tags         []string `yaml:"tags,omitempty" surface:"selection"` // Additional tags (merged with bundle tags); host-evaluated routing, never executed
+	Notes        string   `yaml:"notes,omitempty" surface:"human"`    // Human-readable notes, not sent to AI
+	Installation string   `yaml:"installation,omitempty"`             // Setup/installation instructions; presented to the user, and inside the preimage
 }
 
 // AsWire converts to the wire shape for validation. It deliberately does NOT
@@ -1219,9 +1218,10 @@ type mcpContentPayload struct {
 // sorted, so reordering Env or Headers yields identical bytes while
 // reordering Args (a slice) does not.
 //
-// This is the SINGLE preimage builder for an MCP server: ComputeContentHash
-// below hashes exactly this function's output, and a countersignature
-// (signature envelope spec §3.2/§3.3) covers exactly it too. Unlike the
+// This is the SINGLE preimage builder for an MCP server: its trust hash is
+// HashPayload over exactly this function's output, and a countersignature
+// (signature envelope spec §3.2/§3.3) covers exactly it too. The hash is never
+// stored on the entry — it is derived, and every reader recomputes it. Unlike the
 // fragment/command preimage, this one IS a canonicalization — an existing,
 // already-shipped one (spec §3.3.2) — because an MCP server has no "raw bytes";
 // it is structured fields with no other faithful serialization. That is
@@ -1237,27 +1237,6 @@ func (m *BundleMCP) ContentPayload() ([]byte, error) {
 		Installation: m.Installation,
 	}
 	return json.Marshal(canonical)
-}
-
-// ComputeContentHash hashes exactly ContentPayload's output — the canonical
-// encoding of the MCP server's executable surface, whose field set that
-// function defines and signing.ExecPreimageContract versions. There is no
-// second enumeration of those fields here: one would drift from the builder
-// and the stale copy would still read as authoritative.
-// This is the hash an MCP trust grant binds to
-// (trust rework, TR0); an MCP server has no distilled form, so there is one hash.
-func (m *BundleMCP) ComputeContentHash() string {
-	data, err := m.ContentPayload()
-	if err != nil {
-		// Unreachable: the struct holds only strings/[]string/map[string]string,
-		// none of which json.Marshal can fail on. Fail closed rather than
-		// panic — and to a digest DISTINCT per server/failure, not a shared
-		// constant: one constant standing in for many different items is
-		// exactly the defect this guards against, and an unreachable branch is
-		// a poor place to keep its shape alive.
-		return hashContent(fmt.Appendf(nil, "ctxloom:mcp-content-hash-error:%s:%v", m.Command, err))
-	}
-	return hashContent(data)
 }
 
 // hookContentPayload is the canonical encoding shared by ContentPayload.
@@ -1313,14 +1292,14 @@ func (h *BundleHook) Line() string {
 
 // ComputeContentHash hashes a canonical encoding of the hook's executable
 // surface. This is the hash a bundle-hook trust grant binds to (trust rework,
-// TR5); a hook has no distilled form, so there is one hash. Mirrors
-// BundleMCP.ComputeContentHash.
+// TR5); a hook has no distilled form, so there is one hash.
 func (h *BundleHook) ComputeContentHash() string {
 	data, err := h.ContentPayload()
 	if err != nil {
-		// Unreachable (only strings + a bool); fail closed to a digest
-		// DISTINCT per hook/failure rather than a shared constant, for the
-		// reason given in BundleMCP.ComputeContentHash.
+		// Unreachable (only strings + a bool). Fail closed rather than panic,
+		// and to a digest DISTINCT per hook/failure, not a shared constant: one
+		// constant standing in for many different items is exactly the defect
+		// a content hash exists to prevent.
 		return hashContent(fmt.Appendf(nil, "ctxloom:hook-content-hash-error:%s:%s:%v", h.Matcher, h.Line(), err))
 	}
 	return hashContent(data)

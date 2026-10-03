@@ -85,8 +85,11 @@ func TestExtractMCPFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	// executable-surface hash of the exact server.
 	alpha := b.MCP["alpha"]
 	beta := b.MCP["beta"]
-	assert.Equal(t, alpha.ComputeContentHash(), seen["ctxloom+local:remote/tools#mcp/alpha"])
-	assert.Equal(t, beta.ComputeContentHash(), seen["ctxloom+local:remote/tools#mcp/beta"])
+	for name, m := range map[string]bundles.BundleMCP{"alpha": alpha, "beta": beta} {
+		payload, err := m.ContentPayload()
+		require.NoError(t, err)
+		assert.Equal(t, bundles.HashPayload(payload), seen["ctxloom+local:remote/tools#mcp/"+name])
+	}
 }
 
 // TestExtractMCPFromBundle_FailClosed proves a gate that denies everything

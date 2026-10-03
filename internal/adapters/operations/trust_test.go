@@ -484,7 +484,9 @@ func seededLoader(t *testing.T) (*bundles.Loader, string) {
 	}
 	loader := seedLoader(t, map[string]*bundles.Bundle{seedKey: b})
 	mcp := b.MCP["postgres"]
-	return loader, mcp.ComputeContentHash()
+	payload, err := mcp.ContentPayload()
+	require.NoError(t, err)
+	return loader, bundles.HashPayload(payload)
 }
 
 // mcpPayload is the postgres server's canonical preimage — the bytes the

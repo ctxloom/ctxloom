@@ -29,7 +29,7 @@ var sessionTranscriptCmd = groupNodeDefault(&cobra.Command{
 	Use:   "transcript",
 	Short: "The recorded conversation behind a session: list it, watch it, destroy it",
 	Long: `A session's transcript is ctxloom's own canonical, engine-agnostic record
-of what was said, at ~/.ctxloom/sessions/<harp>/persist/transcript.jsonl.
+of what was said, at ~/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl.
 
   list      which sessions have one, and how large it is (the bare form)
   watch     stream one as structured turns, live or from the store

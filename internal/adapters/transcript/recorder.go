@@ -47,7 +47,7 @@ type Recorder interface {
 // fileRecorder is the on-disk Recorder: append-only, lazily-opened, one
 // harp/engine pair per instance.
 type fileRecorder struct {
-	// fs carries the persist dir and the held append handle; the ownership
+	// fs carries the transcripts dir and the held append handle; the ownership
 	// lock's sidecar is a kernel lock on the OS filesystem, outside it.
 	fs     afero.Fs
 	harp   string
@@ -168,7 +168,7 @@ func WithContinuation(seq int, sessionID string) RecorderOption {
 // paths.HarpCanonicalTranscriptPath(harp) unless WithPath overrides it.
 //
 // The underlying file is opened LAZILY, on the first successful Record call —
-// NOT eagerly here — and the persist/ directory is created at that same
+// NOT eagerly here — and the transcripts/ directory is created at that same
 // moment. A chat that produces zero ChatEvents (Setup fails before any event,
 // a cancelled turn, etc.) therefore leaves NO transcript.jsonl at all,
 // rather than a zero-byte file that could be mistaken for "captured, and
@@ -273,7 +273,7 @@ func openAppendFile(fs afero.Fs) func(path string) (io.WriteCloser, error) {
 	}
 }
 
-// ensureFile lazily creates the persist dir and opens the append-only file.
+// ensureFile lazily creates the transcripts dir and opens the append-only file.
 // Extracted from record so the write path stays under the project's
 // complexity gate.
 //

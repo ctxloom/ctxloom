@@ -68,8 +68,8 @@ type PurgeItem struct {
 type PurgePopulation string
 
 const (
-	// PurgePopulationTranscript is the machine-written bulk: transcript.jsonl
-	// and everything under persist/transcripts/.
+	// PurgePopulationTranscript is the machine-written bulk: everything under
+	// transcripts/ and native/ (classifyPurgeFile).
 	PurgePopulationTranscript PurgePopulation = "transcript"
 	// PurgePopulationArtifacts is the derived essence — what distillation
 	// produced, and what can be produced again only while the transcript

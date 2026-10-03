@@ -540,7 +540,7 @@ func applySweep(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequ
 	leaveNoLongerPlanned(rows, DecideSweep(fresh, req))
 	// THE RECLAIM RUNS FIRST. Its triage tears the clean worktrees down under
 	// the reaper's own hold AFTER the reaper's age check; removing them first
-	// would touch ephemeral/, and the age check would then read the session
+	// would touch work/, and the age check would then read the session
 	// as active and reclaim nothing.
 	reaped, reclaimed := applyPlannedReclaim(ctx, g, l, req, fresh.ProjectDir, rows)
 	applyPlannedRest(ctx, g, fresh, rows, reclaimed)

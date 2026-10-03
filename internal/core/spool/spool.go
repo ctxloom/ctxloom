@@ -60,7 +60,7 @@ const (
 	DirInWithdrawn Dir = "in/withdrawn"
 )
 
-// SpoolDirName is the spool root's name under the session persist dir — the
+// SpoolDirName is the spool root's name under the session dir — the
 // table row paths.HarpMembers marks Mounted, so container mail rides the
 // session-state mount.
 const SpoolDirName = paths.SpoolDirName

@@ -37,8 +37,8 @@ import (
 //
 // EVERY ENTRY NAMES A PATH SOME WRITER PRODUCES. Two did not: `.ctxloom/pieces/`
 // (the sparse-checkout piece fetcher was never built) and `.ctxloom/ephemeral/`
-// (the ephemeral tier is HOME-rooted — paths.HarpEphemeralDir resolves
-// ~/.ctxloom/sessions/<harp>/ephemeral — and under the ruled layout no project
+// (per-session scratch is HOME-rooted — paths.HarpScratchDir resolves
+// ~/.ctxloom/sessions/<harp>/scratch — and under the ruled layout no project
 // ephemeral/ will ever exist). A pattern for a path nothing writes is not
 // harmless insurance: it is this list claiming a tier exists, read by anyone
 // auditing what ctxloom keeps out of git, and it outlived both features that

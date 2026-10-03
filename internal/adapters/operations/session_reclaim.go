@@ -75,7 +75,7 @@ func worktreeTriage(g git.Git) sessions.Triage {
 // worktreeHoldingWork reports whether any of a session's scratch worktrees is
 // still standing, and why the first such one was left.
 //
-// ANY survivor spares the whole session. An ephemeral dir that still holds a
+// ANY survivor spares the whole session. A work/ dir that still holds a
 // checkout carrying uncommitted work cannot be removed without taking that
 // work with it. Reporting beats reclaiming on every tie.
 func worktreeHoldingWork(candidates []isolation.WorktreeCandidate) (bool, string) {

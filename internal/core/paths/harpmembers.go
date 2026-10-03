@@ -109,8 +109,8 @@ var HarpMembers = []HarpMember{
 
 // ClassifyMember is the ONE predicate every walker uses: rel (relative to the
 // session dir, slash-separated) is the member it names or the deepest member
-// it lives under — a plan file under persist/ is persist's, a message under
-// persist/spool is the spool's. The session dir itself, and a top-level name
+// it lives under — a segment under transcripts/segments is the segments row's,
+// a message under spool/ is the spool's. The session dir itself, and a top-level name
 // no row carries, classify to nothing.
 func ClassifyMember(rel string) (HarpMember, bool) {
 	rel = strings.Trim(path.Clean("/"+rel), "/")

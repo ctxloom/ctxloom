@@ -114,7 +114,7 @@ func (w *sessionWatcher) step(sess *agent.Session) []*WatchEvent {
 // path, polling the engine's normalized GetSessionByPath parser. It exists
 // for transcripts bound by LOCATION rather than by the SessionStart hook
 // (sessions.LocateTranscript): a containerized child's transcript lives in
-// ctxloom's own per-harp store (~/.ctxloom/sessions/<harp>/persist/…), which
+// ctxloom's own per-harp store (~/.ctxloom/sessions/<harp>/native/…), which
 // the engine's own project-scoped store lookup never finds — the host owns
 // that file, so the host parses it. The same sessionWatcher core as
 // EngineReader.WatchSession decides what to emit, so both feeds speak one

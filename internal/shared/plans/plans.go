@@ -1,6 +1,6 @@
 // Package plans lists and reads session plan documents: the <name>.plan.md
 // files in each session's recorded output dir (sessions.Entry.OutputDir). It is shared by taskloom (which
-// surfaces plans via `taskloom plan list/show`) and ctxloom, so the session-dir
+// surfaces plans via `taskloom plan list/show`) and ctxloom, so the plan
 // location and frontmatter parsing live in one place. Pure value DTOs cross the
 // wire; no agent or vscode coupling.
 package plans

@@ -150,7 +150,7 @@ type Entry struct {
 	CanonicalTranscriptPath string `yaml:"-" json:"canonical_transcript_path,omitempty"`
 
 	// PurgedAt records when `ctxloom session purge` destroyed this session's
-	// machine-written bulk (transcript.jsonl, persist/transcripts/…). A purge
+	// machine-written bulk (transcripts/, native/). A purge
 	// removes FILES and never the directory, so what it leaves is a real
 	// session directory missing its content — indistinguishable from damage
 	// except by this stamp. It is why a purged session stays visible in
@@ -293,8 +293,8 @@ func (m *Manager) writeSidecar(harpName string, e *Entry) error {
 		return fmt.Errorf("mkdir session dir: %w", err)
 	}
 	// MkdirAll leaves an existing directory's mode alone, and the session dir
-	// normally exists before its first sidecar write (launch lays out
-	// persist/ and ephemeral/ under it with the default mode).
+	// normally exists before its first sidecar write (launch lays out its
+	// members under it with the default mode).
 	if err := fs.Chmod(dir, sessionDirMode); err != nil {
 		return fmt.Errorf("restrict session dir: %w", err)
 	}

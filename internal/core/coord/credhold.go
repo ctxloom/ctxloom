@@ -156,6 +156,10 @@ type CredentialHold struct {
 // early would only meet the same refusal, and re-raise the human's notice.
 var ErrCredentialHeld = errors.New("coord: the run is parked on a hold (its credential's rate limit, or its own overload backoff); only the human, or the hold's own backoff, releases it")
 
+// ErrHumanPaused refuses an agent's resume of a run the HUMAN paused: the
+// human opened that pause, and only the human ends it.
+var ErrHumanPaused = errors.New("coord: the human paused this run; only the human may resume it")
+
 // holdLocal is what a hold needs that no journal can carry: its armed timer,
 // and the in-process park barrier. Guarded by Coordinator.holdMu.
 type holdLocal struct {
@@ -688,9 +692,10 @@ func (c *Coordinator) dropFromHold(key, id string, r heldRun) {
 }
 
 // releaseHold is ControlResume's arm for a held harp: handled is false when
-// no hold covers it. A failure's hold refuses an agent; the human's resume
-// releases every harp in it. A pause is released by whoever may control the
-// run. newly is the target run's own answer.
+// no hold covers it. The human may release any hold; a failure's hold
+// releases every harp in it. An agent may release only an agent's pause (one
+// controlTarget let it control); a human's pause and a failure's hold refuse
+// it. newly is the target run's own answer.
 func (c *Coordinator) releaseHold(ctx context.Context, by ControlInitiator, rec *RunRecord) (handled, newly bool, err error) {
 	var h holdRecord
 	c.runs.View(func() {
@@ -701,7 +706,11 @@ func (c *Coordinator) releaseHold(ctx context.Context, by ControlInitiator, rec 
 	if h.Key == "" {
 		return false, false, nil
 	}
-	if !h.pause() && by.Kind != InitiatorHuman {
+	switch {
+	case by.Kind == InitiatorHuman:
+	case h.Kind == holdKindHuman:
+		return true, false, fmt.Errorf("resume %s: %w", rec.Harp, ErrHumanPaused)
+	case !h.pause():
 		return true, false, fmt.Errorf("resume %s: %w", rec.Harp, ErrCredentialHeld)
 	}
 	c.holdMu.Lock()

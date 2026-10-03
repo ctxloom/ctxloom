@@ -45,7 +45,7 @@ var goldenVectors = []struct {
 
 func firstN(input []byte, r Range, n int) []uint16 {
 	var out []uint16
-	for p := range Candidates(input, r) {
+	for p := range r.Candidates(input) {
 		if len(out) == n {
 			break
 		}
@@ -58,12 +58,28 @@ func TestGoldenVectors(t *testing.T) {
 	for _, g := range goldenVectors {
 		name := fmt.Sprintf("%d-%d/%q", g.r.Lo, g.r.Hi, g.input)
 		t.Run(name, func(t *testing.T) {
-			if got := Pick([]byte(g.input), g.r); got != g.first[0] {
+			if got := g.r.Pick([]byte(g.input)); got != g.first[0] {
 				t.Errorf("Pick = %d, want %d", got, g.first[0])
 			}
 			got := firstN([]byte(g.input), g.r, len(g.first))
 			if fmt.Sprint(got) != fmt.Sprint(g.first) {
 				t.Errorf("Candidates = %v, want %v", got, g.first)
+			}
+			if g.r != Service {
+				return
+			}
+			// The package-level forms default to Service.
+			if got := Pick([]byte(g.input)); got != g.first[0] {
+				t.Errorf("package Pick = %d, want %d", got, g.first[0])
+			}
+			var pkg []uint16
+			for p := range Candidates([]byte(g.input)) {
+				if pkg = append(pkg, p); len(pkg) == len(g.first) {
+					break
+				}
+			}
+			if fmt.Sprint(pkg) != fmt.Sprint(g.first) {
+				t.Errorf("package Candidates = %v, want %v", pkg, g.first)
 			}
 		})
 	}
@@ -133,7 +149,7 @@ func TestDeterministic(t *testing.T) {
 	in := []byte("same input")
 	for _, r := range []Range{Privileged, Registered, Dynamic, Service} {
 		a, b := firstN(in, r, 50), firstN(append([]byte(nil), in...), r, 50)
-		if fmt.Sprint(a) != fmt.Sprint(b) || Pick(in, r) != Pick(in, r) {
+		if fmt.Sprint(a) != fmt.Sprint(b) || r.Pick(in) != r.Pick(in) {
 			t.Errorf("range %v not deterministic: %v vs %v", r, a, b)
 		}
 	}
@@ -145,8 +161,8 @@ func TestPick_WithinRange(t *testing.T) {
 	for i := range 5000 {
 		in := []byte(fmt.Sprintf("input-%d-%d", i, rng.Uint64()))
 		for _, r := range ranges {
-			if p := Pick(in, r); p < r.Lo || p > r.Hi {
-				t.Fatalf("Pick(%q, %v) = %d, out of range", in, r, p)
+			if p := r.Pick(in); p < r.Lo || p > r.Hi {
+				t.Fatalf("%v.Pick(%q) = %d, out of range", r, in, p)
 			}
 		}
 	}
@@ -159,12 +175,12 @@ func checkFullCoverage(t *testing.T, in []byte, r Range) {
 	size := int(r.Hi) - int(r.Lo) + 1
 	seen := make([]bool, size)
 	count := 0
-	for p := range Candidates(in, r) {
+	for p := range r.Candidates(in) {
 		if p < r.Lo || p > r.Hi {
 			t.Fatalf("%q %v: candidate %d out of range", in, r, p)
 		}
-		if count == 0 && p != Pick(in, r) {
-			t.Fatalf("%q %v: first candidate %d != Pick %d", in, r, p, Pick(in, r))
+		if count == 0 && p != r.Pick(in) {
+			t.Fatalf("%q %v: first candidate %d != Pick %d", in, r, p, r.Pick(in))
 		}
 		if seen[p-r.Lo] {
 			t.Fatalf("%q %v: candidate %d repeated", in, r, p)
@@ -196,7 +212,7 @@ func TestCandidates_EdgeRanges(t *testing.T) {
 
 func TestCandidates_StopsEarly(t *testing.T) {
 	n := 0
-	for range Candidates([]byte("x"), Dynamic) {
+	for range Dynamic.Candidates([]byte("x")) {
 		n++
 		if n == 3 {
 			break
@@ -208,7 +224,7 @@ func TestCandidates_StopsEarly(t *testing.T) {
 }
 
 func TestCandidates_Reiterable(t *testing.T) {
-	seq := Candidates([]byte("x"), Service)
+	seq := Service.Candidates([]byte("x"))
 	var a, b []uint16
 	for p := range seq {
 		if a = append(a, p); len(a) == 5 {
@@ -233,7 +249,7 @@ func TestPick_Uniformity(t *testing.T) {
 	const n, bins = 100000, 100
 	var counts [bins]int
 	for i := range n {
-		counts[Pick([]byte(fmt.Sprintf("u-%d", i)), r)-r.Lo]++
+		counts[r.Pick([]byte(fmt.Sprintf("u-%d", i)))-r.Lo]++
 	}
 	expected := float64(n) / bins
 	chi := 0.0
@@ -281,8 +297,8 @@ func expectPanic(t *testing.T, want error, f func()) {
 }
 
 func TestInvalidRangePanics(t *testing.T) {
-	expectPanic(t, ErrPortZero, func() { Pick(nil, Range{0, 5}) })
-	expectPanic(t, ErrEmptyRange, func() { Pick(nil, Range{6, 5}) })
+	expectPanic(t, ErrPortZero, func() { Range{0, 5}.Pick(nil) })
+	expectPanic(t, ErrEmptyRange, func() { Range{6, 5}.Pick(nil) })
 	// Candidates panics at the call, not on first iteration.
-	expectPanic(t, ErrEmptyRange, func() { _ = Candidates(nil, Range{6, 5}) })
+	expectPanic(t, ErrEmptyRange, func() { _ = Range{6, 5}.Candidates(nil) })
 }

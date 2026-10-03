@@ -12,8 +12,8 @@
 // A [Range] is an inclusive pair Lo..Hi of port numbers. A valid range has
 // 1 <= Lo <= Hi <= 65535. Port 0 is excluded because it means "any port" to
 // bind(2) and is not a port a service can be reached on. [Range.Validate]
-// reports what is wrong with a range. [Pick] and [Candidates] panic with that
-// same error when given an invalid range, because an invalid range is a
+// reports what is wrong with a range. [Range.Pick] and [Range.Candidates]
+// panic with that same error when given an invalid range, because an invalid range is a
 // programming error and not a runtime condition.
 //
 // The predefined ranges are conventions, not guarantees:
@@ -32,8 +32,11 @@
 //     one the OS hands out for outgoing connections. Administrators can change
 //     the ephemeral ranges, so this is a default, not a promise.
 //
+// The package-level [Pick] and [Candidates] use [Service]; call the methods
+// on another range to choose it, for example Registered.Pick(input).
+//
 // A picked port is never checked for availability. Something may already be
-// listening on it. [Candidates] gives fallbacks in a deterministic order for
+// listening on it. [Range.Candidates] gives fallbacks in a deterministic order for
 // that case.
 //
 // # Algorithm
@@ -62,10 +65,10 @@
 //
 // Candidate i, for i = 0, 1, ..., size-1, is Lo + ((start + i*stride) mod size).
 // Because stride is coprime to size, these are size distinct ports: every port
-// in the range, each exactly once. [Candidates] yields them in that order and
+// in the range, each exactly once. [Range.Candidates] yields them in that order and
 // then stops.
 //
-// [Pick] is candidate 0, which is Lo + start. It needs only the draws for
+// [Range.Pick] is candidate 0, which is Lo + start. It needs only the draws for
 // start.
 //
 // The order after the first candidate is an arithmetic walk. It is

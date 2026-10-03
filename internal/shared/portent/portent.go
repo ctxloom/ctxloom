@@ -21,8 +21,8 @@ var (
 	Service    = Range{1024, 32767}
 )
 
-// Errors reported by [Range.Validate], and the panic values of [Pick] and
-// [Candidates] for an invalid range. Match them with errors.Is.
+// Errors reported by [Range.Validate], and the panic values of [Range.Pick]
+// and [Range.Candidates] for an invalid range. Match them with errors.Is.
 var (
 	ErrPortZero   = errors.New("portent: range includes port 0")
 	ErrEmptyRange = errors.New("portent: range is empty (Lo > Hi)")
@@ -49,18 +49,26 @@ func (r Range) size() uint64 {
 	return uint64(r.Hi) - uint64(r.Lo) + 1
 }
 
-// Pick returns the port in r that input maps to. It is candidate 0 of
-// [Candidates]. It panics if r is invalid.
-func Pick(input []byte, r Range) uint16 {
+// Pick returns the port in [Service] that input maps to. It is
+// Service.Pick(input).
+func Pick(input []byte) uint16 { return Service.Pick(input) }
+
+// Candidates returns every port in [Service] in the order input fixes. It is
+// Service.Candidates(input).
+func Candidates(input []byte) iter.Seq[uint16] { return Service.Candidates(input) }
+
+// Pick returns the port in r that input maps to. It is the first port of
+// [Range.Candidates]. It panics if r is invalid.
+func (r Range) Pick(input []byte) uint16 {
 	size := r.size()
 	return r.Lo + uint16(hashStream(input).uniform(size))
 }
 
 // Candidates returns every port in r exactly once, in an order fixed by
-// input. The first port is [Pick]'s. The sequence can be iterated more than
-// once and gives the same order each time. It panics at the call, not on
+// input. The first port is [Range.Pick]'s. The sequence can be iterated more
+// than once and gives the same order each time. It panics at the call, not on
 // iteration, if r is invalid.
-func Candidates(input []byte, r Range) iter.Seq[uint16] {
+func (r Range) Candidates(input []byte) iter.Seq[uint16] {
 	size := r.size()
 	s := hashStream(input)
 	start := s.uniform(size)

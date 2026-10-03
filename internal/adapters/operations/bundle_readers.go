@@ -102,12 +102,10 @@ func treeBundleReader(cfg *config.Config, canonical trust.BundleKey, entry remot
 	}
 	// Check the installed tree is THERE before handing a reader a root it will
 	// fail to list later. The two failures are the same fact, but only here is
-	// the fix knowable: a lockfile entry with no tree on disk is a pull that has
-	// not happened, and the message has to say so — "cannot list this directory"
-	// reaches the user as a bug in ctxloom.
+	// the fix knowable — "cannot list this directory" reaches the user as a bug
+	// in ctxloom.
 	if ok, derr := afero.DirExists(getFS(cfg.FS()), dir); derr != nil || !ok {
-		return nil, fmt.Errorf("the lockfile records %q as a directory-form bundle but its tree is not installed at %s "+
-			"(run `ctxloom deps pull`)", canonical, dir)
+		return nil, missingTreeError(getFS(cfg.FS()), cfg.GetAppPaths()[0], canonical, entry, dir)
 	}
 	tree, err := content.NewAferoTreeFS(getFS(cfg.FS()), filepath.Dir(dir))
 	if err != nil {
@@ -144,6 +142,72 @@ func treeBundleDir(baseDir string, canonical trust.BundleKey) (string, error) {
 	return ref.LocalTreePath(baseDir)
 }
 
+// ErrTreeNotInstalled reports a lockfile entry with no checkout for its pin: a
+// pull that has not happened, which `deps pull` repairs.
+var ErrTreeNotInstalled = errors.New("pinned bundle tree is not installed")
+
+// ErrTreeAbsentAtPin reports a pin whose checkout exists but holds no bundle at
+// the path readers resolve: the content is absent at the pinned commit (one
+// that predates a repository layout move, say). `deps pull` keeps an existing
+// pin at its commit, so it cannot repair this; advancing the pin can.
+var ErrTreeAbsentAtPin = errors.New("bundle is absent at its pinned commit")
+
+// bundleTreeError is a tree that cannot be read, carrying the remedy that
+// repairs its cause (clifmt.Remedier) so reportBundleLoadFailures never has to
+// re-derive it.
+type bundleTreeError struct {
+	cause  error
+	detail string
+	remedy string
+}
+
+func (e *bundleTreeError) Error() string  { return e.detail }
+func (e *bundleTreeError) Unwrap() error  { return e.cause }
+func (e *bundleTreeError) Remedy() string { return e.remedy }
+
+// missingTreeError says why canonical's tree is not at dir. The checkout for a
+// pin is keyed by identity (Reference.LocalWorktreePath), so its presence
+// separates "never pulled" from "pulled, and the pinned commit has no bundle
+// where readers look".
+func missingTreeError(fsys afero.Fs, baseDir string, canonical trust.BundleKey, entry remote.LockEntry, dir string) error {
+	if !worktreeInstalled(fsys, baseDir, canonical) {
+		return &bundleTreeError{
+			cause: ErrTreeNotInstalled,
+			detail: fmt.Sprintf("the lockfile pins %q at %s but its tree is not installed at %s: %v",
+				canonical, entry.SHA, dir, ErrTreeNotInstalled),
+			remedy: "ctxloom deps pull (or remove the bundle from its profiles)",
+		}
+	}
+	remedy := "ctxloom deps upgrade — it advances the pin and re-installs the tree " +
+		"(if the bundle is gone upstream too, remove it from its profiles)"
+	if entry.Held {
+		remedy = fmt.Sprintf("ctxloom deps unhold %s, then ctxloom deps upgrade — a held pin is never advanced "+
+			"(if the bundle is gone upstream too, remove it from its profiles)", canonical)
+	}
+	return &bundleTreeError{
+		cause: ErrTreeAbsentAtPin,
+		detail: fmt.Sprintf("%q is pinned at %s and that commit is installed, but it has no bundle at %s: %v "+
+			"(deps pull keeps a pin at its commit, so it cannot repair this)",
+			canonical, entry.SHA, dir, ErrTreeAbsentAtPin),
+		remedy: remedy,
+	}
+}
+
+// worktreeInstalled reports whether canonical's pinned checkout exists. An
+// unparseable key reports false: no checkout can exist for it.
+func worktreeInstalled(fsys afero.Fs, baseDir string, canonical trust.BundleKey) bool {
+	ref, err := remote.ParseReference(string(canonical))
+	if err != nil {
+		return false
+	}
+	worktree, err := ref.LocalWorktreePath(baseDir)
+	if err != nil {
+		return false
+	}
+	ok, err := afero.DirExists(fsys, worktree)
+	return err == nil && ok
+}
+
 // reportBundleLoadFailures records one fatal-class finding per lockfile-active
 // bundle whose bytes could not be read.
 //
@@ -165,7 +229,7 @@ func reportBundleLoadFailures(failures map[trust.BundleKey]error) {
 				"remote bundle %q was installed but withheld: %v", name, err)
 			continue
 		}
-		strictness.FailOnce(report.KindBundle, "ctxloom deps pull (or remove the bundle from its profiles)",
+		strictness.FailOnce(report.KindBundle, remedyOr(err, "ctxloom deps pull (or remove the bundle from its profiles)"),
 			"failed to load remote bundle %q from cache: %v", name, err)
 	}
 }
@@ -177,11 +241,15 @@ const remedyWithheldTampered = "re-pull the bundle, or investigate the source �
 
 // withheldRemedy is the fix the refusal raised (a retired-format manifest
 // names the upgrade that moves its pin), else the tamper remedy.
-func withheldRemedy(err error) string {
+func withheldRemedy(err error) string { return remedyOr(err, remedyWithheldTampered) }
+
+// remedyOr is the fix err names for its own cause (clifmt.Remedier), else
+// fallback: the error knows which command repairs it, the reporter does not.
+func remedyOr(err error, fallback string) string {
 	if fix, ok := clifmt.RemedyOf(err); ok {
 		return fix
 	}
-	return remedyWithheldTampered
+	return fallback
 }
 
 // remoteBundleReaders builds one pinned-tree reader per lockfile-listed bundle:

@@ -326,8 +326,8 @@ func TestLoadTreeBundle_MissingTreeNamesThePathAndTheFix(t *testing.T) {
 	_, pub := treeTestSigner(t)
 	_, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry(), treeTrustRoot("t@x", pub))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "deps pull")
 	assert.Contains(t, err.Error(), "atelier")
+	assert.Contains(t, withheldFinding(t, err).Remedy, "deps pull")
 }
 
 // treeBundleReaders must claim exactly the entries the byte reader refused for

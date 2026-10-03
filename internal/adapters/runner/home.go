@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/spf13/afero"
 )
 
 // Home is the RUNNER's connection home: it owns the coordinator dial (one
@@ -307,7 +308,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	if h.cfg.OwnerLossWindow == 0 {
 		h.cfg.OwnerLossWindow = DefaultOwnerLossWindow
 	}
-	h.spoolOut = coord.NewSpoolWriterCache(h.cfg.Mapper, spool.DirOut, "")
+	h.spoolOut = coord.NewSpoolWriterCache(afero.NewOsFs(), h.cfg.Mapper, spool.DirOut, "")
 	h.spoolRefs = make(map[string]spool.Ref)
 	h.startSpoolReactor()
 	if cfg.Harp != "" {

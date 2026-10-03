@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -46,6 +47,9 @@ type Recorder interface {
 // fileRecorder is the on-disk Recorder: append-only, lazily-opened, one
 // harp/engine pair per instance.
 type fileRecorder struct {
+	// fs carries the persist dir and the held append handle; the ownership
+	// lock's sidecar is a kernel lock on the OS filesystem, outside it.
+	fs     afero.Fs
 	harp   string
 	engine string
 	path   string
@@ -63,7 +67,7 @@ type fileRecorder struct {
 	defaultPath bool
 
 	// open creates/appends the transcript file. A seam, not a strategy: the
-	// only production implementation is openAppendFile, and it exists so a
+	// only production implementation is openAppendFile(fs), and it exists so a
 	// test can drive the partial-write path — a Write that delivers SOME
 	// bytes and then fails — which a real *os.File on a healthy filesystem
 	// will not produce on demand.
@@ -93,10 +97,7 @@ type fileRecorder struct {
 	closeWarned bool
 }
 
-// RecorderOption configures optional NewRecorder behavior. Additive: every
-// existing NewRecorder(harp, engine) call site keeps compiling and behaving
-// identically (RawLossyOnly, the default, was always the intended behavior
-// for the ONLY thing an option can change so far).
+// RecorderOption configures optional NewRecorder behavior.
 type RecorderOption func(*fileRecorder)
 
 // WithRawPolicy sets the RawPolicy governing whether/when Record persists a
@@ -183,7 +184,10 @@ func WithContinuation(seq int, sessionID string) RecorderOption {
 // Seq starts at 0 (or where WithContinuation says) on the first Record call
 // and increases by 1, with no gaps,
 // for the lifetime of the Recorder.
-func NewRecorder(harp, engine string, opts ...RecorderOption) (Recorder, error) {
+func NewRecorder(fs afero.Fs, harp, engine string, opts ...RecorderOption) (Recorder, error) {
+	if fs == nil {
+		return nil, fmt.Errorf("transcript: NewRecorder requires a filesystem")
+	}
 	if harp == "" {
 		return nil, fmt.Errorf("transcript: NewRecorder requires a non-empty harp")
 	}
@@ -195,13 +199,14 @@ func NewRecorder(harp, engine string, opts ...RecorderOption) (Recorder, error) 
 		return nil, fmt.Errorf("transcript: resolve canonical transcript path for harp %q: %w", harp, err)
 	}
 	r := &fileRecorder{
+		fs:          fs,
 		harp:        harp,
 		engine:      engine,
 		path:        p,
 		defaultPath: true,
 		now:         func() time.Time { return time.Now().UTC() },
 		policy:      DefaultRawPolicy,
-		open:        openAppendFile,
+		open:        openAppendFile(fs),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -260,9 +265,12 @@ func (r *fileRecorder) noteFailure(err error) {
 	}
 }
 
-// openAppendFile is the production opener: create-if-absent, append-only.
-func openAppendFile(path string) (io.WriteCloser, error) {
-	return os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+// openAppendFile is the production opener over fs: create-if-absent,
+// append-only.
+func openAppendFile(fs afero.Fs) func(path string) (io.WriteCloser, error) {
+	return func(path string) (io.WriteCloser, error) {
+		return fs.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	}
 }
 
 // ensureFile lazily creates the persist dir and opens the append-only file.
@@ -297,7 +305,7 @@ func (r *fileRecorder) ensureFile() error {
 		}
 		r.unlock = func() { _ = fl.Unlock() }
 	}
-	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
+	if err := r.fs.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
 		r.releaseLock()
 		return fmt.Errorf("transcript: create persist dir: %w", err)
 	}

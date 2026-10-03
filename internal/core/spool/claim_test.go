@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -241,7 +242,7 @@ func TestClaimedDirName_IsLocalNotWire(t *testing.T) {
 // filename, the same identity.
 func seedOrigin(t *testing.T, m PathMapper, origin, body string) Ref {
 	t.Helper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 	ref, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, OriginID: origin, Body: body})
 	require.NoError(t, err)

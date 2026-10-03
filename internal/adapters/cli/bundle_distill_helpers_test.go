@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +55,7 @@ func TestExpandDistillFiles(t *testing.T) {
 	}
 
 	t.Run("glob expands to matches", func(t *testing.T) {
-		got, err := expandDistillFiles([]string{filepath.Join(dir, "*.yaml")})
+		got, err := expandDistillFiles(afero.NewOsFs(), []string{filepath.Join(dir, "*.yaml")})
 		if err != nil {
 			t.Fatalf("err = %v", err)
 		}
@@ -64,20 +65,20 @@ func TestExpandDistillFiles(t *testing.T) {
 	})
 
 	t.Run("literal path passes through", func(t *testing.T) {
-		got, err := expandDistillFiles([]string{a})
+		got, err := expandDistillFiles(afero.NewOsFs(), []string{a})
 		if err != nil || len(got) != 1 || got[0] != a {
 			t.Fatalf("got %v, err %v; want [%s]", got, err, a)
 		}
 	})
 
 	t.Run("no match anywhere errors", func(t *testing.T) {
-		if _, err := expandDistillFiles([]string{filepath.Join(dir, "nope-*.yaml")}); err == nil {
+		if _, err := expandDistillFiles(afero.NewOsFs(), []string{filepath.Join(dir, "nope-*.yaml")}); err == nil {
 			t.Error("expected an error when no files resolve")
 		}
 	})
 
 	t.Run("missing literal is warned but a present sibling still resolves", func(t *testing.T) {
-		got, err := expandDistillFiles([]string{filepath.Join(dir, "ghost.yaml"), b})
+		got, err := expandDistillFiles(afero.NewOsFs(), []string{filepath.Join(dir, "ghost.yaml"), b})
 		if err != nil {
 			t.Fatalf("err = %v", err)
 		}

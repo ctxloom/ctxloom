@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -57,7 +58,7 @@ func TestSpoolCredit_ACoordinatorRestartCreditsNothingNew(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, runnerHooks.Serve(first))
 	out, _ := awaitCutoverChild(t, first, sp, "first task")
-	msgID, _, err := first.peerSend(ownerIdentity(), out.Harp, KindMessage, "before the restart", nil, "")
+	msgID, _, err := first.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindMessage, "before the restart", nil, "")
 	require.NoError(t, err)
 	awaitDelivered(t, out.Harp, msgID, "before the restart")
 	require.Eventually(t, func() bool { return first.SpoolDeliveryStats().Consumed >= 1 }, conformanceWait, 10*time.Millisecond,
@@ -81,7 +82,7 @@ func TestSpoolCredit_ACoordinatorRestartCreditsNothingNew(t *testing.T) {
 	assert.Equal(t, 2, relaunches, "history must not forgive a relaunch budget")
 
 	// A delivery recorded AFTER the restart is real progress, credited once.
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{Kind: KindMessage, FromHarp: ownerIdentity().Harp, To: out.Harp,
 		OriginID: "m-after-restart", Body: "after"})

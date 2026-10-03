@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
@@ -1460,7 +1461,7 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 			"without emitting a single answer byte, so there is nothing to print or record")
 		return &ExitError{Code: 1}
 	}
-	if terr := transcript.RecordOneshot(harp, backend, prompt, answer); terr != nil {
+	if terr := transcript.RecordOneshot(afero.NewOsFs(), harp, backend, prompt, answer); terr != nil {
 		clidiag.Warn("ctxloom", "oneshot transcript capture: %v", terr)
 	}
 	return nil

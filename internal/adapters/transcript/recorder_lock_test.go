@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gofrs/flock"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -53,7 +54,7 @@ func TestRecorder_DefaultPath_HoldsSharedOwnershipLockUntilClose(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "lock-holding-harp"
 
-	rec, err := NewRecorder(harp, "claude-code")
+	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code")
 	require.NoError(t, err)
 
 	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -98,7 +99,7 @@ func TestRecorder_WithPathOverride_TakesNoOwnershipLock(t *testing.T) {
 	harp := "lock-free-harp"
 	tmpPath := t.TempDir() + "/rebuild.tmp"
 
-	rec, err := NewRecorder(harp, "claude-code", WithPath(tmpPath))
+	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code", WithPath(tmpPath))
 	require.NoError(t, err)
 
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -134,7 +135,7 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 	stateDir := t.TempDir()
 	owner := ownerIdentity().Harp
 
-	w, err := spool.NewWriter(spool.NewHomeMapper(), owner, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), owner, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{
 		Kind: KindReport, FromHarp: "some-child", To: owner,

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
@@ -46,7 +47,7 @@ func TestHome_OutboundWrittenInTheAttachWindowIsNotStrandedUntilTheSlowSweep(t *
 
 	// A sentinel no doorbell announces: only the attach sweep forced below can
 	// move it, so its departure proves that sweep has run.
-	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirOut, harp)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), harp, spool.DirOut, harp)
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: coord.KindMessage, FromHarp: harp, To: harp, Body: "sentinel"})
 	require.NoError(t, err)

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -122,7 +123,7 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 
 	t.Run("two-entry oneshot", func(t *testing.T) {
 		harp := "mock-oneshot-harp"
-		require.NoError(t, RecordOneshot(harp, "mock", "Reply with just: ok", "ok"))
+		require.NoError(t, RecordOneshot(afero.NewOsFs(), harp, "mock", "Reply with just: ok", "ok"))
 		h := NewCanonicalHistory("/proj/oneshot", sessions.NewMemStore())
 
 		sess, err := h.GetSession(ctx, harp)

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
@@ -24,7 +25,7 @@ func TestSpool_TheRootAndWhatIsBeneathItAreOwnerOnly_ADACL(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(root, 0o755))
 
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 	ref, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, Body: "x\n"})
 	require.NoError(t, err)
@@ -38,8 +39,8 @@ func TestSpool_TheRootAndWhatIsBeneathItAreOwnerOnly_ADACL(t *testing.T) {
 	msg, err := m.Resolve(ref)
 	require.NoError(t, err)
 	fileperm.OwnerOnly(t, root)
-	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(string(DirOutConsumed))))
-	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(deliveredDirName), "m-perm"))
+	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(string(DirInWithdrawn))))
+	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(deliveredRecord.rel), "m-perm"))
 	fileperm.OwnerOnly(t, msg)
 	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(wakeDirName), nonce))
 }

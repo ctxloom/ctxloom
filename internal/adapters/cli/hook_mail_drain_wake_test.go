@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,7 +135,7 @@ func TestDrainMail_APayloadWithoutAPromptIsNotAWake(t *testing.T) {
 
 func TestDrainMail_ADuplicateMessageIsDeliveredOnce(t *testing.T) {
 	testsupport.Isolate(t)
-	w, err := spool.NewWriter(spool.NewHomeMapper(), mailDrainOwner, spool.DirIn, "coord")
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), mailDrainOwner, spool.DirIn, "coord")
 	require.NoError(t, err)
 	for i := 0; i < 2; i++ {
 		_, err := w.Write(&spool.Message{Kind: "report", FromHarp: "child-one", To: mailDrainOwner, OriginID: "msg-1", Body: "FINAL: once\n"})

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -48,7 +49,7 @@ func runConvert(t *testing.T, fixture string) []transcript.Record {
 	t.Helper()
 	testsupport.Isolate(t)
 
-	rec, err := transcript.NewRecorder(fixtureHarp, "mock")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "mock")
 	require.NoError(t, err)
 
 	require.NoError(t, Adapter{}.Convert(context.Background(), rec, fixturePath(t, fixture)))
@@ -110,7 +111,7 @@ func TestConvert_MapsRolesAndSkipsEverythingElse(t *testing.T) {
 func TestConvert_MissingFileIsAnError(t *testing.T) {
 	testsupport.Isolate(t)
 
-	rec, err := transcript.NewRecorder(fixtureHarp, "mock")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "mock")
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
@@ -125,7 +126,7 @@ func TestConvert_MissingFileIsAnError(t *testing.T) {
 func TestConvert_CancelledContextIsFatal(t *testing.T) {
 	testsupport.Isolate(t)
 
-	rec, err := transcript.NewRecorder(fixtureHarp, "mock")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "mock")
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
@@ -170,7 +171,7 @@ func TestVersionedAdapters_DeclaresACoveredValidatedVersion(t *testing.T) {
 func TestConvert_WrongFormatRefusesRatherThanEmptyingTheFile(t *testing.T) {
 	testsupport.Isolate(t)
 
-	rec, err := transcript.NewRecorder(fixtureHarp, "mock")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "mock")
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 

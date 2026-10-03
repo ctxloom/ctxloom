@@ -28,7 +28,8 @@ import (
 //     file — only after the delivery it made is real (the engine accepted the
 //     turn, or the owner's turn-start hook wrote it out). Acking earlier would
 //     silently convert at-least-once into at-most-once. A routed out/ file is
-//     renamed into out/consumed/ the same way: only after it was routed.
+//     finished the same way, record-then-delete into out/routed/
+//     (spool.Consume), and only after it was routed.
 //   - THE DOORBELL IS ONLY A WAKE. It carries a reference and no state, it is
 //     dropped freely when the channel is down, and receiving one means "sweep",
 //     never "process exactly that file". A doorbell that names a file which is
@@ -395,7 +396,13 @@ func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, err 
 // resume, because mail from below is not a fresh ask from above: it must
 // honour an agent_stop of the parent and the relaunch bound, never lift them.
 func (c *Coordinator) mailParent(from, parent, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
-	id, err := c.queueMailPayload(from, parent, kind, body, structured, inReplyTo)
+	return c.mailParentID(newMessageID(), from, parent, kind, body, structured, inReplyTo)
+}
+
+// mailParentID is mailParent with the message id supplied by the caller: a
+// routed child send carries its out/ file's identity (peerSend).
+func (c *Coordinator) mailParentID(msgID, from, parent, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
+	id, err := c.queueMailPayloadID(msgID, from, parent, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", err
 	}
@@ -596,11 +603,11 @@ func (c *Coordinator) sweepChildSpool(role string) {
 // sweepChildOut routes every message sitting in role's out/, oldest first, and
 // consumes each one only after it has been routed.
 //
-// DELIVER THEN CONSUME is the at-least-once ordering: a crash between the two
-// re-routes on the next sweep (deduped downstream on message id), while
-// consuming first would drop the message on the floor with nothing to show for
-// it. The duplicate that ordering admits is what the reactor's serialisation
-// and the rename together rule out.
+// ROUTE THEN CONSUME is the at-least-once ordering: a crash between the two
+// re-routes on the next sweep, and the re-routed copy carries the same
+// identity, so the recipient's delivered record refuses it; consuming first
+// would drop the message on the floor with nothing to show for it. Within one
+// process the reactor's serialisation rules the duplicate out.
 func (c *Coordinator) sweepChildOut(role string) {
 	res, ok := c.sweepSpoolDir(role, spool.DirOut, "routing what the child sent")
 	if !ok {
@@ -623,7 +630,33 @@ func (c *Coordinator) sweepChildOut(role string) {
 // a routing decision — a child that wrote a sibling's harp there would
 // otherwise have peerSend resolve the SIBLING's parent and deliver a message
 // in its name.
+//
+// THE ROUTED RECORD IS CHECKED FIRST. A file whose identity is already in
+// role's routed record was routed before a crash interrupted its delete: the
+// delete is finished and the message is not routed again. The identity is also
+// what the recipient's copy carries (peerSend), so the other crash window — a
+// route whose record never got written — re-routes a copy the recipient's
+// delivered record refuses. An identity that cannot be recorded at all can
+// never leave out/ through the record, so it is refused to out/failed/ rather
+// than routed on every sweep.
 func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
+	if err := spool.ValidateName(e.Identity()); err != nil {
+		c.rep.Warnf("coordinator: refusing %s's spool message %s: its identity cannot be recorded: %v", role, e.Ref, err)
+		c.spoolDeliveryCount.Failed.Add(1)
+		c.noticeSpoolDrop(role, e, err)
+		c.failSpoolOut(role, e.Ref, err)
+		return
+	}
+	routed, err := spool.Routed(c.mapper, role, e.Identity())
+	if err != nil {
+		c.rep.Warnf("coordinator: leaving %s in place: %v (it will be retried on the next sweep)", e.Ref, err)
+		c.spoolDeliveryCount.Failed.Add(1)
+		return
+	}
+	if routed {
+		c.consumeSpool(role, e)
+		return
+	}
 	sender, ok := c.spoolSenderIdentity(role)
 	if !ok {
 		c.rep.Warnf("coordinator: %s's spool holds an outbound message but that harp has no run record; leaving %s in place", role, e.Ref)
@@ -638,7 +671,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		c.failSpoolOut(role, e.Ref, err)
 		return
 	}
-	if _, _, err := c.peerSend(sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
+	if _, _, err := c.peerSend(e.Identity(), sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
 		// The routing chokepoint refused it (closed kind vocabulary, a
 		// recipient off the tree's edges, unknown recipient). The agent's
 		// local write already returned success, so the refusal is reported
@@ -652,22 +685,20 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 	}
 	c.settleAsk(role, msg.InReplyTo, msg.Structured)
 	c.spoolDeliveryCount.Delivered.Add(1)
-	c.consumeSpool(role, e.Ref)
+	c.consumeSpool(role, e)
 }
 
 // failSpoolOut is routeSpoolOut's terminal outcome for an out/ entry this
 // coordinator could not route: the file leaves out/ for the local out/failed/
-// directory instead of out/consumed/.
+// directory, and its identity is NOT written to the routed record.
 //
 // The distinction is the whole point, and it is the runner-side failSpoolEntry
-// invariant applied to the direction that never had it. out/consumed/ means
-// ROUTED — that is what the substrate's own contract says a consume-rename is,
-// and what every reader of that directory assumes. A dropped message renamed
-// there is a delivered one as far as disk is concerned: an operator, and an
-// investigator reading the spool after the fact, cannot tell a report the
-// coordinator handed to its parent from one it gave up on. That is not a
-// hypothetical reading; it is how a lost report was written off as an agent
-// that never reported.
+// invariant applied to this direction. The routed record means ROUTED, and a
+// dropped message recorded there is a delivered one as far as disk is
+// concerned: an operator, and an investigator reading the spool after the
+// fact, could not tell a report the coordinator handed to its parent from one
+// it gave up on — which is how a lost report gets written off as an agent that
+// never reported.
 //
 // Leaving the file in out/ instead is not the alternative: the reader would
 // re-parse it, re-fail it and re-warn about it on every sweep for the life of
@@ -786,20 +817,18 @@ func (c *Coordinator) spoolSenderIdentity(role string) (Identity, bool) {
 	return id, ok
 }
 
-// consumeSpool renames a processed file into its consumed/ sibling. A lost
-// race (ErrAlreadyGone) is the expected outcome of the other path having won
-// and is never reported as a failure.
-func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
-	done, err := spool.Consume(c.mapper, ref)
-	if err != nil {
+// consumeSpool records a routed out/ file's identity in role's routed record
+// and deletes the file (spool.Consume). A lost race (ErrAlreadyGone) is the
+// expected outcome of the other path having won and is never reported as a
+// failure.
+func (c *Coordinator) consumeSpool(role string, e spool.Entry) {
+	if err := spool.Consume(c.mapper, e.Ref, e.Identity(), time.Now()); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
 		}
-		c.rep.Warnf("coordinator: routed %s but could not mark it consumed: %v (it will be routed again on the next sweep)", ref, err)
+		c.rep.Warnf("coordinator: routed %s but could not record it as routed: %v (it will be routed again on the next sweep)", e.Ref, err)
 		c.spoolDeliveryCount.Failed.Add(1)
-		return
 	}
-	_ = done
 }
 
 // seedSpoolCredit records, without crediting, every known harp's delivered

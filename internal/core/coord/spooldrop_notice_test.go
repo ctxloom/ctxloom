@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -80,8 +81,8 @@ func spoolFailedNames(t *testing.T, harp string, dir spool.Dir) []string {
 }
 
 // assertDroppedNotConsumed pins the disposition that misled the original
-// investigation: out/consumed/ means ROUTED, so a message the sweep gave up on
-// must NOT be there. It belongs in out/failed/ instead — present on disk,
+// investigation: the routed record means ROUTED, so a message the sweep gave
+// up on must NOT be recorded there. It belongs in out/failed/ instead — present on disk,
 // undelivered, and distinguishable from both "never arrived" and "delivered".
 func assertDroppedNotConsumed(t *testing.T, harp, name string) {
 	t.Helper()
@@ -93,11 +94,10 @@ func assertDroppedNotConsumed(t *testing.T, harp, name string) {
 		}
 		return false
 	}, conformanceWait, 10*time.Millisecond, "the dropped message must reach %s", spool.FailedOutDirName)
-	for _, e := range spoolEntries(t, harp, spool.DirOutConsumed) {
-		assert.NotEqual(t, name, e.Ref.Name,
-			"a message that was never routed must not sit in %s: reading its presence there as proof the coordinator took it is exactly how a lost report was written off as an agent that never wrote one",
-			spool.DirOutConsumed)
-	}
+	routed, err := spool.Routed(spool.NewHomeMapper(), harp, strings.TrimSuffix(name, spool.MessageFileExt))
+	require.NoError(t, err)
+	assert.False(t, routed,
+		"a message that was never routed must not be in the routed record: reading it there as proof the coordinator took it is exactly how a lost report was written off as an agent that never wrote one")
 	// This one file must be gone from out/; the directory itself may hold
 	// other traffic (the run's automatic turn report), so emptiness is not the
 	// assertion — the SELECTED entry's absence is.
@@ -119,7 +119,7 @@ func TestSpoolDrop_UnmappableKindTellsTheParentAndCarriesTheText(t *testing.T) {
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
 	const finding = "the mutation was RED and the gate exited 0"
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{
 		Kind:     "a-kind-this-build-does-not-know",
@@ -155,7 +155,7 @@ func TestSpoolDrop_RefusedRoutingTellsTheParentNotOnlyTheSender(t *testing.T) {
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
 	const finding = "sibling-addressed findings that must not evaporate"
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{
 		Kind:     KindResult,

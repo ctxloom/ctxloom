@@ -5,12 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -76,7 +75,7 @@ type bundleDistillResult struct {
 }
 
 func runBundleDistill(cmd *cobra.Command, args []string) error {
-	files, err := expandDistillFiles(args)
+	files, err := expandDistillFiles(afero.NewOsFs(), args)
 	if err != nil {
 		return err
 	}
@@ -256,15 +255,15 @@ func printDistillItems(w *errwriter.Writer, items []operations.DistillBundleItem
 // expandDistillFiles resolves the CLI patterns to a list of bundle files. Glob
 // matches expand; a non-matching pattern is tried as a literal path and warned
 // about if absent. Returns an error only when no files resolve at all.
-func expandDistillFiles(patterns []string) ([]string, error) {
+func expandDistillFiles(fsys afero.Fs, patterns []string) ([]string, error) {
 	var files []string
 	for _, pattern := range patterns {
-		matches, err := filepath.Glob(pattern)
+		matches, err := afero.Glob(fsys, pattern)
 		if err != nil {
 			return nil, fmt.Errorf("invalid pattern %q: %w", pattern, err)
 		}
 		if len(matches) == 0 {
-			if _, err := os.Stat(pattern); err == nil {
+			if _, err := fsys.Stat(pattern); err == nil {
 				files = append(files, pattern)
 			} else {
 				clidiag.Warn("ctxloom", "no files match %q", pattern)

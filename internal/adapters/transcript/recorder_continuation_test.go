@@ -3,6 +3,7 @@ package transcript
 import (
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,7 +21,7 @@ func TestRecorder_ContinuationExtendsAnotherRecordersLines(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "continuation-harp"
 
-	rec, err := NewRecorder(harp, "claude-code", WithContinuation(7, "sess-abc"))
+	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code", WithContinuation(7, "sess-abc"))
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: "one"}}))
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "two"}}))

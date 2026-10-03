@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -184,7 +185,7 @@ var configEditCmd = &cobra.Command{
 
 func runConfigEdit(cmd *cobra.Command, _ []string) error {
 	path := projectConfigPath()
-	exists, err := configFileExists(path)
+	exists, err := configFileExists(afero.NewOsFs(), path)
 	if err != nil {
 		return err
 	}
@@ -203,8 +204,8 @@ func runConfigEdit(cmd *cobra.Command, _ []string) error {
 // (edit launches $EDITOR on a path it could not read; init proceeds as if the
 // config it must not clobber were absent), so an inconclusive stat is reported,
 // never guessed.
-func configFileExists(path string) (bool, error) {
-	if _, err := os.Stat(path); err != nil {
+func configFileExists(fsys afero.Fs, path string) (bool, error) {
+	if _, err := fsys.Stat(path); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil
 		}
@@ -235,7 +236,7 @@ func runConfigCreate(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	path := paths.ConfigPath(appDir)
-	exists, err := configFileExists(path)
+	exists, err := configFileExists(afero.NewOsFs(), path)
 	if err != nil {
 		return err
 	}

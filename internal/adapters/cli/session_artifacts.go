@@ -3,6 +3,7 @@ package cli
 import (
 	"io"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -92,7 +93,7 @@ func runSessionArtifactsList(cmd *cobra.Command, args []string) error {
 // would report sessions as distilled that have nothing to show.
 func newSessionArtifactRow(harp string) sessionArtifactRow {
 	row := sessionArtifactRow{Harp: harp}
-	if path, size, ok := statHarpFile(harp, paths.HarpEssencePath); ok {
+	if path, size, ok := statHarpFile(afero.NewOsFs(), harp, paths.HarpEssencePath); ok {
 		row.Distilled = true
 		row.Bytes = size
 		row.Path = path

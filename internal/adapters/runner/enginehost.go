@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/spf13/afero"
 )
 
 // engineHome is the slice of *Home the engine host consumes — an interface so
@@ -555,7 +556,7 @@ func (eh *EngineHost) openRunRecorder(harp string) transcript.Recorder {
 	if harp == "" {
 		return nil
 	}
-	r, err := transcript.NewRecorder(harp, eh.harness)
+	r, err := transcript.NewRecorder(afero.NewOsFs(), harp, eh.harness)
 	if err != nil {
 		eh.rep.Warnf("transcript capture: open recorder for harp %s (engine %s): %v", harp, eh.harness, err)
 		return nil

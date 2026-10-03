@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -73,7 +74,7 @@ func TestConvert_TornLineRecoversTheGluedRecord(t *testing.T) {
 	src := writeLines(t, "torn.jsonl", tornFragment+gluedLine+"\n")
 	lines, err := vendorreader.OpenAndReadJSONLLines("claude", src)
 	require.NoError(t, err)
-	rec, err := transcript.NewRecorder(fixtureHarp, "claude")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
 	require.NoError(t, err)
 	acct, err := convertLines(context.Background(), rec, lines)
 	require.NoError(t, err)

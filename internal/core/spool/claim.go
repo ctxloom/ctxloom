@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/spf13/afero"
 )
 
 // THE OWNER'S RESERVATION IS A DIRECTORY.
@@ -149,7 +151,7 @@ func discard(path string) error {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return syncDir(filepath.Dir(path))
+	return syncDir(afero.NewOsFs(), filepath.Dir(path))
 }
 
 // Pending reports whether harp's in/ holds at least one unclaimed file — the

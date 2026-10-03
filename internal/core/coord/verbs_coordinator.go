@@ -44,7 +44,7 @@ func (c *Coordinator) Send(_ context.Context, caller Identity, req SendRequest) 
 	if err := req.Validate(); err != nil {
 		return SendResult{}, err
 	}
-	msgID, disposition, err := c.peerSend(caller, req.To, req.Kind, req.Body, req.Structured, req.InReplyTo)
+	msgID, disposition, err := c.peerSend(newMessageID(), caller, req.To, req.Kind, req.Body, req.Structured, req.InReplyTo)
 	if err != nil {
 		return SendResult{}, err
 	}

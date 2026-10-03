@@ -9,7 +9,10 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -19,7 +22,7 @@ import (
 func TestWriter_PublishesReadableMessage(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 
 	msg := &Message{Kind: "message", FromHarp: "coord", To: testHarp, Body: "do the thing\n"}
@@ -54,7 +57,7 @@ func TestWriter_PublishesReadableMessage(t *testing.T) {
 func TestWriter_FilenameIsIdentityAndOrder(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	w, err := NewWriter(m, testHarp, DirOut, testHarp)
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirOut, testHarp)
 	require.NoError(t, err)
 
 	const count = 200
@@ -95,7 +98,7 @@ func TestWriter_ReseedsSequenceAcrossRestart(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 
-	first, err := NewWriter(m, testHarp, DirIn, "coord")
+	first, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 	var last Ref
 	for range 3 {
@@ -106,7 +109,7 @@ func TestWriter_ReseedsSequenceAcrossRestart(t *testing.T) {
 	_, err = Withdraw(m, last)
 	require.NoError(t, err)
 
-	restarted, err := NewWriter(m, testHarp, DirIn, "coord")
+	restarted, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 	next, err := restarted.Write(&Message{Kind: "message", Body: "after restart\n"})
 	require.NoError(t, err)
@@ -125,7 +128,7 @@ func TestWriter_ReseedsSequenceAcrossRestart(t *testing.T) {
 func TestWriter_NeverPublishesAPartialFile(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 	ref, err := w.Write(&Message{Kind: "message", Body: "complete\n"})
 	require.NoError(t, err)
@@ -158,8 +161,8 @@ func TestWriter_NeverPublishesAPartialFile(t *testing.T) {
 func TestNewWriter_RefusesNonWritableDirections(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	for _, d := range []Dir{DirOutConsumed, DirInWithdrawn, Dir("nope"), Dir("")} {
-		_, err := NewWriter(m, testHarp, d, "coord")
+	for _, d := range []Dir{DirInWithdrawn, Dir("nope"), Dir("")} {
+		_, err := NewWriter(afero.NewOsFs(), m, testHarp, d, "coord")
 		require.Error(t, err, "%q must not be directly writable", d)
 	}
 }
@@ -168,7 +171,7 @@ func TestNewWriter_RefusesBadWriterID(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	for _, id := range []string{"", "has.dot", "has/slash", "has\\back", "has:colon", "ctl\x01"} {
-		_, err := NewWriter(m, testHarp, DirIn, id)
+		_, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, id)
 		require.Error(t, err, "writer id %q must be refused (it would make the filename ambiguous)", id)
 	}
 }
@@ -176,7 +179,7 @@ func TestNewWriter_RefusesBadWriterID(t *testing.T) {
 func TestWriter_RefusesKindlessMessage(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 
 	_, err = w.Write(&Message{Body: "no kind\n"})
@@ -286,7 +289,7 @@ func TestWriter_PostPublishDirSyncFailureWarnsAndSucceeds(t *testing.T) {
 	hostHome(t)
 	logs := observeWarnings(t)
 	m := NewHomeMapper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 	var synced []string
 	w.syncDir = func(path string) error {
@@ -325,7 +328,7 @@ func TestWriter_PrePublishFailureStillErrorsAndPublishesNothing(t *testing.T) {
 	hostHome(t)
 	logs := observeWarnings(t)
 	m := NewHomeMapper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 	synced := 0
 	w.syncDir = func(string) error { synced++; return nil }
@@ -345,4 +348,58 @@ func TestWriter_PrePublishFailureStillErrorsAndPublishesNothing(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, res.Entries, "nothing may be published")
 	require.Empty(t, res.Problems)
+}
+
+// droppingFs is an fs whose opened files accept every write and keep none of
+// it: the shape of a writer whose bytes were lost on the way to disk.
+type droppingFs struct{ afero.Fs }
+
+func (d droppingFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
+	f, err := d.Fs.OpenFile(name, flag, perm)
+	if err != nil {
+		return nil, err
+	}
+	return droppingFile{f}, nil
+}
+
+type droppingFile struct{ afero.File }
+
+func (droppingFile) Write(p []byte) (int, error) { return len(p), nil }
+
+// TestWriter_AnEmptyWriteOverAQueuedMessageIsRefused: an empty spool file is a
+// dropped message, so a publish whose staged bytes came out empty must never
+// replace a message already queued under that name. The collision is forced —
+// the same clock and sequence mint the queued message's name again — and the
+// staged bytes are forced empty by an fs that drops them.
+func TestWriter_AnEmptyWriteOverAQueuedMessageIsRefused(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	at := time.Unix(0, 1_754_919_000_123_456_789).UTC()
+
+	queued, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
+	require.NoError(t, err)
+	queued.now = func() time.Time { return at }
+	ref, err := queued.Write(&Message{Kind: "message", Body: "queued\n"})
+	require.NoError(t, err)
+	path, err := m.Resolve(ref)
+	require.NoError(t, err)
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotEmpty(t, before)
+
+	lossy, err := NewWriter(droppingFs{afero.NewOsFs()}, m, testHarp, DirIn, "coord")
+	require.NoError(t, err)
+	lossy.now = func() time.Time { return at }
+	lossy.seq = 0 // mint the queued message's name again
+	_, err = lossy.Write(&Message{Kind: "message", Body: "lost on the way\n"})
+	require.ErrorIs(t, err, safefs.ErrEmptyOverwrite)
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "the queued message is intact")
+	root, err := Root(m, testHarp)
+	require.NoError(t, err)
+	staged, err := os.ReadDir(filepath.Join(root, tmpDirName))
+	require.NoError(t, err)
+	require.Empty(t, staged, "the refused staging file is removed")
 }

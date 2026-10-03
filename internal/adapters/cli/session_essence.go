@@ -1,10 +1,9 @@
 package cli
 
 import (
-	"os"
-
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/spf13/afero"
 )
 
 // A session's distilled essence lives in one of two places, BOTH under the harp
@@ -25,11 +24,11 @@ import (
 // present "not distilled yet" uniformly; an essence that exists but cannot be
 // READ is a different fact and is reported rather than passed off as
 // never-distilled.
-func readSessionEssence(v operations.SessionView) (string, bool) {
+func readSessionEssence(fsys afero.Fs, v operations.SessionView) (string, bool) {
 	if !v.Distilled {
 		return "", false
 	}
-	data, err := os.ReadFile(v.EssencePath)
+	data, err := afero.ReadFile(fsys, v.EssencePath)
 	if err != nil {
 		clidiag.Warn("ctxloom", "essence for %s exists at %s but could not be read: %v", v.Harp, v.EssencePath, err)
 		return "", false

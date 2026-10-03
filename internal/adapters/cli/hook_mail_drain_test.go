@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,7 @@ const mailDrainOwner = "owner-harp-for-drain"
 // coordinator does, and returns its spool filename.
 func seedOwnerMail(t *testing.T, from, kind, body string) string {
 	t.Helper()
-	w, err := spool.NewWriter(spool.NewHomeMapper(), mailDrainOwner, spool.DirIn, "coord")
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), mailDrainOwner, spool.DirIn, "coord")
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{Kind: kind, FromHarp: from, To: mailDrainOwner, Body: body})
 	require.NoError(t, err)
@@ -133,7 +134,7 @@ func TestDrainMail_DeliversEveryPendingMessageAsTurnContextAndRecordsIt(t *testi
 // them an answer cannot be matched to the ask that asked for it.
 func TestDrainMail_HeaderCarriesTheMessageIDAndItsCorrelation(t *testing.T) {
 	testsupport.Isolate(t)
-	w, err := spool.NewWriter(spool.NewHomeMapper(), mailDrainOwner, spool.DirIn, "coord")
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), mailDrainOwner, spool.DirIn, "coord")
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: "result", FromHarp: "child-one", To: mailDrainOwner,
 		OriginID: "m-answer-1", InReplyTo: "m-ask-1", Body: "sqlx\n"})

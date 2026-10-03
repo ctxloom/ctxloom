@@ -14,6 +14,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // Name is the parsed form of a spool filename:
@@ -105,6 +107,10 @@ func validateWriterID(id string) error {
 // legitimately publish twice inside the same nanosecond, and two files with
 // the same name would be one lost message.
 type Writer struct {
+	// fs carries every byte this writer stages and every rename that
+	// publishes it; publish runs through safefs.NewGuardFs(fs), so an empty
+	// staged file can never replace a message already queued under its name.
+	fs     afero.Fs
 	mapper PathMapper
 	harp   string
 	dir    Dir
@@ -118,25 +124,35 @@ type Writer struct {
 	// means the real syncDir. It exists so a test can FORCE that fsync to
 	// fail — a real filesystem cannot be made to on demand.
 	syncDir func(path string) error
+	// now is the test seam for the write stamp; nil means time.Now. It exists
+	// so a test can FORCE a name collision with a message already queued.
+	now func() time.Time
 }
 
 // logDirSyncFailed is the structured-log message Write emits when the
 // directory fsync after a publish fails.
 const logDirSyncFailed = "spool_publish_dir_sync_failed"
 
-// NewWriter returns a writer for harp's dir (DirIn or DirOut — the
-// consumed/withdrawn directories are reached by rename, never written into
-// directly), publishing under the given writer id.
+// NewWriter returns a writer for harp's dir (DirIn or DirOut — the withdrawn
+// directory is reached by rename, never written into directly), publishing
+// under the given writer id through fs.
+//
+// The spool directories themselves are created by EnsureDirs, on the OS
+// filesystem: their owner-only modes (and, on Windows, the root's protected
+// DACL) are an OS property no afero.Fs carries.
 //
 // The sequence counter is re-seeded from the highest seq already on disk
-// across the direction and its consumed/withdrawn siblings, so a restarted
+// across the direction and its withdrawn sibling, so a restarted
 // process cannot reissue a name a still-present file already holds.
-func NewWriter(m PathMapper, harp string, dir Dir, writerID string) (*Writer, error) {
+func NewWriter(fs afero.Fs, m PathMapper, harp string, dir Dir, writerID string) (*Writer, error) {
+	if fs == nil {
+		return nil, fmt.Errorf("spool: a filesystem is required")
+	}
 	if m == nil {
 		return nil, fmt.Errorf("spool: a PathMapper is required")
 	}
 	if dir != DirIn && dir != DirOut {
-		return nil, fmt.Errorf("spool: %q is not a writable direction (write to %q or %q; consumed and withdrawn are reached by rename)", string(dir), string(DirIn), string(DirOut))
+		return nil, fmt.Errorf("spool: %q is not a writable direction (write to %q or %q; withdrawn is reached by rename)", string(dir), string(DirIn), string(DirOut))
 	}
 	if err := validateWriterID(writerID); err != nil {
 		return nil, fmt.Errorf("spool: %w", err)
@@ -148,7 +164,7 @@ func NewWriter(m PathMapper, harp string, dir Dir, writerID string) (*Writer, er
 	if err != nil {
 		return nil, err
 	}
-	w := &Writer{mapper: m, harp: harp, dir: dir, id: writerID, root: root}
+	w := &Writer{fs: fs, mapper: m, harp: harp, dir: dir, id: writerID, root: root}
 	seq, err := w.highestSeq()
 	if err != nil {
 		return nil, err
@@ -163,16 +179,13 @@ func NewWriter(m PathMapper, harp string, dir Dir, writerID string) (*Writer, er
 // fail because someone dropped a note in the directory.
 func (w *Writer) highestSeq() (uint64, error) {
 	dirs := []Dir{w.dir}
-	if consumed, err := w.dir.Consumed(); err == nil {
-		dirs = append(dirs, consumed)
-	}
 	if withdrawn, err := w.dir.Withdrawn(); err == nil {
 		dirs = append(dirs, withdrawn)
 	}
 	var highest uint64
 	for _, d := range dirs {
 		path := filepath.Join(w.root, filepath.FromSlash(string(d)))
-		entries, err := os.ReadDir(path)
+		entries, err := afero.ReadDir(w.fs, path)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
@@ -232,7 +245,11 @@ func (w *Writer) Write(msg *Message) (Ref, error) {
 	defer w.mu.Unlock()
 
 	w.seq++
-	name := Name{Nanos: time.Now().UTC().UnixNano(), Seq: w.seq, Writer: w.id}
+	now := time.Now
+	if w.now != nil {
+		now = w.now
+	}
+	name := Name{Nanos: now().UTC().UnixNano(), Seq: w.seq, Writer: w.id}
 	ref := Ref{Harp: w.harp, Dir: w.dir, Name: name.String()}
 	final, err := w.mapper.Resolve(ref)
 	if err != nil {
@@ -251,12 +268,15 @@ func (w *Writer) Write(msg *Message) (Ref, error) {
 		return Ref{}, err
 	}
 
+	// Staged through safefs.WriteFile, which fsyncs the bytes before they
+	// are named, so the rename below publishes durable bytes rather than a
+	// promise. Its own temp file lives in tmp/ too, where no sweep looks.
 	tmp := filepath.Join(w.root, tmpDirName, name.String())
-	if err := writeAndSync(tmp, data); err != nil {
-		return Ref{}, err
+	if err := safefs.WriteFile(w.fs, tmp, data, owneronly.FileMode); err != nil {
+		return Ref{}, fmt.Errorf("spool: staging %s: %w", ref, err)
 	}
-	if err := os.Rename(tmp, final); err != nil {
-		_ = os.Remove(tmp)
+	if err := safefs.Rename(safefs.NewGuardFs(w.fs), tmp, final); err != nil {
+		_ = w.fs.Remove(tmp)
 		return Ref{}, fmt.Errorf("spool: publishing %s: %w", ref, err)
 	}
 	w.syncPublished(final, ref)
@@ -269,38 +289,15 @@ func (w *Writer) Write(msg *Message) (Ref, error) {
 func (w *Writer) syncPublished(final string, ref Ref) {
 	dirSync := w.syncDir
 	if dirSync == nil {
-		dirSync = syncDir
+		dirSync = func(path string) error { return syncDir(w.fs, path) }
 	}
 	if err := dirSync(filepath.Dir(final)); err != nil {
 		zap.L().Warn(logDirSyncFailed, zap.Stringer("ref", ref), zap.Error(err))
 	}
 }
 
-// writeAndSync writes data to path and fsyncs the file before returning, so
-// the rename that follows publishes durable bytes rather than a promise.
-func writeAndSync(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, owneronly.FileMode)
-	if err != nil {
-		return fmt.Errorf("spool: creating staging file %s: %w", path, err)
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		_ = os.Remove(path)
-		return fmt.Errorf("spool: writing staging file %s: %w", path, err)
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		_ = os.Remove(path)
-		return fmt.Errorf("spool: syncing staging file %s: %w", path, err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
-		return fmt.Errorf("spool: closing staging file %s: %w", path, err)
-	}
-	return nil
-}
-
-// syncDir fsyncs a directory so a rename into it survives a crash. A
+// syncDir fsyncs a directory, opened through fs, so a rename into it survives
+// a crash. A
 // filesystem that refuses the operation (some do for directories) is not an
 // error worth failing a delivery over — the bytes are already durable and the
 // entry is already visible — so an EINVAL-class refusal is tolerated while a
@@ -312,8 +309,8 @@ func writeAndSync(path string, data []byte) error {
 // fsync path resolve through different permission checks; it is treated the
 // same as the EINVAL case rather than failing a delivery whose bytes are
 // already durable.
-func syncDir(path string) error {
-	f, err := os.Open(path)
+func syncDir(fs afero.Fs, path string) error {
+	f, err := fs.Open(path)
 	if err != nil {
 		return fmt.Errorf("spool: opening %s to sync: %w", path, err)
 	}

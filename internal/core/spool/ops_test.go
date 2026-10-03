@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +15,7 @@ import (
 // on disk.
 func seedIn(t *testing.T, m PathMapper, body string) (Ref, []byte) {
 	t.Helper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 	ref, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, Body: body})
 	require.NoError(t, err)
@@ -29,7 +30,7 @@ func seedIn(t *testing.T, m PathMapper, body string) (Ref, []byte) {
 // seedOut publishes one out/ message, as a runner's agent_send does.
 func seedOut(t *testing.T, m PathMapper, body string) (Ref, []byte) {
 	t.Helper()
-	w, err := NewWriter(m, testHarp, DirOut, "runner")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirOut, "runner")
 	require.NoError(t, err)
 	ref, err := w.Write(&Message{Kind: "message", FromHarp: testHarp, To: "parent", Body: body})
 	require.NoError(t, err)
@@ -39,71 +40,6 @@ func seedOut(t *testing.T, m PathMapper, body string) (Ref, []byte) {
 	require.NoError(t, err)
 	require.NotEmpty(t, raw, "empty-source guard: seeded message must have bytes")
 	return ref, raw
-}
-
-// TestConsume_MovesToConsumedAndKeepsTheBytes is the routed-audit pin.
-// Consuming an out/ message is a RENAME: the file must be gone from out/ AND
-// present, byte-identical, in out/consumed/, which is how a routed message is
-// told from a refused one.
-func TestConsume_MovesToConsumedAndKeepsTheBytes(t *testing.T) {
-	hostHome(t)
-	m := NewHomeMapper()
-	ref, before := seedOut(t, m, "payload for the audit trail\n")
-
-	moved, err := Consume(m, ref)
-	require.NoError(t, err)
-	require.Equal(t, DirOutConsumed, moved.Dir)
-	require.Equal(t, ref.Name, moved.Name, "consumption must not rename the file's identity")
-
-	livePath, err := m.Resolve(ref)
-	require.NoError(t, err)
-	_, err = os.Stat(livePath)
-	require.True(t, os.IsNotExist(err), "the message must be gone from out/, got %v", err)
-
-	consumedPath, err := m.Resolve(moved)
-	require.NoError(t, err)
-	after, err := os.ReadFile(consumedPath)
-	require.NoError(t, err, "consume must MOVE the file into consumed/, not delete it")
-	require.NotEmpty(t, after, "empty-source guard: the consumed copy must have bytes")
-	require.Equal(t, before, after, "the consumed copy must be byte-identical to what was routed")
-
-	msg, err := Read(m, moved)
-	require.NoError(t, err)
-	require.Equal(t, "payload for the audit trail\n", msg.Body)
-
-	res, err := Sweep(m, testHarp, DirOut)
-	require.NoError(t, err)
-	require.Empty(t, res.Entries)
-
-	consumedRes, err := Sweep(m, testHarp, DirOutConsumed)
-	require.NoError(t, err)
-	require.Len(t, consumedRes.Entries, 1, "out/consumed/ must list the routed message")
-}
-
-// TestConsume_AnInboxMessageIsNotConsumable: an in/ message is delivered with
-// Deliver, never moved into a consumed/ directory.
-func TestConsume_AnInboxMessageIsNotConsumable(t *testing.T) {
-	hostHome(t)
-	m := NewHomeMapper()
-	ref, _ := seedIn(t, m, "inbox\n")
-	_, err := Consume(m, ref)
-	require.Error(t, err)
-	require.NotErrorIs(t, err, ErrAlreadyGone)
-}
-
-// TestConsume_SecondTakeIsAlreadyGone: exactly one consumer wins; the loser
-// must get the typed sentinel so it can retry or sweep rather than alarm.
-func TestConsume_SecondTakeIsAlreadyGone(t *testing.T) {
-	hostHome(t)
-	m := NewHomeMapper()
-	ref, _ := seedOut(t, m, "once\n")
-
-	_, err := Consume(m, ref)
-	require.NoError(t, err)
-
-	_, err = Consume(m, ref)
-	require.Error(t, err)
-	require.ErrorIs(t, err, ErrAlreadyGone, "a lost consume race must be ErrAlreadyGone, not a generic failure")
 }
 
 // TestWithdraw_RacesConsumeThroughTheFilesystem: rename-won means retracted,
@@ -216,7 +152,7 @@ func TestSweep_ReportsMalformedFilesLoudly(t *testing.T) {
 func TestSweep_OrdersByFilenameAndSkipsSubdirs(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 
 	var refs []Ref

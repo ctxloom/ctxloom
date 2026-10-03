@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -27,7 +28,7 @@ import (
 // on it, so what is being asserted is the operation and not a race.
 func writeInSpool(t *testing.T, harp, kind, originID, body string) spool.Ref {
 	t.Helper()
-	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{
 		Kind: kind, FromHarp: UserSender, To: harp, OriginID: originID, Body: body,
@@ -403,7 +404,7 @@ func TestSpoolControl_PauseHoldsTurnsAndLeavesMailUnconsumed(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, newly, "the first pause is the one that installed the gate")
 
-	mailID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
+	mailID, _, err := c.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
 	require.NoError(t, err)
 
 	require.Never(t, func() bool { return countChatText(sp, 0, "work item while paused") > 0 },
@@ -461,7 +462,7 @@ func TestSpoolControl_PauseRefusesAnotherRunsId(t *testing.T) {
 	assert.Contains(t, resp.Err.Error(), "A9 correlation")
 
 	// And the refusal left the run RUNNING: mail still lands.
-	_, _, err = c.peerSend(ownerIdentity(), out.Harp, KindMessage, "still running", nil, "")
+	_, _, err = c.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindMessage, "still running", nil, "")
 	require.NoError(t, err)
 	awaitChatText(t, sp, 0, "still running")
 }

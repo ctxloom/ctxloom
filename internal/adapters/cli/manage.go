@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
@@ -111,7 +112,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	if err := checkEngineKnown(engineRequested, manageInstallEngine); err != nil {
 		return err
 	}
-	if err := checkInstallEngineApplies(ctxloomDirExists(appDir), engineRequested, manageInstallEngine); err != nil {
+	if err := checkInstallEngineApplies(ctxloomDirExists(afero.NewOsFs(), appDir), engineRequested, manageInstallEngine); err != nil {
 		return err
 	}
 
@@ -122,7 +123,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 			Engine           string `json:"engine,omitempty"`
 			Gitignore        string `json:"gitignore"`
 		}
-		exists := ctxloomDirExists(appDir)
+		exists := ctxloomDirExists(afero.NewOsFs(), appDir)
 		plan := manageInstallPlanResult{
 			CtxloomDir:       appDir,
 			CtxloomDirExists: exists,
@@ -138,7 +139,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	}
 
 	initialized := false
-	if !ctxloomDirExists(appDir) {
+	if !ctxloomDirExists(afero.NewOsFs(), appDir) {
 		if _, err := operations.InitializeProject(cmd.Context(), App().Engines(), operations.InitializeProjectRequest{
 			AppDir: appDir,
 			Engine: manageInstallEngine,
@@ -236,7 +237,7 @@ func checkInstallEngineApplies(dirExists, engineRequested bool, engine string) e
 // printInstallPlan lists the steps `manage install` would take without running them.
 func printInstallPlan(appDir, projectDir string) {
 	fmt.Println("manage install would:")
-	if ctxloomDirExists(appDir) {
+	if ctxloomDirExists(afero.NewOsFs(), appDir) {
 		fmt.Printf("  - reuse existing .ctxloom: %s\n", appDir)
 	} else {
 		fmt.Printf("  - scaffold .ctxloom: %s (engine: %s)\n", appDir, manageInstallEngine)

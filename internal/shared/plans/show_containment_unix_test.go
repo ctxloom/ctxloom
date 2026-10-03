@@ -16,9 +16,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
-// showFixture points HOME at a temp tree and returns the sessions root and one
-// harp directory inside it. Nothing here may touch the real ~/.ctxloom.
-func showFixture(t *testing.T) (root, harpDir string) {
+// showFixture points HOME at a temp tree and returns one session's recorded
+// output dir. Nothing here may touch the real ~/.ctxloom.
+func showFixture(t *testing.T) (root, outDir string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -30,9 +30,12 @@ func showFixture(t *testing.T) (root, harpDir string) {
 	require.True(t, strings.HasPrefix(root, home+string(filepath.Separator)),
 		"the sessions root did not follow HOME (%s); refusing to test against the real home", root)
 
-	harpDir = filepath.Join(root, "vital-deaf-stunt")
-	require.NoError(t, os.MkdirAll(harpDir, 0o755))
-	return root, harpDir
+	outDir = filepath.Join(home, "out", "vital-deaf-stunt")
+	require.NoError(t, os.MkdirAll(outDir, 0o755))
+	sidecar := filepath.Join(root, "vital-deaf-stunt", paths.SessionSidecarFileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
+	require.NoError(t, os.WriteFile(sidecar, []byte("project_dir: /work\noutput_dir: "+outDir+"\n"), 0o600))
+	return root, outDir
 }
 
 // TestShow_RefusesSymlinkOutOfTheSessionsDir pins the guarantee Show's doc
@@ -60,8 +63,8 @@ func TestShow_RefusesSymlinkOutOfTheSessionsDir(t *testing.T) {
 	require.Equal(t, secret, string(viaLink), "the fixture does not actually reach outside the root")
 
 	got, err := Show(link)
-	require.Error(t, err, "a symlink out of the sessions directory must be refused")
-	assert.ErrorContains(t, err, "outside the sessions directory")
+	require.Error(t, err, "a symlink out of every output dir must be refused")
+	assert.ErrorIs(t, err, ErrPlanOutsideOutputDirs)
 	assert.Empty(t, got, "no bytes of the target may be returned")
 }
 

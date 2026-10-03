@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,6 +26,7 @@ func TestHome_IsBuiltFromClaudesOwnConstants(t *testing.T) {
 	assert.Equal(t, ConfigDirEnv, home.Vars[0].Name)
 	assert.Equal(t, HomeLeaf, home.Vars[0].Subdir)
 	assert.NotNil(t, home.InstanceConfig, "claude generates its own instance config into a provisioned home")
+	assert.Equal(t, TranscriptsDirName, home.TranscriptStoreRel, "claude keeps its conversations under projects/ in its config dir")
 }
 
 // claude declares the token every agent runs on and the login the human's
@@ -46,7 +46,6 @@ func TestContainer_Declaration(t *testing.T) {
 	assert.NotEmpty(t, c.Install, "claude has an official npm installer")
 	assert.Equal(t, "claude --version", c.ValidateCommand)
 	assert.Equal(t, []string{ConfigDirName}, c.OverlayDirs)
-	assert.Equal(t, path.Join(ConfigDirName, TranscriptsDirName), c.TranscriptStoreRel)
 
 }
 

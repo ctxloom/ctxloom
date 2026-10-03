@@ -25,7 +25,7 @@ func seedDistilledEssence(t *testing.T, harp, body string) string {
 	dir, err := paths.HarpDir(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	essencePath, err := paths.HarpEssencePath(harp)
+	essencePath, err := harpEssencePath(t, harp)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(essencePath, []byte(body), 0o644))
 	return essencePath
@@ -110,6 +110,8 @@ func TestEmitSessionRows_FullJSON_IsStructuredAndUnpaged(t *testing.T) {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 
 	body := "## Summary\n\nShipped the essence_path restoration.\n"
 	seedDistilledEssence(t, entry.HarpName, body)
@@ -145,6 +147,8 @@ func TestEmitSessionRows_FullText_SkipsPagerWhenNotTTY(t *testing.T) {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 
 	body := "## Summary\n\nRoot-caused the flaky retry-backoff-overflow test.\n"
 	seedDistilledEssence(t, entry.HarpName, body)
@@ -175,6 +179,8 @@ func TestEmitSessionRows_QueryFull_MatchesAndCarriesBody(t *testing.T) {
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	hit, err := mgr.AssignHarp(dir, "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(hit.HarpName, t.TempDir())
 	require.NoError(t, err)
 
 	body := "## Summary\n\nRoot-caused the flaky retry-backoff-overflow test.\n"
@@ -250,6 +256,8 @@ func TestEmitSessionRows_FullMarkdown_TakesTheHumanBranchUnlikeEmit(t *testing.T
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	seedDistilledEssence(t, entry.HarpName, "## Summary\n\nmarkdown asymmetry.\n")
 

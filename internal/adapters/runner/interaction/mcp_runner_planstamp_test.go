@@ -25,18 +25,20 @@ func TestPlanCandidates_ReportsAnUnreadableSessionDir(t *testing.T) {
 	testsupport.Isolate(t)
 	const harp = "witty-plain-otter"
 
-	dir, err := paths.HarpDir(harp)
-	require.NoError(t, err)
-	// A regular FILE where the session directory belongs: ReadDir fails with
-	// ENOTDIR, standing in for any non-ENOENT read fault (permissions, a
+	// A regular FILE where the session's output dir belongs: ReadDir fails
+	// with ENOTDIR, standing in for any non-ENOENT read fault (permissions, a
 	// network-mount hiccup, a half-created dir).
-	require.NoError(t, os.MkdirAll(filepath.Dir(dir), 0o755))
+	dir := filepath.Join(t.TempDir(), "out")
 	require.NoError(t, os.WriteFile(dir, []byte("not a directory"), 0o644))
+	sidecar, err := paths.HarpSidecarPath(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
+	require.NoError(t, os.WriteFile(sidecar, []byte("project_dir: /p\noutput_dir: "+dir+"\n"), 0o600))
 
 	p := &artifactStamper{harp: harp}
 	got, err := p.planCandidates()
 	assert.Empty(t, got)
-	require.Error(t, err, "an unreadable session dir must not read as 'no plans to stamp'")
+	require.Error(t, err, "an unreadable output dir must not read as 'no plans to stamp'")
 	assert.Contains(t, err.Error(), dir, "the failure must name the directory")
 }
 

@@ -23,6 +23,7 @@ import (
 	"context"
 	"net"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -68,7 +69,7 @@ func (s *resumeSpawner) Resolve(_ context.Context, agentName string) (*coord.Spa
 }
 
 func (s *resumeSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend)
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend, filepath.Join(projectDir, ".test-output"))
 	if err != nil {
 		return "", err
 	}

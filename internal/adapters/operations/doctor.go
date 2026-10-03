@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -178,6 +179,8 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			}),
 			doctorCheckLegacyIndex(),
 			doctorCheckHarpDurability(),
+			doctorCheckLegacyLayout(),
+			doctorCheckSecretsStorage(os.Getenv),
 			doctorCheckSpoolBacklog(),
 			doctorCheckSpoolCounters(ctx),
 			doctorCheckTTYInjection(),
@@ -1571,11 +1574,11 @@ func doctorUnderDir(root, p string) bool {
 const doctorHarpDurabilityMaxNamed = 5
 
 // doctorCheckHarpDurability warns about authored artifacts sitting at a harp
-// directory's TOP LEVEL, where no paths.HarpMembers row classifies them —
-// neither under persist/ (mounted into containers, durable) nor under an
-// Ephemeral member. A containerized agent writing a design note there writes
-// into container-ephemeral space and loses it on exit. Nothing moves them;
-// the human does, and this check says where.
+// directory's TOP LEVEL, where no paths.HarpMembers row classifies them: the
+// session dir is machine state, and a readable output belongs in the
+// session's output dir. A containerized agent writing a design note there
+// writes into container-ephemeral space and loses it on exit. Nothing moves
+// them; the human does, and this check says where.
 //
 // The walk is two-level: the sessions root's OWN top level holds files (lock
 // files) alongside the harp directories, so the OUTER iteration skips
@@ -1617,8 +1620,73 @@ func doctorCheckHarpDurability() DoctorCheck {
 	}
 	list := doctorNamedList(flagged, doctorHarpDurabilityMaxNamed)
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf(
-		"%d authored file(s) sit in a harp directory's unclassified top level, which is neither %s/ (durable, mounted into containers) nor a disposable member: %s — move each under its session's %s/ directory, where a containerized run keeps it",
-		len(flagged), paths.PersistDirName, list, paths.PersistDirName)}
+		"%d authored file(s) sit in a harp directory's unclassified top level, which holds machine state only: %s — move each to its session's output dir (output_dir in the session's %s), where a human reads it and a containerized run keeps it",
+		len(flagged), list, paths.SessionSidecarFileName)}
+}
+
+// legacyLayoutDirs are the session-dir members an earlier layout wrote and
+// the current one never reads; legacyLayoutLinkPrefix names that layout's
+// per-vendor-log links at the session dir's top. Spelled here, and only here,
+// because they name what no longer exists — the paths table cannot carry
+// them.
+var legacyLayoutDirs = []string{"persist", "ephemeral", "segments"}
+
+const legacyLayoutLinkPrefix = "engine-transcript-"
+
+// doctorCheckLegacyLayout names what an earlier session layout left in
+// session dirs. It is inert — no reader or writer touches it, and a session is
+// not migrated — so it is reported, never a warning, for a human to delete.
+func doctorCheckLegacyLayout() DoctorCheck {
+	const marker = "DOCTOR-CHECK-LEGACY-LAYOUT-g2"
+	root, err := paths.HomeSessionsDir()
+	if err != nil {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "cannot resolve sessions dir: " + err.Error()}
+	}
+	harps, err := os.ReadDir(root)
+	if err != nil && !os.IsNotExist(err) {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "cannot read sessions dir: " + err.Error()}
+	}
+	var found []string
+	for _, h := range harps {
+		if h.IsDir() {
+			found = append(found, legacyLayoutEntries(filepath.Join(root, h.Name()), h.Name())...)
+		}
+	}
+	if len(found) == 0 {
+		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no session dir holds anything an earlier session layout left"}
+	}
+	return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: fmt.Sprintf(
+		"%d entr(ies) an earlier session layout left are inert — nothing reads or writes them, and sessions are not migrated; delete them when you no longer want them: %s",
+		len(found), doctorNamedList(found, doctorHarpDurabilityMaxNamed))}
+}
+
+// legacyLayoutEntries is harp's old-layout entries, as harp/<name>.
+func legacyLayoutEntries(dir, harp string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		name := e.Name()
+		if (e.IsDir() && slices.Contains(legacyLayoutDirs, name)) || strings.HasPrefix(name, legacyLayoutLinkPrefix) {
+			out = append(out, harp+"/"+name)
+		}
+	}
+	return out
+}
+
+// doctorCheckSecretsStorage reports where a container run's secrets are
+// written: the per-user tmpfs when the platform has one, else owner-only files
+// on disk under each session's scratch dir — allowed, but said, here and once
+// at launch (isolation.SecretsOnDiskNotice).
+func doctorCheckSecretsStorage(getenv func(string) string) DoctorCheck {
+	const marker = "DOCTOR-CHECK-SECRETS-STORAGE-k1"
+	if dir, ok := isolation.SecretsRuntimeDir(getenv); ok {
+		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "container run secrets are written to the per-user tmpfs " + dir}
+	}
+	where := filepath.Join("~", paths.AppDirName, paths.SessionsDir, "<harp>", paths.ScratchDirName)
+	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: isolation.SecretsOnDiskNotice(where)}
 }
 
 // doctorNamedList sorts items in place and joins at most maxNamed of them,

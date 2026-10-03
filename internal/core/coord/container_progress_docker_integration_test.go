@@ -48,11 +48,11 @@
 // require.NoError on the stall await to require.Error and running them (exit 1);
 // the verdicts they produce read:
 //
-//	transcript .../sessions/<harp>/persist/transcript.jsonl: state=stalled present=true records=1 max_seq=0 seq_pinned=false
+//	transcript .../sessions/<harp>/transcripts/transcript.jsonl: state=stalled present=true records=1 max_seq=0 seq_pinned=false
 //	  entry types: user (assistant x0, entries x1)
 //	  reason: quiet for 6s with zero assistant turns in 1 records (entry types: user) — the engine has never produced a turn
 //
-//	transcript .../sessions/<harp>/persist/transcript.jsonl: state=stalled present=false records=0 max_seq=0 seq_pinned=false
+//	transcript .../sessions/<harp>/transcripts/transcript.jsonl: state=stalled present=false records=0 max_seq=0 seq_pinned=false
 //	  reason: no canonical transcript exists 3s after launch — the engine has emitted zero events ...
 //
 //	just test-docker-integration
@@ -64,6 +64,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -139,7 +140,7 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*coord.S
 }
 
 func (s *progressSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend)
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend, filepath.Join(projectDir, ".test-output"))
 	if err != nil {
 		return "", err
 	}

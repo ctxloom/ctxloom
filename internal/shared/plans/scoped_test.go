@@ -9,23 +9,28 @@ import (
 )
 
 // writeSessionSidecars seeds one session per harp under ~/.ctxloom/sessions,
-// each bound to a project dir by its sidecar — the join `plan list` scoping
-// rides on, in the store's live on-disk shape (a directory whose sidecar
-// carries project_dir; sessions.IsSessionDir is the predicate the listing
-// answers through).
+// each bound to a project dir and an output dir by its sidecar — the join
+// `plan list` scoping rides on, in the store's live on-disk shape. An empty
+// project dir records none: the session is unattributable.
 func writeSessionSidecars(t *testing.T, home string, harpToDir map[string]string) {
 	t.Helper()
 	for harp, dir := range harpToDir {
-		mustWrite(t, filepath.Join(home, ".ctxloom", "sessions", harp, paths.SessionSidecarFileName),
-			"project_dir: "+dir+"\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
+		body := "backend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\noutput_dir: " + outputDirIn(home, harp) + "\n"
+		if dir != "" {
+			body = "project_dir: " + dir + "\n" + body
+		}
+		mustWrite(t, filepath.Join(home, ".ctxloom", "sessions", harp, paths.SessionSidecarFileName), body)
 	}
 }
 
-// seedPlans lays down one plan per harp under the isolated home's sessions dir.
+// outputDirIn is the fixture's output dir for harp.
+func outputDirIn(home, harp string) string { return filepath.Join(home, "out", harp) }
+
+// seedPlans lays down one plan per harp in its output dir.
 func seedPlans(t *testing.T, home string, harps ...string) {
 	t.Helper()
 	for _, h := range harps {
-		mustWrite(t, filepath.Join(home, ".ctxloom", "sessions", h, "design.plan.md"),
+		mustWrite(t, filepath.Join(outputDirIn(home, h), "design.plan.md"),
 			"---\ntitle: "+h+" plan\n---\nbody")
 	}
 }
@@ -61,12 +66,12 @@ func TestListHomeScoped_ReturnsOnlyThisProject(t *testing.T) {
 	}
 }
 
-// A plan whose session has no index entry must NEVER silently disappear: it
+// A plan whose session records no project must NEVER silently disappear: it
 // comes back in the unattributed bucket so the caller can show it marked.
 func TestListHomeScoped_UnattributedPlansSurvive(t *testing.T) {
 	home := testsupport.Isolate(t)
 	seedPlans(t, home, "mine", "orphan")
-	writeSessionSidecars(t, home, map[string]string{"mine": "/work/alpha"})
+	writeSessionSidecars(t, home, map[string]string{"mine": "/work/alpha", "orphan": ""})
 
 	matched, unattributed, err := ListHomeScoped("/work/alpha")
 	if err != nil {

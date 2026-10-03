@@ -14,7 +14,8 @@ Destroy a finished session's recorded conversation, keeping its essence
 ### Synopsis
 
 Destroys the machine-written bulk under a harp's directory —
-transcript.jsonl and everything under persist/transcripts/ — and nothing
+everything under transcripts/ (the canonical transcript.jsonl and its
+rotation segments) and native/ (the engine's own history) — and nothing
 else. The distilled essence, the index entry and every authored file stay.
 
 Without --yes this only reports; nothing on disk or in the session index

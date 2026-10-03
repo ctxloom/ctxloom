@@ -404,7 +404,7 @@ func TestSpoolControl_PauseHoldsTurnsAndLeavesMailUnconsumed(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, newly, "the first pause is the one that installed the gate")
 
-	mailID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
+	mailID, _, err := c.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
 	require.NoError(t, err)
 
 	require.Never(t, func() bool { return countChatText(sp, 0, "work item while paused") > 0 },
@@ -462,7 +462,7 @@ func TestSpoolControl_PauseRefusesAnotherRunsId(t *testing.T) {
 	assert.Contains(t, resp.Err.Error(), "A9 correlation")
 
 	// And the refusal left the run RUNNING: mail still lands.
-	_, _, err = c.peerSend(ownerIdentity(), out.Harp, KindMessage, "still running", nil, "")
+	_, _, err = c.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindMessage, "still running", nil, "")
 	require.NoError(t, err)
 	awaitChatText(t, sp, 0, "still running")
 }

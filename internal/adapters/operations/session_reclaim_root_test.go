@@ -44,7 +44,7 @@ func TestSweepReclaim_RemovesTheSessionsUnheldCoordinatorRoot(t *testing.T) {
 	res := srReclaim(t, sessions.ReapPolicy{Cutoff: srCutoff(), Apply: true})
 
 	assert.Equal(t, 1, res.Reclaimed)
-	srAssertGone(t, sessionDir, paths.EphemeralDirName)
+	srAssertGone(t, sessionDir, paths.ScratchDirName)
 	assert.NoDirExists(t, rootDir, "the reaped session's coordinator root goes with it")
 }
 
@@ -63,6 +63,6 @@ func TestSweepReclaim_LeavesARootALiveProcessHolds(t *testing.T) {
 	res := srReclaim(t, sessions.ReapPolicy{Cutoff: srCutoff(), Apply: true})
 
 	assert.Equal(t, 1, res.Reclaimed, "a held root does not spare the session's own data")
-	srAssertGone(t, sessionDir, paths.EphemeralDirName)
+	srAssertGone(t, sessionDir, paths.ScratchDirName)
 	assert.FileExists(t, filepath.Join(rootDir, "runs.jsonl"), "a root a live process holds is never removed")
 }

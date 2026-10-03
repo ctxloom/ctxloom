@@ -114,6 +114,8 @@ func TestLoadOrDistillSession_DistillsOnceThenServesTheCache(t *testing.T) {
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 	harp := entry.HarpName
 
 	const vendorSessionID = "12b623a9-b883-4ded-a058-73aba1d1c53c"
@@ -169,11 +171,10 @@ func TestDistillSessionOnce_ReadsBackUnderTheKeyCompactWrote(t *testing.T) {
 	projectDir := t.TempDir()
 	appDir := filepath.Join(projectDir, ".ctxloom")
 
-	// A rotation's essence is filed under its harp's segments dir, which is
-	// also where the read-back looks.
+	// A rotation's essence is filed under its session's output dir's
+	// segments/, which is also where the read-back looks.
 	const harp = "shut-hoary-yahoo"
-	sessionsDir, err := paths.ResolveHarpSegmentsDir(harp)
-	require.NoError(t, err)
+	sessionsDir := filepath.Join(testOutputDir(t, harp), paths.SegmentsDirName)
 	require.NoError(t, os.MkdirAll(sessionsDir, 0o755))
 
 	// The compactor resolves this session to a key of its OWN choosing, which

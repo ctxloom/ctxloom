@@ -404,7 +404,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		essence := fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-01-01T00:00:00Z\n---\n\nSeeded essence for %s.\n", harp, harp)
-		return w.env.WriteHomeFile(".ctxloom/sessions/"+harp+"/essence.md", essence)
+		return writeOutputFile(w, harp, paths.EssenceFileName, essence)
 	})
 
 	// A git remote serving a ctxloom layout over file://, registered with the

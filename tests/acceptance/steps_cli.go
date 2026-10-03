@@ -140,6 +140,24 @@ func registerJSONOutputSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("JSON array %q has no object whose %q is %q; stdout:\n%s", arrayKey, field, want, w.env.LastStdout())
 		})
 
+	// The absence form: no object carries want in field. A substring "does
+	// not contain" over the whole output cannot say this when another field
+	// legitimately holds the same text (a path named after the value).
+	ctx.Step(`^the JSON output array "([^"]*)" contains no object whose "([^"]*)" is "([^"]*)"$`,
+		func(c context.Context, arrayKey, field, unwanted string) error {
+			w := worldFrom(c)
+			entries, err := lastOutputJSONArray(w, arrayKey)
+			if err != nil {
+				return err
+			}
+			for _, e := range entries {
+				if obj, ok := e.(map[string]any); ok && fmt.Sprintf("%v", obj[field]) == unwanted {
+					return fmt.Errorf("JSON array %q has an object whose %q is %q; stdout:\n%s", arrayKey, field, unwanted, w.env.LastStdout())
+				}
+			}
+			return nil
+		})
+
 	// Two fields of the SAME object, which one-field membership cannot express:
 	// "a check named X is present" and "a check reporting ok is present" are
 	// both satisfied by a report where X warns and something else is ok. Where

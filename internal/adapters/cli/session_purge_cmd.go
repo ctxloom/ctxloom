@@ -69,7 +69,8 @@ var sessionTranscriptPurgeCmd = &cobra.Command{
 	Use:   "purge <harp-name>",
 	Short: "Destroy a finished session's recorded conversation, keeping its essence",
 	Long: `Destroys the machine-written bulk under a harp's directory —
-transcript.jsonl and everything under persist/transcripts/ — and nothing
+everything under transcripts/ (the canonical transcript.jsonl and its
+rotation segments) and native/ (the engine's own history) — and nothing
 else. The distilled essence, the index entry and every authored file stay.
 
 Without --yes this only reports; nothing on disk or in the session index
@@ -130,7 +131,7 @@ var sessionPurgeCmd = &cobra.Command{
 	Short: "Empty a finished session: its transcript, its artifacts and its scratch worktrees",
 	Long: `Sweeps all three of a session's destroyable populations at once —
 the recorded conversation, the derived essence, and the scratch git
-worktrees the session left in its ephemeral directory. Authored files are
+worktrees the session left in its work/ directory. Authored files are
 never destroyed; they are named in the report instead.
 
 Without --yes this only reports; nothing on disk, in git, or in the session

@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,7 +43,7 @@ func TestEncodeReach_DecodeReach_RoundTrip(t *testing.T) {
 	env := EncodeReach(reach, "run-7")
 	require.Len(t, env, 3, "the reach-back trio and nothing else")
 
-	got, runID, err := DecodeReach(lookup(env))
+	got, runID, err := DecodeReach(lookup(env), noFiles)
 	require.NoError(t, err)
 	assert.Equal(t, reach, got)
 	assert.Equal(t, "run-7", runID)
@@ -51,11 +52,35 @@ func TestEncodeReach_DecodeReach_RoundTrip(t *testing.T) {
 func TestDecodeReach_RefusesAMissingCredential(t *testing.T) {
 	env := EncodeReach(Endpoint{URL: "http://127.0.0.1:4321/mcp", Credential: "deadbeef"}, "run-7")
 	delete(env, EnvCoordCred)
-	_, _, err := DecodeReach(lookup(env))
+	_, _, err := DecodeReach(lookup(env), noFiles)
 	require.ErrorIs(t, err, ErrNoReachBack)
 
-	_, _, err = DecodeReach(lookup(map[string]string{}))
+	_, _, err = DecodeReach(lookup(map[string]string{}), noFiles)
 	require.ErrorIs(t, err, ErrNoReachBack, "an empty environment has no reach-back")
+}
+
+// noFiles is a readFile that holds nothing.
+func noFiles(name string) ([]byte, error) { return nil, os.ErrNotExist }
+
+// A container runner reads its credential from the secret file the env names
+// instead of from its own environment.
+func TestDecodeReach_ReadsTheCredentialFromTheFileTheEnvNames(t *testing.T) {
+	env := EncodeReach(Endpoint{URL: "http://h:1/mcp", Credential: "deadbeef"}, "run-7")
+	delete(env, EnvCoordCred)
+	env[EnvCoordCredFile] = "/run/ctxloom/secrets/CTXLOOM_COORD_CRED"
+	read := func(name string) ([]byte, error) {
+		if name == env[EnvCoordCredFile] {
+			return []byte("deadbeef"), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	got, runID, err := DecodeReach(lookup(env), read)
+	require.NoError(t, err)
+	assert.Equal(t, Endpoint{URL: "http://h:1/mcp", Credential: "deadbeef"}, got)
+	assert.Equal(t, "run-7", runID)
+
+	_, _, err = DecodeReach(lookup(env), noFiles)
+	assert.ErrorIs(t, err, ErrNoReachBack, "a named file that cannot be read is no credential")
 }
 
 func TestHookEnv_DecodeHookEnv_RoundTrip(t *testing.T) {

@@ -13,7 +13,7 @@ import (
 
 // TestSidecar_IsPrivateToTheOwner: neither session.yaml nor the session
 // directory may be readable by another local user (sidecarFileMode). The directory usually
-// exists BEFORE the first sidecar write (launch creates persist/ and friends
+// exists BEFORE the first sidecar write (launch creates its members
 // under it), so the test pre-creates it world-readable: tightening only on
 // creation would leave the common path open.
 func TestSidecar_IsPrivateToTheOwner(t *testing.T) {

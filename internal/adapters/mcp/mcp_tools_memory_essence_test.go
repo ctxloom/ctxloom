@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -22,7 +21,9 @@ func bindHarpForEssence(t *testing.T, projectDir string) (string, string) {
 	require.NoError(t, err)
 	e, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
-	p, err := paths.HarpEssencePath(e.HarpName)
+	_, err = mgr.RecordOutputDir(e.HarpName, t.TempDir())
+	require.NoError(t, err)
+	p, err := harpEssencePath(t, e.HarpName)
 	require.NoError(t, err)
 	return e.HarpName, p
 }

@@ -13,9 +13,9 @@
 // WHY THE FIXTURES ARE THIS DETAILED. A close-out flow is defined almost
 // entirely by what it REFUSES to do, and a refusal cannot be tested against a
 // fixture that has nothing to refuse. So these steps build the real debris:
-// genuine `git worktree add` checkouts under a harp's own ephemeral dir with
+// genuine `git worktree add` checkouts under a harp's own work/ dir with
 // real sibling `.owner.pid` markers (the exact layout
-// isolation.findEphemeralWorktrees scans and isolation.ReapOrphanedWorktrees
+// isolation.findWorkWorktrees scans and isolation.ReapOrphanedWorktrees
 // reasons about), foreign long-lived worktrees outside the sessions root,
 // uncommitted WIP, harp directories carrying machine-written bulk beside
 // human-authored plan files. Every "spared", "skipped" and "preserved"
@@ -43,6 +43,7 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -56,11 +57,19 @@ import (
 const (
 	// Markers. Each names a CONTENT CLASS from FLOWS-UNIFIED §5.4, so a purge
 	// assertion says which class survived rather than which file did.
-	j001300BulkMarker     = "J001300-MACHINE-WRITTEN-BULK"
-	j001300EssenceMarker  = "J001300-DERIVED-ESSENCE"
+	j001300BulkMarker    = "J001300-MACHINE-WRITTEN-BULK"
+	j001300EssenceMarker = "J001300-DERIVED-ESSENCE"
+	// j001300TranscriptRel and j001300NativeRel are the session-dir paths of
+	// the machine-written bulk a seeded session carries: the canonical
+	// transcript and one native-history log.
+	j001300TranscriptRel  = paths.TranscriptsDirName + "/" + paths.CanonicalTranscriptFileName
+	j001300NativeRel      = paths.NativeDirName + "/claude/projects/-proj/turns.jsonl"
 	j001300AuthoredMarker = "J001300-HUMAN-AUTHORED-PLAN"
 	j001300WIPMarker      = "J001300-UNCOMMITTED-WIP"
 )
+
+// j001300BulkRels is every machine-written bulk file a seeded session carries.
+var j001300BulkRels = []string{j001300TranscriptRel, j001300NativeRel}
 
 // j001300Harp records one seeded harp directory and what was planted in it.
 type j001300Harp struct {
@@ -110,38 +119,36 @@ func j001300Setup(w *World) error {
 	return nil
 }
 
-// j001300SeedHarp plants one harp directory carrying every content class §5.4
+// j001300SeedHarp plants one session carrying every content class §5.4
 // inventories, so a purge scenario can assert per-class outcomes:
 //
-//	transcript.jsonl        machine-written bulk  — purgeable
-//	persist/…               machine-written bulk  — purgeable
-//	essence.md              derived               — preserved by default
-//	<harp>.plan.md          HUMAN-AUTHORED        — never silently destroyed
+//	transcripts/transcript.jsonl   machine-written bulk  — purgeable
+//	native/<leaf>/…                machine-written bulk  — purgeable
+//	<output dir>/essence.md        derived               — only an explicit purge takes it
+//	<harp>.plan.md (session dir)   HUMAN-AUTHORED        — never silently destroyed
 //
-// The authored file is written at the harp dir's TOP LEVEL on purpose: that is
-// exactly where the plan-stamping convention puts it, and exactly the
-// unclassified middle boundary B13 names — neither persist/ (mounted into
-// containers) nor ephemeral/ (rightly excluded).
+// The authored file is written at the session dir's TOP LEVEL on purpose: no
+// table row classifies it, the session dir holds machine state only, and a
+// plan belongs in the output dir — the boundary B13 names.
 func j001300SeedHarp(w *World, harp string, essence, authored bool) error {
 	st := j001300Of(w)
 	dir := harpDirIn(w, harp)
-	for _, sub := range []string{"persist/transcripts", "ephemeral"} {
-		if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(sub)), 0o755); err != nil {
+	for _, sub := range j001300BulkRels {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, filepath.FromSlash(sub))), 0o755); err != nil {
 			return fmt.Errorf("create %s/%s: %w", harp, sub, err)
 		}
 	}
 	// Machine-written bulk, deliberately large enough that "bytes freed" is a
 	// meaningful number rather than a rounding artifact.
 	bulk := strings.Repeat(`{"role":"assistant","content":"`+j001300BulkMarker+`"}`+"\n", 200)
-	if err := os.WriteFile(filepath.Join(dir, "transcript.jsonl"), []byte(bulk), 0o644); err != nil {
-		return fmt.Errorf("write %s transcript: %w", harp, err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "persist", "transcripts", "turns.jsonl"), []byte(bulk), 0o644); err != nil {
-		return fmt.Errorf("write %s persisted transcript: %w", harp, err)
+	for _, rel := range j001300BulkRels {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(rel)), []byte(bulk), 0o644); err != nil {
+			return fmt.Errorf("write %s %s: %w", harp, rel, err)
+		}
 	}
 	if essence {
 		body := fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-01-01T00:00:00Z\n---\n\n%s for %s.\n", harp, j001300EssenceMarker, harp)
-		if err := os.WriteFile(filepath.Join(dir, "essence.md"), []byte(body), 0o644); err != nil {
+		if err := writeOutputFile(w, harp, paths.EssenceFileName, body); err != nil {
 			return fmt.Errorf("write %s essence: %w", harp, err)
 		}
 	}
@@ -171,7 +178,7 @@ func j001300WriteIndex(w *World) error {
 			Backend:        "claude-code",
 			StartedAt:      "2026-01-01T00:00:00Z",
 			EndedAt:        "2026-01-02T00:00:00Z",
-			TranscriptPath: filepath.Join(harpDirIn(w, name), "transcript.jsonl"),
+			TranscriptPath: filepath.Join(harpDirIn(w, name), filepath.FromSlash(j001300TranscriptRel)),
 			Origin:         st.harps[name].origin,
 		}); err != nil {
 			return err
@@ -389,7 +396,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the checks warn that the design notes sit in the harp directory's unclassified top level$`, func(c context.Context) error {
 		w := worldFrom(c)
 		return j001300Answered(w, w.env.LastStdout(), "doctor's harp-durability check (B13)",
-			".plan.md", "persist")
+			".plan.md", "output dir")
 	})
 
 	// --- session worktrees --------------------------------------------------
@@ -514,7 +521,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		}
 		st := j001300Of(w)
 		for _, h := range st.harps {
-			for _, rel := range []string{"transcript.jsonl", "persist/transcripts/turns.jsonl"} {
+			for _, rel := range j001300BulkRels {
 				p := filepath.Join(h.dir, filepath.FromSlash(rel))
 				if _, err := os.Stat(p); err != nil {
 					return fmt.Errorf("%s was destroyed by an invocation that only reported (exit %d). "+
@@ -532,7 +539,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		if !ok {
 			return fmt.Errorf("harp %q was never seeded", harp)
 		}
-		for _, rel := range []string{"transcript.jsonl", "persist/transcripts/turns.jsonl"} {
+		for _, rel := range j001300BulkRels {
 			p := filepath.Join(h.dir, filepath.FromSlash(rel))
 			if _, err := os.Stat(p); err == nil {
 				return fmt.Errorf("%s survived a purge that reported success (exit %d) — a purge that frees nothing while "+
@@ -543,8 +550,8 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// The sweep covers BOTH file populations, so the essence goes with the
-	// bulk. The index entry is what does not: a purged session stays listed,
+	// Emptying a session (`session purge`) covers BOTH file populations, so
+	// the essence in its output dir goes with the bulk. The index entry is what does not: a purged session stays listed,
 	// marked purged, because a session that vanishes from the index is
 	// indistinguishable from one that never existed. Asserting the two halves
 	// in one step keeps them from being read as alternatives — a run that
@@ -556,7 +563,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 			if !h.essence {
 				continue
 			}
-			p := filepath.Join(h.dir, "essence.md")
+			p := filepath.Join(outputDirFor(w, h.name), paths.EssenceFileName)
 			if _, err := os.Stat(p); err == nil {
 				return fmt.Errorf("the distilled essence of %s survived a sweep that reported success (exit %d). "+
 					"Emptying a session covers every population ctxloom wrote into it, and an essence left standing means the "+
@@ -747,7 +754,7 @@ func j001300BulkIntact(w *World, name string) error {
 	if !ok {
 		return fmt.Errorf("harp %q was never seeded", name)
 	}
-	for _, rel := range []string{"transcript.jsonl", "persist/transcripts/turns.jsonl"} {
+	for _, rel := range j001300BulkRels {
 		body, err := os.ReadFile(filepath.Join(h.dir, filepath.FromSlash(rel)))
 		if err != nil || !strings.Contains(string(body), j001300BulkMarker) {
 			return fmt.Errorf("%s's %s was destroyed or rewritten by a sweep that should have left it whole (exit %d). Output:\n%s",

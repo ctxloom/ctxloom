@@ -17,7 +17,7 @@ This works in any session started with `ctxloom run`, because every such session
 
 ## Where the transcript comes from
 
-ctxloom keeps one canonical, engine-agnostic transcript per session, at `~/.ctxloom/sessions/<harp>/persist/transcript.jsonl`. See [docs/transcript-schema.md](https://github.com/ctxloom/ctxloom/blob/main/docs/transcript-schema.md) for the schema. How it gets filled depends on how the engine was driven:
+ctxloom keeps one canonical, engine-agnostic transcript per session, at `~/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl`. See [docs/transcript-schema.md](https://github.com/ctxloom/ctxloom/blob/main/docs/transcript-schema.md) for the schema. How it gets filled depends on how the engine was driven:
 
 - An interactive `ctxloom run` drives Claude Code's own terminal UI. ctxloom imports Claude Code's JSONL transcript into the canonical one when the session exits, and `recover_session` runs the same import mid-session. The reader is version-scoped: `ctxloom doctor` reports which reader your installed Claude Code version selects, and a transcript in a format no reader covers is refused rather than guessed at.
 - A structured session, such as a child launched with `agent_run`, streams through ctxloom's own process, and every message, tool call and tool result is recorded as it happens.
@@ -83,14 +83,23 @@ The distilling model reads the transcript from disk, not whatever fits in your l
 
 ## Storage
 
-Each session is a directory under your home, keyed by its harp name:
+Each session keeps its machine state in a directory under your home, keyed by
+its harp name, and its readable outputs in an output dir under your Documents
+folder (`<Documents>/ctxloom/<project>/<harp>/`, or wherever the `output_dir`
+config key says):
 
 ```
 ~/.ctxloom/sessions/<harp>/
-├── session.yaml               # the session record: project, engine, bound session ids
-├── essence.md                 # the distilled essence, once something asks for one
-└── persist/transcript.jsonl   # the canonical transcript
+├── session.yaml                    # the session record: project, engine, bound session ids, output dir
+└── transcripts/transcript.jsonl    # the canonical transcript
+
+<Documents>/ctxloom/<project>/<harp>/
+├── essence.md                      # the distilled essence, once something asks for one
+└── *.plan.md                       # the session's plans
 ```
+
+ctxloom never deletes the output dir in any sweep or clean; only
+`ctxloom session artifacts purge` removes the essence there.
 
 `ctxloom session show <harp>` prints the essence.
 
@@ -161,5 +170,5 @@ ctxloom session purge <harp> --yes        # Empty a session, keep it listed
 
 ### A session has no essence
 
-- Check `~/.ctxloom/sessions/<harp>/essence.md`.
+- Check `essence.md` in the session's output dir (`<Documents>/ctxloom/<project>/<harp>/` by default).
 - Distill it with `ctxloom session distill <harp>`. Sessions have no essence until something asks for one.

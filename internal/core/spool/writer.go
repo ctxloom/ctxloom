@@ -254,10 +254,10 @@ func (w *Writer) Write(msg *Message) (Ref, error) {
 	}
 	name := Name{Nanos: now().UTC().UnixNano(), Seq: w.seq, Writer: w.id}
 	ref := Ref{Harp: w.harp, Dir: w.dir, Name: name.String()}
-	final, err := w.mapper.Resolve(ref)
-	if err != nil {
-		return Ref{}, err
-	}
+	// Named under the root resolved at construction, as the staging file is:
+	// resolving again here would follow $HOME as it is NOW, and a write that
+	// outlives its owner's teardown would land in another tree.
+	final := filepath.Join(w.root, filepath.FromSlash(string(w.dir)), ref.Name)
 
 	if msg.Created.IsZero() {
 		msg.Created = time.Unix(0, name.Nanos).UTC()

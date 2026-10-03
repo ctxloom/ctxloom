@@ -239,12 +239,11 @@ type assertErr string
 
 func (e assertErr) Error() string { return string(e) }
 
-// TestWorktree_ScratchRelocatesIntoHarpEphemeral: a run that carries a session
-// harp homes the per-agent scratch dirs (the checkout and the toolchain temp)
-// under the session's ephemeral/ dir — the §6d layout: regenerable state in
-// one inspectable per-session place — instead of the OS temp dir. The no-harp
-// case keeps the temp dir (pinned by TestWorktree_PrepareCreatesWorktree).
-func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
+// TestWorktree_CheckoutAndScratchLiveInTheSessionDir: with a harp, the
+// per-agent checkout is under the session's work/ dir (it can hold the only
+// copy of an agent's work) and the toolchain scratch under its scratch/ dir
+// (removed with the run) — never the OS temp dir.
+func TestWorktree_CheckoutAndScratchLiveInTheSessionDir(t *testing.T) {
 	home := testsupport.Isolate(t)
 	f := &git.Fake{CommonDirValue: t.TempDir()}
 
@@ -254,20 +253,21 @@ func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ws.Cleanup() })
 
-	eph := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "ephemeral")
-	assert.True(t, strings.HasPrefix(ws.Dir(), eph+string(os.PathSeparator)),
-		"checkout %q lives under the session ephemeral dir", ws.Dir())
+	sessionDir := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter")
+	work := filepath.Join(sessionDir, "work")
+	assert.True(t, strings.HasPrefix(ws.Dir(), work+string(os.PathSeparator)),
+		"checkout %q lives under the session work dir", ws.Dir())
 
 	env := workspaceEnv(ws)
 	require.NotNil(t, env)
 
-	// spawner-env: the toolchain scratch dir (TMPDIR/GOTMPDIR) is the second
-	// per-agent scratch resource homed under the session ephemeral dir — NOT
-	// the OS temp dir, which is the whole point (the shared /tmp is what
-	// corrupted concurrent agents in the first place).
+	// spawner-env: the toolchain scratch dir (TMPDIR/GOTMPDIR) is homed under
+	// the session scratch dir — NOT the OS temp dir, which is the whole point
+	// (the shared /tmp is what corrupted concurrent agents in the first place).
+	scratch := filepath.Join(sessionDir, "scratch")
 	require.NotEmpty(t, env["TMPDIR"])
-	assert.True(t, strings.HasPrefix(env["TMPDIR"], eph+string(os.PathSeparator)),
-		"scratch dir %q lives under the session ephemeral dir, not the OS temp dir", env["TMPDIR"])
+	assert.True(t, strings.HasPrefix(env["TMPDIR"], scratch+string(os.PathSeparator)),
+		"scratch dir %q lives under the session scratch dir, not the OS temp dir", env["TMPDIR"])
 }
 
 // --- Toolchain/VCS scoping (spawner-env) ------------------------------------
@@ -433,7 +433,7 @@ func TestWorktree_PanicRecoveryPrunesRegistration(t *testing.T) {
 // `git worktree list --porcelain` reports every path REALPATH-RESOLVED, while
 // the target teardown is given is whatever scratchBase built — os.TempDir() on
 // macOS is /var/folders/… behind the /var → /private/var symlink, and a
-// symlinked HOME does the same to the session ephemeral dir. Matching by raw
+// symlinked HOME does the same to the session work dir. Matching by raw
 // string prefix then finds nothing nested, so the inner-first removal never
 // happens.
 func TestNestedUnder_MatchesRealpathResolvedPaths(t *testing.T) {
@@ -572,7 +572,7 @@ func TestWorktreeCleanup_NoResourceStrandedByTheDirGuard(t *testing.T) {
 // uniqueness token ride through unchanged.
 func TestWorktreeBranchName(t *testing.T) {
 	for _, tc := range []struct{ dir, want string }{
-		{"/sess/ephemeral/ctxloom-wt-member-a-0a1b2c", "ctxloom/member-a-0a1b2c"},
+		{"/sess/work/ctxloom-wt-member-a-0a1b2c", "ctxloom/member-a-0a1b2c"},
 		{"/tmp/ctxloom-wt-developer-93f8-ffff", "ctxloom/developer-93f8-ffff"},
 		{"/tmp/ctxloom-wt-agent-deadbeef", "ctxloom/agent-deadbeef"},
 	} {

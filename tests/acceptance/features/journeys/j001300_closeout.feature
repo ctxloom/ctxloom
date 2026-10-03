@@ -32,7 +32,7 @@ Feature: The close-out — the end of a workstream
   # NOTE ON WHAT THE FIXTURES BUILD. A close-out flow is defined almost
   # entirely by what it REFUSES to do, and a refusal cannot be tested against a
   # fixture with nothing to refuse. So these scenarios build the real debris:
-  # genuine `git worktree add` checkouts inside a harp's own ephemeral
+  # genuine `git worktree add` checkouts inside a harp's own work/
   # directory beside real session liveness locks, foreign long-lived worktrees
   # outside the sessions root, uncommitted work, and harp directories carrying
   # machine-written bulk beside human-authored plan files. Every "spared",
@@ -94,20 +94,17 @@ Feature: The close-out — the end of a workstream
     When I run "ctxloom doctor"
     Then the checks name the foreign worktree, that it is unmerged and dirty, and the exact commands to remove it
 
-  # doctor check 4 (B13, the harp-directory durability contract). Agent-authored
-  # artifacts land at the harp directory's TOP LEVEL — neither `persist/`
-  # (mounted into containers) nor `ephemeral/` (rightly excluded; it holds the
-  # scratch worktrees). An unclassified middle with no declared durability, and
-  # the plan-stamping convention writes directly into it. A containerized agent
-  # writing a design note into its own session directory writes into
-  # container-ephemeral space and loses it on exit.
+  # doctor check 4 (B13, the session-dir durability contract). The session dir
+  # holds machine state only, classified row by row; readable outputs belong in
+  # the session's output dir. An authored file at the session dir's TOP LEVEL
+  # is classified by no row: a containerized agent writing a design note there
+  # writes into container-ephemeral space and loses it on exit.
   #
   # Closed: DOCTOR-CHECK-HARP-DURABILITY-s9 warns about authored files in the
-  # unclassified top level and names the persistent home they belong in. The
-  # walk is two-level and guards IsDir() on the OUTER iteration: HomeSessionsDir
-  # itself holds index.yaml beside the harp directories, and an exclusion list
-  # aimed at the harp level alone (as first proposed) would never see that
-  # file, since it is never inside any one harp dir at all.
+  # unclassified top level and names the output dir they belong in. The walk is
+  # two-level and guards IsDir() on the OUTER iteration: the sessions root holds
+  # lock files beside the harp directories, which are never inside any one
+  # harp dir at all.
   Scenario: Authored artifacts in the unclassified middle of a harp directory are flagged
     Given a finished session "amber-quiet-heron" carrying design notes nobody filed
     When I run "ctxloom doctor"
@@ -189,7 +186,7 @@ Feature: The close-out — the end of a workstream
   # them under a verb which also reaps has to fail a test first.
   #
   # `session worktrees` excludes foreign trees structurally:
-  # isolation.findEphemeralWorktrees only ever scans under
+  # isolation.findWorkWorktrees only ever scans under
   # ~/.ctxloom/sessions/, so this population is never even candidate-listed.
   Scenario: Her own long-lived worktrees are not this verb's business
     Given a finished session "amber-quiet-heron" whose work is already distilled
@@ -325,7 +322,8 @@ Feature: The close-out — the end of a workstream
   # liveness nothing can prove are skipped whole. A scratch worktree holding
   # uncommitted work is spared IN PLACE — read back by its own bytes — while
   # its clean sibling goes, and its session is spared from purge. A distilled
-  # session past the purge age is emptied; a human's session nobody
+  # session past the purge age has its transcripts emptied — its output dir
+  # (essence, plans) is the human's and a sweep never takes it; a human's session nobody
   # summarised is not, and the report names the distill that would lift the
   # refusal. An internal one-shot is nobody's only record of anything, so it
   # is emptied without one.

@@ -36,6 +36,7 @@ func progressFixture(t *testing.T, progress io.Writer) *Compactor {
 			return 0, nil
 		},
 	}
+	recordOutputDir(t, "compactor-under-test")
 	c, err := NewCompactor(CompactionConfig{
 		BackendOverride: &mockBackend{history: mockHistory},
 		Run:             runnerOver(mockClient),

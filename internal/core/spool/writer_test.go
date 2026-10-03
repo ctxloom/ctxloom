@@ -403,3 +403,27 @@ func TestWriter_AnEmptyWriteOverAQueuedMessageIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, staged, "the refused staging file is removed")
 }
+
+// A writer resolves its root ONCE, at construction: a message written after
+// $HOME moved still lands in the tree the writer was built for, never in
+// whatever $HOME names by then.
+func TestWriter_WritesUnderTheRootItWasBuiltFor(t *testing.T) {
+	first := hostHome(t)
+	m := NewHomeMapper()
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirOut, "runner")
+	require.NoError(t, err)
+	root, err := Root(m, testHarp)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(root, first))
+
+	hostHome(t) // $HOME now names a different tree
+	ref, err := w.Write(&Message{Kind: "message", FromHarp: testHarp, To: "parent", Body: "x\n"})
+	require.NoError(t, err)
+
+	_, err = os.Stat(filepath.Join(root, filepath.FromSlash(string(ref.Dir)), ref.Name))
+	require.NoError(t, err, "the message is under the writer's own root")
+	moved, err := Root(m, testHarp)
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(moved, filepath.FromSlash(string(ref.Dir)), ref.Name))
+	require.True(t, os.IsNotExist(err), "and not under the tree $HOME names now")
+}

@@ -171,19 +171,17 @@ func surroundRows(held []coord.RosterEntry) []termui.RosterEntry {
 	return rows
 }
 
-// diagnosticsLogPath is where a TUI-owning session parks its clidiag warnings.
-const diagnosticsLogName = "diagnostics.log"
-
-// diagnosticsLogPath is harp's diagnostics log, its session dir created.
+// diagnosticsLogPath is harp's diagnostics log (the session's
+// diagnostics.log member), its session dir created.
 func diagnosticsLogPath(harp string) (string, error) {
-	dir, err := paths.HarpDir(harp)
+	p, err := paths.HarpDiagnosticsLogPath(harp)
 	if err != nil {
 		return "", fmt.Errorf("could not resolve a session dir for harp %q: %w", harp, err)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("could not create %s: %w", dir, err)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return "", fmt.Errorf("could not create %s: %w", filepath.Dir(p), err)
 	}
-	return filepath.Join(dir, diagnosticsLogName), nil
+	return p, nil
 }
 
 // redirectDiagnosticsForTUI routes clidiag's stderr warnings into a per-session

@@ -19,7 +19,7 @@ import (
 
 // installFixture copies testdata/fixtures/<name>.transcript.acp.jsonl into
 // harp's canonical transcript path (paths.HarpCanonicalTranscriptPath),
-// creating the persist/ dir as NewRecorder's real writer would, and returns
+// creating the transcripts/ dir as NewRecorder's real writer would, and returns
 // the destination path. name is the FIXTURE BASENAME, which is its backend
 // registry name (fixtures_test.go's TestFixtures_EngineEnumMatchesManifest
 // pins basename == engine field). A name with no file fails as a missing
@@ -33,7 +33,7 @@ func installFixture(t *testing.T, name, harp string) string {
 }
 
 // writeTempTranscript writes data to harp's canonical transcript path
-// (creating persist/ as needed) and returns the path.
+// (creating transcripts/ as needed) and returns the path.
 func writeTempTranscript(t *testing.T, harp string, data []byte) string {
 	t.Helper()
 	dst, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -180,7 +180,7 @@ func TestCanonicalHistory_GetSession_EmptyHarp_Errors(t *testing.T) {
 
 // TestCanonicalHistory_GetSession_PreRenameFilenameIsNotATranscript pins
 // the one-name contract: the canonical transcript lives under
-// paths.CanonicalTranscriptFileName and nothing else. A harp whose persist/
+// paths.CanonicalTranscriptFileName and nothing else. A harp whose transcripts/
 // holds only the pre-rename leaf (transcript.acp.jsonl) has NO canonical
 // transcript — GetSession reports that, and never silently reads the file
 // under the old name.
@@ -188,7 +188,7 @@ func TestCanonicalHistory_GetSession_PreRenameFilenameIsNotATranscript(t *testin
 	testsupport.Isolate(t)
 	harp := "pre-rename-harp"
 
-	dir, err := paths.HarpPersistDir(harp)
+	dir, err := paths.HarpTranscriptsDir(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	data, err := os.ReadFile(fixturePath("claude-code.transcript.acp.jsonl"))

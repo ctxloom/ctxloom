@@ -5,6 +5,8 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"os"
 	"path/filepath"
 
 	"github.com/cucumber/godog"
@@ -47,6 +49,24 @@ func registerCLISessionSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		if w.env.HomeFileExists(rel) {
 			return fmt.Errorf("home file %q unexpectedly still exists", rel)
+		}
+		return nil
+	})
+
+	// The output-dir pair: a readable output (the essence, a plan) lives in
+	// the directory the harp's record names, not under the ctxloom home, so
+	// these resolve that record rather than take a home-relative path.
+	ctx.Step(`^the output file "([^"]*)" of session "([^"]*)" exists$`, func(c context.Context, name, harp string) error {
+		p := filepath.Join(outputDirFor(worldFrom(c), harp), filepath.FromSlash(name))
+		if _, err := os.Stat(p); err != nil {
+			return fmt.Errorf("output file %s of %s: %w", name, harp, err)
+		}
+		return nil
+	})
+	ctx.Step(`^the output file "([^"]*)" of session "([^"]*)" does not exist$`, func(c context.Context, name, harp string) error {
+		p := filepath.Join(outputDirFor(worldFrom(c), harp), filepath.FromSlash(name))
+		if _, err := os.Stat(p); err == nil {
+			return fmt.Errorf("output file %s of %s unexpectedly still exists", name, harp)
 		}
 		return nil
 	})
@@ -137,7 +157,7 @@ func seedFinishedSessionFiles(c context.Context, harp string, distilled bool) er
 	w := worldFrom(c)
 	sessionsRel := filepath.Join(".ctxloom", "sessions")
 	harpRel := filepath.Join(sessionsRel, harp)
-	transcriptRel := filepath.Join(harpRel, "persist", "transcript.jsonl")
+	transcriptRel := filepath.Join(harpRel, "transcripts", "transcript.jsonl")
 
 	if err := seedSessionSidecar(w, harp, sessionSeed{
 		SessionID:      "seeded-" + harp,
@@ -155,5 +175,5 @@ func seedFinishedSessionFiles(c context.Context, harp string, distilled bool) er
 		return nil
 	}
 	essence := fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-01-02T00:00:00Z\n---\n\nSeeded essence for %s.\n", harp, harp)
-	return w.env.WriteHomeFile(filepath.Join(harpRel, "essence.md"), essence)
+	return writeOutputFile(w, harp, paths.EssenceFileName, essence)
 }

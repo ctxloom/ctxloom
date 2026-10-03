@@ -25,6 +25,7 @@ here.
 | [trust.md](./trust.md) | `internal/core/trust` + the gate | The trust vocabulary and addressing, the seven-step decision cascade, the state machine, and the exposure chokes. |
 | [signing.md](./signing.md) | `internal/adapters/signing` | The signature envelope, the countersignature preimage, and the publisher state machine. |
 | [paths.md](./paths.md) | `internal/core/paths` | The on-disk layout vocabulary and the three tiers — `content/`, `cache/`, `state/` (user-facing account: [docs/layout.md](../../layout.md)). |
+| [session-layout.md](./session-layout.md) | `internal/core/paths`, `internal/core/sessions`, `internal/adapters/isolation` | The machine session dir and the human output dir, the container mount set, the deletion matrix, and container secrets. |
 | [projectroot.md](./projectroot.md) | `internal/adapters/projectroot` | Which directory is the project, worktree classification, and the task-store exception. |
 | [schema.md](./schema.md) | `internal/shared/schema`, `internal/shared/schemagen` | JSON Schema validation and the path oracle; reflected schema publication. |
 

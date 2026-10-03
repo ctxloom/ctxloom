@@ -320,13 +320,9 @@ func convertVendorTranscript(ctx context.Context, reg engine.Registry, e session
 	// tail. Committing only on success answers both: the harp
 	// keeps whatever it had until a complete replacement exists.
 	//
-	// dest here is the PERSIST-DIR canonical path (paths.
-	// HarpCanonicalTranscriptPath — <harp>/persist/transcript.jsonl), never one of
-	// sessions.linkEngineTranscript's per-vendor-log convenience symlinks
-	// (DIFFERENT files at the harp ROOT, <harp>/engine-transcript-<engine>-
-	// <sessionID>.jsonl, each pointing at a live vendor file — see its doc
-	// for why there is one per binding rather than one mutable name).
-	// Production never makes THIS path a symlink. safefs.AtomicFile's Commit
+	// dest here is the canonical path (paths.HarpCanonicalTranscriptPath —
+	// <harp>/transcripts/transcript.jsonl), never the engine's native file
+	// under <harp>/native/. Production never makes THIS path a symlink. safefs.AtomicFile's Commit
 	// still replaces whatever is at a destination atomically without
 	// following a symlink if it ever were one, so this stays correct even if
 	// that ever changed — but nothing here currently exercises that case.
@@ -375,17 +371,17 @@ func rebuildCanonicalTranscript(ctx context.Context, adapter vendorreader.Vendor
 		}
 	}
 
-	// The persist dir is normally created lazily by transcript.Recorder's
+	// The transcripts dir is normally created lazily by transcript.Recorder's
 	// ensureFile, on the first successful Record — but a rotation segment may
 	// be APPENDED onto the rebuild file (appendFileBytes) before any Recorder
-	// ever touches it, on a harp whose persist dir has never been created
+	// ever touches it, on a harp whose transcripts dir has never been created
 	// (this can be the very first canonical build for it). Without this, that
 	// append fails ENOENT before the live conversion — which does go through
 	// a Recorder — ever gets a chance to create the dir itself. It also has
 	// to run before safefs.NewAtomicFile, whose own precondition (like
 	// safefs.WriteFile's) is that the destination directory already exists.
 	if mkErr := os.MkdirAll(filepath.Dir(dest), 0o755); mkErr != nil {
-		return false, fmt.Errorf("create persist dir for %s: %w", e.HarpName, mkErr)
+		return false, fmt.Errorf("create transcripts dir for %s: %w", e.HarpName, mkErr)
 	}
 	fs := afero.NewOsFs()
 	if ra, wm, ok := loadWatermark(adapter, e, liveSrc); ok {

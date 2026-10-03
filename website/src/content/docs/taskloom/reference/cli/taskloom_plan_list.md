@@ -13,12 +13,12 @@ List session plans
 
 ### Synopsis
 
-List session plans (~/.ctxloom/sessions/<harp>/persist/*.plan.md).
+List session plans (*.plan.md in each session's output dir).
 
 By default a listing is scoped to the CURRENT project, resolved exactly the
 way `taskloom list` resolves it (--project, else CTXLOOM_PROJECT_ID,
 else cwd) and joined to plans through the session index: each plan lives in a
-session directory, and each session's own record names which project
+session's output dir, and each session's own record names which project
 directory that session ran in. Pass --global to list every project's plans.
 
 A plan whose session has no index entry — an ephemeral or worktree session, a
@@ -55,5 +55,5 @@ taskloom plan list [flags]
 
 ### SEE ALSO
 
-* [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (~/.ctxloom/sessions/<harp>/persist/*.plan.md)
+* [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (*.plan.md in each session's output dir)
 

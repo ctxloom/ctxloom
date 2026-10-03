@@ -29,10 +29,11 @@ type ReapPolicy struct {
 	Cutoff time.Time
 	// Scope is the widest Lifetime the policy takes. Zero reads as
 	// paths.Ephemeral, the default; paths.Persist is a human's
-	// --include-persist and TAKES the transcripts with the rest of persist/ —
-	// from a DISTILLED session only. An undistilled one (Distilled) keeps
-	// persist/, because its transcript is its only record; it is reaped as
-	// under the default scope and the report says why.
+	// --include-persist and TAKES the persistent machine members — the
+	// transcripts and native history with the spool, the package store and
+	// the logs — from a DISTILLED session only. An undistilled one
+	// (Distilled) keeps them, because its transcript is its only record; it
+	// is reaped as under the default scope and the report says why.
 	Scope paths.Lifetime
 	// Apply is the plan/act switch. False reports the same verdicts and
 	// bytes and moves nothing.
@@ -48,18 +49,17 @@ func (p ReapPolicy) scope() paths.Lifetime {
 
 // Members is what the policy takes from each aged session, in table order:
 // every top-level paths.HarpMembers row whose Lifetime is Ephemeral, and
-// under Scope Persist the persist store besides — the directory the
-// InPersist rows live in, taken whole. A store takes what lives in it, so
-// only top-level rows are listed. The identity rows, the essence, the next
-// step and the segments are never taken under any scope: a reaped session
-// still lists and resolves.
+// under Scope Persist every top-level MACHINE row besides. A directory row
+// takes what lives in it, so only top-level rows are listed. The identity
+// rows are never taken under any scope, and the output dir is not under the
+// session dir at all: a reaped session still lists and resolves.
 func (p ReapPolicy) Members() []paths.HarpMember {
 	var out []paths.HarpMember
 	for _, m := range paths.HarpMembers {
 		if m.Location != paths.AtTop {
 			continue
 		}
-		if m.Lifetime == paths.Ephemeral || (p.scope() == paths.Persist && m.Name == paths.InPersist.Dir()) {
+		if m.Lifetime == paths.Ephemeral || (p.scope() == paths.Persist && m.Tier == paths.MemberMachine) {
 			out = append(out, m)
 		}
 	}
@@ -159,9 +159,8 @@ type Triage func(ctx context.Context, harp string, probe LockProbe, apply bool) 
 // running, exactly the members p takes (ReapPolicy.Members) — the table
 // decides, nothing else.
 //
-// IT NEVER REMOVES A SESSION DIRECTORY. The identity rows, the essence and
-// the segments stay under every scope, so the session still lists and
-// resolves afterwards.
+// IT NEVER REMOVES A SESSION DIRECTORY. The identity rows stay under every
+// scope, so the session still lists and resolves afterwards.
 //
 // LIVENESS COMES FROM THE LOCK (Locks), never from the sidecar: a sidecar
 // cannot tell a crashed session from a live one, and crashed sessions are
@@ -312,7 +311,7 @@ func narrowUndistilled(l Layout, name string, p ReapPolicy, c *ReapCandidate, me
 	if p.scope() != paths.Persist || Distilled(c.Dir) {
 		return members, m, true
 	}
-	c.Reason = fmt.Sprintf("its %s/ is spared: it was never distilled, so its transcript is its only record — run `ctxloom session distill %s` first", paths.PersistDirName, name)
+	c.Reason = fmt.Sprintf("its persistent members are spared: it was never distilled, so its transcript is its only record — run `ctxloom session distill %s` first", name)
 	members = ReapPolicy{}.Members()
 	m = measureMembers(l, name, members)
 	c.Bytes = m.bytes

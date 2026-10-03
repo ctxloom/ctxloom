@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"io"
 	"net"
 	"os"
@@ -267,17 +268,19 @@ func entryLines(out string) []watchEntry {
 
 // seedUnboundHarp creates an index entry whose bind hook never fired (no
 // session id, no transcript path) and drops a fixture transcript at rel under
-// the harp's persist/transcripts store — the containerized-child shape that
-// by-location discovery resolves.
+// the harp's native history — the containerized-child shape that by-location
+// discovery resolves.
 func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 	t.Helper()
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", backend)
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 
 	p := filepath.Join(home, ".ctxloom", "sessions", entry.HarpName,
-		"persist", "transcripts", filepath.FromSlash(rel))
+		paths.NativeDirName, filepath.FromSlash(rel))
 	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 	require.NoError(t, os.WriteFile(p, []byte(fixture), 0o644))
 	return entry.HarpName
@@ -316,6 +319,8 @@ func TestRunSessionWatch_NothingToWatch(t *testing.T) {
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 
 	cmd := &cobra.Command{}
@@ -490,6 +495,8 @@ func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 
 	f := newFakeConsumerServer()

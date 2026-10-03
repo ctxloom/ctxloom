@@ -15,21 +15,18 @@ The machine-checkable shape is `docs/transcript.schema.json`; the Go types are
 ## 1. Where it lives
 
 One JSON object per line at
-`~/.ctxloom/sessions/<harp>/persist/transcript.jsonl`
+`~/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl`
 (`paths.HarpCanonicalTranscriptPath`). Append-only: each `Recorder.Record`
 call writes one complete marshaled line, so a session that dies mid-turn
 leaves a valid partial file with no trailing fragment.
 
-It is **authored session memory**, not derived cache: it lives under
-`persist/` (survives workspace teardown) and is never gitignored.
+It is **authored session memory**, not derived cache: `transcripts/` is a
+Persist member of the session dir (survives workspace teardown) and lives in
+your home, never in a project.
 
-It is distinct from `persist/transcripts/` (`paths.HarpTranscriptStoreDir`),
-which is an engine's own native store bind-mounted for a containerized run.
-The two never collide.
-
-Readers resolve the path through `paths.ResolveHarpCanonicalTranscriptPath`,
-which also accepts `paths.LegacyCanonicalTranscriptFileName` read-only for
-sessions captured under the file's earlier name. Nothing writes that name.
+It is distinct from `native/<engine>/` (`paths.HarpNativeDir`), where an
+engine's own native history lands through the session home's link. The two
+never collide.
 
 ---
 

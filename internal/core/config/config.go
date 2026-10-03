@@ -206,6 +206,12 @@ type Config struct {
 	// unrecognized name is dropped with a warning, never silently promoted to
 	// "use everything".
 	isolationEngines []string
+	// outputDir overrides the base of every session's output dir (the
+	// human root: essence, next step, plans, reports), which is otherwise
+	// <Documents>/ctxloom (paths.DefaultOutputBase). Absolute. A session
+	// records its own output dir at mint, so changing this moves where NEW
+	// sessions write, never an existing session's files.
+	outputDir string
 	// ui configures the interactive-run terminal layer (the prefix-key viewer
 	// and the persistent surround bar). Flag/env never lives here — only
 	// presentation preferences; `run --plain-terminal` disables the layer
@@ -344,6 +350,7 @@ type configDoc struct {
 	IsolationDevcontainerBase    *bool                     `yaml:"isolation_devcontainer_base,omitempty"`
 	IsolationDevcontainerService string                    `yaml:"isolation_devcontainer_service,omitempty"`
 	IsolationEngines             []string                  `yaml:"isolation_engines,omitempty"`
+	OutputDir                    string                    `yaml:"output_dir,omitempty"`
 	UI                           UIConfig                  `yaml:"ui,omitempty"`
 	SessionReapAge               string                    `yaml:"session_reap_age,omitempty"`
 	SessionPurgeAge              string                    `yaml:"session_purge_age,omitempty"`
@@ -400,6 +407,7 @@ func (c *Config) toDoc() configDoc {
 		IsolationDevcontainerBase:    cloneBoolPtr(c.isolationDevcontainerBase),
 		IsolationDevcontainerService: c.isolationDevcontainerService,
 		IsolationEngines:             slices.Clone(c.isolationEngines),
+		OutputDir:                    c.outputDir,
 		UI:                           cloneUIConfig(c.ui),
 		SessionReapAge:               c.sessionReapAge,
 		SessionPurgeAge:              c.sessionPurgeAge,
@@ -430,6 +438,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.isolationDevcontainerBase = doc.IsolationDevcontainerBase
 	c.isolationDevcontainerService = doc.IsolationDevcontainerService
 	c.isolationEngines = doc.IsolationEngines
+	c.outputDir = doc.OutputDir
 	c.ui = doc.UI
 	c.sessionReapAge = doc.SessionReapAge
 	c.sessionPurgeAge = doc.SessionPurgeAge

@@ -152,11 +152,11 @@ func TestBuildInjectContextOutput_ResumedEssence(t *testing.T) {
 // resumed harp's essence.md, including the source, chunk, parts, and
 // presence conditions.
 func TestResumedEssenceForInjection(t *testing.T) {
-	home := testsupport.Isolate(t)
+	testsupport.Isolate(t)
 	harp := "swift-amber-falcon"
-	dir := filepath.Join(home, ".ctxloom", "sessions", harp)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "essence.md"), []byte("  distilled summary  \n"), 0o644))
+	essence, err := harpEssencePath(t, harp)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(essence, []byte("  distilled summary  \n"), 0o644))
 
 	assert.Equal(t, "distilled summary",
 		resumedEssenceForInjection(1, "startup", harp, "session,tasks"), "trimmed essence on startup")
@@ -310,6 +310,8 @@ func TestCurrentSessionRecoverable(t *testing.T) {
 	// payload's session id is.
 	rotated, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(rotated.HarpName, t.TempDir())
+	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(rotated.HarpName, "pre-clear-id", "/pre-clear.jsonl"))
 	require.NoError(t, mgr.BindSession(rotated.HarpName, "post-clear-id", "/post-clear.jsonl"))
 
@@ -319,12 +321,16 @@ func TestCurrentSessionRecoverable(t *testing.T) {
 	// disagreement IS the not-yet-recorded displacement.
 	displaced, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(displaced.HarpName, t.TempDir())
+	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(displaced.HarpName, "pre-clear-id", "/pre-clear.jsonl"))
 
 	// Shape 3: bound to the SAME id the incoming payload carries — an
 	// idempotent rebind (e.g. a duplicate hook fire), not a displacement.
 	// Nothing was thrown away.
 	sameID, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(sameID.HarpName, t.TempDir())
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(sameID.HarpName, "only-id", "/t.jsonl"))
 

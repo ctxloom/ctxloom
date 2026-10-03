@@ -17,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// unwritableHarpDir makes harp's persist/ dir uncreatable by chmod'ing its
+// unwritableHarpDir makes harp's transcripts/ dir uncreatable by chmod'ing its
 // parent to 0o000 — a REAL EACCES from the real filesystem, not a fake that
 // returns a canned error. Returns the transcript path the recorder will
 // target.
@@ -28,7 +28,7 @@ func unwritableHarpDir(t *testing.T, harp string) string {
 	}
 	path, err := paths.HarpCanonicalTranscriptPath(harp)
 	require.NoError(t, err)
-	harpDir := filepath.Dir(filepath.Dir(path)) // .../<harp>, parent of persist/
+	harpDir := filepath.Dir(filepath.Dir(path)) // .../<harp>, parent of transcripts/
 	require.NoError(t, os.MkdirAll(harpDir, 0o755))
 	require.NoError(t, os.Chmod(harpDir, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(harpDir, 0o755) })

@@ -37,24 +37,41 @@ var reapOldEnough = time.Now().Add(-90 * 24 * time.Hour)
 // keep marker is the one row deliberately absent — it exempts the session,
 // and has its own test.
 var reapFixture = map[string]string{
-	paths.SessionSidecarFileName:                                                "project_dir: /tmp/demo\n",
-	paths.EssenceFileName:                                                       "# essence\n",
-	paths.NextStepFileName:                                                      "finish the reaper\n",
-	paths.SessionEngineHomesDirName + "/settings.json":                          "{}\n",
-	paths.SessionEngineHomesDirName + "/.credentials.json":                      "{\"token\":\"copied\"}\n",
-	paths.EphemeralDirName + "/scratch.txt":                                     "disposable scratch\n",
-	paths.EphemeralDirName + "/overlay/settings.json":                           "{}\n",
-	paths.PersistDirName + "/" + paths.CanonicalTranscriptFileName:              "{\"bulk\":true}\n",
-	paths.PersistDirName + "/design" + paths.PlanFileExt:                        "# a plan someone cites\n",
-	paths.PersistDirName + "/" + paths.TranscriptStoreDirName + "/claude.jsonl": "{\"vendor\":true}\n",
-	paths.PersistDirName + "/" + paths.SpoolDirName + "/0001.msg":               "mail\n",
-	paths.PersistDirName + "/" + paths.PackageDirName + "/abc123/manifest.yaml": "name: pkg\n",
-	paths.SegmentsDirName + "/abc.jsonl":                                        "{\"seg\":1}\n",
+	paths.SessionSidecarFileName:                                          "project_dir: /tmp/demo\n",
+	paths.DiagnosticsLogFileName:                                          "a warning\n",
+	paths.ContextMetricsFileName:                                          "{\"pct\":12}\n",
+	paths.SessionEngineHomesDirName + "/settings.json":                    "{}\n",
+	paths.SessionEngineHomesDirName + "/.credentials.json":                "{\"token\":\"copied\"}\n",
+	paths.ScratchDirName + "/scratch.txt":                                 "disposable scratch\n",
+	paths.ScratchDirName + "/overlay/settings.json":                       "{}\n",
+	paths.WorkDirName + "/ctxloom-wt-agent/main.go":                       "package main\n",
+	paths.TranscriptsDirName + "/" + paths.CanonicalTranscriptFileName:    "{\"bulk\":true}\n",
+	paths.TranscriptsDirName + "/vendor.watermark.json":                   "{\"line\":4}\n",
+	paths.TranscriptsDirName + "/" + paths.SegmentsDirName + "/abc.jsonl": "{\"seg\":1}\n",
+	paths.NativeDirName + "/claude/projects/-tmp-demo/s1.jsonl":           "{\"vendor\":true}\n",
+	paths.SpoolDirName + "/in/0001.msg":                                   "mail\n",
+	paths.PackageDirName + "/abc123/manifest.yaml":                        "name: pkg\n",
 }
 
-// reapLinkName is a top-level symlink beside the members — the shape of an
-// engine transcript link, which no table row names.
-const reapLinkName = paths.EngineTranscriptLinkPrefix + "claude-abc.jsonl"
+// reapLinkName is a top-level symlink beside the members, which no table row
+// names.
+const reapLinkName = "stray-link.jsonl"
+
+// reapTopRow is the TOP-LEVEL row rel lives under: the reaper takes
+// top-level rows whole, whatever deeper row a file classifies to.
+func reapTopRow(t *testing.T, rel string) paths.HarpMember {
+	t.Helper()
+	top, _, _ := strings.Cut(rel, "/")
+	m, ok := paths.ClassifyMember(top)
+	require.True(t, ok, "fixture member %s has no top-level row", rel)
+	return m
+}
+
+// reapTakenByPersist is what Scope Persist takes: the Ephemeral rows and the
+// top-level machine rows.
+func reapTakenByPersist(m paths.HarpMember) bool {
+	return m.Lifetime == paths.Ephemeral || m.Tier == paths.MemberMachine
+}
 
 func reapLayout(t *testing.T) Layout {
 	t.Helper()
@@ -100,6 +117,11 @@ func reapSeed(t *testing.T, l Layout, harp string) string {
 		require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 	}
 	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "elsewhere.jsonl"), filepath.Join(dir, reapLinkName)))
+	// The session is distilled: its recorded output dir holds an essence.
+	out := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("# essence\n"), 0o644))
+	sidecar := filepath.Join(dir, paths.SessionSidecarFileName)
+	require.NoError(t, os.WriteFile(sidecar, []byte(reapFixture[paths.SessionSidecarFileName]+"output_dir: "+out+"\n"), 0o644))
 	reapBackdate(t, dir)
 	return dir
 }
@@ -128,8 +150,10 @@ func reapCutoff() time.Time { return time.Now().Add(-24 * time.Hour) }
 func reapAssertPresence(t *testing.T, dir string, gone func(rel string, m paths.HarpMember) bool) {
 	t.Helper()
 	for rel, body := range reapFixture {
-		m, ok := paths.ClassifyMember(rel)
-		require.True(t, ok, "fixture member %s classifies to no row", rel)
+		if rel == paths.SessionSidecarFileName {
+			continue // rewritten by reapSeed; asserted present below
+		}
+		m := reapTopRow(t, rel)
 		p := filepath.Join(dir, filepath.FromSlash(rel))
 		if gone(rel, m) {
 			assert.NoFileExists(t, p, "%s must be reaped", rel)
@@ -189,12 +213,12 @@ func TestReap_RemovesExactlyTheEphemeralMembers(t *testing.T) {
 	assert.Equal(t, ephemeralRels, rep.Members, "the report names the rows the policy takes, in table order")
 }
 
-// TestReap_PersistScope_TakesThePersistStoreWithItsTranscript: Scope Persist
-// is a human's --include-persist, and from a DISTILLED session it TAKES the
-// transcripts with the rest of persist/. The session's identity,
-// its essence, its next step and its segments still survive: the directory
-// stays, and the session still lists and resolves.
-func TestReap_PersistScope_TakesThePersistStoreWithItsTranscript(t *testing.T) {
+// TestReap_PersistScope_TakesTheMachineMembersWithTheTranscript: Scope
+// Persist is a human's --include-persist, and from a DISTILLED session it
+// TAKES the persistent machine members — the transcripts and native history
+// with them. The session's identity still survives: the directory stays, and
+// the session still lists and resolves.
+func TestReap_PersistScope_TakesTheMachineMembersWithTheTranscript(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "aged-quiet-heron")
 
@@ -202,12 +226,10 @@ func TestReap_PersistScope_TakesThePersistStoreWithItsTranscript(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Reclaimed)
-	reapAssertPresence(t, dir, func(rel string, m paths.HarpMember) bool {
-		return m.Lifetime == paths.Ephemeral || rel == paths.PersistDirName || strings.HasPrefix(rel, paths.PersistDirName+"/")
-	})
-	assert.NoFileExists(t, filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName), "--include-persist takes the transcript")
-	assert.NoDirExists(t, filepath.Join(dir, paths.PersistDirName), "the persist store goes whole")
-	assert.Contains(t, rep.Members, paths.PersistDirName)
+	reapAssertPresence(t, dir, func(_ string, m paths.HarpMember) bool { return reapTakenByPersist(m) })
+	assert.NoFileExists(t, filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), "--include-persist takes the transcript")
+	assert.NoDirExists(t, filepath.Join(dir, paths.NativeDirName), "native history goes whole")
+	assert.Contains(t, rep.Members, paths.TranscriptsDirName)
 }
 
 // reapSeedUndistilled is reapSeed without the essence: the session was never
@@ -215,14 +237,16 @@ func TestReap_PersistScope_TakesThePersistStoreWithItsTranscript(t *testing.T) {
 func reapSeedUndistilled(t *testing.T, l Layout, harp string) string {
 	t.Helper()
 	dir := reapSeed(t, l, harp)
-	require.NoError(t, os.Remove(filepath.Join(dir, paths.EssenceFileName)))
+	out, ok := OutputDirOf(dir)
+	require.True(t, ok)
+	require.NoError(t, os.Remove(filepath.Join(out, paths.EssenceFileName)))
 	reapBackdate(t, dir)
 	return dir
 }
 
 // TestReap_PersistScope_SparesThePersistStoreOfAnUndistilledSession: without
 // an essence the transcript is the session's only record, so even
-// --include-persist leaves persist/ alone — the same rule PurgeSession
+// --include-persist leaves its persistent machine members alone — the same rule PurgeSession
 // enforces with ErrPurgeUndistilled. The ephemeral members still go: a wider
 // scope must never free less than the default one. The report names the
 // spare and the command that lifts it.
@@ -233,13 +257,12 @@ func TestReap_PersistScope_SparesThePersistStoreOfAnUndistilledSession(t *testin
 	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
 	require.NoError(t, err)
 
-	assert.FileExists(t, filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName), "an undistilled session's transcript is its only record")
+	assert.FileExists(t, filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), "an undistilled session's transcript is its only record")
 	for rel, body := range reapFixture {
-		m, ok := paths.ClassifyMember(rel)
-		require.True(t, ok)
+		m := reapTopRow(t, rel)
 		p := filepath.Join(dir, filepath.FromSlash(rel))
 		switch {
-		case rel == paths.EssenceFileName:
+		case rel == paths.SessionSidecarFileName:
 			continue
 		case m.Lifetime == paths.Ephemeral:
 			assert.NoFileExists(t, p, "%s is ephemeral and is still reaped", rel)
@@ -258,7 +281,7 @@ func TestReap_PersistScope_SparesThePersistStoreOfAnUndistilledSession(t *testin
 }
 
 // TestReap_PersistScope_UndistilledWithOnlyPersistDataIsSpared: when
-// persist/ is all an undistilled session holds, nothing is taken and the
+// persistent machine data is all an undistilled session holds, nothing is taken and the
 // session is reported spared rather than hidden.
 func TestReap_PersistScope_UndistilledWithOnlyPersistDataIsSpared(t *testing.T) {
 	l := reapLayout(t)
@@ -271,7 +294,7 @@ func TestReap_PersistScope_UndistilledWithOnlyPersistDataIsSpared(t *testing.T) 
 	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
 	require.NoError(t, err)
 
-	assert.FileExists(t, filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName))
+	assert.FileExists(t, filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName))
 	assert.Equal(t, 1, rep.Spared)
 	assert.Zero(t, rep.Bytes)
 	require.Len(t, rep.Candidates, 1)
@@ -311,8 +334,8 @@ func TestReap_ReportsWithoutApplying(t *testing.T) {
 }
 
 // TestReap_BytesCountOnlyWhatThePolicyTakes: the byte figure is the size of
-// what would GO under the policy, not of the session — persist/ counts only
-// under Scope Persist.
+// what would GO under the policy, not of the session — the persistent machine
+// members count only under Scope Persist.
 func TestReap_BytesCountOnlyWhatThePolicyTakes(t *testing.T) {
 	l := reapLayout(t)
 	reapSeed(t, l, "aged-quiet-heron")
@@ -324,11 +347,11 @@ func TestReap_BytesCountOnlyWhatThePolicyTakes(t *testing.T) {
 
 	var wantEphemeral, wantPersist int64
 	for rel, body := range reapFixture {
-		m, _ := paths.ClassifyMember(rel)
+		m := reapTopRow(t, rel)
 		if m.Lifetime == paths.Ephemeral {
 			wantEphemeral += int64(len(body))
 		}
-		if m.Lifetime == paths.Ephemeral || strings.HasPrefix(rel, paths.PersistDirName+"/") {
+		if reapTakenByPersist(m) {
 			wantPersist += int64(len(body))
 		}
 	}
@@ -385,7 +408,7 @@ func TestReap_HoldsTheLockAcrossTheRemoval(t *testing.T) {
 	released := false
 	locks.onRelease = func(harp string) {
 		released = true
-		assert.NoDirExists(t, filepath.Join(dir, paths.EphemeralDirName), "released before the removal finished")
+		assert.NoDirExists(t, filepath.Join(dir, paths.ScratchDirName), "released before the removal finished")
 	}
 
 	_, err := Reap(context.Background(), l, locks, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
@@ -400,7 +423,7 @@ func TestReap_LeavesASessionNewerThanTheBound(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "young-quiet-heron")
 	now := time.Now()
-	require.NoError(t, os.Chtimes(filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName), now, now))
+	require.NoError(t, os.Chtimes(filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), now, now))
 
 	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
@@ -421,7 +444,7 @@ func TestReap_IgnoresASessionWithNothingInScope(t *testing.T) {
 			require.NoError(t, os.RemoveAll(l.Member("bare-quiet-heron", m)))
 		}
 	}
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.EphemeralDirName), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.ScratchDirName), 0o755))
 	reapBackdate(t, dir)
 
 	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
@@ -440,8 +463,8 @@ func TestReap_RefusesASymlinkedMember(t *testing.T) {
 	dir := reapSeed(t, l, "aged-quiet-heron")
 	target := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(target, "precious.txt"), []byte("not yours\n"), 0o644))
-	require.NoError(t, os.RemoveAll(filepath.Join(dir, paths.EphemeralDirName)))
-	require.NoError(t, os.Symlink(target, filepath.Join(dir, paths.EphemeralDirName)))
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, paths.ScratchDirName)))
+	require.NoError(t, os.Symlink(target, filepath.Join(dir, paths.ScratchDirName)))
 	reapBackdate(t, dir)
 
 	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
@@ -451,7 +474,7 @@ func TestReap_RefusesASymlinkedMember(t *testing.T) {
 	require.Len(t, rep.Candidates, 1)
 	assert.Contains(t, rep.Candidates[0].Reason, "symlink")
 	assert.FileExists(t, filepath.Join(target, "precious.txt"), "the link's target is never entered")
-	_, lerr := os.Lstat(filepath.Join(dir, paths.EphemeralDirName))
+	_, lerr := os.Lstat(filepath.Join(dir, paths.ScratchDirName))
 	assert.NoError(t, lerr, "the link itself stays")
 	assert.DirExists(t, filepath.Join(dir, paths.SessionEngineHomesDirName), "a refused session loses nothing, not even its other members")
 }
@@ -463,14 +486,14 @@ func TestReap_DoesNotFollowASymlinkInsideAMember(t *testing.T) {
 	dir := reapSeed(t, l, "aged-quiet-heron")
 	target := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(target, "precious.txt"), []byte("not yours\n"), 0o644))
-	require.NoError(t, os.Symlink(target, filepath.Join(dir, paths.EphemeralDirName, "link")))
+	require.NoError(t, os.Symlink(target, filepath.Join(dir, paths.ScratchDirName, "link")))
 	reapBackdate(t, dir)
 
 	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Reclaimed)
-	assert.NoDirExists(t, filepath.Join(dir, paths.EphemeralDirName))
+	assert.NoDirExists(t, filepath.Join(dir, paths.ScratchDirName))
 	assert.FileExists(t, filepath.Join(target, "precious.txt"))
 }
 
@@ -494,15 +517,15 @@ func TestReap_TouchesNothingBesideTheSessions(t *testing.T) {
 	l := reapLayout(t)
 	reapSeed(t, l, "aged-quiet-heron")
 	stray := filepath.Join(l.SessionsRoot(), "not:a:harp")
-	require.NoError(t, os.MkdirAll(filepath.Join(stray, paths.EphemeralDirName), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(stray, paths.EphemeralDirName, "x"), []byte("x"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(stray, paths.ScratchDirName), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stray, paths.ScratchDirName, "x"), []byte("x"), 0o644))
 	reapBackdate(t, stray)
 
 	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
 
 	require.Len(t, rep.Candidates, 1)
-	assert.FileExists(t, filepath.Join(stray, paths.EphemeralDirName, "x"))
+	assert.FileExists(t, filepath.Join(stray, paths.ScratchDirName, "x"))
 }
 
 // TestReap_TriageSparesTheSession: the triage is the adapter's chance to
@@ -569,8 +592,8 @@ func activityFixture(t *testing.T, l Layout, harp string, base time.Time) string
 	dir := l.Dir(harp)
 	for _, rel := range []string{
 		paths.SessionSidecarFileName,
-		paths.PersistDirName + "/" + paths.CanonicalTranscriptFileName,
-		paths.SegmentsDirName + "/abc.jsonl",
+		paths.TranscriptsDirName + "/" + paths.CanonicalTranscriptFileName,
+		paths.TranscriptsDirName + "/" + paths.SegmentsDirName + "/abc.jsonl",
 	} {
 		p := filepath.Join(dir, filepath.FromSlash(rel))
 		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
@@ -600,7 +623,7 @@ func TestActivityTime_IsTheNewestMemberMtime(t *testing.T) {
 	assert.True(t, got.Equal(base), "every member sits at base; got %s", got)
 
 	later := base.Add(time.Hour)
-	require.NoError(t, os.Chtimes(filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName), later, later))
+	require.NoError(t, os.Chtimes(filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), later, later))
 
 	got, err = ActivityTime(l, "aged-quiet-heron")
 	require.NoError(t, err)
@@ -624,9 +647,7 @@ func TestActivityTime_IgnoresTheHarpDirsOwnMtime(t *testing.T) {
 }
 
 // TestActivityTime_IgnoresASymlinksOwnMtime is the gate: a link's mtime is
-// the link's, never a write through it, and the target is not followed. The
-// engine transcript link is exactly this shape, at the top of the dir where
-// only the excluded harp-dir mtime bumps with it.
+// the link's, never a write through it, and the target is not followed.
 func TestActivityTime_IgnoresASymlinksOwnMtime(t *testing.T) {
 	l := reapLayout(t)
 	base := time.Now().Add(-72 * time.Hour).Truncate(time.Second)
@@ -663,7 +684,7 @@ func TestActivityTime_MissingSessionIsAnError(t *testing.T) {
 
 // TestReapPolicy_MembersFollowTheTable: the members a policy takes are
 // derived from paths.HarpMembers — every Ephemeral row under the default
-// scope, and the persist store besides under Scope Persist.
+// scope, and the top-level machine rows besides under Scope Persist.
 func TestReapPolicy_MembersFollowTheTable(t *testing.T) {
 	var ephemeral []string
 	for _, m := range paths.HarpMembers {
@@ -675,11 +696,14 @@ func TestReapPolicy_MembersFollowTheTable(t *testing.T) {
 	assert.Equal(t, ephemeral, ReapPolicy{Scope: paths.Ephemeral}.MemberRels())
 
 	persist := ReapPolicy{Scope: paths.Persist}.MemberRels()
-	assert.Contains(t, persist, paths.PersistDirName)
+	for _, m := range paths.HarpMembers {
+		if m.Location == paths.AtTop && m.Tier == paths.MemberMachine {
+			assert.Contains(t, persist, m.Rel())
+		}
+	}
 	for _, rel := range ephemeral {
 		assert.Contains(t, persist, rel)
 	}
 	assert.NotContains(t, persist, paths.SessionSidecarFileName, "the identity row is never taken")
-	assert.NotContains(t, persist, paths.SegmentsDirName, "the derived segments are never taken")
-	assert.NotContains(t, persist, paths.EssenceFileName, "the essence is never taken")
+	assert.NotContains(t, persist, paths.SessionKeepMarkerFileName, "the keep marker is never taken")
 }

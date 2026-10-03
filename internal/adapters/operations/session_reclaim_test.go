@@ -37,9 +37,10 @@ import (
 var srOldEnough = time.Now().Add(-90 * 24 * time.Hour)
 
 // srSeedHarp plants a harp directory in the real session-dir layout — the
-// sidecar and essence at the top, ephemeral/ and persist/ and segments/ as
-// peers, each holding bytes — and back-dates it, so "aged" is a property of
-// the fixture rather than of how long the test ran.
+// sidecar at the top, scratch/ and transcripts/ and package/ as peers, each
+// holding bytes, and an essence in the session's recorded output dir so it
+// reads as distilled — and back-dates it, so "aged" is a property of the
+// fixture rather than of how long the test ran.
 //
 // The layout is the point: the sweep's whole contract is WHICH of these
 // members it takes, so a fixture missing one would let an over-broad delete
@@ -53,19 +54,21 @@ func srSeedHarp(t *testing.T, harp string) string {
 		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 		require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 	}
+	out := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("# essence\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte(srLayout[paths.SessionSidecarFileName]+"output_dir: "+out+"\n"), 0o644))
 	srBackdate(t, dir)
 	return dir
 }
 
 // srLayout is the fixture's member set, relative to the harp directory.
 var srLayout = map[string]string{
-	paths.SessionSidecarFileName:                                   "project_dir: /tmp/demo\n",
-	paths.EssenceFileName:                                          "# essence\n",
-	paths.EphemeralDirName + "/scratch.txt":                        "disposable scratch\n",
-	paths.EphemeralDirName + "/overlay/settings.json":              "{}\n",
-	paths.PersistDirName + "/" + paths.CanonicalTranscriptFileName: "{\"bulk\":true}\n",
-	paths.PersistDirName + "/design" + paths.PlanFileExt:           "# a plan someone cites\n",
-	paths.SegmentsDirName + "/abc.jsonl":                           "{\"seg\":1}\n",
+	paths.SessionSidecarFileName:                                          "project_dir: /tmp/demo\n",
+	paths.ScratchDirName + "/scratch.txt":                                 "disposable scratch\n",
+	paths.ScratchDirName + "/overlay/settings.json":                       "{}\n",
+	paths.TranscriptsDirName + "/" + paths.CanonicalTranscriptFileName:    "{\"bulk\":true}\n",
+	paths.TranscriptsDirName + "/" + paths.SegmentsDirName + "/abc.jsonl": "{\"seg\":1}\n",
+	paths.PackageDirName + "/abc123/manifest.yaml":                        "name: pkg\n",
 }
 
 // srAssertIntact asserts that every fixture member under the given
@@ -147,12 +150,12 @@ func TestSweepReclaim_WithoutAnAgeBound_ReclaimsNothing(t *testing.T) {
 	_, err := SweepSessions(context.Background(), git.NewExec(), srRequest(sessions.ReapPolicy{Apply: true}))
 
 	require.ErrorIs(t, err, sessions.ErrNoAgeBound)
-	srAssertIntact(t, dir, paths.EphemeralDirName, paths.PersistDirName, paths.SegmentsDirName)
+	srAssertIntact(t, dir, paths.ScratchDirName, paths.TranscriptsDirName, paths.PackageDirName)
 }
 
 // TestSweepReclaim_TakesThePolicysMembers: the adapter removes what
 // the policy names and nothing else — the table's Ephemeral rows by default,
-// persist/ besides under Scope Persist. The reaper's own contract is pinned
+// the machine rows besides under Scope Persist. The reaper's own contract is pinned
 // in core (sessions.Reap's tests); this is the adapter's end of it.
 func TestSweepReclaim_TakesThePolicysMembers(t *testing.T) {
 	testsupport.Isolate(t)
@@ -163,14 +166,14 @@ func TestSweepReclaim_TakesThePolicysMembers(t *testing.T) {
 
 	assert.Equal(t, 1, res.Reclaimed)
 	assert.Equal(t, sessions.ReapPolicy{}.MemberRels(), res.Members)
-	srAssertGone(t, dir, paths.EphemeralDirName)
-	srAssertIntact(t, dir, paths.PersistDirName, paths.SegmentsDirName)
+	srAssertGone(t, dir, paths.ScratchDirName)
+	srAssertIntact(t, dir, paths.TranscriptsDirName, paths.PackageDirName)
 
 	res = srReclaim(t, sessions.ReapPolicy{Cutoff: srCutoff(), Scope: paths.Persist, Apply: true})
 
 	assert.Equal(t, 1, res.Reclaimed)
-	srAssertGone(t, dir, paths.PersistDirName)
-	srAssertIntact(t, dir, paths.SegmentsDirName)
+	srAssertGone(t, dir, paths.TranscriptsDirName, paths.PackageDirName)
+	assert.FileExists(t, filepath.Join(dir, paths.SessionSidecarFileName), "the identity row is never taken")
 }
 
 // TestSweepReclaim_SkipsARunningSession pins the lock adapter's one
@@ -189,7 +192,7 @@ func TestSweepReclaim_SkipsARunningSession(t *testing.T) {
 	require.Len(t, res.Candidates, 1)
 	assert.Equal(t, sessions.ReapSkipped, res.Candidates[0].Verdict)
 	assert.Equal(t, os.Getpid(), res.Candidates[0].OwnerPID)
-	srAssertIntact(t, dir, paths.EphemeralDirName)
+	srAssertIntact(t, dir, paths.ScratchDirName)
 }
 
 // TestSweepReclaim_SkipsASessionWithNoLock pins the adapter from the
@@ -205,7 +208,7 @@ func TestSweepReclaim_SkipsASessionWithNoLock(t *testing.T) {
 	assert.Equal(t, 1, res.Skipped)
 	require.Len(t, res.Candidates, 1)
 	assert.Contains(t, res.Candidates[0].Reason, "no session lock")
-	srAssertIntact(t, dir, paths.EphemeralDirName)
+	srAssertIntact(t, dir, paths.ScratchDirName)
 }
 
 // TestSweepReclaim_LeavesTheLockFileBehind: unlinking the lock while
@@ -253,7 +256,7 @@ func TestSweepReclaim_SparesSessionWhoseWorktreeHoldsUncommittedWork(t *testing.
 	assert.Equal(t, sessions.ReapSpared, res.Candidates[0].Verdict)
 	assert.NotEmpty(t, res.Candidates[0].Reason, "and the report says which worktree held it back")
 
-	srAssertIntact(t, dir, paths.EphemeralDirName)
+	srAssertIntact(t, dir, paths.ScratchDirName)
 	body, rerr := os.ReadFile(filepath.Join(wtDir, "in-flight.go"))
 	require.NoError(t, rerr, "the uncommitted file itself must survive, not just its directory")
 	assert.Contains(t, string(body), "uncommitted")
@@ -279,8 +282,8 @@ func TestSweepReclaim_ReclaimsSessionWhoseWorktreeIsClean(t *testing.T) {
 	res := srReclaim(t, sessions.ReapPolicy{Cutoff: srCutoff(), Apply: true})
 
 	assert.Equal(t, 1, res.Reclaimed, "a clean worktree is torn down and the store reclaimed")
-	srAssertGone(t, dir, paths.EphemeralDirName)
-	srAssertIntact(t, dir, paths.PersistDirName)
+	srAssertGone(t, dir, paths.ScratchDirName, paths.WorkDirName)
+	srAssertIntact(t, dir, paths.TranscriptsDirName)
 }
 
 // srInitRepo creates a real git repo with one commit, so `git worktree add -b`
@@ -300,7 +303,7 @@ func srInitRepo(t *testing.T) string {
 // hand-rolling `git worktree add`.
 //
 // That is deliberate on two counts. The checkout has to land at exactly the
-// path isolation.findEphemeralWorktrees scans (<harp>/ephemeral/ctxloom-wt-*)
+// path isolation.findWorkWorktrees scans (<harp>/work/ctxloom-wt-*)
 // or this sweep never sees it and the test asserts nothing; and a fixture that
 // built that layout by hand would be a second definition of it, free to drift
 // from the one production writes. Asking production to build it means the two
@@ -311,9 +314,9 @@ func srInitRepo(t *testing.T) string {
 // THE DEGRADE GUARD IS LOAD-BEARING. isolation.Prepare walks a degrade chain
 // and never fails: if the worktree policy cannot prepare, it silently falls
 // back to the project directory. The returned workspace would then be the repo
-// itself, nothing would exist under the harp's ephemeral dir, and every
+// itself, nothing would exist under the harp's work dir, and every
 // assertion here would pass while measuring nothing. So the workspace's own
-// directory is checked to be under that ephemeral dir before any test uses it.
+// directory is checked to be under that work dir before any test uses it.
 func srAddWorktree(t *testing.T, repo, harp string) string {
 	t.Helper()
 	sessionDir, err := paths.HarpDir(harp)
@@ -325,12 +328,12 @@ func srAddWorktree(t *testing.T, repo, harp string) string {
 	require.NoError(t, err)
 	wtDir := env.Placement().Paths.Paths().ProjectRoot.Host
 
-	ephemeral, err := paths.HarpEphemeralDir(harp)
+	work, err := paths.HarpWorkDir(harp)
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(wtDir, ephemeral+string(filepath.Separator)),
+	require.True(t, strings.HasPrefix(wtDir, work+string(filepath.Separator)),
 		"isolation.Prepare degraded away from the worktree axis: the workspace is %q, which is not under %q. "+
 			"This fixture would then plant nothing the sweep can see, and every assertion built on it would "+
-			"pass while measuring nothing.", wtDir, ephemeral)
+			"pass while measuring nothing.", wtDir, work)
 
 	t.Cleanup(func() {
 		_ = os.RemoveAll(wtDir)

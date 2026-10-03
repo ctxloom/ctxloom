@@ -45,7 +45,7 @@ var bundleFindingLabel = "[" + string(report.KindBundle) + "]"
 
 // The reaper fixture's coordinates. The harp is a plain name — nothing has to
 // resolve it, because the sweep classifies by what is ON DISK (a
-// "ctxloom-wt-" directory under some harp's ephemeral dir) and by its owner
+// "ctxloom-wt-" directory under some harp's work dir) and by its owner
 // marker, never by consulting the session index.
 const (
 	orphanHarp = "crashed-run-harp"
@@ -109,7 +109,7 @@ func registerStartupBoundarySteps(ctx *godog.ScenarioContext) {
 	})
 
 	// The reaper fixture: exactly what a crashed run leaves behind — a real
-	// linked worktree under a harp's ephemeral dir whose recorded owner pid is
+	// linked worktree under a harp's work dir whose recorded owner pid is
 	// confirmed dead, and whose tree is genuinely clean. Both halves are
 	// load-bearing, because the reaper spares anything it cannot prove safe:
 	// a live/unprovable owner is SKIPPED and a dirty tree is SPARED, and

@@ -18,7 +18,7 @@
 // Fixture shape is deliberately borrowed from steps_j001200_recall.go
 // (j001200WriteCanonicalTranscript / j001200AddIndexEntry / j001200HarpHome): a session
 // index entry with session_id "seeded-<harp>" plus a canonical transcript at
-// the harp's persist/transcript.jsonl. CanonicalFallbackSource.GetSession
+// the harp's transcripts/transcript.jsonl. CanonicalFallbackSource.GetSession
 // resolves that id HARP-FIRST and, failing that, reverse-resolves the
 // session_id back to its harp via the index (canonical_source.go) — exactly
 // the path `session distill` walks in production when a container-bound harp
@@ -31,6 +31,9 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -92,7 +95,7 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^an earlier session "([^"]*)" left a real, non-empty transcript on disk$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
-		transcriptPath := w.env.HomeDir + "/" + j001200HarpHome(harp) + "/persist/transcript.jsonl"
+		transcriptPath := w.env.HomeDir + "/" + j001200HarpHome(harp) + "/transcripts/transcript.jsonl"
 		if err := j001200AddIndexEntry(w, harp, "seeded acceptance fixture session", transcriptPath); err != nil {
 			return fmt.Errorf("seed index entry for %s: %w", harp, err)
 		}
@@ -113,7 +116,8 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 	// self-report of persistence.
 	ctx.Step(`^the persisted essence for "([^"]*)" contains "([^"]*)"$`, func(c context.Context, harp, want string) error {
 		w := worldFrom(c)
-		body, err := w.env.ReadHomeFile(j001200HarpHome(harp) + "/essence.md")
+		raw, err := os.ReadFile(filepath.Join(outputDirFor(w, harp), paths.EssenceFileName))
+		body := string(raw)
 		if err != nil {
 			return fmt.Errorf("read essence.md for %s: %w (distill output:\n%s)", harp, err, w.env.LastOutput())
 		}

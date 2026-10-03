@@ -20,7 +20,7 @@ import (
 func TestList_DuplicateKeyWarningNamesThePlanFile(t *testing.T) {
 	root := t.TempDir()
 	write := func(harp, name, content string) string {
-		dir := filepath.Join(root, harp, paths.PersistDirName)
+		dir := filepath.Join(root, harp)
 		require.NoError(t, os.MkdirAll(dir, 0o755))
 		p := filepath.Join(dir, name+paths.PlanFileExt)
 		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
@@ -33,7 +33,7 @@ func TestList_DuplicateKeyWarningNamesThePlanFile(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	got, err := List(root)
+	got, err := listRoot(t, root)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 

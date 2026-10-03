@@ -47,7 +47,7 @@ func TestList_UnreadablePlanFileFailsLoudly(t *testing.T) {
 	require.False(t, os.IsNotExist(readErr),
 		"the fixture must fail for a reason other than absence, which List deliberately tolerates")
 
-	got, err := List(root)
+	got, err := listRoot(t, root)
 	require.Error(t, err, "an unreadable plan file must be a loud failure, not a quietly degraded entry")
 	assert.ErrorContains(t, err, "loop"+paths.PlanFileExt, "the error must name the plan that could not be read")
 	assert.Nil(t, got, "no partial listing may be handed back alongside the failure")

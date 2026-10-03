@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -30,81 +31,71 @@ func TestSessionStateFromEnv(t *testing.T) {
 	assert.Equal(t, SessionState{Harp: "h"}, SessionStateFromEnv(map[string]string{"CTXLOOM_SESSION_HARP": "h"}))
 }
 
-// TestSessionStateMounts_PerBackendStoreRoots pins the per-backend transcript
-// store map (§6b L1): the harp's persist/transcripts dir bind-mounts RW to
-// each engine's native STORE ROOT resolved against the CONTAINER home, the
-// persist dir maps to the container-home ~/.ctxloom session path, this
-// project's task log and its lock map to the same two paths under the
-// container home. Host sources are
-// created (a bind source must exist, and a missing FILE source would be
-// created as a directory by the runtime) and every mount is RW.
-func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
-	tests := []struct {
-		backend  string
-		storeRel string
-	}{
-		{"claude-code", ".claude/projects"},
+// TestSessionStateMounts_MembersOutputAndTaskLog pins the state mounts: each
+// Mounted session member at the same relative path under the CONTAINER home,
+// the session's output dir at containerOutputDir with CTXLOOM_OUTPUT_DIR
+// naming it, and this project's task log and its lock at the same two paths
+// under the container home. Host sources are created as the KIND they are (a
+// missing FILE source would be created as a directory by the runtime) and
+// every mount is RW.
+func TestSessionStateMounts_MembersOutputAndTaskLog(t *testing.T) {
+	home := testsupport.Isolate(t)
+	const harp = "brisk-teal-otter"
+
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+	c.state = SessionState{Harp: harp, ProjectID: "proj-1"}
+	mounts, env, err := c.sessionStateMounts()
+	require.NoError(t, err)
+
+	members := paths.MountedMembers()
+	require.Len(t, mounts, len(members)+3)
+	sessionDir := filepath.Join(home, ".ctxloom", "sessions", harp)
+	for i, m := range members {
+		assert.Equal(t, mount{
+			Host:      filepath.Join(sessionDir, filepath.FromSlash(m.Rel())),
+			Container: path.Join(defaultContainerHome, ".ctxloom", "sessions", harp, m.Rel()),
+		}, mounts[i], "%s binds at its own relative path under the container home", m.Rel())
+		info, statErr := os.Stat(mounts[i].Host)
+		require.NoError(t, statErr, "bind source %s must exist before `run`", mounts[i].Host)
+		assert.Equal(t, m.File, !info.IsDir(), "%s's source is created as the kind it is", m.Rel())
 	}
-	for _, tt := range tests {
-		t.Run(tt.backend, func(t *testing.T) {
-			home := testsupport.Isolate(t)
-
-			c := NewContainerFor(fakeRuntime{name: "docker", available: true}, tt.backend)
-			c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
-			mounts, err := c.sessionStateMounts()
-			require.NoError(t, err)
-			require.Len(t, mounts, 4)
-
-			wantStore, err := paths.HarpTranscriptStoreDir("brisk-teal-otter")
-			require.NoError(t, err)
-			wantPersist, err := paths.HarpPersistDir("brisk-teal-otter")
-			require.NoError(t, err)
-
-			assert.Equal(t, mount{
-				Host:      wantStore,
-				Container: path.Join(defaultContainerHome, tt.storeRel),
-			}, mounts[0], "persist/transcripts binds to the engine's native store root in the CONTAINER home")
-			assert.Equal(t, mount{
-				Host:      wantPersist,
-				Container: path.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
-			}, mounts[1], "persist/ binds to the container-home session path so in-container artifacts land on the host")
-			assert.Equal(t, mount{
-				Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
-				Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
-			}, mounts[2], "THIS project's task log binds into the container home, not the dir holding every project's")
-			assert.Equal(t, mount{
-				Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
-				Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
-			}, mounts[3], "the log's lock rides along: a lock the container cannot see excludes nothing")
-
-			for _, m := range mounts {
-				assert.False(t, m.ReadOnly, "state mounts are RW: the engine/taskloom writes them")
-				info, statErr := os.Stat(m.Host)
-				require.NoError(t, statErr, "bind source %s must exist before `run`", m.Host)
-				assert.Equal(t, strings.HasSuffix(m.Host, ".jsonl") || strings.HasSuffix(m.Host, ".lock"), !info.IsDir(),
-					"the task sources are FILES and the session sources are DIRS; a missing file source is created as a directory by the runtime")
-			}
-		})
+	out, err := fixtureOutputDir(harp)
+	require.NoError(t, err)
+	assert.Equal(t, mount{Host: out, Container: containerOutputDir}, mounts[len(members)], "the output dir binds where CTXLOOM_OUTPUT_DIR says")
+	assert.DirExists(t, out)
+	assert.Equal(t, []string{sessions.EnvOutputDir + "=" + containerOutputDir}, env)
+	assert.Equal(t, mount{
+		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
+		Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
+	}, mounts[len(members)+1], "THIS project's task log binds into the container home, not the dir holding every project's")
+	assert.Equal(t, mount{
+		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
+		Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
+	}, mounts[len(members)+2], "the log's lock rides along: a lock the container cannot see excludes nothing")
+	for _, m := range mounts {
+		assert.False(t, m.ReadOnly, "state mounts are RW")
+		assert.NotEqual(t, sessionDir, m.Host, "the session dir is never mounted whole")
 	}
 }
 
-// TestSessionStateMounts_UnmappedBackendMountsNoStore: an engine nobody
-// declared a container story for maps no transcript store — the fail-closed
-// default carries none, because no engine said where its store is — so the
-// transcript mount is skipped and every other state mount still applies.
-// (Such a run never gets past the auth gate anyway; this pins the mounts
-// alone.)
-func TestSessionStateMounts_UnmappedBackendMountsNoStore(t *testing.T) {
+// A container run whose session records no output dir is refused: an agent
+// told to write its plans there would write them into the container's own
+// layer and lose them at teardown.
+func TestContainer_ARunWithNoRecordedOutputDirIsRefused(t *testing.T) {
 	testsupport.Isolate(t)
+	prev := sessionOutputDir
+	sessionOutputDir = sessions.OutputDir
+	t.Cleanup(func() { sessionOutputDir = prev })
 
-	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "unmapped-backend")
-	c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
-	mounts, err := c.sessionStateMounts()
+	sidecar, err := paths.HarpSidecarPath("brisk-teal-otter")
 	require.NoError(t, err)
-	require.Len(t, mounts, 3, "persist, task log and its lock — no transcript store")
-	for _, m := range mounts {
-		assert.NotContains(t, m.Container, "projects", "no engine store root is guessed for an undeclared engine")
-	}
+	require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
+	require.NoError(t, os.WriteFile(sidecar, []byte("project_dir: /p\n"), 0o600))
+
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+	c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
+	_, _, err = c.sessionStateMounts()
+	assert.ErrorIs(t, err, sessions.ErrNoOutputDir)
 }
 
 // TestSessionStateMounts_NoHarpIsRefused: a container run with no harp has no
@@ -116,7 +107,7 @@ func TestSessionStateMounts_NoHarpIsRefused(t *testing.T) {
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{ProjectID: "proj-1"}
-	_, err := c.sessionStateMounts()
+	_, _, err := c.sessionStateMounts()
 	require.Error(t, err, "a harpless container run is refused")
 
 	_, statErr := os.Stat(filepath.Join(home, ".ctxloom", "sessions"))
@@ -132,9 +123,9 @@ func TestSessionStateMounts_NoProjectID_SkipsTaskMount(t *testing.T) {
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{Harp: "brisk-teal-otter"}
-	mounts, err := c.sessionStateMounts()
+	mounts, _, err := c.sessionStateMounts()
 	require.NoError(t, err)
-	require.Len(t, mounts, 2, "transcript store + persist")
+	require.Len(t, mounts, len(paths.MountedMembers())+1, "the session members and the output dir")
 
 	_, statErr := os.Stat(filepath.Join(home, ".ctxloom", "tasks"))
 	assert.True(t, os.IsNotExist(statErr), "no shared task dir is minted without a project id")
@@ -158,7 +149,7 @@ func TestSessionStateMounts_TaskMountReachesOnlyThisProjectsLog(t *testing.T) {
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-a"}
-	mounts, err := c.sessionStateMounts()
+	mounts, _, err := c.sessionStateMounts()
 	require.NoError(t, err)
 
 	var reachesOwn bool
@@ -186,7 +177,7 @@ func TestSessionStateMounts_RejectsUnsafeHarp(t *testing.T) {
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{Harp: "../evil", ProjectID: "proj-1"}
-	_, err := c.sessionStateMounts()
+	_, _, err := c.sessionStateMounts()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a safe path segment")
 }
@@ -198,15 +189,15 @@ func TestSessionStateMounts_RenderedArgv(t *testing.T) {
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
-	mounts, err := c.sessionStateMounts()
+	mounts, _, err := c.sessionStateMounts()
 	require.NoError(t, err)
 
 	spec := runnerSpecFor(Docker{}, "claude-code", t.TempDir(), nil, mounts)
 	argv := strings.Join(mustRunArgs(t, Docker{}, spec), " ")
 
-	store := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts")
+	spool := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", paths.SpoolDirName)
 	assert.Contains(t, argv,
-		fmt.Sprintf("--mount type=bind,source=%s,target=%s", store, path.Join(defaultContainerHome, ".claude", "projects")))
+		fmt.Sprintf("--mount type=bind,source=%s,target=%s", spool, path.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", paths.SpoolDirName)))
 	assert.Contains(t, argv,
 		fmt.Sprintf("--mount type=bind,source=%s,target=%s",
 			filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
@@ -214,13 +205,12 @@ func TestSessionStateMounts_RenderedArgv(t *testing.T) {
 	assert.NotContains(t, argv,
 		fmt.Sprintf("--mount type=bind,source=%s,target=%s", filepath.Join(home, ".ctxloom", "tasks"), path.Join(defaultContainerHome, ".ctxloom", "tasks")),
 		"the dir holding every project's task log is never handed to a run")
-	assert.NotContains(t, argv, store+",readonly", "the engine writes its transcript store")
-
+	assert.NotContains(t, argv, spool+",readonly", "the spool is written from inside")
 }
 
 // TestWithSessionState_StampsChainPolicies: Prepare's stamping helper carries
 // the session identity onto every policy tier that consumes it — the double-stamp
-// of a worktree-base Container (Container.state AND the worktree base's ephemeral
+// of a worktree-base Container (Container.state AND the worktree base's checkout
 // home) included — leaves None alone, and NEVER nil-panics on a bare Container{}
 // whose base is nil.
 func TestWithSessionState_StampsChainPolicies(t *testing.T) {
@@ -234,7 +224,7 @@ func TestWithSessionState_StampsChainPolicies(t *testing.T) {
 
 	cw := chain[0].(Container)
 	assert.Equal(t, state, cw.state, "container durable-state stamped")
-	assert.Equal(t, state, cw.base.(worktreeBase).wt.state, "worktree base ephemeral home stamped")
+	assert.Equal(t, state, cw.base.(worktreeBase).wt.state, "worktree base checkout home stamped")
 	assert.Equal(t, state, chain[1].(Container).state, "a bare Container's state stamps without a base")
 	assert.Equal(t, state, chain[2].(Worktree).state)
 }
@@ -317,7 +307,7 @@ func TestSessionStateMounts_NoMountAtOrAboveContainerHome(t *testing.T) {
 	for _, state := range states {
 		c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 		c.state = state
-		mounts, err := c.sessionStateMounts()
+		mounts, _, err := c.sessionStateMounts()
 		require.NoError(t, err)
 		require.NotEmpty(t, mounts, "the locks-dir mount is unconditional and always present")
 		for _, m := range mounts {
@@ -358,7 +348,7 @@ func TestSessionStateMounts_DegradeNoticeCoversEveryAffectedMember(t *testing.T)
 	for range 3 {
 		c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 		c.state = SessionState{Harp: "brisk-teal-otter"}
-		_, err := c.sessionStateMounts()
+		_, _, err := c.sessionStateMounts()
 		require.NoError(t, err, "a member without a project id degrades, it does not fail")
 	}
 

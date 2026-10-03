@@ -104,7 +104,7 @@ type sessionEssence struct {
 	Essence   string `json:"essence"`
 	// EssencePath is the absolute path to the essence file when distilled, "" (and
 	// omitted) otherwise — so a client can open the real file rather than rebuild
-	// the ~/.ctxloom/sessions/<harp>/essence.md path itself.
+	// the <output dir>/essence.md path itself.
 	EssencePath string `json:"essence_path,omitempty"`
 }
 

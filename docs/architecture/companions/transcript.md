@@ -7,7 +7,7 @@ per-engine adapters convert a **vendor-native** transcript into the same
 canonical stream through the same writer.
 
 **The contract it owns.** *One harp, one engine, one append-only file at
-`~/.ctxloom/sessions/<harp>/persist/transcript.jsonl`, whose every line is a schema-versioned
+`~/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl`, whose every line is a schema-versioned
 `Record` with a monotonic `seq`.* It replaces the deleted per-engine transcript scrapers, so it
 is the **only** memory source for the registered engine.
 
@@ -57,7 +57,7 @@ flowchart TD
     RECI -.implemented by.-> FR["fileRecorder<br/>recorder.go<br/>mu · file · seq · sessionID"]
 
     FR -->|"payloadFromChatEvent<br/>record.go:243"| REC["Record envelope — record.go:64<br/>{v, harp, session_id, engine, seq, ts, kind}<br/>+ one of entry · session · complete · permission · raw"]
-    REC -->|"LAZY open on first Record<br/>recorder.go"| DISK[("~/.ctxloom/sessions/&lt;harp&gt;/<br/>persist/transcript.jsonl")]
+    REC -->|"LAZY open on first Record<br/>recorder.go"| DISK[("~/.ctxloom/sessions/&lt;harp&gt;/<br/>transcripts/transcript.jsonl")]
 
     DISK --> PTF["ParseTranscriptFile<br/>history.go:170"]
     PTF -->|"v != SchemaVersion → hard error<br/>bad JSON → line dropped"| SESS["agent.Session"]

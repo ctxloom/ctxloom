@@ -1,8 +1,12 @@
 package sessions
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
@@ -57,17 +61,22 @@ func (l Layout) SessionEngineHomes(harp string) string {
 	return l.member(harp, paths.SessionEngineHomesDirName)
 }
 
-// Persist is what survives workspace teardown.
-func (l Layout) Persist(harp string) string { return l.member(harp, paths.PersistDirName) }
+// Scratch is the session's per-run scratch root.
+func (l Layout) Scratch(harp string) string { return l.member(harp, paths.ScratchDirName) }
 
-// Ephemeral is the session's scratch.
-func (l Layout) Ephemeral(harp string) string { return l.member(harp, paths.EphemeralDirName) }
+// Work is where the session's worktree checkouts live.
+func (l Layout) Work(harp string) string { return l.member(harp, paths.WorkDirName) }
 
-// Segments holds the per-native-session distilled segments.
+// Native is the root of the session's native engine histories.
+func (l Layout) Native(harp string) string { return l.member(harp, paths.NativeDirName) }
+
+// Transcripts holds the raw transcript forms.
+func (l Layout) Transcripts(harp string) string { return l.member(harp, paths.TranscriptsDirName) }
+
+// Segments holds the per-rotation canonical segments.
 func (l Layout) Segments(harp string) string { return l.member(harp, paths.SegmentsDirName) }
 
-// Spool stays under persist/: that directory is what the container's
-// session-state mount carries, and container mail rides it.
+// Spool is the session's mail spool.
 func (l Layout) Spool(harp string) string { return l.member(harp, paths.SpoolDirName) }
 
 // Sidecar is the identity member: the file whose presence makes the dir a
@@ -80,14 +89,69 @@ func (l Layout) KeepMarker(harp string) string {
 	return l.member(harp, paths.SessionKeepMarkerFileName)
 }
 
-// Distilled reports whether the session dir holds an essence. Without one the
-// transcript is the session's ONLY record, which is what every destroyer of
-// transcripts asks before taking one.
+// Distilled reports whether the session in dir has an essence: its recorded
+// output dir holds one. Without one the transcript is the session's ONLY
+// record, which is what every destroyer of transcripts asks before taking
+// one. A session with no recorded output dir has nowhere an essence could be,
+// so it is undistilled.
 //
-// It asks the disk, never the index's Summary: the index carries a Summary
-// long before any essence has been written (a harp rename, a resume pass),
-// so a Summary test would pass the one session this exists to protect.
+// It asks the disk, never a recorded flag: a flag set before the essence
+// was written, or left behind after it was removed, would pass the one
+// session this exists to protect.
 func Distilled(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, paths.EssenceFileName))
+	out, ok := OutputDirOf(dir)
+	if !ok {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(out, paths.EssenceFileName))
 	return err == nil
+}
+
+// OutputDirOf reads the output dir recorded in the sidecar of the session in
+// dir. ok is false when there is no readable sidecar or it records none.
+func OutputDirOf(dir string) (string, bool) {
+	data, err := os.ReadFile(filepath.Join(dir, paths.SessionSidecarFileName))
+	if err != nil {
+		return "", false
+	}
+	var e Entry
+	if yaml.Unmarshal(data, &e) != nil || e.OutputDir == "" {
+		return "", false
+	}
+	return e.OutputDir, true
+}
+
+// OutputDirIn is harp's output dir as the calling process reaches it:
+// EnvOutputDir when the environment names one — a containerized run, whose
+// container serves exactly one session and mounts its output dir there —
+// else the path the sidecar records (OutputDir).
+func OutputDirIn(harp string, getenv func(string) string) (string, error) {
+	if dir := getenv(EnvOutputDir); dir != "" {
+		return dir, nil
+	}
+	return OutputDir(harp)
+}
+
+// ErrNoOutputDir is the refusal when a session records no output dir: one
+// minted before output dirs existed, or a mint whose RecordOutputDir failed.
+var ErrNoOutputDir = errors.New("the session records no output dir")
+
+// OutputDir is harp's recorded output dir, read from its sidecar under the
+// resolved home. The recorded path is the answer even if the output_dir
+// config key has changed since: it is where that session's outputs are. A
+// harp with no sidecar is ErrNotFound — there is no such session — and one
+// whose sidecar records none is ErrNoOutputDir.
+func OutputDir(harp string) (string, error) {
+	dir, err := paths.HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(filepath.Join(dir, paths.SessionSidecarFileName)); os.IsNotExist(err) {
+		return "", fmt.Errorf("%w: %q", ErrNotFound, harp)
+	}
+	out, ok := OutputDirOf(dir)
+	if !ok {
+		return "", fmt.Errorf("session %s: %w", harp, ErrNoOutputDir)
+	}
+	return out, nil
 }

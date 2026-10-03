@@ -1,7 +1,7 @@
 // Package spool is the file-based message substrate for agent coordination.
 //
 // A message is a FILE in a per-session spool directory rooted at
-// ~/.ctxloom/sessions/<harp>/persist/spool (paths.HarpPersistDir). The file is
+// ~/.ctxloom/sessions/<harp>/spool (paths.SpoolDirName). The file is
 // the durable truth and the only carrier of payload; any wire traffic that
 // accompanies it carries a REFERENCE (a Ref) and nothing else, so a lost
 // notification costs latency and never a message — a sweep of the directory
@@ -11,8 +11,8 @@
 // counter-example in the design record:
 //
 //   - A Ref is view-independent. The same file is
-//     /home/<user>/.ctxloom/sessions/<harp>/persist/spool/in/<name> on the host
-//     and <containerHome>/.ctxloom/sessions/<harp>/persist/spool/in/<name>
+//     /home/<user>/.ctxloom/sessions/<harp>/spool/in/<name> on the host
+//     and <containerHome>/.ctxloom/sessions/<harp>/spool/in/<name>
 //     inside a container. A raw absolute path is a SENDER-view artifact that
 //     resolves to nothing (or to something unintended) on the other side, so
 //     what travels is harp+dir+name and each side renders its own view through
@@ -60,7 +60,7 @@ const (
 	DirInWithdrawn Dir = "in/withdrawn"
 )
 
-// SpoolDirName is the spool root's name under the session persist dir — the
+// SpoolDirName is the spool root's name under the session dir — the
 // table row paths.HarpMembers marks Mounted, so container mail rides the
 // session-state mount.
 const SpoolDirName = paths.SpoolDirName
@@ -234,12 +234,12 @@ type PathMapper interface {
 // That one implementation serves both views is a property of the mount
 // contract, and this doc is where that contract is stated rather than left as
 // an accident two path joins happen to share: Container.sessionStateMounts
-// binds host ~/.ctxloom/sessions/<harp>/persist to
-// <containerHome>/.ctxloom/sessions/<harp>/persist — a HOME-RELATIVE target
+// binds host ~/.ctxloom/sessions/<harp>/spool to
+// <containerHome>/.ctxloom/sessions/<harp>/spool — a HOME-RELATIVE target
 // with an identical shape — and the child's env pins CTXLOOM_SESSION_HARP. So
-// paths.HarpPersistDir(harp)+"/spool", which resolves against $HOME, yields
-// the host view on the host and the container view in the container with zero
-// extra plumbing. A mapper that resolved against the PROJECT instead would
+// paths.HarpDir(harp)+"/spool", which resolves against $HOME, yields the host
+// view on the host and the container view in the container with zero extra
+// plumbing. A mapper that resolved against the PROJECT instead would
 // break that symmetry: the project tree is a different mount (and a different
 // copy entirely for a worktree-base child).
 //
@@ -283,14 +283,14 @@ func (HomeMapper) RefOf(path string) (Ref, error) {
 		return Ref{}, fmt.Errorf("spool: path %q is outside the sessions root %q", path, sessions)
 	}
 	segs := strings.Split(filepath.ToSlash(rel), "/")
-	// <harp>/persist/spool/<dir...>/<name>: 4 fixed head segments plus at
-	// least one dir segment and the name.
-	const headSegments = 3 // harp, persist, spool
+	// <harp>/spool/<dir...>/<name>: 2 fixed head segments plus at least one
+	// dir segment and the name.
+	const headSegments = 2 // harp, spool
 	if len(segs) < headSegments+2 {
 		return Ref{}, fmt.Errorf("spool: path %q is not a spool file (too few path segments below %q)", path, sessions)
 	}
-	if segs[1] != paths.PersistDirName || segs[2] != SpoolDirName {
-		return Ref{}, fmt.Errorf("spool: path %q is not a spool file (expected <harp>/%s/%s/<dir>/<name>)", path, paths.PersistDirName, SpoolDirName)
+	if segs[1] != SpoolDirName {
+		return Ref{}, fmt.Errorf("spool: path %q is not a spool file (expected <harp>/%s/<dir>/<name>)", path, SpoolDirName)
 	}
 	ref := Ref{
 		Harp: segs[0],
@@ -304,14 +304,14 @@ func (HomeMapper) RefOf(path string) (Ref, error) {
 }
 
 // homeSpoolRoot is the one place the spool's location is composed:
-// <persist>/spool, where persist is paths.HarpPersistDir (which validates the
+// <harp dir>/spool, the harp dir being paths.HarpDir (which validates the
 // harp and resolves against $HOME).
 func homeSpoolRoot(harp string) (string, error) {
-	persist, err := paths.HarpPersistDir(harp)
+	dir, err := paths.HarpDir(harp)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(persist, SpoolDirName), nil
+	return filepath.Join(dir, SpoolDirName), nil
 }
 
 // Root returns the spool root directory for harp in mapper m's view.

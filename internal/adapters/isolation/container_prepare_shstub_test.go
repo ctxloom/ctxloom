@@ -92,7 +92,7 @@ func TestContainer_CleanupKeepsOverlayTargets(t *testing.T) {
 }
 
 // TestContainer_ScratchLivesUnderTheSessionEphemeralDir pins where a container
-// run's host scratch goes: under the session's ephemeral dir, never the OS temp
+// run's host scratch goes: under the session's scratch/ dir, never the OS temp
 // dir. An owner that dies before Cleanup then leaves it inside the session
 // layout, where the session's own cleanup reaches it, instead of an orphaned
 // ctxloom-iso-* in the temp dir that nothing ever collects.
@@ -107,9 +107,9 @@ func TestContainer_ScratchLivesUnderTheSessionEphemeralDir(t *testing.T) {
 	cw := ws.(*containerWorkspace)
 	root := cw.scratchRoot
 
-	eph, err := paths.HarpEphemeralDir(harp)
+	scratch, err := paths.HarpScratchDir(harp)
 	require.NoError(t, err)
-	assert.Equal(t, eph, filepath.Dir(root), "the scratch root is a direct child of the session's ephemeral dir")
+	assert.Equal(t, scratch, filepath.Dir(root), "the scratch root is a direct child of the session's scratch dir")
 	assert.True(t, strings.HasPrefix(filepath.Base(root), "ctxloom-iso-"), "scratch root %q keeps its name prefix", root)
 	require.DirExists(t, root)
 
@@ -221,10 +221,9 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		runtime: fakeRuntime{name: "docker", binary: script, available: true},
 		image:   "ctxloom-agent-state-test:latest",
 		engineSpec: engineContainerSpec{
-			engineInstall:      []byte("RUN echo fake-install\n"), // buildable → the run-as-is identity inspect is skipped
-			declared:           true,
-			overlayDirs:        []string{".claude"},
-			transcriptStoreRel: ".claude/projects",
+			engineInstall: []byte("RUN echo fake-install\n"), // buildable → the run-as-is identity inspect is skipped
+			declared:      true,
+			overlayDirs:   []string{".claude"},
 		},
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
@@ -239,15 +238,14 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	t.Cleanup(func() { _ = cw.Cleanup() })
 	requireCleanWorkspace(t, ws)
 
-	store := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts")
 	assert.Contains(t, cw.extraMounts, mount{
-		Host:      store,
-		Container: path.Join(defaultContainerHome, ".claude", "projects"),
-	}, "transcript store mount threaded into the run spec")
+		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "spool"),
+		Container: path.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "spool"),
+	}, "the spool mount is threaded into the run spec")
 	assert.Contains(t, cw.extraMounts, mount{
-		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
-		Container: path.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
-	}, "session persist mount threaded into the run spec")
+		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "transcripts"),
+		Container: path.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "transcripts"),
+	}, "the transcripts mount is threaded into the run spec")
 	assert.Contains(t, cw.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
 		Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
@@ -274,9 +272,8 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		runtime: fakeRuntime{name: "docker", binary: script, available: true},
 		image:   "ctxloom-agent-state-test:latest",
 		engineSpec: engineContainerSpec{
-			engineInstall:      []byte("RUN echo fake-install\n"),
-			declared:           true,
-			transcriptStoreRel: ".claude/projects",
+			engineInstall: []byte("RUN echo fake-install\n"),
+			declared:      true,
 		},
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
@@ -305,9 +302,9 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	})
 
 	assert.Contains(t, w.extraMounts, mount{
-		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts"),
-		Container: path.Join(defaultContainerHome, ".claude", "projects"),
-	}, "transcript store mount rides the composition too")
+		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "spool"),
+		Container: path.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "spool"),
+	}, "the spool mount rides the composition too")
 	assert.Contains(t, w.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
 		Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),

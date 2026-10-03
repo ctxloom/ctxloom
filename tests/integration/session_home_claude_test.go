@@ -33,7 +33,11 @@ import (
 
 // fakeClaudeScript answers `--version` with claude's declared floor (in
 // claude's own "<version> (Claude Code)" shape), records its environment and
-// argv, drains stdin, and speaks enough stream-json for one turn.
+// argv, snapshots the config dir it was handed (its listing, and its
+// .claude.json), drains stdin, and speaks enough stream-json for one turn.
+// The snapshot is taken WHILE THE RUN IS LIVE because the session home is
+// disposable: Close removes it, so a post-run look would find nothing and
+// every "nothing was copied in" assertion would pass vacuously.
 func fakeClaudeScript(t *testing.T) string {
 	t.Helper()
 	e, ok := engines.Registry().Lookup(claude.EngineName)
@@ -45,6 +49,10 @@ const fakeClaudeScriptBody = `#!/bin/sh
 case "$1" in --version) echo "%s (Claude Code)"; exit 0;; esac
 env > "$FAKE_CLAUDE_CAPTURE.env"
 printf '%%s\n' "$@" > "$FAKE_CLAUDE_CAPTURE.argv"
+if [ -n "$CLAUDE_CONFIG_DIR" ]; then
+  ls -A "$CLAUDE_CONFIG_DIR" > "$FAKE_CLAUDE_CAPTURE.home"
+  if [ -f "$CLAUDE_CONFIG_DIR/.claude.json" ]; then cp "$CLAUDE_CONFIG_DIR/.claude.json" "$FAKE_CLAUDE_CAPTURE.claude.json"; fi
+fi
 cat > /dev/null
 echo '{"type":"system","subtype":"init","session_id":"fake-native-session"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"FAKE-CLAUDE-REPLY"}]}}'
@@ -118,6 +126,15 @@ func capturedEnv(t *testing.T, capturePath string) map[string]string {
 	return out
 }
 
+// capturedHome is the listing of the config dir the fake claude was handed,
+// taken while the run was live.
+func capturedHome(t *testing.T, capturePath string) []string {
+	t.Helper()
+	data, err := os.ReadFile(capturePath + ".home")
+	require.NoError(t, err, "the fake claude was handed no config dir")
+	return strings.Fields(string(data))
+}
+
 // exportedSetupToken stands for what `claude setup-token` prints, which the
 // human exports.
 const exportedSetupToken = "sk-ant-oat01-integration-fixture"
@@ -165,10 +182,11 @@ func TestRun_ClaudeLoginAgentRunsInTheSessionHome(t *testing.T) {
 	assert.Contains(t, configDir, string(os.PathSeparator)+paths.SessionEngineHomesDirName+string(os.PathSeparator))
 
 	requireSharesTheHumansLogin(t, got)
-	assert.NoFileExists(t, filepath.Join(configDir, ".credentials.json"), "no credential is copied into the session home")
+	assert.NotContains(t, capturedHome(t, capture), ".credentials.json", "no credential is copied into the session home")
 	assert.NotContains(t, env.LastOutput(), exportedSetupToken, "the run never prints the token")
+	assert.NoDirExists(t, configDir, "the session home is disposable: Close removes it")
 
-	cfgBytes, err := os.ReadFile(filepath.Join(configDir, ".claude.json"))
+	cfgBytes, err := os.ReadFile(capture + ".claude.json")
 	require.NoError(t, err, ".claude.json is generated in the session home")
 	var cfg map[string]any
 	require.NoError(t, json.Unmarshal(cfgBytes, &cfg))
@@ -200,7 +218,7 @@ func TestRun_ClaudeLoginAgentWithNoTokenSharesTheHumansLogin(t *testing.T) {
 
 	got := capturedEnv(t, capture)
 	requireSharesTheHumansLogin(t, got)
-	assert.NoFileExists(t, filepath.Join(got["CLAUDE_CONFIG_DIR"], ".credentials.json"), "the login is shared in place, never copied")
+	assert.NotContains(t, capturedHome(t, capture), ".credentials.json", "the login is shared in place, never copied")
 	assert.Equal(t, projectBefore, treeSnapshot(t, env.ProjectDir, projectExcluded...), "the run wrote the project tree")
 	assert.Equal(t, homeBefore, treeSnapshot(t, env.HomeDir, paths.AppDirName), "the run wrote the user's real home outside ~/.ctxloom")
 	for _, d := range sessionDirs(t, env) {

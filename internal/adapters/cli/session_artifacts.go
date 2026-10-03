@@ -2,11 +2,13 @@ package cli
 
 import (
 	"io"
+	"path/filepath"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -23,8 +25,10 @@ import (
 var sessionArtifactsCmd = groupNodeDefault(&cobra.Command{
 	Use:   "artifacts",
 	Short: "What a session produced — its distilled essence: list it, destroy it",
-	Long: `A session's artifacts are what ctxloom derived from it, at
-~/.ctxloom/sessions/<harp>/essence.md.
+	Long: `A session's artifacts are what ctxloom derived from it: essence.md in
+the session's output dir (<Documents>/ctxloom/<project>/<harp>/ unless the
+output_dir config key says otherwise). No sweep or clean ever removes it;
+purge here is the one command that does.
 
   list    which sessions have been distilled, and how large the result is
   purge   destroy the essence, reporting first
@@ -93,12 +97,21 @@ func runSessionArtifactsList(cmd *cobra.Command, args []string) error {
 // would report sessions as distilled that have nothing to show.
 func newSessionArtifactRow(harp string) sessionArtifactRow {
 	row := sessionArtifactRow{Harp: harp}
-	if path, size, ok := statHarpFile(afero.NewOsFs(), harp, paths.HarpEssencePath); ok {
+	if path, size, ok := statHarpFile(afero.NewOsFs(), harp, essencePath); ok {
 		row.Distilled = true
 		row.Bytes = size
 		row.Path = path
 	}
 	return row
+}
+
+// essencePath is harp's current essence, in its recorded output dir.
+func essencePath(harp string) (string, error) {
+	out, err := sessions.OutputDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(out, paths.EssenceFileName), nil
 }
 
 // renderSessionArtifacts is the human render: a table, or the explicit empty

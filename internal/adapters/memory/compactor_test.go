@@ -126,6 +126,7 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 	const harp = "round-trip-harp"
+	out := recordOutputDir(t, harp)
 
 	c := &Compactor{config: CompactionConfig{OutputDir: tmpDir}}
 	path, err := c.saveDistilled("round-trip", "## Summary\nDistilled body.", distilledMeta{
@@ -140,9 +141,7 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 	// saveDistilled returns the harp's CURRENT essence, which is what a caller
 	// prints and what the picker reads; the rotation copy read back below is
 	// the other half of the same write.
-	essencePath, perr := paths.HarpEssencePath(harp)
-	require.NoError(t, perr)
-	assert.Equal(t, essencePath, path)
+	assert.Equal(t, filepath.Join(out, paths.EssenceFileName), path, "the essence is written in the session's output dir")
 
 	loaded, err := LoadDistilledSession(tmpDir, "round-trip")
 	require.NoError(t, err)
@@ -430,6 +429,7 @@ func TestCompact_EmptySession(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -479,6 +479,7 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -531,6 +532,7 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -576,6 +578,7 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -613,6 +616,7 @@ func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -652,6 +656,7 @@ func TestCompact_WithMockClient(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -705,6 +710,7 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -756,6 +762,7 @@ func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -773,16 +780,15 @@ func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 }
 
 func TestCompact_PreservesPlansVerbatim(t *testing.T) {
-	home := testsupport.Isolate(t)
+	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 	t.Setenv("CTXLOOM_SESSION_HARP", "plan-harp") // after Isolate, which clears it
 
-	// Seed a plan document in the harp's ctxloom session dir — what the agent
+	// Seed a plan document in the session's output dir — what the agent
 	// would have written during the session. Compaction reads it from there (via
 	// the agent server in production; directly here), not from the transcript.
 	planBody := "1. design the schema\n2. migrate data with backfill\n3. verify with smoke tests"
-	planDir := filepath.Join(home, ".ctxloom", "sessions", "plan-harp")
-	require.NoError(t, os.MkdirAll(planDir, 0o755))
+	planDir := recordOutputDir(t, "plan-harp")
 	require.NoError(t, os.WriteFile(filepath.Join(planDir, "schema.plan.md"), []byte(planBody), 0o644))
 
 	mockBe := &mockBackend{history: &mockSessionHistory{
@@ -856,6 +862,7 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "fail-harp")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -945,6 +952,7 @@ func TestCompact_BySessionID(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -974,6 +982,8 @@ func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/project", "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(entry.HarpName, "correct-session", ""))
 
@@ -1037,6 +1047,7 @@ func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -1064,6 +1075,8 @@ func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/project", "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(entry.HarpName, "dead-session", ""))
 
@@ -1121,6 +1134,7 @@ func TestCompact_ExplicitSessionIDStaleHardErrors(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -1295,6 +1309,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -1321,6 +1336,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 			return 0, nil
 		},
 	}
+	recordOutputDir(t, "compactor-under-test")
 	inclusive, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(includeClient),
@@ -1474,6 +1490,7 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),

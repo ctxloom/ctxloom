@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -346,7 +347,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 
 func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolRequest, in loadSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
 	if in.HarpName != "" {
-		// Harp-native path: read ~/.ctxloom/sessions/<harp>/essence.md
+		// Harp-native path: read essence.md from the harp's output dir
 		// directly. No backend-history detour, no SessionID binding step.
 		// If the file is missing the user can run `ctxloom session distill`
 		// or just compact again.
@@ -358,10 +359,9 @@ func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolReques
 	return s.loadOrDistillSession(ctx, in.SessionID, in.Backend, in.Model, policyArchived)
 }
 
-// loadHarpEssence reads ~/.ctxloom/sessions/<harp>/essence.md and returns
-// it as a loadSessionResult. The harp-dir layout (Phase 3.6) is keyed by
-// the human-readable harp name, so this path is independent of backend
-// session UUIDs. Errors when the harp is unknown to the index or its
+// loadHarpEssence reads the essence.md in harp's output dir and returns it as
+// a loadSessionResult. It is keyed by the human-readable harp name, so this
+// path is independent of backend session UUIDs. Errors when the harp is unknown to the index or its
 // essence.md doesn't exist (compact_session hasn't run for this harp yet).
 func (s *ctxServer) loadHarpEssence(harpName string) (*mcp.CallToolResult, *loadSessionResult, error) {
 	entry, err := operations.GetSession(harpName)
@@ -371,10 +371,13 @@ func (s *ctxServer) loadHarpEssence(harpName string) (*mcp.CallToolResult, *load
 	if entry == nil {
 		return nil, nil, fmt.Errorf("harp not found in index: %q", harpName)
 	}
-	essencePath, err := paths.HarpEssencePath(harpName)
-	if err != nil {
-		return nil, nil, fmt.Errorf("home dir: %w", err)
+	out := entry.OutputDir
+	if out == "" {
+		if out, err = sessions.OutputDirIn(harpName, os.Getenv); err != nil {
+			return nil, nil, fmt.Errorf("output dir of %q: %w", harpName, err)
+		}
 	}
+	essencePath := filepath.Join(out, paths.EssenceFileName)
 	data, err := os.ReadFile(essencePath)
 	if err != nil {
 		// Only an ABSENT essence means "never distilled". Every other read
@@ -621,7 +624,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 
 // previousSessionByHarp materializes a canonical/ACP previous session — one
 // with no backend SessionID, whose only source is the harp's own captured
-// transcript and whose essence lives at ~/.ctxloom/sessions/<harp>/essence.md
+// transcript and whose essence lives at <output dir>/essence.md
 // (NOT the legacy sessionID-keyed <sessionsDir>/<id>.md the backend path reads
 // via LoadDistilledSession). It mirrors loadOrDistillSession's cache-then-
 // distill shape, keyed by harp instead of session id:
@@ -894,10 +897,13 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	if harp == "" {
 		return nil, nil, fmt.Errorf("session %s belongs to no harp, so there is nowhere to file its distilled essence: run `ctxloom session adopt` to bring an orphaned vendor transcript into a harp's lineage first", sessionID)
 	}
-	sessionsDir, err := paths.ResolveHarpSegmentsDir(harp)
+	// A rotation's essence is a readable output: it is filed under the
+	// session's output dir, beside the current one.
+	out, err := sessions.OutputDirIn(harp, os.Getenv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve segments dir for %s: %w", harp, err)
+		return nil, nil, fmt.Errorf("resolve output dir for %s: %w", harp, err)
 	}
+	sessionsDir := filepath.Join(out, paths.SegmentsDirName)
 	transcriptPath := ""
 	{
 		if entry, _ := operations.GetSession(harp); entry != nil {

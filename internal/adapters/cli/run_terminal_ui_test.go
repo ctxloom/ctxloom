@@ -114,7 +114,7 @@ func TestRedirectDiagnosticsForTUI_AnnouncesTheOutcome(t *testing.T) {
 		var announce bytes.Buffer
 		restore := redirectDiagnosticsForTUI("plump-loose-sash", &announce)
 		t.Cleanup(restore)
-		assert.Contains(t, announce.String(), diagnosticsLogName)
+		assert.Contains(t, announce.String(), paths.DiagnosticsLogFileName)
 	})
 
 	t.Run("no harp is announced, not silently skipped", func(t *testing.T) {

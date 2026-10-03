@@ -34,5 +34,5 @@ taskloom plan show <path> [flags]
 
 ### SEE ALSO
 
-* [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (~/.ctxloom/sessions/<harp>/persist/*.plan.md)
+* [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (*.plan.md in each session's output dir)
 

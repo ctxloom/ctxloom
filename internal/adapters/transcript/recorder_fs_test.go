@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
-// TestNewRecorder_WritesThroughTheGivenFs: the recorder's persist dir and its
+// TestNewRecorder_WritesThroughTheGivenFs: the recorder's transcripts dir and its
 // held append handle both come from the fs it was given, so a caller filling a
 // safefs.AtomicFile's temp file over some fs reaches that file through the
 // same fs — never past it on the OS filesystem.

@@ -146,8 +146,8 @@ Feature: MCP tools
   # under the same harp is the one it must return.
   #
   # The fixture reproduces exactly that shape — a self harp whose index binds a
-  # post-clear session while a rotation records the pre-clear one, with an
-  # engine-transcript link per binding so the lineage scan finds both. The
+  # post-clear session while a rotation records the pre-clear one, with a
+  # native transcript per binding so the lineage scan finds both. The
   # assertions pin the resolution, not merely a 0-exit: loaded=true (the
   # /recover skill's false "nothing to recover" is the failure mode), the
   # recovered content carries the pre-clear thread's marker (real bytes, not an
@@ -197,7 +197,7 @@ Feature: MCP tools
   # naming another session returned that id in its result while writing that
   # session's distilled memory under the MCP server's own harp: right content,
   # wrong session, no error anywhere. A later load_session for the named
-  # session reads ~/.ctxloom/sessions/<harp>/essence.md, finds nothing, and
+  # session reads essence.md in that session's output dir, finds nothing, and
   # re-derives the whole distillation — every explicit compact_session call
   # paying for work that is then thrown away — while the caller's own essence
   # is quietly overwritten by a session that is not theirs.

@@ -381,7 +381,11 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 	// the daemon sees it; Container.environment fills it once the relocator
 	// has named its files. Held by its owner's lock, so a crashed run's dir
 	// is swept by the next one made under the same parent.
-	secrets, err := newOwnedScratch(secretParent(os.Getenv, cw.scratchRoot), secretScratchPrefix)
+	secretDir, onDisk := secretParent(os.Getenv, cw.scratchRoot)
+	if onDisk {
+		clidiag.WarnOnce("ctxloom", "%s", SecretsOnDiskNotice(secretDir))
+	}
+	secrets, err := newOwnedScratch(secretDir, secretScratchPrefix)
 	if err != nil {
 		return mountPlan{}, fmt.Errorf("container secrets: %w", err)
 	}
@@ -527,7 +531,7 @@ type containerBase interface {
 	// former and mount into the latter.
 	mountBase(ctx context.Context, rt Runtime, projectDir, dir, scratchRoot string, spec engineContainerSpec, g git.Git) (mounts []mount, err error)
 	// withState stamps the run's session identity onto the base — worktreeBase
-	// stamps its Worktree's ephemeral-scratch home; hostBase is a no-op. Returns
+	// stamps its Worktree's checkout and scratch homes; hostBase is a no-op. Returns
 	// the stamped base (bases are value types).
 	withState(state SessionState) containerBase
 	// name identifies the composed policy: "container" | "container-worktree".
@@ -617,19 +621,22 @@ func gitdirMirrorMounts(ctx context.Context, rt Runtime, g git.Git, projectDir, 
 type containerScratch struct {
 	root    string
 	termEnv []string
-	// stateMounts are the scoped RW session-state mounts (transcript store,
-	// session persist dir, shared task log — see sessionStateMounts) every
-	// container run threads into its spec regardless of workspace axis.
+	// stateMounts are the scoped RW session-state mounts (the mounted session
+	// members, the output dir, the shared task log — see sessionStateMounts)
+	// every container run threads into its spec regardless of workspace axis;
+	// stateEnv is the env they imply.
 	stateMounts []mount
+	stateEnv    []string
 }
 
 // runEnv composes the per-run env threaded into the container spec: the host
 // terminal description (TERM/COLORTERM as KEY=VAL, non-secret), which the
-// curated handshake env deliberately drops. Returns a fresh slice so callers
-// never alias the scratch's fields. A credential never rides here: it reaches
-// the engine as a file under secretsTarget, which the runner reads.
+// curated handshake env deliberately drops, and the session-state env (the
+// output dir's container path). Returns a fresh slice so callers never alias
+// the scratch's fields. A credential never rides here: it reaches the engine
+// as a file under secretsTarget, which the runner reads.
 func (sc containerScratch) runEnv() []string {
-	return append([]string(nil), sc.termEnv...)
+	return append(append([]string(nil), sc.termEnv...), sc.stateEnv...)
 }
 
 // gitIdentityEnv renders the container run's per-agent git identity as the four
@@ -692,7 +699,7 @@ func (c Container) imageUnbuildable() error {
 }
 
 // prepareContainerScratch runs the container degrade gate (launchGate) and
-// then provisions the host scratch root under the session's ephemeral dir and
+// then provisions the host scratch root under the session's scratch dir and
 // the session-state mounts. Any gate failure returns an error so the caller
 // refuses the run (prepareChain's refuseLostContainer).
 // It is the shared front-half of BOTH the top-level Container workspace and the
@@ -713,12 +720,12 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	// mount set (see mountProbeRoots) instead.
 	//
 	// The host-side scratch root is the tree Cleanup removes. It lives under the
-	// session's ephemeral dir so an owner that dies before Cleanup leaves it
+	// session's scratch dir so an owner that dies before Cleanup leaves it
 	// where the session layout accounts for it, never in the OS temp dir. A run
 	// with no usable harp has nowhere to put it and is refused: the error
 	// becomes the caller's fatal ClassIsolation finding, like an unpreparable
 	// state dir below.
-	base, err := c.state.ephemeralDir()
+	base, err := c.state.scratchDir()
 	if err != nil {
 		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
 	}
@@ -734,12 +741,12 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	// state dirs cannot be prepared errors here so the caller's degrade chain
 	// raises the fatal-unless-degraded ClassIsolation finding, exactly like an
 	// absent image — never a silent state-losing launch.
-	stateMounts, err := c.sessionStateMounts()
+	stateMounts, stateEnv, err := c.sessionStateMounts()
 	if err != nil {
 		_ = os.RemoveAll(root)
 		return containerScratch{}, err
 	}
-	return containerScratch{root: root, termEnv: hostTerminalEnv(os.Getenv), stateMounts: stateMounts}, nil
+	return containerScratch{root: root, termEnv: hostTerminalEnv(os.Getenv), stateMounts: stateMounts, stateEnv: stateEnv}, nil
 }
 
 // hostTerminalEnv forwards the host's terminal description into the container

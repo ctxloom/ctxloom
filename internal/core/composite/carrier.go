@@ -122,7 +122,7 @@ func (t Inline) Redeem(_ context.Context, c Carrier) (Encoded, error) {
 type ClaimCheck struct{ Store Store }
 
 // Store is the stow/fetch port under ClaimCheck. Its default implementation
-// is the SESSION DIR (<harp>/persist/package/<digest>): on the host's
+// is the SESSION DIR (<harp>/package/<digest>): on the host's
 // filesystem for a host runner, and inside the session-state mount for a
 // container runner. Get answers nil bytes for a location it does not hold.
 type Store interface {

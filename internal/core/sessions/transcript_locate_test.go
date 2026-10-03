@@ -11,11 +11,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// writeStoreFile creates a file under the harp's persist/transcripts store
-// with the given mtime, mirroring an engine's nested native layout.
+// writeStoreFile creates a file under the harp's native/ history root with
+// the given mtime, mirroring an engine's nested native layout.
 func writeStoreFile(t *testing.T, home, harp, rel string, mtime time.Time) string {
 	t.Helper()
-	p := filepath.Join(home, ".ctxloom", "sessions", harp, "persist", "transcripts", filepath.FromSlash(rel))
+	p := filepath.Join(home, ".ctxloom", "sessions", harp, "native", filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}

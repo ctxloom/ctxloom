@@ -43,7 +43,7 @@ const (
 // the full path.
 //
 // The bound exists because a record or lock for a file nested inside a
-// session's ephemeral directory would otherwise exceed NAME_MAX and fail
+// session's scratch or work directory would otherwise exceed NAME_MAX and fail
 // with ENAMETOOLONG.
 //
 // Every character NTFS forbids in a name component (see ntfsReserved, plus

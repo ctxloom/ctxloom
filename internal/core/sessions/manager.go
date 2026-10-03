@@ -76,15 +76,22 @@ type Entry struct {
 	// directory already says what it is called.
 	HarpName string `yaml:"-" json:"harp_name"`
 
-	SessionID  string     `yaml:"session_id,omitempty" json:"session_id,omitempty"` // empty until backend binds on initialize
-	Backend    string     `yaml:"backend,omitempty" json:"backend,omitempty"`
-	ProjectDir string     `yaml:"project_dir" json:"project_dir"`
-	StartedAt  time.Time  `yaml:"started_at" json:"started_at"`
-	EndedAt    *time.Time `yaml:"ended_at,omitempty" json:"ended_at,omitempty"`
+	SessionID  string `yaml:"session_id,omitempty" json:"session_id,omitempty"` // empty until backend binds on initialize
+	Backend    string `yaml:"backend,omitempty" json:"backend,omitempty"`
+	ProjectDir string `yaml:"project_dir" json:"project_dir"`
+	// OutputDir is the session's human root: where its readable outputs
+	// (essence, next step, plans, segment essences, published reports) go.
+	// Recorded ABSOLUTE at mint (RecordOutputDir) because its default
+	// derives from per-platform and per-user state and its base is
+	// configurable: re-deriving it later could name a different folder than
+	// the one the session's files are in.
+	OutputDir string     `yaml:"output_dir,omitempty" json:"output_dir,omitempty"`
+	StartedAt time.Time  `yaml:"started_at" json:"started_at"`
+	EndedAt   *time.Time `yaml:"ended_at,omitempty" json:"ended_at,omitempty"`
 	// TranscriptPath is the vendor transcript this harp is currently bound
-	// to. Persisted because nothing in the directory reliably names it: the
-	// engine-transcript-* symlink is best-effort and is deliberately not
-	// created for a transcript that already lives inside the session dir.
+	// to. Persisted because nothing in the session dir names it: claude's
+	// native file is found under native/ by location (LocateTranscript), but
+	// a host-home binding lives wherever the engine put it.
 	TranscriptPath string `yaml:"transcript_path,omitempty" json:"transcript_path,omitempty"`
 
 	// Summary is essence.md's frontmatter `summary:` line, read on demand
@@ -143,7 +150,7 @@ type Entry struct {
 	CanonicalTranscriptPath string `yaml:"-" json:"canonical_transcript_path,omitempty"`
 
 	// PurgedAt records when `ctxloom session purge` destroyed this session's
-	// machine-written bulk (transcript.jsonl, persist/transcripts/…). A purge
+	// machine-written bulk (transcripts/, native/). A purge
 	// removes FILES and never the directory, so what it leaves is a real
 	// session directory missing its content — indistinguishable from damage
 	// except by this stamp. It is why a purged session stays visible in
@@ -217,8 +224,8 @@ type Manager struct {
 	root string
 	mu   sync.Mutex
 	// rep receives the findings a listing or a bind raises about one
-	// session without failing the whole operation (a corrupt sidecar, a
-	// transcript link that could not be made). The caller renders them.
+	// session without failing the whole operation (a corrupt sidecar). The
+	// caller renders them.
 	rep report.Reporter
 }
 
@@ -286,8 +293,8 @@ func (m *Manager) writeSidecar(harpName string, e *Entry) error {
 		return fmt.Errorf("mkdir session dir: %w", err)
 	}
 	// MkdirAll leaves an existing directory's mode alone, and the session dir
-	// normally exists before its first sidecar write (launch lays out
-	// persist/ and ephemeral/ under it with the default mode).
+	// normally exists before its first sidecar write (launch lays out its
+	// members under it with the default mode).
 	if err := fs.Chmod(dir, sessionDirMode); err != nil {
 		return fmt.Errorf("restrict session dir: %w", err)
 	}
@@ -390,6 +397,23 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 	return entry, nil
 }
 
+// RecordOutputDir records harp's output dir: <base>/<project>/<harp>, the
+// project being the plain name of the entry's own ProjectDir
+// (paths.OutputDir). Recorded once, at mint, absolute; returns it.
+func (m *Manager) RecordOutputDir(harpName, base string) (string, error) {
+	var dir string
+	err := m.update(harpName, func(e *Entry) (bool, error) {
+		d, err := paths.OutputDir(base, e.ProjectDir, harpName)
+		if err != nil {
+			return false, err
+		}
+		dir = d
+		e.OutputDir = d
+		return true, nil
+	})
+	return dir, err
+}
+
 // BindEngine records the engine the launch resolver decided for the
 // session. The mint precedes resolution and so cannot know it; a later
 // launch of the same harp may change it only by resolving to another.
@@ -457,15 +481,7 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 			e.SessionID = sessionID
 		}
 		if transcriptPath != "" {
-			e.TranscriptPath = transcriptPath
-			// Create THIS binding's own immutable engine-transcript symlink
-			// (see linkEngineTranscript's doc) — never a retroactive one for
-			// the entry a rotation just displaced (cur, above): that
-			// binding's link was already created when IT was current, at its
-			// own bind. Best-effort: a failure must not block the bind.
-			for _, f := range linkEngineTranscript(harpName, e.Backend, sessionID, transcriptPath) {
-				m.rep.Report(f)
-			}
+			e.TranscriptPath = boundTranscriptPath(transcriptPath)
 		}
 		return true, nil
 	})

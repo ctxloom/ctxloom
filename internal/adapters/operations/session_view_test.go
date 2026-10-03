@@ -22,14 +22,14 @@ func TestViewSession_CarriesTheRecordAndTheDerivedFacts(t *testing.T) {
 	started := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	ended := started.Add(time.Hour)
 	purged := ended.Add(time.Hour)
-	essence, err := paths.HarpEssencePath("swift-amber-falcon")
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Dir(essence), 0o755))
+	out := t.TempDir()
+	essence := filepath.Join(out, paths.EssenceFileName)
 	require.NoError(t, os.WriteFile(essence, []byte("# essence\n"), 0o644))
 
 	v := ViewSession(sessions.Entry{
 		HarpName:     "swift-amber-falcon",
 		ProjectDir:   "/proj",
+		OutputDir:    out,
 		Backend:      "claude-code",
 		SessionID:    "native-1",
 		Summary:      "Fixed the bug",

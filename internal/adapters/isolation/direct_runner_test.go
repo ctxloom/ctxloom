@@ -16,8 +16,8 @@ import (
 // (sessionStateMounts) every container run threads in — the §6.4 mount whose
 // PRESENCE the transcript-survival guard depends on.
 var stateMount = mount{
-	Host:      "/home/u/.ctxloom/sessions/regal-rash-dash/persist",
-	Container: "/home/ctxloom/.ctxloom/sessions/regal-rash-dash/persist",
+	Host:      "/home/u/.ctxloom/sessions/regal-rash-dash/spool",
+	Container: "/home/ctxloom/.ctxloom/sessions/regal-rash-dash/spool",
 }
 
 // newRunnerTestWorkspace builds a containerWorkspace with the same fields

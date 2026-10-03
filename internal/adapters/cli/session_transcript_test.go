@@ -142,17 +142,17 @@ func TestSessionWatch_MovedUnderTranscript(t *testing.T) {
 }
 
 // TestSessionTranscriptList_PreRenameFileIsNotCaptured pins the one-name
-// contract at the listing: a persist/ holding only the pre-rename leaf
+// contract at the listing: a transcripts/ holding only the pre-rename leaf
 // (transcript.acp.jsonl) is reported as NOT captured — the row never resolves
 // a transcript under the old name.
 func TestSessionTranscriptList_PreRenameFileIsNotCaptured(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	t.Cleanup(resetSessionTranscriptFlags)
-	persistDir, err := paths.HarpPersistDir(harp)
+	transcripts, err := paths.HarpTranscriptsDir(harp)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(persistDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(persistDir, "transcript.acp.jsonl"), []byte("{}\n"), 0o644))
+	require.NoError(t, os.MkdirAll(transcripts, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(transcripts, "transcript.acp.jsonl"), []byte("{}\n"), 0o644))
 
 	out, err := execRootCmd(t, "session", "transcript", "list", "--format", "json")
 	require.NoError(t, err)

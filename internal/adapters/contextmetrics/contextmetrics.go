@@ -6,10 +6,12 @@
 // harness re-runs on every refresh and hands the session JSON that carries the
 // engine's own context accounting. The reader is the `context_status` MCP
 // tool. The two meet only at this package's Sample shape and at one file per
-// session — ~/.ctxloom/sessions/<harp>/persist/context-metrics.jsonl.
+// session — ~/.ctxloom/sessions/<harp>/context-metrics.jsonl
+// (paths.HarpContextMetricsPath).
 //
-// The file is under persist/ rather than ephemeral/ deliberately: a context
-// series describes the SESSION, and outliving a workspace teardown is the
+// The file is a Persist member of the session dir rather than living in
+// scratch/ deliberately: a context series describes the SESSION, and
+// outliving a workspace teardown is the
 // whole point of being able to ask "was I already at 80% before the last
 // compaction?".
 package contextmetrics
@@ -25,10 +27,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
-
-// FileName is the persist/ leaf holding one session's context-occupancy
-// series: one JSON object per line, append-only, oldest first.
-const FileName = "context-metrics.jsonl"
 
 // Sample is one observation of a session's context-window occupancy.
 //
@@ -68,11 +66,7 @@ func Path(harp string) (string, error) {
 	if harp == "" {
 		return "", fmt.Errorf("context metrics: no session harp")
 	}
-	dir, err := paths.HarpPersistDir(harp)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, FileName), nil
+	return paths.HarpContextMetricsPath(harp)
 }
 
 // ShouldAppend reports whether next carries news relative to prev — the
@@ -91,7 +85,7 @@ func ShouldAppend(prev *Sample, next Sample) bool {
 	return next.TS.Sub(prev.TS) >= MinInterval
 }
 
-// Append writes one sample to harp's series, creating the persist dir if
+// Append writes one sample to harp's series, creating the session dir if
 // needed.
 //
 // One marshalled line per write call, O_APPEND: concurrent statusline

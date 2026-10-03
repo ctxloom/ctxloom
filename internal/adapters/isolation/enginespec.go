@@ -43,15 +43,6 @@ import (
 //   - inPlaceFiles: the engine's project-relative files written in place
 //     through the project bind; their host lock files are the only host locks
 //     a container reaches (Container.lockMounts).
-//   - transcriptStoreRel: the engine's native transcript/session STORE ROOT,
-//     relative to the container HOME — the bind target sessionStateMounts maps
-//     the harp's persist/transcripts dir onto so in-container transcripts
-//     survive teardown. The ROOT, never a leaf: the transcript file name is a
-//     runtime-generated sessionID/uuid the host cannot pre-create, and the
-//     container's fresh HOME already scopes the root to this one run. Resolved
-//     against the CONTAINER home; an engine-home env override is deliberately
-//     not consulted — the container axis never sets one. "" when the engine
-//     keeps no transcripts.
 //
 // WHAT an engine's container story is, is not decided here. Each engine
 // declares it (EngineFacts.Container, with its shipping policy in
@@ -61,13 +52,12 @@ import (
 // fail-closed default below is reached only by a name nobody composed or an
 // engine that SAID it has no container story, never by a forgotten row.
 type engineContainerSpec struct {
-	image              string
-	engineInstall      []byte
-	validate           string
-	declared           bool
-	overlayDirs        []string
-	inPlaceFiles       []string
-	transcriptStoreRel string
+	image         string
+	engineInstall []byte
+	validate      string
+	declared      bool
+	overlayDirs   []string
+	inPlaceFiles  []string
 }
 
 // ctxloomCacheOverlayDir is ctxloom's own project-relative cache directory
@@ -138,13 +128,12 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 // namespace and the cache overlay dir).
 func specFromDeclaration(c engine.ContainerSpec) engineContainerSpec {
 	spec := engineContainerSpec{
-		image:              defaultContainerImage,
-		engineInstall:      c.Install,
-		validate:           c.ValidateCommand,
-		overlayDirs:        append(append([]string{}, c.OverlayDirs...), ctxloomCacheOverlayDir),
-		inPlaceFiles:       c.InPlaceFiles,
-		transcriptStoreRel: c.TranscriptStoreRel,
-		declared:           true,
+		image:         defaultContainerImage,
+		engineInstall: c.Install,
+		validate:      c.ValidateCommand,
+		overlayDirs:   append(append([]string{}, c.OverlayDirs...), ctxloomCacheOverlayDir),
+		inPlaceFiles:  c.InPlaceFiles,
+		declared:      true,
 	}
 	return spec
 }
@@ -204,12 +193,4 @@ func ContainerOverlayDirsFor(backend string) []string {
 	out := make([]string, len(dirs))
 	copy(out, dirs)
 	return out
-}
-
-// ContainerTranscriptStoreRelFor returns engineContainerSpecFor(backend)'s
-// transcriptStoreRel — the engine's native transcript-store root, relative to
-// the container HOME (empty when the engine keeps no transcripts). Exported
-// for the same engine-layout gate as ContainerOverlayDirsFor.
-func ContainerTranscriptStoreRelFor(backend string) string {
-	return engineContainerSpecFor(backend).transcriptStoreRel
 }

@@ -87,17 +87,17 @@ func assertPOSIXTargets(t *testing.T, mounts []mount) {
 	}
 }
 
-// B2: the full session-state set — transcript store, mounted locations,
-// task log and lock, locks dir — lands under the container's POSIX $HOME.
+// B2: the full session-state set — the mounted members, the output dir, the
+// task log and lock — lands at POSIX container paths.
 func TestSessionStateMounts_TargetsArePOSIX(t *testing.T) {
 	testsupport.Isolate(t)
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, claude.EngineName)
 	c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
-	mounts, err := c.sessionStateMounts()
+	mounts, _, err := c.sessionStateMounts()
 	require.NoError(t, err)
 	require.NotEmpty(t, mounts)
 	assertPOSIXTargets(t, mounts)
-	assert.Contains(t, targetsOf(mounts), path.Join(defaultContainerHome, ".claude/projects"))
+	assert.Contains(t, targetsOf(mounts), path.Join(defaultContainerHome, ".ctxloom/sessions/brisk-teal-otter/spool"))
 }
 
 func targetsOf(mounts []mount) []string {
@@ -106,12 +106,4 @@ func targetsOf(mounts []mount) []string {
 		out = append(out, m.Container)
 	}
 	return out
-}
-
-// The engine's transcript store is kept slash-form: it only ever names a
-// path inside the container.
-func TestEngineContainerSpec_TranscriptStoreRelIsSlashForm(t *testing.T) {
-	rel := engineContainerSpecFor(claude.EngineName).transcriptStoreRel
-	require.NotEmpty(t, rel)
-	assert.Equal(t, ".claude/projects", rel)
 }

@@ -5,7 +5,7 @@
 // holds — no keepalive to exec into, no handoff file, no listener. Every
 // assertion reads a delivered PAYLOAD (the engine's echo of typed input over
 // the pty) or a live fact (the container's command, the process table, the
-// persist dir) — never an exit status alone.
+// session dir) — never an exit status alone.
 //
 //	just test-docker-integration
 //	GOWORK=off just test-pkg ./internal/core/coord/... -tags docker_integration -run InteractiveContainer
@@ -15,7 +15,7 @@ package coord_test
 import (
 	"context"
 	"io"
-	"os"
+	"io/fs"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -115,7 +115,7 @@ func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[strin
 //  2. the container's command IS the runner (`ctxloom runner mock`): the
 //     foreground process, not a keepalive;
 //  3. NO exec-into: the process table holds no `docker exec` for it;
-//  4. NO handoff: nothing under the session's persist/ carries a run-start.
+//  4. NO handoff: nothing under the session dir carries a run-start.
 func TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container interactive turn integration test")
 	coord.ResetStrictness(t)
@@ -123,12 +123,14 @@ func TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner(t *testing.T) {
 	image := buildBusIntegrationImage(t)
 	projectDir := testsupport.ProjectDir(t)
 
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock")
+	// HOME first: the mint writes the sidecar the container launch reads the
+	// output dir from, so it must land in the home the run resolves against.
+	coord.TeeHome(t)
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock", filepath.Join(projectDir, ".test-output"))
 	require.NoError(t, err)
 	ownerHarp := entry.HarpName
 
 	starter := &dockerInteractiveStarter{image: image, projectDir: projectDir, harp: ownerHarp}
-	coord.TeeHome(t)
 	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "owner-interactive-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: coord.OwnerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, coordgrpc.Serve(c))
@@ -185,13 +187,15 @@ func TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner(t *testing.T) {
 		}
 	}
 
-	// (4) No handoff file under the session's persist dir.
-	persist, err := paths.HarpPersistDir(ownerHarp)
+	// (4) No handoff file anywhere in the session dir.
+	sessionDir, err := paths.HarpDir(ownerHarp)
 	require.NoError(t, err)
-	entries, _ := os.ReadDir(persist)
-	for _, e := range entries {
-		assert.False(t, strings.Contains(e.Name(), "runstart"), "a run-start handoff landed under persist/: %s", filepath.Join(persist, e.Name()))
-	}
+	_ = filepath.WalkDir(sessionDir, func(p string, d fs.DirEntry, werr error) error {
+		if werr == nil && !d.IsDir() {
+			assert.False(t, strings.Contains(d.Name(), "runstart"), "a run-start handoff landed in the session dir: %s", p)
+		}
+		return nil
+	})
 }
 
 // lockedBuffer is a goroutine-safe io.Writer for the pty copier.

@@ -3,7 +3,6 @@ package operations
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -95,21 +94,21 @@ func sessionLine(harp string) string {
 	}
 	// Point the LLM at this session's plan directory. Implementation and
 	// strategy plans belong here (not in an ad-hoc .plan/ dir) so they travel
-	// with the session and can be recovered on resume. A session may produce
-	// several plans, so each is a separately named file with a .plan.md
-	// suffix.
+	// with the session, sit where the human reads them, and can be recovered
+	// on resume. A session may produce several plans, so each is a separately
+	// named file with a .plan.md suffix.
 	//
-	// The path is paths.HarpPlansDir — the harp's persist/ subdirectory — and
-	// NOT the harp top level. Only persist/ is bind-mounted into a
-	// containerized run (isolation.Container.sessionStateMounts), so an agent
-	// that follows this instruction from inside a container and writes at the
-	// top level writes into container-ephemeral overlay space and loses the
-	// plan on exit: a successful write, a real file, and zero bytes left
-	// behind afterwards. This sentence IS the population source for that
-	// failure — every session is told where to put its plans right here — so
-	// it is the one place the location has to be right.
-	if planDir, perr := paths.HarpPlansDir(harp); perr == nil {
-		line += fmt.Sprintf(" Store implementation/strategy plans as markdown files in this session's plan directory `%s`, each named `<descriptive-name>%s` (e.g. `%s`). Plans written elsewhere do not survive a containerized run. Use a distinct name per plan.", planDir, paths.PlanFileExt, filepath.Join(planDir, "v1-removal"+paths.PlanFileExt))
+	// The path is the session's OUTPUT dir as THIS process reaches it
+	// (sessions.OutputDirIn): this text is rendered by the runner and the
+	// agent's own MCP server, which run inside the container for a
+	// containerized run, where the output dir is mounted at a different path
+	// than the host records. This sentence is the one place every session is
+	// told where its plans go, so it is the one place the location has to be
+	// right.
+	if planDir, perr := sessions.OutputDirIn(harp, os.Getenv); perr == nil {
+		// The directory is named ONCE: it is the longest thing in the
+		// instructions, and the client truncates them (InstructionsCharCap).
+		line += fmt.Sprintf(" Store implementation/strategy plans as markdown files directly in this session's plan directory `%s`, each named `<descriptive-name>%s` (e.g. `v1-removal%s`). Plans written elsewhere do not survive a containerized run. Use a distinct name per plan.", planDir, paths.PlanFileExt, paths.PlanFileExt)
 	}
 	return line
 }

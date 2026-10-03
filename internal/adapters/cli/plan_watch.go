@@ -26,7 +26,7 @@ type planChangeEvent struct {
 
 var planCmd = groupNode(&cobra.Command{
 	Use:   "plan",
-	Short: "Work with session plan documents (~/.ctxloom/sessions/<harp>/persist/*.plan.md)",
+	Short: "Work with session plan documents (*.plan.md in each session's output dir)",
 	// GUI-facing (only the plan watch stream lives here); hidden from CLI help.
 	Hidden: true,
 })

@@ -228,6 +228,8 @@ func TestSessionPurge_LiveSessionRefuses(t *testing.T) {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 	require.NoError(t, sessionlock.Hold(entry.HarpName))
 	t.Cleanup(func() { sessionlock.Release(entry.HarpName) })
 	transcript := seedTranscript(t, entry.HarpName)

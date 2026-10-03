@@ -1,6 +1,9 @@
 package sessions
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // The process-boundary carriers. These constants are the ONLY spellings; the
 // env-literals-once arch gate forbids the literals outside this package.
@@ -33,6 +36,10 @@ const (
 	// credential is read from the HARNESS-INHERITED process env only — it is
 	// never written into any MCP config structure, file, or Env map.
 	EnvCoordCred = "CTXLOOM_COORD_CRED"
+	// EnvCoordCredFile names the read-only secret file a CONTAINER runner
+	// reads its credential from instead of EnvCoordCred, so the credential is
+	// in neither the container's environment nor the `run` client's.
+	EnvCoordCredFile = "CTXLOOM_COORD_CRED_FILE"
 	// EnvRunID is the coordinator-minted run id for a spawned child's
 	// runner, so RunnerChannel Hello correlates the runner to the run the
 	// coordinator will StartRun on it. Absent on the parent-session
@@ -52,6 +59,10 @@ const (
 	// engine's screen. The originator sets it to the session's diagnostics
 	// log, where its own warnings go for the same reason.
 	EnvDiagnosticsLog = "CTXLOOM_DIAGNOSTICS_LOG"
+	// EnvOutputDir names the session's output dir to every process of a
+	// containerized run (the container's own path to it): the sidecar that
+	// records the host path is not mounted there (OutputDirIn).
+	EnvOutputDir = "CTXLOOM_OUTPUT_DIR"
 	// EnvHarp carries the run's session harp to the ENGINE process and its
 	// hook subprocesses; it names the session dir and the spool.
 	EnvHarp = "CTXLOOM_SESSION_HARP"
@@ -93,10 +104,21 @@ func EncodeReach(reach Endpoint, runID string) map[string]string {
 	return map[string]string{EnvCoordURL: reach.URL, EnvCoordCred: reach.Credential, EnvRunID: runID}
 }
 
-// DecodeReach reads the reach-back trio back; a missing URL or credential is
-// ErrNoReachBack.
-func DecodeReach(getenv func(string) string) (Endpoint, string, error) {
+// DecodeReach reads the reach-back trio back: the credential from
+// EnvCoordCred, or else from the file EnvCoordCredFile names (read through
+// readFile, byte for byte). A missing URL or credential, or a named file that
+// cannot be read, is ErrNoReachBack.
+func DecodeReach(getenv func(string) string, readFile func(string) ([]byte, error)) (Endpoint, string, error) {
 	ep := Endpoint{URL: getenv(EnvCoordURL), Credential: getenv(EnvCoordCred)}
+	if ep.Credential == "" {
+		if name := getenv(EnvCoordCredFile); name != "" {
+			b, err := readFile(name)
+			if err != nil {
+				return Endpoint{}, "", fmt.Errorf("%w: reading the credential file %s: %w", ErrNoReachBack, name, err)
+			}
+			ep.Credential = string(b)
+		}
+	}
 	if ep.URL == "" || ep.Credential == "" {
 		return Endpoint{}, "", ErrNoReachBack
 	}

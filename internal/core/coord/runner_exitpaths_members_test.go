@@ -120,15 +120,15 @@ func TestRunnerExitPaths_ConsumedSpoolMessageIsKept(t *testing.T) {
 	require.NoError(t, err)
 	outPath, err := mapper.Resolve(ref)
 	require.NoError(t, err)
-	persist, err := paths.HarpPersistDir(harp)
+	transcript, err := paths.HarpCanonicalTranscriptPath(harp)
 	require.NoError(t, err)
-	transcript := filepath.Join(persist, paths.CanonicalTranscriptFileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(transcript), 0o700))
 	require.NoError(t, os.WriteFile(transcript, nil, 0o600))
 
 	before := persistentMembers(t, harp)
 	require.Contains(t, before.Paths, outPath, "the member set must be taken while the message is still in out/")
 
-	done, err := spool.Consume(mapper, ref)
+	done, err := spool.Consume(mapper, ref, time.Now())
 	require.NoError(t, err)
 	require.Empty(t, lostPersistent(before), "a message the coordinator consumed was delivered, not lost")
 

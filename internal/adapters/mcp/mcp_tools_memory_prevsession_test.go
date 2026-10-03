@@ -19,7 +19,7 @@ import (
 // canonical/ACP branch of get_previous_session (viral-equal). An ACP-launched
 // session never binds a backend SessionID; its only source is the harp's own
 // captured transcript and its essence lives at
-// ~/.ctxloom/sessions/<harp>/essence.md — NOT the legacy sessionID-keyed path
+// <output dir>/essence.md — NOT the legacy sessionID-keyed path
 // under the project workdir that the backend branch reads. This test proves the
 // by-harp path materializes such a session from the harp dir and, when the
 // essence is fresh (stamped SourceSize matches the canonical transcript),
@@ -35,6 +35,8 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 	// AssignHarp mints an ACP-style entry: a harp with no bound SessionID
 	// (BindSession is never called on the ACP path).
 	entry, err := mgr.AssignHarp(projectDir, "mock")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	harp := entry.HarpName
 	require.Empty(t, entry.SessionID, "ACP entry must have no backend session id")
@@ -55,7 +57,7 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 
 	// A pre-existing essence in the HARP dir (the correct location the fix
 	// targets), plus a matching entry count so SourceStale reports fresh.
-	essPath, err := paths.HarpEssencePath(harp)
+	essPath, err := harpEssencePath(t, harp)
 	require.NoError(t, err)
 	const essenceBody = "## Previous session\nPicked up where we left off.\n"
 	require.NoError(t, os.WriteFile(essPath, []byte(essenceBody), 0o644))

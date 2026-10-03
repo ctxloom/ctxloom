@@ -231,6 +231,10 @@ var (
 		Shape: "REPO-HOOK failure",
 		Where: "marker files outside the repo that only the repo's COMMITTED .claude/settings.json hooks write",
 	}
+	channelNativeHistory = probeChannel{
+		Shape: "NATIVE-HISTORY failure",
+		Where: "claude's own conversation .jsonl under its config home's projects/, written by no ctxloom code",
+	}
 	channelTurnOnePrompt = probeChannel{
 		Shape: "RECALL failure",
 		Where: "turn one's PROMPT — deliberately not a fragment, because re-delivered context on respawn would false-green resume",
@@ -261,6 +265,7 @@ const (
 	probePX  = "px-foreign-harp"
 	probeP12 = "p12-permission-hook-no-host"
 	probeP13 = "p13-untrusted-repo-hooks"
+	probeP14 = "p14-native-history"
 	// The two rungs deliberately NOT built. Present as deferred rows so rows
 	// 9 and 10 of the inventory are visibly un-probed rather than invisibly so.
 	probePCmd   = "p10-command-invocation"
@@ -480,6 +485,24 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With the repo trusted in CLAUDE_CONFIG_DIR/.claude.json the init frame listed the skill and agent, and the agent's frontmatter Stop hook and inline stdio MCP server both wrote their markers — the fixture's frontmatter executes when loaded. The skill's frontmatter PreToolUse hook did not fire under -p even here, which is why skills are judged by the init frame."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13CtxloomUntrusted), Status: probeLiveVerified,
 				Reason: "measured 2026-10-02 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. ctxloom's own launch of a repo the human never trusted — the verdict, the session home and the argv from claude.Claude.Trust, the instance-config writer and Instance.Exec (p13CtxloomLaunch) — wrote NO settings or frontmatter marker while the echo ran; the trusted control, re-run in the same session, wrote all four. The composition is pinned hermetically (TestP13_CtxloomLaunch_Untrusted, TestP13_CtxloomLaunch_IsTheEngines) and its judge is MUTATION-CONFIRMED (TestP13_CtxloomLaunchUntrusted)."},
+		},
+	},
+	// P14 measures the vendor facts the session layout's native history stands
+	// on: claude writes its conversation under $CLAUDE_CONFIG_DIR/projects in
+	// ctxloom's container, and writes through a symlinked projects/ without
+	// replacing it (probe_p14_native_history.go).
+	{
+		Name:         probeP14,
+		Title:        "native history: claude writes its conversation .jsonl under the config home's projects/ in a container, and through a relative symlinked projects/ without replacing the link",
+		Capabilities: []int{15},
+		Channel:      channelNativeHistory,
+		Feature:      "probes/capability_native_history.feature",
+		Paid:         true,
+		Cells: []probeCell{
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Variant: p14ContainerWrites, Status: probeLiveVerified,
+				Reason: "measured 2026-10-03 on claude 2.1.286 (haiku): 1 scenario / 4 steps green in 22s. In a rootless container the host-side session engine home held claude/projects/<slug>/<uuid>.jsonl after one turn; the slug was the project's HOST absolute path, because the container mounts the project at the same path. Re-measured 2026-10-03 on the native-history layout: 1 scenario / 4 steps green in 45s, the conversation .jsonl landed in the host's native/claude/projects/<slug>/ through the home's relative link and the native/ mount. Judge MUTATION-CONFIRMED hermetically (TestP14_ContainerWrites)."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: p14SymlinkedProjects, Status: probeLiveVerified,
+				Reason: "measured 2026-10-03 on claude 2.1.286 (haiku): 1 scenario / 4 steps green in 16s. With <cfg>/projects the relative link ../../native/claude/projects, claude wrote its conversation .jsonl into the link's target and left the link in place with its target text unchanged. Judge MUTATION-CONFIRMED hermetically (TestP14_SymlinkReplacedIsRed, TestP14_SymlinkRetargetedIsRed)."},
 		},
 	},
 	{

@@ -141,6 +141,8 @@ func seedHookSession(t *testing.T, backend string) string {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(t.TempDir(), backend)
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 	seedEngineVersion(t, mgr, entry.HarpName, backend)
 	t.Setenv(agent.SessionHarpEnv, entry.HarpName)
 	return entry.HarpName
@@ -165,6 +167,8 @@ func seedEndedSession(t *testing.T, projectDir, backend string) (*sessions.Manag
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(projectDir, backend)
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	require.NoError(t, mgr.MarkEnded(entry.HarpName, time.Now().UTC()))
 	// A FREE lock file, the way a session that ended however it ended leaves
@@ -191,7 +195,7 @@ func seedTranscript(t *testing.T, harp string) string {
 // seedEssence writes a distilled essence for harp and returns its path.
 func seedEssence(t *testing.T, harp string) string {
 	t.Helper()
-	path, err := paths.HarpEssencePath(harp)
+	path, err := harpEssencePath(t, harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte("# Seeded essence\n"), 0o644))

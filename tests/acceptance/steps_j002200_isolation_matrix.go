@@ -39,10 +39,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/cucumber/godog"
 
@@ -326,12 +326,13 @@ func isoIsPerAgentScratch(w *World, val string) bool {
 	// Since slice 14a the session's config-home INSTANCE also lives under the
 	// sessions root (~/.ctxloom/sessions/<harp>/home/<leaf>, paths.HarpSessionEngineHomes),
 	// so "under sessions/" no longer means scratch. The per-agent worktree
-	// scratch is the harp's EPHEMERAL member (paths.HarpEphemeralDir,
-	// Worktree.scratchBase); the instance is its HOME member. Discriminate on
-	// the member RELATIVE TO the sessions root — the absolute path may pass
-	// through an unrelated ".../ephemeral/..." (the outer sandbox worktree).
+	// checkout is the harp's WORK member and its toolchain scratch its
+	// SCRATCH member (Worktree.checkoutBase, Worktree.scratchBase); the
+	// instance is its HOME member. Discriminate on the member RELATIVE TO the
+	// sessions root — the absolute path may pass through an unrelated
+	// directory of the same name (the outer sandbox worktree).
 	segs := strings.Split(strings.TrimPrefix(val, root+sep), sep)
-	return len(segs) >= 2 && segs[1] == "ephemeral"
+	return len(segs) >= 2 && (segs[1] == paths.ScratchDirName || segs[1] == paths.WorkDirName)
 }
 
 // isoMatrixState is this file's per-scenario fixture state: where the spy's
@@ -967,41 +968,37 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// The instance's disposal, pinned at the acceptance layer. An instance
-	// holds a COPY of the user's live credential, and it is an Ephemeral
-	// member of the session that the one reaper takes by age — so this step
-	// first proves the instance is STILL THERE after the run (nothing but the
-	// reaper removes it), then runs the reaper with a bound in the future so
-	// the just-ended session counts as aged, and proves it went. The session
-	// ended under its liveness lock, which is the only state the reaper
-	// accepts as proof nobody is running it.
-	ctx.Step(`^the "([^"]*)" config-home instance is reaped once the session has aged out$`, func(c context.Context, engine string) error {
+	// The instance's disposal, pinned at the acceptance layer. The instance is
+	// a disposable member of the session (the engine home), and the run's
+	// close removes it — so this step first proves an instance of the right
+	// shape EXISTED while the engine ran (read from inside the spy), then
+	// proves none is left now the run has returned. Without the first half an
+	// instance that was never created would pass as "removed".
+	ctx.Step(`^the "([^"]*)" config-home instance is removed when the run closes$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
+		body, err := isoReadSpyOut(isoMatrixOf(w))
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		var seen string
+		for _, l := range strings.Split(isoParseSpySection(body, "===CONFIG_HOME_LISTING==="), "\n") {
+			if d, ok := strings.CutPrefix(l, "DIR "); ok {
+				if _, shapeErr := isoInstanceHomeShape(w.env.HomeDir, engine, d); shapeErr == nil {
+					seen = d
+				}
+			}
+		}
+		if seen == "" {
+			return fmt.Errorf("the spy saw no %q config-home instance while it ran, so there is nothing to prove removed; spy read:\n%s", engine, body)
+		}
 		homes, err := isoInstanceHomes(w.env.HomeDir, engine)
 		if err != nil {
 			return err
 		}
-		if len(homes) == 0 {
-			return fmt.Errorf("no %q config-home instance survived the run — the instance is the reaper's to take by age, and this scenario proves the reaper reaches it, which it cannot when something else removed it first", engine)
-		}
-		// A date bound parses at midnight UTC, so "tomorrow" in local time can
-		// still fall BEFORE the session's activity late in the day; two days
-		// out is past any clock this can run under.
-		tomorrow := time.Now().AddDate(0, 0, 2).Format(time.DateOnly)
-		if err := runCLI(c, "ctxloom clean --older-than "+tomorrow+" --yes", ""); err != nil {
-			return err
-		}
-		if code := w.env.LastExitCode(); code != 0 {
-			return fmt.Errorf("`ctxloom clean --older-than %s --yes` exited %d:\n%s", tomorrow, code, w.env.LastOutput())
-		}
-		homes, err = isoInstanceHomes(w.env.HomeDir, engine)
-		if err != nil {
-			return err
-		}
 		if len(homes) != 0 {
-			return fmt.Errorf("the %q config-home instance(s) %v survived the reap — an un-reaped instance leaves copied credential bytes on disk:\n%s", engine, homes, w.env.LastOutput())
+			return fmt.Errorf("the %q config-home instance(s) %v survived the run's close; the engine home is disposable and its generated config must not outlive the run", engine, homes)
 		}
-		w.docStepMaterialized = fmt.Sprintf("the %q instance under %s survived the session's end and was taken by `ctxloom clean --older-than %s --yes` (it is rebuilt fresh next session)", engine, filepath.Join(w.env.HomeDir, ".ctxloom", "sessions"), tomorrow)
+		w.docStepMaterialized = fmt.Sprintf("the %q instance %s existed while the engine ran and is gone now the run has closed", engine, seen)
 		return nil
 	})
 

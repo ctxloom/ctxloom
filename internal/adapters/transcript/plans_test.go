@@ -12,11 +12,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestReadPlanFiles(t *testing.T) {
-	testsupport.Isolate(t) // isolated HOME → paths.HarpDir resolves under it
-	dir, err := paths.HarpDir("brisk-harp")
+// mintOutputDir gives harp a session record with a fresh output dir, as a
+// mint does, and returns that dir.
+func mintOutputDir(t *testing.T, harp string) string {
+	t.Helper()
+	sidecar, err := paths.HarpSidecarPath(harp)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
+	out := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Dir(sidecar), 0o755))
+	require.NoError(t, os.WriteFile(sidecar, []byte("project_dir: /proj\noutput_dir: "+out+"\n"), 0o600))
+	return out
+}
+
+func TestReadPlanFiles(t *testing.T) {
+	testsupport.Isolate(t) // isolated HOME → the session record resolves under it
+	dir := mintOutputDir(t, "brisk-harp")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "v1"+paths.PlanFileExt), []byte("# v1 plan"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "arch"+paths.PlanFileExt), []byte("# arch plan"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "notes.md"), []byte("not a plan"), 0o644))
@@ -30,15 +40,13 @@ func TestReadPlanFiles(t *testing.T) {
 
 func TestReadPlanFiles_MissingDirAndEmptyHarp(t *testing.T) {
 	testsupport.Isolate(t)
-	assert.Nil(t, ReadPlanFiles("never-created"), "missing session dir → no plans, no error")
+	assert.Nil(t, ReadPlanFiles("never-created"), "no such session → no plans, no error")
 	assert.Nil(t, ReadPlanFiles(""), "empty harp → no plans")
 }
 
-func TestEngineReader_GetPlans_ReadsTheHarpDir(t *testing.T) {
+func TestEngineReader_GetPlans_ReadsTheOutputDir(t *testing.T) {
 	testsupport.Isolate(t)
-	dir, err := paths.HarpDir("h1")
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
+	dir := mintOutputDir(t, "h1")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "p"+paths.PlanFileExt), []byte("body"), 0o644))
 
 	r := NewEngineReader(nil, "")
@@ -54,9 +62,7 @@ func TestEngineReader_GetPlans_ReadsTheHarpDir(t *testing.T) {
 // at minimum be reported.
 func TestReadPlanFilesReportsUnreadableFile(t *testing.T) {
 	testsupport.Isolate(t)
-	dir, err := paths.HarpDir("brisk-harp")
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
+	dir := mintOutputDir(t, "brisk-harp")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "ok"+paths.PlanFileExt), []byte("# ok"), 0o644))
 	blocked := filepath.Join(dir, "blocked"+paths.PlanFileExt)
 	require.NoError(t, os.WriteFile(blocked, []byte("# secret"), 0o644))
@@ -72,7 +78,7 @@ func TestReadPlanFilesReportsUnreadableFile(t *testing.T) {
 	assert.Contains(t, problems[0].Error(), "blocked")
 }
 
-// An absent session directory is legitimately empty, not a failure: it must
+// A harp that is no session is legitimately empty, not a failure: it must
 // stay quiet.
 func TestReadPlanFilesMissingDirIsQuiet(t *testing.T) {
 	testsupport.Isolate(t)

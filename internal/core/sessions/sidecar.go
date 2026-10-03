@@ -45,19 +45,16 @@ type essenceFrontmatter struct {
 	Summary string `yaml:"summary"`
 }
 
-// fillFromEssence derives Summary and Detail from the harp's essence.md:
+// fillFromEssence derives Summary and Detail from the essence.md in the
+// entry's output dir:
 // the frontmatter's summary line and the leading bullets of the body's Open
 // Items section. A missing or malformed essence leaves both empty — a
 // never-distilled session simply has no summary.
 func fillFromEssence(e *Entry) {
-	if e == nil || e.HarpName == "" {
+	if e == nil || e.OutputDir == "" {
 		return
 	}
-	p, err := paths.HarpEssencePath(e.HarpName)
-	if err != nil {
-		return
-	}
-	data, err := os.ReadFile(p)
+	data, err := os.ReadFile(filepath.Join(e.OutputDir, paths.EssenceFileName))
 	if err != nil {
 		return
 	}

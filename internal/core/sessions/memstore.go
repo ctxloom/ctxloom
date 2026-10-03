@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 )
 
@@ -16,8 +17,7 @@ import (
 //
 // Filesystem-free names the records and the records only: no session
 // directories, no sidecars, no file lock, no atomic rewrite, and none of the
-// real store's write side effects — BindSession drops no per-harp transcript
-// symlink.
+// real store's write side effects.
 //
 // It does NOT mean disk-free, and callers must not assume it. Find,
 // ListForProject and ListAll run the same computed-on-read enrichment as
@@ -124,6 +124,25 @@ func (m *MemStore) AssignHarp(projectDir, backend string) (Entry, error) {
 	}
 	m.sessions = append(m.sessions, entry)
 	return entry, nil
+}
+
+// RecordOutputDir records harp's output dir, matching
+// *Manager.RecordOutputDir.
+func (m *MemStore) RecordOutputDir(harpName, base string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		if m.sessions[i].HarpName != harpName {
+			continue
+		}
+		d, err := paths.OutputDir(base, m.sessions[i].ProjectDir, harpName)
+		if err != nil {
+			return "", err
+		}
+		m.sessions[i].OutputDir = d
+		return d, nil
+	}
+	return "", fmt.Errorf("%w: %q", ErrNotFound, harpName)
 }
 
 // BindSession records the backend session id / transcript for harpName,

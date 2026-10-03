@@ -42,7 +42,11 @@ import (
 // ends the session (EndSession) when the run is over; a launch that does not
 // resolve ends its own session here so no harp is left half-minted.
 func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src launch.Source) (launch.Launch, error) {
-	id, err := MintIdentity(deps.Sessions, seed, deps.Snapshot.Trust)
+	base, err := OutputBase(deps.Snapshot.Config)
+	if err != nil {
+		return launch.Launch{}, err
+	}
+	id, err := MintIdentity(deps.Sessions, seed, deps.Snapshot.Trust, base)
 	if err != nil {
 		return launch.Launch{}, err
 	}
@@ -64,11 +68,16 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 // directory and sidecar), the liveness lock held by this process, the
 // identity returned. The engine is not known here — Resolve decides it and
 // records it (Store.BindEngine). tr is the generation the launch decides with:
-// its signature-check posture is stamped beside the origin.
-func MintIdentity(store sessions.Store, seed sessions.Seed, tr composite.Trust) (sessions.Identity, error) {
+// its signature-check posture is stamped beside the origin. The session's
+// output dir is recorded under outputBase (OutputBase); a session that cannot
+// say where its outputs go is refused.
+func MintIdentity(store sessions.Store, seed sessions.Seed, tr composite.Trust, outputBase string) (sessions.Identity, error) {
 	entry, err := store.AssignHarp(seed.ProjectDir, seed.Engine)
 	if err != nil {
 		return sessions.Identity{}, fmt.Errorf("session naming failed, refusing to run: %w", err)
+	}
+	if _, err := store.RecordOutputDir(entry.HarpName, outputBase); err != nil {
+		return sessions.Identity{}, fmt.Errorf("session %s: recording its output dir, refusing to run: %w", entry.HarpName, err)
 	}
 	// A failed stamp warns rather than refuses: an unstamped session reads as
 	// a human's, the reading a sweep never purges undistilled.

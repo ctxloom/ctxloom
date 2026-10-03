@@ -18,10 +18,11 @@ import (
 // SessionState is the run's session identity threaded into the isolation seam:
 // which harp names this run's per-session state dir, and which stable project
 // id keys the shared task log. It decides the SCOPED read-write state mounts a
-// containerized run gets (sessionStateMounts) and where a worktree's ephemeral
-// scratch lands (Worktree.scratchBase). A container run without a usable harp
-// is refused (SessionState.ephemeralDir); a worktree without one falls back to
-// the OS temp dir; a zero ProjectID skips the shared task-log facet. Never a
+// containerized run gets (sessionStateMounts) and where a worktree's checkout
+// and per-run scratch land (Worktree.checkoutBase, Worktree.scratchBase). A
+// container run without a usable harp is refused (SessionState.scratchDir); a
+// worktree without one falls back to the OS temp dir; a zero ProjectID skips
+// the shared task-log facet. Never a
 // blanket ~/.ctxloom mount: that would
 // expose cache/bundles/config and every OTHER session's state to the run.
 type SessionState struct {
@@ -58,7 +59,7 @@ func safePathSegment(s string) bool {
 	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\")
 }
 
-// errNoSessionHarp and errUnsafeSessionHarp are ephemeralDir's two refusals of
+// errNoSessionHarp and errUnsafeSessionHarp are memberDir's two refusals of
 // the harp itself, told apart from a failure to prepare the dir: the worktree
 // half stays silent on the first, warns on the second, and falls back to the
 // OS temp dir on either, while the container half refuses the run on both.
@@ -67,18 +68,26 @@ var (
 	errUnsafeSessionHarp = errors.New("session harp is not a safe path segment")
 )
 
-// ephemeralDir resolves and creates the session's ephemeral/ dir
-// (paths.HarpEphemeralDir) — where every per-run scratch a workspace makes
-// lives, so the session layout accounts for it and cleanup of the session dir
+// scratchDir resolves and creates the session's scratch/ dir
+// (paths.HarpScratchDir) — where every per-run scratch a workspace makes
+// lives, so the session layout accounts for it and the session's Close
 // sweeps whatever an owner that died left behind.
-func (s SessionState) ephemeralDir() (string, error) {
+func (s SessionState) scratchDir() (string, error) { return s.memberDir(paths.HarpScratchDir) }
+
+// workDir resolves and creates the session's work/ dir (paths.HarpWorkDir) —
+// where its worktree checkouts live.
+func (s SessionState) workDir() (string, error) { return s.memberDir(paths.HarpWorkDir) }
+
+// memberDir resolves the session member at, refusing a missing or unsafe harp,
+// and creates it.
+func (s SessionState) memberDir(at func(string) (string, error)) (string, error) {
 	if s.Harp == "" {
 		return "", errNoSessionHarp
 	}
 	if !safePathSegment(s.Harp) {
 		return "", fmt.Errorf("%w: %q", errUnsafeSessionHarp, s.Harp)
 	}
-	dir, err := paths.HarpEphemeralDir(s.Harp)
+	dir, err := at(s.Harp)
 	if err != nil {
 		return "", err
 	}
@@ -88,26 +97,24 @@ func (s SessionState) ephemeralDir() (string, error) {
 	return dir, nil
 }
 
+// containerOutputDir is where a containerized run reaches its session's
+// output dir; CTXLOOM_OUTPUT_DIR names it for every process in the container
+// (sessions.EnvOutputDir), because the sidecar that records the host path is
+// not mounted.
+const containerOutputDir = "/ctxloom/out"
+
 // sessionStateMounts builds the scoped read-write state mounts that keep a
-// containerized run's ctxloom-stateful writes durable across teardown. The
-// container gets a fresh HOME, so without these every engine transcript,
-// in-container ~/.ctxloom write, and session artifact dies with it. Each mount
+// containerized run's ctxloom-stateful writes durable across teardown, and
+// the env they imply. The container gets a fresh HOME, so without these every
+// in-container ~/.ctxloom write and session output dies with it. Each mount
 // is scoped to exactly one concern:
 //
-//	~/.ctxloom/sessions/<harp>/persist/transcripts → the engine's native
-//	    transcript STORE ROOT in the container home (per-backend
-//	    transcriptStoreRel). The transcript leaf name is runtime-generated,
-//	    so the ROOT is the bind target; the container's fresh HOME means the
-//	    root holds only this run's transcript. Location under the harp dir is
-//	    what makes the transcript harp-addressable when the SessionStart bind
-//	    hook never fires (sessions.LocateTranscript).
-//	~/.ctxloom/sessions/<harp>/<dir>, for each dir paths.MountedLocations
-//	    names → the same path relative to the CONTAINER home. The table
-//	    (paths.HarpMembers) decides what a container reaches: the spool row
-//	    is Mounted, so persist/ rides here and container mail with it, and
-//	    everything else under persist/ (the claim store, the canonical
-//	    transcript, in-container artifact writes) lands on the host through
-//	    the same mount.
+//	~/.ctxloom/sessions/<harp>/<member>, for each member
+//	    paths.MountedMembers names → the same path relative to the CONTAINER
+//	    home. The table (paths.HarpMembers) decides what a container reaches.
+//	the session's output dir (sessions.OutputDir) → containerOutputDir, with
+//	    CTXLOOM_OUTPUT_DIR naming it: the readable outputs an agent writes
+//	    (plans, reports) land where the human reads them.
 //	~/.ctxloom/tasks/<project-id>.jsonl (and its .lock sidecar) → the same
 //	    path under the container home, so an in-container taskloom's
 //	    task_add/deferral reports reach the one host log every session of THIS
@@ -117,7 +124,9 @@ func (s SessionState) ephemeralDir() (string, error) {
 //	    log. Which project it is comes from the CTXLOOM_PROJECT_ID the run env
 //	    pins.
 //
-// The container's ~/.ctxloom/locks is NOT among these: see
+// Native history is NOT among these: it is mounted beside the engine homes
+// by the relocator (containerRelocator.relocate), where the home's relative
+// link expects it. The container's ~/.ctxloom/locks is not either: see
 // Container.lockMounts.
 //
 // VM-FS append hazard on the log: host and container both APPEND to it. On
@@ -130,62 +139,74 @@ func (s SessionState) ephemeralDir() (string, error) {
 // (entrypoint PUID/PGID remap): the in-container writer must be the host user
 // or these dirs collect wrongly-owned files. A missing project id skips the
 // task-log facet with a streamed warning, not a strictness finding. A missing
-// or unsafe harp, or a preparation FAILURE for a known identity, errors so the
-// caller's degrade chain raises the fatal ClassIsolation finding.
-func (c Container) sessionStateMounts() ([]mount, error) {
+// or unsafe harp, a session with no recorded output dir, or a preparation
+// FAILURE for a known identity, errors so the caller's degrade chain raises
+// the fatal ClassIsolation finding.
+func (c Container) sessionStateMounts() ([]mount, []string, error) {
 	if !safePathSegment(c.state.Harp) {
-		return nil, fmt.Errorf("container session-state mounts: session harp %q is not a safe path segment", c.state.Harp)
+		return nil, nil, fmt.Errorf("container session-state mounts: session harp %q is not a safe path segment", c.state.Harp)
 	}
 	mounts, err := c.harpStateMounts()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	out, err := c.outputMounts()
+	if err != nil {
+		return nil, nil, err
 	}
 	taskMounts, err := c.taskStoreMounts()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return append(mounts, taskMounts...), nil
+	mounts = append(append(mounts, out...), taskMounts...)
+	return mounts, []string{sessions.EnvOutputDir + "=" + containerOutputDir}, nil
 }
 
-// harpStateMounts binds the session's native transcript store (when the
-// engine spec names one) and each of its mounted locations, creating every
-// bind source first.
+// harpStateMounts binds each Mounted member, creating every bind source
+// first as the KIND of thing it is: a runtime asked to bind a source that is
+// not there creates a directory in its place.
 func (c Container) harpStateMounts() ([]mount, error) {
 	var mounts []mount
 	layout, err := sessions.HomeLayout()
 	if err != nil {
 		return nil, fmt.Errorf("container session-state mounts: %w", err)
 	}
-	store, err := paths.HarpTranscriptStoreDir(c.state.Harp)
-	if err != nil {
-		return nil, fmt.Errorf("container session-state mounts: %w", err)
-	}
-	// The bind SOURCE must exist before `run`.
-	if err := os.MkdirAll(store, 0o755); err != nil {
-		return nil, fmt.Errorf("container session-state mounts: %w", err)
-	}
-	// transcriptStoreRel is set by every engineContainerSpecFor branch; ""
-	// only reaches here through a hand-built spec, which then simply
-	// has no native store to persist.
-	if c.engineSpec.transcriptStoreRel != "" {
-		mounts = append(mounts, c.runtime.paths().bind(
-			store,
-			path.Join(c.home, c.engineSpec.transcriptStoreRel),
-			false,
-		))
-	}
-	for _, dir := range paths.MountedLocations() {
-		host := filepath.Join(layout.Dir(c.state.Harp), dir)
-		if err := os.MkdirAll(host, 0o755); err != nil {
+	for _, m := range paths.MountedMembers() {
+		host := layout.Member(c.state.Harp, m)
+		if m.File {
+			if err := os.MkdirAll(filepath.Dir(host), 0o755); err != nil {
+				return nil, fmt.Errorf("container session-state mounts: %w", err)
+			}
+			err = ensureFile(host)
+		} else {
+			err = os.MkdirAll(host, 0o755)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("container session-state mounts: %w", err)
 		}
 		mounts = append(mounts, c.runtime.paths().bind(
 			host,
-			path.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, dir),
+			path.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, m.Rel()),
 			false,
 		))
 	}
 	return mounts, nil
+}
+
+// sessionOutputDir is sessions.OutputDir, indirected so this package's tests
+// can give the many container fixtures that mint no session an output dir.
+var sessionOutputDir = sessions.OutputDir
+
+// outputMounts binds the session's recorded output dir at containerOutputDir.
+func (c Container) outputMounts() ([]mount, error) {
+	dir, err := sessionOutputDir(c.state.Harp)
+	if err != nil {
+		return nil, fmt.Errorf("container output mount: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("container output mount: %w", err)
+	}
+	return []mount{c.runtime.paths().bind(dir, containerOutputDir, false)}, nil
 }
 
 // taskStoreMounts binds the project's task log and its lock, or — with no

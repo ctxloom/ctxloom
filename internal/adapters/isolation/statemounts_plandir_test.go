@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -35,46 +36,42 @@ func resolveThroughMounts(t *testing.T, mounts []mount, overlayRoot, containerPa
 }
 
 // TestSessionStateMounts_PlanDirOutlivesTheContainer is the durability claim
-// behind repointing mcp.sessionInstructions at paths.HarpPlansDir, asserted as
-// the only thing that actually matters: whether the bytes are still on disk
-// after the container is gone.
+// behind pointing a containerized agent's plans at its output dir, asserted
+// as the only thing that actually matters: whether the bytes are still on
+// disk after the container is gone.
 //
 // It runs the whole round trip against the real mount table. An in-container
-// MCP server resolves paths.HarpPlansDir against the CONTAINER's home, so the
-// directory it names its agent is computed here the same way — by resolving
-// the path helper under that home rather than by re-deriving the string from
-// the same constants production uses, which would only assert that a join
-// equals itself. Two plans are then written through the mount table, one to
-// the plan dir and one to the harp TOP LEVEL, the container's private overlay
-// is destroyed, and both are looked for afterwards.
+// MCP server resolves the output dir the way production does
+// (sessions.OutputDirIn) from the env the container is given, so the
+// directory it names its agent is computed here the same way. Two plans are
+// then written through the mount table, one to the output dir and one to the
+// harp's session dir under the container home, the container's private
+// overlay is destroyed, and both are looked for afterwards.
 //
-// The top-level write is the control, and it is the reason this test can fail.
-// A "the plan dir is mounted" assertion on its own stays green if someone
-// widens the mount to the whole harp dir or points the plan dir back at the
-// top level; requiring that the top-level write is LOST pins the actual
-// contract — persist/ survives, the unclassified middle does not.
+// The session-dir write is the control, and it is the reason this test can
+// fail: requiring that it is LOST pins the actual contract — the output dir
+// survives, an unmounted path does not.
 func TestSessionStateMounts_PlanDirOutlivesTheContainer(t *testing.T) {
 	hostHome := testsupport.Isolate(t)
 	const harp = "brisk-teal-otter"
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{Harp: harp, ProjectID: "proj-1"}
-	mounts, err := c.sessionStateMounts()
+	mounts, env, err := c.sessionStateMounts()
 	require.NoError(t, err)
 
-	// The two directories as the in-container MCP server sees them: resolved
-	// under the container's home, read back as the Linux container's slash
-	// paths.
+	containerEnv := map[string]string{}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		containerEnv[k] = v
+	}
 	testsupport.PointHomeAt(t, c.home)
-	containerPlanDir, err := paths.HarpPlansDir(harp)
+	containerPlanDir, err := sessions.OutputDirIn(harp, func(k string) string { return containerEnv[k] })
 	require.NoError(t, err)
 	containerHarpDir, err := paths.HarpDir(harp)
 	require.NoError(t, err)
 	containerPlanDir, containerHarpDir = filepath.ToSlash(containerPlanDir), filepath.ToSlash(containerHarpDir)
 	testsupport.PointHomeAt(t, hostHome)
-
-	require.NotEqual(t, containerHarpDir, containerPlanDir,
-		"the plan dir must not BE the harp top level — that identity is the defect")
 
 	overlay := t.TempDir() // the container's private, teardown-deleted space
 
@@ -91,14 +88,14 @@ func TestSessionStateMounts_PlanDirOutlivesTheContainer(t *testing.T) {
 	require.NoError(t, os.RemoveAll(overlay))
 
 	got, err := os.ReadFile(durablePlan)
-	require.NoError(t, err, "a plan written to the plan dir must still be on the host after the container is gone")
+	require.NoError(t, err, "a plan written to the output dir must still be on the host after the container is gone")
 	assert.Equal(t, body, string(got), "and with its bytes intact, not an empty file at the right path")
-	hostPlanDir, err := paths.HarpPlansDir(harp)
+	hostOut, err := sessionOutputDir(harp)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(hostPlanDir, "design"+paths.PlanFileExt), durablePlan,
-		"it survives because it landed in the harp's host-side persist dir")
+	assert.Equal(t, filepath.Join(hostOut, "design"+paths.PlanFileExt), durablePlan,
+		"it survives because it landed in the session's host-side output dir")
 
 	_, err = os.Stat(lostPlan)
 	assert.True(t, os.IsNotExist(err),
-		"a plan written at the harp TOP LEVEL is in container-ephemeral space and is gone — this is the failure the plan dir exists to avoid")
+		"a plan written at the harp's session dir is in container-ephemeral space and is gone")
 }

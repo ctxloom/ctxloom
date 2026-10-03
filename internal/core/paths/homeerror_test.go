@@ -55,24 +55,15 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 	}
 	harpArg := map[string]func(string) (string, error){
 		"HarpDir":                     HarpDir,
-		"HarpEssencePath":             HarpEssencePath,
-		"HarpEphemeralDir":            HarpEphemeralDir,
-		"HarpPersistDir":              HarpPersistDir,
+		"HarpScratchDir":              HarpScratchDir,
+		"HarpWorkDir":                 HarpWorkDir,
+		"HarpNativeDir":               HarpNativeDir,
+		"HarpTranscriptsDir":          HarpTranscriptsDir,
 		"HarpLockPath":                HarpLockPath,
-		"HarpTranscriptStoreDir":      HarpTranscriptStoreDir,
 		"HarpCanonicalTranscriptPath": HarpCanonicalTranscriptPath,
 		// The root harp is the validated argument; the project key is fixed.
 		"CoordRootStateDir": func(h string) (string, error) { return CoordRootStateDir("proj-key", h) },
 	}
-	// HarpEngineTranscriptLinkPath takes engine and sessionID too, so it
-	// cannot join harpArg's func(string) shape directly — wrap it with fixed,
-	// valid engine/sessionID so the home failure is still what's exercised.
-	harpEngineArg := map[string]func(string) (string, error){
-		"HarpEngineTranscriptLinkPath": func(h string) (string, error) {
-			return HarpEngineTranscriptLinkPath(h, "claude-code", "sess-1")
-		},
-	}
-
 	check := func(t *testing.T, name string, got string, err error) {
 		t.Helper()
 		require.Error(t, err, "%s must fail when the home directory cannot be resolved", name)
@@ -91,12 +82,6 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 		})
 	}
 	for name, fn := range harpArg {
-		t.Run(name, func(t *testing.T) {
-			got, err := fn("swift-amber-falcon")
-			check(t, name, got, err)
-		})
-	}
-	for name, fn := range harpEngineArg {
 		t.Run(name, func(t *testing.T) {
 			got, err := fn("swift-amber-falcon")
 			check(t, name, got, err)

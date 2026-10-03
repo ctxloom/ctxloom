@@ -47,6 +47,8 @@ func TestLoadOrDistillSession_ConvertsVendorTranscriptOnDemand(t *testing.T) {
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 	harp := entry.HarpName
 
 	const vendorSessionID = "8f1d1f2e-6c40-4a71-9d2c-0b6f5a3e7c11"
@@ -95,6 +97,8 @@ func TestLoadOrDistillSession_LiveRefreshesAnAlreadyConvertedTranscript(t *testi
 	require.NoError(t, err)
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	harp := entry.HarpName
 
@@ -167,6 +171,8 @@ func TestLoadOrDistillSession_LiveRefreshesWhenAddressedByHarp(t *testing.T) {
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 	harp := entry.HarpName
 
 	full, err := os.ReadFile(claudeVendorFixture())
@@ -227,7 +233,7 @@ func TestLoadOrDistillSession_LiveRefreshesWhenAddressedByHarp(t *testing.T) {
 // tool misreporting its own freshness, so its self-report cannot be the proof.
 func TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache(t *testing.T) {
 	if os.Geteuid() == 0 {
-		t.Skip("running as root: a read-only persist dir does not deny the re-read, so the failed-refresh state this test needs cannot be induced")
+		t.Skip("running as root: a read-only transcripts dir does not deny the re-read, so the failed-refresh state this test needs cannot be induced")
 	}
 	testsupport.Isolate(t)
 
@@ -235,6 +241,8 @@ func TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache(t *testing.T
 	require.NoError(t, err)
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	harp := entry.HarpName
 
@@ -255,7 +263,7 @@ func TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache(t *testing.T
 	require.Contains(t, first.Content, "first look")
 
 	// Break the refresh, and ONLY the refresh: the conversion writes through a
-	// temp sibling inside the harp's persist dir, so a read-only dir fails the
+	// temp sibling inside the harp's transcripts dir, so a read-only dir fails the
 	// re-read while leaving the already-captured canonical transcript perfectly
 	// readable — exactly the state that makes the stale cache look current.
 	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -289,6 +297,8 @@ func TestSessionHarpForID(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(cwd, "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	harp := entry.HarpName
 
@@ -327,6 +337,8 @@ func TestSessionHarpForID_ResolvesRotatedAwaySessionID(t *testing.T) {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(cwd, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 	harp := entry.HarpName
 
 	require.NoError(t, mgr.BindSession(harp, "pre-clear-id", "/pre-clear.jsonl"))
@@ -356,6 +368,8 @@ func TestLoadOrDistillSession_ArchivedAlsoConvertsOnDemand(t *testing.T) {
 	require.NoError(t, err)
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	harp := entry.HarpName
 
@@ -389,6 +403,8 @@ func TestLoadOrDistillSession_ArchivedDoesNotRewriteAnExistingTranscript(t *test
 	require.NoError(t, err)
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	harp := entry.HarpName
 
@@ -439,6 +455,8 @@ func TestLoadOrDistillSession_NoCaptureMessageDoesNotSendTheUserBackToBackfill(t
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(t.TempDir(), "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	harp := entry.HarpName
 

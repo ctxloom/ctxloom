@@ -30,6 +30,8 @@ func recoverFixture(t *testing.T, distilled string) (*ctxServer, string, *sessio
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 	return &ctxServer{
 		facts:            testLaunchFacts(),
 		self:             coord.Identity{Harp: entry.HarpName, ProjectDir: projectDir},
@@ -38,21 +40,20 @@ func recoverFixture(t *testing.T, distilled string) (*ctxServer, string, *sessio
 	}, entry.HarpName, mgr
 }
 
-// linkLineage plants one lineage link per id in harp's dir, oldest first, each
-// resolving to a transcript file whose base name is the id.
+// linkLineage plants one native conversation log per id in harp's native
+// history, oldest first, each named by its id.
 func linkLineage(t *testing.T, harp string, ids ...string) {
 	t.Helper()
-	dir, err := paths.HarpDir(harp)
+	native, err := paths.HarpNativeDir(harp)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	logs := t.TempDir()
+	logs := filepath.Join(native, "claude", "projects", "-proj")
+	require.NoError(t, os.MkdirAll(logs, 0o755))
 	base := time.Now().Add(-time.Hour)
 	for i, id := range ids {
 		target := filepath.Join(logs, id+".jsonl")
 		require.NoError(t, os.WriteFile(target, canonicalRecords(harp, id), 0o644))
 		mt := base.Add(time.Duration(i) * time.Minute)
 		require.NoError(t, os.Chtimes(target, mt, mt))
-		require.NoError(t, os.Symlink(target, filepath.Join(dir, fmt.Sprintf("%sclaude-code-%s", paths.EngineTranscriptLinkPrefix, id))))
 	}
 }
 

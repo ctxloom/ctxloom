@@ -66,9 +66,9 @@ func harpDirIn(w *World, harp string) string {
 }
 
 // scratchWorktreeDir is where a harp's scratch checkout named name lives:
-// <harp>/ephemeral/ctxloom-wt-<name>, the path the candidate finder scans for.
+// <harp>/work/ctxloom-wt-<name>, the path the candidate finder scans for.
 func scratchWorktreeDir(w *World, harp, name string) string {
-	return filepath.Join(harpDirIn(w, harp), "ephemeral", scratchWorktreePrefix+name)
+	return filepath.Join(harpDirIn(w, harp), "work", scratchWorktreePrefix+name)
 }
 
 // seedScratchWorktree creates a REAL linked git worktree of the project repo
@@ -91,7 +91,7 @@ func seedScratchWorktree(w *World, wtDir, branch string) error {
 		return fmt.Errorf("refusing to seed a reaper fixture at %q: it is not inside this scenario's isolated root %q, so the startup reaper would be pointed at a real home", wtDir, root)
 	}
 	if err := os.MkdirAll(filepath.Dir(wtDir), 0o755); err != nil {
-		return fmt.Errorf("create ephemeral dir for %s: %w", wtDir, err)
+		return fmt.Errorf("create work dir for %s: %w", wtDir, err)
 	}
 	if _, err := isolatedGit(w, w.env.ProjectDir, "worktree", "add", "-q", "-b", branch, wtDir); err != nil {
 		return err

@@ -14,19 +14,17 @@ import (
 )
 
 // TestSessionEssenceInfo_HarpDirWinsOverLegacy pins the ONE two-step
-// resolution order every essence entry point owes the user — harp-dir layout
-// (~/.ctxloom/sessions/<harp>/essence.md) first, legacy
+// resolution order every essence entry point owes the user — output-dir layout
+// (<output dir>/essence.md) first, legacy
 // <appDir>/sessions/<sessionID>.md second. cli's readSessionEssence (the
 // READING face) and this function must agree on which of the two candidate
 // files wins, or the same session reads as distilled in one command and
 // pending in another — see cli's TestSessionEssenceResolution_SharedLookupOrder
 // for the cross-package half of that contract.
-// seedRotationEssence writes ~/.ctxloom/sessions/<harp>/segments/<id>.md and
-// returns its path.
-func seedRotationEssence(t *testing.T, harp, sessionID, body string) string {
+// seedRotationEssence writes <out>/segments/<id>.md and returns its path.
+func seedRotationEssence(t *testing.T, out, sessionID, body string) string {
 	t.Helper()
-	p, err := paths.ResolveHarpSegmentEssencePath(harp, sessionID)
-	require.NoError(t, err)
+	p := paths.OutputSegmentEssencePath(out, sessionID)
 	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 	require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 	return p
@@ -35,22 +33,17 @@ func seedRotationEssence(t *testing.T, harp, sessionID, body string) string {
 func TestSessionEssenceInfo_CurrentEssenceWinsOverTheRotationCopy(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "plump-loose-sash"
+	out := t.TempDir()
+	harpPath := filepath.Join(out, paths.EssenceFileName)
+	require.NoError(t, os.WriteFile(harpPath, []byte("current body\n"), 0o644))
+	rotationPath := seedRotationEssence(t, out, "sess-1", "rotation body\n")
 
-	harpDir, err := paths.HarpDir(harp)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(harpDir, 0o755))
-	harpPath, err := paths.HarpEssencePath(harp)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(harpPath, []byte("harp-dir body\n"), 0o644))
-
-	rotationPath := seedRotationEssence(t, harp, "sess-1", "rotation body\n")
-
-	e := sessions.Entry{HarpName: harp, SessionID: "sess-1"}
+	e := sessions.Entry{HarpName: harp, SessionID: "sess-1", OutputDir: out}
 	gotPath, distilled := SessionEssenceInfo(harp, &e)
 
 	assert.True(t, distilled)
 	assert.Equal(t, harpPath, gotPath,
-		"the harp's CURRENT essence wins: a rotation copy is the record of an older session, not this harp's latest")
+		"the CURRENT essence wins: a rotation copy is the record of an older session, not this harp's latest")
 	assert.NotEqual(t, rotationPath, gotPath)
 }
 
@@ -61,9 +54,10 @@ func TestSessionEssenceInfo_CurrentEssenceWinsOverTheRotationCopy(t *testing.T) 
 func TestSessionEssenceInfo_FallsBackToTheRotationEssence(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "swift-amber-falcon"
-	rotationPath := seedRotationEssence(t, harp, "sess-2", "rotation body\n")
+	out := t.TempDir()
+	rotationPath := seedRotationEssence(t, out, "sess-2", "rotation body\n")
 
-	e := sessions.Entry{HarpName: harp, SessionID: "sess-2"}
+	e := sessions.Entry{HarpName: harp, SessionID: "sess-2", OutputDir: out}
 	gotPath, distilled := SessionEssenceInfo(harp, &e)
 
 	assert.True(t, distilled)
@@ -72,7 +66,7 @@ func TestSessionEssenceInfo_FallsBackToTheRotationEssence(t *testing.T) {
 
 func TestSessionEssenceInfo_NeitherPresentIsNotDistilled(t *testing.T) {
 	testsupport.Isolate(t)
-	e := sessions.Entry{HarpName: "never-distilled-harp", SessionID: "sess-3"}
+	e := sessions.Entry{HarpName: "never-distilled-harp", SessionID: "sess-3", OutputDir: t.TempDir()}
 
 	gotPath, distilled := SessionEssenceInfo("never-distilled-harp", &e)
 
@@ -80,24 +74,27 @@ func TestSessionEssenceInfo_NeitherPresentIsNotDistilled(t *testing.T) {
 	assert.Empty(t, gotPath)
 }
 
+// A session with no output dir recorded has nowhere an essence could be.
+func TestSessionEssenceInfo_NoOutputDirIsNotDistilled(t *testing.T) {
+	testsupport.Isolate(t)
+	e := sessions.Entry{HarpName: "no-output-harp", SessionID: "sess-5"}
+	gotPath, distilled := SessionEssenceInfo("no-output-harp", &e)
+	assert.False(t, distilled)
+	assert.Empty(t, gotPath)
+}
+
 // TestSessionEssenceInfo_DirectoryAtEssencePathIsNotDistilled pins the
-// directory-exclusion the inlined os.Stat check preserves from cli's former
-// fileExists helper: a DIRECTORY sitting at a candidate path must not
-// read as a distilled essence. This is the one deliberate divergence from
-// the near-identical check in internal/adapters/isolation (see
+// directory-exclusion: a DIRECTORY sitting at a candidate path must not read
+// as a distilled essence. This is the one deliberate divergence from the
+// near-identical check in internal/adapters/isolation (see
 // SessionEssenceInfo's doc) — it must not be lost by future refactoring.
 func TestSessionEssenceInfo_DirectoryAtEssencePathIsNotDistilled(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "dir-at-essence-path"
+	out := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(out, paths.EssenceFileName), 0o755), "a directory, not a file, at the essence path")
 
-	harpDir, err := paths.HarpDir(harp)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(harpDir, 0o755))
-	harpPath, err := paths.HarpEssencePath(harp)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(harpPath, 0o755), "a directory, not a file, at the harp-dir essence path")
-
-	e := sessions.Entry{HarpName: harp, SessionID: "sess-4"}
+	e := sessions.Entry{HarpName: harp, SessionID: "sess-4", OutputDir: out}
 	gotPath, distilled := SessionEssenceInfo(harp, &e)
 
 	assert.False(t, distilled, "a directory at the essence path is not a distilled essence")

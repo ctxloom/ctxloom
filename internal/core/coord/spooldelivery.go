@@ -395,7 +395,13 @@ func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, err 
 // resume, because mail from below is not a fresh ask from above: it must
 // honour an agent_stop of the parent and the relaunch bound, never lift them.
 func (c *Coordinator) mailParent(from, parent, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
-	id, err := c.queueMailPayload(from, parent, kind, body, structured, inReplyTo)
+	return c.mailParentID(newMessageID(), from, parent, kind, body, structured, inReplyTo)
+}
+
+// mailParentID is mailParent with the message id supplied by the caller: a
+// routed child send carries its out/ file's identity (peerSend).
+func (c *Coordinator) mailParentID(msgID, from, parent, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
+	id, err := c.queueMailPayloadID(msgID, from, parent, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", err
 	}
@@ -596,11 +602,12 @@ func (c *Coordinator) sweepChildSpool(role string) {
 // sweepChildOut routes every message sitting in role's out/, oldest first, and
 // consumes each one only after it has been routed.
 //
-// DELIVER THEN CONSUME is the at-least-once ordering: a crash between the two
-// re-routes on the next sweep (deduped downstream on message id), while
-// consuming first would drop the message on the floor with nothing to show for
-// it. The duplicate that ordering admits is what the reactor's serialisation
-// and the rename together rule out.
+// ROUTE THEN CONSUME is the at-least-once ordering: a crash between the two
+// re-routes on the next sweep, and the re-routed copy carries the out/ file's
+// identity (peerSend), so the recipient's delivered record refuses it;
+// consuming first would drop the message on the floor with nothing to show
+// for it. Within one process the reactor's serialisation and the rename rule
+// the duplicate out.
 func (c *Coordinator) sweepChildOut(role string) {
 	res, ok := c.sweepSpoolDir(role, spool.DirOut, "routing what the child sent")
 	if !ok {
@@ -638,7 +645,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		c.failSpoolOut(role, e.Ref, err)
 		return
 	}
-	if _, _, err := c.peerSend(sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
+	if _, _, err := c.peerSend(e.Identity(), sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
 		// The routing chokepoint refused it (closed kind vocabulary, a
 		// recipient off the tree's edges, unknown recipient). The agent's
 		// local write already returned success, so the refusal is reported
@@ -786,20 +793,18 @@ func (c *Coordinator) spoolSenderIdentity(role string) (Identity, bool) {
 	return id, ok
 }
 
-// consumeSpool renames a processed file into its consumed/ sibling. A lost
+// consumeSpool renames a processed file into its consumed/ sibling, which
+// spool.Consume keeps for its retention window. A lost
 // race (ErrAlreadyGone) is the expected outcome of the other path having won
 // and is never reported as a failure.
 func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
-	done, err := spool.Consume(c.mapper, ref)
-	if err != nil {
+	if _, err := spool.Consume(c.mapper, ref, c.now()); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
 		}
 		c.rep.Warnf("coordinator: routed %s but could not mark it consumed: %v (it will be routed again on the next sweep)", ref, err)
 		c.spoolDeliveryCount.Failed.Add(1)
-		return
 	}
-	_ = done
 }
 
 // seedSpoolCredit records, without crediting, every known harp's delivered

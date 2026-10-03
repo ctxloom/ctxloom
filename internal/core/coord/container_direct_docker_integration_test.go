@@ -20,6 +20,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -81,7 +82,7 @@ type unknownAgentError struct{ name string }
 func (e *unknownAgentError) Error() string { return "directBusSpawner: unknown agent " + e.name }
 
 func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend)
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, backend, filepath.Join(projectDir, ".test-output"))
 	if err != nil {
 		return "", err
 	}

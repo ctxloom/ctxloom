@@ -13,7 +13,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -24,6 +23,8 @@ import (
 func bindProjectSession(t *testing.T, mgr *sessions.Manager, projectDir, backend, sessionID string, activity time.Time) string {
 	t.Helper()
 	e, err := mgr.AssignHarp(projectDir, backend)
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(e.HarpName, t.TempDir())
 	require.NoError(t, err)
 	transcript := filepath.Join(t.TempDir(), sessionID+".jsonl")
 	require.NoError(t, os.WriteFile(transcript, []byte("{}\n"), 0o644))
@@ -50,7 +51,7 @@ func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 	// recently; B is an hour stale.
 	harpB := bindProjectSession(t, mgr, projB, "claude-code", "sidB", now.Add(-time.Hour))
 	harpA := bindProjectSession(t, mgr, projA, "claude-code", "sidA", now)
-	essence, err := paths.HarpEssencePath(harpA)
+	essence, err := harpEssencePath(t, harpA)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(essence), 0o755))
 	require.NoError(t, os.WriteFile(essence, []byte("---\nsummary: worked on A\n---\nbody\n"), 0o644))

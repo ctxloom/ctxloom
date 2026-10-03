@@ -181,9 +181,14 @@ func NoApprovals() Option { return func(f *fixture) { f.noApprovals = true } }
 // ProjectDirtyTree sets the project's `dirty_tree_handler:` default, unparsed.
 func ProjectDirtyTree(s string) Option { return func(f *fixture) { f.projectDirtyTree = s } }
 
+// FixtureHistoryRel is where the relocating fixture keeps its native history,
+// relative to its session home.
+const FixtureHistoryRel = "history"
+
 // RelocatableHome makes the fixture engine declare a relocatable home, the
 // way an engine with its own config dir does: a session-home run advises
-// it, a host-home run advises none.
+// it, a host-home run advises none. It keeps a native history store too
+// (FixtureHistoryRel), as claude does.
 func RelocatableHome() Option { return func(f *fixture) { f.relocatableHome = true } }
 
 // WithRepoTrust makes the fake Cells prepare a placement carrying v, the
@@ -351,7 +356,7 @@ func newFixtureEngine(modes []engine.Mode, relocatableHome, approvals bool, mode
 		e.approvals = engine.Provide[engine.ApprovalCodec](fixtureCodec{})
 	}
 	if relocatableHome {
-		e.home = engine.HomeSpec{Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: ".fixture"}}, Auth: engine.Absent[engine.Auth]("the fixture authenticates against no vendor")}
+		e.home = engine.HomeSpec{Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: ".fixture"}}, Auth: engine.Absent[engine.Auth]("the fixture authenticates against no vendor"), TranscriptStoreRel: FixtureHistoryRel}
 		if err := e.home.Validate(); err != nil {
 			panic(err)
 		}

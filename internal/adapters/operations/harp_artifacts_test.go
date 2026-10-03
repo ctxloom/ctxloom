@@ -36,14 +36,13 @@ func TestHarpTopLevelArtifacts_NamesUnclassifiedFilesOnly(t *testing.T) {
 		if m.Location != paths.AtTop {
 			continue
 		}
-		switch m.Name {
-		case paths.SessionEngineHomesDirName, paths.PersistDirName, paths.EphemeralDirName, paths.SegmentsDirName:
-			require.NoError(t, os.MkdirAll(filepath.Join(root, harp, m.Name), 0o755))
-		default:
+		if m.File {
 			writeHarpFile(t, root, harp, m.Name, "ctxloom's own")
+		} else {
+			require.NoError(t, os.MkdirAll(filepath.Join(root, harp, m.Name), 0o755))
 		}
 	}
-	require.NoError(t, os.Symlink(filepath.Join(root, "elsewhere.jsonl"), filepath.Join(root, harp, paths.EngineTranscriptLinkPrefix+"claude-abc.jsonl")))
+	require.NoError(t, os.Symlink(filepath.Join(root, "elsewhere.jsonl"), filepath.Join(root, harp, "a-link.jsonl")))
 
 	got, err := HarpTopLevelArtifacts(filepath.Join(root, harp))
 	require.NoError(t, err)

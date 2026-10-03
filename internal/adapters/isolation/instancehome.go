@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +35,10 @@ type InstanceHomeRequest struct {
 	// Auth is the run's auth mode (engine.Credentials.Mode): only the human's
 	// own login session's instance carries the login's credential half.
 	Auth engine.AuthMode
+	// NativeHome is where the session keeps the engine's native history
+	// (launch.NativeHome); "" when it keeps none here, and then nothing is
+	// linked.
+	NativeHome string
 }
 
 // InstanceHomeReport is what one PrepareInstanceHome call decided and wrote.
@@ -97,10 +102,21 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	if err := ensureOwnerOnlyDir(req.InstanceHome); err != nil {
 		return rep, fmt.Errorf("instance home for %s: restrict %s to its owner: %w", req.Engine, req.InstanceHome, err)
 	}
-	writer := f.Home.InstanceConfig
-	if writer == nil {
+	if req.NativeHome != "" && f.Home.TranscriptStoreRel != "" {
+		if err := linkNativeHistory(req.InstanceHome, req.NativeHome, f.Home.TranscriptStoreRel); err != nil {
+			return rep, fmt.Errorf("instance home for %s: %w", req.Engine, err)
+		}
+	}
+	if f.Home.InstanceConfig == nil {
 		return rep, nil
 	}
+	return writeInstanceConfig(req, f.Home.InstanceConfig)
+}
+
+// writeInstanceConfig has the engine write its own instance config into the
+// prepared home, then holds the home and everything written to owner-only.
+func writeInstanceConfig(req InstanceHomeRequest, writer engine.InstanceConfigWriter) (InstanceHomeReport, error) {
+	var rep InstanceHomeReport
 	hostHome, err := hostHomeDir()
 	if err != nil {
 		hostHome = ""
@@ -124,6 +140,45 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 		return rep, fmt.Errorf("instance home for %s: %w", req.Engine, err)
 	}
 	return rep, nil
+}
+
+// ErrHistoryNotLinked is the refusal of a session home whose history dir is
+// not the link into native/: a real directory there (the session home
+// predates native history, or the engine replaced the link) or a link
+// somewhere else. History written through it would die with the home, and
+// adopting or moving it is migration this does not do.
+var ErrHistoryNotLinked = errors.New("the session home's history dir is not the link into the session's native history")
+
+// linkNativeHistory makes <instanceHome>/<rel> a RELATIVE link to
+// <nativeHome>/<rel>, creating the target. Relative, because the same two
+// directories are mounted side by side in a container at different absolute
+// paths. An existing correct link is left alone; anything else is
+// ErrHistoryNotLinked.
+func linkNativeHistory(instanceHome, nativeHome, rel string) error {
+	target := filepath.Join(nativeHome, filepath.FromSlash(rel))
+	if err := os.MkdirAll(target, owneronly.DirMode); err != nil {
+		return fmt.Errorf("native history %s: %w", target, err)
+	}
+	link := filepath.Join(instanceHome, filepath.FromSlash(rel))
+	want, err := filepath.Rel(filepath.Dir(link), target)
+	if err != nil {
+		return fmt.Errorf("native history link %s: %w", link, err)
+	}
+	if _, err := os.Lstat(link); err == nil {
+		if got, rerr := os.Readlink(link); rerr == nil && got == want {
+			return nil
+		}
+		return fmt.Errorf("%w: %s (start a new session; history written there would be deleted with the home)", ErrHistoryNotLinked, link)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("native history link %s: %w", link, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(link), owneronly.DirMode); err != nil {
+		return fmt.Errorf("native history link %s: %w", link, err)
+	}
+	if err := os.Symlink(want, link); err != nil {
+		return fmt.Errorf("native history link %s: %w", link, err)
+	}
+	return nil
 }
 
 // lockFileMode and lockDirMode are the modes this instance-home lock's

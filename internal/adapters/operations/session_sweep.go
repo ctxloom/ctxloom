@@ -540,7 +540,7 @@ func applySweep(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequ
 	leaveNoLongerPlanned(rows, DecideSweep(fresh, req))
 	// THE RECLAIM RUNS FIRST. Its triage tears the clean worktrees down under
 	// the reaper's own hold AFTER the reaper's age check; removing them first
-	// would touch ephemeral/, and the age check would then read the session
+	// would touch work/, and the age check would then read the session
 	// as active and reclaim nothing.
 	reaped, reclaimed := applyPlannedReclaim(ctx, g, l, req, fresh.ProjectDir, rows)
 	applyPlannedRest(ctx, g, fresh, rows, reclaimed)
@@ -655,11 +655,13 @@ func applyReclaim(ctx context.Context, g git.Git, l sessions.Layout, req SweepRe
 	return &c
 }
 
-// applyPurge is PurgeSession over both file populations. Only an internal
-// one-shot is purged undistilled; PurgeSession refuses any other.
+// applyPurge is PurgeSession over the transcript population. The artifacts
+// population is the session's output dir — the human's, which a sweep never
+// deletes; `ctxloom session artifacts purge` is the explicit way to. Only an
+// internal one-shot is purged undistilled; PurgeSession refuses any other.
 func applyPurge(f SessionFacts, r *SweepRow) {
 	res, err := PurgeSession(r.Harp, PurgeSessionRequest{
-		Populations: []PurgePopulation{PurgePopulationTranscript, PurgePopulationArtifacts},
+		Populations: []PurgePopulation{PurgePopulationTranscript},
 		Undistilled: f.Origin == sessions.OriginOneShot,
 		Apply:       true,
 	})

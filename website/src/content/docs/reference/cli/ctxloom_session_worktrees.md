@@ -14,7 +14,7 @@ The scratch git checkouts a session left behind: list them, remove the safe ones
 ### Synopsis
 
 Every "ctxloom-wt-*" checkout ctxloom itself created under
-~/.ctxloom/sessions/<harp>/ephemeral/ — leftovers from a per-agent worktree
+~/.ctxloom/sessions/<harp>/work/ — leftovers from a per-agent worktree
 whose owning process crashed before it could clean up after itself.
 
   list    what is there, and what would happen to each one (the bare form)

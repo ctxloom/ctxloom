@@ -75,7 +75,6 @@ func WithContainer() Option {
 			OverlayDirs:     []string{ConfigDirName},
 			// mock keeps no transcripts, so there is no native store root to
 			// bind-mount.
-			TranscriptStoreRel: "",
 		}
 	}
 }

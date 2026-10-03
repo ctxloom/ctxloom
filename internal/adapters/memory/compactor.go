@@ -376,7 +376,7 @@ func rendersToNothing(logText string) bool {
 // emptySessionPlaceholder is the body written for a session with zero
 // main-thread entries, so the saved essence is never a literal empty string
 // (a blank file would look indistinguishable from a write failure to a
-// human skimming ~/.ctxloom/sessions/<harp>/essence.md).
+// human skimming <output dir>/essence.md).
 const emptySessionPlaceholder = "_(empty session — no conversation content to distill)_"
 
 // dumpEmptySession is the short-circuit for isEmptySession: it skips
@@ -418,8 +418,9 @@ func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, so
 }
 
 // rotationEssencePath returns where THIS session's per-rotation essence lives:
-// ~/.ctxloom/sessions/<harp>/segments/<sessionID>.md, beside that rotation's
-// canonical segment. A caller's OutputDir overrides the directory, which is how
+// <output dir>/segments/<sessionID>.md (paths.OutputSegmentEssencePath),
+// while that rotation's canonical segment stays machine-side under the
+// session dir's transcripts/segments. A caller's OutputDir overrides the directory, which is how
 // a test pins the write somewhere it can read.
 //
 // It needs a harp because the essence is harp-owned: a rotation is a step in
@@ -434,7 +435,11 @@ func (c *Compactor) rotationEssencePath(harpName, sessionID string) (string, err
 	if harpName == "" {
 		return "", fmt.Errorf("no harp for session %s: a distilled essence is filed under its harp's lineage, so one must be bound before distilling", sessionID)
 	}
-	return paths.ResolveHarpSegmentEssencePath(harpName, sessionID)
+	out, err := harpOutputDir(harpName)
+	if err != nil {
+		return "", err
+	}
+	return paths.OutputSegmentEssencePath(out, sessionID), nil
 }
 
 // existingEssence reports whether a distilled essence already exists for this
@@ -444,7 +449,8 @@ func (c *Compactor) rotationEssencePath(harpName, sessionID string) (string, err
 // essence lives.
 func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 	if harpName != "" {
-		if essencePath, err := paths.HarpEssencePath(harpName); err == nil {
+		if out, err := harpOutputDir(harpName); err == nil {
+			essencePath := filepath.Join(out, paths.EssenceFileName)
 			if st, err := os.Stat(essencePath); err == nil && st.Size() > 0 {
 				return essencePath, true
 			}
@@ -1138,15 +1144,11 @@ func deriveSummary(frontmatterSummary, body string) string {
 // saveDistilled writes the distilled session as markdown with YAML
 // front-matter. Path resolution:
 //
-//   - If meta.HarpName is set, write to ~/.ctxloom/sessions/<harp>/essence.md
+//   - If meta.HarpName is set, write to <output dir>/essence.md (harpOutputDir)
 //     and ALSO write a sessionID-keyed pointer (a thin index reference, not
 //     the body) under the legacy outputDir so existing callers that look up
 //     by sessionID continue to work.
 //   - Otherwise, fall back to the legacy <outputDir>/<sessionID>.md layout.
-//
-// This is the Phase 3.6 harp-dir layout from the ctxloom-tasks plan.
-// Also writes a frozen task snapshot copy of <projectDir>/.ctxloom/tasks.md
-// to <harpDir>/tasks.md when a harp dir is in play and a tasks file exists.
 func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (string, error) {
 	// The floor: never write an empty distillation. The write is atomic and
 	// replaces the previous essence.md, so an empty body is not a degraded
@@ -1191,25 +1193,23 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 }
 
 // saveEssence writes the harp's current essence.md and this rotation's
-// segments/<sessionID>.md, returning the current essence's path.
+// segments/<sessionID>.md in its output dir, returning the current essence's
+// path.
 //
-// The harp-dir write is no longer allowed to degrade. It used to warn and fall
+// The essence write is not allowed to degrade. It used to warn and fall
 // back to a project-rooted copy, which meant the file `session list` and the
 // SessionStart hook actually read could silently not exist while the command
 // still reported success. There is nowhere else to file a harp's essence, so a
 // failure here is the whole operation failing.
 func (c *Compactor) saveEssence(harpName, rotationPath string, docBytes []byte) (string, error) {
-	harpDir, err := harpSessionDir(harpName)
+	out, err := harpOutputDir(harpName)
 	if err != nil {
-		return "", fmt.Errorf("resolve harp dir for %s: %w", harpName, err)
+		return "", fmt.Errorf("resolve output dir for %s: %w", harpName, err)
 	}
-	if err := os.MkdirAll(harpDir, 0o755); err != nil {
-		return "", fmt.Errorf("create harp dir %s: %w", harpDir, err)
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		return "", fmt.Errorf("create output dir %s: %w", out, err)
 	}
-	essencePath, err := paths.HarpEssencePath(harpName)
-	if err != nil {
-		return "", fmt.Errorf("resolve essence path for %s: %w", harpName, err)
-	}
+	essencePath := filepath.Join(out, paths.EssenceFileName)
 	if err := safefs.WriteFile(afero.NewOsFs(), essencePath, docBytes, 0o644); err != nil {
 		return "", fmt.Errorf("write essence %s: %w", essencePath, err)
 	}
@@ -1227,12 +1227,12 @@ func (c *Compactor) saveEssence(harpName, rotationPath string, docBytes []byte) 
 	return essencePath, nil
 }
 
-// harpSessionDir returns ~/.ctxloom/sessions/<harp>/. Errors when home
-// can't be resolved; the caller falls back to legacy layout in that case.
-// Delegates to paths.HarpDir so the task store and the compactor resolve
-// the same root.
-func harpSessionDir(harpName string) (string, error) {
-	return paths.HarpDir(harpName)
+// harpOutputDir is harp's output dir as this process reaches it — the
+// container's mount when running in one, else the path the session records
+// (sessions.OutputDirIn): the essence, the segment essences and the next step
+// are readable outputs and live there, never in the machine session dir.
+func harpOutputDir(harpName string) (string, error) {
+	return sessions.OutputDirIn(harpName, os.Getenv)
 }
 
 // DistilledSession is the loaded form of a distilled session .md file:

@@ -15,8 +15,8 @@ import (
 
 // The session half of `ctxloom clean`: the age-bounded reap of every
 // session's disposable members. WHAT is taken is the reaper's policy
-// (sessions.ReapPolicy — the table's Ephemeral rows, and persist/ besides
-// under --include-persist); this file only resolves the bound the human
+// (sessions.ReapPolicy — the table's Ephemeral rows, and its top-level
+// machine rows besides under --include-persist); this file only resolves the bound the human
 // stated and renders the report.
 
 var (
@@ -98,14 +98,14 @@ func renderSessionReclaim(out *errwriter.Writer, rep sessions.Report) error {
 		out.Printf("\n  %d sessions were active since the bound and were not considered.\n", rep.Newer)
 	}
 	if !cleanIncludePersist {
-		out.Printf("\n  %s/ is referenced data and is left alone; --include-persist reclaims it from the same sessions.\n", paths.PersistDirName)
+		out.Printf("\n  transcripts, native history and the other persistent members are left alone; --include-persist reclaims them from the same (distilled) sessions.\n")
 	}
 	out.Printf("\n")
 	return out.Err()
 }
 
 // memberList renders the members a reap takes for a human, e.g. "home/,
-// ephemeral/" — the rels the report carries, each as a directory.
+// scratch/" — the rels the report carries, each as a directory.
 func memberList(rels []string) string {
 	dirs := make([]string, len(rels))
 	for i, rel := range rels {
@@ -163,5 +163,5 @@ func init() {
 	cleanCmd.Flags().StringVar(&cleanOlderThan, "older-than", "",
 		"reap the disposable members of sessions last active before this age (30d, 12w, 720h) or date (2026-01-01), overriding the configured session_reap_age for this invocation")
 	cleanCmd.Flags().BoolVar(&cleanIncludePersist, "include-persist", false,
-		"also reap persist/ — transcripts, plans, artifacts — from the aged sessions; referenced data, so never taken without this")
+		"also reap the persistent machine members — transcripts, native history, spool, package store, logs — from the aged, distilled sessions; never taken without this")
 }

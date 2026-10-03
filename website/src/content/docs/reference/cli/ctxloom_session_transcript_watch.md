@@ -57,7 +57,7 @@ heartbeats.
 
 Ctrl-C ends the stream cleanly. A harp with a hook-bound session id is tailed
 through the owning backend; a harp with no bound session whose transcript
-lives in its own session store (a containerized run's persist/ mount) is
+lives in its own session dir (a containerized run's native/ history) is
 tailed by file location. Errors if the harp has neither and no live tap holds
 it.
 

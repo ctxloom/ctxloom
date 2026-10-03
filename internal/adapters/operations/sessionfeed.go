@@ -491,7 +491,7 @@ func feedScrollback(ctx context.Context, reg engine.Registry, entry *sessions.En
 // one contract: a harp with a canonical transcript is tailed from it; a
 // hook-bound session id is tailed through the owning engine's own store
 // (EngineReader.WatchSession); an entry bound only by location — a
-// transcript discovered in the harp's own persist/ store, where the bind hook
+// transcript discovered in the harp's own native/ history, where the bind hook
 // never fired — is tailed by path (WatchHistoryByPath), since the engine's
 // project-scoped store lookup cannot see a file in ctxloom's session dir.
 func watchStoreFeed(ctx context.Context, reg engine.Registry, entry *sessions.Entry, backend string) (*SessionFeed, error) {

@@ -41,7 +41,7 @@ type worktreeBase struct{ wt Worktree }
 func (worktreeBase) name() string { return PolicyNameContainerWorktree }
 
 // withState stamps the run's session identity onto the wrapped Worktree, homing
-// its ephemeral per-agent checkout scratch under the session dir (the double-stamp
+// its per-agent checkout and scratch under the session dir (the double-stamp
 // alongside Container.state — see withSessionState). Bases are value types, so the
 // stamped copy is returned.
 func (b worktreeBase) withState(state SessionState) containerBase {

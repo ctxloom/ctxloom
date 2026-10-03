@@ -107,6 +107,11 @@ func (g execGit) MergedBranches(ctx context.Context, repoDir, ref string) ([]str
 	return branches, nil
 }
 
+// DeleteBranch is `git branch -d <branch>`: the safe delete.
+func (execGit) DeleteBranch(ctx context.Context, repoDir, branch string) error {
+	return run(ctx, repoDir, "branch", "-d", branch)
+}
+
 // UpdateIndexSkipWorktree toggles the skip-worktree bit on a tracked file.
 func (execGit) UpdateIndexSkipWorktree(ctx context.Context, dir, file string, skip bool) error {
 	flag := "--no-skip-worktree"

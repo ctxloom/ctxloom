@@ -67,7 +67,7 @@ func TestHoldStop_AStoppedChildLeavesItsHold(t *testing.T) {
 	require.Len(t, dropped, 1)
 	assert.Equal(t, f.sibling, dropped[0].Harp)
 
-	_, disposition, err := f.c.peerSend(ownerIdentity(), f.sibling, KindMessage, "after the stop", nil, "")
+	_, disposition, err := f.c.peerSend(newMessageID(), ownerIdentity(), f.sibling, KindMessage, "after the stop", nil, "")
 	require.NoError(t, err)
 	_, prose := deliveryDisposition(StateEnded)
 	assert.Equal(t, prose, disposition, "a stopped child is relaunched by a send, held or not")
@@ -102,7 +102,7 @@ func TestHoldStop_AStoppedChildLeavesItsPause(t *testing.T) {
 	assert.False(t, f.c.harpHeld(f.stranger), "the stop takes the harp out of its pause")
 	assertReleased(t, f.c, "empty")
 
-	_, disposition, err := f.c.peerSend(ownerIdentity(), f.stranger, KindMessage, "after the stop", nil, "")
+	_, disposition, err := f.c.peerSend(newMessageID(), ownerIdentity(), f.stranger, KindMessage, "after the stop", nil, "")
 	require.NoError(t, err)
 	_, prose := deliveryDisposition(StateEnded)
 	assert.Equal(t, prose, disposition)

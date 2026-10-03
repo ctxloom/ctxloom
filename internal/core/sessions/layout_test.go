@@ -46,14 +46,18 @@ func TestLayout_NamedPathsAreTableRows(t *testing.T) {
 		return paths.HarpMember{}
 	}
 	assert.Equal(t, l.Member(h, row(paths.SessionEngineHomesDirName)), l.SessionEngineHomes(h))
-	assert.Equal(t, l.Member(h, row(paths.PersistDirName)), l.Persist(h))
-	assert.Equal(t, l.Member(h, row(paths.EphemeralDirName)), l.Ephemeral(h))
+	assert.Equal(t, l.Member(h, row(paths.ScratchDirName)), l.Scratch(h))
+	assert.Equal(t, l.Member(h, row(paths.WorkDirName)), l.Work(h))
+	assert.Equal(t, l.Member(h, row(paths.NativeDirName)), l.Native(h))
+	assert.Equal(t, l.Member(h, row(paths.TranscriptsDirName)), l.Transcripts(h))
 	assert.Equal(t, l.Member(h, row(paths.SegmentsDirName)), l.Segments(h))
 	assert.Equal(t, l.Member(h, row(paths.SpoolDirName)), l.Spool(h))
 	assert.Equal(t, l.Member(h, paths.IdentityMember()), l.Sidecar(h))
 
-	assert.Equal(t, filepath.Join(l.Persist(h), paths.SpoolDirName), l.Spool(h),
-		"the spool stays under persist/: that directory is what the container's session-state mount carries")
+	assert.Equal(t, filepath.Join(l.Dir(h), paths.SpoolDirName), l.Spool(h),
+		"the spool is a top-level member of its own")
+	assert.Equal(t, filepath.Join(l.Transcripts(h), paths.SegmentsDirName), l.Segments(h),
+		"the raw segments are transcripts' machine data")
 	assert.Equal(t, filepath.Join(l.Dir(h), paths.SessionEngineHomesDirName), l.SessionEngineHomes(h),
 		"the session engine homes dir is a member of the session dir, under the ctxloom home")
 }
@@ -70,12 +74,15 @@ func TestHomeLayout_AgreesWithTheHarpHelpers(t *testing.T) {
 	dir, err := paths.HarpDir(h)
 	require.NoError(t, err)
 	assert.Equal(t, dir, l.Dir(h))
-	persist, err := paths.HarpPersistDir(h)
+	scratch, err := paths.HarpScratchDir(h)
 	require.NoError(t, err)
-	assert.Equal(t, persist, l.Persist(h))
-	eph, err := paths.HarpEphemeralDir(h)
+	assert.Equal(t, scratch, l.Scratch(h))
+	work, err := paths.HarpWorkDir(h)
 	require.NoError(t, err)
-	assert.Equal(t, eph, l.Ephemeral(h))
+	assert.Equal(t, work, l.Work(h))
+	native, err := paths.HarpNativeDir(h)
+	require.NoError(t, err)
+	assert.Equal(t, native, l.Native(h))
 	seg, err := paths.ResolveHarpSegmentsDir(h)
 	require.NoError(t, err)
 	assert.Equal(t, seg, l.Segments(h))

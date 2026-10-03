@@ -75,21 +75,23 @@ Feature: session — the record of what your assistant did, and the tools to pru
 
   Rule: Renaming is a field assignment, so it rides `edit`
 
-    A session's name is a field on its index entry, not a thing with a verb
-    of its own. `edit` is the one mutation verb for the noun, and `--name`
-    is the assignment that renames the harp. The backend transcript is
-    unaffected: the entry keeps its bound session id, its transcript and its
-    essence, and only the name it answers to moves.
+    A session's name is a field on its record, not a thing with a verb of
+    its own. `edit` is the one mutation verb for the noun, and `--name` is
+    the assignment that renames the harp. The backend transcript is
+    unaffected: the session keeps its bound session id, its transcript and
+    its essence, and only the name it answers to moves. Its output dir is
+    recorded as an absolute path at mint and stays where it is, so the old
+    name can still appear inside that path; the listing is checked by harp.
 
-    Scenario: --name renames the harp in the index
+    Scenario: --name renames the harp
       Given an initialized ctxloom project
       And a recorded session "amber-swift-owl"
       When I run "ctxloom session edit amber-swift-owl --name bright-keen-hawk"
       Then the command succeeds
       And the output contains "bright-keen-hawk"
       When I run "ctxloom session list --all"
-      Then the output contains "bright-keen-hawk"
-      And the output does not contain "amber-swift-owl"
+      Then the JSON output array "$" contains an object whose "harp" is "bright-keen-hawk"
+      And the JSON output array "$" contains no object whose "harp" is "amber-swift-owl"
 
     Scenario: The old rename verb is gone, not hidden
       Given an initialized ctxloom project
@@ -224,15 +226,15 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And the output contains "removed nothing"
       And the output contains "ctxloom session transcript purge amber-swift-owl --yes"
-      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
+      And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
 
     Scenario: --yes destroys the transcript and leaves the essence
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript and an essence
       When I run "ctxloom session transcript purge amber-swift-owl --yes"
       Then the command succeeds
-      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" does not exist
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+      And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
+      And the output file "essence.md" of session "amber-swift-owl" exists
 
     # With no essence, the transcript is the only record of what happened.
     # The refusal names the flag that permits it deliberately.
@@ -243,14 +245,14 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command fails
       And the output contains "never distilled"
       And the output contains "--undistilled"
-      And the home file ".ctxloom/sessions/brisk-copper-moth/persist/transcript.jsonl" exists
+      And the home file ".ctxloom/sessions/brisk-copper-moth/transcripts/transcript.jsonl" exists
 
     Scenario: --undistilled destroys it anyway
       Given an initialized ctxloom project
       And a finished session "brisk-copper-moth" with a transcript and no essence
       When I run "ctxloom session transcript purge brisk-copper-moth --undistilled --yes"
       Then the command succeeds
-      And the home file ".ctxloom/sessions/brisk-copper-moth/persist/transcript.jsonl" does not exist
+      And the home file ".ctxloom/sessions/brisk-copper-moth/transcripts/transcript.jsonl" does not exist
 
     Scenario: Purging artifacts reports before it removes
       Given an initialized ctxloom project
@@ -265,15 +267,15 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And the output contains "removed nothing"
       And the output contains "ctxloom session artifacts purge amber-swift-owl --yes"
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+      And the output file "essence.md" of session "amber-swift-owl" exists
 
     Scenario: --yes destroys the essence and leaves the transcript
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript and an essence
       When I run "ctxloom session artifacts purge amber-swift-owl --yes"
       Then the command succeeds
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
-      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
+      And the output file "essence.md" of session "amber-swift-owl" does not exist
+      And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
 
     Scenario: The sweep reports before it removes
       Given an initialized ctxloom project
@@ -282,16 +284,16 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And the output contains "removed nothing"
       And the output contains "ctxloom session purge amber-swift-owl --yes"
-      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+      And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
+      And the output file "essence.md" of session "amber-swift-owl" exists
 
     Scenario: The sweep empties a session but does not unlist it
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript and an essence
       When I run "ctxloom session purge amber-swift-owl --yes"
       Then the command succeeds
-      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" does not exist
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
+      And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
+      And the output file "essence.md" of session "amber-swift-owl" does not exist
       When I run "ctxloom session list --all"
       Then the output contains "amber-swift-owl"
 
@@ -303,7 +305,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session purge brisk-copper-moth --yes"
       Then the command fails
       And the output contains "ctxloom session transcript purge brisk-copper-moth --undistilled --yes"
-      And the home file ".ctxloom/sessions/brisk-copper-moth/persist/transcript.jsonl" exists
+      And the home file ".ctxloom/sessions/brisk-copper-moth/transcripts/transcript.jsonl" exists
 
     # The session lock only ever REFUSES. A free lock proves the owner dead; a
     # held lock, or no lock at all, refuses — "cannot determine" is never
@@ -316,16 +318,16 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command fails
       And the output contains "cannot be proven dead"
       And the output contains "ctxloom session purge amber-swift-owl --yes --even-if-live"
-      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+      And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
+      And the output file "essence.md" of session "amber-swift-owl" exists
 
     Scenario: --even-if-live sweeps it anyway
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript and an essence but no session lock
       When I run "ctxloom session purge amber-swift-owl --yes --even-if-live"
       Then the command succeeds
-      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" does not exist
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
+      And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
+      And the output file "essence.md" of session "amber-swift-owl" does not exist
 
     # The index says ended; the lock says running. The lock wins, on the leaf
     # as much as on the sweep.
@@ -336,7 +338,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command fails
       And the output contains "owner is alive"
       And the output contains "--even-if-live"
-      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
+      And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
 
     Scenario: The scratch worktrees are a population with their own listing
       Given an initialized ctxloom project
@@ -379,8 +381,8 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And the output contains "removed nothing"
       And the output contains "ctxloom session remove amber-swift-owl --yes"
-      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+      And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
+      And the output file "essence.md" of session "amber-swift-owl" exists
       When I run "ctxloom session list --all"
       Then the output contains "amber-swift-owl"
 
@@ -389,8 +391,8 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And a finished session "amber-swift-owl" with a transcript and an essence
       When I run "ctxloom session remove amber-swift-owl --yes"
       Then the command succeeds
-      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" does not exist
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
+      And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
+      And the output file "essence.md" of session "amber-swift-owl" does not exist
       When I run "ctxloom session list --all"
       Then the output does not contain "amber-swift-owl"
 
@@ -400,6 +402,6 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session remove brisk-copper-moth --yes"
       Then the command fails
       And the output contains "--undistilled"
-      And the home file ".ctxloom/sessions/brisk-copper-moth/persist/transcript.jsonl" exists
+      And the home file ".ctxloom/sessions/brisk-copper-moth/transcripts/transcript.jsonl" exists
       When I run "ctxloom session list --all"
       Then the output contains "brisk-copper-moth"

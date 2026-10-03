@@ -47,6 +47,10 @@ func (c Claude) Home() engine.HomeSpec {
 		Vars:           []engine.HomeVar{{Name: ConfigDirEnv, Subdir: HomeLeaf}},
 		Auth:           engine.Provide[engine.Auth](claudeAuth{engine: string(c.Name)}),
 		InstanceConfig: claudeInstanceConfig{},
+		// claude writes each conversation (and its per-project memory) under
+		// projects/ in its config dir — measured by the P14 probe cells, which
+		// also proved it writes through a symlinked projects/.
+		TranscriptStoreRel: TranscriptsDirName,
 	}
 }
 
@@ -55,11 +59,10 @@ func (c Claude) Home() engine.HomeSpec {
 // which fetches the most recent claude, is the build source.
 func (c Claude) Container() (engine.ContainerSpec, error) {
 	return engine.ContainerSpec{
-		Install:            installFragment,
-		ValidateCommand:    "claude --version",
-		OverlayDirs:        []string{ConfigDirName},
-		InPlaceFiles:       []string{MCPFileName},
-		TranscriptStoreRel: path.Join(ConfigDirName, TranscriptsDirName),
+		Install:         installFragment,
+		ValidateCommand: "claude --version",
+		OverlayDirs:     []string{ConfigDirName},
+		InPlaceFiles:    []string{MCPFileName},
 	}, nil
 }
 

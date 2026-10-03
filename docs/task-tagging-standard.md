@@ -216,7 +216,7 @@ A SPLIT task — part here, part elsewhere — carries both `repo:` and the loca
 
 ## The design document a task is governed by — `ctxloom:plan=`
 
-    ctxloom:plan="/home/babbitt/.ctxloom/sessions/<harp>/persist/<name>.plan.md"
+    ctxloom:plan="/home/babbitt/Documents/ctxloom/<project>/<harp>/<name>.plan.md"
 
 Associates a task with the plan or spec that governs it, as a STRUCTURED FIELD
 rather than a sentence in the body. Quote the value: paths contain `/` and `.`,

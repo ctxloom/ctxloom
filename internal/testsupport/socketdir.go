@@ -23,7 +23,7 @@ const sunPathHeadroom = 100
 //
 // It deliberately does not use t.TempDir(). That roots at GOTMPDIR or
 // TMPDIR, and inside a ctxloom agent cell both sit ~100 bytes deep under the
-// session's ephemeral directory, so a socket bound beneath either overflows
+// session's scratch directory, so a socket bound beneath either overflows
 // sun_path and the kernel refuses it with the opaque "bind: invalid
 // argument" — an error that has been misread as a missing signing key. The
 // cell keeps its long TMPDIR by decision, so the fixture is where the

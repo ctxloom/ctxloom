@@ -22,6 +22,7 @@ type Store interface {
 	Find(harpName string) (*Entry, error)
 	FindBySessionID(sessionID string) (*Entry, error)
 	AssignHarp(projectDir, backend string) (Entry, error)
+	RecordOutputDir(harpName, base string) (string, error)
 	BindSession(harpName, sessionID, transcriptPath string) error
 	BindEngine(harpName, engine string) error
 	AppendRotations(harpName string, rotations []Rotation) error

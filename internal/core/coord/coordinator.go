@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +16,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -921,6 +924,8 @@ func (c *Coordinator) Draining() bool {
 // it ended (rootSettled) — is removed with it: nothing resumes it, so it is
 // garbage the moment its owner lets go. A session's root, and any root
 // holding a run that has not ended, is kept for whoever resumes it.
+// Every finished agent's engine homes and per-run scratch are removed too
+// (removeDisposableMembers); its native history, spool and records stay.
 //
 // Order: seal the tracked group and the stream group (goTracked stops
 // Add()ing and a late stream handler is refused at enter, so nothing can
@@ -936,11 +941,9 @@ func (c *Coordinator) Draining() bool {
 //
 // The spool writers close BEFORE the join and the journals AFTER it, and the
 // asymmetry is the point: the join is BOUNDED, so "no writes after Close" is
-// only guaranteed for what is closed before it. The spool is the one store
-// whose path is resolved from the ambient $HOME at WRITE time, so a write that
-// escapes the bound does not land in this run's own tree — it lands wherever
-// $HOME points by then. That store therefore refuses first; the journals, whose
-// paths were fixed at construction, can wait for the join.
+// only guaranteed for what is closed before it. Mail is the store a child
+// teardown that outruns the bound still writes to (its terminal notice), so it
+// refuses first; the journals can wait for the join.
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
 		c.closed.Store(true)
@@ -972,10 +975,8 @@ func (c *Coordinator) Close() {
 		// BOUNDED (closeJoinBudget) and says so when it gives up — "a leaked
 		// goroutine may still touch the state dir" — so a child teardown that
 		// outruns the budget is expected, not exceptional. Closing the writers
-		// first makes such a write REFUSE (errSpoolClosed) instead of landing:
-		// the spool root is resolved from the ambient $HOME at write time, so a
-		// write that escapes teardown does not land harmlessly in this run's own
-		// tree, it lands in whatever $HOME names by then.
+		// first makes such a write REFUSE (errSpoolClosed) instead of landing
+		// in a session after its coordinator has let go of it.
 		//
 		// Refusing an in-flight terminal notice is the DESIGNED fallback, not a
 		// new loss: queueMail's caller already handles a failed durable queue by
@@ -985,9 +986,44 @@ func (c *Coordinator) Close() {
 		// gate goes quiet, which measures nothing.
 		c.spoolIn.Close()
 		c.waitTracked()
+		c.removeDisposableMembers()
 		c.dropRoot = c.ownsRoot && c.ephemeral && c.rootSettled()
 		c.closePartial()
 	})
+}
+
+// removeDisposableMembers deletes the disposable members — the engine homes
+// and the per-run scratch — of every agent in this tree that has finished:
+// the owner, whose process is exiting, and each child whose run has ended.
+// A home is rebuilt from managed writers on the next launch and holds no
+// history (native history lives beside it), so a resume loses nothing; what
+// stays is everything a resume or a human reads. A run that has NOT ended may
+// still have an engine using its home (an adopted run whose runner never came
+// back), so its members are left. Best-effort: a failure is reported and the
+// next session sweep takes what is left.
+func (c *Coordinator) removeDisposableMembers() {
+	harps := []string{c.ownerHarp}
+	c.runs.View(func() {
+		for _, r := range c.runsF.runs {
+			if r.Ended && r.Harp != c.ownerHarp {
+				harps = append(harps, r.Harp)
+			}
+		}
+	})
+	for _, harp := range slices.Compact(slices.Sorted(slices.Values(harps))) {
+		if harp == "" {
+			continue
+		}
+		for _, at := range []func(string) (string, error){paths.HarpSessionEngineHomes, paths.HarpScratchDir} {
+			dir, err := at(harp)
+			if err != nil {
+				continue
+			}
+			if err := os.RemoveAll(dir); err != nil {
+				c.rep.Warnf("coordinator close: could not remove %s (the session sweep will): %v", dir, err)
+			}
+		}
+	}
 }
 
 // rootSettled reports that every run this root ever journaled has ended. A
@@ -1138,7 +1174,7 @@ func (c *Coordinator) Roster(caller Identity) []RosterEntry {
 // the delegation tree: a session addresses its parent or its own children by
 // harp (peerSend). inReplyTo carries a correlation the recipient reads.
 func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
-	_, disposition, err := c.peerSend(caller, to, kind, body, structured, inReplyTo)
+	_, disposition, err := c.peerSend(newMessageID(), caller, to, kind, body, structured, inReplyTo)
 	return disposition, err
 }
 
@@ -1147,9 +1183,15 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structur
 // delivery-by-state. delivered reports a completed waiting receive (a local
 // parked poll, or a tentative push into the recipient runner's parked recv).
 //
+// msgID is the identity the recipient's copy carries, and so the key its
+// delivered record dedupes on: an originating send mints one (newMessageID),
+// while routeSpoolOut passes the out/ file's own identity, so routing one file
+// twice — a crash between the route and its consume — lands a copy the
+// recipient has already delivered and refuses.
+//
 // inReplyTo rides the mail unchanged: a reply to an ask is ordinary mail to
 // the asker, and routeSpoolOut closes the ask it answers (settleAsk).
-func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, disposition string, err error) {
+func (c *Coordinator) peerSend(msgID string, caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
 	// The closed-vocabulary ingress guard, at the ONE point both sender surfaces
 	// funnel through (agent_send's bare-MCP handler and the plane-2
 	// PeerSendRequest). It runs before any routing so a sender learns the
@@ -1163,10 +1205,10 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 	// parent is both, and routing on depth alone gave it no downward edge.
 	if caller.IsChild() {
 		if _, err := c.childRun("agent_send", caller.Harp, to); err != nil {
-			return c.childSend(caller, to, kind, body, structured, inReplyTo)
+			return c.childSend(msgID, caller, to, kind, body, structured, inReplyTo)
 		}
 	}
-	return c.parentSend(caller, to, kind, body, structured, inReplyTo)
+	return c.parentSend(msgID, caller, to, kind, body, structured, inReplyTo)
 }
 
 // childRun resolves harp to its current run when that run is a DIRECT child of
@@ -1199,7 +1241,7 @@ const childSendDisposition = "sent to your parent"
 // childSend is peerSend's UPWARD half: a delegated child addresses its own
 // parent, resolved from journaled lineage — by ParentAddress or by the
 // parent's own harp, nothing else.
-func (c *Coordinator) childSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
+func (c *Coordinator) childSend(msgID string, caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
 	parent := ""
 	c.runs.View(func() {
 		if r := c.runsF.currentRun(caller.Harp); r != nil {
@@ -1213,7 +1255,7 @@ func (c *Coordinator) childSend(caller Identity, to, kind, body string, structur
 		return "", "", ErrPeerRouting
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
-	id, err := c.mailParent(caller.Harp, parent, kind, body, structured, inReplyTo)
+	id, err := c.mailParentID(msgID, caller.Harp, parent, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", "", err
 	}
@@ -1223,7 +1265,7 @@ func (c *Coordinator) childSend(caller Identity, to, kind, body string, structur
 // parentSend is peerSend's DOWNWARD half: a session — the root or a mid-tree
 // parent — addressing one of its own children by harp. The disposition names
 // the §6a state the delivery observed (deliveryDisposition).
-func (c *Coordinator) parentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
+func (c *Coordinator) parentSend(msgID string, caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
 	if to == ParentAddress {
 		return "", "", errors.New("agent_send: this session is the coordinator — it has no parent; address a child by its harp")
 	}
@@ -1231,7 +1273,6 @@ func (c *Coordinator) parentSend(caller Identity, to, kind, body string, structu
 		return "", "", err
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": to, "kind": kind})
-	msgID := newMessageID()
 	observed, err := c.deliverMailID(msgID, caller.Harp, to, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", "", err

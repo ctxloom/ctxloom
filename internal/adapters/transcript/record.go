@@ -1,5 +1,5 @@
 // Package transcript owns ctxloom's OWN captured conversation record — the
-// canonical transcript.jsonl file under a harp's persist/ dir
+// canonical transcript.jsonl file under a harp's transcripts/ dir
 // (paths.HarpCanonicalTranscriptPath). It is the runner-side alternative to
 // scraping each engine's private, version-unstable session-store file (ADR
 // 0035 for the design rationale; docs/transcript-schema.md for the format).
@@ -66,7 +66,7 @@ type Record struct {
 	V int `json:"v"`
 	// Harp is the ctxloom session id — the authoritative key. Every line in a
 	// given transcript.jsonl file carries the same harp (the file lives
-	// under that harp's persist/ dir), but the field rides each line anyway so
+	// under that harp's transcripts/ dir), but the field rides each line anyway so
 	// a line is self-describing if ever extracted from its file.
 	Harp string `json:"harp"`
 	// SessionID is the engine-NATIVE ACP session id this conversation runs

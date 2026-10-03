@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 		if err := writeSessionSidecar(w, harp, "mock", ""); err != nil {
 			return err
 		}
-		return w.env.WriteHomeFile(".ctxloom/sessions/"+harp+"/essence.md",
+		return writeOutputFile(w, harp, paths.EssenceFileName,
 			fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-03-15T00:00:00Z\nsummary: %s\n---\n\nseeded essence for %s\n", harp, summary, harp))
 	})
 
@@ -87,7 +88,7 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 	// The path is COMPUTED from the harp the scenario names and the tool is
 	// required to have reported that one, rather than the reverse. Compaction's
 	// only product is an essence a later load_session/recover_session can find,
-	// and those look under ~/.ctxloom/sessions/<harp>/essence.md for the harp
+	// and those look for essence.md in the output dir of the harp
 	// being resumed — nowhere else. Filed anywhere else it is not merely
 	// mislabelled, it is unreachable.
 	ctx.Step(`^the essence the tool reports writing is filed under session "([^"]*)"$`, func(c context.Context, harp string) error {
@@ -130,12 +131,9 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 }
 
 // harpEssencePathIn is where this scenario's ctxloom reads and writes a harp's
-// distilled essence: <HOME>/.ctxloom/sessions/<harp>/essence.md, mirroring
-// paths.HarpEssencePath against the test environment's HOME rather than the
-// real one. Computed here rather than imported so the assertion is independent
-// of the production path helper it is checking — a helper that started
-// returning the wrong directory would otherwise move the goalposts and the
-// scenario with them.
+// distilled essence: essence.md in the output dir the harp's record states.
+// Read from the record here rather than from a production helper, so the
+// assertion is independent of the resolver it is checking.
 func harpEssencePathIn(w *World, harp string) string {
-	return filepath.Join(w.env.HomeDir, ".ctxloom", "sessions", harp, "essence.md")
+	return filepath.Join(outputDirFor(w, harp), "essence.md")
 }

@@ -162,7 +162,7 @@ func (f *holdFixture) state(harp string) string { return f.entry(harp).State }
 
 func (f *holdFixture) send(t *testing.T, harp, body string) {
 	t.Helper()
-	_, _, err := f.c.peerSend(ownerIdentity(), harp, KindMessage, body, nil, "")
+	_, _, err := f.c.peerSend(newMessageID(), ownerIdentity(), harp, KindMessage, body, nil, "")
 	require.NoError(t, err)
 }
 

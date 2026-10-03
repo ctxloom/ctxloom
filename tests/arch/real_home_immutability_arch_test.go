@@ -114,7 +114,16 @@ func hashTree(t *testing.T, root string) string {
 			return infoErr
 		}
 		e := entry{rel: rel, mode: info.Mode()}
-		if !d.IsDir() {
+		if d.Type()&fs.ModeSymlink != 0 {
+			// A link is its target text, never what it points at: a
+			// session home links its history into native/, outside the
+			// tree being hashed.
+			target, linkErr := os.Readlink(path)
+			if linkErr != nil {
+				return linkErr
+			}
+			e.sum = "link:" + target
+		} else if !d.IsDir() {
 			data, readErr := os.ReadFile(path)
 			if readErr != nil {
 				return readErr

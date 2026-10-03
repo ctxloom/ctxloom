@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -20,105 +21,98 @@ func writePlan(t *testing.T, dir, name, body string) string {
 	return p
 }
 
-// TestSessionPlanPaths_FindsThePlanDirAndTheLegacyTopLevel: the durable
-// location is found, the pre-migration top level is still found, and the two
-// come back sorted as one list. The top-level half is not nostalgia — a harp
-// written before the instruction moved has all its plans there, and a reader
-// that stopped looking would report those sessions as having authored nothing.
-func TestSessionPlanPaths_FindsThePlanDirAndTheLegacyTopLevel(t *testing.T) {
-	testsupport.Isolate(t)
-	const harp = "brisk-teal-otter"
-	planDir, err := paths.HarpPlansDir(harp)
-	require.NoError(t, err)
-	harpDir, err := paths.HarpDir(harp)
-	require.NoError(t, err)
+// listRoot is ListSessions over a fixture laid out as <root>/<harp>/: each
+// harp directory is that session's output dir.
+func listRoot(t *testing.T, root string) ([]Plan, error) {
+	t.Helper()
+	dirs, err := os.ReadDir(root)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	var entries []sessions.Entry
+	for _, d := range dirs {
+		if d.IsDir() {
+			entries = append(entries, sessions.Entry{HarpName: d.Name(), OutputDir: filepath.Join(root, d.Name())})
+		}
+	}
+	return ListSessions(entries)
+}
 
-	durable := writePlan(t, planDir, "zeta", "# zeta")
-	legacy := writePlan(t, harpDir, "alpha", "# alpha")
-	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "notes.md"), []byte("not a plan"), 0o644))
+// mintWithOutputDir mints a real session and records an output dir for it.
+func mintWithOutputDir(t *testing.T) (harp, out string) {
+	t.Helper()
+	m, err := sessions.Open(nil)
+	require.NoError(t, err)
+	e, err := m.AssignHarp("/src/widget", "claude-code")
+	require.NoError(t, err)
+	out, err = m.RecordOutputDir(e.HarpName, t.TempDir())
+	require.NoError(t, err)
+	return e.HarpName, out
+}
+
+// TestSessionPlanPaths_ReadsTheRecordedOutputDir: a session's plans are the
+// *.plan.md files at the top of its recorded output dir, sorted; other files
+// are not plans.
+func TestSessionPlanPaths_ReadsTheRecordedOutputDir(t *testing.T) {
+	testsupport.Isolate(t)
+	harp, out := mintWithOutputDir(t)
+	zeta := writePlan(t, out, "zeta", "# zeta")
+	alpha := writePlan(t, out, "alpha", "# alpha")
+	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("not a plan"), 0o644))
 
 	got, problems := SessionPlanPaths(harp)
 	assert.Empty(t, problems)
-	assert.Equal(t, []string{legacy, durable}, got, "both locations, sorted by base name, and notes.md is not a plan")
+	assert.Equal(t, []string{alpha, zeta}, got)
 }
 
-// TestSessionPlanPaths_PersistShadowsASameNamedTopLevelTwin: after a migration
-// that could not move a file because persist/ already held that name, both
-// copies exist. The durable one is the one that counts; returning both would
-// hand the same plan name to a consumer twice with different bodies.
-func TestSessionPlanPaths_PersistShadowsASameNamedTopLevelTwin(t *testing.T) {
+// TestSessionPlanPaths_IsNotRecursive: the output dir's subdirectories (segment
+// essences, anything filed beneath) are not this session's plans.
+func TestSessionPlanPaths_IsNotRecursive(t *testing.T) {
 	testsupport.Isolate(t)
-	const harp = "brisk-teal-otter"
-	planDir, err := paths.HarpPlansDir(harp)
-	require.NoError(t, err)
-	harpDir, err := paths.HarpDir(harp)
-	require.NoError(t, err)
-
-	durable := writePlan(t, planDir, "design", "# the durable one")
-	writePlan(t, harpDir, "design", "# the stale twin")
-
-	got, problems := SessionPlanPaths(harp)
-	assert.Empty(t, problems)
-	require.Equal(t, []string{durable}, got, "persist/ wins; the top-level twin is not returned as a second plan")
-	body, err := os.ReadFile(got[0])
-	require.NoError(t, err)
-	assert.Equal(t, "# the durable one", string(body))
-}
-
-// TestSessionPlanPaths_IgnoresEphemeralScratchWorktrees is why neither
-// directory is walked recursively. <harp>/ephemeral holds checked-out git
-// worktrees of the USER'S project; a recursive walk would pull every *.plan.md
-// inside one into the session's plan list, and those files belong to the repo,
-// not to the session.
-func TestSessionPlanPaths_IgnoresEphemeralScratchWorktrees(t *testing.T) {
-	testsupport.Isolate(t)
-	const harp = "brisk-teal-otter"
-	planDir, err := paths.HarpPlansDir(harp)
-	require.NoError(t, err)
-	ephemeral, err := paths.HarpEphemeralDir(harp)
-	require.NoError(t, err)
-
-	mine := writePlan(t, planDir, "design", "# mine")
-	writePlan(t, filepath.Join(ephemeral, "ctxloom-wt-abc", "docs"), "someone-elses", "# checked out")
+	harp, out := mintWithOutputDir(t)
+	mine := writePlan(t, out, "design", "# mine")
+	writePlan(t, filepath.Join(out, paths.SegmentsDirName), "nested", "# not a plan of this session")
 
 	got, problems := SessionPlanPaths(harp)
 	assert.Empty(t, problems)
 	assert.Equal(t, []string{mine}, got)
 }
 
-// TestSessionPlanPaths_EmptyHarpAndMissingSession: neither is a fault, and
-// neither reports a problem — a session that never authored a plan is not a
-// session whose plans could not be read.
-func TestSessionPlanPaths_EmptyHarpAndMissingSession(t *testing.T) {
+// TestSessionPlanPaths_EmptyHarpAndNoOutputDir: an empty harp, or one that is
+// no session, is no fault; a session with no recorded output dir IS one — its
+// plans could be nowhere a reader looks, which must not read as "authored
+// none".
+func TestSessionPlanPaths_EmptyHarpAndNoOutputDir(t *testing.T) {
 	testsupport.Isolate(t)
 	got, problems := SessionPlanPaths("")
 	assert.Nil(t, got)
 	assert.Empty(t, problems)
-
-	got, problems = SessionPlanPaths("never-created")
+	got, problems = SessionPlanPaths("never-minted-harp")
 	assert.Nil(t, got)
 	assert.Empty(t, problems)
+
+	m, err := sessions.Open(nil)
+	require.NoError(t, err)
+	e, err := m.AssignHarp("/src/widget", "claude-code")
+	require.NoError(t, err)
+	got, problems = SessionPlanPaths(e.HarpName)
+	assert.Nil(t, got)
+	require.Len(t, problems, 1)
+	assert.ErrorIs(t, problems[0], sessions.ErrNoOutputDir)
 }
 
-// TestList_PlanNameIsStableAcrossTheMigration: a plan keeps the name it had
-// before the sweep moved it under persist/. Letting the directory show through
-// would rename every plan in every listing at the moment of migration —
-// "design" becoming "persist/design" — for no distinction a reader can act on.
-// A genuinely nested plan keeps its subdirectory, because that one IS a
-// distinction.
-func TestList_PlanNameIsStableAcrossTheMigration(t *testing.T) {
-	testsupport.Isolate(t)
-	const harp = "brisk-teal-otter"
-	planDir, err := paths.HarpPlansDir(harp)
-	require.NoError(t, err)
-	writePlan(t, planDir, "design", "# after the sweep")
-	writePlan(t, filepath.Join(planDir, "archive"), "old", "# nested")
+// TestListSessions_NamesKeepTheirNesting: a nested plan keeps its
+// subdirectory in its name, because that IS a distinction.
+func TestListSessions_NamesKeepTheirNesting(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "brisk-teal-otter")
+	writePlan(t, out, "design", "# top")
+	writePlan(t, filepath.Join(out, "archive"), "old", "# nested")
 
-	root, err := paths.HomeSessionsDir()
-	require.NoError(t, err)
-	got, err := List(root)
+	got, err := listRoot(t, root)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
-	assert.Equal(t, "archive/old", got[0].Name, "real nesting survives in the name")
-	assert.Equal(t, "design", got[1].Name, "the persist/ segment does not")
+	assert.Equal(t, "archive/old", got[0].Name)
+	assert.Equal(t, "design", got[1].Name)
+	assert.Equal(t, "brisk-teal-otter", got[1].Session)
 }

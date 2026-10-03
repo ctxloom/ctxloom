@@ -13,7 +13,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -60,15 +62,58 @@ var errSecretUnstaged = errors.New("container secrets: the placement names a sec
 // secretParent is where a container cell's secret dir is made: the user's
 // runtime dir when the session has one — a tmpfs the XDG spec makes
 // owner-only, so the value never reaches a disk — else (macOS, Windows) the
-// session's ephemeral dir that holds the run's scratch root. Never the
+// session's scratch dir that holds the run's scratch root, on disk. Never the
 // scratch root itself: it is new per run, so a crashed run's secret there
 // would have no later sibling to reap it. The shared-filesystem probe covers
-// either, as it covers every mount.
-func secretParent(getenv func(string) string, scratchRoot string) string {
-	if dir := getenv("XDG_RUNTIME_DIR"); dir != "" {
-		return dir
+// either, as it covers every mount. onDisk reports the fallback, which the
+// caller announces (secretsOnDiskNotice).
+func secretParent(getenv func(string) string, scratchRoot string) (dir string, onDisk bool) {
+	if dir, ok := SecretsRuntimeDir(getenv); ok {
+		return dir, false
 	}
-	return filepath.Dir(scratchRoot)
+	return filepath.Dir(scratchRoot), true
+}
+
+// SecretsRuntimeDir is the per-user tmpfs a container run's secrets are
+// written to, and whether the platform offers one; when it does not, they go
+// to disk under the session's scratch dir (secretParent). The doctor reports
+// the same decision.
+func SecretsRuntimeDir(getenv func(string) string) (string, bool) {
+	dir := getenv(runtimeDirEnv)
+	return dir, dir != ""
+}
+
+// runtimeDirEnv names the user's per-session tmpfs (XDG base dirs).
+const runtimeDirEnv = "XDG_RUNTIME_DIR"
+
+// SecretsOnDiskNotice is the once-per-process announcement that a container
+// run's secrets are written to disk because the platform offers no per-user
+// tmpfs, naming the platform and dir. The doctor reports the same text.
+func SecretsOnDiskNotice(dir string) string {
+	return fmt.Sprintf("container secrets: %s has no per-user tmpfs ($%s is unset), so each container run's secrets are written owner-only to disk under %s and removed when the run ends", platform.Name, runtimeDirEnv, dir)
+}
+
+// stageCoordCred moves the coordinator credential out of a container
+// runner's spawn env into the run's secret dir, and names the file instead
+// (sessions.EnvCoordCredFile): the value is then in neither the `run`
+// client's environment nor the container's, only in an owner-only file the
+// container sees read-only. The runner reads it back byte for byte
+// (sessions.DecodeReach). An env without a credential passes through.
+func stageCoordCred(cw *containerWorkspace, spawnEnv map[string]string) (map[string]string, error) {
+	cred, ok := spawnEnv[sessions.EnvCoordCred]
+	if !ok {
+		return spawnEnv, nil
+	}
+	if cw.secrets == nil {
+		return nil, errSecretUnstaged
+	}
+	if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(cw.secrets.dir, sessions.EnvCoordCred), []byte(cred), owneronly.FileMode); err != nil {
+		return nil, fmt.Errorf("container secrets: write %s: %w", sessions.EnvCoordCred, err)
+	}
+	out := maps.Clone(spawnEnv)
+	delete(out, sessions.EnvCoordCred)
+	out[sessions.EnvCoordCredFile] = path.Join(secretsTarget, sessions.EnvCoordCred)
+	return out, nil
 }
 
 // materializeSecrets writes each secret variable pl names, from creds, as an

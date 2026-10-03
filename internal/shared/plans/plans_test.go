@@ -67,7 +67,7 @@ func TestList(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "beta-harp", "notes.md"), "not a plan file")
 	mustWrite(t, filepath.Join(root, "loose.txt"), "ignored")
 
-	got, err := List(root)
+	got, err := listRoot(t, root)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestList(t *testing.T) {
 }
 
 func TestListMissingRootIsEmpty(t *testing.T) {
-	got, err := List(filepath.Join(t.TempDir(), "does-not-exist"))
+	got, err := listRoot(t, filepath.Join(t.TempDir(), "does-not-exist"))
 	if err != nil {
 		t.Fatalf("List on missing root: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestListUnreadableSessionDirFailsLoudly(t *testing.T) {
 		t.Skip("session dir is still readable (running as root?) — cannot exercise the failure")
 	}
 
-	got, err := List(root)
+	got, err := listRoot(t, root)
 	if err == nil {
 		t.Fatalf("List succeeded with %d plans despite an unreadable session dir; "+
 			"the blocked harp's plans vanished silently: %+v", len(got), got)
@@ -136,7 +136,7 @@ func TestListVanishedSessionDirIsNotAnError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := List(root)
+	got, err := listRoot(t, root)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestList_FindsNestedPlanFiles(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "alpha-harp", "review", "nested.plan.md"), "---\ntitle: Nested\n---\n")
 	mustWrite(t, filepath.Join(root, "alpha-harp", "review", "deep", "deeper.plan.md"), "no frontmatter")
 
-	got, err := List(root)
+	got, err := listRoot(t, root)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestPlan_JSONShape_IncludesSessions(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "swift-amber-falcon", "v1-removal.plan.md"),
 		"---\ntitle: V1 removal\nsessions:\n  - swift-amber-falcon\n  - busy-lived-denim\n---\nbody\n")
 
-	got, err := List(root)
+	got, err := listRoot(t, root)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

@@ -20,11 +20,13 @@ import (
 // each decided by the paths.HarpMembers row the file lives under
 // (classifyPurgeFile), and purge treats each one differently:
 //
-//	machine  — the canonical transcript row, everything under the transcript
-//	           store row, and whatever file the entry's TranscriptPath names
-//	           (fenced to inside this harp's own directory). Destroyed by the
-//	           transcript population.
-//	derived  — the essence row. Destroyed by the artifacts population.
+//	machine  — everything under the transcripts and native-history rows, and
+//	           whatever file the entry's TranscriptPath names (fenced to
+//	           inside this harp's own directory). Destroyed by the transcript
+//	           population.
+//	derived  — the essence and the segment essences in the session's output
+//	           dir. Destroyed by the artifacts population, the one explicit
+//	           destroyer that reaches into the output dir.
 //	authored — every other file under a Persist member, and every top-level
 //	           file no row names. NEVER destroyed. Named in the report so a
 //	           kept-but-unmentioned file never goes unfiled.
@@ -66,8 +68,8 @@ type PurgeItem struct {
 type PurgePopulation string
 
 const (
-	// PurgePopulationTranscript is the machine-written bulk: transcript.jsonl
-	// and everything under persist/transcripts/.
+	// PurgePopulationTranscript is the machine-written bulk: everything under
+	// transcripts/ and native/ (classifyPurgeFile).
 	PurgePopulationTranscript PurgePopulation = "transcript"
 	// PurgePopulationArtifacts is the derived essence — what distillation
 	// produced, and what can be produced again only while the transcript
@@ -209,6 +211,7 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	if err != nil {
 		return nil, err
 	}
+	items = append(items, outputEssenceItems(entry)...)
 
 	// The undistilled guard protects a real file, so it asks whether there IS
 	// one. Firing on the request alone would refuse forever for a session
@@ -394,10 +397,8 @@ func classifyPurgeFile(rel string, isTranscriptMatch bool) PurgeClass {
 		return PurgeClassAuthored
 	}
 	switch member.Name {
-	case paths.CanonicalTranscriptFileName, paths.TranscriptStoreDirName:
+	case paths.CanonicalTranscriptFileName, paths.TranscriptsDirName, paths.SegmentsDirName, paths.NativeDirName:
 		return PurgeClassMachine
-	case paths.EssenceFileName:
-		return PurgeClassDerived
 	default:
 		return PurgeClassAuthored
 	}

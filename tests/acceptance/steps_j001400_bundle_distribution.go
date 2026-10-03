@@ -924,7 +924,7 @@ func (st *j001400State) j001400RunDiagnostic() string {
 //   - host + worktree — a DETACHED CHECKOUT of Alice's project outside the
 //     project tree, which is the shape isolation.Worktree resolves
 //     (worktree.go's worktreeScratchPath puts it under the session's
-//     ephemeral/ dir, never under the project). Delivery must follow the
+//     work/ dir, never under the project). Delivery must follow the
 //     workspace there; a surface writer that resolved paths against the
 //     PROJECT instead of the target would land nothing here and the row goes
 //     red. What this does NOT prove is the RESOLUTION — that a real run points

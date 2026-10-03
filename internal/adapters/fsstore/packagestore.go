@@ -22,7 +22,7 @@ import (
 // ErrBadClaimLocation is Get's refusal of a location that is not one this
 // store would have issued: a claim rides the wire, and a location that
 // escapes the sessions root is a claim nobody stowed.
-var ErrBadClaimLocation = errors.New("fsstore: a claim location must be <harp>/persist/package/<digest>")
+var ErrBadClaimLocation = errors.New("fsstore: a claim location must be <harp>/package/<digest>")
 
 // PackageStore is composite.Store over the sessions root. Put stows under
 // ONE session (Harp), so a store that carries is rooted per launch; Get
@@ -45,7 +45,7 @@ func SessionClaims(sessionsRoot, harp string) composite.Transport {
 	return composite.ClaimCheck{Store: PackageStore{Root: sessionsRoot, Harp: harp}}
 }
 
-// Put writes the bytes at <Root>/<Harp>/persist/package/<hex digest> and
+// Put writes the bytes at <Root>/<Harp>/package/<hex digest> and
 // returns that path relative to Root — a store-relative name, never a host
 // path. A file already present under the digest is the same bytes by
 // construction and is left alone.
@@ -53,7 +53,7 @@ func (s PackageStore) Put(_ context.Context, digest [32]byte, b []byte) (string,
 	if s.Harp == "" {
 		return "", errors.New("fsstore: a package store that carries needs the session it stows under")
 	}
-	loc := filepath.ToSlash(filepath.Join(s.Harp, paths.PersistDirName, paths.PackageDirName, hex.EncodeToString(digest[:])))
+	loc := filepath.ToSlash(filepath.Join(s.Harp, paths.PackageDirName, hex.EncodeToString(digest[:])))
 	full := filepath.Join(s.Root, filepath.FromSlash(loc))
 	if _, err := os.Stat(full); err == nil {
 		return loc, nil
@@ -84,11 +84,11 @@ func (s PackageStore) Get(_ context.Context, location string) ([]byte, error) {
 	return b, nil
 }
 
-// validLocation is the shape Put issues: four clean segments, the third and
-// fourth fixed, the last a hex digest.
+// validLocation is the shape Put issues: three clean segments, the second
+// fixed, the last a hex digest.
 func validLocation(loc string) bool {
 	parts := strings.Split(loc, "/")
-	if len(parts) != 4 || parts[1] != paths.PersistDirName || parts[2] != paths.PackageDirName {
+	if len(parts) != 3 || parts[1] != paths.PackageDirName {
 		return false
 	}
 	for _, p := range parts {
@@ -96,8 +96,8 @@ func validLocation(loc string) bool {
 			return false
 		}
 	}
-	_, err := hex.DecodeString(parts[3])
-	return err == nil && len(parts[3]) == 64
+	_, err := hex.DecodeString(parts[2])
+	return err == nil && len(parts[2]) == 64
 }
 
 var _ composite.Store = PackageStore{}

@@ -30,6 +30,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,7 +93,7 @@ func j001200HarpHome(harp string) string { return ".ctxloom/sessions/" + harp }
 // session store derives Entry.Summary from it), so a summary-only marker
 // belongs HERE, not in the pre-migration index row.
 func j001200WriteEssence(w *World, harp, summary, body string) error {
-	return w.env.WriteHomeFile(j001200HarpHome(harp)+"/essence.md",
+	return writeOutputFile(w, harp, paths.EssenceFileName,
 		fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-03-15T00:00:00Z\nsummary: %s\n---\n\n%s\n", harp, summary, body))
 }
 
@@ -127,7 +128,7 @@ func j001200WriteCanonicalTranscript(w *World, harp string, turns []string) erro
 		b.Write(line)
 		b.WriteByte('\n')
 	}
-	return w.env.WriteHomeFile(j001200HarpHome(harp)+"/persist/transcript.jsonl", b.String())
+	return w.env.WriteHomeFile(j001200HarpHome(harp)+"/transcripts/transcript.jsonl", b.String())
 }
 
 // j001200VendorTranscriptPath is where a seeded mock session's VENDOR-native
@@ -197,7 +198,7 @@ func j001200Setup(w *World) error {
 		return err
 	}
 
-	transcriptPath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200Harp)+"/persist/transcript.jsonl"))
+	transcriptPath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200Harp)+"/transcripts/transcript.jsonl"))
 	if err := j001200AddIndexEntry(w, j001200Harp, "March design session, "+j001200SummaryMarker, transcriptPath); err != nil {
 		return err
 	}
@@ -215,7 +216,7 @@ func j001200Setup(w *World) error {
 
 	// The undistilled neighbour: captured, never summarized. This is the
 	// DEFAULT state of a session, not an edge case.
-	barePath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200BareHarp)+"/persist/transcript.jsonl"))
+	barePath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200BareHarp)+"/transcripts/transcript.jsonl"))
 	if err := j001200AddIndexEntry(w, j001200BareHarp, "unrelated afternoon session", barePath); err != nil {
 		return err
 	}
@@ -368,7 +369,7 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the canonical transcript she recalled from is still on disk, untouched$`, func(c context.Context) error {
 		w := worldFrom(c)
-		rel := j001200HarpHome(j001200Harp) + "/persist/transcript.jsonl"
+		rel := j001200HarpHome(j001200Harp) + "/transcripts/transcript.jsonl"
 		body, err := w.env.ReadHomeFile(rel)
 		if err != nil {
 			return fmt.Errorf("the canonical transcript at %s is gone after a recall: %w. Recall is a READ — "+
@@ -377,7 +378,7 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(body, j001200TranscriptMarker) {
 			return fmt.Errorf("the canonical transcript no longer carries its own recorded turns; it holds:\n%s", body)
 		}
-		if _, err := os.Stat(filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200Harp)+"/essence.md"))); err != nil {
+		if _, err := os.Stat(filepath.Join(outputDirFor(w, j001200Harp), paths.EssenceFileName)); err != nil {
 			return fmt.Errorf("the distilled essence is gone after a recall: %w", err)
 		}
 		return nil

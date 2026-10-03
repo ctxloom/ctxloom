@@ -40,15 +40,16 @@ flowchart TD
     HOME --> HASP["HomeAllowedSignersPath"]
     HOME --> HDSP["HomeDistrustedSignersPath"]
 
-    HSD --> SIP["SessionIndexPath<br/>index.yaml"]
-    HSD --> HD["HarpDir(harp)"]
-    HD --> HEP["HarpEssencePath<br/>essence.md"]
+    HSD --> HD["HarpDir(harp)<br/>machine state only — one member per HarpMembers row"]
     HD --> HSH["HarpSessionEngineHomes<br/>home/ (the per-engine config-home container)"]
-    HD --> HED["HarpEphemeralDir<br/>ephemeral/"]
-    HD --> HPD["HarpPersistDir<br/>persist/"]
-    HPD --> HTSD["HarpTranscriptStoreDir<br/>persist/transcripts/"]
-    HPD --> HCTP["HarpCanonicalTranscriptPath<br/>persist/transcript.jsonl"]
-    HPD --> HSPL["persist/spool (SpoolDirName)<br/>the HarpMembers row marked Mounted"]
+    HD --> HND["HarpNativeDir<br/>native/ (each engine's native history)"]
+    HD --> HTD["HarpTranscriptsDir<br/>transcripts/"]
+    HTD --> HCTP["HarpCanonicalTranscriptPath<br/>transcripts/transcript.jsonl"]
+    HD --> HWD["HarpWorkDir<br/>work/ (worktree checkouts)"]
+    HD --> HSC["HarpScratchDir<br/>scratch/ (per-run scratch)"]
+
+    DOC["platform Documents folder"] --> DOB["DefaultOutputBase<br/>&lt;Documents&gt;/ctxloom (or the output_dir config key)"]
+    DOB --> OD["OutputDir(base, project, harp)<br/>readable outputs: essence, next step, plans, segment essences"]
 
     AP["appPath (caller-supplied)"] --> CP["ConfigPath config.yaml"]
     AP --> RP["RemotesPath remotes.yaml"]
@@ -111,7 +112,7 @@ Three vocabularies share one file; `AppDirName` and `CacheDir` cross groups.
 
 | Group | Constants |
 |---|---|
-| Home / session layout | `SessionsDir`, `IndexFileName`, `EssenceFileName`, `PlanFileExt`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName`, `CanonicalTranscriptFileName`, `legacyCanonicalTranscriptFileName`, `LogsDir`, `TriggersDir`, `CoordDirName`, `CoordEndpointFileName` |
+| Home / session layout | `SessionsDir`, the session-dir member names `paths.HarpMembers` rows are built from, the output-dir leaves (`OutputDirName`, `EssenceFileName`, `NextStepFileName`, `PlanFileExt`), `LogsDir`, `TriggersDir`, `CoordDirName`, `CoordEndpointFileName` |
 | Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `RefusedAdvancesFileName`, `ProjectIDFileName` |
 | Local state tier | `StateDir`, `LocksDir`, `HomeLocksDirName`, `DirtyTreeCommitAckFileName`, `SessionEngineHomesDirName` |
 | Trust / signing | `TrustFileName`, `TrustObjectsDir`, `AllowedSignersFileName`, `DistrustedSignersFileName`, `ApprovalsDirName` |
@@ -129,14 +130,11 @@ this package.
 | `HomeSessionsDir` | `~/.ctxloom/sessions` | 6 |
 | `HomeLogsDir` | `~/.ctxloom/logs` | 0 (feeds `HomeLogFilePath`) |
 | `HomeLogFilePath` | `~/.ctxloom/logs/<prog>.log` | 1 |
-| `SessionIndexPath` | `+ index.yaml` | 1 |
 | `HarpDir` | `+ <harp>` — **validates the harp** | 9 |
-| `HarpEssencePath` | `<harp>/essence.md` | 4 |
 | `HarpSessionEngineHomes` | `<harp>/home` — the per-session container each engine's own config-home instance lands under; **validates the harp**, returns an error | 2 |
-| `HarpEphemeralDir` | `<harp>/ephemeral` — regenerable state, incl. per-agent worktree scratch | 4 |
-| `HarpPersistDir` | `<harp>/persist` — must survive teardown | 2 |
-| `HarpTranscriptStoreDir` | `persist/transcripts` — container bind target | 2 |
-| `HarpCanonicalTranscriptPath` | `persist/transcript.jsonl` — the canonical write target | 6 |
+| `HarpScratchDir`, `HarpWorkDir`, `HarpNativeDir`, `HarpTranscriptsDir`, … | `<harp>/<member>` — one accessor per `paths.HarpMembers` row a caller resolves, all through `HarpDir`'s validation | — |
+| `HarpCanonicalTranscriptPath` | `<harp>/transcripts/transcript.jsonl` — the canonical write target | — |
+| `DefaultOutputBase`, `OutputDir` | `<Documents>/ctxloom/<project>/<harp>` — a session's output dir; resolved once at mint and recorded in `session.yaml` (`sessions.Entry.OutputDir`) | — |
 | `HomeApprovalsPath` | `~/.ctxloom/approvals` — the user countersignature store | 2 |
 | `HomeAllowedSignersPath` | `~/.ctxloom/allowed_signers` | 4 |
 | `HomeDistrustedSignersPath` | `~/.ctxloom/distrusted_signers` | 1 |
@@ -217,9 +215,11 @@ whole derivation here removed the need for that copy entirely.
    `content/bundles` (`config.Config.GetBundleDirs`); authored YAML found under
    `cache/bundles` raises a fatal migration finding. `CacheBundlesPath`'s doc comment is a
    deliberate warning against exactly that confusion.
-4. **`ephemeral/` vs `persist/` is the container teardown boundary.** `HarpEphemeralDir` holds state
-   that may vanish when a cell is torn down (including the worktree axis's per-agent config
-   homes); `HarpPersistDir` holds state that must not, including the canonical transcript.
+4. **`HarpMember.Lifetime` is the teardown boundary, and the session dir holds machine state
+   only.** `Ephemeral` rows (`home/`, `work/`, `scratch/`) may vanish when a run or session is
+   torn down — `work/` only after triage; `Persist` rows must not, including the canonical
+   transcript and native history. What a human reads lives in the output dir, which no reaper
+   touches.
 5. **The countersignature stores are a user/project pair**: `HomeApprovalsPath` and
    `ApprovalsPath`. `internal/adapters/operations`' countersign-record builder reads their union.
 6. **Every function accepts an empty `appPath` and returns a plausible, wrong path.**
@@ -234,10 +234,10 @@ whole derivation here removed the need for that copy entirely.
    table**: `HarpMembers` classifies every member of a session dir (tier, location,
    lifetime, and whether a container must reach it); `ClassifyMember` is the one
    predicate over it, `IdentityMember` the row that makes a directory a session, and
-   `MountedLocations` what the isolation adapter mounts. `sessions.Layout` derives every
+   `MountedMembers` what the isolation adapter mounts. `sessions.Layout` derives every
    session-dir path from it, and the ONE reaper (`sessions.Reap`) removes members by the
    table's `Lifetime` axis alone — `sessions.ReapPolicy.Members` is the Ephemeral rows,
-   plus the persist store under a human's `--include-persist` — judging age by the one
+   plus the top-level machine rows of a distilled session under a human's `--include-persist` — judging age by the one
    clock (`sessions.ActivityTime`: the newest mtime under the session dir, the dir's own
    mtime and every symlink's excluded). `TestArch_ReaperMemberNamesAreTableRows` keeps
    every member constant the reap, purge and clean code names a row of the table.
@@ -260,10 +260,10 @@ entries and the current code support, and no more.
 - **L5, the container-crossing manifest: satisfied.** What crosses into a
   container now crosses under other names: the launch package is carried
   inline or, above `composite.DefaultInlineMax`, by claim check in the content-addressed
-  `fsstore.PackageStore` under the session's persist directory, and a
-  container runner reaches that directory through the session-state bind
-  mounts (`Container.sessionStateMounts`) that also carry its transcript store
-  and task log. Credentials and config overlays are prepared by the container
+  `fsstore.PackageStore` under the session's `package/` member, and a
+  container runner reaches it through the session-state bind mounts
+  (`Container.sessionStateMounts`, derived from `paths.MountedMembers`) that
+  also carry its spool, transcripts and task log. Credentials and config overlays are prepared by the container
   workspace. Nothing is left for a separate manifest to describe.
 - **L6, the cache split: wanted, purpose not recorded.** The split between
   rebuildable and non-rebuildable local state already exists as `cache/`

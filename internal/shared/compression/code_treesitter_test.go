@@ -647,3 +647,38 @@ func TestCodeCompressor_ClassBodiesKeepNonMethodMembers(t *testing.T) {
 		assert.Contains(t, result.Content, "fn fetch")
 	})
 }
+
+// A Java initializer block — `static { ... }` or a bare instance `{ ... }` in a
+// class body — is code that runs at class load or construction. It declares
+// nothing, but a compressed class that silently omits it misrepresents what
+// the class does on load. Kept like a method: the block's presence, body
+// elided.
+func TestCodeCompressor_JavaInitializerBlocksSurviveElided(t *testing.T) {
+	c := NewCodeCompressor()
+	input := `class Registry {
+    private static final Map<String, Integer> CODES;
+
+    static {
+        CODES = loadCodesFromDisk();
+    }
+
+    {
+        instanceSetup();
+    }
+
+    void method() { return; }
+}
+`
+	result, err := c.Compress(context.Background(), ContentTypeJava, input)
+	require.NoError(t, err)
+	t.Logf("\n%s", result.Content)
+
+	assert.Contains(t, result.Content, "static { ... }", "a static initializer does not vanish")
+	assert.NotContains(t, result.Content, "loadCodesFromDisk", "its body is elided like a method's")
+	assert.Contains(t, result.Content, "\n    { ... }\n", "an instance initializer does not vanish")
+	assert.NotContains(t, result.Content, "instanceSetup", "its body is elided too")
+	assert.Less(t, strings.Index(result.Content, "CODES;"), strings.Index(result.Content, "static { ... }"),
+		"members keep their source order")
+	assert.Less(t, strings.Index(result.Content, "static { ... }"), strings.Index(result.Content, "void method"),
+		"members keep their source order")
+}

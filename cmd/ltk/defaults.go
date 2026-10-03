@@ -4,8 +4,8 @@ import _ "embed"
 
 // defaultRules is the rule set shipped with ltk and written by `ltk manage
 // install` unless --no-default-rules is given. sample.ltk.yaml is generated from
-// docs/DEFAULTS.md (the source of truth) by tools/extract-defaults and kept in
-// sync by the lefthook pre-commit hook.
+// docs/ltk/DEFAULTS.md (the source of truth) by `just defaults`; nothing gates
+// drift between the two, so regenerate after editing the doc.
 //
 //go:embed sample.ltk.yaml
 var defaultRules string

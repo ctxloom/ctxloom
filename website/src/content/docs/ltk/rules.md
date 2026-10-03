@@ -168,6 +168,26 @@ otherwise block.
   message: "Releases go through the pipeline, not a hand-cut `git tag`."
 ```
 
+`min_operands` separates a read from a write when the only difference is
+arity. It requires at least that many operands (non-option arguments) after the
+program, subcommands included, and needs `command` alongside it. `git config
+user.name` reads the key (two operands); `git config user.name Bob` sets it
+(three):
+
+```yaml
+- id: no-git-identity-write
+  match:
+    command: [git, config]
+    args_any: ["user.name", "user.email"]
+    min_operands: 3
+  message: "Set the git identity outside the agent."
+```
+
+Like positional matching, it has no per-program arity knowledge: an option's
+value counts as an operand (`git -c k=v config user.name` counts three), and a
+write with the read's arity (`git config --unset user.name`) is invisible to
+it. Catch that one with a separate rule keyed on its flag.
+
 Other honest `unless` cases are `rsync`, `make`, and `helm upgrade` with
 `--dry-run`. Note that `--dry-run` is not universal: `docker build` and
 `docker run` have none, only `docker compose` does, so use the flag the target

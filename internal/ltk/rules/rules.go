@@ -295,6 +295,22 @@ type Match struct {
 	// A glob cannot do this job: Go's path.Match (what Path uses) stops `*` at
 	// `/`, so no pattern spans a module path like golang.org/x/tools/gopls@v1.
 	UnlessArgContains []string `yaml:"unless_arg_contains"`
+	// MinOperands requires the command to carry at least this many operands
+	// (non-option arguments) after the program, subcommands included: `git
+	// config user.name Bob` has three — config, user.name, Bob. Zero means no
+	// constraint. It needs match.command, since a count means nothing without
+	// the command it is a count of.
+	//
+	// It exists to tell a READ from a WRITE where the only difference is
+	// arity: `git config user.name` reads the key, `git config user.name Bob`
+	// sets it, and no token-presence test (args_any, unless) can separate
+	// them. Like Command's positional matching it has no per-program arity
+	// knowledge, so it inherits the same blind spots: a value-taking option's
+	// value is counted as an operand (`git -c k=v config user.name` counts
+	// three), and a write whose arity matches the read (`git config --unset
+	// user.name`) is invisible to it — key that one on its flag in a rule of
+	// its own.
+	MinOperands int `yaml:"min_operands"`
 	// Backgrounded matches a command DETACHED from the invoking session,
 	// rather than one identified by its own spelling. The bug this exists to
 	// close: a rule written as `command: [nohup]` / `command: [setsid]`
@@ -476,13 +492,23 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 	if s := shellForProgram(c.Program()); s != "" {
 		argShell = s
 	}
+	if !m.matchesInvocation(c, argShell, strictPrefix) {
+		return false
+	}
+	return m.matchesArgs(expandShortClusters(c.Args(), argShell))
+}
+
+// matchesInvocation applies the conditions on how the command is invoked —
+// detachment, the Command pattern and its operand count — under argShell's
+// flag conventions, leaving the set-membership argument tests to matchesArgs.
+func (m Match) matchesInvocation(c ir.SimpleCommand, argShell ir.Shell, strictPrefix bool) bool {
 	if m.Backgrounded && !isBackgrounded(c, argShell) {
 		return false
 	}
 	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, argShell, strictPrefix) {
 		return false
 	}
-	return m.matchesArgs(expandShortClusters(c.Args(), argShell))
+	return m.MinOperands == 0 || len(classifyOperands(c.Args(), argShell)) >= m.MinOperands
 }
 
 // detachedPrograms names commands whose own effect is to hand a job off
@@ -868,6 +894,12 @@ func validateMatchShape(r *Rule) error {
 	}
 	if slices.Contains(r.Match.Command, "") {
 		return fmt.Errorf("rule %q: empty token in match.command", r.ID)
+	}
+	if r.Match.MinOperands < 0 {
+		return fmt.Errorf("rule %q: match.min_operands must not be negative", r.ID)
+	}
+	if r.Match.MinOperands > 0 && len(r.Match.Command) == 0 {
+		return fmt.Errorf("rule %q: match.min_operands needs match.command", r.ID)
 	}
 	if err := validatePathPatterns(r.Match.Path); err != nil {
 		return fmt.Errorf("rule %q: %w", r.ID, err)

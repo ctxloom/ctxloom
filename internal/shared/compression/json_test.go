@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -415,4 +416,27 @@ func TestJSONCompressor_ProseIsNotHighEntropy(t *testing.T) {
 		assert.True(t, c.isHighEntropy(s), "id/hash/token lost its high-entropy classification: %q", s)
 		assert.Equal(t, s, c.compressString(s), "id/hash/token must survive verbatim")
 	}
+}
+
+// isIdentifier divided identCharStats's RUNE count by the BYTE length, the
+// same defect calculateEntropy had: a Greek identifier, two bytes per rune,
+// scored about half its ASCII twin's ratio and was classified as prose. The
+// end-to-end value is over isHighEntropy's 128-byte cap, so only isIdentifier
+// can save it from truncation.
+func TestJSONCompressor_IdentifierRatioIsPerRuneNotPerByte(t *testing.T) {
+	c := NewJSONCompressor()
+	assert.True(t, c.isIdentifier("όνομα_μεταβλητής"), "a multibyte identifier is an identifier")
+	assert.True(t, c.isIdentifier("onoma_metavlitis"), "its ASCII twin is one too")
+
+	// 90 runes, 165 bytes: too long for isHighEntropy, identifier-shaped.
+	greek := strings.Repeat("αβγδε_", 15)
+	require.Greater(t, len(greek), 128)
+	require.Greater(t, utf8.RuneCountInString(greek), c.MaxValueLength)
+	result, err := c.Compress(context.Background(), ContentTypeJSON, `{"name":"`+greek+`"}`)
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, greek, "a multibyte identifier is preserved, not truncated")
+
+	// The low-diversity guard counts runes too: 6 runes of 3 distinct
+	// letters is short, not a long repetitive run, whatever its byte length.
+	assert.True(t, c.isIdentifier("αβγαβγ"), "a short multibyte identifier is not rejected as a long low-diversity run")
 }

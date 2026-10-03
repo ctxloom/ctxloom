@@ -120,6 +120,16 @@ func (c *CodeCompressor) extractJavaClassBody(node *sitter.Node, source []byte, 
 			out.WriteString("    ")
 			c.writeJavaMemberSig(child, source, out, "constructor_body")
 			out.WriteString("\n")
+		case "static_initializer":
+			// Declares nothing, but runs at class load: its presence is
+			// kept, its body elided like a method's.
+			out.WriteString("    ")
+			c.writeJavaMemberSig(child, source, out, "block")
+			out.WriteString("\n")
+		case "block":
+			// A bare block directly in a class body is an instance
+			// initializer, run on every construction.
+			out.WriteString("    { ... }\n")
 		}
 	}
 }

@@ -248,7 +248,7 @@ func scaffoldConfig(fs afero.Fs, path string, withDefaults, force bool) error {
 		// file is a VALID allow-all config: the parser will never object on
 		// the user's behalf. Writing one would install a guard that gates
 		// nothing and report "wrote rules file" over it. sample.ltk.yaml is
-		// GENERATED from docs/DEFAULTS.md by tools/extract-defaults, which
+		// GENERATED from docs/ltk/DEFAULTS.md by `just defaults`, which
 		// checks fence count and parseability but not rule count.
 		cfg, err := rules.Parse([]byte(content))
 		if err != nil {

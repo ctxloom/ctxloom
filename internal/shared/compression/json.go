@@ -253,28 +253,33 @@ func (c *JSONCompressor) isIdentifier(s string) bool {
 		return true
 	}
 
-	alphaCount, uniqueCount := identCharStats(s)
+	alphaCount, uniqueCount, runeCount := identCharStats(s)
+
+	// Both measures below are in RUNES, never bytes: alphaCount is a rune
+	// count, so a byte-length divisor scores a multibyte identifier at a
+	// fraction of its ASCII twin and classifies it as prose.
 
 	// Reject strings with very low character diversity (like "aaaaaaa").
 	// An identifier should have reasonable variety.
-	if uniqueCount < 4 && len(s) > 10 {
+	if uniqueCount < 4 && runeCount > 10 {
 		return false
 	}
 
 	// If >90% alphanumeric-ish, treat as identifier
-	return float64(alphaCount)/float64(len(s)) > 0.9
+	return float64(alphaCount)/float64(runeCount) > 0.9
 }
 
-// identCharStats counts identifier-like characters and distinct runes in s.
-func identCharStats(s string) (alphaCount, uniqueCount int) {
+// identCharStats counts identifier-like runes, distinct runes and all runes in s.
+func identCharStats(s string) (alphaCount, uniqueCount, runeCount int) {
 	uniqueChars := make(map[rune]bool)
 	for _, r := range s {
+		runeCount++
 		uniqueChars[r] = true
 		if isIdentRune(r) {
 			alphaCount++
 		}
 	}
-	return alphaCount, len(uniqueChars)
+	return alphaCount, len(uniqueChars), runeCount
 }
 
 // isIdentRune reports whether r is allowed in an identifier-shaped string.

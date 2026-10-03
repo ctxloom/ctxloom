@@ -31,7 +31,9 @@ func TestNewContextInjectionHooks_ReadFailureIsWarned(t *testing.T) {
 }
 
 func TestMergeHooksConfig_NilInputs(t *testing.T) {
-	t.Run("nil dest does nothing", func(t *testing.T) {
+	// The drop warning itself is pinned in reporter_test.go; this case
+	// pins only that a nil destination is survived.
+	t.Run("nil dest does not panic", func(t *testing.T) {
 		src := &wire.HooksConfig{
 			Unified: wire.UnifiedHooks{
 				PreTool: []wire.Hook{{Command: "test"}},

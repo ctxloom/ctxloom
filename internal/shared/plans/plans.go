@@ -118,7 +118,7 @@ func List(root string) ([]Plan, error) {
 			return fmt.Errorf("read plan %s: %w", path, err)
 		}
 		title := name
-		t, ss := ParseFrontmatter(string(data))
+		t, ss := parseFrontmatterLabeled(string(data), path)
 		if t != "" {
 			title = t
 		}
@@ -259,6 +259,15 @@ type frontmatter struct {
 // error means the block is not a YAML document at all, and nothing is claimed
 // about its contents.
 func ParseFrontmatter(content string) (title string, sessions []string) {
+	return parseFrontmatterLabeled(content, "")
+}
+
+// parseFrontmatterLabeled is ParseFrontmatter with the plan's path stamped on
+// any duplicate-key warning. List walks every plan, and an unlabeled warning
+// there names a key in a file the user cannot identify. Unexported so the
+// label reaches the warning without changing ParseFrontmatter's exported
+// signature; an empty path emits the unlabeled message.
+func parseFrontmatterLabeled(content, path string) (title string, sessions []string) {
 	block, ok := frontmatterBlock(content)
 	if !ok {
 		return "", nil
@@ -273,7 +282,7 @@ func ParseFrontmatter(content string) (title string, sessions []string) {
 		return "", nil
 	}
 	var fm frontmatter
-	if err := resolveDuplicateKeys(doc.Content[0]).Decode(&fm); err != nil {
+	if err := resolveDuplicateKeys(doc.Content[0], path).Decode(&fm); err != nil {
 		var typeErr *yaml.TypeError
 		if !errors.As(err, &typeErr) {
 			return "", nil
@@ -290,7 +299,7 @@ func ParseFrontmatter(content string) (title string, sessions []string) {
 
 // resolveDuplicateKeys returns a copy of a frontmatter mapping in which every
 // key appears once, holding the LAST value the document gave it, and warns
-// once per duplicated key.
+// once per duplicated key, prefixed with path when one is given.
 //
 // It exists because the two available behaviours for a repeated key are not
 // equally costly. yaml.v3's own answer — reject the mapping — throws away the
@@ -304,7 +313,7 @@ func ParseFrontmatter(content string) (title string, sessions []string) {
 // A non-scalar key (a sequence or mapping used as a key) is passed through
 // untouched: it has no name to compare, and inventing one to dedup on would be
 // guessing at a shape this format never has.
-func resolveDuplicateKeys(mapping *yaml.Node) *yaml.Node {
+func resolveDuplicateKeys(mapping *yaml.Node, path string) *yaml.Node {
 	out := *mapping
 	out.Content = nil
 	valueAt := make(map[string]int, len(mapping.Content)/2)
@@ -321,7 +330,11 @@ func resolveDuplicateKeys(mapping *yaml.Node) *yaml.Node {
 			out.Content[pos] = value
 			if !warned[key.Value] {
 				warned[key.Value] = true
-				clidiag.Warn(diagProg(), "duplicate frontmatter key %q; using the last value", key.Value)
+				if path == "" {
+					clidiag.Warn(diagProg(), "duplicate frontmatter key %q; using the last value", key.Value)
+				} else {
+					clidiag.Warn(diagProg(), "%s: duplicate frontmatter key %q; using the last value", path, key.Value)
+				}
 			}
 			continue
 		}

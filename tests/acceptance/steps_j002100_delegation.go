@@ -67,9 +67,12 @@ type j002100State struct {
 	// holdUntil is a roster hold deadline (Unix seconds) remembered across a
 	// coordinator restart (steps_j002100_holds.go).
 	holdUntil int64
-	harps     map[string]string // agent name -> its most recently spawned session harp
-	runIDs    map[string]string // agent name -> the run id that spawn minted for it (agent_stop addresses runs)
-	askID     string            // the id the last agent_ask returned
+	// restartDiag is what the coordinator-restart step saw of the killed
+	// owner's runners, for a failure to report.
+	restartDiag string
+	harps       map[string]string // agent name -> its most recently spawned session harp
+	runIDs      map[string]string // agent name -> the run id that spawn minted for it (agent_stop addresses runs)
+	askID       string            // the id the last agent_ask returned
 }
 
 // j002100RunFact is runEnqueued's (coord/facts.go) payload, decoded straight off

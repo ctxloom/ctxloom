@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -26,8 +27,8 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // j002100Hold is one roster entry's hold, as the roster tool returns it.
@@ -40,7 +41,7 @@ type j002100Hold struct {
 // j002100RosterHold reads the roster tool and returns harp's hold (nil when
 // harp carries none, or is not on the roster).
 func j002100RosterHold(c context.Context, harp string) (*j002100Hold, error) {
-	if err := callTool(c, "roster", map[string]any{}); err != nil {
+	if err := callTool(c, "roster", map[string]any{"include_terminal": true}); err != nil {
 		return nil, err
 	}
 	w := worldFrom(c)
@@ -97,7 +98,7 @@ func j002100AwaitHold(c context.Context, harp string, within time.Duration, want
 		}
 		last = h
 		if time.Now().After(deadline) {
-			return fmt.Errorf("within %s the roster never showed %s %s (last hold: %+v; roster:\n%s)", within, harp, what, last, worldFrom(c).lastTool.JSON())
+			return fmt.Errorf("within %s the roster never showed %s %s (last hold: %+v; roster:\n%s\nterminals:\n%s)", within, harp, what, last, worldFrom(c).lastTool.JSON(), j002100Terminals(worldFrom(c)))
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -113,10 +114,14 @@ func j002100Harp(w *World, name string) (string, error) {
 }
 
 // resumeSessionOwner stands the owner again on its OWN session (`ctxloom run
-// --session <harp>`) after the previous one died, and re-reads the endpoint
-// this launch minted — the newest delivered engine config under the session,
-// since a crash leaves the dead launch's behind.
+// --session <harp>`) after the previous one died, and reads the endpoint this
+// launch minted: the delivered engine config that appeared with it (the
+// session-layout sweep, not the test, decides what the dead launch left).
 func (w *World) resumeSessionOwner(harp string) error {
+	before, err := deliveredConfigs(w.env.HomeDir)
+	if err != nil {
+		return err
+	}
 	sess, err := w.env.RunPTYFrom(w.env.AppBinary, 100, 30, []string{"CTXLOOM_MOCK_ECHO_STDIN=1"},
 		"run", "--llm", sessionOwnerLabel, "--session", harp, "-f", sessionOwnerFragment)
 	if err != nil {
@@ -132,37 +137,40 @@ func (w *World) resumeSessionOwner(harp string) error {
 	}) {
 		return fmt.Errorf("resumed session owner never echoed %q within %s; output:\n%s", sessionOwnerSentinel, sessionOwnerReadyTimeout, sess.Output())
 	}
-	owner.endpoint, err = newestSessionEndpoint(w.env.HomeDir, harp)
+	after, err := deliveredConfigs(w.env.HomeDir)
+	if err != nil {
+		return err
+	}
+	var fresh []string
+	for p, at := range after {
+		if was, ok := before[p]; !ok || at.After(was) {
+			fresh = append(fresh, p)
+		}
+	}
+	if len(fresh) != 1 {
+		return fmt.Errorf("expected the resumed launch to deliver exactly one engine config, found %v (all: %v)", fresh, after)
+	}
+	owner.endpoint, err = readEndpointFile(fresh[0])
 	return err
 }
 
-// newestSessionEndpoint is readSessionEndpoint for a session more than one
-// launch has delivered a config to: it reads the most recently written one.
-func newestSessionEndpoint(home, harp string) (ep sessions.Endpoint, err error) {
-	dir := filepath.Join(home, filepath.FromSlash(harpSessionsRel), harp)
-	want := filepath.Join(mock.ConfigDirName, mockMCPFileName)
-	var newest string
-	var newestAt time.Time
-	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, string(filepath.Separator)+want) {
+// deliveredConfigs is every delivered mock MCP config in the session store,
+// with when it was written.
+func deliveredConfigs(home string) (map[string]time.Time, error) {
+	want := string(filepath.Separator) + filepath.Join(mock.ConfigDirName, mockMCPFileName)
+	out := map[string]time.Time{}
+	err := filepath.WalkDir(filepath.Join(home, filepath.FromSlash(harpSessionsRel)), func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, want) {
 			return err
 		}
 		fi, err := d.Info()
 		if err != nil {
 			return err
 		}
-		if fi.ModTime().After(newestAt) {
-			newest, newestAt = p, fi.ModTime()
-		}
+		out[p] = fi.ModTime()
 		return nil
 	})
-	if err != nil {
-		return ep, err
-	}
-	if newest == "" {
-		return ep, fmt.Errorf("no delivered %s under %s", want, dir)
-	}
-	return readEndpointFile(newest)
+	return out, err
 }
 
 func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
@@ -170,8 +178,10 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 		func(c context.Context, role string, secs int) error {
 			resets := time.Now().Add(time.Duration(secs) * time.Second).Unix()
 			return callTool(c, "agent_run", map[string]any{
-				"role":  role,
-				"input": map[string]any{"prompt": fmt.Sprintf("do the work mock:rate-limited=%d", resets)},
+				"role": role,
+				// No worktree: this journey's repository has no commit to
+				// branch one from, and isolation is not what is under test.
+				"input": map[string]any{"prompt": fmt.Sprintf("do the work mock:rate-limited=%d", resets), "workspace": "none"},
 			})
 		})
 
@@ -200,13 +210,26 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^within (\d+)s the roster shows "([^"]*)" no longer held$`, func(c context.Context, secs int, name string) error {
-		harp, err := j002100Harp(worldFrom(c), name)
+	// Released means released: gone, and not before the deadline the hold
+	// showed. A held child whose run ended still shows its hold (the hold
+	// covers the harp), so a missing hold is a release, which the journal
+	// step after this one attributes to the backoff.
+	ctx.Step(`^within (\d+)s the roster shows "([^"]*)" released on time$`, func(c context.Context, secs int, name string) error {
+		w := worldFrom(c)
+		harp, err := j002100Harp(w, name)
 		if err != nil {
 			return err
 		}
-		return j002100AwaitHold(c, harp, time.Duration(secs)*time.Second,
-			func(h *j002100Hold) bool { return h == nil }, "with no hold")
+		until := time.Unix(j002100Of(w).holdUntil, 0)
+		if err := j002100AwaitHold(c, harp, time.Duration(secs)*time.Second,
+			func(h *j002100Hold) bool { return h == nil }, "with no hold"); err != nil {
+			return err
+		}
+		if now := time.Now(); now.Before(until) {
+			return fmt.Errorf("%s's hold was gone at %s, before its deadline %s; %s; terminals:\n%s\nresumed owner output (tail):\n%q", name, now.Format(time.RFC3339), until.Format(time.RFC3339),
+				j002100Of(w).restartDiag, j002100Terminals(w), tail(w.owner.sess.Output(), 4000))
+		}
+		return nil
 	})
 
 	ctx.Step(`^"([^"]*)"'s hold deadline is remembered$`, func(c context.Context, name string) error {
@@ -267,18 +290,39 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 		if !sess.WaitForOutput(15*time.Second, func(out string) bool { return strings.Contains(since(out), "j/k move") }) {
 			return fmt.Errorf("the overlay never opened; output since Ctrl-]:\n%q", since(sess.Output()))
 		}
-		selected := func() bool { return strings.Contains(since(sess.Output()), "feed: "+harp) }
-		for range 12 {
-			if selected() {
-				break
+		// The roster pane's rows, in order, from the overlay's first render;
+		// the selection starts on the first. The renderer redraws only what
+		// changed, so the selection is confirmed by the feed title's redraw
+		// naming the harp, after the last move.
+		if !sess.WaitForOutput(15*time.Second, func(out string) bool { return strings.Contains(since(out), harp+"·") }) {
+			return fmt.Errorf("the overlay's roster never listed %s; output since Ctrl-]:\n%q", harp, since(sess.Output()))
+		}
+		first, _, _ := strings.Cut(since(sess.Output()), "j/k move")
+		row := -1
+		n := 0
+		for _, line := range strings.Split(first, "\r\n") {
+			pane, _, isRow := strings.Cut(line, "│")
+			if !isRow || !strings.Contains(pane, "·") {
+				continue
 			}
+			if strings.Contains(pane, harp+"·") {
+				row = n
+			}
+			n++
+		}
+		if row < 0 {
+			return fmt.Errorf("could not find %s's row in the overlay's roster:\n%q", harp, first)
+		}
+		moved := len(sess.Output())
+		for range row {
 			if _, err := sess.Write([]byte("j")); err != nil {
 				return err
 			}
-			sess.WaitForOutput(2*time.Second, func(string) bool { return selected() })
 		}
-		if !selected() {
-			return fmt.Errorf("the overlay never selected %s; output since Ctrl-]:\n%q", harp, since(sess.Output()))
+		if row > 0 && !sess.WaitForOutput(15*time.Second, func(out string) bool {
+			return len(out) > moved && strings.Contains(out[moved:], harp+" (")
+		}) {
+			return fmt.Errorf("the overlay never selected %s (row %d); output since Ctrl-]:\n%q", harp, row, since(sess.Output()))
 		}
 		if _, err := sess.Write([]byte("p")); err != nil {
 			return err
@@ -300,6 +344,7 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 			return errors.New("no session owner is standing to kill")
 		}
 		harp := w.owner.harp
+		runners := testenv.RunnerChildrenOf(w.owner.sess.PID())
 		if err := syscall.Kill(w.owner.sess.PID(), syscall.SIGKILL); err != nil {
 			return fmt.Errorf("kill the session owner: %w", err)
 		}
@@ -312,7 +357,13 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 		}
 		w.owner.stop()
 		w.owner = nil
-		return w.resumeSessionOwner(harp)
+		err := w.resumeSessionOwner(harp)
+		var alive []string
+		for _, pid := range runners {
+			alive = append(alive, fmt.Sprintf("%d:%v", pid, syscall.Kill(pid, 0) == nil))
+		}
+		j002100Of(w).restartDiag = fmt.Sprintf("the killed owner's runner children (pid:alive after resume): %v", alive)
+		return err
 	})
 
 	ctx.Step(`^the journal records "([^"]*)"'s hold released by its own backoff$`, func(c context.Context, name string) error {
@@ -333,6 +384,38 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 				return nil
 			}
 		}
-		return fmt.Errorf("runs.jsonl records no hold.released with cause backoff for %s", name)
+		return fmt.Errorf("runs.jsonl records no hold.released with cause backoff for %s; journals:\n%s", name, j002100Terminals(w))
 	})
+}
+
+// j002100Terminals is every run.ended and hold fact in every coordinator
+// journal, for a failure that must say what became of a child.
+func j002100Terminals(w *World) string {
+	files, err := filepath.Glob(filepath.Join(w.env.HomeDir, ".ctxloom", "coord", "*", "*", "runs.jsonl"))
+	if err != nil {
+		return err.Error()
+	}
+	var out []string
+	for _, f := range files {
+		out = append(out, "== "+f)
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			out = append(out, err.Error())
+			continue
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if strings.Contains(line, `"kind":"run.ended"`) || strings.Contains(line, `"kind":"hold.`) {
+				out = append(out, line)
+			}
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// tail is the last n bytes of s.
+func tail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
 }

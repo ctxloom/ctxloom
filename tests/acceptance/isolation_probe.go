@@ -645,7 +645,7 @@ type probeResult struct {
 	ExitCode   int
 	Output     string
 
-	// worktree axis
+	// worktree axis; on the container axis only the engine homes are filled
 	Scratch  probeScratchSnapshot
 	HostDiff []string // the before/after censuses themselves are written but never read anywhere; only their diff is consumed
 
@@ -801,11 +801,16 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 
 	ctx, cancel := context.WithCancel(context.Background())
 	diffCh := watchContainerDiff(ctx, runtimeBin)
+	// The session's engine home is a host bind into the container, so what the
+	// engine wrote there is observable on the host — while the run is in
+	// flight, because a one-shot session's home may not outlive it.
+	scratchCh := watchScratch(ctx, w.env.HomeDir)
 
 	runErr := runWithTimeout(cmd)
 	time.Sleep(150 * time.Millisecond)
 	cancel()
 	res.Container = <-diffCh
+	res.Scratch = <-scratchCh
 
 	res.Output = stdout.String() + stderr.String()
 	res.ExitCode = probeExitCode(runErr)

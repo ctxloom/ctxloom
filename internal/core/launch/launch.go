@@ -231,8 +231,13 @@ type Cell struct {
 	// dial home: zero for a host cell and for a runtime that routes to the
 	// host's loopback. Local to the launching process, like HomeMode: the
 	// coordinator honours it before the runner starts.
-	Listen  present.Listen
-	Cleanup func() error
+	Listen present.Listen
+	// Credential is where this cell's engine credential comes from (never
+	// the credential): runs whose sources are equal share one principal, so
+	// one refusal parks them together. Local to the launching process, like
+	// HomeMode: the coordinator reads it, the runner never needs it.
+	Credential engine.CredentialSource
+	Cleanup    func() error
 	// Handle is what the cells adapter keeps to START a process in this cell:
 	// the prepared environment itself, opaque to core and read back only by
 	// the adapter that made it.

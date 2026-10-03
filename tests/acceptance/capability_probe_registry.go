@@ -500,7 +500,7 @@ var probeRegistry = []probeSpec{
 		Paid:         true,
 		Cells: []probeCell{
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Variant: p14ContainerWrites, Status: probeLiveVerified,
-				Reason: "measured 2026-10-03 on claude 2.1.286 (haiku): 1 scenario / 4 steps green in 22s. In a rootless container the host-side session engine home held claude/projects/<slug>/<uuid>.jsonl after one turn; the slug was the project's HOST absolute path, because the container mounts the project at the same path. Judge MUTATION-CONFIRMED hermetically (TestP14_ContainerWrites)."},
+				Reason: "measured 2026-10-03 on claude 2.1.286 (haiku): 1 scenario / 4 steps green in 22s. In a rootless container the host-side session engine home held claude/projects/<slug>/<uuid>.jsonl after one turn; the slug was the project's HOST absolute path, because the container mounts the project at the same path. Re-measured 2026-10-03 on the native-history layout: 1 scenario / 4 steps green in 45s, the conversation .jsonl landed in the host's native/claude/projects/<slug>/ through the home's relative link and the native/ mount. Judge MUTATION-CONFIRMED hermetically (TestP14_ContainerWrites)."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: p14SymlinkedProjects, Status: probeLiveVerified,
 				Reason: "measured 2026-10-03 on claude 2.1.286 (haiku): 1 scenario / 4 steps green in 16s. With <cfg>/projects the relative link ../../native/claude/projects, claude wrote its conversation .jsonl into the link's target and left the link in place with its target text unchanged. Judge MUTATION-CONFIRMED hermetically (TestP14_SymlinkReplacedIsRed, TestP14_SymlinkRetargetedIsRed)."},
 		},

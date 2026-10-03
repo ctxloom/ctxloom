@@ -82,7 +82,9 @@ raised it and covers only its own children.
   the limit again.
 - **A held child is not relaunched.** If a held child's process dies while it waits, it is not
   restarted into the spent limit, not by its waiting mail and not by a new message: both wait,
-  and the child is relaunched with them when the hold lifts.
+  and the child is relaunched with them when the hold lifts. Stopping the child (`agent_stop`)
+  takes it out of the hold, so a later message relaunches it; while its credential is still
+  held, the new run joins the hold as it comes up, as does any new child on that credential.
 
 To exercise this without spending a real limit, send a turn to an agent on the `mock` engine
 whose prompt contains `mock:rate-limited` (or `mock:rate-limited=<unix seconds>` to name the
@@ -103,6 +105,15 @@ backs off, after the engine's own retries gave up.
 - As with a rate limit, only the human can release it early.
 
 On the `mock` engine, a prompt containing `mock:overloaded` ends its turn overloaded.
+
+## Pausing a child
+
+`agent_pause` (or a pause from the overlay) stops a child taking new turns until it is resumed;
+the reason given is recorded with the pause. `roster` shows a paused child with a `hold` whose
+`kind` is `human` or `agent` (who paused it, with no `until_unix`), and the overlay and bar say
+"paused by the human" or "paused by its parent". A pause the human made is the human's to
+end: a coordinating agent's `agent_resume` of it is refused. A pause an agent made can be
+ended by that agent or by the human. Stopping a paused child ends its pause with it.
 
 ## Holds and pauses survive a restart
 

@@ -79,7 +79,9 @@ hold with no deadline (a pause), and — once each re-adopted run's runner re-He
 (`readoptHold`) — re-sends a held run's pause or a released run's owed resume. Both are
 idempotent at the runner, whose pause gate is process memory that outlives a redial. A
 member whose run ends stays in the hold by **harp**: no relaunch path resumes a held
-harp, and the release relaunches it if mail waits. Lock order: `holdMu` (which
+harp, and the release relaunches it if mail waits — unless an `agent_stop` takes the harp
+out first (`dropStoppedHarp`). A run that comes up on a credential with a hold in force is
+parked on it at StartRun (`joinCredentialHold`). Lock order: `holdMu` (which
 serializes hold transitions and their timers) before `mu`; neither is ever taken inside
 an `Exec` decide.
 

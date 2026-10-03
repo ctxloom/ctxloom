@@ -771,14 +771,14 @@ func TestHookProbeContainerScan_ReportsTheFilesTheContainerActuallyHolds(t *test
 		gotContainer = container
 		gotNeedle = env["CTXLOOM_PROBE_NEEDLE"]
 		gotDirs = env["CTXLOOM_PROBE_DIRS"]
-		return []byte("/home/agent/.ctxloom/sessions/h/ephemeral/.claude/settings.json\n"), nil
+		return []byte("/home/agent/.ctxloom/sessions/h/scratch/.claude/settings.json\n"), nil
 	}
 
 	got := hookProbeContainerScan(run, "ctxloom-iso-abc", "p3/stamp.sh", []string{"/proj"}, nil)
 	if got == "" {
 		t.Fatal("a file carrying the needle inside the container must be reported as carriage")
 	}
-	if !strings.Contains(got, "ephemeral/.claude/settings.json") {
+	if !strings.Contains(got, "scratch/.claude/settings.json") {
 		t.Fatalf("the hit must name the file: %q", got)
 	}
 	if !strings.Contains(got, "ctxloom-iso-abc") {
@@ -873,7 +873,7 @@ func TestHookProbeContainerScan_ExcludesTheFixturesOwnDeclarationAndGit(t *testi
 
 	// A real delivery alongside it still counts.
 	run2 := func(string, map[string]string, ...string) ([]byte, error) {
-		return []byte(authored + "/hooks/session_start/hook-1.yaml\n/home/agent/.ctxloom/sessions/h/ephemeral/.claude/settings.json\n"), nil
+		return []byte(authored + "/hooks/session_start/hook-1.yaml\n/home/agent/.ctxloom/sessions/h/scratch/.claude/settings.json\n"), nil
 	}
 	got := hookProbeContainerScan(run2, "c", "needle", []string{"/proj"}, []string{authored})
 	if !strings.Contains(got, "settings.json") {

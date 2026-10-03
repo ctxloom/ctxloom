@@ -638,7 +638,7 @@ func (m scenarioSpoolMapper) Resolve(ref spool.Ref) (string, error) {
 	if err := ref.Validate(); err != nil {
 		return "", err
 	}
-	return filepath.Join(m.home, filepath.FromSlash(harpSessionsRel), ref.Harp, "persist", "spool", filepath.FromSlash(string(ref.Dir)), ref.Name), nil
+	return filepath.Join(m.home, filepath.FromSlash(harpSessionsRel), ref.Harp, "spool", filepath.FromSlash(string(ref.Dir)), ref.Name), nil
 }
 
 func (scenarioSpoolMapper) RefOf(path string) (spool.Ref, error) {

@@ -16,7 +16,7 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
   # WHAT THE HERMETIC TIER READS, and who writes it. Both observables below
   # are produced by the child's OWN runner process, never by the coordinator:
   # each child's canonical transcript
-  # (~/.ctxloom/sessions/<harp>/persist/transcript.jsonl —
+  # (~/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl —
   # internal/adapters/transcript/record.go's documented, first-party schema, not a
   # scrape) proves distinct context and the coordinator->child half of the
   # bus (a REAL agent_send call, content verified in the child's own recorded

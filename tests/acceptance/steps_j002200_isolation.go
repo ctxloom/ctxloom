@@ -539,7 +539,7 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 	// A checkout the session does not own is scratch nothing accounts for:
 	// session cleanup cannot sweep it, and a resume cannot find it again
 	// (Worktree.checkoutPath is deterministic only under the session's
-	// ephemeral dir). So the checkout must be homed there, under Alice's
+	// work dir). So the checkout must be homed there, under Alice's
 	// ctxloom home — never the OS temp dir.
 	ctx.Step(`^the containerized worktree's checkout lives in the session's own scratch$`, func(c context.Context) error {
 		w := worldFrom(c)

@@ -281,7 +281,7 @@ func registerJ002000Steps(ctx *godog.ScenarioContext) {
 		// Reuses J001200's seeding shape deliberately: the point is a session
 		// recorded by a DIFFERENT engine than the one now bound, which is
 		// exactly the state a migration leaves behind.
-		transcriptPath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200Harp)+"/persist/transcript.jsonl"))
+		transcriptPath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200Harp)+"/transcripts/transcript.jsonl"))
 		if err := j001200AddIndexEntry(w, j001200Harp, "pre-switch session", transcriptPath); err != nil {
 			return err
 		}

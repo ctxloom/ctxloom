@@ -263,7 +263,7 @@ Feature: The archaeologist — what did we decide in March?
   #      raw conversation" — confirmed by mcp_tools.feature's own
   #      "Load a prior session's essence over MCP" scenario, which names it
   #      "essence" in its title and asserts essence content. cli.loadHarpEssence
-  #      reads ~/.ctxloom/sessions/<harp>/essence.md directly; it never touches
+  #      reads essence.md in the session's output dir directly; it never touches
   #      the raw transcript. So per this scenario's own standing guidance, the
   #      marker changed (J001200-TRANSCRIPT-ONLY-MARKER -> the essence marker)
   #      rather than the scenario being deleted: the point was always that

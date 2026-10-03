@@ -401,7 +401,7 @@ func hookProbeCarriageOrUnknown(h *hookProbeState) string {
 
 // hookProbeContainerOverlayScratchPrefix is the name isolation gives every
 // per-run container scratch root: isolation.prepareContainerScratch calls
-// os.MkdirTemp with this prefix under the session's ephemeral dir, and
+// os.MkdirTemp with this prefix under the session's scratch/ dir, and
 // isolation.containerConfigOverlay puts the engine's managed-config overlay
 // inside it as cfg0, cfg1, …
 //

@@ -127,7 +127,7 @@ func j001200WriteCanonicalTranscript(w *World, harp string, turns []string) erro
 		b.Write(line)
 		b.WriteByte('\n')
 	}
-	return w.env.WriteHomeFile(j001200HarpHome(harp)+"/persist/transcript.jsonl", b.String())
+	return w.env.WriteHomeFile(j001200HarpHome(harp)+"/transcripts/transcript.jsonl", b.String())
 }
 
 // j001200VendorTranscriptPath is where a seeded mock session's VENDOR-native
@@ -197,7 +197,7 @@ func j001200Setup(w *World) error {
 		return err
 	}
 
-	transcriptPath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200Harp)+"/persist/transcript.jsonl"))
+	transcriptPath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200Harp)+"/transcripts/transcript.jsonl"))
 	if err := j001200AddIndexEntry(w, j001200Harp, "March design session, "+j001200SummaryMarker, transcriptPath); err != nil {
 		return err
 	}
@@ -215,7 +215,7 @@ func j001200Setup(w *World) error {
 
 	// The undistilled neighbour: captured, never summarized. This is the
 	// DEFAULT state of a session, not an edge case.
-	barePath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200BareHarp)+"/persist/transcript.jsonl"))
+	barePath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200BareHarp)+"/transcripts/transcript.jsonl"))
 	if err := j001200AddIndexEntry(w, j001200BareHarp, "unrelated afternoon session", barePath); err != nil {
 		return err
 	}
@@ -368,7 +368,7 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the canonical transcript she recalled from is still on disk, untouched$`, func(c context.Context) error {
 		w := worldFrom(c)
-		rel := j001200HarpHome(j001200Harp) + "/persist/transcript.jsonl"
+		rel := j001200HarpHome(j001200Harp) + "/transcripts/transcript.jsonl"
 		body, err := w.env.ReadHomeFile(rel)
 		if err != nil {
 			return fmt.Errorf("the canonical transcript at %s is gone after a recall: %w. Recall is a READ — "+

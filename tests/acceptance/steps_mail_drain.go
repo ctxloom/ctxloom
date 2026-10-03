@@ -35,7 +35,7 @@ func ownerSpoolDir(w *World, dir spool.Dir) (string, error) {
 	if owner == "" {
 		return "", fmt.Errorf("the scenario never pinned the coordinator's own harp (\"the session harp is\"), so there is no owner spool to read")
 	}
-	return filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel), owner, "persist", "spool", filepath.FromSlash(string(dir))), nil
+	return filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel), owner, "spool", filepath.FromSlash(string(dir))), nil
 }
 
 // ownerSpoolMessages parses every plain file in one of the owner's spool
@@ -51,7 +51,7 @@ func ownerSpoolMessages(w *World, dir spool.Dir) ([]*spool.Message, error) {
 
 // childSpoolMessages is ownerSpoolMessages for a child harp's spool.
 func childSpoolMessages(w *World, harp string, dir spool.Dir) ([]*spool.Message, error) {
-	path := filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel), harp, "persist", "spool", filepath.FromSlash(string(dir)))
+	path := filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel), harp, "spool", filepath.FromSlash(string(dir)))
 	return spoolMessagesAt(path, harp+":"+string(dir))
 }
 
@@ -201,7 +201,7 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 			if !ok {
 				return fmt.Errorf("no session harp remembered for %q", name)
 			}
-			claimed := filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel), harp, "persist", "spool", filepath.FromSlash(string(spool.ClaimedDirName)))
+			claimed := filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel), harp, "spool", filepath.FromSlash(string(spool.ClaimedDirName)))
 			if _, err := os.Stat(claimed); err == nil {
 				return fmt.Errorf("%s's in/claimed/ exists: a turn-start hook claimed from the child's spool, so the mail its runner handed it as a turn was delivered twice", name)
 			} else if !os.IsNotExist(err) {

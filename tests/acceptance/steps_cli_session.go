@@ -137,7 +137,7 @@ func seedFinishedSessionFiles(c context.Context, harp string, distilled bool) er
 	w := worldFrom(c)
 	sessionsRel := filepath.Join(".ctxloom", "sessions")
 	harpRel := filepath.Join(sessionsRel, harp)
-	transcriptRel := filepath.Join(harpRel, "persist", "transcript.jsonl")
+	transcriptRel := filepath.Join(harpRel, "transcripts", "transcript.jsonl")
 
 	if err := seedSessionSidecar(w, harp, sessionSeed{
 		SessionID:      "seeded-" + harp,

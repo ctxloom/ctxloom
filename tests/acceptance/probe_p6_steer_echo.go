@@ -30,7 +30,7 @@
 //
 // THE SPOOL EVIDENCE. The coordinator's steer is not a queue fact — THE FILE
 // IS THE MESSAGE (coord/spooldelivery.go), written into the child's
-// own ~/.ctxloom/sessions/<harp>/persist/spool/in, and deleted — its
+// own ~/.ctxloom/sessions/<harp>/spool/in, and deleted — its
 // identity recorded in in/delivered/ — when the child's runner accepts it.
 // p6AssertSpoolEvidence asserts that substrate on disk: a file carrying the
 // minted harp, or a recorded delivery answered by a reply that carries it. It
@@ -281,12 +281,12 @@ var p6SpoolDirs = []string{"in", "in/withdrawn", "out", "out/consumed"}
 const p6DeliveredRecord = "in/delivered"
 
 // p6SpoolRoot is one session's spool root under an isolated home:
-// <home>/.ctxloom/sessions/<harp>/persist/spool. Built by joining rather than
+// <home>/.ctxloom/sessions/<harp>/spool. Built by joining rather than
 // through internal/core/paths' resolver for the reason j002300TranscriptPath already
 // documents — the resolver reads the OUTER test process's ambient HOME, not the
 // isolated one the spawned coordinator actually wrote under.
 func p6SpoolRoot(homeDir, harp string) string {
-	return filepath.Join(homeDir, ".ctxloom", "sessions", harp, "persist", "spool")
+	return filepath.Join(homeDir, ".ctxloom", "sessions", harp, "spool")
 }
 
 // p6ReadSpoolCensus walks root and reports what is there. Sub-directories are

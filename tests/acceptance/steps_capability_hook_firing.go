@@ -240,7 +240,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 
 		// The IN-CONTAINER half. A container cell's settings file lives on the
 		// container's own filesystem and is never bound back to the host (only
-		// the persist dir is), so the host watcher above is structurally blind
+		// the session dir's mounted members are), so the host watcher above is structurally blind
 		// to it and reports NOT SEEN whatever ctxloom did. This is the only
 		// vantage point that can tell a missing WRITE from a missing RUN on
 		// this axis — which is the entire question P3's container cells exist

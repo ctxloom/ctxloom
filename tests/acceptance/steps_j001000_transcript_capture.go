@@ -181,7 +181,7 @@ func j001000RecallArgs(w *World, harp string) (map[string]any, error) {
 // os.UserHomeDir, not this scenario's isolated one (w.env.HomeDir): the
 // ctxloom subprocess and this test process do not share a HOME.
 func j001000CanonicalTranscriptRelPath(w *World, harp string) (string, error) {
-	current := ".ctxloom/sessions/" + harp + "/persist/transcript.jsonl"
+	current := ".ctxloom/sessions/" + harp + "/transcripts/transcript.jsonl"
 	if w.env.HomeFileExists(current) {
 		return current, nil
 	}
@@ -567,7 +567,7 @@ func registerJ001000Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^no canonical transcript is written for "([^"]*)"$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
-		current := ".ctxloom/sessions/" + harp + "/persist/transcript.jsonl"
+		current := ".ctxloom/sessions/" + harp + "/transcripts/transcript.jsonl"
 		if w.env.HomeFileExists(current) {
 			return fmt.Errorf("canonical transcript unexpectedly written for %q at %s", harp, current)
 		}
@@ -639,7 +639,7 @@ func j001000SeedCanonicalTranscript(w *World, harp string) string {
 		panic(fmt.Sprintf("j001000SeedCanonicalTranscript: marshal record: %v", err))
 	}
 	line := string(data) + "\n"
-	rel := ".ctxloom/sessions/" + harp + "/persist/transcript.jsonl"
+	rel := ".ctxloom/sessions/" + harp + "/transcripts/transcript.jsonl"
 	if err := w.env.WriteHomeFile(rel, line); err != nil {
 		panic(fmt.Sprintf("j001000SeedCanonicalTranscript: write %s: %v", rel, err))
 	}

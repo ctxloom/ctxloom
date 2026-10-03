@@ -296,7 +296,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   #   host + worktree   — the workspace is a detached checkout OUTSIDE the
   #                       project tree, the shape isolation.Worktree resolves
   #                       (worktree.go's worktreeScratchPath puts it under the
-  #                       session's ephemeral/ dir); surfaces must follow it
+  #                       session's work/ dir); surfaces must follow it
   #                       there, and a writer that resolved paths against the
   #                       PROJECT instead of the target lands nothing here
   #   container + none  — see the hazard below; this is the cell that fails

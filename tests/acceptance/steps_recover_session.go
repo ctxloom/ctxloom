@@ -43,7 +43,7 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 	// A SYNTHETIC canonical transcript — no real session content — sized and
 	// shaped (session/entry/complete kind mix, alternating user/assistant/
 	// tool_use/tool_result entries) to resemble a genuine captured session
-	// without reproducing one. Written straight to the harp's own persist dir
+	// without reproducing one. Written straight to the harp's own transcripts dir
 	// — no session-index entry. The scenario calls recover_session with
 	// session_id SET TO THE HARP ITSELF: CanonicalFallbackSource.GetSession
 	// tries id-as-harp FIRST, so this resolves directly and, on
@@ -66,7 +66,7 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 		// memory.MaxEssenceChars, so a distiller that does not compress
 		// produces an essence over the bound and must be refused.
 		content := syntheticCanonicalTranscript(harp, 300_000)
-		return w.env.WriteHomeFile(".ctxloom/sessions/"+harp+"/persist/transcript.jsonl", content)
+		return w.env.WriteHomeFile(".ctxloom/sessions/"+harp+"/transcripts/transcript.jsonl", content)
 	})
 
 	// Makes the mock backend the compaction LLM (llm.defaults.primary: mock in
@@ -130,24 +130,24 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 	// /cleared, set up so recover_session's NO-session_id branch has a lineage
 	// to resolve against. handleRecoverSession reads its own identity from
 	// CTXLOOM_SESSION_HARP (via selfIdentityFromEnv), then resolves the target
-	// from that harp's lineage — the per-binding engine-transcript links under
-	// its session dir (operations.HarpTranscripts) — skipping whichever id the
+	// from that harp's lineage — the per-binding native transcripts under
+	// its session dir's native/ (operations.HarpTranscripts) — skipping whichever id the
 	// index currently binds. So the shape this must build, matching what a real
 	// /clear leaves on disk, is:
 	//
 	//   - an index entry for the harp whose CURRENT session_id is the post-clear
 	//     one (the id the resolver must SKIP), with the pre-clear session in
 	//     Rotations (so the pre-clear id reverse-resolves back to this harp);
-	//   - a mock vendor transcript per binding, each carrying a distinct marker;
-	//   - one engine-transcript link per binding, named for its session id, so
-	//     the lineage scan discovers both — the pre-clear one is the target.
+	//   - a mock vendor transcript per binding under native/, each carrying a
+	//     distinct marker and named for its session id, so the lineage scan
+	//     discovers both — the pre-clear one is the target.
 	//
 	// The canonical transcript is NOT hand-written: recover's live refresh
 	// (RefreshVendorTranscript) rebuilds it from the rotation + live vendor
 	// files, which is the production path and the one that would silently serve
-	// nothing if the rebuild leg were broken. The link target's BASE NAME is
+	// nothing if the rebuild leg were broken. A native file's BASE NAME is
 	// what HarpTranscripts reads as the session id, so each vendor file is named
-	// <session-id>.jsonl and the link points straight at it.
+	// <session-id>.jsonl.
 	ctx.Step(`^a cleared session "([^"]*)" whose prior thread is in its lineage$`, func(c context.Context, harp string) error {
 		return seedClearedHarpLineage(worldFrom(c), harp, seedSessionSidecar)
 	})

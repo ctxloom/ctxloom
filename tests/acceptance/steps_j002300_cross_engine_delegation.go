@@ -202,7 +202,7 @@ func j002300WriteAgent(w *World, s *j002300AgentSpec) error {
 
 // --- Canonical transcript reading (hermetic observable) ---------------------
 //
-// ~/.ctxloom/sessions/<harp>/persist/transcript.jsonl is ctxloom's OWN
+// ~/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl is ctxloom's OWN
 // captured conversation record (internal/adapters/transcript/record.go's documented
 // schema) — a first-party, durable, disk-backed artifact every structured
 // engine (mock included) writes through, not a private format being
@@ -232,7 +232,7 @@ type j002300TranscriptLine struct {
 // actually wrote under (the identical reasoning steps_j002100_delegation.go's
 // j002100JournalRaw already documents for runs.jsonl).
 func j002300TranscriptPath(w *World, harp string) string {
-	return filepath.Join(w.env.HomeDir, ".ctxloom", "sessions", harp, "persist", "transcript.jsonl")
+	return filepath.Join(w.env.HomeDir, ".ctxloom", "sessions", harp, "transcripts", "transcript.jsonl")
 }
 
 // j002300ReadTranscriptEntries parses every KindEntry line's payload from harp's

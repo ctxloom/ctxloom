@@ -13,7 +13,7 @@
 //
 // Writing in-process reaches the same file the child reads because
 // TestEnvironment.Setup rebinds HOME for the test process too, so
-// paths.HarpPersistDir resolves under the isolated home the MCP child inherits.
+// paths.HarpContextMetricsPath resolves under the isolated home the MCP child inherits.
 package acceptance
 
 import (

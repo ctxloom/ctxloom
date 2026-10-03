@@ -49,6 +49,12 @@ func ownerSpoolMessages(w *World, dir spool.Dir) ([]*spool.Message, error) {
 	return spoolMessagesAt(path, string(dir))
 }
 
+// childSpoolMessages is ownerSpoolMessages for a child harp's spool.
+func childSpoolMessages(w *World, harp string, dir spool.Dir) ([]*spool.Message, error) {
+	path := filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel), harp, "persist", "spool", filepath.FromSlash(string(dir)))
+	return spoolMessagesAt(path, harp+":"+string(dir))
+}
+
 // spoolMessagesAt parses every plain file in one spool directory; label names
 // it in an error.
 func spoolMessagesAt(path, label string) ([]*spool.Message, error) {
@@ -158,30 +164,31 @@ func ownerDelivered(w *World, ids []string) (bool, error) {
 	return false, nil
 }
 
-// deliveredReportFrom is harp's turn report as the child itself wrote it,
-// once the owner's reader has delivered that report — "" until then.
-//
-// Delivery is the record (ownerDeliveredFrom). The report's WORDS are not on
-// disk after it: the routed out/ file is deleted with its identity recorded
-// (spool.Consume), and so is the owner's delivered copy (spool.Deliver). The
-// turn report is the child's own turn output, so its words are read from the
-// child's own canonical transcript, which only the child's runner writes.
-func deliveredReportFrom(w *World, harp string) (string, error) {
+// deliveredReportFrom is harp's turn result, read from the child's routed copy
+// in its out/consumed/, once the owner's reader has delivered it — nil until
+// then.
+func deliveredReportFrom(w *World, harp string) (*spool.Message, error) {
 	delivered, err := ownerDeliveredFrom(w, harp, "result")
 	if err != nil || !delivered {
-		return "", err
+		return nil, err
 	}
-	entries, _, _, err := j002300ReadTranscriptEntries(w, harp)
+	routed, err := childSpoolMessages(w, harp, spool.DirOutConsumed)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	var said []string
-	for _, e := range entries {
-		if e.Type == "assistant" {
-			said = append(said, e.Content)
+	return reportFrom(routed, harp), nil
+}
+
+// reportFrom returns the child's turn RESULT among msgs, by the child's harp.
+// The kind filter is the correctness condition, as in j002300FindMessageFrom:
+// one child can have several messages in one directory.
+func reportFrom(msgs []*spool.Message, harp string) *spool.Message {
+	for _, m := range msgs {
+		if m.FromHarp == harp && m.Kind == "result" {
+			return m
 		}
 	}
-	return strings.Join(said, "\n"), nil
+	return nil
 }
 
 func registerMailDrainSteps(ctx *godog.ScenarioContext) {
@@ -227,8 +234,9 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 	// The woken turn's hook delivered the report: the owner's delivered record
 	// holds the id the coordinator routed it under (ownerDeliveredFrom). The
 	// file itself is deleted once delivered, so THIS child's own words are
-	// read from its own transcript (deliveredReportFrom), and the guidance
-	// pins the report as THIS child's own.
+	// read from the child's routed copy in its out/consumed/. The kind filter
+	// (reportFrom) is the correctness condition, and the guidance pins the
+	// report as THIS child's own.
 	ctx.Step(`^the coordinator's own spool shows "([^"]*)"'s report delivered within (\d+)s, carrying its own guidance, not "([^"]*)"'s$`,
 		func(c context.Context, self string, secs int, other string) error {
 			w := worldFrom(c)
@@ -251,12 +259,12 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 				if err != nil {
 					return err
 				}
-				if r != "" {
-					if !strings.Contains(r, selfSpec.Guidance) {
-						return fmt.Errorf("%s's delivered report does not carry its OWN guidance %q:\n%s", self, selfSpec.Guidance, r)
+				if r != nil {
+					if !strings.Contains(r.Body, selfSpec.Guidance) {
+						return fmt.Errorf("%s's delivered report does not carry its OWN guidance %q:\n%s", self, selfSpec.Guidance, r.Body)
 					}
-					if strings.Contains(r, otherSpec.Guidance) {
-						return fmt.Errorf("CONTEXT LEAK: %s's report carries %s's guidance %q:\n%s", self, other, otherSpec.Guidance, r)
+					if strings.Contains(r.Body, otherSpec.Guidance) {
+						return fmt.Errorf("CONTEXT LEAK: %s's report carries %s's guidance %q:\n%s", self, other, otherSpec.Guidance, r.Body)
 					}
 					return nil
 				}

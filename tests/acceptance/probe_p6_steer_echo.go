@@ -264,9 +264,6 @@ type p6SpoolCensus struct {
 	// Delivered lists the identities in the child's delivered record: inbox
 	// messages its runner accepted, whose files are therefore gone.
 	Delivered []string
-	// Routed lists the identities in the child's routed record: out/ messages
-	// the coordinator routed, whose files are therefore gone.
-	Routed []string
 	// Total is every message file across every plane.
 	Total int
 }
@@ -276,16 +273,12 @@ type p6SpoolCensus struct {
 // imported so this file keeps probe_assert.go's dependency posture — standard
 // library only — and so the acceptance suite states, in its own words, exactly
 // which directories it considers evidence.
-var p6SpoolDirs = []string{"in", "in/withdrawn", "out"}
+var p6SpoolDirs = []string{"in", "in/withdrawn", "out", "out/consumed"}
 
 // p6DeliveredRecord is the child's delivered-identity record (spool.Deliver):
 // one empty file per identity its runner delivered and deleted. Not a message
 // directory, so it is censused separately.
 const p6DeliveredRecord = "in/delivered"
-
-// p6RoutedRecord is the child's routed-identity record (spool.Consume): one
-// empty file per out/ message the coordinator routed and deleted.
-const p6RoutedRecord = "out/routed"
 
 // p6SpoolRoot is one session's spool root under an isolated home:
 // <home>/.ctxloom/sessions/<harp>/persist/spool. Built by joining rather than
@@ -349,20 +342,17 @@ func p6Census(root, harp string) (p6SpoolCensus, error) {
 	if err != nil {
 		return c, err
 	}
-	if c.Delivered, err = p6ReadRecord(root, p6DeliveredRecord); err != nil {
-		return c, err
-	}
-	c.Routed, err = p6ReadRecord(root, p6RoutedRecord)
+	c.Delivered, err = p6ReadDeliveredRecord(root)
 	return c, err
 }
 
-// p6ReadRecord lists the identities in the record directory rel under root,
-// sorted. A record never created is empty; a staging file (dot-prefixed,
+// p6ReadDeliveredRecord lists the identities in the delivered record under
+// root, sorted. A record never created is empty; a staging file (dot-prefixed,
 // safefs.WriteFile's) is not an identity.
-func p6ReadRecord(root, rel string) ([]string, error) {
-	record, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(rel)))
+func p6ReadDeliveredRecord(root string) ([]string, error) {
+	record, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(p6DeliveredRecord)))
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("p6: reading the record %s/%s: %w", root, rel, err)
+		return nil, fmt.Errorf("p6: reading the delivered record %s/%s: %w", root, p6DeliveredRecord, err)
 	}
 	var ids []string
 	for _, e := range record {
@@ -385,7 +375,6 @@ func (c p6SpoolCensus) String() string {
 		}
 	}
 	fmt.Fprintf(&b, "\n  %-14s %d: %s", p6DeliveredRecord, len(c.Delivered), strings.Join(c.Delivered, ", "))
-	fmt.Fprintf(&b, "\n  %-14s %d: %s", p6RoutedRecord, len(c.Routed), strings.Join(c.Routed, ", "))
 	fmt.Fprintf(&b, "\n  steer harp in the IN plane:  %v", c.HarpIn)
 	fmt.Fprintf(&b, "\n  steer harp in the OUT plane: %v", c.HarpOut)
 	return b.String()
@@ -398,15 +387,10 @@ func (c p6SpoolCensus) String() string {
 // steer is a FILE in the child's own spool IN
 // plane. The child runner's acknowledgement DELETES that file and records its
 // identity in in/delivered/, so the in plane is shown either by an in/ file
-// carrying the minted harp, or by a recorded delivery whose answer carries it.
-// Asserting on in/ alone would red a cell for the child having done its job
-// promptly; a recorded delivery alone would green a cell on mail that was not
-// the steer.
-//
-// The answer carries the harp either as a reply still waiting in the child's
-// out/, or — once the coordinator routed it, deleting it with its identity in
-// out/routed/ — as answered: the caller saw the harp's bytes arrive from this
-// child on the coordinator's side.
+// carrying the minted harp, or by a recorded delivery whose answer — the
+// child's out plane — carries it. Asserting on in/ alone would red a cell for
+// the child having done its job promptly; a recorded delivery alone would
+// green a cell on mail that was not the steer.
 //
 // WHAT IT DELIBERATELY DOES NOT CLAIM: anything about the OUT plane. The child's
 // reply reaches the coordinator through its own out/ spool, but that direction
@@ -422,7 +406,7 @@ func (c p6SpoolCensus) String() string {
 //     delivery answered with it → BUS-DELIVERY failure: the spool ran, and
 //     the steer is not in it.
 //   - otherwise green, with the census as evidence.
-func p6AssertSpoolEvidence(v probeVerdict, census p6SpoolCensus, harp string, answered bool) error {
+func p6AssertSpoolEvidence(v probeVerdict, census p6SpoolCensus, harp string) error {
 	if strings.TrimSpace(harp) == "" {
 		return v.fail(shapeDelivery,
 			"the cell has no minted steer harp to look for in the spool — every file contains the empty string, so this check would pass over an empty directory",
@@ -433,7 +417,7 @@ func p6AssertSpoolEvidence(v probeVerdict, census p6SpoolCensus, harp string, an
 			"the round trip completed, but the child's spool holds ZERO message files. The mail plane wrote nothing while every outcome looked healthy — the exit-0-with-zero-bytes failure that only a payload assertion can see.",
 			"\n"+census.String())
 	}
-	if len(census.HarpIn) == 0 && (len(census.Delivered) == 0 || (len(census.HarpOut) == 0 && !answered)) {
+	if len(census.HarpIn) == 0 && (len(census.Delivered) == 0 || len(census.HarpOut) == 0) {
 		return v.fail(v.Channel.Shape,
 			fmt.Sprintf("%s — the spool ran (%d message file(s) on disk) but NO file in the child's IN plane carries the steer harp %q, and no recorded delivery is answered by a reply carrying it. The file IS the delivery, so a steer that is neither on disk nor recorded was not delivered by the substrate this cell claims to be exercising.",
 				v.Channel.Shape, census.Total, harp),

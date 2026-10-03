@@ -83,9 +83,9 @@ func TestSpoolTurnResult_CorrelatesToTheMessageThatStartedTheTurn(t *testing.T) 
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 	// Drain the briefing turn's own report so the assertion below is about the
 	// turn this test starts.
-	briefing := bridgedResultFor(t, c, conformanceWait)
+	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
 
-	msgID, _, err := c.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindMessage, "check the lockfile", nil, "")
+	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "check the lockfile", nil, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
 
@@ -98,7 +98,15 @@ func TestSpoolTurnResult_CorrelatesToTheMessageThatStartedTheTurn(t *testing.T) 
 
 	// A turn nothing delivered started — the briefing — carries no
 	// correlation, rather than a fabricated one.
-	assert.Empty(t, briefing.InReplyTo, "the briefing turn's report must have an EMPTY in_reply_to, not an invented one")
+	entries := spoolEntries(t, out.Harp, spool.DirOutConsumed)
+	require.NotEmpty(t, entries)
+	var sawUncorrelated bool
+	for _, e := range entries {
+		if e.Message.InReplyTo == "" {
+			sawUncorrelated = true
+		}
+	}
+	assert.True(t, sawUncorrelated, "the briefing turn's report must have an EMPTY in_reply_to, not an invented one")
 }
 
 // TestSpoolTurnResult_ExactlyOnceFileXorBridge is the double-delivery pin, in

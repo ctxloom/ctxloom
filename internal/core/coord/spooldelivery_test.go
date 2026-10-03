@@ -207,7 +207,7 @@ func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsDelivered(t *testing.T) {
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
 	structured := json.RawMessage(`{"ticket":"T-9","severity":"high"}`)
-	msgID, _, err := c.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindQuestion, "second task", structured, "corr-1")
+	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindQuestion, "second task", structured, "corr-1")
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
 
@@ -294,10 +294,14 @@ func TestSpoolDelivery_ChildSendRidesOutAndReachesTheParent(t *testing.T) {
 	assert.Equal(t, KindResult, routed[0].Detail["kind"])
 	assert.Equal(t, "corr-2", routed[0].Detail["in_reply_to"], "the audit records which message this one answers, so a reply's correlation outlives the deleted inbox file")
 
-	// Routed: deleted from out/ and recorded under the identity agent_send
-	// named, which is also the id the parent's copy carries.
-	awaitRouted(t, out.Harp, msgID, "after routing")
-	assert.Equal(t, msgID, got[0].ID, "the parent's copy carries the identity agent_send named")
+	// Consumed by rename, not deleted. The message is SELECTED rather than
+	// counted: this run's turn boundary also writes its automatic report into
+	// out/ (spoolturnresult.go), so the directory legitimately holds more than
+	// this one send.
+	awaitSpoolCount(t, out.Harp, spool.DirOut, 0, "after routing")
+	consumed := awaitSpoolEntryWithBody(t, out.Harp, spool.DirOutConsumed, "a finding", "after routing")
+	assert.Equal(t, msgID, strings.TrimSuffix(consumed.Ref.Name, spool.MessageFileExt),
+		"the consumed file is the one agent_send named")
 }
 
 // TestSpoolDelivery_SweepDeliversWhatNoDoorbellEverAnnounced pins the floor:
@@ -507,7 +511,8 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 	require.NotEmpty(t, got, "a coordinator coming up cold must drain what it finds in a child's out/ spool")
 	assert.Equal(t, out.Harp, got[0].From)
 	require.Eventually(t, func() bool { return len(spoolEntries(t, out.Harp, spool.DirOut)) == 0 }, conformanceWait, 10*time.Millisecond)
-	awaitRouted(t, out.Harp, got[0].ID, "the routed file is recorded and deleted")
+	awaitSpoolEntryWithBody(t, out.Harp, spool.DirOutConsumed, "written while the coordinator was down",
+		"the routed file must be consumed by rename")
 }
 
 // TestSpoolDelivery_ConsumedMailIsNeverDeliveredTwice pins the arbitration.
@@ -528,7 +533,7 @@ func TestSpoolDelivery_DeliveredMailIsNeverDeliveredTwice(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChild(t, c, sp, "first task")
 
-	msgID, _, err := c.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindMessage, "exactly once please", nil, "")
+	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "exactly once please", nil, "")
 	require.NoError(t, err)
 	awaitChatText(t, sp, 0, "exactly once please")
 	awaitDelivered(t, out.Harp, msgID, "after the first delivery")

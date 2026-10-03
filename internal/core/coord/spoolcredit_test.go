@@ -58,7 +58,7 @@ func TestSpoolCredit_ACoordinatorRestartCreditsNothingNew(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, runnerHooks.Serve(first))
 	out, _ := awaitCutoverChild(t, first, sp, "first task")
-	msgID, _, err := first.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindMessage, "before the restart", nil, "")
+	msgID, _, err := first.peerSend(ownerIdentity(), out.Harp, KindMessage, "before the restart", nil, "")
 	require.NoError(t, err)
 	awaitDelivered(t, out.Harp, msgID, "before the restart")
 	require.Eventually(t, func() bool { return first.SpoolDeliveryStats().Consumed >= 1 }, conformanceWait, 10*time.Millisecond,

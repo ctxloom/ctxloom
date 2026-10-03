@@ -4,7 +4,7 @@ package coord
 // projection of a mailbox Message onto the spool.Message the file carries.
 // Sender identity is the DIRECTORY — the coordinator writes in/ and only in/;
 // a runner writes its own harp's out/ and only that — which is what makes
-// ordering trivial: single writer per direction.
+// ordering and the consume-rename trivial: single writer per direction.
 
 import (
 	"errors"
@@ -23,8 +23,8 @@ const spoolWriterIDCoordinator = "coord"
 // SpoolWriterCache lends one spool.Writer per harp for ONE direction.
 //
 // Writers are cached rather than made per message because spool.NewWriter
-// re-seeds its sequence by reading the whole direction plus its withdrawn
-// sibling: correct per call, but O(mailbox) per message, and two
+// re-seeds its sequence by reading the whole direction plus its consumed and
+// withdrawn siblings: correct per call, but O(mailbox) per message, and two
 // writers for one directory would also each hold their own sequence counter
 // and could mint the same filename inside one nanosecond. One writer per
 // (harp, direction) is what makes spool.Writer's own mutex sufficient.

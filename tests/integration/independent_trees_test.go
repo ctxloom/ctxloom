@@ -50,8 +50,8 @@ func journalsBeside(t *testing.T, lock string) []string {
 // independent-trees property across two REAL `ctxloom` processes: while a
 // `ctxloom run` owns its root in a project, a second `ctxloom run` against the
 // same project is NOT refused — it founds a root of its own, runs to
-// completion, and removes its settled root on exit — and the first's lock,
-// stamp and journals are untouched throughout.
+// completion, and leaves that root behind unowned for a later resume — and
+// the first's lock, stamp and journals are untouched throughout.
 //
 // This is the two-process property no in-process gate can see: two
 // processes, two owner locks, one project.
@@ -99,9 +99,20 @@ func TestSecondRun_FoundsItsOwnTree_AndTheFirstKeepsItsState(t *testing.T) {
 	require.NotContains(t, string(out), coord.ErrStateOwned.Error(), "a fresh run is never refused; output:\n%s", out)
 	require.NotContains(t, string(out), "coordinator startup failed", "the second run must have hosted its own coordinator; output:\n%s", out)
 
-	// The second tree left the first alone: the same single root (the
-	// second's settled root went with its exit), same owner, same journals.
-	require.Equal(t, locks, ownerLocks(t, env.HomeDir), "the second run must leave exactly the first root behind")
+	// The second tree left the first alone — same owner, same journals — and
+	// its own root stays, unowned, for a `--session` resume.
+	locksAfter := ownerLocks(t, env.HomeDir)
+	require.Len(t, locksAfter, 2, "each run has a root of its own; found %v", locksAfter)
+	require.Contains(t, locksAfter, lock)
+	for _, l := range locksAfter {
+		if l == lock {
+			continue
+		}
+		require.Equal(t, filepath.Dir(filepath.Dir(lock)), filepath.Dir(filepath.Dir(l)), "both roots belong to the one project")
+		st, err := coord.ProbeOwner(filepath.Dir(l))
+		require.NoError(t, err)
+		require.False(t, st.Held, "the exited second run holds nothing")
+	}
 	ownerAfter, err := coord.ProbeOwner(filepath.Dir(lock))
 	require.NoError(t, err)
 	require.Equal(t, owner, ownerAfter, "the second run must not take or restamp the first session's root")

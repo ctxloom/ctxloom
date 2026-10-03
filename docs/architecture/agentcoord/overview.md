@@ -137,13 +137,20 @@ whose owner is a provably abandoned interactive session is ended and
 claimed instead. An internal one-shot host (`bundle distill`, `session
 distill`, init's probe) is an ephemeral root of its own.
 
-A root's lifetime ends three ways. `Coordinator.Close` removes its own root
-once every run in it has ended (`rootSettled`) — every clean exit and every
-one-shot. A root left with a run not ended stays for a resume, and is
-removed with its session by the reaper (`ctxloom session sweep`, the reclaim
-triage in `operations.reclaimTriage`) unless a live process holds it.
-`ctxloom doctor` lists every root of the project (`coord.ListRoots`) and
-removes none.
+A SESSION's root outlives the session: after any exit, clean or not,
+`ctxloom run --session H` adopts it with H's runs — ended children
+included, so an `agent_send` to one still resumes it and its artifacts still
+fetch. It is removed with its session by the reaper (`ctxloom session
+sweep`, the reclaim triage in `operations.reclaimTriage`). Only an EPHEMERAL
+root (`coord.Options.Ephemeral`, set by the internal one-shot host, whose
+tree no session resumes) is removed by `Coordinator.Close`, once every run
+in it has ended (`rootSettled`). Both go through `coord.RemoveRoot`, the one
+path that deletes a root: it claims the root first (a root a live process
+holds is refused, `ErrStateOwned`, and kept) and deletes it under the lock.
+A resume racing a removal never fails on the vanished dir: a lock won on an
+unlinked lock file, or a dir gone mid-wait, is `errRootRemoved`, and the
+claim makes the root afresh. `ctxloom doctor` lists every root of the
+project (`coord.ListRoots`) and removes none.
 
 **The runner process** (`ctxloom runner <engine>`, one per run — the owner's
 included; `runner.Main`) decodes its reach-back trio once, constructs a

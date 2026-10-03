@@ -14,6 +14,18 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/spooltest"
 )
 
+// withNopSpawner composes every coordinator this test builds over a spawner
+// that launches nothing.
+func withNopSpawner(t *testing.T) {
+	t.Helper()
+	prev := theComposition.NewCoordinator
+	theComposition.NewCoordinator = func(app *operations.App, opts coord.Options) (*coord.Coordinator, error) {
+		opts.Spawner = coordharness.NopSpawner{}
+		return prev(app, opts)
+	}
+	t.Cleanup(func() { theComposition.NewCoordinator = prev })
+}
+
 // hostRootFor stands the session's coordinator up the way `ctxloom run` does
 // and returns the harp its root is named by.
 func hostRootFor(t *testing.T, activeHarp, resume string) string {
@@ -21,12 +33,7 @@ func hostRootFor(t *testing.T, activeHarp, resume string) string {
 	testsupport.Isolate(t)
 	spooltest.TeeHome(t)
 	testApp(t)
-	prevBuild := theComposition.NewCoordinator
-	theComposition.NewCoordinator = func(app *operations.App, opts coord.Options) (*coord.Coordinator, error) {
-		opts.Spawner = coordharness.NopSpawner{}
-		return prevBuild(app, opts)
-	}
-	t.Cleanup(func() { theComposition.NewCoordinator = prevBuild })
+	withNopSpawner(t)
 	prev := runResumeSession
 	runResumeSession = resume
 	t.Cleanup(func() { runResumeSession = prev })
@@ -48,4 +55,39 @@ func TestHostCoordinator_AFreshRunFoundsItsOwnRoot(t *testing.T) {
 // the resumed session's tree, whose runs it adopts.
 func TestHostCoordinator_ResumeClaimsTheResumedRoot(t *testing.T) {
 	assert.Equal(t, "resumed-harp", hostRootFor(t, "new-harp", "resumed-harp"))
+}
+
+// A session's root outlives its clean exit: `ctxloom run --session H` adopts
+// it later with H's ended children. Only the sweep removes it.
+func TestHostCoordinator_ACleanExitKeepsTheSessionRoot(t *testing.T) {
+	testsupport.Isolate(t)
+	spooltest.TeeHome(t)
+	testApp(t)
+	withNopSpawner(t)
+	st := &runState{workDir: t.TempDir(), activeHarp: "clean-exit-harp"}
+	teardown := st.hostCoordinator()
+	require.NotNil(t, st.sessionCoord)
+	dir := st.sessionCoord.StateDir()
+
+	teardown()
+
+	assert.DirExists(t, dir)
+}
+
+// An internal one-shot's coordinator (distill, init's probe) is an ephemeral
+// root nothing resumes: closing it at the command's end removes its root.
+func TestInternalCoordinator_ClosingRemovesItsEphemeralRoot(t *testing.T) {
+	testsupport.Isolate(t)
+	spooltest.TeeHome(t)
+	testApp(t)
+	withNopSpawner(t)
+	t.Cleanup(closeInternalCoordinator)
+	c, err := internalCoordinator(t.TempDir(), "one-shot-harp")
+	require.NoError(t, err)
+	dir := c.StateDir()
+	require.DirExists(t, dir)
+
+	closeInternalCoordinator()
+
+	assert.NoDirExists(t, dir)
 }

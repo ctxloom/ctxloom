@@ -129,7 +129,7 @@ this package's `identity.go` re-exports them under the coordinator's names, and
 | adopt | terminates orphaned host runs, grace-times container runs |
 | watchdogs | runner heartbeat watchdog + liveness watchdog |
 | `goTracked` / `waitTracked` | `wg.Add` under `mu`, refused after `closing`; join with a 5s bounded escape |
-| `Close` | closing → cancel → kill attachments → `srv.close` → join → close journals → remove the claimed root when every run in it has ended (`rootSettled`), under its lock → release the lock |
+| `Close` | closing → cancel → kill attachments → `srv.close` → join → close journals → release the lock → an EPHEMERAL root (`Options.Ephemeral`) whose every run has ended (`rootSettled`) is removed through `RemoveRoot`; a session's root is kept for a resume |
 | `audit` | appends one interaction fact; **warns, never gates** (I8) |
 
 `New`'s post-`WithCancel` failure paths call `closePartial`
@@ -167,5 +167,6 @@ returns English prose, `Inject`/steer return the typed `Delivery*` constants.
 | --- | --- |
 | `RootStateDir` / `ensureRootStateDir` | `~/.ctxloom/coord/<key>/<root-harp>` (created at 0700 by the latter); the root harp is validated as a harp |
 | `ListRoots` | every root of a project with its `ProbeOwner` status, claiming none; a root is a directory carrying an owner lock file |
+| `RemoveRoot` | the one path that deletes a root: claims its lock (`ErrStateOwned` when held), deletes under it, releases; a claim racing it retries on `errRootRemoved` (`acquireStateDir`) |
 | `sanitizeKey` | replaces `/ \ : ..`; a key that reduces to dots only falls back to `default`, never the coord root itself |
 | `claimOwner` | flock on the owner lock; the holder's stamp beside it is display and orphan evidence only, never liveness |

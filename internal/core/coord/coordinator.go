@@ -64,6 +64,14 @@ type Options struct {
 	// session names the root it resumes, and adopts that root's runs; a root
 	// another live process holds refuses the claim (ErrStateOwned).
 	RootHarp string
+	// Ephemeral marks a root nothing will ever resume — an internal one-shot
+	// host's (a distill, init's probe), founded under a harp no session
+	// continues. Close removes an ephemeral root once every run in it has
+	// ended. A SESSION's root is never removed by Close: `ctxloom run
+	// --session H` adopts it after a clean exit, ended children and
+	// artifacts included, and only the session sweep, reclaiming H, removes
+	// it.
+	Ephemeral bool
 	// StateDir overrides the state dir entirely (tests). It is the caller's
 	// directory, not a claimed root: no owner lock is taken in it and Close
 	// never removes it.
@@ -173,12 +181,13 @@ type Coordinator struct {
 
 	releaseOwner func()
 	// ownsRoot reports stateDir is a root this process claimed (not an
-	// explicit Options.StateDir), so it is this coordinator's to remove.
-	// dropRoot is Close's verdict that the root is settled and goes with it
-	// (closePartial).
-	ownsRoot bool
-	dropRoot bool
-	rootHarp string
+	// explicit Options.StateDir); ephemeral is Options.Ephemeral. Together
+	// they make the root this coordinator's to remove. dropRoot is Close's
+	// verdict that it is settled and goes with it (closePartial).
+	ownsRoot  bool
+	ephemeral bool
+	dropRoot  bool
+	rootHarp  string
 
 	runs     *Store
 	runsF    *runsFold
@@ -502,6 +511,7 @@ func New(opts Options) (*Coordinator, error) {
 		now:                t.now,
 		releaseOwner:       claim.release,
 		ownsRoot:           claim.release != nil,
+		ephemeral:          opts.Ephemeral,
 		rootHarp:           rootHarpOf(opts),
 		spawner:            opts.Spawner,
 		engines:            opts.Engines,
@@ -876,10 +886,10 @@ func (c *Coordinator) Draining() bool {
 
 // Close tears the coordinator down: listeners, journals, owner lock. Live
 // children are killed via their launch close (the run process is their
-// lifetime). A claimed root left SETTLED — every run in it ended — is removed
-// with it (rootSettled): nothing in it can ever be adopted, so it is garbage
-// the moment its owner lets go. A root holding a run that has not ended is
-// kept for whoever resumes it.
+// lifetime). An EPHEMERAL root (Options.Ephemeral) left SETTLED — every run in
+// it ended (rootSettled) — is removed with it: nothing resumes it, so it is
+// garbage the moment its owner lets go. A session's root, and any root
+// holding a run that has not ended, is kept for whoever resumes it.
 //
 // Order: seal the tracked group and the stream group (goTracked stops
 // Add()ing and a late stream handler is refused at enter, so nothing can
@@ -944,7 +954,7 @@ func (c *Coordinator) Close() {
 		// gate goes quiet, which measures nothing.
 		c.spoolIn.Close()
 		c.waitTracked()
-		c.dropRoot = c.ownsRoot && c.rootSettled()
+		c.dropRoot = c.ownsRoot && c.ephemeral && c.rootSettled()
 		c.closePartial()
 	})
 }

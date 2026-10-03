@@ -16,10 +16,10 @@ func rootsReturning(roots []coord.RootStatus, err error) func(string, string) ([
 }
 
 // TestDoctorCheckProjectOwner enumerates the project's coordinator roots: a
-// live one is information (a new run founds its own tree beside it, never
-// refused), and one nobody can resume by running — an orphaned owner, or a
-// root its owner left with runs not ended — is a warning naming the resume
-// that adopts it. Doctor removes nothing and says so.
+// live one, and one a session left on exit for a later resume, are
+// information (a new run founds its own tree beside them, never refused); a
+// root held by an orphaned owner, which nothing ends on its own, is a
+// warning naming the resume that ends it. Doctor removes nothing.
 func TestDoctorCheckProjectOwner(t *testing.T) {
 	started := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
 	live := coord.RootStatus{Dir: "/c/p/live-harp", RootHarp: "live-harp", Owner: coord.OwnerStatus{
@@ -46,8 +46,8 @@ func TestDoctorCheckProjectOwner(t *testing.T) {
 			[]string{"live-harp", "resumer-harp"}, nil},
 		{"an orphaned root", rootsReturning([]coord.RootStatus{live, orphan}, nil), DoctorWarn,
 			[]string{"2 coordinator roots", "orphan-harp", "orphaned", "its terminal is gone", "ctxloom run --session orphan-harp", "doctor removes no root"}, []string{"refused"}},
-		{"a root nobody owns", rootsReturning([]coord.RootStatus{left}, nil), DoctorWarn,
-			[]string{"left-harp", "unowned", "ctxloom run --session left-harp", "ctxloom session sweep", "doctor removes no root"}, nil},
+		{"a root a session left for a resume", rootsReturning([]coord.RootStatus{left}, nil), DoctorInfo,
+			[]string{"left-harp", "unowned", "ctxloom run --session left-harp", "ctxloom session sweep"}, []string{"runs not ended"}},
 		{"an unidentified owner", rootsReturning([]coord.RootStatus{unidentified}, nil), DoctorInfo, []string{"anon-harp", "an unidentified session"}, nil},
 		{"list failure keeps what was listed", rootsReturning([]coord.RootStatus{live}, errors.New("boom")), DoctorWarn,
 			[]string{"live-harp", "could not probe", "boom"}, nil},

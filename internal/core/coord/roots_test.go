@@ -23,14 +23,20 @@ const rootsProjectID = "roots-project"
 // rootHarp the root it founds or adopts ("" founds its own).
 func newRoot(t *testing.T, ownerHarp, rootHarp string, sp Spawner) *Coordinator {
 	t.Helper()
-	c, err := New(Options{
-		ProjectDir: t.TempDir(),
-		ProjectID:  rootsProjectID,
-		Spawner:    sp,
-		OwnerHarp:  ownerHarp,
-		RootHarp:   rootHarp,
-		Reporter:   termSink(),
-	})
+	return newRootWith(t, Options{OwnerHarp: ownerHarp, RootHarp: rootHarp, Spawner: sp})
+}
+
+// newEphemeralRoot is newRoot for a root nothing resumes: an internal
+// one-shot host's.
+func newEphemeralRoot(t *testing.T, ownerHarp string, sp Spawner) *Coordinator {
+	t.Helper()
+	return newRootWith(t, Options{OwnerHarp: ownerHarp, Spawner: sp, Ephemeral: true})
+}
+
+func newRootWith(t *testing.T, opts Options) *Coordinator {
+	t.Helper()
+	opts.ProjectDir, opts.ProjectID, opts.Reporter = t.TempDir(), rootsProjectID, termSink()
+	c, err := New(opts)
 	require.NoError(t, err)
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
@@ -122,26 +128,56 @@ func TestRoots_ASecondClaimOnOneRootIsRefused(t *testing.T) {
 	assert.Equal(t, "live-owner-harp", st.Harp, "the refused claim must not restamp the live owner")
 }
 
-// TestRoots_CloseRemovesASettledRoot: a root whose every run has ended (here:
-// none ever started) is garbage the moment its owner closes — nothing can be
-// adopted from it — so Close deletes it, and it no longer lists.
-func TestRoots_CloseRemovesASettledRoot(t *testing.T) {
+// TestRoots_CloseRemovesASettledEphemeralRoot: an ephemeral root (an
+// internal one-shot host's) whose every run has ended is garbage the moment
+// its owner closes — nothing resumes it — so Close deletes it, and it no
+// longer lists.
+func TestRoots_CloseRemovesASettledEphemeralRoot(t *testing.T) {
 	rootsHome(t)
-	c := newRoot(t, "one-shot-harp", "", newFakeSpawner(nil, nil))
+	c := newEphemeralRoot(t, "one-shot-harp", newFakeSpawner(nil, nil))
 	dir := c.StateDir()
 	require.DirExists(t, dir)
 
 	c.Close()
 
-	assert.NoDirExists(t, dir, "a settled root is removed by its owner's Close")
+	assert.NoDirExists(t, dir, "a settled ephemeral root is removed by its owner's Close")
 	roots, err := ListRoots(rootsProjectID, "")
 	require.NoError(t, err)
 	assert.Empty(t, roots)
 }
 
+// TestRoots_ACleanSessionExitKeepsItsRootForAResume: a SESSION's root is
+// never removed by Close, however settled: `ctxloom run --session H` after a
+// clean exit adopts it and still sees H's ended children — the records an
+// agent_send to one resumes it from. Only the sweep, reclaiming session H,
+// removes it.
+func TestRoots_ACleanSessionExitKeepsItsRootForAResume(t *testing.T) {
+	resetStrictness(t)
+	rootsHome(t)
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
+	t.Cleanup(func() {
+		for i := 0; i < sp.spawnCount(); i++ {
+			sp.killEngine(i)
+		}
+	})
+
+	first := newRoot(t, ownerIdentity().Harp, "", sp)
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(first, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
+	dir := first.StateDir()
+	awaitDrain(t, first.BeginDrain())
+	first.Close()
+	require.FileExists(t, filepath.Join(dir, "runs.jsonl"), "a session's root and its journal survive a clean exit")
+
+	resumer := newRoot(t, "resumer-harp", ownerIdentity().Harp, sp)
+	assert.Equal(t, dir, resumer.StateDir())
+	assert.Equal(t, StateEnded, rosterState(resumer, out.Harp), "the resumed root still knows the ended child")
+}
+
 // TestRoots_CloseKeepsARootWithALiveRun: a run that has not ended — adopted
-// with its runner not yet back, so the drain leaves it — is still adoptable
-// by whoever resumes the root, so Close must leave the root in place.
+// with its runner not yet back, so the drain leaves it — is still adoptable,
+// so Close leaves the root in place even when it is ephemeral.
 func TestRoots_CloseKeepsARootWithALiveRun(t *testing.T) {
 	resetStrictness(t)
 	rootsHome(t)
@@ -160,11 +196,11 @@ func TestRoots_CloseKeepsARootWithALiveRun(t *testing.T) {
 	crashCoordinator(first)
 	sp.killEngine(0)
 
-	second := newRoot(t, "resumer-harp", ownerIdentity().Harp, sp)
+	second := newRootWith(t, Options{OwnerHarp: "resumer-harp", RootHarp: ownerIdentity().Harp, Spawner: sp, Ephemeral: true})
 	require.Equal(t, StateExecuting, rosterState(second, out.Harp), "precondition: the adopted run is live")
 	second.Close()
 
-	assert.DirExists(t, dir, "a root holding a run that has not ended survives its owner's Close")
+	assert.DirExists(t, dir, "even an ephemeral root holding a run that has not ended survives its owner's Close")
 	assert.FileExists(t, filepath.Join(dir, "runs.jsonl"))
 }
 

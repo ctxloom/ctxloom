@@ -73,14 +73,17 @@ lock, `owner.json` records who holds it (pid, session, mode, start time). That
 record is for display and for spotting an abandoned owner, never for deciding
 whether the owner is alive.
 
-When a session exits with every child finished, its root is removed. A
-session that exits with children still running leaves its root behind.
-`ctxloom run --session <harp>` resumes that session and adopts the root with
-its children. If another live process still holds the root, the resume runs
-without agent delegation and says so. The one exception is an interactive
-owner whose terminal is gone: it is provably abandoned, so the resume ends it
-and takes the tree over. A root nobody resumes is removed with its session by
-`ctxloom session sweep`. `ctxloom doctor` lists every tree in the project and
+A session's root stays after the session exits, however it exits.
+`ctxloom run --session <harp>` resumes that session and adopts its root. Its
+children come with it, including the ones that already finished, so you can
+still message them and fetch what they produced. If another live process
+still holds the root, the resume runs without agent delegation and says so.
+The one exception is an interactive owner whose terminal is gone: it is
+provably abandoned, so the resume ends it and takes the tree over. A root is
+removed along with its session by `ctxloom session sweep`. The short-lived
+coordinator behind `bundle distill`, `session distill` or `init`'s probe is
+the exception: nothing resumes it, so its root is removed as soon as it
+finishes. `ctxloom doctor` lists every tree in the project and
 who owns it (`DOCTOR-CHECK-PROJECT-OWNER-v4`). It removes none of them.
 
 ## Why each child gets its own grant, never a union

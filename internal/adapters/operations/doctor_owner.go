@@ -15,11 +15,12 @@ const doctorProjectOwnerMarker = "DOCTOR-CHECK-PROJECT-OWNER-v4"
 
 // doctorCheckProjectOwner lists this project's coordinator roots — one per
 // independent tree a session founded — and who owns each. A new `ctxloom run`
-// is never refused by any of them: it founds a root of its own. What the row
-// is FOR is the root nobody will end by running — an owner whose terminal
-// died, or a root its owner left with runs not ended — which only a resume
-// (`ctxloom run --session <root>`) or the session reaper ends. Doctor writes
-// nothing and removes no root, and says so: it has no repair mode.
+// is never refused by any of them: it founds a root of its own. A session's
+// root outlives its exit for a later resume (`ctxloom run --session <root>`)
+// until the session sweep removes it with its session, so an unowned root is
+// ordinary. What the row WARNS about is a root held by an orphaned owner — a
+// session whose terminal died — which nothing ends on its own but a resume.
+// Doctor writes nothing and removes no root: it has no repair mode.
 //
 // The roots are keyed by the same project identity the coordinator host keys
 // them by, and list reads ownership without claiming (coord.ListRoots in
@@ -71,15 +72,15 @@ func summarizeRoots(roots []coord.RootStatus) (DoctorStatus, string) {
 	if !stranded {
 		return DoctorInfo, detail
 	}
-	return DoctorWarn, detail + ". doctor removes no root: a resume adopts a stranded one (ending an orphaned owner first), and `ctxloom session sweep` removes it with its session"
+	return DoctorWarn, detail + ". doctor removes no root: a resume ends an orphaned owner and adopts its root, and `ctxloom session sweep` removes a root with its session"
 }
 
-// describeRoot renders one root, and reports whether it is stranded: no live
-// process will end it on its own.
+// describeRoot renders one root, and reports whether it is stranded: held by
+// a process that will not end on its own.
 func describeRoot(r coord.RootStatus) (string, bool) {
 	st := r.Owner
 	if !st.Held {
-		return fmt.Sprintf("%s unowned — its owner exited with runs not ended; `ctxloom run --session %s` adopts them", r.RootHarp, r.RootHarp), true
+		return fmt.Sprintf("%s unowned — kept for `ctxloom run --session %s` until `ctxloom session sweep` removes it with its session", r.RootHarp, r.RootHarp), false
 	}
 	owner := "an unidentified session"
 	if st.PID != 0 {

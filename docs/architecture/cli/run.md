@@ -35,7 +35,8 @@ drives it.
    process still holds is refused, `coord.ErrStateOwned`, a degradable apply
    finding) — and the owner's credential — the identity the owner-owned run
    is minted under, revoked on the same teardown that closes the
-   coordinator (which removes the root when every run in it has ended).
+   coordinator. The root outlives the session for a later `--session`
+   resume; the session sweep removes it.
 7. **The transport** — `startTransport` → `startOwnedRun` →
    `Coordinator.StartOwnedRun`: the run is enqueued parent-less under the
    owner's identity and its runner (`ctxloom runner <engine>`) started

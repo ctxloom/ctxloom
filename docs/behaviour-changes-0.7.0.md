@@ -291,5 +291,7 @@ in a tagged release, so this only matters if you ran a build from `main`.
   It now starts its own coordinator beside the first. Coordinator state moved
   from `~/.ctxloom/coord/<project>/` to one directory per session tree,
   `~/.ctxloom/coord/<project>/<session>/`. Files left directly under
-  `<project>/` are no longer read, and you can delete them.
+  `<project>/` are no longer read, and you can delete them. A session's
+  directory stays after the session exits, so `ctxloom run --session` can
+  resume its tree, until `ctxloom session sweep` removes it with the session.
 

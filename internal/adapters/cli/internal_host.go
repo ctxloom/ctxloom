@@ -17,7 +17,8 @@ import (
 // (which it never touches), and every later one-shot in the process rides
 // the same coordinator (init's discovery launch after its probe). It is
 // closed when the command's run ends (rootPersistentPostRunE), and its
-// settled root goes with it (coord.Coordinator.Close). A coordinator that
+// settled root goes with it: it is hosted coord.Options.Ephemeral, because no
+// session ever resumes a one-shot's tree. A coordinator that
 // cannot stand up fails the one-shot: the runner is started and turned by a
 // coordinator, and there is no second arm to drive one without.
 var internalCoord struct {
@@ -35,7 +36,11 @@ func internalCoordinator(projectDir, ownerHarp string) (*coord.Coordinator, erro
 	}
 	// The owner credential is for a session the command drives itself; an
 	// internal one-shot's runner is stamped by StartOwnedRun.
-	c, _, err := mcp.HostCoordinatorForSession(NewCoordinator, App(), projectDir, ownerHarp, "", coord.OwnerNonInteractive)
+	ephemeral := func(opts coord.Options) (*coord.Coordinator, error) {
+		opts.Ephemeral = true
+		return NewCoordinator(opts)
+	}
+	c, _, err := mcp.HostCoordinatorForSession(ephemeral, App(), projectDir, ownerHarp, "", coord.OwnerNonInteractive)
 	if err != nil {
 		return nil, err
 	}

@@ -38,7 +38,17 @@ rules:
     message: "Prefer staging the paths this change actually touches. If the change really does span many files, run the same command again to stage them all."
     suggest: "git add <path> [<path> …]"
   - id: no-rewrite-git-identity
-    match: { command: [git, config], args_any: ["user.email", "user.name"] }
+    match:
+      command: [git, config]
+      args_any: ["user.email", "user.name"]
+      min_operands: 3
+      unless: ["--get", "--get-all", "--get-regexp", "--list", "-l", "--show-origin"]
+    message: "Don't change the git identity from inside the agent; set it once in your own global config."
+  - id: no-unset-git-identity
+    match: { command: [git, config], args_any: ["user.email", "user.name"], args_all: ["--unset"] }
+    message: "Don't change the git identity from inside the agent; set it once in your own global config."
+  - id: no-unset-all-git-identity
+    match: { command: [git, config], args_any: ["user.email", "user.name"], args_all: ["--unset-all"] }
     message: "Don't change the git identity from inside the agent; set it once in your own global config."
   - id: rm-rf-careful
     match: { command: rm, args_all: ["-r", "-f"] }

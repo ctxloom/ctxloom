@@ -389,7 +389,7 @@ flowchart TD
 `ErrRemoteContentNotFound`, `ErrRemoteNotFound`, `ErrRemoteNotMaterialized`),
 `internal/core/paths` (`RepoContentPrefix`, `CacheDir`, `BundlesDir`, `LockFileName`),
 `internal/shared/clidiag`, `internal/shared/collections`, `internal/shared/safefs`
-(`WriteFileAtomicFs`). External: `go-git`, `go-github` v60, `afero`, `yaml.v3`, and the
+(`WriteFile`). External: `go-git`, `go-github` v60, `afero`, `yaml.v3`, and the
 system `git` binary (git ≥ 2.31 for `GIT_CONFIG_*`). No inner-imports-outer violation
 exists in the package.
 

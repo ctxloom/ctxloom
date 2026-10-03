@@ -119,7 +119,7 @@ func TestDirtyTreeCommitAcknowledged_UnreadableStoreWarnsAndDenies(t *testing.T)
 // (paths.PathFor, beside the file) is the wrong one here and would leave
 // `.ctxloom/state/dirty_tree_commit_ack.yaml.lock` sitting next to the
 // record it guards. A real OS filesystem is required: Store skips locking
-// entirely for a non-OS-backed one (see admission.isOSBackedFs), so this
+// entirely for a non-OS-backed one (see filelock.IsOSBackedFs), so this
 // could not observe anything on afero.NewMemMapFs the way every other test
 // in this file uses.
 func TestSetDirtyTreeCommitAck_LocksUnderStateLocksNotBesideTheAckFile(t *testing.T) {

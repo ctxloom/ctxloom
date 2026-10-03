@@ -31,7 +31,7 @@ flowchart LR
   ASM["Deps.Assembler (operations.assembler: AssemblePackage → composite.Assemble once; Surfaces off the same Package)"]:::port
   CELLS["Deps.Cells (operations.Cells over isolation.Prepare, the dirty-tree decision, the engine home)"]:::port
   EPM["Deps.Endpoints (a loopback port + bearer)"]:::port
-  STORE["Deps.Sessions (BindEngine, BindMCP, Find)"]:::port
+  STORE["Deps.Sessions (BindEngine, Find)"]:::port
   L["launch.Launch"]:::core
   ENC["coordgrpc.EncodeLaunch → today's RunStart"]:::core
   RUN & INIT & ONE --> START --> RES

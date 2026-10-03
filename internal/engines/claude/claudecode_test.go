@@ -335,7 +335,7 @@ func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
 // safety is incidental — it holds only while --model or --name happens to
 // follow.
 //
-// The reachable argv: PermissionPlan + ModeInteractive + empty Model + no
+// The reachable argv: the plan posture + ModeInteractive + empty Model + no
 // harp + no presentations (which skips the surface flags entirely).
 func TestClaudeCode_BuildArgs_PromptIsTerminated(t *testing.T) {
 	backend := NewClaudeCode()

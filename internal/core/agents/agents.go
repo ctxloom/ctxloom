@@ -258,8 +258,8 @@ func DrivingModeNames() []string {
 	return []string{string(DrivingConversational), string(DrivingOneshot)}
 }
 
-// parseDrivingMode maps a config/CLI string to a DrivingMode. Unlike
-// ParsePermissionMode it is NOT lenient: driving controls whether a child's
+// parseDrivingMode maps a config/CLI string to a DrivingMode. It is NOT
+// lenient: driving controls whether a child's
 // engine process survives past a turn boundary, so a typo silently resolving
 // to the default would be a silent, behavior-changing no-op (the class of bug
 // this project treats as its worst). Empty parses as DrivingConversational

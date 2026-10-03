@@ -55,7 +55,7 @@ func (d *appendFlagDelivery) Path() string { return d.path }
 //
 // The write itself routes through safefs.WriteFileKeepMode (unique temp + fsync
 // + rename via safefs), not a raw afero.WriteFile, so archlint's write-discipline
-// rule has nothing to exempt here. No agent.WithFileLock wraps this:
+// rule has nothing to exempt here. No sessions.WithFileLock wraps this:
 // the deterministic hash name means two concurrent deliveries of identical
 // content write identical bytes (idempotent, no lost update to guard), and
 // two DIFFERENT contents land at two DIFFERENT paths, so there is no

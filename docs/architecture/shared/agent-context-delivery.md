@@ -49,7 +49,6 @@ flowchart TD
 | `NewContextInjectionHook` | `internal/core/agent/context_hooks.go:23` | Builds the single whole-content SessionStart hook. |
 | `NewContextInjectionChunkHook` | `internal/core/agent/context_hooks.go:37` | Builds hook *k* of *N*. |
 | `absOrSelf` | `internal/core/agent/context_hooks.go:49` | Absolutizes a path with fallback to the input — the engine may launch from a different cwd. |
-| `shellSingleQuote` | `internal/core/agent/context_hooks.go:82` | Single-quotes a value for `/bin/sh`; a path-injection security boundary. |
 | `MergeHooksConfig` | `internal/core/agent/context_hooks.go:90` | Appends `src`'s hook lists into `dest`. |
 | `HookRoute` | `internal/core/agent/hook_routes.go:12` | Maps one unified hook slice onto an engine-native event name, with a default matcher. |
 | `RouteUnifiedHooks` | `internal/core/agent/hook_routes.go:25` | Walks routes, applies default matchers, and emits; the hook writer of every backend that delivers hooks routes through it. |
@@ -81,4 +80,4 @@ flowchart TD
 - **`RouteUnifiedHooks`' `emit` callback returns nothing**, so a failed emit is invisible to the walker; a caller with zero hooks writes a hook-less settings file with no warning.
 - **`AwaitTurn` degrades to "emit now" on every failure path** — this is the stated design (fault tolerance over ordering) and each degradation is an explicit branch. A failed `writeMarker` makes the successor spin to the full 5s timeout rather than degrade fast.
 - **`heldRendezvousLocks`** (`rendezvous.go:34`) is a package-level slice appended without synchronization at `:73`. Safe only because the sole production caller, `internal/adapters/cli/hook_inject_context.go:102`, runs once per hook process — one call per process is an unenforced precondition.
-- **`shellSingleQuote` and `sanitizeSessionID` are security boundaries**, not cosmetics: hook commands are shell strings and rendezvous dirs are built from a session ID.
+- **Context-injection hooks are exec form** (`wire.Hook.Command` is the bare `ctxloom`, `wire.Hook.Args` its argv), so no value is ever parsed by a shell. **`sanitizeSessionID` is a security boundary**, not a cosmetic: rendezvous dirs are built from a session ID.

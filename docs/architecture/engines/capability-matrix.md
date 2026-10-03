@@ -83,7 +83,7 @@ never had.
 | Backend | Mechanism | Reads `AGENTS.md`? | Hook-mediated? | Site |
 |---|---|---|---|---|
 | `claude-code` | **two realizations of one surface**: isolated cell → marker-merge into `CLAUDE.md`; shared cell → out-of-cwd `<hash>.sysprompt.md` passed as `--append-system-prompt-file` | **no — deliberate** (`enginecli.go:34-38`) | no (apply path uses a SessionStart injection hook) | `internal/engines/claude/surfaces.go:81`, `contextdelivery.go:50`, `claudecode.go:294-299` |
-| the doubles | a single project-root file (`mockContextPath`) whose bytes the mock engine hashes and reports | no | no | `internal/engines/mock/surfaces.go` |
+| the doubles | a single root-level file (`ContextFileName`, `MOCK_CONTEXT.md`) whose bytes the mock engine hashes and reports | no | no | `internal/engines/mock/surfaces.go` |
 
 **`agent.OutOfCwd` — the out-of-cwd form.** `claude-code`'s approaches carry
 one (`internal/engines/claude/surfaces.go`): flag-pointed scratch files for context,
@@ -96,7 +96,7 @@ private cwd (worktree) or a container cell.**
 
 | Backend | MCP file | MCP scopes | Commands dir | Skills dir |
 |---|---|---|---|---|
-| `claude-code` | `.mcp.json` (+ out-of-cwd via `--mcp-config`, **without** `--strict-mcp-config`, so ctxloom's servers **layer over** the user's) | project + global (`~/.claude.json`) | `.claude/commands/*.md` | `.claude/skills/<n>/**` |
+| `claude-code` | `.mcp.json` (+ out-of-cwd via `--mcp-config`; in a trusted repository ctxloom's servers **layer over** the project's, otherwise `--strict-mcp-config` keeps the project's out — `repoSourceArgs`) | project + global (`~/.claude.json`) | `.claude/commands/*.md` | `.claude/skills/<n>/**` |
 | the doubles | — | — | — | `.mock/skills/<n>/**` (`mockSkillsPath`), except `config.BackendMockNoSkills`, which declares no skills mapper at all |
 
 **Skills cross the launch wire** (§3). A descriptor's `skillExports` maps them

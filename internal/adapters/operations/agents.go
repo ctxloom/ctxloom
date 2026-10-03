@@ -30,8 +30,8 @@ type AgentEntry struct {
 	// Runtime is the agent's declared runtime axis (host | container), as
 	// written; empty inherits the project `runtime:` default.
 	Runtime string `json:"runtime,omitempty"`
-	// Permissions is the agent's declared permission posture
-	// (engine.PermissionModeNames), as written; empty inherits the engine
+	// Permissions is the agent's declared `permissions:` block
+	// (agents.Permissions), as written; empty inherits the engine
 	// label's default and finally the built-in default.
 	Permissions agents.Permissions `json:"permissions,omitempty"`
 	// Driving is the agent's declared per-turn execution axis

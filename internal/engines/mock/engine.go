@@ -253,14 +253,12 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 		Name:         name,
 		Distribution: engine.DistributionTestOnly,
 		Modes:        []engine.Mode{engine.Interactive, engine.Structured},
-		// ReadOnlyPlan: the mock never runs tools, so it is read-only by
-		// construction.
-		Context:  &contextFile{surface{"context-file", file}},
-		MCP:      &mcpFile{surface{"mcp-config", file}},
-		Settings: &settingsFile{surface{"settings", file}},
-		Hooks:    &hooksFile{surface{"hooks-file", file}},
-		Commands: &commandsDir{surface{"commands-dir", file}},
-		Skills:   &skillsDir{surface{"skills-dir", file}},
+		Context:      &contextFile{surface{"context-file", file}},
+		MCP:          &mcpFile{surface{"mcp-config", file}},
+		Settings:     &settingsFile{surface{"settings", file}},
+		Hooks:        &hooksFile{surface{"hooks-file", file}},
+		Commands:     &commandsDir{surface{"commands-dir", file}},
+		Skills:       &skillsDir{surface{"skills-dir", file}},
 		CLI: []engine.CLIGrammar{
 			{Mode: engine.Interactive, Binary: "mock", Flags: flags},
 			{Mode: engine.Structured, Binary: "mock", Flags: flags},

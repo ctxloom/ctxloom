@@ -98,7 +98,7 @@ func (e *ScopeViolationError) Error() string {
 // below says, which for a security-relevant key is how a typo ends up silently
 // MORE privileged than the value that was typed. Every consumer that reads such
 // a key owns its own fail-closed handling of a value it cannot honour (see
-// agent.ResolveDefault); this exists so the fault is not silent on the way in.
+// launch.resolvePolicy); this exists so the fault is not silent on the way in.
 type SchemaViolationError struct {
 	Source  OverrideSource
 	Path    []string

@@ -204,7 +204,7 @@ stateDiagram-v2
     Claimed --> Claimed: hook dies before the write → the next turn's Claim hands it out again
   }
   state "parent → child" as down {
-    [*] --> InFile: ownerSend/steer/notice → queueMailPayloadID → mailCourier.Send (child in/) + ringSpool (CoordinatorNotice.spool_changed, non-blocking)
+    [*] --> InFile: parentSend/steer/notice → queueMailPayloadID → mailCourier.Send (child in/) + ringSpool (CoordinatorNotice.spool_changed, non-blocking)
     InFile --> Delivered: Home.sweepSpoolIn (doorbell | reattach | turn boundary | tick | startup) → mailFromSpool → peerMessageProto → deliverNotice (dedupe h.consumed/turnPending/buffer)
     Delivered --> TurnQueued: turn sink → turnQ
     Delivered --> Buffered: no sink yet → h.buffer (SetTurnSink drains it first)

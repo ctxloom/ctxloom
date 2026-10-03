@@ -17,7 +17,7 @@ func TestParseDrivingMode(t *testing.T) {
 		{"conversational", DrivingConversational, true},
 		{"oneshot", DrivingOneshot, true},
 		{"bogus", "", false},
-		{"Conversational", "", false}, // NOT lenient on case, unlike ParsePermissionMode
+		{"Conversational", "", false}, // NOT lenient on case
 	}
 	for _, tc := range cases {
 		got, ok := parseDrivingMode(tc.in)

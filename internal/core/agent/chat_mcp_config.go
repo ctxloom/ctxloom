@@ -10,7 +10,7 @@ import (
 // ChatMCPConfigDoc is the on-disk shape a caller's --mcp-config-style file
 // takes: {"mcpServers": {name: entry}}. This is the wire format claude's
 // --mcp-config flag reads today; any future engine writer whose own MCP
-// registry file takes the same table shape can reuse MarshalChatMCPConfig
+// registry file takes the same table shape can reuse ChatMCPConfigEntryOf
 // rather than re-deriving it (see chat_mcp_config_test.go
 // for the exact byte shape each transport produces).
 type ChatMCPConfigDoc struct {
@@ -59,7 +59,7 @@ func ChatMCPConfigEntryOf(s ChatMCPServer) (ChatMCPConfigEntry, error) {
 	}
 }
 
-// ErrChatMCPConfigTransportUnsupported is returned by MarshalChatMCPConfig
+// ErrChatMCPConfigTransportUnsupported is returned by ChatMCPConfigEntryOf
 // when a ChatMCPServer names a transport this JSON table shape cannot
 // express. Today only MCPTransportStdio, MCPTransportHTTP, and
 // MCPTransportSSE are valid.

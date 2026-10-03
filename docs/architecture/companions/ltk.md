@@ -261,17 +261,22 @@ fields, only `Argv` and `Nested` are load-bearing in production: `Assignments` i
 has **zero readers anywhere** including tests (written at `shell.go:179,293`; `cmd` and `pwsh`
 never set it). `Pipeline.{Connector, Background, Negated}` likewise have no production reader.
 
-**Rule shape.** `Config{Version, Defaults, Rules}` (`rules.go:32`); `Rule{ID, Match, Action,
-Message, Suggest, Mode, WindowSeconds, DelaySeconds}` (`rules.go:78`). `Match` (`rules.go:170`)
-carries **two disjoint condition languages**: `{Command, ArgsAny, ArgsAll, Unless, Shells}` for
-command rules and `{Path}` for file-edit rules. `mixesCommandAndPath` (`rules.go:302`) exists
-solely to reject a rule carrying both, and both evaluators re-guard it (`eval.go:42`, `:86`).
+**Rule shape.** `rules.Config` holds two lists of two types: `Rules []CommandRule` (YAML
+`rules:`) and `PathRules []PathRule` (YAML `path_rules:`), sharing an inline `RuleBase` (id,
+action, message, suggest, mode, window, delay). `CommandMatch` carries the command language
+(`Command`, `Align`, `ArgsAny`, `ArgsAll`, `Unless`, `Backgrounded`, `Shells`); `PathMatch`
+carries `Path` globs. `Evaluate` reads only `Rules` and `EvaluatePath` only `PathRules`, so a
+mixed rule is unrepresentable after load; `checkRemovedForms` refuses the mixed YAML shape before
+the strict decode, naming the fix.
 
-**Operator semantics** (`matchCommand`, `rules.go:428-449`): program matches by exact string or
-`path.Base`; option-set tokens are matched as a set; operand tokens use **ordered subsequence**
-for a deny rule (`isSubsequence`, `rules.go:479`) and **position-anchored prefix** for an allow
-rule (`isPrefix`, `rules.go:499`). `expandShortClusters` (`rules.go:540`) expands POSIX bundled
-short options so `-rf` also matches `-r`/`-f`.
+**Operator semantics** (`matchCommand`): every command-field element is a `rules.Pattern`, an RE2
+expression anchored as `^(?:p)$` and compiled by `Parse`. The program pattern matches `argv[0]`
+or its basename (`programNames`, lowercased and `.exe`-stripped under cmd/pwsh); the remaining
+patterns match operands only, aligned per `CommandMatch.Align` — **ordered subsequence** for a
+deny rule (`alignSubsequence`), **position-anchored prefix** or **exact** for an allow rule
+(`alignPrefix`). Options are matched only by `args_*`/`unless` over the arguments plus the
+POSIX bundled-short-option expansion (`expandShortClusters`). Validation failures are sentinels
+wrapped in `*rules.RuleError` naming the rule and field.
 
 **Rule ordering.** `Evaluate` (`eval.go:29`) loops *commands* outer, *rules* inner, returning on
 the first deny — so an earlier command matching a later rule beats a later command matching an

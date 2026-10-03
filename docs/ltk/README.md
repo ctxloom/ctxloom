@@ -304,35 +304,37 @@ rules:
 
   - id: no-git-tag
     # `unless` exempts the read-only listing form: `git tag --list` is fine.
-    match: { command: [git, tag], unless: ["--list", "-l"] }
+    match: { command: [git, tag], unless: ['--list|-l'] }
     message: "Releases go through the pipeline (Versionator)."
 
-  # Mixed: positional subcommand `push` + option `--force`. The subcommand must
-  # come first; the flag matches in any position, and extra args are fine — so
-  # this catches `git push --force origin main` and `git push origin main --force`.
+  # Subcommand `push` as an operand, `--force` as an option. Options never go
+  # in `command`; `args_all` matches them in any position, so this catches
+  # `git push --force origin main` and `git push origin main --force`.
   - id: no-force-push
-    match: { command: [git, push, --force] }
+    match: { command: [git, push], args_all: ['--force'] }
     message: "Plain --force can clobber a teammate's work."
     suggest: "git push --force-with-lease"
 
   - id: no-shell-wrapper
-    match: { command: "sh -c" }         # program + option, no positional
+    match: { command: [sh], args_all: ['-c'] }   # program + option, no operand
 ```
 
-`command` is an argv pattern: a **program** (matched by name or basename),
-**positional** args (subcommands, order matters), and **options** (flags, order
-doesn't). The full model — including cross-shell portability — is in
+`command` is a list of anchored regular expressions, one per argument: the
+**program** (matched by name or basename), then **operands** (subcommands, in
+order). **Options** go in `args_any`/`args_all`/`unless`, which match anywhere
+in the arguments. Single-quote each pattern. The full model — allow/deny
+alignment, cross-shell portability — is in
 [the rules reference](https://ctxloom.dev/ltk/rules/).
 
 ### Guarding file edits, not just commands
 
-A rule can instead match the agent's **file-editing** tools (Edit, Write,
-MultiEdit, NotebookEdit) with `match.path` — for files a tool owns, a whole
-directory, or every git submodule. Patterns are full globs (`*`, `**`, `{a,b}`);
-a trailing slash means the whole subtree.
+A file rule, listed under `path_rules:`, matches the agent's **file-editing**
+tools (Edit, Write, MultiEdit, NotebookEdit) with `match.path` — for files a
+tool owns, a whole directory, or every git submodule. Patterns are full globs
+(`*`, `**`, `{a,b}`), not regexes; a trailing slash means the whole subtree.
 
 ```yaml
-rules:
+path_rules:
   - id: no-hand-edit-version
     match: { path: [VERSION] }            # a tool-owned file (any glob)
     message: "VERSION is managed by the release tool — don't hand-edit it."

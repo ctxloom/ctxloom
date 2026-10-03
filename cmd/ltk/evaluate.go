@@ -33,7 +33,7 @@ It handles both kinds of payload the editing agent sends:
 
   • a shell command (tool_input.command) — parsed and matched against command
     rules, in the shell the tool implies (or --shell to force one).
-  • a file edit (tool_input.file_path) — matched against file rules (match.path):
+  • a file edit (tool_input.file_path) — matched against file rules (path_rules):
     globs, directory subtrees (a trailing slash, e.g. vendor/), and the
     "@submodules" sentinel, which is resolved against this repo's .gitmodules so
     one rule blocks edits inside every submodule.

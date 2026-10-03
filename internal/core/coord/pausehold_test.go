@@ -167,6 +167,11 @@ func TestHoldLaunch_ANewChildOnAHeldCredentialStartsPaused(t *testing.T) {
 	require.NoError(t, f.c.awaitChildUp(ctx, out.Harp), "a run started paused still comes up")
 	hold := f.awaitHold(t, f.worker, f.sibling, out.Harp)
 	assert.Equal(t, string(hold.Kind), f.holdOf(t, out.Harp).Kind, "the roster shows the new child held")
+	assert.Equal(t, StateIdle, f.state(out.Harp), "a run started paused reads idle, like every held run")
+	f.c.mu.Lock()
+	slot := f.c.attach[out.RunID].slot
+	f.c.mu.Unlock()
+	assert.Equal(t, slotFree, slot, "a run started paused holds no concurrency slot while it waits")
 	require.Never(t, func() bool { return countChatText(f.sp, 3, "the new child's briefing") > 0 },
 		300*time.Millisecond, 10*time.Millisecond, "a run started on a held credential takes no turn, not even its briefing")
 

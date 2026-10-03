@@ -1020,6 +1020,17 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	// startup sweep's to deliver, as turns.
 	c.noteLaunchAttached(rt.harp) // a launch that came up resets the retry budget
 	c.markAttached(rt)            // StartRun round-tripped: the migrated run is up
+	if paused {
+		// Up, and parked before its first turn: it reads idle and gives back
+		// its slot, like any held run at its boundary — a hold can last hours,
+		// and a slot held through it would stall every other child. The first
+		// turn claims one when the release lets it start (onTurnStarted).
+		c.mu.Lock()
+		rt.idleSince = c.now()
+		c.mu.Unlock()
+		c.setState(rt, StateIdle)
+		c.releaseSlot(rt)
+	}
 	return nil
 }
 

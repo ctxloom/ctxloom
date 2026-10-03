@@ -503,10 +503,7 @@ func callerLabel(caller Identity) string {
 // diverge.
 func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool, attached chan struct{}, depth int) (*childRt, string, error) {
 	runID := newRunID()
-	token, credHash, err := mintToken()
-	if err != nil {
-		return nil, "", err
-	}
+	token, credHash := mintToken()
 	won := true
 	var mcpServerNames []string
 	for _, srv := range plan.MCPServers {

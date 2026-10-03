@@ -13,10 +13,8 @@ import (
 // TestVerifyToken_ConstantTimeMatch pins the credential verify: only the exact
 // token resolves, and to the right identity.
 func TestVerifyToken_ConstantTimeMatch(t *testing.T) {
-	tokA, hashA, err := mintToken()
-	require.NoError(t, err)
-	tokB, hashB, err := mintToken()
-	require.NoError(t, err)
+	tokA, hashA := mintToken()
+	tokB, hashB := mintToken()
 	active := map[string]Identity{
 		hashA: {Harp: "harp-a", Depth: 0},
 		hashB: {Harp: "harp-b", RunID: "run-b", Depth: 1},

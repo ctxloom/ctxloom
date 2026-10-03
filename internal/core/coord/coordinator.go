@@ -945,10 +945,7 @@ func (c *Coordinator) audit(kind, actor string, detail map[string]string) {
 // owner (the parent harness `ctxloom run` launches). The token
 // is returned exactly once for the env seam; only its hash is journaled.
 func (c *Coordinator) RegisterSessionOwner(harp string) (token string, err error) {
-	token, credHash, err := mintToken()
-	if err != nil {
-		return "", err
-	}
+	token, credHash := mintToken()
 	if err := c.runs.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factSessionCred, c.now(), sessionCred{Harp: harp, CredHash: credHash})}, nil
 	}); err != nil {

@@ -34,16 +34,12 @@ type consumerCreds struct {
 // mint mints a fresh consumer token, replacing any prior one (a relaunched
 // coordinator's viewers re-read the new token from the rewritten
 // endpoint.json — the same re-bind story as the listener ports).
-func (cc *consumerCreds) mint() (token string, err error) {
-	token, hash, err := mintToken()
-	if err != nil {
-		return "", err
-	}
+func (cc *consumerCreds) mint() {
+	token, hash := mintToken()
 	cc.mu.Lock()
 	cc.plain = token
 	cc.hash = hash
 	cc.mu.Unlock()
-	return token, nil
 }
 
 // token returns the current plaintext consumer credential ("" before mint).

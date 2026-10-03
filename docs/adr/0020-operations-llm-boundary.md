@@ -25,7 +25,7 @@ An audit of every `.go` file under `internal/adapters/operations/` (2026-06-01) 
   prompt strings, zero backend-name string literals.
 - **Hooks / context / command-files** (`hooks.go`) delegate to the
   `internal/lm/backends` package's *polymorphic* functions —
-  `BackendsWithSettings()`, `managedhooks.AssembleFor()`, `operations.DeliverProject()`,
+  `operations.EngineNames()`, `managedhooks.AssembleFor()`, `operations.DeliverProject()`,
   `WriteCommandFilesFor()`, `WriteContextFile()`. That package iterates over all
   registered backends; it IS the polymorphic seam, so calling it is correct
   delegation, not a leak.

@@ -8,7 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
@@ -60,7 +64,12 @@ func writeCellFixture(t *testing.T, root string) string {
 
 	mustWrite(t, filepath.Join(project, ".ctxloom", "profiles", "default.yaml"),
 		"name: default\nfragments:\n  - cell#fragments/cell-marker\nskills:\n  - cell#skills/reviewer\n", 0o644)
-	mustWrite(t, filepath.Join(project, ".ctxloom", "config.yaml"), "version: 4\n", 0o644)
+	mustWrite(t, filepath.Join(project, ".ctxloom", "config.yaml"), fmt.Sprintf("version: %d\n", config.CurrentConfigVersion), 0o644)
+	// The approvals store as `ctxloom init` leaves it: absent is not empty,
+	// and an absent store withholds everything.
+	approvals := paths.ApprovalsPath(filepath.Join(project, paths.AppDirName))
+	mustMkdirAll(t, approvals)
+	mustWrite(t, filepath.Join(approvals, paths.ApprovalsPlaceholderName), "", 0o644)
 	return project
 }
 
@@ -129,5 +138,17 @@ func TestCellFixture_RefusesNamingTheBundleWhenItIsMissing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), fmt.Sprintf("%q", cellBundle)) {
 		t.Fatalf("the refusal does not name the bundle %q: %v", cellBundle, err)
+	}
+}
+
+// An unprovisioned approvals store withholds every item, the fixture's own
+// local bundle included, and the in-container materialize then refuses an
+// empty context — a cause four steps from the symptom, seen only on the
+// docker lane. Read through the product's own store, as requireCellBundle is.
+func TestCellFixture_ApprovalsStoreReadsAsTheProductWouldReadIt(t *testing.T) {
+	project := writeCellFixture(t, t.TempDir())
+	store := countersign.NewStore(paths.ApprovalsPath(filepath.Join(project, paths.AppDirName)), afero.NewOsFs())
+	if err := store.Readable(); err != nil {
+		t.Fatalf("the fixture's approvals store is not readable, so the product withholds everything: %v", err)
 	}
 }

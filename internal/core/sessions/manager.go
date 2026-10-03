@@ -838,36 +838,48 @@ func (m *Manager) Rename(oldName, newName string) error {
 	if err := m.refuseTakenName(oldName, newName, newDir); err != nil {
 		return err
 	}
-	oldOut, newOut, moving, err := renamedOutputDir(cur.OutputDir, newName)
+	undo, err := m.moveOutputDir(oldName, cur, newName)
 	if err != nil {
 		return err
 	}
+	if err := os.Rename(filepath.Join(m.root, oldName), newDir); err != nil {
+		undo()
+		return fmt.Errorf("rename session dir: %w", err)
+	}
+	return nil
+}
+
+// moveOutputDir moves the output folder cur records to newName beside itself
+// and records the new path in oldName's sidecar, returning the undo of both.
+// A refusal (renamedOutputDir, ErrOutputDirMove) has undone its own steps.
+func (m *Manager) moveOutputDir(oldName string, cur *Entry, newName string) (undo func(), err error) {
+	oldOut, newOut, moving, err := renamedOutputDir(cur.OutputDir, newName)
+	if err != nil {
+		return nil, err
+	}
+	if oldOut == "" {
+		return func() {}, nil
+	}
 	if moving {
 		if err := os.Rename(oldOut, newOut); err != nil {
-			return fmt.Errorf("%w: %s -> %s: %w", ErrOutputDirMove, oldOut, newOut, err)
+			return nil, fmt.Errorf("%w: %s -> %s: %w", ErrOutputDirMove, oldOut, newOut, err)
 		}
 	}
-	undoOutput := func() {
+	unmove := func() {
 		if moving {
 			_ = os.Rename(newOut, oldOut)
 		}
 	}
-	if oldOut != "" {
-		recorded := *cur
-		recorded.OutputDir = newOut
-		if err := m.writeSidecar(oldName, &recorded); err != nil {
-			undoOutput()
-			return fmt.Errorf("%w: record %s: %w", ErrOutputDirMove, newOut, err)
-		}
+	recorded := *cur
+	recorded.OutputDir = newOut
+	if err := m.writeSidecar(oldName, &recorded); err != nil {
+		unmove()
+		return nil, fmt.Errorf("%w: record %s: %w", ErrOutputDirMove, newOut, err)
 	}
-	if err := os.Rename(filepath.Join(m.root, oldName), newDir); err != nil {
-		if oldOut != "" {
-			_ = m.writeSidecar(oldName, cur)
-		}
-		undoOutput()
-		return fmt.Errorf("rename session dir: %w", err)
-	}
-	return nil
+	return func() {
+		_ = m.writeSidecar(oldName, cur)
+		unmove()
+	}, nil
 }
 
 // refuseTakenName refuses a rename onto a name a session dir already holds.

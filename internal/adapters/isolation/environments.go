@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -75,13 +74,9 @@ func (e *hostEnvironment) stageCred(spawnEnv map[string]string) (map[string]stri
 }
 
 // hostSecretsDiskParent is where a host run's secret dir goes when the
-// platform has no per-user tmpfs: the session's scratch dir, or the OS temp
-// dir for a run with no session to account it to.
+// platform has no per-user tmpfs: the session's scratch dir (memberBase).
 func hostSecretsDiskParent(state SessionState) string {
-	if dir, err := state.scratchDir(); err == nil {
-		return dir
-	}
-	return os.TempDir()
+	return memberBase(state, state.scratchDir, "scratch")
 }
 
 func (e *hostEnvironment) Describe() Description { return hostDescription(e.axis) }

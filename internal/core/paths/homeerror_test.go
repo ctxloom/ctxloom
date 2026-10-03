@@ -61,12 +61,8 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 		"HarpLockPath":                HarpLockPath,
 		"HarpTranscriptStoreDir":      HarpTranscriptStoreDir,
 		"HarpCanonicalTranscriptPath": HarpCanonicalTranscriptPath,
-	}
-	// CoordProjectStateDir takes a string too, but it is NOT a harp (no
-	// traversal validation — see its doc), so it gets its own group rather
-	// than joining harpArg's name.
-	projectKeyArg := map[string]func(string) (string, error){
-		"CoordProjectStateDir": CoordProjectStateDir,
+		// The root harp is the validated argument; the project key is fixed.
+		"CoordRootStateDir": func(h string) (string, error) { return CoordRootStateDir("proj-key", h) },
 	}
 	// HarpEngineTranscriptLinkPath takes engine and sessionID too, so it
 	// cannot join harpArg's func(string) shape directly — wrap it with fixed,
@@ -97,12 +93,6 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 	for name, fn := range harpArg {
 		t.Run(name, func(t *testing.T) {
 			got, err := fn("swift-amber-falcon")
-			check(t, name, got, err)
-		})
-	}
-	for name, fn := range projectKeyArg {
-		t.Run(name, func(t *testing.T) {
-			got, err := fn("proj-key")
 			check(t, name, got, err)
 		})
 	}

@@ -110,7 +110,7 @@ func TestHarpEssencePath_InHarpDir(t *testing.T) {
 
 // TestHomeCoordDir_HomeRootedCoordSegment pins ~/.ctxloom/coord — the root
 // internal/core/coord and discover both resolve project coordinator
-// state under (see CoordProjectStateDir). The literal "coord" (not
+// state under (see CoordRootStateDir). The literal "coord" (not
 // CoordDirName) is deliberate: a mutation to the constant's VALUE must still
 // fail this.
 func TestHomeCoordDir_HomeRootedCoordSegment(t *testing.T) {
@@ -120,16 +120,26 @@ func TestHomeCoordDir_HomeRootedCoordSegment(t *testing.T) {
 	assert.True(t, strings.HasSuffix(got, filepath.Join(AppDirName, "coord")))
 }
 
-// TestCoordProjectStateDir_UnderHomeCoordDir pins the per-project state dir
-// as a direct child of HomeCoordDir, keyed by the caller's (already
-// sanitized) project key.
-func TestCoordProjectStateDir_UnderHomeCoordDir(t *testing.T) {
+// TestCoordRootStateDir_UnderTheProjectUnderHomeCoordDir pins a root's state
+// dir as <HomeCoordDir>/<project-key>/<root-harp>: every root of one project
+// shares the project segment, and the root harp is the leaf.
+func TestCoordRootStateDir_UnderTheProjectUnderHomeCoordDir(t *testing.T) {
 	testsupport.Isolate(t)
 	root, err := HomeCoordDir()
 	assert.NoError(t, err)
-	got, err := CoordProjectStateDir("proj-key")
+	got, err := CoordRootStateDir("proj-key", "swift-amber-falcon")
 	assert.NoError(t, err)
-	assert.Equal(t, filepath.Join(root, "proj-key"), got)
+	assert.Equal(t, filepath.Join(root, "proj-key", "swift-amber-falcon"), got)
+}
+
+// TestCoordRootStateDir_RefusesATraversingRootHarp: the root harp becomes a
+// path segment, so it is validated as a harp before any path is composed.
+func TestCoordRootStateDir_RefusesATraversingRootHarp(t *testing.T) {
+	testsupport.Isolate(t)
+	for _, h := range []string{"", "..", "a/b"} {
+		_, err := CoordRootStateDir("proj-key", h)
+		assert.Error(t, err, "root harp %q", h)
+	}
 }
 
 // TestHomeLocksDir_HomeRootedLocksSegment pins ~/.ctxloom/locks — the

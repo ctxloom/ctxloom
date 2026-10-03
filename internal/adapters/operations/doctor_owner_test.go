@@ -11,44 +11,67 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
-func probeReturning(st coord.OwnerStatus, err error) func(string) (coord.OwnerStatus, error) {
-	return func(string) (coord.OwnerStatus, error) { return st, err }
+func rootsReturning(roots []coord.RootStatus, err error) func(string, string) ([]coord.RootStatus, error) {
+	return func(string, string) ([]coord.RootStatus, error) { return roots, err }
 }
 
+// TestDoctorCheckProjectOwner enumerates the project's coordinator roots: a
+// live one is information (a new run founds its own tree beside it, never
+// refused), and one nobody can resume by running — an orphaned owner, or a
+// root its owner left with runs not ended — is a warning naming the resume
+// that adopts it. Doctor removes nothing and says so.
 func TestDoctorCheckProjectOwner(t *testing.T) {
 	started := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
-	live := coord.OwnerStatus{Held: true, PID: 4242, Harp: "live-harp", Mode: coord.OwnerInteractive, Started: started, Reason: "the owner still has a controlling terminal"}
+	live := coord.RootStatus{Dir: "/c/p/live-harp", RootHarp: "live-harp", Owner: coord.OwnerStatus{
+		Held: true, PID: 4242, Harp: "live-harp", Mode: coord.OwnerInteractive, Started: started, Reason: "the owner still has a controlling terminal"}}
+	adopted := live
+	adopted.Owner.Harp = "resumer-harp"
 	orphan := live
-	orphan.Orphan, orphan.Reason = true, "its terminal is gone"
+	orphan.RootHarp, orphan.Owner.Harp = "orphan-harp", "orphan-harp"
+	orphan.Owner.Orphan, orphan.Owner.Reason = true, "its terminal is gone"
+	left := coord.RootStatus{Dir: "/c/p/left-harp", RootHarp: "left-harp"}
+	unidentified := coord.RootStatus{Dir: "/c/p/anon-harp", RootHarp: "anon-harp", Owner: coord.OwnerStatus{Held: true, Reason: "stamp unreadable"}}
 
 	cases := []struct {
-		name   string
-		probe  func(string) (coord.OwnerStatus, error)
-		status DoctorStatus
-		want   []string
+		name    string
+		list    func(string, string) ([]coord.RootStatus, error)
+		status  DoctorStatus
+		want    []string
+		notWant []string
 	}{
-		{"unowned", probeReturning(coord.OwnerStatus{}, nil), DoctorOK, []string{"unowned", "claims the project"}},
-		{"live owner", probeReturning(live, nil), DoctorInfo, []string{"live-harp", "pid 4242", "interactive", "orphan: no", "refused"}},
-		{"orphan", probeReturning(orphan, nil), DoctorWarn, []string{"live-harp", "pid 4242", "orphan: yes", "ends it", "claims the project"}},
-		{"unidentified owner", probeReturning(coord.OwnerStatus{Held: true, Reason: "stamp unreadable"}, nil), DoctorInfo, []string{"unidentified session", "orphan: no", "refused"}},
-		{"probe failure", probeReturning(coord.OwnerStatus{}, errors.New("boom")), DoctorWarn, []string{"could not probe", "boom"}},
+		{"no roots", rootsReturning(nil, nil), DoctorOK, []string{"no coordinator roots", "founds its own"}, nil},
+		{"one live root", rootsReturning([]coord.RootStatus{live}, nil), DoctorInfo,
+			[]string{"1 coordinator root", "live-harp", "live", "pid 4242", "interactive", "founds its own root alongside"}, []string{"refused", "orphan"}},
+		{"a root adopted by a resumed session names its owner", rootsReturning([]coord.RootStatus{adopted}, nil), DoctorInfo,
+			[]string{"live-harp", "resumer-harp"}, nil},
+		{"an orphaned root", rootsReturning([]coord.RootStatus{live, orphan}, nil), DoctorWarn,
+			[]string{"2 coordinator roots", "orphan-harp", "orphaned", "its terminal is gone", "ctxloom run --session orphan-harp", "doctor removes no root"}, []string{"refused"}},
+		{"a root nobody owns", rootsReturning([]coord.RootStatus{left}, nil), DoctorWarn,
+			[]string{"left-harp", "unowned", "ctxloom run --session left-harp", "ctxloom session sweep", "doctor removes no root"}, nil},
+		{"an unidentified owner", rootsReturning([]coord.RootStatus{unidentified}, nil), DoctorInfo, []string{"anon-harp", "an unidentified session"}, nil},
+		{"list failure keeps what was listed", rootsReturning([]coord.RootStatus{live}, errors.New("boom")), DoctorWarn,
+			[]string{"live-harp", "could not probe", "boom"}, nil},
+		{"list failure with nothing listed", rootsReturning(nil, errors.New("boom")), DoctorWarn, []string{"could not list", "boom"}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := doctorCheckProjectOwner(t.TempDir(), tc.probe)
+			c := doctorCheckProjectOwner(t.TempDir(), tc.list)
 			assert.Equal(t, doctorProjectOwnerMarker, c.Marker)
-			assert.Equal(t, tc.status, c.Status)
+			assert.Equal(t, tc.status, c.Status, c.Detail)
 			for _, w := range tc.want {
 				assert.Contains(t, c.Detail, w)
+			}
+			for _, w := range tc.notWant {
+				assert.NotContains(t, c.Detail, w)
 			}
 		})
 	}
 }
 
-// With no project there is nothing to probe.
+// With no project there is nothing to list.
 func TestDoctorCheckProjectOwner_NoProject(t *testing.T) {
 	called := false
-	c := doctorCheckProjectOwner("", func(string) (coord.OwnerStatus, error) { called = true; return coord.OwnerStatus{}, nil })
+	c := doctorCheckProjectOwner("", func(string, string) ([]coord.RootStatus, error) { called = true; return nil, nil })
 	require.False(t, called)
 	assert.Equal(t, DoctorInfo, c.Status)
 }

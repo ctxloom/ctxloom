@@ -286,16 +286,17 @@ const (
 	// transcript is read or written under.
 	CanonicalTranscriptFileName = "transcript.jsonl"
 
-	// CoordDirName is the per-user directory holding one subdirectory of
-	// in-process coordinator state per project: ~/.ctxloom/coord/<project-key>/
-	// (owner lock, run/mailbox/interaction journals, last-bound endpoint) — see
-	// HomeCoordDir / CoordProjectStateDir. Keyed by a project identity resolved
-	// outside this package (internal/core/coord.stateDirForProject), not
-	// by harp: a project's coordinator state outlives any one session.
+	// CoordDirName is the per-user directory holding in-process coordinator
+	// state: ~/.ctxloom/coord/<project-key>/<root-harp>/ (owner lock,
+	// run/mailbox/interaction journals, last-bound endpoint) — see
+	// HomeCoordDir / CoordRootStateDir. One project holds one ROOT per
+	// independent coordinator tree, keyed by the harp of the session that
+	// founded it; the project key is resolved outside this package
+	// (internal/core/coord.RootStateDir).
 	CoordDirName = "coord"
 
-	// CoordEndpointFileName is the discovery file inside a project's
-	// coordinator state dir (~/.ctxloom/coord/<project-key>/endpoint.json):
+	// CoordEndpointFileName is the discovery file inside a coordinator root's
+	// state dir (~/.ctxloom/coord/<project-key>/<root-harp>/endpoint.json):
 	// the ports a coordinator last bound, re-minted every Serve() so a
 	// relaunched coordinator re-binds the SAME endpoint and a separate CLI
 	// invocation (internal/adapters/coordgrpc/discover.List) can find it. 0600 and
@@ -751,26 +752,29 @@ func TriggerCacheDir() (string, error) {
 	return homeUnder(whatTriggerCache, CacheDir, TriggersDir)
 }
 
-// HomeCoordDir returns ~/.ctxloom/coord — the per-user root holding one
-// subdirectory of coordinator state per project (see CoordDirName,
-// CoordProjectStateDir). internal/adapters/coordgrpc/discover.List globs one level
-// below this root for every project's endpoint.json.
+// HomeCoordDir returns ~/.ctxloom/coord — the per-user root holding every
+// project's coordinator roots (see CoordDirName, CoordRootStateDir).
+// internal/adapters/coordgrpc/discover.List globs two levels below this root
+// for every root's endpoint.json.
 func HomeCoordDir() (string, error) {
 	return homeUnder(whatHomeCoord, CoordDirName)
 }
 
-// CoordProjectStateDir returns ~/.ctxloom/coord/<projectKey> — one project's
-// coordinator state directory. projectKey is assumed to already be a single
-// safe path segment (internal/core/coord.sanitizeKey's job, not this
-// package's: a coordinator project key is not a harp, so it gets no
-// HarpDir-style traversal validation here); this function only composes the
-// path.
-func CoordProjectStateDir(projectKey string) (string, error) {
+// CoordRootStateDir returns ~/.ctxloom/coord/<projectKey>/<rootHarp> — one
+// coordinator ROOT's state directory: the tree a session founded (or adopted)
+// in that project. projectKey is assumed to already be a single safe path
+// segment (internal/core/coord.sanitizeKey's job, not this package's: a
+// coordinator project key is not a harp). rootHarp IS a harp, so it gets the
+// same traversal validation HarpDir gives one.
+func CoordRootStateDir(projectKey, rootHarp string) (string, error) {
+	if err := harpid.Validate(rootHarp); err != nil {
+		return "", err
+	}
 	dir, err := HomeCoordDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, projectKey), nil
+	return filepath.Join(dir, projectKey, rootHarp), nil
 }
 
 // HomeLocksDir returns ~/.ctxloom/locks — the home-rooted directory holding
@@ -1230,7 +1234,7 @@ func Layout() []Entry {
 
 		// --- RootHome: the home-rooted stores, added by C13 (fs-consolidation
 		// plan) so doctor can finally see them. Each names a STORE ROOT only —
-		// never a harp- or project-key-keyed subpath (HarpDir, CoordProjectStateDir
+		// never a harp- or project-key-keyed subpath (HarpDir, CoordRootStateDir
 		// and friends stay unrepresented, same reasoning as state/<harp> above).
 		// Every one of them is TierLocal (no ctxloom command reconstructs their
 		// content — see Tier's doc) and PresenceIfUsed: a home-rooted store is

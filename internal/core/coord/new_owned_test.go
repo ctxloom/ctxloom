@@ -13,34 +13,35 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestNew_RefusesAProjectAnotherLiveOwnerHolds pins the single-coordinator
-// rule at the constructor: when another live process holds the project's
-// owner lock, New returns ErrStateOwned naming that owner's pid and builds
-// NOTHING — no state dir of its own, no journals, and the winner's lock is
-// left exactly as it was. The loser used to fall back to an ephemeral
-// per-process state dir with a warning, which is a second coordinator on the
-// same project by another name.
-func TestNew_RefusesAProjectAnotherLiveOwnerHolds(t *testing.T) {
+// TestNew_RefusesARootAnotherLiveOwnerHolds pins the one-coordinator-per-ROOT
+// rule at the constructor: when another live process holds the root's owner
+// lock, a claim naming that root (Options.RootHarp — a resume) returns
+// ErrStateOwned naming that owner's pid and builds NOTHING — no state dir of
+// its own, no journals, and the winner's lock is left exactly as it was. A
+// fallback to an ephemeral per-process state dir would be a second
+// coordinator on the same root by another name.
+func TestNew_RefusesARootAnotherLiveOwnerHolds(t *testing.T) {
 	testsupport.Isolate(t)
 	teeHome(t) // the state dir resolves against HOME, so redirect it FIRST
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
 
-	// Park the project's owner lock on a descriptor that is not the claim's:
+	// Park the root's owner lock on a descriptor that is not the claim's:
 	// flock conflicts between two open descriptions even within one process,
 	// which is all "another live owner" is to the kernel.
 	const key = "owned-project"
-	dir, err := stateDirForProject(key)
+	const root = "the-owner-harp"
+	dir, err := ensureRootStateDir(key, "", root)
 	require.NoError(t, err)
 	holdOwnerLock(t, dir)
-	owner := ownerStamp{PID: os.Getppid(), Harp: "the-owner-harp", Mode: OwnerNonInteractive, Started: time.Now().UTC()}
+	owner := ownerStamp{PID: os.Getppid(), Harp: root, Mode: OwnerNonInteractive, Started: time.Now().UTC()}
 	writeStamp(t, dir, owner)
 	stampPath := filepath.Join(dir, ownerStampFileName)
 	stamp, err := os.ReadFile(stampPath)
 	require.NoError(t, err)
 
 	// A complete Options: the claim is the ONLY thing that can refuse here.
-	c, err := New(Options{ProjectDir: t.TempDir(), ProjectID: key, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
+	c, err := New(Options{ProjectDir: t.TempDir(), ProjectID: key, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp, RootHarp: root})
 	assert.Nil(t, c)
 	require.ErrorIs(t, err, ErrStateOwned)
 	assert.Contains(t, err.Error(), strconv.Itoa(owner.PID), "the refusal names the owner's pid so the operator can find the session")

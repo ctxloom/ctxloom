@@ -75,21 +75,23 @@ Feature: session — the record of what your assistant did, and the tools to pru
 
   Rule: Renaming is a field assignment, so it rides `edit`
 
-    A session's name is a field on its index entry, not a thing with a verb
-    of its own. `edit` is the one mutation verb for the noun, and `--name`
-    is the assignment that renames the harp. The backend transcript is
-    unaffected: the entry keeps its bound session id, its transcript and its
-    essence, and only the name it answers to moves.
+    A session's name is a field on its record, not a thing with a verb of
+    its own. `edit` is the one mutation verb for the noun, and `--name` is
+    the assignment that renames the harp. The backend transcript is
+    unaffected: the session keeps its bound session id, its transcript and
+    its essence, and only the name it answers to moves. Its output dir is
+    recorded as an absolute path at mint and stays where it is, so the old
+    name can still appear inside that path; the listing is checked by harp.
 
-    Scenario: --name renames the harp in the index
+    Scenario: --name renames the harp
       Given an initialized ctxloom project
       And a recorded session "amber-swift-owl"
       When I run "ctxloom session edit amber-swift-owl --name bright-keen-hawk"
       Then the command succeeds
       And the output contains "bright-keen-hawk"
       When I run "ctxloom session list --all"
-      Then the output contains "bright-keen-hawk"
-      And the output does not contain "amber-swift-owl"
+      Then the JSON output array "$" contains an object whose "harp" is "bright-keen-hawk"
+      And the JSON output array "$" contains no object whose "harp" is "amber-swift-owl"
 
     Scenario: The old rename verb is gone, not hidden
       Given an initialized ctxloom project

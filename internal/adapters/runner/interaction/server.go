@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -29,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // LocalSurface is the cell-local half of the endpoint's surface — the
@@ -410,13 +412,13 @@ func unmarshalArgs(req *mcp.CallToolRequest, m proto.Message) error {
 }
 
 // coordinationResult projects a plane-2 response onto the MCP result: a
-// non-OK status is the tool error (its message names the conflict), the
-// result message becomes structured content (proto names), and the status
-// message rides as human-readable text content.
+// non-OK status is the tool error (refusalError), the result message becomes
+// structured content (proto names), and the status message rides as
+// human-readable text content.
 func coordinationResult(resp *agentcoordpb.CoordinatorResponse, result proto.Message) (*mcp.CallToolResult, error) {
 	st := resp.GetStatus()
 	if st.GetCode() != int32(codes.OK) {
-		return nil, errors.New(st.GetMessage())
+		return nil, refusalError(st)
 	}
 	out := &mcp.CallToolResult{}
 	if msg := st.GetMessage(); msg != "" {
@@ -434,6 +436,29 @@ func coordinationResult(resp *agentcoordpb.CoordinatorResponse, result proto.Mes
 		out.StructuredContent = structured
 	}
 	return out, nil
+}
+
+// refusalError is a non-OK status as the tool error the model reads: its
+// message, then the remedy the coordinator attached (coordgrpc.RefusalStatus:
+// an errdetails.Help link's description) as its fix line — the MCP SDK
+// reports a tool error as err.Error() alone, which a report.Error leaves its
+// Fix out of. This decodes coordgrpc.ErrFromStatus's detail itself because
+// layering rule "adapters-import-core-not-each-other" forbids this package
+// importing coordgrpc; TestCoordinationResult_RefusalShowsItsFixLine binds
+// the two through the real encoder. A detail of any other type is skipped.
+func refusalError(st *rpcstatus.Status) error {
+	for _, d := range st.GetDetails() {
+		var help errdetails.Help
+		if !d.MessageIs(&help) || d.UnmarshalTo(&help) != nil {
+			continue
+		}
+		for _, l := range help.GetLinks() {
+			if fix := l.GetDescription(); fix != "" {
+				return fmt.Errorf("%w%s", report.Error{Msg: st.GetMessage(), Fix: fix}, clifmt.FixLine("", fix))
+			}
+		}
+	}
+	return errors.New(st.GetMessage())
 }
 
 // protoIsNil guards typed-nil proto results inside the oneof accessors.

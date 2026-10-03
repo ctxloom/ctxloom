@@ -86,3 +86,22 @@ func TestLaunchFailureDetail(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, launchRemedyFix, fix, "coord reads the same remedy the CLI renderer would")
 }
+
+// TestIssueStartRun_RefusalNoticeCarriesTheRemedy: a runner that refuses
+// StartRun with an error naming its fix — over the real wire — reaches the
+// parent's terminal notice WITH that fix line, not flattened to the refusal's
+// text.
+func TestIssueStartRun_RefusalNoticeCarriesTheRemedy(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp.refuseStartRun = fmt.Errorf("execute: %w", report.Errorf(launchRemedyFix, "%w", errLaunchRemedyCause))
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+
+	notice := childLaunchNotice(t, c, out.Harp)
+	assert.Contains(t, notice.Body, "StartRun refused", "the refusal is the runner's")
+	assert.Contains(t, notice.Body, errLaunchRemedyCause.Error(), "the refusal's text still reaches the parent")
+	assert.Contains(t, notice.Body, clifmt.FixLine("", launchRemedyFix), "the remedy reaches the parent as its fix line")
+}

@@ -999,7 +999,7 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 			// not failed here.
 			return fmt.Errorf("%w: %s", errEndpointUnavailable, resp.Err.Error())
 		}
-		err = fmt.Errorf("StartRun refused: %s", resp.Err.Error())
+		err = fmt.Errorf("StartRun refused: %w", resp.Err)
 		c.failChild(rt, err)
 		return err
 	}

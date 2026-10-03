@@ -139,6 +139,9 @@ type fakeSpawner struct {
 	// refuseBinds is how many launches the runner tail refuses with
 	// delivery.ErrEndpointUnavailable before binding normally.
 	refuseBinds int
+	// refuseStartRun, when set, is the error every StartRun is refused with
+	// by the runner, before anything is executed.
+	refuseStartRun error
 	// bindHold, when non-nil, holds every launch inside the runner tail's
 	// bind seam — StartRun is on the wire, the runner is up, the reply has
 	// not been sent — until it is closed or the spawn is killed. bindEntered
@@ -353,7 +356,13 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 					s.startGrants = make(map[string][]string)
 				}
 				s.startGrants[sr.GetRunId()] = sr.GetGrants()
+				refusal := s.refuseStartRun
 				s.mu.Unlock()
+				if refusal != nil {
+					resp := runnerHooks.StartRunRefusal(refusal)
+					resp.RequestId = req.GetRequestId()
+					return resp
+				}
 			}
 			return host.Handle(req)
 		},

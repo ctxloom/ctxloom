@@ -1176,11 +1176,10 @@ func (st *runState) markSessionEnded() {
 // cannot delegate, but every child's mail is a file spool, so nothing already
 // spawned is stranded and no work is lost by launching anyway.
 //
-// Two shapes, by cause. A project ANOTHER live session already owns
-// (coord.ErrStateOwned) is its own class: a project has one coordinator, so
-// the second claimant is refused BY NAME rather than degraded into a rival
-// on state of its own; --degraded still launches it, without delegation.
-// Every other cause (listeners, the state dir) is an apply failure.
+// Every cause is an apply failure: listeners, the state dir, or a resumed
+// root another live process still holds (coord.ErrStateOwned). A fresh run
+// never meets that last one — it founds a root of its own beside any other
+// session's tree in the project.
 //
 // Split out of hostCoordinator as its own function purely so it is TESTABLE:
 // the call site needs a live session, a state dir and a real listener
@@ -1188,12 +1187,6 @@ func (st *runState) markSessionEnded() {
 // finding — the one that must not silently regress into a refusal —
 // asserted by nothing.
 func recordCoordinatorStartupFinding(cerr error) {
-	if errors.Is(cerr, coord.ErrStateOwned) {
-		strictness.Fail(report.KindOwner,
-			"end the session that owns this project (named above; `ctxloom doctor` shows it too), or pass --degraded (env CTXLOOM_DEGRADED=1) to launch this one without agent delegation",
-			"a project has one session owner and this one is already owned: %v — this session is refused as a second coordinator; nothing the owner has spawned is affected", cerr)
-		return
-	}
 	strictness.Fail(report.KindApply,
 		"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation",
 		"agent coordinator startup failed: %v — this session cannot delegate; nothing it has already spawned is affected, their mail is a file spool", cerr)
@@ -1204,7 +1197,9 @@ func (st *runState) hostCoordinator() func() {
 	if st.launch.Mode == engine.Interactive {
 		mode = coord.OwnerInteractive
 	}
-	sc, ownerToken, cerr := mcp.HostCoordinatorForSession(NewCoordinator, App(), st.workDir, st.activeHarp, mode)
+	// `--session H` mints a new harp for this process yet resumes H's tree:
+	// it claims root H and adopts its runs. A fresh run founds its own root.
+	sc, ownerToken, cerr := mcp.HostCoordinatorForSession(NewCoordinator, App(), st.workDir, st.activeHarp, runResumeSession, mode)
 	if cerr != nil {
 		recordCoordinatorStartupFinding(cerr)
 		return func() {}
@@ -1219,7 +1214,7 @@ func (st *runState) hostCoordinator() func() {
 	// A depth-0 session-owner credential is minted per `ctxloom run`
 	// process; runsFold.apply re-applies every factSessionCred on
 	// replay/adoption, so one never revoked would stay valid forever in the
-	// project's coordinator state. Revoke on the SAME teardown that closes
+	// root's coordinator state. Revoke on the SAME teardown that closes
 	// the coordinator, and BEFORE it, while the journal is still open to
 	// accept the write.
 	return func() {

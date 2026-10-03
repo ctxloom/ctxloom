@@ -2,13 +2,11 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -44,24 +42,4 @@ func TestRecordCoordinatorStartupFinding_Degradable(t *testing.T) {
 		assert.NotEmpty(t, strictness.Mode{}.Actionable(strictness.All()),
 			"strict mode acts on the finding")
 	})
-}
-
-// TestRecordCoordinatorStartupFinding_SecondOwnerIsItsOwnClass: a project
-// another live session already owns is refused in its own kind (report.KindOwner), naming the
-// owned state, and stays degradable — --degraded launches the second session
-// without delegation, never as a second owner.
-func TestRecordCoordinatorStartupFinding_SecondOwnerIsItsOwnClass(t *testing.T) {
-	strictness.Reset()
-	t.Cleanup(strictness.Reset)
-
-	recordCoordinatorStartupFinding(fmt.Errorf("wrapped: %w", coord.ErrStateOwned))
-
-	found := strictness.All()
-	require.Len(t, found, 1)
-	assert.Equal(t, report.KindOwner, found[0].Kind, "an owned project is not an apply failure")
-	assert.Contains(t, found[0].Text, coord.ErrStateOwned.Error(), "the refusal names the owned state")
-	assert.False(t, found[0].NonDegradable)
-	assert.Empty(t, strictness.Mode{Degraded: true}.Actionable(found), "--degraded proceeds without delegation")
-	assert.NotEmpty(t, strictness.Mode{}.Actionable(found), "strict mode refuses")
-	assert.Contains(t, found[0].Remedy, "ctxloom doctor", "the remedy points at where the owner can be seen")
 }

@@ -50,8 +50,8 @@ type RunHost interface {
 // RunHosts yields the coordinator a one-shot's run rides on, for the harp
 // the session was minted as: the session's own coordinator when the process
 // hosts one (the host tools of a live session), or one the command hosts for
-// the purpose (a distill, the setup probe) — a project has ONE coordinator,
-// owned by a session harp, so the harp comes first and the host after.
+// the purpose (a distill, the setup probe) — an ephemeral root of its own,
+// named by that harp, so the harp comes first and the host after.
 type RunHosts interface {
 	RunHost(ctx context.Context, projectDir, ownerHarp string) (RunHost, error)
 }

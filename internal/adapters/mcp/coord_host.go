@@ -32,8 +32,10 @@ type CoordinatorConstructor func(coord.Options) (*coord.Coordinator, error)
 // config and asks the composition to construct it, then serves it.
 // ownerHarp is the session owner's harp — the inbox this process drains
 // (coord.Options.OwnerHarp); the hosting site knows it before standing the
-// coordinator up.
-func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string, mode coord.OwnerMode) (*coord.Coordinator, error) {
+// coordinator up. rootHarp names the coordinator root this process claims
+// (coord.Options.RootHarp): "" founds one of its own under ownerHarp, a
+// resumed session's harp adopts that session's tree.
+func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp, rootHarp string, mode coord.OwnerMode) (*coord.Coordinator, error) {
 	cfg, err := app.Config(context.Background())
 	if err != nil {
 		return nil, err
@@ -69,6 +71,7 @@ func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectD
 		// The idle reaper's bound — delegation.idle_timeout, resolved by config.
 		IdleTimeout: cfg.GetDelegationIdleTimeout(),
 		OwnerHarp:   ownerHarp,
+		RootHarp:    rootHarp,
 		// A parked request's engine judges what a session grant covers.
 		Engines:   base.Engines,
 		OwnerMode: mode,
@@ -211,10 +214,12 @@ func (a *HostApp) RunHost(context.Context, string, string) (operations.RunHost, 
 // credential the host revokes on teardown. A standup failure returns the
 // error for the caller's fail-loud gate; the caller decides degraded
 // behavior. The owner's RUNNER is stamped by StartOwnedRun with its own
-// per-run trio; nothing here rides an environment. mode is stamped as the
-// owner's, and decides whether a later claimant may reclaim it as an orphan.
-func HostCoordinatorForSession(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string, mode coord.OwnerMode) (*coord.Coordinator, string, error) {
-	c, err := hostCoordinator(build, app, projectDir, ownerHarp, mode)
+// per-run trio; nothing here rides an environment. rootHarp is the root to
+// claim ("" founds the session's own; see hostCoordinator). mode is stamped
+// as the owner's, and decides whether a later claimant of the same root may
+// reclaim it as an orphan.
+func HostCoordinatorForSession(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp, rootHarp string, mode coord.OwnerMode) (*coord.Coordinator, string, error) {
+	c, err := hostCoordinator(build, app, projectDir, ownerHarp, rootHarp, mode)
 	if err != nil {
 		return nil, "", err
 	}

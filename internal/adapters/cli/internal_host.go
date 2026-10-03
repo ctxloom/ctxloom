@@ -11,15 +11,15 @@ import (
 
 // The coordinator a command's INTERNAL one-shot runs on when the process
 // hosts none for a session of its own: a distill (`bundle distill`,
-// `session distill`), init's auth probe and discovery launch. A project has
-// ONE coordinator, owned by a session harp, so it is hosted for the FIRST
-// one-shot the command starts — under that session's harp — and every later
-// one-shot in the process rides the same coordinator (init's discovery
-// launch after its probe). It is closed when the command's run ends
-// (rootPersistentPostRunE). A project already owned by a live session
-// refuses the host (coord.ErrStateOwned), and the one-shot with it: the
-// runner is started and turned by a coordinator, and there is no second arm
-// to drive one without.
+// `session distill`), init's auth probe and discovery launch. It is an
+// EPHEMERAL ROOT: founded for the FIRST one-shot the command starts, under
+// that one-shot's own harp, beside any live session's tree in the project
+// (which it never touches), and every later one-shot in the process rides
+// the same coordinator (init's discovery launch after its probe). It is
+// closed when the command's run ends (rootPersistentPostRunE), and its
+// settled root goes with it (coord.Coordinator.Close). A coordinator that
+// cannot stand up fails the one-shot: the runner is started and turned by a
+// coordinator, and there is no second arm to drive one without.
 var internalCoord struct {
 	mu sync.Mutex
 	c  *coord.Coordinator
@@ -35,7 +35,7 @@ func internalCoordinator(projectDir, ownerHarp string) (*coord.Coordinator, erro
 	}
 	// The owner credential is for a session the command drives itself; an
 	// internal one-shot's runner is stamped by StartOwnedRun.
-	c, _, err := mcp.HostCoordinatorForSession(NewCoordinator, App(), projectDir, ownerHarp, coord.OwnerNonInteractive)
+	c, _, err := mcp.HostCoordinatorForSession(NewCoordinator, App(), projectDir, ownerHarp, "", coord.OwnerNonInteractive)
 	if err != nil {
 		return nil, err
 	}

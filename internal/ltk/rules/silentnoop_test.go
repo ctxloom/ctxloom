@@ -65,7 +65,7 @@ func TestDenyRuleNeedsMessageOrSuggest(t *testing.T) {
 }
 
 // TestExpandSubmodules_RejectsInvalidInjectedPattern pins that
-// ExpandSubmodules injects raw .gitmodules strings into Match.Path AFTER Parse
+// ExpandSubmodules injects raw .gitmodules strings into PathMatch.Path AFTER Parse
 // validated that list, and globMatch swallows the resulting error — so a
 // submodule whose path carries a glob metacharacter (`a[`) expands into a
 // pattern that can never match and the submodule is silently unprotected by a

@@ -94,7 +94,7 @@ type SimpleCommand struct {
 	// it. The frontend sets it on every command belonging to a backgrounded
 	// statement (a bare call, both sides of a pipe, or every command inside a
 	// backgrounded `&&`/`||`/subshell chain), since the whole job is detached
-	// as one unit. Its consumer is rules.Match.Backgrounded.
+	// as one unit. Its consumer is rules.CommandMatch.Backgrounded.
 	Background bool
 }
 

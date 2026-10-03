@@ -383,7 +383,7 @@ func (c *Config) ExpandSubmodules(submodulePaths []string) error {
 			dirs = append(dirs, p+"/")
 		}
 	}
-	// These patterns are injected into Match.Path AFTER Parse validated that
+	// These patterns are injected into PathMatch.Path AFTER Parse validated that
 	// list, so they are the one class of pattern that never met
 	// validatePathPatterns — and globMatch treats a malformed pattern as
 	// no-match. A submodule whose path carries a glob metacharacter would

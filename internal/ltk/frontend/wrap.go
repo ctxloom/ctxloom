@@ -433,7 +433,7 @@ func innerShell(prog string, outer ir.Shell) ir.Shell {
 // correctly locate where the inner command starts for common invocations, not
 // to fully replicate each tool's getopt grammar — and bias toward stripping
 // MORE rather than less: an extra unwrap only WIDENS what a deny rule can
-// catch (the same fail-safe direction as the deny-side isSubsequence operand
+// catch (the same fail-safe direction as the deny-side alignSubsequence operand
 // match in package rules), whereas under-stripping leaves a real inner
 // command unseen.
 

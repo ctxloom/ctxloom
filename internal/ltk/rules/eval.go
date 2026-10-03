@@ -9,11 +9,8 @@ import (
 // Decision is the result of evaluating a script against a config.
 type Decision struct {
 	Allowed bool
-	// RuleID is the id of the deny rule that fired, "" if none. This
-	// used to be Rule *Rule, but the whole *Rule was read only by this
-	// package's own tests, and only ever for its ID -- RuleID gives them the
-	// same assertion with a far smaller, loggable value instead of a pointer
-	// into the live rule table.
+	// RuleID is the id of the deny rule that fired, "" if none: a loggable
+	// value rather than a pointer into the live rule table.
 	RuleID  string
 	Reason  string // human-facing explanation
 	Suggest string // suggested replacement command, if any

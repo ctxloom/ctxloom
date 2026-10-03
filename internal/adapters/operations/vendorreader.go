@@ -446,7 +446,7 @@ func resumeInto(ctx context.Context, fs afero.Fs, adapter vendorreader.Resumable
 // none). The caller aborts af on error.
 func writeRebuildSegments(ctx context.Context, fs afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, af *safefs.AtomicFile, liveSrc string, liveOK bool) (*transcriptWatermark, error) {
 	for _, rot := range e.Rotations {
-		if werr := appendRotationSegment(ctx, fs, adapter, e, rot, af); werr != nil {
+		if werr := appendRotationSegment(ctx, adapter, e, rot, af); werr != nil {
 			return nil, werr
 		}
 	}
@@ -527,7 +527,7 @@ func tryOwnCanonicalTranscript(harp, dest string) (release func(), acquired bool
 // through clidiag rather than returning an error for that case. Only a
 // genuine I/O failure while converting or caching a segment that DOES exist
 // returns an error.
-func appendRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, af *safefs.AtomicFile) error {
+func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, af *safefs.AtomicFile) error {
 	segPath, perr := paths.ResolveHarpSegmentPath(e.HarpName, rot.SessionID)
 	if perr != nil {
 		return fmt.Errorf("resolve segment path for %s/%s: %w", e.HarpName, rot.SessionID, perr)
@@ -549,6 +549,7 @@ func appendRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorrea
 		if mkErr := os.MkdirAll(filepath.Dir(segPath), 0o755); mkErr != nil {
 			return fmt.Errorf("create segments dir for %s: %w", e.HarpName, mkErr)
 		}
+		fsys := afero.NewOsFs() // the segment file and its recorder share it
 		segAF, aerr := safefs.NewAtomicFile(fsys, segPath, 0o644)
 		if aerr != nil {
 			return fmt.Errorf("open segment rebuild file for %s/%s: %w", e.HarpName, rot.SessionID, aerr)

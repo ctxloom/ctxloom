@@ -146,10 +146,10 @@ func TestStride_SingletonUsesNoDraws(t *testing.T) {
 }
 
 func TestDeterministic(t *testing.T) {
-	in := []byte("same input")
+	in, again := []byte("same input"), []byte("same input")
 	for _, r := range []Range{Privileged, Registered, Dynamic, Service} {
-		a, b := firstN(in, r, 50), firstN(append([]byte(nil), in...), r, 50)
-		if fmt.Sprint(a) != fmt.Sprint(b) || r.Pick(in) != r.Pick(in) {
+		a, b := firstN(in, r, 50), firstN(again, r, 50)
+		if fmt.Sprint(a) != fmt.Sprint(b) || r.Pick(in) != r.Pick(again) {
 			t.Errorf("range %v not deterministic: %v vs %v", r, a, b)
 		}
 	}

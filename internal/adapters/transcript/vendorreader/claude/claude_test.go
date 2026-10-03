@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -73,7 +74,7 @@ func runConvert(t *testing.T, fixture string) []transcript.Record {
 	t.Helper()
 	testsupport.Isolate(t)
 
-	rec, err := transcript.NewRecorder(fixtureHarp, "claude-code")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude-code")
 	require.NoError(t, err)
 
 	src := fixturePath(t, fixture)
@@ -144,7 +145,7 @@ func TestConvert_MatchesGolden(t *testing.T) {
 // some downstream reader chokes on it.
 func TestConvert_ConformsToJSONSchema(t *testing.T) {
 	testsupport.Isolate(t)
-	rec, err := transcript.NewRecorder(fixtureHarp, "claude-code")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, Adapter{}.Convert(context.Background(), rec, fixturePath(t, "transcript-fixture.jsonl")))
 	require.NoError(t, rec.Close())
@@ -292,7 +293,7 @@ func TestConvert_SkipsSyntheticAndAdminLines(t *testing.T) {
 // message.id.
 func TestConvert_TurnBoundaryOnMessageIDChange(t *testing.T) {
 	testsupport.Isolate(t)
-	rec, err := transcript.NewRecorder(fixtureHarp, "claude-code")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, Adapter{}.Convert(context.Background(), rec, fixturePath(t, "turn-boundary-fixture.jsonl")))
 	require.NoError(t, rec.Close())
@@ -333,7 +334,7 @@ func TestConvert_MalformedLineDegradesToPartial(t *testing.T) {
 		`{"type":"user","sessionId":"partial-session","message":{"role":"user","content":"still here"}}` + "\n"
 	require.NoError(t, os.WriteFile(src, []byte(content), 0o644))
 
-	rec, err := transcript.NewRecorder(fixtureHarp, "claude-code")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, Adapter{}.Convert(context.Background(), rec, src))
 	require.NoError(t, rec.Close())
@@ -354,7 +355,7 @@ func TestConvert_MalformedLineDegradesToPartial(t *testing.T) {
 // must NOT silently swallow.
 func TestConvert_OpenFailure(t *testing.T) {
 	testsupport.Isolate(t)
-	rec, err := transcript.NewRecorder(fixtureHarp, "claude-code")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude-code")
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
@@ -367,7 +368,7 @@ func TestConvert_OpenFailure(t *testing.T) {
 // cancellation on a large/slow import.
 func TestConvert_ContextCancelled(t *testing.T) {
 	testsupport.Isolate(t)
-	rec, err := transcript.NewRecorder(fixtureHarp, "claude-code")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude-code")
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 

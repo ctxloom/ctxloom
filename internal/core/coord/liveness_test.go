@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -47,7 +48,7 @@ func stuckChildTranscript(t *testing.T, harp string, deliveries int) {
 	t.Helper()
 	onlyFixtureTranscript(t, harp)
 	for i := 0; i < deliveries; i++ {
-		rec, err := transcript.NewRecorder(harp, "claude")
+		rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, "claude")
 		require.NoError(t, err)
 		transcript.RecordUserText(rec, "# composed context\n\nyou are a delegated agent\n")
 		require.NoError(t, rec.Close())
@@ -57,7 +58,7 @@ func stuckChildTranscript(t *testing.T, harp string, deliveries int) {
 func healthyChildTranscript(t *testing.T, harp string) {
 	t.Helper()
 	onlyFixtureTranscript(t, harp)
-	rec, err := transcript.NewRecorder(harp, "claude")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, "claude")
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rec.Close()) }()
 	transcript.RecordUserText(rec, "# composed context\n\nyou are a delegated agent\n")

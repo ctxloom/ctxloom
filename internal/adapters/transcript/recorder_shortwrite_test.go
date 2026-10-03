@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -60,7 +61,7 @@ func TestRecorder_ShortWriteBoundsTheDamageAndShowsTheGap(t *testing.T) {
 	const harp = "shortwrite-harp"
 
 	sw := &shortWriter{}
-	rec, err := NewRecorder(harp, "claude-code", func(r *fileRecorder) {
+	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code", func(r *fileRecorder) {
 		r.open = func(path string) (io.WriteCloser, error) {
 			f, oerr := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 			if oerr != nil {
@@ -121,7 +122,7 @@ func TestRecorder_TotallyFailedWriteLeavesNoGap(t *testing.T) {
 	const harp = "zerowrite-harp"
 
 	fail := &failingWriter{}
-	rec, err := NewRecorder(harp, "claude-code", func(r *fileRecorder) {
+	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code", func(r *fileRecorder) {
 		r.open = func(path string) (io.WriteCloser, error) {
 			f, oerr := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 			if oerr != nil {

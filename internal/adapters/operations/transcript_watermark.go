@@ -165,14 +165,13 @@ type resumePoint struct {
 // convertLive converts liveSrc into af's temp file from `from`, returning the
 // watermark taken at the adapter's checkpoint — nil when it offered none,
 // which a non-resumable adapter never does.
-func convertLive(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, af *safefs.AtomicFile, liveSrc string, from resumePoint) (*transcriptWatermark, error) {
-	// transcript.Recorder opens its own append handle by PATH — it has no
-	// io.Writer-shaped constructor — so this hands it af's temp path rather
-	// than af itself (safefs.AtomicFile.TempPath's documented escape hatch).
-	// commitRebuild stats the temp file's actual on-disk size, so bytes
-	// Recorder writes here are covered by the same empty-guard as anything
-	// written through af.Write.
-	rec, err := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(af.TempPath()),
+func convertLive(ctx context.Context, fs afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, af *safefs.AtomicFile, liveSrc string, from resumePoint) (*transcriptWatermark, error) {
+	// transcript.Recorder holds its own append handle, opened by PATH through
+	// fs — the fs af was opened over — so it is handed af's temp path rather
+	// than af itself (safefs.AtomicFile.TempPath). commitRebuild stats the
+	// temp file's actual size, so bytes Recorder writes here are covered by
+	// the same empty-guard as anything written through af.Write.
+	rec, err := transcript.NewRecorder(fs, e.HarpName, e.Backend, transcript.WithPath(af.TempPath()),
 		transcript.WithClock(vendorSourceClock(liveSrc)), transcript.WithContinuation(from.seq, from.sessionID))
 	if err != nil {
 		return nil, fmt.Errorf("open recorder for %s: %w", e.HarpName, err)

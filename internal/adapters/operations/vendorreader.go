@@ -387,18 +387,19 @@ func rebuildCanonicalTranscript(ctx context.Context, adapter vendorreader.Vendor
 	if mkErr := os.MkdirAll(filepath.Dir(dest), 0o755); mkErr != nil {
 		return false, fmt.Errorf("create persist dir for %s: %w", e.HarpName, mkErr)
 	}
+	fs := afero.NewOsFs()
 	if ra, wm, ok := loadWatermark(adapter, e, liveSrc); ok {
-		converted, rerr := resumeRebuild(ctx, ra, e, dest, liveSrc, wm)
+		converted, rerr := resumeRebuild(ctx, fs, ra, e, dest, liveSrc, wm)
 		if !errors.Is(rerr, errStaleWatermark) {
 			return converted, rerr
 		}
 	}
-	af, aerr := safefs.NewAtomicFile(afero.NewOsFs(), dest, 0o644)
+	af, aerr := safefs.NewAtomicFile(fs, dest, 0o644)
 	if aerr != nil {
 		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
 	}
 
-	wm, werr := writeRebuildSegments(ctx, adapter, e, af, liveSrc, liveOK)
+	wm, werr := writeRebuildSegments(ctx, fs, adapter, e, af, liveSrc, liveOK)
 	if werr != nil {
 		_ = af.Abort()
 		return true, werr
@@ -414,12 +415,12 @@ func rebuildCanonicalTranscript(ctx context.Context, adapter vendorreader.Vendor
 // partway leaves the canonical transcript — and the watermark, written only
 // after a commit — exactly as they were. errStaleWatermark when the watermark
 // turns out not to describe the files; the caller rebuilds in full.
-func resumeRebuild(ctx context.Context, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest, liveSrc string, wm *transcriptWatermark) (converted bool, err error) {
-	af, aerr := safefs.NewAtomicFile(afero.NewOsFs(), dest, 0o644)
+func resumeRebuild(ctx context.Context, fs afero.Fs, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest, liveSrc string, wm *transcriptWatermark) (converted bool, err error) {
+	af, aerr := safefs.NewAtomicFile(fs, dest, 0o644)
 	if aerr != nil {
 		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
 	}
-	next, rerr := resumeInto(ctx, adapter, e, dest, af, liveSrc, wm)
+	next, rerr := resumeInto(ctx, fs, adapter, e, dest, af, liveSrc, wm)
 	if rerr != nil {
 		_ = af.Abort()
 		return true, rerr
@@ -427,12 +428,12 @@ func resumeRebuild(ctx context.Context, adapter vendorreader.ResumableAdapter, e
 	return commitRebuild(af, e, next)
 }
 
-func resumeInto(ctx context.Context, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest string, af *safefs.AtomicFile, liveSrc string, wm *transcriptWatermark) (*transcriptWatermark, error) {
+func resumeInto(ctx context.Context, fs afero.Fs, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest string, af *safefs.AtomicFile, liveSrc string, wm *transcriptWatermark) (*transcriptWatermark, error) {
 	from := resumePoint{vendor: wm.Vendor, seq: wm.NextSeq, sessionID: wm.SessionID, digest: sha256.New(), length: wm.CanonicalLength}
 	if err := copyCanonicalPrefix(dest, wm, af, from.digest); err != nil {
 		return nil, err
 	}
-	next, err := convertLive(ctx, adapter, e, af, liveSrc, from)
+	next, err := convertLive(ctx, fs, adapter, e, af, liveSrc, from)
 	if errors.Is(err, vendorreader.ErrCheckpointMismatch) {
 		return nil, fmt.Errorf("%w: %w", errStaleWatermark, err)
 	}
@@ -443,16 +444,16 @@ func resumeInto(ctx context.Context, adapter vendorreader.ResumableAdapter, e se
 // converts the live vendor transcript (when liveOK) into af's temp file from
 // its beginning, returning the watermark the conversion offered (nil for
 // none). The caller aborts af on error.
-func writeRebuildSegments(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, af *safefs.AtomicFile, liveSrc string, liveOK bool) (*transcriptWatermark, error) {
+func writeRebuildSegments(ctx context.Context, fs afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, af *safefs.AtomicFile, liveSrc string, liveOK bool) (*transcriptWatermark, error) {
 	for _, rot := range e.Rotations {
-		if werr := appendRotationSegment(ctx, adapter, e, rot, af); werr != nil {
+		if werr := appendRotationSegment(ctx, fs, adapter, e, rot, af); werr != nil {
 			return nil, werr
 		}
 	}
 	if !liveOK {
 		return nil, nil
 	}
-	return convertLive(ctx, adapter, e, af, liveSrc, newResumePoint())
+	return convertLive(ctx, fs, adapter, e, af, liveSrc, newResumePoint())
 }
 
 // commitRebuild installs af over the canonical transcript when the rebuild
@@ -526,7 +527,7 @@ func tryOwnCanonicalTranscript(harp, dest string) (release func(), acquired bool
 // through clidiag rather than returning an error for that case. Only a
 // genuine I/O failure while converting or caching a segment that DOES exist
 // returns an error.
-func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, af *safefs.AtomicFile) error {
+func appendRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, af *safefs.AtomicFile) error {
 	segPath, perr := paths.ResolveHarpSegmentPath(e.HarpName, rot.SessionID)
 	if perr != nil {
 		return fmt.Errorf("resolve segment path for %s/%s: %w", e.HarpName, rot.SessionID, perr)
@@ -548,13 +549,13 @@ func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapt
 		if mkErr := os.MkdirAll(filepath.Dir(segPath), 0o755); mkErr != nil {
 			return fmt.Errorf("create segments dir for %s: %w", e.HarpName, mkErr)
 		}
-		segAF, aerr := safefs.NewAtomicFile(afero.NewOsFs(), segPath, 0o644)
+		segAF, aerr := safefs.NewAtomicFile(fsys, segPath, 0o644)
 		if aerr != nil {
 			return fmt.Errorf("open segment rebuild file for %s/%s: %w", e.HarpName, rot.SessionID, aerr)
 		}
-		// Same path-based escape hatch as the live conversion in
-		// convertVendorTranscript — see its comment.
-		rec, rerr := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(segAF.TempPath()), transcript.WithClock(vendorSourceClock(rot.TranscriptPath)))
+		// Same temp-path recorder as the live conversion (convertLive) — see
+		// its comment.
+		rec, rerr := transcript.NewRecorder(fsys, e.HarpName, e.Backend, transcript.WithPath(segAF.TempPath()), transcript.WithClock(vendorSourceClock(rot.TranscriptPath)))
 		if rerr != nil {
 			_ = segAF.Abort()
 			return fmt.Errorf("open segment recorder for %s/%s: %w", e.HarpName, rot.SessionID, rerr)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -103,7 +104,7 @@ func TestRecorder_EngineIsWrittenVerbatimAndValidatesAgainstThePublishedSchema(t
 // assistant entry.
 func writeOneClaudeRecord(t *testing.T, harp string) {
 	t.Helper()
-	rec, err := NewRecorder(harp, registeredClaudeBackendName)
+	rec, err := NewRecorder(afero.NewOsFs(), harp, registeredClaudeBackendName)
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
 		Type:    agent.EntryTypeAssistant,

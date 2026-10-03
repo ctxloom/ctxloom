@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -37,7 +38,7 @@ func TestTranscriptSize_PrefersCanonicalOverLegacy(t *testing.T) {
 	require.NoError(t, os.WriteFile(legacyPath, []byte("0123456789"), 0o644)) // exactly 10 bytes
 	require.NoError(t, mgr.BindSession(entry.HarpName, "backend-uuid", legacyPath))
 
-	rec, err := transcript.NewRecorder(entry.HarpName, "claude-code")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), entry.HarpName, "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{
 		Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "canonical payload, deliberately longer than 10 bytes"},

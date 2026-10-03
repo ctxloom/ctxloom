@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gofrs/flock"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -48,7 +49,7 @@ func TestRefreshVendorTranscript_SkipsRebuildWhileALiveRecorderOwnsTheCanonicalT
 	// exactly what coord/enginehost's adapt does for a live session — and
 	// holds it open (Record, no Close yet) the way a
 	// still-running chat would.
-	rec, err := transcript.NewRecorder(harp, e.Backend)
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, e.Backend)
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
 		Type:    agent.EntryTypeAssistant,
@@ -104,7 +105,7 @@ func TestRefreshVendorTranscript_ProceedsOnceTheLiveRecorderCloses(t *testing.T)
 	harp := "easeful-dial-close-harp"
 	e := claudeEntry(harp, claudeFixturePath)
 
-	rec, err := transcript.NewRecorder(harp, e.Backend)
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), harp, e.Backend)
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
 		Type: agent.EntryTypeAssistant, Content: "live turn",

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -51,7 +52,7 @@ func TestRecorder_RoundTrip_RealKiroToolCallTurn(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "kiro-roundtrip-harp"
 
-	rec, err := NewRecorder(harp, "mock")
+	rec, err := NewRecorder(afero.NewOsFs(), harp, "mock")
 	require.NoError(t, err)
 
 	events := []agent.ChatEvent{
@@ -123,7 +124,7 @@ func TestRecorder_EmptyInput_WritesNoFile(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "empty-harp"
 
-	rec, err := NewRecorder(harp, "claude-code")
+	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, rec.Close()) // never called Record
 
@@ -140,7 +141,7 @@ func TestRecorder_RejectsEmptyChatEvent(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "reject-empty-harp"
 
-	rec, err := NewRecorder(harp, "claude-code")
+	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code")
 	require.NoError(t, err)
 
 	err = rec.Record(agent.ChatEvent{})
@@ -166,7 +167,7 @@ func TestRecorder_ConcurrentAppends_Safe(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "concurrent-harp"
 
-	rec, err := NewRecorder(harp, "claude-code")
+	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code")
 	require.NoError(t, err)
 
 	const n = 100
@@ -203,10 +204,10 @@ func TestRecorder_ConcurrentAppends_Safe(t *testing.T) {
 func TestNewRecorder_ValidatesArgs(t *testing.T) {
 	testsupport.Isolate(t)
 
-	_, err := NewRecorder("", "claude-code")
+	_, err := NewRecorder(afero.NewOsFs(), "", "claude-code")
 	assert.Error(t, err)
 
-	_, err = NewRecorder("some-harp", "")
+	_, err = NewRecorder(afero.NewOsFs(), "some-harp", "")
 	assert.Error(t, err)
 }
 
@@ -218,7 +219,7 @@ func TestTee_ForwardsAndRecords(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "tee-harp"
 
-	rec, err := NewRecorder(harp, "claude-code")
+	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code")
 	require.NoError(t, err)
 
 	in := make(chan agent.ChatEvent)

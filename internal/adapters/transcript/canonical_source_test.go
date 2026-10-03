@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -51,7 +52,7 @@ func (f *fakeSessionSource) CurrentSession(_ context.Context) (*agent.Session, e
 // transcript path, so these tests exercise the real writer/reader contract.
 func writeCanonicalFixture(t *testing.T, harp, engine, content string) {
 	t.Helper()
-	rec, err := NewRecorder(harp, engine)
+	rec, err := NewRecorder(afero.NewOsFs(), harp, engine)
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{
 		Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: content},

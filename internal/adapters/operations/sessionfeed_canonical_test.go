@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -29,7 +30,7 @@ func seedCanonicalFeedHarp(t *testing.T, content string) *sessions.Entry {
 	minted, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 
-	rec, err := transcript.NewRecorder(minted.HarpName, "claude-code")
+	rec, err := transcript.NewRecorder(afero.NewOsFs(), minted.HarpName, "claude-code")
 	require.NoError(t, err)
 	require.NoError(t, rec.Record(agent.ChatEvent{
 		Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: content},

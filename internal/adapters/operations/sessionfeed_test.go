@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -49,7 +50,7 @@ func seedFeedHarp(t *testing.T, home string, withTranscript bool) string {
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	if withTranscript {
-		rec, err := transcript.NewRecorder(entry.HarpName, "claude-code")
+		rec, err := transcript.NewRecorder(afero.NewOsFs(), entry.HarpName, "claude-code")
 		require.NoError(t, err)
 		require.NoError(t, rec.Record(agent.ChatEvent{
 			Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: "stored question"},

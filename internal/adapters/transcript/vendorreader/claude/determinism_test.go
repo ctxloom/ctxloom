@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -42,7 +43,7 @@ func TestConvert_DeterministicAcrossFreshAndSharedAdapterInstances(t *testing.T)
 	convert := func(t *testing.T, a vendorreader.VendorAdapter, label string) []byte {
 		t.Helper()
 		out := filepath.Join(t.TempDir(), "out.jsonl")
-		rec, err := transcript.NewRecorder(fixtureHarp, "claude", transcript.WithPath(out), transcript.WithClock(clock))
+		rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude", transcript.WithPath(out), transcript.WithClock(clock))
 		require.NoError(t, err)
 		err = a.Convert(context.Background(), rec, fixturePath(t, "transcript-fixture.jsonl"))
 		require.NoError(t, err)

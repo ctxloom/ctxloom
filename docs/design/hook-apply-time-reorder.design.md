@@ -5,10 +5,10 @@ and 2 of `operable-bright` (order-as-data, `manage hooks list`) ARE built; this 
 part 3, which was explicitly scoped as design-and-stop.
 
 Written against `internal/core/config.extractHooksFromBundle`,
-`backends.AssembleManagedHooks`, `operations.ResolveHooks`, and
+`managedhooks.AssembleFor`, `operations.ResolveHooks`, and
 `wire.HookOrderLess` as they exist at this commit.
 
-> **Superseded in part, 2026-08-03.** `AssembleManagedHooks` now returns a
+> **Superseded in part, 2026-08-03.** `managedhooks.AssembleFor` now returns a
 > resolved model, `backends.ManagedHooks`, whose lifecycle is resolve → inspect
 > (`For`, `BackendNative`) → work with (`Reorder`) → assemble (`Wire`). Reorder
 > is therefore a METHOD ON THE OBJECT, not a mechanism layered around assembly,
@@ -22,7 +22,7 @@ Written against `internal/core/config.extractHooksFromBundle`,
 > caller everything it needs to notice its own stale rules.
 >
 > §2 is unchanged and is the reason the object is mutable and reordered in
-> place: whatever reorders must run inside `AssembleManagedHooks`, before
+> place: whatever reorders must run inside `managedhooks.AssembleFor`, before
 > either caller observes the object. What remains unbuilt is the `hook_order:`
 > config key of §3–4 — now a small caller of `Reorder` rather than a special
 > path through assembly.
@@ -48,10 +48,10 @@ theirs to edit.
 
 This is not a caveat to bolt on at the end; it dictates WHERE the override
 executes. `operations.ResolveHooks` deliberately calls the same
-`backends.AssembleManagedHooks` the apply path calls, precisely so there is one
+`managedhooks.AssembleFor` the apply path calls, precisely so there is one
 merge implementation and not two.
 
-**Therefore: the override must be applied INSIDE `AssembleManagedHooks`, not by
+**Therefore: the override must be applied INSIDE `managedhooks.AssembleFor`, not by
 either caller.** Any design that reorders in `applyHooksToBackend` (or in the CLI)
 creates a second ordering authority, and inspection would report the pre-override
 order while the engine ran the post-override one — the exact failure named above.
@@ -135,7 +135,7 @@ New, in `internal/lm/backends` — the ONE call site:
 ```go
 // applyHookOrderOverrides reorders each event of u under cfg's hook_order,
 // after every source has been merged in and before the assembled set is
-// returned. Called from AssembleManagedHooks; nothing else may call it.
+// returned. Called from managedhooks.AssembleFor; nothing else may call it.
 func applyHookOrderOverrides(u *wire.UnifiedHooks, cfg *config.Config) []string
 ```
 

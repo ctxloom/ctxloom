@@ -24,27 +24,16 @@ type MemberLocation int
 
 const (
 	AtTop MemberLocation = iota + 1
-	InPersist
-	InSegments
-	InEphemeral
-	InHome
+	InTranscripts
 )
 
 // Dir is the session-dir-relative directory the location names ("" at the
 // top).
 func (l MemberLocation) Dir() string {
-	switch l {
-	case InPersist:
-		return PersistDirName
-	case InSegments:
-		return SegmentsDirName
-	case InEphemeral:
-		return EphemeralDirName
-	case InHome:
-		return SessionEngineHomesDirName
-	default:
-		return ""
+	if l == InTranscripts {
+		return TranscriptsDirName
 	}
+	return ""
 }
 
 // Lifetime is the ONLY axis the reaper honours.
@@ -74,32 +63,38 @@ func (m HarpMember) Rel() string { return path.Join(m.Location.Dir(), m.Name) }
 // HarpMembers is the table: the ONE classification every walker, reaper and
 // mount list derives from. Each row is a member some writer produces under
 // ~/.ctxloom/sessions/<harp>/; a name that is a pattern rather than a fixed
-// leaf (an engine transcript link, a plan file) has no row and classifies to
-// the directory it lives in.
+// leaf (a worktree checkout, a run's scratch root) has no row and classifies
+// to the directory it lives in.
 //
-// The essence and the next step sit at the top of the dir, beside the
-// sidecar: that is where their writers put them and where the listing reads
-// them (sessions.fillFromEssence), and the table records the tree as it IS.
+// The session dir holds MACHINE state only. What a human reads — the essence,
+// the next step, plans, segment essences, published reports — lives in the
+// session's output dir (sessions.Entry.OutputDir), which no reaper touches.
 var HarpMembers = []HarpMember{
 	{Name: SessionSidecarFileName, Tier: MemberIdentity, Location: AtTop, Lifetime: Persist},
 	{Name: SessionKeepMarkerFileName, Tier: MemberIdentity, Location: AtTop, Lifetime: Persist},
-	{Name: EssenceFileName, Tier: MemberDerived, Location: AtTop, Lifetime: Persist},
-	{Name: NextStepFileName, Tier: MemberAuthored, Location: AtTop, Lifetime: Persist},
+	{Name: DiagnosticsLogFileName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist},
+	{Name: ContextMetricsFileName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist},
+	// Container mail: the spool is a member a containerized run MUST reach,
+	// and this column is what puts it in the container's mount list.
+	{Name: SpoolDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist, Mounted: true},
+	{Name: PackageDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist},
+	// Native history is reached by a container too, but not at its own
+	// relative path: it mounts beside the engine homes so their relative
+	// link resolves (isolation's nativeMount), which is why it is not a
+	// Mounted row.
+	{Name: NativeDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist},
+	{Name: TranscriptsDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist},
+	{Name: CanonicalTranscriptFileName, Tier: MemberAuthored, Location: InTranscripts, Lifetime: Persist},
+	{Name: SegmentsDirName, Tier: MemberDerived, Location: InTranscripts, Lifetime: Persist},
 	// The session engine homes dir holds each engine's config-home INSTANCE:
-	// created at session-creation time from managed writers, engine
-	// scaffolding and a one-way copy of host material, so it is rebuilt
-	// rather than kept.
+	// created from managed writers, engine scaffolding and a one-way copy of
+	// host material, so it is rebuilt rather than kept. Its native history is
+	// NOT in it (NativeDirName).
 	{Name: SessionEngineHomesDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Ephemeral},
-	{Name: PersistDirName, Tier: MemberAuthored, Location: AtTop, Lifetime: Persist},
-	{Name: EphemeralDirName, Tier: MemberDisposable, Location: AtTop, Lifetime: Ephemeral},
-	{Name: SegmentsDirName, Tier: MemberDerived, Location: AtTop, Lifetime: Persist},
-	{Name: CanonicalTranscriptFileName, Tier: MemberAuthored, Location: InPersist, Lifetime: Persist},
-	{Name: TranscriptStoreDirName, Tier: MemberMachine, Location: InPersist, Lifetime: Persist},
-	// Container mail rides the session-state mount: the spool is the one
-	// member a containerized run MUST reach, and this column is what puts
-	// its location directory in the mount list.
-	{Name: SpoolDirName, Tier: MemberMachine, Location: InPersist, Lifetime: Persist, Mounted: true},
-	{Name: PackageDirName, Tier: MemberMachine, Location: InPersist, Lifetime: Persist},
+	// Worktree checkouts can hold the only copy of an agent's work: an
+	// Ephemeral row the reaper TRIAGES (sessions.Triage) rather than takes.
+	{Name: WorkDirName, Tier: MemberAuthored, Location: AtTop, Lifetime: Ephemeral},
+	{Name: ScratchDirName, Tier: MemberDisposable, Location: AtTop, Lifetime: Ephemeral},
 }
 
 // ClassifyMember is the ONE predicate every walker uses: rel (relative to the

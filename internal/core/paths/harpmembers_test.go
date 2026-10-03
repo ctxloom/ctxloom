@@ -32,11 +32,8 @@ func TestHarpMembers_EveryRowIsFullyClassified(t *testing.T) {
 // directory its Location names.
 func TestHarpMembers_RelIsTheLocationDirJoinedWithTheName(t *testing.T) {
 	dirs := map[MemberLocation]string{
-		AtTop:       "",
-		InPersist:   PersistDirName,
-		InSegments:  SegmentsDirName,
-		InEphemeral: EphemeralDirName,
-		InHome:      SessionEngineHomesDirName,
+		AtTop:         "",
+		InTranscripts: TranscriptsDirName,
 	}
 	for _, m := range HarpMembers {
 		dir, ok := dirs[m.Location]
@@ -47,9 +44,9 @@ func TestHarpMembers_RelIsTheLocationDirJoinedWithTheName(t *testing.T) {
 
 // TestHarpMembers_ExactlyTheSpoolRowIsMounted: container mail rides the
 // session-state mount, and the mount list is DERIVED from this column — the
-// spool row is the one member a containerized run must be able to reach, so
-// it is the one row marked, and it lives under persist/ (what the mount
-// carries).
+// spool row is the one member a containerized run must reach at its own
+// relative path, so it is the one row marked. Native history is mounted too,
+// but beside the engine homes, not by this column.
 func TestHarpMembers_ExactlyTheSpoolRowIsMounted(t *testing.T) {
 	var mounted []HarpMember
 	for _, m := range HarpMembers {
@@ -59,17 +56,16 @@ func TestHarpMembers_ExactlyTheSpoolRowIsMounted(t *testing.T) {
 	}
 	require.Len(t, mounted, 1, "exactly one row is Mounted")
 	assert.Equal(t, SpoolDirName, mounted[0].Name)
-	assert.Equal(t, InPersist, mounted[0].Location)
+	assert.Equal(t, AtTop, mounted[0].Location)
 	assert.Equal(t, Persist, mounted[0].Lifetime, "the spool persists: mail outlives the workspace")
 }
 
 // TestMountedLocations_AreTheLocationDirsOfTheMountedRows: the container's
-// session-state mounts are the LOCATION directories of the Mounted rows
-// (a member under persist/ is reached by mounting persist/), each named
-// once.
+// session-state mounts are the LOCATION directories of the Mounted rows (a
+// top-level member is mounted by its own name), each named once.
 func TestMountedLocations_AreTheLocationDirsOfTheMountedRows(t *testing.T) {
 	got := MountedLocations()
-	assert.Equal(t, []string{PersistDirName}, got)
+	assert.Equal(t, []string{SpoolDirName}, got)
 }
 
 // TestClassifyMember_ResolvesEveryRowAndWhatLiesBeneathIt: a path relative
@@ -90,9 +86,9 @@ func TestClassifyMember_ResolvesEveryRowAndWhatLiesBeneathIt(t *testing.T) {
 	assert.False(t, ok, "the session dir itself is not a member")
 	_, ok = ClassifyMember("not-a-member")
 	assert.False(t, ok)
-	got, ok := ClassifyMember(path.Join(PersistDirName, "plan.plan.md"))
-	require.True(t, ok, "a pattern-named file under persist/ (a plan file) is persist's")
-	assert.Equal(t, PersistDirName, got.Name)
+	got, ok := ClassifyMember(path.Join(WorkDirName, "ctxloom-wt-agent"))
+	require.True(t, ok, "a pattern-named entry under work/ (a checkout) is work's")
+	assert.Equal(t, WorkDirName, got.Name)
 }
 
 // TestHarpMembers_IdentityMemberIsTheSidecarAtTop: the session-dir predicate

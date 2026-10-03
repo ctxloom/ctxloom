@@ -71,3 +71,26 @@ func isRegularFile(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && !info.IsDir()
 }
+
+// outputEssenceItems is the derived population in the session's output dir:
+// its current essence and each rotation's segment essence. Rel is relative to
+// the output dir. A session with no output dir, or none written yet, has none.
+func outputEssenceItems(entry *sessions.Entry) []PurgeItem {
+	if entry == nil || entry.OutputDir == "" {
+		return nil
+	}
+	candidates := []string{filepath.Join(entry.OutputDir, paths.EssenceFileName)}
+	if segs, err := filepath.Glob(filepath.Join(entry.OutputDir, paths.SegmentsDirName, "*.md")); err == nil {
+		candidates = append(candidates, segs...)
+	}
+	var out []PurgeItem
+	for _, p := range candidates {
+		info, err := os.Lstat(p)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		rel, _ := filepath.Rel(entry.OutputDir, p)
+		out = append(out, PurgeItem{Path: p, Rel: filepath.ToSlash(rel), Class: PurgeClassDerived, Bytes: info.Size()})
+	}
+	return out
+}

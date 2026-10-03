@@ -182,6 +182,7 @@ llm:
     defaults:
         fast: fast
         primary: fast
+output_dir: /data/ctxloom-outputs
 permissions:
     approver: none
     network: false
@@ -230,6 +231,7 @@ llm:
     defaults:
         fast: fast
         primary: fast
+output_dir: /data/ctxloom-outputs
 permissions:
     approver: none
     network: false
@@ -309,6 +311,7 @@ llm:
     defaults:
         fast: fast
         primary: fast
+output_dir: /data/ctxloom-outputs
 permissions:
     approver: none
     network: false

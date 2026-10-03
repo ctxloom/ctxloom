@@ -150,7 +150,7 @@ func (c Container) sessionStateMounts() ([]mount, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	out, err := c.outputMount()
+	out, err := c.outputMounts()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -158,7 +158,7 @@ func (c Container) sessionStateMounts() ([]mount, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	mounts = append(append(mounts, out), taskMounts...)
+	mounts = append(append(mounts, out...), taskMounts...)
 	return mounts, []string{sessions.EnvOutputDir + "=" + containerOutputDir}, nil
 }
 
@@ -197,16 +197,16 @@ func (c Container) harpStateMounts() ([]mount, error) {
 // can give the many container fixtures that mint no session an output dir.
 var sessionOutputDir = sessions.OutputDir
 
-// outputMount binds the session's recorded output dir at containerOutputDir.
-func (c Container) outputMount() (mount, error) {
+// outputMounts binds the session's recorded output dir at containerOutputDir.
+func (c Container) outputMounts() ([]mount, error) {
 	dir, err := sessionOutputDir(c.state.Harp)
 	if err != nil {
-		return mount{}, fmt.Errorf("container output mount: %w", err)
+		return nil, fmt.Errorf("container output mount: %w", err)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return mount{}, fmt.Errorf("container output mount: %w", err)
+		return nil, fmt.Errorf("container output mount: %w", err)
 	}
-	return c.runtime.paths().bind(dir, containerOutputDir, false), nil
+	return []mount{c.runtime.paths().bind(dir, containerOutputDir, false)}, nil
 }
 
 // taskStoreMounts binds the project's task log and its lock, or — with no

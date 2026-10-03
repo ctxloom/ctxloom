@@ -176,7 +176,7 @@ func runProbe(phase string) int {
 		fmt.Fprintf(os.Stderr, "probe: resolving the spool root: %v\n", err)
 		return 1
 	}
-	fmt.Printf("PROBE_DELIVERED_PATH=%s\n", filepath.Join(root, filepath.FromSlash(deliveredDirName), identity))
+	fmt.Printf("PROBE_DELIVERED_PATH=%s\n", filepath.Join(root, filepath.FromSlash(deliveredRecord.rel), identity))
 
 	// 2. Write one out/ message for the host to read back.
 	w, err := NewWriter(m, harp, DirOut, "agentprobe")

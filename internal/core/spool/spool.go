@@ -111,17 +111,6 @@ func (d Dir) Validate() error {
 // String renders the slash-separated logical form ("in/consumed").
 func (d Dir) String() string { return string(d) }
 
-// Consumed returns the directory a message in d is renamed into when it is
-// consumed. Only out/ has one: an in/ message is not moved when it is
-// delivered but deleted, its identity recorded (Deliver), and consuming a
-// file already in consumed/ or withdrawn/ is a caller bug, not a state.
-func (d Dir) Consumed() (Dir, error) {
-	if d == DirOut {
-		return DirOutConsumed, nil
-	}
-	return "", fmt.Errorf("spool: %q has no consumed directory (only %q is consumable; an inbox message is delivered with Deliver)", string(d), string(DirOut))
-}
-
 // Withdrawn returns the directory a message in d is renamed into when its
 // WRITER retracts it. Only in/ supports withdrawal: out/ is written by the
 // agent and read by the coordinator, and an agent unsending its own report is

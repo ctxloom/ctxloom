@@ -46,23 +46,6 @@ func Read(m PathMapper, ref Ref) (*Message, error) {
 	return msg, nil
 }
 
-// Consume marks an out/ message routed by RENAMING it into out/consumed/,
-// and returns the new ref.
-//
-// The rename IS the acknowledgement: it is atomic, so exactly one consumer
-// wins and the loser gets ErrAlreadyGone; the result is observable to the
-// other side and to any human with `ls`; and restart recovery is a readdir.
-// It is a move, never a delete, because out/consumed/ is how an operator
-// tells a routed message from a refused one (out/failed/). An inbox message
-// is not consumed this way: it is delivered with Deliver.
-func Consume(m PathMapper, ref Ref) (Ref, error) {
-	target, err := ref.Dir.Consumed()
-	if err != nil {
-		return Ref{}, err
-	}
-	return moveTo(m, ref, target)
-}
-
 // Withdraw retracts an unconsumed message by renaming it into
 // in/withdrawn/, and returns the new ref.
 //

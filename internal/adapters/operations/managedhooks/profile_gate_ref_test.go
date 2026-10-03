@@ -1,11 +1,11 @@
-// Unit-level proofs for the ugly-sake/uncut-grub fix: gateProfileMCP/
-// gateProfileHooks now key the executable trust gate off a directory
-// profile's SOURCE ref (profiles.ResolvedProfile.SourceRef via
-// profileGateRefFor), not its display name. See managed_dir_profile_test.go
-// for the production end-to-end path (a genuinely local directory profile,
-// unaffected by this fix) and TestAssemble_LocalBundleShippedProfile_GateRefParsesAndAllows
-// below for the uncut-grub double-'#' regression proven through PRODUCTION
-// bundle-profile seeding (config.loadBundleProfileSeed), not a hand-built fixture.
+// Unit-level proofs that gateProfileMCP/gateProfileHooks key the executable
+// trust gate off a directory profile's SOURCE ref
+// (profiles.ResolvedProfile.SourceRef via profileGateRefFor), never its
+// display name, and compose a gate ref with exactly one '#'. See
+// dir_profile_test.go for the production end-to-end path of a genuinely local
+// directory profile, and TestAssemble_LocalBundleShippedProfile_GateRefParsesAndAllows
+// below for the single-'#' rule proven through PRODUCTION bundle-profile
+// seeding (config.loadBundleProfileSeed), not a hand-built fixture.
 package managedhooks
 
 import (
@@ -60,14 +60,14 @@ func TestProfileGateRefFor_NilResolvedFallsBackToProfileName(t *testing.T) {
 	assert.Equal(t, bundles.TrustCtxLocal, ref.Read.TrustCtx())
 }
 
-// TestGateProfileHooks_RemoteSourcedProfile_UglySakeFixed is the core
+// TestGateProfileHooks_RemoteSourcedProfile_GatedBySourceRef is the core
 // payload-asserting proof: a REMOTE-sourced profile's directly-declared hook
 // is WITHHELD from the produced hook set when the gate denies (untrusted key
-// / unsigned) — the gate is consulted with a non-local, single-'#' ref
-// (ugly-sake: no longer auto-allowed as local; uncut-grub: no longer a
-// dead double-'#' withhold) — and REACHES the produced set when the gate
-// allows.
-func TestGateProfileHooks_RemoteSourcedProfile_UglySakeFixed(t *testing.T) {
+// / unsigned) and REACHES it when the gate allows. The gate is consulted with
+// the profile's non-local source ref and exactly one '#': a display name
+// would read as local and be auto-allowed, and a second '#' would fail to
+// parse and withhold the hook with no reviewable ref.
+func TestGateProfileHooks_RemoteSourcedProfile_GatedBySourceRef(t *testing.T) {
 	ref := profileGateRef{Base: "https://github.com/acme/tools@bundles/kit"}
 	hooks := wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{
 		{Command: "malicious-marker-command", Type: "command"},
@@ -107,7 +107,7 @@ func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 }
 
 // TestAssemble_LocalBundleShippedProfile_GateRefParsesAndAllows is the
-// PRODUCTION end-to-end regression test for uncut-grub: a local bundle ships
+// PRODUCTION end-to-end test of the single-'#' gate ref: a local bundle ships
 // a profile (via config.loadBundleProfileSeed — the exact machinery that
 // seeds a bundle-shipped profile in production, local or remote) carrying an
 // inline hook, and the default agent's profile IS that bundle-shipped
@@ -115,13 +115,13 @@ func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 // branch in Assemble, NOT an inline
 // config.yaml profile).
 //
-// Before the fix, the gate ref was built as
-// "<bundle>#profiles/<name>#hooks/pre_tool/0" (double '#') — the selector
-// split cuts at the FIRST '#', so this mis-parsed as kind "profiles" (rejected) and
-// the hook was PERMANENTLY withheld with no valid ref to review. After the
-// fix, the ref is "<SourceRef>#hooks/pre_tool/0" (single '#', parses, and —
-// because this is a LOCAL bundle — resolves IsLocal:true), so a permissive
-// gate lets it through exactly like any other locally-authored content.
+// The ref must be "<SourceRef>#hooks/pre_tool/0": single '#', so it parses,
+// and — because this is a LOCAL bundle — it resolves IsLocal:true, so a
+// permissive gate lets it through exactly like any other locally-authored
+// content. A ref composed onto the profile ref
+// ("<bundle>#profiles/<name>#hooks/pre_tool/0") would be cut at the FIRST '#'
+// by the selector split, mis-parse as kind "profiles" (rejected), and withhold
+// the hook PERMANENTLY with no valid ref to review.
 func TestAssemble_LocalBundleShippedProfile_GateRefParsesAndAllows(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
@@ -138,14 +138,13 @@ func TestAssemble_LocalBundleShippedProfile_GateRefParsesAndAllows(t *testing.T)
 	})
 
 	// A permissive gate: proves the ref PARSES and reaches a decision at all
-	// (before the fix, the double-'#' ref failed to parse inside the gate
-	// itself, at the selector parser — never even reaching a
-	// caller-supplied gate function to ask).
+	// (a double-'#' ref fails at the selector parser inside the gate itself,
+	// never reaching a caller-supplied gate function to ask).
 	var gotRefs []string
 	cfg.BindTrustForTesting(recordingTrust(&gotRefs))
 
 	assembled := Assemble(cfg, nil)
-	// Reaching the authorizer AT ALL is the fix: a double-'#' ref does not parse
+	// Reaching the authorizer AT ALL is the point: a double-'#' ref does not parse
 	// (trust.ParseSelector rejects kind "profiles"), so bundles.Decide withholds
 	// it before any authorizer is consulted and gotRefs would be empty.
 	require.Len(t, gotRefs, 1)
@@ -154,7 +153,7 @@ func TestAssemble_LocalBundleShippedProfile_GateRefParsesAndAllows(t *testing.T)
 	// identity by construction (trust.Ref.CanonicalURL maps both onto
 	// remote.LocalSource), and the qualified spelling carries no extra fact.
 	assert.Equal(t, "ctxloom+local:kit#hooks/pre_tool/0", gotRefs[0],
-		"the composed ref must carry exactly one '#' and resolve to the local bundle (uncut-grub fixed)")
+		"the composed ref must carry exactly one '#' and resolve to the local bundle")
 	require.Len(t, assembled.Wire().Unified.PreTool, 1, "an ALLOWED bundle-shipped profile hook must reach the managed set")
 	assert.Equal(t, "bundle-shipped-hook", assembled.Wire().Unified.PreTool[0].Command)
 }
@@ -162,7 +161,7 @@ func TestAssemble_LocalBundleShippedProfile_GateRefParsesAndAllows(t *testing.T)
 // TestAssemble_LocalBundleShippedProfile_DeniedIsWithheld is the
 // payload-asserting deny-side twin: the SAME bundle-shipped profile hook,
 // denied by the gate, must be ABSENT from the produced settings — not merely
-// "an error occurred" — the silent-no-op trap this whole fix exists to close.
+// "an error occurred" — a withhold that only reports would be a silent no-op.
 func TestAssemble_LocalBundleShippedProfile_DeniedIsWithheld(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)

@@ -370,9 +370,10 @@ test-dirty:
     "$GO" test ./internal/... ./cmd/...
 
 # Run tests with coverage (excludes patterns in .coverignore)
-cover:
+cover: _ensure-gotmpdir
     #!/usr/bin/env bash
     set -e
+    export GOTMPDIR="{{go_tmp}}"
     echo "Running tests with coverage..."
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
@@ -392,9 +393,10 @@ cover:
     go tool cover -func=coverage.out | tail -1
 
 # Show per-function coverage (excludes patterns in .coverignore)
-cover-func:
+cover-func: _ensure-gotmpdir
     #!/usr/bin/env bash
     set -e
+    export GOTMPDIR="{{go_tmp}}"
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
     go test -trimpath -coverprofile="$raw" ./... > /dev/null 2>&1
@@ -403,9 +405,10 @@ cover-func:
     go tool cover -func=coverage.out
 
 # Generate HTML coverage report (excludes patterns in .coverignore)
-cover-html:
+cover-html: _ensure-gotmpdir
     #!/usr/bin/env bash
     set -e
+    export GOTMPDIR="{{go_tmp}}"
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
     go test -trimpath -coverprofile="$raw" ./... > /dev/null 2>&1
@@ -963,7 +966,8 @@ test-acceptance-live-container: container-build-acceptance
 # Requires ENGINE's token exported (claude: CLAUDE_CODE_OAUTH_TOKEN, from
 # `claude setup-token`) — the only credential an agent run takes. Self-skips
 # loudly, naming it, when absent.
-isolation-probe ENGINE AXIS: build
+isolation-probe ENGINE AXIS: build _ensure-gotmpdir
+    GOTMPDIR="{{go_tmp}}" \
     ACCEPTANCE_PATHS=features/probes/isolation_probe.feature \
     ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{AXIS}}" \
     go test -trimpath -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
@@ -1741,9 +1745,10 @@ docs-preview:
 # a docs preview never forces a full acceptance run. CI
 # (the `docs` job in .github/workflows/ci.yml) runs it explicitly before
 # `npm run build`.
-gen-living-docs: build
+gen-living-docs: build _ensure-gotmpdir
     #!/usr/bin/env bash
     set -euo pipefail
+    export GOTMPDIR="{{go_tmp}}"
     # Absolute path: `go test ./tests/acceptance/...` runs with its cwd set to
     # the package directory (tests/acceptance/), not the repo root, so a
     # relative CTXLOOM_DOC_CAPTURE_DIR would silently land one level down and

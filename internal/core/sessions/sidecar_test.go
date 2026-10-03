@@ -196,8 +196,9 @@ func TestListAll_StaleIndexYAMLLeftBehindIsIgnored(t *testing.T) {
 
 func TestListAll_SummaryAndDetailDerivedFromEssence(t *testing.T) {
 	m, root := openSidecarRoot(t)
-	writeSidecar(t, root, "distilled", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\nsource_entries: 3\n")
-	require.NoError(t, os.WriteFile(filepath.Join(root, "distilled", paths.EssenceFileName), []byte(`---
+	out := t.TempDir()
+	writeSidecar(t, root, "distilled", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\nsource_entries: 3\noutput_dir: "+out+"\n")
+	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte(`---
 session_id: sess-1
 distilled_at: 2026-09-01T12:00:00Z
 entry_count: 3
@@ -261,13 +262,13 @@ func TestAssignHarp_WritesTheSidecarAndNoIndex(t *testing.T) {
 func TestRename_MovesTheSessionDirectory(t *testing.T) {
 	m, root := openSidecarRoot(t)
 	writeSidecar(t, root, "old-name", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
-	require.NoError(t, os.WriteFile(filepath.Join(root, "old-name", paths.EssenceFileName), []byte("---\nsummary: kept\n---\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "old-name", paths.DiagnosticsLogFileName), []byte("kept\n"), 0o644))
 
 	require.NoError(t, m.Rename("old-name", "new-name"))
 	_, statErr := os.Stat(filepath.Join(root, "old-name"))
 	assert.True(t, os.IsNotExist(statErr))
-	_, statErr = os.Stat(filepath.Join(root, "new-name", paths.EssenceFileName))
-	assert.NoError(t, statErr, "the directory IS the record: renaming the session renames the directory, essence and all")
+	_, statErr = os.Stat(filepath.Join(root, "new-name", paths.DiagnosticsLogFileName))
+	assert.NoError(t, statErr, "the directory IS the record: renaming the session renames the directory, members and all")
 
 	writeSidecar(t, root, "taken", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
 	assert.Error(t, m.Rename("new-name", "taken"), "a rename onto an existing session is refused")
@@ -276,7 +277,7 @@ func TestRename_MovesTheSessionDirectory(t *testing.T) {
 func TestForget_RemovesTheSidecarAndLeavesTheDirectory(t *testing.T) {
 	m, root := openSidecarRoot(t)
 	writeSidecar(t, root, "forgotten", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
-	authored := filepath.Join(root, "forgotten", paths.PersistDirName, "notes.plan.md")
+	authored := filepath.Join(root, "forgotten", paths.TranscriptsDirName, paths.CanonicalTranscriptFileName)
 	require.NoError(t, os.MkdirAll(filepath.Dir(authored), 0o755))
 	require.NoError(t, os.WriteFile(authored, []byte("# plan\n"), 0o644))
 
@@ -297,7 +298,7 @@ func TestIsSessionDir(t *testing.T) {
 	require.NoError(t, os.MkdirAll(root, 0o755))
 
 	writeSidecar(t, root, "with-sidecar", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "bare-dir", paths.PersistDirName), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "bare-dir", paths.SpoolDirName), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, paths.IndexFileName), []byte("sessions: []\n"), 0o644))
 	require.NoError(t, os.Symlink(filepath.Join(root, "with-sidecar"), filepath.Join(root, "link-to-session")))
 

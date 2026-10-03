@@ -238,8 +238,8 @@ func TestListForProject_OrdersByLastActivityNotStartedAt(t *testing.T) {
 	stampSession(t, m, "worked-session", now.Add(-24*time.Hour))
 	stampSession(t, m, "untouched-session", now.Add(-1*time.Hour))
 	// ...but worked-session was worked 5 minutes ago: a transcript landed
-	// under its persist/.
-	transcript := filepath.Join(m.root, "worked-session", paths.PersistDirName, paths.CanonicalTranscriptFileName)
+	// under its transcripts/.
+	transcript := filepath.Join(m.root, "worked-session", paths.TranscriptsDirName, paths.CanonicalTranscriptFileName)
 	require.NoError(t, os.MkdirAll(filepath.Dir(transcript), 0o755))
 	require.NoError(t, os.WriteFile(transcript, []byte("{}\n"), 0o644))
 	recent := now.Add(-5 * time.Minute)
@@ -318,7 +318,7 @@ func TestListAll_SpansProjectsSortedByActivity(t *testing.T) {
 
 // TestFind_FillsCanonicalTranscript_IgnoresPreRenameFilename pins the
 // one-name contract on the read side: fillCanonicalTranscript looks for
-// paths.CanonicalTranscriptFileName only. A persist/ holding just the
+// paths.CanonicalTranscriptFileName only. A transcripts/ holding just the
 // pre-rename leaf (transcript.acp.jsonl) leaves CanonicalTranscriptPath
 // empty — the file is not read under the old name.
 func TestFind_FillsCanonicalTranscript_IgnoresPreRenameFilename(t *testing.T) {
@@ -327,17 +327,17 @@ func TestFind_FillsCanonicalTranscript_IgnoresPreRenameFilename(t *testing.T) {
 	e, err := m.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 
-	persistDir, err := paths.HarpPersistDir(e.HarpName)
+	transcripts, err := paths.HarpTranscriptsDir(e.HarpName)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(persistDir, 0o755))
-	preRename := filepath.Join(persistDir, "transcript.acp.jsonl")
+	require.NoError(t, os.MkdirAll(transcripts, 0o755))
+	preRename := filepath.Join(transcripts, "transcript.acp.jsonl")
 	require.NoError(t, os.WriteFile(preRename, []byte("{}\n"), 0o644))
 
 	found, err := m.Find(e.HarpName)
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	assert.Empty(t, found.CanonicalTranscriptPath,
-		"a pre-rename leaf under persist/ is not the canonical transcript and must not be resolved as one")
+		"a pre-rename leaf under transcripts/ is not the canonical transcript and must not be resolved as one")
 }
 
 func TestMarkEnded(t *testing.T) {

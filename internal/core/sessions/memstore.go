@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 )
 
@@ -124,6 +125,25 @@ func (m *MemStore) AssignHarp(projectDir, backend string) (Entry, error) {
 	}
 	m.sessions = append(m.sessions, entry)
 	return entry, nil
+}
+
+// RecordOutputDir records harp's output dir, matching
+// *Manager.RecordOutputDir.
+func (m *MemStore) RecordOutputDir(harpName, base string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		if m.sessions[i].HarpName != harpName {
+			continue
+		}
+		d, err := paths.OutputDir(base, m.sessions[i].ProjectDir, harpName)
+		if err != nil {
+			return "", err
+		}
+		m.sessions[i].OutputDir = d
+		return d, nil
+	}
+	return "", fmt.Errorf("%w: %q", ErrNotFound, harpName)
 }
 
 // BindSession records the backend session id / transcript for harpName,

@@ -51,7 +51,7 @@ func TestListForProject_EnrichmentParityAcrossStores(t *testing.T) {
 			require.NoError(t, os.Remove(pruned))
 
 			// But the transcript IS discoverable by location.
-			store, err := paths.HarpTranscriptStoreDir(e.HarpName)
+			store, err := paths.HarpNativeDir(e.HarpName)
 			require.NoError(t, err)
 			located := filepath.Join(store, "enc", "abc.jsonl")
 			require.NoError(t, os.MkdirAll(filepath.Dir(located), 0o755))

@@ -25,7 +25,7 @@ func TestLocateTranscript_NewestJSONWins(t *testing.T) {
 	testsupport.Isolate(t)
 	const harpName = "swift-amber-falcon"
 
-	store, err := paths.HarpTranscriptStoreDir(harpName)
+	store, err := paths.HarpNativeDir(harpName)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(store, "a"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(store, "b"), 0o755))

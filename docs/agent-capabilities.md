@@ -5,8 +5,8 @@ What ctxloom actually wires per **engine**. Vocabulary is GLOSSARY.md's: an
 profile in action); a **surface** is one managed deliverable (context, MCP,
 hooks, commands, settings), and the composed set is a **loadout**.
 
-Engines are registered as descriptors in `internal/lm/backends/registry.go` —
-that file is the source of truth for this document. The mock family also
+Engines are registered in `internal/engines` (`engines.Registry`) —
+that registry is the source of truth for this document. The mock family also
 registers there, for tests; the per-engine table below is the registered
 production engine. Where a capability is a property of the engine's CLI rather
 than of ctxloom, the row says so, so an absence reads as a CLI limitation and
@@ -99,7 +99,7 @@ fabricated id.
 ### Command-metadata ceilings
 `CommandExport` carries description, argument-hint, allowed-tools, and model.
 A CLI that accepts only a subset gets only that subset; unsupported fields are
-not emitted for that engine (`internal/lm/backends/commandfiles.go`).
+not emitted for that engine (`internal/engines/claude/commandfiles.go`).
 
 ### Out-of-cwd placement
 Claude takes each surface from a path ctxloom chooses
@@ -210,5 +210,5 @@ tool's silence as unproven rather than as absence, and reach for text search.
 
 - Claude Code: <https://code.claude.com/docs>
 - In-repo: [GLOSSARY.md](../GLOSSARY.md) (vocabulary),
-  `internal/lm/backends/registry.go` (the engine set),
+  `internal/engines` (`engines.Registry`, the engine set),
   [adr/0031-agent-equity-documented-divergences.md](./adr/0031-agent-equity-documented-divergences.md)

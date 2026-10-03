@@ -53,7 +53,7 @@ sessions captured under the file's earlier name. Nothing writes that name.
 }
 ```
 
-**`engine` is the registered backend name** (`internal/lm/backends`), exactly
+**`engine` is the registered engine name** (`operations.EngineNames` over `engines.Registry`), exactly
 as `transcript.NewRecorder` received it. Nothing on the recording path
 normalizes, allowlists or refuses the value; the registry is the vocabulary,
 and the schema's `engine` enum is expected to admit every name the registry

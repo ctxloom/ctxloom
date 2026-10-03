@@ -51,10 +51,9 @@ func TestListEmbeddedNames(t *testing.T) {
 // TestListEmbeddedNamesRefusesEmptyResult pins that an enumeration producing
 // NOTHING is reported rather than returned as an empty set. These directories
 // are embedded at build time, so zero names never means "the user has none" —
-// it means the binary shipped without content it is supposed to carry. Every
-// caller (internal/lm/backends.builtinCommands, internal/core/config's three
-// builtin-bundle resolvers, config.companion listing) already warns and
-// degrades on an error and did nothing at all on the silent nil.
+// it means the binary shipped without content it is supposed to carry. Its
+// caller (operations.builtinCommands) warns and degrades on an error, and would
+// do nothing at all on a silent nil.
 func TestListEmbeddedNamesRefusesEmptyResult(t *testing.T) {
 	cases := map[string]fstest.MapFS{
 		"present but empty":  {"d/.keep": {Data: []byte("")}},

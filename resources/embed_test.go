@@ -255,7 +255,7 @@ func TestGetBuiltinCommandBody_CtxloomInit(t *testing.T) {
 
 // TestListBuiltinCommands_IncludesCtxloomInit pins that the setup body is
 // discoverable as an ordinary builtin command (not just readable by name) —
-// the same listing internal/lm/backends.builtinCommands walks to build every
+// the same listing operations.builtinCommands walks to build every
 // session's slash-command catalog.
 func TestListBuiltinCommands_IncludesCtxloomInit(t *testing.T) {
 	names, err := ListBuiltinCommands()

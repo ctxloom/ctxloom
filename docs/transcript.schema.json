@@ -24,7 +24,7 @@
     "engine": {
       "type": "string",
       "enum": ["claude-code", "mock", "mock-launch", "mock-lossy", "mock-noskills"],
-      "description": "The driving backend's REGISTERED name (internal/lm/backends), exactly as transcript.NewRecorder received it — never a short form. The enum is the registry's vocabulary, no more and no less: tests/arch asserts it equals backends.List()."
+      "description": "The driving engine's REGISTERED name (engines.Registry), exactly as transcript.NewRecorder received it — never a short form. The enum is the registry's vocabulary, no more and no less: tests/arch asserts it equals operations.EngineNames()."
     },
     "seq": {
       "type": "integer",

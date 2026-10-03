@@ -667,27 +667,84 @@ func (c *Coordinator) holdControl(ctx context.Context, r heldRun, verb, reason s
 func (c *Coordinator) dropFromHold(key, id string, r heldRun) {
 	c.holdMu.Lock()
 	defer c.holdMu.Unlock()
+	c.dropHarpLocked(r.harp, func(h *holdRecord) bool { return h.Key == key && h.ID == id && h.Members[r.harp] == r.runID })
+}
+
+// dropStoppedHarp takes a harp an agent_stop ended out of whatever hold or
+// pause covers it: the stop is an initiator's judgement on the child, so its
+// next run is not the hold's to keep waiting. A credential's hold still parks
+// that next run as it comes up (joinCredentialHold): it is the credential's.
+func (c *Coordinator) dropStoppedHarp(harp string) {
+	c.holdMu.Lock()
+	defer c.holdMu.Unlock()
+	c.dropHarpLocked(harp, func(*holdRecord) bool { return true })
+}
+
+// dropHarpLocked journals harp leaving the hold covering it, when match
+// accepts that hold — releasing the hold (cause "empty") if harp was its last
+// member, and disarming its timer. Caller holds c.holdMu.
+func (c *Coordinator) dropHarpLocked(harp string, match func(*holdRecord) bool) {
 	at := c.now()
-	emptied := false
+	var emptied *holdRecord
 	err := c.runs.Exec(func() ([]Fact, error) {
-		h := c.holdsF.byKey[key]
-		if h == nil || h.ID != id || h.Members[r.harp] != r.runID {
+		h := c.holdsF.holdOfHarp(harp)
+		if h == nil || !match(h) {
 			return nil, nil
 		}
-		facts := []Fact{factAt(factHoldDropped, at, holdDropped{Key: key, RunID: r.runID, Harp: r.harp})}
+		facts := []Fact{factAt(factHoldDropped, at, holdDropped{Key: h.Key, RunID: h.Members[harp], Harp: harp})}
 		if len(h.Members) == 1 {
-			emptied = true
-			facts = append(facts, factAt(factHoldReleased, at, holdReleased{Key: key, Cause: "empty"}))
+			emptied = h
+			facts = append(facts, factAt(factHoldReleased, at, holdReleased{Key: h.Key, Cause: "empty"}))
 		}
 		return facts, nil
 	})
 	if err != nil {
-		c.rep.Warnf("coordinator: could not journal %s leaving hold %s: %v", r.harp, key, err)
+		c.rep.Warnf("coordinator: could not journal %s leaving its hold: %v", harp, err)
 		return
 	}
-	if l := c.holds[key]; emptied && l != nil && l.id == id {
-		c.armLocked(key, l, time.Time{})
-		delete(c.holds, key)
+	if emptied == nil {
+		return
+	}
+	if l := c.holds[emptied.Key]; l != nil && l.id == emptied.ID {
+		c.armLocked(emptied.Key, l, time.Time{})
+		delete(c.holds, emptied.Key)
+	}
+}
+
+// joinCredentialHold parks a run that has just come up on its credential's
+// hold, when one is in force: a fresh run (a new child, or one relaunched
+// after a stop) on a spent credential must wait with the others. The pause is
+// sent under holdMu, so no release can resume the hold's runs ahead of it.
+// The run's first turn may already be under way when it lands — that turn
+// meets the limit and folds into the same hold.
+func (c *Coordinator) joinCredentialHold(runID, harp string) {
+	c.holdMu.Lock()
+	defer c.holdMu.Unlock()
+	at, key := c.now(), ""
+	err := c.runs.Exec(func() ([]Fact, error) {
+		l, ok := c.holdsF.launchOf(runID)
+		if !ok || l.Source.Key == "" {
+			return nil, nil
+		}
+		h := c.holdsF.byKey[l.Source.Key]
+		if h == nil || h.Scope != holdScopeCredential {
+			return nil, nil
+		}
+		if r := c.runsF.run(runID); r == nil || r.Ended || c.holdsF.holdOfRun(runID) != nil || c.holdsF.holdOfHarp(harp) != nil {
+			return nil, nil
+		}
+		key = h.Key
+		return []Fact{factAt(factHoldParked, at, holdParked{Key: key, RunID: runID, Harp: harp, Cause: "launch"})}, nil
+	})
+	if err != nil || key == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.baseCtx, DefaultRequestTimeout)
+	defer cancel()
+	r := heldRun{runID, harp}
+	if _, err := c.holdControl(ctx, r, "pause", "the credential it runs on is held"); err != nil {
+		c.rep.Warnf("coordinator: could not park %s on its credential's hold: %v", harp, err)
+		c.dropHarpLocked(harp, func(h *holdRecord) bool { return h.Key == key && h.Members[harp] == runID })
 	}
 }
 

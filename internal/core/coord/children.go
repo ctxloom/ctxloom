@@ -1015,6 +1015,7 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	// startup sweep's to deliver, as turns.
 	c.noteLaunchAttached(rt.harp) // a launch that came up resets the retry budget
 	c.markAttached(rt)            // StartRun round-tripped: the migrated run is up
+	c.joinCredentialHold(rt.runID, rt.harp)
 	return nil
 }
 

@@ -1305,6 +1305,7 @@ func (c *Coordinator) AgentStop(caller Identity, harp, reason string, grace time
 // ended, not just that it did.
 func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string, grace time.Duration) string {
 	c.markStopped(rec.Harp)
+	c.dropStoppedHarp(rec.Harp)
 	cancelLaunch := func() {
 		c.cancelLaunch(rec.Harp)
 		if hook := c.stopCancelledLaunchHook; hook != nil {

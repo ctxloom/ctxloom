@@ -56,6 +56,12 @@ func TestReadScopeFlags_EveryProjectScopedReadTakesGlobal(t *testing.T) {
 			return
 		}
 		name := strings.TrimPrefix(c.CommandPath(), rootCmd.Name()+" ")
+		// cobra adds help and completion to the tree on the first Execute,
+		// so whether they are present depends on which test ran first; they
+		// read no store either way.
+		if name == "help" || strings.HasPrefix(name, "completion") {
+			return
+		}
 		seen[name] = true
 		if scopedReads[name] {
 			f := c.LocalFlags().Lookup("global")

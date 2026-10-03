@@ -203,6 +203,9 @@ func TestRunShow_GlobalResolvesAcrossPrivatelyHomedProjects(t *testing.T) {
 // private project is "not found" unless --global widens the read.
 func TestRunShow_WithoutGlobalStaysInTheResolvedProject(t *testing.T) {
 	taskstest.ProjectDir(t)
+	// A write establishes this directory as a project; without one, the read
+	// would (correctly, as `list` does) fall back to every project.
+	addShowFixture(t, "here")
 	other, err := operations.AddTask(operations.TaskContext{ProjectID: "some-other-project"}, "elsewhere", "", "")
 	require.NoError(t, err)
 

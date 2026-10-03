@@ -10,10 +10,10 @@ import (
 
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
 var showCmd = &cobra.Command{
@@ -36,39 +36,59 @@ GROUP serializes as a LIST, a SINGLE value as an OBJECT. One id therefore
 yields a bare object, so ` + "`jq -r '.text'`" + ` reads its body; two or more yield an
 array, so ` + "`jq -r '.[].text'`" + ` reads theirs. The shape follows what was ASKED
 FOR, not what happened to be found — a single id that resolves is always an
-object, never a one-element list.`,
+object, never a one-element list.
+
+Ids resolve in the same scope ` + "`taskloom list`" + ` reads: the current project by
+default, every privately-homed project with --global (or when no project can be
+resolved at all, with a notice on stderr). A cross-project read heads each
+block with the project the task came from, and an id held by more than one
+project FAILS naming them rather than picking one.`,
 	Example: `  taskloom show swift-amber-falcon
   taskloom show swift-amber-falcon brisk-copper-otter
-  taskloom show swift-amber-falcon brisk-copper-otter --format json`,
+  taskloom show swift-amber-falcon brisk-copper-otter --format json
+  taskloom show swift-amber-falcon --global`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runShow,
 }
 
+// showGlobal is show's --global: resolve the ids across every privately-homed
+// project instead of only the resolved one, exactly the scope `list --global`
+// reads.
+var showGlobal bool
+
 func runShow(cmd *cobra.Command, args []string) error {
-	// Search every status: a harp id shown by `list --all` (Done/Archived
+	tc, err := taskContext()
+	if err != nil {
+		return err
+	}
+	tc, err = resolveTagSchema(tc)
+	if err != nil {
+		return err
+	}
+	// The scope decision is listTasksScoped's, the same one `list` and `tags`
+	// make, so the three reads can never disagree about which project a
+	// working directory means or when no project is in play at all. All is
+	// forced on: a harp id shown by `list --all` (Done/Archived/Deferred
 	// included) must still resolve here.
-	tc, err := taskContextSingle()
+	r, err := listTasksScoped(tc, listOptions{All: true, Global: showGlobal})
 	if err != nil {
 		return err
 	}
-	res, err := operations.ListTasks(tc, operations.ListOptions{IncludeDone: true})
-	if err != nil {
-		return err
+	if r.Notice != "" {
+		clidiag.Fwarn(cmd.ErrOrStderr(), progName, "%s", r.Notice)
 	}
-	selected, missing := selectTasks(res.Tasks, args)
+	selected, missing, ambiguous := selectRows(r.Rows, args)
 	if len(missing) > 0 {
 		return missingTasksError(missing)
 	}
-	// warnTask surfaces the SAME project-resolution notice `taskloom list`
-	// prints (moved/forked/newly-minted identity, a pin disagreeing with the
-	// working directory, ...) — dropped here previously: `show` builds its
-	// candidate set via operations.ListTasks exactly like `list` does, but
-	// never looked at res.Warning, so a caller resolving the WRONG (or an
-	// unreachable) store via `show` got a bare "not found" with no clue why.
-	warnTask(res.Warning)
-	noteProjectNewlyMinted(cmd.ErrOrStderr(), res.ProjectID, res.ProjectNewlyMinted)
-	noteTaskProject(res.ProjectDir, res.ProjectID)
-	cfg := hideConfigFor(tc)
+	if len(ambiguous) > 0 {
+		return ambiguousTasksError(ambiguous)
+	}
+	if !r.Global {
+		noteProjectNewlyMinted(cmd.ErrOrStderr(), r.ProjectID, r.ProjectNewlyMinted)
+		noteTaskProject(r.ProjectDir, r.ProjectID)
+	}
+	cfg := hideConfigFor(r.TC)
 	// A GROUP serializes as a list and a SINGLE value as an object. The choice
 	// keys off how many ids were ASKED FOR, not how many were found: every id
 	// must resolve or the call already failed above, so the two counts agree —
@@ -76,34 +96,55 @@ func runShow(cmd *cobra.Command, args []string) error {
 	// command line alone, without knowing the store's contents.
 	//
 	// A repeated id (`show a a`) is two ids asked for, so it stays a list, the
-	// same way selectTasks honors it twice.
+	// same way selectRows honors it twice.
 	var payload any = selected
 	if len(args) == 1 {
 		payload = selected[0]
 	}
 	return cliemit.Emit(cmd, payload, func() error {
-		return renderTaskDetails(cmd.OutOrStdout(), selected, cfg)
+		return renderTaskDetails(cmd.OutOrStdout(), selected, r.Global, cfg)
 	})
 }
 
-// selectTasks resolves harpIDs against all in ARGUMENT ORDER, returning the
-// matched tasks and — separately — every id that matched nothing. It resolves
-// the whole request before reporting, so a caller naming three unknown ids
-// learns all three from one run instead of one per re-invocation. A repeated
-// id is honored as typed (selected twice); de-duplicating it would hand back
-// fewer records than ids asked for, which is the partial-result shape this
-// command refuses everywhere else.
-func selectTasks(all []tasks.Task, harpIDs []string) (selected []tasks.Task, missing []string) {
-	selected = make([]tasks.Task, 0, len(harpIDs))
+// ambiguousHarp is a requested harp id found in more than one project's store.
+// Harp ids are unique within one project's log, not across projects, so only a
+// cross-project read can produce one.
+type ambiguousHarp struct {
+	HarpID     string
+	ProjectIDs []string
+}
+
+// selectRows resolves harpIDs against all in ARGUMENT ORDER, returning the
+// matched rows and — separately — every id that matched nothing and every id
+// that matched in more than one project. It resolves the whole request before
+// reporting, so a caller naming three unknown ids learns all three from one
+// run instead of one per re-invocation. A repeated id is honored as typed
+// (selected twice); de-duplicating it would hand back fewer records than ids
+// asked for, which is the partial-result shape this command refuses
+// everywhere else.
+func selectRows(all []taskRow, harpIDs []string) (selected []taskRow, missing []string, ambiguous []ambiguousHarp) {
+	selected = make([]taskRow, 0, len(harpIDs))
 	for _, id := range harpIDs {
-		task, ok := findTask(all, id)
-		if !ok {
-			missing = append(missing, id)
-			continue
+		var matches []taskRow
+		for _, r := range all {
+			if r.HarpID == id {
+				matches = append(matches, r)
+			}
 		}
-		selected = append(selected, task)
+		switch len(matches) {
+		case 0:
+			missing = append(missing, id)
+		case 1:
+			selected = append(selected, matches[0])
+		default:
+			projects := make([]string, len(matches))
+			for i, m := range matches {
+				projects[i] = m.ProjectID
+			}
+			ambiguous = append(ambiguous, ambiguousHarp{HarpID: id, ProjectIDs: projects})
+		}
 	}
-	return selected, missing
+	return selected, missing, ambiguous
 }
 
 // missingTasksError is the loud failure for ids that resolved to nothing,
@@ -120,18 +161,37 @@ func missingTasksError(missing []string) error {
 	return fmt.Errorf("no tasks with harp ids %s (see `taskloom list`)", strings.Join(quoted, ", "))
 }
 
-// renderTaskDetails prints each task's full human view in the order given,
+// ambiguousTasksError is the loud failure for ids held by several projects,
+// naming each id's projects and the flag that picks one: showing whichever
+// project happened to sort first would be a confident answer about the wrong
+// task.
+func ambiguousTasksError(ambiguous []ambiguousHarp) error {
+	parts := make([]string, len(ambiguous))
+	for i, a := range ambiguous {
+		parts[i] = fmt.Sprintf("%s in %s", strconv.Quote(a.HarpID), strings.Join(a.ProjectIDs, ", "))
+	}
+	return fmt.Errorf("harp id held by more than one project (%s); pass --project <id> instead of --global to choose one", strings.Join(parts, "; "))
+}
+
+// renderTaskDetails prints each row's full human view in the order given,
 // blank-line separated so adjacent detail blocks read as distinct tasks
 // rather than one run-on body — renderTaskDetail's last line is the task
 // text, which would otherwise sit flush against the next block's header.
-func renderTaskDetails(out io.Writer, list []tasks.Task, cfg tagma.HideConfig) error {
-	for i, t := range list {
+// When the rows span projects, each block is headed by the project it came
+// from; a single-project read names its project once, on stderr.
+func renderTaskDetails(out io.Writer, rows []taskRow, global bool, cfg tagma.HideConfig) error {
+	for i, r := range rows {
 		if i > 0 {
 			if _, err := io.WriteString(out, "\n"); err != nil {
 				return err
 			}
 		}
-		if err := renderTaskDetail(out, t, cfg); err != nil {
+		if global {
+			if _, err := fmt.Fprintf(out, "project: %s\n", formatProjectLabel(r.ProjectDir, r.ProjectID)); err != nil {
+				return err
+			}
+		}
+		if err := renderTaskDetail(out, r.Task, cfg); err != nil {
 			return err
 		}
 	}
@@ -139,6 +199,7 @@ func renderTaskDetails(out io.Writer, list []tasks.Task, cfg tagma.HideConfig) e
 }
 
 func init() {
+	showCmd.Flags().BoolVar(&showGlobal, "global", false, "resolve the ids across every privately-homed project instead of just the current one (repo-homed projects are never included -- see \"taskloom list --help\")")
 	rootCmd.AddCommand(showCmd)
 }
 

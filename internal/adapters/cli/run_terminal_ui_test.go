@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
+	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -80,6 +83,21 @@ func TestSurroundRoster_NilCoordinatorIsEmptyNotError(t *testing.T) {
 	rows, err := surroundRoster(nil)
 	require.NoError(t, err)
 	assert.Nil(t, rows, "the bar shows just this session, not an error, when no coordinator is hosted")
+}
+
+// TestSurroundRows_CarryTheHoldInTheOverlaysWords: the bar's rows take a held
+// child's hold as the overlay words it (tui.HoldLabel), and an unheld child
+// carries none.
+func TestSurroundRows_CarryTheHoldInTheOverlaysWords(t *testing.T) {
+	hold := &coord.RunHold{Kind: "rate_limited", Until: time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC)}
+	rows := surroundRows([]coord.RosterEntry{
+		{Harp: "held-kid", State: coord.StateIdle, LastActivityUnix: 7, Hold: hold},
+		{Harp: "free-kid", State: coord.StateExecuting},
+	})
+	require.Len(t, rows, 2)
+	assert.Equal(t, termui.RosterEntry{Harp: "held-kid", State: coord.StateIdle, LastActivityUnix: 7, Hold: "held: rate limited until 17:30 UTC"}, rows[0])
+	assert.Equal(t, tui.HoldLabel(hold), rows[0].Hold, "one wording, overlay and bar")
+	assert.Empty(t, rows[1].Hold)
 }
 
 // TestRedirectDiagnosticsForTUI_AnnouncesTheOutcome pins both halves of the

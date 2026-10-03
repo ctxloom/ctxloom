@@ -233,13 +233,12 @@ func TestMapStreamJSONEvent_SubagentAuthFailure_NotTheTurns(t *testing.T) {
 	require.Len(t, evs, 1, "the sub-agent's words are still relayed")
 }
 
-// Only a refused credential or a rate limit fails a turn. claude's other
-// error values do not: overloaded is the server's capacity (a 529), not the
-// credential's quota, so it is no reason to park the runs sharing it; an
-// account on hold is not fixed by signing in again or by waiting; and a value
-// this build does not know is claude's "unknown".
+// Only a refused credential, a rate limit or an overload fails a turn.
+// claude's other error values do not: an account on hold is not fixed by
+// signing in again or by waiting; and a value this build does not know is
+// claude's "unknown".
 func TestMapStreamJSONEvent_OtherAPIErrors_NotATurnFailure(t *testing.T) {
-	for _, v := range []string{"overloaded", "account_on_hold", "cloud_credential_error", "billing_error", "unknown", "a_value_from_a_later_release"} {
+	for _, v := range []string{"account_on_hold", "cloud_credential_error", "billing_error", "unknown", "a_value_from_a_later_release"} {
 		t.Run(v, func(t *testing.T) {
 			assert.Empty(t, failuresIn(mapStreamJSONEvent(authFrame(t, v, nil))))
 		})
@@ -290,6 +289,18 @@ func TestMapStreamJSONEvent_RateLimit_RateLimited(t *testing.T) {
 	evs := mapStreamJSONEvent(authFrame(t, "rate_limit", nil))
 	assert.Equal(t, []agent.TurnFailure{{Kind: agent.FailureRateLimited}}, failuresIn(evs),
 		"a limit with no reset time said is still a rate limit; the coordinator's policy bounds the wait")
+}
+
+// claude's 'overloaded' ("a 529 because the server is at capacity") on the
+// turn's own message is an overloaded turn — never a rate limit, and it takes
+// no reset time from a rejected rate_limit_event in the same turn: that names
+// the credential's window, which an overload says nothing about.
+func TestMapStreamJSONEvent_Overloaded_Overloaded(t *testing.T) {
+	want := []agent.TurnFailure{{Kind: agent.FailureOverloaded}}
+	assert.Equal(t, want, failuresIn(mapStreamJSONEvent(authFrame(t, "overloaded", nil))))
+	assert.Equal(t, want, readTurn(t, rateLimitFrame(t, "rejected"), authFrame(t, "overloaded", nil)))
+	assert.Empty(t, failuresIn(mapStreamJSONEvent(authFrame(t, "overloaded", "toolu_01VuNv2eXbKS3shVDAQ1zMBX"))),
+		"a sub-agent's 529 is its tool's result, not the turn's")
 }
 
 // A sub-agent's 429 is the sub-agent's to report as its tool's result; the

@@ -55,7 +55,7 @@ func rosterRows(index []sessions.Entry, bus []coord.RosterEntry, selfHarp string
 	}
 	for _, b := range bus {
 		if !seen[b.Harp] {
-			rows = append(rows, RosterRow{Harp: b.Harp, Agent: b.Agent, State: b.State, Parent: b.Parent})
+			rows = append(rows, RosterRow{Harp: b.Harp, Agent: b.Agent, State: b.State, Parent: b.Parent, Hold: b.Hold})
 			seen[b.Harp] = true
 		}
 	}
@@ -82,6 +82,7 @@ func indexRow(e sessions.Entry, held coord.RosterEntry, isHeld bool) RosterRow {
 	// The coordinator's state wins when it has one: it runs that child and
 	// knows. Without one it has nothing to say, and the lock is asked instead.
 	row.State = held.State
+	row.Hold = held.Hold
 	if row.State == "" {
 		row.State = lockState(e.HarpName)
 	}

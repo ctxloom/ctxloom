@@ -72,9 +72,11 @@ raised it and covers only its own children.
   again.
 - **It is visible while it lasts.** `roster` marks each held run with a `hold` — its `kind`
   (`rate_limited`), its `source` (the names of the variables or credential stores the
-  credential comes from, never their values) and `until_unix`, when it releases. The root
-  terminal's bar says how many runs are waiting and when they resume, and a held run is never
-  reported as stalled.
+  credential comes from, never their values) and `until_unix`, when it releases. A held run's
+  phase stays `idle`; the `hold` is what tells it apart. The root terminal's bar says how many
+  runs are waiting and when they resume, the overlay's agents pane marks each held run and its
+  feed title reads `held: rate limited until <time>`, and a held run is never reported as
+  stalled.
 - **Only the human can cut it short.** Resuming any held run from the overlay releases the whole
   hold early; a coordinator's own resume of a held child is refused, since it would only meet
   the limit again.
@@ -82,6 +84,22 @@ raised it and covers only its own children.
 To exercise this without spending a real limit, send a turn to an agent on the `mock` engine
 whose prompt contains `mock:rate-limited` (or `mock:rate-limited=<unix seconds>` to name the
 reset time): that turn ends on a rate limit exactly as a real engine's does.
+
+## When the engine is overloaded
+
+An overloaded engine (claude's 529, "the server is at capacity") is not a spent limit: the
+credential is fine, so the runs sharing it carry on. Only the child whose turn was turned away
+backs off, after the engine's own retries gave up.
+
+- Its parent gets an error report leading `OVERLOADED` that says the prompt was not done and
+  must be resent. Mail sent to the run meanwhile waits and runs once it resumes.
+- The run is held on its own for a short, fixed backoff, then resumes by itself. If the engine
+  is still overloaded, its next turn backs off again.
+- `roster` shows the same `hold`, with `kind` `overloaded`; the root terminal's bar and the
+  overlay say the run is overloaded and when it resumes.
+- As with a rate limit, only the human can release it early.
+
+On the `mock` engine, a prompt containing `mock:overloaded` ends its turn overloaded.
 
 ## Every session is its own tree
 

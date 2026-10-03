@@ -158,12 +158,17 @@ func surroundRoster(sessionCoord *coord.Coordinator) ([]termui.RosterEntry, erro
 	if sessionCoord == nil {
 		return nil, nil
 	}
-	held := sessionCoord.Roster(sessionCoord.Owner())
+	return surroundRows(sessionCoord.Roster(sessionCoord.Owner())), nil
+}
+
+// surroundRows maps the coordinator's roster onto the bar's mirror rows, a
+// hold worded as the overlay words it (tui.HoldLabel).
+func surroundRows(held []coord.RosterEntry) []termui.RosterEntry {
 	rows := make([]termui.RosterEntry, len(held))
 	for i, b := range held {
-		rows[i] = termui.RosterEntry{Harp: b.Harp, State: b.State, LastActivityUnix: b.LastActivityUnix}
+		rows[i] = termui.RosterEntry{Harp: b.Harp, State: b.State, LastActivityUnix: b.LastActivityUnix, Hold: tui.HoldLabel(b.Hold)}
 	}
-	return rows, nil
+	return rows
 }
 
 // diagnosticsLogPath is where a TUI-owning session parks its clidiag warnings.

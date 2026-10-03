@@ -46,6 +46,21 @@ func TestCredentialNoticeText_RateLimited(t *testing.T) {
 	assert.Contains(t, credentialNoticeText([]coord.CredentialHold{tokenLimitHold("a"), loginLimitHold("b")}), "+1 more")
 }
 
+// An overload hold is one run's own backoff: the notice says the engine was
+// overloaded, names that run and when it resumes, and names no credential —
+// nothing about the credential is spent, and no sibling waits.
+func TestCredentialNoticeText_OverloadedNamesTheRunNotACredential(t *testing.T) {
+	src := engine.Credentials{Env: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "v"}}.Source("claude-code")
+	h := coord.CredentialHold{Engine: "claude-code", Source: src, Kind: agent.FailureOverloaded, Until: limitUntil, Harps: []string{"busy-kid"}}
+	got := credentialNoticeText([]coord.CredentialHold{h})
+	for _, want := range []string{"OVERLOADED", "claude-code", "busy-kid", "on its own", limitUntil.Local().Format("15:04:05")} {
+		assert.Contains(t, got, want)
+	}
+	for _, not := range []string{"RATE LIMITED", "CLAUDE_CODE_OAUTH_TOKEN", "waiting"} {
+		assert.NotContains(t, got, not)
+	}
+}
+
 // noteRecorder records every NoteBar call.
 type noteRecorder struct {
 	mu    sync.Mutex

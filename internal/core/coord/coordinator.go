@@ -1102,14 +1102,21 @@ func (c *Coordinator) inProject(id Identity) Identity {
 func (c *Coordinator) Owner() Identity { return Identity{Harp: c.ownerHarp} }
 
 // Roster lists every run this coordinator holds, for the root's in-process
-// surfaces. A child caller is answered with nothing here: a delegated child
+// surfaces, each with the hold parking its current run (as the wire roster,
+// listRunsSnapshot, carries it). A child caller is answered with nothing here: a delegated child
 // reads its own subtree over the wire (serveRoster).
 func (c *Coordinator) Roster(caller Identity) []RosterEntry {
 	if caller.IsChild() {
 		return nil
 	}
+	holds := c.runHolds()
 	var out []RosterEntry
-	c.runs.View(func() { out = c.rosterF.snapshot() })
+	c.runs.View(func() {
+		out = c.rosterF.snapshot()
+		for i := range out {
+			out[i].Hold = holds[c.rosterF.current[out[i].Harp]]
+		}
+	})
 	return out
 }
 

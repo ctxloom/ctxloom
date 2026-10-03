@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/shared/remedystatus"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -44,7 +44,7 @@ func TestEngineHost_StartRunRefusalCarriesTheRemedy(t *testing.T) {
 				StartRun: &agentcoordpb.StartRun{RunId: "run-1"},
 			}})
 			require.EqualValues(t, tc.code, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
-			fix, ok := clifmt.RemedyOf(coordgrpc.ErrFromStatus(resp.GetStatus()))
+			fix, ok := clifmt.RemedyOf(remedystatus.Err(resp.GetStatus()))
 			assert.True(t, ok, "the refusal carries its remedy")
 			assert.Equal(t, startRunRemedy, fix)
 		})

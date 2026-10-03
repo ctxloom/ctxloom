@@ -58,7 +58,7 @@
               "description": "hold is why this run is parked and when it is released; absent for a run nothing holds.",
               "properties": {
                 "kind": {
-                  "description": "The turn failure the hold is for, e.g. \"rate_limited\".",
+                  "description": "The turn failure the hold is for, as its stop_reason spells it (e.g. \"rate_limited\", \"overloaded\").",
                   "type": "string"
                 },
                 "source": {

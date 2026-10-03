@@ -76,6 +76,14 @@ const credentialRejectedMarker = "mock:credential-rejected"
 // fail on a refused credential.
 func CredentialRejected() string { return credentialRejectedMarker }
 
+// overloadedMarker is the mock's server at capacity: a prompt carrying it is a
+// turn that ends overloaded, as claude's does on a 529 past its own retries.
+const overloadedMarker = "mock:overloaded"
+
+// Overloaded renders the prompt directive that makes the mock's turn end
+// overloaded.
+func Overloaded() string { return overloadedMarker }
+
 // rateLimitedPattern is the mock's usage limit: a prompt carrying
 // `mock:rate-limited` is a turn that ends on its rate limit, as claude's does
 // on a 429; `=<unix seconds>` names when the limit resets.

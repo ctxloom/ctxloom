@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // These helpers read through the fs they are handed. Each case puts the file
@@ -18,7 +19,7 @@ func TestCLIHelpers_ReadThroughTheGivenFs(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "mem-only")
 
 	cfg := filepath.Join(root, "config.yaml")
-	require.NoError(t, afero.WriteFile(fsys, cfg, []byte("x: 1\n"), 0o600))
+	testsupport.WriteFile(t, fsys, cfg, []byte("x: 1\n"), 0o600)
 	exists, err := configFileExists(fsys, cfg)
 	require.NoError(t, err)
 	require.True(t, exists, "configFileExists")
@@ -28,7 +29,7 @@ func TestCLIHelpers_ReadThroughTheGivenFs(t *testing.T) {
 	require.True(t, ctxloomDirExists(fsys, appDir), "ctxloomDirExists")
 
 	bundle := filepath.Join(root, "a.yaml")
-	require.NoError(t, afero.WriteFile(fsys, bundle, []byte("a"), 0o600))
+	testsupport.WriteFile(t, fsys, bundle, []byte("a"), 0o600)
 	files, err := expandDistillFiles(fsys, []string{filepath.Join(root, "*.yaml")})
 	require.NoError(t, err)
 	require.Equal(t, []string{bundle, cfg}, files, "expandDistillFiles globs the given fs")
@@ -37,7 +38,7 @@ func TestCLIHelpers_ReadThroughTheGivenFs(t *testing.T) {
 	transcript, err := paths.HarpCanonicalTranscriptPath(harp)
 	require.NoError(t, err)
 	require.NoError(t, fsys.MkdirAll(filepath.Dir(transcript), 0o755))
-	require.NoError(t, afero.WriteFile(fsys, transcript, []byte("{}\n"), 0o600))
+	testsupport.WriteFile(t, fsys, transcript, []byte("{}\n"), 0o600)
 	_, size, ok := statHarpFile(fsys, harp, paths.HarpCanonicalTranscriptPath)
 	require.True(t, ok, "statHarpFile")
 	require.EqualValues(t, 3, size)

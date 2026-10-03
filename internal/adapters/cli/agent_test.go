@@ -101,10 +101,8 @@ func TestRenderAgentShow_ResolutionFailureStillPrintsDefinition(t *testing.T) {
 }
 
 // TestSetupPrompt_EmitsPrompt proves the setup-prompt body — the SCAN →
-// DISCUSS → WRITE instructions the LLM follows — reaches stdout. It used to be
-// asserted through the deprecated `agent setup` alias, deleted by the
-// verb-spine reorg; `ctxloom init prompt` is the surviving door onto the SAME
-// body (runSetupPromptCmd). The prompt is a markdown resource, so the
+// DISCUSS → WRITE instructions the LLM follows — reaches stdout through
+// `ctxloom init prompt` (runSetupPromptCmd). The prompt is a markdown resource, so the
 // assertions pin only the load-bearing, name-agnostic mechanics (not any
 // role/lens names).
 func TestSetupPrompt_EmitsPrompt(t *testing.T) {

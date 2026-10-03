@@ -9,6 +9,12 @@ var (
 	// ErrBundleNotFound indicates a bundle could not be located.
 	ErrBundleNotFound = errors.New("bundle not found")
 
+	// ErrBundleUnreadable indicates a bundle its reader found but could not
+	// produce. The reader that recorded it has already reported it, with the
+	// remedy for its actual cause (bundles.ReadFailureReporter), so a caller
+	// that only asked for the bundle by ref must not report it again.
+	ErrBundleUnreadable = errors.New("bundle could not be read")
+
 	// ErrFragmentNotFound indicates a fragment could not be located.
 	ErrFragmentNotFound = errors.New("fragment not found")
 

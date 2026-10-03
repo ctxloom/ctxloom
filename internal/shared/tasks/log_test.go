@@ -365,24 +365,6 @@ func TestLogRemoveTombstones(t *testing.T) {
 	}
 }
 
-func TestLogSummarize(t *testing.T) {
-	s := newLog(t, "")
-	a, _ := s.AddWithTrigger("a", "", "")
-	_, _ = s.AddWithTrigger("b", "", "")
-	_, _ = s.SetStatusWithTrigger(a.HarpID, StatusInProgress, "")
-
-	sum, err := s.Summarize()
-	if err != nil {
-		t.Fatalf("summarize: %v", err)
-	}
-	if sum.Counts[StatusToDo] != 1 || sum.Counts[StatusInProgress] != 1 {
-		t.Fatalf("counts = %+v", sum.Counts)
-	}
-	if len(sum.InProgress) != 1 || sum.InProgress[0] != a.HarpID {
-		t.Fatalf("in-progress = %+v", sum.InProgress)
-	}
-}
-
 // TestLogFailsLoudOnMalformedLine pins the fail-loud contract (CLAUDE.md): a
 // malformed line must fail the whole fold with an error naming the file, the
 // 1-based line number, and a fix-it hint — never be silently skipped.

@@ -128,11 +128,6 @@ func (s *Store) Repair() error {
 	return s.log.repair()
 }
 
-// Summarize counts tasks per status. Deterministic; no LLM call.
-func (s *Store) Summarize() (Summary, error) {
-	return s.log.summarize()
-}
-
 // DeferredSince returns, for every currently Deferred task, the timestamp of
 // the event that most recently moved it into Deferred status (an add with
 // status Deferred, or a later status change to Deferred). Tasks that are not

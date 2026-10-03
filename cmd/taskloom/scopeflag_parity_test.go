@@ -24,7 +24,7 @@ func TestReadScopeFlags_EveryProjectScopedReadTakesGlobal(t *testing.T) {
 	t.Cleanup(func() { rootCmd.RemoveCommand(loadout) })
 
 	scopedReads := map[string]bool{
-		"list": true, "tags": true, "show": true, "plan list": true,
+		"list": true, "tags": true, "show": true, "plan list": true, "summary": true,
 	}
 	exempt := map[string]string{
 		"add":              "mutation: writes exactly one project's store",
@@ -32,7 +32,6 @@ func TestReadScopeFlags_EveryProjectScopedReadTakesGlobal(t *testing.T) {
 		"status":           "mutation: writes exactly one project's store",
 		"tag":              "mutation: writes exactly one project's store",
 		"run":              "launches a task of the current project into a session",
-		"summary":          "per-status counts of one store; a cross-project summary has no defined shape",
 		"lint":             "checks one store file",
 		"repair":           "rewrites one store file",
 		"watch":            "follows one store file",

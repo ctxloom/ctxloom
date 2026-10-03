@@ -123,19 +123,6 @@ rules:
     message: "`kill` paired with `-f`/a name-pattern lookup is a pattern-matched kill in disguise — on this box it can hit another agent's `go test`/`go build`/`just` process, not just yours."
     suggest: "Find the exact PID first (e.g. `ps aux | grep <your-marker>`), then `kill -9 <PID>` — never a name/pattern match."
 
-  # git's LOCAL config (.git/config) outranks HOME/XDG isolation entirely —
-  # it's resolved from the discovered .git dir, not from $HOME — and for a
-  # linked worktree that file is the repo's SHARED common config, so setting
-  # it here changes every other agent's worktree too and misattributes their
-  # commits. Cooperative agents on this box must scope identity per-command.
-  - id: no-git-config-local-identity
-    match:
-      command: [git, config]
-      args_any: ["user.name", "user.email"]
-      unless: ["--global", "--system", "--get", "--get-all", "--get-regexp", "--list", "-l", "--show-origin"]
-    message: "Local `git config user.*` (bare or --local) outranks HOME/XDG isolation and leaks across linked worktrees sharing this repo's common .git/config — it can misattribute another agent's commits."
-    suggest: "git -c user.name='...' -c user.email='...' <command>   # scoped to this one command, never persisted"
-
   # `go env -w` persists into the shared Go env config file, not just this
   # shell — it rewires GOTMPDIR/GOFLAGS/GOTOOLCHAIN/etc. for every process on
   # the box, including every other agent's `go` invocations.

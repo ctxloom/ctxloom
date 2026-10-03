@@ -244,11 +244,11 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		}
 		// The composed setup guidance (built-in + the company companion's
 		// codeword instruction) is exactly what `ctxloom init prompt` emits
-		// (internal/adapters/cli/agent.go, via the SAME operations.ResolveSetupPrompt
+		// (runSetupPromptCmd, via the SAME operations.ResolveSetupPrompt
 		// this scenario is proving) — driving it straight into the real
 		// assistant as its prompt is the equivalent of the interactive
 		// discovery session launching it, without needing a real pty here.
-		if err := runOK(w, "agent", "setup"); err != nil {
+		if err := runOK(w, "init", "prompt"); err != nil {
 			return err
 		}
 		guidance := w.env.LastOutput()

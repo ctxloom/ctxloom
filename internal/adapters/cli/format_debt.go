@@ -78,7 +78,6 @@ var formatDebtAllowlist = map[string]string{
 	// --yes safety-posture rewrite: both its report and --yes branches now
 	// route through emit().
 	"agent default": "agent.go: the agent-default RunE must route through emit()",
-	"agent setup":   "deprecated alias of `init prompt`; shares runSetupPromptCmd — paid down by the same fix",
 	"init prompt":   "init.go: runSetupPromptCmd must route through emit() (also an interactive interview — may warrant a structural-exemption reclassification instead)",
 	"init":          "init.go: runInit must route through emit() (also an interactive bootstrap — may warrant a structural-exemption reclassification instead)",
 

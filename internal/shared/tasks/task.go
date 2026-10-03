@@ -140,10 +140,18 @@ type Task struct {
 // DERIVED (normalizeTags), so the value is well-formed before it ever
 // reaches a marshaller.
 
-// Summary holds counts per status and the harp IDs currently in-progress.
+// Summary holds counts per status and the tasks currently in progress.
 type Summary struct {
-	Counts     map[string]int `json:"counts"`
-	InProgress []string       `json:"in_progress"`
+	Counts     map[string]int   `json:"counts"`
+	InProgress []InProgressTask `json:"in_progress"`
+}
+
+// InProgressTask names one in-progress task WITH its project: a harp id is
+// unique only within one project's log, so a summary spanning projects could
+// otherwise name two different tasks identically.
+type InProgressTask struct {
+	HarpID  string `json:"harp_id"`
+	Project string `json:"project"`
 }
 
 // effectiveTrigger picks the trigger to persist on a status change: a non-empty

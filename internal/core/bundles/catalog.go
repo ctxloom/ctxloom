@@ -218,6 +218,10 @@ func Resolve(ctx context.Context, sink report.Sink, readers ...Reader) Catalog {
 // ReadFailureReporter is a Reader that can say why a name it knows about
 // produced no read.
 //
+// A failure it records is one it has ALREADY REPORTED: an ask that reaches it
+// is errs.ErrBundleUnreadable, which tells the asker not to raise it again.
+// Recording a failure without reporting it would therefore silence it.
+//
 // It is a SEPARATE interface, not a widened Reader, so a reader with nothing to
 // say on the subject says nothing rather than returning an empty map a caller
 // cannot tell from "this reader never records". The result is valid only after
@@ -716,10 +720,29 @@ func (c Catalog) explain(ask string, err error) error {
 // FIX, and reporting it as absent points them at their spelling instead of at
 // the file.
 func (c Catalog) missing(ask string) error {
-	if err := c.failures[ask]; err != nil {
-		return fmt.Errorf("bundle %s could not be read: %w", ask, err)
+	if err := c.failure(ask); err != nil {
+		return fmt.Errorf("%w: %s: %w", errs.ErrBundleUnreadable, ask, err)
 	}
 	return fmt.Errorf("%w: %s", errs.ErrBundleNotFound, ask)
+}
+
+// failure is what a reader recorded for ask: under the name asked, else under
+// the canonical key an identity ask resolves to (Lookup's arms 1 and 2), which
+// is how a reader that never had a name for the bundle — a pinned tree that
+// would not open — files it.
+func (c Catalog) failure(ask string) error {
+	if err := c.failures[ask]; err != nil {
+		return err
+	}
+	if br, err := trust.ParseBundleRef(ask); err == nil {
+		return c.failures[string(br.BundleIdentity())]
+	}
+	if parsed, err := remote.ParseReference(ask); err == nil {
+		if key, err := parsed.LockKey(); err == nil {
+			return c.failures[string(key)]
+		}
+	}
+	return nil
 }
 
 // Located is where a bundle resolved AND which on-disk layout answered.

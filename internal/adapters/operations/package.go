@@ -272,19 +272,6 @@ func managedStatuslineEnabled(cfg *config.Config) bool {
 	return settings.ShouldManageStatusline()
 }
 
-// ManagedConfigOf projects a package onto the managed surfaces for one
-// engine: its command and skill exports as that engine decides them from
-// its own blocks (Engine.Exports over EngineItems), the hooks, the servers,
-// the deny list and the statusline. An engine nobody registered, or a block
-// its schema refuses, is an error naming it.
-func ManagedConfigOf(reg engine.Registry, pkg composite.Package, engineName string) (*agent.ManagedConfig, error) {
-	exports, err := ExportsFor(reg, pkg, engineName)
-	if err != nil {
-		return nil, err
-	}
-	return agent.ManagedConfigFor(ManagedSurfacesOf(pkg), exports), nil
-}
-
 // ManagedSurfacesOf is the package's surfaces as the writers' payload names
 // them.
 func ManagedSurfacesOf(pkg composite.Package) agent.ManagedSurfaces {

@@ -24,10 +24,13 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -154,11 +157,30 @@ func renderToday(t *testing.T, g *golden, cfg *config.Config, engine, profile, a
 	mat, err := operations.AssembleContext(context.Background(), cfg, operations.AssembleContextRequest{Profiles: []string{profile}, Consumer: operations.MaterializedFor(engines.Registry(), engine)})
 	require.NoError(t, err)
 	g.section(t, fmt.Sprintf("engine=%s profile=%s consumer=materialized", engine, profile), mat)
-	pkg, err := operations.AssemblePackage(context.Background(), cfg, operations.PackageRequest{Profiles: []string{profile}, WorkDir: filepath.Dir(appDir)})
+	g.section(t, fmt.Sprintf("engine=%s profile=%s managed", engine, profile), openedManaged(t, cfg, engine, profile, filepath.Dir(appDir)))
+}
+
+// openedManaged is the managed payload a launch delivers, built the way
+// production builds it: launch.Resolve over the generation, then
+// operations.OpenLaunch decoding the launch's carrier and projecting it.
+func openedManaged(t *testing.T, cfg *config.Config, engineName, profile, workDir string) *agent.ManagedConfig {
+	t.Helper()
+	// Resolve refuses a launch whose engine credential the environment does
+	// not hold; the payload carries no credential, so any value serves.
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "golden-placeholder")
+	ctx := context.Background()
+	deps, err := operations.LaunchDepsFor(operations.LaunchFacts{Engines: engines.Registry()}, &config.Snapshot{Config: cfg})
 	require.NoError(t, err)
-	managed, err := operations.ManagedConfigOf(engines.Registry(), pkg, engine)
+	entry, err := deps.Sessions.AssignHarp(workDir, "")
 	require.NoError(t, err)
-	g.section(t, fmt.Sprintf("engine=%s profile=%s managed", engine, profile), managed)
+	l, err := launch.Resolve(ctx, deps, launch.Source{
+		Identity: sessions.Identity{Harp: entry.HarpName, Project: "golden"},
+		Profiles: []string{profile}, Label: engineName, Mode: engine.Interactive, WorkDir: workDir,
+	})
+	require.NoError(t, err)
+	opened, err := operations.OpenLaunch(ctx, deps, l)
+	require.NoError(t, err)
+	return opened.Managed
 }
 
 // golden accumulates sections. A string longer than blobThreshold is

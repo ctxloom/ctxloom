@@ -384,8 +384,8 @@ type RosterEntry struct {
 	State            string `json:"state"`
 	Parent           string `json:"parent,omitempty"`
 	LastActivityUnix int64  `json:"last_activity_unix,omitempty"`
-	// Hold is the turn failure's hold parking the harp's current run (nil
-	// when none does). It is holdsFold's, joined by Coordinator.Roster; this
+	// Hold is the hold parking the harp's current run — a turn failure's, or
+	// a pause (nil when none does). It is holdsFold's, joined by Coordinator.Roster; this
 	// fold never sets it.
 	Hold *RunHold `json:"hold,omitempty"`
 }

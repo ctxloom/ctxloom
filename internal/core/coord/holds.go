@@ -29,7 +29,7 @@ type holdRecord struct {
 
 // pause reports whether the hold is an initiator's pause rather than a turn
 // failure's backoff.
-func (h *holdRecord) pause() bool { return h.Kind == holdKindHuman || h.Kind == holdKindAgent }
+func (h *holdRecord) pause() bool { return h.Kind == HoldKindHuman || h.Kind == HoldKindAgent }
 
 // owedResume is a run whose hold was released before its runner acked the
 // resume.

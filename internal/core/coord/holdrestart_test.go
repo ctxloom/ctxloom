@@ -318,7 +318,7 @@ func TestHoldRestart_AHumanPauseSurvivesARestart(t *testing.T) {
 	require.NoError(t, err)
 	opened := journaled[holdOpened](t, f.c, factHoldOpened)
 	require.Len(t, opened, 1)
-	assert.Equal(t, holdKindHuman, opened[0].Kind)
+	assert.Equal(t, HoldKindHuman, opened[0].Kind)
 	assert.True(t, opened[0].Until.IsZero(), "a pause has no deadline")
 
 	reasserted := make(chan struct{}, 8)

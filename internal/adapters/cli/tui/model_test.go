@@ -888,6 +888,12 @@ func TestModel_AHeldRowShowsItsHold(t *testing.T) {
 
 // TestHoldLabel_NoDeadlineSaysOnlyWhat: a hold with no deadline of its own
 // says what it waits on and nothing about when.
+// A pause says who paused the child, not a failure it waits on.
+func TestHoldLabel_APauseSaysWhoPausedIt(t *testing.T) {
+	assert.Equal(t, "paused by the human", HoldLabel(&coord.RunHold{Kind: coord.HoldKindHuman}))
+	assert.Equal(t, "paused by its parent", HoldLabel(&coord.RunHold{Kind: coord.HoldKindAgent}))
+}
+
 func TestHoldLabel_NoDeadlineSaysOnlyWhat(t *testing.T) {
 	assert.Equal(t, "held: rate limited", HoldLabel(&coord.RunHold{Kind: "rate_limited"}))
 	assert.Empty(t, HoldLabel(nil))

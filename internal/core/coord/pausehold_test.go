@@ -101,3 +101,31 @@ func TestHoldStop_AStoppedChildLeavesItsPause(t *testing.T) {
 	assert.Equal(t, prose, disposition)
 	awaitChatText(t, f.sp, 3, "after the stop")
 }
+
+// TestPauseHold_TheRosterShowsAPause: a paused child carries the roster's hold
+// — kind human or agent, by who paused it, with no deadline and no credential
+// — on both rosters, and liveness never judges it stalled; the resume clears
+// both.
+func TestPauseHold_TheRosterShowsAPause(t *testing.T) {
+	f, _ := newRateFixture(t)
+	_, err := f.c.ControlPause(human(t), humanInitiator(), f.stranger, "reviewing")
+	require.NoError(t, err)
+	_, err = f.c.ControlPause(human(t), agentInitiator(), f.sibling, "waiting on the worker")
+	require.NoError(t, err)
+
+	for harp, kind := range map[string]string{f.stranger: HoldKindHuman, f.sibling: HoldKindAgent} {
+		want := &RunHold{Kind: kind}
+		assert.Equal(t, want, f.holdOf(t, harp), "the wire roster shows %s's pause", harp)
+		assert.Equal(t, want, f.entry(harp).Hold, "the in-process roster shows %s's pause", harp)
+	}
+	awaiting := map[string]bool{}
+	for _, tg := range f.c.livenessTargets() {
+		awaiting[tg.Harp] = tg.AwaitingApproval
+	}
+	assert.Equal(t, map[string]bool{f.worker: false, f.sibling: true, f.stranger: true}, awaiting)
+
+	_, err = f.c.ControlResume(human(t), humanInitiator(), f.stranger)
+	require.NoError(t, err)
+	assert.Nil(t, f.holdOf(t, f.stranger))
+	assert.Nil(t, f.entry(f.stranger).Hold)
+}

@@ -294,9 +294,10 @@ type RunInfo struct {
 }
 
 // RunHold is why a run is parked and when it is released: the turn failure
-// its credential's hold is for (an agent.FailureKind value), the hold's
-// credential source (carrier names, never a value), and when it releases
-// itself (zero: only when cleared).
+// its hold is for (an agent.FailureKind value) or, for a pause, who paused it
+// (HoldKindHuman, HoldKindAgent); the hold's credential source (carrier
+// names, never a value; empty for a pause); and when it releases itself
+// (zero: only when cleared).
 type RunHold struct {
 	Kind   string
 	Source string

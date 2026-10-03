@@ -60,11 +60,11 @@ const (
 	holdScopeRun        holdScope = "run"
 )
 
-// The kinds of a pause hold, by who paused (ControlInitiator.Kind). A
-// failure's hold carries its agent.FailureKind.
+// The kinds of a pause hold, by who paused (ControlInitiator.Kind), as
+// RunHold.Kind spells them. A failure's hold carries its agent.FailureKind.
 const (
-	holdKindHuman = "human"
-	holdKindAgent = "agent"
+	HoldKindHuman = "human"
+	HoldKindAgent = "agent"
 )
 
 // heldFailures are the turn failures a run parks itself on and its
@@ -216,17 +216,16 @@ func (c *Coordinator) CredentialHolds() []CredentialHold {
 	return out
 }
 
-// runHolds is the roster's view of every run a failure's hold parks, by run
-// id. Its Source is the credential's carrier names, not the hold's key: a
-// run's own hold (an overload, or a run with no credential) is keyed by its
-// run id, which names no carrier.
+// runHolds is the roster's view of every run a hold parks — a failure's or a
+// pause — by run id. Its Source is the credential's carrier names, not the
+// hold's key: a run's own hold (an overload, or a run with no credential) is
+// keyed by its run id, which names no carrier, and a pause has none.
 func (c *Coordinator) runHolds() map[string]*RunHold {
 	out := make(map[string]*RunHold)
 	c.runs.View(func() {
 		for runID := range c.holdsF.byRun {
-			if h := c.holdsF.holdOfRun(runID); !h.pause() {
-				out[runID] = &RunHold{Kind: h.Kind, Source: h.Source.Key, Until: h.Until}
-			}
+			h := c.holdsF.holdOfRun(runID)
+			out[runID] = &RunHold{Kind: h.Kind, Source: h.Source.Key, Until: h.Until}
 		}
 	})
 	return out
@@ -765,7 +764,7 @@ func (c *Coordinator) releaseHold(ctx context.Context, by ControlInitiator, rec 
 	}
 	switch {
 	case by.Kind == InitiatorHuman:
-	case h.Kind == holdKindHuman:
+	case h.Kind == HoldKindHuman:
 		return true, false, fmt.Errorf("resume %s: %w", rec.Harp, ErrHumanPaused)
 	case !h.pause():
 		return true, false, fmt.Errorf("resume %s: %w", rec.Harp, ErrCredentialHeld)
@@ -777,9 +776,9 @@ func (c *Coordinator) releaseHold(ctx context.Context, by ControlInitiator, rec 
 	if local != nil && local.id == h.ID {
 		<-local.parked
 	}
-	cause := holdKindHuman
+	cause := HoldKindHuman
 	if by.Kind == InitiatorAgent {
-		cause = holdKindAgent
+		cause = HoldKindAgent
 	}
 	members, released := c.releaseKey(h.Key, h.ID, cause, by.auditName(), always)
 	if !released {
@@ -796,9 +795,9 @@ func (c *Coordinator) releaseHold(ctx context.Context, by ControlInitiator, rec 
 // already that hold's, and the pause only re-asserts it. id is the new hold's,
 // "" when none was opened.
 func (c *Coordinator) recordPause(by ControlInitiator, rec *RunRecord) (id string) {
-	kind := holdKindHuman
+	kind := HoldKindHuman
 	if by.Kind == InitiatorAgent {
-		kind = holdKindAgent
+		kind = HoldKindAgent
 	}
 	key, at := pauseKey(rec.Harp), c.now()
 	c.holdMu.Lock()

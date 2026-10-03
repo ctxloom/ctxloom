@@ -1405,13 +1405,14 @@ message ListRunsResult {
 // rate-limit hold pauses every run sharing the credential whose engine turned
 // a turn away, and releases them together; an overload hold pauses only the
 // run whose turn was turned away, since the server's capacity is not the
-// credential's limit.
+// credential's limit; a pause holds the one run an initiator paused.
 message RunHold {
   // The turn failure the hold is for, as its stop_reason spells it
-  // (e.g. "rate_limited", "overloaded").
+  // (e.g. "rate_limited", "overloaded"), or who paused the run ("human",
+  // "agent").
   string kind = 1;
   // The credential's source: the carrier's NAMES (variables, store
-  // locations), never a value.
+  // locations), never a value. Empty for a pause.
   string source = 2;
   // When the hold releases itself, in Unix seconds; 0 = only when cleared.
   int64 until_unix = 3;

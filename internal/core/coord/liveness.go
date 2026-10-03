@@ -142,8 +142,8 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 	for _, p := range c.approvals.Pending() {
 		awaiting[p.From.RunID] = true
 	}
-	// A run parked on a turn failure's hold is waiting on its limit, not
-	// stuck: it takes the same exemption.
+	// A run a hold parks — waiting on its limit, or paused — is not stuck:
+	// it takes the same exemption.
 	for runID := range c.runHolds() {
 		awaiting[runID] = true
 	}

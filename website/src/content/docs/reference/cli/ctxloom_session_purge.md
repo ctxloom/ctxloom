@@ -15,7 +15,7 @@ Empty a finished session: its transcript, its artifacts and its scratch worktree
 
 Sweeps all three of a session's destroyable populations at once —
 the recorded conversation, the derived essence, and the scratch git
-worktrees the session left in its ephemeral directory. Authored files are
+worktrees the session left in its work/ directory. Authored files are
 never destroyed; they are named in the report instead.
 
 Without --yes this only reports; nothing on disk, in git, or in the session

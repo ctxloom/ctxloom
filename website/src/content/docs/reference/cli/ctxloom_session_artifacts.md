@@ -13,8 +13,10 @@ What a session produced — its distilled essence: list it, destroy it
 
 ### Synopsis
 
-A session's artifacts are what ctxloom derived from it, at
-~/.ctxloom/sessions/<harp>/essence.md.
+A session's artifacts are what ctxloom derived from it: essence.md in
+the session's output dir (<Documents>/ctxloom/<project>/<harp>/ unless the
+output_dir config key says otherwise). No sweep or clean ever removes it;
+purge here is the one command that does.
 
   list    which sessions have been distilled, and how large the result is
   purge   destroy the essence, reporting first

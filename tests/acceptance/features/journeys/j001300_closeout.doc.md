@@ -58,7 +58,7 @@ to happen.** Any test asserting absence needs to prove the code path ran.
 ### Two populations of worktree, two verbs, and one deliberate absence
 
 ctxloom's own scratch worktrees live inside a specific harp's directory —
-`~/.ctxloom/sessions/<harp>/ephemeral/ctxloom-wt-*` — so the noun is settled by
+`~/.ctxloom/sessions/<harp>/work/ctxloom-wt-*` — so the noun is settled by
 layout rather than by taste: they are session-scoped by construction, and
 `session` is where they belong.
 
@@ -84,11 +84,13 @@ This project has lost work to a force-removed worktree before. That is why the
 WIP assertion reads the file's own bytes off disk rather than checking that a
 directory still exists.
 
-### The harp directory has three content classes and they are not alike
+### A session has three content classes and they are not alike
 
-- **Machine-written** — transcripts, ephemeral state, diagnostics. Purgeable
-  bulk, and the reason anyone runs this at all.
-- **Derived** — the distilled essence, the index entry. Cheap; kept by default.
+- **Machine-written** — transcripts, native history, scratch, diagnostics, in
+  the session dir. Purgeable bulk, and the reason anyone runs this at all.
+- **Derived** — the distilled essence, in the session's output dir, and the
+  session record. Cheap; a sweep never takes it, and only an explicit
+  `session purge` empties the essence.
   A purged session stays in the index MARKED purged, because a session that
   vanishes from the index is indistinguishable from one that never existed.
 - **Human-authored** — plan files, design notes, write-ups. Never negotiable.
@@ -100,19 +102,16 @@ enough window is the same outcome as deleting it, only slower.
 
 ### The unclassified middle (B13)
 
-The split above is not clean on disk today, and the gap is verified rather than
-suspected. A harp directory already has a declared durability contract:
-`persist/` is mounted into containers and `ephemeral/` is deliberately not,
-because `ephemeral/` is where the scratch worktrees live and dragging those
-into a container is the opposite of what anyone wants.
+The session dir holds machine state only, classified row by row
+(`paths.HarpMembers`); a containerized run reaches only the rows marked
+Mounted. Readable outputs — plans among them — belong in the session's output
+dir, which a container reaches at `/ctxloom/out`.
 
-Authored artifacts land in neither. The plan-stamping convention writes them at
-the harp directory's TOP LEVEL — an unclassified middle with no declared
-durability — so **a containerized agent writing a design note into its own
-session directory writes into container-ephemeral space and loses it on exit**,
-actively encouraged to do so by the convention. The recommended fix is to
-extend the convention rather than widen the mount, and the doctor check that
-notices the condition is one of the scenarios here.
+An authored file left at the session dir's TOP LEVEL is classified by no row:
+**a containerized agent writing a design note there writes into
+container-ephemeral space and loses it on exit**, and on the host it sits where
+no human looks. The doctor check that notices the condition, and names the
+output dir as the fix, is one of the scenarios here.
 
 ### The confirmation line
 

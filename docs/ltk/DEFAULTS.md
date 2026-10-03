@@ -115,7 +115,7 @@ against a program with short aliases, not something specific to `git`.
     suggest: "git push --force-with-lease"
 ```
 
-## Keep commits scoped and correctly attributed
+## Keep commits scoped
 
 `git add -A` / `git add .` sweeps in files the task never touched (and can stage
 deletions), so the default is to stage in-scope paths explicitly. But blanket
@@ -129,35 +129,6 @@ everything.
     mode: confirm
     message: "Prefer staging the paths this change actually touches. If the change really does span many files, run the same command again to stage them all."
     suggest: "git add <path> [<path> …]"
-```
-
-The agent should commit as you, with an identity configured once outside the
-session — not rewrite `user.name`/`user.email` per command. Reading the
-identity is fine: `git config user.name` (two operands) is a read, `git config
-user.name VALUE` (three) is a write, and `min_operands` is what tells them
-apart. `--unset` and `--unset-all` write with only two operands, so each gets
-a rule of its own.
-
-```yaml
-  - id: no-rewrite-git-identity
-    match:
-      command: [git, config]
-      args_any: ["user.email", "user.name"]
-      min_operands: 3
-      unless: ["--get", "--get-all", "--get-regexp", "--list", "-l", "--show-origin"]
-    message: "Don't change the git identity from inside the agent; set it once in your own global config."
-```
-
-```yaml
-  - id: no-unset-git-identity
-    match: { command: [git, config], args_any: ["user.email", "user.name"], args_all: ["--unset"] }
-    message: "Don't change the git identity from inside the agent; set it once in your own global config."
-```
-
-```yaml
-  - id: no-unset-all-git-identity
-    match: { command: [git, config], args_any: ["user.email", "user.name"], args_all: ["--unset-all"] }
-    message: "Don't change the git identity from inside the agent; set it once in your own global config."
 ```
 
 ## Destructive shell and privilege

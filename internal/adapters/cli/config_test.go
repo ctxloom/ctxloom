@@ -65,10 +65,10 @@ func TestResolveConfigSection_KnownSections(t *testing.T) {
 // TestResolveConfigSection_CoversEveryShowKey walks the SAME document
 // `config show` renders (yaml.Marshal(cfg), which yaml.v3 routes through
 // Config.MarshalYAML — renderConfigYAML's exact call) and asserts `config
-// get` can resolve every top-level key found there. It contains no
+// show <section>` can resolve every top-level key found there. It contains no
 // hand-typed section name: this is the row's own regression case
-// (delegation, dirty_tree_handler, agents, default_agent were all showable
-// but not gettable) generalized so that adding a NEW configDoc field without
+// (delegation, dirty_tree_handler, agents, default_agent were all in the
+// whole document but not resolvable as a section) generalized so that adding a NEW configDoc field without
 // wiring it into resolveConfigSection fails this test, rather than silently
 // reproducing the same drift under a different key.
 func TestResolveConfigSection_CoversEveryShowKey(t *testing.T) {
@@ -83,7 +83,7 @@ func TestResolveConfigSection_CoversEveryShowKey(t *testing.T) {
 	for key := range doc {
 		t.Run(key, func(t *testing.T) {
 			got, err := resolveConfigSection(cfg, key)
-			require.NoError(t, err, "config show rendered %q but config get refused it", key)
+			require.NoError(t, err, "config show rendered %q but config show <section> refused it", key)
 			assert.NotNil(t, got)
 		})
 	}
@@ -264,7 +264,7 @@ func TestConfigShowGet_HonorEveryFormatWithARealPayload(t *testing.T) {
 	}
 }
 
-// TestConfigPayload_SectionKeysStaySnakeCase pins that `config get`'s payload
+// TestConfigPayload_SectionKeysStaySnakeCase pins that `config show <section>`'s payload
 // keeps the yaml spelling in every encoding: the section structs carry yaml
 // tags only, so a json/toml encoder reading them directly would rename every
 // key to its Go field name.
@@ -298,7 +298,7 @@ func TestConfigCreateWritesItsSuccessLineToTheCommandWriter(t *testing.T) {
 
 // --- effective vs --raw -------------------------------------------------------
 //
-// `config show` and `config get` render the EFFECTIVE configuration: a project
+// `config show` and `config show <section>` render the EFFECTIVE configuration: a project
 // that configured no LLMs still runs against the shipped registry, so that is
 // what they print. --raw renders only what the configuration sets — the
 // document a save writes — so the two can be told apart.

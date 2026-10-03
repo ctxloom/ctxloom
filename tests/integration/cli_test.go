@@ -963,7 +963,7 @@ config:
 `), "write config.yaml")
 }
 
-// TestConfig_Show and TestConfig_Get assert on the PAYLOAD, not the exit code.
+// TestConfig_Show and TestConfig_ShowSection assert on the PAYLOAD, not the exit code.
 //
 // Both used to drive `manage config show` / `manage config get llm`. There is
 // no `manage config` subtree — configuration lives at the top-level `config`
@@ -986,21 +986,21 @@ func TestConfig_Show(t *testing.T) {
 	assert.NotContains(t, out, "Usage:", "a cobra help dump is the false-green this test exists to catch")
 }
 
-func TestConfig_Get(t *testing.T) {
+func TestConfig_ShowSection(t *testing.T) {
 	env := setupTestEnv(t)
 	writeConfig(t, env)
 
 	// Sections are config/llm/mcp/profiles in schema v3 (the old "defaults"
 	// section was folded into "config").
-	_ = env.Run("config", "get", "llm")
+	_ = env.Run("config", "show", "llm")
 
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 	out := env.LastOutput()
-	assert.Contains(t, out, "payload-probe-engine", "config get llm renders the llm section")
+	assert.Contains(t, out, "payload-probe-engine", "config show llm renders the llm section")
 	assert.Contains(t, out, "payload-probe-model")
-	// Section scoping is the whole point of `get` over `show`: a sibling
+	// Section scoping is the whole point of the positional: a sibling
 	// section's keys must NOT come along.
-	assert.NotContains(t, out, "use_distilled", "config get llm is scoped to the llm section")
+	assert.NotContains(t, out, "use_distilled", "config show llm is scoped to the llm section")
 	assert.NotContains(t, out, "Usage:", "a cobra help dump is the false-green this test exists to catch")
 }
 

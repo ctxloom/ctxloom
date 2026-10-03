@@ -44,7 +44,18 @@ func doctorCheckProjectOwner(workDir string, list func(projectID, projectDir str
 	if len(roots) == 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no coordinator roots: the next `ctxloom run` here founds its own"}
 	}
-	status := DoctorInfo
+	status, detail := summarizeRoots(roots)
+	if lerr != nil {
+		status = DoctorWarn
+		detail += ". Some roots could not probe: " + lerr.Error()
+	}
+	return DoctorCheck{Marker: marker, Status: status, Detail: detail}
+}
+
+// summarizeRoots renders a non-empty root list as the check's status and
+// detail: a warning when any root is stranded (describeRoot), with what ends
+// one, since doctor will not.
+func summarizeRoots(roots []coord.RootStatus) (DoctorStatus, string) {
 	lines := make([]string, 0, len(roots))
 	stranded := false
 	for _, r := range roots {
@@ -57,15 +68,10 @@ func doctorCheckProjectOwner(workDir string, list func(projectID, projectDir str
 		noun = "root"
 	}
 	detail := fmt.Sprintf("%d coordinator %s: %s. A new `ctxloom run` here founds its own root alongside them", len(roots), noun, strings.Join(lines, "; "))
-	if stranded {
-		status = DoctorWarn
-		detail += ". doctor removes no root: a resume adopts a stranded one (ending an orphaned owner first), and `ctxloom session sweep` removes it with its session"
+	if !stranded {
+		return DoctorInfo, detail
 	}
-	if lerr != nil {
-		status = DoctorWarn
-		detail += ". Some roots could not probe: " + lerr.Error()
-	}
-	return DoctorCheck{Marker: marker, Status: status, Detail: detail}
+	return DoctorWarn, detail + ". doctor removes no root: a resume adopts a stranded one (ending an orphaned owner first), and `ctxloom session sweep` removes it with its session"
 }
 
 // describeRoot renders one root, and reports whether it is stranded: no live

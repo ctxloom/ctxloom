@@ -43,8 +43,10 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 	// A SYNTHETIC canonical transcript — no real session content — sized and
 	// shaped (session/entry/complete kind mix, alternating user/assistant/
 	// tool_use/tool_result entries) to resemble a genuine captured session
-	// without reproducing one. Written straight to the harp's own transcripts dir
-	// — no session-index entry. The scenario calls recover_session with
+	// without reproducing one. Written straight to the harp's own transcripts
+	// dir, beside a sidecar that records the session (and so its output dir,
+	// where recovery writes the essence) but binds NO backend session id. The
+	// scenario calls recover_session with
 	// session_id SET TO THE HARP ITSELF: CanonicalFallbackSource.GetSession
 	// tries id-as-harp FIRST, so this resolves directly and, on
 	// the save side, agent.Session.ID ends up equal to the harp too — keeping
@@ -66,6 +68,9 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 		// memory.MaxEssenceChars, so a distiller that does not compress
 		// produces an essence over the bound and must be refused.
 		content := syntheticCanonicalTranscript(harp, 300_000)
+		if err := seedSessionSidecar(w, harp, sessionSeed{}); err != nil {
+			return err
+		}
 		return w.env.WriteHomeFile(".ctxloom/sessions/"+harp+"/transcripts/transcript.jsonl", content)
 	})
 

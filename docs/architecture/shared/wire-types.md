@@ -102,7 +102,6 @@ One MCP server, as a bundle's `mcp:` block declares it and as it reaches an engi
 | `(*HooksConfig).Append` / `(*UnifiedHooks).Append` | `hooks.go` | Appends each per-event slice from `other` onto the receiver, skipping any hook the event already carries |
 | `MergeHooksConfig(dest, src *HooksConfig) (dropped int)` | `merge.go` | Appends `src` into `dest` through `HooksConfig.Append`; a nil `dest` drops `src` and reports its size (`HooksConfig.Count`). `agent.MergeHooksConfig` wraps it to name the drop |
 | `(MCPServer).Validate() error` | `mcp.go` | The one-of-three target rule above |
-| `CloneMCPServer(s MCPServer) MCPServer` | `mcp.go` | Copies an `MCPServer`, duplicating `Args`, `Env` and `Headers` so the copy never aliases |
 
 ## Invariants and contracts
 

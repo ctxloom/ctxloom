@@ -3,9 +3,7 @@ package wire
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"net/url"
-	"slices"
 )
 
 // MCPServer defines an MCP (Model Context Protocol) server, as a bundle's
@@ -137,13 +135,3 @@ func (s MCPServer) IsSessionEndpoint() bool { return s.ServedBy == ServedBySessi
 // an engine writer as declared: delivery.InputsFor renders it (or drops it)
 // before any writer sees the server set, so one arriving here bypassed that.
 var ErrMCPServerUnrendered = errors.New("mcp server: a session-endpoint declaration reached a writer unrendered; it is rendered by the engine's dynamic approach at delivery")
-
-// CloneMCPServer returns a copy of s with its mutable Args slice and Env and
-// Headers maps duplicated, so the copy never aliases s's backing array/maps.
-// A plain struct copy is shallow and would share all three.
-func CloneMCPServer(s MCPServer) MCPServer {
-	s.Args = slices.Clone(s.Args)
-	s.Env = maps.Clone(s.Env)
-	s.Headers = maps.Clone(s.Headers)
-	return s
-}

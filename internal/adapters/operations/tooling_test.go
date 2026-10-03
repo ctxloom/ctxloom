@@ -148,3 +148,72 @@ func TestScaffoldContainerBase_MaterializesWhenConfiguredPathIsMissing(t *testin
 	require.NoError(t, err, "the configured base Containerfile must actually be written, not just reported as present")
 	assert.Equal(t, string(container.Base()), string(b))
 }
+
+// scaffoldProjectWithDevcontainer is a project carrying
+// .devcontainer/devcontainer.json, with machineConfig (if any) as the
+// user-layer config: isolation_devcontainer_base is machine-scoped, so a
+// project config.yaml cannot carry it.
+func scaffoldProjectWithDevcontainer(t *testing.T, machineConfig string) (cfg *config.Config, appDir, devcontainer string) {
+	t.Helper()
+	home := testsupport.Isolate(t)
+	if machineConfig != "" {
+		require.NoError(t, os.MkdirAll(filepath.Join(home, ".ctxloom"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(home, ".ctxloom", "config.yaml"), []byte(machineConfig), 0o644))
+	}
+	root := t.TempDir()
+	appDir = filepath.Join(root, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("version: 5\n"), 0o644))
+	devcontainer = filepath.Join(root, ".devcontainer", "devcontainer.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(devcontainer), 0o755))
+	require.NoError(t, os.WriteFile(devcontainer, []byte(`{"image":"mcr.microsoft.com/devcontainers/go:1"}`), 0o644))
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
+	require.NoError(t, err)
+	return cfg, appDir, devcontainer
+}
+
+// TestScaffoldContainerBase_RefusesToDemoteADevcontainer: a project with a
+// devcontainer builds its agent image FROM it, and isolation_base_containerfile
+// outranks that detection — so scaffolding would silently swap the project's
+// toolchain for the built-in default base. It refuses, names the
+// devcontainer, and writes and wires nothing.
+func TestScaffoldContainerBase_RefusesToDemoteADevcontainer(t *testing.T) {
+	cfg, appDir, devcontainer := scaffoldProjectWithDevcontainer(t, "")
+
+	_, err := ScaffoldContainerBase(context.Background(), managerFor(t, appDir), cfg, "", false)
+
+	var demote *DevcontainerBaseError
+	require.ErrorAs(t, err, &demote, "a detected devcontainer refuses the scaffold")
+	assert.Equal(t, devcontainer, demote.Path)
+	assert.Contains(t, err.Error(), devcontainer, "the refusal names the devcontainer")
+	assert.Contains(t, err.Error(), "--force", "and how to proceed deliberately")
+
+	_, statErr := os.Stat(filepath.Join(cfg.GetAppRoot(), DefaultContainerBasePath))
+	assert.True(t, os.IsNotExist(statErr), "nothing is written on refusal")
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
+	require.NoError(t, err)
+	assert.Empty(t, reloaded.IsolationBaseContainerfilePath(), "nothing is wired on refusal")
+}
+
+// TestScaffoldContainerBase_ForceDemotesADevcontainerDeliberately: --force is
+// the deliberate override.
+func TestScaffoldContainerBase_ForceDemotesADevcontainerDeliberately(t *testing.T) {
+	cfg, appDir, _ := scaffoldProjectWithDevcontainer(t, "")
+
+	path, err := ScaffoldContainerBase(context.Background(), managerFor(t, appDir), cfg, "", true)
+	require.NoError(t, err)
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, string(container.Base()), string(b))
+}
+
+// TestScaffoldContainerBase_DevcontainerOptedOutScaffolds: with
+// isolation_devcontainer_base: false the devcontainer is not the base, so
+// there is nothing to demote and the scaffold proceeds.
+func TestScaffoldContainerBase_DevcontainerOptedOutScaffolds(t *testing.T) {
+	cfg, appDir, _ := scaffoldProjectWithDevcontainer(t, "version: 5\nisolation_devcontainer_base: false\n")
+	require.False(t, cfg.IsolationDevcontainerBaseEnabled(), "fixture: the machine layer opts out")
+
+	_, err := ScaffoldContainerBase(context.Background(), managerFor(t, appDir), cfg, "", false)
+	require.NoError(t, err)
+}

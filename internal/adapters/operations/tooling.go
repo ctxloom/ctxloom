@@ -68,6 +68,19 @@ func CollectTooling(cfg *config.Config, pipe *bundles.Pipeline) []ToolingDeclara
 // dir: it is project configuration, versioned with the rest of .ctxloom).
 var DefaultContainerBasePath = filepath.Join(paths.AppDirName, "base.Containerfile")
 
+// DevcontainerBaseError refuses a scaffold that would demote the project's
+// devcontainer: the agent image builds FROM the detected devcontainer, and
+// isolation_base_containerfile outranks that detection, so wiring the built-in
+// default base would silently swap the project's toolchain for it.
+type DevcontainerBaseError struct {
+	// Path is the detected devcontainer.json.
+	Path string
+}
+
+func (e *DevcontainerBaseError) Error() string {
+	return fmt.Sprintf("this project's agent image builds from its devcontainer (%s); scaffolding a base Containerfile would replace that with ctxloom's built-in default base. Re-run with --force to do that deliberately, or opt out of the devcontainer base first (isolation_devcontainer_base: false)", e.Path)
+}
+
 // ScaffoldContainerBase makes the base Containerfile EDITABLE: it materializes
 // the embedded default base to relPath (project-root-relative;
 // "" = DefaultContainerBasePath), wires `isolation_base_containerfile` in

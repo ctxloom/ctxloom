@@ -329,25 +329,64 @@ func TestRunConfigShow_RawShowsOnlyWhatTheConfigSets(t *testing.T) {
 	assert.Contains(t, out.String(), "workspace: worktree", "--raw still shows everything the file sets")
 }
 
-func TestRunConfigGet_RawNarrowsTheAuthoredDocument(t *testing.T) {
+func TestRunConfigShow_SectionRawNarrowsTheAuthoredDocument(t *testing.T) {
 	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: mock, role: fast }\n")
 	setConfigRaw(t, true)
 	cmd, out := textCmd()
-	require.NoError(t, runConfigGet(cmd, []string{"llm"}))
+	require.NoError(t, runConfigShow(cmd, []string{"llm"}))
 	assert.Contains(t, out.String(), "big:")
 	assert.Contains(t, out.String(), "role: fast", "the section is lossless, role included")
 }
 
-func TestRunConfigGet_RawLeavesTheShippedRegistryOut(t *testing.T) {
+func TestRunConfigShow_SectionRawLeavesTheShippedRegistryOut(t *testing.T) {
 	agentProject(t, "version: 6\nworkspace: worktree\n")
 	for _, raw := range []bool{false, true} {
 		setConfigRaw(t, raw)
 		cmd, out := textCmd()
-		require.NoError(t, runConfigGet(cmd, []string{"llm"}))
+		require.NoError(t, runConfigShow(cmd, []string{"llm"}))
 		if raw {
 			assert.NotContains(t, out.String(), "claude-code", "--raw must leave the shipped registry out of the section")
 		} else {
-			assert.Contains(t, out.String(), "claude-code", "get renders the effective section")
+			assert.Contains(t, out.String(), "claude-code", "show <section> renders the effective section")
 		}
+	}
+}
+
+// TestRunConfigShow_SectionScopesTheOutput pins that the section positional
+// is honoured: `show llm` prints the llm section and nothing outside it.
+func TestRunConfigShow_SectionScopesTheOutput(t *testing.T) {
+	agentProject(t, "version: 6\nworkspace: worktree\n")
+	setConfigRaw(t, false)
+	cmd, out := textCmd()
+	require.NoError(t, runConfigShow(cmd, []string{"llm"}))
+	assert.Contains(t, out.String(), "claude-code", "the llm section is printed")
+	assert.NotContains(t, out.String(), "workspace:", "keys outside the section must not be printed")
+}
+
+func TestRunConfigShow_UnknownSectionRefuses(t *testing.T) {
+	agentProject(t, "version: 6\nworkspace: worktree\n")
+	setConfigRaw(t, false)
+	cmd, out := textCmd()
+	err := runConfigShow(cmd, []string{"nonsense"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nonsense", "the error echoes the bad section")
+	assert.Contains(t, err.Error(), "llm", "the error lists the valid sections")
+	assert.Empty(t, out.String(), "nothing is printed for an unknown section")
+}
+
+// TestConfigShowCmd_AcceptsAtMostOneSection pins the arity: bare shows the
+// whole document, one positional scopes it, and more is a usage error rather
+// than silently ignored.
+func TestConfigShowCmd_AcceptsAtMostOneSection(t *testing.T) {
+	require.NotNil(t, configShowCmd.Args)
+	assert.NoError(t, configShowCmd.Args(configShowCmd, nil))
+	assert.NoError(t, configShowCmd.Args(configShowCmd, []string{"llm"}))
+	assert.Error(t, configShowCmd.Args(configShowCmd, []string{"llm", "config"}))
+}
+
+// TestConfigHasNoGetLeaf pins the fold: `show [section]` is the one spelling.
+func TestConfigHasNoGetLeaf(t *testing.T) {
+	for _, c := range configCmd.Commands() {
+		assert.NotEqual(t, "get", c.Name(), "config get folded into config show [section]")
 	}
 }

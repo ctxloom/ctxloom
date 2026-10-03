@@ -276,16 +276,9 @@ func holdKey(kind agent.FailureKind, src engine.CredentialSource, runID string) 
 // pauseKey is the key of an initiator's pause of harp.
 func pauseKey(harp string) string { return "pause:" + harp }
 
-// launchOf is the run's resolved launch (zero for a run with no plan).
-func launchOf(rt *childRt) (engine.Name, engine.CredentialSource) {
-	if rt.plan == nil {
-		return "", engine.CredentialSource{}
-	}
-	return rt.plan.Launch.Engine, rt.plan.Launch.Cell.Credential
-}
-
-// recordLaunch journals a run's resolved engine and credential source, the
-// identity a re-adopted run is keyed by (readopt).
+// recordLaunch journals a run's resolved engine and credential source: the
+// identity that keys it into a credential's hold (holdsFold.launchOf), for a
+// run this process started and for one it re-adopted after a restart alike.
 func (c *Coordinator) recordLaunch(runID string, l launch.Launch) {
 	at := c.now()
 	if err := c.runs.Exec(func() ([]Fact, error) {
@@ -359,23 +352,34 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 	}
 }
 
-// failedTurnOf reads, under c.mu, what runID's turned-away turn is decided
-// from; false for a run no longer attached.
+// failedTurnOf reads what runID's turned-away turn is decided from: the
+// attached runs (under c.mu), keyed by their journaled launches. False for a
+// run no longer attached.
 func (c *Coordinator) failedTurnOf(role, runID string, f agent.TurnFailure) (failedTurn, bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	rt := c.runtimeForLocked(role, runID)
 	if rt == nil {
+		c.mu.Unlock()
 		return failedTurn{}, false
 	}
 	t := failedTurn{f: f, own: heldRun{runID, rt.harp}}
-	t.eng, t.src = launchOf(rt)
-	t.key, t.scope = holdKey(f.Kind, t.src, runID), holdScopeOf(f.Kind, t.src)
+	attached := make([]heldRun, 0, len(c.attach))
 	for id, srt := range c.attach {
-		if _, s := launchOf(srt); id != runID && holdKey(f.Kind, s, id) == t.key {
-			t.candidates = append(t.candidates, heldRun{id, srt.harp})
+		if id != runID {
+			attached = append(attached, heldRun{id, srt.harp})
 		}
 	}
+	c.mu.Unlock()
+	c.runs.View(func() {
+		l, _ := c.holdsF.launchOf(runID)
+		t.eng, t.src = l.Engine, l.Source
+		t.key, t.scope = holdKey(f.Kind, t.src, runID), holdScopeOf(f.Kind, t.src)
+		for _, r := range attached {
+			if s, _ := c.holdsF.launchOf(r.runID); holdKey(f.Kind, s.Source, r.runID) == t.key {
+				t.candidates = append(t.candidates, r)
+			}
+		}
+	})
 	slices.SortFunc(t.candidates, func(a, b heldRun) int { return cmp.Compare(a.runID, b.runID) })
 	return t, true
 }

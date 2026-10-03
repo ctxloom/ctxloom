@@ -838,7 +838,6 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 		c.failChild(rt, err)
 		return
 	}
-	c.recordLaunch(rt.runID, resolved.Launch)
 	if err := c.honourListen(resolved.Launch.Cell.Listen); err != nil {
 		c.failChild(rt, fmt.Errorf("agent_run: the child's runner has no listener to dial home to: %w", err))
 		return
@@ -936,6 +935,7 @@ func (c *Coordinator) startRunPayloadErr(rt *childRt, first, resumeSessionID str
 }
 
 func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, l launch.Launch, first, model, resumeSessionID string, mayRebind bool) error {
+	c.recordLaunch(rt.runID, l)
 	actx, acancel := context.WithTimeout(ctx, c.runnerAwaitTimeout)
 	// The standup RACE: readiness (awaitRunner, a push the runner's Hello
 	// closes) against DEATH (the runner process exiting). Without the second

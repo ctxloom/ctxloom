@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 // Runner lifetime = session. A runner outlives a one-shot turn: it parks on
@@ -145,19 +144,17 @@ func (c *Coordinator) runnerConnected(runID string) bool {
 // its runtime attachment: a childRt the terminal path can end (terminateRun
 // reads attach), and its cell ownership through Spawner.Adopt (the release
 // becomes the attachment's close, so the run's end releases what the dead
-// process held). Its journaled launch identity comes back with it, and a hold
-// the journal says parks it (or owes it a resume) is re-sent to its runner
-// (readoptHold). Idempotent per run: a runner that reconnects twice is
+// process held). A hold the journal says parks it (or owes it a resume) is
+// re-sent to its runner (readoptHold); its credential, which keys it into a
+// credential's hold, is the journal's (run.launched) restart or not. Idempotent per run: a runner that reconnects twice is
 // adopted once.
 func (c *Coordinator) readopt(runID string) {
 	var rec RunRecord
-	var launched runLaunched
 	found, held := false, false
 	c.runs.View(func() {
 		if r := c.runsF.run(runID); r != nil && !r.Ended {
 			rec, found = *r, true
 		}
-		launched, _ = c.holdsF.launchOf(runID)
 		_, owed := c.holdsF.owedOf(runID)
 		held = c.holdsF.holdOfRun(runID) != nil || owed
 	})
@@ -178,11 +175,8 @@ func (c *Coordinator) readopt(runID string) {
 		depth:       rec.Depth,
 		oneshot:     rec.OneShot,
 		ownerRun:    rec.ParentHarp == rec.Harp,
-		// The journaled launch identity: the credential is what keys the run
-		// into its credential's hold (holdKey), restart or not.
-		plan: &SpawnPlan{AgentName: rec.Agent, Runtime: rec.Runtime, Permission: rec.Permission,
-			Launch: launch.Launch{Engine: launched.Engine, Cell: launch.Cell{Credential: launched.Source}}},
-		attached: make(chan struct{}),
+		plan:        &SpawnPlan{AgentName: rec.Agent, Runtime: rec.Runtime, Permission: rec.Permission},
+		attached:    make(chan struct{}),
 	}
 	if rec.State == StateIdle {
 		rt.idleSince = c.now()

@@ -276,68 +276,13 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 		if w.owner == nil {
 			return errors.New("no session owner is standing to open the overlay in")
 		}
-		sess := w.owner.sess
-		mark := len(sess.Output())
-		since := func(out string) string {
-			if len(out) < mark {
-				return ""
-			}
-			return out[mark:]
-		}
-		if _, err := sess.Write([]byte{0x1d}); err != nil {
-			return err
-		}
-		if !sess.WaitForOutput(15*time.Second, func(out string) bool { return strings.Contains(since(out), "j/k move") }) {
-			return fmt.Errorf("the overlay never opened; output since Ctrl-]:\n%q", since(sess.Output()))
-		}
-		// The roster pane's rows, in order, from the overlay's first render;
-		// the selection starts on the first. The renderer redraws only what
-		// changed, so the selection is confirmed by the feed title's redraw
-		// naming the harp, after the last move.
-		if !sess.WaitForOutput(15*time.Second, func(out string) bool { return strings.Contains(since(out), harp+"·") }) {
-			return fmt.Errorf("the overlay's roster never listed %s; output since Ctrl-]:\n%q", harp, since(sess.Output()))
-		}
-		first, _, _ := strings.Cut(since(sess.Output()), "j/k move")
-		row := -1
-		n := 0
-		for _, line := range strings.Split(first, "\r\n") {
-			pane, _, isRow := strings.Cut(line, "│")
-			if !isRow || !strings.Contains(pane, "·") {
-				continue
-			}
-			if strings.Contains(pane, harp+"·") {
-				row = n
-			}
-			n++
-		}
-		if row < 0 {
-			return fmt.Errorf("could not find %s's row in the overlay's roster:\n%q", harp, first)
-		}
-		moved := len(sess.Output())
-		for range row {
-			if _, err := sess.Write([]byte("j")); err != nil {
-				return err
-			}
-		}
-		if row > 0 && !sess.WaitForOutput(15*time.Second, func(out string) bool {
-			return len(out) > moved && strings.Contains(out[moved:], harp+" (")
-		}) {
-			return fmt.Errorf("the overlay never selected %s (row %d); output since Ctrl-]:\n%q", harp, row, since(sess.Output()))
-		}
-		if _, err := sess.Write([]byte("p")); err != nil {
-			return err
-		}
-		if !sess.WaitForOutput(15*time.Second, func(out string) bool { return strings.Contains(since(out), "paused "+harp) }) {
-			return fmt.Errorf("the overlay never confirmed pausing %s; output since Ctrl-]:\n%q", harp, since(sess.Output()))
-		}
-		_, err = sess.Write([]byte("q"))
-		return err
+		return overlayPause(w.owner.sess, harp)
 	})
 
 	// A crash, not a shutdown: SIGKILL ends the process that hosts the
-	// coordinator with no drain, so its children's runners live on; then the
-	// session is resumed and the agent's MCP session re-dialed to the
-	// endpoint the resumed launch minted.
+	// coordinator with no drain (its host runners die with it: they carry a
+	// parent-death signal); then the session is resumed and the agent's MCP
+	// session re-dialed to the endpoint the resumed launch minted.
 	ctx.Step(`^the session's coordinator dies and the session is resumed$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if w.owner == nil {
@@ -345,7 +290,11 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 		}
 		harp := w.owner.harp
 		runners := testenv.RunnerChildrenOf(w.owner.sess.PID())
-		if err := syscall.Kill(w.owner.sess.PID(), syscall.SIGKILL); err != nil {
+		host, err := os.FindProcess(w.owner.sess.PID())
+		if err == nil {
+			err = host.Kill()
+		}
+		if err != nil {
 			return fmt.Errorf("kill the session owner: %w", err)
 		}
 		if exited, _ := w.owner.sess.Wait(15 * time.Second); !exited {
@@ -357,10 +306,11 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 		}
 		w.owner.stop()
 		w.owner = nil
-		err := w.resumeSessionOwner(harp)
+		err = w.resumeSessionOwner(harp)
 		var alive []string
 		for _, pid := range runners {
-			alive = append(alive, fmt.Sprintf("%d:%v", pid, syscall.Kill(pid, 0) == nil))
+			p, ferr := os.FindProcess(pid)
+			alive = append(alive, fmt.Sprintf("%d:%v", pid, ferr == nil && p.Signal(syscall.Signal(0)) == nil))
 		}
 		j002100Of(w).restartDiag = fmt.Sprintf("the killed owner's runner children (pid:alive after resume): %v", alive)
 		return err
@@ -418,4 +368,69 @@ func tail(s string, n int) string {
 		return s
 	}
 	return s[len(s)-n:]
+}
+
+// overlayPause opens the overlay in sess, selects harp's row and pauses it,
+// waiting on the overlay's own confirmation, then closes the overlay. The
+// renderer redraws only what changed, so the row is found by its position in
+// the first render (the selection starts on the first row) and the selection
+// is confirmed by the feed title's redraw naming the harp.
+func overlayPause(sess *testenv.PTYSession, harp string) error {
+	mark := len(sess.Output())
+	since := func(out string) string { return out[min(mark, len(out)):] }
+	waitFor := func(what string) error {
+		if !sess.WaitForOutput(15*time.Second, func(out string) bool { return strings.Contains(since(out), what) }) {
+			return fmt.Errorf("the overlay never showed %q; output since Ctrl-]:\n%q", what, since(sess.Output()))
+		}
+		return nil
+	}
+	if _, err := sess.Write([]byte{0x1d}); err != nil {
+		return err
+	}
+	if err := waitFor("j/k move"); err != nil {
+		return err
+	}
+	if err := waitFor(harp + "·"); err != nil {
+		return err
+	}
+	first, _, _ := strings.Cut(since(sess.Output()), "j/k move")
+	row := overlayRow(first, harp)
+	if row < 0 {
+		return fmt.Errorf("could not find %s's row in the overlay's roster:\n%q", harp, first)
+	}
+	if row > 0 {
+		mark = len(sess.Output())
+		if _, err := sess.Write([]byte(strings.Repeat("j", row))); err != nil {
+			return err
+		}
+		if err := waitFor(harp + " ("); err != nil {
+			return err
+		}
+	}
+	if _, err := sess.Write([]byte("p")); err != nil {
+		return err
+	}
+	if err := waitFor("paused " + harp); err != nil {
+		return err
+	}
+	_, err := sess.Write([]byte("q"))
+	return err
+}
+
+// overlayRow is harp's row index in the overlay's roster pane as first
+// rendered: its rows are the lines whose pane (left of "│") names a harp and
+// its role ("harp·role"); -1 when harp is not among them.
+func overlayRow(render, harp string) int {
+	n := 0
+	for _, line := range strings.Split(render, "\r\n") {
+		pane, _, isRow := strings.Cut(line, "│")
+		if !isRow || !strings.Contains(pane, "·") {
+			continue
+		}
+		if strings.Contains(pane, harp+"·") {
+			return n
+		}
+		n++
+	}
+	return -1
 }

@@ -159,11 +159,14 @@ func sendTurnEvents(send func(agent.ChatEvent) error, ask func(string, json.RawM
 }
 
 // turnFailureIn is the failure a prompt's marker asks the turn to end on: a
-// refused credential, or a rate limit with the reset time it names; nil for
-// none.
+// refused credential, an overloaded server, or a rate limit with the reset
+// time it names; nil for none.
 func turnFailureIn(prompt string) *agent.TurnFailure {
 	if strings.Contains(prompt, credentialRejectedMarker) {
 		return &agent.TurnFailure{Kind: agent.FailureCredentialRejected}
+	}
+	if strings.Contains(prompt, overloadedMarker) {
+		return &agent.TurnFailure{Kind: agent.FailureOverloaded}
 	}
 	m := rateLimitedPattern.FindStringSubmatch(prompt)
 	if m == nil {

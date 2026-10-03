@@ -281,3 +281,25 @@ func TestTurn_RateLimitedMarkerIsATurnFailure(t *testing.T) {
 		})
 	}
 }
+
+// TestTurn_OverloadedMarkerIsATurnFailure: `mock:overloaded` is the mock's
+// server at capacity — claude's shape when a turn ends on its 529: the
+// engine's words, an overloaded Failed event with no reset time, and a
+// completion. Nothing else is attempted.
+func TestTurn_OverloadedMarkerIsATurnFailure(t *testing.T) {
+	_, events, err := runTurn(t, engine.Exec{Binary: "mock"}, Overloaded()+" "+Deny("Bash")+" do the work")
+	require.NoError(t, err)
+	var failed []agent.TurnFailure
+	var completed bool
+	for _, ev := range events {
+		switch {
+		case ev.Failed != nil:
+			failed = append(failed, *ev.Failed)
+		case ev.Complete != nil:
+			completed = true
+			assert.Empty(t, ev.Complete.Denials, "an overloaded turn attempts no tool")
+		}
+	}
+	assert.Equal(t, []agent.TurnFailure{{Kind: agent.FailureOverloaded}}, failed)
+	assert.True(t, completed)
+}

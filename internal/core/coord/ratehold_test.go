@@ -26,6 +26,9 @@ const (
 	limitHit        = "limit-hit"
 	limitHitLate    = "limit-late"
 	limitHitNoReset = "limit-noreset"
+	// overloadHit: a turn the engine turns away because its server is at
+	// capacity (claude's 529) — no reset time, nothing about the credential.
+	overloadHit = "server-overloaded"
 )
 
 var (
@@ -34,9 +37,11 @@ var (
 )
 
 // rateFailure is the fixture's engine: the limit markers end the turn on the
-// limit.
+// limit, the overload marker on the server's capacity.
 func rateFailure(prompt string) *agent.TurnFailure {
 	switch {
+	case strings.Contains(prompt, overloadHit):
+		return &agent.TurnFailure{Kind: agent.FailureOverloaded}
 	case strings.Contains(prompt, limitHitLate):
 		return &agent.TurnFailure{Kind: agent.FailureRateLimited, ResetsAt: limitResetsLate}
 	case strings.Contains(prompt, limitHitNoReset):
@@ -661,6 +666,7 @@ func TestTurnFailureOf(t *testing.T) {
 	assert.Nil(t, turnFailureOf(map[string]any{"stop_reason": "not_a_held_kind"}), "a kind no hold releases is no held failure")
 	assert.Equal(t, &agent.TurnFailure{Kind: agent.FailureRateLimited},
 		turnFailureOf(map[string]any{"stop_reason": "rate_limited", TurnIdleResetsAt: "not a time"}))
+	assert.Equal(t, &agent.TurnFailure{Kind: agent.FailureOverloaded}, turnFailureOf(map[string]any{"stop_reason": "overloaded"}))
 	got := turnFailureOf(map[string]any{"stop_reason": "rate_limited", TurnIdleResetsAt: "2026-10-01T17:30:00Z"})
 	require.NotNil(t, got)
 	assert.True(t, time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC).Equal(got.ResetsAt))
@@ -668,9 +674,9 @@ func TestTurnFailureOf(t *testing.T) {
 
 // A run that carries no credential has nothing to share: its hold is its own.
 func TestHoldKey_ARunWithNoCredentialHoldsAlone(t *testing.T) {
-	assert.NotEqual(t, holdKey(engine.CredentialSource{}, "run-a"), holdKey(engine.CredentialSource{}, "run-b"))
+	assert.NotEqual(t, holdKey(agent.FailureRateLimited, engine.CredentialSource{}, "run-a"), holdKey(agent.FailureRateLimited, engine.CredentialSource{}, "run-b"))
 	src := engine.Credentials{Env: map[string]string{"X": "v"}}.Source("e")
-	assert.Equal(t, holdKey(src, "run-a"), holdKey(src, "run-b"))
+	assert.Equal(t, holdKey(agent.FailureRateLimited, src, "run-a"), holdKey(agent.FailureRateLimited, src, "run-b"))
 }
 
 // holdOf is harp's roster hold as the wire roster (listRunsSnapshot) shows it.

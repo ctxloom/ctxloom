@@ -135,6 +135,11 @@ const FailureCredentialRejected FailureKind = "credential_rejected"
 // can succeed again once the limit resets, with no human action.
 const FailureRateLimited FailureKind = "rate_limited"
 
+// FailureOverloaded: the engine's server was at capacity (claude: a 529),
+// past the engine's own retries. It says nothing about the credential: a turn
+// on the same run can succeed once the server recovers, with no human action.
+const FailureOverloaded FailureKind = "overloaded"
+
 // TurnFailure is a turn the engine could not do at all — distinct from a
 // PermissionDenial, where the engine worked and refused one call.
 type TurnFailure struct {

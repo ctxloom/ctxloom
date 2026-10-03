@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
@@ -73,9 +74,15 @@ func credentialNoticeText(holds []coord.CredentialHold) string {
 		return ""
 	}
 	h := holds[0]
-	carrier := cmp.Or(strings.Join(h.Source.EnvVars, ", "), strings.Join(h.Source.Stores, ", "))
-	text := fmt.Sprintf("RATE LIMITED: %s (%s): %d waiting — they resume on their own at %s",
-		cmp.Or(string(h.Engine), "the engine"), carrier, len(h.Harps), h.Until.Local().Format("15:04:05"))
+	who, at := cmp.Or(string(h.Engine), "the engine"), h.Until.Local().Format("15:04:05")
+	var text string
+	if h.Kind == agent.FailureOverloaded {
+		// An overload hold is one run's own backoff: no credential is spent.
+		text = fmt.Sprintf("OVERLOADED: %s: %s backs off — it resumes on its own at %s", who, strings.Join(h.Harps, ", "), at)
+	} else {
+		carrier := cmp.Or(strings.Join(h.Source.EnvVars, ", "), strings.Join(h.Source.Stores, ", "))
+		text = fmt.Sprintf("RATE LIMITED: %s (%s): %d waiting — they resume on their own at %s", who, carrier, len(h.Harps), at)
+	}
 	if more := len(holds) - 1; more > 0 {
 		text += fmt.Sprintf(" (+%d more)", more)
 	}

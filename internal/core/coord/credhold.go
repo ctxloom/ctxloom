@@ -29,11 +29,17 @@ import (
 // A limit still spent fails the next turn and parks again. State is in
 // memory, like pausedRuns: holds are this coordinator's, shared by its
 // children only.
+//
+// An OVERLOADED turn (the engine's server at capacity) takes the same
+// machinery with the run's own key (holdKey): capacity is not the
+// credential's quota, so parking the runs sharing it would idle healthy
+// siblings. The run alone backs off for overloadBackoff, with the same two
+// ways out.
 
 // heldFailures are the turn failures a run parks itself on and its
 // credential's hold releases. The runner parks only on these (HoldsFailure):
 // a self-park on any other kind would be a pause nothing releases.
-var heldFailures = []agent.FailureKind{agent.FailureRateLimited}
+var heldFailures = []agent.FailureKind{agent.FailureRateLimited, agent.FailureOverloaded}
 
 // HoldsFailure reports whether a turn that failed with kind parks its run
 // until its credential's hold releases it.
@@ -58,7 +64,20 @@ const (
 	// runs for days with nothing changing; at the cap the hold releases, and a
 	// limit still spent fails the next turn, which re-measures it.
 	rateLimitCap = 6 * time.Hour
+	// overloadBackoff: the wait after an overloaded turn. The engine already
+	// retried the overload with its own backoff before the turn gave up
+	// (claude retries 529s itself), and a 529 names no recovery time: one
+	// probe per run per period, re-measured by the next turn.
+	overloadBackoff = time.Minute
 )
+
+// holdDeadline is when a hold for failure f, folded at now, releases itself.
+func holdDeadline(now time.Time, f agent.TurnFailure) time.Time {
+	if f.Kind == agent.FailureOverloaded {
+		return now.Add(overloadBackoff)
+	}
+	return backoffDeadline(now, f.ResetsAt)
+}
 
 // backoffDeadline is when a hold on a limit the engine says resets at resetsAt
 // (zero: it did not say) releases itself.
@@ -86,10 +105,10 @@ type CredentialHold struct {
 	Harps []string
 }
 
-// ErrCredentialHeld refuses an agent's resume of a run parked on its
-// credential's hold: an agent that resumed it early would only meet the same
-// limit, and re-raise the human's notice.
-var ErrCredentialHeld = errors.New("coord: the run is parked on its credential's hold; only the human, or the hold's own backoff, releases it")
+// ErrCredentialHeld refuses an agent's resume of a run parked on a hold (its
+// credential's limit, or its own overload backoff): an agent that resumed it
+// early would only meet the same refusal, and re-raise the human's notice.
+var ErrCredentialHeld = errors.New("coord: the run is parked on a hold (its credential's rate limit, or its own overload backoff); only the human, or the hold's own backoff, releases it")
 
 // credHold is a hold's state; guarded by Coordinator.mu.
 type credHold struct {
@@ -157,10 +176,11 @@ func (c *Coordinator) runHolds() map[string]*RunHold {
 	return out
 }
 
-// holdKey is the hold a run's source belongs to: its key, or — for a run that
-// carries no credential — a hold of its own.
-func holdKey(src engine.CredentialSource, runID string) string {
-	if src.Key != "" {
+// holdKey is the hold a run that failed with kind belongs to: its source's
+// key, or a hold of its own — for an overload (the server's capacity, not
+// the credential's) and for a run that carries no credential.
+func holdKey(kind agent.FailureKind, src engine.CredentialSource, runID string) string {
+	if kind != agent.FailureOverloaded && src.Key != "" {
 		return src.Key
 	}
 	return "run:" + runID
@@ -198,7 +218,7 @@ func turnFailureOf(value map[string]any) *agent.TurnFailure {
 // another run's limit set.
 func (c *Coordinator) foldFailureLocked(h *credHold, f agent.TurnFailure) {
 	h.kind = f.Kind
-	if d := backoffDeadline(c.now(), f.ResetsAt); d.After(h.until) {
+	if d := holdDeadline(c.now(), f); d.After(h.until) {
 		h.until = d
 	}
 }
@@ -243,12 +263,14 @@ func (c *Coordinator) detachParked(key string, h *credHold, still func() bool) b
 	return true
 }
 
-// onTurnFailed folds a run's turned-away turn into its credential's hold:
-// the run joins it (creating it if none is in force), and a new hold parks
-// every other run with the same source. A run a HUMAN had already paused
-// stays the human's — left out of the hold, so the release never undoes that
-// pause — but its failure still parks its siblings: the limit is as spent
-// for them.
+// onTurnFailed folds a run's turned-away turn into its hold (holdKey): the
+// run joins it (creating it if none is in force), and a new hold parks every
+// other run with the same key. A run a HUMAN had already paused stays the
+// human's — left out of the hold, so the release never undoes that pause —
+// but its failure still parks its siblings: the limit is as spent for them.
+// A run already parked by ANOTHER hold (a sibling's limit reached it
+// mid-turn, and that turn then ended overloaded) stays in that hold: its
+// release resumes the run, and a second hold would resume it early.
 func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 	c.mu.Lock()
 	rt := c.runtimeForLocked(role, runID)
@@ -256,7 +278,14 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 		c.mu.Unlock()
 		return
 	}
-	key, h, exists := c.holdForLocked(rt, runID)
+	_, src := launchOf(rt)
+	key := holdKey(f.Kind, src, runID)
+	if other, held := c.heldRuns[runID]; held && other != key {
+		c.mu.Unlock()
+		c.step(holdStepTurnFolded)
+		return
+	}
+	h, exists := c.holdForLocked(rt, key)
 	c.foldFailureLocked(h, f)
 	_, joined := h.runs[runID]
 	ownPark := !joined && !c.pausedByHumanLocked(runID)
@@ -274,22 +303,21 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 		c.audit("credential_park", rt.harp, parkDetail(key, rt.harp, f.Kind, until))
 	}
 	if !exists {
-		c.raiseHoldFinding(h.engine, key, until)
+		c.raiseHoldFinding(h.engine, f.Kind, key, rt.harp, until)
 		c.goTracked(func() { c.parkSiblings(key, h, siblings) })
 	}
 	c.step(holdStepTurnFolded)
 }
 
-// holdForLocked is the hold rt's credential is under, made (not yet armed or
-// parked) when none is in force; exists says which.
-func (c *Coordinator) holdForLocked(rt *childRt, runID string) (key string, h *credHold, exists bool) {
-	eng, src := launchOf(rt)
-	key = holdKey(src, runID)
+// holdForLocked is the hold under key, made for rt (not yet armed or parked)
+// when none is in force; exists says which.
+func (c *Coordinator) holdForLocked(rt *childRt, key string) (h *credHold, exists bool) {
 	if h, exists = c.credHolds[key]; !exists {
+		eng, src := launchOf(rt)
 		h = &credHold{engine: eng, source: src, since: c.now(), runs: map[string]string{}, parked: make(chan struct{})}
 		c.credHolds[key] = h
 	}
-	return key, h, exists
+	return h, exists
 }
 
 // settleLocked arms h for its deadline — or, when it holds no run, takes it
@@ -313,9 +341,18 @@ func parkDetail(key, harp string, kind agent.FailureKind, until time.Time) map[s
 }
 
 // raiseHoldFinding tells the root human what the hold is and when it ends; a
-// zero until is a hold that parked nothing and is already out of force.
-func (c *Coordinator) raiseHoldFinding(eng engine.Name, key string, until time.Time) {
+// zero until is a hold that parked nothing and is already out of force. An
+// overload that parked nothing (the human's own pause holds the run) has
+// nothing to tell: no other run was ever at stake.
+func (c *Coordinator) raiseHoldFinding(eng engine.Name, kind agent.FailureKind, key, harp string, until time.Time) {
 	who := cmp.Or(string(eng), "the engine")
+	if kind == agent.FailureOverloaded {
+		if !until.IsZero() {
+			c.rep.Warnf("coordinator: %s was overloaded on %s's turn; that run alone backs off until %s and resumes on its own",
+				who, harp, until.UTC().Format(time.RFC3339))
+		}
+		return
+	}
 	if until.IsZero() {
 		c.rep.Warnf("coordinator: %s's credential hit its rate limit (%s); no other run shares it, so nothing else is parked", who, key)
 		return
@@ -351,7 +388,7 @@ func (c *Coordinator) siblingsLocked(h *credHold, key, exceptRunID string) []hel
 		if id == exceptRunID || c.pausedByHumanLocked(id) {
 			continue
 		}
-		if _, src := launchOf(rt); holdKey(src, id) != key {
+		if _, src := launchOf(rt); holdKey(h.kind, src, id) != key {
 			continue
 		}
 		r := heldRun{id, rt.harp}

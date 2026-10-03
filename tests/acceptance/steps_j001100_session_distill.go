@@ -31,6 +31,9 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -113,7 +116,8 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 	// self-report of persistence.
 	ctx.Step(`^the persisted essence for "([^"]*)" contains "([^"]*)"$`, func(c context.Context, harp, want string) error {
 		w := worldFrom(c)
-		body, err := w.env.ReadHomeFile(j001200HarpHome(harp) + "/essence.md")
+		raw, err := os.ReadFile(filepath.Join(outputDirFor(w, harp), paths.EssenceFileName))
+		body := string(raw)
 		if err != nil {
 			return fmt.Errorf("read essence.md for %s: %w (distill output:\n%s)", harp, err, w.env.LastOutput())
 		}

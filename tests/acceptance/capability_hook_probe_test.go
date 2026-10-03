@@ -472,7 +472,7 @@ func TestHookProbeCarriageScan_NotBeforeExcludesOlderRuns(t *testing.T) {
 // requires the evidence to survive.
 func TestHookProbeCarriageWatcher_SeesADeliveryThatIsScrubbedBeforeTheRunEnds(t *testing.T) {
 	root := t.TempDir()
-	settings := filepath.Join(root, "session", "ephemeral", "settings.json")
+	settings := filepath.Join(root, "session", "scratch", "settings.json")
 
 	w := hookProbeWatchCarriage(hookProbeCarriage{Needle: carriageNeedle, Roots: []string{root}})
 

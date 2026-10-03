@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -551,11 +552,11 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 			return nil
 		})
 		if len(found) != 1 {
-			return fmt.Errorf("want exactly one containerized-worktree record under Alice's home %s, found %v — the checkout was not homed in the session's scratch", w.env.HomeDir, found)
+			return fmt.Errorf("want exactly one containerized-worktree record under Alice's home %s, found %v — the checkout was not homed in the session's work dir", w.env.HomeDir, found)
 		}
 		checkout := filepath.Dir(found[0])
-		if !strings.Contains(checkout, string(filepath.Separator)+"ephemeral"+string(filepath.Separator)) {
-			return fmt.Errorf("the checkout %s is under Alice's home but not in a session's ephemeral scratch", checkout)
+		if !strings.Contains(checkout, string(filepath.Separator)+paths.WorkDirName+string(filepath.Separator)) {
+			return fmt.Errorf("the checkout %s is under Alice's home but not in a session's work dir", checkout)
 		}
 		body, err := os.ReadFile(found[0])
 		if err != nil {

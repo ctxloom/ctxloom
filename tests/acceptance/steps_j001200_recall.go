@@ -378,7 +378,7 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(body, j001200TranscriptMarker) {
 			return fmt.Errorf("the canonical transcript no longer carries its own recorded turns; it holds:\n%s", body)
 		}
-		if _, err := os.Stat(filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200Harp)+"/essence.md"))); err != nil {
+		if _, err := os.Stat(filepath.Join(outputDirFor(w, j001200Harp), paths.EssenceFileName)); err != nil {
 			return fmt.Errorf("the distilled essence is gone after a recall: %w", err)
 		}
 		return nil

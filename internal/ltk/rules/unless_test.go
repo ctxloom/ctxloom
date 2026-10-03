@@ -118,8 +118,8 @@ func TestUnlessExemptsAShape(t *testing.T) {
 	cfg := mustParse(t, denyRule(`{ command: [go, install], unless: ['.+@.+'] }`))
 
 	allow := [][]string{
-		{"go", "install", "golang.org/x/tools/gopls@v0.23.0"},        // versioned module
-		{"go", "install", "golang.org/x/tools/gopls@latest"},         // and its floating form
+		{"go", "install", "golang.org/x/tools/gopls@v0.23.0"},         // versioned module
+		{"go", "install", "golang.org/x/tools/gopls@latest"},          // and its floating form
 		{"go", "install", "example.com/deep/nested/path/tool@v1.2.3"}, // `/` is irrelevant
 	}
 	for _, argv := range allow {

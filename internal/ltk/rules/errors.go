@@ -81,32 +81,39 @@ func checkRemovedForms(data []byte) error {
 		return nil
 	}
 	for i, rule := range rules.Content {
-		match := mappingValue(rule, "match")
-		if match == nil || match.Kind != yaml.MappingNode {
+		field, fix := removedFormIn(mappingValue(rule, "match"))
+		if field == "" {
 			continue
 		}
-		fail := func(field, fix string) error {
-			id := ""
-			if n := mappingValue(rule, "id"); n != nil {
-				id = n.Value
-			}
-			return &RuleError{List: listCommand, Index: i, RuleID: id, Field: "match." + field,
-				Err: fmt.Errorf("%w: %s", ErrRemovedField, fix)}
+		id := ""
+		if n := mappingValue(rule, "id"); n != nil {
+			id = n.Value
 		}
-		for k := 0; k+1 < len(match.Content); k += 2 {
-			key := match.Content[k].Value
-			if fix, ok := removedMatchFields[key]; ok {
-				return fail(key, fix)
-			}
-			switch {
-			case key == "path":
-				return fail(key, "a file-edit rule is its own kind; move this rule under path_rules")
-			case key == "command" && match.Content[k+1].Kind == yaml.ScalarNode:
-				return fail(key, "the scalar form is gone; write match.command as a list, e.g. [go, test]")
-			}
-		}
+		return &RuleError{List: listCommand, Index: i, RuleID: id, Field: "match." + field,
+			Err: fmt.Errorf("%w: %s", ErrRemovedField, fix)}
 	}
 	return nil
+}
+
+// removedFormIn returns the first removed key in one command rule's match
+// mapping and the line that replaces it, or "" when there is none.
+func removedFormIn(match *yaml.Node) (field, fix string) {
+	if match == nil || match.Kind != yaml.MappingNode {
+		return "", ""
+	}
+	for k := 0; k+1 < len(match.Content); k += 2 {
+		key := match.Content[k].Value
+		if fix, ok := removedMatchFields[key]; ok {
+			return key, fix
+		}
+		switch {
+		case key == "path":
+			return key, "a file-edit rule is its own kind; move this rule under path_rules"
+		case key == "command" && match.Content[k+1].Kind == yaml.ScalarNode:
+			return key, "the scalar form is gone; write match.command as a list, e.g. [go, test]"
+		}
+	}
+	return "", ""
 }
 
 // mappingValue returns the value node for key in a mapping node, or nil.

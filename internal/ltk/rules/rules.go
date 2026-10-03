@@ -733,7 +733,15 @@ func (c *Config) normalizeAndValidate() error {
 	if c.Defaults.Shell != "" && !c.Defaults.Shell.Valid() {
 		return fmt.Errorf("defaults.shell: %w %q", ErrInvalidShell, c.Defaults.Shell)
 	}
-	seen := make(map[string]bool, len(c.Rules)+len(c.PathRules))
+	seen := make(map[string]bool, c.RuleCount())
+	if err := c.validateCommandRules(seen); err != nil {
+		return err
+	}
+	return c.validatePathRules(seen)
+}
+
+// validateCommandRules validates each command rule, recording ids in seen.
+func (c *Config) validateCommandRules(seen map[string]bool) error {
 	for i := range c.Rules {
 		r := &c.Rules[i]
 		if err := validateRuleBase(&r.RuleBase, listCommand, i, seen, c.Defaults); err != nil {
@@ -743,6 +751,11 @@ func (c *Config) normalizeAndValidate() error {
 			return &RuleError{List: listCommand, Index: i, RuleID: r.ID, Field: fe.field, Err: fe.err}
 		}
 	}
+	return nil
+}
+
+// validatePathRules validates each path rule, recording ids in seen.
+func (c *Config) validatePathRules(seen map[string]bool) error {
 	for i := range c.PathRules {
 		r := &c.PathRules[i]
 		if err := validateRuleBase(&r.RuleBase, listPath, i, seen, c.Defaults); err != nil {
@@ -857,13 +870,19 @@ func validateCommandMatch(r *CommandRule) *fieldErr {
 			return &fieldErr{fmt.Sprintf("match.command[%d]", i), fmt.Errorf("%w: %q", ErrOptionInCommand, p.src)}
 		}
 	}
-	if r.action() == ActionAllow {
-		if len(m.ArgsAny) > 0 {
-			return &fieldErr{"match.args_any", ErrArgsOnAllow}
-		}
-		if len(m.ArgsAll) > 0 {
-			return &fieldErr{"match.args_all", ErrArgsOnAllow}
-		}
+	return validateAllowIsPositional(r)
+}
+
+// validateAllowIsPositional refuses args_any/args_all on an allow rule: a
+// position-blind positive predicate widens what the allow clears.
+func validateAllowIsPositional(r *CommandRule) *fieldErr {
+	switch {
+	case r.action() != ActionAllow:
+		return nil
+	case len(r.Match.ArgsAny) > 0:
+		return &fieldErr{"match.args_any", ErrArgsOnAllow}
+	case len(r.Match.ArgsAll) > 0:
+		return &fieldErr{"match.args_all", ErrArgsOnAllow}
 	}
 	return nil
 }

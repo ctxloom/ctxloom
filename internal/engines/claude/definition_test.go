@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // hostStart advises a project root and a session home on the host.
@@ -371,7 +372,7 @@ func TestDeliverCommandsAndSkills_SessionHomeLandsUnderTheEngineHome(t *testing.
 // engine home advised there is no session home to write beneath, and the
 // tempting fallback — the user's real ~/.claude — is refused, never taken.
 func TestDeliverCommandsAndSkills_SessionHomeRefusesAnUnrootedRun(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testsupport.Isolate(t)
 	def := claudeDef(t)
 	project := t.TempDir()
 	start := present.New(present.OnHost(present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}}))

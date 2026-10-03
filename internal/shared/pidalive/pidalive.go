@@ -7,22 +7,17 @@
 //
 // Closing that window needs an identity token taken while the process is known
 // to be the right one (a pidfd, or a start-time stamp read from the process
-// table) and persisted alongside the pid. Every caller here instead reads a pid out of a file written by an earlier process
-// — an MCP discovery marker, a worktree owner file, a state-dir lock — and has
-// no such token, so the protection would have to be added to those three
-// on-disk formats, not here. Probe takes an int and nothing else precisely
+// table) and persisted alongside the pid. A caller that reads a pid out of a
+// record written by an earlier process has no such token, so the protection
+// belongs in that record's format, not here. Probe takes an int and nothing else precisely
 // because it has no way to tell the difference.
 //
 // The exposure is bounded by MaybeAlive's direction: reuse makes a dead
-// owner read as live, so the failure is a skipped reap or a refused claim,
-// never a stranger's worktree deleted or a shared journal.
+// owner read as live, so the failure is a skipped reap, never a stranger's
+// worktree deleted.
 //
-// It provides that probe once for the whole repo, consolidating what used to
-// be three near-identical copies
-// (agentcoord/coord.PidAlive, internal/adapters/operations' test-only pidAlive, and
-// internal/adapters/isolation's startup-reaper pidAlive) into a single leaf package
-// with no internal dependencies — safe for any package to import without
-// creating a cycle. Probe itself is platform-specific (pidalive_unix.go,
+// A leaf package with no internal dependencies — safe for any package to
+// import without creating a cycle. Probe itself is platform-specific (pidalive_unix.go,
 // pidalive_windows.go); State and MaybeAlive here are the shared,
 // platform-agnostic verdict type both implementations return.
 package pidalive

@@ -5,18 +5,17 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
@@ -24,21 +23,24 @@ import (
 // internal one-shot resolves without any real vendor CLI.
 const mockProjectYAML = "version: 6\nllm:\n  configs:\n    fast: { type: mock }\n  defaults:\n    fast: fast\n"
 
-// parkLiveOwner stamps the project's coordinator owner lock with a live pid
-// that is NOT this process — what a `ctxloom run` in another terminal leaves
-// on disk. (claimOwner treats a lock held by THIS pid as stale by design, so
-// the test process cannot hold it against itself.) The key is resolved by the
-// same call the coordinator host makes, so the lock lands where it looks.
-func parkLiveOwner(t *testing.T, projectDir string) string {
+// parkLiveOwner holds the project's coordinator owner lock on a descriptor of
+// the test's own — what a `ctxloom run` in another terminal holds. flock
+// conflicts between two open descriptions even within one process, so the
+// coordinator host's claim in this process is refused exactly as a second
+// process's would be. The key is resolved by the same call the coordinator
+// host makes, so the lock lands where it looks.
+func parkLiveOwner(t *testing.T, projectDir string) {
 	t.Helper()
 	key, _, err := taskops.ResolveProjectIdentity(projectDir)
 	require.NoError(t, err, "fixture precondition: the project resolves a stable identity")
-	dir, err := paths.CoordProjectStateDir(key)
+	dir, err := coord.ProjectStateDir(key, projectDir)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(dir, 0o700))
-	lock := filepath.Join(dir, coord.OwnerLockFileName)
-	require.NoError(t, os.WriteFile(lock, []byte(strconv.Itoa(os.Getppid())+"\n"), 0o600))
-	return lock
+	fl := flock.New(filepath.Join(dir, coord.OwnerLockFileName))
+	got, err := fl.TryLock()
+	require.NoError(t, err)
+	require.True(t, got, "fixture precondition: the owner lock is free to park")
+	t.Cleanup(func() { _ = fl.Close() })
 }
 
 // distillBlockedProject is a project whose fast role resolves (so a real

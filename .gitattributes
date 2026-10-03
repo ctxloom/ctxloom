@@ -2,3 +2,7 @@
 # collapsed in diffs and excluded from language stats.
 website/src/content/docs/reference/cli/ctxloom.md linguist-generated=true
 website/src/content/docs/reference/cli/ctxloom_*.md linguist-generated=true
+
+# Golden files are compared byte-for-byte against output the tests build with
+# "\n"; a CRLF checkout (Windows runners' autocrlf default) would fail every one.
+*.golden text eol=lf

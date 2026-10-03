@@ -89,6 +89,7 @@ func TestDoctor_FullReport_RunsEveryCheckInItsFixedOrder(t *testing.T) {
 		"DOCTOR-CHECK-SPOOL-BACKLOG-t0",
 		"DOCTOR-CHECK-SPOOL-COUNTERS-w3",
 		"DOCTOR-CHECK-TTY-INJECTION-m3",
+		"DOCTOR-CHECK-PROJECT-OWNER-v4",
 	}, doctorMarkers(rep))
 	for _, c := range rep.Checks {
 		assert.Containsf(t, []DoctorStatus{DoctorOK, DoctorWarn, DoctorInfo}, c.Status, "%s carries a status outside the vocabulary", c.Marker)

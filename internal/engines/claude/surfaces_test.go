@@ -14,6 +14,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // fakePlacement (contextdelivery_test.go) and mcpServersOf (surfacedelivery_test.go)
@@ -186,7 +188,7 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 	scriptPath := filepath.Join(dir, ".claude", "skills", "humanize", "scripts", "run.sh")
 	info, err := os.Stat(scriptPath)
 	require.NoError(t, err, "scripts/run.sh must be materialized")
-	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit on scripts/run.sh survives claude's skills surface")
+	fileperm.Equal(t, 0o755, info.Mode(), "the exec bit on scripts/run.sh survives claude's skills surface")
 
 	assert.NoFileExists(t, filepath.Join(dir, ".claude", "skills", "disabled-skill", "SKILL.md"),
 		"a skill with Enabled == false must not be written")
@@ -247,8 +249,7 @@ func TestSurfaces_DeclaresContextThreeWaysMCPTwoAndTheRestOnce(t *testing.T) {
 // surface-level coverage at all, which is precisely the field whose omission
 // would silently drop commands from a portable materialize target.
 func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
-	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	fakeHome := testsupport.Isolate(t)
 
 	dup := agent.CommandExport{Name: "recover", Content: "Recovering context", Enabled: true}
 	writeRenderedHomeCommand(t, fakeHome, dup)

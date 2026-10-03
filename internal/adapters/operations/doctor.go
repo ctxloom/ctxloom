@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -180,6 +181,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckSpoolBacklog(),
 			doctorCheckSpoolCounters(ctx),
 			doctorCheckTTYInjection(),
+			doctorCheckProjectOwner(doctorProjectDir(cfg), coord.ProbeOwner),
 		}
 	}
 	return DoctorReport{Checks: checks}, nil

@@ -13,7 +13,6 @@ var WriteDisciplineAllowed = map[string]string{
 	"internal/core/coord/artifactstore.go#artifactStore.publish":             "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",
 	"internal/adapters/runner/homeartifacts.go#placeVerified":                "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",
 	"internal/core/coord/journal.go#openStoreFromOffset":                     "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",
-	"internal/core/coord/statedir.go#claimOwner":                             "advisory lock file's own O_EXCL create — mechanically parallel to the old filelock package's (deleted) exemption but never itself part of it (fs-consolidation plan C10 to decide: fold into a shared lock-file-create helper or exempt structurally)",
 	"internal/adapters/coordgrpc/mcpschema/gen/main.go#writeSpec":            "pre-ratchet baseline, codegen tool — migrate to safefs (fs-consolidation plan C3/C10)",
 	"internal/core/spool/ops.go#renameInto":                                  "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",
 	"internal/core/spool/writer.go#Writer.Write":                             "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",

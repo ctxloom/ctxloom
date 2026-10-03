@@ -35,7 +35,7 @@ func internalCoordinator(projectDir, ownerHarp string) (*coord.Coordinator, erro
 	}
 	// The owner credential is for a session the command drives itself; an
 	// internal one-shot's runner is stamped by StartOwnedRun.
-	c, _, err := mcp.HostCoordinatorForSession(NewCoordinator, App(), projectDir, ownerHarp)
+	c, _, err := mcp.HostCoordinatorForSession(NewCoordinator, App(), projectDir, ownerHarp, coord.OwnerNonInteractive)
 	if err != nil {
 		return nil, err
 	}

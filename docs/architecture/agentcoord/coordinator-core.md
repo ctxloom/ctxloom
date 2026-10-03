@@ -14,7 +14,7 @@ launch-gate check and a TUI roster read all serialize on `c.mu`.
 ```mermaid
 flowchart TD
   OPT["Options<br/>coordinator.go"] -->|New| C["Coordinator<br/>coordinator.go"]
-  C --> SD["stateDirForProject / claimOwner<br/>statedir.go"]
+  C --> SD["stateDirForProject / claimOwner<br/>statedir.go, owner.go"]
   C --> RS[("Store runs.jsonl")]
   C --> SP[("per-harp spool in/ · out/<br/>spooldelivery.go · internal/core/spool")]
   C --> IS[("Store items.jsonl")]
@@ -124,7 +124,7 @@ this package's `identity.go` re-exports them under the coordinator's names, and
 | --- | --- |
 | defaults | `<= 0 means default`, four times; `TurnCap: -1` becomes 4 rather than erroring |
 | state dir | `~/.ctxloom/coord/<base>-<hash12>`, 0700 |
-| owner lock | exclusive `owner.pid` (`claimOwner`); a second owner on the project is refused, never given a state dir of its own |
+| owner lock | exclusive kernel file lock held for the owner's lifetime; a held lock refuses the claim (`ErrStateOwned`) unless its stamped holder is a provable orphan, which is ended and replaced (`claimOwner`, `judgeOrphan`) |
 | journals | one `openStore` call per journal; items may open from a checkpoint offset |
 | adopt | terminates orphaned host runs, grace-times container runs |
 | watchdogs | runner heartbeat watchdog + liveness watchdog |
@@ -166,6 +166,5 @@ returns English prose, `Inject`/steer return the typed `Delivery*` constants.
 | Symbol | Notes |
 | --- | --- |
 | `stateDirForProject` | `~/.ctxloom/coord/<key>` at 0700 |
-| `sanitizeKey` | replaces `/ \ : ..`; does **not** neutralize a bare `"."`, so a caller-supplied `ProjectKey` of `"."` resolves to `~/.ctxloom/coord` itself |
-| `claimOwner` | writes `owner.pid`; the write and close errors are unchecked, so a zero-byte lock can exist for a live owner and the next claimant reads it as stale |
-| `PidAlive` | two build-tagged one-line wrappers around `internal/shared/pidalive.Alive` |
+| `sanitizeKey` | replaces `/ \ : ..`; a key that reduces to dots only falls back to `default`, never the coord root itself |
+| `claimOwner` | flock on the owner lock; the holder's stamp beside it is display and orphan evidence only, never liveness |

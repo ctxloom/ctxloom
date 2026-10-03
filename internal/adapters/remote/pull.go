@@ -24,6 +24,12 @@ type PullOptions struct {
 	// Force skips the retracted-version confirmation prompt.
 	Force bool
 
+	// Reresolve resolves the ref's constraint afresh even when the lockfile
+	// already pins it. Without it an existing pin is what gets installed: a
+	// pull never advances a pin, and reinstalling a missing tree must not
+	// either. A held pin stays put regardless.
+	Reresolve bool
+
 	// LocalDir overrides the default .ctxloom directory path.
 	LocalDir string
 
@@ -343,7 +349,7 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 		return nil, fmt.Errorf("invalid remote URL: %w", err)
 	}
 
-	sha, requestedVersion, resolvedVersion, kind, err := resolveContentSHA(ctx, fetcher, owner, repo, ref)
+	sha, requestedVersion, resolvedVersion, kind, err := p.pinFor(ctx, fetcher, owner, repo, ref, localName, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -590,6 +596,19 @@ func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string,
 		return "", "", "", "", fmt.Errorf("failed to resolve version %q: %w", requestedVersion, err)
 	}
 	return res.SHA, requestedVersion, res.Version, res.Kind, nil
+}
+
+// pinFor is the commit a pull installs: the existing pin when there is one for
+// the same constraint, else the constraint resolved now. It is the carry-forward
+// rule the lock rebuild applies (operations.newConstraintResolver), so pull and
+// lock agree on which commit a pinned ref names. opts.Reresolve waives it.
+func (p *Puller) pinFor(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, localName trust.BundleKey, opts PullOptions) (sha, requestedVersion, resolvedVersion string, kind SelectorKind, err error) {
+	if !opts.Reresolve {
+		if entry, ok := p.recordedEntry(opts.ItemType, localName); ok && entry.SHA != "" && entry.RequestedVersion == ref.ContentVersion {
+			return entry.SHA, entry.RequestedVersion, entry.Version, entry.Kind, nil
+		}
+	}
+	return resolveContentSHA(ctx, fetcher, owner, repo, ref)
 }
 
 // installPulledItem records a pulled remote item (synthetic path — nothing is

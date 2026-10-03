@@ -157,6 +157,9 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 			fmt.Fprintf(w, "    - %s: retracted (%s)\n", termsafe.Field(item.Reference), termsafe.Sanitize(item.Error, 0, false).Text)
 		}
 	}
+	for _, identity := range result.Removed {
+		fmt.Fprintf(w, "  Removed %s from the lockfile: nothing this project composes depends on it any more.\n", termsafe.Field(identity))
+	}
 	if result.Errors > 0 {
 		fmt.Fprintf(w, "  Failed: %d\n", result.Errors)
 		for _, item := range result.Failed {

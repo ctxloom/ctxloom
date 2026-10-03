@@ -5,16 +5,12 @@
 // session transcript watch`, a separate CLI invocation from whatever process
 // hosts a coordinator for a session in some project).
 //
-// Deliberately a LEAF package: internal/core/coord imports
-// internal/adapters/operations (children.go's spawn path), so
-// internal/adapters/operations — this discovery mechanism's only production consumer
-// (sessionfeed.go) — cannot import coord without a cycle.
-//
-// That constraint fixes the direction of the endpoint.json contract: the file's
-// LAYOUT lives here (DirName, FileName, State, MCPPath, LoopbackURL) and coord,
-// the writer, imports it. The reader cannot reach the writer, so the writer
-// reaches the reader; either way both halves compile against one declaration
-// instead of two that must be kept in step by hand.
+// Deliberately a LEAF package (it imports only internal/core/paths), so both
+// halves of the endpoint.json contract compile against ONE declaration: the
+// file's LAYOUT lives here (DirName, FileName, State, MCPPath, LoopbackURL),
+// and the writer (internal/adapters/coordgrpc's Serve) and the readers
+// (internal/adapters/operations' live feed and doctor) all import it, instead
+// of two copies that must be kept in step by hand.
 package discover
 
 import (

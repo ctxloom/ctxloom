@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 )
@@ -670,4 +671,66 @@ func TestHoldKey_ARunWithNoCredentialHoldsAlone(t *testing.T) {
 	assert.NotEqual(t, holdKey(engine.CredentialSource{}, "run-a"), holdKey(engine.CredentialSource{}, "run-b"))
 	src := engine.Credentials{Env: map[string]string{"X": "v"}}.Source("e")
 	assert.Equal(t, holdKey(src, "run-a"), holdKey(src, "run-b"))
+}
+
+// holdOf is harp's roster hold as the wire roster (listRunsSnapshot) shows it.
+func (f *holdFixture) holdOf(t *testing.T, harp string) *RunHold {
+	t.Helper()
+	for _, r := range f.c.listRunsSnapshot(false, "", "").Runs {
+		if r.Agent.AgentID == harp {
+			return r.Hold
+		}
+	}
+	t.Fatalf("%s is not in the roster", harp)
+	return nil
+}
+
+// TestRateHold_TheRosterShowsTheHold: every run a hold parks carries it on its
+// roster entry — the kind, the credential's source (names, never a value) and
+// when it releases itself — a run on another credential carries none, and
+// the release clears them.
+func TestRateHold_TheRosterShowsTheHold(t *testing.T) {
+	f, clk := newRateFixture(t)
+	f.send(t, f.worker, limitHit+" do the work")
+	hold := f.awaitHold(t, f.worker, f.sibling)
+
+	want := &RunHold{Kind: string(agent.FailureRateLimited), Source: hold.Source.Key, Until: limitResets}
+	for _, harp := range []string{f.worker, f.sibling} {
+		got := f.holdOf(t, harp)
+		require.NotNil(t, got, "%s is held", harp)
+		assert.Equal(t, want.Kind, got.Kind)
+		assert.Equal(t, want.Source, got.Source)
+		assert.True(t, want.Until.Equal(got.Until), "got %v", got.Until)
+		assert.NotContains(t, got.Source, "=v", "the source names the carrier, never its value")
+	}
+	assert.Nil(t, f.holdOf(t, f.stranger), "a run on another credential is not held")
+
+	clk.Advance(limitResets.Sub(clk.Now()))
+	assert.Nil(t, f.holdOf(t, f.worker), "the release clears the roster's hold")
+	assert.Nil(t, f.holdOf(t, f.sibling))
+}
+
+// TestRateHold_LivenessNeverJudgesAHeldRunStalled: a held run is waiting on
+// its limit, not stuck — it takes the waiting-for-approval verdict, which
+// outranks every stall rule, until the hold releases it.
+func TestRateHold_LivenessNeverJudgesAHeldRunStalled(t *testing.T) {
+	f, clk := newRateFixture(t)
+	f.send(t, f.worker, limitHit+" do the work")
+	f.awaitHold(t, f.worker, f.sibling)
+
+	awaiting := func() map[string]bool {
+		out := map[string]bool{}
+		for _, tg := range f.c.livenessTargets() {
+			out[tg.Harp] = tg.AwaitingApproval
+		}
+		return out
+	}
+	assert.Equal(t, map[string]bool{f.worker: true, f.sibling: true, f.stranger: false}, awaiting())
+	verdict := reportFor(f.c.livenessSnapshot(context.Background()), f.sibling)
+	require.NotNil(t, verdict)
+	assert.Equal(t, liveness.StateAwaitingApproval, verdict.State, "a held run must never be judged stalled: %s", verdict.Reason)
+
+	clk.Advance(limitResets.Sub(clk.Now()))
+	assert.Equal(t, map[string]bool{f.worker: false, f.sibling: false, f.stranger: false}, awaiting(),
+		"the release takes the exemption with it")
 }

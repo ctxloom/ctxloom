@@ -144,6 +144,11 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 	}
 	workDirs := make(map[string]string)
 	c.mu.Lock()
+	// A run parked on its credential's hold is waiting on its limit, not
+	// stuck: it takes the same exemption.
+	for runID := range c.heldRuns {
+		awaiting[runID] = true
+	}
 	for harp, rt := range c.byHarp {
 		if rt != nil {
 			workDirs[harp] = rt.workDir

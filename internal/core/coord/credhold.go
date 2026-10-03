@@ -144,6 +144,19 @@ func (c *Coordinator) CredentialHolds() []CredentialHold {
 	return out
 }
 
+// runHolds is the roster's view of every held run, by run id.
+func (c *Coordinator) runHolds() map[string]*RunHold {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make(map[string]*RunHold, len(c.heldRuns))
+	for runID, key := range c.heldRuns {
+		if h := c.credHolds[key]; h != nil {
+			out[runID] = &RunHold{Kind: string(h.kind), Source: key, Until: h.until}
+		}
+	}
+	return out
+}
+
 // holdKey is the hold a run's source belongs to: its key, or — for a run that
 // carries no credential — a hold of its own.
 func holdKey(src engine.CredentialSource, runID string) string {

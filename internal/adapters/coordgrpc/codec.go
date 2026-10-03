@@ -853,9 +853,22 @@ func RunsSnapshotToWire(s coord.RunsSnapshot) *agentcoordpb.ListRunsResult {
 			ParentRunId:    r.ParentRunID,
 			PermissionMode: r.PermissionMode,
 			McpServers:     r.MCPServers,
+			Hold:           runHoldToWire(r.Hold),
 		})
 	}
 	return out
+}
+
+// runHoldToWire encodes a run's hold; nil for none, and a zero Until is 0.
+func runHoldToWire(h *coord.RunHold) *agentcoordpb.RunHold {
+	if h == nil {
+		return nil
+	}
+	w := &agentcoordpb.RunHold{Kind: h.Kind, Source: h.Source}
+	if !h.Until.IsZero() {
+		w.UntilUnix = h.Until.Unix()
+	}
+	return w
 }
 
 // SpoolStatsToWire encodes the spool counters.

@@ -141,7 +141,7 @@ var _ engine.InstanceConfigWriter = claudeInstanceConfig{}
 // directory tree, and is treated as "locked and ledgered like a shared file —
 // full discipline, one rule, no per-site judgment" rather than "exclusive
 // ownership is enough". The whole
-// load-modify-write cycle below runs inside its OWN agent.WithFileLock, at
+// load-modify-write cycle below runs inside its OWN sessions.WithFileLock, at
 // dest (the .claude.json path itself) — NOT reliance on a caller's lock.
 //
 // This does NOT double-acquire with isolation.PrepareInstanceHome's caller-side lock

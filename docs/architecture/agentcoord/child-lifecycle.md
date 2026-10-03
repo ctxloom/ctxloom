@@ -24,7 +24,7 @@ flowchart TD
   EQ --> RC["runChild"]
   RC -->|acquireRunSlot| TS[("Coordinator.slots<br/>semaphore.Weighted")]
   RC --> VSR["runChildViaStartRun<br/>ResolveLaunch → Start"] --> ISR["issueStartRun"]
-  ISR -->|"StartRun refused ErrRunnerUnavailable<br/>(errEndpointUnavailable)"| REBIND["ResolveLaunch(Rebind) → issueStartRun<br/>ONCE, same runner"]
+  ISR -->|"StartRun refused ErrRunnerUnavailable<br/>(errEndpointUnavailable)"| REBIND["ResolveLaunch again (a fresh mint) → issueStartRun<br/>ONCE, same runner"]
 
   ENG[["EngineHost.runTurn<br/>adapters/runner/enginehost.go"]] -->|events| RCH[["HandleEvent<br/>runchannel.go"]]
   ENG -->|turn boundary| TR["ReportTurnResult → run's out/ spool, kind result<br/>adapters/runner/spoolturnresult.go"]
@@ -59,7 +59,7 @@ flowchart TD
 |---|---|---|
 | `SpawnPlan` | `spawner.go` | a resolved agent launch: agent name, backend, label, profiles, runtime, permission, degradations, MCP servers, `ResumeMode`, the resolved `Launch` and the config `Snapshot`. `Workspace`/`DirtyTreeHandler` are stamped **after** `Resolve`, by `AgentRun` |
 | `ResumeMode` | `spawner.go` | persistent vs one-shot engine lifecycle |
-| `SpawnStart` / `Resolved` | `spawner.go` | the per-attempt inputs to `ResolveLaunch` (identity, resume key, `Resumed`, `Prompt`, `Rebind`) and its result, the launch to deliver |
+| `SpawnStart` / `Resolved` | `spawner.go` | the per-attempt inputs to `ResolveLaunch` (identity, resume key, `Resumed`, `Prompt`; a rebind re-resolves with the same `SpawnStart`, since every resolve mints a new endpoint) and its result, the launch to deliver |
 | `Spawner` (interface) | `spawner.go` | the launch seam tests fake: `Resolve`, `AssignSession`, `RecordEngineVersion`, `ResolveLaunch`, `Start`, `Adopt`, `ResumeHistory`, `MarkSessionEnded` |
 | `spawner` | `adapters/spawn/spawner.go` | the one production implementation, over the operations launch trunk |
 | `EngineSpawn` | `spawner.go` | `Start` result: a spawned runner's `Kill`, `StderrTail` and `Wait` |

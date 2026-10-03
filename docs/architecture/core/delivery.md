@@ -61,8 +61,9 @@ session's by default (`engine_home: session`; `agents.ParseHomeMode`,
 `launch.parseHomeMode`), so claude on that arm advises its session home
 for context and MCP; only the binding's explicit `engine_home: host` — the
 unsafe selection, named beside the project routes in the plan and the
-banner (`cli.unsafeLabels`) — leaves `SurfaceSelection.keepOrReroot` to
-select the project file there.
+banner (`cli.unsafeLabels`) — gives the launch no session home
+(`launch.SessionHome` reports none), so the delivery selects the project
+file there.
 
 No credential is delivered into a home. A launch authenticates in the mode
 its run settles (`launch.RunAuth`: the token for every agent, the top-level

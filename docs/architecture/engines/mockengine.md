@@ -137,7 +137,7 @@ Most rows are "not applicable" — recorded so the matrix is complete.
 | Capability | Answer |
 |---|---|
 | Backend id | **none — not a registered backend.** Personality names borrow registry names |
-| Permission handling | **none.** Permission flags are name-validated by `ParseArgv` and otherwise inert. `EnforcesReadOnlyPlan` returns `false` for any unregistered name (`registry.go:148-150`, pinned at `capabilities_test.go:31`); `CollapsePlanIfUnenforced` is not applicable |
+| Permission handling | A posture model (`permissionModel`, postures default / plan / bypass) and an approval codec (`Mock.Approvals`): each turn announces its mode, applies the posture's `deny` rules, and its record carries the posture. Permission flags are name-validated by `ParseArgv`. |
 | Deny list | **none** — there are no tools; the mock never executes anything |
 | Context surface | **its entire purpose.** `Walk` (`discovery.go:42`) walks L1's declared probes and `probeOne` (`:51`) resolves each root by scope — `ScopeCwd` → `Res.Cwd`; `ScopeHome` → `Res.Home`; `ScopeEnvDir` → `res.getenv(p.EnvVar)` with a `filepath.Join(res.Home, p.EnvHomeDefault)` fallback (`:70-76`); `ScopeFlagValue` → `probeFlagValue` (`:89`) with an `inlineJSON` literal-vs-path discriminator (`:115`). `observePath` (`:129`) stats and hashes a file, or hashes a directory via `hashDir` (`:164`, recursive, name-sorted, per-file hash) |
 | MCP | **none.** MCP config files are observable only as declared probe surfaces — bytes on disk, never a protocol |

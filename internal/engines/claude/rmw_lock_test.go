@@ -21,10 +21,10 @@ import (
 // (isolation.PrepareInstanceHome's lockInstanceHome) — a second, unenforced lock
 // idiom over an engine config file, invisible to anyone reading this writer
 // in isolation and silently absent for any OTHER caller. It now takes its
-// OWN agent.WithFileLock around the whole load-modify-write cycle, at dest
+// OWN sessions.WithFileLock around the whole load-modify-write cycle, at dest
 // (the .claude.json path), matching the static writer's discipline.
 //
-// Writer A takes the exact home lock WriteInstanceConfig's own agent.WithFileLock
+// Writer A takes the exact home lock WriteInstanceConfig's own sessions.WithFileLock
 // would take (paths.HomePathFor(dest)) DIRECTLY, standing in for a
 // concurrent writer already mid-critical-section (a second in-tree
 // delegated child sharing this instance, racing THIS PROCESS rather than
@@ -34,7 +34,7 @@ import (
 // releases. The seam is deterministic (A holds the lock before B is
 // spawned), not wall-clock.
 //
-// MUTATION KILL: remove the agent.WithFileLock wrap from WriteInstanceConfig
+// MUTATION KILL: remove the sessions.WithFileLock wrap from WriteInstanceConfig
 // (leaving it call loadJSONObject/safefs.WriteFileKeepMode directly), and this test
 // goes red — writer B's goroutine completes unexcluded while A still holds
 // the lock, tripping the assertion below.

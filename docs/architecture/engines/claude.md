@@ -29,10 +29,10 @@ the one place claude's surface membership is stated.
 | `ResolveModel` | `chat.go:254` | Nickname → concrete model id; `ok=false` fails loud. Sole production caller `internal/adapters/operations/delegate.go:317` |
 | `EngineCLIs` / `ClaudeEngineCLIs` | `enginecli.go:172` / `:178` | Oneshot + interactive surface declarations |
 | `ClaudeCodeHookWriter` | `claude.go` | `agent.SettingsReader` |
-| `NewWriter` | `claude.go:20` | Registry `newWriter` seam (`registry.go:276`) |
+| `NewWriter` | `claude.go` | Constructs the settings status read (`agent.SettingsReader`), reached through `Claude.SettingsReader` (`definition.go`) |
 | `Status` | `claude.go` | The `SettingsReader`: what the project writer's claims say is installed. Every write is a claim (`DeliverSettings`, `DeliverHooks`, `DeliverMCP` in `definition.go`) |
 | `ProjectSettingsPath` / `GlobalSettingsPath` / `GlobalCommandsDir` / `SettingsPath` / `MCPConfigPath` | `claude.go:48` / `:54` / `:67` / `:76` / `:83` | Path vocabulary consumed by `internal/adapters/operations/hooks.go:272,277` and `internal/ltk/engine/claudecode.go:151,153` |
-| `MCPRegistrar` | `mcp_registrar.go` | taskloom's `engine.Engine`; `Register` patches one `mcpServers` member through a taskloom-owned `confpatch.Store` via the same `applyMCPServers` as `writeMCPConfig` |
+| `MCPRegistrar` | `mcp_registrar.go` | taskloom's `engine.Engine`; `Register` patches one `mcpServers` member through a taskloom-owned `confpatch.Store` via `applyMCPServers` |
 | `WriteCommandFiles` / `TransformToClaudeCommand` | `commandfiles.go:18` / `:44` | `.claude/commands/*.md` manifest write + renderer |
 | `WriteSkillFiles` | `skillfiles.go:21` | `.claude/skills/<name>/**` manifest write |
 | `Surfaces` | `surfaces.go` | claude's `agent.Declaration`: per surface kind, the approaches claude can construct and its default. Every approach wraps an existing claude writer verbatim |
@@ -65,9 +65,9 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 | Backend id | `"claude-code"` (`registry.go:266`); binary `claude` |
 | Permission tiers | bypass → `--dangerously-skip-permissions`; acceptEdits → `--permission-mode acceptEdits`; plan → `--permission-mode plan` **plus** `--disallowedTools "Bash,Edit,Write,NotebookEdit"`; default → no flag (`claudecode.go:253-258`) |
 | `EnforcesReadOnlyPlan` | **true** (`registry.go:297`), so `plan` is **not** collapsed. LIVE VERIFIED 2026-07-15 against authenticated claude 2.1.210: plan + deny list denied a sentinel-file overwrite (`claudecode.go:237-247`) |
-| Native per-tool deny list | **yes — the only engine with one.** (a) the fixed plan-tier `--disallowedTools` token; (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` via `mergeDenyTools` (`claude.go:536`), monotonic union only |
+| Native per-tool deny list | **yes — the only engine with one.** (a) the fixed plan-tier `--disallowedTools` token; (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` as one claim per denied tool on a `permissions.deny` element (`settingsClaims`, `definition.go`); a deny the user already has stays theirs |
 | Context surface | Project root → a section appended to `CLAUDE.md`, owned by the ownership record (`appendContextFile`, `definition.go`). Shared cell → out-of-cwd `<hash>.sysprompt.md` (`contextdelivery.go:50`) pointed at by `--append-system-prompt-file` (`claudecode.go:294-299`). **claude does not read `AGENTS.md`** — deliberate (`enginecli.go:34-38`) |
-| MCP | Project `.mcp.json` (`mcpApproach.DeliverMCP`'s claims, `definition.go`). In a shared cell it is an out-of-cwd file passed as `--mcp-config` **without** `--strict-mcp-config`, so ctxloom's servers **layer over** the user's project `.mcp.json` (`claudecode.go:288-292`). Global via `MCPRegistrar.ConfigPath` → `~/.claude.json` |
+| MCP | Project `.mcp.json` (`mcpApproach.DeliverMCP`'s claims, `definition.go`). In a shared cell it is an out-of-cwd file passed as `--mcp-config`; in a trusted repository ctxloom's servers **layer over** the project `.mcp.json`, and otherwise `--strict-mcp-config` keeps it out (`repoSourceArgs`, invariant 8). Global via `MCPRegistrar.ConfigPath` → `~/.claude.json` |
 | Commands | `.claude/commands/*.md`, frontmatter + mustache→`$N` body (`commandfiles.go:18`, `:44`); optional home dedup against `~/.claude/commands` (`surfacedelivery.go:99-104`) |
 | Skills | `.claude/skills/<name>/**` (`skillfiles.go:21`) |
 | One-shot / resume | **Supported.** In both `resumeCapableBackends` and `oneShotSupportedBackends` (`internal/core/coord/spawner.go:225`, `:248`). This adapter's only session-identity lever is `--name <harp>` (display name only) |
@@ -82,11 +82,10 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 2. **`Present` is load-bearing for argv.** `flagArgs` takes each flag's NAME from the resolved approach's own `Present(...)`, never from a constant beside it: change a declared flag and the argv changes with it.
 3. **`Path() == ""` means "emit no flag"** — the seam between delivery and argv. An approach reports `""` when it delivered nothing (empty content, or context that fell back to the injection hook), and claude must never be handed a flag naming a file that was never written.
 4. **Ownership is marked by the `"ctxloom"` executable token** via `agent.IsManaged(cmd, "ctxloom")`, repeated at six call sites and deliberately verb-agnostic.
-5. **`loadSettings` and `saveSettings` must mirror each other key-for-key** — the round-trip is what preserves foreign keys (`claude.go:259`, `:364`).
-6. **`claudeCodeHook.SCM` is `json:"-"`** because claude validates settings against a strict Zod schema (`claude.go:149`).
-7. **Writes are marker-merged or manifest-scoped, never whole-file overwrites.**
-8. **`agent.CanonicalJSON` always emits at least `{}\n`**, so claude's two `AtomicWriteFile` callers cannot write zero bytes — safe by accident of the JSON encoder, not by a guard.
-9. **`--mcp-config` is used without `--strict-mcp-config` on the launch path**, so ctxloom layers rather than replaces.
+5. **`claudeCodeHook.SCM` is `json:"-"`** because claude validates settings against a strict Zod schema (`claude.go:149`).
+6. **Writes are marker-merged or manifest-scoped, never whole-file overwrites.**
+7. **claude never passes `safefs.AllowEmpty()`**, so a zero-byte write over an existing file it writes is refused by safefs's empty-write guard (and `agent.CanonicalJSON` always emits at least `{}\n` anyway).
+8. **`--strict-mcp-config` follows the repository's trust verdict** (`repoSourceArgs`): a trusted repository's launch layers `--mcp-config` over its project `.mcp.json`; any other verdict adds `--setting-sources user --strict-mcp-config`, so the repository's own settings and MCP servers never load, and a presentation that depends on them is refused (`ErrUntrustedProjectMCP`, `errUntrustedSettingsPresented`).
 
 ## Divergences from documented or implied behavior
 

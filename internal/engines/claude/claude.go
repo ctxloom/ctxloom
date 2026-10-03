@@ -199,11 +199,8 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	}
 
 	// Extract statusLine separately. Unreadable is refused, not degraded, for
-	// the same reason as hooks and permissions below: the delete runs
-	// unconditionally and saveSettings re-emits the statusLine only from the
-	// typed field, so "the user has none this code can recognize" ended as the
-	// user's own statusLine being replaced by the managed HUD — or, with the
-	// HUD opted out, deleted from the file outright.
+	// the same reason as hooks and permissions below: a statusLine this code
+	// cannot recognize must never read as "the user has none".
 	if slRaw, ok := raw["statusLine"]; ok {
 		sl, err := w.parseStatusLine(path, data, slRaw)
 		if err != nil {
@@ -219,11 +216,8 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	// round-trip untouched (see claudeCodePermissions's doc).
 	//
 	// A permissions block this code cannot read is treated exactly like
-	// unparseable hooks, and for the same reason: the delete below used to
-	// run unconditionally, and saveSettings only re-emits permissions when
-	// the typed field is non-nil, so a warning was followed by the user's
-	// allow/ask/defaultMode/additionalDirectories rules being dropped from
-	// the file — silently, with no .corrupt backup, on a SECURITY surface.
+	// unparseable hooks: refused, never read as empty, because the user's
+	// allow/ask/defaultMode/additionalDirectories rules are a SECURITY surface.
 	if permRaw, ok := raw["permissions"]; ok {
 		perm, err := w.parsePermissions(path, data, permRaw)
 		if err != nil {
@@ -288,11 +282,9 @@ func (w *ClaudeCodeHookWriter) parsePermissions(path string, data []byte, raw js
 
 // corruptSettings is this writer's binding of agent.RefuseCorrupt (see its
 // doc): back the original bytes up, then return an error so the caller aborts
-// before touching the file. Every partial-parse failure in loadSettings and
-// applyMCP routes through here precisely so no future field can be added
-// with a warn-and-continue branch — a warning is not a guard, and each of the
-// paths that had one (permissions, permissions.deny, .mcp.json) was
-// destroying user data behind it.
+// before touching the file. Every partial-parse failure in loadSettings
+// routes through here so no future field can be added with a
+// warn-and-continue branch: a warning is not a guard.
 func (w *ClaudeCodeHookWriter) corruptSettings(path string, data []byte, what string, cause error, consequence string) error {
 	return agent.RefuseCorrupt(w.getFS(), path, data, what, cause, consequence)
 }

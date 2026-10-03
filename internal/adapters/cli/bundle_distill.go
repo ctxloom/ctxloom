@@ -121,7 +121,7 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 
 	if err := emit(cmd, result, func() error {
 		// Diagnostics ride the command's ERROR writer (not the process's
-		// os.Stderr), and every line goes through an ErrWriter so a broken
+		// os.Stderr), and every line goes through an errwriter.Writer so a broken
 		// stdout is reported instead of producing a silent success.
 		errw := errwriter.New(cmd.ErrOrStderr())
 		for _, e := range result.Errors {

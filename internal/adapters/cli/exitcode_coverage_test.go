@@ -57,7 +57,7 @@ import (
 // rewrote bundle_distill.go's loop body from `fmt.Fprintln(os.Stderr, e)` to
 // `errw.Println(e)` (an errwriter.Writer), and the detector silently stopped
 // seeing that site — a warn-only loop that had merely changed writers read to
-// the gate as "debt paid down". `\w+\.Print(ln|f)` covers the ErrWriter form
+// the gate as "debt paid down". `\w+\.Print(ln|f)` covers the errwriter.Writer form
 // (and any other receiver with the same method names) so a loop cannot escape
 // detection by switching writers. Note `fmt.Fprintln` does NOT match that
 // third alternative (`.Fprintln` is not `.Println`), so both are needed.

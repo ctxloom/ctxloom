@@ -225,7 +225,7 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 // isolation boundary for the host, and leaving behind a config.yaml that
 // then failed schema validation at the next `ctxloom run` (fatal exit 3).
 // Runtime now sits on validateAgentAxes' refusing side (like Engine and
-// Driving), not warnAgentAxisTypos' advisory side: an unknown value is
+// Driving), not an advisory warning: an unknown value is
 // REJECTED outright, and — this is the part a bare error-code check would
 // miss — NOTHING is written, neither a new agent nor a mutation of an
 // existing one. Asserting only the error (or only the exit code, at the CLI

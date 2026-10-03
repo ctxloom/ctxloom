@@ -100,7 +100,7 @@ func TestAppendFlagDelivery_DeliverContext_PreservesExistingMode(t *testing.T) {
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm(),
-		"AtomicWriteFile preserves an existing file's mode across the rewrite; a raw afero.WriteFile(...,0o644) would reset it")
+		"safefs.WriteFileKeepMode preserves an existing file's mode across the rewrite; a raw afero.WriteFile(...,0o644) would reset it")
 }
 
 // TestAppendFlagDelivery_EmptyContextIsNoop verifies empty context frames to ""

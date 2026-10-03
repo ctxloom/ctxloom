@@ -158,7 +158,7 @@ func TestWithFileLock_FailsClosedOnLockAcquisitionError(t *testing.T) {
 // addresses and asking the REAL OS to create and flock it would touch
 // actual disk the test never intended — exactly the crosstalk
 // config.Owner.Update's injectedFS guard, and internal/shared/admission's
-// useLock (C5), both exist to avoid. Mirrors that idiom via isOSBackedFs.
+// useLock (C5), both exist to avoid. Mirrors that idiom via filelock.IsOSBackedFs.
 func TestWithFileLock_SkipsLockingForNonOSBackedFs(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	bogusPath := "/proj/.claude/settings.json"

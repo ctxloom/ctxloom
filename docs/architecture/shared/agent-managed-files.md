@@ -1,18 +1,17 @@
 # agent — managed-file writers and reconcilers
 
-Every byte ctxloom puts into a user's engine config directory goes through one of the reconcilers on this page. They share one discipline: ctxloom owns a *marked* or *manifest-tracked* subset of a file or tree, and each write removes exactly the previous ctxloom-owned set before laying down the new one, so uninstall is always possible and foreign content survives. `AtomicWriteFile` is the single low-level write primitive; `CtxloomCommand` is the single policy point for what command lands in a generated config.
+The engine-config files ctxloom SHARES with the user (settings, `.mcp.json`) are written by the static delivery, one `safefs.Batch` per delivery under the claims record — see [`../core/delivery.md`](../core/delivery.md). This page covers the rest: the manifest-tracked command and skill trees, files ctxloom exclusively owns inside a foreign engine's directory, and the primitives they share. Each writer owns a *manifest-tracked* subset of a tree (or the whole file) and each write removes exactly the previous ctxloom-owned set before laying down the new one, so uninstall is always possible and foreign content survives. `CtxloomCommand` is the single policy point for what command lands in a generated config.
 
 References below are by **symbol** (`Type.Method` or bare function name), not `file:line` — a line number drifts on any edit above it and silently points at the wrong thing; a symbol fails loud when it goes stale (`grep` finds nothing) instead of misleading.
 
 ```mermaid
 flowchart TD
   subgraph prim["primitives"]
-    AWF["AtomicWriteFile(fs, path, data, desc)"]
-    WFL["WithFileLock(fs, target, fn)"]
+    AWF["safefs.WriteFileKeepMode(fs, path, data, desc)"]
+    WFL["sessions.WithFileLock(fs, target, fn)"]
     GFS["GetFS(fs) — nil → OsFs"]
     WRN["Warn(fmt, ...) → clidiag"]
     CC["CtxloomCommand() = CtxloomBinary"]
-    HASH["ComputeHookHash / ComputeMCPServerHash / ComputeCommandDigest"]
     RC["RefuseCorrupt(fs, path, data, ...)"]
   end
   subgraph tree["manifest-tracked trees — packagefiles.go"]
@@ -30,7 +29,7 @@ flowchart TD
     SKE["SkillExport"]
   end
   subgraph mcp["MCP registries"]
-    MB["InstallMCPServerJSON / Uninstall / Installed"]
+    MB["MCPServerJSONEntry / MCPServerInstalledJSON"]
     REG["MCPRegistrar (interface)"]
   end
   LEDGER[(".ctxloom-managed — internal/shared/ledger")]
@@ -46,7 +45,6 @@ flowchart TD
   WMPF --> LEDGER
   MB --> CJ
   REG --> MB
-  CC --> RMC
 ```
 
 ## R6: exclusively-owned files inside a foreign engine's directory (ruled 2026-08-14)
@@ -55,22 +53,21 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 
 **The rule, no per-site judgment:** a file ctxloom exclusively owns inside a foreign engine's directory is locked and ledgered like a shared file.
 
-- `claude.claudeInstanceConfig.WriteInstanceConfig` now takes its own `agent.WithFileLock` around the whole load-modify-write cycle, keyed to the generated file itself — not the caller's `isolation.lockInstanceHome`, which locks a *different* path in a *different* lock namespace (`paths.ProjectPathFor` on the instance-home directory vs. `paths.HomePathFor` on the generated file) and silently no-ops for the harpless worktree fallback.
-- `claude.appendFlagDelivery.DeliverContext` now writes its framed `<hash>.sysprompt.md` cache file through `AtomicWriteFile` instead of a raw `afero.WriteFile`.
+- `claude.claudeInstanceConfig.WriteInstanceConfig` takes its own `sessions.WithFileLock` around the whole load-modify-write cycle, keyed to the generated file itself — not the caller's `isolation.lockInstanceHome`, which locks a *different* path in a *different* lock namespace (`paths.ProjectPathFor` on the instance-home directory vs. `paths.HomePathFor` on the generated file) and silently no-ops for the harpless worktree fallback.
+- `claude.appendFlagDelivery.DeliverContext` now writes its framed `<hash>.sysprompt.md` cache file through `safefs.WriteFileKeepMode`, never a raw `afero.WriteFile`.
 
-**The ratchet:** archlint's `LockDisciplineAnalyzer` and `LedgerDisciplineAnalyzer` (run by `just lint-arch`) are write-discipline-shaped rules — a name-based heuristic over every function in the `SettingsWriter` packages plus this package, with a reasoned, symbol-keyed allowlist in `archrules` whose stale entries the analyzer reports. They are heuristics, not proofs (see their own doc comments for exactly what they can and cannot see), and each carries a reasoned baseline for the gaps it knows about.
+**The ratchet:** archlint's `LockDisciplineAnalyzer` and `LedgerDisciplineAnalyzer` (run by `just lint-arch`) are write-discipline-shaped rules — a name-based heuristic over every function in `internal/engines/claude` and this package (`lockDisciplineScopes`), with a reasoned, symbol-keyed allowlist in `archrules` whose stale entries the analyzer reports. They are heuristics, not proofs (see their own doc comments for exactly what they can and cannot see), and each carries a reasoned baseline for the gaps it knows about.
 
 ## Write primitives
 
 | Symbol | Purpose |
 |---|---|
-| `AtomicWriteFile` | Routes through `safefs.WriteFile`: a **unique** temp name in the destination directory (`afero.TempFile`, so two concurrent writers never clobber each other's in-flight bytes), fsync, chmod to an exact mode, then rename. **No backup is taken** — see "What changed" below for why. Refuses a zero-byte write over an existing file unless the caller opts in with `AllowEmptyWrite()`. |
-| `WithFileLock` | The engine-file writers' one lock idiom (the static writer's batch included): `fn` runs as the WHOLE read-modify-write cycle under a lock at `paths.HomePathFor(target)` (a real OS home-rooted lock directory, not a sidecar beside `target`). Skipped when `fs` is not OS-backed (a test double has no other process to exclude). Fail-closed on acquisition failure. |
+| `safefs.WriteFileKeepMode` (in `internal/shared/safefs`) | The engine-file writers' write: `safefs.WriteFile`'s **unique** temp name in the destination directory (so two concurrent writers never clobber each other's in-flight bytes), fsync and rename, keeping an existing file's mode. **No backup is taken** (see the invariants below). Refuses a zero-byte write over an existing file unless the caller passes `safefs.AllowEmpty()`. |
+| `sessions.WithFileLock` | The engine-file writers' one lock idiom (the static writer's batch included): `fn` runs as the WHOLE read-modify-write cycle under a lock at `paths.HomePathFor(target)` (a real OS home-rooted lock directory, not a sidecar beside `target`). Skipped when `fs` is not OS-backed (a test double has no other process to exclude). Fail-closed on acquisition failure. |
 | `GetFS` | nil → `afero.NewOsFs()`; the single defaulting point every writer in this package and its engine callers uses. |
 | `Warn` | `clidiag.Warn("ctxloom", …)`; binds the program name once. |
 | `CtxloomCommand` | Returns `CtxloomBinary` — the bare executable name, so a materialized surface resolves against `PATH` at fire time and carries no fact about the machine that wrote it. |
-| `ComputeHookHash` / `ComputeMCPServerHash` / `ComputeCommandDigest` | sha256-derived short identifiers used as ownership markers (hooks, MCP server entries, the statusline command) — the `SCM` field claude carries on each managed entry, and the digests the ledger records for the same purpose elsewhere. |
-| `SettingsOptions` | `{FS afero.Fs}` — filesystem seam only. Per-engine policy (which surfaces are managed) rides the surfaces × cells seam elsewhere, not this struct. |
+| `SettingsOptions` | `{FS, ProjectClaims}` — the filesystem seam, and the ownership record's account of what the project writer claims (what a status read reports as installed). |
 | `RefuseCorrupt` | The one refusal shape for "part of this user-owned file will not parse": backs the original bytes up to `<path>.corrupt-<unix>` and returns an error so the caller aborts *before* touching the file. Every backend that round-trips a user-editable settings/hooks/MCP file routes partial-parse failures here. |
 | `CanonicalJSON` (`marshal.go`) | Marshal → generic decode with `UseNumber` (numeric precision preserved) → sorted, indented, newline-terminated re-encode. The double round-trip *is* the key-sorting mechanism. |
 
@@ -120,16 +117,15 @@ Consumers: `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`).
 
 ## Invariants and contracts
 
-- **`AtomicWriteFile` is the single low-level write path** for settings/config surfaces, and it takes **no backup**. This is a deliberate change, not an omission: the old `<path>.ctxloom.bak` copy existed because a writer that could not tell its own content from the user's had to rewrite the file wholesale and keep a copy in case it was wrong. Every writer reaching `AtomicWriteFile` now knows what it owns — through the sidecar ledger or through in-file managed markers — so it edits its own content and leaves the rest untouched, and there is nothing to recover from. See `internal/shared/ledger`'s package doc for the fuller history (five independently-drifted per-engine ownership records, consolidated into one).
+- **No write path takes a backup.** A `<path>.ctxloom.bak` copy is only needed by a writer that cannot tell its own content from the user's and rewrites the file wholesale; every writer here knows what it owns (the sidecar ledger, the claims record, or sole authorship) and edits only that.
 - **The temp file name is unique per write** (`afero.TempFile` with a `.`+base+`.*.tmp` pattern), not a fixed suffix — two concurrent writers of the same settings file can never clobber each other's in-flight temp file the way a fixed name could.
 - **A rename failure is returned, never papered over**, and there is no cross-device fallback: the temp file lives in the destination directory by construction, so cross-device rename cannot occur, and every internal failure branch best-effort removes the orphaned temp file before returning the error.
-- **`AtomicWriteFile` refuses a zero-byte write over an existing file** unless the caller opts in via `AllowEmptyWrite()` — for an encoder that renders an emptied managed set as literally zero bytes. No writer in the tree opts in today; the option stays for the next one that must.
+- **`safefs.WriteFile` and `safefs.WriteFileKeepMode` refuse a zero-byte write over an existing file** unless the caller passes `safefs.AllowEmpty()` — for a writer whose correct output can be literally zero bytes.
 - **`CtxloomCommand` is the command policy for materialized surfaces**, and every writer — hooks, statusline, MCP registry — resolves through it. It returns the BARE name: several materialized surfaces (`.claude/settings.json`, `.mcp.json`) are tracked files shared across machines, and one is read from inside a container where a host path names nothing. The accepted cost is that a surface can fire a different build than the one that wrote it; `WarnOnCtxloomPathSkew` is the only thing that reports it.
 - **`WriteManagedPackageFiles` removes the previously-tracked set BEFORE rendering.** Every per-item failure warns and continues, and the function returns `nil` when nothing was written — so a total render failure wipes the prior delivery and reports success. The manifest is the only record of what ctxloom owns in that tree, and (see R6 above) this function is not itself under `WithFileLock` — a known, deferred gap, not a fixed one.
 - **`SafeCommandRelPath` must gate every bundle-supplied name** before it becomes a path. Bundle content is remote content.
 - **The sidecar ledger (`internal/shared/ledger`, marker `.ctxloom-managed`) is the record of managed names** for every surface that uses it — not a per-engine `<Path>.ledger` file. Written sorted and atomically, removed only when every co-located surface is empty.
 - **A ledger read error is propagated, not flattened.** `ledger.Ledger.Read` returns a real error rather than degrading to "nothing managed" — a writer that mistakes an unreadable ledger for an empty one concludes it manages nothing and orphans every entry it wrote last time. A missing marker is the one legitimate empty case, and it alone returns `(nil, nil)`.
 - **A user-owned settings or registry file that fails to parse is refused, not replaced — at every level of the document.** `claude.ClaudeCodeHookWriter.loadSettings` routes a failed top-level decode through `corruptSettings` to `RefuseCorrupt`, and so does every nested block it splits out (`hooks`, and `parseStatusLine`/`parsePermissions` for `statusLine`/`permissions`/`permissions.deny`). "I could not read it" is not "it was empty": each of those paths once warned and continued, and the delete-then-re-emit-from-the-typed-field shape behind the warning meant the user's own hooks, statusline and allow/ask rules were dropped from the file on a success path. A warning is not a guard — the routing exists so no future field can be added with a warn-and-continue branch. A present-but-wrong-type `mcpServers` value takes the same route: the registrar's error path probes the document and refuses through `RefuseCorrupt` rather than writing members into a scalar.
-- **A preserved field is re-emitted as its ORIGINAL bytes, never decoded-and-reencoded.** `claude.ClaudeCodeHookWriter.saveSettings` and `claude.permissionsOutput` decode each preserved key only as a *gate* (`preserveFailure` refuses the write when a value cannot be carried through) and emit the raw bytes; handing the decoded value to `CanonicalJSON` instead would round every number past `float64`'s exact range — `1234567890123456789` comes back `1234567890123456800`, a rewrite of the user's own file that no warning or exit code reports.
 - **The registrar contract lives with its consumer.** `taskloom/engine.Engine` is the MCP-registration facet an external tool uses without learning per-agent paths or formats; it is defined there rather than here because a registrar writes through `confpatch`, and `confpatch` depends on this package. `claude.MCPRegistrar` implements it over the same `applyMCPServers` patch ctxloom's own hook writer uses, so the two never disagree about how the table is written.
 - **`WarnOnCtxloomPathSkew` is the guard on bare-name resolution** — every materialized surface carries the bare name `ctxloom`, so a stale build earlier on `PATH` serves them silently unless this warns.

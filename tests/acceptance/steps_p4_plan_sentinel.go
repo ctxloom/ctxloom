@@ -22,19 +22,18 @@
 // THE POSTURE RIDES PRODUCTION'S OWN SURFACE, and it is worth stating exactly
 // which one, because a probe that applied its posture through a back door would
 // measure the back door. `permissions: {mode: plan}` on the agent binding is read by
-// the launch resolver's one floor (launch.Resolve: flag > agent binding > llm
-// label > project default > the engine's host default), carried on the Launch
-// and projected onto pb.RunOptions.PermissionMode (coordgrpc.EncodeLaunch),
-// where it becomes the ExecuteRequest each backend's buildArgs branches on.
+// the launch resolver's one permission resolution (launch.resolvePolicy: the
+// --permissions flag over the binding and the llm label, else the project,
+// else the engine's default), carried on the Launch as its PermissionPolicy
+// (pb Launch.permission, coordgrpc.EncodeLaunch), which each turn's posture
+// is built from.
 // Nothing here sets a flag the product does not offer, and nothing here
 // reaches around the resolver.
 //
 // AND THE ONE-SHOT INTERACTION MATTERS. A Structured run has no human to
 // answer a prompt, so the engine denies every gated call — which is why P5's
-// approval probe cannot use this invocation at all. Every backend declares
-// enforcesReadOnlyPlan TRUE, so
-// CollapsePlanIfUnenforced leaves it alone and the ONESHOT floor does not fire:
-// plan survives into the run intact. That is the shifty-scroll ruling, and
+// approval probe cannot use this invocation at all. resolvePolicy collapses
+// nothing, so plan survives into the run intact. That is the shifty-scroll ruling, and
 // runState.warnPosture is production announcing it — its warning on
 // stderr is the cheapest confirmation, per cell, that the posture arrived.
 package acceptance

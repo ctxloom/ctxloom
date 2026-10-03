@@ -84,9 +84,10 @@ type chatTransportFunc func(ctx context.Context, binary string, args []string, e
 // (see stampEntryTime) since stream-json carries no per-event timestamp.
 func readChatEvents(stdout io.Reader, out chan<- agent.ChatEvent, now func() time.Time) {
 	br := bufio.NewReaderSize(stdout, 64*1024)
+	var turn turnStream
 	for {
 		line, err := br.ReadBytes('\n')
-		for _, ev := range mapStreamJSONEvent(line) {
+		for _, ev := range turn.mapLine(line) {
 			out <- stampEntryTime(ev, now)
 		}
 		if err != nil {

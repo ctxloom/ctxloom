@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -135,6 +136,9 @@ func sendTurnEvents(send func(agent.ChatEvent) error, ask func(string, json.RawM
 	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true, PermissionMode: posture.Mode}}); err != nil {
 		return err
 	}
+	if f := turnFailureIn(prompt); f != nil {
+		return sendTurnFailure(send, f)
+	}
 	if strings.Contains(prompt, "TOOLS") {
 		for _, ev := range toolsTurn(prompt) {
 			if err := send(ev); err != nil {
@@ -152,6 +156,39 @@ func sendTurnEvents(send func(agent.ChatEvent) error, ask func(string, json.RawM
 		return err
 	}
 	return send(agent.ChatEvent{Complete: meta})
+}
+
+// turnFailureIn is the failure a prompt's marker asks the turn to end on: a
+// refused credential, or a rate limit with the reset time it names; nil for
+// none.
+func turnFailureIn(prompt string) *agent.TurnFailure {
+	if strings.Contains(prompt, credentialRejectedMarker) {
+		return &agent.TurnFailure{Kind: agent.FailureCredentialRejected}
+	}
+	m := rateLimitedPattern.FindStringSubmatch(prompt)
+	if m == nil {
+		return nil
+	}
+	f := &agent.TurnFailure{Kind: agent.FailureRateLimited}
+	if sec, err := strconv.ParseInt(m[1], 10, 64); err == nil {
+		f.ResetsAt = time.Unix(sec, 0)
+	}
+	return f
+}
+
+// sendTurnFailure relays a turn the engine turned away: its words, the
+// failure, and the completion — nothing attempted.
+func sendTurnFailure(send func(agent.ChatEvent) error, f *agent.TurnFailure) error {
+	for _, ev := range []agent.ChatEvent{
+		{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "mock: the turn was turned away (" + string(f.Kind) + ")"}},
+		{Failed: f},
+		{Complete: &agent.TurnMeta{StopReason: "stop_sequence"}},
+	} {
+		if err := send(ev); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // markedDenials makes the turn's marked calls — a mock:deny call, refused by

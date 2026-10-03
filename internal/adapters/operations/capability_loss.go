@@ -11,7 +11,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations/managedhooks"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // CapabilityLoss reports, for one resolved engine binding, which parts of the
@@ -37,7 +36,7 @@ func CapabilityLoss(reg engine.Registry, cfg *config.Config, backend string, pro
 	if cfg.ShouldSilenceUnsupported() {
 		return nil
 	}
-	hooks := managedhooks.Assemble(report.To(cfg.Reporter()), cfg, "", "", profileNames).WireDeclared()
+	hooks := managedhooks.Assemble(cfg, profileNames).WireDeclared()
 	return uncarriedSurfaces(reg, backend, agent.SurfaceInputs{Hooks: hooks})
 }
 

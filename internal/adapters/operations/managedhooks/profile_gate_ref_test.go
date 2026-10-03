@@ -29,7 +29,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 func TestProfileGateRefFor_BundleShippedUsesSourceRef(t *testing.T) {
@@ -145,7 +144,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 	var gotRefs []string
 	cfg.BindTrustForTesting(recordingTrust(&gotRefs))
 
-	assembled := Assemble(report.Reporter{}, cfg, "/tmp", "", nil)
+	assembled := Assemble(cfg, nil)
 	// Reaching the authorizer AT ALL is the fix: a double-'#' ref does not parse
 	// (trust.ParseSelector rejects kind "profiles"), so bundles.Decide withholds
 	// it before any authorizer is consulted and gotRefs would be empty.
@@ -180,7 +179,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *test
 	})
 	cfg.BindTrustForTesting(rejectingAll())
 
-	assembled := Assemble(report.Reporter{}, cfg, "/tmp", "", nil)
+	assembled := Assemble(cfg, nil)
 	assert.Empty(t, assembled.Wire().Unified.PreTool, "a denied bundle-shipped profile hook must be withheld from the produced settings, not merely fail silently in a way that still ships it")
 }
 

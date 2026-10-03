@@ -4,15 +4,12 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // These cover the HOST side of the setup seam (config/profile/bundle resolution
@@ -40,49 +37,16 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 		"p": "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
 	})
 
-	assembled := Assemble(report.Reporter{}, cfg, "/tmp", "", nil)
+	assembled := Assemble(cfg, nil)
 
 	assert.Contains(t, sessionStartCommands(assembled.Wire().Unified), "profile-session-start",
 		"profile-shipped SessionStart hook must be in the assembled set")
 }
 
-// TestAssembleManagedHooks_MatchesSetupSeam is the regression guard against the
-// two writers diverging across the new host/agent seam: the SessionStart set the
-// agent ends up with — host-assembled hooks (no context-injection) plus the
-// context-injection hook the agent appends itself — must equal the set
-// apply-hooks writes via Assemble(report.Reporter{}, cfg, wd, hash). Divergence here is
-// what lets one writer's delivery withdraw a hook the other assembled.
-func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
-	newCfg := func() *config.Config {
-		// Two profiles rather than a config block plus a profile: the seam this
-		// guards is between the two WRITERS, not between hook sources, so what
-		// matters is that more than one hook reaches the set.
-		return dirProfileCfg(t, []string{"base", "p"}, map[string]string{
-			"base": "hooks:\n  unified:\n    session_start:\n      - command: base-session-start\n        type: command\n",
-			"p":    "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
-		})
-	}
-
-	const hash, wd = "hash123", "/tmp"
-
-	// Setup payload path: host assembles WITHOUT context-injection, the agent
-	// appends it from the plugin-side hash (exactly what MergeManaged does).
-	setupCmds := sessionStartCommands(Assemble(report.Reporter{}, newCfg(), wd, "", nil).Wire().Unified)
-	for _, h := range agent.NewContextInjectionHooks(report.Reporter{}, hash, wd) {
-		setupCmds = append(setupCmds, h.Command)
-	}
-
-	// apply-hooks path: Assemble resolves the hash inline.
-	applyCmds := sessionStartCommands(Assemble(report.Reporter{}, newCfg(), wd, hash, nil).Wire().Unified)
-
-	assert.Equal(t, applyCmds, setupCmds,
-		"agent (host hooks + appended injection) and apply-hooks must produce an identical SessionStart set")
-}
-
 // TestAssembleManagedHooks_DoesNotMutateConfig guards the duplication fix:
 // apply-hooks calls Assemble once per backend in a loop. If it
 // aliased and appended to the hooks its source handed back, the second backend
-// would accumulate duplicate bundle/inject hooks.
+// would accumulate duplicate bundle hooks.
 //
 // The source is a directory profile now that the config-level block is gone, so
 // the aliasing risk sits in the resolved profile rather than in the config, and
@@ -93,9 +57,9 @@ func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 		"p": "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
 	})
 
-	first := Assemble(report.Reporter{}, cfg, "/tmp", "hash123", nil)
-	second := Assemble(report.Reporter{}, cfg, "/tmp", "hash123", nil)
-	third := Assemble(report.Reporter{}, cfg, "/tmp", "hash123", nil)
+	first := Assemble(cfg, nil)
+	second := Assemble(cfg, nil)
+	third := Assemble(cfg, nil)
 
 	assert.Equal(t, len(first.Wire().Unified.SessionStart), len(second.Wire().Unified.SessionStart),
 		"repeated calls must not accumulate hooks via shared state")
@@ -113,8 +77,8 @@ func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"non-existent-profile"}}},
 	})
 
-	assembled := Assemble(report.Reporter{}, cfg, "/tmp", "hash123", nil)
-	assert.NotEmpty(t, assembled.Wire().Unified.SessionStart, "context-injection hook should still be assembled")
+	assembled := Assemble(cfg, nil)
+	assert.NotEmpty(t, commandsOf(assembled.For("turn_end")), "ctxloom's own hooks are still assembled around the unresolvable profile")
 }
 
 func TestAssembleManagedHooks_CircularProfileIsWarnedNotMasked(t *testing.T) {
@@ -129,7 +93,7 @@ func TestAssembleManagedHooks_CircularProfileIsWarnedNotMasked(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	Assemble(report.Reporter{}, cfg, "/tmp", "", nil)
+	Assemble(cfg, nil)
 
 	assert.Contains(t, buf.String(), "inheritance",
 		"the real cause (inheritance) must reach the warning: got %q", buf.String())

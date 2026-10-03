@@ -8,8 +8,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // reflectHooksFor runs the managed dynamic-hook assembly for a config carrying
@@ -20,7 +18,7 @@ func reflectHooksFor(t *testing.T, setting int) []string {
 		Settings: config.SettingsConfig{ToolReflectBytes: setting},
 	})
 	m := newHooks()
-	appendManagedDynamicHooks(report.Reporter{}, m, cfg, t.TempDir(), "", nil, engine.Interactive)
+	appendManagedDynamicHooks(m, cfg, nil, engine.Interactive)
 
 	var cmds []string
 	for _, h := range m.For(bundles.HookEventPostTool) {

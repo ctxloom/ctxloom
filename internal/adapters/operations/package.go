@@ -108,7 +108,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		// resolvers take the set THIS assembly resolved, so a profile that
 		// did not resolve is reported once, here.
 		opts.MCP = cfg.ResolveBundleMCPServersFor(resolved)
-		opts.Hooks = *managedhooks.AssembleFor(report.To(cfg.Reporter()), cfg, req.WorkDir, "", resolved, req.Mode).Wire()
+		opts.Hooks = *managedhooks.AssembleFor(cfg, resolved, req.Mode).Wire()
 		opts.Statusline = managedStatuslineEnabled(cfg)
 	}
 	sel, err := composite.Select(resolved, cat, composite.SelectRequest{Fragments: req.Fragments, Tags: req.Tags, Versions: versions, VersionRoot: versionRoot})

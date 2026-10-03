@@ -17,8 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // --- provenance -------------------------------------------------------------
@@ -53,7 +51,7 @@ func TestAssembleManagedHooks_ProvenanceNamesDirectoryProfileAndItsBundles(t *te
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
 	})
 
-	got := sourcesByCommand(Assemble(report.Reporter{}, cfg, "/tmp", "", nil), "pre_tool")
+	got := sourcesByCommand(Assemble(cfg, nil), "pre_tool")
 
 	assert.Equal(t, OriginProfileDirectory, got["from-dir-profile"].Origin)
 	assert.Equal(t, "dev", got["from-dir-profile"].Profile)
@@ -127,19 +125,6 @@ func TestBundleSource_ClassifiesEveryClass(t *testing.T) {
 	}
 }
 
-// TestAssembleManagedHooks_ContextInjectionIsAttributedToContext keeps the
-// synthesised hook honest: it is authored nowhere, so it must not be reported as
-// if some file declared it.
-func TestAssembleManagedHooks_ContextInjectionIsAttributedToContext(t *testing.T) {
-	m := Assemble(report.Reporter{}, gatedFixture(config.Fixture{}), t.TempDir(), "deadbeef", nil)
-
-	hooks := m.For("session_start")
-	require.NotEmpty(t, hooks, "a non-empty context hash must synthesise the injection hook")
-	for _, h := range hooks {
-		assert.Equal(t, OriginContext, h.Source.Origin)
-	}
-}
-
 // TestAssembleManagedHooks_DeclaredPositionsAreContiguous: Declared is what
 // "before the reorder" means, so it has to be a real 1-based position within the
 // event rather than a per-source index that restarts at every merge.
@@ -151,7 +136,7 @@ func TestAssembleManagedHooks_DeclaredPositionsAreContiguous(t *testing.T) {
 		"dev":   "hooks:\n  unified:\n    pre_tool:\n      - command: p1\n        type: command\n      - command: p2\n        type: command\n",
 	})
 
-	hooks := Assemble(report.Reporter{}, cfg, "/tmp", "", nil).For("pre_tool")
+	hooks := Assemble(cfg, nil).For("pre_tool")
 
 	require.Len(t, hooks, 4)
 	for i, h := range hooks {
@@ -170,7 +155,7 @@ func eventWithCommands(t *testing.T, cmds ...string) *Hooks {
 	}
 	body, err := yaml.Marshal(map[string]any{"hooks": wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: hooks}}})
 	require.NoError(t, err)
-	return Assemble(report.Reporter{}, dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}), "/tmp", "", nil)
+	return Assemble(dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}), nil)
 }
 
 func commandsOf(hooks []Resolved) []string {
@@ -328,7 +313,7 @@ func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 		},
 	}})
 	require.NoError(t, err)
-	m := Assemble(report.Reporter{}, dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}), "/tmp", "", nil)
+	m := Assemble(dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}), nil)
 
 	native := m.BackendNative()
 

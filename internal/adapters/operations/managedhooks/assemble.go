@@ -82,14 +82,15 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 
 // Assemble builds the COMPLETE ctxloom-managed hook set that every
 // writer of a backend settings file must produce identically: config-level
-// hooks, default-profile-shipped hooks, bundle-shipped hooks, and (when
-// contextHash is non-empty) the context-injection hook.
+// hooks, default-profile-shipped hooks, bundle-shipped hooks, and ctxloom's
+// own hooks.
 //
-// Both writers route through this via operations.AssemblePackage, which
-// passes contextHash "": the `ctxloom run` payload (agent.ManagedConfigFor),
-// whose agent appends its own injection hook in BaseLifecycle.MergeManaged,
-// and operations.ApplyHooks, whose applyHooksToBackend appends it from the
-// regenerated hash. A hook one writer assembled and the other did not is
+// Both writers route through this via operations.AssemblePackage: the
+// `ctxloom run` payload (agent.ManagedConfigFor) and operations.ApplyHooks.
+// The context-injection hook is NOT assembled here: its identity is the
+// context hash only the writer knows, so each appends it itself —
+// BaseLifecycle.MergeManaged from the plugin-side hash, applyHooksToBackend
+// from the regenerated one. A hook one writer assembled and the other did not is
 // withdrawn by the next delivery of the other. Keeping the full assembly here
 // guarantees both writers produce an identical, complete set.
 //
@@ -101,18 +102,18 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 // each hook's provenance and declared position, which a pure-append wire merge
 // discards, and it is what any project-level hook ORDERING has to act on.
 // Writers take the projection, Hooks.Wire.
-func Assemble(rep report.Reporter, cfg *config.Config, workDir, contextHash string, profileNames []string) *Hooks {
+func Assemble(cfg *config.Config, profileNames []string) *Hooks {
 	if cfg == nil {
 		return newHooks()
 	}
-	return AssembleFor(rep, cfg, workDir, contextHash, cfg.ResolveProfileSet(profileNames), engine.Interactive)
+	return AssembleFor(cfg, cfg.ResolveProfileSet(profileNames), engine.Interactive)
 }
 
 // AssembleFor is Assemble over an already resolved
 // profile set — the one assembly resolved, so its faults are reported once —
 // for a session of the given mode. Assemble's at-rest writers serve the
 // sessions a human drives, so they assemble for engine.Interactive.
-func AssembleFor(rep report.Reporter, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile, mode engine.Mode) *Hooks {
+func AssembleFor(cfg *config.Config, set []profiles.ResolvedProfile, mode engine.Mode) *Hooks {
 	hooks := newHooks()
 	if cfg == nil {
 		return hooks
@@ -137,21 +138,19 @@ func AssembleFor(rep report.Reporter, cfg *config.Config, workDir, contextHash s
 		}))
 	}
 	// Bundle-shipped hooks + (optional) the context-injection hook.
-	appendManagedDynamicHooks(rep, hooks, cfg, workDir, contextHash, set, mode)
+	appendManagedDynamicHooks(hooks, cfg, set, mode)
 	return hooks
 }
 
 // appendManagedDynamicHooks appends the ctxloom-managed hooks that are assembled
 // dynamically (rather than read verbatim from one config block): the
-// bundle-shipped hooks (SCM-tagged — e.g. `session bind`, `stamp-plan`) and,
-// when contextHash is non-empty, the SessionStart context-injection hook. The
-// `ctxloom run` path passes contextHash "" here and lets the agent append its
-// own injection hook from the plugin-side hash; apply-hooks passes the hash.
+// bundle-shipped hooks (SCM-tagged — e.g. `session bind`, `stamp-plan`) and
+// ctxloom's own hooks, which belong to no bundle.
 //
 // The bundle set arrives FLAT — builtins, companion loadouts, and each selected
 // profile's bundles in one slice — so it is attributed per hook off the marker
 // config.extractHooksFromBundle stamped (bundleSource), not from this call site.
-func appendManagedDynamicHooks(rep report.Reporter, m *Hooks, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile, mode engine.Mode) {
+func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.ResolvedProfile, mode engine.Mode) {
 	if m == nil || cfg == nil {
 		return
 	}
@@ -191,11 +190,6 @@ func appendManagedDynamicHooks(rep report.Reporter, m *Hooks, cfg *config.Config
 	if mode == engine.Interactive {
 		m.mergeUnified(
 			wire.UnifiedHooks{TurnStart: []wire.Hook{agent.NewMailDrainHook()}},
-			fixedSource(Source{Origin: OriginContext}))
-	}
-	if contextHash != "" {
-		m.mergeUnified(
-			wire.UnifiedHooks{SessionStart: agent.NewContextInjectionHooks(rep, contextHash, workDir)},
 			fixedSource(Source{Origin: OriginContext}))
 	}
 }

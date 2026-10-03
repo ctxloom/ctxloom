@@ -8,7 +8,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations/managedhooks"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Hook source kinds, as reported by ResolvedHook.SourceKind. Each is a distinct
@@ -145,18 +144,12 @@ func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksRe
 	// the gate denies never reaches backend settings, so it must not be
 	// reported as something that will fire.
 
-	workDir := req.WorkDir
-	if workDir == "" {
-		workDir = resolveHookWorkDir(ApplyHooksRequest{})
-	}
-
-	// contextHash is deliberately EMPTY. A non-empty one would make
-	// AssembleManagedHooks synthesise a session_start context-injection hook
-	// keyed to a hash this call just invented, and reporting a hook whose
-	// identity is an artefact of having asked the question is not inspection.
-	// Apply computes a real hash because it is about to write it down; this is
-	// not, and says so rather than faking one.
-	assembled := managedhooks.Assemble(report.To(cfg.Reporter()), cfg, workDir, "", req.Profiles)
+	// The context-injection hook is not in this report: Assemble never
+	// synthesises it — each writer appends it from a hash it is about to
+	// write down (applyHooksToBackend, BaseLifecycle.MergeManaged) — and a
+	// hook whose identity is an artefact of having asked the question is not
+	// inspection.
+	assembled := managedhooks.Assemble(cfg, req.Profiles)
 
 	out := &ResolveHooksResult{}
 	for _, event := range resolvedHookEventOrder() {

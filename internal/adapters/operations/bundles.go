@@ -1308,9 +1308,11 @@ func distillTooShort(original, distilled string) bool {
 // had already drifted in their explanatory comments, which is how they drift in
 // behaviour next.
 //
-// get returns the named entry and its raw content; put applies an ACCEPTED
-// result. Neither is called for a rejected one, so no rejection path can stamp
-// a hash.
+// get returns the named entry, its raw content and the distillation it holds
+// now; put applies an ACCEPTED result. put is not called for a rejected one, so
+// no rejection path can stamp a hash, and a rejection's warning names what the
+// item is left holding — an edit has already discarded the old distillation
+// along with the old content, so there may be none to keep.
 func distillItems[E any](
 	ctx context.Context,
 	b *bundles.Bundle,
@@ -1318,7 +1320,7 @@ func distillItems[E any](
 	d Distiller,
 	kind DistillKind,
 	noun string,
-	get func(name string) (entry E, content string),
+	get func(name string) (entry E, content, distilled string),
 	put func(name string, entry E, res DistillResult),
 ) collections.Set[string] {
 	failed := collections.NewSet[string]()
@@ -1326,7 +1328,11 @@ func distillItems[E any](
 		return failed
 	}
 	for _, name := range names {
-		entry, content := get(name)
+		entry, content, prior := get(name)
+		left := "left undistilled"
+		if prior != "" {
+			left = "keeping the previous distillation"
+		}
 		res, err := d.Distill(ctx, DistillRequest{
 			Kind:    kind,
 			Name:    name,
@@ -1343,7 +1349,7 @@ func distillItems[E any](
 			// one that happened to be empty. Assigning it would overwrite a
 			// previously-good distillation with "" and let distillOutcome
 			// report "distilled" for content nobody can use.
-			clidiag.Warn("ctxloom", "distill of %s %q produced no content; keeping the previous distillation", noun, name)
+			clidiag.Warn("ctxloom", "distill of %s %q produced no content; %s", noun, name, left)
 			failed.Add(name)
 			continue
 		}
@@ -1351,7 +1357,7 @@ func distillItems[E any](
 			// Non-empty but implausibly short (truncated/degenerate) is the same
 			// class of failure as empty — treat it the same way, and do NOT stamp
 			// ContentHash for a rejected result.
-			clidiag.Warn("ctxloom", "distill of %s %q produced only %d bytes from %d — rejecting as truncated, keeping the previous distillation", noun, name, len(res.Distilled), len(content))
+			clidiag.Warn("ctxloom", "distill of %s %q produced only %d bytes from %d — rejecting as truncated, %s", noun, name, len(res.Distilled), len(content), left)
 			failed.Add(name)
 			continue
 		}
@@ -1362,9 +1368,9 @@ func distillItems[E any](
 
 func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) collections.Set[string] {
 	return distillItems(ctx, b, names, d, DistillKindFragment, "fragment",
-		func(name string) (bundles.BundleFragment, string) {
+		func(name string) (bundles.BundleFragment, string, string) {
 			frag := b.Fragments[name]
-			return frag, frag.Content
+			return frag, frag.Content, frag.Distilled
 		},
 		func(name string, frag bundles.BundleFragment, res DistillResult) {
 			frag.Distilled = res.Distilled
@@ -1377,9 +1383,9 @@ func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d 
 // distillPrompts mirrors distillFragments for prompts.
 func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) collections.Set[string] {
 	return distillItems(ctx, b, names, d, DistillKindCommand, "prompt",
-		func(name string) (bundles.BundleCommand, string) {
+		func(name string) (bundles.BundleCommand, string, string) {
 			p := b.Commands[name]
-			return p, p.Content
+			return p, p.Content, p.Distilled
 		},
 		func(name string, p bundles.BundleCommand, res DistillResult) {
 			p.Distilled = res.Distilled

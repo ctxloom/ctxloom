@@ -3,7 +3,7 @@
 // the SAME managed-hooks/MCP resolution as an inline profile — and that, because a
 // directory profile may be remote-sourced, its directly-declared executables pass
 // the SAME per-item executable trust gate as bundle hooks/MCP (a withheld one is
-// dropped). The directory path reaches Assemble / AssembleManagedMCP
+// dropped). The directory path reaches Assemble / Config.ResolveBundleMCPServersFor
 // through the loader fallback (profiles.ResolvedProfile.Hooks/MCP), not the inline
 // config map.
 package managedhooks
@@ -61,10 +61,10 @@ func preToolCommandSet(h wire.UnifiedHooks) []string {
 
 const dirHookBody = "hooks:\n  unified:\n    pre_tool:\n      - command: keep-hook\n        type: command\n      - command: drop-hook\n        type: command\n"
 
-// TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate is the hook twin: a
+// TestAssemble_DirProfileInlineHooks_FlowAndGate is the hook twin: a
 // directory profile's inline hooks: reach the managed hook set, and the exec gate
 // withholds an un-granted one.
-func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
+func TestAssemble_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
 	assembled := Assemble(cfg, nil)
 	cmds := preToolCommandSet(assembled.Wire().Unified)
@@ -79,10 +79,10 @@ func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 	assert.NotContains(t, gated, "drop-hook", "an un-granted directory-profile hook is withheld by the exec gate")
 }
 
-// TestAssembleManagedHooks_DirProfileMergesWithInlineDefault is the hook twin of
+// TestAssemble_DirProfileMergesWithAnotherDefault is the hook twin of
 // the merge-parity case: hooks union across an inline default and a directory
 // default.
-func TestAssembleManagedHooks_DirProfileMergesWithAnotherDefault(t *testing.T) {
+func TestAssemble_DirProfileMergesWithAnotherDefault(t *testing.T) {
 	// Two DIRECTORY profiles: the merge this pins is across the selected
 	// defaults, and with the inline arm retired both sides are files. Only the
 	// second profile's provenance changed; the union is the claim.
@@ -108,11 +108,11 @@ func TestAssembleManagedHooks_DirProfileMergesWithAnotherDefault(t *testing.T) {
 	assert.Contains(t, cmds, "dir-hook", "the first default profile's granted hook is applied")
 }
 
-// TestAssembleManagedHooks_DirProfileInheritsParentHooks proves a directory
+// TestAssemble_DirProfileInheritsParentHooks proves a directory
 // profile's inline hooks union across parent inheritance (the Hooks threading
 // through profiles.resolveProfileRecursive + ResolvedProfile.Merge), reaching the
 // managed set together — parent/default merge parity.
-func TestAssembleManagedHooks_DirProfileInheritsParentHooks(t *testing.T) {
+func TestAssemble_DirProfileInheritsParentHooks(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"child"}, map[string]string{
 		"base":  "hooks:\n  unified:\n    pre_tool:\n      - command: base-hook\n        type: command\n",
 		"child": "parents:\n  - base\nhooks:\n  unified:\n    pre_tool:\n      - command: child-hook\n        type: command\n",
@@ -123,7 +123,7 @@ func TestAssembleManagedHooks_DirProfileInheritsParentHooks(t *testing.T) {
 	assert.Contains(t, cmds, "child-hook")
 }
 
-func TestAssembleManagedHooks_DeniedHookIsWarned(t *testing.T) {
+func TestAssemble_DeniedHookIsWarned(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
 	keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
 	cfg.BindTrustForTesting(hashTrust(keepHash))

@@ -119,8 +119,8 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 	})
 }
 
-// (Managed-command detection is exercised in shared/agent — TestIsManaged in
-// predicate_test.go — now that isCtxloomManaged is a thin agent.IsManaged call.)
+// (Managed-command detection is exercised by exectoken.IsManaged's own tests —
+// TestIsManaged in internal/shared/exectoken.)
 
 // =============================================================================
 // Settings Reader Factory Tests

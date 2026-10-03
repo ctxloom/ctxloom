@@ -1060,16 +1060,13 @@ func TestLoadSettings_UnreadableStatusLineIsRefusedNotDropped(t *testing.T) {
 	}
 }
 
-// TestInstall_HandAuthoredCtxloomHookSurvives is the regression for the
-// defect the hooks ledger exists to close (taskloom valiant-ascension).
-//
-// Ownership used to be inferred from the command's EXECUTABLE TOKEN, so every
-// hook invoking the ctxloom binary was removed and only what config declared
-// that round was re-added. A user is equally entitled to invoke ctxloom — a
-// wrapper, a report, their own tooling — and theirs was deleted silently, exit
-// 0, with no diff. The claim now comes from the sidecar ledger (Claude Code's
-// strict schema forbids an in-file marker, which is why claudeCodeHook carries
-// none), plus ctxloom's own four machine callbacks.
+// TestInstall_HandAuthoredCtxloomHookSurvives pins that ownership of a hook
+// comes from the sidecar ledger, never from the command's EXECUTABLE TOKEN. A
+// user is equally entitled to invoke ctxloom — a wrapper, a report, their own
+// tooling — and a token-keyed reconcile would delete theirs silently, exit 0,
+// with no diff. Claude Code's strict schema forbids an in-file marker, which
+// is why claudeCodeHook carries none; the ledger plus ctxloom's own machine
+// callbacks are the whole claim.
 //
 // The control matters: an inject-context hook in the SAME file must still be
 // reconciled away, or this test would pass just as well against a writer that

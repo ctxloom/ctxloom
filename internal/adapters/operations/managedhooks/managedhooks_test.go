@@ -30,12 +30,12 @@ func sourcesByCommand(m *Hooks, event string) map[string]Source {
 	return out
 }
 
-// TestAssembleManagedHooks_ProvenanceNamesDirectoryProfileAndItsBundles covers
+// TestAssemble_ProvenanceNamesDirectoryProfileAndItsBundles covers
 // the remaining source kinds through the production resolution path: a directory
 // profile's own hooks, and the hooks of a bundle that profile references — which
 // arrive in one flat set alongside the builtins and are told apart by the marker
 // the bundle extractor stamped.
-func TestAssembleManagedHooks_ProvenanceNamesDirectoryProfileAndItsBundles(t *testing.T) {
+func TestAssemble_ProvenanceNamesDirectoryProfileAndItsBundles(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
@@ -125,10 +125,10 @@ func TestBundleSource_ClassifiesEveryClass(t *testing.T) {
 	}
 }
 
-// TestAssembleManagedHooks_DeclaredPositionsAreContiguous: Declared is what
+// TestAssemble_DeclaredPositionsAreContiguous: Declared is what
 // "before the reorder" means, so it has to be a real 1-based position within the
 // event rather than a per-source index that restarts at every merge.
-func TestAssembleManagedHooks_DeclaredPositionsAreContiguous(t *testing.T) {
+func TestAssemble_DeclaredPositionsAreContiguous(t *testing.T) {
 	// Two SOURCES, so "contiguous" is a claim about the event rather than about
 	// one merge step: two profiles contributing two hooks each.
 	cfg := dirProfileCfg(t, []string{"first", "dev"}, map[string]string{

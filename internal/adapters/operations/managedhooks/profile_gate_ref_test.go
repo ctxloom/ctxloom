@@ -3,7 +3,7 @@
 // profile's SOURCE ref (profiles.ResolvedProfile.SourceRef via
 // profileGateRefFor), not its display name. See managed_dir_profile_test.go
 // for the production end-to-end path (a genuinely local directory profile,
-// unaffected by this fix) and TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed
+// unaffected by this fix) and TestAssemble_LocalBundleShippedProfile_GateRefParsesAndAllows
 // below for the uncut-grub double-'#' regression proven through PRODUCTION
 // bundle-profile seeding (config.loadBundleProfileSeed), not a hand-built fixture.
 package managedhooks
@@ -106,13 +106,13 @@ func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 	assert.Equal(t, "ctxloom+local:my-local-profile#hooks/pre_tool/0", gotRefs[0])
 }
 
-// TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed is the
+// TestAssemble_LocalBundleShippedProfile_GateRefParsesAndAllows is the
 // PRODUCTION end-to-end regression test for uncut-grub: a local bundle ships
 // a profile (via config.loadBundleProfileSeed — the exact machinery that
 // seeds a bundle-shipped profile in production, local or remote) carrying an
 // inline hook, and the default agent's profile IS that bundle-shipped
 // profile's "<bundle>#profiles/<name>" ref (the directory-profile fallback
-// branch in AssembleManagedMCP/Assemble, NOT an inline
+// branch in Assemble, NOT an inline
 // config.yaml profile).
 //
 // Before the fix, the gate ref was built as
@@ -122,7 +122,7 @@ func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 // fix, the ref is "<SourceRef>#hooks/pre_tool/0" (single '#', parses, and —
 // because this is a LOCAL bundle — resolves IsLocal:true), so a permissive
 // gate lets it through exactly like any other locally-authored content.
-func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testing.T) {
+func TestAssemble_LocalBundleShippedProfile_GateRefParsesAndAllows(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
@@ -159,11 +159,11 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 	assert.Equal(t, "bundle-shipped-hook", assembled.Wire().Unified.PreTool[0].Command)
 }
 
-// TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld is the
+// TestAssemble_LocalBundleShippedProfile_DeniedIsWithheld is the
 // payload-asserting deny-side twin: the SAME bundle-shipped profile hook,
 // denied by the gate, must be ABSENT from the produced settings — not merely
 // "an error occurred" — the silent-no-op trap this whole fix exists to close.
-func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *testing.T) {
+func TestAssemble_LocalBundleShippedProfile_DeniedIsWithheld(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))

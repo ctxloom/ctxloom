@@ -25,14 +25,14 @@ func sessionStartCommands(h wire.UnifiedHooks) []string {
 	return cmds
 }
 
-// TestAssembleManagedHooks_IncludesProfileSessionStartHook locks in the
+// TestAssemble_IncludesProfileSessionStartHook locks in the
 // writer-parity contract: a profile-shipped SessionStart hook must appear in the
 // set Assemble produces (the operations.ApplyHooks path and the
 // `ctxloom run` setup payload both build from it). Before this, Setup merged
 // default-profile hooks and apply-hooks did not, so the next apply-hooks
 // reconcile dropped the profile hook — the drop-on-clobber class that broke
 // forward-bind.
-func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
+func TestAssemble_IncludesProfileSessionStartHook(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"p"}, map[string]string{
 		"p": "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
 	})
@@ -43,7 +43,7 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 		"profile-shipped SessionStart hook must be in the assembled set")
 }
 
-// TestAssembleManagedHooks_DoesNotMutateConfig guards the duplication fix:
+// TestAssemble_DoesNotMutateConfig guards the duplication fix:
 // apply-hooks calls Assemble once per backend in a loop. If it
 // aliased and appended to the hooks its source handed back, the second backend
 // would accumulate duplicate bundle hooks.
@@ -52,7 +52,7 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 // the aliasing risk sits in the resolved profile rather than in the config, and
 // a THIRD call is what makes the assertion mean something: two equal lengths
 // could both already be wrong.
-func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
+func TestAssemble_DoesNotMutateConfig(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"p"}, map[string]string{
 		"p": "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
 	})
@@ -69,9 +69,9 @@ func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 		"the profile hook is present, so the counts above are counting something")
 }
 
-// TestAssembleManagedHooks_WithInvalidProfile must not panic on a default
+// TestAssemble_WithInvalidProfile must not panic on a default
 // profile reference that has no definition.
-func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
+func TestAssemble_WithInvalidProfile(t *testing.T) {
 	cfg := gatedFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"non-existent-profile"}}},
@@ -81,7 +81,7 @@ func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 	assert.NotEmpty(t, commandsOf(assembled.For("turn_end")), "ctxloom's own hooks are still assembled around the unresolvable profile")
 }
 
-func TestAssembleManagedHooks_CircularProfileIsWarnedNotMasked(t *testing.T) {
+func TestAssemble_CircularProfileIsWarnedNotMasked(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"loopy"}, map[string]string{
 		"loopy": "parents:\n  - loopy\n",
 	})

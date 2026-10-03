@@ -48,7 +48,9 @@ func TestP14_SymlinkReplacedIsRed(t *testing.T) {
 }
 
 func TestP14_SymlinkRetargetedIsRed(t *testing.T) {
-	cfg, _ := p14Layout(t)
+	cfg, target := p14Layout(t)
+	// History in the planted target too, so only the retarget check can red.
+	require.NoError(t, os.WriteFile(filepath.Join(target, "s.jsonl"), []byte("{}\n"), 0o600))
 	link := filepath.Join(cfg, "projects")
 	require.NoError(t, os.Remove(link))
 	elsewhere := t.TempDir()

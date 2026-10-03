@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/spf13/afero"
@@ -53,15 +54,70 @@ func Read(m PathMapper, ref Ref) (*Message, error) {
 // The rename IS the acknowledgement: it is atomic, so exactly one consumer
 // wins and the loser gets ErrAlreadyGone; the result is observable to the
 // other side and to any human with `ls`; and restart recovery is a readdir.
-// It is a move, never a delete, because out/consumed/ is how an operator
+// It is a move, never a delete, because the routed copy is the only on-disk
+// evidence of a delivered message's body once the recipient's reader has
+// delivered and deleted its own copy, and out/consumed/ is how an operator
 // tells a routed message from a refused one (out/failed/). An inbox message
 // is not consumed this way: it is delivered with Deliver.
-func Consume(m PathMapper, ref Ref) (Ref, error) {
+//
+// The copy is kept for DeliveredRetention, counted from now — the route, not
+// the child's write, which the rename would otherwise carry over — and every
+// Consume prunes the copies routed before that window, so out/consumed/ is
+// bounded without a separate sweeper.
+func Consume(m PathMapper, ref Ref, now time.Time) (Ref, error) {
 	target, err := ref.Dir.Consumed()
 	if err != nil {
 		return Ref{}, err
 	}
-	return moveTo(m, ref, target)
+	moved, err := moveTo(m, ref, target)
+	if err != nil {
+		return Ref{}, err
+	}
+	path, err := m.Resolve(moved)
+	if err != nil {
+		return Ref{}, err
+	}
+	if err := os.Chtimes(path, now, now); err != nil {
+		return Ref{}, fmt.Errorf("spool: stamping the route time on %s: %w", moved, err)
+	}
+	if err := pruneExpired(filepath.Dir(path), now); err != nil {
+		return Ref{}, err
+	}
+	return moved, nil
+}
+
+// pruneExpired removes the entries in dir — routed copies, or delivered
+// record entries — whose time is before now-DeliveredRetention. Only names
+// ValidateName accepts are pruned: a staging name or a sub-directory is not an
+// entry. A missing dir has nothing to prune.
+func pruneExpired(dir string, now time.Time) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("spool: listing %s: %w", dir, err)
+	}
+	cutoff := now.Add(-DeliveredRetention)
+	for _, e := range entries {
+		if e.IsDir() || ValidateName(e.Name()) != nil {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue // pruned concurrently
+			}
+			return fmt.Errorf("spool: reading %s: %w", dir, err)
+		}
+		if !info.ModTime().Before(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("spool: pruning %s past retention: %w", filepath.Join(dir, e.Name()), err)
+		}
+	}
+	return nil
 }
 
 // Withdraw retracts an unconsumed message by renaming it into

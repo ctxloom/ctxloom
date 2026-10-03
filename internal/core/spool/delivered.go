@@ -181,22 +181,9 @@ func DeliveredIdentities(m PathMapper, harp string) (map[string]time.Time, error
 
 // pruneDelivered removes record entries recorded before now-DeliveredRetention.
 func pruneDelivered(m PathMapper, harp string, now time.Time) error {
-	ids, err := DeliveredIdentities(m, harp)
-	if err != nil {
-		return err
-	}
 	dir, err := deliveredDir(m, harp)
 	if err != nil {
 		return err
 	}
-	cutoff := now.Add(-DeliveredRetention)
-	for id, at := range ids {
-		if !at.Before(cutoff) {
-			continue
-		}
-		if err := os.Remove(filepath.Join(dir, id)); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("spool: pruning delivered record entry %s: %w", id, err)
-		}
-	}
-	return nil
+	return pruneExpired(dir, now)
 }

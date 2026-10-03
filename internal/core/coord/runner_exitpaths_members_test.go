@@ -128,7 +128,7 @@ func TestRunnerExitPaths_ConsumedSpoolMessageIsKept(t *testing.T) {
 	before := persistentMembers(t, harp)
 	require.Contains(t, before.Paths, outPath, "the member set must be taken while the message is still in out/")
 
-	done, err := spool.Consume(mapper, ref)
+	done, err := spool.Consume(mapper, ref, time.Now())
 	require.NoError(t, err)
 	require.Empty(t, lostPersistent(before), "a message the coordinator consumed was delivered, not lost")
 

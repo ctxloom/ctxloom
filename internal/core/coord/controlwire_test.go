@@ -258,7 +258,7 @@ func TestControlRun_PauseHoldsTurnsAndResumeReleases(t *testing.T) {
 	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 	assert.True(t, resp.GetControlRun().GetPause().GetNewlyPaused(), "the first pause installed the gate")
 
-	_, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
+	_, _, err := c.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
 	require.NoError(t, err)
 	require.Never(t, func() bool { return countChatText(sp, 0, "work item while paused") > 0 },
 		750*time.Millisecond, 10*time.Millisecond, "a paused run must take no new turn")

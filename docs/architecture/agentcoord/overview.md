@@ -31,9 +31,12 @@ Everything durable in delegation is one of:
 - **The content-addressed artifact store** (`artifactstore.go`), keyed by sha256.
 
 There is no message journal: a message's durability is the fsynced file. An `out/`
-message is acknowledged by the rename that moves it into `out/consumed/`; an inbox
-message by `spool.Deliver`, which records its identity in `in/delivered/` and then
-deletes it.
+message is acknowledged by the rename that moves it into `out/consumed/`, where the
+routed copy is kept for `spool.DeliveredRetention` and pruned by later consumes
+(`spool.Consume`); an inbox message by `spool.Deliver`, which records its identity
+in `in/delivered/` and then deletes it. A routed copy carries the `out/` file's
+identity to the recipient (`Coordinator.peerSend`), so a re-route after a crash
+between route and consume is refused by the recipient's delivered record.
 
 ## Package topology
 

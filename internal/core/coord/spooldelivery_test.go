@@ -207,7 +207,7 @@ func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsDelivered(t *testing.T) {
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
 	structured := json.RawMessage(`{"ticket":"T-9","severity":"high"}`)
-	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindQuestion, "second task", structured, "corr-1")
+	msgID, _, err := c.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindQuestion, "second task", structured, "corr-1")
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
 
@@ -533,7 +533,7 @@ func TestSpoolDelivery_DeliveredMailIsNeverDeliveredTwice(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChild(t, c, sp, "first task")
 
-	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "exactly once please", nil, "")
+	msgID, _, err := c.peerSend(newMessageID(), ownerIdentity(), out.Harp, KindMessage, "exactly once please", nil, "")
 	require.NoError(t, err)
 	awaitChatText(t, sp, 0, "exactly once please")
 	awaitDelivered(t, out.Harp, msgID, "after the first delivery")
@@ -611,7 +611,7 @@ func TestSpoolDelivery_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 	require.NoError(t, err)
 	outRef, err := outW.Write(&spool.Message{Kind: KindResult, FromHarp: out.Harp, To: ParentAddress, Body: "raced back"})
 	require.NoError(t, err)
-	_, err = spool.Consume(mapper, outRef)
+	_, err = spool.Consume(mapper, outRef, time.Now())
 	require.NoError(t, err)
 
 	coordFailedBefore := c.SpoolDeliveryStats().Failed

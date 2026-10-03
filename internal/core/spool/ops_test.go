@@ -51,7 +51,7 @@ func TestConsume_MovesToConsumedAndKeepsTheBytes(t *testing.T) {
 	m := NewHomeMapper()
 	ref, before := seedOut(t, m, "payload for the audit trail\n")
 
-	moved, err := Consume(m, ref)
+	moved, err := Consume(m, ref, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, DirOutConsumed, moved.Dir)
 	require.Equal(t, ref.Name, moved.Name, "consumption must not rename the file's identity")
@@ -87,7 +87,7 @@ func TestConsume_AnInboxMessageIsNotConsumable(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 	ref, _ := seedIn(t, m, "inbox\n")
-	_, err := Consume(m, ref)
+	_, err := Consume(m, ref, time.Now())
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrAlreadyGone)
 }
@@ -99,12 +99,72 @@ func TestConsume_SecondTakeIsAlreadyGone(t *testing.T) {
 	m := NewHomeMapper()
 	ref, _ := seedOut(t, m, "once\n")
 
-	_, err := Consume(m, ref)
+	_, err := Consume(m, ref, time.Now())
 	require.NoError(t, err)
 
-	_, err = Consume(m, ref)
+	_, err = Consume(m, ref, time.Now())
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrAlreadyGone, "a lost consume race must be ErrAlreadyGone, not a generic failure")
+}
+
+// consumedNames lists the routed copies in out/consumed/ by file name.
+func consumedNames(t *testing.T, m PathMapper) []string {
+	t.Helper()
+	res, err := Sweep(m, testHarp, DirOutConsumed)
+	require.NoError(t, err)
+	var names []string
+	for _, e := range res.Entries {
+		names = append(names, string(e.Ref.Name))
+	}
+	return names
+}
+
+// Every Consume prunes out/consumed/ past DeliveredRetention, measured from
+// when each copy was ROUTED: the clock is the caller's, so the window is
+// forced here, never waited out.
+func TestConsume_PrunesRoutedCopiesOlderThanTheRetentionWindow(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	now := time.Now()
+	old, _ := seedOut(t, m, "routed long ago\n")
+	young, _ := seedOut(t, m, "routed recently\n")
+	fresh, _ := seedOut(t, m, "routed now\n")
+
+	_, err := Consume(m, old, now.Add(-DeliveredRetention-time.Minute))
+	require.NoError(t, err)
+	_, err = Consume(m, young, now.Add(-DeliveredRetention+time.Minute))
+	require.NoError(t, err)
+	require.Len(t, consumedNames(t, m), 2, "nothing is past the window until a later Consume says so")
+
+	_, err = Consume(m, fresh, now)
+	require.NoError(t, err)
+	got := consumedNames(t, m)
+	require.NotContains(t, got, string(old.Name), "routed before the window: pruned")
+	require.Contains(t, got, string(young.Name), "routed inside the window: kept")
+	require.Contains(t, got, string(fresh.Name), "the copy just routed is kept")
+}
+
+// The window counts from the ROUTE, not from when the child wrote the file: a
+// rename keeps the writer's mtime, and a message that sat in out/ for longer
+// than the window (a coordinator down for a week) must not be pruned the
+// moment it is routed.
+func TestConsume_AFileWrittenLongAgoIsKeptFromItsRouteTime(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	now := time.Now()
+	stale, _ := seedOut(t, m, "written before the window\n")
+	path, err := m.Resolve(stale)
+	require.NoError(t, err)
+	written := now.Add(-2 * DeliveredRetention)
+	require.NoError(t, os.Chtimes(path, written, written))
+
+	_, err = Consume(m, stale, now)
+	require.NoError(t, err)
+	other, _ := seedOut(t, m, "a later route\n")
+	_, err = Consume(m, other, now.Add(time.Minute))
+	require.NoError(t, err)
+
+	require.Contains(t, consumedNames(t, m), string(stale.Name), "routed just now: inside the window")
 }
 
 // TestWithdraw_RacesConsumeThroughTheFilesystem: rename-won means retracted,

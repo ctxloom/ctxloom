@@ -15,7 +15,7 @@ tree:
 
 - a **container** cell's credential, as an owner-only file in the run's secret
   dir (`isolation.materializeSecrets`) — on tmpfs under `$XDG_RUNTIME_DIR` where
-  the session has one, otherwise in the session's ephemeral directory
+  the session has one, otherwise in the session's `scratch/` directory
   (`isolation.secretParent`) — removed when the run ends, and reaped by the
   next container launch after a crash (`newOwnedScratch`);
 - under `engine_home: session`, for YOUR OWN `auth: login` session only, a
@@ -137,7 +137,7 @@ what actually exists is worth telling you about.
 
 | Path | What it is | Losing it costs |
 |---|---|---|
-| `~/.ctxloom/sessions/` | every ctxloom session on this machine, across every project (`paths.HomeSessionsDir`): one directory per session whose members — sidecar, essence, `home/` instance, `persist/`, `ephemeral/`, `segments/` — are the rows of `paths.HarpMembers` | the session history; nothing rebuilds it (the `home/` instance and `ephemeral/` are rebuilt or regenerated) |
+| `~/.ctxloom/sessions/` | every ctxloom session on this machine, across every project (`paths.HomeSessionsDir`): one directory per session holding its machine state, whose members are the rows of `paths.HarpMembers` | the session's raw history; nothing rebuilds it (its `home/`, `work/` and `scratch/` members are rebuilt, triaged or regenerated) |
 | `~/.ctxloom/approvals/` | your personal countersignature store (`paths.HomeApprovalsPath`) | update review degrades from a diff to a full-content dump for approvals only this store held; committed approval signatures still verify |
 | `~/.ctxloom/allowed_signers` | every signing key you personally trusted (`paths.HomeAllowedSignersPath`, `ctxloom signer trust`) | each key must be re-trusted by hand |
 | `~/.ctxloom/distrusted_signers` | every embedded signing key you personally distrusted (`paths.HomeDistrustedSignersPath`, `ctxloom signer untrust`) | each suppression must be re-recorded by hand |
@@ -285,8 +285,9 @@ Two notes on that list, because both look like mistakes and are not:
 ## Per-agent worktree scratch stays in your home directory
 
 The worktree isolation axis gives each agent a checkout and a toolchain
-scratch dir, and those live at `~/.ctxloom/sessions/<harp>/ephemeral/`
-(rooted at `paths.HarpEphemeralDir`), never in the project tree: a worktree
+scratch dir, and those live at `~/.ctxloom/sessions/<harp>/work/` and
+`~/.ctxloom/sessions/<harp>/scratch/` (`paths.HarpWorkDir`,
+`paths.HarpScratchDir`), never in the project tree: a worktree
 run's checkout is a *different directory* from the project, and consumers —
 the orphan-worktree reaper, session purge — walk the home-rooted shape
 directly, with no project in hand. The engine's config home is **not** part of

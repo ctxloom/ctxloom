@@ -5,7 +5,7 @@
 // holds — no keepalive to exec into, no handoff file, no listener. Every
 // assertion reads a delivered PAYLOAD (the engine's echo of typed input over
 // the pty) or a live fact (the container's command, the process table, the
-// persist dir) — never an exit status alone.
+// session dir) — never an exit status alone.
 //
 //	just test-docker-integration
 //	GOWORK=off just test-pkg ./internal/core/coord/... -tags docker_integration -run InteractiveContainer
@@ -115,7 +115,7 @@ func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[strin
 //  2. the container's command IS the runner (`ctxloom runner mock`): the
 //     foreground process, not a keepalive;
 //  3. NO exec-into: the process table holds no `docker exec` for it;
-//  4. NO handoff: nothing under the session's persist/ carries a run-start.
+//  4. NO handoff: nothing under the session dir carries a run-start.
 func TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container interactive turn integration test")
 	coord.ResetStrictness(t)

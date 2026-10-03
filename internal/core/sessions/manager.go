@@ -224,8 +224,8 @@ type Manager struct {
 	root string
 	mu   sync.Mutex
 	// rep receives the findings a listing or a bind raises about one
-	// session without failing the whole operation (a corrupt sidecar, a
-	// transcript link that could not be made). The caller renders them.
+	// session without failing the whole operation (a corrupt sidecar). The
+	// caller renders them.
 	rep report.Reporter
 }
 

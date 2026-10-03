@@ -287,11 +287,14 @@ write can forge one.
 ├── cache/
 │   └── bundles/         # Remote-pulled bundle artifacts only
 ├── sessions/            # One directory per session, named by its harp
-│   └── <harp>/
+│   └── <harp>/          # Machine state only
 │       ├── session.yaml # The session's record; a directory with one IS a session
-│       ├── essence.md   # Distilled essence, once distilled
-│       ├── persist/     # Transcript, *.plan.md, the delegation message spool
-│       └── ephemeral/
+│       ├── transcripts/ # The canonical transcript and its rotation segments
+│       ├── native/      # Each engine's own conversation history
+│       ├── spool/       # The delegation message spool
+│       ├── home/        # Disposable per-engine config homes
+│       ├── work/        # Worktree checkouts
+│       └── scratch/     # Per-run scratch
 ├── coord/               # Coordinator state (owner locks, journals)
 ├── tasks/               # Per-project task logs (<project-id>.jsonl)
 ├── approvals/           # Personal countersignatures ("my approvals follow me")

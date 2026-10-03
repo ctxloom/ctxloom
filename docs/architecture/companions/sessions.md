@@ -59,7 +59,7 @@ classDiagram
     Store <|.. MemStore
     Manager ..> Index : yaml load/save under flock
     Index "1" o-- "*" Entry
-    Manager ..> paths : HarpDir · SessionIndexPath · HarpTranscriptStoreDir
+    Manager ..> paths : HarpDir · HarpNativeDir · HarpCanonicalTranscriptPath
     Manager ..> flock : Lock(path + ".lock")
     Manager ..> safefs : WriteFile
     Manager ..> harp : GenerateName
@@ -72,7 +72,6 @@ flowchart LR
   COMP["internal/adapters/memory compactor"] -->|SetSummary| IDX
   IDX -->|Find / ListForProject / ListAll| READ["session list · MCP memory tools ·<br/>transcript.CanonicalHistory"]
   IDX -->|Reconcile isDead| REAP["operations.isUnrecoverable"]
-  IDX -->|"linkEngineTranscript"| LINK[("&lt;harp&gt;/engine-transcript-&lt;engine&gt;-&lt;session-id&gt;.jsonl<br/>→ symlink to the engine's native transcript,<br/>one PER vendor log, immutable once created")]
 ```
 
 ---
@@ -94,13 +93,12 @@ flowchart LR
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `Open` | `index.go:115` | Resolves the index path (override or `paths.SessionIndexPath`), MkdirAll's the parent. **Mints a fresh `Manager` per call** — six production sites — so `mu` serializes nothing across instances; the flock is the real serializer |
+| `Open` | `manager.go` | Returns a `Manager` over `paths.HomeSessionsDir`, MkdirAll'ing it; the session directories and their `session.yaml` sidecars are the only source of sessions (a retired `index.yaml` is not read) |
 | `Load` / `loadLocked` | `index.go:135`, `:141` | ENOENT and zero-length are both treated as an empty index; the upgrade pipeline runs **in memory** on every load and stages `pendingUpgrade` |
 | `PendingUpgrade` / `CommitUpgrade` | `index.go:171`, `:187` | `CommitUpgrade` **re-stages from the file's current bytes** under the flock before writing, so it cannot clobber a concurrent `BindSession` |
 | `AssignHarp` | `index.go:228` | flock → load → build the used-set → mint a unique harp → append a pending entry → save |
-| `BindSession` | `index.go:268` | **First-bind-wins** fill of `SessionID`/`TranscriptPath`, then the harp-dir symlink |
-| `linkEngineTranscript` | `index.go` | MkdirAll `<harp>/`, skip if the transcript already lives inside it (a `filepath.Rel` containment check), else create `<harp>/engine-transcript-<engine>-<sessionID>.jsonl` (`paths.HarpEngineTranscriptLinkPath`) as a symlink — one per vendor log, never repointed except on a session-id-reuse anomaly (then via `atomicSymlink`, with a warning). The retired single mutable `<harp>/transcript.jsonl` name is never created or repointed by current code; pre-existing links under that name are left alone (fs-consolidation plan C12). Best-effort — every failure `clidiag.Warn`s |
-| `LocateTranscript` | `index.go:350` | Walks `<harp>/persist/transcripts` for the newest `.jsonl` (else newest `.json`), skipping `subagents/` subtrees. **No external callers** — the only outside hits are two doc comments |
+| `BindSession` | `index.go:268` | **First-bind-wins** fill of `SessionID`/`TranscriptPath`; the path is recorded with symlinks resolved (`boundTranscriptPath`), so a binding made through the disposable engine home names the file under `native/` and survives the home's deletion |
+| `LocateTranscript` | `transcript.go` | Walks `<harp>/native` (`paths.HarpNativeDir`) for the newest `.jsonl` (else newest `.json`), skipping `subagents/` subtrees — where every engine's native history lands through its session home's link, on the host and in a container alike |
 | `fillTranscriptByLocation` / `fillCanonicalTranscript` | `index.go:405`, `:428` | Read-time enrichment, on an entry **copy** |
 | `Find` | `index.go:455` | Load, linear search, return an enriched copy or `(nil, nil)` for absent — the documented contract, not a swallowed error |
 | `ActivityTime` | `index.go:483` | Canonical-transcript mtime → legacy-transcript mtime → `StartedAt` |
@@ -136,14 +134,6 @@ flowchart LR
 
 **Do not hold, or are narrower than documented:**
 
-- **No harp identifier is ever validated before it becomes a filesystem path.** `Rename`
-  (`index.go:625`, `memstore.go:165`) checks only `newName != ""`. A harp of `../../x` reaches
-  `paths.HarpDir` and then `os.MkdirAll`/`os.Symlink` in `linkEngineTranscript`. [Pre-existing
-  doc drift, not touched by fs-consolidation C12: `paths.HarpDir` now runs `harp.Validate`
-  before joining — worth re-checking whether this whole invariant still holds.] The reachable
-  path is
-  `ctxloom session rename <old> <arbitrary-string>` → `internal/adapters/cli/session_cmd.go:201-209` →
-  `operations/sessions.go:181` → `mgr.Rename`.
 - **`BindSession(harp, "", "")` succeeds having changed nothing** — it finds the entry, assigns
   `SessionID = ""`, performs a full index rewrite, and returns nil. The only empty-id guard lives
   one layer out at `operations/sessions.go:255`; `internal/adapters/memory/compactor.go:570` calls
@@ -182,13 +172,5 @@ flowchart LR
 - **`saveLocked(nil)` would marshal to the literal `null`** and atomically overwrite the index with
   it; `loadLocked` would then read that as "you have no sessions" with no error at any point. No
   caller passes nil today.
-- **RESOLVED by fs-consolidation C12 (Q2 ruled 2026-08-13):** the harp-root symlink used to be a
-  single mutable `<harp>/transcript.jsonl`, whose leaf name collided with
-  `paths.CanonicalTranscriptFileName` — the SAME string naming a DIFFERENT file (ctxloom's own
-  capture at `<harp>/persist/transcript.jsonl`). It is now one immutable symlink PER vendor log,
-  named `<harp>/engine-transcript-<engine>-<sessionID>.jsonl` (`paths.HarpEngineTranscriptLinkPath`),
-  which cannot collide with the canonical leaf name. Pre-existing `transcript.jsonl` symlinks from
-  before this change are left on disk, untouched (no migration; standing no-backward-compat-shims
-  policy) — nothing reads them, and nothing writes that name anymore.
 - **`(*Manager).Path` has exactly one call site in the repo, and it is a test in this package.**
-  `LocateTranscript` is exported with zero external callers.
+

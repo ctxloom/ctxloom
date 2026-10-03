@@ -18,27 +18,32 @@ import (
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
-// seedPlanWorld lays down plan files plus the session sidecars that attribute
-// them — the store's live on-disk shape: a directory per harp whose sidecar
-// carries project_dir — inside an isolated home. Orphan harps get a plan but
-// no sidecar, so no session claims them. Returns the home dir.
+// seedPlanWorld lays down plan files in each session's output dir plus the
+// session sidecars that record that dir and attribute them — the store's live
+// on-disk shape — inside an isolated home. Orphan harps record an output dir
+// but no project, so no project claims them. Returns the home dir.
 func seedPlanWorld(t *testing.T, harpToDir map[string]string, orphanHarps ...string) string {
 	t.Helper()
 	home := taskstest.Isolate(t)
 	for harp, dir := range harpToDir {
 		writePlanFile(t, home, harp)
 		writeFile(t, filepath.Join(home, ".ctxloom", "sessions", harp, paths.SessionSidecarFileName),
-			"project_dir: "+dir+"\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
+			"project_dir: "+dir+"\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\noutput_dir: "+planOutputDir(home, harp)+"\n")
 	}
 	for _, harp := range orphanHarps {
 		writePlanFile(t, home, harp)
+		writeFile(t, filepath.Join(home, ".ctxloom", "sessions", harp, paths.SessionSidecarFileName),
+			"backend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\noutput_dir: "+planOutputDir(home, harp)+"\n")
 	}
 	return home
 }
 
+// planOutputDir is the fixture's output dir for harp.
+func planOutputDir(home, harp string) string { return filepath.Join(home, "out", harp) }
+
 func writePlanFile(t *testing.T, home, harp string) {
 	t.Helper()
-	writeFile(t, filepath.Join(home, ".ctxloom", "sessions", harp, "design.plan.md"),
+	writeFile(t, filepath.Join(planOutputDir(home, harp), "design.plan.md"),
 		"---\ntitle: "+harp+" plan\n---\nbody")
 }
 

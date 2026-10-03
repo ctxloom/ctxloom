@@ -20,7 +20,7 @@ flowchart TD
   SVC --> MM["lifecycle.MergeManaged"]
   SVC --> MS["mergedState<br/>(GetHooks / GetBundleMCP; !ok → error)"]
   MS --> INPUTS["SurfaceInputs{Context, BundleMCP, Hooks, ...}"]
-  SVC --> START["present.Start — roots advised ONCE<br/>ProjectRoot = WorkDir; Scratch = ephemeral dir (shared) or WorkDir (isolated)"]
+  SVC --> START["present.Start — roots advised ONCE<br/>ProjectRoot = WorkDir; SessionHome = &lt;session dir&gt;/home/&lt;leaf&gt; (launch.SessionHome)"]
   INPUTS --> DS["deliverSet"]
   START --> DS
   DS --> SEL["Select(Declaration).WithEverything()"]
@@ -88,10 +88,9 @@ flowchart TD
   servers with exit 0 — a misconfigured backend, not a legitimate "nothing
   configured" (that is an EMPTY payload, which flows past and reconciles).
 - **Roots are resolved and advised ONCE per Setup**, before any surface runs,
-  as a `present.Start`: the project root is the working dir; Scratch is the
-  session's private ephemeral dir for a shared cell (out of the shared cwd)
-  and the working dir itself for an isolated cell (its private dir is its own
-  scratch). `present.OnHost`, not a containerize advice: Setup runs where the
+  as a `present.Start`: the project root is the working dir; the session home
+  is `<session dir>/home/<leaf>` (`launch.SessionHome`), the session-private
+  root a delivery uses when it must stay out of the project. `present.OnHost`, not a containerize advice: Setup runs where the
   engine runs — inside the container, for a container cell — so writer and
   engine share one filesystem namespace and the identity advice is truthful.
 - **The shared-launch preference is derived, scoped, and overridable.**

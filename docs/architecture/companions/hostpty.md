@@ -27,4 +27,4 @@ run's starter (`runState.ptyStarter`).
 `TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner` (`internal/core/coord`,
 `docker_integration`) types a line on the master and reads the mock's echo back through
 `docker run -i -t`, asserts the container's command is `runner mock`, that no `docker exec` is in
-the process table, and that nothing under the session's `persist/` carries a run-start.
+the process table, and that nothing under the session dir carries a run-start.

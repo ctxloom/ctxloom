@@ -22,7 +22,7 @@ Everything durable in delegation is one of:
   `itemsFold`): `runs.jsonl` (run lifecycle and session credentials), `items.jsonl`
   (the plane-1 event stream), `interactions.jsonl` (the audit journal). See
   `Coordinator.openJournals`.
-- **The spool**: one directory per session harp under `paths.HarpPersistDir`
+- **The spool**: one directory per session harp, the `spool/` member of its session dir
   (`spool.SpoolDirName`), holding `in/`, `out/`, `out/consumed/`, `in/withdrawn/`,
   the `failed/` subdirectories (`spool.Dir`, `spool.Dirs`, `spool.FailedDirNames`)
   and `in/delivered/`, the delivered-identity record (`spool.Deliver`).

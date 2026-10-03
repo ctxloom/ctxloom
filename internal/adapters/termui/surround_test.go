@@ -220,6 +220,22 @@ func TestSurround_BusyEngineDefersToFlush(t *testing.T) {
 	assert.Empty(t, tty.String(), "flush repaints once per dirty mark")
 }
 
+// TestRosterDigest_NamesTheHold: a held child counts as waiting, and the
+// digest names the first one's hold and how many more are held — a held run
+// reads idle, so without it the bar cannot tell a parked child from a quiet
+// one.
+func TestRosterDigest_NamesTheHold(t *testing.T) {
+	const label = "held: rate limited until 17:30 UTC"
+	free := RosterEntry{Harp: "free", State: "executing", LastActivityUnix: 1}
+	one := []RosterEntry{free, {Harp: "busy", State: "idle", LastActivityUnix: 2, Hold: label}}
+	assert.Equal(t, "1● 1◐ 0✓ · busy→idle · busy "+label, rosterDigest(one, ""))
+
+	two := append(one, RosterEntry{Harp: "also", State: "idle", Hold: "held: overloaded until 17:01 UTC"})
+	assert.Equal(t, "1● 2◐ 0✓ · busy→idle · busy "+label+" (+1 more held)", rosterDigest(two, ""))
+
+	assert.NotContains(t, rosterDigest([]RosterEntry{free}, ""), "held", "nothing held, nothing named")
+}
+
 func TestRosterDigest_Empty(t *testing.T) {
 	assert.Equal(t, "no agents", rosterDigest([]RosterEntry{}, ""))
 }

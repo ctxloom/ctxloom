@@ -62,9 +62,10 @@ func rowGlyph(r RosterRow) string {
 	return stateGlyph(r.State)
 }
 
-// holdLabel says what a hold waits on and, when it releases itself, until
-// when ("" for no hold).
-func holdLabel(h *coord.RunHold) string {
+// HoldLabel says what a hold waits on and, when it releases itself, until
+// when ("" for no hold) — the one wording for a hold on every root surface
+// (the overlay's feed title, the bar's digest).
+func HoldLabel(h *coord.RunHold) string {
 	if h == nil {
 		return ""
 	}

@@ -889,6 +889,6 @@ func TestModel_AHeldRowShowsItsHold(t *testing.T) {
 // TestHoldLabel_NoDeadlineSaysOnlyWhat: a hold with no deadline of its own
 // says what it waits on and nothing about when.
 func TestHoldLabel_NoDeadlineSaysOnlyWhat(t *testing.T) {
-	assert.Equal(t, "held: rate limited", holdLabel(&coord.RunHold{Kind: "rate_limited"}))
-	assert.Empty(t, holdLabel(nil))
+	assert.Equal(t, "held: rate limited", HoldLabel(&coord.RunHold{Kind: "rate_limited"}))
+	assert.Empty(t, HoldLabel(nil))
 }

@@ -778,7 +778,7 @@ func (m Model) feedTitle() string {
 	if meta != "" {
 		title += " (" + meta + ")"
 	}
-	if hold := holdLabel(r.Hold); hold != "" {
+	if hold := HoldLabel(r.Hold); hold != "" {
 		title += " · " + hold
 	}
 	if m.feedSource != "" {

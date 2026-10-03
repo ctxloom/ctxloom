@@ -46,6 +46,9 @@ type RosterEntry struct {
 	Harp             string
 	State            string // the coordinator's roster state (coord's State* values)
 	LastActivityUnix int64
+	// Hold is the hold parking the child, worded for display ("" for none):
+	// a held run's State reads idle, so this is what tells it apart.
+	Hold string
 }
 
 // surround owns the reserved bottom row: it establishes a DECSTBM scroll
@@ -449,8 +452,8 @@ func fitWidth(b []byte, start, width int) []byte {
 }
 
 // rosterDigest summarizes orchestrator-held children for the bar: counts by
-// state glyph (● executing, ✓ ended, ◐ waiting: every other state) plus the
-// latest transition, led by the approvals element when there is one — it
+// state glyph (● executing, ✓ ended, ◐ waiting: every other state), the
+// latest transition, then the first held child's hold (and how many more), led by the approvals element when there is one — it
 // names the thing most likely to need the human's attention right now. Empty
 // roster reads "no agents".
 func rosterDigest(roster []RosterEntry, approvals string) string {
@@ -513,5 +516,29 @@ func rosterDigestBody(roster []RosterEntry) string {
 	b = append(b, latest.Harp...)
 	b = append(b, "→"...)
 	b = append(b, latest.State...)
-	return string(b)
+	return string(b) + heldDigest(roster)
+}
+
+// heldDigest is the digest's hold element: the first held child and its
+// hold, plus how many more are held ("" when none is).
+func heldDigest(roster []RosterEntry) string {
+	var first *RosterEntry
+	more := 0
+	for i := range roster {
+		switch {
+		case roster[i].Hold == "":
+		case first == nil:
+			first = &roster[i]
+		default:
+			more++
+		}
+	}
+	if first == nil {
+		return ""
+	}
+	out := " · " + first.Harp + " " + first.Hold
+	if more > 0 {
+		out += " (+" + strconv.Itoa(more) + " more held)"
+	}
+	return out
 }

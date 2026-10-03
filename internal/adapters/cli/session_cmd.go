@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
@@ -124,7 +125,7 @@ func runSessionShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("harp not found: %q", harp)
 	}
 	view := operations.ViewSession(*entry)
-	essence, distilled := readSessionEssence(view)
+	essence, distilled := readSessionEssence(afero.NewOsFs(), view)
 	return emit(cmd, sessionEssence{Harp: harp, Distilled: distilled, Essence: essence, EssencePath: view.EssencePath}, func() error {
 		if !distilled {
 			return undistilledSessionError(harp, view.NativeSession)

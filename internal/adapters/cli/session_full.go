@@ -2,8 +2,8 @@ package cli
 
 import (
 	"io"
-	"os"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -34,11 +34,11 @@ type SessionFullRow struct {
 // different files. An unreadable essence leaves Essence empty; the row still
 // names the path it found, and readSessionEssence's caller-facing paths report
 // the read failure.
-func newSessionFullRow(v operations.SessionView) SessionFullRow {
+func newSessionFullRow(fsys afero.Fs, v operations.SessionView) SessionFullRow {
 	row := newSessionRow(v)
 	essence := ""
 	if row.EssencePath != "" {
-		if data, err := os.ReadFile(row.EssencePath); err == nil {
+		if data, err := afero.ReadFile(fsys, row.EssencePath); err == nil {
 			essence = string(data)
 		} else {
 			clidiag.Warn("ctxloom", "essence for %s exists at %s but could not be read: %v", v.Harp, row.EssencePath, err)
@@ -109,7 +109,7 @@ func emitSessionRows(cmd *cobra.Command, views []operations.SessionView, full bo
 
 	fullRows := make([]SessionFullRow, len(views))
 	for i, v := range views {
-		fullRows[i] = newSessionFullRow(v)
+		fullRows[i] = newSessionFullRow(afero.NewOsFs(), v)
 	}
 
 	format, err := cliemit.Resolve(cmd)

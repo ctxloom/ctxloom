@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/pmezard/go-difflib/difflib"
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -58,7 +59,7 @@ func runProfileMaterialize(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	if materializeDiff != "" {
-		return runProfileMaterializeDiff(cmd, cfg, args)
+		return runProfileMaterializeDiff(afero.NewOsFs(), cmd, cfg, args)
 	}
 	if materializeTarget == "" {
 		return fmt.Errorf(`required flag(s) "target" not set (or pass --diff to compare instead of writing)`)
@@ -121,7 +122,7 @@ type profileMaterializeDiffJSON struct {
 // that engine rather than what a live session would see — instead of writing a
 // scratch target to disk and reading it back: --diff is read-only by design,
 // so it never touches --target at all.
-func runProfileMaterializeDiff(cmd *cobra.Command, cfg *config.Config, args []string) error {
+func runProfileMaterializeDiff(fsys afero.Fs, cmd *cobra.Command, cfg *config.Config, args []string) error {
 	asm, err := operations.AssembleContext(cmd.Context(), cfg, operations.AssembleContextRequest{
 		Profiles: args,
 		Consumer: operations.MaterializedFor(App().Engines(), materializeBackend),
@@ -129,7 +130,7 @@ func runProfileMaterializeDiff(cmd *cobra.Command, cfg *config.Config, args []st
 	if err != nil {
 		return fmt.Errorf("assemble context for %v: %w", args, err)
 	}
-	theirs, err := os.ReadFile(materializeDiff)
+	theirs, err := afero.ReadFile(fsys, materializeDiff)
 	if err != nil {
 		return fmt.Errorf("read %s to compare against: %w", materializeDiff, err)
 	}

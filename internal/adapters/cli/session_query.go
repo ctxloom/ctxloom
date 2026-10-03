@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -88,7 +89,7 @@ func sessionMatchesQuery(v operations.SessionView, words []string) bool {
 	if allWordsMatch(sessionMetadataHaystack(v), words) {
 		return true
 	}
-	body, ok := readSessionEssence(v)
+	body, ok := readSessionEssence(afero.NewOsFs(), v)
 	if !ok {
 		return false
 	}

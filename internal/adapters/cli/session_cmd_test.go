@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -334,7 +335,7 @@ func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
 		e := sessions.Entry{HarpName: harp, SessionID: "sess-1"}
 
 		gotPath, distilled := operations.SessionEssenceInfo(harp, &e)
-		body, found := readSessionEssence(operations.ViewSession(e))
+		body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
 
 		assert.True(t, distilled)
 		assert.True(t, found, "both entry points must agree the session is distilled")
@@ -348,7 +349,7 @@ func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
 		e := sessions.Entry{HarpName: harp, SessionID: "sess-2"}
 
 		gotPath, distilled := operations.SessionEssenceInfo(harp, &e)
-		body, found := readSessionEssence(operations.ViewSession(e))
+		body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
 
 		assert.True(t, distilled)
 		assert.True(t, found, "both entry points must fall back to this rotation's own essence")
@@ -360,7 +361,7 @@ func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
 		e := sessions.Entry{HarpName: "never-distilled-harp", SessionID: "sess-3"}
 
 		gotPath, distilled := operations.SessionEssenceInfo("never-distilled-harp", &e)
-		body, found := readSessionEssence(operations.ViewSession(e))
+		body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
 
 		assert.False(t, distilled)
 		assert.False(t, found)
@@ -393,7 +394,7 @@ func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
 	t.Cleanup(restore)
 
 	gotPath, distilled := operations.SessionEssenceInfo(harp, &e)
-	body, found := readSessionEssence(operations.ViewSession(e))
+	body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
 
 	assert.True(t, distilled, "the listing side sees the file and reports its path")
 	assert.Equal(t, essencePath, gotPath)

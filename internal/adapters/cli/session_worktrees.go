@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
@@ -120,7 +121,7 @@ func runSessionWorktreesList(cmd *cobra.Command, args []string) error {
 	harp := ""
 	if len(args) == 1 {
 		harp = args[0]
-		if err := verifyHarpDirExists(harp); err != nil {
+		if err := verifyHarpDirExists(afero.NewOsFs(), harp); err != nil {
 			return err
 		}
 	}
@@ -139,7 +140,7 @@ func runSessionWorktreesList(cmd *cobra.Command, args []string) error {
 // render.
 func runSessionWorktreesPurge(cmd *cobra.Command, args []string) error {
 	harp := args[0]
-	if err := verifyHarpDirExists(harp); err != nil {
+	if err := verifyHarpDirExists(afero.NewOsFs(), harp); err != nil {
 		return err
 	}
 	rep, err := classifyHarpWorktrees(cmd.Context(), harp, sessionWorktreesPurgeYes)
@@ -206,12 +207,12 @@ func classifyHarpWorktrees(ctx context.Context, harp string, apply bool) (sessio
 // session that has no directory at all under ~/.ctxloom/sessions — the
 // design's "ordinary error" case, distinct from a harp that exists but simply
 // has no scratch worktrees (an empty, successful listing).
-func verifyHarpDirExists(harp string) error {
+func verifyHarpDirExists(fsys afero.Fs, harp string) error {
 	dir, err := paths.HarpDir(harp)
 	if err != nil {
 		return err
 	}
-	if _, statErr := os.Stat(dir); statErr != nil {
+	if _, statErr := fsys.Stat(dir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return fmt.Errorf("harp not found: %q", harp)
 		}

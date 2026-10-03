@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -155,13 +156,13 @@ func TestConfigFileExists_DistinguishesAbsentFromUnknown(t *testing.T) {
 	t.Run("present", func(t *testing.T) {
 		path := filepath.Join(dir, "config.yaml")
 		require.NoError(t, os.WriteFile(path, []byte("version: 6\n"), 0o644))
-		exists, err := configFileExists(path)
+		exists, err := configFileExists(afero.NewOsFs(), path)
 		require.NoError(t, err)
 		assert.True(t, exists)
 	})
 
 	t.Run("genuinely absent", func(t *testing.T) {
-		exists, err := configFileExists(filepath.Join(dir, "nope", "config.yaml"))
+		exists, err := configFileExists(afero.NewOsFs(), filepath.Join(dir, "nope", "config.yaml"))
 		require.NoError(t, err, "a missing parent is still just 'absent'")
 		assert.False(t, exists)
 	})
@@ -171,7 +172,7 @@ func TestConfigFileExists_DistinguishesAbsentFromUnknown(t *testing.T) {
 		// neither "exists" nor fs.ErrNotExist.
 		blocker := filepath.Join(dir, "not-a-dir")
 		require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644))
-		exists, err := configFileExists(filepath.Join(blocker, "config.yaml"))
+		exists, err := configFileExists(afero.NewOsFs(), filepath.Join(blocker, "config.yaml"))
 		require.Error(t, err, "an unanswerable stat must not be reported as 'absent'")
 		assert.False(t, exists)
 		assert.Contains(t, err.Error(), "cannot determine whether")

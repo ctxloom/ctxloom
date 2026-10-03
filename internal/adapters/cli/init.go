@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
@@ -147,7 +148,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	alreadyExists := ctxloomDirExists(appDir)
+	alreadyExists := ctxloomDirExists(afero.NewOsFs(), appDir)
 	if alreadyExists {
 		fmt.Printf("ctxloom directory already exists: %s\n", appDir)
 	}
@@ -254,8 +255,8 @@ func resolveAppDir(home bool) (string, error) {
 }
 
 // ctxloomDirExists reports whether appDir already exists as a directory.
-func ctxloomDirExists(appDir string) bool {
-	info, err := os.Stat(appDir)
+func ctxloomDirExists(fsys afero.Fs, appDir string) bool {
+	info, err := fsys.Stat(appDir)
 	return err == nil && info.IsDir()
 }
 

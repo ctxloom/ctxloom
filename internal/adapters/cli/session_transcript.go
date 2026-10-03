@@ -3,8 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -95,7 +95,7 @@ func runSessionTranscriptList(cmd *cobra.Command, args []string) error {
 // honest answer ("ctxloom cannot show you one") without inventing a size.
 func newSessionTranscriptRow(harp string) sessionTranscriptRow {
 	row := sessionTranscriptRow{Harp: harp}
-	if path, size, ok := statHarpFile(harp, paths.HarpCanonicalTranscriptPath); ok {
+	if path, size, ok := statHarpFile(afero.NewOsFs(), harp, paths.HarpCanonicalTranscriptPath); ok {
 		row.Captured = true
 		row.Bytes = size
 		row.Path = path
@@ -108,12 +108,12 @@ func newSessionTranscriptRow(harp string) sessionTranscriptRow {
 // and only a regular file that stats counts as present. A path that cannot be
 // derived or a stat that fails for ANY reason is absence — the row's honest
 // answer is "ctxloom cannot show you one", never an invented size.
-func statHarpFile(harp string, at func(string) (string, error)) (path string, size int64, ok bool) {
+func statHarpFile(fsys afero.Fs, harp string, at func(string) (string, error)) (path string, size int64, ok bool) {
 	path, err := at(harp)
 	if err != nil {
 		return "", 0, false
 	}
-	info, statErr := os.Stat(path)
+	info, statErr := fsys.Stat(path)
 	if statErr != nil || !info.Mode().IsRegular() {
 		return "", 0, false
 	}

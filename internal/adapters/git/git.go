@@ -219,6 +219,12 @@ type Git interface {
 	// including the one `ctxloom init` runs — so a hung or corrupt
 	// repository must not hang the whole report.
 	MergedBranches(ctx context.Context, repoDir, ref string) ([]string, error)
+
+	// DeleteBranch deletes the LOCAL branch with git's SAFE delete
+	// (git branch -d): git refuses a branch not merged into its upstream or
+	// HEAD, so a caller that has not checked merged-ness still cannot lose
+	// commits through it.
+	DeleteBranch(ctx context.Context, repoDir, branch string) error
 }
 
 // LogEntry is one commit returned by LogSince.

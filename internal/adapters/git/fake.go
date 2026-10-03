@@ -128,6 +128,8 @@ type Fake struct {
 	// MergedBranchesErr, when set, fails it instead.
 	MergedBranchesValue []string
 	MergedBranchesErr   error
+	// DeletedBranches records each DeleteBranch, in call order.
+	DeletedBranches []string
 }
 
 var _ Git = (*Fake)(nil)
@@ -401,6 +403,15 @@ func (f *Fake) HasIgnoredContent(_ context.Context, dir string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.IgnoredContent[dir], nil
+}
+
+// DeleteBranch records the branch.
+func (f *Fake) DeleteBranch(_ context.Context, _, branch string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record(fmt.Sprintf("branch -d %s", branch))
+	f.DeletedBranches = append(f.DeletedBranches, branch)
+	return nil
 }
 
 // MergedBranches returns the configured MergedBranchesValue (a copy), or

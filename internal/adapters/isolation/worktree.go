@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -418,6 +419,7 @@ func teardownWorktree(ctx context.Context, g git.Git, repoDir, target string) {
 	if err := g.WorktreePrune(ctx, repoDir); err != nil {
 		clidiag.Warn("ctxloom", "worktree prune failed: %v", err)
 	}
+	deleteMergedBranch(ctx, g, repoDir, worktreeBranchName(target))
 	// NOT auto-retiring the shared config-exclude block here.
 	// A first draft called gitignore.RetireWorktreeConfigBlock once no
 	// linked worktree remained, and it regressed a live, currently-passing
@@ -438,6 +440,26 @@ func teardownWorktree(ctx context.Context, g git.Git, repoDir, target string) {
 	// safe to invoke (process exit? an explicit gc/reap command? never
 	// automatically?) is a product call, not one this batch makes alone;
 	// see DECISIONS.md.
+}
+
+// deleteMergedBranch deletes a torn-down checkout's branch when it is
+// already merged into repoDir's current branch: it then holds nothing the
+// repository does not, and left behind every agent run adds one. An unmerged
+// branch holds commits nothing else has and is kept, silently — that is the
+// ordinary outcome of an agent whose work has not been merged yet. Any git
+// inability warns and keeps the branch.
+func deleteMergedBranch(ctx context.Context, g git.Git, repoDir, branch string) {
+	merged, err := g.MergedBranches(ctx, repoDir, "")
+	if err != nil {
+		clidiag.Warn("ctxloom", "worktree teardown: cannot tell whether %s is merged; keeping it: %v", branch, err)
+		return
+	}
+	if !slices.Contains(merged, branch) {
+		return
+	}
+	if err := g.DeleteBranch(ctx, repoDir, branch); err != nil {
+		clidiag.Warn("ctxloom", "worktree teardown: cannot delete merged branch %s: %v", branch, err)
+	}
 }
 
 // unsafeToRemove is teardownWorktree's WIP-safety gate, extended past IsDirty alone:

@@ -23,7 +23,7 @@ func u085ProfileProject(t *testing.T) *config.Config {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "profiles"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", "local-one.yaml"),
-		[]byte("name: local-one\ndescription: real\n"), 0o644))
+		[]byte("description: real\n"), 0o644))
 	return gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
@@ -84,7 +84,7 @@ func TestProfileLoaderFactories_AgreeUnderInjectedFS(t *testing.T) {
 	appDir := "/injected/.ctxloom"
 	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0o755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "profiles", "injected.yaml"),
-		[]byte("name: injected\ndescription: from the injected fs\n"), 0o644))
+		[]byte("description: from the injected fs\n"), 0o644))
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	cfg.SetFS(fs)
 

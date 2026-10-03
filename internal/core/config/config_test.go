@@ -593,7 +593,7 @@ func TestConfig_BundleRefThatFailsToLoadIsReported(t *testing.T) {
 	// anything (a false green: verified by running it against the unfixed
 	// source).
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "p.yaml"),
-		[]byte("name: p\nbundles:\n  - absent-bundle\n"), 0644))
+		[]byte("bundles:\n  - absent-bundle\n"), 0644))
 
 	newCfg := func() *Config {
 		return &Config{
@@ -638,7 +638,7 @@ func TestConfig_ItemScopedBundleRefIsNotAFailure(t *testing.T) {
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 	bundletree.WriteOS(t, bundlesDir, "local", "version: \"1.0\"\nfragments:\n  onboarding:\n    content: hi\n")
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "p.yaml"),
-		[]byte("name: p\nbundles:\n  - local#fragments/onboarding\n"), 0644))
+		[]byte("bundles:\n  - local#fragments/onboarding\n"), 0644))
 
 	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
@@ -694,9 +694,9 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 
 	// Parent profile ships the bundle; child only inherits and is the default.
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "parent.yaml"),
-		[]byte("name: parent\nbundles:\n  - seq-bundle\n"), 0644))
+		[]byte("bundles:\n  - seq-bundle\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "child.yaml"),
-		[]byte("name: child\nparents:\n  - parent\n"), 0644))
+		[]byte("parents:\n  - parent\n"), 0644))
 	bundletree.WriteOS(t, bundlesDir, "seq-bundle", "version: \"1.0\"\nmcp:\n  sequential-thinking:\n    command: npx\n    args: [\"-y\", \"server\"]\n")
 
 	cfg := &Config{
@@ -721,7 +721,7 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
-		[]byte("name: dev\nbundles:\n  - mcp-bundle\nexclude_mcp:\n  - noisy-server\n"), 0644))
+		[]byte("bundles:\n  - mcp-bundle\nexclude_mcp:\n  - noisy-server\n"), 0644))
 	bundletree.WriteOS(t, bundlesDir, "mcp-bundle", "version: \"1.0\"\nmcp:\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n")
 
 	cfg := &Config{
@@ -750,9 +750,9 @@ func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "developer.yaml"),
-		[]byte("name: developer\nbundles:\n  - dev-bundle\n"), 0644))
+		[]byte("bundles:\n  - dev-bundle\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "finder.yaml"),
-		[]byte("name: finder\nbundles:\n  - finder-bundle\n"), 0644))
+		[]byte("bundles:\n  - finder-bundle\n"), 0644))
 	bundletree.WriteOS(t, bundlesDir, "dev-bundle", "version: \"1.0\"\nmcp:\n  dev-mcp:\n    command: npx\n    args: [\"-y\", \"dev\"]\ncommands:\n  dev-skill:\n    description: d\n    content: c\n")
 	bundletree.WriteOS(t, bundlesDir, "finder-bundle", "version: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\ncommands:\n  finder-skill:\n    description: f\n    content: c\n")
 
@@ -832,7 +832,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		appDir, profilesDir, bundlesDir := newProject(t)
 		bundletree.WriteOS(t, bundlesDir, "hook-bundle", hookBundleYAML)
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
-			[]byte("name: dev\nbundles:\n  - hook-bundle\n"), 0644))
+			[]byte("bundles:\n  - hook-bundle\n"), 0644))
 
 		cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, appPaths: []string{appDir}}
 		cfg.BindTrustForTesting(compositetest.Trust())
@@ -851,9 +851,9 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		bundletree.WriteOS(t, bundlesDir, "hook-bundle", hookBundleYAML)
 		// Parent ships the bundle; the child (the default) only inherits it.
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "parent.yaml"),
-			[]byte("name: parent\nbundles:\n  - hook-bundle\n"), 0644))
+			[]byte("bundles:\n  - hook-bundle\n"), 0644))
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "child.yaml"),
-			[]byte("name: child\nparents:\n  - parent\n"), 0644))
+			[]byte("parents:\n  - parent\n"), 0644))
 
 		cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"child"}}}, appPaths: []string{appDir}}
 		cfg.BindTrustForTesting(compositetest.Trust())
@@ -868,7 +868,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		// A default profile that does not exist (ResolveProfile errors → skip) and
 		// a profile referencing a bundle that is not on disk (Load errors → skip).
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "real.yaml"),
-			[]byte("name: real\nbundles:\n  - ghost-bundle\n"), 0644))
+			[]byte("bundles:\n  - ghost-bundle\n"), 0644))
 
 		cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"missing", "real"}}}, appPaths: []string{appDir}}
 		cfg.BindTrustForTesting(compositetest.Trust())

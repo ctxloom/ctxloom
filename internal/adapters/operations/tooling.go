@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/container"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -68,6 +69,19 @@ func CollectTooling(cfg *config.Config, pipe *bundles.Pipeline) []ToolingDeclara
 // dir: it is project configuration, versioned with the rest of .ctxloom).
 var DefaultContainerBasePath = filepath.Join(paths.AppDirName, "base.Containerfile")
 
+// DevcontainerBaseError refuses a scaffold that would demote the project's
+// devcontainer: the agent image builds FROM the detected devcontainer, and
+// isolation_base_containerfile outranks that detection, so wiring the built-in
+// default base would silently swap the project's toolchain for it.
+type DevcontainerBaseError struct {
+	// Path is the detected devcontainer.json.
+	Path string
+}
+
+func (e *DevcontainerBaseError) Error() string {
+	return fmt.Sprintf("this project's agent image builds from its devcontainer (%s); scaffolding a base Containerfile would replace that with ctxloom's built-in default base. Re-run with --force to do that deliberately, or opt out of the devcontainer base first (isolation_devcontainer_base: false)", e.Path)
+}
+
 // ScaffoldContainerBase makes the base Containerfile EDITABLE: it materializes
 // the embedded default base to relPath (project-root-relative;
 // "" = DefaultContainerBasePath), wires `isolation_base_containerfile` in
@@ -79,6 +93,9 @@ var DefaultContainerBasePath = filepath.Join(paths.AppDirName, "base.Containerfi
 //     written (the user already owns one);
 //   - the target file already exists → ADOPTED (config wired to it), its
 //     content never overwritten unless force;
+//   - a detected devcontainer (with devcontainer-base detection on) →
+//     refused with *DevcontainerBaseError unless force: the configured base
+//     outranks the devcontainer, so wiring one would demote it;
 //   - otherwise the embedded default base is written, so edits start from
 //     exactly what the default build was using.
 //
@@ -97,6 +114,9 @@ func ScaffoldContainerBase(ctx context.Context, app *App, cfg *config.Config, re
 	if existing := cfg.IsolationBaseContainerfilePath(); existing != "" && !force {
 		return materializeConfiguredBase(fs, existing)
 	}
+	if err := refuseDevcontainerDemotion(cfg, force); err != nil {
+		return "", err
+	}
 	relPath, abs, err := containerBaseTarget(cfg, relPath)
 	if err != nil {
 		return "", err
@@ -112,6 +132,20 @@ func ScaffoldContainerBase(ctx context.Context, app *App, cfg *config.Config, re
 		return "", fmt.Errorf("wire isolation_base_containerfile: %w", err)
 	}
 	return abs, nil
+}
+
+// refuseDevcontainerDemotion returns a *DevcontainerBaseError when the project
+// builds its agent image from a detected devcontainer — detection on and a
+// devcontainer.json present, decided by the same isolation.FindDevcontainerJSON
+// the image build uses — unless force.
+func refuseDevcontainerDemotion(cfg *config.Config, force bool) error {
+	if force || !cfg.IsolationDevcontainerBaseEnabled() {
+		return nil
+	}
+	if dc := isolation.FindDevcontainerJSON(cfg.GetAppRoot()); dc != "" {
+		return &DevcontainerBaseError{Path: dc}
+	}
+	return nil
 }
 
 // materializeConfiguredBase returns the already-configured base Containerfile

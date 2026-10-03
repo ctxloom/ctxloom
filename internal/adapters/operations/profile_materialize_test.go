@@ -276,7 +276,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "scripts"), 0755))
 
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "skilled.yaml"),
-		[]byte("name: skilled\nbundles:\n  - skill-bundle\n"), 0644))
+		[]byte("bundles:\n  - skill-bundle\n"), 0644))
 	bundletree.WriteOS(t, bundlesDir, "skill-bundle", "version: 1.0.0\nskills:\n  humanize:\n")
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: humanize\ndescription: Removes AI writing tells.\n---\n\nInstructions body.\n"), 0644))
@@ -323,7 +323,7 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "skilled.yaml"),
-		[]byte("name: skilled\nbundles:\n  - skill-bundle\n"), 0644))
+		[]byte("bundles:\n  - skill-bundle\n"), 0644))
 	bundletree.WriteOS(t, bundlesDir, "skill-bundle", "version: 1.0.0\n", bundletree.WithSkill("reviewer", map[string]bundletree.File{
 		"SKILL.md":       {Body: "---\nname: reviewer\ndescription: Reviews things.\n---\n\nREVIEWER-BODY-51ab\n"},
 		"scripts/run.sh": {Body: "#!/bin/sh\necho REVIEWER-SCRIPT-51ab\n", Executable: true},
@@ -453,7 +453,7 @@ func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
 		"  always-applies:\n    content: \"UNCONDITIONAL-MARKER\"\n"+
 		"  only-sometimes:\n    premise: \"You are about to cut a release.\"\n    content: \"PREMISED-MARKER\"\n")
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "premised.yaml"),
-		[]byte("name: premised\nbundles:\n  - premise-bundle\n"), 0644))
+		[]byte("bundles:\n  - premise-bundle\n"), 0644))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
@@ -509,7 +509,7 @@ func TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *t
 	bundletree.WriteOS(t, bundlesDir, "premise-bundle-2", "version: 1.0.0\nfragments:\n"+
 		"  only-sometimes:\n    premise: \"You are about to cut a release.\"\n    content: \"PREMISED-MARKER-DUMPED\"\n")
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "premised2.yaml"),
-		[]byte("name: premised2\nbundles:\n  - premise-bundle-2\n"), 0644))
+		[]byte("bundles:\n  - premise-bundle-2\n"), 0644))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()

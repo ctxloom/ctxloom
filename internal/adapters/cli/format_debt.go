@@ -39,8 +39,8 @@ package cli
 // Grouped by owning surface, each surface paid down by a separate batch.
 var formatDebtAllowlist = map[string]string{
 	// --- config surface (config.go) ---
-	// `config show`/`config get` were paid down:
-	// both RunEs route through emit() over a yaml-round-tripped
+	// `config show` was paid down:
+	// its RunE routes through emit() over a yaml-round-tripped
 	// payload, so all five encodings carry the real configuration.
 	"config edit":   "config.go: runConfigEdit must route through emit() (or be reclassified as structurally exempt: it only launches $EDITOR, no renderable result)",
 	"config create": "config.go: runConfigCreate must route through emit() instead of a bare fmt.Fprintf",

@@ -44,8 +44,8 @@ bundles it ships, whether or not they are installed anywhere.
 
 Key discovery is zero-config: it tries 'git config user.signingkey' first
 (anyone who already signs commits with SSH needs no ctxloom setup at all),
-then the sole identity in ssh-agent when there is exactly one. --key (or
-'ctxloom config get sign.key') overrides both. --key and user.signingkey
+then the sole identity in ssh-agent when there is exactly one. --key (or the
+sign.key config value; 'ctxloom config show sign') overrides both. --key and user.signingkey
 accept the same forms: a SHA256:... fingerprint, a public key or a path to
 one, or a ssh-agent key's comment/name (matched case-insensitively, substring
 OK, e.g. "ben@abbitt" for "ben@abbitt.me"). ctxloom never reads, generates,

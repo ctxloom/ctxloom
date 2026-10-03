@@ -109,7 +109,7 @@ func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend stri
 func stubLocalDefaultProfile(t *testing.T, root string) {
 	t.Helper()
 	path := filepath.Join(root, ".ctxloom", "profiles", "default.yaml")
-	content := "version: \"1.0.0\"\ndescription: \"self-contained test profile, no remote dependency\"\ntags:\n  - default\n"
+	content := "description: \"self-contained test profile, no remote dependency\"\ntags:\n  - default\n"
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 }
 

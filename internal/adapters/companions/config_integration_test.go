@@ -106,7 +106,7 @@ func projectWith(t *testing.T, profiles map[string]string, bundlesYAML map[strin
 // gate names it — never exempt.
 func TestCompanionLoadoutMCPServer_RidesTheGenerationsGate(t *testing.T) {
 	fakeCompanion(t, "ltk", "version: \"1.0.0\"\nmcp:\n  ltk-server:\n    command: ltk\n    args: [\"serve\"]\n")
-	profiles := map[string]string{"dev": "name: dev\nbundles:\n  - mcp-bundle\n"}
+	profiles := map[string]string{"dev": "bundles:\n  - mcp-bundle\n"}
 	bundlesYAML := map[string]string{"mcp-bundle": "version: \"1.0\"\nmcp:\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n"}
 
 	t.Run("admitted", func(t *testing.T) {
@@ -139,7 +139,7 @@ func TestCompanionLoadoutMCPServer_RidesTheGenerationsGate(t *testing.T) {
 // the companion's hook is still there with its companion SCM.
 func TestCompanionLoadoutHooks_SurviveSkippedProfiles(t *testing.T) {
 	fakeCompanion(t, "taskloom", "version: \"1.0.0\"\nhooks:\n  post_file_edit:\n    - command: ctxloom hook stamp-plan\n      type: command\n")
-	cfg := projectWith(t, map[string]string{"real": "name: real\nbundles:\n  - ghost-bundle\n"}, nil)
+	cfg := projectWith(t, map[string]string{"real": "bundles:\n  - ghost-bundle\n"}, nil)
 	f := cfg.ToFixture()
 	f.Agents = map[string]agents.Agent{"default": {Profiles: []string{"missing", "real"}}}
 	cfg = config.NewFixture(f)

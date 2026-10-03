@@ -113,7 +113,7 @@ func setupSessionOnlyProject(t *testing.T) (*testenv.TestEnvironment, *testenv.M
 	require.NoError(t, mockLM.SetResponse("MOCK-REPLY"))
 	writeFragment(t, env, "rules", []string{"rules"}, "Project rules for the session.")
 	writeSkill(t, env, "review", "Review the change.")
-	writeProfile(t, env, "dev", "name: dev\ndescription: dev\nbundles:\n  - local#fragments/rules\n  - local#skills/review\n")
+	writeProfile(t, env, "dev", "description: dev\nbundles:\n  - local#fragments/rules\n  - local#skills/review\n")
 	return env, mockLM
 }
 

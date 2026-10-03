@@ -36,7 +36,7 @@ func mcpContestFixture(t *testing.T, bundleYAML map[string]string, profileBundle
 	}
 	for profile, bundle := range profileBundles {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, profile+".yaml"),
-			[]byte("name: "+profile+"\nbundles:\n  - "+bundle+"\n"), 0o644))
+			[]byte("bundles:\n  - "+bundle+"\n"), 0o644))
 	}
 
 	cfg := &Config{

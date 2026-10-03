@@ -30,7 +30,7 @@ func TestConfig_ResolveBundleSkills_FromDirectoryProfile(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "scripts"), 0755))
 
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
-		[]byte("name: dev\nbundles:\n  - skill-bundle\n"), 0644))
+		[]byte("bundles:\n  - skill-bundle\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: humanize\ndescription: Removes AI writing tells.\n---\n\nInstructions.\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"),
@@ -81,9 +81,9 @@ func TestConfig_ResolveBundleSkills_ScopedToSelectedProfile(t *testing.T) {
 	writeSkill("other-bundle", "other-skill")
 
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "default.yaml"),
-		[]byte("name: default\nbundles:\n  - default-bundle\n"), 0644))
+		[]byte("bundles:\n  - default-bundle\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "other.yaml"),
-		[]byte("name: other\nbundles:\n  - other-bundle\n"), 0644))
+		[]byte("bundles:\n  - other-bundle\n"), 0644))
 
 	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"default"}}},

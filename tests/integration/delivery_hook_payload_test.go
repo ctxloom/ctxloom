@@ -63,7 +63,7 @@ func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	bundletree.WriteOS(t, bundlesDir, "hookdemo", hookBundleYAML)
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "base.yaml"),
-		[]byte("name: base\nbundles:\n  - hookdemo#fragments/sentinel\n"), 0o644))
+		[]byte("bundles:\n  - hookdemo#fragments/sentinel\n"), 0o644))
 
 	projectDir = t.TempDir()
 	cfg := config.NewFixture(config.Fixture{

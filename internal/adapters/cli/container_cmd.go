@@ -287,8 +287,15 @@ var containerScaffoldCmd = &cobra.Command{
 	Long: `Write the embedded default base Containerfile to an editable local file
 (default: .ctxloom/base.Containerfile) and set 'isolation_base_containerfile'
 so every locally-built agent image — the default auto-build included — layers
-on it. Content-identical to what the default build was already using, so
-nothing changes until you edit it.
+on it.
+
+Without a project devcontainer the file is content-identical to what the
+default build was already using, so nothing changes until you edit it. WITH
+one (.devcontainer/devcontainer.json or .devcontainer.json) the agent image
+builds from the devcontainer, and a configured base outranks it: scaffolding
+would replace the devcontainer's toolchain with the built-in default base. That
+is refused unless --force, or unless devcontainer detection is off
+(isolation_devcontainer_base: false).
 
 Idempotent and WIP-safe: an already-configured base is returned as-is, and an
 existing file at the target is adopted, never overwritten (--force overwrites).`,
@@ -435,7 +442,7 @@ func init() {
 	containerScaffoldCmd.Flags().StringVar(&containerScaffoldPath, "path", "",
 		"project-root-relative path for the base Containerfile (default .ctxloom/base.Containerfile)")
 	containerScaffoldCmd.Flags().BoolVar(&containerScaffoldForce, "force", false,
-		"overwrite an existing file / re-point an already-configured base")
+		"overwrite an existing file / re-point an already-configured base / replace a detected devcontainer base")
 	containerCmd.AddCommand(containerBuildCmd)
 	containerCmd.AddCommand(containerCheckCmd)
 	containerCmd.AddCommand(containerScaffoldCmd)

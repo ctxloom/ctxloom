@@ -31,7 +31,7 @@ import (
 // TestMarshalYAML_NeverAliasesConfigContainers is the class gate on the
 // exported marshal path: whatever yaml.Marshal(cfg) is handed must be
 // independently owned, because a custom Marshaler's result is reachable by
-// every caller of `config show`/`config get` and by the layer-remarshal step.
+// every caller of `config show` and by the layer-remarshal step.
 func TestMarshalYAML_NeverAliasesConfigContainers(t *testing.T) {
 	cfg := NewFixture(aliasProbeFixture())
 

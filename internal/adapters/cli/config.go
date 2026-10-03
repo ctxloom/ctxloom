@@ -32,14 +32,24 @@ var configCmd = groupNodeDefault(&cobra.Command{
 Examples:
   ctxloom config show              # Show the effective configuration
   ctxloom config show --raw        # Show only what the configuration sets
-  ctxloom config get defaults      # Get a specific section
+  ctxloom config show llm          # Show one section
   ctxloom config edit              # Open config.yaml in $EDITOR
   ctxloom config create            # Scaffold a default config.yaml`,
 }, "show")
 
+// configShowLong is configShowCmd's Long text. It deliberately does not
+// enumerate section names: a wrong section name gets the true list from
+// resolveConfigSection itself, which reads it off the rendered document.
+const configShowLong = `Show the effective configuration, or one section of it.
+
+Bare, prints the whole document. With a section, prints only that top-level
+section; an unknown section is refused with the list of available ones.`
+
 var configShowCmd = &cobra.Command{
-	Use:   "show",
-	Short: "Show the effective configuration",
+	Use:   "show [section]",
+	Short: "Show the effective configuration, or one section",
+	Long:  configShowLong,
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runConfigShow,
 }
 
@@ -48,17 +58,28 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	payload, err := configPayload(doc)
+	if len(args) == 0 {
+		payload, err := configPayload(doc)
+		if err != nil {
+			return err
+		}
+		return emit(cmd, payload, func() error { return renderConfigYAML(doc, cmd.OutOrStdout()) })
+	}
+	section, err := resolveConfigSection(doc, args[0])
 	if err != nil {
 		return err
 	}
-	return emit(cmd, payload, func() error { return renderConfigYAML(doc, cmd.OutOrStdout()) })
+	payload, err := configPayload(section)
+	if err != nil {
+		return err
+	}
+	return emit(cmd, payload, func() error { return renderConfigSection(doc, args[0], cmd.OutOrStdout()) })
 }
 
-// configRawHelp is the --raw flag's usage, shared by show and get.
+// configRawHelp is the --raw flag's usage.
 const configRawHelp = "Show only what the configuration sets, without the shipped default engine registry"
 
-// configDocument loads the config and picks the view show and get render: the
+// configDocument loads the config and picks the view show renders: the
 // effective configuration, or with --raw the authored one a save writes. Both
 // marshal through the same serializer.
 func configDocument() (yaml.Marshaler, error) {
@@ -80,7 +101,7 @@ func configDocument() (yaml.Marshaler, error) {
 // unexported and it renders through a custom MarshalYAML, so handing the struct
 // straight to a reflective or json encoder yields "{}" — a zero-byte payload
 // with a 0 exit, which is exactly the failure the format contract exists to
-// prevent. The section values `config get` returns carry yaml tags but no json
+// prevent. The section values `config show <section>` returns carry yaml tags but no json
 // tags, and would otherwise render Go field names in json/toml while yaml kept
 // snake_case.
 func configPayload(v any) (any, error) {
@@ -93,42 +114,6 @@ func configPayload(v any) (any, error) {
 		return nil, fmt.Errorf("failed to re-read marshaled config: %w", err)
 	}
 	return payload, nil
-}
-
-// configGetLong is configGetCmd's Long text. It deliberately does not
-// enumerate section names: that list used to be hand-maintained here (and
-// had already drifted — it named "mcp" and "profiles", neither of which was
-// ever a resolvable section) as well as in resolveConfigSection's switch,
-// which drifted the OTHER way (missing delegation, agents, and more). A
-// wrong section name gets the true list from resolveConfigSection itself, and
-// 'config show' renders the whole thing.
-const configGetLong = `Get a specific configuration section.
-
-Run with an unknown or omitted section to see the available ones, or use
-'ctxloom config show' to see the whole configuration at once.`
-
-var configGetCmd = &cobra.Command{
-	Use:   "get <section>",
-	Short: "Get a configuration section",
-	Long:  configGetLong,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runConfigGet,
-}
-
-func runConfigGet(cmd *cobra.Command, args []string) error {
-	doc, err := configDocument()
-	if err != nil {
-		return err
-	}
-	section, err := resolveConfigSection(doc, args[0])
-	if err != nil {
-		return err
-	}
-	payload, err := configPayload(section)
-	if err != nil {
-		return err
-	}
-	return emit(cmd, payload, func() error { return renderConfigSection(doc, args[0], cmd.OutOrStdout()) })
 }
 
 // renderConfigYAML marshals doc to YAML and writes it to out. Extracted
@@ -151,8 +136,8 @@ func renderConfigYAML(doc yaml.Marshaler, out io.Writer) error {
 // marshals to render the whole configuration (renderConfigYAML calls
 // yaml.Marshal(doc), which yaml.v3 routes through this exact Marshaler). A
 // field reflected out of that document by its yaml tag is returned as-is, so
-// adding a section to configDoc makes it both showable and gettable in one
-// edit — there is no longer a second place `config get` can fall behind.
+// adding a section to configDoc makes it showable both whole and by section
+// in one edit — there is no second list to fall behind.
 func resolveConfigSection(doc yaml.Marshaler, name string) (any, error) {
 	rendered, err := doc.MarshalYAML()
 	if err != nil {
@@ -175,7 +160,8 @@ func resolveConfigSection(doc yaml.Marshaler, name string) (any, error) {
 }
 
 // renderConfigSection resolves the named section and writes it to out as
-// YAML. Extracted from configGetCmd's RunE.
+// YAML, so the resolve + marshal + write composition is testable without
+// invoking cobra.
 func renderConfigSection(doc yaml.Marshaler, name string, out io.Writer) error {
 	data, err := resolveConfigSection(doc, name)
 	if err != nil {
@@ -274,7 +260,7 @@ func runConfigCreate(cmd *cobra.Command, _ []string) error {
 
 var (
 	configCreateEngine string
-	// configRaw is --raw on show and get.
+	// configRaw is --raw on show.
 	configRaw bool
 )
 
@@ -305,7 +291,6 @@ func init() {
 	// removed in favor of this command.
 	rootCmd.AddCommand(configCmd)
 	configCmd.AddCommand(configShowCmd)
-	configCmd.AddCommand(configGetCmd)
 	configCmd.AddCommand(configEditCmd)
 	configCmd.AddCommand(configCreateCmd)
 	// Empty means the engine shipped by default, resolved at run time from
@@ -313,5 +298,4 @@ func init() {
 	// any engine is registered, and the help names the default once it is.
 	configCreateCmd.Flags().StringVar(&configCreateEngine, "engine", "", "AI engine to record in the scaffolded config")
 	configShowCmd.Flags().BoolVar(&configRaw, "raw", false, configRawHelp)
-	configGetCmd.Flags().BoolVar(&configRaw, "raw", false, configRawHelp)
 }

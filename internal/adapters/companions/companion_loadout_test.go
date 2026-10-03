@@ -564,7 +564,7 @@ func TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers(t *testing
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
-		[]byte("name: dev\nexclude_mcp:\n  - ltk-server\n"), 0o644))
+		[]byte("exclude_mcp:\n  - ltk-server\n"), 0o644))
 
 	newCfg := func() *config.Config {
 		return companionConfig(t, config.Fixture{
@@ -588,7 +588,7 @@ func TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers(t *testing
 
 	t.Run("a profile that excludes nothing still gets the companion server", func(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "plain.yaml"),
-			[]byte("name: plain\n"), 0o644))
+			[]byte("description: plain\n"), 0o644))
 		result := newCfg().ResolveBundleMCPServers([]string{"plain"})
 		assert.Contains(t, result, "ltk-server",
 			"hoisting the exclusion set must not withhold servers nobody excluded")

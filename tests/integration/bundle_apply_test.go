@@ -118,7 +118,7 @@ func assertBundleApplied(t *testing.T, mcpJSON, claudeJSON string) {
 // default profile. Baseline that MCP + hooks flow through apply.
 func TestBundleApply_DirectProfile(t *testing.T) {
 	mcpJSON, claudeJSON := applyHooksForProfile(t, "base", map[string]string{
-		"base": "name: base\nbundles:\n  - demo\n",
+		"base": "bundles:\n  - demo\n",
 	})
 	assertBundleApplied(t, mcpJSON, claudeJSON)
 }
@@ -129,8 +129,8 @@ func TestBundleApply_DirectProfile(t *testing.T) {
 // before the fix, inherited bundles' MCP servers and hooks were silently dropped.
 func TestBundleApply_InheritedProfile(t *testing.T) {
 	mcpJSON, claudeJSON := applyHooksForProfile(t, "child", map[string]string{
-		"parent": "name: parent\nbundles:\n  - demo\n",
-		"child":  "name: child\nparents:\n  - parent\n",
+		"parent": "bundles:\n  - demo\n",
+		"child":  "parents:\n  - parent\n",
 	})
 	assertBundleApplied(t, mcpJSON, claudeJSON)
 }

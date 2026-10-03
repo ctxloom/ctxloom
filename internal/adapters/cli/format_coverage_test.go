@@ -141,7 +141,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"loadout":     {skip: "carries its OWN --format over the envelope vocabulary (yaml|json), shadowing the root's five formats by design — the companion loadout wire contract; pinned in cmd/ctxloom/loadout_test.go"},
 	"llm list":    {extraArgs: noExtraArgs},
 	"config show": {extraArgs: noExtraArgs},
-	"config get":  {extraArgs: func(string) []string { return []string{"config"} }},
 	"llm default": {extraArgs: noExtraArgs}, // show path; set is exercised directly in llm_default_test.go
 	"llm create":  {skip: "wired to emit(), but mutating and needs a valid --type fixture; not exercised here"},
 	"llm edit":    {skip: "wired to emit(), but mutating and needs an existing llm fixture; not exercised here"},

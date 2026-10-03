@@ -72,6 +72,20 @@ const (
 // a self-park on any other kind would be a pause nothing releases.
 var heldFailures = []agent.FailureKind{agent.FailureRateLimited, agent.FailureOverloaded}
 
+// holdFailures are the failures a hold can be journaled for: the held
+// failures, and a refused credential, whose hold has no deadline.
+var holdFailures = append(slices.Clone(heldFailures), agent.FailureCredentialRejected)
+
+// failureKindOf is the failure a hold's journaled kind names; false for a
+// pause's kind, or one this build does not know.
+func failureKindOf(kind string) (agent.FailureKind, bool) {
+	i := slices.IndexFunc(holdFailures, func(k agent.FailureKind) bool { return string(k) == kind })
+	if i < 0 {
+		return "", false
+	}
+	return holdFailures[i], true
+}
+
 // HoldsFailure reports whether a turn that failed with kind parks its run
 // until its credential's hold releases it.
 func HoldsFailure(kind agent.FailureKind) bool {
@@ -185,11 +199,12 @@ func (c *Coordinator) CredentialHolds() []CredentialHold {
 	var out []CredentialHold
 	c.runs.View(func() {
 		for _, h := range c.holdsF.inForce() {
-			if h.pause() {
+			kind, failure := failureKindOf(h.Kind)
+			if !failure {
 				continue
 			}
 			out = append(out, CredentialHold{
-				Engine: h.Engine, Source: h.Source, Kind: agent.FailureKind(h.Kind), Since: h.Since, Until: h.Until,
+				Engine: h.Engine, Source: h.Source, Kind: kind, Since: h.Since, Until: h.Until,
 				Harps: slices.Sorted(maps.Keys(h.Members)),
 			})
 		}
@@ -307,6 +322,17 @@ type turnFold struct {
 	siblings      []heldRun
 }
 
+// failedTurn is one turned-away turn, with what its hold is decided from.
+type failedTurn struct {
+	f          agent.TurnFailure
+	own        heldRun
+	eng        engine.Name
+	src        engine.CredentialSource
+	key        string
+	scope      holdScope
+	candidates []heldRun // every other attached run with the same key
+}
+
 // onTurnFailed folds a run's turned-away turn into its hold (holdKey): the
 // run joins it (opening it if none is in force), and a new hold parks every
 // other run with the same key. A run under an initiator's PAUSE stays the
@@ -317,120 +343,143 @@ type turnFold struct {
 // release resumes the run, and a second hold would resume it early.
 func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 	defer c.step(holdStepTurnFolded)
-	c.mu.Lock()
-	rt := c.runtimeForLocked(role, runID)
-	if rt == nil {
-		c.mu.Unlock()
+	t, ok := c.failedTurnOf(role, runID, f)
+	if !ok {
 		return
 	}
-	eng, src := launchOf(rt)
-	harp := rt.harp
-	key, scope := holdKey(f.Kind, src, runID), holdScopeOf(f.Kind, src)
-	var candidates []heldRun
+	d, local, err := c.foldTurnFailure(t)
+	switch {
+	case err != nil:
+		c.rep.Warnf("coordinator: could not journal %s's turn failure into its hold: %v", t.own.harp, err)
+	case d.opened:
+		c.raiseHoldFinding(t.eng, f.Kind, t.key, t.own.harp, d.until, true)
+		c.goTracked(func() { c.parkSiblings(t.key, local, d.siblings) })
+	case d.parkedNothing:
+		c.raiseHoldFinding(t.eng, f.Kind, t.key, t.own.harp, time.Time{}, false)
+	}
+}
+
+// failedTurnOf reads, under c.mu, what runID's turned-away turn is decided
+// from; false for a run no longer attached.
+func (c *Coordinator) failedTurnOf(role, runID string, f agent.TurnFailure) (failedTurn, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rt := c.runtimeForLocked(role, runID)
+	if rt == nil {
+		return failedTurn{}, false
+	}
+	t := failedTurn{f: f, own: heldRun{runID, rt.harp}}
+	t.eng, t.src = launchOf(rt)
+	t.key, t.scope = holdKey(f.Kind, t.src, runID), holdScopeOf(f.Kind, t.src)
 	for id, srt := range c.attach {
-		if _, s := launchOf(srt); id != runID && holdKey(f.Kind, s, id) == key {
-			candidates = append(candidates, heldRun{id, srt.harp})
+		if _, s := launchOf(srt); id != runID && holdKey(f.Kind, s, id) == t.key {
+			t.candidates = append(t.candidates, heldRun{id, srt.harp})
 		}
 	}
-	c.mu.Unlock()
-	slices.SortFunc(candidates, func(a, b heldRun) int { return cmp.Compare(a.runID, b.runID) })
+	slices.SortFunc(t.candidates, func(a, b heldRun) int { return cmp.Compare(a.runID, b.runID) })
+	return t, true
+}
 
+// foldTurnFailure journals t into its hold under c.holdMu, keeping the hold's
+// timer in step. A hold that may open here gets its timer armed BEFORE it is
+// journaled, so no reader ever sees a hold in force with no timer to release
+// it: which holds are in force changes only under holdMu, so whether this one
+// opens is already settled, and one that opens nothing (decide parks no one)
+// is disarmed again. local is the opened hold's.
+func (c *Coordinator) foldTurnFailure(t failedTurn) (d turnFold, local *holdLocal, err error) {
 	c.holdMu.Lock()
-	// A hold that may open here gets its timer armed BEFORE it is journaled,
-	// so no reader ever sees a hold in force with no timer to release it.
-	// Which holds are in force changes only under holdMu, so whether this one
-	// opens is already settled; whether it parks anyone is decide's to say,
-	// and a hold that opens nothing is disarmed again below.
+	defer c.holdMu.Unlock()
 	now := c.now()
-	var local *holdLocal
 	c.runs.View(func() {
-		if c.holdsF.byKey[key] == nil {
+		if c.holdsF.byKey[t.key] == nil {
 			local = &holdLocal{id: RandID("hold-", 12), parked: make(chan struct{})}
 		}
 	})
 	if local != nil {
-		c.holds[key] = local
-		c.armLocked(key, local, holdDeadline(now, f))
+		c.holds[t.key] = local
+		c.armLocked(t.key, local, holdDeadline(now, t.f))
 	}
-	var d turnFold
-	err := c.runs.Exec(func() ([]Fact, error) {
+	err = c.runs.Exec(func() ([]Fact, error) {
 		var facts []Fact
-		d, facts = c.decideTurnFailure(f, now, local, key, scope, eng, src, heldRun{runID, harp}, candidates)
+		d, facts = c.decideTurnFailure(t, now, local)
 		return facts, nil
 	})
 	switch {
 	case local != nil && (err != nil || !d.opened):
-		c.armLocked(key, local, time.Time{})
-		delete(c.holds, key)
+		c.armLocked(t.key, local, time.Time{})
+		delete(c.holds, t.key)
+		local = nil
 	case err == nil && d.moved:
-		if l := c.holds[key]; l != nil {
-			c.armLocked(key, l, d.until)
+		if l := c.holds[t.key]; l != nil {
+			c.armLocked(t.key, l, d.until)
 		}
 	}
-	c.holdMu.Unlock()
-	switch {
-	case err != nil:
-		c.rep.Warnf("coordinator: could not journal %s's turn failure into its hold: %v", harp, err)
-	case d.opened:
-		c.raiseHoldFinding(eng, f.Kind, key, harp, d.until, true)
-		c.goTracked(func() { c.parkSiblings(key, local, d.siblings) })
-	case d.parkedNothing:
-		c.raiseHoldFinding(eng, f.Kind, key, harp, time.Time{}, false)
-	}
+	return d, local, err
 }
 
-// decideTurnFailure is onTurnFailed's decision, inside the run journal's
-// Exec: it reads only the folds. local is the hold onTurnFailed armed for a
-// key with none in force (nil when one is).
-func (c *Coordinator) decideTurnFailure(f agent.TurnFailure, now time.Time, local *holdLocal, key string, scope holdScope, eng engine.Name, src engine.CredentialSource, own heldRun, candidates []heldRun) (turnFold, []Fact) {
-	var d turnFold
-	if r := c.runsF.run(own.runID); r == nil || r.Ended {
-		return d, nil // a turn boundary after the run's terminal folds nothing
+// decideTurnFailure is foldTurnFailure's decision, inside the run journal's
+// Exec: it reads only the folds. local is the hold armed for a key with none
+// in force (nil when one is).
+func (c *Coordinator) decideTurnFailure(t failedTurn, now time.Time, local *holdLocal) (turnFold, []Fact) {
+	if r := c.runsF.run(t.own.runID); r == nil || r.Ended {
+		return turnFold{}, nil // a turn boundary after the run's terminal folds nothing
 	}
-	other := c.holdsF.holdOfRun(own.runID)
-	if other != nil && other.Key != key && !other.pause() {
-		return d, nil
+	other := c.holdsF.holdOfRun(t.own.runID)
+	if other != nil && other.Key != t.key && !other.pause() {
+		return turnFold{}, nil
 	}
 	ownPark := other == nil
-	rec := c.holdsF.byKey[key]
-	if rec == nil {
-		for _, s := range candidates {
-			if r := c.runsF.run(s.runID); r != nil && !r.Ended && c.holdsF.holdOfRun(s.runID) == nil {
-				d.siblings = append(d.siblings, s)
-			}
-		}
-		if !ownPark && len(d.siblings) == 0 {
-			d.parkedNothing = true
-			return d, nil
-		}
-		if local == nil {
-			return turnFold{}, nil // unreachable: holds come into force only under holdMu
-		}
-		d.opened, d.until = true, holdDeadline(now, f)
-		facts := []Fact{factAt(factHoldOpened, now, holdOpened{ID: local.id, Key: key, Scope: scope, Kind: string(f.Kind), Engine: eng, Source: src, Until: d.until})}
-		if ownPark {
-			facts = append(facts, factAt(factHoldParked, now, holdParked{Key: key, RunID: own.runID, Harp: own.harp, Cause: "turn"}))
-		}
-		for _, s := range d.siblings {
-			facts = append(facts, factAt(factHoldParked, now, holdParked{Key: key, RunID: s.runID, Harp: s.harp, Cause: "sibling"}))
-		}
-		return d, facts
+	if rec := c.holdsF.byKey[t.key]; rec != nil {
+		return c.joinHold(t, now, rec, ownPark)
 	}
+	if local == nil {
+		return turnFold{}, nil // unreachable: holds come into force only under holdMu
+	}
+	return c.openHold(t, now, local.id, ownPark)
+}
+
+// openHold opens t's hold, parking its own run (unless paused) and every
+// live, unheld sibling — or decides there is nothing to park.
+func (c *Coordinator) openHold(t failedTurn, now time.Time, id string, ownPark bool) (turnFold, []Fact) {
+	var d turnFold
+	for _, s := range t.candidates {
+		if r := c.runsF.run(s.runID); r != nil && !r.Ended && c.holdsF.holdOfRun(s.runID) == nil {
+			d.siblings = append(d.siblings, s)
+		}
+	}
+	if !ownPark && len(d.siblings) == 0 {
+		d.parkedNothing = true
+		return d, nil
+	}
+	d.opened, d.until = true, holdDeadline(now, t.f)
+	facts := []Fact{factAt(factHoldOpened, now, holdOpened{ID: id, Key: t.key, Scope: t.scope, Kind: string(t.f.Kind), Engine: t.eng, Source: t.src, Until: d.until})}
+	if ownPark {
+		facts = append(facts, factAt(factHoldParked, now, holdParked{Key: t.key, RunID: t.own.runID, Harp: t.own.harp, Cause: "turn"}))
+	}
+	for _, s := range d.siblings {
+		facts = append(facts, factAt(factHoldParked, now, holdParked{Key: t.key, RunID: s.runID, Harp: s.harp, Cause: "sibling"}))
+	}
+	return d, facts
+}
+
+// joinHold folds t into rec, the hold in force under its key. A deadline only
+// ever moves out — an earlier reset never shortens a wait another run's limit
+// set — and a hold with NO deadline is not given one, or relabelled, by a
+// later failure.
+func (c *Coordinator) joinHold(t failedTurn, now time.Time, rec *holdRecord, ownPark bool) (turnFold, []Fact) {
+	var d turnFold
 	var facts []Fact
-	// A deadline only ever moves out — an earlier reset never shortens a wait
-	// another run's limit set — and a hold with NO deadline is not given one,
-	// or relabelled, by a later failure.
 	if !rec.Until.IsZero() {
 		d.until = rec.Until
-		if dl := holdDeadline(now, f); dl.After(rec.Until) {
+		if dl := holdDeadline(now, t.f); dl.After(rec.Until) {
 			d.until, d.moved = dl, true
 		}
-		if d.moved || rec.Kind != string(f.Kind) {
-			facts = append(facts, factAt(factHoldExtended, now, holdExtended{Key: key, Kind: string(f.Kind), Until: d.until}))
+		if d.moved || rec.Kind != string(t.f.Kind) {
+			facts = append(facts, factAt(factHoldExtended, now, holdExtended{Key: t.key, Kind: string(t.f.Kind), Until: d.until}))
 		}
 	}
 	if ownPark {
-		facts = append(facts, factAt(factHoldParked, now, holdParked{Key: key, RunID: own.runID, Harp: own.harp, Cause: "turn"}))
+		facts = append(facts, factAt(factHoldParked, now, holdParked{Key: t.key, RunID: t.own.runID, Harp: t.own.harp, Cause: "turn"}))
 	}
 	return d, facts
 }

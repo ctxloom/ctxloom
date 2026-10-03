@@ -7,11 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -20,8 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/pkg/clifmt"
+	"github.com/ctxloom/ctxloom/internal/shared/remedystatus"
 )
 
 // The codec between the coordination vocabulary (event.go, frames.go) and
@@ -563,11 +560,11 @@ func RunnerRequestToWire(req coord.RunnerRequest, encodeLaunch func(coord.StartR
 }
 
 // RunnerResponseFromWire decodes a runner's answer: a non-OK status becomes
-// Err (ErrFromStatus, so a refusal's remedy survives) — UNAVAILABLE also
+// Err (remedystatus.Err, so a refusal's remedy survives) — UNAVAILABLE also
 // wrapping ErrRunnerUnavailable.
 func RunnerResponseFromWire(resp *agentcoordpb.RunnerResponse) coord.RunnerResponse {
 	out := coord.RunnerResponse{RequestID: resp.GetRequestId()}
-	if err := ErrFromStatus(resp.GetStatus()); err != nil {
+	if err := remedystatus.Err(resp.GetStatus()); err != nil {
 		if resp.GetStatus().GetCode() == int32(codes.Unavailable) {
 			err = fmt.Errorf("%w: %w", coord.ErrRunnerUnavailable, err)
 		}
@@ -1085,44 +1082,5 @@ func StatusFromErr(err error) *rpcstatus.Status {
 	case errors.Is(err, coord.ErrHostAnswerTooLarge):
 		code = codes.ResourceExhausted
 	}
-	return RefusalStatus(code, err)
-}
-
-// RefusalStatus is err as a refusal under code: err's text is the message,
-// and the fix err names (clifmt.RemedyOf: a report.Remediable anywhere in
-// its chain) rides as an errdetails.Help detail — the ONE way a remedy
-// crosses the wire, decoded by ErrFromStatus. A Status's message is a single
-// string, and report.Error leaves its Fix out of Error().
-func RefusalStatus(code codes.Code, err error) *rpcstatus.Status {
-	st := StatusErr(code, err.Error())
-	if fix, ok := clifmt.RemedyOf(err); ok {
-		// anypb.New fails only on a message that cannot marshal; Help is a
-		// generated message of strings.
-		if help, aerr := anypb.New(&errdetails.Help{Links: []*errdetails.Help_Link{{Description: fix}}}); aerr == nil {
-			st.Details = append(st.Details, help)
-		}
-	}
-	return st
-}
-
-// ErrFromStatus is a wire status as the error it reports: nil for OK (or no
-// status); a report.Error carrying the remedy when RefusalStatus attached
-// one; otherwise a plain error of the message. A detail of any other type is
-// not this codec's to read and is skipped.
-func ErrFromStatus(st *rpcstatus.Status) error {
-	if st.GetCode() == int32(codes.OK) {
-		return nil
-	}
-	for _, d := range st.GetDetails() {
-		var help errdetails.Help
-		if !d.MessageIs(&help) || d.UnmarshalTo(&help) != nil {
-			continue
-		}
-		for _, l := range help.GetLinks() {
-			if fix := l.GetDescription(); fix != "" {
-				return report.Error{Msg: st.GetMessage(), Fix: fix}
-			}
-		}
-	}
-	return errors.New(st.GetMessage())
+	return remedystatus.Refusal(code, err)
 }

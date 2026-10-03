@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
+	"github.com/ctxloom/ctxloom/internal/shared/remedystatus"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
@@ -64,7 +65,7 @@ func init() {
 		CoordinatorFrameOpen:      runner.CoordinatorFrameOpen,
 		ErrCoordinatorUnreachable: runner.ErrCoordinatorUnreachable,
 		StartRunRefusal: func(err error) *agentcoordpb.RunnerResponse {
-			return &agentcoordpb.RunnerResponse{Status: coordgrpc.RefusalStatus(codes.InvalidArgument, err)}
+			return &agentcoordpb.RunnerResponse{Status: remedystatus.Refusal(codes.InvalidArgument, err)}
 		},
 	})
 }

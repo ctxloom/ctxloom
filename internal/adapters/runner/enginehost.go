@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/remedystatus"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/spf13/afero"
 )
@@ -404,9 +405,9 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		// process took the port between mint and bind). Everything else
 		// is the launch's own fault.
 		if errors.Is(err, delivery.ErrEndpointUnavailable) {
-			return &agentcoordpb.RunnerResponse{Status: coordgrpc.RefusalStatus(codes.Unavailable, err)}
+			return &agentcoordpb.RunnerResponse{Status: remedystatus.Refusal(codes.Unavailable, err)}
 		}
-		return &agentcoordpb.RunnerResponse{Status: coordgrpc.RefusalStatus(codes.InvalidArgument, err)}
+		return &agentcoordpb.RunnerResponse{Status: remedystatus.Refusal(codes.InvalidArgument, err)}
 	}
 	eh.mu.Lock()
 	result := eh.result

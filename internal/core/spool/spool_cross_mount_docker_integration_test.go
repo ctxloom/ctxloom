@@ -98,7 +98,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	require.NoError(t, Deliver(m, inRef, marker+"-in", time.Now()))
 	hostRoot, err := Root(m, harp)
 	require.NoError(t, err)
-	hostDeliveredPath := filepath.Join(hostRoot, filepath.FromSlash(deliveredDirName), marker+"-in")
+	hostDeliveredPath := filepath.Join(hostRoot, filepath.FromSlash(deliveredRecord.rel), marker+"-in")
 
 	args := []string{"run", "--rm"}
 	if !dockergate.DockerIsRootless() {

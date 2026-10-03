@@ -113,13 +113,13 @@ func assemble(md []byte, minRules int) ([]byte, error) {
 	// on `manage install`, so shipping it means ltk installs a guard that
 	// permits everything, silently, out of a generator that reported success.
 	//
-	// The floor is not just >0: the doc ships 17 blocks and 16 rules, and a
-	// silent drop from 16 to 2 is as invisible as a drop to 0.
-	if len(cfg.Rules) == 0 {
+	// The floor is not just >0: a silent drop to a couple of rules is as
+	// invisible as a drop to none.
+	if cfg.RuleCount() == 0 {
 		return nil, fmt.Errorf("assembled defaults contain no rules (%d yaml blocks parsed) — refusing to ship a permit-everything default", len(matches))
 	}
-	if len(cfg.Rules) < minRules {
-		return nil, fmt.Errorf("assembled defaults contain only %d rules, below the floor of %d — %s has probably lost blocks", len(cfg.Rules), minRules, source)
+	if cfg.RuleCount() < minRules {
+		return nil, fmt.Errorf("assembled defaults contain only %d rules, below the floor of %d — %s has probably lost blocks", cfg.RuleCount(), minRules, source)
 	}
 	return out, nil
 }
@@ -150,9 +150,9 @@ func checkDrift(have []byte, readErr error, want []byte) error {
 	return nil
 }
 
-// minDefaultRules is the floor the shipped default rule set must clear. The doc
-// currently assembles to 16; this is deliberately well below that so ordinary
-// edits do not trip it, and well above zero so a gutted doc does.
+// minDefaultRules is the floor the shipped default rule set must clear:
+// deliberately well below what the doc assembles to, so ordinary edits do not
+// trip it, and well above zero so a gutted doc does.
 const minDefaultRules = 8
 
 // moduleRoot returns the nearest ancestor of start (start included) that

@@ -254,7 +254,7 @@ func scaffoldConfig(fs afero.Fs, path string, withDefaults, force bool) error {
 		if err != nil {
 			return fmt.Errorf("the built-in default rules do not parse (this is a bug in ltk): %w", err)
 		}
-		if len(cfg.Rules) == 0 {
+		if cfg.RuleCount() == 0 {
 			return fmt.Errorf("refusing to write %s: the built-in default rule set contains no rules, "+
 				"which would install a guard that allows everything (use --no-default-rules for a deliberately empty config)", path)
 		}

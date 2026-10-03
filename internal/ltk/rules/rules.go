@@ -313,6 +313,9 @@ type PathMatch struct {
 	Path []string `yaml:"path"`
 }
 
+// RuleCount is the number of rules of both kinds.
+func (c *Config) RuleCount() int { return len(c.Rules) + len(c.PathRules) }
+
 // submodulesToken is the reserved match.path value that ExpandSubmodules rewrites
 // into a directory-subtree pattern per .gitmodules entry. See PathMatch.Path.
 const submodulesToken = "@submodules"

@@ -2,10 +2,8 @@ package coord
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,16 +16,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 )
 
-// readFacts reads runs.jsonl straight off disk and decodes every fact of kind,
-// oldest first: what a restarted coordinator would replay.
-func readFacts[P any](t *testing.T, c *Coordinator, kind string) []P {
+// journaled decodes every runs.jsonl fact of kind, oldest first: what a
+// restarted coordinator would replay.
+func journaled[P any](t *testing.T, c *Coordinator, kind string) []P {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(c.stateDir, "runs.jsonl"))
-	require.NoError(t, err)
 	var out []P
-	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-		var f Fact
-		require.NoError(t, json.Unmarshal([]byte(line), &f))
+	for _, f := range readFacts(t, filepath.Join(c.stateDir, "runs.jsonl")) {
 		if f.Kind != kind {
 			continue
 		}
@@ -262,7 +256,7 @@ func TestHoldRestart_ACrashBetweenParkAndPauseReassertsThePause(t *testing.T) {
 	})
 	f.send(t, f.worker, limitHit+" do the work")
 	within(t, parking, "the hold never began parking the sibling")
-	require.Equal(t, sortedCopy([]string{f.sibling, f.worker}), parkedHarps(readFacts[holdParked](t, f.c, factHoldParked)),
+	require.Equal(t, sortedCopy([]string{f.sibling, f.worker}), parkedHarps(journaled[holdParked](t, f.c, factHoldParked)),
 		"the sibling's park is journaled before its pause is sent")
 
 	reasserted := make(chan struct{}, 8)
@@ -322,7 +316,7 @@ func TestHoldRestart_AHumanPauseSurvivesARestart(t *testing.T) {
 	f, clk := newRateFixture(t)
 	_, err := f.c.ControlPause(human(t), humanInitiator(), f.stranger, "reviewing")
 	require.NoError(t, err)
-	opened := readFacts[holdOpened](t, f.c, factHoldOpened)
+	opened := journaled[holdOpened](t, f.c, factHoldOpened)
 	require.Len(t, opened, 1)
 	assert.Equal(t, holdKindHuman, opened[0].Kind)
 	assert.True(t, opened[0].Until.IsZero(), "a pause has no deadline")

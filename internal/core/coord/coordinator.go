@@ -91,6 +91,11 @@ type Options struct {
 	Reporter report.Sink
 	// Clock overrides command time (tests). Nil = time.Now.
 	Clock func() time.Time
+	// AfterFunc arms a hold's release timer on Clock's timeline
+	// (time.AfterFunc's shape, as fakeclock.Clock has it). Nil =
+	// time.AfterFunc. An Option rather than a field set after New, because
+	// New itself re-arms the timers of the holds it adopts.
+	AfterFunc func(d time.Duration, f func()) (stop func() bool)
 	// ConcurrencyCap overrides the number of concurrently EXECUTING child
 	// turns the coordinator admits (Coordinator.slots' cap). <= 0 keeps the package
 	// default (agentConcurrencyCap, children.go). This is a RESOURCE
@@ -194,6 +199,9 @@ type Coordinator struct {
 	queueF   *queueFold
 	rosterF  *rosterFold
 	reportsF *reportsFold
+	// holdsF is every hold in force (holds.go): the sole record of who is
+	// held, why, and until when.
+	holdsF *holdsFold
 	// approvals is the root's approval queue; its facts and grants fold ride
 	// the runs journal.
 	approvals *ApprovalQueue
@@ -329,17 +337,18 @@ type Coordinator struct {
 	// RunnerExited before the stop's terminal, and must be recorded as the
 	// stop it is. Guarded by mu.
 	pendingStops map[string]string
-	// pausedRuns holds the run ids this coordinator's ControlPause holds at
-	// their runner's gate, keyed by run id so a relaunch (a new run) is never
-	// described as paused. Guarded by mu; lazily initialized.
-	pausedRuns map[string]struct{}
-	// credHolds are the credential holds in force, by holdKey; heldRuns maps
-	// each run a hold parked to its key (credhold.go). Guarded by mu.
-	credHolds map[string]*credHold
-	heldRuns  map[string]string
-	// afterFunc arms a hold's backoff timer (time.AfterFunc's shape, as
-	// fakeclock.Clock has it); holdStep, when set, is told each hold step a
-	// test may need to hold at. Both are test seams.
+	// holdMu serializes every change to which holds are in force — the
+	// journaling of it and the timers in holds — so a hold's timer is armed
+	// and disarmed in step with its facts. Lock order: holdMu before mu; never
+	// take holdMu (or mu) inside a Store.Exec decide.
+	holdMu sync.Mutex
+	// holds is each hold's process-local state (its timer, its park barrier),
+	// by key; holdsF is the authority on which holds are in force. Guarded by
+	// holdMu.
+	holds map[string]*holdLocal
+	// afterFunc arms a hold's backoff timer (Options.AfterFunc); holdStep,
+	// when set, is told each hold step a test may need to hold at (a test
+	// seam).
 	afterFunc func(d time.Duration, f func()) (stop func() bool)
 	holdStep  func(step string)
 	// onAskPublished, when set, is called by controlAsk between RECORDING the
@@ -547,9 +556,8 @@ func New(opts Options) (*Coordinator, error) {
 		attach:             make(map[string]*childRt),
 		graceExpire:        make(map[string]func()),
 		byHarp:             make(map[string]*childRt),
-		credHolds:          make(map[string]*credHold),
-		heldRuns:           make(map[string]string),
-		afterFunc:          func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop },
+		holds:              make(map[string]*holdLocal),
+		afterFunc:          t.afterFunc,
 		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*RunChannel),
@@ -569,6 +577,7 @@ func New(opts Options) (*Coordinator, error) {
 	}
 
 	c.adopt()
+	c.adoptHolds()
 	// THE STARTUP SWEEP IS A FIRST-CLASS DELIVERY PATH, not doorbell-miss
 	// recovery: a coordinator coming up cold drains every known run's spool
 	// before any channel exists to ring it. It starts after adopt() because
@@ -599,6 +608,7 @@ func (c *Coordinator) abortNew(err error) error {
 // ONCE, at construction, so no hot path re-derives one.
 type tunables struct {
 	now                func() time.Time
+	afterFunc          func(d time.Duration, f func()) (stop func() bool)
 	concurrencyCap     int
 	depthCap           int
 	endedRunTail       int
@@ -615,6 +625,7 @@ type tunables struct {
 func resolveTunables(opts Options) tunables {
 	t := tunables{
 		now:                opts.Clock,
+		afterFunc:          opts.AfterFunc,
 		concurrencyCap:     opts.ConcurrencyCap,
 		depthCap:           opts.Depth,
 		endedRunTail:       opts.EndedRunTail,
@@ -624,6 +635,9 @@ func resolveTunables(opts Options) tunables {
 	}
 	if t.now == nil {
 		t.now = time.Now
+	}
+	if t.afterFunc == nil {
+		t.afterFunc = func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
 	}
 	if t.concurrencyCap <= 0 {
 		t.concurrencyCap = agentConcurrencyCap
@@ -713,8 +727,8 @@ func rootHarpOf(opts Options) string {
 // blob store) in the claimed state dir. On failure the caller aborts; each
 // store opened so far is closed by closePartial.
 func (c *Coordinator) openJournals() error {
-	c.runsF, c.queueF, c.rosterF, c.reportsF = newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold(c.rep)
-	runs, err := openStore(filepath.Join(c.stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF, newGrantsFold())
+	c.runsF, c.queueF, c.rosterF, c.reportsF, c.holdsF = newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold(c.rep), newHoldsFold()
+	runs, err := openStore(filepath.Join(c.stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF, newGrantsFold(), c.holdsF)
 	if err != nil {
 		return err
 	}

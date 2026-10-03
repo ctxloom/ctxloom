@@ -177,13 +177,14 @@ func (f *holdFixture) awaitHold(t *testing.T, harps ...string) CredentialHold {
 	return got[0]
 }
 
-// awaitParks waits for the journal to have parked exactly harps (hold.parked).
+// awaitParks waits for the journal to have parked exactly harps on turn
+// failures' holds (hold.parked; a pause's own park is not one).
 func (f *holdFixture) awaitParks(t *testing.T, harps ...string) {
 	t.Helper()
 	want := sortedCopy(harps)
 	var got []string
 	require.Eventually(t, func() bool {
-		got = parkedHarps(readFacts[holdParked](t, f.c, factHoldParked))
+		got = parkedHarps(journaled[holdParked](t, f.c, factHoldParked))
 		return assert.ObjectsAreEqual(want, got)
 	}, conformanceWait, 10*time.Millisecond, "no hold parked %v (saw %v)", want, got)
 }
@@ -192,7 +193,7 @@ func (f *holdFixture) awaitParks(t *testing.T, harps ...string) {
 // kind and scope, which a reader cannot recover from its key.
 func assertOpened(t *testing.T, c *Coordinator, kind agent.FailureKind, scope holdScope) []holdOpened {
 	t.Helper()
-	opened := readFacts[holdOpened](t, c, factHoldOpened)
+	opened := journaled[holdOpened](t, c, factHoldOpened)
 	require.NotEmpty(t, opened)
 	for _, o := range opened {
 		assert.Equal(t, string(kind), o.Kind, "%+v", o)
@@ -204,7 +205,7 @@ func assertOpened(t *testing.T, c *Coordinator, kind agent.FailureKind, scope ho
 // assertReleased pins that every release the journal holds was for cause.
 func assertReleased(t *testing.T, c *Coordinator, cause string) {
 	t.Helper()
-	released := readFacts[holdReleased](t, c, factHoldReleased)
+	released := journaled[holdReleased](t, c, factHoldReleased)
 	require.NotEmpty(t, released)
 	for _, r := range released {
 		assert.Equal(t, cause, r.Cause, "%+v", r)
@@ -214,7 +215,9 @@ func assertReleased(t *testing.T, c *Coordinator, cause string) {
 func parkedHarps(ps []holdParked) []string {
 	var out []string
 	for _, p := range ps {
-		out = append(out, p.Harp)
+		if p.Cause != "pause" {
+			out = append(out, p.Harp)
+		}
 	}
 	return sortedCopy(out)
 }
@@ -222,7 +225,7 @@ func parkedHarps(ps []holdParked) []string {
 // resumedHarps is every harp whose runner acked a released hold's resume.
 func resumedHarps(t *testing.T, c *Coordinator) []string {
 	var out []string
-	for _, r := range readFacts[holdResumed](t, c, factHoldResumed) {
+	for _, r := range journaled[holdResumed](t, c, factHoldResumed) {
 		out = append(out, r.Harp)
 	}
 	return sortedCopy(out)
@@ -664,7 +667,7 @@ func TestRateHold_ADrainingRunsLimitOpensNoHold(t *testing.T) {
 	require.Eventually(t, func() bool { return f.c.runEnded(runID) }, conformanceWait, 10*time.Millisecond)
 
 	assert.Empty(t, f.c.CredentialHolds(), "a run ending at its boundary opens no hold")
-	assert.Empty(t, readFacts[holdOpened](t, f.c, factHoldOpened))
+	assert.Empty(t, journaled[holdOpened](t, f.c, factHoldOpened))
 	assert.Zero(t, f.findingsWith("rate limit"), "%v", f.findings.All())
 	assert.Zero(t, clk.Pending())
 	f.send(t, f.worker, "work after the drain")

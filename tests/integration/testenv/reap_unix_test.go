@@ -4,20 +4,20 @@ package testenv
 
 import "testing"
 
-// TestArgvIsLLMServe pins the adjacency rule that keeps the reaper's SIGKILL
-// aimed at the plugin subprocess and nothing else. The negative cases are the
-// point: each one carries both tokens, so a matcher that tested for them
-// independently would pass every one of them and kill an unrelated process.
-func TestArgvIsLLMServe(t *testing.T) {
+// TestArgvIsRunner pins the rule that keeps the reaper's SIGKILL aimed at the
+// runner subprocess and nothing else. The negative cases are the point: each
+// one carries "runner" or a subcommand-shaped token somewhere a loose matcher
+// would accept, and a false positive kills an unrelated process.
+func TestArgvIsRunner(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		argv []string
 		want bool
 	}{
 		{
-			name: "self-exec shape",
+			name: "a non-runner subcommand is not a target",
 			argv: []string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
-			want: true,
+			want: false,
 		},
 		{
 			name: "the runner process",
@@ -35,14 +35,14 @@ func TestArgvIsLLMServe(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "self-exec shape with label",
+			name: "a non-runner subcommand with flags is not a target",
 			argv: []string{"/usr/local/bin/ctxloom", "llm", "serve", "mock", "--label", "t1"},
-			want: true,
+			want: false,
 		},
 		{
-			name: "global flag before the subcommand",
+			name: "a non-runner subcommand behind a global flag is not a target",
 			argv: []string{"ctxloom", "-v", "llm", "serve", "mock"},
-			want: true,
+			want: false,
 		},
 		{
 			name: "both tokens present but not adjacent",
@@ -76,8 +76,8 @@ func TestArgvIsLLMServe(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := argvIsLLMServe(tc.argv); got != tc.want {
-				t.Errorf("argvIsLLMServe(%q) = %v, want %v", tc.argv, got, tc.want)
+			if got := argvIsRunner(tc.argv); got != tc.want {
+				t.Errorf("argvIsRunner(%q) = %v, want %v", tc.argv, got, tc.want)
 			}
 		})
 	}

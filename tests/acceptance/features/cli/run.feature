@@ -235,12 +235,11 @@ Feature: run — assembling a project's context and handing it to an engine
     the engine it prefers. None of that is worth anything if it is lost between
     the command line and the process that runs.
 
-    # T2 regression: deny_tools was silently dropped crossing internal/lm/grpc's
-    # proto wire (ManagedConfigToProto/managedConfigFromProto). A per-hop test
-    # cannot see this class of defect because the proto converter and its
-    # mirror struct read as a matched pair; only tracing the payload
-    # tip-to-tail (argv -> profile resolution -> proto wire -> the launched
-    # backend's Setup) does. This asserts the WIRE PAYLOAD the backend actually
+    # deny_tools must survive every hop from the command line to the launched
+    # engine. A per-hop test cannot see a field dropped between two hops whose
+    # converter and mirror struct read as a matched pair; only tracing the
+    # payload tip-to-tail (argv -> profile resolution -> the launch carrier ->
+    # the runner's managed payload) does. This asserts the WIRE PAYLOAD the backend actually
     # received, not just that the command exited 0.
     Scenario: A tool denial configured on a profile reaches the launched backend
       Given an initialized ctxloom project

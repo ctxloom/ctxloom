@@ -45,7 +45,7 @@ var mcpClientImpl = &mcp.Implementation{Name: "ctxloom-acceptance", Version: "0"
 // more, but the acceptance World that owns it is per-scenario and sequential.
 type MCPSession struct {
 	*mcp.ClientSession
-	pid int // the spawned server, for Close's plugin-child reap; 0 for a dialed endpoint
+	pid int // the spawned server, for Close's runner-child reap; 0 for a dialed endpoint
 }
 
 // ErrNoEndpoint refuses to dial a session record that names no endpoint or
@@ -134,7 +134,7 @@ func (s *MCPSession) Close() error {
 		// A dialed endpoint: no subprocess of this harness's to reap.
 		return s.ClientSession.Close()
 	}
-	children := PluginChildrenOf(s.pid)
+	children := RunnerChildrenOf(s.pid)
 	err := s.ClientSession.Close()
 	KillPids(children)
 	return err

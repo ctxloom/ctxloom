@@ -107,17 +107,6 @@ func j002100Of(w *World) *j002100State {
 // fixture), plus the extra labels any spec named, and one agent binding per
 // declared name, in declaration order (map iteration order is not stable;
 // j002100.order pins it).
-// j002100JoinEntries renders assistant entries for a failure message, so a
-// scenario that finds no verdict shows what the child DID say instead of
-// leaving the reader to go dig the transcript out by hand.
-func j002100JoinEntries(entries []j002300TranscriptEntry) string {
-	var b strings.Builder
-	for i, e := range entries {
-		fmt.Fprintf(&b, "  [%d] %s\n", i, e.Content)
-	}
-	return b.String()
-}
-
 func j002100RenderConfig(j002100 *j002100State) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "version: %d\nllm:\n  configs:\n    fast:\n      type: mock\n", config.CurrentConfigVersion)
@@ -266,59 +255,6 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 				return err
 			}
 			return w.env.WriteFile(".ctxloom/config.yaml", j002100RenderConfig(j002100))
-		})
-
-	// The child's own canonical transcript is the observable, for the reason
-	// this file's header gives for runs.jsonl: a durable, external, on-disk
-	// artifact this harness can honestly read, never an in-process struct.
-	// The reader is j002300's (steps_j002300_cross_engine_delegation.go) —
-	// same package, same file format, already hardened against a corrupted or
-	// slow-to-appear transcript; duplicating it here would be two copies of
-	// one parser drifting apart.
-	//
-	// The VERDICT STRING is what makes this a payload assertion rather than
-	// an exit-code one. The mock engine's permission turn (internal/lm/
-	// backends/mock_chat.go's chatPermissionTurn) reports the answer it
-	// actually received: "granted" for an allow option, "denied" for a reject
-	// option, "dismissed" for the empty OptionID that IS the ACP
-	// {outcome:"cancelled"} reply. So the assertion reads the engine's own
-	// account of what ctxloom told it — "denied" here would be the defect
-	// wiry-judge fixed, in the engine's own words.
-	ctx.Step(`^"([^"]*)"'s reported turn records the permission verdict "([^"]*)"$`,
-		func(c context.Context, name, verdict string) error {
-			w := worldFrom(c)
-			j002100 := j002100Of(w)
-			harp, ok := j002100.harps[name]
-			if !ok || harp == "" {
-				return fmt.Errorf("j002100: no session harp remembered for %q — spawn it first", name)
-			}
-			// TWO assistant entries, not one: a session opens with
-			// ctxloom's always-on isolation-posture announcement, which is
-			// assistant-shaped and indistinguishable from content at this
-			// seam. The verdict rides the entry AFTER it, so the search
-			// below scans them all for the mock's verdict line rather than
-			// counting positions.
-			assistants, err := j002300TranscriptAssistantCount(w, harp, 2)
-			if err != nil {
-				return err
-			}
-			const verdictPrefix = "mock chat: permission "
-			var reported string
-			for _, e := range assistants {
-				if i := strings.Index(e.Content, verdictPrefix); i >= 0 {
-					reported = strings.TrimSpace(e.Content[i:])
-					break
-				}
-			}
-			w.docStepMaterialized = fmt.Sprintf("%s — %s's reported permission verdict:\n  %s", j002300TranscriptPath(w, harp), name, reported)
-			if reported == "" {
-				return fmt.Errorf("%s never reported a permission verdict at all (no %q entry) — the engine's permission request may never have been raised or never answered; entries:\n%s",
-					name, verdictPrefix, j002100JoinEntries(assistants))
-			}
-			if want := verdictPrefix + verdict; reported != want {
-				return fmt.Errorf("%s reported %q, want %q — the engine was told a DIFFERENT thing about the permission it asked for", name, reported, want)
-			}
-			return nil
 		})
 
 	ctx.Step(`^"([^"]*)"'s journaled grant carries its own MCP server and not "([^"]*)"'s$`,

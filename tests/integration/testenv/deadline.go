@@ -77,8 +77,7 @@ func startBounded(cmd *exec.Cmd) (*boundedRun, error) {
 // wait returns cmd's own result if it exits within bound. Otherwise it kills
 // the whole process group and returns a *DeadlineError.
 //
-// The GROUP, not the process: ctxloom's children (the llm plugin, a runner, a
-// container client) inherit its stdout/stderr, and exec.Cmd.Wait does not
+// The GROUP, not the process: ctxloom's children (a runner, a container client) inherit its stdout/stderr, and exec.Cmd.Wait does not
 // return while any writer of those pipes is alive — killing only the direct
 // child leaves the wait blocked on its grandchildren.
 func (b *boundedRun) wait(bound time.Duration) error {

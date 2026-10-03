@@ -135,8 +135,8 @@ func (s *PTYSession) Output() string { return s.out.String() }
 
 // PID returns the session's top-level ctxloom process id, valid once RunPTY
 // has returned successfully (cmd.Start already ran). Callers that need to
-// find the process's OWN children (e.g. testenv.PluginChildrenOf, to observe
-// a spawned plugin subprocess) need this — cmd itself is unexported so
+// find the process's OWN children (e.g. testenv.RunnerChildrenOf, to observe
+// a spawned runner subprocess) need this — cmd itself is unexported so
 // nothing outside this file can reach *os.Process directly.
 func (s *PTYSession) PID() int {
 	if s.cmd.Process == nil {
@@ -183,31 +183,27 @@ func (s *PTYSession) ExitCode() int {
 
 // Close releases the pty and, if the process is still running (e.g. an
 // assertion failed before the session exited on its own), shuts it down so a
-// failed test never leaks a child process — including the "llm serve
-// <label>" plugin subprocess ctxloom self-execs for the run (internal/lm/
-// grpc's NewSelfInvokingClientForLabelEnv, setsid'd into its own session so
-// it survives outside this session's process group).
+// failed test never leaks a child process — including the `ctxloom runner
+// <engine>` subprocess the run starts (isolation.StartHostRunner, setsid'd
+// by isolateRunner into its own session so it survives outside this
+// session's process group).
 //
 // Graceful first: SIGTERM is exactly what cmd/run.go's own
 // signal.NotifyContext(shutdownSignals) already listens for, unwinding
-// through its `defer client.Kill()` — the plugin subprocess's designed
-// shutdown path (killSession), which this harness gets for free by using
-// it. A bare SIGKILL (the previous, only, behavior here) bypasses that
-// entirely: the parent never gets a chance to run its own cleanup, and the
-// plugin child — in a different session by construction — is not reachable
-// by anything this harness could signal as a group. That gap is exactly how
-// this defect accumulated 208 orphaned "llm serve mock" processes over 8
-// days on this box (pgrep -fc, all ppid=1, 15/18 distinct binary paths
-// already deleted): every PTY-driven test whose assertion failed before the
-// session exited on its own was hard-killing its ctxloom process and
-// silently leaving the mock behind.
+// through the runner's designed shutdown path (HostRunner.Kill →
+// killSession), which this harness gets for free by using it. A bare SIGKILL
+// bypasses that entirely: the parent never gets a chance to run its own
+// cleanup, and the runner child — in a different session by construction —
+// is not reachable by anything this harness could signal as a group, so a
+// test whose assertion failed before the session exited would leave it
+// orphaned.
 //
 // SIGKILL remains the fallback for a process that doesn't honor SIGTERM
 // within ptyGracefulShutdown. Either way, Close finishes by explicitly
-// reaping any plugin child captured before the signal was sent — the pid,
+// reaping any runner child captured before the signal was sent — the pid,
 // not a re-derived one, since a dead parent's former child is reparented to
 // init (ppid 1) within the same instant and can no longer be found by
-// ppid — so a SIGKILL'd or simply slow parent never leaves the mock behind
+// ppid — so a SIGKILL'd or simply slow parent never leaves the runner behind
 // even if its own graceful path didn't get there first. Safe to call after a
 // natural exit.
 func (s *PTYSession) Close() {
@@ -216,7 +212,7 @@ func (s *PTYSession) Close() {
 		pid = s.cmd.Process.Pid
 	}
 	// Snapshot BEFORE signaling — see the doc comment above.
-	children := PluginChildrenOf(pid)
+	children := RunnerChildrenOf(pid)
 
 	select {
 	case <-s.exited:

@@ -15,7 +15,7 @@ import (
 )
 
 // MockLM provides a fake language model for testing.
-// Uses the built-in mock plugin for gRPC-based plugin system.
+// Uses the built-in mock engine.
 type MockLM struct {
 	// Response is what the mock LM will output
 	Response string
@@ -45,7 +45,6 @@ func NewMockLM(dir string) (*MockLM, error) {
 		ProjectDir:        "", // Will be set by SetupMockLM
 	}
 
-	// No longer need to write a shell script; using built-in mock plugin
 	return m, nil
 }
 
@@ -67,7 +66,7 @@ func (m *MockLM) Echo() error {
 	return m.WriteConfig()
 }
 
-// WriteConfig merges the mock plugin configuration into .ctxloom/config.yaml,
+// WriteConfig merges the mock engine configuration into .ctxloom/config.yaml,
 // touching only llm.configs.mock, llm.defaults.primary, config.use_distilled,
 // and version — every other top-level key (agents, default_agent, workspace,
 // any other engine's llm.configs entry, profiles, llm.defaults.fast, …) that
@@ -225,7 +224,7 @@ func (m *MockLM) GetRecordedInput() (string, error) {
 }
 
 // SetupMockLM sets up a mock LM in the test environment and configures ctxloom to use it.
-// Uses the built-in mock plugin for gRPC-based plugin system.
+// Uses the built-in mock engine.
 func (e *TestEnvironment) SetupMockLM() (*MockLM, error) {
 	mockLM, err := NewMockLM(e.Root)
 	if err != nil {

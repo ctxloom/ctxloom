@@ -526,9 +526,9 @@ func (e *TestEnvironment) storeAndSetEnv(key, value string) {
 // environment spawns (Run/RunWithStdin/RunPTY/Command) builds its env from
 // os.Environ() at call time, so this is the general seam for handing a
 // spawned `ctxloom` process — and anything IT in turn spawns with a nil/empty
-// explicit env (e.g. the self-invoked `ctxloom llm serve <backend>` plugin
-// subprocess, which inherits its parent's environment when dialLLMConnection
-// is given no per-spawn env) — a variable it will see.
+// explicit env (e.g. the `ctxloom runner <engine>` subprocess, whose
+// environment is the parent's with the spawn env laid over it —
+// isolation's hostRunnerCmd) — a variable it will see.
 //
 // A SCRUBBED key (testsupport.EnvKeys) is also forced onto the child through
 // SetChildEnv, because isolatedEnv drops those from os.Environ(). Without that,

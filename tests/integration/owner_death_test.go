@@ -65,7 +65,7 @@ func TestInteractiveRun_ExitsWhenItsTerminalHangsUp(t *testing.T) {
 // the orphaned run alive.
 func TestInteractiveRun_ExitsWhenItsRunnerDiesAfterHangup(t *testing.T) {
 	s := startParkedSession(t)
-	runners := testenv.PluginChildrenOf(s.PID())
+	runners := testenv.RunnerChildrenOf(s.PID())
 	require.NotEmpty(t, runners, "the run's runner child was not found")
 	require.NoError(t, s.Hangup())
 	time.Sleep(2 * time.Second) // let the hangup land before the runner dies
@@ -80,7 +80,7 @@ func TestInteractiveRun_ExitsWhenItsRunnerDiesAfterHangup(t *testing.T) {
 // run through the drive's ordinary exit path.
 func TestInteractiveRun_ExitsWhenItsRunnerDies(t *testing.T) {
 	s := startParkedSession(t)
-	runners := testenv.PluginChildrenOf(s.PID())
+	runners := testenv.RunnerChildrenOf(s.PID())
 	require.NotEmpty(t, runners, "the run's runner child was not found")
 	for _, pid := range runners {
 		_ = syscall.Kill(pid, syscall.SIGTERM)

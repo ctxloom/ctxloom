@@ -83,8 +83,9 @@ raised it and covers only its own children.
 - **A held child is not relaunched.** If a held child's process dies while it waits, it is not
   restarted into the spent limit, not by its waiting mail and not by a new message: both wait,
   and the child is relaunched with them when the hold lifts. Stopping the child (`agent_stop`)
-  takes it out of the hold, so a later message relaunches it; while its credential is still
-  held, the new run joins the hold as it comes up, as does any new child on that credential.
+  takes it out of the hold, so a later message relaunches it. While its credential is still
+  held, the new run starts paused and joins the hold, as does any new child launched on that
+  credential: it comes up but takes no turn, not even its first, until the hold lifts.
 
 To exercise this without spending a real limit, send a turn to an agent on the `mock` engine
 whose prompt contains `mock:rate-limited` (or `mock:rate-limited=<unix seconds>` to name the

@@ -976,16 +976,21 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	// on this engine (Seed), delivered on the StartRun itself rather than a
 	// SetGrants after it: the StartRun carries the first turn, which a later
 	// set would race.
+	//
+	// A run that starts on a held credential (or harp) starts PAUSED
+	// (joinLaunchHold): it comes up and takes no turn until the release.
 	var resp RunnerResponse
+	paused, holdDone := c.joinLaunchHold(rt.runID, rt.harp)
 	_ = c.approvals.Seed(Identity{Harp: rt.harp, RunID: rt.runID}, l.Engine, func(grants []string) error {
 		rctx, rcancel := context.WithTimeout(ctx, DefaultRequestTimeout)
 		defer rcancel()
-		resp, err = c.requestRunner(rctx, credHash, RunnerRequest{Kind: StartRun{RunID: rt.runID, Launch: l, Grants: grants}})
+		resp, err = c.requestRunner(rctx, credHash, RunnerRequest{Kind: StartRun{RunID: rt.runID, Launch: l, Grants: grants, StartPaused: paused}})
 		if err == nil && resp.Err != nil {
 			return resp.Err
 		}
 		return err
 	})
+	holdDone()
 	if err != nil {
 		err = fmt.Errorf("StartRun never completed: %w", err)
 		c.failChild(rt, err)
@@ -1015,7 +1020,6 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	// startup sweep's to deliver, as turns.
 	c.noteLaunchAttached(rt.harp) // a launch that came up resets the retry budget
 	c.markAttached(rt)            // StartRun round-tripped: the migrated run is up
-	c.joinCredentialHold(rt.runID, rt.harp)
 	return nil
 }
 

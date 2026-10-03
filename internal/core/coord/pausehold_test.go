@@ -1,7 +1,9 @@
 package coord
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,6 +79,11 @@ func TestHoldStop_AStoppedChildLeavesItsHold(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{f.sibling}, launched, "the relaunched run joins its credential's hold as it comes up")
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	require.NoError(t, f.c.awaitChildUp(ctx, f.sibling), "the relaunched run came up")
+	require.Never(t, func() bool { return countChatText(f.sp, 3, "after the stop") > 0 },
+		300*time.Millisecond, 10*time.Millisecond, "a run started on a held credential takes no turn until the hold releases")
 
 	clk.Advance(limitResets.Sub(clk.Now()))
 	assert.Empty(t, f.c.CredentialHolds())
@@ -141,4 +148,29 @@ func TestPauseHold_ThePauseRecordsItsReason(t *testing.T) {
 	require.Len(t, opened, 1)
 	assert.Equal(t, "waiting on the worker's report", opened[0].Reason)
 	assert.Equal(t, ownerIdentity().Harp, opened[0].By)
+}
+
+// TestHoldLaunch_ANewChildOnAHeldCredentialStartsPaused: a child launched on a
+// credential whose hold is in force starts paused (StartRun's start_paused) —
+// it comes up, joins the hold, and takes NO turn, not even its briefing,
+// until the hold releases; the release starts its briefing.
+func TestHoldLaunch_ANewChildOnAHeldCredentialStartsPaused(t *testing.T) {
+	f, clk := newRateFixture(t)
+	f.send(t, f.worker, limitHit+" do the work")
+	f.awaitHold(t, f.worker, f.sibling)
+	f.awaitParks(t, f.worker, f.sibling)
+
+	out, err := f.c.AgentRun(context.Background(), ownerIdentity(), "sibling", "the new child's briefing", "", "")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	require.NoError(t, f.c.awaitChildUp(ctx, out.Harp), "a run started paused still comes up")
+	hold := f.awaitHold(t, f.worker, f.sibling, out.Harp)
+	assert.Equal(t, string(hold.Kind), f.holdOf(t, out.Harp).Kind, "the roster shows the new child held")
+	require.Never(t, func() bool { return countChatText(f.sp, 3, "the new child's briefing") > 0 },
+		300*time.Millisecond, 10*time.Millisecond, "a run started on a held credential takes no turn, not even its briefing")
+
+	clk.Advance(limitResets.Sub(clk.Now()))
+	assert.Empty(t, f.c.CredentialHolds())
+	awaitChatText(t, f.sp, 3, "the new child's briefing")
 }

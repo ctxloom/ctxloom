@@ -672,7 +672,7 @@ func (c *Coordinator) dropFromHold(key, id string, r heldRun) {
 // dropStoppedHarp takes a harp an agent_stop ended out of whatever hold or
 // pause covers it: the stop is an initiator's judgement on the child, so its
 // next run is not the hold's to keep waiting. A credential's hold still parks
-// that next run as it comes up (joinCredentialHold): it is the credential's.
+// that next run as it comes up (joinLaunchHold): it is the credential's.
 func (c *Coordinator) dropStoppedHarp(harp string) {
 	c.holdMu.Lock()
 	defer c.holdMu.Unlock()
@@ -710,41 +710,42 @@ func (c *Coordinator) dropHarpLocked(harp string, match func(*holdRecord) bool) 
 	}
 }
 
-// joinCredentialHold parks a run that has just come up on its credential's
-// hold, when one is in force: a fresh run (a new child, or one relaunched
-// after a stop) on a spent credential must wait with the others. The pause is
-// sent under holdMu, so no release can resume the hold's runs ahead of it.
-// The run's first turn may already be under way when it lands — that turn
-// meets the limit and folds into the same hold.
-func (c *Coordinator) joinCredentialHold(runID, harp string) {
+// joinLaunchHold decides whether runID starts PAUSED: a hold already covers
+// its harp, or its credential's hold is in force — that hold is the
+// credential's, so a fresh run on it (a new child, or one relaunched after a
+// stop) waits with the others. The run is journaled into the hold (cause
+// "launch") BEFORE its StartRun, which carries start_paused, so the runner
+// takes no turn — not even its first — until the release's resume. holdMu
+// stays held until done is called, once the StartRun is answered, so no
+// release can send that resume ahead of the StartRun that raises the gate.
+// done is a no-op for a run that starts unpaused.
+func (c *Coordinator) joinLaunchHold(runID, harp string) (paused bool, done func()) {
 	c.holdMu.Lock()
-	defer c.holdMu.Unlock()
 	at, key := c.now(), ""
 	err := c.runs.Exec(func() ([]Fact, error) {
-		l, ok := c.holdsF.launchOf(runID)
-		if !ok || l.Source.Key == "" {
+		if r := c.runsF.run(runID); r == nil || r.Ended || c.holdsF.holdOfRun(runID) != nil {
 			return nil, nil
 		}
-		h := c.holdsF.byKey[l.Source.Key]
-		if h == nil || h.Scope != holdScopeCredential {
-			return nil, nil
+		h := c.holdsF.holdOfHarp(harp)
+		if l, ok := c.holdsF.launchOf(runID); h == nil && ok && l.Source.Key != "" {
+			if ch := c.holdsF.byKey[l.Source.Key]; ch != nil && ch.Scope == holdScopeCredential {
+				h = ch
+			}
 		}
-		if r := c.runsF.run(runID); r == nil || r.Ended || c.holdsF.holdOfRun(runID) != nil || c.holdsF.holdOfHarp(harp) != nil {
+		if h == nil {
 			return nil, nil
 		}
 		key = h.Key
 		return []Fact{factAt(factHoldParked, at, holdParked{Key: key, RunID: runID, Harp: harp, Cause: "launch"})}, nil
 	})
 	if err != nil || key == "" {
-		return
+		c.holdMu.Unlock()
+		if err != nil {
+			c.rep.Warnf("coordinator: could not journal %s joining its credential's hold; it starts unpaused: %v", harp, err)
+		}
+		return false, func() {}
 	}
-	ctx, cancel := context.WithTimeout(c.baseCtx, DefaultRequestTimeout)
-	defer cancel()
-	r := heldRun{runID, harp}
-	if _, err := c.holdControl(ctx, r, "pause", "the credential it runs on is held"); err != nil {
-		c.rep.Warnf("coordinator: could not park %s on its credential's hold: %v", harp, err)
-		c.dropHarpLocked(harp, func(h *holdRecord) bool { return h.Key == key && h.Members[harp] == runID })
-	}
+	return true, c.holdMu.Unlock
 }
 
 // releaseHold is ControlResume's arm for a held harp: handled is false when

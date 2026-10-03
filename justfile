@@ -1115,11 +1115,13 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
     # judge the same package view `go test` is about to build.
     tags=""
     has_run=0
+    has_timeout=0
     prev=""
     for a in "$@"; do
         case "$a" in
             -tags=*|--tags=*) tags="${a#*=}" ;;
             -run=*|--run=*|-run|--run) has_run=1 ;;
+            -timeout=*|--timeout=*|-timeout|--timeout) has_timeout=1 ;;
         esac
         case "$prev" in
             -tags|--tags) tags="$a" ;;
@@ -1141,7 +1143,7 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
             if [ "$has_run" -eq 0 ]; then
                 echo "error: $pkg -tags acceptance without a -run filter drives the ENTIRE godog suite" >&2
                 echo "       (every scenario; many minutes, and longer under load). This recipe is the" >&2
-                echo "       narrow iteration loop and does not carry that timeout." >&2
+                echo "       narrow iteration loop, not the whole-suite gate." >&2
                 echo "fix:  just test-pkg $pkg -tags acceptance -run '<TestName>'" >&2
                 echo "  or: just test-acceptance                       # the whole suite, with the 30m budget it needs" >&2
                 echo "  or: just test-acceptance-focus <PATHS> [TAGS]  # a named slice of feature files" >&2
@@ -1166,8 +1168,19 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
             "{{just_executable()}}" --justfile "{{justfile()}}" build
             ;;
     esac
+    # These trees run subprocess, container and live cells whose image builds
+    # alone can outlast go test's 10m default, and a run killed there panics
+    # with a stack that reads like an exec hang rather than a timeout. They get
+    # the budget test-acceptance gives the same package; a caller's own
+    # -timeout is left as the only one on the command line.
+    timeout=()
+    case "$pkg" in
+        *tests/integration*|*tests/acceptance*)
+            [ "$has_timeout" -eq 1 ] || timeout=(-timeout 30m)
+            ;;
+    esac
     set +e
-    output=$(go test -trimpath -race "$@" "$pkg" 2>&1)
+    output=$(go test -trimpath -race "${timeout[@]}" "$@" "$pkg" 2>&1)
     status=$?
     set -e
     printf '%s\n' "$output"

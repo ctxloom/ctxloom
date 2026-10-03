@@ -84,13 +84,12 @@ func TestListPipeline_CLIAndMCPAgreeOnEveryDecision(t *testing.T) {
 			require.NoError(t, err)
 
 			viaCLI, err := listTasksScoped(mustTaskContext(t), listOptions{
-				Statuses:       tc.in.Statuses,
-				Term:           tc.in.Term,
-				TagQuery:       tc.in.TagQuery,
-				All:            tc.in.IncludeCompleted,
-				Global:         tc.in.Global,
-				Limit:          tc.in.Limit,
-				IncludeSummary: tc.in.IncludeSummary,
+				Statuses: tc.in.Statuses,
+				Term:     tc.in.Term,
+				TagQuery: tc.in.TagQuery,
+				All:      tc.in.IncludeCompleted,
+				Global:   tc.in.Global,
+				Limit:    tc.in.Limit,
 			})
 			require.NoError(t, err)
 

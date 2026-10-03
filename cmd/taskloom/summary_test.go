@@ -102,3 +102,11 @@ func TestHandleTaskList_GlobalIncludeSummary(t *testing.T) {
 	assert.Equal(t, 2, res.Summary.Counts[tasks.StatusInProgress], "the summary ignores the listing's filters")
 	assert.Contains(t, res.Summary.InProgress, tasks.InProgressTask{HarpID: elsewhere, Project: "elsewhere"})
 }
+
+// A summary is output, and an empty one answers `.in_progress | length` with 0
+// rather than erroring on null.
+func TestSummarizeRows_EmitsEmptyCollectionsAsEmptyNotNull(t *testing.T) {
+	b, err := json.Marshal(summarizeRows(nil))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"counts":{},"in_progress":[]}`, string(b))
+}

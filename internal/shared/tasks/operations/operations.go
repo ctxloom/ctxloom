@@ -85,7 +85,6 @@ type TaskContext struct {
 type TaskListResult struct {
 	Path    string
 	Tasks   []tasks.Task
-	Summary *tasks.Summary
 	Warning string // project-resolution notice (move/fork); the frontend surfaces it
 
 	// HiddenCompleted/HiddenDeferred count the tasks that matched every
@@ -212,13 +211,11 @@ func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
 	return projectID, logPath, nil
 }
 
-// ListOptions names what a task listing filters and returns. IncludeDone and
-// IncludeSummary are independent, same-typed switches that callers set in both
-// combinations, so they are named rather than positional: a transposition must
-// not be able to compile. It mirrors cmd/taskloom's own listOptions.
+// ListOptions names what a task listing filters and returns, named rather
+// than positional so a transposition cannot compile. It mirrors
+// cmd/taskloom's own listOptions.
 //
-// The zero value is the default listing: no filters, active-only, no summary,
-// no cap.
+// The zero value is the default listing: no filters, active-only, no cap.
 type ListOptions struct {
 	// Statuses filters to the named statuses. Naming any status is itself an
 	// opt-in to completed ones, exactly as IncludeDone is.
@@ -232,9 +229,6 @@ type ListOptions struct {
 	// IncludeDone opts completed (Done/Archived) and Deferred tasks back into
 	// a listing that hides them by default.
 	IncludeDone bool
-	// IncludeSummary asks the store for per-status counts alongside the rows.
-	// The counts always cover every task, and are never affected by Limit.
-	IncludeSummary bool
 	// Limit caps the number of rows returned; 0 means no cap.
 	Limit int
 }
@@ -243,12 +237,9 @@ type ListOptions struct {
 // and shaped by opts. opts.Limit caps the row COUNT of the result's Tasks —
 // applied last, after status/term/tag-query filtering and the default
 // active-only pass, so it truncates exactly what a caller would otherwise
-// have seen in full. A limit <= 0 means no cap. opts.IncludeSummary's counts
-// are computed by store.Summarize() straight from the store, independent of
-// the listing and the limit — they always cover every task, never just the
-// (possibly truncated) page returned here.
+// have seen in full. A limit <= 0 means no cap.
 func ListTasks(tc TaskContext, opts ListOptions) (*TaskListResult, error) {
-	statuses, includeDone, includeSummary, limit := opts.Statuses, opts.IncludeDone, opts.IncludeSummary, opts.Limit
+	statuses, includeDone, limit := opts.Statuses, opts.IncludeDone, opts.Limit
 	store, proj, warning, err := resolveTaskStore(tc)
 	if err != nil {
 		return nil, err
@@ -287,13 +278,6 @@ func ListTasks(tc TaskContext, opts ListOptions) (*TaskListResult, error) {
 	out := &TaskListResult{Path: store.Path(), Tasks: list, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir,
 		HiddenCompleted: hiddenCompleted, HiddenDeferred: hiddenDeferred, OmittedByLimit: omittedByLimit,
 		ProjectNewlyMinted: proj.New}
-	if includeSummary {
-		sum, err := store.Summarize()
-		if err != nil {
-			return nil, fmt.Errorf("summarize: %w", err)
-		}
-		out.Summary = &sum
-	}
 	return out, nil
 }
 

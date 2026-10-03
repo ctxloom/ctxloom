@@ -20,7 +20,7 @@ type taskListInput struct {
 	Term             string   `json:"term,omitempty" jsonschema:"Optional case-insensitive substring filter against task text."`
 	TagQuery         string   `json:"tag_query,omitempty" jsonschema:"Optional postfix (RPN) boolean tag filter over query atoms shaped (namespace:)key(op value), e.g. \"urgent/release/and\" (tagged both urgent AND release), \"urgent/release/or\", or \"urgent/not\" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: \"urgent/release\" behaves like \"urgent/release/and\". An atom with NO namespace (e.g. \"urgent\") matches ONLY tags that also have no namespace -- it never matches a namespaced tag with the same key, so \"urgent\" does NOT match \"triage:kind=urgent\"; query a namespaced key as \"ns:key\" or \"ns:key=value\" (e.g. \"triage:kind=defect\"). A bare key with no operator tests presence (valued or not); value comparisons use = != > >= < <= (numeric) or ~ (pattern match on the value, where . matches any single character, anchored to the whole value). * and + are wildcards: \"*:key\" matches key in any namespace including none, \"+:key\" matches key in any NAMED namespace, \"ns:*\" matches any key under namespace ns. Empty = no tag filter."`
 	IncludeCompleted bool     `json:"include_completed,omitempty" jsonschema:"When true, include the tasks hidden by default: completed (Done/Archived) and Deferred ones. When a filter matches hidden tasks, the result's hidden_completed/hidden_deferred counts say how many were suppressed."`
-	IncludeSummary   bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones. Ignored (no summary is returned) when global is set."`
+	IncludeSummary   bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress tasks alongside the task list, each in-progress task as {harp_id, project}. Counts always cover every task in the listing's scope, including completed and Deferred ones, regardless of statuses/term/tag_query/limit. When the listing is global the counts are summed across every project it scanned."`
 	Global           bool     `json:"global,omitempty" jsonschema:"When true, aggregate tasks across every PRIVATELY-homed project instead of just the current one. Off by default: task_list scopes to the project resolved from the working directory. Automatically turned on (with notice set) when no project can be resolved at all. A repo-homed project (homing: repo, its log checked into <repo>/.taskloom/tasks.jsonl) is registered nowhere global and is NEVER included, even if it is the current project -- every global listing's notice field says so."`
 	Sort             string   `json:"sort,omitempty" jsonschema:"Optional sort order. \"priority\" sorts by derived, rank-normalized priority (descending) — a 0-5 score combining a project's priority_fn/decay_fn formulas over each task's tags, percentile-ranked against the project's non-terminal tasks; see each returned task's derived_priority field. Empty (default) leaves today's order unchanged."`
 	Compact          bool     `json:"compact,omitempty" jsonschema:"When true, return compact rows instead of full task bodies: harp_id, status, checked, tags, and a headline (first line, truncated to 80 runes) in a compact_tasks field, rather than the full tasks field (which includes each task's complete text, trigger, and other detail). Use this (optionally with limit) to enumerate many tasks without an unfiltered listing returning every task's full multi-KB body -- prefer statuses/tag_query filters too. Default false preserves today's full-record tasks field exactly."`
@@ -234,7 +234,7 @@ func registerTaskTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "task_list",
-			Description: "List tasks, optionally filtered by status, text term, or tag query (tag_query). By default this is scoped to the CURRENT project (resolved from the working directory); pass global=true to aggregate every PRIVATELY-homed project instead (a repo-homed project -- homing: repo -- is registered nowhere global and is never included, even if it is the current project; the result's notice field always says so when global is true). When no project can be resolved at all (not in a git repo, no CTXLOOM_ROOT, no prior task history there), the listing automatically falls back to global too, with the same notice field explaining why. Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs (single-project only). To enumerate MANY tasks, pass compact=true (harp_id, status, checked, tags, and a truncated headline in compact_tasks -- no full text/trigger/detail) and/or limit (caps row count; omitted rows are reported in omitted_by_limit, and status/summary counts stay uncapped) -- an unfiltered listing otherwise returns every task's full body and can overflow the caller; prefer statuses/tag_query filters too. Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
+			Description: "List tasks, optionally filtered by status, text term, or tag query (tag_query). By default this is scoped to the CURRENT project (resolved from the working directory); pass global=true to aggregate every PRIVATELY-homed project instead (a repo-homed project -- homing: repo -- is registered nowhere global and is never included, even if it is the current project; the result's notice field always says so when global is true). When no project can be resolved at all (not in a git repo, no CTXLOOM_ROOT, no prior task history there), the listing automatically falls back to global too, with the same notice field explaining why. Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress tasks, each with its project (summed across projects when global). To enumerate MANY tasks, pass compact=true (harp_id, status, checked, tags, and a truncated headline in compact_tasks -- no full text/trigger/detail) and/or limit (caps row count; omitted rows are reported in omitted_by_limit, and status/summary counts stay uncapped) -- an unfiltered listing otherwise returns every task's full body and can overflow the caller; prefer statuses/tag_query filters too. Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
 		},
 		remedied(handleTaskList))
 
@@ -292,15 +292,14 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		return nil, nil, err
 	}
 	r, err := listTasksScoped(tc, listOptions{
-		Statuses:       in.Statuses,
-		Term:           in.Term,
-		TagQuery:       in.TagQuery,
-		All:            in.IncludeCompleted,
-		Global:         in.Global,
-		Sort:           in.Sort,
-		Compact:        in.Compact,
-		Limit:          in.Limit,
-		IncludeSummary: in.IncludeSummary,
+		Statuses: in.Statuses,
+		Term:     in.Term,
+		TagQuery: in.TagQuery,
+		All:      in.IncludeCompleted,
+		Global:   in.Global,
+		Sort:     in.Sort,
+		Compact:  in.Compact,
+		Limit:    in.Limit,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -313,13 +312,21 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		Path:               r.Path,
 		ProjectID:          r.ProjectID,
 		ProjectDir:         r.ProjectDir,
-		Summary:            r.Summary,
 		HiddenCompleted:    r.HiddenCompleted,
 		HiddenDeferred:     r.HiddenDeferred,
 		OmittedByLimit:     r.OmittedByLimit,
 		PriorityWarning:    r.PriorityWarning,
 		Warning:            r.Warning,
 		ProjectNewlyMinted: r.ProjectNewlyMinted,
+	}
+	if in.IncludeSummary {
+		// Over the scope the listing RESOLVED to, so a no-project fallback
+		// summarizes the same projects the rows came from.
+		_, sum, err := scopedSummary(tc, r.Global)
+		if err != nil {
+			return nil, nil, err
+		}
+		out.Summary = &sum
 	}
 	if in.Compact {
 		out.CompactTasks = compactRows(r.Rows)

@@ -162,13 +162,8 @@ type listOptions struct {
 	// default). Applied at the query layer AFTER every filter and the
 	// default active-only pass; rows it cuts are reported on stderr
 	// (noteOmittedByLimit) — status/summary counts are never affected, since
-	// they're computed independently, straight from the store.
+	// a summary is its own unfiltered read (scopedSummary).
 	Limit int
-
-	// IncludeSummary asks the store for per-status counts alongside the rows.
-	// `taskloom list` never sets it (`summary` is its own command); task_list's
-	// include_summary does, and both go through one pipeline.
-	IncludeSummary bool
 
 	Format clifmt.Format
 }
@@ -687,6 +682,8 @@ var (
 	tasksTagsTerm     string
 	tasksTagsTagQuery string
 	tasksTagsGlobal   bool
+
+	tasksSummaryGlobal bool
 )
 
 var tagsCmd = &cobra.Command{
@@ -837,36 +834,99 @@ func renderTagCounts(out io.Writer, visible []operations.TagCount) error {
 var summaryCmd = &cobra.Command{
 	Use:   "summary",
 	Short: "Show per-status counts and active in-progress tasks",
-	RunE:  runSummary,
+	Long: `Show per-status counts and the tasks currently in progress.
+
+Counts cover every task, completed and Deferred included. With --global they
+are summed across every privately-homed project, and each in-progress task is
+named with its project, since a harp id is unique only within one project.`,
+	Example: `  # this project's counts
+  taskloom summary
+
+  # summed across every privately-homed project
+  taskloom summary --global`,
+	Args: cobra.NoArgs,
+	RunE: runSummary,
 }
 
 func runSummary(cmd *cobra.Command, args []string) error {
-	tc, err := taskContextSingle()
+	format, err := cliemit.Resolve(cmd)
 	if err != nil {
 		return err
 	}
-	res, err := operations.ListTasks(tc, operations.ListOptions{IncludeSummary: true})
+	tc, err := taskContext()
 	if err != nil {
 		return err
 	}
-	warnTask(res.Warning)
-	sum := res.Summary
-	return cliemit.Emit(cmd, sum, func() error {
-		// Stable order so output is diffable.
-		keys := make([]string, 0, len(sum.Counts))
-		for k := range sum.Counts {
-			keys = append(keys, k)
+	return runSummaryCmd(cmd.OutOrStdout(), os.Stderr, tc, listOptions{Global: tasksSummaryGlobal, Format: format})
+}
+
+// runSummaryCmd is summaryCmd's RunE body, factored out like runTagsCmd so it
+// can be driven in tests without cobra machinery. Only Global and Format of
+// opts apply: a summary is never filtered.
+func runSummaryCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions) error {
+	r, sum, err := scopedSummary(tc, opts.Global)
+	if err != nil {
+		return err
+	}
+	if r.Notice != "" {
+		clidiag.Fwarn(errw, progName, "%s", r.Notice)
+	}
+	if opts.Format != clifmt.FormatText {
+		return clifmt.Render(out, sum, opts.Format)
+	}
+	w := errwriter.New(out)
+	if r.Global {
+		w.Printf("Projects: %d (--global)\n\n", r.ProjectCount)
+	}
+	// Stable order so output is diffable.
+	keys := make([]string, 0, len(sum.Counts))
+	for k := range sum.Counts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		w.Printf("%s\t%d\n", k, sum.Counts[k])
+	}
+	if len(sum.InProgress) > 0 {
+		names := make([]string, len(sum.InProgress))
+		for i, ip := range sum.InProgress {
+			names[i] = ip.HarpID
+			if r.Global {
+				names[i] = fmt.Sprintf("%s (%s)", ip.HarpID, ip.Project)
+			}
 		}
-		sort.Strings(keys)
-		w := errwriter.New(cmd.OutOrStdout())
-		for _, k := range keys {
-			w.Printf("%s\t%d\n", k, sum.Counts[k])
+		w.Printf("\nIn-progress: %s\n", strings.Join(names, ", "))
+	}
+	return w.Err()
+}
+
+// scopedSummary summarizes every task in the scope global selects (with the
+// same no-project fallback a listing takes): All on and no filters, so its
+// counts never depend on what a listing's filters or limit showed.
+func scopedSummary(tc operations.TaskContext, global bool) (*scopedListResult, tasks.Summary, error) {
+	r, err := listTasksScoped(tc, listOptions{All: true, Global: global})
+	if err != nil {
+		return nil, tasks.Summary{}, err
+	}
+	return r, summarizeRows(r.Rows), nil
+}
+
+// summarizeRows counts rows per status and names each in-progress row with its
+// project label. Both collections start empty rather than nil so an all-quiet
+// summary still marshals as {} and [], and a caller iterates it without first
+// testing for null.
+func summarizeRows(rows []taskRow) tasks.Summary {
+	out := tasks.Summary{Counts: map[string]int{}, InProgress: []tasks.InProgressTask{}}
+	for _, r := range rows {
+		out.Counts[r.Status]++
+		if r.Status == tasks.StatusInProgress {
+			out.InProgress = append(out.InProgress, tasks.InProgressTask{
+				HarpID:  r.HarpID,
+				Project: formatProjectLabel(r.ProjectDir, r.ProjectID),
+			})
 		}
-		if len(sum.InProgress) > 0 {
-			w.Printf("\nIn-progress: %s\n", strings.Join(sum.InProgress, ", "))
-		}
-		return w.Err()
-	})
+	}
+	return out
 }
 
 var statusesCmd = &cobra.Command{
@@ -926,6 +986,8 @@ func init() {
 	tagsCmd.Flags().StringSliceVar(&tasksTagsStatuses, "status", nil, `count only tasks in these statuses (repeatable); accepts the "@open"/"@terminal" classes exactly as `+"`taskloom list --status`"+` does`)
 	tagsCmd.Flags().StringVar(&tasksTagsTerm, "term", "", "count only tasks whose TEXT contains this case-insensitive substring (this narrows the tasks counted, never the tag names listed)")
 	tagsCmd.Flags().StringVar(&tasksTagsTagQuery, "tag-query", "", `count only tasks matching this postfix tag query, e.g. "urgent/release/and" (see "taskloom list --help" for the grammar)`)
+	summaryCmd.Flags().BoolVar(&tasksSummaryGlobal, "global", false, "sum the counts across every privately-homed project instead of just the current one (repo-homed projects are never included -- see \"taskloom list --help\")")
+
 	tagsCmd.Flags().BoolVar(&tasksTagsGlobal, "global", false, "count across every privately-homed project instead of just the current one (repo-homed projects are never included -- see \"taskloom list --help\")")
 
 	addCmd.SetFlagErrorFunc(textFlagError)

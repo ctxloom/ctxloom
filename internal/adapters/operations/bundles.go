@@ -379,12 +379,65 @@ func loadBundleForUpdate(store bundles.Store, cfg *config.Config, name string) (
 
 	bundle, err := store.Load(name)
 	if err != nil {
+		if perr := pinnedRemoteBundleRefusal(cfg, name); perr != nil {
+			return nil, perr
+		}
 		return nil, fmt.Errorf("bundle %q not found: %w", name, err)
 	}
 	if err := requireSafeBundlePath(cfg.GetBundleDirs(), bundle.Path); err != nil {
 		return nil, err
 	}
 	return bundle, nil
+}
+
+// ErrPinnedRemoteBundle reports a write aimed at a bundle pinned from a remote.
+// The store loads only project-authored bundles (bundles.Store.Load), so such a
+// write can never land; this names why instead of reporting "not found" about a
+// bundle the same ref reads successfully.
+var ErrPinnedRemoteBundle = errors.New("bundle is pinned from a remote and is read-only here")
+
+// PinnedRemoteBundleError is the ErrPinnedRemoteBundle refusal with what a user
+// needs to act on it: which remote, which pin, and the installed tree that can
+// be imported as a local fork.
+type PinnedRemoteBundleError struct {
+	Bundle string // canonical bundle ref
+	Remote string // the remote's URL
+	Pin    string // locked commit
+	Tree   string // installed tree at Pin
+}
+
+func (e *PinnedRemoteBundleError) Error() string {
+	return fmt.Sprintf("cannot write into bundle %q: it is pinned from remote %s at %s and is read-only here.\n"+
+		"  To change it locally, fork it: ctxloom bundle import %s — then edit the local copy.\n"+
+		"  To change it for everyone, edit it upstream in %s, then: ctxloom deps upgrade",
+		e.Bundle, e.Remote, e.Pin, e.Tree, e.Remote)
+}
+
+func (e *PinnedRemoteBundleError) Unwrap() error { return ErrPinnedRemoteBundle }
+
+// pinnedRemoteBundleRefusal returns a *PinnedRemoteBundleError when name — short
+// or canonical — is a bundle locked in the active lockfile, else nil. An
+// unreadable lockfile yields nil: the caller's own "not found" then stands, and
+// the lockfile failure surfaces on every read path that needs it.
+func pinnedRemoteBundleRefusal(cfg *config.Config, name string) error {
+	lock, err := LoadActiveLockfile(cfg)
+	if err != nil {
+		return nil
+	}
+	locked, ok := findLockedBundle(cfg, lock, name)
+	if !ok {
+		return nil
+	}
+	tree, err := locked.ref.LocalTreePath(ProjectAppDir(cfg))
+	if err != nil {
+		return nil
+	}
+	return &PinnedRemoteBundleError{
+		Bundle: locked.ref.CanonicalString(),
+		Remote: locked.entry.URL,
+		Pin:    locked.entry.SHA,
+		Tree:   tree,
+	}
 }
 
 // ListBundles returns a summary of every bundle to display (ADR 0019: the read

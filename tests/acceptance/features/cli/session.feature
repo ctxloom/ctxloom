@@ -232,7 +232,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session transcript purge amber-swift-owl --yes"
       Then the command succeeds
       And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+      And the output file "essence.md" of session "amber-swift-owl" exists
 
     # With no essence, the transcript is the only record of what happened.
     # The refusal names the flag that permits it deliberately.
@@ -265,14 +265,14 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command succeeds
       And the output contains "removed nothing"
       And the output contains "ctxloom session artifacts purge amber-swift-owl --yes"
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+      And the output file "essence.md" of session "amber-swift-owl" exists
 
     Scenario: --yes destroys the essence and leaves the transcript
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript and an essence
       When I run "ctxloom session artifacts purge amber-swift-owl --yes"
       Then the command succeeds
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
+      And the output file "essence.md" of session "amber-swift-owl" does not exist
       And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
 
     Scenario: The sweep reports before it removes
@@ -283,7 +283,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And the output contains "removed nothing"
       And the output contains "ctxloom session purge amber-swift-owl --yes"
       And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+      And the output file "essence.md" of session "amber-swift-owl" exists
 
     Scenario: The sweep empties a session but does not unlist it
       Given an initialized ctxloom project
@@ -291,7 +291,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session purge amber-swift-owl --yes"
       Then the command succeeds
       And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
+      And the output file "essence.md" of session "amber-swift-owl" does not exist
       When I run "ctxloom session list --all"
       Then the output contains "amber-swift-owl"
 
@@ -317,7 +317,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And the output contains "cannot be proven dead"
       And the output contains "ctxloom session purge amber-swift-owl --yes --even-if-live"
       And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+      And the output file "essence.md" of session "amber-swift-owl" exists
 
     Scenario: --even-if-live sweeps it anyway
       Given an initialized ctxloom project
@@ -325,7 +325,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session purge amber-swift-owl --yes --even-if-live"
       Then the command succeeds
       And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
+      And the output file "essence.md" of session "amber-swift-owl" does not exist
 
     # The index says ended; the lock says running. The lock wins, on the leaf
     # as much as on the sweep.
@@ -380,7 +380,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And the output contains "removed nothing"
       And the output contains "ctxloom session remove amber-swift-owl --yes"
       And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" exists
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+      And the output file "essence.md" of session "amber-swift-owl" exists
       When I run "ctxloom session list --all"
       Then the output contains "amber-swift-owl"
 
@@ -390,7 +390,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session remove amber-swift-owl --yes"
       Then the command succeeds
       And the home file ".ctxloom/sessions/amber-swift-owl/transcripts/transcript.jsonl" does not exist
-      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
+      And the output file "essence.md" of session "amber-swift-owl" does not exist
       When I run "ctxloom session list --all"
       Then the output does not contain "amber-swift-owl"
 

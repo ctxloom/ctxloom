@@ -400,12 +400,11 @@ func ListBundles(ctx context.Context, cfg *config.Config) ([]*bundles.BundleInfo
 	return listBundleInfos(ctx, cfg)
 }
 
-// GetBundle loads a single bundle by name. This is a READ path, so it goes
-// through the seeded loader (like GetItemContent/GetBundleMCP in items.go):
-// remote bundles exist only as lockfile-seeded references, and the unseeded
-// store would report "not found" for every canonical ref ListBundles just
-// displayed. Mutation paths (Update/Delete) keep the unseeded store — seeded
-// bundles are read-only.
+// GetBundle loads a single bundle by name through the seeded loader: remote
+// bundles exist only as lockfile-seeded references, and a loader without them
+// would report "not found" for every canonical ref ListBundles just displayed.
+// Every item reader (GetItemContent, GetBundleMCP) resolves through here so a
+// ref one command accepts, the next does not reject.
 func GetBundle(cfg *config.Config, name string) (*bundles.Bundle, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("no .ctxloom directory configured")

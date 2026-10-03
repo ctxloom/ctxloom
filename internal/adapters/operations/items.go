@@ -459,9 +459,11 @@ type GetBundleMCPResult struct {
 }
 
 // GetBundleMCP returns a bundle's MCP server config, or ErrItemNotFound. The
-// read half of an MCP edit; the frontend renders it however it likes.
+// read half of an MCP edit; the frontend renders it however it likes. It
+// resolves the bundle through GetBundle, as GetItemContent does, so every ref
+// `bundle show` accepts — including a short "<remote>/<bundle>" — resolves here.
 func GetBundleMCP(_ context.Context, cfg *config.Config, req GetBundleMCPRequest) (*GetBundleMCPResult, error) {
-	bundle, err := bundleLoader(cfg).Load(req.Bundle)
+	bundle, err := GetBundle(cfg, req.Bundle)
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", req.Bundle, err)
 	}

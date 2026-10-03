@@ -492,16 +492,23 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 	if s := shellForProgram(c.Program()); s != "" {
 		argShell = s
 	}
+	if !m.matchesInvocation(c, argShell, strictPrefix) {
+		return false
+	}
+	return m.matchesArgs(expandShortClusters(c.Args(), argShell))
+}
+
+// matchesInvocation applies the conditions on how the command is invoked —
+// detachment, the Command pattern and its operand count — under argShell's
+// flag conventions, leaving the set-membership argument tests to matchesArgs.
+func (m Match) matchesInvocation(c ir.SimpleCommand, argShell ir.Shell, strictPrefix bool) bool {
 	if m.Backgrounded && !isBackgrounded(c, argShell) {
 		return false
 	}
 	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, argShell, strictPrefix) {
 		return false
 	}
-	if m.MinOperands > 0 && len(classifyOperands(c.Args(), argShell)) < m.MinOperands {
-		return false
-	}
-	return m.matchesArgs(expandShortClusters(c.Args(), argShell))
+	return m.MinOperands == 0 || len(classifyOperands(c.Args(), argShell)) >= m.MinOperands
 }
 
 // detachedPrograms names commands whose own effect is to hand a job off

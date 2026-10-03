@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +16,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -907,6 +910,8 @@ func (c *Coordinator) Draining() bool {
 // it ended (rootSettled) — is removed with it: nothing resumes it, so it is
 // garbage the moment its owner lets go. A session's root, and any root
 // holding a run that has not ended, is kept for whoever resumes it.
+// Every finished agent's engine homes and per-run scratch are removed too
+// (removeDisposableMembers); its native history, spool and records stay.
 //
 // Order: seal the tracked group and the stream group (goTracked stops
 // Add()ing and a late stream handler is refused at enter, so nothing can
@@ -967,9 +972,44 @@ func (c *Coordinator) Close() {
 		// gate goes quiet, which measures nothing.
 		c.spoolIn.Close()
 		c.waitTracked()
+		c.removeDisposableMembers()
 		c.dropRoot = c.ownsRoot && c.ephemeral && c.rootSettled()
 		c.closePartial()
 	})
+}
+
+// removeDisposableMembers deletes the disposable members — the engine homes
+// and the per-run scratch — of every agent in this tree that has finished:
+// the owner, whose process is exiting, and each child whose run has ended.
+// A home is rebuilt from managed writers on the next launch and holds no
+// history (native history lives beside it), so a resume loses nothing; what
+// stays is everything a resume or a human reads. A run that has NOT ended may
+// still have an engine using its home (an adopted run whose runner never came
+// back), so its members are left. Best-effort: a failure is reported and the
+// next session sweep takes what is left.
+func (c *Coordinator) removeDisposableMembers() {
+	harps := []string{c.ownerHarp}
+	c.runs.View(func() {
+		for _, r := range c.runsF.runs {
+			if r.Ended && r.Harp != c.ownerHarp {
+				harps = append(harps, r.Harp)
+			}
+		}
+	})
+	for _, harp := range slices.Compact(slices.Sorted(slices.Values(harps))) {
+		if harp == "" {
+			continue
+		}
+		for _, at := range []func(string) (string, error){paths.HarpSessionEngineHomes, paths.HarpScratchDir} {
+			dir, err := at(harp)
+			if err != nil {
+				continue
+			}
+			if err := os.RemoveAll(dir); err != nil {
+				c.rep.Warnf("coordinator close: could not remove %s (the session sweep will): %v", dir, err)
+			}
+		}
+	}
 }
 
 // rootSettled reports that every run this root ever journaled has ended. A

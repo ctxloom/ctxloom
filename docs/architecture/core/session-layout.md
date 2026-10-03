@@ -80,6 +80,12 @@ base is configurable, so re-deriving it later could name a folder the session ne
 to. A process inside a container reaches it at `/ctxloom/out`, which `CTXLOOM_OUTPUT_DIR`
 names; `sessions.OutputDirIn` prefers that variable, then the record.
 
+Renaming a session (`session edit --name`, `sessions.Manager.Rename`) moves its output dir to
+the new name beside the old one and records the new path. Something already there
+(`sessions.ErrOutputDirExists`) or a move that fails (`sessions.ErrOutputDirMove`) refuses the
+rename, and every step taken is undone. An editor or sync client holding the old folder sees
+it move.
+
 ## Container mounts
 
 | Host | Container | Mode | Built by |

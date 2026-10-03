@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -342,6 +343,9 @@ func (m *MemStore) Rename(oldName, newName string) error {
 		return fmt.Errorf("harp not found: %q", oldName)
 	}
 	m.sessions[targetIdx].HarpName = newName
+	if out := m.sessions[targetIdx].OutputDir; out != "" {
+		m.sessions[targetIdx].OutputDir = filepath.Join(filepath.Dir(out), newName)
+	}
 	return nil
 }
 

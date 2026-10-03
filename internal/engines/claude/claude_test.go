@@ -1068,8 +1068,8 @@ func TestLoadSettings_UnreadableStatusLineIsRefusedNotDropped(t *testing.T) {
 // that round was re-added. A user is equally entitled to invoke ctxloom — a
 // wrapper, a report, their own tooling — and theirs was deleted silently, exit
 // 0, with no diff. The claim now comes from the sidecar ledger (Claude Code's
-// strict schema forbids an in-file marker, which is why claudeCodeHook.SCM is
-// json:"-" and never reaches disk), plus ctxloom's own four machine callbacks.
+// strict schema forbids an in-file marker, which is why claudeCodeHook carries
+// none), plus ctxloom's own four machine callbacks.
 //
 // The control matters: an inject-context hook in the SAME file must still be
 // reconciled away, or this test would pass just as well against a writer that
@@ -1244,4 +1244,35 @@ func TestClaudeCodeHookWriter_WritesTheDeclaredCtxloomEntryVerbatim(t *testing.T
 	assert.Equal(t, declared[agent.MCPServerName].Args, got.Args, "args written as declared")
 	assert.Equal(t, declared[agent.MCPServerName].Env, got.Env, "env written as declared — nothing is discarded behind the loadout's back")
 	assert.Equal(t, "${CLAUDE_PROJECT_DIR}", got.Cwd, "cwd is the writer's one addition")
+}
+
+// TestStatus_ReadBackManagedHookIsRecognised pins that HooksPresent is decided
+// by the executable token of what is ON DISK. The hook's SCM marker never
+// reaches settings.json (Claude Code's strict schema forbids the field), so a
+// writer-installed hook read back carries no marker and must still count.
+// The control holds the other side: a user's non-ctxloom hook is not ours.
+func TestStatus_ReadBackManagedHookIsRecognised(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	w := &ClaudeCodeHookWriter{FS: fs}
+	projectDir := "/proj"
+
+	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{
+		PostTool: []wire.Hook{{Command: agent.CtxloomBinary, Args: []string{"hook", "stamp-plan"}, Matcher: "Edit", SCM: "bundle:ctxloom+companion:ctxloom"}},
+	}}
+	require.NoError(t, atRest(t, fs, projectDir).Install(managedPackage(hooks, ctxloomBundleMCP())))
+
+	data, err := afero.ReadFile(fs, w.SettingsPath(projectDir))
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "bundle:ctxloom+companion", "control: the marker must not reach disk, or this test proves nothing")
+
+	status, err := w.Status(projectDir)
+	require.NoError(t, err)
+	assert.True(t, status.HooksPresent, "a ctxloom hook read back from settings.json is ctxloom-managed")
+
+	userDir := "/user"
+	testsupport.WriteFileString(t, fs, w.SettingsPath(userDir),
+		`{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"./mine.sh"}]}]}}`, 0o644)
+	status, err = w.Status(userDir)
+	require.NoError(t, err)
+	assert.False(t, status.HooksPresent, "a user's own hook is not ctxloom-managed")
 }

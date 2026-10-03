@@ -134,11 +134,11 @@ type claudeCodeHookMatcher struct {
 
 // claudeCodeHook represents a single hook in Claude Code format.
 //
-// Note: The SCM field is intentionally NOT serialized to JSON (json:"-").
-// Claude Code uses Zod schema validation with .strict() mode when validating
-// edits to settings.json, which rejects unknown fields. Instead of relying on
-// a marker field, we identify ctxloom-managed hooks by their executable token
-// (the command's first word resolves to `ctxloom`) via isCtxloomManaged().
+// It carries no provenance marker: Claude Code uses Zod schema validation
+// with .strict() mode when validating edits to settings.json, which rejects
+// unknown fields. A ctxloom-managed hook read back is identified by its
+// executable token (the command's first word resolves to `ctxloom`) via
+// exectoken.IsManaged.
 // This is path-agnostic: any `ctxloom <subcommand>` hook is recognized, so the
 // callback subcommand can move without breaking detection or cleanup.
 // See: claude-code-src/src/utils/settings/validation.ts:193
@@ -151,7 +151,6 @@ type claudeCodeHook struct {
 	Prompt  string   `json:"prompt,omitempty"`
 	Timeout int      `json:"timeout,omitempty"`
 	Async   bool     `json:"async,omitempty"`
-	SCM     string   `json:"-"` // Internal only - not serialized (Claude Code strict schema validation)
 }
 
 // line is the hook's command identity — the whole argv as one shell line
@@ -509,7 +508,7 @@ func claudeHasManagedHook(settings *claudeCodeSettings) bool {
 	for _, matchers := range settings.Hooks {
 		for _, matcher := range matchers {
 			for _, hook := range matcher.Hooks {
-				if hook.SCM != "" || exectoken.IsManaged(hook.line(), "ctxloom") {
+				if exectoken.IsManaged(hook.line(), "ctxloom") {
 					return true
 				}
 			}

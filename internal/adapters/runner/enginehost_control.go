@@ -264,14 +264,14 @@ func (eh *EngineHost) turnFrame(t *agentcoordpb.Turn) *agentcoordpb.RunnerRespon
 	}
 	done := make(chan turnOutcome, 1)
 	if err := eh.enqueueTurn(eh.baseCtx, turnTag{done: done}, t.GetPrompt()); err != nil {
-		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unavailable, "turn: "+err.Error())}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.RefusalStatus(codes.Unavailable, fmt.Errorf("turn: %w", err))}
 	}
 	select {
 	case out := <-done:
 		if out.err != nil {
 			// The engine's own account of the failed turn answers the frame,
 			// so the coordinator's caller renders WHY — the run ends after.
-			return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Aborted, "turn: "+out.err.Error())}
+			return &agentcoordpb.RunnerResponse{Status: coordgrpc.RefusalStatus(codes.Aborted, fmt.Errorf("turn: %w", out.err))}
 		}
 		res := out.res
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_Turn{Turn: &agentcoordpb.TurnResult{NativeKey: res.NativeKey, Answer: res.Answer}}}
@@ -324,7 +324,7 @@ func (eh *EngineHost) setGrants(req *agentcoordpb.SetGrants) *agentcoordpb.Runne
 	switch {
 	case appr != nil:
 		if err := appr.setGrants(req.GetRules()); err != nil {
-			return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.InvalidArgument, err.Error())}
+			return &agentcoordpb.RunnerResponse{Status: coordgrpc.RefusalStatus(codes.InvalidArgument, err)}
 		}
 	case len(req.GetRules()) > 0:
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, errNoApprovalRoute.Error())}

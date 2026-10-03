@@ -401,9 +401,9 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		// process took the port between mint and bind). Everything else
 		// is the launch's own fault.
 		if errors.Is(err, delivery.ErrEndpointUnavailable) {
-			return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unavailable, err.Error())}
+			return &agentcoordpb.RunnerResponse{Status: coordgrpc.RefusalStatus(codes.Unavailable, err)}
 		}
-		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.InvalidArgument, err.Error())}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.RefusalStatus(codes.InvalidArgument, err)}
 	}
 	eh.mu.Lock()
 	result := eh.result

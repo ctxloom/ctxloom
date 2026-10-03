@@ -216,16 +216,29 @@ func (c *Coordinator) CredentialHolds() []CredentialHold {
 	return out
 }
 
-// runHolds is the roster's view of every run a hold parks — a failure's or a
-// pause — by run id. Its Source is the credential's carrier names, not the
-// hold's key: a run's own hold (an overload, or a run with no credential) is
-// keyed by its run id, which names no carrier, and a pause has none.
+// runHolds is the roster's view of every hold — a failure's or a pause — by
+// the run id the roster shows for each harp it covers: the run it parks, or,
+// for a harp whose run ended while held (its runner lost, a restart that
+// could not re-adopt it), that harp's ended current run: the harp is still
+// held, and is relaunched only at the release. Its Source is the
+// credential's carrier names, not the hold's key: a run's own hold (an
+// overload, or a run with no credential) is keyed by its run id, which names
+// no carrier, and a pause has none.
 func (c *Coordinator) runHolds() map[string]*RunHold {
 	out := make(map[string]*RunHold)
 	c.runs.View(func() {
-		for runID := range c.holdsF.byRun {
-			h := c.holdsF.holdOfRun(runID)
-			out[runID] = &RunHold{Kind: h.Kind, Source: h.Source.Key, Until: h.Until}
+		for _, h := range c.holdsF.byKey {
+			hold := &RunHold{Kind: h.Kind, Source: h.Source.Key, Until: h.Until}
+			for harp, runID := range h.Members {
+				if runID == "" {
+					if r := c.runsF.currentRun(harp); r != nil {
+						runID = r.RunID
+					}
+				}
+				if runID != "" {
+					out[runID] = hold
+				}
+			}
 		}
 	})
 	return out

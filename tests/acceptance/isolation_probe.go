@@ -29,12 +29,12 @@
 // THE TWO OBSERVATION PROBLEMS THIS FILE SOLVES:
 //
 //  1. Worktree axis: internal/adapters/isolation/worktree.go's
-//     worktreeWorkspace.Cleanup removes the ENTIRE per-agent scratch tree
-//     (worktree checkout + config-home) unconditionally the moment the run's
-//     own process returns — there is no post-run inspection window at all.
-//     watchScratch (below) polls for that scratch tree's appearance under
-//     ~/.ctxloom/sessions/<harp>/ephemeral/ WHILE the live run is still in
-//     flight and keeps the last non-empty snapshot observed — the same
+//     worktreeWorkspace.Cleanup removes the per-agent checkout the moment
+//     the run's own process returns, and the engine's config home is the
+//     SESSION's engine home (launch.SessionHome), not a worktree scratch dir.
+//     watchScratch (below) polls both under ~/.ctxloom/sessions/<harp>/
+//     WHILE the live run is still in flight and keeps the last non-empty
+//     snapshot observed — the same
 //     "only vantage point is DURING the run" constraint
 //     steps_j002200_isolation_matrix.go's package doc states for its own spy.
 //  2. Container axis: `docker run --rm` (internal/adapters/isolation/runtime.go)
@@ -72,6 +72,8 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // probeAxis names the isolation axis under test: the WORKSPACE axis
@@ -219,13 +221,13 @@ func probeCensusRoots(backendType string) ([]string, error) {
 // --- worktree-axis live observation -----------------------------------
 
 // probeScratchSnapshot is the best-effort evidence gathered by watching the
-// per-agent ephemeral scratch (worktree checkout + config-home) WHILE a live
+// per-agent worktree checkout and the session's engine homes WHILE a live
 // run is in flight. See this file's package doc, problem (1).
 type probeScratchSnapshot struct {
 	CheckoutDir  string
 	ConfigHome   string
 	CheckoutTree []string // relative paths seen under the worktree checkout
-	ConfigTree   []string // relative paths seen under the config-home scratch
+	ConfigTree   []string // relative paths seen under the session's engine homes (<leaf>/...)
 	// TokenFound/TokenContent: the probe's own trivial-write payload
 	// (probeTokenFileName), read live from the checkout WHILE it still
 	// exists — never a credential, safe to capture. "" / false when not yet
@@ -234,9 +236,9 @@ type probeScratchSnapshot struct {
 	TokenContent string
 }
 
-// watchScratch polls homeDir/.ctxloom/sessions for the per-agent scratch
-// tree isolation/worktree.go's worktreeScratchPath creates
-// (ctxloom-wt-*/ctxloom-cfg-*/ctxloom-home-*) and returns the LAST non-empty
+// watchScratch polls homeDir/.ctxloom/sessions for the per-agent checkout
+// isolation/worktree.go creates (ctxloom-wt-*) and for each session's engine
+// homes (launch.SessionHome's <harp>/home/<leaf>), and returns the LAST non-empty
 // snapshot observed once ctx is cancelled. Start it BEFORE launching the live
 // run; cancel ctx once the run's process has exited.
 func watchScratch(ctx context.Context, homeDir string) <-chan probeScratchSnapshot {
@@ -253,15 +255,12 @@ func watchScratch(ctx context.Context, homeDir string) <-chan probeScratchSnapsh
 				close(out)
 				return
 			case <-ticker.C:
-				// FIELD-WISE sticky merge, never a wholesale replace:
-				// isolation/worktree.go's Cleanup removes the config-home
-				// UNCONDITIONALLY but the checkout only conditionally (a
-				// dirty checkout — e.g. our own probe token file — is left
-				// in place). That means there is a real in-between tick,
-				// late in the run, where ConfigTree has already gone empty
-				// but CheckoutTree is still populated — a wholesale
+				// FIELD-WISE sticky merge, never a wholesale replace: the
+				// checkout and the engine home are torn down by different
+				// owners at different moments, so a late tick can see one
+				// already gone and the other still populated — a wholesale
 				// `last = snap` on THAT tick would silently erase the good
-				// config-home snapshot an earlier tick already captured.
+				// snapshot an earlier tick already captured.
 				// Merging field-by-field, only overwriting a field when the
 				// new scan actually saw something, makes the final `last`
 				// the union of everything ever observed, independent of
@@ -296,6 +295,11 @@ func scanScratchOnce(sessionsDir string) probeScratchSnapshot {
 		if !h.IsDir() {
 			continue
 		}
+		homes := filepath.Join(sessionsDir, h.Name(), paths.SessionEngineHomesDirName)
+		if tree := listRelFiles(homes); len(tree) > 0 {
+			snap.ConfigHome = homes
+			snap.ConfigTree = tree
+		}
 		ephemeral := filepath.Join(sessionsDir, h.Name(), "ephemeral")
 		entries, err := os.ReadDir(ephemeral)
 		if err != nil {
@@ -312,9 +316,6 @@ func scanScratchOnce(sessionsDir string) probeScratchSnapshot {
 					snap.TokenFound = true
 					snap.TokenContent = string(data)
 				}
-			case strings.HasPrefix(name, "ctxloom-cfg-"), strings.HasPrefix(name, "ctxloom-home-"):
-				snap.ConfigHome = full
-				snap.ConfigTree = listRelFiles(full)
 			}
 		}
 	}
@@ -840,13 +841,29 @@ func assertProbeWorktree(res *probeResult) error {
 	if !res.Scratch.TokenFound || !strings.Contains(res.Scratch.TokenContent, res.Token) {
 		return fmt.Errorf("(b) token file: never observed %s carrying the probe's token under the isolated checkout %s (checkout tree seen: %v)", probeTokenFileName, res.Scratch.CheckoutDir, res.Scratch.CheckoutTree)
 	}
-	if len(res.Scratch.ConfigTree) == 0 {
-		return fmt.Errorf("(c) config-home evidence: no writes were ever observed under the isolated config-home %s — either the watcher's polling window missed the whole run, or isolation never engaged", res.Scratch.ConfigHome)
+	engineWrites, err := probeEngineWriteDir(res.Engine)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(res.Scratch.ConfigTree, func(rel string) bool { return isAncestorOf(engineWrites, rel) }) {
+		return fmt.Errorf("(c) config-home evidence: the engine wrote nothing under %s in the session's engine home %s (seen: %v) — either the engine was never pointed at the session home, or the watcher's polling window missed the whole run", engineWrites, res.Scratch.ConfigHome, res.Scratch.ConfigTree)
 	}
 	if len(res.HostDiff) != 0 {
 		return fmt.Errorf("(d) host census: changed under isolation (an unexpected leak): %v", res.HostDiff)
 	}
 	return nil
+}
+
+// probeEngineWriteDir is where, relative to the session's engine homes, an
+// engine leaves state only IT writes. ctxloom writes into the same home before
+// launch (the instance config, the settings), so a non-empty home proves
+// nothing about where the engine wrote; claude's own transcript does.
+func probeEngineWriteDir(backendType string) (string, error) {
+	switch backendType {
+	case "claude-code":
+		return filepath.Join(claude.HomeLeaf, claude.TranscriptsDirName), nil
+	}
+	return "", fmt.Errorf("isolation probe: no engine-written evidence is declared for %q — name where it writes its own state before probing it", backendType)
 }
 
 // assertProbeContainer checks the container axis's four guarantees. The

@@ -37,7 +37,7 @@ flowchart TD
     THICK --> OPS
     THICK --> ISO[["internal/adapters/isolation"]]
     THICK --> COORD[["internal/core/coord"]]
-    THICK --> VPIO[["internal/adapters/vpio"]]
+    THICK --> TTY[["internal/adapters/hostpty · termui"]]
     OPS --> DOM[["domain: bundles · config · memory · remote · signing · transcript"]]
     FMT --> CE[["shared/cliemit → pkg/clifmt"]]
     SH --> STR[["shared/strictness"]]

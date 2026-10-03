@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -221,7 +222,7 @@ func TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep(t *testing.T) {
 
 	// The message, written straight into the child's out/ so that no honest
 	// doorbell is rung for it by anyone.
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{
 		Kind: KindResult, FromHarp: out.Harp, To: ParentAddress,

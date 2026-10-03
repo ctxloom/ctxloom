@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -118,7 +119,7 @@ func TestSpoolDrop_UnmappableKindTellsTheParentAndCarriesTheText(t *testing.T) {
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
 	const finding = "the mutation was RED and the gate exited 0"
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{
 		Kind:     "a-kind-this-build-does-not-know",
@@ -154,7 +155,7 @@ func TestSpoolDrop_RefusedRoutingTellsTheParentNotOnlyTheSender(t *testing.T) {
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
 	const finding = "sibling-addressed findings that must not evaporate"
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{
 		Kind:     KindResult,

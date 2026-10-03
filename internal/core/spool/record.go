@@ -85,7 +85,7 @@ func (r identityRecord) finish(m PathMapper, ref Ref, srcDir Dir, identity strin
 		}
 		return fmt.Errorf("spool: deleting %s %s: %w", r.what, ref, err)
 	}
-	if err := syncDir(src); err != nil {
+	if err := syncDir(afero.NewOsFs(), src); err != nil {
 		return fmt.Errorf("spool: deleting %s %s: %w", r.what, ref, err)
 	}
 	return r.prune(m, ref.Harp, now)

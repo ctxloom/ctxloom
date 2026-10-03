@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -102,7 +103,7 @@ func TestRunnerExitPaths_ConsumedSpoolMessageIsKept(t *testing.T) {
 	spooltest.TeeHome(t)
 	const harp = "third-happy-daily"
 	mapper := spool.NewHomeMapper()
-	w, err := spool.NewWriter(mapper, harp, spool.DirOut, harp)
+	w, err := spool.NewWriter(afero.NewOsFs(), mapper, harp, spool.DirOut, harp)
 	require.NoError(t, err)
 	kept, err := w.Write(&spool.Message{Kind: "result", FromHarp: harp, To: "parent", OriginID: "m-routed", Body: "turn result"})
 	require.NoError(t, err)
@@ -137,7 +138,7 @@ func TestRunnerExitPaths_DeliveredInboxMessageIsKept(t *testing.T) {
 	spooltest.TeeHome(t)
 	const harp = "fourth-quiet-inbox"
 	mapper := spool.NewHomeMapper()
-	w, err := spool.NewWriter(mapper, harp, spool.DirIn, "coord")
+	w, err := spool.NewWriter(afero.NewOsFs(), mapper, harp, spool.DirIn, "coord")
 	require.NoError(t, err)
 	kept, err := w.Write(&spool.Message{Kind: "message", FromHarp: "parent", To: harp, OriginID: "m-kept", Body: "delivered"})
 	require.NoError(t, err)

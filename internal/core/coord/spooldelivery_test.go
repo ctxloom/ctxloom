@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -305,7 +306,7 @@ func TestSpoolDelivery_SweepDeliversWhatNoDoorbellEverAnnounced(t *testing.T) {
 	require.Zero(t, home.SpoolDoorbellStats().Rejected)
 
 	ringsBefore := home.SpoolDoorbellStats()
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{
 		Kind: KindMessage, FromHarp: ownerIdentity().Harp, To: out.Harp,
@@ -335,7 +336,7 @@ func TestSpoolDelivery_ColdRunnerDrainsItsSpoolBeforeAnyChannel(t *testing.T) {
 	const harp = "cold-start-harp"
 
 	// Mail written while the receiving side does not exist yet.
-	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	for _, body := range []string{"written while down one", "written while down two"} {
 		_, err = w.Write(&spool.Message{Kind: KindMessage, FromHarp: "coordinator-harp", To: harp, Body: body})
@@ -415,7 +416,7 @@ func TestSpoolDelivery_AwaitMailAckedWaitsForTheDeliveryAck(t *testing.T) {
 		return true
 	})
 
-	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: KindMessage, FromHarp: "coordinator-harp", To: harp, Body: "answer me"})
 	require.NoError(t, err)
@@ -474,7 +475,7 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 	first.Close()
 
 	// The child writes its report into out/ with nobody listening.
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{
 		Kind: KindResult, FromHarp: out.Harp, To: ParentAddress, Body: "written while the coordinator was down",
@@ -530,7 +531,7 @@ func TestSpoolDelivery_DeliveredMailIsNeverDeliveredTwice(t *testing.T) {
 		"repeated sweeps of a delivered message must not re-deliver")
 
 	// The crash window: the record was written, the delete never happened.
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: KindMessage, FromHarp: ownerIdentity().Harp, To: out.Harp,
 		OriginID: msgID, Body: "exactly once please"})
@@ -589,7 +590,7 @@ func TestSpoolDelivery_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 	mapper := spool.NewHomeMapper()
 
 	// Coordinator side: the same, for an out/ file.
-	outW, err := spool.NewWriter(mapper, out.Harp, spool.DirOut, out.Harp)
+	outW, err := spool.NewWriter(afero.NewOsFs(), mapper, out.Harp, spool.DirOut, out.Harp)
 	require.NoError(t, err)
 	outMsg := &spool.Message{Kind: KindResult, FromHarp: out.Harp, To: ParentAddress, OriginID: "m-raced-back", Body: "raced back"}
 	outRef, err := outW.Write(outMsg)
@@ -619,7 +620,7 @@ func TestSpoolDelivery_SenderIdentityIsTheDirectoryNotTheFile(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{
 		Kind: KindResult,
@@ -674,7 +675,7 @@ func TestSpoolDelivery_NonObjectStructuredSurvivesTheDelivery(t *testing.T) {
 	sm, err := spoolMessageForMail(Message{ID: "m-array", From: "coordinator-harp", To: harp, Kind: KindMessage,
 		Body: "carrying an array", Structured: raw}, harp)
 	require.NoError(t, err)
-	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	_, err = w.Write(sm)
 	require.NoError(t, err)
@@ -711,7 +712,7 @@ func TestSpoolDelivery_PendingCountReadsTheSpool(t *testing.T) {
 	// a race, so the race has to be retired first.
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	for i := 0; i < 2; i++ {
 		_, err = w.Write(&spool.Message{Kind: KindMessage, FromHarp: "coordinator-harp", To: out.Harp, Body: "queued"})
@@ -737,7 +738,7 @@ func TestSpoolDelivery_PendingCountSkipsARecordedDelivery(t *testing.T) {
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 	home.Crash() // no reader: the file must stay put for the count to read
 
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: KindMessage, FromHarp: "coordinator-harp", To: out.Harp, OriginID: "m-done", Body: "done"})
 	require.NoError(t, err)
@@ -792,7 +793,7 @@ func TestSpoolDelivery_UnmappableKindReachesATerminalState(t *testing.T) {
 	teeHome(t)
 	const harp = "unmappable-kind-harp"
 
-	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{
 		Kind: "a-kind-this-build-does-not-know", FromHarp: "coordinator-harp", To: harp,

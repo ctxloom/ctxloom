@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/spool"
@@ -117,7 +118,7 @@ func TestOwnerLoss_NoNewTurnWhileTheOwnerIsAway(t *testing.T) {
 	turns := len(chat.RecordedTexts())
 
 	crashCoordinator(first)
-	wr, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirIn, "coord")
+	wr, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirIn, "coord")
 	require.NoError(t, err)
 	_, err = wr.Write(&spool.Message{Kind: KindMessage, FromHarp: ownerIdentity().Harp, To: out.Harp, Body: "mail while away\n"})
 	require.NoError(t, err)

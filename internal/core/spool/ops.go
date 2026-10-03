@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/spf13/afero"
 )
 
 // ErrAlreadyGone reports that a spool file is not at the ref the caller
@@ -164,7 +165,7 @@ func renameInto(from, to string) error {
 		}
 		return err
 	}
-	return syncDir(filepath.Dir(to))
+	return syncDir(afero.NewOsFs(), filepath.Dir(to))
 }
 
 // moveTo renames ref into dir, returning the new ref.

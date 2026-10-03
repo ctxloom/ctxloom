@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
@@ -24,7 +25,7 @@ func TestSpool_TheRootAndWhatIsBeneathItAreOwnerOnly_ADACL(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(root, 0o755))
 
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 	ref, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, Body: "x\n"})
 	require.NoError(t, err)

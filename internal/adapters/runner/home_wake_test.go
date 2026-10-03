@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -75,7 +76,7 @@ func newOwnerHome(t *testing.T) (*Home, *recordingWake, *alarms, *lockedFindings
 
 func seedOwnerIn(t *testing.T, h *Home) {
 	t.Helper()
-	wr, err := spool.NewWriter(h.cfg.Mapper, h.Harp(), spool.DirIn, "coord")
+	wr, err := spool.NewWriter(afero.NewOsFs(), h.cfg.Mapper, h.Harp(), spool.DirIn, "coord")
 	require.NoError(t, err)
 	_, err = wr.Write(&spool.Message{Kind: "message", FromHarp: "child", To: h.Harp(), Body: "hi\n"})
 	require.NoError(t, err)

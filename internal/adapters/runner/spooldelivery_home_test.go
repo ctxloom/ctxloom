@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -39,7 +40,7 @@ func TestSpoolDelivery_ExitedRunnerStopsSweepingIn(t *testing.T) {
 
 	home.ReportRunExited(0, "") // no link to send on; the exit is still this runner's state
 
-	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, "coord")
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), harp, spool.DirIn, "coord")
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: coord.KindMessage, FromHarp: "coordinator-harp", To: harp, Body: "for the next run"})
 	require.NoError(t, err)
@@ -72,7 +73,7 @@ func TestHome_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 	mapper := spool.NewHomeMapper()
 
 	// Runner side: a file whose consume the other path already won.
-	inW, err := spool.NewWriter(mapper, harp, spool.DirIn, "coord")
+	inW, err := spool.NewWriter(afero.NewOsFs(), mapper, harp, spool.DirIn, "coord")
 	require.NoError(t, err)
 	inRef, err := inW.Write(&spool.Message{Kind: coord.KindMessage, FromHarp: "coordinator-harp", To: harp, Body: "raced"})
 	require.NoError(t, err)

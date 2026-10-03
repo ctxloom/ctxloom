@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/spf13/afero"
 )
 
 // ErrNotInjectable rejects a control action whose target the coordinator does
@@ -508,7 +509,7 @@ func New(opts Options) (*Coordinator, error) {
 		ownerHarp:          opts.OwnerHarp,
 		mapper:             mapper,
 		spoolSweepInterval: opts.SpoolSweepInterval,
-		spoolIn:            NewSpoolWriterCache(mapper, spool.DirIn, spoolWriterIDCoordinator),
+		spoolIn:            NewSpoolWriterCache(afero.NewOsFs(), mapper, spool.DirIn, spoolWriterIDCoordinator),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {

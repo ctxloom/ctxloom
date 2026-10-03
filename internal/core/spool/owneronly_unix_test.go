@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,7 +41,7 @@ func TestSpool_TheRootIsTightenedToOwnerOnly(t *testing.T) {
 func TestSpool_AFreshLayoutAndItsFilesAreOwnerOnly(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 	ref, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, Body: "x\n"})
 	require.NoError(t, err)

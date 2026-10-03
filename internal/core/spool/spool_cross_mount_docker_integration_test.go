@@ -43,6 +43,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
@@ -91,7 +92,7 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 
 	// Host side: write one in/ message and deliver it, so the container has
 	// both a record entry to observe and an empty in/ to confirm.
-	w, err := NewWriter(m, harp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, harp, DirIn, "coord")
 	require.NoError(t, err)
 	inRef, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: harp, OriginID: marker + "-in", Body: marker + "-in\n"})
 	require.NoError(t, err)

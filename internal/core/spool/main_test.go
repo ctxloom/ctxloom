@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
+	"github.com/spf13/afero"
 )
 
 // Probe-mode environment for the container side of the docker-gated
@@ -179,7 +180,7 @@ func runProbe(phase string) int {
 	fmt.Printf("PROBE_DELIVERED_PATH=%s\n", filepath.Join(root, filepath.FromSlash(deliveredRecord.rel), identity))
 
 	// 2. Write one out/ message for the host to read back.
-	w, err := NewWriter(m, harp, DirOut, "agentprobe")
+	w, err := NewWriter(afero.NewOsFs(), m, harp, DirOut, "agentprobe")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "probe: creating the out writer: %v\n", err)
 		return 1

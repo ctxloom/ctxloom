@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/spf13/afero"
 )
 
 // spoolWriterIDCoordinator is the writer token stamped into every filename the
@@ -28,6 +29,7 @@ const spoolWriterIDCoordinator = "coord"
 // and could mint the same filename inside one nanosecond. One writer per
 // (harp, direction) is what makes spool.Writer's own mutex sufficient.
 type SpoolWriterCache struct {
+	fs     afero.Fs
 	mapper spool.PathMapper
 	dir    spool.Dir
 	id     string
@@ -52,8 +54,8 @@ type SpoolWriterCache struct {
 // errStoreClosed.
 var errSpoolClosed = errors.New("coord: spool closed")
 
-func NewSpoolWriterCache(m spool.PathMapper, dir spool.Dir, writerID string) *SpoolWriterCache {
-	return &SpoolWriterCache{mapper: m, dir: dir, id: writerID, writers: map[string]*spool.Writer{}}
+func NewSpoolWriterCache(fs afero.Fs, m spool.PathMapper, dir spool.Dir, writerID string) *SpoolWriterCache {
+	return &SpoolWriterCache{fs: fs, mapper: m, dir: dir, id: writerID, writers: map[string]*spool.Writer{}}
 }
 
 // SetWriterID names the writer once the runner knows which run it is (the
@@ -80,7 +82,7 @@ func (c *SpoolWriterCache) writerFor(harp string) (*spool.Writer, func(), error)
 	w, ok := c.writers[harp]
 	if !ok {
 		var err error
-		w, err = spool.NewWriter(c.mapper, harp, c.dir, c.id)
+		w, err = spool.NewWriter(c.fs, c.mapper, harp, c.dir, c.id)
 		if err != nil {
 			return nil, nil, err
 		}

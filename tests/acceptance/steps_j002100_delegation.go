@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"github.com/spf13/afero"
 
 	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -624,7 +625,7 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			if !ok || harp == "" {
 				return fmt.Errorf("j002100: no session harp remembered for %q", name)
 			}
-			out, err := spool.NewWriter(scenarioSpoolMapper{home: w.env.HomeDir}, harp, spool.DirOut, harp)
+			out, err := spool.NewWriter(afero.NewOsFs(), scenarioSpoolMapper{home: w.env.HomeDir}, harp, spool.DirOut, harp)
 			if err != nil {
 				return err
 			}

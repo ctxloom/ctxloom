@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -75,7 +76,7 @@ func TestDoctorCheckSpoolBacklog_RightState_HealthySpoolNothingStuck(t *testing.
 	mapper := spool.NewHomeMapper()
 	harp := "amber-quiet-heron"
 	require.NoError(t, spool.EnsureDirs(mapper, harp))
-	w, err := spool.NewWriter(mapper, harp, spool.DirIn, "coord")
+	w, err := spool.NewWriter(afero.NewOsFs(), mapper, harp, spool.DirIn, "coord")
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: "message", Body: "hello"})
 	require.NoError(t, err)
@@ -435,7 +436,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry(t *testi
 	harp := "amber-quiet-heron"
 	require.NoError(t, spool.EnsureDirs(mapper, harp))
 
-	w, err := spool.NewWriter(mapper, harp, spool.DirOut, harp)
+	w, err := spool.NewWriter(afero.NewOsFs(), mapper, harp, spool.DirOut, harp)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{Kind: "result", FromHarp: harp, To: "parent", Body: "my findings"})
 	require.NoError(t, err)

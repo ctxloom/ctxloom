@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/spool"
@@ -79,7 +80,7 @@ func DirsUnder(t *testing.T, root string) []string {
 // with.
 func WriteMail(t *testing.T, harp, from, spoolKind, body, writerID string) {
 	t.Helper()
-	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, writerID)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), harp, spool.DirIn, writerID)
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: spoolKind, FromHarp: from, To: harp, Body: body})
 	require.NoError(t, err)

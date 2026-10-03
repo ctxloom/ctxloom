@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -44,7 +45,7 @@ func routeOnce(t *testing.T, c *Coordinator, childHarp, origin, body string) {
 // would.
 func writeChildOut(t *testing.T, childHarp, origin, body string) {
 	t.Helper()
-	w, err := spool.NewWriter(spool.NewHomeMapper(), childHarp, spool.DirOut, childHarp)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), childHarp, spool.DirOut, childHarp)
 	require.NoError(t, err)
 	_, err = w.Write(&spool.Message{Kind: KindResult, FromHarp: childHarp, To: ParentAddress, OriginID: origin, Body: body})
 	require.NoError(t, err)

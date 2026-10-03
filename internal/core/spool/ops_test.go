@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +15,7 @@ import (
 // on disk.
 func seedIn(t *testing.T, m PathMapper, body string) (Ref, []byte) {
 	t.Helper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 	ref, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, Body: body})
 	require.NoError(t, err)
@@ -29,7 +30,7 @@ func seedIn(t *testing.T, m PathMapper, body string) (Ref, []byte) {
 // seedOut publishes one out/ message, as a runner's agent_send does.
 func seedOut(t *testing.T, m PathMapper, body string) (Ref, []byte) {
 	t.Helper()
-	w, err := NewWriter(m, testHarp, DirOut, "runner")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirOut, "runner")
 	require.NoError(t, err)
 	ref, err := w.Write(&Message{Kind: "message", FromHarp: testHarp, To: "parent", Body: body})
 	require.NoError(t, err)
@@ -151,7 +152,7 @@ func TestSweep_ReportsMalformedFilesLoudly(t *testing.T) {
 func TestSweep_OrdersByFilenameAndSkipsSubdirs(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	w, err := NewWriter(afero.NewOsFs(), m, testHarp, DirIn, "coord")
 	require.NoError(t, err)
 
 	var refs []Ref

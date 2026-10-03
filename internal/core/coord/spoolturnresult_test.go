@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -250,7 +251,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	first.Close()
 
 	// The runner reports a turn while nothing is listening — the window.
-	w, err := spool.NewWriter(spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), out.Harp, spool.DirOut, out.Harp)
 	require.NoError(t, err)
 	structured, err := json.Marshal(map[string]any{autoReportKey: true})
 	require.NoError(t, err)

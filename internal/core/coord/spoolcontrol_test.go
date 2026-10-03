@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -27,7 +28,7 @@ import (
 // on it, so what is being asserted is the operation and not a race.
 func writeInSpool(t *testing.T, harp, kind, originID, body string) spool.Ref {
 	t.Helper()
-	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
+	w, err := spool.NewWriter(afero.NewOsFs(), spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
 	require.NoError(t, err)
 	ref, err := w.Write(&spool.Message{
 		Kind: kind, FromHarp: UserSender, To: harp, OriginID: originID, Body: body,

@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -443,7 +444,7 @@ func TestSendOverflow_ChildToParentThroughTheSpool(t *testing.T) {
 				require.NoError(t, json.Unmarshal(structured, &fields))
 			}
 			msg := &spool.Message{V: 1, Kind: KindResult, FromHarp: child.Harp, To: ParentAddress, Body: full, Structured: fields}
-			w, err := spool.NewWriter(c.mapper, child.Harp, spool.DirOut, child.Harp)
+			w, err := spool.NewWriter(afero.NewOsFs(), c.mapper, child.Harp, spool.DirOut, child.Harp)
 			require.NoError(t, err)
 			ref, err := w.Write(msg)
 			require.NoError(t, err)

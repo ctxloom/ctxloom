@@ -3,6 +3,7 @@ package coord
 import (
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -19,7 +20,7 @@ func courierUnderTest(t *testing.T) (*SpoolCourier, *[]spool.Ref) {
 	testsupport.Isolate(t)
 	var rung []spool.Ref
 	return &SpoolCourier{
-		Writers: NewSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, "test"),
+		Writers: NewSpoolWriterCache(afero.NewOsFs(), spool.NewHomeMapper(), spool.DirIn, "test"),
 		KeyFor:  func(to string) string { return to },
 		Ring: func(_ string, ref spool.Ref) error {
 			rung = append(rung, ref)
@@ -88,7 +89,7 @@ func TestSpoolCourier_AnnounceRingsAnAlreadyCommittedMutation(t *testing.T) {
 func TestSpoolCourier_AFailedRingDoesNotFailTheSend(t *testing.T) {
 	testsupport.Isolate(t)
 	x := &SpoolCourier{
-		Writers: NewSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, "test"),
+		Writers: NewSpoolWriterCache(afero.NewOsFs(), spool.NewHomeMapper(), spool.DirIn, "test"),
 		KeyFor:  func(to string) string { return to },
 		Ring:    func(string, spool.Ref) error { return assert.AnError },
 		Side:    "test",

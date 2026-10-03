@@ -59,38 +59,25 @@ const secretScratchPrefix = "ctxloom-secret-"
 // no secret dir to hold it.
 var errSecretUnstaged = errors.New("container secrets: the placement names a secret file but the workspace has no secret dir")
 
-// secretParent is where a container cell's secret dir is made: the user's
-// runtime dir when the session has one — a tmpfs the XDG spec makes
-// owner-only, so the value never reaches a disk — else (macOS, Windows) the
-// session's scratch dir that holds the run's scratch root, on disk. Never the
-// scratch root itself: it is new per run, so a crashed run's secret there
-// would have no later sibling to reap it. The shared-filesystem probe covers
-// either, as it covers every mount. onDisk reports the fallback, which the
-// caller announces (secretsOnDiskNotice).
-func secretParent(getenv func(string) string, scratchRoot string) (dir string, onDisk bool) {
-	if dir, ok := SecretsRuntimeDir(getenv); ok {
+// secretParent is where a run's secret dir is made: the platform's per-user
+// tmpfs when it offers one (platform.PrivateTmpfs), so the value never
+// reaches a disk, else diskParent — on disk, which the caller announces
+// (SecretsOnDiskNotice). For a container run diskParent is the session's
+// scratch dir that holds the run's scratch root, never the scratch root
+// itself: it is new per run, so a crashed run's secret there would have no
+// later sibling to reap it.
+func secretParent(getenv func(string) string, diskParent string) (dir string, onDisk bool) {
+	if dir, ok := hostOS.PrivateTmpfs(getenv); ok {
 		return dir, false
 	}
-	return filepath.Dir(scratchRoot), true
+	return diskParent, true
 }
 
-// SecretsRuntimeDir is the per-user tmpfs a container run's secrets are
-// written to, and whether the platform offers one; when it does not, they go
-// to disk under the session's scratch dir (secretParent). The doctor reports
-// the same decision.
-func SecretsRuntimeDir(getenv func(string) string) (string, bool) {
-	dir := getenv(runtimeDirEnv)
-	return dir, dir != ""
-}
-
-// runtimeDirEnv names the user's per-session tmpfs (XDG base dirs).
-const runtimeDirEnv = "XDG_RUNTIME_DIR"
-
-// SecretsOnDiskNotice is the once-per-process announcement that a container
-// run's secrets are written to disk because the platform offers no per-user
-// tmpfs, naming the platform and dir. The doctor reports the same text.
+// SecretsOnDiskNotice is the once-per-process announcement that a run's
+// secrets are written to disk because the platform offers no per-user tmpfs,
+// naming the platform and dir. The doctor reports the same text.
 func SecretsOnDiskNotice(dir string) string {
-	return fmt.Sprintf("container secrets: %s has no per-user tmpfs ($%s is unset), so each container run's secrets are written owner-only to disk under %s and removed when the run ends", platform.Name, runtimeDirEnv, dir)
+	return fmt.Sprintf("run secrets: %s offers no per-user tmpfs here, so each run's secrets are written owner-only to disk under %s and removed when the run ends", platform.Name, dir)
 }
 
 // stageCoordCred moves the coordinator credential out of a container

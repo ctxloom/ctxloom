@@ -30,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
@@ -1676,14 +1677,14 @@ func legacyLayoutEntries(dir, harp string) []string {
 	return out
 }
 
-// doctorCheckSecretsStorage reports where a container run's secrets are
-// written: the per-user tmpfs when the platform has one, else owner-only files
+// doctorCheckSecretsStorage reports where a run's secrets are written: the
+// per-user tmpfs when the platform has one (platform.PrivateTmpfs), else owner-only files
 // on disk under each session's scratch dir — allowed, but said, here and once
 // at launch (isolation.SecretsOnDiskNotice).
 func doctorCheckSecretsStorage(getenv func(string) string) DoctorCheck {
 	const marker = "DOCTOR-CHECK-SECRETS-STORAGE-k1"
-	if dir, ok := isolation.SecretsRuntimeDir(getenv); ok {
-		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "container run secrets are written to the per-user tmpfs " + dir}
+	if dir, ok := platform.Current().PrivateTmpfs(getenv); ok {
+		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "run secrets are written to the per-user tmpfs " + dir}
 	}
 	where := filepath.Join("~", paths.AppDirName, paths.SessionsDir, "<harp>", paths.ScratchDirName)
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: isolation.SecretsOnDiskNotice(where)}

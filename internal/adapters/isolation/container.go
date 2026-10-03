@@ -381,7 +381,7 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 	// the daemon sees it; Container.environment fills it once the relocator
 	// has named its files. Held by its owner's lock, so a crashed run's dir
 	// is swept by the next one made under the same parent.
-	secretDir, onDisk := secretParent(os.Getenv, cw.scratchRoot)
+	secretDir, onDisk := secretParent(os.Getenv, filepath.Dir(cw.scratchRoot))
 	if onDisk {
 		clidiag.WarnOnce("ctxloom", "%s", SecretsOnDiskNotice(secretDir))
 	}

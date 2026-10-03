@@ -168,7 +168,7 @@ func TestSurround_RosterRepaintWhenIdle(t *testing.T) {
 	s.SetRoster([]RosterEntry{
 		{Harp: "swift-elm-fox", State: "executing", LastActivityUnix: 30},
 		{Harp: "deep-oak-hen", State: "ended", LastActivityUnix: 10},
-		{Harp: "flat-ash-owl", State: "parked", LastActivityUnix: 20},
+		{Harp: "flat-ash-owl", State: "idle", LastActivityUnix: 20},
 	})
 	out := tty.String()
 	assert.Contains(t, out, "1● 1◐ 1✓ · swift-elm-fox→executing",

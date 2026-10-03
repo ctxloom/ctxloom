@@ -167,7 +167,7 @@ func TestSurround_ChildRISRepaintsProtectedBar(t *testing.T) {
 	h.child("\x1bc")
 	h.assertNoBleed()
 	for i := 0; i < 30; i++ {
-		h.roster("parked")
+		h.roster("idle")
 		h.child(fmt.Sprintf("post-reset line %02d\r\n", i))
 		h.assertNoBleed()
 	}

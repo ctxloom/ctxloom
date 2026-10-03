@@ -31,7 +31,7 @@ flowchart TD
 
 ```
 
-`*` `Hook.ContextHash` is in-process only (`yaml:"-" json:"-"`) and is deliberately re-derived agent-side by `agent.NewContextInjectionHooks` (`internal/core/agent/context_hooks.go:24-76`), so its non-serialization is compensated.
+`*` `Hook.ContextHash` is in-process only (`yaml:"-" json:"-"`) and is deliberately re-derived agent-side by `agent.NewContextInjectionHooks`, so its non-serialization is compensated.
 
 ## `internal/core/wire` — types
 
@@ -39,16 +39,16 @@ flowchart TD
 
 One lifecycle action (shell command, prompt, or agent invocation) plus the metadata each engine writer needs to place and re-identify it.
 
-| Field | file:line | Serialized as | Read by |
+| Field | file | Serialized as | Read by |
 |---|---|---|---|
 | `Matcher string` | `hooks.go` | `matcher` | every engine writer |
 | `Command string` | `hooks.go` | `command` | every engine writer |
 | `Args []string` | `hooks.go` | `args` | exec form: claude's hook `args`; the mock spawns it with no shell. `Hook.Line()` renders Command+Args as one shell line, the hook's identity everywhere one string stands for it |
 | `Type string` | `hooks.go` | `type` | every engine writer; free-form, `"command"`/`"prompt"`/`"agent"` by convention, no constant and no validation in this package |
 | `Prompt string` | `hooks.go` | `prompt` | every engine writer |
-| `Timeout int` | `hooks.go` | `timeout` | claude (`internal/engines/claude/claude.go:613`) |
-| `Async bool` | `hooks.go` | `async` | claude only (`internal/engines/claude/claude.go:614`) |
-| `SCM string` | `hooks.go` | `_ctxloom` | the remove-all-then-re-add reconciler (`internal/engines/claude/claude.go:567,834`) |
+| `Timeout int` | `hooks.go` | `timeout` | claude (`hookValue` in `internal/engines/claude`) |
+| `Async bool` | `hooks.go` | `async` | claude only (`hookValue` in `internal/engines/claude`) |
+| `SCM string` | `hooks.go` | `_ctxloom` | `managedhooks.bundleSource` (provenance attribution); claude's `hookValue` never writes it to settings |
 | `ContextHash string` | `hooks.go` | never (`yaml:"-" json:"-"`) | set by `agent.NewContextInjectionHooks`; no reader in the tree |
 | `PreToolFallback bool` | `hooks.go` | `pre_tool_fallback` | no writer reads it: every registered engine has a session-start event (see the field's own doc) |
 
@@ -73,7 +73,7 @@ The backend-agnostic seven-event bundle. All seven are `[]Hook` and are only eve
 
 The persisted hook document.
 
-| Field | file:line | Serialized as |
+| Field | file | Serialized as |
 |---|---|---|
 | `Unified UnifiedHooks` | `hooks.go` | `unified` |
 | `Ext map[string]BackendHooks` | `hooks.go` | `ext` — engine name → native event → hooks; a document still spelling the retired `plugins` key is REFUSED at decode (`HooksConfig.UnmarshalYAML`, `ErrRetiredHooksExtKey`) rather than silently dropped |
@@ -108,8 +108,8 @@ One MCP server, as a bundle's `mcp:` block declares it and as it reaches an engi
 **Direction of flow**
 
 - One way, always: `internal/core/config` + `internal/core/profiles` + `internal/core/bundles` parse user YAML into these structs → `agent.ManagedConfigFor` folds them into one `ManagedConfig` → the launch carries it to the runner → `internal/core/agent.BaseLifecycle` re-merges it agent-side → each engine package translates it into its native settings file.
-- **The host-side assembly (`ApplyHooks`) and the agent-side assembly (run) must produce identical hooks**, or the remove-all-then-re-add reconcile drops them; this is documented at `internal/core/agent/base_lifecycle.go:26-38`.
-- `Hook.SCM` (`_ctxloom`) is the key that reconcile identifies ctxloom-managed entries by. `MCPServer.SCM` is its MCP twin.
+- **The at-rest writer (`operations.ApplyHooks`) and the `ctxloom run` payload must deliver identical hooks**, or one delivery withdraws a hook the other assembled; both assemble through `managedhooks.AssembleFor` (see `BaseLifecycle.MergeManaged`).
+- `Hook.SCM` (`_ctxloom`) is the bundle-provenance marker a hook is attributed by. `MCPServer.SCM` is its MCP twin.
 
 **Serialization**
 
@@ -129,4 +129,4 @@ One MCP server, as a bundle's `mcp:` block declares it and as it reaches an engi
 - `agent.ChatMCPServerFromWire` is the one conversion from `MCPServer` to the chat/engine-file shape (`agent.ChatMCPServer`), and the one place a transport is DERIVED: a URL entry becomes an http-transport server carrying `URL` and `Headers`, a session-endpoint declaration an http server with no URL (rendered at delivery; a file writer refuses it unrendered, `ErrMCPServerUnrendered`), anything else a stdio command.
 - `ChatMCPServerFromWire` passes `Env` and `Headers` through **without cloning**, so a composed `ChatMCPServer` shares its maps with the source `MCPServer`; a caller that mutates them writes into the resolved bundle set.
 - Three of eight `Hook` fields are silently ignored by most consumers, and **no consumer declares which fields it honours**. Adding a unified event is not a one-line change: `turn_end`, the seventh, touched this type, `bundles.BundleHooks` plus its const/`hookEventOrder`/`eventHooks`/`(*reader).appendHook`, the proto `UnifiedHooks` message, the JSON Schema `unifiedHooks` def, `backends.HookEvents`/`unifiedEventHooks`/`setUnifiedEventHooks`/`gateProfileHooks`, `config.extractHooksFromBundle`/`filterMissingCompanionHooks`/`builtinBundleCompanionMissing`, `convert.hookEvents`, `profiles.Profile.HasContent`, `agent.countHooks`, and each engine writer's route table. NONE of those is a compile error if missed — every one of them is a silent drop, which is why each is now covered by a test that reflects over the struct rather than re-listing the events.
-- `Hook`'s field set is connascent-by-algorithm with `bundles.BundleHook`, which hashes `Matcher+Type+Command+Prompt+PreToolFallback` as the signed preimage a trust grant binds to (`internal/core/bundles/bundles.go:632-641`), and with the proto `Hook` message. All three must gain a field together. **Two of the three legs are now enforced** — the parity sweep fails if `wire.Hook` gains a field the proto does not carry — but nothing binds the *preimage* leg, so a field added to `wire.Hook` and to the proto without being added to `ContentPayload` still passes CI.
+- `Hook`'s field set is connascent-by-algorithm with `bundles.BundleHook`, which hashes `Matcher+Type+Command+Prompt+PreToolFallback` as the signed preimage a trust grant binds to (`BundleHook.ContentPayload`), and with the proto `Hook` message. All three must gain a field together. **Two of the three legs are now enforced** — the parity sweep fails if `wire.Hook` gains a field the proto does not carry — but nothing binds the *preimage* leg, so a field added to `wire.Hook` and to the proto without being added to `ContentPayload` still passes CI.

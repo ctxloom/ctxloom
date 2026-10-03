@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -21,7 +22,7 @@ import (
 func seedPurgeableSession(t *testing.T) (harp, transcript string) {
 	t.Helper()
 	testsupport.Isolate(t)
-	entry, err := AssignSessionHarp(t.TempDir(), "claude-code")
+	entry, err := AssignSessionHarp(t.TempDir(), "claude-code", t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { sessionlock.Release(entry.HarpName) })
 	require.NoError(t, EndSession(entry.HarpName, time.Now()))
@@ -35,7 +36,7 @@ func seedPurgeableSession(t *testing.T) (harp, transcript string) {
 func seedCrashedSession(t *testing.T) (harp, transcript string) {
 	t.Helper()
 	testsupport.Isolate(t)
-	entry, err := AssignSessionHarp(t.TempDir(), "claude-code")
+	entry, err := AssignSessionHarp(t.TempDir(), "claude-code", t.TempDir())
 	require.NoError(t, err)
 	require.Nil(t, entry.EndedAt, "the fixture is a session that never ended")
 	sessionlock.Release(entry.HarpName)
@@ -47,7 +48,7 @@ func seedCrashedSession(t *testing.T) (harp, transcript string) {
 func seedRunningSession(t *testing.T) (harp, transcript string) {
 	t.Helper()
 	testsupport.Isolate(t)
-	entry, err := AssignSessionHarp(t.TempDir(), "claude-code")
+	entry, err := AssignSessionHarp(t.TempDir(), "claude-code", t.TempDir())
 	require.NoError(t, err)
 	require.Nil(t, entry.EndedAt, "the fixture is a session that never ended")
 	t.Cleanup(func() { sessionlock.Release(entry.HarpName) })
@@ -63,9 +64,10 @@ func seedPurgeBulk(t *testing.T, harp string) (transcript string) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(transcript), 0o755))
 	require.NoError(t, os.WriteFile(transcript, []byte(`{"type":"user","content":"hello"}`+"\n"), 0o644))
-	essence, err := paths.HarpEssencePath(harp)
+	out, err := sessions.OutputDir(harp)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(essence, []byte("# essence\n"), 0o644))
+	require.NoError(t, os.MkdirAll(out, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("# essence\n"), 0o644))
 	return transcript
 }
 
@@ -219,13 +221,13 @@ func TestPurgeSession_PlanAlsoRefuses(t *testing.T) {
 	assert.FileExists(t, transcript)
 }
 
-// TestClassifyPurgeFile_PreRenameLeafIsAuthored pins that purge knows one
-// canonical transcript name (paths.CanonicalTranscriptFileName). A file under
-// the pre-rename leaf is nothing purge recognizes: authored, never destroyed,
-// named in the report — a machine class for it would be I/O on a name nothing
-// writes.
-func TestClassifyPurgeFile_PreRenameLeafIsAuthored(t *testing.T) {
-	assert.Equal(t, PurgeClassMachine, classifyPurgeFile(paths.PersistDirName+"/"+paths.CanonicalTranscriptFileName, false))
-	assert.Equal(t, PurgeClassAuthored, classifyPurgeFile(paths.PersistDirName+"/transcript.acp.jsonl", false))
+// TestClassifyPurgeFile_MachineIsTheTranscriptsAndNativeHistory pins purge's
+// machine class: the transcripts and native-history rows. Anything else in
+// the session dir — the spool, or a file at the top under a name nothing
+// writes — is authored: never destroyed, named in the report.
+func TestClassifyPurgeFile_MachineIsTheTranscriptsAndNativeHistory(t *testing.T) {
+	assert.Equal(t, PurgeClassMachine, classifyPurgeFile(paths.TranscriptsDirName+"/"+paths.CanonicalTranscriptFileName, false))
+	assert.Equal(t, PurgeClassMachine, classifyPurgeFile(paths.NativeDirName+"/claude/projects/-p/s.jsonl", false))
+	assert.Equal(t, PurgeClassAuthored, classifyPurgeFile(paths.SpoolDirName+"/in/m.md", false))
 	assert.Equal(t, PurgeClassAuthored, classifyPurgeFile("transcript.acp.jsonl", false))
 }

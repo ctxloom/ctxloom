@@ -38,7 +38,6 @@
 package arch
 
 import (
-	"path"
 	"slices"
 	"testing"
 
@@ -53,7 +52,6 @@ import (
 // a failure names the drifted row, the table it came from, and both values.
 func TestArch_EngineLayoutAgreement(t *testing.T) {
 	t.Run("spec_OverlayDirs", testSpecOverlayDirs)
-	t.Run("spec_TranscriptStoreRel", testSpecTranscriptStoreRel)
 	t.Run("gitignore_LivePatterns", testGitignoreLivePatterns)
 }
 
@@ -76,26 +74,6 @@ func testSpecOverlayDirs(t *testing.T) {
 			if !slices.Contains(dirs, c.want) {
 				t.Errorf("isolation spec overlayDirs for backend %q = %v, missing owning engine dir %q",
 					c.backend, dirs, c.want)
-			}
-		})
-	}
-}
-
-type transcriptCheck struct {
-	backend string
-	want    string
-}
-
-func testSpecTranscriptStoreRel(t *testing.T) {
-	checks := []transcriptCheck{
-		{backend: "claude-code", want: path.Join(claude.ConfigDirName, claude.TranscriptsDirName)},
-	}
-	for _, c := range checks {
-		t.Run(c.backend, func(t *testing.T) {
-			got := isolation.ContainerTranscriptStoreRelFor(c.backend)
-			if got != c.want {
-				t.Errorf("isolation spec transcriptStoreRel for backend %q = %q, want %q",
-					c.backend, got, c.want)
 			}
 		})
 	}

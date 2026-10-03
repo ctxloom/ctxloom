@@ -191,7 +191,7 @@ func seedTranscript(t *testing.T, harp string) string {
 // seedEssence writes a distilled essence for harp and returns its path.
 func seedEssence(t *testing.T, harp string) string {
 	t.Helper()
-	path, err := paths.HarpEssencePath(harp)
+	path, err := harpEssencePath(t, harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte("# Seeded essence\n"), 0o644))

@@ -418,10 +418,10 @@ const hookProbeContainerOverlayScratchPrefix = "ctxloom-iso-"
 // sessionsRoot is the sessions dir of the home the run uses.
 //
 // The harp segment is a wildcard because the run mints its own harp after the
-// watch starts; the ephemeral dir and the prefix narrow the match to container
+// watch starts; the scratch dir and the prefix narrow the match to container
 // scratch roots.
 func hookProbeContainerOverlayGlobs(sessionsRoot string) []string {
-	return []string{filepath.Join(sessionsRoot, "*", paths.EphemeralDirName, hookProbeContainerOverlayScratchPrefix+"*")}
+	return []string{filepath.Join(sessionsRoot, "*", paths.ScratchDirName, hookProbeContainerOverlayScratchPrefix+"*")}
 }
 
 // hookProbeCarriage describes one carriage scan: what to look for, where to

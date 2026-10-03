@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harpmarker"
@@ -311,7 +310,7 @@ func realpath(t *testing.T, p string) string {
 // ~/.ctxloom/sessions/<harp>/segments/<sessionID>.md and returns its path.
 func seedRotationEssence(t *testing.T, harp, sessionID, body string) string {
 	t.Helper()
-	p, err := paths.ResolveHarpSegmentEssencePath(harp, sessionID)
+	p, err := harpSegmentEssencePath(t, harp, sessionID)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 	require.NoError(t, os.WriteFile(p, []byte(body), 0o644))

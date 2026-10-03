@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -358,10 +359,9 @@ func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolReques
 	return s.loadOrDistillSession(ctx, in.SessionID, in.Backend, in.Model, policyArchived)
 }
 
-// loadHarpEssence reads ~/.ctxloom/sessions/<harp>/essence.md and returns
-// it as a loadSessionResult. The harp-dir layout (Phase 3.6) is keyed by
-// the human-readable harp name, so this path is independent of backend
-// session UUIDs. Errors when the harp is unknown to the index or its
+// loadHarpEssence reads the essence.md in harp's output dir and returns it as
+// a loadSessionResult. It is keyed by the human-readable harp name, so this
+// path is independent of backend session UUIDs. Errors when the harp is unknown to the index or its
 // essence.md doesn't exist (compact_session hasn't run for this harp yet).
 func (s *ctxServer) loadHarpEssence(harpName string) (*mcp.CallToolResult, *loadSessionResult, error) {
 	entry, err := operations.GetSession(harpName)
@@ -371,10 +371,13 @@ func (s *ctxServer) loadHarpEssence(harpName string) (*mcp.CallToolResult, *load
 	if entry == nil {
 		return nil, nil, fmt.Errorf("harp not found in index: %q", harpName)
 	}
-	essencePath, err := paths.HarpEssencePath(harpName)
-	if err != nil {
-		return nil, nil, fmt.Errorf("home dir: %w", err)
+	out := entry.OutputDir
+	if out == "" {
+		if out, err = sessions.OutputDirIn(harpName, os.Getenv); err != nil {
+			return nil, nil, fmt.Errorf("output dir of %q: %w", harpName, err)
+		}
 	}
+	essencePath := filepath.Join(out, paths.EssenceFileName)
 	data, err := os.ReadFile(essencePath)
 	if err != nil {
 		// Only an ABSENT essence means "never distilled". Every other read

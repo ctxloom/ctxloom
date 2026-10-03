@@ -68,7 +68,7 @@ func TestSessionMatchesQuery_EssenceFallback(t *testing.T) {
 	dir, err := paths.HarpDir(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	essencePath, err := paths.HarpEssencePath(harp)
+	essencePath, err := harpEssencePath(t, harp)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(essencePath, []byte("## Open Items\n\nInvestigate the retry backoff overflow.\n"), 0o644))
 
@@ -108,7 +108,7 @@ func TestRunSessionQuery_Integration(t *testing.T) {
 	hitEssenceDir, err := paths.HarpDir(hit.HarpName)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(hitEssenceDir, 0o755))
-	hitEssencePath, err := paths.HarpEssencePath(hit.HarpName)
+	hitEssencePath, err := harpEssencePath(t, hit.HarpName)
 	require.NoError(t, err)
 	essenceBody := "## Summary\n\nRoot-caused the flaky retry-backoff-overflow test.\n"
 	require.NoError(t, os.WriteFile(hitEssencePath, []byte(essenceBody), 0o644))
@@ -116,7 +116,7 @@ func TestRunSessionQuery_Integration(t *testing.T) {
 	missEssenceDir, err := paths.HarpDir(miss.HarpName)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(missEssenceDir, 0o755))
-	missEssencePath, err := paths.HarpEssencePath(miss.HarpName)
+	missEssencePath, err := harpEssencePath(t, miss.HarpName)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(missEssencePath, []byte("## Summary\n\nUnrelated housekeeping.\n"), 0o644))
 

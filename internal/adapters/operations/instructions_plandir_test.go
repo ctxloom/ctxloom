@@ -9,41 +9,47 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestSessionInstructions_PlanDirIsTheDurableOne pins the sentence that CREATES
-// the population of undurable plan files. Every session is told right here
-// where to put its plans, so if this sentence names the harp top level, every
-// containerized agent that obeys it writes a design note into overlay space
-// and loses it at teardown — a successful write and zero surviving bytes.
+// TestSessionInstructions_PlanDirIsTheOutputDir pins the sentence that
+// CREATES the population of plan files. Every session is told right here where
+// to put its plans, so it must name the session's output dir — where a human
+// reads them and a containerized run's writes reach the host — and never the
+// machine session dir.
 //
-// The assertion is on the DIRECTORY the instruction hands out, not on prose:
-// it must be paths.HarpPlansDir, and the harp top level must not appear as a
-// place to write. Both halves are needed. Naming persist/ while still also
-// offering the top level would leave the agent free to pick the one that
-// vanishes, and an assertion that only checked for the substring "persist"
-// would pass on a sentence that mentioned it in passing.
-func TestSessionInstructions_PlanDirIsTheDurableOne(t *testing.T) {
+// The assertion is on the DIRECTORY the instruction hands out, not on prose,
+// and both halves are needed: naming the output dir while still also offering
+// the session dir would leave the agent free to pick the wrong one.
+func TestSessionInstructions_PlanDirIsTheOutputDir(t *testing.T) {
 	testsupport.Isolate(t)
-	const harp = "brisk-teal-otter"
-
-	planDir, err := paths.HarpPlansDir(harp)
+	m, err := sessions.Open(nil)
 	require.NoError(t, err)
-	harpDir, err := paths.HarpDir(harp)
+	e, err := m.AssignHarp("/src/widget", "claude-code")
 	require.NoError(t, err)
-	require.NotEqual(t, harpDir, planDir, "the plan dir must not be the harp top level")
+	planDir, err := m.RecordOutputDir(e.HarpName, t.TempDir())
+	require.NoError(t, err)
+	harpDir, err := paths.HarpDir(e.HarpName)
+	require.NoError(t, err)
 
-	got := SessionInstructions(harp)
+	got := SessionInstructions(e.HarpName)
 
-	assert.Contains(t, got, "`"+planDir+"`",
-		"the instruction must name the harp's persist dir — the only part of the harp dir a container writes through to the host")
+	assert.Contains(t, got, "`"+planDir+"`", "the instruction names the session's output dir")
 	assert.Contains(t, got, "`"+filepath.Join(planDir, "v1-removal"+paths.PlanFileExt)+"`",
-		"the worked example must sit in the same durable directory, not demonstrate the undurable one")
+		"the worked example sits in the same directory")
 	assert.NotContains(t, got, "`"+harpDir+"`",
-		"the harp top level must not be offered as a place to write: a plan left there dies with the container")
-	assert.Equal(t, 0, strings.Count(got, "`"+harpDir+string(filepath.Separator)+"v1-removal"+paths.PlanFileExt+"`"),
-		"and neither must the example")
+		"the machine session dir must not be offered as a place to write")
+}
+
+// In a container the output dir is mounted at a path the sidecar does not
+// record, and the container says so (CTXLOOM_OUTPUT_DIR): the instruction
+// names the path the agent can actually write.
+func TestSessionInstructions_PlanDirInAContainerIsTheMountedOne(t *testing.T) {
+	testsupport.Isolate(t)
+	t.Setenv(sessions.EnvOutputDir, "/ctxloom/out")
+	got := SessionInstructions("brisk-teal-otter")
+	assert.Contains(t, got, "`/ctxloom/out`")
 }
 
 // TestSessionInstructions_NoHarpAddsNoPlanDir: a caller with no session

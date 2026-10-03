@@ -3,11 +3,15 @@ package operations
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
@@ -194,7 +198,15 @@ var probeEngineVersion = (*App).ProbeEngineVersion
 // context.Background(), which meant a wedged `--version` had no deadline at
 // all on any path.
 func (a *App) AssignSession(ctx context.Context, projectDir, backend string) (sessions.Entry, error) {
-	entry, err := AssignSessionHarp(projectDir, backend)
+	cfg, err := a.Config(ctx)
+	if err != nil {
+		return sessions.Entry{}, err
+	}
+	base, err := OutputBase(cfg)
+	if err != nil {
+		return sessions.Entry{}, err
+	}
+	entry, err := AssignSessionHarp(projectDir, backend, base)
 	if err != nil {
 		return sessions.Entry{}, err
 	}
@@ -202,6 +214,24 @@ func (a *App) AssignSession(ctx context.Context, projectDir, backend string) (se
 		entry.EngineVersion = version
 	}
 	return entry, nil
+}
+
+// ErrRelativeOutputDir is the refusal of an output_dir config value that is
+// not absolute: it would resolve against whatever directory a command ran in.
+var ErrRelativeOutputDir = errors.New("output_dir must be an absolute path")
+
+// OutputBase is where new sessions' output dirs are made: the output_dir
+// config key when set, else <Documents>/ctxloom (paths.DefaultOutputBase).
+func OutputBase(cfg *config.Config) (string, error) {
+	if cfg != nil {
+		if dir := cfg.GetOutputDir(); dir != "" {
+			if !filepath.IsAbs(dir) {
+				return "", fmt.Errorf("%w: %q", ErrRelativeOutputDir, dir)
+			}
+			return filepath.Clean(dir), nil
+		}
+	}
+	return paths.DefaultOutputBase()
 }
 
 // AssignSessionHarp mints the harp alone: the session's address, written to
@@ -212,7 +242,10 @@ func (a *App) AssignSession(ctx context.Context, projectDir, backend string) (se
 // all — belongs in RecordSessionEngineVersion, so that a caller whose next
 // act is to publish the harp can do that first and let the slow, optional
 // enrichment follow.
-func AssignSessionHarp(projectDir, backend string) (sessions.Entry, error) {
+//
+// The session's output dir is recorded with it, under outputBase (OutputBase):
+// a session that cannot say where its outputs go is not minted.
+func AssignSessionHarp(projectDir, backend, outputBase string) (sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {
 		return sessions.Entry{}, err
@@ -220,6 +253,9 @@ func AssignSessionHarp(projectDir, backend string) (sessions.Entry, error) {
 	entry, err := mgr.AssignHarp(projectDir, backend)
 	if err != nil {
 		return sessions.Entry{}, err
+	}
+	if entry.OutputDir, err = mgr.RecordOutputDir(entry.HarpName, outputBase); err != nil {
+		return sessions.Entry{}, fmt.Errorf("session %s: recording its output dir: %w", entry.HarpName, err)
 	}
 	// THIS PROCESS OWNS THE SESSION FROM HERE: hold its liveness lock until
 	// EndSession. Every sweep that reclaims per-session data (the reaper,

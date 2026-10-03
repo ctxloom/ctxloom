@@ -655,11 +655,13 @@ func applyReclaim(ctx context.Context, g git.Git, l sessions.Layout, req SweepRe
 	return &c
 }
 
-// applyPurge is PurgeSession over both file populations. Only an internal
-// one-shot is purged undistilled; PurgeSession refuses any other.
+// applyPurge is PurgeSession over the transcript population. The artifacts
+// population is the session's output dir — the human's, which a sweep never
+// deletes; `ctxloom session artifacts purge` is the explicit way to. Only an
+// internal one-shot is purged undistilled; PurgeSession refuses any other.
 func applyPurge(f SessionFacts, r *SweepRow) {
 	res, err := PurgeSession(r.Harp, PurgeSessionRequest{
-		Populations: []PurgePopulation{PurgePopulationTranscript, PurgePopulationArtifacts},
+		Populations: []PurgePopulation{PurgePopulationTranscript},
 		Undistilled: f.Origin == sessions.OriginOneShot,
 		Apply:       true,
 	})

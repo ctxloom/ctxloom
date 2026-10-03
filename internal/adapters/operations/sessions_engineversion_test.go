@@ -103,7 +103,7 @@ func TestAssignSessionHarp_MintsTheAddressWithoutProbingTheEngine(t *testing.T) 
 	}
 	t.Cleanup(func() { probeEngineVersion = orig })
 
-	entry, err := AssignSessionHarp(t.TempDir(), "claude-code")
+	entry, err := AssignSessionHarp(t.TempDir(), "claude-code", t.TempDir())
 	require.NoError(t, err)
 	assert.NotEmpty(t, entry.HarpName, "the address is minted")
 	assert.Zero(t, probed, "and nobody's CLI was executed to get it")
@@ -114,7 +114,7 @@ func TestAssignSessionHarp_MintsTheAddressWithoutProbingTheEngine(t *testing.T) 
 // harp — the shape the spawn path uses once the run is registered.
 func TestRecordSessionEngineVersion_RecordsAgainstAnAlreadyMintedHarp(t *testing.T) {
 	testsupport.Isolate(t)
-	entry, err := AssignSessionHarp(t.TempDir(), "claude-code")
+	entry, err := AssignSessionHarp(t.TempDir(), "claude-code", t.TempDir())
 	require.NoError(t, err)
 	stubProbe(t, "2.1.225", nil)
 
@@ -133,7 +133,7 @@ func TestRecordSessionEngineVersion_RecordsAgainstAnAlreadyMintedHarp(t *testing
 // read path, not here.
 func TestRecordSessionEngineVersion_AFailedProbeRecordsNothingAndReportsIt(t *testing.T) {
 	testsupport.Isolate(t)
-	entry, err := AssignSessionHarp(t.TempDir(), "claude-code")
+	entry, err := AssignSessionHarp(t.TempDir(), "claude-code", t.TempDir())
 	require.NoError(t, err)
 	stubProbe(t, "", errors.New("boom"))
 

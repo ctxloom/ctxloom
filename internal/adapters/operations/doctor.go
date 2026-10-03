@@ -1571,11 +1571,11 @@ func doctorUnderDir(root, p string) bool {
 const doctorHarpDurabilityMaxNamed = 5
 
 // doctorCheckHarpDurability warns about authored artifacts sitting at a harp
-// directory's TOP LEVEL, where no paths.HarpMembers row classifies them —
-// neither under persist/ (mounted into containers, durable) nor under an
-// Ephemeral member. A containerized agent writing a design note there writes
-// into container-ephemeral space and loses it on exit. Nothing moves them;
-// the human does, and this check says where.
+// directory's TOP LEVEL, where no paths.HarpMembers row classifies them: the
+// session dir is machine state, and a readable output belongs in the
+// session's output dir. A containerized agent writing a design note there
+// writes into container-ephemeral space and loses it on exit. Nothing moves
+// them; the human does, and this check says where.
 //
 // The walk is two-level: the sessions root's OWN top level holds files (lock
 // files) alongside the harp directories, so the OUTER iteration skips
@@ -1617,8 +1617,8 @@ func doctorCheckHarpDurability() DoctorCheck {
 	}
 	list := doctorNamedList(flagged, doctorHarpDurabilityMaxNamed)
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf(
-		"%d authored file(s) sit in a harp directory's unclassified top level, which is neither %s/ (durable, mounted into containers) nor a disposable member: %s — move each under its session's %s/ directory, where a containerized run keeps it",
-		len(flagged), paths.PersistDirName, list, paths.PersistDirName)}
+		"%d authored file(s) sit in a harp directory's unclassified top level, which holds machine state only: %s — move each to its session's output dir (output_dir in the session's %s), where a human reads it and a containerized run keeps it",
+		len(flagged), list, paths.SessionSidecarFileName)}
 }
 
 // doctorNamedList sorts items in place and joins at most maxNamed of them,

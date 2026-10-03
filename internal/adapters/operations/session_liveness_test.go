@@ -23,7 +23,7 @@ import (
 // red; drop the Release from EndSession → the second does.
 func TestAssignSessionHarp_HoldsTheLivenessLockUntilEndSession(t *testing.T) {
 	testsupport.Isolate(t)
-	entry, err := AssignSessionHarp(t.TempDir(), "claude-code")
+	entry, err := AssignSessionHarp(t.TempDir(), "claude-code", t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { sessionlock.Release(entry.HarpName) })
 

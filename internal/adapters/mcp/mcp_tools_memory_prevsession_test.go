@@ -55,7 +55,7 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 
 	// A pre-existing essence in the HARP dir (the correct location the fix
 	// targets), plus a matching entry count so SourceStale reports fresh.
-	essPath, err := paths.HarpEssencePath(harp)
+	essPath, err := harpEssencePath(t, harp)
 	require.NoError(t, err)
 	const essenceBody = "## Previous session\nPicked up where we left off.\n"
 	require.NoError(t, os.WriteFile(essPath, []byte(essenceBody), 0o644))

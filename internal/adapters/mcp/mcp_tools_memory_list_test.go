@@ -13,7 +13,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -50,7 +49,7 @@ func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 	// recently; B is an hour stale.
 	harpB := bindProjectSession(t, mgr, projB, "claude-code", "sidB", now.Add(-time.Hour))
 	harpA := bindProjectSession(t, mgr, projA, "claude-code", "sidA", now)
-	essence, err := paths.HarpEssencePath(harpA)
+	essence, err := harpEssencePath(t, harpA)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(essence), 0o755))
 	require.NoError(t, os.WriteFile(essence, []byte("---\nsummary: worked on A\n---\nbody\n"), 0o644))

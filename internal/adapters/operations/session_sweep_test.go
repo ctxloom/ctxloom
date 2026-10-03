@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -20,13 +21,14 @@ import (
 func ssSeed(t *testing.T, harp, origin string, distilled bool) string {
 	t.Helper()
 	dir := srSeedHarp(t, harp)
-	sidecar := "project_dir: /tmp/demo\n"
+	out := t.TempDir()
+	sidecar := "project_dir: /tmp/demo\noutput_dir: " + out + "\n"
 	if origin != "" {
 		sidecar += "origin: " + origin + "\n"
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte(sidecar), 0o644))
-	if !distilled {
-		require.NoError(t, os.Remove(filepath.Join(dir, paths.EssenceFileName)))
+	if distilled {
+		require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("# essence\n"), 0o644))
 	}
 	srBackdate(t, dir)
 	srSeedDeadSession(t, harp)
@@ -52,7 +54,7 @@ func TestSweepSessions_PurgeRows(t *testing.T) {
 	undistilled := ssSeed(t, "raw-quiet-heron", "session", false)
 	oneshot := ssSeed(t, "shot-quiet-heron", "oneshot", false)
 	transcript := func(dir string) string {
-		return filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName)
+		return filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName)
 	}
 	req := SweepRequest{ProjectDir: "/tmp/demo", ReclaimCutoff: srCutoff(), PurgeCutoff: srCutoff()}
 
@@ -61,7 +63,7 @@ func TestSweepSessions_PurgeRows(t *testing.T) {
 	assert.Equal(t, SweepPlanned, ssRows(rep, "done-quiet-heron")[SweepPurge].Verdict)
 	for _, dir := range []string{distilled, undistilled, oneshot} {
 		assert.FileExists(t, transcript(dir), "a report changes nothing")
-		srAssertIntact(t, dir, paths.EphemeralDirName)
+		srAssertIntact(t, dir, paths.ScratchDirName)
 	}
 
 	req.Apply = true
@@ -70,7 +72,9 @@ func TestSweepSessions_PurgeRows(t *testing.T) {
 
 	assert.Equal(t, SweepDone, ssRows(rep, "done-quiet-heron")[SweepPurge].Verdict)
 	assert.NoFileExists(t, transcript(distilled))
-	assert.NoFileExists(t, filepath.Join(distilled, paths.EssenceFileName))
+	out, ok := sessions.OutputDirOf(distilled)
+	require.True(t, ok)
+	assert.FileExists(t, filepath.Join(out, paths.EssenceFileName), "the output dir is the human's: a sweep never deletes it")
 
 	assert.Equal(t, SweepDone, ssRows(rep, "shot-quiet-heron")[SweepPurge].Verdict)
 	assert.NoFileExists(t, transcript(oneshot))
@@ -80,7 +84,7 @@ func TestSweepSessions_PurgeRows(t *testing.T) {
 	assert.FileExists(t, transcript(undistilled), "a human's undistilled transcript is its only record")
 
 	for _, dir := range []string{distilled, undistilled, oneshot} {
-		srAssertGone(t, dir, paths.EphemeralDirName)
+		srAssertGone(t, dir, paths.ScratchDirName)
 	}
 }
 
@@ -92,7 +96,7 @@ func TestSweepSessions_NoPurgeCutoffHoldsThePurge(t *testing.T) {
 		SweepRequest{ProjectDir: "/tmp/demo", ReclaimCutoff: srCutoff(), Apply: true})
 	require.NoError(t, err)
 	assert.Equal(t, SweepHeld, ssRows(rep, "done-quiet-heron")[SweepPurge].Verdict)
-	assert.FileExists(t, filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName))
+	assert.FileExists(t, filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName))
 }
 
 // The scope is the project: another project's session is not in the report.

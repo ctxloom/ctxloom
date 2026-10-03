@@ -111,7 +111,7 @@ func TestSessionRow_JSONShape(t *testing.T) {
 		dir, err := paths.HarpDir(harp)
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0o755))
-		essencePath, err := paths.HarpEssencePath(harp)
+		essencePath, err := harpEssencePath(t, harp)
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(essencePath, []byte("## Summary\n\ndone\n"), 0o644))
 

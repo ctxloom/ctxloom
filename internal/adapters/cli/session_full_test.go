@@ -25,7 +25,7 @@ func seedDistilledEssence(t *testing.T, harp, body string) string {
 	dir, err := paths.HarpDir(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	essencePath, err := paths.HarpEssencePath(harp)
+	essencePath, err := harpEssencePath(t, harp)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(essencePath, []byte(body), 0o644))
 	return essencePath

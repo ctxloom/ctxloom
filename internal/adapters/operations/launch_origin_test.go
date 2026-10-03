@@ -27,7 +27,7 @@ func TestMintIdentity_StampsTheSeedsOrigin(t *testing.T) {
 		{sessions.Seed{ProjectDir: "/proj", OneShot: true}, sessions.OriginOneShot},
 	} {
 		store := sessions.NewMemStore()
-		id, err := MintIdentity(store, tc.seed, compositetest.Trust())
+		id, err := MintIdentity(store, tc.seed, compositetest.Trust(), t.TempDir())
 		require.NoError(t, err)
 		t.Cleanup(func() { sessionlock.Release(id.Harp) })
 		got, err := store.Find(id.Harp)
@@ -54,7 +54,7 @@ func TestMintIdentity_StampsTheTrustsSignatureCheckPosture(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := sessions.NewMemStore()
-			id, err := MintIdentity(store, sessions.Seed{ProjectDir: "/proj"}, tc.tr)
+			id, err := MintIdentity(store, sessions.Seed{ProjectDir: "/proj"}, tc.tr, t.TempDir())
 			require.NoError(t, err)
 			t.Cleanup(func() { sessionlock.Release(id.Harp) })
 			got, err := store.Find(id.Harp)

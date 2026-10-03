@@ -18,12 +18,12 @@ const (
 )
 
 // crSeedSession is cotSeedSession plus the two members this file is about:
-// the canonical transcript under persist/ and a credential copy in the
+// the canonical transcript under transcripts/ and a credential copy in the
 // session home.
 func crSeedSession(t *testing.T, harp string, age time.Duration) string {
 	t.Helper()
 	dir := cotSeedSession(t, harp, age)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName), []byte(crTranscript), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), []byte(crTranscript), 0o644))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.SessionEngineHomesDirName), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionEngineHomesDirName, ".credentials.json"), []byte(crCredential), 0o600))
 	cotBackdate(t, dir, age)
@@ -31,21 +31,22 @@ func crSeedSession(t *testing.T, harp string, age time.Duration) string {
 }
 
 // TestClean_IncludePersist_RemovesTheTranscript is the gate: from a distilled
-// session --include-persist takes the transcripts with the rest of persist/,
-// and the report names persist/ among the members it took.
+// session --include-persist takes the transcripts with the other persistent
+// machine members, and the report names transcripts/ among the members it
+// took.
 func TestClean_IncludePersist_RemovesTheTranscript(t *testing.T) {
 	cotProject(t)
 	dir := crSeedSession(t, "aged-quiet-heron", 90*24*time.Hour)
-	transcript := filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName)
+	transcript := filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName)
 
 	rep := cotRun(t, "--yes", "--format", "json")
-	assert.NotContains(t, rep.Sessions.Members, paths.PersistDirName)
+	assert.NotContains(t, rep.Sessions.Members, paths.TranscriptsDirName)
 	got, err := os.ReadFile(transcript)
 	require.NoError(t, err, "without --include-persist the transcript survives")
 	assert.Equal(t, crTranscript, string(got))
 
 	rep = cotRun(t, "--include-persist", "--yes", "--format", "json")
-	assert.Contains(t, rep.Sessions.Members, paths.PersistDirName)
+	assert.Contains(t, rep.Sessions.Members, paths.TranscriptsDirName)
 	assert.Equal(t, 1, rep.Sessions.Reclaimed)
 	assert.NoFileExists(t, transcript, "--include-persist takes the transcript")
 	cotAssertPlan(t, dir, false)

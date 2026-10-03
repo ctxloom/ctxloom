@@ -98,7 +98,7 @@ func renderSessionReclaim(out *errwriter.Writer, rep sessions.Report) error {
 		out.Printf("\n  %d sessions were active since the bound and were not considered.\n", rep.Newer)
 	}
 	if !cleanIncludePersist {
-		out.Printf("\n  %s/ is referenced data and is left alone; --include-persist reclaims it from the same sessions.\n", paths.PersistDirName)
+		out.Printf("\n  transcripts, native history and the other persistent members are left alone; --include-persist reclaims them from the same (distilled) sessions.\n")
 	}
 	out.Printf("\n")
 	return out.Err()

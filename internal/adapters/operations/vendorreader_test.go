@@ -169,10 +169,10 @@ func TestConvertVendorTranscript_PreRenameFileIsNotACanonicalTranscript(t *testi
 	testsupport.Isolate(t)
 	harp := "convert-pre-rename-harp"
 
-	persistDir, err := paths.HarpPersistDir(harp)
+	transcripts, err := paths.HarpTranscriptsDir(harp)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(persistDir, 0o755))
-	preRename := filepath.Join(persistDir, "transcript.acp.jsonl")
+	require.NoError(t, os.MkdirAll(transcripts, 0o755))
+	preRename := filepath.Join(transcripts, "transcript.acp.jsonl")
 	require.NoError(t, os.WriteFile(preRename, []byte(`{"v":1,"harp":"`+harp+`"}`+"\n"), 0o644))
 
 	e := sessions.Entry{

@@ -61,22 +61,25 @@ func cotHomeConfig(t *testing.T, body string) {
 
 const (
 	cotScratch = "disposable scratch\n"
-	cotPlan    = "# a plan someone cites\n"
+	cotPlan    = "{\"bulk\":true}\n"
 )
 
 // cotSeedSession plants a DISTILLED harp directory in the session layout —
-// an ephemeral/ file, a persist/ plan and an essence — whose owner is
-// provably gone, aged by the given amount. Distilled, because only a
-// distilled session's persist/ is --include-persist's to take.
+// a scratch/ file, a transcript under transcripts/ and an essence in its
+// recorded output dir — whose owner is provably gone, aged by the given
+// amount. Distilled, because only a distilled session's persistent members are
+// --include-persist's to take.
 func cotSeedSession(t *testing.T, harp string, age time.Duration) string {
 	t.Helper()
 	dir, err := paths.HarpDir(harp)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.EphemeralDirName), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.PersistDirName), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.EphemeralDirName, "scratch.txt"), []byte(cotScratch), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.PersistDirName, "design"+paths.PlanFileExt), []byte(cotPlan), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.EssenceFileName), []byte("---\nsummary: seeded\n---\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.ScratchDirName), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.TranscriptsDirName), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.ScratchDirName, "scratch.txt"), []byte(cotScratch), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), []byte(cotPlan), 0o644))
+	out := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("---\nsummary: seeded\n---\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte("project_dir: /tmp/demo\noutput_dir: "+out+"\n"), 0o644))
 
 	require.NoError(t, sessionlock.Hold(harp))
 	sessionlock.Release(harp)
@@ -102,25 +105,25 @@ func cotBackdate(t *testing.T, dir string, age time.Duration) {
 
 func cotAssertScratch(t *testing.T, dir string, present bool) {
 	t.Helper()
-	p := filepath.Join(dir, paths.EphemeralDirName, "scratch.txt")
+	p := filepath.Join(dir, paths.ScratchDirName, "scratch.txt")
 	if !present {
-		assert.NoFileExists(t, p, "ephemeral/ must be reclaimed")
+		assert.NoFileExists(t, p, "scratch/ must be reclaimed")
 		return
 	}
 	got, err := os.ReadFile(p)
-	require.NoError(t, err, "ephemeral/ must survive")
+	require.NoError(t, err, "scratch/ must survive")
 	assert.Equal(t, cotScratch, string(got))
 }
 
 func cotAssertPlan(t *testing.T, dir string, present bool) {
 	t.Helper()
-	p := filepath.Join(dir, paths.PersistDirName, "design"+paths.PlanFileExt)
+	p := filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName)
 	if !present {
-		assert.NoFileExists(t, p, "persist/ must be reclaimed")
+		assert.NoFileExists(t, p, "transcripts/ must be reclaimed")
 		return
 	}
 	got, err := os.ReadFile(p)
-	require.NoError(t, err, "persist/ must survive")
+	require.NoError(t, err, "transcripts/ must survive")
 	assert.Equal(t, cotPlan, string(got))
 }
 

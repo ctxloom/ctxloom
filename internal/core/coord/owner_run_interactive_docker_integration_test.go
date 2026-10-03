@@ -15,7 +15,7 @@ package coord_test
 import (
 	"context"
 	"io"
-	"os"
+	"io/fs"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -185,13 +185,15 @@ func TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner(t *testing.T) {
 		}
 	}
 
-	// (4) No handoff file under the session's persist dir.
-	persist, err := paths.HarpPersistDir(ownerHarp)
+	// (4) No handoff file anywhere in the session dir.
+	sessionDir, err := paths.HarpDir(ownerHarp)
 	require.NoError(t, err)
-	entries, _ := os.ReadDir(persist)
-	for _, e := range entries {
-		assert.False(t, strings.Contains(e.Name(), "runstart"), "a run-start handoff landed under persist/: %s", filepath.Join(persist, e.Name()))
-	}
+	_ = filepath.WalkDir(sessionDir, func(p string, d fs.DirEntry, werr error) error {
+		if werr == nil && !d.IsDir() {
+			assert.False(t, strings.Contains(d.Name(), "runstart"), "a run-start handoff landed in the session dir: %s", p)
+		}
+		return nil
+	})
 }
 
 // lockedBuffer is a goroutine-safe io.Writer for the pty copier.

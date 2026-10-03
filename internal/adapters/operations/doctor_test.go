@@ -1028,7 +1028,7 @@ func TestDoctorCheckForeignWorktrees_SessionsRootExcluded(t *testing.T) {
 	root := t.TempDir()
 	sessionsRoot, err := paths.HomeSessionsDir()
 	require.NoError(t, err)
-	scratch := filepath.Join(sessionsRoot, "amber-quiet-heron", "ephemeral", "ctxloom-wt-clean")
+	scratch := filepath.Join(sessionsRoot, "amber-quiet-heron", paths.WorkDirName, "ctxloom-wt-clean")
 
 	g := &git.Fake{Worktrees: []git.Worktree{
 		{Path: root, Branch: "refs/heads/main"},
@@ -1132,36 +1132,34 @@ func TestDoctorCheckHarpDurability_RightState_NoSessionsDirYet(t *testing.T) {
 
 // TestDoctorCheckHarpDurability_RightState_OnlyClassifiedFiles: a session
 // whose every file lives where its paths.HarpMembers row puts it — the
-// essence at the top, the transcript and a note under persist/ — is not
-// reported.
+// sidecar at the top, the transcript under transcripts/, scratch under
+// scratch/ — is not reported.
 func TestDoctorCheckHarpDurability_RightState_OnlyClassifiedFiles(t *testing.T) {
 	testsupport.Isolate(t)
 	harpDir, err := paths.HarpDir("amber-quiet-heron")
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, paths.PersistDirName), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, paths.EphemeralDirName), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.EssenceFileName), []byte("essence"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.PersistDirName, paths.CanonicalTranscriptFileName), []byte("{}"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.PersistDirName, "notes.md"), []byte("fine here"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, paths.TranscriptsDirName), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, paths.ScratchDirName), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.SessionSidecarFileName), []byte("project_dir: /p\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), []byte("{}"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.ScratchDirName, "notes.md"), []byte("fine here"), 0o644))
 
 	check := doctorCheckHarpDurability()
 	assert.Equal(t, DoctorOK, check.Status)
 }
 
-// TestDoctorCheckHarpDurability_RightState_EngineTranscriptLinksExcluded pins
-// that the per-vendor-log engine-transcript SYMLINKS (the shape
-// sessions.linkEngineTranscript writes) are never flagged as an at-risk
-// authored artifact — several can legitimately sit at one harp dir's top
-// level (one per rotation, one per engine).
-func TestDoctorCheckHarpDurability_RightState_EngineTranscriptLinksExcluded(t *testing.T) {
+// TestDoctorCheckHarpDurability_RightState_SymlinksExcluded pins that a
+// symlink at a harp dir's top level is never flagged as an at-risk authored
+// artifact: it is not a design note anybody can lose.
+func TestDoctorCheckHarpDurability_RightState_SymlinksExcluded(t *testing.T) {
 	testsupport.Isolate(t)
 	harpDir, err := paths.HarpDir("amber-quiet-heron")
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(harpDir, 0o755))
 	target := filepath.Join(t.TempDir(), "vendor.jsonl")
 	require.NoError(t, os.WriteFile(target, []byte("{}"), 0o644))
-	for _, leaf := range []string{"claude-code-sess-1", "claude-code-sess-2", "codex-sess-3"} {
-		require.NoError(t, os.Symlink(target, filepath.Join(harpDir, paths.EngineTranscriptLinkPrefix+leaf+".jsonl")))
+	for _, leaf := range []string{"link-1", "link-2"} {
+		require.NoError(t, os.Symlink(target, filepath.Join(harpDir, leaf+".jsonl")))
 	}
 
 	check := doctorCheckHarpDurability()
@@ -1170,7 +1168,7 @@ func TestDoctorCheckHarpDurability_RightState_EngineTranscriptLinksExcluded(t *t
 
 // TestDoctorCheckHarpDurability_WrongState_NamesTheAuthoredFile is J001300 row
 // 3's own assertion: an authored plan file sitting at a harp directory's TOP
-// LEVEL must be named, with the word "persist" in the fix.
+// LEVEL must be named, with the output dir in the fix.
 func TestDoctorCheckHarpDurability_WrongState_NamesTheAuthoredFile(t *testing.T) {
 	testsupport.Isolate(t)
 	harpDir, err := paths.HarpDir("amber-quiet-heron")
@@ -1182,7 +1180,7 @@ func TestDoctorCheckHarpDurability_WrongState_NamesTheAuthoredFile(t *testing.T)
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "amber-quiet-heron.plan.md")
 	assert.Contains(t, check.Detail, ".plan.md")
-	assert.Contains(t, check.Detail, "persist")
+	assert.Contains(t, check.Detail, "output dir")
 }
 
 // TestDoctorCheckHarpDurability_SkipsNonDirectoryAtSessionsRootTopLevel is the

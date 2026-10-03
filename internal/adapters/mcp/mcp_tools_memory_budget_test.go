@@ -91,6 +91,8 @@ func TestDistillMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 	// A harp with no essence on disk is exactly what distill_missing targets.
 	e, err := mgr.AssignHarp(proj, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(e.HarpName, t.TempDir())
+	require.NoError(t, err)
 
 	var gotDeadline bool
 	var budget time.Duration
@@ -141,9 +143,10 @@ func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.
 	// session where the first saw none.
 	prev := compactEntryFn
 	compactEntryFn = func(_ context.Context, _ operations.LaunchFacts, entry *sessions.Entry, _ *config.Config, _ operations.DistillOptions) (*memory.CompactionResult, error) {
-		p, perr := paths.HarpEssencePath(entry.HarpName)
+		out, perr := sessions.OutputDir(entry.HarpName)
 		require.NoError(t, perr)
-		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		p := filepath.Join(out, paths.EssenceFileName)
+		require.NoError(t, os.MkdirAll(out, 0o755))
 		require.NoError(t, os.WriteFile(p, []byte("---\nsummary: distilled just now\n---\n# essence\n"), 0o644))
 		return &memory.CompactionResult{SessionID: entry.SessionID}, nil
 	}

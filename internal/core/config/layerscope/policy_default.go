@@ -129,6 +129,7 @@ func DefaultPolicy() Policy {
 
 		{Path: "isolation_images", Scope: ScopeMachine, Note: "image tags present on this machine"},
 		{Path: "isolation_engines", Scope: ScopeMachine, Note: "engines present on this machine"},
+		{Path: "output_dir", Scope: ScopeMachine, Note: "a folder on this machine's filesystem"},
 		{Path: "isolation_devcontainer_base", Scope: ScopeMachine, Note: "whether THIS box has a devcontainer to auto-detect"},
 		{Path: "isolation_devcontainer_service", Scope: ScopeMachine, Note: "a fact about this box's compose setup"},
 		{Path: "isolation_base_containerfile", Scope: ScopeShared, Note: "its own doc: relative paths resolve against the project root — a repo file"},

@@ -193,6 +193,11 @@
       "minLength": 1,
       "description": "Docker-compose service to adopt as the agent image's base when the auto-detected devcontainer.json declares dockerComposeFile \u2014 a multi-service compose project does not map to one agent container, so this (or the devcontainer.json's own \"service\" key) is required to resolve one; its absence is a fail-loud finding, never a silent fallback to the default base."
     },
+    "output_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Absolute directory under which each session's output dir (<output_dir>/<project>/<harp>/: essence, next step, plans, published reports) is made, replacing the default <Documents>/ctxloom. A session records its output dir when it is minted, so changing this affects new sessions only."
+    },
     "isolation_engines": {
       "type": "array",
       "items": {

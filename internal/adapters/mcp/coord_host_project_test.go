@@ -30,9 +30,9 @@ func TestHostApp_ListSessionsResolvesTheCallersProjectNotTheHostsCwd(t *testing.
 	callerProject := t.TempDir()
 	testsupport.ChangeDir(t, hostProject)
 
-	hostEntry, err := operations.AssignSessionHarp(hostProject, "mock")
+	hostEntry, err := operations.AssignSessionHarp(hostProject, "mock", t.TempDir())
 	require.NoError(t, err)
-	callerEntry, err := operations.AssignSessionHarp(callerProject, "mock")
+	callerEntry, err := operations.AssignSessionHarp(callerProject, "mock", t.TempDir())
 	require.NoError(t, err)
 
 	app := NewHostApp(&config.Config{}, testLaunchFacts())

@@ -20,11 +20,13 @@ import (
 // each decided by the paths.HarpMembers row the file lives under
 // (classifyPurgeFile), and purge treats each one differently:
 //
-//	machine  — the canonical transcript row, everything under the transcript
-//	           store row, and whatever file the entry's TranscriptPath names
-//	           (fenced to inside this harp's own directory). Destroyed by the
-//	           transcript population.
-//	derived  — the essence row. Destroyed by the artifacts population.
+//	machine  — everything under the transcripts and native-history rows, and
+//	           whatever file the entry's TranscriptPath names (fenced to
+//	           inside this harp's own directory). Destroyed by the transcript
+//	           population.
+//	derived  — the essence and the segment essences in the session's output
+//	           dir. Destroyed by the artifacts population, the one explicit
+//	           destroyer that reaches into the output dir.
 //	authored — every other file under a Persist member, and every top-level
 //	           file no row names. NEVER destroyed. Named in the report so a
 //	           kept-but-unmentioned file never goes unfiled.
@@ -209,6 +211,7 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	if err != nil {
 		return nil, err
 	}
+	items = append(items, outputEssenceItems(entry)...)
 
 	// The undistilled guard protects a real file, so it asks whether there IS
 	// one. Firing on the request alone would refuse forever for a session
@@ -281,6 +284,29 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	res.BytesFreed = freed
 	res.Applied = true
 	return res, nil
+}
+
+// outputEssenceItems is the derived population in the session's output dir:
+// its current essence and each rotation's segment essence. Rel is relative to
+// the output dir. A session with no output dir, or none written yet, has none.
+func outputEssenceItems(entry *sessions.Entry) []PurgeItem {
+	if entry == nil || entry.OutputDir == "" {
+		return nil
+	}
+	candidates := []string{filepath.Join(entry.OutputDir, paths.EssenceFileName)}
+	if segs, err := filepath.Glob(filepath.Join(entry.OutputDir, paths.SegmentsDirName, "*.md")); err == nil {
+		candidates = append(candidates, segs...)
+	}
+	var out []PurgeItem
+	for _, p := range candidates {
+		info, err := os.Lstat(p)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		rel, _ := filepath.Rel(entry.OutputDir, p)
+		out = append(out, PurgeItem{Path: p, Rel: filepath.ToSlash(rel), Class: PurgeClassDerived, Bytes: info.Size()})
+	}
+	return out
 }
 
 // hasClass reports whether any classified item belongs to class c.
@@ -394,10 +420,8 @@ func classifyPurgeFile(rel string, isTranscriptMatch bool) PurgeClass {
 		return PurgeClassAuthored
 	}
 	switch member.Name {
-	case paths.CanonicalTranscriptFileName, paths.TranscriptStoreDirName:
+	case paths.CanonicalTranscriptFileName, paths.TranscriptsDirName, paths.SegmentsDirName, paths.NativeDirName:
 		return PurgeClassMachine
-	case paths.EssenceFileName:
-		return PurgeClassDerived
 	default:
 		return PurgeClassAuthored
 	}

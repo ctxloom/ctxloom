@@ -120,9 +120,9 @@ func TestRunnerExitPaths_ConsumedSpoolMessageIsKept(t *testing.T) {
 	require.NoError(t, err)
 	outPath, err := mapper.Resolve(ref)
 	require.NoError(t, err)
-	persist, err := paths.HarpPersistDir(harp)
+	transcript, err := paths.HarpCanonicalTranscriptPath(harp)
 	require.NoError(t, err)
-	transcript := filepath.Join(persist, paths.CanonicalTranscriptFileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(transcript), 0o700))
 	require.NoError(t, os.WriteFile(transcript, nil, 0o600))
 
 	before := persistentMembers(t, harp)

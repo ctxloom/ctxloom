@@ -272,3 +272,7 @@ func (c *Config) GetIsolationDevcontainerService() string { return c.isolationDe
 // GetIsolationEngines returns a copy of the engine fragment selection for the
 // shared multi-engine agent image.
 func (c *Config) GetIsolationEngines() []string { return slices.Clone(c.isolationEngines) }
+
+// GetOutputDir returns the configured base for session output dirs, "" when
+// unset (paths.DefaultOutputBase applies).
+func (c *Config) GetOutputDir() string { return c.outputDir }

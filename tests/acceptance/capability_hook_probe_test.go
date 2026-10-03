@@ -637,7 +637,7 @@ func TestHookProbeCarriage_ResolveRootsSurvivesAMalformedPattern(t *testing.T) {
 // is unexported, so if it is renamed this test still passes and the live
 // container cell is what catches it. That is stated rather than papered over —
 // the value here is proving the glob matches a scratch-SHAPED directory in the
-// base the scratch really lands in (a session's ephemeral dir), which is the
+// base the scratch really lands in (a session's scratch dir), which is the
 // half that broke by hand.
 func TestHookProbeContainerOverlayGlobs_TargetTheScratchIsolationCreates(t *testing.T) {
 	sessionsRoot := t.TempDir()
@@ -647,11 +647,11 @@ func TestHookProbeContainerOverlayGlobs_TargetTheScratchIsolationCreates(t *test
 	}
 
 	// A real scratch root, named and placed the way isolation places one.
-	ephemeral := filepath.Join(sessionsRoot, "brisk-teal-otter", paths.EphemeralDirName)
-	if err := os.MkdirAll(ephemeral, 0o755); err != nil {
+	base := filepath.Join(sessionsRoot, "brisk-teal-otter", paths.ScratchDirName)
+	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	scratch, err := os.MkdirTemp(ephemeral, hookProbeContainerOverlayScratchPrefix)
+	scratch, err := os.MkdirTemp(base, hookProbeContainerOverlayScratchPrefix)
 	if err != nil {
 		t.Fatal(err)
 	}

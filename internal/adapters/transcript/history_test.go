@@ -188,7 +188,7 @@ func TestCanonicalHistory_GetSession_PreRenameFilenameIsNotATranscript(t *testin
 	testsupport.Isolate(t)
 	harp := "pre-rename-harp"
 
-	dir, err := paths.HarpPersistDir(harp)
+	dir, err := paths.HarpTranscriptsDir(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	data, err := os.ReadFile(fixturePath("claude-code.transcript.acp.jsonl"))

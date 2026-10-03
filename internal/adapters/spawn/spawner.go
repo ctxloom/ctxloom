@@ -293,7 +293,15 @@ func resolveSpawnResumeMode(agentName string, driving agents.DrivingMode, backen
 }
 
 func (s *spawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.AssignSessionHarp(projectDir, backend)
+	cfg, err := s.app.Config(context.Background())
+	if err != nil {
+		return "", err
+	}
+	base, err := operations.OutputBase(cfg)
+	if err != nil {
+		return "", err
+	}
+	entry, err := operations.AssignSessionHarp(projectDir, backend, base)
 	if err != nil {
 		return "", err
 	}

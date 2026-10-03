@@ -11,14 +11,33 @@ This page is generated from `taskloom summary --help`.
 
 Show per-status counts and active in-progress tasks
 
+### Synopsis
+
+Show per-status counts and the tasks currently in progress.
+
+Counts cover every task, completed and Deferred included. With --global they
+are summed across every privately-homed project, and each in-progress task is
+named with its project, since a harp id is unique only within one project.
+
 ```
 taskloom summary [flags]
+```
+
+### Examples
+
+```
+  # this project's counts
+  taskloom summary
+
+  # summed across every privately-homed project
+  taskloom summary --global
 ```
 
 ### Options
 
 ```
-  -h, --help   help for summary
+      --global   sum the counts across every privately-homed project instead of just the current one (repo-homed projects are never included -- see "taskloom list --help")
+  -h, --help     help for summary
 ```
 
 ### Options inherited from parent commands

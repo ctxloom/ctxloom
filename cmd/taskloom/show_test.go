@@ -135,23 +135,95 @@ func TestRunShow_UnknownIDsFailLoudly(t *testing.T) {
 	require.NotContains(t, out, "real body text")
 }
 
-// TestSelectTasks covers the resolution helper directly: argument order, the
+// TestSelectRows covers the resolution helper directly: argument order, the
 // full missing list rather than only the first, and a repeated id honored as
 // typed rather than silently collapsed to one record.
-func TestSelectTasks(t *testing.T) {
-	all := []tasks.Task{{HarpID: "a", Text: "A"}, {HarpID: "b", Text: "B"}}
+func TestSelectRows(t *testing.T) {
+	all := []taskRow{{Task: tasks.Task{HarpID: "a", Text: "A"}}, {Task: tasks.Task{HarpID: "b", Text: "B"}}}
 
-	selected, missing := selectTasks(all, []string{"b", "a"})
+	selected, missing, ambiguous := selectRows(all, []string{"b", "a"})
 	require.Empty(t, missing)
+	require.Empty(t, ambiguous)
 	require.Equal(t, []string{"b", "a"}, []string{selected[0].HarpID, selected[1].HarpID})
 
-	selected, missing = selectTasks(all, []string{"a", "x", "b", "y"})
+	selected, missing, _ = selectRows(all, []string{"a", "x", "b", "y"})
 	require.Equal(t, []string{"x", "y"}, missing, "every unresolved id must be reported, not just the first")
 	require.Len(t, selected, 2)
 
-	selected, missing = selectTasks(all, []string{"a", "a"})
+	selected, missing, _ = selectRows(all, []string{"a", "a"})
 	require.Empty(t, missing)
 	require.Len(t, selected, 2, "a repeated id yields a record per argument")
+}
+
+// TestSelectRows_HarpInTwoProjectsIsAmbiguous pins the --global hazard: harp
+// ids are unique within one project's log, not across projects, so a harp
+// found in two stores must fail naming both rather than silently showing
+// whichever project sorted first.
+func TestSelectRows_HarpInTwoProjectsIsAmbiguous(t *testing.T) {
+	all := []taskRow{
+		{Task: tasks.Task{HarpID: "dup", Text: "A's"}, ProjectID: "proj-a"},
+		{Task: tasks.Task{HarpID: "dup", Text: "B's"}, ProjectID: "proj-b"},
+		{Task: tasks.Task{HarpID: "solo", Text: "S"}, ProjectID: "proj-a"},
+	}
+	_, missing, ambiguous := selectRows(all, []string{"solo", "dup"})
+	require.Empty(t, missing)
+	require.Equal(t, []ambiguousHarp{{HarpID: "dup", ProjectIDs: []string{"proj-a", "proj-b"}}}, ambiguous)
+
+	msg := ambiguousTasksError(ambiguous).Error()
+	require.Contains(t, msg, `"dup"`)
+	require.Contains(t, msg, "proj-a")
+	require.Contains(t, msg, "proj-b")
+	require.Contains(t, msg, "--project", "the error must name the way to disambiguate")
+}
+
+// TestRunShow_GlobalResolvesAcrossPrivatelyHomedProjects pins that `show`
+// has the scope `list` has: with --global, a harp held by ANOTHER project's
+// private store resolves, and the structured record names the project it
+// came from.
+func TestRunShow_GlobalResolvesAcrossPrivatelyHomedProjects(t *testing.T) {
+	taskstest.Isolate(t)
+	_, err := operations.AddTask(operations.TaskContext{ProjectID: "proj-a"}, "a's body", "", "")
+	require.NoError(t, err)
+	b, err := operations.AddTask(operations.TaskContext{ProjectID: "proj-b"}, "b's body", "", "")
+	require.NoError(t, err)
+
+	setShowGlobal(t, true)
+	out, err := showForTest(t, "json", b.Task.HarpID)
+	require.NoError(t, err)
+
+	var got taskRow
+	require.NoError(t, json.Unmarshal([]byte(out), &got), "output was: %s", out)
+	require.Equal(t, b.Task.HarpID, got.HarpID)
+	require.Equal(t, "b's body", got.Text)
+	require.Equal(t, "proj-b", got.ProjectID)
+}
+
+// TestRunShow_WithoutGlobalStaysInTheResolvedProject pins the other half: the
+// default scope is the resolved project, so a harp living only in some OTHER
+// private project is "not found" unless --global widens the read.
+func TestRunShow_WithoutGlobalStaysInTheResolvedProject(t *testing.T) {
+	taskstest.ProjectDir(t)
+	other, err := operations.AddTask(operations.TaskContext{ProjectID: "some-other-project"}, "elsewhere", "", "")
+	require.NoError(t, err)
+
+	setShowGlobal(t, false)
+	_, err = showForTest(t, "text", other.Task.HarpID)
+	require.Error(t, err)
+
+	setShowGlobal(t, true)
+	out, err := showForTest(t, "text", other.Task.HarpID)
+	require.NoError(t, err)
+	require.Contains(t, out, "elsewhere")
+	require.Contains(t, out, "some-other-project", "a cross-project detail block must name its project")
+}
+
+// setShowGlobal sets the --global flag variable runShow reads for the
+// duration of one test.
+func setShowGlobal(t *testing.T, v bool) {
+	t.Helper()
+	prev := showGlobal
+	showGlobal = v
+	t.Cleanup(func() { showGlobal = prev })
 }
 
 // TestMissingTasksError pins the wording split: one id keeps the singular

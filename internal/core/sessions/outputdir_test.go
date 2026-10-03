@@ -75,3 +75,12 @@ func TestMemStoreRecordOutputDir_MatchesTheManager(t *testing.T) {
 	_, err = mem.RecordOutputDir("no-such-harp", "/out")
 	assert.ErrorIs(t, err, ErrNotFound)
 }
+
+// A harp that is no session at all is ErrNotFound, told apart from a session
+// that recorded no output dir.
+func TestOutputDir_NoSuchSessionIsNotFound(t *testing.T) {
+	testsupport.Isolate(t)
+	_, err := OutputDir("never-minted-harp")
+	assert.ErrorIs(t, err, ErrNotFound)
+	assert.NotErrorIs(t, err, ErrNoOutputDir)
+}

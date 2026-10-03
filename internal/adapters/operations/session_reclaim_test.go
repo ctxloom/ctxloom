@@ -37,7 +37,7 @@ import (
 var srOldEnough = time.Now().Add(-90 * 24 * time.Hour)
 
 // srSeedHarp plants a harp directory in the real session-dir layout — the
-// sidecar at the top, scratch/ and transcripts/ and spool/ as peers, each
+// sidecar at the top, scratch/ and transcripts/ and package/ as peers, each
 // holding bytes, and an essence in the session's recorded output dir so it
 // reads as distilled — and back-dates it, so "aged" is a property of the
 // fixture rather than of how long the test ran.
@@ -68,7 +68,7 @@ var srLayout = map[string]string{
 	paths.ScratchDirName + "/overlay/settings.json":                       "{}\n",
 	paths.TranscriptsDirName + "/" + paths.CanonicalTranscriptFileName:    "{\"bulk\":true}\n",
 	paths.TranscriptsDirName + "/" + paths.SegmentsDirName + "/abc.jsonl": "{\"seg\":1}\n",
-	paths.SpoolDirName + "/in/0001.msg":                                   "mail\n",
+	paths.PackageDirName + "/abc123/manifest.yaml":                        "name: pkg\n",
 }
 
 // srAssertIntact asserts that every fixture member under the given
@@ -150,7 +150,7 @@ func TestSweepReclaim_WithoutAnAgeBound_ReclaimsNothing(t *testing.T) {
 	_, err := SweepSessions(context.Background(), git.NewExec(), srRequest(sessions.ReapPolicy{Apply: true}))
 
 	require.ErrorIs(t, err, sessions.ErrNoAgeBound)
-	srAssertIntact(t, dir, paths.ScratchDirName, paths.TranscriptsDirName, paths.SpoolDirName)
+	srAssertIntact(t, dir, paths.ScratchDirName, paths.TranscriptsDirName, paths.PackageDirName)
 }
 
 // TestSweepReclaim_TakesThePolicysMembers: the adapter removes what
@@ -167,12 +167,12 @@ func TestSweepReclaim_TakesThePolicysMembers(t *testing.T) {
 	assert.Equal(t, 1, res.Reclaimed)
 	assert.Equal(t, sessions.ReapPolicy{}.MemberRels(), res.Members)
 	srAssertGone(t, dir, paths.ScratchDirName)
-	srAssertIntact(t, dir, paths.TranscriptsDirName, paths.SpoolDirName)
+	srAssertIntact(t, dir, paths.TranscriptsDirName, paths.PackageDirName)
 
 	res = srReclaim(t, sessions.ReapPolicy{Cutoff: srCutoff(), Scope: paths.Persist, Apply: true})
 
 	assert.Equal(t, 1, res.Reclaimed)
-	srAssertGone(t, dir, paths.TranscriptsDirName, paths.SpoolDirName)
+	srAssertGone(t, dir, paths.TranscriptsDirName, paths.PackageDirName)
 	assert.FileExists(t, filepath.Join(dir, paths.SessionSidecarFileName), "the identity row is never taken")
 }
 

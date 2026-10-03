@@ -36,6 +36,8 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 	// (BindSession is never called on the ACP path).
 	entry, err := mgr.AssignHarp(projectDir, "mock")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 	harp := entry.HarpName
 	require.Empty(t, entry.SessionID, "ACP entry must have no backend session id")
 

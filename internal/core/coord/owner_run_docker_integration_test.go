@@ -22,6 +22,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -146,7 +147,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 
 	// The owner's session harp (its address + the transcript-mount key), minted
 	// through the same accounting the host uses.
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock")
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock", filepath.Join(projectDir, ".test-output"))
 	require.NoError(t, err)
 	ownerHarp := entry.HarpName
 
@@ -252,7 +253,7 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	image := buildBusIntegrationImage(t)
 	projectDir := testsupport.ProjectDir(t)
 
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock")
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock", filepath.Join(projectDir, ".test-output"))
 	require.NoError(t, err)
 	ownerHarp := entry.HarpName
 

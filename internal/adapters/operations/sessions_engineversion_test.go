@@ -30,7 +30,7 @@ func TestAssignSession_RecordsTheProbedEngineVersion(t *testing.T) {
 	testsupport.Isolate(t)
 	stubProbe(t, "2.1.225", nil)
 
-	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "claude-code")
+	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "claude-code", t.TempDir())
 	require.NoError(t, err)
 	assert.Equal(t, "2.1.225", entry.EngineVersion, "the returned entry must carry what was probed")
 
@@ -49,7 +49,7 @@ func TestAssignSession_RecordsAVersionOtherThanThePin(t *testing.T) {
 	testsupport.Isolate(t)
 	stubProbe(t, "2.1.225", nil)
 
-	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "claude-code")
+	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "claude-code", t.TempDir())
 	require.NoError(t, err)
 	assert.Equal(t, "2.1.225", entry.EngineVersion,
 		"an installed version ahead of the tested-version lock is still the truth about what ran")
@@ -61,7 +61,7 @@ func TestAssignSession_RecordsAVersionBehindThePin(t *testing.T) {
 	testsupport.Isolate(t)
 	stubProbe(t, "0.144.4", nil)
 
-	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "claude-code")
+	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "claude-code", t.TempDir())
 	require.NoError(t, err)
 	assert.Equal(t, "0.144.4", entry.EngineVersion)
 }
@@ -74,7 +74,7 @@ func TestAssignSession_ProbeFailureLeavesTheVersionUnsetWithoutFailingTheRun(t *
 	testsupport.Isolate(t)
 	stubProbe(t, "", &engineversion.BinaryAbsentError{Engine: "mock", Err: errors.New("not on PATH")})
 
-	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "mock")
+	entry, err := new(App).AssignSession(context.Background(), t.TempDir(), "mock", t.TempDir())
 	require.NoError(t, err, "an unprobeable engine must still get a harp and still run")
 	assert.NotEmpty(t, entry.HarpName)
 	assert.Empty(t, entry.EngineVersion, "a failed probe must record NOTHING, not a guess and not an empty-looking success")
@@ -162,7 +162,7 @@ func TestAssignSession_ThreadsTheCallersContextIntoTheProbe(t *testing.T) {
 
 	type ctxKey struct{}
 	ctx := context.WithValue(context.Background(), ctxKey{}, "caller")
-	_, err := new(App).AssignSession(ctx, t.TempDir(), "claude-code")
+	_, err := new(App).AssignSession(ctx, t.TempDir(), "claude-code", t.TempDir())
 	require.NoError(t, err, "a failed probe never fails the session")
 	require.NotNil(t, got)
 	assert.Equal(t, "caller", got.Value(ctxKey{}),

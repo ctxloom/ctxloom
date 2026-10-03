@@ -123,6 +123,8 @@ func seedHomeSession(t *testing.T) (*sessions.Manager, sessions.Entry) {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/tmp/project", "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 	return mgr, entry
 }
 

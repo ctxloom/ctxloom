@@ -144,7 +144,7 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(ctx, projectDir, claude.EngineName)
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(ctx, projectDir, claude.EngineName, filepath.Join(projectDir, ".test-output"))
 	require.NoError(t, err)
 	id := coord.OwnerIdentity()
 	id.Harp = entry.HarpName

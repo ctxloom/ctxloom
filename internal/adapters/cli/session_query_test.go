@@ -102,7 +102,11 @@ func TestRunSessionQuery_Integration(t *testing.T) {
 
 	hit, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(hit.HarpName, t.TempDir())
+	require.NoError(t, err)
 	miss, err := mgr.AssignHarp(dir, "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(miss.HarpName, t.TempDir())
 	require.NoError(t, err)
 
 	hitEssenceDir, err := paths.HarpDir(hit.HarpName)

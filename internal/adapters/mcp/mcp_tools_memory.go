@@ -897,10 +897,13 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	if harp == "" {
 		return nil, nil, fmt.Errorf("session %s belongs to no harp, so there is nowhere to file its distilled essence: run `ctxloom session adopt` to bring an orphaned vendor transcript into a harp's lineage first", sessionID)
 	}
-	sessionsDir, err := paths.ResolveHarpSegmentsDir(harp)
+	// A rotation's essence is a readable output: it is filed under the
+	// session's output dir, beside the current one.
+	out, err := sessions.OutputDirIn(harp, os.Getenv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve segments dir for %s: %w", harp, err)
+		return nil, nil, fmt.Errorf("resolve output dir for %s: %w", harp, err)
 	}
+	sessionsDir := filepath.Join(out, paths.SegmentsDirName)
 	transcriptPath := ""
 	{
 		if entry, _ := operations.GetSession(harp); entry != nil {

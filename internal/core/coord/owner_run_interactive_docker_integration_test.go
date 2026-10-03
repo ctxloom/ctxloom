@@ -123,7 +123,7 @@ func TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner(t *testing.T) {
 	image := buildBusIntegrationImage(t)
 	projectDir := testsupport.ProjectDir(t)
 
-	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock")
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(context.Background(), projectDir, "mock", filepath.Join(projectDir, ".test-output"))
 	require.NoError(t, err)
 	ownerHarp := entry.HarpName
 

@@ -275,6 +275,8 @@ func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", backend)
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 
 	p := filepath.Join(home, ".ctxloom", "sessions", entry.HarpName,
 		"persist", "transcripts", filepath.FromSlash(rel))
@@ -316,6 +318,8 @@ func TestRunSessionWatch_NothingToWatch(t *testing.T) {
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 
 	cmd := &cobra.Command{}
@@ -490,6 +494,8 @@ func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 
 	f := newFakeConsumerServer()

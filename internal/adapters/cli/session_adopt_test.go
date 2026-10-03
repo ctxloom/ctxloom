@@ -56,6 +56,8 @@ func seedClaudeHarpWithVendorDir(t *testing.T, projectDir string) (mgr *sessions
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 	dir = t.TempDir()
 	livePath := writeAdoptVendorFile(t, dir, "id-live",
 		time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 10, 1, 0, 0, 0, time.UTC))
@@ -138,6 +140,8 @@ func TestSessionAdopt_UnsupportedBackendFails(t *testing.T) {
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "mock")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(entry.HarpName, "id-1", filepath.Join(t.TempDir(), "id-1.jsonl")))
 	t.Cleanup(func() { resetSessionAdoptFlags(t) })

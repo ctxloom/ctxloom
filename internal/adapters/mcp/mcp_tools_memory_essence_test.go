@@ -21,6 +21,8 @@ func bindHarpForEssence(t *testing.T, projectDir string) (string, string) {
 	require.NoError(t, err)
 	e, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(e.HarpName, t.TempDir())
+	require.NoError(t, err)
 	p, err := harpEssencePath(t, e.HarpName)
 	require.NoError(t, err)
 	return e.HarpName, p

@@ -93,6 +93,8 @@ func TestDistillMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 	require.NoError(t, err)
 	_, err = mgr.RecordOutputDir(e.HarpName, t.TempDir())
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(e.HarpName, t.TempDir())
+	require.NoError(t, err)
 
 	var gotDeadline bool
 	var budget time.Duration
@@ -136,6 +138,8 @@ func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.
 
 	proj := t.TempDir()
 	e, err := mgr.AssignHarp(proj, "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(e.HarpName, t.TempDir())
 	require.NoError(t, err)
 
 	// Stand in for a successful compaction: write the essence the real
@@ -185,6 +189,8 @@ func TestDistillMissingForList_WarningsGoToTheRedirectableSinkNotStderr(t *testi
 
 	proj := t.TempDir()
 	e, err := mgr.AssignHarp(proj, "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(e.HarpName, t.TempDir())
 	require.NoError(t, err)
 
 	prev := compactEntryFn

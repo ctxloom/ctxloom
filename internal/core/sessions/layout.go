@@ -138,11 +138,16 @@ var ErrNoOutputDir = errors.New("the session records no output dir")
 
 // OutputDir is harp's recorded output dir, read from its sidecar under the
 // resolved home. The recorded path is the answer even if the output_dir
-// config key has changed since: it is where that session's outputs are.
+// config key has changed since: it is where that session's outputs are. A
+// harp with no sidecar is ErrNotFound — there is no such session — and one
+// whose sidecar records none is ErrNoOutputDir.
 func OutputDir(harp string) (string, error) {
 	dir, err := paths.HarpDir(harp)
 	if err != nil {
 		return "", err
+	}
+	if _, err := os.Stat(filepath.Join(dir, paths.SessionSidecarFileName)); os.IsNotExist(err) {
+		return "", fmt.Errorf("%w: %q", ErrNotFound, harp)
 	}
 	out, ok := OutputDirOf(dir)
 	if !ok {

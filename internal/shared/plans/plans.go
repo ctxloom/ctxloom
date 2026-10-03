@@ -413,16 +413,19 @@ func frontmatterBlock(content string) (block string, ok bool) {
 // The directory is not walked recursively: its subdirectories hold published
 // reports and segment essences, which are not this session's plans.
 //
-// FAULTS ARE RETURNED, NOT SWALLOWED. A missing directory is genuinely "no
-// plans here" and is silent; a session with no recorded output dir or an
-// unreadable directory is a problem, because a caller that folds an empty
+// FAULTS ARE RETURNED, NOT SWALLOWED. A missing directory, or no such
+// session, is genuinely "no plans here" and is silent; a session with no
+// recorded output dir or an unreadable directory is a problem, because a caller that folds an empty
 // result into distilled output makes "this session authored no plans" and
 // "every plan it authored is unreachable" the same observation, permanently.
 func SessionPlanPaths(harp string) ([]string, []error) {
 	if harp == "" {
 		return nil, nil
 	}
-	dir, err := sessions.OutputDir(harp)
+	dir, err := sessions.OutputDirIn(harp, os.Getenv)
+	if errors.Is(err, sessions.ErrNotFound) {
+		return nil, nil // no such session: it has no plans, which is not a fault
+	}
 	if err != nil {
 		return nil, []error{fmt.Errorf("plans for session %s omitted, output dir unresolved: %w", harp, err)}
 	}

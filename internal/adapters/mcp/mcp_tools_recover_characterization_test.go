@@ -30,6 +30,8 @@ func recoverFixture(t *testing.T, distilled string) (*ctxServer, string, *sessio
 	projectDir := t.TempDir()
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
+	require.NoError(t, err)
 	return &ctxServer{
 		facts:            testLaunchFacts(),
 		self:             coord.Identity{Harp: entry.HarpName, ProjectDir: projectDir},

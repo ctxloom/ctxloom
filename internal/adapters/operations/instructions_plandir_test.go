@@ -1,7 +1,6 @@
 package operations
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -36,8 +35,7 @@ func TestSessionInstructions_PlanDirIsTheOutputDir(t *testing.T) {
 	got := SessionInstructions(e.HarpName)
 
 	assert.Contains(t, got, "`"+planDir+"`", "the instruction names the session's output dir")
-	assert.Contains(t, got, "`"+filepath.Join(planDir, "v1-removal"+paths.PlanFileExt)+"`",
-		"the worked example sits in the same directory")
+	assert.Contains(t, got, "`v1-removal"+paths.PlanFileExt+"`", "the worked example names a file in that directory")
 	assert.NotContains(t, got, "`"+harpDir+"`",
 		"the machine session dir must not be offered as a place to write")
 }

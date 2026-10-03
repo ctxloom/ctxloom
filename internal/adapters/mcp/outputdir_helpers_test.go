@@ -18,7 +18,7 @@ import (
 func testOutputDir(t *testing.T, harp string) string {
 	t.Helper()
 	out, err := sessions.OutputDir(harp)
-	if errors.Is(err, sessions.ErrNoOutputDir) {
+	if errors.Is(err, sessions.ErrNoOutputDir) || errors.Is(err, sessions.ErrNotFound) {
 		sidecar, perr := paths.HarpSidecarPath(harp)
 		require.NoError(t, perr)
 		if _, serr := os.Stat(sidecar); os.IsNotExist(serr) {

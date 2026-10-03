@@ -3,7 +3,6 @@ package operations
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -107,7 +106,9 @@ func sessionLine(harp string) string {
 	// told where its plans go, so it is the one place the location has to be
 	// right.
 	if planDir, perr := sessions.OutputDirIn(harp, os.Getenv); perr == nil {
-		line += fmt.Sprintf(" Store implementation/strategy plans as markdown files in this session's plan directory `%s`, each named `<descriptive-name>%s` (e.g. `%s`). Plans written elsewhere do not survive a containerized run. Use a distinct name per plan.", planDir, paths.PlanFileExt, filepath.Join(planDir, "v1-removal"+paths.PlanFileExt))
+		// The directory is named ONCE: it is the longest thing in the
+		// instructions, and the client truncates them (InstructionsCharCap).
+		line += fmt.Sprintf(" Store implementation/strategy plans as markdown files directly in this session's plan directory `%s`, each named `<descriptive-name>%s` (e.g. `v1-removal%s`). Plans written elsewhere do not survive a containerized run. Use a distinct name per plan.", planDir, paths.PlanFileExt, paths.PlanFileExt)
 	}
 	return line
 }

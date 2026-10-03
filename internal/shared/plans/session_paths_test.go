@@ -78,12 +78,16 @@ func TestSessionPlanPaths_IsNotRecursive(t *testing.T) {
 	assert.Equal(t, []string{mine}, got)
 }
 
-// TestSessionPlanPaths_EmptyHarpAndNoOutputDir: an empty harp is no fault; a
-// session with no recorded output dir IS one — its plans could be nowhere a
-// reader looks, which must not read as "authored none".
+// TestSessionPlanPaths_EmptyHarpAndNoOutputDir: an empty harp, or one that is
+// no session, is no fault; a session with no recorded output dir IS one — its
+// plans could be nowhere a reader looks, which must not read as "authored
+// none".
 func TestSessionPlanPaths_EmptyHarpAndNoOutputDir(t *testing.T) {
 	testsupport.Isolate(t)
 	got, problems := SessionPlanPaths("")
+	assert.Nil(t, got)
+	assert.Empty(t, problems)
+	got, problems = SessionPlanPaths("never-minted-harp")
 	assert.Nil(t, got)
 	assert.Empty(t, problems)
 

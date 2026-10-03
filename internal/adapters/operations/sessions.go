@@ -197,16 +197,8 @@ var probeEngineVersion = (*App).ProbeEngineVersion
 // ctx bounds the probe. It used to be discarded outright in favour of
 // context.Background(), which meant a wedged `--version` had no deadline at
 // all on any path.
-func (a *App) AssignSession(ctx context.Context, projectDir, backend string) (sessions.Entry, error) {
-	cfg, err := a.Config(ctx)
-	if err != nil {
-		return sessions.Entry{}, err
-	}
-	base, err := OutputBase(cfg)
-	if err != nil {
-		return sessions.Entry{}, err
-	}
-	entry, err := AssignSessionHarp(projectDir, backend, base)
+func (a *App) AssignSession(ctx context.Context, projectDir, backend, outputBase string) (sessions.Entry, error) {
+	entry, err := AssignSessionHarp(projectDir, backend, outputBase)
 	if err != nil {
 		return sessions.Entry{}, err
 	}

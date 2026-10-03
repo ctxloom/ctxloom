@@ -24,6 +24,8 @@ func bindProjectSession(t *testing.T, mgr *sessions.Manager, projectDir, backend
 	t.Helper()
 	e, err := mgr.AssignHarp(projectDir, backend)
 	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(e.HarpName, t.TempDir())
+	require.NoError(t, err)
 	transcript := filepath.Join(t.TempDir(), sessionID+".jsonl")
 	require.NoError(t, os.WriteFile(transcript, []byte("{}\n"), 0o644))
 	require.NoError(t, os.Chtimes(transcript, activity, activity))

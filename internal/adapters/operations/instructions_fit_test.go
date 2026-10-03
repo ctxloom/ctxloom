@@ -19,9 +19,13 @@ import (
 var worstCaseHarp = strings.Repeat("a", harp.MaxNameLen)
 
 // worstCaseHome is the longest ordinary Linux home: /home/<user> at useradd's
-// 32-character username limit. The plan dir and its worked example both embed
-// it, so it is paid twice.
+// 32-character username limit.
 const worstCaseHome = "/home/abcdefghijklmnopqrstuvwxyz012345"
+
+// worstCaseOutputDir is the plan dir the worst case names: the default output
+// base under that home, a 64-character project name and the longest harp.
+// The plan dir and its worked example both embed it, so it is paid twice.
+var worstCaseOutputDir = worstCaseHome + "/Documents/ctxloom/" + strings.Repeat("p", 64) + "/" + worstCaseHarp
 
 // TestSessionInstructions_PartsLeadWithWhatCostsMostToLose pins the order a
 // truncating client depends on: session line, catalog pointer, static text.
@@ -45,13 +49,14 @@ func TestSessionInstructions_PartsLeadWithWhatCostsMostToLose(t *testing.T) {
 func TestSessionInstructions_FitTheClientCap(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv("HOME", worstCaseHome)
+	t.Setenv(sessions.EnvOutputDir, worstCaseOutputDir)
 	t.Setenv(sessions.EnvHarp, worstCaseHarp)
 	t.Setenv("CTXLOOM_RESUMED_FROM", worstCaseHarp)
 	t.Setenv("CTXLOOM_RESUMED_PARTS", "session,tasks")
 
 	got := SessionInstructions(worstCaseHarp)
 	require.Contains(t, got, "Resumed from", "the worst case must carry resume provenance")
-	require.Contains(t, got, worstCaseHome, "the worst case must carry the plan dir")
+	require.Contains(t, got, worstCaseOutputDir, "the worst case must carry the plan dir")
 
 	n := utf8.RuneCountInString(got)
 	t.Logf("worst case: %d chars (session line %d, catalog %d [selection %d], static %d)", n,

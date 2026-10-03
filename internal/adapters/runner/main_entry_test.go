@@ -83,7 +83,7 @@ func TestMain_ScrubsTheReachBackBeforeComposing(t *testing.T) {
 		var seen map[string]string
 		ports := func(host *EngineHost, home *Home) (Deps, error) {
 			seen = map[string]string{}
-			for _, k := range []string{sessions.EnvCoordURL, sessions.EnvCoordCred, sessions.EnvRunID} {
+			for _, k := range []string{sessions.EnvCoordURL, sessions.EnvCoordCred, sessions.EnvCoordCredFile, sessions.EnvRunID} {
 				seen[k] = env.getenv(k)
 			}
 			cancel() // the runner has composed; end it
@@ -94,7 +94,7 @@ func TestMain_ScrubsTheReachBackBeforeComposing(t *testing.T) {
 		for k, v := range seen {
 			assert.Empty(t, v, "%s must be scrubbed before the ports are composed", k)
 		}
-		assert.ElementsMatch(t, []string{sessions.EnvCoordURL, sessions.EnvCoordCred, sessions.EnvRunID}, env.unsets)
+		assert.ElementsMatch(t, []string{sessions.EnvCoordURL, sessions.EnvCoordCred, sessions.EnvCoordCredFile, sessions.EnvRunID}, env.unsets)
 	})
 
 	t.Run("an unscrubbable key is fatal", func(t *testing.T) {

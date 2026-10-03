@@ -3,12 +3,62 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
 )
+
+// reclaimTriage is the reaper's triage for one session: its scratch worktrees
+// first (worktreeTriage), then — on apply, once nothing spares the session —
+// the coordinator root it founded in projectDir (removeSessionRoot). The root
+// is the session's own tree, and nothing but a resume of this session can
+// ever adopt it, so a reaped session takes it along.
+func reclaimTriage(g git.Git, projectDir string) sessions.Triage {
+	worktrees := worktreeTriage(g)
+	return func(ctx context.Context, harp string, probe sessions.LockProbe, apply bool) (string, error) {
+		spared, err := worktrees(ctx, harp, probe, apply)
+		if err != nil || spared != "" || !apply {
+			return spared, err
+		}
+		return "", removeSessionRoot(projectDir, harp)
+	}
+}
+
+// removeSessionRoot removes the coordinator root harp founded in projectDir,
+// unless a live process holds it — a session resumed from this one, which has
+// adopted the tree and owns it now. The root is keyed by the project identity
+// the coordinator host keys it by, read (never resolved, which would mint
+// one) like doctor reads it. A failure is returned, so the reaper leaves the
+// session alone and reports why rather than half-reaping it.
+func removeSessionRoot(projectDir, harp string) error {
+	if projectDir == "" {
+		return nil
+	}
+	id, err := projectid.ReadMarker(projectDir)
+	if err != nil {
+		id = ""
+	}
+	dir, err := coord.RootStateDir(id, projectDir, harp)
+	if err != nil {
+		return fmt.Errorf("its coordinator root: %w", err)
+	}
+	st, err := coord.ProbeOwner(dir)
+	if err != nil {
+		return fmt.Errorf("its coordinator root %s: %w", dir, err)
+	}
+	if st.Held {
+		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("its coordinator root %s: %w", dir, err)
+	}
+	return nil
+}
 
 // worktreeTriage classifies a session's scratch worktrees through the very
 // same classifier the worktree leaf uses (isolation.ClassifyHarpWorktrees),

@@ -107,7 +107,7 @@ func Deliver(m PathMapper, ref Ref, identity string, now time.Time) error {
 		}
 		return fmt.Errorf("spool: deleting delivered %s: %w", ref, err)
 	}
-	if err := syncDir(src); err != nil {
+	if err := syncDir(afero.NewOsFs(), src); err != nil {
 		return fmt.Errorf("spool: deleting delivered %s: %w", ref, err)
 	}
 	return pruneDelivered(m, ref.Harp, now)

@@ -44,7 +44,7 @@ type BarInfo struct {
 // dependency-light and hermetically testable.
 type RosterEntry struct {
 	Harp             string
-	State            string // queued | executing | parked | idle | ended
+	State            string // the coordinator's roster state (coord's State* values)
 	LastActivityUnix int64
 }
 
@@ -449,7 +449,7 @@ func fitWidth(b []byte, start, width int) []byte {
 }
 
 // rosterDigest summarizes orchestrator-held children for the bar: counts by
-// state glyph (● executing, ◐ waiting: queued/parked/idle, ✓ ended) plus the
+// state glyph (● executing, ✓ ended, ◐ waiting: every other state) plus the
 // latest transition, led by the approvals element when there is one — it
 // names the thing most likely to need the human's attention right now. Empty
 // roster reads "no agents".

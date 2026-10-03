@@ -1227,13 +1227,13 @@ func (st *runState) hostCoordinator() func() {
 	// the coordinator, and BEFORE it, while the journal is still open to
 	// accept the write.
 	return func() {
-		// DRAIN, WAIT, THEN CLOSE -- the sequence the coordinator documents and
-		// that nothing used to perform. Close() is the HARD teardown: it cancels
-		// baseCtx, closes every attachment and the gRPC server, and only then
-		// joins its goroutines under a BOUND it is willing to give up on. Going
-		// straight there dismantled a still-finishing child's delivery path
-		// underneath it, so its terminal notice had nowhere to go -- the parent
-		// "always learns of a child death" invariant was decided by a race.
+		// DRAIN, WAIT, THEN CLOSE -- the sequence the coordinator documents.
+		// Close() is the HARD teardown: it cancels baseCtx, closes every
+		// attachment and the gRPC server, and only then joins its goroutines
+		// under a BOUND it is willing to give up on. Going straight there would
+		// dismantle a still-finishing child's delivery path underneath it,
+		// leaving its terminal notice nowhere to go, and the parent "always
+		// learns of a child death" invariant would be decided by a race.
 		//
 		// BeginDrain closes admission at the verbs that mint new work and leaves
 		// the transport alone, so children keep reporting while they wind down.

@@ -20,7 +20,6 @@ func TestDeliveryDisposition_OneClassificationForBothVocabularies(t *testing.T) 
 		{StateIdle, DeliveryNewTurn, "delivering as a new turn"},
 		{StateQueued, DeliveryQueued, "queued: the child has not started yet; it will drain its mailbox after its first turn"},
 		{StateExecuting, DeliveryQueued, "queued mid-turn: delivered at the child's next turn boundary"},
-		{StateParked, DeliveryQueued, "queued mid-turn: delivered at the child's next turn boundary"},
 		{"", DeliveryQueued, "queued mid-turn: delivered at the child's next turn boundary"},
 	}
 	for _, c := range cases {
@@ -41,7 +40,7 @@ func TestDeliveryDisposition_ModeIsAlwaysAKnownDeliveryConstant(t *testing.T) {
 		DeliveryQueued:  true,
 		DeliveryResumed: true,
 	}
-	for _, state := range []string{StateQueued, StateExecuting, StateParked, StateIdle, StateEnded, "some-future-state"} {
+	for _, state := range []string{StateQueued, StateExecuting, StateIdle, StateEnded, "some-future-state"} {
 		mode, prose := deliveryDisposition(state)
 		assert.True(t, known[mode], "state %q resolved to unknown mode %q", state, mode)
 		assert.NotEmpty(t, prose, "state %q must produce prose for the sender", state)

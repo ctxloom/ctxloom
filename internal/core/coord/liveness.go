@@ -115,9 +115,9 @@ func (c *Coordinator) runnerHeartbeatProbe() liveness.Probe {
 // clock the monitor has that the engine does not write itself.
 func (c *Coordinator) livenessTargets() []liveness.Target {
 	type row struct {
-		harp, agent, runtime, state string
-		ended                       bool
-		enqueued, lastActivity      time.Time
+		harp, agent, runtime, state, runID string
+		ended                              bool
+		enqueued, lastActivity             time.Time
 	}
 	var rows []row
 	c.runs.View(func() {
@@ -127,16 +127,21 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 				continue
 			}
 			rows = append(rows, row{
-				harp: e.Harp, agent: r.Agent, runtime: string(r.Runtime), state: r.State,
+				harp: e.Harp, agent: r.Agent, runtime: string(r.Runtime), state: r.State, runID: r.RunID,
 				ended: r.Ended, enqueued: r.EnqueuedAt, lastActivity: r.LastActivity,
 			})
 		}
 	})
 
 	// A child waiting on a permission decision must NEVER be reported as
-	// stalled. The §6a roster state carries that here; the transcript's
-	// trailing permission record is a second, independent source, checked
-	// inside the monitor.
+	// stalled. The ApprovalQueue's pending set is the authority on that wait
+	// — a run with a request parked there is awaiting the human; the
+	// transcript's trailing permission record is a second, independent
+	// source, checked inside the monitor.
+	awaiting := make(map[string]bool)
+	for _, p := range c.approvals.Pending() {
+		awaiting[p.From.RunID] = true
+	}
 	workDirs := make(map[string]string)
 	c.mu.Lock()
 	for harp, rt := range c.byHarp {
@@ -168,7 +173,7 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 			StartedAt:        r.enqueued,
 			LastActivity:     r.lastActivity,
 			RosterState:      r.state,
-			AwaitingApproval: r.state == StateParked,
+			AwaitingApproval: awaiting[r.runID],
 			Ended:            r.ended,
 			TranscriptPath:   txPath,
 			WorkDir:          workDirs[r.harp],

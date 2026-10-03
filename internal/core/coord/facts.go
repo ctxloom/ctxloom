@@ -20,7 +20,7 @@ const (
 	// minted (run_id, credential hash) and joins the spawn queue.
 	factRunEnqueued = "run.enqueued"
 	// factRunState records a §6a state transition
-	// (queued|executing|parked|idle) for a live run.
+	// (queued|executing|idle) for a live run.
 	factRunState = "run.state"
 	// factRunEnded is the run's terminal fact — exactly one per run_id,
 	// whatever raced to cause it (chat stream close, runner loss,

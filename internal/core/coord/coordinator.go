@@ -597,9 +597,8 @@ func resolveTunables(opts Options) tunables {
 	// operator/env tunable, not a per-call test seam): resolved once, here,
 	// from the environment (resolveLaunchTunables), never per attempt.
 	t.maxLaunchAttempts, t.launchBackoffBase, t.launchBackoffMax = resolveLaunchTunables(report.To(opts.Reporter))
-	// ONE POLICY, TWO BOUNDS: a wait on a process is bounded
-	// (drainProcessBound); a wait on a human (a parked child) is not bounded
-	// at all.
+	// ONE POLICY, ONE BOUND: a drain's wait on a child process is bounded
+	// (drainProcessBound).
 	t.drainBound = drainProcessBound
 	return t
 }
@@ -774,13 +773,10 @@ func (c *Coordinator) adopt() {
 // this codebase resumes accepting work after announcing it will not — and a
 // second call returns the drain already in progress.
 //
-// Then ONE POLICY, TWO BOUNDS (see runDrain): every live child is either a
-// PROCESS wait, bounded at c.drainBound — exit REQUESTED now (no new turn is
-// handed out; the child ends at its next turn boundary, or immediately when
-// it is between turns or never started) and FORCED when the bound elapses —
-// or a PARK on a human (StateParked), which is not waited on at all: the
-// child keeps its turn, its slot yield and its session lock, and the outcome
-// lists it so the park cannot be forgotten.
+// Then ONE POLICY, ONE BOUND (see runDrain): every live child is a PROCESS
+// wait, bounded at c.drainBound — exit REQUESTED now (no new turn is handed
+// out; the child ends at its next turn boundary, or immediately when it is
+// between turns or never started) and FORCED when the bound elapses.
 //
 // This is deliberately an APPLICATION-layer drain, not a transport-level
 // one: the wire adapter's Transport.Close explains why grpc-go's
@@ -790,8 +786,7 @@ func (c *Coordinator) adopt() {
 // a transport-level drain would never resolve against even without that
 // panic. BeginDrain instead closes admission here, at the verbs that mint
 // new work, and leaves the transport alone. Close() is still the caller's:
-// it is the hard teardown, and a caller that holds parked children decides
-// for itself whether the morning is worth waiting for.
+// it is the hard teardown, run once the drain has settled.
 func (c *Coordinator) BeginDrain() *Drain {
 	c.admissionClosed.Store(true)
 	c.drainMu.Lock()
@@ -1133,7 +1128,7 @@ func (c *Coordinator) parentSend(caller Identity, to, kind, body string, structu
 // purpose: a state described two ways is a state the two surfaces can come to
 // disagree about.
 //
-// mode is deliberately coarser: StateQueued and a mid-turn executing/parked
+// mode is deliberately coarser: StateQueued and a mid-turn executing
 // child are both DeliveryQueued, while the prose separates them because "has
 // not started yet" and "mid-turn" mean different things to a waiting agent.
 func deliveryDisposition(state string) (mode, prose string) {
@@ -1148,7 +1143,7 @@ func deliveryDisposition(state string) (mode, prose string) {
 		return DeliveryQueued, "queued: the child has not started yet; it will drain its mailbox after its first turn"
 	case deliveryPaused:
 		return DeliveryQueued, "held: the child is paused; the message waits in its spool and is delivered when it is resumed"
-	default: // executing / parked race
+	default: // executing, or a state that raced the delivery
 		return DeliveryQueued, "queued mid-turn: delivered at the child's next turn boundary"
 	}
 }

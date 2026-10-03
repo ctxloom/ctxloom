@@ -293,18 +293,18 @@ func TestMonitor_DoesNotFireOnApprovalPark(t *testing.T) {
 		Probes: []liveness.Probe{aliveNoCPU},
 	})
 
-	// (a) The coordinator tells us it is parked.
+	// (a) The coordinator tells us an approval is pending.
 	rep := m.Assess(context.Background(), liveness.Target{
 		Harp:             harp,
 		Agent:            "worker",
 		Runtime:          "container",
-		RosterState:      "parked",
+		RosterState:      "executing",
 		AwaitingApproval: true,
 		StartedAt:        now.Add(-90 * time.Minute),
 		LastActivity:     now.Add(-45 * time.Minute), // quiet FAR past QuietGrace
 		TranscriptPath:   transcriptPath(t, harp),
 	})
-	t.Logf("verdict (coordinator says parked): %s — %s", rep.State, rep.Reason)
+	t.Logf("verdict (coordinator says approval pending): %s — %s", rep.State, rep.Reason)
 	assert.Equal(t, liveness.StateAwaitingApproval, rep.State, "reason=%q", rep.Reason)
 	assert.False(t, rep.Firing(), "a child waiting on a human must NEVER be reaped")
 

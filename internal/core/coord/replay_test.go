@@ -127,7 +127,7 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 					allRuns = append(allRuns, id)
 				case 1: // transition a live run
 					if id := pickLive(rng, live); id != "" {
-						states := []string{StateExecuting, StateParked, StateIdle, StateQueued}
+						states := []string{StateExecuting, StateIdle, StateQueued}
 						appendFact(factAt(factRunState, at, runState{RunID: id, State: states[rng.Intn(len(states))]}))
 					}
 				case 2: // end a live run

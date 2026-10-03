@@ -105,39 +105,6 @@ func TestStopChildren_StopsEveryLiveChildWithinTheBoundAndNamesEach(t *testing.T
 	assert.Empty(t, readAuditKind(t, c, "drain_force"), "nothing was forced")
 }
 
-// TestStopChildren_ParkedChildIsEnded: a parked child is waiting on a human,
-// and the caller ending it is that human's session. Unlike the coordinator's
-// shutdown drain (which leaves a park alone as a wait on a human), the bulk
-// stop ends it: leaving it would leave the roster live and its container up,
-// which is exactly what the sweep exists to prevent.
-func TestStopChildren_ParkedChildIsEnded(t *testing.T) {
-	resetStrictness(t)
-	gate := make(chan struct{}) // never closed: the turn stays open under the park
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{Gate: gate} })
-	c := newTestCoordinator(t, sp, nil)
-	c.drainBound = time.Minute
-
-	harp := spawnGatedChild(t, sp, c)
-	// Park it mid-turn: the turn stays open under the park.
-	c.mu.Lock()
-	rt := c.byHarp[harp]
-	c.mu.Unlock()
-	require.NotNil(t, rt, "precondition: the spawned child must have a runtime attachment")
-	c.setState(rt, StateParked)
-	require.Equal(t, StateParked, rosterState(c, harp), "precondition: the child is parked")
-
-	started := time.Now()
-	stopped, err := c.StopChildren(context.Background(), ownerIdentity(), "batch complete")
-	require.NoError(t, err)
-	assert.Less(t, time.Since(started), c.drainBound, "a parked child holds no turn to wait for")
-	require.Len(t, stopped, 1)
-	assert.Equal(t, StopOutcomeStopped, stopped[0].Outcome)
-	assert.Contains(t, stopped[0].Detail, "while parked")
-	assert.Equal(t, StateEnded, rosterState(c, harp))
-	awaitRelease(t, sp, 0)
-}
-
 // TestStopChildren_OnlyTheCallersOwnChildren: the sweep is scoped to the
 // CALLER's children, never the whole coordinator — a coordinator-capable
 // child sweeping its grandchildren must not take its siblings down, and the

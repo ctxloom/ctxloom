@@ -114,16 +114,16 @@ func TestLivenessSnapshot_FiresOnStuckChildAndNotOnHealthyOne(t *testing.T) {
 	assert.False(t, healthy.Firing(), "a working child must never be reported as stalled: %s", healthy.Reason)
 }
 
-// A PARKED child must suppress the verdict even when the transcript looks
-// exactly like the stuck one — a park can hold a child for minutes (waiting
-// on a permission decision at its engine), and reaping one turns a working
-// system into one that kills its own children.
+// A child with a request pending in the ApprovalQueue must suppress the
+// verdict even when the transcript looks exactly like the stuck one — an
+// approval can hold a child for minutes, and reaping one turns a working
+// system into one that kills its own children. Once the request is settled
+// the exemption goes with it.
 //
-// The briefing turn is held OPEN for the whole test: a park is entered
-// mid-turn, and a fake whose turn auto-completes would race that boundary's
-// StateIdle against the park, and whichever journals last decides the
-// verdict.
-func TestLivenessSnapshot_ParkSuppressesTheVerdict(t *testing.T) {
+// The briefing turn is held OPEN for the whole test: the queue drops a request
+// whose turn has ended, so a fake whose turn auto-completes would race the
+// park against that boundary.
+func TestLivenessSnapshot_PendingApprovalSuppressesTheVerdict(t *testing.T) {
 	livenessTestHome(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
@@ -133,7 +133,7 @@ func TestLivenessSnapshot_ParkSuppressesTheVerdict(t *testing.T) {
 	harp := spawnOneChild(t, c)
 	stuckChildTranscript(t, harp, 6)
 
-	// Unparked, this child fires.
+	// With nothing pending, this child fires.
 	before := reportFor(c.livenessSnapshot(context.Background()), harp)
 	require.NotNil(t, before)
 	require.Equal(t, liveness.StateStalled, before.State, "precondition: %s", before.Reason)
@@ -142,14 +142,27 @@ func TestLivenessSnapshot_ParkSuppressesTheVerdict(t *testing.T) {
 	rt := c.byHarp[harp]
 	c.mu.Unlock()
 	require.NotNil(t, rt, "precondition: the spawned child must have a runtime attachment")
-	c.setState(rt, StateParked)
-	require.Equal(t, StateParked, c.runState(rt.runID), "precondition: the park must be journaled")
 
-	after := reportFor(c.livenessSnapshot(context.Background()), harp)
-	require.NotNil(t, after)
-	assert.Equal(t, liveness.StateAwaitingApproval, after.State,
-		"a PARKED child must NEVER be reported stalled: %s", after.Reason)
-	assert.False(t, after.Firing())
+	events := c.approvals.Subscribe(t.Context())
+	decided := make(chan ApprovalDecision, 1)
+	go func() {
+		decided <- c.approvals.Park(t.Context(), Identity{Harp: harp, RunID: rt.runID, Depth: 1}, toolAsk("Bash"), time.Hour)
+	}()
+	added := awaitEvent(t, events, QueueAdded)
+
+	pending := reportFor(c.livenessSnapshot(context.Background()), harp)
+	require.NotNil(t, pending)
+	assert.Equal(t, liveness.StateAwaitingApproval, pending.State,
+		"a child waiting on an approval must NEVER be reported stalled: %s", pending.Reason)
+	assert.False(t, pending.Firing())
+
+	require.NoError(t, c.approvals.Answer(added.ID, ApprovalDecision{Allow: true}))
+	<-decided
+
+	settled := reportFor(c.livenessSnapshot(context.Background()), harp)
+	require.NotNil(t, settled)
+	assert.Equal(t, liveness.StateStalled, settled.State,
+		"a settled approval no longer exempts the child: %s", settled.Reason)
 
 	close(gate) // release the held turn so the child's turnGate goroutine doesn't leak past the test
 }

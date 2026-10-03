@@ -35,7 +35,7 @@ func roleTag(it feedItem) string {
 }
 
 // stateGlyph maps roster states onto the plan's glyphs: ● running,
-// ◐ waiting (queued/parked/idle), ✓ done.
+// ◐ waiting (queued/idle), ✓ done.
 func stateGlyph(state string) string {
 	switch state {
 	case coord.StateExecuting, StateLive:

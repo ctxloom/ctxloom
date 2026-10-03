@@ -1290,7 +1290,7 @@ func (c *Coordinator) setState(rt *childRt, state string) {
 		return
 	}
 	c.sampleExecGauge()
-	c.drainWake() // a park or unpark moves a child between the drain's lists
+	c.drainWake() // a state change can settle a drain waiting on this child
 }
 
 // sampleExecGauge reports the current fold-authoritative count of runs in

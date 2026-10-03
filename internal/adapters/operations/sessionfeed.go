@@ -151,7 +151,7 @@ func watchLiveFeed(ctx context.Context, reg engine.Registry, entry *sessions.Ent
 		if len(skipped) > 0 {
 			return nil, fmt.Errorf("no usable coordinator endpoint found: %d candidate(s) present but skipped (%v)", len(skipped), skipped[0])
 		}
-		return nil, fmt.Errorf("no coordinator endpoint found (no ~/.ctxloom/coord/*/endpoint.json)")
+		return nil, fmt.Errorf("no coordinator endpoint found (no ~/.ctxloom/coord/*/*/endpoint.json)")
 	}
 	var lastErr error
 	for _, ep := range endpoints {

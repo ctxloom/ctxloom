@@ -13,7 +13,7 @@
 //
 // Every assertion here reads the coordinator's own durable run-registry
 // journal, runs.jsonl, straight off disk (internal/core/coord/statedir.go's
-// documented layout, ~/.ctxloom/coord/<project-key>/runs.jsonl under this
+// documented layout, ~/.ctxloom/coord/<project-key>/<root-harp>/runs.jsonl under this
 // scenario's isolated HOME). This is not a weaker observable than "roster" —
 // it is the SAME data: consumer.go's listRunsSnapshot (roster's real backing
 // projection) is folded from these exact run.enqueued facts. Reading the
@@ -131,13 +131,13 @@ func j002100ProfileYAML(s *j002100AgentSpec) string {
 }
 
 // j002100JournalRaw reads the coordinator's run-registry journal straight off
-// disk: ~/.ctxloom/coord/<project-key>/runs.jsonl under this scenario's
+// disk: ~/.ctxloom/coord/<project-key>/<root-harp>/runs.jsonl under this scenario's
 // isolated HOME (coord/statedir.go's documented layout). The project key is
 // not recomputed here — a fresh isolated HOME holds exactly one coordinator's
 // state, so a glob finds it without needing to reproduce
 // taskops.ResolveProjectIdentity's key derivation.
 func j002100JournalRaw(w *World) (string, error) {
-	pattern := filepath.Join(w.env.HomeDir, ".ctxloom", "coord", "*", "runs.jsonl")
+	pattern := filepath.Join(w.env.HomeDir, ".ctxloom", "coord", "*", "*", "runs.jsonl")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return "", fmt.Errorf("glob %q: %w", pattern, err)

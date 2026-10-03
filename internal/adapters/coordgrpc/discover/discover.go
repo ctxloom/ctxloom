@@ -1,8 +1,9 @@
 // Package discover finds live coordinator endpoints on the host by scanning
-// ~/.ctxloom/coord/*/endpoint.json — the D1 consumer discovery mechanism for
-// a process with no coordinator of its own (e.g. `ctxloom session transcript watch`, a
-// separate CLI invocation from whatever process hosts the coordinator for a
-// given project's session).
+// ~/.ctxloom/coord/*/*/endpoint.json — one per coordinator ROOT, of which a
+// project holds one per independent session tree — the D1 consumer discovery
+// mechanism for a process with no coordinator of its own (e.g. `ctxloom
+// session transcript watch`, a separate CLI invocation from whatever process
+// hosts a coordinator for a session in some project).
 //
 // Deliberately a LEAF package: internal/core/coord imports
 // internal/adapters/operations (children.go's spawn path), so
@@ -29,14 +30,15 @@ import (
 )
 
 const (
-	// DirName is the per-user directory holding one subdirectory of coordinator
-	// state per project: ~/.ctxloom/<DirName>/<project-key>/. Re-exports
+	// DirName is the per-user directory holding coordinator state, one
+	// directory per root under its project: ~/.ctxloom/<DirName>/<project-key>/
+	// <root-harp>/. Re-exports
 	// paths.CoordDirName: internal/core/paths is the single declarative source of
 	// truth for path SEGMENTS (docs/architecture/core/paths.md), while this
 	// package stays the LAYOUT owner (see the package doc above) that coord,
 	// the writer, imports.
 	DirName = paths.CoordDirName
-	// FileName is the discovery file inside a project's state dir. 0600 and
+	// FileName is the discovery file inside a root's state dir. 0600 and
 	// host-local: it carries the consumer credential. Re-exports
 	// paths.CoordEndpointFileName.
 	FileName = paths.CoordEndpointFileName
@@ -71,7 +73,7 @@ func LoopbackURL(port int) string {
 	return fmt.Sprintf("http://127.0.0.1:%d%s", port, MCPPath)
 }
 
-// Endpoint is one project's coordinator: the URL to dial (gRPC over h2c) and
+// Endpoint is one root's coordinator: the URL to dial (gRPC over h2c) and
 // the read-only D1 consumer credential to present as a bearer token.
 type Endpoint struct {
 	URL  string
@@ -107,7 +109,7 @@ func (e Endpoint) LogValue() slog.Value {
 	)
 }
 
-// List returns every project's coordinator endpoint this host user can
+// List returns every coordinator root's endpoint this host user can
 // reach, most-recently-active first (endpoint.json mtime) — the same
 // recency policy the retired agentbus socket scan used. A coordinator with
 // no minted consumer credential yet (Serve() never ran, or a stale pre-D1
@@ -129,7 +131,7 @@ func List() (endpoints []Endpoint, skipped []error) {
 	if err != nil {
 		return nil, []error{fmt.Errorf("discover: resolve coordinator state root: %w", err)}
 	}
-	matches, err := filepath.Glob(filepath.Join(coordDir, "*", FileName))
+	matches, err := filepath.Glob(filepath.Join(coordDir, "*", "*", FileName))
 	if err != nil {
 		return nil, []error{fmt.Errorf("discover: glob coordinator endpoint files: %w", err)}
 	}

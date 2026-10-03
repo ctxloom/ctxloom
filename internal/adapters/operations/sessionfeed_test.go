@@ -176,7 +176,7 @@ func startFakeCoordinator(t *testing.T, home, projectKey string, f *fakeConsumer
 	t.Cleanup(srv.Stop)
 
 	port := ln.Addr().(*net.TCPAddr).Port
-	dir := filepath.Join(home, ".ctxloom", "coord", projectKey)
+	dir := filepath.Join(home, ".ctxloom", "coord", projectKey, "root-harp")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q}`, port, fakeConsumerCred)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte(body), 0o600))

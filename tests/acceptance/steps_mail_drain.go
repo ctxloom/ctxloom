@@ -103,7 +103,7 @@ func ownerDeliveredFrom(w *World, harp, kind string) (bool, error) {
 
 // routedToOwner lists the ids of every message of kind the coordinator wrote
 // into owner's in/ from harp, read from its audit journal's spool_mail_out
-// entries (~/.ctxloom/coord/<project-key>/interactions.jsonl).
+// entries (~/.ctxloom/coord/<project-key>/<root-harp>/interactions.jsonl).
 func routedToOwner(w *World, owner, harp, kind string) ([]string, error) {
 	return routedToOwnerWhere(w, owner, func(d map[string]string) bool {
 		return d["from"] == harp && d["kind"] == kind
@@ -113,7 +113,7 @@ func routedToOwner(w *World, owner, harp, kind string) ([]string, error) {
 // routedToOwnerWhere lists the ids of every message the coordinator wrote
 // into owner's in/ whose spool_mail_out detail satisfies match.
 func routedToOwnerWhere(w *World, owner string, match func(detail map[string]string) bool) ([]string, error) {
-	pattern := filepath.Join(w.env.HomeDir, ".ctxloom", "coord", "*", "interactions.jsonl")
+	pattern := filepath.Join(w.env.HomeDir, ".ctxloom", "coord", "*", "*", "interactions.jsonl")
 	journals, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("glob %q: %w", pattern, err)

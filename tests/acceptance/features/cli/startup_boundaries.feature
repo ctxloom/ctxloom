@@ -47,11 +47,11 @@ Feature: What a start writes, and whose pins it reads
       # flag, and would pass this scenario no matter what the flag did.
       And a crashed run left a clean orphaned per-agent worktree
       When I run "ctxloom run --dry-run --profile dev hello"
-      Then no session home carries the file "MOCK_CONTEXT.md"
+      Then no run delivered the file "MOCK_CONTEXT.md" into a session home
       When I record the project tree
       And I run "ctxloom run --dry-run --profile dev hello"
       Then the project tree is unchanged
-      And no session home carries the file "MOCK_CONTEXT.md"
+      And no run delivered the file "MOCK_CONTEXT.md" into a session home
       # The gate guards more than the delivery: the remote sync sits behind it
       # too, and unlike the reapers it announces itself, so its suppression is
       # observable for free. The run prints this line unconditionally once
@@ -74,7 +74,7 @@ Feature: What a start writes, and whose pins it reads
       When I run "ctxloom run --one-shot --profile dev hello"
       Then the command succeeds
       And the output contains "MOCK-REPLY"
-      And a session home carries the file "MOCK_CONTEXT.md"
+      And the run delivered the file "MOCK_CONTEXT.md" into a session home
       And the project tree is unchanged
       And the output contains "syncing remote bundles and profiles from config"
       # Without this line the assertion above is satisfied by a worktree that

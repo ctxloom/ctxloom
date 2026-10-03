@@ -49,6 +49,7 @@ require (
 	github.com/benjaminabbitt/hew/go v0.2.2
 	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260905185216-9a2b04465c57
 	github.com/expr-lang/expr v1.17.8
+	github.com/joho/godotenv v1.5.1
 	github.com/knadh/koanf/maps v0.1.2
 	github.com/knadh/koanf/providers/confmap v1.0.0
 	github.com/knadh/koanf/providers/env/v2 v2.0.0
@@ -61,7 +62,6 @@ require (
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/cucumber/gherkin/go/v42 v42.0.0 // indirect
 	github.com/cucumber/messages/go/v34 v34.2.0 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	golang.org/x/mod v0.39.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260811182544-a038080d80e5 // indirect
 )

@@ -77,7 +77,7 @@ flowchart TD
 | `Coordinator.ReachURL` | the loopback URL for every axis; `launch.ErrUnknownRuntimeAxis` or `coord.ErrNotServing` at the verb |
 | `present.Reach` / `present.Listen` | a container cell re-mints the reach for its runtime's route home (`isolation.Runtime.reachRoute`) and names what the coordinator must listen on; `Transport.Listen` opens it after the cell is prepared and before the runner starts, and reports a public one once |
 | `coordServing.Close` | `grpcSrv.Stop()` **before** shutting the listeners — `GracefulStop` caused a confirmed process-crashing panic |
-| `discover.List` | out-of-process discovery: glob `~/.ctxloom/coord/*/endpoint.json`, sort by mtime newest-first, return `(URL, Cred)` pairs |
+| `discover.List` | out-of-process discovery: glob `~/.ctxloom/coord/*/*/endpoint.json`, sort by mtime newest-first, return `(URL, Cred)` pairs |
 
 `internal/adapters/coordgrpc/discover` is a deliberate **leaf** for consumers that
 have no coordinator in their own process: it owns the `endpoint.json` shape

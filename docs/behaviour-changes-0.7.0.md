@@ -287,4 +287,9 @@ in a tagged release, so this only matters if you ran a build from `main`.
   schema no longer has `codex` or `opencode` branches.
 - The `thinking` key under a backend config is removed. It was accepted and
   had no effect; a config still setting it now draws an unknown-key warning.
+- A second `ctxloom run` in a project that already had one open was refused.
+  It now starts its own coordinator beside the first. Coordinator state moved
+  from `~/.ctxloom/coord/<project>/` to one directory per session tree,
+  `~/.ctxloom/coord/<project>/<session>/`. Files left directly under
+  `<project>/` are no longer read, and you can delete them.
 

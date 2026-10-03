@@ -29,10 +29,13 @@ drives it.
    so far aborts here (exit `strictness.ExitCodeFatalFindings`), before the
    engine launches; `--degraded` lowers them to warnings.
 6. **The coordinator** — `hostCoordinator` → `mcp.HostCoordinatorForSession`:
-   the project's ONE coordinator, hosted in this process (a project another
-   live session owns is refused, `coord.ErrStateOwned`), and the owner's
-   credential — the identity the owner-owned run is minted under, revoked on
-   the same teardown that closes the coordinator.
+   this session's own coordinator ROOT, hosted in this process beside any
+   other session's tree in the project — founded under the minted harp, or,
+   under `--session H`, root H adopted with its runs (a root H another live
+   process still holds is refused, `coord.ErrStateOwned`, a degradable apply
+   finding) — and the owner's credential — the identity the owner-owned run
+   is minted under, revoked on the same teardown that closes the
+   coordinator (which removes the root when every run in it has ended).
 7. **The transport** — `startTransport` → `startOwnedRun` →
    `Coordinator.StartOwnedRun`: the run is enqueued parent-less under the
    owner's identity and its runner (`ctxloom runner <engine>`) started

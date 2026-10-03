@@ -1,9 +1,11 @@
 // Package coord is the agentcoord.v1 runtime coordinator library (Wave B1).
 //
 // It is stood up as a LIBRARY by the session-owning process — `ctxloom run`,
-// and ONLY that: a project has one coordinator, its owner lock refuses a
-// second claimant (claimOwner), and an MCP server is a client of it, never a
-// host — and owns everything runtime-state-shaped about agent delegation:
+// and ONLY that: each session founds (or, resumed, adopts) one ROOT — an
+// independent tree with state of its own beside any other session's in the
+// project — whose owner lock refuses a second claimant of THAT root
+// (claimOwner), and an MCP server is a client of it, never a host — and owns
+// everything runtime-state-shaped about agent delegation:
 //
 //   - the durable CQRS stores (run registry, spawn queue, roster, role
 //     mailboxes, interaction journal): append-only JSONL journals, a single
@@ -30,7 +32,7 @@
 //     homeartifacts.go): agentcoord.v1.ArtifactTransferService (chunked
 //     upload/download, credentialed on the SAME connection as
 //     RunnerChannel/RunChannel) backed by a content-addressed blob store
-//     (~/.ctxloom/coord/<project>/artifacts/<sha256>) — bytes move THROUGH
+//     (~/.ctxloom/coord/<project>/<root>/artifacts/<sha256>) — bytes move THROUGH
 //     the coordinator because containers and worktrees are not a shared
 //     filesystem. Deliberately OUTSIDE the CQRS boundary below: the store
 //     has no fold/projection of its own (the filesystem, addressed by

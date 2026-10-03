@@ -194,7 +194,7 @@ type Coordinator struct {
 	// artifacts (E1b) is the content-addressed blob store backing
 	// ArtifactTransferService — NOT a journal (see artifactstore.go for why
 	// it needs no single-writer serialization); it lives alongside the
-	// journals in the same per-project state dir.
+	// journals in the same root state dir.
 	artifacts *artifactStore
 
 	spawner Spawner

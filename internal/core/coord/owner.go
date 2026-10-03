@@ -19,13 +19,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// ErrStateOwned reports the project state dir is exclusively owned by another
-// live coordinator process. It is exported because the process that loses
-// the claim is REFUSED, not degraded: the session host turns it into the
-// named finding a second `ctxloom run` on one project exits on.
-var ErrStateOwned = errors.New("coord: project state is owned by another live coordinator")
+// ErrStateOwned reports a coordinator root is already adopted by another live
+// process. Only a claim that NAMES an existing root can meet it — a resume
+// (Options.RootHarp) of a session whose tree a live process still holds; a
+// fresh session founds a root of its own and never does. The claimant is
+// refused rather than share the root's journals.
+var ErrStateOwned = errors.New("coord: this coordinator root is owned by another live process")
 
-// OwnerMode is how a project's owning session runs.
+// OwnerMode is how a root's owning session runs.
 type OwnerMode string
 
 const (
@@ -37,13 +38,13 @@ const (
 	OwnerNonInteractive OwnerMode = "non-interactive"
 )
 
-// OwnerStatus is what can be seen of a project's owner without claiming it.
+// OwnerStatus is what can be seen of a root's owner without claiming it.
 type OwnerStatus struct {
 	// Held reports a live process holds the owner lock. It is the kernel's
 	// answer (the lock), never a pid probe.
 	Held bool
 	// PID, Harp, Mode and Started are the holder's stamp; zero when the
-	// project is unowned or the stamp is unreadable. For display — and for
+	// root is unowned or the stamp is unreadable. For display — and for
 	// the orphan test, which re-establishes the process's identity itself.
 	PID     int
 	Harp    string
@@ -97,12 +98,12 @@ var (
 	reclaimKillWait = 5 * time.Second
 )
 
-// claimOwner takes the project state dir's exclusive-owner lock. The journal
+// claimOwner takes a root state dir's exclusive-owner lock. The journal
 // discipline demands a single writer per journal, and that holds ACROSS
-// processes too: two concurrent session-owning processes for one project must
-// not share journals. The second claimant gets ErrStateOwned and is REFUSED —
-// a project has one coordinator, and the loser must not run a rival on state
-// of its own (acquireStateDir).
+// processes too: two concurrent processes claiming one root must not share
+// its journals. The second claimant gets ErrStateOwned and is REFUSED — a
+// root has one coordinator, and the loser must not run a rival on state of
+// its own (acquireStateDir).
 //
 // Ownership is a kernel file lock held for the owner's lifetime, so it ends
 // exactly when the owning process ends — however it ends — and a pid reused by
@@ -141,7 +142,7 @@ func claimOwner(rep report.Reporter, dir string, stamp ownerStamp) (release func
 	if merr != nil {
 		// The lock, not the stamp, is ownership: an unstamped owner is only
 		// unidentifiable (never reclaimable, refused by name without a pid).
-		rep.Warnf("coordinator: could not stamp the project owner %s (%v); this session owns the project but others cannot see who holds it", stampPath, merr)
+		rep.Warnf("coordinator: could not stamp the root owner %s (%v); this session owns the root but others cannot see who holds it", stampPath, merr)
 	}
 	return func() {
 		// Unstamp while still holding the lock, so no claimant is mid-stamp.
@@ -169,7 +170,7 @@ func lockOwner(lockPath string) (*flock.Flock, error) {
 	return fl, nil
 }
 
-// ProbeOwner reports who owns the project state dir without claiming it.
+// ProbeOwner reports who owns a root state dir without claiming it.
 // Held is the kernel's answer; the rest is the holder's stamp and the orphan
 // judgement a claim would act on.
 func ProbeOwner(dir string) (OwnerStatus, error) {

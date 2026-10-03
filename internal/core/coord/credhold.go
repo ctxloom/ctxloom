@@ -583,7 +583,7 @@ func (c *Coordinator) settleRelease(ctx context.Context, key string, members map
 
 // deliverOwedResume sends r's owed resume and, once its runner acks, journals
 // that nothing is owed. A resume that cannot be sent stays owed: a restart
-// re-sends it once the runner is back (reassertHold).
+// re-sends it once the runner is back (readoptHold).
 func (c *Coordinator) deliverOwedResume(ctx context.Context, key string, r heldRun) (bool, error) {
 	c.step(holdStepResume)
 	resp, err := c.holdControl(ctx, r, "resume", "")

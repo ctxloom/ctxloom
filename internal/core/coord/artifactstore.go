@@ -15,9 +15,9 @@ import (
 )
 
 // artifactStoreDirName is the content-addressed blob store's subdirectory,
-// alongside the journals in the project's state dir (statedir.go):
+// alongside the journals in the root's state dir (statedir.go):
 //
-//	~/.ctxloom/coord/<project-key>/artifacts/<sha256-hex>
+//	~/.ctxloom/coord/<project-key>/<root-harp>/artifacts/<sha256-hex>
 //
 // Content addressing IS the integrity claim (E1e): the file name is the hash
 // of its own bytes, so a store read that returns bytes hashing to a

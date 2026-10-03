@@ -300,7 +300,7 @@ func waitForLiveTap(t *testing.T, what string, cond func() bool) {
 // TestLiveTap_ChildItemsReachTheOverlay is the hermetic end-to-end proof:
 // real Coordinator + a StartRun-migrated child's real event stream -> real
 // watchHub -> real ConsumerService.WatchRuns -> operations.WatchSessionFeed
-// resolving the live tap via ~/.ctxloom/coord/*/endpoint.json discovery
+// resolving the live tap via ~/.ctxloom/coord/*/*/endpoint.json discovery
 // (the coordinator's OWN Serve() writes this; no fakeConsumerServer
 // stand-in anywhere in this test) -> the real tui.Overlay rendering the
 // child's assistant entry as a feed item.

@@ -53,12 +53,28 @@ type Options struct {
 	ProjectDir string
 	// ProjectID is the project's resolved id (the project registry's, the
 	// one CTXLOOM_PROJECT_ID carries). It is the Project of every identity
-	// this coordinator mints and keys the durable state dir. "" means it did
-	// not resolve: identities carry no project id, and the state dir falls
-	// back to a path-derived key — which is a directory NAME, not a project
-	// id, and never stands in for one.
+	// this coordinator mints and keys the project segment of its root's state
+	// dir. "" means it did not resolve: identities carry no project id, and
+	// the state dir falls back to a path-derived key — which is a directory
+	// NAME, not a project id, and never stands in for one.
 	ProjectID string
-	// StateDir overrides the state dir entirely (tests).
+	// RootHarp names the coordinator ROOT this process founds or adopts — the
+	// tree whose state dir it claims (RootStateDir). "" is OwnerHarp: a fresh
+	// session founds a root of its own and never touches another's. A resumed
+	// session names the root it resumes, and adopts that root's runs; a root
+	// another live process holds refuses the claim (ErrStateOwned).
+	RootHarp string
+	// Ephemeral marks a root nothing will ever resume — an internal one-shot
+	// host's (a distill, init's probe), founded under a harp no session
+	// continues. Close removes an ephemeral root once every run in it has
+	// ended. A SESSION's root is never removed by Close: `ctxloom run
+	// --session H` adopts it after a clean exit, ended children and
+	// artifacts included, and only the session sweep, reclaiming H, removes
+	// it.
+	Ephemeral bool
+	// StateDir overrides the state dir entirely (tests). It is the caller's
+	// directory, not a claimed root: no owner lock is taken in it and Close
+	// never removes it.
 	StateDir string
 	// Spawner is the launch seam: adapters/spawn in production, composed at
 	// cmd/*; a fake in tests. Required.
@@ -164,6 +180,14 @@ type Coordinator struct {
 	cancel  context.CancelFunc
 
 	releaseOwner func()
+	// ownsRoot reports stateDir is a root this process claimed (not an
+	// explicit Options.StateDir); ephemeral is Options.Ephemeral. Together
+	// they make the root this coordinator's to remove. dropRoot is Close's
+	// verdict that it is settled and goes with it (closePartial).
+	ownsRoot  bool
+	ephemeral bool
+	dropRoot  bool
+	rootHarp  string
 
 	runs     *Store
 	runsF    *runsFold
@@ -179,7 +203,7 @@ type Coordinator struct {
 	// artifacts (E1b) is the content-addressed blob store backing
 	// ArtifactTransferService — NOT a journal (see artifactstore.go for why
 	// it needs no single-writer serialization); it lives alongside the
-	// journals in the same per-project state dir.
+	// journals in the same root state dir.
 	artifacts *artifactStore
 
 	spawner Spawner
@@ -457,7 +481,7 @@ type Coordinator struct {
 	closed atomic.Bool
 }
 
-// New opens (or adopts) the project's coordinator state and starts the
+// New opens (or adopts) its root's coordinator state and starts the
 // orchestration core. Listeners come up separately via Serve (httpserver.go)
 // so tests can run the core without ports.
 func New(opts Options) (*Coordinator, error) {
@@ -486,6 +510,9 @@ func New(opts Options) (*Coordinator, error) {
 		stateDir:           claim.dir,
 		now:                t.now,
 		releaseOwner:       claim.release,
+		ownsRoot:           claim.release != nil,
+		ephemeral:          opts.Ephemeral,
+		rootHarp:           rootHarpOf(opts),
 		spawner:            opts.Spawner,
 		engines:            opts.Engines,
 		host:               opts.Host,
@@ -617,26 +644,52 @@ type stateDirClaim struct {
 }
 
 // acquireStateDir resolves and claims the coordinator's state dir: an explicit
-// Options.StateDir verbatim (tests), otherwise the project's durable dir under
-// its exclusive-owner lock. A project has ONE coordinator: when another live
-// session-owning process holds the lock, this one is refused (ErrStateOwned)
-// rather than run on state of its own — a second coordinator on the same
-// project is the rival-coordinator class the owner lock exists to make
-// impossible, and its cost (a doubled spool reactor over one owner inbox,
-// consume races on the owner's mail) is paid by the session that DID win.
+// Options.StateDir verbatim (tests), otherwise its ROOT's durable dir
+// (Options.RootHarp, defaulting to OwnerHarp) under that root's
+// exclusive-owner lock. A root has ONE coordinator: when another live process
+// holds its lock, this one is refused (ErrStateOwned) rather than share the
+// root's journals — two writers on one root are the rival-coordinator class
+// the owner lock exists to make impossible (a doubled spool reactor over one
+// owner inbox, consume races on the owner's mail). A fresh session never
+// meets that refusal: it founds a root named by its own harp.
 func acquireStateDir(opts Options) (stateDirClaim, error) {
 	if opts.StateDir != "" {
 		return stateDirClaim{dir: opts.StateDir}, nil
 	}
-	dir, err := stateDirForProject(projectKey(opts.ProjectID, opts.ProjectDir))
-	if err != nil {
-		return stateDirClaim{}, err
+	root := rootHarpOf(opts)
+	// A removal (RemoveRoot) racing this claim can delete the root between
+	// making it and locking it; that is not a refusal, only a root to make
+	// again. Bounded: each retry means a removal completed in the window.
+	for attempt := 1; ; attempt++ {
+		dir, err := ensureRootStateDir(opts.ProjectID, opts.ProjectDir, root)
+		if err != nil {
+			return stateDirClaim{}, err
+		}
+		beforeRootClaim(dir)
+		release, err := claimOwner(report.To(opts.Reporter), dir, newOwnerStamp(opts.OwnerHarp, opts.OwnerMode))
+		if errors.Is(err, errRootRemoved) && attempt < rootClaimAttempts {
+			continue
+		}
+		if err != nil {
+			return stateDirClaim{}, err
+		}
+		return stateDirClaim{dir: dir, release: release}, nil
 	}
-	release, err := claimOwner(report.To(opts.Reporter), dir, newOwnerStamp(opts.OwnerHarp, opts.OwnerMode))
-	if err != nil {
-		return stateDirClaim{}, err
+}
+
+// rootClaimAttempts bounds acquireStateDir's retries after a racing removal.
+const rootClaimAttempts = 3
+
+// beforeRootClaim is a test seam: acquireStateDir calls it between making a
+// root's dir and claiming its lock.
+var beforeRootClaim = func(dir string) {}
+
+// rootHarpOf is the root opts claims: Options.RootHarp, or the owner's own.
+func rootHarpOf(opts Options) string {
+	if opts.RootHarp != "" {
+		return opts.RootHarp
 	}
-	return stateDirClaim{dir: dir, release: release}, nil
+	return opts.OwnerHarp
 }
 
 // openJournals builds the folds and opens every journal (plus the artifact
@@ -833,7 +886,10 @@ func (c *Coordinator) Draining() bool {
 
 // Close tears the coordinator down: listeners, journals, owner lock. Live
 // children are killed via their launch close (the run process is their
-// lifetime).
+// lifetime). An EPHEMERAL root (Options.Ephemeral) left SETTLED — every run in
+// it ended (rootSettled) — is removed with it: nothing resumes it, so it is
+// garbage the moment its owner lets go. A session's root, and any root
+// holding a run that has not ended, is kept for whoever resumes it.
 //
 // Order: seal the tracked group and the stream group (goTracked stops
 // Add()ing and a late stream handler is refused at enter, so nothing can
@@ -898,8 +954,26 @@ func (c *Coordinator) Close() {
 		// gate goes quiet, which measures nothing.
 		c.spoolIn.Close()
 		c.waitTracked()
+		c.dropRoot = c.ownsRoot && c.ephemeral && c.rootSettled()
 		c.closePartial()
 	})
+}
+
+// rootSettled reports that every run this root ever journaled has ended. A
+// queued spawn is a run that has not ended, so "nothing queued" is part of the
+// same answer; mail is not, because it lives in each recipient's spool, never
+// in the root.
+func (c *Coordinator) rootSettled() bool {
+	settled := true
+	c.runs.View(func() {
+		for _, r := range c.runsF.runs {
+			if !r.Ended {
+				settled = false
+				return
+			}
+		}
+	})
+	return settled
 }
 
 // closePartial releases what New acquired so far (also Close's tail).
@@ -930,6 +1004,14 @@ func (c *Coordinator) closePartial() {
 	if c.releaseOwner != nil {
 		c.releaseOwner()
 		c.releaseOwner = nil
+	}
+	// Removed through RemoveRoot, which re-claims the root: a resume that won
+	// the root in the moment since the release keeps it (ErrStateOwned), and
+	// one still waiting makes it afresh once it is gone.
+	if c.dropRoot {
+		if err := RemoveRoot(c.projectID, c.projectDir, c.rootHarp); err != nil && !errors.Is(err, ErrStateOwned) {
+			c.rep.Warnf("coordinator: the settled root %s could not be removed (%v); `ctxloom doctor` lists it", c.stateDir, err)
+		}
 	}
 }
 

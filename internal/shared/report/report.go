@@ -75,14 +75,6 @@ const (
 	// who named a task must not be told the launch succeeded while the task
 	// silently stayed untouched.
 	KindTask Kind = "task"
-
-	// KindOwner is a second session-owning process claiming a project
-	// another live `ctxloom` already owns (coord.ErrStateOwned). A project
-	// has ONE coordinator, hosted by ONE session; the loser of the owner
-	// claim is refused by name rather than degraded to a rival coordinator
-	// on ephemeral state. Degradable: --degraded launches the second session
-	// WITHOUT agent delegation, never as a second owner.
-	KindOwner Kind = "owner"
 )
 
 // Finding is one diagnostic. Text is the whole human message; Remedy is the

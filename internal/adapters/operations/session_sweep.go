@@ -542,7 +542,7 @@ func applySweep(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequ
 	// the reaper's own hold AFTER the reaper's age check; removing them first
 	// would touch ephemeral/, and the age check would then read the session
 	// as active and reclaim nothing.
-	reaped, reclaimed := applyPlannedReclaim(ctx, g, l, req, rows)
+	reaped, reclaimed := applyPlannedReclaim(ctx, g, l, req, fresh.ProjectDir, rows)
 	applyPlannedRest(ctx, g, fresh, rows, reclaimed)
 	return rows, reaped
 }
@@ -559,13 +559,14 @@ func leaveNoLongerPlanned(rows, still []SweepRow) {
 }
 
 // applyPlannedReclaim runs the planned reclaim row, if any, returning the
-// reaper's candidate and whether it reclaimed.
-func applyPlannedReclaim(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequest, rows []SweepRow) (*sessions.ReapCandidate, bool) {
+// reaper's candidate and whether it reclaimed. projectDir is the session's
+// project, where its coordinator root lives.
+func applyPlannedReclaim(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequest, projectDir string, rows []SweepRow) (*sessions.ReapCandidate, bool) {
 	var reaped *sessions.ReapCandidate
 	reclaimed := false
 	for i := range rows {
 		if r := &rows[i]; r.Action == SweepReclaim && r.Verdict == SweepPlanned {
-			reaped = applyReclaim(ctx, g, l, req, r)
+			reaped = applyReclaim(ctx, g, l, req, projectDir, r)
 			reclaimed = r.Verdict == SweepDone
 		}
 	}
@@ -636,8 +637,8 @@ func applyReapWorktrees(ctx context.Context, g git.Git, f SessionFacts, r *Sweep
 }
 
 // applyReclaim is sessions.ReapSession with this adapter's triage.
-func applyReclaim(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequest, r *SweepRow) *sessions.ReapCandidate {
-	c, ok := sessions.ReapSession(ctx, l, sessionLocks{}, r.Harp, req.reapPolicy(true), worktreeTriage(g))
+func applyReclaim(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequest, projectDir string, r *SweepRow) *sessions.ReapCandidate {
+	c, ok := sessions.ReapSession(ctx, l, sessionLocks{}, r.Harp, req.reapPolicy(true), reclaimTriage(g, projectDir))
 	if !ok {
 		r.Verdict, r.Reason = SweepLeft, "nothing is left to reclaim"
 		return nil

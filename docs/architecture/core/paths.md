@@ -141,8 +141,8 @@ this package.
 | `HomeAllowedSignersPath` | `~/.ctxloom/allowed_signers` | 4 |
 | `HomeDistrustedSignersPath` | `~/.ctxloom/distrusted_signers` | 1 |
 | `TriggerCacheDir` | `~/.ctxloom/cache/triggers` | 1 |
-| `HomeCoordDir` | `~/.ctxloom/coord` — root of one project-keyed subdirectory per live/recent coordinator | 1 |
-| `CoordProjectStateDir` | `~/.ctxloom/coord/<project-key>` — one project's coordinator state dir (`internal/core/coord`'s owner lock + journals) | 1 |
+| `HomeCoordDir` | `~/.ctxloom/coord` — root of one project-keyed subdirectory per project, holding that project's coordinator roots | 1 |
+| `CoordRootStateDir` | `~/.ctxloom/coord/<project-key>/<root-harp>` — one coordinator root's state dir (`internal/core/coord`'s owner lock + journals); **validates the root harp** | 1 |
 
 ### Project app dir (pure, no error return unless noted)
 
@@ -295,12 +295,12 @@ entries and the current code support, and no more.
   `cli.resolveAppDir` cannot return an empty string, and the three callers that accept one
   substitute `AppDirName` themselves (`operations.getBaseDir`, `remote.NewLockfileManager`,
   `cli.projectConfigPath`) — a default duplicated at each site and owned by none of them.
-- **`CoordProjectStateDir` still gets no `Layout` row**, unlike its parent
+- **`CoordRootStateDir` still gets no `Layout` row**, unlike its parent
   `HomeCoordDir` (which does, as of C13's `Root: RootHome` rows — see
   "Classification" above). The reason is the same one every harp-keyed path
-  is excluded (invariant 7): `CoordProjectStateDir(projectKey)` is a
-  per-project INSTANCE under the coord store, not the store root itself, so
-  it names no fixed path a row could describe — the same shape as `HarpDir`
+  is excluded (invariant 7): `CoordRootStateDir(projectKey, rootHarp)` is a
+  per-root INSTANCE under the coord store, not the store root itself, so it
+  names no fixed path a row could describe — the same shape as `HarpDir`
   under `HomeSessionsDir`.
 - **`project-id` is the one classified path still at the `.ctxloom` root** rather than under
   `state/`, where its tier says it belongs. A move to `state/project-id` (with a read

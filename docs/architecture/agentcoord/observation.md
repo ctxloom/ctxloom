@@ -135,7 +135,7 @@ The watchdog is read-only: it never terminates, relaunches or reaps.
 - **`discover.List` collapses six failure modes into an empty result with no error
   channel** (`discover/discover.go`): `UserHomeDir` error, discarded `Glob` error,
   `ReadFile` error, JSON decode error, zero port, empty credential. Its sole consumer
-  then reports `"no coordinator endpoint found (no ~/.ctxloom/coord/*/endpoint.json)"`
+  then reports `"no coordinator endpoint found (no ~/.ctxloom/coord/*/*/endpoint.json)"`
   (`operations/sessionfeed.go`) — asserting the file is absent when it may be
   present and unreadable. Only the missing-credential skip is documented as intentional.
 - **`discover`'s sort comparator calls `os.Stat` on every comparison**

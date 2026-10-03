@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,36 +22,31 @@ import (
 // internal one-shot resolves without any real vendor CLI.
 const mockProjectYAML = "version: 6\nllm:\n  configs:\n    fast: { type: mock }\n  defaults:\n    fast: fast\n"
 
-// parkLiveOwner holds the project's coordinator owner lock on a descriptor of
-// the test's own — what a `ctxloom run` in another terminal holds. flock
-// conflicts between two open descriptions even within one process, so the
-// coordinator host's claim in this process is refused exactly as a second
-// process's would be. The key is resolved by the same call the coordinator
-// host makes, so the lock lands where it looks.
-func parkLiveOwner(t *testing.T, projectDir string) {
+// blockCoordinatorRoots makes every coordinator root of the project
+// impossible to create: a regular file stands where the project's directory
+// of roots belongs. The project key is resolved by the same call the
+// coordinator host makes, so the block lands where it looks.
+func blockCoordinatorRoots(t *testing.T, projectDir string) {
 	t.Helper()
 	key, _, err := taskops.ResolveProjectIdentity(projectDir)
 	require.NoError(t, err, "fixture precondition: the project resolves a stable identity")
-	dir, err := coord.ProjectStateDir(key, projectDir)
+	dir, err := coord.RootStateDir(key, projectDir, "any-root")
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(dir, 0o700))
-	fl := flock.New(filepath.Join(dir, coord.OwnerLockFileName))
-	got, err := fl.TryLock()
-	require.NoError(t, err)
-	require.True(t, got, "fixture precondition: the owner lock is free to park")
-	t.Cleanup(func() { _ = fl.Close() })
+	project := filepath.Dir(dir)
+	require.NoError(t, os.MkdirAll(filepath.Dir(project), 0o700))
+	require.NoError(t, os.WriteFile(project, nil, 0o600))
 }
 
 // distillBlockedProject is a project whose fast role resolves (so a real
-// distiller is built) but whose distill one-shot cannot run: a live session
-// owns the project, and the internal host is refused. That is the reported
-// production shape of a failed distillation — content saved raw — and the
-// command must not call it success.
+// distiller is built) but whose distill one-shot cannot run: no coordinator
+// can stand up to host it. That is the reported production shape of a failed
+// distillation — content saved raw — and the command must not call it
+// success.
 func distillBlockedProject(t *testing.T) string {
 	t.Helper()
 	isolatedHome(t)
 	root := agentProject(t, mockProjectYAML)
-	parkLiveOwner(t, root)
+	blockCoordinatorRoots(t, root)
 	t.Cleanup(closeInternalCoordinator)
 	return root
 }

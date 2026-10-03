@@ -433,7 +433,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry(t *testi
 // for port re-bind, so this is the ordinary state, not corruption).
 func writeDeadEndpoint(t *testing.T, home, projectKey string) string {
 	t.Helper()
-	dir := filepath.Join(home, ".ctxloom", "coord", projectKey)
+	dir := filepath.Join(home, ".ctxloom", "coord", projectKey, "root-harp")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"),
 		[]byte(`{"loopback_port":1,"consumer_cred":"stale"}`), 0o600))
@@ -550,7 +550,7 @@ func TestDoctorCheckSpoolCounters_LiveAndDeadTogether(t *testing.T) {
 // is a not-yet-minted credential, which is not this.
 func TestDoctorCheckSpoolCounters_UndecodableEndpointFile_Warns(t *testing.T) {
 	home := testsupport.Isolate(t)
-	dir := filepath.Join(home, ".ctxloom", "coord", "corrupt")
+	dir := filepath.Join(home, ".ctxloom", "coord", "corrupt", "root-harp")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte("not json"), 0o600))
 

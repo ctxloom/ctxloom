@@ -461,7 +461,7 @@ func startFakeCoordinator(t *testing.T, home string, f *fakeConsumerServer) {
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(srv.Stop)
 
-	dir := filepath.Join(home, ".ctxloom", "coord", "proj")
+	dir := filepath.Join(home, ".ctxloom", "coord", "proj", "root-harp")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q}`, ln.Addr().(*net.TCPAddr).Port, fakeConsumerCred)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte(body), 0o600))
@@ -483,7 +483,7 @@ func requireFakeCred(ctx context.Context) error {
 
 // TestRunSessionWatch_LiveTapE2E: the published command transparently gains
 // the live source — a fake coordinator (D1 ConsumerService), discovered from
-// ~/.ctxloom/coord/*/endpoint.json, streams NDJSON entries and boundaries as
+// ~/.ctxloom/coord/*/*/endpoint.json, streams NDJSON entries and boundaries as
 // they happen, and the watch ends cleanly on RunCompleted.
 func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
 	home := testsupport.Isolate(t)

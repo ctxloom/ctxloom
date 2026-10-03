@@ -111,8 +111,7 @@ private, and it hands the host back the owner's credential — the identity
 the owner-owned run is minted under and revoked on teardown; no ctxloom
 command speaks MCP outside a session) constructs one
 `coord.Coordinator` (`coord.New`) which owns the journals, the state-dir lock
-(a second session claiming an owned project is refused with
-`coord.ErrStateOwned`, never degraded to a rival coordinator), the
+of its ROOT, the
 `in/` spool writers, and binds its `coord.Transport` — the h2c listener
 (`coordgrpc.Serve`, `coordServing`, `httpserver.go`) that serves `coordService`,
 `consumerService` and `artifactService` (`grpcserver.go`, all `adapters/coordgrpc`).
@@ -123,6 +122,35 @@ coordinator-side `SpoolReactor`. Every LLM-facing verb lands on one of
 `coord.HostApp`) or over the wire (`coordgrpc`'s `handleAgentFrame` decodes
 `AgentRequestFromWire` → `Coordinator.HandleRequest → serveAgentRequest` →
 `spawnDisposition` / `serveRoster` / `serveStopRun`).
+
+**One root per session tree.** A project holds any number of coordinators at
+once, one per independent tree, each in its own root state dir
+(`coord.RootStateDir`: `~/.ctxloom/coord/<project-key>/<root-harp>/`). A fresh
+`ctxloom run` founds a root named by the harp it just minted, beside every
+other session's tree in the project — its own journals, spool reactor,
+roster, drain and lifetime; the trees share no mutable state, so one
+failing never touches another, and the delegation concurrency cap is per
+tree. `ctxloom run --session H` mints a new harp yet claims root H
+(`coord.Options.RootHarp`) and adopts its runs; only such a claim can meet
+`coord.ErrStateOwned` — root H still held by a live process — and a held root
+whose owner is a provably abandoned interactive session is ended and
+claimed instead. An internal one-shot host (`bundle distill`, `session
+distill`, init's probe) is an ephemeral root of its own.
+
+A SESSION's root outlives the session: after any exit, clean or not,
+`ctxloom run --session H` adopts it with H's runs — ended children
+included, so an `agent_send` to one still resumes it and its artifacts still
+fetch. It is removed with its session by the reaper (`ctxloom session
+sweep`, the reclaim triage in `operations.reclaimTriage`). Only an EPHEMERAL
+root (`coord.Options.Ephemeral`, set by the internal one-shot host, whose
+tree no session resumes) is removed by `Coordinator.Close`, once every run
+in it has ended (`rootSettled`). Both go through `coord.RemoveRoot`, the one
+path that deletes a root: it claims the root first (a root a live process
+holds is refused, `ErrStateOwned`, and kept) and deletes it under the lock.
+A resume racing a removal never fails on the vanished dir: a lock won on an
+unlinked lock file, or a dir gone mid-wait, is `errRootRemoved`, and the
+claim makes the root afresh. `ctxloom doctor` lists every root of the
+project (`coord.ListRoots`) and removes none.
 
 **The runner process** (`ctxloom runner <engine>`, one per run — the owner's
 included; `runner.Main`) decodes its reach-back trio once, constructs a

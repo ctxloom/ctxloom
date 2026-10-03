@@ -181,7 +181,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckSpoolBacklog(),
 			doctorCheckSpoolCounters(ctx),
 			doctorCheckTTYInjection(),
-			doctorCheckProjectOwner(doctorProjectDir(cfg), coord.ProbeOwner),
+			doctorCheckProjectOwner(doctorProjectDir(cfg), coord.ListRoots),
 		}
 	}
 	return DoctorReport{Checks: checks}, nil

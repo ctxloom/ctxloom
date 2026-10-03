@@ -35,7 +35,7 @@ func TestList_SnapshotsMtimeOncePerCandidate(t *testing.T) {
 	for i := 0; i < n; i++ {
 		key := fmt.Sprintf("proj-%02d", i)
 		writeEndpoint(t, home, key, fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q}`, 1000+i, key), base)
-		p := filepath.Join(home, ".ctxloom", "coord", key, "endpoint.json")
+		p := endpointPath(home, key, testRootHarp)
 		// Higher index => NEWER, so the correct "most-recently-active first"
 		// order is the REVERSE of path order — distinct from glob/tiebreak order,
 		// so a passing order assertion proves the mtime snapshot actually drove

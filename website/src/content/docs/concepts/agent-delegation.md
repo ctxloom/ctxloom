@@ -54,23 +54,37 @@ wire this up; it's there because you're running through `ctxloom run` at all. A 
 that sits at the bottom of the tree gets only the reporting half (`agent_send`,
 `agent_report`); the tools that spawn, observe or control other children are withheld from it.
 
-## One session owns a project
+## Every session is its own tree
 
-A project has exactly one coordinator. The first `ctxloom run` in a project
-claims it with an exclusive kernel file lock (`owner.lock` under
-`~/.ctxloom/coord/<project>`), held for as long as that process lives, so
-ownership ends exactly when the owner ends, however it ends. Beside the lock,
-`owner.json` records who holds it (pid, session, mode, start time). That record
-is for display and for spotting an abandoned owner, never for deciding whether
-the owner is alive.
+Each `ctxloom run` hosts a coordinator of its own. Run a second session in a
+project that already has one open, in another terminal, and it isn't refused:
+it starts its own coordinator beside the first. The two are independent
+trees. Each has its own children, roster, inbox, shutdown drain and lifetime,
+and they share no state, so one failing never affects the other. The
+concurrency cap on children applies to each tree separately. The same holds
+for the short-lived coordinator that `bundle distill`, `session distill` or
+`init`'s probe stands up: it runs beside any open session.
 
-A second `ctxloom run` in an owned project is refused, and the refusal names the
-owning session, its pid and when it started. End that session, or pass
-`--degraded` (`CTXLOOM_DEGRADED=1`) to launch the second one without agent
-delegation. The one exception is an interactive owner whose terminal is gone:
-it is provably abandoned, so the next run ends it and takes the project over.
-`ctxloom doctor` reports the owner and what the next run will do
-(`DOCTOR-CHECK-PROJECT-OWNER-v4`).
+A tree's state lives in a root directory named after the session that
+started it (`~/.ctxloom/coord/<project>/<session>`). Its owner holds an
+exclusive kernel file lock (`owner.lock`) for as long as that process lives,
+so ownership ends exactly when the owner ends, however it ends. Beside the
+lock, `owner.json` records who holds it (pid, session, mode, start time). That
+record is for display and for spotting an abandoned owner, never for deciding
+whether the owner is alive.
+
+A session's root stays after the session exits, however it exits.
+`ctxloom run --session <harp>` resumes that session and adopts its root. Its
+children come with it, including the ones that already finished, so you can
+still message them and fetch what they produced. If another live process
+still holds the root, the resume runs without agent delegation and says so.
+The one exception is an interactive owner whose terminal is gone: it is
+provably abandoned, so the resume ends it and takes the tree over. A root is
+removed along with its session by `ctxloom session sweep`. The short-lived
+coordinator behind `bundle distill`, `session distill` or `init`'s probe is
+the exception: nothing resumes it, so its root is removed as soon as it
+finishes. `ctxloom doctor` lists every tree in the project and
+who owns it (`DOCTOR-CHECK-PROJECT-OWNER-v4`). It removes none of them.
 
 ## Why each child gets its own grant, never a union
 

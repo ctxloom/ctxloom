@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -179,6 +178,7 @@ type Coordinator struct {
 	// (closePartial).
 	ownsRoot bool
 	dropRoot bool
+	rootHarp string
 
 	runs     *Store
 	runsF    *runsFold
@@ -502,6 +502,7 @@ func New(opts Options) (*Coordinator, error) {
 		now:                t.now,
 		releaseOwner:       claim.release,
 		ownsRoot:           claim.release != nil,
+		rootHarp:           rootHarpOf(opts),
 		spawner:            opts.Spawner,
 		engines:            opts.Engines,
 		host:               opts.Host,
@@ -645,19 +646,40 @@ func acquireStateDir(opts Options) (stateDirClaim, error) {
 	if opts.StateDir != "" {
 		return stateDirClaim{dir: opts.StateDir}, nil
 	}
-	root := opts.RootHarp
-	if root == "" {
-		root = opts.OwnerHarp
+	root := rootHarpOf(opts)
+	// A removal (RemoveRoot) racing this claim can delete the root between
+	// making it and locking it; that is not a refusal, only a root to make
+	// again. Bounded: each retry means a removal completed in the window.
+	for attempt := 1; ; attempt++ {
+		dir, err := ensureRootStateDir(opts.ProjectID, opts.ProjectDir, root)
+		if err != nil {
+			return stateDirClaim{}, err
+		}
+		beforeRootClaim(dir)
+		release, err := claimOwner(report.To(opts.Reporter), dir, newOwnerStamp(opts.OwnerHarp, opts.OwnerMode))
+		if errors.Is(err, errRootRemoved) && attempt < rootClaimAttempts {
+			continue
+		}
+		if err != nil {
+			return stateDirClaim{}, err
+		}
+		return stateDirClaim{dir: dir, release: release}, nil
 	}
-	dir, err := ensureRootStateDir(opts.ProjectID, opts.ProjectDir, root)
-	if err != nil {
-		return stateDirClaim{}, err
+}
+
+// rootClaimAttempts bounds acquireStateDir's retries after a racing removal.
+const rootClaimAttempts = 3
+
+// beforeRootClaim is a test seam: acquireStateDir calls it between making a
+// root's dir and claiming its lock.
+var beforeRootClaim = func(dir string) {}
+
+// rootHarpOf is the root opts claims: Options.RootHarp, or the owner's own.
+func rootHarpOf(opts Options) string {
+	if opts.RootHarp != "" {
+		return opts.RootHarp
 	}
-	release, err := claimOwner(report.To(opts.Reporter), dir, newOwnerStamp(opts.OwnerHarp, opts.OwnerMode))
-	if err != nil {
-		return stateDirClaim{}, err
-	}
-	return stateDirClaim{dir: dir, release: release}, nil
+	return opts.OwnerHarp
 }
 
 // openJournals builds the folds and opens every journal (plus the artifact
@@ -969,24 +991,15 @@ func (c *Coordinator) closePartial() {
 	if len(errs) > 0 {
 		c.rep.Warnf("coordinator: closing journals under %s: %v", c.stateDir, errors.Join(errs...))
 	}
-	// The root is removed while its owner lock is still HELD, so no claimant
-	// can open journals in it mid-removal: one blocked on the lock gets it
-	// only after the directory is gone, and fails loudly on the missing dir
-	// rather than writing into one being deleted. Windows refuses to delete a
-	// file with an open handle — the held lock file — so there the removal is
-	// finished after the release; a claimant that opened the lock file in
-	// between holds a handle that refuses the delete in turn, so the retry
-	// can never unlink a lock someone holds.
-	var dropErr error
-	if c.dropRoot {
-		dropErr = os.RemoveAll(c.stateDir)
-	}
 	if c.releaseOwner != nil {
 		c.releaseOwner()
 		c.releaseOwner = nil
 	}
-	if dropErr != nil {
-		if err := os.RemoveAll(c.stateDir); err != nil {
+	// Removed through RemoveRoot, which re-claims the root: a resume that won
+	// the root in the moment since the release keeps it (ErrStateOwned), and
+	// one still waiting makes it afresh once it is gone.
+	if c.dropRoot {
+		if err := RemoveRoot(c.projectID, c.projectDir, c.rootHarp); err != nil && !errors.Is(err, ErrStateOwned) {
 			c.rep.Warnf("coordinator: the settled root %s could not be removed (%v); `ctxloom doctor` lists it", c.stateDir, err)
 		}
 	}

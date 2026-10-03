@@ -154,20 +154,97 @@ func claimOwner(rep report.Reporter, dir string, stamp ownerStamp) (release func
 // errOwnerLockHeld is lockOwner's "another process holds it".
 var errOwnerLockHeld = errors.New("coord: the owner lock is held")
 
+// errRootRemoved is lockOwner's "the root went away under this claim": its
+// dir is gone, or the lock won is on a file RemoveRoot already unlinked. The
+// claim is not refused — the root is simply not there to own — so the
+// claimant makes it again and retries (acquireStateDir).
+var errRootRemoved = errors.New("coord: the root was removed during the claim")
+
+// Test seams for forcing a claim/removal interleaving: onOwnerLockContended
+// fires once a claim has found the lock held and begins to wait for it;
+// afterOwnerLock fires once a lock is won, before it is verified.
+var (
+	onOwnerLockContended = func(lockPath string) {}
+	afterOwnerLock       = func(lockPath string) {}
+)
+
+// lockOwner takes lockPath's lock, waiting up to claimWait. A lock is only a
+// claim on the root if the file it locks is still the one at lockPath: a
+// removal (RemoveRoot) unlinks the lock file under its own lock, and a
+// claimant that opened the file before that and locks it after holds a lock
+// nobody else can see. Both that and a dir that vanished mid-wait are
+// errRootRemoved.
 func lockOwner(lockPath string) (*flock.Flock, error) {
 	fl := flock.New(lockPath, flock.SetPermissions(0o600))
-	ctx, cancel := context.WithTimeout(context.Background(), claimWait)
-	defer cancel()
-	got, err := fl.TryLockContext(ctx, claimRetry)
+	got, err := fl.TryLock()
+	if err == nil && !got {
+		onOwnerLockContended(lockPath)
+		ctx, cancel := context.WithTimeout(context.Background(), claimWait)
+		got, err = fl.TryLockContext(ctx, claimRetry)
+		cancel()
+	}
 	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		_ = fl.Close()
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, errRootRemoved
+		}
 		return nil, fmt.Errorf("coord: owner lock %s: %w", lockPath, err)
 	}
 	if !got {
 		_ = fl.Close()
 		return nil, errOwnerLockHeld
 	}
+	afterOwnerLock(lockPath)
+	held, herr := fl.Stat()
+	onDisk, derr := os.Lstat(lockPath)
+	if herr != nil || derr != nil || !os.SameFile(held, onDisk) {
+		_ = fl.Close()
+		return nil, errRootRemoved
+	}
 	return fl, nil
+}
+
+// whileRemovingRoot is a test seam: RemoveRoot calls it holding the root's
+// lock, before the delete.
+var whileRemovingRoot = func(dir string) {}
+
+// RemoveRoot deletes a coordinator root — the ONE path that does. It CLAIMS
+// the root first: a root a live process holds is refused (ErrStateOwned) and
+// left whole. The dir is deleted while the lock is held, so a claimant of
+// the same root either waits it out and then finds the root gone (and makes
+// it afresh — errRootRemoved), or wins first and is refused nothing. Windows
+// refuses to delete a file with an open handle — the held lock file — so
+// there the delete is finished after the release; a claimant that opened the
+// lock file in between holds a handle that refuses the delete in turn, so the
+// retry can never unlink a lock someone holds. A root that does not exist is
+// already removed.
+func RemoveRoot(projectID, projectDir, rootHarp string) error {
+	dir, err := RootStateDir(projectID, projectDir, rootHarp)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	fl, err := lockOwner(filepath.Join(dir, OwnerLockFileName))
+	switch {
+	case errors.Is(err, errRootRemoved):
+		return nil
+	case errors.Is(err, errOwnerLockHeld):
+		st, _ := heldOwner(dir)
+		return ownedError(st)
+	case err != nil:
+		return err
+	}
+	whileRemovingRoot(dir)
+	rmErr := os.RemoveAll(dir)
+	_ = fl.Close()
+	if rmErr != nil {
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("coord: remove root %s: %w", dir, err)
+		}
+	}
+	return nil
 }
 
 // ProbeOwner reports who owns a root state dir without claiming it.

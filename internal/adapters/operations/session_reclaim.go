@@ -2,8 +2,8 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
@@ -29,12 +29,13 @@ func reclaimTriage(g git.Git, projectDir string) sessions.Triage {
 	}
 }
 
-// removeSessionRoot removes the coordinator root harp founded in projectDir,
-// unless a live process holds it — a session resumed from this one, which has
-// adopted the tree and owns it now. The root is keyed by the project identity
-// the coordinator host keys it by, read (never resolved, which would mint
-// one) like doctor reads it. A failure is returned, so the reaper leaves the
-// session alone and reports why rather than half-reaping it.
+// removeSessionRoot removes the coordinator root harp founded in projectDir
+// through coord.RemoveRoot, which claims it first: a root a live process
+// holds — a session resumed from this one, which has adopted the tree — is
+// refused and kept. The root is keyed by the project identity the
+// coordinator host keys it by, read (never resolved, which would mint one)
+// like doctor reads it. Any other failure is returned, so the reaper leaves
+// the session alone and reports why rather than half-reaping it.
 func removeSessionRoot(projectDir, harp string) error {
 	if projectDir == "" {
 		return nil
@@ -43,19 +44,8 @@ func removeSessionRoot(projectDir, harp string) error {
 	if err != nil {
 		id = ""
 	}
-	dir, err := coord.RootStateDir(id, projectDir, harp)
-	if err != nil {
+	if err := coord.RemoveRoot(id, projectDir, harp); err != nil && !errors.Is(err, coord.ErrStateOwned) {
 		return fmt.Errorf("its coordinator root: %w", err)
-	}
-	st, err := coord.ProbeOwner(dir)
-	if err != nil {
-		return fmt.Errorf("its coordinator root %s: %w", dir, err)
-	}
-	if st.Held {
-		return nil
-	}
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("its coordinator root %s: %w", dir, err)
 	}
 	return nil
 }

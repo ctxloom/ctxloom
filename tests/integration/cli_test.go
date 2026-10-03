@@ -190,8 +190,7 @@ func TestRun_WithProfile(t *testing.T) {
 	require.NoError(t, mockLM.SetResponse("OK"))
 
 	writeFragment(t, env, "profile-frag", []string{"profile"}, "Profile fragment content.")
-	writeProfile(t, env, "test-profile", `name: test-profile
-description: Test profile
+	writeProfile(t, env, "test-profile", `description: Test profile
 bundles:
   - local#fragments/profile-frag
 `)
@@ -210,8 +209,7 @@ func TestRun_VariableSubstitution(t *testing.T) {
 	require.NoError(t, mockLM.SetResponse("OK"))
 
 	writeFragment(t, env, "var-frag", []string{"variables"}, "The language is {{language}}.\nThe version is {{version}}.")
-	writeProfile(t, env, "var-profile", `name: var-profile
-description: Variable profile
+	writeProfile(t, env, "var-profile", `description: Variable profile
 bundles:
   - local#fragments/var-frag
 variables:
@@ -273,8 +271,7 @@ func TestRun_Agent_DryRun(t *testing.T) {
 	exportClaudeToken(t, env)
 
 	writeFragment(t, env, "agent-frag", []string{"agent"}, "Agent-composed content.")
-	writeProfile(t, env, "agent-profile", `name: agent-profile
-description: Agent profile
+	writeProfile(t, env, "agent-profile", `description: Agent profile
 bundles:
   - local#fragments/agent-frag
 `)
@@ -471,8 +468,7 @@ func TestProfile_List_Empty(t *testing.T) {
 func TestProfile_List_WithProfiles(t *testing.T) {
 	env := setupTestEnv(t)
 
-	writeProfile(t, env, "test-profile", `name: test-profile
-description: A test profile
+	writeProfile(t, env, "test-profile", `description: A test profile
 bundles: []
 `)
 
@@ -485,8 +481,7 @@ bundles: []
 func TestProfile_Show(t *testing.T) {
 	env := setupTestEnv(t)
 
-	writeProfile(t, env, "detailed", `name: detailed
-description: A detailed profile
+	writeProfile(t, env, "detailed", `description: A detailed profile
 bundles:
   - frag-one
   - frag-two

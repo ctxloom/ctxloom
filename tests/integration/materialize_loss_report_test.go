@@ -61,8 +61,7 @@ hooks:
 // `teamrules#fragments/rules` pulls exactly that one item, so the bundle's
 // session_start hook does not come with it — and the loss this file is about
 // then has nothing to report. Selecting the bundle brings both.
-const lossFixtureProfile = `name: team
-bundles:
+const lossFixtureProfile = `bundles:
   - teamrules
 `
 

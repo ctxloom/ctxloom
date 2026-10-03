@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -20,11 +21,15 @@ import (
 // path the table does not hold and fails.
 type exactMapper map[string]string
 
+// errUnrouted is exactMapper's refusal, so a test can assert that a caller
+// propagated THIS failure rather than some other one.
+var errUnrouted = errors.New("exactMapper: not a path this test routes")
+
 func (m exactMapper) toContainer(host string) (string, error) {
 	if c, ok := m[host]; ok {
 		return c, nil
 	}
-	return "", fmt.Errorf("exactMapper: %s is not a path this test routes", host)
+	return "", fmt.Errorf("%w: %s", errUnrouted, host)
 }
 
 // B1: an overlay's target is where the runtime maps the project path it
@@ -41,6 +46,20 @@ func TestContainerConfigOverlay_TargetIsMapped(t *testing.T) {
 		assert.Equal(t, "/ctr"+host, mounts[i].Container)
 		assert.DirExists(t, host, "the mountpoint is created host-side")
 	}
+}
+
+// An overlay target the runtime cannot route refuses the whole overlay with
+// the mapper's error. Mounting it anyway — at the raw host path, or skipping
+// it — would leave the engine's managed-config writes landing in the HOST
+// project through the project bind, which is the one thing the overlay exists
+// to prevent.
+func TestContainerConfigOverlay_UnroutableTargetIsRefused(t *testing.T) {
+	proj := t.TempDir()
+	rt := mapperRuntime{fakeRuntime: fakeRuntime{name: "docker", available: true}, m: exactMapper{}}
+
+	mounts, err := containerConfigOverlay(rt, proj, t.TempDir(), claudeOverlayDirs(t))
+	require.ErrorIs(t, err, errUnrouted)
+	assert.Nil(t, mounts, "no partial overlay is handed back alongside the refusal")
 }
 
 // B3: the delivered config's target is the mapping of the host mountpoint

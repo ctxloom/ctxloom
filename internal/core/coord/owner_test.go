@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -149,6 +150,91 @@ func TestClaimOwner_OrphanIsReclaimed(t *testing.T) {
 	st, err := ProbeOwner(dir)
 	require.NoError(t, err)
 	assert.Equal(t, "new-owner", st.Harp, "the reclaimer now owns the project")
+}
+
+// claimConcurrently runs one claimOwner per harp, all released at once, and
+// returns each claimer's result. Winners stay owners until the test ends.
+func claimConcurrently(t *testing.T, dir string, harps []string) map[string]error {
+	t.Helper()
+	start := make(chan struct{})
+	var mu sync.Mutex
+	results := map[string]error{}
+	var wg sync.WaitGroup
+	for _, h := range harps {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			rel, err := claimOwner(termRep(), dir, newOwnerStamp(h, OwnerInteractive))
+			if err == nil {
+				t.Cleanup(rel)
+			}
+			mu.Lock()
+			results[h] = err
+			mu.Unlock()
+		}()
+	}
+	close(start)
+	wg.Wait()
+	return results
+}
+
+// requireOneOwner asserts exactly one claimer won, every other was refused as
+// owned, and the project's stamp names the winner.
+func requireOneOwner(t *testing.T, dir string, results map[string]error) {
+	t.Helper()
+	var winners []string
+	for h, err := range results {
+		if err == nil {
+			winners = append(winners, h)
+			continue
+		}
+		require.ErrorIs(t, err, ErrStateOwned, "claimer %s", h)
+	}
+	require.Len(t, winners, 1, "exactly one claimer owns the project")
+	st, err := ProbeOwner(dir)
+	require.NoError(t, err)
+	assert.True(t, st.Held)
+	assert.Equal(t, winners[0], st.Harp, "the stamp names the one owner")
+}
+
+// Simultaneous claims on an unowned project: whatever the interleaving, the
+// kernel lock admits one owner and refuses the rest.
+func TestClaimOwner_ConcurrentClaimersYieldOneOwner(t *testing.T) {
+	dir := t.TempDir()
+	harps := []string{"claimer-a", "claimer-b", "claimer-c", "claimer-d"}
+	requireOneOwner(t, dir, claimConcurrently(t, dir, harps))
+}
+
+// Two claimers that BOTH judged the same orphan are held inside the reclaim
+// until both have arrived, then the orphan's lock is released under them: the
+// retry, not the judgement, decides ownership, so exactly one wins.
+func TestClaimOwner_TwoReclaimersOfOneOrphanYieldOneOwner(t *testing.T) {
+	dir := t.TempDir()
+	release := holdOwnerLock(t, dir)
+	writeStamp(t, dir, interactiveStamp())
+	fakeProc(t, procpin.Stat{PPID: 1, TTYNr: 0, StartTicks: orphanTicks}, nil)
+
+	const claimers = 2
+	var arrived sync.WaitGroup
+	arrived.Add(claimers)
+	var once sync.Once
+	var mu sync.Mutex
+	calls := 0
+	prev := endOrphan
+	endOrphan = func(ownerStamp) error {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		arrived.Done()
+		arrived.Wait()
+		once.Do(release)
+		return nil
+	}
+	t.Cleanup(func() { endOrphan = prev })
+
+	requireOneOwner(t, dir, claimConcurrently(t, dir, []string{"reclaimer-a", "reclaimer-b"}))
+	assert.Equal(t, claimers, calls, "both claimers judged the orphan and reached the reclaim")
 }
 
 // Every case that is not provably an abandoned interactive session refuses,

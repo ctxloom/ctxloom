@@ -60,11 +60,15 @@ as an unknown key and ignores it.
 directly-declared hooks pass the executable trust gate, which the config block's
 did not.
 
-## 4. Session essences moved under the harp
+## 4. Session essences moved to the session's output dir
 
-A per-rotation essence now lives at
-`~/.ctxloom/sessions/<harp>/segments/<sessionID>.md`, beside that rotation's
-canonical `<sessionID>.jsonl`. The project-rooted
+A session's essence, next step and plans, and each per-rotation essence
+(`segments/<sessionID>.md`), now live in the session's output dir —
+`<Documents>/ctxloom/<project>/<harp>/` by default, or under the `output_dir`
+config key — recorded in the session's `session.yaml` when it is created. The
+machine state (transcripts, native engine history, spool) stays under
+`~/.ctxloom/sessions/<harp>/`. No sweep or `ctxloom clean` ever deletes the
+output dir; only `ctxloom session artifacts purge` removes an essence there. The project-rooted
 `<project>/.ctxloom/sessions/<sessionID>.md` store is no longer written or read.
 Existing files there are not migrated and are safe to delete; `ctxloom session
 adopt` re-indexes an outside session if you want its history back.

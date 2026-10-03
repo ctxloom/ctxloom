@@ -35,7 +35,7 @@ const feedWait = 5 * time.Second
 // transcript.jsonl for it (the store-tail's by-location association).
 //
 // This used to drop a raw claude-code legacy-format fixture into the harp's
-// persist/transcripts store, exercising the by-location LEGACY reader
+// session dir, exercising the by-location LEGACY reader
 // (operations.HistoryForBackend -> claude's SessionHistory). That reader was
 // deleted outright (the user's DELETE decision — claude's scraper is gone,
 // not demoted to a vendor reader; see internal/engines/claude/claudecode.go's doc).

@@ -170,5 +170,5 @@ ctxloom session purge <harp> --yes        # Empty a session, keep it listed
 
 ### A session has no essence
 
-- Check `~/.ctxloom/sessions/<harp>/essence.md`.
+- Check `essence.md` in the session's output dir (`<Documents>/ctxloom/<project>/<harp>/` by default).
 - Distill it with `ctxloom session distill <harp>`. Sessions have no essence until something asks for one.

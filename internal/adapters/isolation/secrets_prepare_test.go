@@ -121,7 +121,7 @@ func TestContainer_TheNextPrepareSweepsACrashedRunsSecret(t *testing.T) {
 }
 
 // With no user runtime dir (macOS, Windows, a session without one) the
-// secret dir lives in the session's ephemeral dir beside the run's scratch
+// secret dir lives in the session's scratch/ dir beside the run's scratch
 // root — not inside it, which is new per run and so would never hold a
 // crashed sibling for the next run to reap.
 func TestContainer_SecretFallsBackToTheSessionEphemeralDirWithoutARuntimeDir(t *testing.T) {

@@ -1,7 +1,7 @@
 # `internal/adapters/memory` — session compaction
 
 **What it is.** The single-pass distillation pipeline that turns a session transcript into a
-persisted **essence** document (`~/.ctxloom/sessions/<harp>/essence.md`), plus verbatim
+persisted **essence** document (`essence.md` in the session's output dir, `sessions.Entry.OutputDir`), plus verbatim
 re-attachment of the session's `.plan.md` files, plus a separate hook utility that stamps harp
 names into project plan-file frontmatter.
 

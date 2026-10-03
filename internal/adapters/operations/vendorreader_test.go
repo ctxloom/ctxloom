@@ -161,7 +161,7 @@ func TestConvertVendorTranscript_Idempotent(t *testing.T) {
 
 // TestConvertVendorTranscript_PreRenameFileIsNotACanonicalTranscript pins
 // the one-name contract at the conversion guard: hasCanonicalTranscript
-// looks for paths.CanonicalTranscriptFileName only. A persist/ holding just
+// looks for paths.CanonicalTranscriptFileName only. A transcripts/ holding just
 // the pre-rename leaf (transcript.acp.jsonl) has no canonical transcript, so
 // the conversion RUNS and lands under the current name; the pre-rename file
 // is an unknown file the conversion neither reads nor touches.
@@ -459,12 +459,9 @@ func TestConvertVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySuc
 
 // TestConvertVendorTranscript_Refresh_ReplacesExistingSymlinkWithARegularFile
 // is a defensive robustness check on the atomic install, NOT a pin of a real
-// production scenario: sessions.linkEngineTranscript's per-vendor-log
-// convenience symlinks live at the harp ROOT
-// (<harp>/engine-transcript-<engine>-<sessionID>.jsonl, pointing at a live
-// vendor file) — a DIFFERENT path from paths.HarpCanonicalTranscriptPath
-// (<harp>/persist/transcript.jsonl), which is what this function's dest
-// actually is and which production code never turns into a symlink. This
+// production scenario: paths.HarpCanonicalTranscriptPath
+// (<harp>/transcripts/transcript.jsonl) is what this function's dest
+// actually is, and production code never turns it into a symlink. This
 // test only confirms os.Rename's documented behavior (replaces whatever is
 // at the destination, symlink or not, without following it) holds here too,
 // in case that assumption is ever leaned on for real.

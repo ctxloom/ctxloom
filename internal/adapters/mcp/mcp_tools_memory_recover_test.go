@@ -263,7 +263,7 @@ func TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache(t *testing.T
 	require.Contains(t, first.Content, "first look")
 
 	// Break the refresh, and ONLY the refresh: the conversion writes through a
-	// temp sibling inside the harp's persist dir, so a read-only dir fails the
+	// temp sibling inside the harp's transcripts dir, so a read-only dir fails the
 	// re-read while leaving the already-captured canonical transcript perfectly
 	// readable — exactly the state that makes the stale cache look current.
 	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)

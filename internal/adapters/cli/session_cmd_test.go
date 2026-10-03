@@ -309,7 +309,7 @@ func realpath(t *testing.T, p string) string {
 }
 
 // seedRotationEssence writes one rotation's essence at
-// ~/.ctxloom/sessions/<harp>/segments/<sessionID>.md and returns its path.
+// <output dir>/segments/<sessionID>.md and returns its path.
 func seedRotationEssence(t *testing.T, harp, sessionID, body string) string {
 	t.Helper()
 	p, err := harpSegmentEssencePath(t, harp, sessionID)
@@ -321,7 +321,7 @@ func seedRotationEssence(t *testing.T, harp, sessionID, body string) string {
 
 // TestSessionEssenceResolution_SharedLookupOrder pins the ONE two-step
 // resolution order every essence entry point owes the user — the harp's current
-// ~/.ctxloom/sessions/<harp>/essence.md first, that session's own per-rotation
+// <output dir>/essence.md first, that session's own per-rotation
 // segments/<sessionID>.md second — across BOTH of the functions that
 // implement it: sessionEssenceInfo (path/exists, used by `session list`,
 // `session query` and the memory MCP tools) and readSessionEssence (bytes,

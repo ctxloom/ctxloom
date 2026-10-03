@@ -14,8 +14,8 @@ import (
 )
 
 // TestSessionEssenceInfo_HarpDirWinsOverLegacy pins the ONE two-step
-// resolution order every essence entry point owes the user — harp-dir layout
-// (~/.ctxloom/sessions/<harp>/essence.md) first, legacy
+// resolution order every essence entry point owes the user — output-dir layout
+// (<output dir>/essence.md) first, legacy
 // <appDir>/sessions/<sessionID>.md second. cli's readSessionEssence (the
 // READING face) and this function must agree on which of the two candidate
 // files wins, or the same session reads as distilled in one command and

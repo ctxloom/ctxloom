@@ -123,7 +123,7 @@ func TestEnsure_IsIdempotentAcrossRuns(t *testing.T) {
 // directory that does not exist, and a reader auditing "what does ctxloom keep
 // out of git" is told about a tier that was never built. `.ctxloom/pieces/`
 // (the L4 sparse-checkout fetcher, never built) and `.ctxloom/ephemeral/` (the
-// ephemeral concept is permanently HOME-rooted — paths.HarpEphemeralDir) were
+// per-session scratch is permanently HOME-rooted — paths.HarpScratchDir) were
 // both phantoms of that second kind.
 func TestPrivateStatePatterns_MatchExpectedSet(t *testing.T) {
 	assert.ElementsMatch(t, []string{

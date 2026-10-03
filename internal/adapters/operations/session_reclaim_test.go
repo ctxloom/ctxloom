@@ -303,7 +303,7 @@ func srInitRepo(t *testing.T) string {
 // hand-rolling `git worktree add`.
 //
 // That is deliberate on two counts. The checkout has to land at exactly the
-// path isolation.findEphemeralWorktrees scans (<harp>/ephemeral/ctxloom-wt-*)
+// path isolation.findWorkWorktrees scans (<harp>/work/ctxloom-wt-*)
 // or this sweep never sees it and the test asserts nothing; and a fixture that
 // built that layout by hand would be a second definition of it, free to drift
 // from the one production writes. Asking production to build it means the two
@@ -314,9 +314,9 @@ func srInitRepo(t *testing.T) string {
 // THE DEGRADE GUARD IS LOAD-BEARING. isolation.Prepare walks a degrade chain
 // and never fails: if the worktree policy cannot prepare, it silently falls
 // back to the project directory. The returned workspace would then be the repo
-// itself, nothing would exist under the harp's ephemeral dir, and every
+// itself, nothing would exist under the harp's work dir, and every
 // assertion here would pass while measuring nothing. So the workspace's own
-// directory is checked to be under that ephemeral dir before any test uses it.
+// directory is checked to be under that work dir before any test uses it.
 func srAddWorktree(t *testing.T, repo, harp string) string {
 	t.Helper()
 	sessionDir, err := paths.HarpDir(harp)

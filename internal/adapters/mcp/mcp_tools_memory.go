@@ -347,7 +347,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 
 func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolRequest, in loadSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
 	if in.HarpName != "" {
-		// Harp-native path: read ~/.ctxloom/sessions/<harp>/essence.md
+		// Harp-native path: read essence.md from the harp's output dir
 		// directly. No backend-history detour, no SessionID binding step.
 		// If the file is missing the user can run `ctxloom session distill`
 		// or just compact again.
@@ -624,7 +624,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 
 // previousSessionByHarp materializes a canonical/ACP previous session — one
 // with no backend SessionID, whose only source is the harp's own captured
-// transcript and whose essence lives at ~/.ctxloom/sessions/<harp>/essence.md
+// transcript and whose essence lives at <output dir>/essence.md
 // (NOT the legacy sessionID-keyed <sessionsDir>/<id>.md the backend path reads
 // via LoadDistilledSession). It mirrors loadOrDistillSession's cache-then-
 // distill shape, keyed by harp instead of session id:

@@ -246,7 +246,7 @@ func reapSeedUndistilled(t *testing.T, l Layout, harp string) string {
 
 // TestReap_PersistScope_SparesThePersistStoreOfAnUndistilledSession: without
 // an essence the transcript is the session's only record, so even
-// --include-persist leaves persist/ alone — the same rule PurgeSession
+// --include-persist leaves its persistent machine members alone — the same rule PurgeSession
 // enforces with ErrPurgeUndistilled. The ephemeral members still go: a wider
 // scope must never free less than the default one. The report names the
 // spare and the command that lifts it.
@@ -281,7 +281,7 @@ func TestReap_PersistScope_SparesThePersistStoreOfAnUndistilledSession(t *testin
 }
 
 // TestReap_PersistScope_UndistilledWithOnlyPersistDataIsSpared: when
-// persist/ is all an undistilled session holds, nothing is taken and the
+// persistent machine data is all an undistilled session holds, nothing is taken and the
 // session is reported spared rather than hidden.
 func TestReap_PersistScope_UndistilledWithOnlyPersistDataIsSpared(t *testing.T) {
 	l := reapLayout(t)
@@ -334,8 +334,8 @@ func TestReap_ReportsWithoutApplying(t *testing.T) {
 }
 
 // TestReap_BytesCountOnlyWhatThePolicyTakes: the byte figure is the size of
-// what would GO under the policy, not of the session — persist/ counts only
-// under Scope Persist.
+// what would GO under the policy, not of the session — the persistent machine
+// members count only under Scope Persist.
 func TestReap_BytesCountOnlyWhatThePolicyTakes(t *testing.T) {
 	l := reapLayout(t)
 	reapSeed(t, l, "aged-quiet-heron")

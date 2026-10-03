@@ -39,7 +39,7 @@ func TestIsPlanFile_UnmatchedShapes(t *testing.T) {
 	assert.False(t, IsPlanFile("/home/u/proj/docs/auth-plan.md"),
 		"the docs leg matches only a repo-relative path")
 
-	// The session plan-document convention, ~/.ctxloom/sessions/<harp>/<name>.plan.md.
+	// The session plan-document convention, <output dir>/<name>.plan.md.
 	// internal/shared/plans reads a `sessions:` list out of these and its doc
 	// names StampPlanFile as the writer of that list; this regex is what stands
 	// between the hook and those files.

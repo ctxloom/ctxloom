@@ -13,7 +13,7 @@ import (
 )
 
 // deepTarget is a target whose FLATTENED form alone exceeds NAME_MAX. It is
-// the shape an agent worktree under a session's ephemeral directory produces,
+// the shape an agent worktree under a session's work directory produces,
 // and it is built under root so a REAL filesystem can be asked to hold it.
 func deepTarget(root, leaf string) string {
 	segs := make([]string, 0, 12)

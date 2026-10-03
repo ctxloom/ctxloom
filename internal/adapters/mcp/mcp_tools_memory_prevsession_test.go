@@ -19,7 +19,7 @@ import (
 // canonical/ACP branch of get_previous_session (viral-equal). An ACP-launched
 // session never binds a backend SessionID; its only source is the harp's own
 // captured transcript and its essence lives at
-// ~/.ctxloom/sessions/<harp>/essence.md — NOT the legacy sessionID-keyed path
+// <output dir>/essence.md — NOT the legacy sessionID-keyed path
 // under the project workdir that the backend branch reads. This test proves the
 // by-harp path materializes such a session from the harp dir and, when the
 // essence is fresh (stamped SourceSize matches the canonical transcript),

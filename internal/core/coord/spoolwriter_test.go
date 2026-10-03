@@ -14,7 +14,7 @@ import (
 // Shared spool test helpers, and the projection's exhaustiveness pin.
 //
 // Every spool test redirects HOME first. The spool resolves through
-// paths.HarpPersistDir, which resolves against $HOME, so a test that forgot
+// paths.HarpDir, which resolves against $HOME, so a test that forgot
 // would write its fixtures into the developer's real session store and pass —
 // the residue only surfacing later as a spool full of "child-harp-1".
 

@@ -92,7 +92,7 @@ func TestContainer_CleanupKeepsOverlayTargets(t *testing.T) {
 }
 
 // TestContainer_ScratchLivesUnderTheSessionEphemeralDir pins where a container
-// run's host scratch goes: under the session's ephemeral dir, never the OS temp
+// run's host scratch goes: under the session's scratch/ dir, never the OS temp
 // dir. An owner that dies before Cleanup then leaves it inside the session
 // layout, where the session's own cleanup reaches it, instead of an orphaned
 // ctxloom-iso-* in the temp dir that nothing ever collects.

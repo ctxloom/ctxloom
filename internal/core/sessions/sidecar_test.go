@@ -124,7 +124,7 @@ func TestListAll_PurgedDirIsListedAsPurgedNotDropped(t *testing.T) {
 	// Exactly what `session purge` leaves: the directory with its content
 	// files removed one by one, the sidecar still in place, a stamp saying
 	// the removal was deliberate. No transcript, no essence, nothing
-	// authored under persist/.
+	// authored left.
 	writeSidecar(t, root, "purged-on-purpose", `project_dir: /proj/a
 backend: claude-code
 session_id: sess-p

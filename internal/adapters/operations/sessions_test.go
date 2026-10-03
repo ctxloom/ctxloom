@@ -171,5 +171,3 @@ func TestHarpForSession_ResolvesRotatedAwaySessionID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got, "an id the index never saw resolves to nothing")
 }
-
-// A plan or report under persist/ is authored content that nothing can

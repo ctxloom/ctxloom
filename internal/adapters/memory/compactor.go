@@ -376,7 +376,7 @@ func rendersToNothing(logText string) bool {
 // emptySessionPlaceholder is the body written for a session with zero
 // main-thread entries, so the saved essence is never a literal empty string
 // (a blank file would look indistinguishable from a write failure to a
-// human skimming ~/.ctxloom/sessions/<harp>/essence.md).
+// human skimming <output dir>/essence.md).
 const emptySessionPlaceholder = "_(empty session — no conversation content to distill)_"
 
 // dumpEmptySession is the short-circuit for isEmptySession: it skips
@@ -418,8 +418,9 @@ func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, so
 }
 
 // rotationEssencePath returns where THIS session's per-rotation essence lives:
-// ~/.ctxloom/sessions/<harp>/segments/<sessionID>.md, beside that rotation's
-// canonical segment. A caller's OutputDir overrides the directory, which is how
+// <output dir>/segments/<sessionID>.md (paths.OutputSegmentEssencePath),
+// while that rotation's canonical segment stays machine-side under the
+// session dir's transcripts/segments. A caller's OutputDir overrides the directory, which is how
 // a test pins the write somewhere it can read.
 //
 // It needs a harp because the essence is harp-owned: a rotation is a step in
@@ -1143,15 +1144,11 @@ func deriveSummary(frontmatterSummary, body string) string {
 // saveDistilled writes the distilled session as markdown with YAML
 // front-matter. Path resolution:
 //
-//   - If meta.HarpName is set, write to ~/.ctxloom/sessions/<harp>/essence.md
+//   - If meta.HarpName is set, write to <output dir>/essence.md (harpOutputDir)
 //     and ALSO write a sessionID-keyed pointer (a thin index reference, not
 //     the body) under the legacy outputDir so existing callers that look up
 //     by sessionID continue to work.
 //   - Otherwise, fall back to the legacy <outputDir>/<sessionID>.md layout.
-//
-// This is the Phase 3.6 harp-dir layout from the ctxloom-tasks plan.
-// Also writes a frozen task snapshot copy of <projectDir>/.ctxloom/tasks.md
-// to <harpDir>/tasks.md when a harp dir is in play and a tasks file exists.
 func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (string, error) {
 	// The floor: never write an empty distillation. The write is atomic and
 	// replaces the previous essence.md, so an empty body is not a degraded

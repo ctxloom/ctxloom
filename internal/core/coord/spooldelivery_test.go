@@ -22,7 +22,7 @@ import (
 // delegation.spool_delivery the file IS the delivery, in both directions.
 //
 // Every test redirects HOME (teeHome) before anything can resolve a spool
-// path, for the reason that helper's own doc gives: paths.HarpPersistDir
+// path, for the reason that helper's own doc gives: paths.HarpDir
 // resolves against $HOME, so a test that forgot would deliver mail into the
 // developer's real session store and pass.
 

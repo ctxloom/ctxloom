@@ -193,7 +193,7 @@ func TestRefreshVendorTranscript_FailedRefreshKeepsTheTranscriptItHad(t *testing
 }
 
 // TestRefreshVendorTranscript_LeavesNoRebuildArtifact pins that the temporary
-// file conversion writes through is not left in the harp's persist directory.
+// file conversion writes through is not left in the harp's transcripts directory.
 // It sits beside the canonical transcript, so a stray one is both litter and a
 // second thing a future reader could mistake for a transcript.
 func TestRefreshVendorTranscript_LeavesNoRebuildArtifact(t *testing.T) {
@@ -210,7 +210,7 @@ func TestRefreshVendorTranscript_LeavesNoRebuildArtifact(t *testing.T) {
 
 	// safefs.NewAtomicFile's temp name is a random "."+base+".*.tmp", not the old
 	// fixed ".rebuild" suffix, so the check above alone would pass even if a
-	// temp were leaking under the new name — list the persist dir directly and
+	// temp were leaking under the new name — list the transcripts dir directly and
 	// require it hold nothing but the canonical file and its ownership-probe
 	// lock sidecar (paths.PathFor(dest) — see convertVendorTranscript's
 	// TryLock probe). The lock file is a legitimate, permanent

@@ -363,7 +363,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// (it did not before) — not format debt, just fixture-gated.
 	"agent remove":   {skip: "destructive; not exercised here (needs an agent fixture)"},
 	"agent default":  {skip: "not wired to emit() yet", formatDebt: true},
-	"agent setup":    {skip: "deprecated alias for `init prompt`; not wired to emit() yet", formatDebt: true},
 	"init prompt":    {skip: "not wired to emit() yet; also an interactive interview", formatDebt: true},
 	"profile show":   {skip: "wired to emit(), but needs an existing profile fixture; not exercised here"},
 	"profile create": {skip: "not wired to emit() yet", formatDebt: true},

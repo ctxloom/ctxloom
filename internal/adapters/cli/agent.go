@@ -253,8 +253,7 @@ func renderAgentResolution(w *errwriter.Writer, resolved *operations.ResolvedAge
 // follows them. This is a re-entry POINTER onto the SAME body `/ctxloom-init`
 // and the `ctxloom init` discovery launch use (ctxloomInitPrompt) — not a
 // separate/duplicated prompt — so all doors evolve together. This is
-// initPromptCmd's RunE (`ctxloom init prompt`); the `agent setup` spelling
-// that used to share it was deleted with the rest of the deprecated aliases.
+// initPromptCmd's RunE (`ctxloom init prompt`).
 func runSetupPromptCmd(cmd *cobra.Command, args []string) error {
 	// An installed companion can declare typed setup guidance in its loadout
 	// (bundles.InitLoadout.SetupGuidance) to AUGMENT the built-in

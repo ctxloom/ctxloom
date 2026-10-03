@@ -41,10 +41,18 @@ func storeBytes(t *testing.T) string {
 // strict-mode assertion into a false pass).
 func executeAdd(t *testing.T, text string, args ...string) (string, error) {
 	t.Helper()
+	return executeTaskloom(t, append([]string{"add", text, "--format", "text"}, args...)...)
+}
+
+// executeTaskloom drives argv through the real cobra tree, flag parsing
+// included, with executeAdd's resets. argv is passed verbatim, so a caller
+// owns --format; see executeAdd for why text usually needs pinning.
+func executeTaskloom(t *testing.T, argv ...string) (string, error) {
+	t.Helper()
 	var buf strings.Builder
 	rootCmd.SetOut(&buf)
 	rootCmd.SetErr(&buf)
-	rootCmd.SetArgs(append([]string{"add", text, "--format", "text"}, args...))
+	rootCmd.SetArgs(argv)
 	resetGlobalFormatFlags()
 	t.Cleanup(func() {
 		rootCmd.SetOut(nil)

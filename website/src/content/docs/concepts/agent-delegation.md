@@ -82,7 +82,7 @@ raised it and covers only its own children.
   the limit again.
 - **A held child is not relaunched.** If a held child's process dies while it waits, it is not
   restarted into the spent limit, not by its waiting mail and not by a new message: both wait,
-  and the child is relaunched with them when the hold lifts. Stopping the child (`agent_stop`)
+  and the child is relaunched with them when the hold lifts. `roster` still shows it held. Stopping the child (`agent_stop`)
   takes it out of the hold, so a later message relaunches it. While its credential is still
   held, the new run starts paused and joins the hold, as does any new child launched on that
   credential: it comes up but takes no turn, not even its first, until the hold lifts.

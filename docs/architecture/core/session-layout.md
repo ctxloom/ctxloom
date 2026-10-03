@@ -24,7 +24,7 @@ The authorities are code, not this page:
 | Machine, disposable | session dir | rebuilt or recreated per launch | `home/` (engine config homes) |
 | Work | session dir | kept while it holds work; triaged, never removed blind | `work/` (worktree checkouts) |
 | Scratch | session dir | one run | `scratch/` (`ctxloom-iso-*`, `ctxloom-tmp-*`, the secret dir's disk fallback) |
-| Readable output | output dir | the human's; ctxloom's sweeps never delete it | `essence.md`, `next-step.md`, `*.plan.md`, `segments/<id>.md` |
+| Readable output | output dir | the human's; ctxloom's sweeps never delete it | `essence.md`, `next-step.md`, `*.plan.md`, `segments/<id>.md`, `reports/` |
 
 ## Layout
 
@@ -48,7 +48,16 @@ The authorities are code, not this page:
 <Documents>/ctxloom/<project>/<harp>/       output dir (session.yaml output_dir)
   essence.md, next-step.md, *.plan.md
   segments/<id>.md
+  reports/<agent harp>/                     each agent's FINAL report in this tree
+    report.md                               the report's text
+    <artifact name>                         each artifact it published, latest revision
 ```
+
+A FINAL `agent_report` from any agent in the tree is saved into the ROOT session's output
+dir as it is journaled (`Coordinator.saveFinalReport`): the text as `report.md` and each
+artifact it names, at its latest revision, under its base name — prefixed with its artifact
+id when another file of the report already took that name. A later FINAL rewrites the
+files it names. Saving is best-effort: the report is journaled either way.
 
 `<leaf>` is the engine's session-home leaf (`launch.SessionHome`); `<history>` is the
 engine's `engine.HomeSpec.TranscriptStoreRel` (claude: `projects`). `launch.NativeHome`

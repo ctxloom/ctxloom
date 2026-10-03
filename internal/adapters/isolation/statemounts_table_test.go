@@ -38,8 +38,8 @@ func sessionDirMounts(t *testing.T, l sessions.Layout, harp string, mounts []mou
 }
 
 // TestSessionStateMounts_EqualTheTablesMountedRows is the table-vs-mounts
-// gate: the session-state mounts a container gets ARE the location
-// directories of paths.HarpMembers' Mounted rows — no more (a member the
+// gate: the session-state mounts a container gets ARE paths.HarpMembers'
+// Mounted rows — no more (a member the
 // table does not mark is not silently exposed) and no fewer (moving a
 // Mounted member without its mount is a red test here, not a silent
 // unmount).
@@ -51,18 +51,18 @@ func TestSessionStateMounts_EqualTheTablesMountedRows(t *testing.T) {
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{Harp: harp, ProjectID: "proj-1"}
-	mounts, err := c.sessionStateMounts()
+	mounts, _, err := c.sessionStateMounts()
 	require.NoError(t, err)
 
 	// An empty-input guard: a table with no Mounted row would make the
 	// equality below vacuous — and would mean no container child can be
 	// reached by mail at all.
-	require.NotEmpty(t, paths.MountedLocations(), "the table marks no member Mounted")
+	require.NotEmpty(t, paths.MountedMembers(), "the table marks no member Mounted")
 	require.NotEmpty(t, l.Dir(harp))
 
 	want := map[string]string{}
-	for _, dir := range paths.MountedLocations() {
-		want[dir] = path.Join(defaultContainerHome, paths.AppDirName, paths.SessionsDir, harp, dir)
+	for _, m := range paths.MountedMembers() {
+		want[m.Rel()] = path.Join(defaultContainerHome, paths.AppDirName, paths.SessionsDir, harp, m.Rel())
 	}
 	assert.Equal(t, want, sessionDirMounts(t, l, harp, mounts))
 }
@@ -81,7 +81,7 @@ func TestSessionStateMounts_CarryTheSpool_R3(t *testing.T) {
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{Harp: harp, ProjectID: "proj-1"}
-	mounts, err := c.sessionStateMounts()
+	mounts, _, err := c.sessionStateMounts()
 	require.NoError(t, err)
 
 	hostSpool, err := spool.Root(spool.NewHomeMapper(), harp)
@@ -102,7 +102,7 @@ func TestSessionStateMounts_CarryTheSpool_R3(t *testing.T) {
 	require.NoError(t, err)
 	containerSpool := path.Join(carried.Container, filepath.ToSlash(rel))
 	assert.Equal(t,
-		path.Join(defaultContainerHome, paths.AppDirName, paths.SessionsDir, harp, paths.PersistDirName, paths.SpoolDirName),
+		path.Join(defaultContainerHome, paths.AppDirName, paths.SessionsDir, harp, paths.SpoolDirName),
 		containerSpool,
 		"the container view of the spool is the home-relative path the child's HomeMapper resolves")
 }

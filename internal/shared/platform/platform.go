@@ -15,3 +15,6 @@ const LoginShell = loginShell
 // LinuxHost reports that the host kernel is Linux: a container shares it, so
 // the running binary can serve as the in-container one.
 const LinuxHost = linuxHost
+
+// Name is the host platform as a message names it to a human.
+const Name = name

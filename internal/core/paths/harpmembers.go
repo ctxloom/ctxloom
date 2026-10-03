@@ -50,11 +50,16 @@ type HarpMember struct {
 	Tier     MemberTier
 	Location MemberLocation
 	Lifetime Lifetime
-	// Mounted says a containerized run of this harp must reach the member;
+	// Mounted says a containerized run of this harp must reach the member at
+	// its own relative path under the container's ~/.ctxloom/sessions/<harp>;
 	// the container's session-state mounts are DERIVED from this column
-	// (MountedLocations), so moving a member (the spool) without setting it
-	// is a red table test, not a silent unmount.
+	// (MountedMembers), so moving a member without setting it is a red table
+	// test, not a silent unmount.
 	Mounted bool
+	// File says the member is a single file rather than a directory: a bind
+	// source must exist as the right KIND before a runtime is asked to mount
+	// it, or the runtime creates a directory in a file's place.
+	File bool
 }
 
 // Rel is the member's path relative to the session dir, slash-separated.
@@ -70,21 +75,26 @@ func (m HarpMember) Rel() string { return path.Join(m.Location.Dir(), m.Name) }
 // the next step, plans, segment essences, published reports — lives in the
 // session's output dir (sessions.Entry.OutputDir), which no reaper touches.
 var HarpMembers = []HarpMember{
-	{Name: SessionSidecarFileName, Tier: MemberIdentity, Location: AtTop, Lifetime: Persist},
-	{Name: SessionKeepMarkerFileName, Tier: MemberIdentity, Location: AtTop, Lifetime: Persist},
-	{Name: DiagnosticsLogFileName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist},
-	{Name: ContextMetricsFileName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist},
-	// Container mail: the spool is a member a containerized run MUST reach,
-	// and this column is what puts it in the container's mount list.
+	{Name: SessionSidecarFileName, Tier: MemberIdentity, Location: AtTop, Lifetime: Persist, File: true},
+	{Name: SessionKeepMarkerFileName, Tier: MemberIdentity, Location: AtTop, Lifetime: Persist, File: true},
+	{Name: DiagnosticsLogFileName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist, File: true},
+	// The engine's statusline hook appends the series from inside the
+	// container, so a containerized run must reach it.
+	{Name: ContextMetricsFileName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist, Mounted: true, File: true},
+	// Container mail: the spool is a member a containerized run MUST reach.
 	{Name: SpoolDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist, Mounted: true},
-	{Name: PackageDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist},
+	// The runner redeems a claim-checked launch package from here, in the
+	// container when it runs in one.
+	{Name: PackageDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist, Mounted: true},
 	// Native history is reached by a container too, but not at its own
 	// relative path: it mounts beside the engine homes so their relative
 	// link resolves (isolation's nativeMount), which is why it is not a
 	// Mounted row.
 	{Name: NativeDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist},
-	{Name: TranscriptsDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist},
-	{Name: CanonicalTranscriptFileName, Tier: MemberAuthored, Location: InTranscripts, Lifetime: Persist},
+	// The runner records the canonical transcript, in the container when it
+	// runs in one.
+	{Name: TranscriptsDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Persist, Mounted: true},
+	{Name: CanonicalTranscriptFileName, Tier: MemberAuthored, Location: InTranscripts, Lifetime: Persist, File: true},
 	{Name: SegmentsDirName, Tier: MemberDerived, Location: InTranscripts, Lifetime: Persist},
 	// The session engine homes dir holds each engine's config-home INSTANCE:
 	// created from managed writers, engine scaffolding and a one-way copy of
@@ -132,24 +142,14 @@ func IdentityMember() HarpMember {
 	panic("paths.HarpMembers has no identity row at the top of the session dir")
 }
 
-// MountedLocations is the location directories of the Mounted rows, each
-// once, in table order — what a containerized run's session-state mounts
-// carry. A member is reached by mounting the directory it lives in.
-func MountedLocations() []string {
-	var dirs []string
-	seen := map[string]bool{}
+// MountedMembers is the Mounted rows, in table order: what a containerized
+// run's session-state mounts carry, each at its own relative path.
+func MountedMembers() []HarpMember {
+	var out []HarpMember
 	for _, m := range HarpMembers {
-		if !m.Mounted {
-			continue
-		}
-		dir := m.Location.Dir()
-		if dir == "" {
-			dir = m.Name
-		}
-		if !seen[dir] {
-			seen[dir] = true
-			dirs = append(dirs, dir)
+		if m.Mounted {
+			out = append(out, m)
 		}
 	}
-	return dirs
+	return out
 }

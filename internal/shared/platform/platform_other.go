@@ -6,4 +6,5 @@ const (
 	containersInVM = false
 	loginShell     = true
 	linuxHost      = false
+	name           = "this platform"
 )

@@ -4,4 +4,5 @@ const (
 	containersInVM = true
 	loginShell     = true
 	linuxHost      = false
+	name           = "macOS"
 )

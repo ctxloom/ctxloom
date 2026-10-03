@@ -42,30 +42,20 @@ func TestHarpMembers_RelIsTheLocationDirJoinedWithTheName(t *testing.T) {
 	}
 }
 
-// TestHarpMembers_ExactlyTheSpoolRowIsMounted: container mail rides the
-// session-state mount, and the mount list is DERIVED from this column — the
-// spool row is the one member a containerized run must reach at its own
-// relative path, so it is the one row marked. Native history is mounted too,
-// but beside the engine homes, not by this column.
-func TestHarpMembers_ExactlyTheSpoolRowIsMounted(t *testing.T) {
-	var mounted []HarpMember
-	for _, m := range HarpMembers {
-		if m.Mounted {
-			mounted = append(mounted, m)
-		}
+// TestHarpMembers_MountedRowsAreWhatAContainerWritesOrReads pins the set: a
+// containerized run's mail (spool), its claim-checked launch package, the
+// canonical transcript its runner records and the context series its
+// statusline hook appends. Native history is mounted too, but beside the
+// engine homes rather than at its own relative path, so it is not a
+// Mounted row.
+func TestHarpMembers_MountedRowsAreWhatAContainerWritesOrReads(t *testing.T) {
+	var names []string
+	for _, m := range MountedMembers() {
+		names = append(names, m.Name)
+		assert.Equal(t, AtTop, m.Location, "%s: a mount is a top-level member", m.Name)
+		assert.Equal(t, Persist, m.Lifetime, "%s: what a container writes outlives the run", m.Name)
 	}
-	require.Len(t, mounted, 1, "exactly one row is Mounted")
-	assert.Equal(t, SpoolDirName, mounted[0].Name)
-	assert.Equal(t, AtTop, mounted[0].Location)
-	assert.Equal(t, Persist, mounted[0].Lifetime, "the spool persists: mail outlives the workspace")
-}
-
-// TestMountedLocations_AreTheLocationDirsOfTheMountedRows: the container's
-// session-state mounts are the LOCATION directories of the Mounted rows (a
-// top-level member is mounted by its own name), each named once.
-func TestMountedLocations_AreTheLocationDirsOfTheMountedRows(t *testing.T) {
-	got := MountedLocations()
-	assert.Equal(t, []string{SpoolDirName}, got)
+	assert.ElementsMatch(t, []string{ContextMetricsFileName, SpoolDirName, PackageDirName, TranscriptsDirName}, names)
 }
 
 // TestClassifyMember_ResolvesEveryRowAndWhatLiesBeneathIt: a path relative

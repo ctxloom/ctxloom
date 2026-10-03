@@ -55,7 +55,7 @@ type WorktreeCandidate struct {
 	// Path is the absolute checkout directory.
 	Path string
 	// Harp is the owning session's harp name, read off the path's own
-	// <sessionsRoot>/<harp>/ephemeral/ctxloom-wt-* layout.
+	// <sessionsRoot>/<harp>/work/ctxloom-wt-* layout.
 	Harp string
 	// RepoDir is the owning repository, resolved via git.CommonDir; empty
 	// when it could not be resolved (Verdict is then always Skipped).
@@ -92,12 +92,12 @@ type WorktreeReapResult struct {
 // worktreeCandidatePrefix is the on-disk directory-name prefix
 // worktreeScratchPath stamps every per-agent worktree checkout with
 // (worktreeScratchPrefix + "-<sanitized-agent-id>-<rand>") — used here to pick
-// worktree checkouts out of a session's ephemeral/ dir without matching the
+// worktree checkouts out of a session's work/ dir without matching the
 // sibling toolchain-scratch dirs (which use their own "ctxloom-tmp-" prefix
 // and are plain non-git scratch, out of this sweep's scope).
 var worktreeCandidatePrefix = worktreeScratchPrefix + "-"
 
-// ReapOrphanedWorktrees sweeps every per-session ephemeral dir under
+// ReapOrphanedWorktrees sweeps every per-session work dir under
 // ~/.ctxloom/sessions for leftover per-agent worktree checkouts whose owning
 // process is CONFIRMED dead, and removes the CLEAN ones via the exact same
 // WIP-safe, nested-aware teardown() the graceful Cleanup path uses — never
@@ -170,7 +170,7 @@ func ReapOrphanedWorktrees(ctx context.Context, g git.Git) WorktreeReapResult {
 
 // ClassifyOrphanedWorktrees inspects every ctxloom-owned scratch worktree
 // under the sessions root and returns what the reaper WOULD do, mutating
-// nothing on disk. harp != "" restricts the scan to that one harp's ephemeral
+// nothing on disk. harp != "" restricts the scan to that one harp's work
 // dir; harp == "" scans every harp under the sessions root, matching
 // ReapOrphanedWorktrees' historical scope.
 //
@@ -191,7 +191,7 @@ func ClassifyOrphanedWorktrees(ctx context.Context, g git.Git, harp string) ([]W
 	}
 
 	// One probe per HARP, not per checkout: liveness is a property of the
-	// session that owns the ephemeral dir, so every worktree under one harp
+	// session that owns the work dir, so every worktree under one harp
 	// shares a single verdict and probing per-checkout would only ask the
 	// same question repeatedly.
 	probes := make(map[string]sessionlock.Probe)
@@ -236,25 +236,25 @@ func ClassifyHarpWorktrees(ctx context.Context, g git.Git, harp string, owner se
 }
 
 // harpOfWorktree reads the owning session's harp off a candidate's own path:
-// <sessionsRoot>/<harp>/ephemeral/ctxloom-wt-*.
+// <sessionsRoot>/<harp>/work/ctxloom-wt-*.
 func harpOfWorktree(wtDir string) string {
 	return filepath.Base(filepath.Dir(filepath.Dir(wtDir)))
 }
 
 // findOrphanCandidateDirs resolves the set of "ctxloom-wt-*" directories to
-// classify: every harp's ephemeral dir when harp is "", or just harp's own
+// classify: every harp's work dir when harp is "", or just harp's own
 // when it isn't. Errors here are real ones (an unresolvable sessions root, an
 // unreadable — not merely absent — directory) meant to reach a CLI caller;
 // ReapOrphanedWorktrees is the one caller that must swallow them instead.
 func findOrphanCandidateDirs(harp string) ([]string, error) {
 	if harp != "" {
-		ephemeral, err := paths.HarpEphemeralDir(harp)
+		work, err := paths.HarpWorkDir(harp)
 		if err != nil {
-			return nil, fmt.Errorf("resolve %q's ephemeral dir: %w", harp, err)
+			return nil, fmt.Errorf("resolve %q's work dir: %w", harp, err)
 		}
-		dirs, err := readEphemeralWorktreeDirs(ephemeral)
+		dirs, err := readWorkWorktreeDirs(work)
 		if err != nil {
-			return nil, fmt.Errorf("scan %q: %w", ephemeral, err)
+			return nil, fmt.Errorf("scan %q: %w", work, err)
 		}
 		return dirs, nil
 	}
@@ -263,22 +263,22 @@ func findOrphanCandidateDirs(harp string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve sessions dir: %w", err)
 	}
-	dirs, err := findEphemeralWorktrees(sessionsRoot)
+	dirs, err := findWorkWorktrees(sessionsRoot)
 	if err != nil {
 		return nil, fmt.Errorf("scan %q: %w", sessionsRoot, err)
 	}
 	return dirs, nil
 }
 
-// findEphemeralWorktrees returns every "ctxloom-wt-*" directory found directly
-// under <sessionsRoot>/<harp>/ephemeral/, across every harp dir present. An
+// findWorkWorktrees returns every "ctxloom-wt-*" directory found directly
+// under <sessionsRoot>/<harp>/work/, across every harp dir present. An
 // absent sessionsRoot (nothing has ever run) is a quiet nil,nil — only a
-// genuinely unreadable sessionsRoot itself is reported. A per-harp ephemeral
+// genuinely unreadable sessionsRoot itself is reported. A per-harp work
 // dir that can't be read is silently skipped exactly as before the
-// Classify/Reap split — readEphemeralWorktreeDirs' not-exist/error split only
+// Classify/Reap split — readWorkWorktreeDirs' not-exist/error split only
 // matters to the single-harp caller (findOrphanCandidateDirs), which needs to
 // tell "no worktrees" apart from "cannot scan this harp".
-func findEphemeralWorktrees(sessionsRoot string) ([]string, error) {
+func findWorkWorktrees(sessionsRoot string) ([]string, error) {
 	harpDirs, err := os.ReadDir(sessionsRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -292,22 +292,22 @@ func findEphemeralWorktrees(sessionsRoot string) ([]string, error) {
 		if !hd.IsDir() {
 			continue
 		}
-		ephemeral := filepath.Join(sessionsRoot, hd.Name(), paths.EphemeralDirName)
-		dirs, err := readEphemeralWorktreeDirs(ephemeral)
+		work := filepath.Join(sessionsRoot, hd.Name(), paths.WorkDirName)
+		dirs, err := readWorkWorktreeDirs(work)
 		if err != nil {
-			continue // no ephemeral dir for this harp — nothing to sweep
+			continue // no work dir for this harp — nothing to sweep
 		}
 		out = append(out, dirs...)
 	}
 	return out, nil
 }
 
-// readEphemeralWorktreeDirs lists the "ctxloom-wt-*" directories directly
-// under ephemeral. A missing ephemeral dir is nil,nil (that harp never
+// readWorkWorktreeDirs lists the "ctxloom-wt-*" directories directly
+// under work. A missing work dir is nil,nil (that harp never
 // provisioned a scratch worktree, not an error); any other read failure is
 // returned so a single-harp caller can tell the two apart.
-func readEphemeralWorktreeDirs(ephemeral string) ([]string, error) {
-	entries, err := os.ReadDir(ephemeral)
+func readWorkWorktreeDirs(work string) ([]string, error) {
+	entries, err := os.ReadDir(work)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -317,7 +317,7 @@ func readEphemeralWorktreeDirs(ephemeral string) ([]string, error) {
 	var out []string
 	for _, e := range entries {
 		if e.IsDir() && strings.HasPrefix(e.Name(), worktreeCandidatePrefix) {
-			out = append(out, filepath.Join(ephemeral, e.Name()))
+			out = append(out, filepath.Join(work, e.Name()))
 		}
 	}
 	return out, nil
@@ -431,7 +431,7 @@ func ReapWorktrees(ctx context.Context, g git.Git, candidates []WorktreeCandidat
 // ELOOP, ENAMETOOLONG — means the tree's fate is unknown, and the sweep must
 // never report cleanup it cannot see. Unknown is therefore reported as
 // NOT-removed (SPARED, the conservative half of the sweep's own contract) and
-// warned about, since an unreadable ephemeral path is itself a fault worth
+// warned about, since an unreadable work path is itself a fault worth
 // surfacing.
 func worktreeRemoved(wtDir string) bool {
 	_, err := os.Stat(wtDir)

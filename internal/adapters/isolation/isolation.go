@@ -587,7 +587,7 @@ func IsContainerPolicyName(name string) bool {
 
 // withSessionState stamps the run's session identity onto every policy in the
 // degrade chain that consumes it (the container policies' state mounts, the
-// worktree's ephemeral scratch home). Applied AFTER chainFor so the chain
+// worktree's checkout and scratch homes). Applied AFTER chainFor so the chain
 // construction — and Resolve, which only needs policy identity — stays
 // state-free. Policies are value types; the stamped copies replace the
 // originals in place.
@@ -597,7 +597,7 @@ func withSessionState(chain []policy, state SessionState) []policy {
 		case Container:
 			// Double-stamp: Container.state scopes the durable state mounts
 			// (sessionStateMounts), and the base's withState stamps a worktree
-			// base's ephemeral checkout home. The nil-base guard is load-bearing —
+			// base's checkout home. The nil-base guard is load-bearing —
 			// tests construct bare Container{} — and hostBase.withState is a no-op.
 			v.state = state
 			if v.base != nil {

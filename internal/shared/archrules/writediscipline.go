@@ -8,6 +8,7 @@ package archrules
 // to safefs and its entry deleted, never added without a reason. The analyzer
 // fails an entry the scan no longer reports.
 var WriteDisciplineAllowed = map[string]string{
+	"internal/adapters/isolation/instancehome.go#linkNativeHistory":          "the session home's relative link into native/ history — safefs writes byte CONTENT and has no symlink primitive; create-once into a freshly prepared home, never replaced (a wrong occupant is refused)",
 	"internal/core/coord/artifactstore.go#artifactStore.writeAtomic":         "hand-rolled atomic write (os.CreateTemp, then rename) — route through safefs.NewAtomicFile on an injected afero.Fs; coord was out of reach of the marshy-capture pass",
 	"internal/shared/tasks/log.go#eventLog.append":                           "append rollback: os.Truncate restores the pre-append length after a failed safefs.WriteFileInPlace append — needs an in-place append that rolls itself back inside safefs",
 	"internal/core/coord/artifactstore.go#artifactStore.publish":             "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",

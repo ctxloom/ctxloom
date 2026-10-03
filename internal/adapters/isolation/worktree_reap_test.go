@@ -48,7 +48,7 @@ func seedLiveSession(t *testing.T, harp string) {
 // TestReapOrphanedWorktrees_ReapsCleanOrphan is the red-first proof for
 // a bug: a worktree whose owning process crashed (never reaching
 // its own Cleanup) is NEVER swept by anything today. This proves the missing
-// half exists and works — a startup sweep finds the ephemeral checkout,
+// half exists and works — a startup sweep finds the work/ checkout,
 // confirms its recorded owner pid is dead, confirms the tree is genuinely
 // clean, and removes it exactly as the graceful path would.
 func TestReapOrphanedWorktrees_ReapsCleanOrphan(t *testing.T) {
@@ -157,9 +157,9 @@ func TestReapOrphanedWorktrees_SkipsIndeterminateOwner(t *testing.T) {
 	home := testsupport.Isolate(t)
 	ctx := context.Background()
 
-	ephemeral := filepath.Join(home, ".ctxloom", "sessions", "reap-legacy-harp", "ephemeral")
-	require.NoError(t, os.MkdirAll(ephemeral, 0o755))
-	wtDir := filepath.Join(ephemeral, "ctxloom-wt-legacy-orphan-abc123")
+	work := filepath.Join(home, ".ctxloom", "sessions", "reap-legacy-harp", "work")
+	require.NoError(t, os.MkdirAll(work, 0o755))
+	wtDir := filepath.Join(work, "ctxloom-wt-legacy-orphan-abc123")
 	require.NoError(t, os.MkdirAll(wtDir, 0o755))
 	// Deliberately NO session lock file written.
 
@@ -190,11 +190,11 @@ func TestReapOrphanedWorktrees_UnresolvableCandidateIsReportedNotSwallowed(t *te
 
 	sessionsRoot, err := paths.HomeSessionsDir()
 	require.NoError(t, err)
-	ephemeral := filepath.Join(sessionsRoot, "reap-warn-harp", "ephemeral")
-	require.NoError(t, os.MkdirAll(ephemeral, 0o755))
+	work := filepath.Join(sessionsRoot, "reap-warn-harp", "work")
+	require.NoError(t, os.MkdirAll(work, 0o755))
 	// A candidate that matches the sweep's prefix but is not a git worktree at
 	// all, so CommonDir fails on it.
-	wtDir := filepath.Join(ephemeral, worktreeCandidatePrefix+"orphan-abc")
+	wtDir := filepath.Join(work, worktreeCandidatePrefix+"orphan-abc")
 	require.NoError(t, os.MkdirAll(wtDir, 0o755))
 	seedDeadSession(t, "reap-warn-harp")
 

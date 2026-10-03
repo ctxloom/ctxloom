@@ -121,6 +121,17 @@ func OutputDirOf(dir string) (string, bool) {
 	return e.OutputDir, true
 }
 
+// OutputDirIn is harp's output dir as the calling process reaches it:
+// EnvOutputDir when the environment names one — a containerized run, whose
+// container serves exactly one session and mounts its output dir there —
+// else the path the sidecar records (OutputDir).
+func OutputDirIn(harp string, getenv func(string) string) (string, error) {
+	if dir := getenv(EnvOutputDir); dir != "" {
+		return dir, nil
+	}
+	return OutputDir(harp)
+}
+
 // ErrNoOutputDir is the refusal when a session records no output dir: one
 // minted before output dirs existed, or a mint whose RecordOutputDir failed.
 var ErrNoOutputDir = errors.New("the session records no output dir")

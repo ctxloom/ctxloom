@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -45,10 +46,11 @@ var (
 	ErrOwnerLost = errors.New("runner: the owning coordinator is gone")
 )
 
-// reachKeys is the reach-back trio the originator stamps on a runner
-// process. Every one of them is GONE from the environment before anything
-// is composed.
-var reachKeys = []string{sessions.EnvCoordURL, sessions.EnvCoordCred, sessions.EnvRunID}
+// reachKeys is the reach-back the originator stamps on a runner process: the
+// trio, or for a container runner the URL, the run id and the NAME of the
+// secret file holding the credential. Every one of them is GONE from the
+// environment before anything is composed.
+var reachKeys = []string{sessions.EnvCoordURL, sessions.EnvCoordCred, sessions.EnvCoordCredFile, sessions.EnvRunID}
 
 // Main is the runner process: the ONE unit a launch runs in, on the human's
 // machine or as a container's foreground process, started by
@@ -58,7 +60,7 @@ var reachKeys = []string{sessions.EnvCoordURL, sessions.EnvCoordCred, sessions.E
 // its owner lost (ErrOwnerLost). The Launch arrives over the RunnerChannel
 // (StartRun) and Execute is its one tail.
 func Main(ctx context.Context, d MainDeps) error {
-	reach, runID, err := sessions.DecodeReach(d.Getenv)
+	reach, runID, err := sessions.DecodeReach(d.Getenv, os.ReadFile)
 	if err != nil {
 		return err
 	}

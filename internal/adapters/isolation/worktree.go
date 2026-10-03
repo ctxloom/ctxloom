@@ -37,7 +37,7 @@ const worktreeTeardownTimeout = 30 * time.Second
 // worktreeScratchPrefix names every per-agent worktree checkout this policy
 // creates (worktreeScratchPath's prefix arg in PrepareWorkspace) — shared with
 // worktree_reap.go's startup sweep so it can find exactly these directories
-// under a session's ephemeral/ dir without drifting from what PrepareWorkspace
+// under a session's work/ dir without drifting from what PrepareWorkspace
 // actually names them.
 const worktreeScratchPrefix = "ctxloom-wt"
 
@@ -64,9 +64,9 @@ const worktreeScratchPrefix = "ctxloom-wt"
 type Worktree struct {
 	git git.Git
 	// state is the run's session identity, stamped by Prepare
-	// (withSessionState). A known harp homes the per-agent scratch (checkout +
-	// toolchain temp) under the session's ephemeral/ dir instead of the OS
-	// temp dir — one place to inspect a session's regenerable state (§6d).
+	// (withSessionState). A known harp homes the per-agent checkout under the
+	// session's work/ dir and its toolchain temp under scratch/, instead of the
+	// OS temp dir — the session layout accounts for both.
 	// Zero on paths without session accounting → the OS temp dir.
 	state SessionState
 }
@@ -187,9 +187,8 @@ func (w Worktree) prepareWorkspace(ctx context.Context, projectDir, agentID stri
 }
 
 // provisionScratchDir creates the per-agent TOOLCHAIN scratch root
-// (worktreeWorkspace.Env()'s TMPDIR/GOTMPDIR) under the same scratchBase as
-// the checkout — the session's ephemeral/ dir when a harp is known, else the
-// OS temp dir. This is the fix for the shared-/tmp toolchain
+// (worktreeWorkspace.Env()'s TMPDIR/GOTMPDIR) under scratchBase — the
+// session's scratch/ dir when a harp is known, else the OS temp dir. This is the fix for the shared-/tmp toolchain
 // contention that corrupted concurrent agents (spawner-env audit): every
 // worktree member previously inherited the SAME process TMPDIR, so `go
 // build`'s per-invocation $WORK scratch, `git`'s temp blobs, and any other
@@ -480,9 +479,9 @@ func unsafeToRemove(ctx context.Context, g git.Git, dir string) (unsafe bool, re
 //
 // Matching considers target under BOTH the spelling the caller holds and its
 // realpath resolution: `git worktree list --porcelain` reports every path
-// symlink-resolved, while target is whatever scratchBase built — os.TempDir()
+// symlink-resolved, while target is whatever checkoutBase built — os.TempDir()
 // on macOS is /var/folders/… behind the /var → /private/var symlink, and a
-// symlinked HOME does the same to the session ephemeral dir. A raw prefix
+// symlinked HOME does the same to the session work dir. A raw prefix
 // match against one spelling then finds nothing nested. Resolution is
 // best-effort: an unresolvable target (a path already removed, or one that
 // never existed — several callers pass synthetic paths) simply keeps the raw
@@ -508,14 +507,22 @@ func nestedUnder(list []git.Worktree, target string) []git.Worktree {
 	return nested
 }
 
-// scratchBase picks where this worktree's per-agent scratch (checkout +
-// config-home) lives: the session's ephemeral/ dir (SessionState.ephemeralDir)
-// when the run carries a harp, else the OS temp dir (no session accounting, or
-// the ephemeral dir cannot be prepared). Best-effort like the rest of the
-// worktree half: a fallback warns and the run proceeds. The container half
-// shares the helper but refuses instead of falling back.
-func (w Worktree) scratchBase() string {
-	dir, err := w.state.ephemeralDir()
+// checkoutBase picks where this worktree's per-agent checkout lives: the
+// session's work/ dir (SessionState.workDir) when the run carries a harp, else
+// the OS temp dir.
+func (w Worktree) checkoutBase() string { return w.memberBase(w.state.workDir, "work") }
+
+// scratchBase picks where this worktree's per-agent toolchain scratch lives:
+// the session's scratch/ dir (SessionState.scratchDir) when the run carries a
+// harp, else the OS temp dir.
+func (w Worktree) scratchBase() string { return w.memberBase(w.state.scratchDir, "scratch") }
+
+// memberBase is the session member resolve names, or the OS temp dir when
+// there is none (no session accounting, or the dir cannot be prepared).
+// Best-effort like the rest of the worktree half: a fallback warns and the
+// run proceeds. The container half refuses instead of falling back.
+func (w Worktree) memberBase(resolve func() (string, error), member string) string {
+	dir, err := resolve()
 	switch {
 	case err == nil:
 		return dir
@@ -524,17 +531,17 @@ func (w Worktree) scratchBase() string {
 	case errors.Is(err, errUnsafeSessionHarp):
 		// A rejected value on the same untrusted channel (an env map) the
 		// container path refuses on — reporting it is the least this side can
-		// do, since the fallback silently relocates every per-agent scratch
-		// resource out of the session layout the run claims to use.
-		clidiag.WarnOnce("ctxloom", "worktree: session harp %q is not a safe path segment; per-agent scratch falls back to the OS temp dir instead of the session's ephemeral dir", w.state.Harp)
+		// do, since the fallback silently relocates the resource out of the
+		// session layout the run claims to use.
+		clidiag.WarnOnce("ctxloom", "worktree: session harp %q is not a safe path segment; per-agent %s falls back to the OS temp dir instead of the session's %s dir", w.state.Harp, member, member)
 	default:
-		clidiag.Warn("ctxloom", "worktree: session ephemeral dir unavailable (%v); using the OS temp dir", err)
+		clidiag.Warn("ctxloom", "worktree: session %s dir unavailable (%v); using the OS temp dir", member, err)
 	}
 	return os.TempDir()
 }
 
-// worktreeScratchPath builds a unique, ctxloom-managed scratch path under base
-// (the session's ephemeral dir, or the OS temp dir — NOT inside the repo tree)
+// worktreeScratchPath builds a unique, ctxloom-managed path under base (a
+// session member dir, or the OS temp dir — NOT inside the repo tree)
 // keyed by prefix + a sanitized agent id + a random suffix, so concurrent
 // members never collide.
 func worktreeScratchPath(base, prefix, agentID string) string {
@@ -563,7 +570,7 @@ func worktreeScratchPath(base, prefix, agentID string) string {
 // leftover" answerable at all, so this keeps the historical random-suffixed
 // path unchanged — a fresh checkout every call, same as before this fix.
 func (w Worktree) checkoutPath(agentID string) string {
-	base := w.scratchBase()
+	base := w.checkoutBase()
 	if safePathSegment(w.state.Harp) {
 		return stableCheckout(base, agentID)
 	}
@@ -576,7 +583,7 @@ func stableCheckout(base, agentID string) string {
 }
 
 // previewCwd is the cwd a run of this worktree gets, computed with no
-// effects (nothing created, not even the session's ephemeral dir): the
+// effects (nothing created, not even the session's work dir): the
 // checkout checkoutPath names, or projectDir where the run falls back to
 // the shared tree (no git repository). Without a safe session harp the run's
 // checkout path carries a random suffix nothing can predict, so projectDir
@@ -585,7 +592,7 @@ func (w Worktree) previewCwd(projectDir, agentID string) string {
 	if !safePathSegment(w.state.Harp) || !w.git.IsRepo(projectDir) {
 		return projectDir
 	}
-	base, err := paths.HarpEphemeralDir(w.state.Harp)
+	base, err := paths.HarpWorkDir(w.state.Harp)
 	if err != nil {
 		return projectDir
 	}

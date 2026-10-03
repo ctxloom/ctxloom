@@ -22,7 +22,7 @@ func TestPackageStore_PutStowsUnderTheSessionDir_GetRedeemsByLocation(t *testing
 	loc, err := PackageStore{Root: root, Harp: "harp-1"}.Put(context.Background(), digest, b)
 	require.NoError(t, err)
 	require.False(t, filepath.IsAbs(loc), "a location is store-relative, never a host path")
-	require.FileExists(t, filepath.Join(root, "harp-1", "persist", "package", filepath.Base(loc)))
+	require.FileExists(t, filepath.Join(root, "harp-1", "package", filepath.Base(loc)))
 
 	back, err := PackageStore{Root: root}.Get(context.Background(), loc)
 	require.NoError(t, err)
@@ -38,11 +38,11 @@ func TestPackageStore_PutStowsUnderTheSessionDir_GetRedeemsByLocation(t *testing
 // that is not one this store issues is refused before any read.
 func TestPackageStore_Get_MissingIsNil_BadShapeIsRefused(t *testing.T) {
 	root := t.TempDir()
-	missing, err := PackageStore{Root: root}.Get(context.Background(), "harp-1/persist/package/"+hexDigest("x"))
+	missing, err := PackageStore{Root: root}.Get(context.Background(), "harp-1/package/"+hexDigest("x"))
 	require.NoError(t, err)
 	require.Nil(t, missing)
 
-	for _, loc := range []string{"../../etc/passwd", "harp-1/persist/package/../../x", "/abs/path", "harp-1/persist/other/" + hexDigest("x"), "harp-1/persist/package/notahex"} {
+	for _, loc := range []string{"../../etc/passwd", "harp-1/package/../../x", "/abs/path", "harp-1/other/" + hexDigest("x"), "harp-1/package/notahex"} {
 		_, err := PackageStore{Root: root}.Get(context.Background(), loc)
 		require.ErrorIs(t, err, ErrBadClaimLocation, loc)
 	}

@@ -41,6 +41,14 @@ type HomeSpec struct {
 	// file inside a session home the cells adapter provisioned; nil when the
 	// engine has no config file of its own.
 	InstanceConfig InstanceConfigWriter
+	// TranscriptStoreRel is where, relative to the session home (the first
+	// var's Subdir), the engine keeps its native conversation history; ""
+	// when it keeps none worth keeping. The cells adapter keeps that history
+	// OUT of the disposable home: the directory lives under the session's
+	// native/ and the home holds a relative link to it, so deleting the home
+	// on Close never deletes the history. A clean relative slash path,
+	// because the same link is followed inside a Linux container.
+	TranscriptStoreRel string
 }
 
 // HomeVar is one env-var-to-subdir mapping. The leaf name is load-bearing:
@@ -64,13 +72,20 @@ func (h HomeSpec) Validate() error {
 	if err := h.validateVars(); err != nil {
 		return err
 	}
+	if r := h.TranscriptStoreRel; r != "" && !isContainerRel(r) {
+		return fmt.Errorf("HomeSpec: TranscriptStoreRel %q is not a clean relative slash path below the session home; the same link is followed inside a Linux container, so build it with path, never filepath", r)
+	}
 	return h.validateAuth()
 }
 
-// validateWithoutHome refuses auth on a spec that relocates nothing.
+// validateWithoutHome refuses auth or a history store on a spec that
+// relocates nothing: both are facts about a session home it does not have.
 func (h HomeSpec) validateWithoutHome() error {
 	if _, ok := h.Auth.Get(); ok {
 		return errors.New("HomeSpec: auth with no home var; an engine that relocates nothing declares no auth here")
+	}
+	if h.TranscriptStoreRel != "" {
+		return errors.New("HomeSpec: TranscriptStoreRel with no home var; a history store is relative to a session home this engine does not have")
 	}
 	return nil
 }
@@ -171,19 +186,12 @@ type ContainerSpec struct {
 	// rename. Host processes write the same files, so each one's lock is the
 	// only lock that crosses the container boundary.
 	InPlaceFiles []string
-	// TranscriptStoreRel is the engine's native transcript store ROOT
-	// relative to the container home, bind-mapped so transcripts survive
-	// teardown. "" when the engine keeps no transcripts.
-	TranscriptStoreRel string
 }
 
 // Validate refuses a container declaration that cannot be built or resolved.
 func (c ContainerSpec) Validate() error {
 	if len(c.Install) > 0 && c.ValidateCommand == "" {
 		return errors.New("ContainerSpec: Install is set but ValidateCommand is empty; an install fragment must be gated by a command that proves the client runs")
-	}
-	if r := c.TranscriptStoreRel; r != "" && !isContainerRel(r) {
-		return fmt.Errorf("ContainerSpec: TranscriptStoreRel %q is not a clean relative slash path; it names a place inside the Linux container, so build it with path, never filepath", r)
 	}
 	return nil
 }

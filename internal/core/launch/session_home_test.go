@@ -73,3 +73,29 @@ func TestResolve_TheCellsSessionHomeIsTheRule(t *testing.T) {
 		require.Equal(t, want, l.Cell.Paths.Paths().SessionHome.Host, "relocates=%v", relocates)
 	}
 }
+
+// TestNativeHome_SitsBesideTheSessionHome pins the native-history rule:
+// <sessionDir>/native/<leaf>, the SAME leaf as the session home at the same
+// depth, so the home's relative link resolves on the host and in a container
+// that mounts the two as siblings — and only for an engine that keeps a
+// history store, and only when there is a session home to link from.
+func TestNativeHome_SitsBesideTheSessionHome(t *testing.T) {
+	dir := t.TempDir()
+	relocating := fixtureEngine(t, launchtest.RelocatableHome())
+	plain := fixtureEngine(t)
+
+	got, ok := launch.NativeHome(dir, relocating, agents.HomeModeSession)
+	require.True(t, ok)
+	require.Equal(t, filepath.Join(dir, paths.NativeDirName, ".fixture"), got)
+	home, _ := launch.SessionHome(dir, relocating, agents.HomeModeSession)
+	rel, err := filepath.Rel(filepath.Dir(home), got)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join("..", paths.NativeDirName, ".fixture"), rel, "siblings at the same depth")
+
+	_, ok = launch.NativeHome(dir, plain, agents.HomeModeSession)
+	require.False(t, ok, "an engine that keeps no history store has no native home")
+	_, ok = launch.NativeHome(dir, relocating, agents.HomeModeHost)
+	require.False(t, ok, "engine_home: host has no session home to link from")
+	_, ok = launch.NativeHome("", relocating, agents.HomeModeSession)
+	require.False(t, ok)
+}

@@ -4,4 +4,5 @@ const (
 	containersInVM = true
 	loginShell     = false
 	linuxHost      = false
+	name           = "Windows"
 )

@@ -7,16 +7,27 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
+
+// fixtureOutputDir is the recorded output dir when there is one, else a
+// per-harp dir under the test's temp root.
+func fixtureOutputDir(harp string) (string, error) {
+	if dir, err := sessions.OutputDir(harp); err == nil {
+		return dir, nil
+	}
+	return filepath.Join(os.TempDir(), "ctxloom-test-output", harp), nil
+}
 
 // testStamp is a whole, CLEAN version stamp — the shape version.ValidStamp
 // accepts. It is fixed rather than read from the tree so a test's expectations
@@ -51,6 +62,10 @@ func TestMain(m *testing.M) {
 	// default fixture is therefore "none installed"; the tests that exercise
 	// the companion half install their own (withCompanions).
 	companionLookPath = noCompanionsOnPath
+	// Most container fixtures set a harp and mint no session, so nothing
+	// records an output dir for them; give each one under the sandbox. The
+	// real refusal is pinned by TestContainer_ARunWithNoRecordedOutputDirIsRefused.
+	sessionOutputDir = fixtureOutputDir
 	// SandboxedMain closes config.findAppDir's walk-up from the working
 	// directory for every test in this binary; a temp HOME alone does not.
 	// Push claude's REAL credential-seed declaration through the same seam

@@ -122,10 +122,9 @@ func TestSupportsMode(t *testing.T) {
 
 func validContainer() ContainerSpec {
 	return ContainerSpec{
-		Install:            []byte("RUN true\n"),
-		ValidateCommand:    "x --version",
-		OverlayDirs:        []string{".x"},
-		TranscriptStoreRel: ".x/projects",
+		Install:         []byte("RUN true\n"),
+		ValidateCommand: "x --version",
+		OverlayDirs:     []string{".x"},
 	}
 }
 
@@ -139,19 +138,26 @@ func TestContainerSpec_Validate_RefusesInstallWithoutValidate(t *testing.T) {
 	assert.ErrorContains(t, c.Validate(), "ValidateCommand")
 }
 
-// TranscriptStoreRel names a path inside the Linux container, so it is a clean
-// relative slash path whatever the host separator: a filepath-built value
-// carries `\` on a Windows host and lands the transcript mount at a literal
-// backslash-named directory.
-func TestContainerSpec_Validate_RefusesANonSlashTranscriptStore(t *testing.T) {
-	for _, rel := range []string{`.x\projects`, "/root/.x/projects", "../.x/projects", ".x//projects", ".x/projects/"} {
-		c := validContainer()
-		c.TranscriptStoreRel = rel
-		assert.ErrorContains(t, c.Validate(), "TranscriptStoreRel", rel)
+// TranscriptStoreRel is followed inside a Linux container as well as on the
+// host, so it is a clean relative slash path below the session home whatever
+// the host separator: a filepath-built value carries `\` on a Windows host.
+func TestHomeSpec_Validate_RefusesANonSlashTranscriptStore(t *testing.T) {
+	for _, rel := range []string{`x\projects`, "/root/projects", "../projects", "x//projects", "projects/"} {
+		h := validHome()
+		h.TranscriptStoreRel = rel
+		assert.ErrorContains(t, h.Validate(), "TranscriptStoreRel", rel)
 	}
-	c := validContainer()
-	c.TranscriptStoreRel = ""
-	assert.NoError(t, c.Validate(), "an engine that keeps no transcripts declares none")
+	h := validHome()
+	h.TranscriptStoreRel = "projects"
+	assert.NoError(t, h.Validate())
+	h.TranscriptStoreRel = ""
+	assert.NoError(t, h.Validate(), "an engine that keeps no history declares none")
+}
+
+// A history store is relative to a session home, so an engine that relocates
+// nothing cannot declare one.
+func TestHomeSpec_Validate_RefusesATranscriptStoreWithNoVar(t *testing.T) {
+	assert.ErrorContains(t, HomeSpec{TranscriptStoreRel: "projects"}.Validate(), "TranscriptStoreRel")
 }
 
 // HostDir is where a shared store lives on the host: the launching env's own

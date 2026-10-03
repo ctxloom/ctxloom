@@ -156,6 +156,21 @@ func SessionHome(sessionDir string, eng engine.Engine, m agents.HomeMode) (dir s
 	return filepath.Join(sessionDir, paths.SessionEngineHomesDirName, leaf), true
 }
 
+// NativeHome is where a session keeps eng's NATIVE conversation history:
+// <sessionDir>/native/<leaf>, the session home's leaf (SessionHome) at the
+// same depth, so the one relative link the home holds
+// (engine.HomeSpec.TranscriptStoreRel) resolves wherever the two are
+// siblings — on the host, and in a container that mounts them side by side.
+// ok is false when there is no session home to link from, or the engine keeps
+// no history store.
+func NativeHome(sessionDir string, eng engine.Engine, m agents.HomeMode) (dir string, ok bool) {
+	home, ok := SessionHome(sessionDir, eng, m)
+	if !ok || eng.Home().TranscriptStoreRel == "" {
+		return "", false
+	}
+	return filepath.Join(sessionDir, paths.NativeDirName, filepath.Base(home)), true
+}
+
 // CellRequest is what the cells adapter is asked for.
 type CellRequest struct {
 	Axes        Axes

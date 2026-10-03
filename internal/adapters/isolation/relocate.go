@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	sessionpaths "github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -28,6 +29,9 @@ type layout struct {
 	// homeVar is the engine's declared home var when it relocates one, nil
 	// for an engine that relocates nothing.
 	homeVar *engine.HomeVar
+	// nativeHome is where the session keeps the engine's native history
+	// (launch.NativeHome), linked from the session home; "" when none.
+	nativeHome string
 	// env is what the workspace itself provisioned (a worktree's scratch dir
 	// and git identity).
 	env map[string]string
@@ -58,10 +62,15 @@ type relocator interface {
 func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore) layout {
 	l := layout{cwd: cwd, env: env, creds: s.creds, stores: stores, trust: repoTrust(s.eng, cwd), envHost: s.curatedEnv()}
 	dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home)
-	if !ok || !prepareSessionHome(s.eng, dir, cwd, l.trust, s.creds.Mode) {
+	if !ok {
+		return l
+	}
+	native, _ := launch.NativeHome(s.sessionDir, s.eng, s.home)
+	if !prepareSessionHome(s.eng, dir, native, cwd, l.trust, s.creds.Mode) {
 		return l
 	}
 	placeHome(&l, s.eng, dir)
+	l.nativeHome = native
 	return l
 }
 
@@ -72,6 +81,7 @@ func previewLayout(s Spec, stores []sharedStore) layout {
 	l := layout{cwd: s.project, creds: s.creds, stores: stores, trust: repoTrust(s.eng, s.project), envHost: s.curatedEnv()}
 	if dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home); ok {
 		placeHome(&l, s.eng, dir)
+		l.nativeHome, _ = launch.NativeHome(s.sessionDir, s.eng, s.home)
 	}
 	return l
 }
@@ -114,15 +124,16 @@ const sessionHomeRemedy = "fix what kept the session home from being prepared (t
 
 // prepareSessionHome creates dir owner-only (it holds engine config) and, for an
 // engine that relocates its home, has the engine prepare it for the run's
-// auth mode. It reports whether the home is usable. How the run
-// authenticates is settled before this runs (the Spec's Credentials).
+// auth mode and links its history store into native (when the session keeps
+// one). It reports whether the home is usable. How the run authenticates is
+// settled before this runs (the Spec's Credentials).
 //
 // An unpreparable home is NON-DEGRADABLE: falling back to the real home
 // would hand the engine what only the binding may select.
-func prepareSessionHome(eng engine.Engine, dir, cwd string, trust engine.WorkspaceTrust, mode engine.AuthMode) bool {
+func prepareSessionHome(eng engine.Engine, dir, native, cwd string, trust engine.WorkspaceTrust, mode engine.AuthMode) bool {
 	name := string(eng.Root().Name)
 	if home := eng.Home(); home.Relocates() {
-		if _, err := PrepareInstanceHome(InstanceHomeRequest{Engine: name, InstanceHome: dir, WorkDir: cwd, Trust: trust, Auth: mode}); err != nil {
+		if _, err := PrepareInstanceHome(InstanceHomeRequest{Engine: name, InstanceHome: dir, NativeHome: native, WorkDir: cwd, Trust: trust, Auth: mode}); err != nil {
 			strictness.FailAlways(report.KindIsolation, sessionHomeRemedy,
 				"session home for %s: %v — refusing to point %s at an unprepared %s, and refusing to substitute the SHARED host config home for the per-session one this agent asked for",
 				name, err, home.Vars[0].Name, dir)
@@ -219,6 +230,15 @@ func (r containerRelocator) relocate(l layout) (launch.Placement, []mount, error
 		}
 		paths.SessionHome = home.root
 		mounts = append(mounts, home.mount)
+		if l.nativeHome != "" && l.homeVar != nil {
+			// Beside the instance root, at the depth the home's relative link
+			// climbs out of it: <root>/<leaf>/<rel> -> ../../native/<leaf>/<rel>.
+			native, err := relocateRoot(r.rt, l.nativeHome, path.Join(path.Dir(r.instanceHome), sessionpaths.NativeDirName, l.homeVar.Subdir))
+			if err != nil {
+				refuse("native history", err)
+			}
+			mounts = append(mounts, native.mount)
+		}
 	}
 	if refused != nil {
 		return containerPlacement(paths, l), nil, refused

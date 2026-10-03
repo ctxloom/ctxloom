@@ -43,6 +43,9 @@ func (c Container) startRunner(ctx context.Context, backendName, label string, v
 	if err != nil {
 		return nil, err
 	}
+	if spawnEnv, err = stageCoordCred(cw, spawnEnv); err != nil {
+		return nil, err
+	}
 	name := containerName(cw.agentID)
 	// The watch hint is the container's log handle: the name is randomly
 	// suffixed and dies with the container, so this line is the only place
@@ -64,6 +67,9 @@ func (c Container) interactiveRunner(_ context.Context, backendName string, ws w
 	}
 	spawnEnv, err := remintReach(cw, spawnEnv)
 	if err != nil {
+		return nil, "", err
+	}
+	if spawnEnv, err = stageCoordCred(cw, spawnEnv); err != nil {
 		return nil, "", err
 	}
 	name := containerName(cw.agentID)

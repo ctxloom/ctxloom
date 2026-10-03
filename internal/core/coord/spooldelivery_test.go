@@ -125,6 +125,18 @@ func spoolEntryWithBody(t *testing.T, harp string, dir spool.Dir, want string) (
 	return spool.Entry{}, false
 }
 
+// awaitSpoolEntryWithBody waits for dir to hold a message whose body is want.
+func awaitSpoolEntryWithBody(t *testing.T, harp string, dir spool.Dir, want, why string) spool.Entry {
+	t.Helper()
+	var got spool.Entry
+	require.Eventually(t, func() bool {
+		e, ok := spoolEntryWithBody(t, harp, dir, want)
+		got = e
+		return ok
+	}, conformanceWait, 10*time.Millisecond, "%s: %s never held a message whose body is %q", why, dir, want)
+	return got
+}
+
 // awaitChatText waits until the i-th scripted engine has been driven with a
 // turn containing want, and returns every recorded turn.
 func awaitChatText(t *testing.T, sp *fakeSpawner, i int, want string) []string {

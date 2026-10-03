@@ -1,5 +1,5 @@
-// Package plans lists and reads session plan documents
-// (~/.ctxloom/sessions/<harp>/persist/<name>.plan.md). It is shared by taskloom (which
+// Package plans lists and reads session plan documents: the <name>.plan.md
+// files in each session's recorded output dir (sessions.Entry.OutputDir). It is shared by taskloom (which
 // surfaces plans via `taskloom plan list/show`) and ctxloom, so the session-dir
 // location and frontmatter parsing live in one place. Pure value DTOs cross the
 // wire; no agent or vscode coupling.
@@ -17,7 +17,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // Plan is one session plan document.
@@ -43,73 +45,69 @@ type Plan struct {
 	ProjectDir string `json:"project_dir,omitempty"`
 }
 
-// ListHome lists all session plans under ~/.ctxloom/sessions.
+// ListHome lists every recorded session's plans.
 func ListHome() ([]Plan, error) {
-	root, err := paths.HomeSessionsDir()
+	m, err := sessions.Open(strictness.Sink("ctxloom"))
 	if err != nil {
 		return nil, err
 	}
-	return List(root)
-}
-
-// List enumerates <root>/<harp>/*.plan.md, parsing each plan's frontmatter for a
-// title and the sessions list. A missing root yields an empty list (no plans
-// yet), not an error. Results are sorted by session then name for stable output.
-//
-// A session directory or plan file that cannot be READ is an error, not a
-// shorter list. "I could not read it" must never render as "it is not there":
-// a swallowed per-harp read error made an unreadable sessions tree print
-// `(no plans)` and exit 0, indistinguishable from having no plans at all. The
-// one case that is legitimately empty rather than failed is an entry that has
-// VANISHED between listing and reading (a session reaped mid-scan) — that is
-// skipped silently, because it genuinely holds no plans any more.
-func List(root string) ([]Plan, error) {
-	if _, err := os.Stat(root); err != nil {
-		if os.IsNotExist(err) {
-			return []Plan{}, nil
-		}
+	all, err := m.ListAll()
+	if err != nil {
 		return nil, err
 	}
+	return ListSessions(all)
+}
+
+// ListSessions enumerates the *.plan.md files under each entry's output dir,
+// parsing each plan's frontmatter for a title and the sessions list. An entry
+// with no output dir, or whose output dir does not exist yet, holds no plans.
+// Results are sorted by session then name for stable output.
+//
+// A directory or plan file that cannot be READ is an error, not a shorter
+// list. "I could not read it" must never render as "it is not there". The one
+// case that is legitimately empty rather than failed is an entry that has
+// VANISHED between listing and reading — that is skipped silently, because it
+// genuinely holds no plans any more.
+func ListSessions(entries []sessions.Entry) ([]Plan, error) {
 	out := []Plan{}
+	for _, e := range entries {
+		if e.OutputDir == "" {
+			continue
+		}
+		found, err := listDir(e.OutputDir, e.HarpName)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, found...)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Session != out[j].Session {
+			return out[i].Session < out[j].Session
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+// listDir is one session's plans: every *.plan.md under root, named by its
+// path below root without the extension.
+func listDir(root, harp string) ([]Plan, error) {
+	var out []Plan
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if os.IsNotExist(err) {
-				// Vanished between listing and reading (a session reaped
-				// mid-scan): genuinely holds nothing any more, not a failure.
 				return nil
 			}
 			return fmt.Errorf("read %s: %w", path, err)
 		}
-		if path == root {
+		if d.IsDir() || !strings.HasSuffix(d.Name(), paths.PlanFileExt) {
 			return nil
 		}
 		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil {
 			return relErr
 		}
-		segs := strings.Split(rel, string(filepath.Separator))
-		harp := segs[0]
-		if d.IsDir() {
-			return nil // descend; plans may live in nested subdirectories
-		}
-		if len(segs) < 2 {
-			return nil // a file directly under root, not inside any harp dir — never a plan
-		}
-		if !strings.HasSuffix(d.Name(), paths.PlanFileExt) {
-			return nil
-		}
-		// A plan's NAME is stable across the persist/ migration. The path is
-		// <harp>/persist/<name>.plan.md now and was <harp>/<name>.plan.md
-		// before, and letting that show through would rename every plan in
-		// every listing the moment the sweep ran — "design" becoming
-		// "persist/design" for no reason a reader could act on. Only that one
-		// leading segment is dropped; any deeper nesting is a real
-		// distinction the name keeps.
-		rest := segs[1:]
-		if len(rest) > 1 && rest[0] == paths.PersistDirName {
-			rest = rest[1:]
-		}
-		name := strings.TrimSuffix(strings.Join(rest, "/"), paths.PlanFileExt)
+		name := strings.TrimSuffix(filepath.ToSlash(rel), paths.PlanFileExt)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -134,18 +132,12 @@ func List(root string) ([]Plan, error) {
 	if walkErr != nil {
 		return nil, walkErr
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Session != out[j].Session {
-			return out[i].Session < out[j].Session
-		}
-		return out[i].Name < out[j].Name
-	})
 	return out, nil
 }
 
 // Show returns a plan file's content. The path must end in .plan.md, must
-// resolve — after every symlink is followed — inside ~/.ctxloom/sessions, and
-// must name a regular file.
+// resolve — after every symlink is followed — inside some recorded session's
+// output dir, and must name a regular file.
 //
 // Containment is checked on the RESOLVED path, not the lexical one. A lexical
 // check answers "does this string sit under the root", which a symlink placed
@@ -170,22 +162,17 @@ func Show(path string) (string, error) {
 }
 
 // resolveContainedPlanPath follows every symlink in path and returns the real
-// path, or an error if that path is not a regular file inside the sessions
-// root. It is the whole of Show's safety check, kept apart from the read so
-// the two cannot drift.
+// path, or an error if that path is not a regular file inside a recorded
+// session's output dir. It is the whole of Show's safety check, kept apart
+// from the read so the two cannot drift.
 func resolveContainedPlanPath(path string) (string, error) {
-	root, err := paths.HomeSessionsDir()
+	m, err := sessions.Open(strictness.Sink("ctxloom"))
 	if err != nil {
 		return "", err
 	}
-	rootAbs, err := filepath.Abs(root)
+	all, err := m.ListAll()
 	if err != nil {
 		return "", err
-	}
-	// The root itself may sit behind a symlink (a symlinked home, /var on
-	// macOS). Resolve it too, or every resolved path would fail containment.
-	if resolved, rerr := filepath.EvalSymlinks(rootAbs); rerr == nil {
-		rootAbs = resolved
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -195,8 +182,8 @@ func resolveContainedPlanPath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !strings.HasPrefix(real, rootAbs+string(filepath.Separator)) {
-		return "", fmt.Errorf("plan path is outside the sessions directory: %s", path)
+	if !insideAnyOutputDir(real, all) {
+		return "", fmt.Errorf("%w: %s", ErrPlanOutsideOutputDirs, path)
 	}
 	info, err := os.Stat(real)
 	if err != nil {
@@ -206,6 +193,32 @@ func resolveContainedPlanPath(path string) (string, error) {
 		return "", fmt.Errorf("not a regular file: %s", path)
 	}
 	return real, nil
+}
+
+// ErrPlanOutsideOutputDirs is Show's refusal of a path that does not resolve
+// inside any recorded session's output dir.
+var ErrPlanOutsideOutputDirs = errors.New("plan path is outside every session's output dir")
+
+// insideAnyOutputDir reports whether real lies under some entry's output dir,
+// each resolved through its own symlinks (a symlinked home, /var on macOS) so
+// a resolved path is compared with a resolved root.
+func insideAnyOutputDir(real string, entries []sessions.Entry) bool {
+	for _, e := range entries {
+		if e.OutputDir == "" {
+			continue
+		}
+		root, err := filepath.Abs(e.OutputDir)
+		if err != nil {
+			continue
+		}
+		if resolved, rerr := filepath.EvalSymlinks(root); rerr == nil {
+			root = resolved
+		}
+		if strings.HasPrefix(real, root+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // frontmatter is the only part of a plan's leading YAML this package reads.
@@ -391,65 +404,42 @@ func frontmatterBlock(content string) (block string, ok bool) {
 }
 
 // SessionPlanPaths returns the absolute paths of ONE harp's plan documents,
-// sorted by base name. It is the single definition of "where does a session's
-// plans live" for the readers that collect a session's own plans — e.g. the
-// runner's artifact stamper (mcp.artifactStamper.planCandidates) — so a plan an agent was told
-// to write can never be somewhere none of them look.
+// sorted by base name: the *.plan.md files at the top of the session's
+// recorded output dir. It is the single definition of "where does a
+// session's plans live" for the readers that collect a session's own plans —
+// e.g. the runner's artifact stamper — so a plan an agent was told to write
+// can never be somewhere none of them look.
 //
-// TWO DIRECTORIES, IN PRECEDENCE ORDER:
-//
-//	<harp>/persist  — paths.HarpPlansDir, where mcp.sessionInstructions now
-//	    tells every session to write. It is the only part of the harp dir a
-//	    containerized run gets bind-mounted, so it is the only location a
-//	    container-authored plan survives in.
-//	<harp>          — the harp TOP LEVEL, where the instruction used to point
-//	    and where hand-authored plans still land. Read, never written to. A
-//	    top-level file whose base name a persist/ file already claimed is
-//	    SKIPPED: persist/ is the durable copy, and a stale pre-migration twin
-//	    must not shadow it.
-//
-// Neither directory is walked recursively, deliberately: <harp>/ephemeral
-// holds scratch git worktrees of the user's project (isolation's
-// findEphemeralWorktrees reaps them), and a recursive walk would pull every
-// *.plan.md checked out inside one into the session's plan list.
+// The directory is not walked recursively: its subdirectories hold published
+// reports and segment essences, which are not this session's plans.
 //
 // FAULTS ARE RETURNED, NOT SWALLOWED. A missing directory is genuinely "no
-// plans here" and is silent; an unresolvable home or an unreadable directory
-// is a problem, because a caller that folds an empty result into distilled
-// output makes "this session authored no plans" and "every plan it authored
-// is unreachable" the same observation, permanently.
+// plans here" and is silent; a session with no recorded output dir or an
+// unreadable directory is a problem, because a caller that folds an empty
+// result into distilled output makes "this session authored no plans" and
+// "every plan it authored is unreachable" the same observation, permanently.
 func SessionPlanPaths(harp string) ([]string, []error) {
 	if harp == "" {
 		return nil, nil
 	}
-	planDir, err := paths.HarpPlansDir(harp)
+	dir, err := sessions.OutputDir(harp)
 	if err != nil {
-		return nil, []error{fmt.Errorf("plans for session %s omitted, plan dir unresolved: %w", harp, err)}
+		return nil, []error{fmt.Errorf("plans for session %s omitted, output dir unresolved: %w", harp, err)}
 	}
-	harpDir, err := paths.HarpDir(harp)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, []error{fmt.Errorf("plans for session %s omitted, session dir unresolved: %w", harp, err)}
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, []error{fmt.Errorf("plans for session %s: directory %s unreadable: %w", harp, dir, err)}
 	}
 	var out []string
-	var problems []error
-	seen := map[string]bool{}
-	for _, dir := range []string{planDir, harpDir} {
-		entries, rerr := os.ReadDir(dir)
-		if rerr != nil {
-			if !os.IsNotExist(rerr) {
-				problems = append(problems, fmt.Errorf("plans for session %s: directory %s unreadable: %w", harp, dir, rerr))
-			}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), paths.PlanFileExt) {
 			continue
 		}
-		for _, e := range entries {
-			name := e.Name()
-			if e.IsDir() || !strings.HasSuffix(name, paths.PlanFileExt) || seen[name] {
-				continue
-			}
-			seen[name] = true
-			out = append(out, filepath.Join(dir, name))
-		}
+		out = append(out, filepath.Join(dir, e.Name()))
 	}
-	sort.Slice(out, func(i, j int) bool { return filepath.Base(out[i]) < filepath.Base(out[j]) })
-	return out, problems
+	sort.Strings(out)
+	return out, nil
 }

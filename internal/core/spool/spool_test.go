@@ -87,14 +87,14 @@ func TestResolve_KeepsHostileNameInsideTheSpool(t *testing.T) {
 func TestHomeMapper_CrossViewResolution(t *testing.T) {
 	m := NewHomeMapper()
 	ref := Ref{Harp: testHarp, Dir: DirIn, Name: "00000000000000000001.00000001.coord.md"}
-	tail := filepath.Join(".ctxloom", "sessions", testHarp, "persist", "spool", "in", ref.Name)
+	tail := filepath.Join(".ctxloom", "sessions", testHarp, "spool", "in", ref.Name)
 
 	hostRoot := t.TempDir()
 	testsupport.PointHomeAt(t, hostRoot)
 	hostPath, err := m.Resolve(ref)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(hostRoot, tail), hostPath,
-		"host view must be $HOME-relative under the persist dir")
+		"host view must be $HOME-relative under the session dir")
 
 	containerRoot := filepath.Join(t.TempDir(), "container-home")
 	testsupport.PointHomeAt(t, containerRoot)
@@ -138,10 +138,10 @@ func TestHomeMapper_RefOfRejectsForeignPaths(t *testing.T) {
 
 	bad := map[string]string{
 		"outside the sessions root": filepath.Join(home, "elsewhere", "x.md"),
-		"relative path":             filepath.Join("sessions", testHarp, "persist", "spool", "in", "x.md"),
-		"not under persist/spool":   filepath.Join(home, ".ctxloom", "sessions", testHarp, "ephemeral", "in", "x.md"),
-		"unknown spool dir":         filepath.Join(home, ".ctxloom", "sessions", testHarp, "persist", "spool", "elsewhere", "x.md"),
-		"too shallow":               filepath.Join(home, ".ctxloom", "sessions", testHarp, "persist", "spool", "x.md"),
+		"relative path":             filepath.Join("sessions", testHarp, "spool", "in", "x.md"),
+		"not under spool":           filepath.Join(home, ".ctxloom", "sessions", testHarp, "scratch", "in", "x.md"),
+		"unknown spool dir":         filepath.Join(home, ".ctxloom", "sessions", testHarp, "spool", "elsewhere", "x.md"),
+		"too shallow":               filepath.Join(home, ".ctxloom", "sessions", testHarp, "spool", "x.md"),
 	}
 	for what, path := range bad {
 		t.Run(what, func(t *testing.T) {

@@ -26,7 +26,7 @@ func TestPlanRecognition_UsesPathsPlanFileExt(t *testing.T) {
 	// A neighbouring non-plan file must not be picked up.
 	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "notes.md"), []byte("x"), 0o644))
 
-	got, err := List(root)
+	got, err := listRoot(t, root)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "release", got[0].Name, "the extension must be trimmed by paths.PlanFileExt")

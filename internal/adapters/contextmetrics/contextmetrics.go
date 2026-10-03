@@ -26,10 +26,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
-// FileName is the persist/ leaf holding one session's context-occupancy
-// series: one JSON object per line, append-only, oldest first.
-const FileName = "context-metrics.jsonl"
-
 // Sample is one observation of a session's context-window occupancy.
 //
 // ContextPct is the ENGINE's own percentage, not one recomputed here. Claude
@@ -68,11 +64,7 @@ func Path(harp string) (string, error) {
 	if harp == "" {
 		return "", fmt.Errorf("context metrics: no session harp")
 	}
-	dir, err := paths.HarpPersistDir(harp)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, FileName), nil
+	return paths.HarpContextMetricsPath(harp)
 }
 
 // ShouldAppend reports whether next carries news relative to prev — the

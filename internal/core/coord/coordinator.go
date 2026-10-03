@@ -922,11 +922,9 @@ func (c *Coordinator) Draining() bool {
 //
 // The spool writers close BEFORE the join and the journals AFTER it, and the
 // asymmetry is the point: the join is BOUNDED, so "no writes after Close" is
-// only guaranteed for what is closed before it. The spool is the one store
-// whose path is resolved from the ambient $HOME at WRITE time, so a write that
-// escapes the bound does not land in this run's own tree — it lands wherever
-// $HOME points by then. That store therefore refuses first; the journals, whose
-// paths were fixed at construction, can wait for the join.
+// only guaranteed for what is closed before it. Mail is the store a child
+// teardown that outruns the bound still writes to (its terminal notice), so it
+// refuses first; the journals can wait for the join.
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
 		c.closed.Store(true)
@@ -958,10 +956,8 @@ func (c *Coordinator) Close() {
 		// BOUNDED (closeJoinBudget) and says so when it gives up — "a leaked
 		// goroutine may still touch the state dir" — so a child teardown that
 		// outruns the budget is expected, not exceptional. Closing the writers
-		// first makes such a write REFUSE (errSpoolClosed) instead of landing:
-		// the spool root is resolved from the ambient $HOME at write time, so a
-		// write that escapes teardown does not land harmlessly in this run's own
-		// tree, it lands in whatever $HOME names by then.
+		// first makes such a write REFUSE (errSpoolClosed) instead of landing
+		// in a session after its coordinator has let go of it.
 		//
 		// Refusing an in-flight terminal notice is the DESIGNED fallback, not a
 		// new loss: queueMail's caller already handles a failed durable queue by

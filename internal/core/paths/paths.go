@@ -292,8 +292,9 @@ const (
 	// diverts its clidiag warnings to while the TUI owns stderr.
 	DiagnosticsLogFileName = "diagnostics.log"
 
-	// ContextMetricsFileName is the per-session context-window usage series
-	// (internal/adapters/contextmetrics).
+	// ContextMetricsFileName is the per-session context-occupancy series
+	// (internal/adapters/contextmetrics): one JSON object per line,
+	// append-only, oldest first.
 	ContextMetricsFileName = "context-metrics.jsonl"
 
 	// OutputDirName is the leaf of the default output base:

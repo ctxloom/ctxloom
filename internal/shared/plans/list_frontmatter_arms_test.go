@@ -74,7 +74,7 @@ func TestList_FrontmatterArms(t *testing.T) {
 			require.NoError(t, os.WriteFile(
 				filepath.Join(harpDir, "design"+paths.PlanFileExt), []byte(tc.content), 0o644))
 
-			got, err := List(root)
+			got, err := listRoot(t, root)
 			require.NoError(t, err)
 			require.Len(t, got, 1)
 			assert.Equal(t, tc.wantTitle, got[0].Title)

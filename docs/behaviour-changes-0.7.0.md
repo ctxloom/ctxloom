@@ -234,6 +234,8 @@ Grouped by what you would have to change.
   means for the sessions you already have.
 - The transcript has its own sub-noun.
 - A session is renamed by assigning its name, not by a verb.
+- `config get <section>` is deleted. `config show <section>` prints one section;
+  bare `config show` prints the whole document.
 
 **Configuration and content**
 - MCP servers come from bundles only; ctxloom's own ships as a builtin.
@@ -241,6 +243,10 @@ Grouped by what you would have to change.
   profile relying on `tags` to select content selects nothing until updated.
 - `Hook.Order` and the hook sidecar are dropped.
 - `subagent` is renamed to `agent` across config, CLI, API and prompts.
+- Every profile file is validated against the profile schema when it loads. A
+  key the schema does not have (a `name:` key, for one) or a value of the wrong
+  type is a fatal finding naming the file and the offending key; `--degraded`
+  downgrades it to a warning and launches with the profile as read.
 
 **Isolation**
 - The container runtime axis splits into two ownership modes,

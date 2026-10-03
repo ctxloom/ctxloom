@@ -28,6 +28,7 @@ Guide for contributing to ctxloom development.
 | `just test` | Run all tests |
 | `just test-verbose` | Run tests with verbose output |
 | `just test-coverage` | Run tests with coverage report |
+| `just test-pkg <pkg> [go test args]` | Run one package's tests (with `-race`). The `tests/acceptance` and `tests/integration` trees get a 30m timeout unless you pass `-timeout` yourself |
 | `just test-acceptance` | Run acceptance tests (requires built binary) |
 | `just dev test` | Run all tests in the devcontainer (matches CI) |
 

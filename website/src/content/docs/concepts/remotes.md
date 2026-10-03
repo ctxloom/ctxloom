@@ -168,6 +168,29 @@ Holding a *profile* freezes its whole subtree: the held profile is read at its o
 commit, so the bundles it pulls in stay frozen too. The hold lives on the lockfile
 entry, and `lock.yaml` is committed, so a hold travels with the repository.
 
+### When a pinned bundle cannot be read
+
+A bundle the lockfile pins but whose content is not on disk fails to load with a
+fix line that depends on why it is missing:
+
+- **Never pulled here.** The pinned commit has no checkout on this machine. Run
+  `ctxloom deps pull` (or remove the bundle from the profiles that name it).
+- **Absent at its pin.** The commit is checked out but has no bundle where
+  ctxloom looks, for example a pin that predates a layout change in the remote.
+  `deps pull` keeps an existing pin at its commit, so it cannot fix this; run
+  `ctxloom deps upgrade` to advance the pin. A [held](#holds) pin is never
+  advanced, so the fix line says to `ctxloom deps unhold <name>` first.
+
+### Pinned bundles are read-only
+
+Content pinned from a remote is not yours to edit in place. A command that would
+write into a pinned remote bundle is refused, and the message names the remote
+and the pin along with both ways forward:
+
+- to change it only here, fork it with `ctxloom bundle import <name>` and edit
+  the local copy;
+- to change it for everyone, edit it upstream, then `ctxloom deps upgrade`.
+
 ## Discovering Remotes
 
 Find public ctxloom repositories:

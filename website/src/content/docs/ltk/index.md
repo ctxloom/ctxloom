@@ -122,6 +122,12 @@ not to set a project up.
 
 Commit `.ltk/config.yaml` alongside your code.
 
+The starter rules are a working policy, not just examples. Among them, the git
+identity guards stop an agent from setting or unsetting `user.name` and
+`user.email`, but let it read them: `git config user.name` passes, while
+`git config user.name Bob` and `git config --unset user.name` are refused.
+Telling the read from the write is what [`min_operands`](/ltk/rules/) is for.
+
 ## Next
 
 - **[Writing rules](/ltk/rules/)** — command matching, file rules, modes, and how

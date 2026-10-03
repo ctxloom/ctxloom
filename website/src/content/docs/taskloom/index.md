@@ -92,6 +92,17 @@ A repo-homed store (`homing: repo`) skips all of this. The repository the workin
 sits in *is* the store's identity, so there is no project id to resolve and no pin to win:
 `--project` and `CTXLOOM_PROJECT_ID` are ignored, with a warning.
 
+Reading is not bound to one project the way writing is. `taskloom list --global` and
+`taskloom show <id> --global` look across every privately-homed project, and both fall back
+to that on their own, with a notice, when no project can be resolved at all. A repo-homed
+store is never part of a global read. In `--format json`, each task carries the
+`project_id` and `project_dir` it came from, so a global result says where every row
+lives.
+
+Task text that begins with `-` is read as a flag, however it is quoted. `taskloom add` and
+`taskloom edit` refuse it and tell you to put `--` before the text:
+`taskloom add --tag cli -- "--json drops the error envelope"`.
+
 Directory resolution has two more outcomes worth knowing. If a project tree has *moved*,
 taskloom re-points the registry and keeps the same id, so the history follows the code. If
 the tree looks *copied* (the original is still sitting there with its marker intact) taskloom

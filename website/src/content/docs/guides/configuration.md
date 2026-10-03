@@ -52,6 +52,11 @@ keys, is dropped with a warning when it appears in the committed project file;
 put it in your home config. A per-project grant such as `permissions` goes the
 other way (see [Permissions](#permissions)).
 
+To see the result of that merge, run `ctxloom config show`. Give it a top-level
+section name (`ctxloom config show llm`) to print only that section; an unknown
+name is refused with the list of sections that exist. `--raw` leaves out the
+shipped default engine registry, so only what your configuration sets is shown.
+
 ## config.yaml Reference
 
 The current schema is version 6. The canonical commented example ships as `resources/example-config.yaml` in the repo; `ctxloom config create` scaffolds one.

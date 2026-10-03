@@ -342,3 +342,10 @@ See [Templating](/guides/templating) for full variable documentation.
 Every local profile is a file under `.ctxloom/profiles/`. `config.yaml` has no
 `profiles:` block: a config that still carries one is reported with the move to
 make (each definition to `.ctxloom/profiles/<name>.yaml`, its body unchanged).
+
+Every profile file is validated against the profile schema when it loads. A
+profile that does not match (an unknown key, a value of the wrong type) is a
+fatal finding naming the file and each offending key and value at its location
+in the document, and the run is refused. Pass `--degraded` or set
+`CTXLOOM_DEGRADED=1` to downgrade it to a warning and launch with the profile
+as it was read.

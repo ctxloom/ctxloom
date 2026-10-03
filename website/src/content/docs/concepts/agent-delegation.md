@@ -28,7 +28,9 @@ session:
   returns immediately with its `child_agent_id` (a harp — the address you use for everything
   else) and `child_run_id`. It's an async spawn: the child does its work off in its own session
   while the coordinator moves on, and results come back as mailbox messages, not a blocking
-  return value.
+  return value. A spawn that is refused (an agent that does not resolve, a launch the
+  coordinator will not start) fails the tool call with the same `fix:` line the CLI would
+  print, so the coordinator is told what to change rather than only that it failed.
 - Those messages are **delivered, not fetched**: mail to a session arrives as context at the
   start of its next turn, and its arrival starts that turn when the session is idle. There is
   no receive tool and nothing to wait on.
@@ -51,6 +53,24 @@ exists only while the session runs (see the [MCP Server guide](/guides/mcp-serve
 wire this up; it's there because you're running through `ctxloom run` at all. A delegated child
 that sits at the bottom of the tree gets only the reporting half (`agent_send`,
 `agent_report`); the tools that spawn, observe or control other children are withheld from it.
+
+## One session owns a project
+
+A project has exactly one coordinator. The first `ctxloom run` in a project
+claims it with an exclusive kernel file lock (`owner.lock` under
+`~/.ctxloom/coord/<project>`), held for as long as that process lives, so
+ownership ends exactly when the owner ends, however it ends. Beside the lock,
+`owner.json` records who holds it (pid, session, mode, start time). That record
+is for display and for spotting an abandoned owner, never for deciding whether
+the owner is alive.
+
+A second `ctxloom run` in an owned project is refused, and the refusal names the
+owning session, its pid and when it started. End that session, or pass
+`--degraded` (`CTXLOOM_DEGRADED=1`) to launch the second one without agent
+delegation. The one exception is an interactive owner whose terminal is gone:
+it is provably abandoned, so the next run ends it and takes the project over.
+`ctxloom doctor` reports the owner and what the next run will do
+(`DOCTOR-CHECK-PROJECT-OWNER-v4`).
 
 ## Why each child gets its own grant, never a union
 

@@ -51,7 +51,7 @@ func TestClaudeCode_Configure_BinaryPath(t *testing.T) {
 	cfg := &ClaudeConfig{
 		BinaryPath: "/custom/path/to/claude",
 	}
-	backend.Configure(cfg)
+	require.NoError(t, backend.Configure(cfg))
 
 	assert.Equal(t, "/custom/path/to/claude", backend.BinaryPath)
 }
@@ -64,23 +64,29 @@ func TestClaudeCode_Configure_Args(t *testing.T) {
 	cfg := &ClaudeConfig{
 		Args: []string{"--no-telemetry", "--config", "/custom/config"},
 	}
-	backend.Configure(cfg)
+	require.NoError(t, backend.Configure(cfg))
 
 	assert.Equal(t, []string{"--no-telemetry", "--config", "/custom/config"}, backend.Args)
 }
 
-// TestClaudeCode_Configure_RequiresNonNil documents that Configure expects
-// a non-nil config. Callers should check for nil before calling Configure.
-// ApplyLLMConfig in registry.go handles the nil check.
-func TestClaudeCode_Configure_RequiresNonNil(t *testing.T) {
+// wrongConfig is a BackendConfig that is not this engine's.
+type wrongConfig struct{}
+
+func (wrongConfig) BackendType() string { return "other" }
+
+// TestClaudeCode_Configure_RefusesAnotherEnginesConfig: a config that is not
+// a *ClaudeConfig is refused loudly, never applied as a silent no-op that
+// leaves the binary and args at their defaults.
+func TestClaudeCode_Configure_RefusesAnotherEnginesConfig(t *testing.T) {
 	backend := NewClaudeCode()
 
-	// Configure with empty config (not nil) should work
-	cfg := &ClaudeConfig{}
-	backend.Configure(cfg)
-
-	// Defaults should be preserved
-	assert.Equal(t, "claude", backend.BinaryPath)
+	for name, cfg := range map[string]agent.BackendConfig{"another engine's": wrongConfig{}, "nil": nil} {
+		t.Run(name, func(t *testing.T) {
+			err := backend.Configure(cfg)
+			require.ErrorIs(t, err, agent.ErrBackendConfigType)
+			assert.Equal(t, "claude", backend.BinaryPath)
+		})
+	}
 }
 
 // TestClaudeCode_Configure_EmptyFields verifies that empty config fields
@@ -91,7 +97,7 @@ func TestClaudeCode_Configure_EmptyFields(t *testing.T) {
 	cfg := &ClaudeConfig{
 		// BinaryPath, Args, Env all empty
 	}
-	backend.Configure(cfg)
+	require.NoError(t, backend.Configure(cfg))
 
 	// Original default should be preserved
 	assert.Equal(t, "claude", backend.BinaryPath)

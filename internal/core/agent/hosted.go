@@ -1,6 +1,10 @@
 package agent
 
-import "github.com/ctxloom/ctxloom/internal/core/engine"
+import (
+	"errors"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+)
 
 // Hosted is the instance half's REMAINING contract over an engine value:
 // what agent.Backend still needs that the port (engine.Engine) does not
@@ -53,7 +57,12 @@ type HookGlobalScope struct {
 // Configurable is implemented by a Backend that accepts its own typed
 // config: the argument is the engine's concrete BackendConfig (decoded into
 // what Hosted.NewConfig returned), so no shared code ever type-switches on
-// engine specifics.
+// engine specifics. A config that is not the engine's own type is refused
+// with ErrBackendConfigType rather than ignored.
 type Configurable interface {
-	Configure(cfg BackendConfig)
+	Configure(cfg BackendConfig) error
 }
+
+// ErrBackendConfigType is a Configurable refusing a config that is not its
+// engine's own typed config.
+var ErrBackendConfigType = errors.New("backend config is not this engine's type")

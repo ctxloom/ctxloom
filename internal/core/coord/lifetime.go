@@ -88,12 +88,25 @@ func (c *Coordinator) idleReaper() { c.every(idleReapInterval, c.reapIdleRuns) }
 // with CauseIdleReaped — its slot, its process (a container, on that axis)
 // and its bound endpoint freed. The harp stays resumable: the next mail
 // starts a new incarnation through the resume arm.
+//
+// A paused run — a human's pause or a credential hold, both of which keep it
+// in pausedRuns until its runner is resumed — is waiting, not idle: a hold
+// outlasts idleTimeout routinely, and reaping it would defeat the shared
+// backoff. Its idle clock restarts on every sweep it is spared, so once
+// resumed it gets a full idleTimeout before it is reapable.
 func (c *Coordinator) reapIdleRuns() {
 	now := c.now()
 	var reap []string
 	c.mu.Lock()
 	for runID, rt := range c.attach {
-		if rt.idleSince.IsZero() || now.Sub(rt.idleSince) < c.idleTimeout {
+		if rt.idleSince.IsZero() {
+			continue
+		}
+		if _, paused := c.pausedRuns[runID]; paused {
+			rt.idleSince = now
+			continue
+		}
+		if now.Sub(rt.idleSince) < c.idleTimeout {
 			continue
 		}
 		reap = append(reap, runID)

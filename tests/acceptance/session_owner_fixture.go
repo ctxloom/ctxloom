@@ -182,7 +182,13 @@ func readSessionEndpoint(home, harp string) (sessions.Endpoint, error) {
 	if len(found) != 1 {
 		return sessions.Endpoint{}, fmt.Errorf("expected exactly one delivered %s under %s, found %v", want, dir, found)
 	}
-	data, err := os.ReadFile(found[0])
+	return readEndpointFile(found[0])
+}
+
+// readEndpointFile reads the ctxloom server entry (wire.LayerServerName) of
+// one delivered mock MCP config: the session endpoint and its bearer.
+func readEndpointFile(path string) (sessions.Endpoint, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return sessions.Endpoint{}, fmt.Errorf("read the engine's MCP config: %w", err)
 	}
@@ -190,12 +196,12 @@ func readSessionEndpoint(home, harp string) (sessions.Endpoint, error) {
 		MCPServers map[string]wire.MCPServer `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return sessions.Endpoint{}, fmt.Errorf("decode the engine's MCP config %s: %w", found[0], err)
+		return sessions.Endpoint{}, fmt.Errorf("decode the engine's MCP config %s: %w", path, err)
 	}
 	srv := cfg.MCPServers[wire.LayerServerName]
 	bearer, ok := strings.CutPrefix(srv.Headers["Authorization"], "Bearer ")
 	if srv.URL == "" || !ok || bearer == "" {
-		return sessions.Endpoint{}, fmt.Errorf("the engine's MCP config %s names no %q endpoint with a bearer", found[0], wire.LayerServerName)
+		return sessions.Endpoint{}, fmt.Errorf("the engine's MCP config %s names no %q endpoint with a bearer", path, wire.LayerServerName)
 	}
 	return sessions.Endpoint{URL: srv.URL, Credential: bearer}, nil
 }

@@ -43,7 +43,7 @@
               "type": "string"
             },
             "outcome": {
-              "description": "\"stopped\": ended without a turn being cut short (between turns, at its turn boundary, before it started, or while parked). \"interrupted\": its turn was still running when the drain bound elapsed and it was forced. Produced from coord's StopOutcome* constants (drain.go).",
+              "description": "\"stopped\": ended without a turn being cut short (between turns, at its turn boundary, or before it started). \"interrupted\": its turn was still running when the drain bound elapsed and it was forced. Produced from coord's StopOutcome* constants (drain.go).",
               "type": "string"
             },
             "run_id": {

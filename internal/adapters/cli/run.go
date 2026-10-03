@@ -1249,19 +1249,9 @@ func (st *runState) hostCoordinator() func() {
 		if !settled {
 			clidiag.Warn("ctxloom", "session exit: drain interrupted by a signal; children still running are ended by the coordinator's close")
 		}
-		// A PARKED child is deliberately not waited on: it keeps its turn, its
-		// slot and its session lock. Naming it here is the whole reason the
-		// outcome carries it -- an unattended park that nobody is told about is
-		// indistinguishable from a child that finished.
-		if o := d.Outcome(); len(o.Parked) > 0 || len(o.Interrupted) > 0 {
-			if len(o.Parked) > 0 {
-				clidiag.Warn("ctxloom", "session exit: %d child(ren) left PARKED on a human and were not waited for: %s",
-					len(o.Parked), strings.Join(o.Parked, ", "))
-			}
-			if len(o.Interrupted) > 0 {
-				clidiag.Warn("ctxloom", "session exit: %d child(ren) were still running at the drain bound and were forced: %s",
-					len(o.Interrupted), strings.Join(o.Interrupted, ", "))
-			}
+		if o := d.Outcome(); len(o.Interrupted) > 0 {
+			clidiag.Warn("ctxloom", "session exit: %d child(ren) were still running at the drain bound and were forced: %s",
+				len(o.Interrupted), strings.Join(o.Interrupted, ", "))
 		}
 		sc.RevokeSessionOwner(ownerToken)
 		sc.Close()

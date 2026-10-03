@@ -125,8 +125,8 @@ func (c *Coordinator) StateDir() string { return c.stateDir }
 // process, replacing any prior one. It is never journaled: the wire adapter
 // persists it beside the endpoint it records, which is a viewer's one
 // discovery point for both.
-func (c *Coordinator) MintConsumerCredential() (string, error) {
-	return c.consumerCreds.mint()
+func (c *Coordinator) MintConsumerCredential() {
+	c.consumerCreds.mint()
 }
 
 // ConsumerCredential is the current consumer credential ("" before mint).

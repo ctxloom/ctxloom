@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -72,10 +73,13 @@ func newClaudeCode(kind Claude) *ClaudeCode {
 }
 
 // Configure applies a decoded claude-code config to this backend.
-func (b *ClaudeCode) Configure(cfg agent.BackendConfig) {
-	if c, ok := cfg.(*ClaudeConfig); ok {
-		agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args)
+func (b *ClaudeCode) Configure(cfg agent.BackendConfig) error {
+	c, ok := cfg.(*ClaudeConfig)
+	if !ok {
+		return fmt.Errorf("%w: %s got %T", agent.ErrBackendConfigType, EngineName, cfg)
 	}
+	agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args)
+	return nil
 }
 
 // session is the engine-facing Session the instance is bound to: the

@@ -13,7 +13,6 @@ import (
 const (
 	StateQueued    = "queued"
 	StateExecuting = "executing"
-	StateParked    = "parked"
 	StateIdle      = "idle"
 	StateEnded     = "ended"
 )

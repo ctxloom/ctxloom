@@ -8,9 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // ONE POLICY, TWO BOUNDS. Every coordinator wait is either BOUNDED or
@@ -103,7 +100,6 @@ func TestBeginDrain_NeverYieldingChildIsForcedAtTheBoundAndNamed(t *testing.T) {
 	assert.Less(t, elapsed, drainWait, "the drain must settle at the bound, not hang on the turn")
 	assert.Equal(t, []string{harp}, out.Interrupted, "the outcome must NAME the interrupted child")
 	assert.Empty(t, out.Exited)
-	assert.Empty(t, out.Parked)
 	assert.Equal(t, StateEnded, rosterState(c, harp))
 	assert.Equal(t, CauseDrainInterrupted, currentRunCause(c, harp), "the terminal must say the child was interrupted, not merely stopped")
 
@@ -372,72 +368,6 @@ func TestBeginDrain_SendToEndedChildDoesNotResumeIt(t *testing.T) {
 	assert.Positive(t, c.pendingCount(harp), "the message waits in the mailbox")
 }
 
-// lockingSpawner holds a child's session lock the way the production spawner
-// does (operations.AssignSessionHarp holds it; operations.EndSession releases
-// it), so a drain test can observe the lock a parked child keeps.
-type lockingSpawner struct{ *fakeSpawner }
-
-func (s *lockingSpawner) AssignSession(projectDir, backend string) (string, error) {
-	harp, err := s.fakeSpawner.AssignSession(projectDir, backend)
-	if err != nil {
-		return "", err
-	}
-	return harp, sessionlock.Hold(harp)
-}
-
-func (s *lockingSpawner) MarkSessionEnded(harp string) {
-	s.fakeSpawner.MarkSessionEnded(harp)
-	sessionlock.Release(harp)
-}
-
-// TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock pins (c) and
-// the PARK half of the policy: a child parked on a human is not a process
-// wait. The drain settles without it, lists it, leaves its run and its turn
-// open, and — well after the drain bound has elapsed — its session lock is
-// still held, so a reaper that honours the lock cannot read it as dead.
-func TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock(t *testing.T) {
-	resetStrictness(t)
-	testsupport.Isolate(t)
-	gate := make(chan struct{})
-	sp := &lockingSpawner{fakeSpawner: newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{Gate: gate} })}
-	c := newTestCoordinator(t, sp, nil)
-	c.drainBound = 100 * time.Millisecond
-
-	harp := spawnGatedChild(t, sp.fakeSpawner, c)
-	t.Cleanup(func() { sessionlock.Release(harp) })
-	// Park it mid-turn: the turn stays open under the park.
-	c.mu.Lock()
-	rt := c.byHarp[harp]
-	c.mu.Unlock()
-	require.NotNil(t, rt, "precondition: the spawned child must have a runtime attachment")
-	c.setState(rt, StateParked)
-	require.Equal(t, StateParked, rosterState(c, harp), "precondition: the child is parked")
-	require.Equal(t, sessionlock.Alive, sessionlock.Inspect(harp).Verdict, "precondition: the spawner holds the lock")
-
-	started := time.Now()
-	out := awaitDrain(t, c.BeginDrain())
-	assert.Less(t, time.Since(started), c.drainBound, "a park is not waited on: the drain settles without spending the bound")
-	assert.Equal(t, []string{harp}, out.Parked, "the outcome LISTS the parked child so the park cannot be forgotten")
-	assert.Empty(t, out.Interrupted)
-	assert.Empty(t, out.Exited)
-
-	// Past the bound, and then some: still parked, still locked.
-	assert.Never(t, func() bool { return rosterState(c, harp) != StateParked }, 3*c.drainBound, 10*time.Millisecond,
-		"a parked child must not be forced when the drain bound elapses")
-	assert.NotContains(t, sp.endedSessions(), harp, "its session was not ended")
-	probe := sessionlock.Inspect(harp)
-	assert.Equal(t, sessionlock.Alive, probe.Verdict, "its session lock is still held: %s", probe.Reason)
-	assert.False(t, probe.Verdict.MayReclaim(), "a parked child's instance is not reclaimable")
-
-	// Once the human answers, the park lifts and the drain policy applies:
-	// the child ends at its boundary rather than taking another turn.
-	c.setState(rt, StateExecuting)
-	close(gate)
-	require.Eventually(t, func() bool { return rosterState(c, harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
-	assert.Equal(t, CauseDrained, currentRunCause(c, harp))
-}
-
 // TestBeginDrain_RunEndedBeforeDrainBeganIsNotInTheOutcome pins the
 // drainTracked skip end-to-end through BeginDrain, at the level DrainOutcome
 // itself promises: a run that had already ended before BeginDrain was ever
@@ -460,7 +390,6 @@ func TestBeginDrain_RunEndedBeforeDrainBeganIsNotInTheOutcome(t *testing.T) {
 	out := awaitDrain(t, c.BeginDrain())
 	assert.Empty(t, out.Exited, "a run already ended before the drain began was never live for it to track")
 	assert.Empty(t, out.Interrupted)
-	assert.Empty(t, out.Parked)
 }
 
 // TestBeginDrain_IsIdempotentAndReturnsTheSameDrain: a second BeginDrain does

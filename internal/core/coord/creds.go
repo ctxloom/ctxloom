@@ -5,32 +5,27 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"fmt"
-	"time"
 )
 
-// RandID mints a short random hex id with prefix and n random bytes, falling
-// back to a nanosecond stamp on the (astronomically unlikely) rand failure —
-// uniqueness matters, cryptographic quality does not. Shared by the run-id and
-// message-id minters (identical shape).
+// RandID mints a short random hex id with prefix and n random bytes. Shared
+// by the run-id and message-id minters (identical shape). crypto/rand.Read
+// cannot fail: it aborts the process instead of returning an error.
 func RandID(prefix string, n int) string {
 	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("%s%d", prefix, time.Now().UnixNano())
-	}
+	_, _ = rand.Read(b)
 	return prefix + hex.EncodeToString(b)
 }
 
 // mintToken mints a 256-bit bearer credential, returning the token (hex,
 // handed to exactly one runner via the env seam and never persisted) and the
 // hex SHA-256 hash that IS persisted (in the run-registry journal).
-func mintToken() (token, hash string, err error) {
+// crypto/rand.Read cannot fail: it aborts the process instead of returning
+// an error, so neither can a mint.
+func mintToken() (token, hash string) {
 	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", "", fmt.Errorf("coord: mint credential: %w", err)
-	}
+	_, _ = rand.Read(b[:])
 	token = hex.EncodeToString(b[:])
-	return token, hashToken(token), nil
+	return token, hashToken(token)
 }
 
 // hashToken is the persisted form of a bearer token.

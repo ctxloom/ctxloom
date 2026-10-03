@@ -85,7 +85,7 @@ const (
 	StateStarting State = "starting"
 	// StateHealthy is positive evidence of progress.
 	StateHealthy State = "healthy"
-	// StateAwaitingApproval is parked on an approval rung. It outranks every
+	// StateAwaitingApproval is waiting on a human's approval decision. It outranks every
 	// stall rule below it — a child waiting on a human must NEVER be reaped.
 	StateAwaitingApproval State = "awaiting_approval"
 	// StateStalled is the incident state: alive, producing no progress.
@@ -123,12 +123,12 @@ type Target struct {
 	// third activity clock alongside the transcript's and the filesystem's.
 	LastActivity time.Time
 	// RosterState is the coordinator's §6a state string (queued/executing/
-	// parked/idle/ended), carried for the reason text only. The monitor never
+	// idle/ended), carried for the reason text only. The monitor never
 	// branches on it — the roster reporting "executing" while an agent looped
 	// is precisely the lie this package exists to catch.
 	RosterState string
-	// AwaitingApproval marks a child parked on an approval rung (or, more
-	// conservatively, parked at all). It short-circuits to
+	// AwaitingApproval marks a child with a request pending a human's
+	// decision in the coordinator's approval queue. It short-circuits to
 	// StateAwaitingApproval before any stall rule runs.
 	AwaitingApproval bool
 	// Ended marks a run the coordinator has already terminated. The monitor

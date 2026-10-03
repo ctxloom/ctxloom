@@ -106,15 +106,8 @@ func Serve(c *coord.Coordinator) error {
 	ep := s.loadEndpoint()
 	// Mint the consumer-class watch credential fresh for this process
 	// and persist it into endpoint.json ALONGSIDE the ports it's saved
-	// with — the file is a viewer's one discovery point for both. Minted
-	// BEFORE anything is bound so that every step which can fail runs while
-	// there is nothing to unwind: a Serve that returns an error must leave no
-	// listener and no serving goroutine behind, and the transport is only
-	// bound (BindTransport) at the end, so anything left bound here would
-	// never be closed.
-	if _, err := c.MintConsumerCredential(); err != nil {
-		return fmt.Errorf("coord: mint consumer credential: %w", err)
-	}
+	// with — the file is a viewer's one discovery point for both.
+	c.MintConsumerCredential()
 	ln, err := bindPreferring("127.0.0.1", ep.LoopbackPort)
 	if err != nil {
 		return fmt.Errorf("coord: bind loopback listener: %w", err)

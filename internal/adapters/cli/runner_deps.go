@@ -60,8 +60,7 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *runner.Engin
 			if err != nil {
 				return err
 			}
-			c.Configure(bc)
-			return nil
+			return c.Configure(bc)
 		}
 	}
 	return deps, nil

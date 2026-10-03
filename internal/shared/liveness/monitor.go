@@ -220,12 +220,13 @@ func (m *Monitor) verdict(t Target, ev Evidence, now time.Time) (State, string) 
 }
 
 // approvalRung: AWAITING APPROVAL outranks everything — getting this wrong
-// turns a working system into one that kills its own children. The roster is
-// its one source: a transcript records what an engine did, and no record
-// kind says "waiting on a human".
+// turns a working system into one that kills its own children. The
+// coordinator's approval queue is its one source (Target.AwaitingApproval): a
+// transcript records what an engine did, and no record kind says "waiting on
+// a human".
 func (m *Monitor) approvalRung(t Target, _ Evidence, _ time.Time) (State, string) {
 	if t.AwaitingApproval {
-		return StateAwaitingApproval, fmt.Sprintf("parked on an approval rung (roster state %q) — an approval can legitimately hold a child for minutes", orUnknown(t.RosterState))
+		return StateAwaitingApproval, fmt.Sprintf("waiting on an approval decision (roster state %q) — an approval can legitimately hold a child for minutes", orUnknown(t.RosterState))
 	}
 	return "", ""
 }

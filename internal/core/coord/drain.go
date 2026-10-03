@@ -11,19 +11,15 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// The bounded drain — ONE POLICY, TWO BOUNDS.
+// The bounded drain — ONE POLICY, ONE BOUND.
 //
-// Every wait the coordinator holds on a child is one of exactly two things:
-//
-//   - a wait on a PROCESS, which is BOUNDED at c.drainBound
-//     (drainProcessBound). Exit is REQUESTED at drain start and FORCED at the
-//     bound;
-//   - a wait on a HUMAN — a child parked on a permission decision
-//     (StateParked) — which is a PARK, not a wait: unbounded, never forced,
-//     and LISTED so it cannot be forgotten.
+// Every wait the coordinator holds on a child is a wait on a PROCESS,
+// BOUNDED at c.drainBound (drainProcessBound). Exit is REQUESTED at drain
+// start and FORCED at the bound. A child waiting on an approval is mid-turn
+// (StateExecuting) and is drained like any other running turn.
 //
 // Expiry is LOUD: a forced child is audited, warned about, and reported to
-// its parent as interrupted; a park is named in the outcome.
+// its parent as interrupted.
 //
 // The same loop serves TWO callers, under the same bound, and they differ
 // only in drainPolicy: the coordinator's SHUTDOWN drain (BeginDrain — every
@@ -38,8 +34,8 @@ import (
 const drainProcessBound = 10 * time.Minute
 
 // Drain is one bounded drain's handle. Done closes once the drain has
-// settled — every child it tracked has exited, been forced, or been
-// classified as parked — and Outcome then says which.
+// settled — every child it tracked has exited or been forced — and Outcome
+// then says which.
 type Drain struct {
 	done chan struct{}
 	// wake is poked (never blocked on) by terminateRun and setState so the
@@ -57,21 +53,15 @@ func newDrain(policy drainPolicy, tracked []drainChild) *Drain {
 	return &Drain{done: make(chan struct{}), wake: make(chan struct{}, 1), tracked: tracked, policy: policy}
 }
 
-// drainPolicy is what separates the two drains: how a PARK is treated, and
-// which terminal each way of ending records. The REQUEST/WAIT/FORCE loop and
+// drainPolicy is what separates the drains: which terminal each way of
+// ending records, and whether a running turn is interrupted. The REQUEST/WAIT/FORCE loop and
 // the bound are shared, so a policy cannot invent a second timeout.
 type drainPolicy struct {
 	// label names the drain in stderr prose.
 	label string
-	// parkIsWait: a child parked on a human is a PARK — unbounded, never
-	// forced, listed in the outcome. The shutdown drain's rule. A bulk stop
-	// ENDS a parked child instead: what it waits on is the very caller ending
-	// it or a decision the caller is overriding, and leaving it would leave the roster live and its
-	// container up — exactly what the sweep exists to prevent.
-	parkIsWait bool
 	// endCause / endDetail record a child that ended WITHOUT a running turn
-	// being cut short: between turns, before it started, at its turn
-	// boundary, or while parked. `where` is that phrase.
+	// being cut short: between turns, before it started, or at its turn
+	// boundary. `where` is that phrase.
 	endCause  string
 	endDetail func(where string) string
 	// forceCause / forceDetail record a child still running at the bound.
@@ -96,7 +86,6 @@ type stopAsk struct {
 func shutdownPolicy() drainPolicy {
 	return drainPolicy{
 		label:      "coordinator drain",
-		parkIsWait: true,
 		endCause:   CauseDrained,
 		endDetail:  func(where string) string { return "coordinator drain: ended " + where },
 		forceCause: CauseDrainInterrupted,
@@ -129,14 +118,6 @@ func stopPolicy(caller, reason string, grace time.Duration) drainPolicy {
 // judgement — it is the child's OWN declaration that it is done — so both the
 // clean end and the forced one record CauseFinalReported (as stopPolicy does
 // with CauseStopped), and only the detail says which.
-//
-// A PARK IS NOT A WAIT HERE, and that is the whole point. A child that files
-// FINAL while StateParked is waiting on a party that will never answer again,
-// and it is exactly the leak this policy closes:
-// leaving it parked leaves its turn open, its session lock held and its
-// CONTAINER up — with the worktree that container bind-mounts pinned under
-// it. The shutdown drain can afford to leave a park for the morning because
-// its operator is right there deciding; nothing is watching this one.
 func finalPolicy() drainPolicy {
 	return drainPolicy{
 		label:     "final report",
@@ -177,10 +158,6 @@ type DrainOutcome struct {
 	// Interrupted were still running when the bound elapsed and were forced,
 	// with the policy's forced cause as their terminal.
 	Interrupted []string
-	// Parked were waiting on a human when the drain settled and were left
-	// exactly as they were: turn open, slot yielded, session lock held. The
-	// caller decides whether to wait for the morning; nothing here does.
-	Parked []string
 }
 
 // drainChild is one run the drain accounts for.
@@ -242,14 +219,11 @@ func (c *Coordinator) drainWake() {
 // (onTurnBoundary, onTurnIdle) end a marked child instead of parking it idle.
 // Under a policy with a stop ask the turn is also INTERRUPTED — its runner is
 // sent the per-run StopRun (interruptThenClose) — so it reaches that boundary
-// now, reporting, instead of when it would have. A parked child is left alone
-// or ended, per the policy.
+// now, reporting, instead of when it would have.
 //
 // WAIT: the runner re-reads the folds whenever a child moves and settles as
-// soon as no child is still running. A child that parks mid-drain joins the
-// parked list (or is ended, per the policy); one that unparks rejoins the
-// wait, and its turn then ends at its boundary like any other. A child found
-// IDLE reached its boundary before its mark landed, so it ends between turns.
+// soon as no child is still running. A child found IDLE reached its boundary
+// before its mark landed, so it ends between turns.
 //
 // FORCE: when the bound elapses, every child still running is terminated the
 // way agent_stop terminates one (KillRun semantics through terminateRun,
@@ -258,7 +232,7 @@ func (c *Coordinator) drainWake() {
 func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 	p := d.policy
 	c.drainRequest(d, p)
-	exited, interrupted, parked := c.drainWait(d, bound, p)
+	exited, interrupted := c.drainWait(d, bound, p)
 	if p.stop != nil {
 		for _, ch := range d.tracked {
 			c.setPendingStop(ch.runID, "")
@@ -267,20 +241,16 @@ func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 	outcome := DrainOutcome{
 		Exited:      sortedCopy(exited),
 		Interrupted: sortedCopy(interrupted),
-		Parked:      sortedCopy(parked),
 	}
 	c.warnDrainOutcome(p, bound, outcome)
 	d.settle(outcome)
 }
 
-// drainRequest is the REQUEST pass: a parked child gets the policy, a
-// running turn is asked to exit, and a child between turns or never started
-// ends now.
+// drainRequest is the REQUEST pass: a running turn is asked to exit, and a
+// child between turns or never started ends now.
 func (c *Coordinator) drainRequest(d *Drain, p drainPolicy) {
 	for _, ch := range d.tracked {
 		switch c.runState(ch.runID) {
-		case StateParked:
-			c.drainPark(ch, p)
 		case StateExecuting:
 			c.audit("drain_request", ch.harp, map[string]string{"harp": ch.harp, "run_id": ch.runID})
 			if hook := c.drainRequestHook; hook != nil {
@@ -300,15 +270,15 @@ func (c *Coordinator) drainRequest(d *Drain, p drainPolicy) {
 
 // drainWait is the WAIT and FORCE phases: it re-classifies on every wake
 // until nothing is running, and at the bound forces what still is. exited
-// and parked are the last pass's; interrupted is what was forced, or what
-// Close() overtook.
-func (c *Coordinator) drainWait(d *Drain, bound time.Duration, p drainPolicy) (exited, interrupted, parked []string) {
+// is the last pass's; interrupted is what was forced, or what Close()
+// overtook.
+func (c *Coordinator) drainWait(d *Drain, bound time.Duration, p drainPolicy) (exited, interrupted []string) {
 	timer := time.NewTimer(bound)
 	defer timer.Stop()
 	for {
-		running, exited, parked := c.drainClassify(d, p)
+		running, exited := c.drainClassify(d, p)
 		if len(running) == 0 {
-			return exited, nil, parked
+			return exited, nil
 		}
 		select {
 		case <-d.wake:
@@ -317,20 +287,19 @@ func (c *Coordinator) drainWait(d *Drain, bound time.Duration, p drainPolicy) (e
 			for _, ch := range running {
 				c.drainForce(ch.harp, ch.runID, bound, p)
 			}
-			return exited, drainHarps(running), parked
+			return exited, drainHarps(running)
 		case <-c.baseCtx.Done():
 			// Close() overtook the drain: its attachment sweep kills what is
 			// left. Account for them as what they are about to become.
-			return exited, drainHarps(running), parked
+			return exited, drainHarps(running)
 		}
 	}
 }
 
-// drainClassify is one pass over the WHOLE tracked set — a child may end,
-// park, or unpark between passes, and only its state now counts — sorting
-// it into the children still running, the ones that exited, and the ones
-// parked on a human under a park-is-wait policy.
-func (c *Coordinator) drainClassify(d *Drain, p drainPolicy) (running []drainChild, exited, parked []string) {
+// drainClassify is one pass over the WHOLE tracked set — a child may end
+// between passes, and only its state now counts — sorting it into the
+// children still running and the ones that exited.
+func (c *Coordinator) drainClassify(d *Drain, p drainPolicy) (running []drainChild, exited []string) {
 	for _, ch := range d.tracked {
 		switch c.runState(ch.runID) {
 		case StateEnded:
@@ -342,19 +311,11 @@ func (c *Coordinator) drainClassify(d *Drain, p drainPolicy) (running []drainChi
 			// exited.
 			c.terminateRun(ch.runID, p.endCause, p.endDetail("between turns"))
 			running = append(running, ch)
-		case StateParked:
-			if p.parkIsWait {
-				parked = append(parked, ch.harp)
-				continue
-			}
-			// Ended now; the next pass finds it in exited.
-			c.drainPark(ch, p)
-			running = append(running, ch)
 		default:
 			running = append(running, ch)
 		}
 	}
-	return running, exited, parked
+	return running, exited
 }
 
 // drainHarps is the children's harps, in order.
@@ -366,28 +327,13 @@ func drainHarps(children []drainChild) []string {
 	return harps
 }
 
-// warnDrainOutcome makes expiry LOUD, and a park too: a coordinator that
-// goes quiet about either is one whose operator finds out in the morning the
-// hard way.
+// warnDrainOutcome makes expiry LOUD: a coordinator that goes quiet about it
+// is one whose operator finds out in the morning the hard way.
 func (c *Coordinator) warnDrainOutcome(p drainPolicy, bound time.Duration, outcome DrainOutcome) {
 	if len(outcome.Interrupted) > 0 {
 		c.rep.Warnf("%s: %d child(ren) still running after %s were interrupted: %s",
 			p.label, len(outcome.Interrupted), bound, strings.Join(outcome.Interrupted, ", "))
 	}
-	if len(outcome.Parked) > 0 {
-		c.rep.Warnf("%s: %d child(ren) are parked on a human and were left waiting (turn open, session lock held): %s",
-			p.label, len(outcome.Parked), strings.Join(outcome.Parked, ", "))
-	}
-}
-
-// drainPark applies the policy to a parked child: a PARK is left exactly as
-// it is (turn open, slot yielded, session lock held); otherwise the child is
-// ended where it waits.
-func (c *Coordinator) drainPark(ch drainChild, p drainPolicy) {
-	if p.parkIsWait {
-		return
-	}
-	c.terminateRun(ch.runID, p.endCause, p.endDetail("while parked"))
 }
 
 // requestExit marks a running child so its turn boundary ends it under p
@@ -479,7 +425,7 @@ var ErrStopReasonRequired = errors.New("agent_stop: reason is required when no c
 
 // A StoppedChild's Outcome: the child ended inside the drain bound (between
 // turns, at its turn boundary — a running turn having been interrupted first
-// where its runner could be asked — before it started, or while parked), or it
+// where its runner could be asked — or before it started), or it
 // was still running when the bound elapsed and was forced. Whether a turn was
 // cut short is the child's own report to its parent, not this field: the stop
 // cannot see whether the turn had already ended when the interrupt landed.

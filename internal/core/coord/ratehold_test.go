@@ -175,15 +175,29 @@ func (f *holdFixture) awaitHold(t *testing.T, harps ...string) CredentialHold {
 	return got[0]
 }
 
-// awaitParks waits for credential_park to have journaled exactly harps.
+// awaitParks waits for the hold event to have journaled exactly harps.
 func (f *holdFixture) awaitParks(t *testing.T, harps ...string) {
 	t.Helper()
 	want := sortedCopy(harps)
 	var got []string
 	require.Eventually(t, func() bool {
-		got = auditHarps(readAuditKind(t, f.c, "credential_park"))
+		got = auditHarps(readAuditKind(t, f.c, auditHold))
 		return assert.ObjectsAreEqual(want, got)
-	}, conformanceWait, 10*time.Millisecond, "credential_park never journaled %v (saw %v)", want, got)
+	}, conformanceWait, 10*time.Millisecond, "no hold event journaled %v (saw %v)", want, got)
+}
+
+// assertHoldEvents pins what every hold or release record must carry: the
+// hold's kind and scope, which a reader cannot recover from its source key.
+func assertHoldEvents(t *testing.T, entries []auditEntry, kind agent.FailureKind, scope holdScope, cause string) {
+	t.Helper()
+	require.NotEmpty(t, entries)
+	for _, e := range entries {
+		assert.Equal(t, string(kind), e.Detail["kind"], "%+v", e)
+		assert.Equal(t, string(scope), e.Detail["scope"], "%+v", e)
+		if cause != "" {
+			assert.Equal(t, cause, e.Detail["cause"], "%+v", e)
+		}
+	}
 }
 
 func auditHarps(entries []auditEntry) []string {
@@ -272,7 +286,10 @@ func TestRateHold_OneLimitParksTheCredentialsRunsUntilItResets(t *testing.T) {
 	assert.True(t, limitResets.Equal(hold.Until), "the hold waits for the engine's reset time: %v", hold.Until)
 	f.awaitParks(t, f.worker, f.sibling)
 	assert.Equal(t, 1, f.findingsWith("rate limit"), "ONE finding for the hold: %v", f.findings.All())
-	for _, e := range readAuditKind(t, f.c, "credential_park") {
+	holds := readAuditKind(t, f.c, auditHold)
+	assertHoldEvents(t, holds, agent.FailureRateLimited, holdScopeCredential, "")
+	for _, e := range holds {
+		assert.Equal(t, hold.Source.Key, e.Detail["source"], "a credential hold names its credential")
 		if e.Detail["cause"] == "turn" {
 			assert.Equal(t, "2026-09-30T12:10:00Z", e.Detail["until"], "the turn's park names the deadline")
 		}
@@ -292,11 +309,9 @@ func TestRateHold_OneLimitParksTheCredentialsRunsUntilItResets(t *testing.T) {
 
 	clk.Advance(time.Second) // the release runs on this goroutine, inside Advance
 	assert.Empty(t, f.c.CredentialHolds(), "at the reset time the hold releases itself")
-	resumes := readAuditKind(t, f.c, "credential_resume")
+	resumes := readAuditKind(t, f.c, auditHoldRelease)
 	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(resumes))
-	for _, e := range resumes {
-		assert.Equal(t, "backoff", e.Detail["cause"])
-	}
+	assertHoldEvents(t, resumes, agent.FailureRateLimited, holdScopeCredential, "backoff")
 	awaitChatText(t, f.sp, 1, "held work")
 	f.send(t, f.worker, "work after the reset")
 	awaitChatText(t, f.sp, 0, "work after the reset")
@@ -414,7 +429,9 @@ func TestRateHold_TheHumanMayReleaseEarly(t *testing.T) {
 	assert.True(t, newly)
 	assert.Empty(t, f.c.CredentialHolds())
 	assert.Zero(t, clk.Pending(), "the released hold's timer is disarmed")
-	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(readAuditKind(t, f.c, "credential_resume")))
+	releases := readAuditKind(t, f.c, auditHoldRelease)
+	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(releases))
+	assertHoldEvents(t, releases, agent.FailureRateLimited, holdScopeCredential, "human")
 	f.send(t, f.sibling, "after the human")
 	awaitChatText(t, f.sp, 1, "after the human")
 }
@@ -576,7 +593,7 @@ func TestRateHold_TheBackoffAndTheHumanReleaseItOnce(t *testing.T) {
 	}
 
 	assert.Empty(t, f.c.CredentialHolds())
-	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(readAuditKind(t, f.c, "credential_resume")),
+	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(readAuditKind(t, f.c, auditHoldRelease)),
 		"each held run is resumed once")
 }
 
@@ -620,7 +637,7 @@ func TestRateHold_AResumeAtTheIdleInstantFindsTheLimitFolded(t *testing.T) {
 
 // TestRateHold_ADrainingRunsLimitOpensNoHold pins the drain path: a run
 // marked to end at its boundary whose last turn meets the limit ends there —
-// it opens no hold, parks no sibling, and journals no credential_park.
+// it opens no hold, parks no sibling, and journals no hold event.
 func TestRateHold_ADrainingRunsLimitOpensNoHold(t *testing.T) {
 	f, clk := newRateFixture(t)
 	runID := f.runOf(t, f.sibling)
@@ -633,7 +650,7 @@ func TestRateHold_ADrainingRunsLimitOpensNoHold(t *testing.T) {
 	require.Eventually(t, func() bool { return f.c.runEnded(runID) }, conformanceWait, 10*time.Millisecond)
 
 	assert.Empty(t, f.c.CredentialHolds(), "a run ending at its boundary opens no hold")
-	assert.Empty(t, readAuditKind(t, f.c, "credential_park"))
+	assert.Empty(t, readAuditKind(t, f.c, auditHold))
 	assert.Zero(t, f.findingsWith("rate limit"), "%v", f.findings.All())
 	assert.Zero(t, clk.Pending())
 	f.send(t, f.worker, "work after the drain")

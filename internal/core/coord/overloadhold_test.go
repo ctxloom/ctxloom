@@ -24,6 +24,7 @@ func TestOverloadHold_BacksOffThatRunAlone(t *testing.T) {
 	assert.Equal(t, agent.FailureOverloaded, hold.Kind)
 	assert.True(t, clk.Now().Add(overloadBackoff).Equal(hold.Until), "got %v", hold.Until)
 	f.awaitParks(t, f.worker)
+	assertHoldEvents(t, readAuditKind(t, f.c, auditHold), agent.FailureOverloaded, holdScopeRun, "turn")
 	assert.Equal(t, 1, f.findingsWith("overloaded"), "ONE finding for the backoff: %v", f.findings.All())
 	assert.Zero(t, f.findingsWith("rate limit"), "an overload is not reported as a rate limit")
 
@@ -47,6 +48,7 @@ func TestOverloadHold_BacksOffThatRunAlone(t *testing.T) {
 
 	clk.Advance(time.Second) // the release runs on this goroutine, inside Advance
 	assert.Empty(t, f.c.CredentialHolds(), "at the backoff's end the hold releases itself")
+	assertHoldEvents(t, readAuditKind(t, f.c, auditHoldRelease), agent.FailureOverloaded, holdScopeRun, "backoff")
 	awaitChatText(t, f.sp, 0, "held work")
 }
 
@@ -79,6 +81,9 @@ func TestOverloadHold_ARunAlreadyHeldStaysInItsHold(t *testing.T) {
 // run's own even when the run shares a credential.
 func TestHoldKey_AnOverloadHoldsTheRunAlone(t *testing.T) {
 	src := engine.Credentials{Env: map[string]string{"X": "v"}}.Source("e")
+	assert.Equal(t, holdScopeRun, holdScopeOf(agent.FailureOverloaded, src))
+	assert.Equal(t, holdScopeCredential, holdScopeOf(agent.FailureRateLimited, src))
+	assert.Equal(t, holdScopeRun, holdScopeOf(agent.FailureRateLimited, engine.CredentialSource{}), "a run with no credential holds alone")
 	assert.NotEqual(t, holdKey(agent.FailureOverloaded, src, "run-a"), holdKey(agent.FailureOverloaded, src, "run-b"))
 	assert.Equal(t, holdKey(agent.FailureRateLimited, src, "run-a"), holdKey(agent.FailureRateLimited, src, "run-b"))
 }

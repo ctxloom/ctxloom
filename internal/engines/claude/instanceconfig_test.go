@@ -222,13 +222,13 @@ func TestWriteInstanceConfig_NeverWritesTheHostHome(t *testing.T) {
 }
 
 // TestWriteInstanceConfig_PropagatesTheLockedClosuresError pins the
-// agent.WithFileLock wrap (R6, config-patching-review.md bypass B5): a real
+// sessions.WithFileLock wrap (R6, config-patching-review.md bypass B5): a real
 // fault inside the locked closure — here, an existing instance file that will
 // not parse — must come back out of WriteInstanceConfig as a non-nil error,
 // not be swallowed by the wrapper.
 //
 // MUTATION TARGET: flip WriteInstanceConfig's `if err != nil { return rep,
-// err }` (the one wrapping the agent.WithFileLock call) to `if err == nil`
+// err }` (the one wrapping the sessions.WithFileLock call) to `if err == nil`
 // and this goes red — the error path falls through to the trailing `return
 // rep, nil`, reporting success over a config file that was never written.
 func TestWriteInstanceConfig_PropagatesTheLockedClosuresError(t *testing.T) {

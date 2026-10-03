@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -29,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // LocalSurface is the cell-local half of the endpoint's surface — the
@@ -410,13 +412,18 @@ func unmarshalArgs(req *mcp.CallToolRequest, m proto.Message) error {
 }
 
 // coordinationResult projects a plane-2 response onto the MCP result: a
-// non-OK status is the tool error (its message names the conflict), the
-// result message becomes structured content (proto names), and the status
-// message rides as human-readable text content.
+// non-OK status is the tool error (its message names the conflict, and the
+// remedy the status carries follows as its fix line — the MCP SDK reports a
+// tool error as err.Error() alone, which a report.Error leaves its Fix out
+// of), the result message becomes structured content (proto names), and the
+// status message rides as human-readable text content.
 func coordinationResult(resp *agentcoordpb.CoordinatorResponse, result proto.Message) (*mcp.CallToolResult, error) {
 	st := resp.GetStatus()
-	if st.GetCode() != int32(codes.OK) {
-		return nil, errors.New(st.GetMessage())
+	if err := coordgrpc.ErrFromStatus(st); err != nil {
+		if fix, ok := clifmt.RemedyOf(err); ok {
+			err = fmt.Errorf("%w%s", err, clifmt.FixLine("", fix))
+		}
+		return nil, err
 	}
 	out := &mcp.CallToolResult{}
 	if msg := st.GetMessage(); msg != "" {

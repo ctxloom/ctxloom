@@ -103,12 +103,9 @@ var (
 	initNoPull         bool
 )
 
-// initPromptCmd is the real home for the setup-interview re-entry pointer:
-// 'ctxloom agent setup' printed the whole interview but was misfiled under
-// 'agent' (it configures companions, profiles, and agents together, not just
-// agents). RunE is shared with the now-Deprecated 'agent setup' alias
-// (agent.go's runSetupPromptCmd) — one body, two doors, so they can never
-// drift.
+// initPromptCmd is the setup-interview re-entry pointer. It lives under
+// 'init', not 'agent', because the interview configures companions, profiles
+// and agents together, not just agents.
 var initPromptCmd = &cobra.Command{
 	Use:   "prompt",
 	Short: "Print ctxloom's setup prompt (companions, profiles, agents) for the LLM to follow",

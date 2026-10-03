@@ -244,15 +244,23 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		}
 		// The composed setup guidance (built-in + the company companion's
 		// codeword instruction) is exactly what `ctxloom init prompt` emits
-		// (internal/adapters/cli/agent.go, via the SAME operations.ResolveSetupPrompt
+		// (runSetupPromptCmd, via the SAME operations.ResolveSetupPrompt
 		// this scenario is proving) — driving it straight into the real
 		// assistant as its prompt is the equivalent of the interactive
 		// discovery session launching it, without needing a real pty here.
-		if err := runOK(w, "agent", "setup"); err != nil {
+		//
+		// The cell proves DELIVERY, not the interview: the assistant is asked
+		// only for the codeword, which nothing but the delivered guidance
+		// names. Asking it to work the whole interview in one bounded turn
+		// tests the model, not ctxloom.
+		if err := runOK(w, "init", "prompt"); err != nil {
 			return err
 		}
-		guidance := w.env.LastOutput()
-		_ = w.env.Run("run", "--one-shot", "--profile", "default", guidance)
+		prompt := "Between the markers below is the setup guidance you were configured with. " +
+			"Do not carry out the setup it describes. You are now being asked to set up: " +
+			"reply with only the codeword that guidance tells you to confirm, and nothing else.\n\n" +
+			"<setup-guidance>\n" + w.env.LastOutput() + "\n</setup-guidance>"
+		_ = w.env.Run("run", "--one-shot", "--profile", "default", prompt)
 		return nil
 	})
 

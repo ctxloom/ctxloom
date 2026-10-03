@@ -76,12 +76,15 @@ func (e *sjEvent) rejectedResetsAt() (at time.Time, ok bool) {
 //     again does not lift it), nor is cloud_credential_error (claude reports
 //     a briefly unreachable credential service the same way).
 //   - rate_limit: "a 429 against your quota", which outlasted claude's own
-//     retries. overloaded is not one: a 529 is the server's capacity, not the
-//     credential's quota, so it is no reason to park the runs sharing it.
+//     retries.
+//   - overloaded: "a 529 because the server is at capacity", which outlasted
+//     claude's own retries — its own kind, not a rate limit: it is no reason
+//     to park the runs sharing the credential.
 var turnFailures = map[string]agent.FailureKind{
 	"authentication_failed": agent.FailureCredentialRejected,
 	"oauth_org_not_allowed": agent.FailureCredentialRejected,
 	"rate_limit":            agent.FailureRateLimited,
+	"overloaded":            agent.FailureOverloaded,
 }
 
 // failure is the turn failure an assistant frame reports: only the turn's own

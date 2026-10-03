@@ -26,6 +26,9 @@ const (
 	limitHit        = "limit-hit"
 	limitHitLate    = "limit-late"
 	limitHitNoReset = "limit-noreset"
+	// overloadHit: a turn the engine turns away because its server is at
+	// capacity (claude's 529) — no reset time, nothing about the credential.
+	overloadHit = "server-overloaded"
 )
 
 var (
@@ -34,9 +37,11 @@ var (
 )
 
 // rateFailure is the fixture's engine: the limit markers end the turn on the
-// limit.
+// limit, the overload marker on the server's capacity.
 func rateFailure(prompt string) *agent.TurnFailure {
 	switch {
+	case strings.Contains(prompt, overloadHit):
+		return &agent.TurnFailure{Kind: agent.FailureOverloaded}
 	case strings.Contains(prompt, limitHitLate):
 		return &agent.TurnFailure{Kind: agent.FailureRateLimited, ResetsAt: limitResetsLate}
 	case strings.Contains(prompt, limitHitNoReset):
@@ -170,15 +175,29 @@ func (f *holdFixture) awaitHold(t *testing.T, harps ...string) CredentialHold {
 	return got[0]
 }
 
-// awaitParks waits for credential_park to have journaled exactly harps.
+// awaitParks waits for the hold event to have journaled exactly harps.
 func (f *holdFixture) awaitParks(t *testing.T, harps ...string) {
 	t.Helper()
 	want := sortedCopy(harps)
 	var got []string
 	require.Eventually(t, func() bool {
-		got = auditHarps(readAuditKind(t, f.c, "credential_park"))
+		got = auditHarps(readAuditKind(t, f.c, auditHold))
 		return assert.ObjectsAreEqual(want, got)
-	}, conformanceWait, 10*time.Millisecond, "credential_park never journaled %v (saw %v)", want, got)
+	}, conformanceWait, 10*time.Millisecond, "no hold event journaled %v (saw %v)", want, got)
+}
+
+// assertHoldEvents pins what every hold or release record must carry: the
+// hold's kind and scope, which a reader cannot recover from its source key.
+func assertHoldEvents(t *testing.T, entries []auditEntry, kind agent.FailureKind, scope holdScope, cause string) {
+	t.Helper()
+	require.NotEmpty(t, entries)
+	for _, e := range entries {
+		assert.Equal(t, string(kind), e.Detail["kind"], "%+v", e)
+		assert.Equal(t, string(scope), e.Detail["scope"], "%+v", e)
+		if cause != "" {
+			assert.Equal(t, cause, e.Detail["cause"], "%+v", e)
+		}
+	}
 }
 
 func auditHarps(entries []auditEntry) []string {
@@ -267,7 +286,10 @@ func TestRateHold_OneLimitParksTheCredentialsRunsUntilItResets(t *testing.T) {
 	assert.True(t, limitResets.Equal(hold.Until), "the hold waits for the engine's reset time: %v", hold.Until)
 	f.awaitParks(t, f.worker, f.sibling)
 	assert.Equal(t, 1, f.findingsWith("rate limit"), "ONE finding for the hold: %v", f.findings.All())
-	for _, e := range readAuditKind(t, f.c, "credential_park") {
+	holds := readAuditKind(t, f.c, auditHold)
+	assertHoldEvents(t, holds, agent.FailureRateLimited, holdScopeCredential, "")
+	for _, e := range holds {
+		assert.Equal(t, hold.Source.Key, e.Detail["source"], "a credential hold names its credential")
 		if e.Detail["cause"] == "turn" {
 			assert.Equal(t, "2026-09-30T12:10:00Z", e.Detail["until"], "the turn's park names the deadline")
 		}
@@ -287,11 +309,9 @@ func TestRateHold_OneLimitParksTheCredentialsRunsUntilItResets(t *testing.T) {
 
 	clk.Advance(time.Second) // the release runs on this goroutine, inside Advance
 	assert.Empty(t, f.c.CredentialHolds(), "at the reset time the hold releases itself")
-	resumes := readAuditKind(t, f.c, "credential_resume")
+	resumes := readAuditKind(t, f.c, auditHoldRelease)
 	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(resumes))
-	for _, e := range resumes {
-		assert.Equal(t, "backoff", e.Detail["cause"])
-	}
+	assertHoldEvents(t, resumes, agent.FailureRateLimited, holdScopeCredential, "backoff")
 	awaitChatText(t, f.sp, 1, "held work")
 	f.send(t, f.worker, "work after the reset")
 	awaitChatText(t, f.sp, 0, "work after the reset")
@@ -409,7 +429,9 @@ func TestRateHold_TheHumanMayReleaseEarly(t *testing.T) {
 	assert.True(t, newly)
 	assert.Empty(t, f.c.CredentialHolds())
 	assert.Zero(t, clk.Pending(), "the released hold's timer is disarmed")
-	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(readAuditKind(t, f.c, "credential_resume")))
+	releases := readAuditKind(t, f.c, auditHoldRelease)
+	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(releases))
+	assertHoldEvents(t, releases, agent.FailureRateLimited, holdScopeCredential, "human")
 	f.send(t, f.sibling, "after the human")
 	awaitChatText(t, f.sp, 1, "after the human")
 }
@@ -571,7 +593,7 @@ func TestRateHold_TheBackoffAndTheHumanReleaseItOnce(t *testing.T) {
 	}
 
 	assert.Empty(t, f.c.CredentialHolds())
-	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(readAuditKind(t, f.c, "credential_resume")),
+	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(readAuditKind(t, f.c, auditHoldRelease)),
 		"each held run is resumed once")
 }
 
@@ -615,7 +637,7 @@ func TestRateHold_AResumeAtTheIdleInstantFindsTheLimitFolded(t *testing.T) {
 
 // TestRateHold_ADrainingRunsLimitOpensNoHold pins the drain path: a run
 // marked to end at its boundary whose last turn meets the limit ends there —
-// it opens no hold, parks no sibling, and journals no credential_park.
+// it opens no hold, parks no sibling, and journals no hold event.
 func TestRateHold_ADrainingRunsLimitOpensNoHold(t *testing.T) {
 	f, clk := newRateFixture(t)
 	runID := f.runOf(t, f.sibling)
@@ -628,7 +650,7 @@ func TestRateHold_ADrainingRunsLimitOpensNoHold(t *testing.T) {
 	require.Eventually(t, func() bool { return f.c.runEnded(runID) }, conformanceWait, 10*time.Millisecond)
 
 	assert.Empty(t, f.c.CredentialHolds(), "a run ending at its boundary opens no hold")
-	assert.Empty(t, readAuditKind(t, f.c, "credential_park"))
+	assert.Empty(t, readAuditKind(t, f.c, auditHold))
 	assert.Zero(t, f.findingsWith("rate limit"), "%v", f.findings.All())
 	assert.Zero(t, clk.Pending())
 	f.send(t, f.worker, "work after the drain")
@@ -661,6 +683,7 @@ func TestTurnFailureOf(t *testing.T) {
 	assert.Nil(t, turnFailureOf(map[string]any{"stop_reason": "not_a_held_kind"}), "a kind no hold releases is no held failure")
 	assert.Equal(t, &agent.TurnFailure{Kind: agent.FailureRateLimited},
 		turnFailureOf(map[string]any{"stop_reason": "rate_limited", TurnIdleResetsAt: "not a time"}))
+	assert.Equal(t, &agent.TurnFailure{Kind: agent.FailureOverloaded}, turnFailureOf(map[string]any{"stop_reason": "overloaded"}))
 	got := turnFailureOf(map[string]any{"stop_reason": "rate_limited", TurnIdleResetsAt: "2026-10-01T17:30:00Z"})
 	require.NotNil(t, got)
 	assert.True(t, time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC).Equal(got.ResetsAt))
@@ -668,9 +691,9 @@ func TestTurnFailureOf(t *testing.T) {
 
 // A run that carries no credential has nothing to share: its hold is its own.
 func TestHoldKey_ARunWithNoCredentialHoldsAlone(t *testing.T) {
-	assert.NotEqual(t, holdKey(engine.CredentialSource{}, "run-a"), holdKey(engine.CredentialSource{}, "run-b"))
+	assert.NotEqual(t, holdKey(agent.FailureRateLimited, engine.CredentialSource{}, "run-a"), holdKey(agent.FailureRateLimited, engine.CredentialSource{}, "run-b"))
 	src := engine.Credentials{Env: map[string]string{"X": "v"}}.Source("e")
-	assert.Equal(t, holdKey(src, "run-a"), holdKey(src, "run-b"))
+	assert.Equal(t, holdKey(agent.FailureRateLimited, src, "run-a"), holdKey(agent.FailureRateLimited, src, "run-b"))
 }
 
 // holdOf is harp's roster hold as the wire roster (listRunsSnapshot) shows it.
@@ -710,6 +733,27 @@ func TestRateHold_TheRosterShowsTheHold(t *testing.T) {
 	assert.Nil(t, f.holdOf(t, f.sibling))
 }
 
+// TestRateHold_TheInProcessRosterShowsTheHold: the root's in-process roster
+// (Coordinator.Roster, what the overlay renders) carries the same hold as the
+// wire roster, and a held run's state stays idle — held is not a phase.
+func TestRateHold_TheInProcessRosterShowsTheHold(t *testing.T) {
+	f, clk := newRateFixture(t)
+	f.send(t, f.worker, limitHit+" do the work")
+	f.awaitHold(t, f.worker, f.sibling)
+
+	for _, harp := range []string{f.worker, f.sibling} {
+		e := f.entry(harp)
+		require.NotNil(t, e.Hold, "%s is held", harp)
+		assert.Equal(t, f.holdOf(t, harp), e.Hold, "one hold, both rosters")
+		assert.Equal(t, StateIdle, e.State, "a held run stays idle")
+	}
+	assert.Nil(t, f.entry(f.stranger).Hold, "a run on another credential is not held")
+
+	clk.Advance(limitResets.Sub(clk.Now()))
+	assert.Nil(t, f.entry(f.worker).Hold, "the release clears the roster's hold")
+	assert.Nil(t, f.entry(f.sibling).Hold)
+}
+
 // TestRateHold_LivenessNeverJudgesAHeldRunStalled: a held run is waiting on
 // its limit, not stuck — it takes the waiting-for-approval verdict, which
 // outranks every stall rule, until the hold releases it.
@@ -733,4 +777,45 @@ func TestRateHold_LivenessNeverJudgesAHeldRunStalled(t *testing.T) {
 	clk.Advance(limitResets.Sub(clk.Now()))
 	assert.Equal(t, map[string]bool{f.worker: false, f.sibling: false, f.stranger: false}, awaiting(),
 		"the release takes the exemption with it")
+}
+
+// TestRateHold_TheIdleReaperSparesHeldAndPausedRuns: a hold outlasting
+// delegation.idle_timeout must not end the runs it parked — that would defeat
+// the shared backoff — and neither may a human's pause. Time held or paused is
+// not idle time: once released, a run is reapable again only after a full idle
+// timeout. The clock is advanced and the sweep invoked, never awaited.
+func TestRateHold_TheIdleReaperSparesHeldAndPausedRuns(t *testing.T) {
+	const idle = 5 * time.Minute
+	f, clk := newRateFixture(t, func(c *Coordinator) { c.idleTimeout = idle })
+	_, err := f.c.ControlPause(human(t), humanInitiator(), f.stranger, "reviewing")
+	require.NoError(t, err)
+	f.send(t, f.worker, limitHit+" do the work")
+	f.awaitHold(t, f.worker, f.sibling)
+	f.awaitParks(t, f.worker, f.sibling)
+	require.Eventually(t, func() bool { return f.state(f.worker) == StateIdle }, conformanceWait, 10*time.Millisecond)
+	worker, sibling, stranger := f.runOf(t, f.worker), f.runOf(t, f.sibling), f.runOf(t, f.stranger)
+
+	clk.Advance(idle + time.Minute) // past the idle timeout, short of the reset
+	require.Len(t, f.c.CredentialHolds(), 1, "the hold still stands")
+	f.c.reapIdleRuns()
+	for _, h := range []string{f.worker, f.sibling, f.stranger} {
+		assert.Equal(t, StateIdle, f.state(h), "a held or human-paused run is never idle-reaped")
+	}
+
+	clk.Advance(limitResets.Sub(clk.Now())) // the hold releases itself
+	require.Empty(t, f.c.CredentialHolds())
+	f.c.reapIdleRuns()
+	assert.Equal(t, StateIdle, f.state(f.worker), "the time held does not count as idle")
+
+	clk.Advance(idle)
+	f.c.reapIdleRuns()
+	assert.Equal(t, CauseIdleReaped, runCause(f.c, worker), "a released run is reapable again")
+	assert.Equal(t, CauseIdleReaped, runCause(f.c, sibling), "a released run is reapable again")
+	assert.Equal(t, StateIdle, f.state(f.stranger), "the human's pause still spares its run")
+
+	_, err = f.c.ControlResume(human(t), humanInitiator(), f.stranger)
+	require.NoError(t, err)
+	clk.Advance(idle)
+	f.c.reapIdleRuns()
+	assert.Equal(t, CauseIdleReaped, runCause(f.c, stranger), "a resumed run is reapable again")
 }

@@ -83,7 +83,7 @@ func projectRows(list []tasks.Task, projectID, projectDir string) []taskRow {
 // choice made. Both list surfaces read it and neither re-decides any of it.
 type scopedListResult struct {
 	// Notice and ProjectCount are meaningful only when Global;
-	// Path/ProjectID/ProjectDir/Summary/Warning only when not.
+	// Path/ProjectID/ProjectDir/Warning only when not.
 	Global       bool
 	Notice       string
 	ProjectCount int
@@ -91,7 +91,6 @@ type scopedListResult struct {
 	Path       string
 	ProjectID  string
 	ProjectDir string
-	Summary    *tasks.Summary
 	Warning    string
 
 	// ProjectNewlyMinted mirrors operations.TaskListResult.ProjectNewlyMinted
@@ -191,12 +190,11 @@ func listEveryProjectScoped(tc operations.TaskContext, opts listOptions, scope l
 // resolve it again.
 func listOneProjectScoped(tc operations.TaskContext, opts listOptions) (*scopedListResult, error) {
 	res, err := operations.ListTasks(tc, operations.ListOptions{
-		Statuses:       opts.Statuses,
-		Term:           opts.Term,
-		TagQuery:       opts.TagQuery,
-		IncludeDone:    opts.All,
-		IncludeSummary: opts.IncludeSummary,
-		Limit:          opts.Limit,
+		Statuses:    opts.Statuses,
+		Term:        opts.Term,
+		TagQuery:    opts.TagQuery,
+		IncludeDone: opts.All,
+		Limit:       opts.Limit,
 	})
 	if err != nil {
 		return nil, wrapTagQueryError(err)
@@ -206,7 +204,6 @@ func listOneProjectScoped(tc operations.TaskContext, opts listOptions) (*scopedL
 		Path:               res.Path,
 		ProjectID:          res.ProjectID,
 		ProjectDir:         res.ProjectDir,
-		Summary:            res.Summary,
 		Warning:            res.Warning,
 		ProjectNewlyMinted: res.ProjectNewlyMinted,
 		Tasks:              res.Tasks,

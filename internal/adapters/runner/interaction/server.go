@@ -15,7 +15,6 @@ import (
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -28,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
+	"github.com/ctxloom/ctxloom/internal/shared/remedystatus"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -412,13 +412,13 @@ func unmarshalArgs(req *mcp.CallToolRequest, m proto.Message) error {
 }
 
 // coordinationResult projects a plane-2 response onto the MCP result: a
-// non-OK status is the tool error (refusalError), the result message becomes
-// structured content (proto names), and the status message rides as
-// human-readable text content.
+// non-OK status is the tool error (remedystatus.Err, then withFixLine), the
+// result message becomes structured content (proto names), and the status
+// message rides as human-readable text content.
 func coordinationResult(resp *agentcoordpb.CoordinatorResponse, result proto.Message) (*mcp.CallToolResult, error) {
 	st := resp.GetStatus()
-	if st.GetCode() != int32(codes.OK) {
-		return nil, refusalError(st)
+	if err := remedystatus.Err(st); err != nil {
+		return nil, withFixLine(err)
 	}
 	out := &mcp.CallToolResult{}
 	if msg := st.GetMessage(); msg != "" {
@@ -438,27 +438,14 @@ func coordinationResult(resp *agentcoordpb.CoordinatorResponse, result proto.Mes
 	return out, nil
 }
 
-// refusalError is a non-OK status as the tool error the model reads: its
-// message, then the remedy the coordinator attached (coordgrpc.RefusalStatus:
-// an errdetails.Help link's description) as its fix line — the MCP SDK
-// reports a tool error as err.Error() alone, which a report.Error leaves its
-// Fix out of. This decodes coordgrpc.ErrFromStatus's detail itself because
-// layering rule "adapters-import-core-not-each-other" forbids this package
-// importing coordgrpc; TestCoordinationResult_RefusalShowsItsFixLine binds
-// the two through the real encoder. A detail of any other type is skipped.
-func refusalError(st *rpcstatus.Status) error {
-	for _, d := range st.GetDetails() {
-		var help errdetails.Help
-		if !d.MessageIs(&help) || d.UnmarshalTo(&help) != nil {
-			continue
-		}
-		for _, l := range help.GetLinks() {
-			if fix := l.GetDescription(); fix != "" {
-				return fmt.Errorf("%w%s", report.Error{Msg: st.GetMessage(), Fix: fix}, clifmt.FixLine("", fix))
-			}
-		}
+// withFixLine puts the remedy a refusal carries into its text as a fix line:
+// the MCP SDK reports a tool error as err.Error() alone, which a report.Error
+// leaves its Fix out of. The error stays remediable for structural readers.
+func withFixLine(err error) error {
+	if fix, ok := clifmt.RemedyOf(err); ok {
+		return fmt.Errorf("%w%s", err, clifmt.FixLine("", fix))
 	}
-	return errors.New(st.GetMessage())
+	return err
 }
 
 // protoIsNil guards typed-nil proto results inside the oneof accessors.

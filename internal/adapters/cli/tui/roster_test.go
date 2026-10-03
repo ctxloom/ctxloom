@@ -228,3 +228,24 @@ func TestStateGlyphs(t *testing.T) {
 	assert.Equal(t, "◐", stateGlyph("parked"))
 	assert.Equal(t, "◐", stateGlyph("idle"))
 }
+
+// TestBuildRoster_CarriesTheHold: a held child's hold reaches its row whether
+// the row came from the index or from the coordinator alone.
+func TestBuildRoster_CarriesTheHold(t *testing.T) {
+	testsupport.Isolate(t)
+	hold := &coord.RunHold{Kind: "rate_limited", Source: "env:X", Until: time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC)}
+	rows := BuildRoster(
+		[]sessions.Entry{{HarpName: "indexed-kid", Backend: "claude-code"}},
+		[]coord.RosterEntry{
+			{Harp: "indexed-kid", State: coord.StateIdle, Hold: hold},
+			{Harp: "bus-only-kid", State: coord.StateIdle, Hold: hold},
+			{Harp: "free-kid", State: coord.StateIdle},
+		}, "")
+	byHarp := map[string]RosterRow{}
+	for _, r := range rows {
+		byHarp[r.Harp] = r
+	}
+	assert.Equal(t, hold, byHarp["indexed-kid"].Hold)
+	assert.Equal(t, hold, byHarp["bus-only-kid"].Hold)
+	assert.Nil(t, byHarp["free-kid"].Hold)
+}

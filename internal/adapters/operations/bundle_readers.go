@@ -333,8 +333,34 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 	// That is not hypothetical: leaving the loop unguarded is exactly what made
 	// a published fragment stop reaching the consumer's assistant while every
 	// other surface kind still arrived.
+	return pinnedTreeReaders(cfg, lock, root, failures)
+}
+
+// pinnedTreeReaders builds the lockfile's tree readers, reports every pinned
+// bundle that could not be read, and hands those failures to the catalog
+// (unreadableTrees) so an ask for one is known to be already reported rather
+// than mistaken for a missing bundle and reported again.
+func pinnedTreeReaders(cfg *config.Config, lock *remote.Lockfile, root trust.TrustRoot, failures map[trust.BundleKey]error) []bundles.Reader {
 	out := treeBundleReaders(cfg, lock, root, failures)
 	reportBundleLoadFailures(failures)
+	if len(failures) == 0 {
+		return out
+	}
+	return append(out, unreadableTrees(failures))
+}
+
+// unreadableTrees is a bundles.ReadFailureReporter holding no bundles, only
+// the pinned bundles reportBundleLoadFailures has already reported, keyed by
+// canonical key — the key an identity ask resolves to (Catalog.Lookup).
+type unreadableTrees map[trust.BundleKey]error
+
+func (unreadableTrees) Read(context.Context) ([]bundles.BundleRead, error) { return nil, nil }
+
+func (u unreadableTrees) ReadFailures() map[string]error {
+	out := make(map[string]error, len(u))
+	for key, err := range u {
+		out[string(key)] = err
+	}
 	return out
 }
 

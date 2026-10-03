@@ -681,19 +681,21 @@ func (f *fakeEngineHome) SetWake(w engine.Wake) func() {
 	}
 }
 
-// TestEngineHost_RateLimitedTurnParksItselfAndSaysWhen: a turn that ended on
-// its usage limit leaves the run PARKED at its own pause gate — up already at
+// TestEngineHost_AHeldTurnFailureParksItselfAndSaysWhen: a turn that ended on
+// a held failure (its usage limit, or its server overloaded) leaves the run
+// PARKED at its own pause gate — up already at
 // the turn-idle event and at the boundary sweep, the two moments a next turn
 // could be offered, or the sweep hands the next mail to the spent limit and it
 // is consumed for nothing. The idle event carries the engine's reset time
 // beside the stop_reason (all the coordinator has to time the shared hold by;
 // absent when the engine named none), the parent's report carries the
 // failure, and a resume releases the held turn.
-func TestEngineHost_RateLimitedTurnParksItselfAndSaysWhen(t *testing.T) {
+func TestEngineHost_AHeldTurnFailureParksItselfAndSaysWhen(t *testing.T) {
 	resets := time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC)
 	for name, failure := range map[string]*agent.TurnFailure{
 		"with a reset time": {Kind: agent.FailureRateLimited, ResetsAt: resets},
 		"without one":       {Kind: agent.FailureRateLimited},
+		"overloaded":        {Kind: agent.FailureOverloaded},
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := &fakeEngineHome{}
@@ -721,7 +723,7 @@ func TestEngineHost_RateLimitedTurnParksItselfAndSaysWhen(t *testing.T) {
 			require.Eventually(t, func() bool { return home.spoolSweepCount() > 0 }, 5*time.Second, 10*time.Millisecond)
 
 			idle := home.customValue(coord.CustomTurnIdle)
-			assert.Equal(t, "rate_limited", idle["stop_reason"])
+			assert.Equal(t, string(failure.Kind), idle["stop_reason"])
 			if failure.ResetsAt.IsZero() {
 				assert.NotContains(t, idle, coord.TurnIdleResetsAt)
 			} else {
@@ -783,4 +785,15 @@ func TestFailurePreamble_RateLimitedSaysItWaitsAndTheWorkWasNotDone(t *testing.T
 	assert.Contains(t, got, "on its own")
 	assert.NotContains(t, failurePreamble(&agent.TurnFailure{Kind: agent.FailureRateLimited}), "0001-01-01",
 		"no reset time named is not a reset at the zero time")
+}
+
+// TestFailurePreamble_OverloadedSaysThisRunAloneWaits: an overloaded turn's
+// report says the work was NOT done and must be resent, and that THIS run
+// alone waits and resumes on its own — no credential, no siblings.
+func TestFailurePreamble_OverloadedSaysThisRunAloneWaits(t *testing.T) {
+	got := failurePreamble(&agent.TurnFailure{Kind: agent.FailureOverloaded})
+	assert.True(t, strings.HasPrefix(got, "OVERLOADED:"), got)
+	assert.Contains(t, got, "resend")
+	assert.Contains(t, got, "on its own")
+	assert.NotContains(t, got, "credential")
 }

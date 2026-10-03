@@ -1401,10 +1401,14 @@ message ListRunsResult {
   repeated RunInfo runs = 1;
 }
 
-// RunHold is a parked run's hold: the coordinator pauses every run sharing a
-// credential whose engine turned a turn away, and releases them together.
+// RunHold is a parked run's hold, and its kind decides what it covers: a
+// rate-limit hold pauses every run sharing the credential whose engine turned
+// a turn away, and releases them together; an overload hold pauses only the
+// run whose turn was turned away, since the server's capacity is not the
+// credential's limit.
 message RunHold {
-  // The turn failure the hold is for, e.g. "rate_limited".
+  // The turn failure the hold is for, as its stop_reason spells it
+  // (e.g. "rate_limited", "overloaded").
   string kind = 1;
   // The credential's source: the carrier's NAMES (variables, store
   // locations), never a value.

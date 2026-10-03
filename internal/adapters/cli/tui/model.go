@@ -778,6 +778,9 @@ func (m Model) feedTitle() string {
 	if meta != "" {
 		title += " (" + meta + ")"
 	}
+	if hold := HoldLabel(r.Hold); hold != "" {
+		title += " · " + hold
+	}
 	if m.feedSource != "" {
 		title += " · " + m.feedSource
 	}
@@ -829,7 +832,7 @@ func (m Model) rosterLines(height int) []string {
 		if r.Agent != "" {
 			label += "·" + r.Agent
 		}
-		line := strings.Repeat("  ", min(r.Depth, 3)) + stateGlyph(r.State) + " " + label
+		line := strings.Repeat("  ", min(r.Depth, 3)) + rowGlyph(r) + " " + label
 		if offset+i == m.sel {
 			line = styleSelected.Render(padCell(" "+line, rosterPaneWidth-1))
 		} else {

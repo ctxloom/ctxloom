@@ -820,24 +820,6 @@ func (l *eventLog) listWithTagQuery(statuses []string, term, tagQuery string, sc
 	return filterTasks(all, statuses, term, tagQuery, schema)
 }
 
-func (l *eventLog) summarize() (Summary, error) {
-	all, err := l.snapshot()
-	if err != nil {
-		return Summary{}, err
-	}
-	// Both collections start empty rather than nil so an all-quiet summary
-	// still marshals as `{}` and `[]` — a caller counts and iterates it
-	// without first testing for null.
-	out := Summary{Counts: map[string]int{}, InProgress: []string{}}
-	for _, t := range all {
-		out.Counts[t.Status]++
-		if t.Status == StatusInProgress {
-			out.InProgress = append(out.InProgress, t.HarpID)
-		}
-	}
-	return out, nil
-}
-
 // repair re-introduces any displaced duplicate-add (an identity collision the
 // fold detected) under a fresh harp, idempotently: each re-add carries the
 // anomaly's key so a later fold won't repair it twice. A no-op on a clean log.

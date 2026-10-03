@@ -367,7 +367,7 @@ func TestTaskMarshalsSnakeCase(t *testing.T) {
 }
 
 func TestSummaryMarshalsSnakeCase(t *testing.T) {
-	b, err := json.Marshal(Summary{Counts: map[string]int{StatusToDo: 1}, InProgress: []string{"old-dill"}})
+	b, err := json.Marshal(Summary{Counts: map[string]int{StatusToDo: 1}, InProgress: []InProgressTask{{HarpID: "old-dill", Project: "p"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,34 +495,6 @@ func TestMarshalTask_PreservesTagsWhenPresent(t *testing.T) {
 	}
 	if !slices.Equal(got.Tags, []string{"release", "urgent"}) {
 		t.Errorf("tags = %v, want [release urgent]", got.Tags)
-	}
-}
-
-// Summary's two collections are output too, and carry the same guarantee: an
-// empty summary answers `.in_progress | length` with 0 rather than erroring on
-// null. Both keys were already unconditional; only their empty SPELLING was
-// wrong.
-func TestMarshalSummary_EmitsEmptyCollectionsAsEmptyNotNull(t *testing.T) {
-	summary, err := newLog(t, "swift-amber-falcon").Summarize()
-	if err != nil {
-		t.Fatalf("summarize: %v", err)
-	}
-	b, err := json.Marshal(summary)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var got struct {
-		Counts     *map[string]int `json:"counts"`
-		InProgress *[]string       `json:"in_progress"`
-	}
-	if err := json.Unmarshal(b, &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if got.Counts == nil {
-		t.Errorf("counts must be an object, not null: %s", b)
-	}
-	if got.InProgress == nil {
-		t.Errorf("in_progress must be a list, not null: %s", b)
 	}
 }
 

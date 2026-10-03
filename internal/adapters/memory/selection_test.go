@@ -435,6 +435,7 @@ func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "e2e-under-test")
 	c, err := NewCompactor(CompactionConfig{
 		BackendOverride: &mockBackend{history: history},
 		Run:             runnerOver(mock),
@@ -512,6 +513,7 @@ func TestDistillPrompt_CarriesTheConfiguredBudget(t *testing.T) {
 // the absolute budget was introduced to remove.
 func TestNewCompactor_ClampsBudgetToTheHardCeiling(t *testing.T) {
 	testsupport.Isolate(t)
+	recordOutputDir(t, "clamp-under-test")
 	c, err := NewCompactor(CompactionConfig{
 		BackendOverride: &mockBackend{history: &mockSessionHistory{}},
 		EssenceMaxChars: MaxEssenceChars * 4,
@@ -531,6 +533,7 @@ func TestNewCompactor_ClampsBudgetToTheHardCeiling(t *testing.T) {
 // default rather than zero -- a zero would render "under 0 characters".
 func TestNewCompactor_DefaultsTheBudget(t *testing.T) {
 	testsupport.Isolate(t)
+	recordOutputDir(t, "default-under-test")
 	c, err := NewCompactor(CompactionConfig{
 		BackendOverride: &mockBackend{history: &mockSessionHistory{}},
 		OutputDir:       t.TempDir(),

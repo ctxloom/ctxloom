@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -41,17 +42,14 @@ func WriteNextStep(harpName, text string) error {
 	if bounded == "" {
 		return ErrEmptyNextStep
 	}
-	path, err := paths.HarpNextStepPath(harpName)
+	dir, err := harpOutputDir(harpName)
 	if err != nil {
-		return fmt.Errorf("resolve next-step path for %s: %w", harpName, err)
-	}
-	dir, err := paths.HarpDir(harpName)
-	if err != nil {
-		return fmt.Errorf("resolve harp dir for %s: %w", harpName, err)
+		return fmt.Errorf("resolve output dir for %s: %w", harpName, err)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create harp dir %s: %w", dir, err)
+		return fmt.Errorf("create output dir %s: %w", dir, err)
 	}
+	path := filepath.Join(dir, paths.NextStepFileName)
 	if err := safefs.WriteFile(afero.NewOsFs(), path, []byte(bounded), 0o644); err != nil {
 		return fmt.Errorf("write next step %s: %w", path, err)
 	}
@@ -67,11 +65,11 @@ func WriteNextStep(harpName, text string) error {
 // ("", false), because the single question this answers is whether a usable
 // hint is available, and there is no caller that could act on the difference.
 func ReadNextStep(harpName string) (string, bool) {
-	path, err := paths.HarpNextStepPath(harpName)
+	dir, err := harpOutputDir(harpName)
 	if err != nil {
 		return "", false
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Join(dir, paths.NextStepFileName))
 	if err != nil {
 		return "", false
 	}

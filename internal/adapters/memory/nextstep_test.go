@@ -2,6 +2,7 @@ package memory
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,13 +25,12 @@ const testHarp = "dizzy-balmy-opium"
 // read and the ReadNextStep round trip.
 func TestWriteNextStep_StoresTheTextWhereReadNextStepFindsIt(t *testing.T) {
 	testsupport.Isolate(t)
+	out := recordOutputDir(t, testHarp)
 	const want = "Next I will run the acceptance suite and merge the branch."
 
 	require.NoError(t, WriteNextStep(testHarp, want))
 
-	path, err := paths.HarpNextStepPath(testHarp)
-	require.NoError(t, err)
-	onDisk, err := os.ReadFile(path)
+	onDisk, err := os.ReadFile(filepath.Join(out, paths.NextStepFileName))
 	require.NoError(t, err, "the next step must exist as a file, not merely be reported written")
 	assert.Equal(t, want, string(onDisk), "the stored bytes must be the text handed in")
 
@@ -64,6 +64,7 @@ func TestReadNextStep_MissingFileIsNotAnError(t *testing.T) {
 // where the earlier capture should still stand.
 func TestWriteNextStep_EmptyIsRefusedAndLeavesThePreviousCaptureStanding(t *testing.T) {
 	testsupport.Isolate(t)
+	recordOutputDir(t, testHarp)
 	const first = "Run the gates, then report."
 	require.NoError(t, WriteNextStep(testHarp, first))
 
@@ -85,14 +86,13 @@ func TestWriteNextStep_EmptyIsRefusedAndLeavesThePreviousCaptureStanding(t *test
 // MaxNextStepBytes) — turns this red on the file-size assertion.
 func TestWriteNextStep_BoundsWhatItStores(t *testing.T) {
 	testsupport.Isolate(t)
+	out := recordOutputDir(t, testHarp)
 	runaway := strings.Repeat("pasted an entire file into the reply. ", 4000)
 	require.Greater(t, len(runaway), MaxNextStepBytes*4, "the fixture must actually exceed the bound")
 
 	require.NoError(t, WriteNextStep(testHarp, runaway))
 
-	path, err := paths.HarpNextStepPath(testHarp)
-	require.NoError(t, err)
-	onDisk, err := os.ReadFile(path)
+	onDisk, err := os.ReadFile(filepath.Join(out, paths.NextStepFileName))
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(onDisk), MaxNextStepBytes,
 		"a runaway final message must not create an unbounded file")
@@ -110,12 +110,8 @@ func TestWriteNextStep_BoundsWhatItStores(t *testing.T) {
 // MUTATION — drop the boundNextStep call in ReadNextStep — turns this red.
 func TestReadNextStep_BoundsAnOversizedFileWrittenByAnyoneElse(t *testing.T) {
 	testsupport.Isolate(t)
-	dir, err := paths.HarpDir(testHarp)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	path, err := paths.HarpNextStepPath(testHarp)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", MaxNextStepBytes*3)), 0o644))
+	out := recordOutputDir(t, testHarp)
+	require.NoError(t, os.WriteFile(filepath.Join(out, paths.NextStepFileName), []byte(strings.Repeat("x", MaxNextStepBytes*3)), 0o644))
 
 	got, ok := ReadNextStep(testHarp)
 	require.True(t, ok)
@@ -126,8 +122,8 @@ func TestReadNextStep_BoundsAnOversizedFileWrittenByAnyoneElse(t *testing.T) {
 // TestWriteNextStep_RefusesAHarpThatEscapesTheSessionsRoot pins that the
 // traversal guard paths.HarpDir owns is actually reached from here.
 //
-// MUTATION — build the path with filepath.Join on the sessions root instead of
-// paths.HarpNextStepPath — turns this red.
+// MUTATION — resolve the output dir without the harp's validation — turns
+// this red.
 func TestWriteNextStep_RefusesAHarpThatEscapesTheSessionsRoot(t *testing.T) {
 	testsupport.Isolate(t)
 	assert.Error(t, WriteNextStep("../../escaped", "anything"),

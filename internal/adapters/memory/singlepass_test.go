@@ -251,6 +251,7 @@ func TestCompact_DistillsInExactlyOneLLMCall(t *testing.T) {
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
@@ -301,6 +302,7 @@ func TestCompact_OversizedTranscriptStillOneCallAndReportsReduction(t *testing.T
 		},
 	}
 
+	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),

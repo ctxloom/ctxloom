@@ -503,14 +503,44 @@ Locate the work by SIGNATURE, not by position. Name the function, method,
 type, or exact string to search for — "cloneMCPServer in internal/core/config",
 "the Changed --json branch in cliemit.Resolve" — never "accessors.go:95".
 Line numbers drift on every edit above them and are usually wrong by the
-time anyone reads the task; a symbol name still finds it.`,
+time anyone reads the task; a symbol name still finds it.
+
+Text that begins with "-" (a subject naming the flag it is about) is parsed
+as a flag however it is quoted; put -- before it to end flag parsing.`,
 	Example: `  taskloom add "ship the release notes" --tag release --tag docs
   taskloom add "investigate flaky TestFoo" --status "In Progress"
   taskloom add "revisit caching" --status Deferred --trigger "the v2 API ships"
   taskloom add "dedupe the retry loop in the sync client
-(found 2026-07-19, session icy-weary-chimp, while reviewing config layering)"`,
-	Args: cobra.MinimumNArgs(1),
+(found 2026-07-19, session icy-weary-chimp, while reviewing config layering)"
+  taskloom add --tag cli -- "--json drops the error envelope"`,
+	Args: textArgs(1),
 	RunE: runAdd,
+}
+
+// errTextReadAsFlag is the remedy add and edit attach to a flag-parse or
+// argument-count failure. pflag sees argv, not the shell's quoting, so task
+// text beginning with "-" is parsed as a flag however it was quoted; that
+// surfaces as an unknown flag, a flag missing its value, or (when the text is
+// exactly a real flag) too few arguments, and none of those messages says the
+// text was the cause.
+var errTextReadAsFlag = errors.New(`if the task text begins with "-", it was parsed as a flag: put -- before the text to end flag parsing`)
+
+// textArgs is cobra.MinimumNArgs(n) for a command whose trailing positionals
+// are task text, naming errTextReadAsFlag when too few arrive.
+func textArgs(n int) cobra.PositionalArgs {
+	minArgs := cobra.MinimumNArgs(n)
+	return func(cmd *cobra.Command, args []string) error {
+		if err := minArgs(cmd, args); err != nil {
+			return fmt.Errorf("%w; %w", err, errTextReadAsFlag)
+		}
+		return nil
+	}
+}
+
+// textFlagError is the FlagErrorFunc of a command that takes task text,
+// naming errTextReadAsFlag alongside pflag's own error.
+func textFlagError(_ *cobra.Command, err error) error {
+	return fmt.Errorf("%w; %w", err, errTextReadAsFlag)
 }
 
 func runAdd(cmd *cobra.Command, args []string) error {
@@ -572,8 +602,13 @@ var editCmd = &cobra.Command{
 	Long: `Replace a task's text, keyed by its harp ID.
 
 The entire text is replaced with what you pass (not patched); the task's
-status and any Deferred trigger are left unchanged.`,
-	Args: cobra.MinimumNArgs(2),
+status and any Deferred trigger are left unchanged.
+
+Text that begins with "-" is parsed as a flag however it is quoted; put --
+before it to end flag parsing.`,
+	Example: `  taskloom edit swift-amber-falcon "the new full text"
+  taskloom edit swift-amber-falcon -- "--json drops the error envelope"`,
+	Args: textArgs(2),
 	RunE: runEdit,
 }
 
@@ -893,5 +928,7 @@ func init() {
 	tagsCmd.Flags().StringVar(&tasksTagsTagQuery, "tag-query", "", `count only tasks matching this postfix tag query, e.g. "urgent/release/and" (see "taskloom list --help" for the grammar)`)
 	tagsCmd.Flags().BoolVar(&tasksTagsGlobal, "global", false, "count across every privately-homed project instead of just the current one (repo-homed projects are never included -- see \"taskloom list --help\")")
 
+	addCmd.SetFlagErrorFunc(textFlagError)
+	editCmd.SetFlagErrorFunc(textFlagError)
 	rootCmd.AddCommand(listCmd, addCmd, statusCmd, editCmd, tagCmd, tagsCmd, summaryCmd, statusesCmd)
 }

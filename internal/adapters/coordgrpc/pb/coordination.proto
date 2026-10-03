@@ -741,7 +741,7 @@ message StopRunResult {
     string run_id = 2;
     string agent = 3;
     // "stopped": ended without a turn being cut short (between turns, at its
-    // turn boundary, before it started, or while parked). "interrupted": its
+    // turn boundary, or before it started). "interrupted": its
     // turn was still running when the drain bound elapsed and it was forced.
     // Produced from coord's StopOutcome* constants (drain.go).
     string outcome = 4;
@@ -1371,12 +1371,10 @@ message ListRunsResult {
     string run_id = 2;
     AgentIdentity agent = 3;
     // The run's current state, one of exactly: "queued" | "executing" |
-    // "parked" | "idle" | "ended". These five strings are the whole
-    // vocabulary; "ended" is the only terminal one, and entries in it appear
-    // only when include_terminal is set. Produced from the roster fold's
-    // state (coord/folds.go), which a test pins this list against
-    // (the documented vocabulary used to name an enum nothing
-    // constructs, so a consumer matching it never matched a single run).
+    // "idle" | "ended". These four strings are the whole vocabulary;
+    // "ended" is the only terminal one, and entries in it appear only when
+    // include_terminal is set. Produced from the roster fold's state
+    // (coord/folds.go), which a test pins this list against.
     string phase = 4;
     string latest_summary = 5;     // most recent Summary.text, truncated
     google.protobuf.Timestamp last_event_at = 6;

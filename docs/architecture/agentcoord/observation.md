@@ -47,7 +47,7 @@ current `RunRecord`, and applies two filters.
 | `run_id` | `rec.RunID` |  |
 | `agent.agent_id` | `e.Harp` |  |
 | `agent.role` | `rec.Agent` | the other five `AgentIdentity` fields are never set |
-| `phase` | `e.State` | real vocabulary: `queued`, `executing`, `parked`, `idle`, `ended` |
+| `phase` | `e.State` | real vocabulary: `queued`, `executing`, `idle`, `ended` |
 | `latest_summary` | `reportsF.latestSummary(harp)` | first line, 200 bytes |
 | `parent_run_id` | `rec.ParentRunID` | the field descendant scoping would need |
 | `permission_mode` | `rec.Permission` | fixed at enqueue |
@@ -93,7 +93,7 @@ sorted most-recently-active first.
 | --- | --- |
 | `livenessWatchdog` | 1-minute poll; warns on state transitions |
 | `LivenessSnapshot` | assess-all, on demand |
-| `livenessTargets` | folds + approvals + the live attachment's `workDir` → `[]liveness.Target`; a path-resolution error warns and degrades to an unobserved transcript (`StateUnknown`, never a stall); parked children are explicitly exempt from the stall verdict |
+| `livenessTargets` | folds + approvals + the live attachment's `workDir` → `[]liveness.Target`; a path-resolution error warns and degrades to an unobserved transcript (`StateUnknown`, never a stall); a child with a request pending in the `ApprovalQueue` is exempt from the stall verdict |
 | `livenessMonitor` | lazily builds and memoizes the monitor; the monitor itself is stateless since U056-F04 removed the CPU sampling |
 | `runnerHeartbeatProbe` | the universal probe; **absence is reported as `Observed:false`, never as dead** |
 
@@ -110,10 +110,6 @@ The watchdog is read-only: it never terminates, relaunches or reaps.
 - **`roster`'s `include_descendants` and `task_id` filters are accepted and discarded.**
   `serveListRuns` passes only `include_terminal` and `role`, so
   `include_descendants: true` returns the identical result.
-- **`RunInfo.phase`'s documented vocabulary is wrong.** The proto comment
-  (`coordination.proto:732`) says "`StatusChanged.Phase` name or `TERMINAL`"; the real
-  values are `queued|executing|parked|idle|ended`, and `StatusChanged` is never
-  constructed. The wrong string is copied verbatim into `schemas/roster.json`.
 - **`AgentIdentity` is 2 of 7 fields populated.** `display_name`, `harness`,
   `harness_version`, `model` and `runner_id` are never set, so `RunStarted`'s claim that
   the identity is "repeated here so the log is self-contained without Hello" does not

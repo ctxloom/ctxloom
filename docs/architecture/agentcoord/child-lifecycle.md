@@ -41,7 +41,7 @@ flowchart TD
   RS["runnersession.go"] -->|"CauseRunnerExit / CauseRunnerLoss"| TERM
   STOP["stopRun (agent_stop)<br/>coordinator.go"] -->|"cancelLaunch, CauseStopped"| TERM
   GRACE["adopt: no re-Hello in grace<br/>coordinator.go"] -->|CauseRunnerLoss| TERM
-  DRAIN["drain.go: between turns / while parked /<br/>before start / forced at the bound"] --> TERM
+  DRAIN["drain.go: between turns /<br/>before start / forced at the bound"] --> TERM
   TERM -->|"not TopLevel, not CauseIdleReaped"| NOTICE[("queueMail → parent's spool")]
   TERM --> REAP["reapEndedRuns"]
   TERM --> RLM["relaunchForLeftoverMail<br/>launchgate.go"]

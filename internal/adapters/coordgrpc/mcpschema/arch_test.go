@@ -294,7 +294,7 @@ func snake(s string) string {
 func TestArch_MCPToolSchemas_RosterPhaseVocabularyMatchesTheFold(t *testing.T) {
 	states, err := rosterStateConstants("../../../core/coord/folds.go")
 	require.NoError(t, err)
-	require.Len(t, states, 5, "roster state constants changed — update roster.json's phase doc with them")
+	require.Len(t, states, 4, "roster state constants changed — update roster.json's phase doc with them")
 
 	tool, ok := ToolByName(ToolRoster)
 	require.True(t, ok)

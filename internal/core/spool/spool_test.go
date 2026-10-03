@@ -163,16 +163,25 @@ func TestDir_ClosedEnum(t *testing.T) {
 }
 
 func TestDir_TerminalDirs(t *testing.T) {
+	_, err := DirIn.Consumed()
+	require.Error(t, err, "an inbox message is delivered (Deliver), never consumed into a directory")
+
+	consumed, err := DirOut.Consumed()
+	require.NoError(t, err)
+	require.Equal(t, DirOutConsumed, consumed)
+
 	withdrawn, err := DirIn.Withdrawn()
 	require.NoError(t, err)
 	require.Equal(t, DirInWithdrawn, withdrawn)
 
-	// out/ has no withdrawn state, and a withdrawn file is not withdrawn
-	// again: those are caller bugs, and must say so.
+	// out/ has no withdrawn state, and the terminal dirs are not themselves
+	// consumable: those are caller bugs, and must say so.
 	_, err = DirOut.Withdrawn()
 	require.Error(t, err)
-	_, err = DirInWithdrawn.Withdrawn()
-	require.Error(t, err)
+	for _, d := range []Dir{DirOutConsumed, DirInWithdrawn} {
+		_, err := d.Consumed()
+		require.Error(t, err, "%s must not be consumable", d)
+	}
 }
 
 func TestEnsureDirs_CreatesTheWholeLayout(t *testing.T) {

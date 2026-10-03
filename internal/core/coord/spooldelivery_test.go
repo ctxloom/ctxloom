@@ -609,14 +609,13 @@ func TestSpoolDelivery_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 	// Coordinator side: the same, for an out/ file.
 	outW, err := spool.NewWriter(afero.NewOsFs(), mapper, out.Harp, spool.DirOut, out.Harp)
 	require.NoError(t, err)
-	outMsg := &spool.Message{Kind: KindResult, FromHarp: out.Harp, To: ParentAddress, OriginID: "m-raced-back", Body: "raced back"}
-	outRef, err := outW.Write(outMsg)
+	outRef, err := outW.Write(&spool.Message{Kind: KindResult, FromHarp: out.Harp, To: ParentAddress, Body: "raced back"})
 	require.NoError(t, err)
-	entry := spool.Entry{Ref: outRef, Message: outMsg}
-	require.NoError(t, spool.Consume(mapper, outRef, entry.Identity(), time.Now()))
+	_, err = spool.Consume(mapper, outRef)
+	require.NoError(t, err)
 
 	coordFailedBefore := c.SpoolDeliveryStats().Failed
-	c.consumeSpool(out.Harp, entry)
+	c.consumeSpool(out.Harp, outRef)
 	assert.Equal(t, coordFailedBefore, c.SpoolDeliveryStats().Failed,
 		"the coordinator's half must read a lost race the same way")
 }

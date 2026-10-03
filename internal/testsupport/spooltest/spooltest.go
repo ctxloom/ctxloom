@@ -112,23 +112,3 @@ func AwaitDelivered(t *testing.T, harp, identity string, wait time.Duration, why
 		return true
 	}, wait, 10*time.Millisecond, "%s: %s was never delivered to %s (recorded and deleted)", why, identity, harp)
 }
-
-// AwaitRouted waits until harp's routed record holds identity AND no out/ file
-// still carries it: the coordinator routed the message and deleted it.
-func AwaitRouted(t *testing.T, harp, identity string, wait time.Duration, why string) {
-	t.Helper()
-	require.NotEmpty(t, identity, "an EMPTY identity names no message")
-	require.Eventually(t, func() bool {
-		routed, err := spool.Routed(spool.NewHomeMapper(), harp, identity)
-		require.NoError(t, err)
-		if !routed {
-			return false
-		}
-		for _, e := range Entries(t, harp, spool.DirOut) {
-			if e.Identity() == identity {
-				return false
-			}
-		}
-		return true
-	}, wait, 10*time.Millisecond, "%s: %s was never routed from %s (recorded and deleted)", why, identity, harp)
-}

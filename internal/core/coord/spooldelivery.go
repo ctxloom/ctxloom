@@ -652,7 +652,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 	}
 	c.settleAsk(role, msg.InReplyTo, msg.Structured)
 	c.spoolDeliveryCount.Delivered.Add(1)
-	c.consumeSpool(role, e)
+	c.consumeSpool(role, e.Ref)
 }
 
 // failSpoolOut is routeSpoolOut's terminal outcome for an out/ entry this
@@ -786,18 +786,20 @@ func (c *Coordinator) spoolSenderIdentity(role string) (Identity, bool) {
 	return id, ok
 }
 
-// consumeSpool records a routed out/ file's identity in role's routed record
-// and deletes the file (spool.Consume). A lost race (ErrAlreadyGone) is the
-// expected outcome of the other path having won and is never reported as a
-// failure.
-func (c *Coordinator) consumeSpool(role string, e spool.Entry) {
-	if err := spool.Consume(c.mapper, e.Ref, e.Identity(), time.Now()); err != nil {
+// consumeSpool renames a processed file into its consumed/ sibling. A lost
+// race (ErrAlreadyGone) is the expected outcome of the other path having won
+// and is never reported as a failure.
+func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
+	done, err := spool.Consume(c.mapper, ref)
+	if err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
 		}
-		c.rep.Warnf("coordinator: routed %s but could not record it as routed: %v (it will be routed again on the next sweep)", e.Ref, err)
+		c.rep.Warnf("coordinator: routed %s but could not mark it consumed: %v (it will be routed again on the next sweep)", ref, err)
 		c.spoolDeliveryCount.Failed.Add(1)
+		return
 	}
+	_ = done
 }
 
 // seedSpoolCredit records, without crediting, every known harp's delivered

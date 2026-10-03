@@ -179,6 +179,9 @@ func NewWriter(fs afero.Fs, m PathMapper, harp string, dir Dir, writerID string)
 // fail because someone dropped a note in the directory.
 func (w *Writer) highestSeq() (uint64, error) {
 	dirs := []Dir{w.dir}
+	if consumed, err := w.dir.Consumed(); err == nil {
+		dirs = append(dirs, consumed)
+	}
 	if withdrawn, err := w.dir.Withdrawn(); err == nil {
 		dirs = append(dirs, withdrawn)
 	}

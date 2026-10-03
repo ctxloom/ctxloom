@@ -21,6 +21,7 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"strings"
 	"time"
 
@@ -198,7 +199,7 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 			// kind is REQUIRED on an ordinary send. This rides the
 			// sender-facing tool, so it names a sender-allowed kind:
 			// the steer body is prose the child echoes back.
-			return callTool(c, "agent_send", map[string]any{"to": harp, "body": body, "kind": "message"})
+			return callTool(c, "agent_send", map[string]any{"to_agent_id": harp, "text": body, "kind": pb.MessageKind_MESSAGE_KIND_MESSAGE.String()})
 		})
 
 	// --- the echo -----------------------------------------------------------

@@ -323,7 +323,7 @@ func (c *Coordinator) ControlPause(ctx context.Context, by ControlInitiator, har
 	}
 	// The pause is a hold, journaled BEFORE it is sent, so a coordinator that
 	// dies in between re-asserts it on adopt.
-	id := c.recordPause(by, rec)
+	id := c.recordPause(by, rec, reason)
 	resp, err := c.runnerControl(ctx, by, rec, "pause", reason)
 	if err != nil {
 		if id != "" {

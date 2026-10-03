@@ -1535,7 +1535,7 @@ message ControlPause {
     example: "\"swift-amber-falcon\""
   }];
   string reason = 2 [(field_schema) = {
-    doc: "Why you are pausing — recorded in the coordinator's audit journal so a later reader can tell a deliberate hold from a stall",
+    doc: "Why you are pausing — recorded with the pause in the coordinator's run journal so a later reader can tell a deliberate hold from a stall",
     example: "\"reviewing its first batch before it continues\""
   }];
 }

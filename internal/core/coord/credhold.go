@@ -790,11 +790,11 @@ func (c *Coordinator) releaseHold(ctx context.Context, by ControlInitiator, rec 
 	return true, false, nil
 }
 
-// recordPause journals by's pause of rec's run as a hold of its own, unless a
-// hold already parks that run (or covers its harp): then the runner's gate is
-// already that hold's, and the pause only re-asserts it. id is the new hold's,
-// "" when none was opened.
-func (c *Coordinator) recordPause(by ControlInitiator, rec *RunRecord) (id string) {
+// recordPause journals by's pause of rec's run, with its reason, as a hold of
+// its own, unless a hold already parks that run (or covers its harp): then
+// the runner's gate is already that hold's, and the pause only re-asserts it.
+// id is the new hold's, "" when none was opened.
+func (c *Coordinator) recordPause(by ControlInitiator, rec *RunRecord, reason string) (id string) {
 	kind := HoldKindHuman
 	if by.Kind == InitiatorAgent {
 		kind = HoldKindAgent
@@ -809,7 +809,7 @@ func (c *Coordinator) recordPause(by ControlInitiator, rec *RunRecord) (id strin
 		}
 		id = RandID("hold-", 12)
 		return []Fact{
-			factAt(factHoldOpened, at, holdOpened{ID: id, Key: key, Scope: holdScopeRun, Kind: kind, By: by.auditName()}),
+			factAt(factHoldOpened, at, holdOpened{ID: id, Key: key, Scope: holdScopeRun, Kind: kind, By: by.auditName(), Reason: reason}),
 			factAt(factHoldParked, at, holdParked{Key: key, RunID: rec.RunID, Harp: rec.Harp, Cause: "pause"}),
 		}, nil
 	})

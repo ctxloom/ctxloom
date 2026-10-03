@@ -112,9 +112,12 @@ type holdOpened struct {
 	Kind   string                  `json:"kind"`
 	Engine engine.Name             `json:"engine,omitempty"`
 	Source engine.CredentialSource `json:"source"`
-	// By is who paused the run, for a pause hold (ControlInitiator.auditName).
-	By    string    `json:"by,omitempty"`
-	Until time.Time `json:"until,omitzero"`
+	// By is who paused the run, for a pause hold (ControlInitiator.auditName),
+	// and Reason why, as they gave it: what tells a deliberate hold from a
+	// stall.
+	By     string    `json:"by,omitempty"`
+	Reason string    `json:"reason,omitempty"`
+	Until  time.Time `json:"until,omitzero"`
 }
 
 // holdParked is factHoldParked's payload; Cause is "turn" (its own turn met

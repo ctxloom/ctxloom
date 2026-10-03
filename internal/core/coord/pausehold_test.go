@@ -129,3 +129,16 @@ func TestPauseHold_TheRosterShowsAPause(t *testing.T) {
 	assert.Nil(t, f.holdOf(t, f.stranger))
 	assert.Nil(t, f.entry(f.stranger).Hold)
 }
+
+// TestPauseHold_ThePauseRecordsItsReason: the reason an initiator gives for a
+// pause is journaled with the pause itself, so a later reader can tell a
+// deliberate hold from a stall.
+func TestPauseHold_ThePauseRecordsItsReason(t *testing.T) {
+	f, _ := newRateFixture(t)
+	_, err := f.c.ControlPause(human(t), agentInitiator(), f.stranger, "waiting on the worker's report")
+	require.NoError(t, err)
+	opened := journaled[holdOpened](t, f.c, factHoldOpened)
+	require.Len(t, opened, 1)
+	assert.Equal(t, "waiting on the worker's report", opened[0].Reason)
+	assert.Equal(t, ownerIdentity().Harp, opened[0].By)
+}

@@ -32,7 +32,7 @@ import (
 // produced them, so no single-writer serialization is required — atomic
 // temp-then-rename is sufficient even under concurrent uploads of the same
 // content (see writeAtomic). This is why the store does NOT fight
-// statedir.go's owner.pid lock: that lock exists for journals that are NOT
+// the owner lock (claimOwner): that lock exists for journals that are NOT
 // safe to share across processes; content-addressed blobs are.
 const artifactStoreDirName = "artifacts"
 
@@ -69,8 +69,7 @@ var errArtifactSizeMismatch = errors.New("coord: artifact content does not match
 
 // syncArtifactDir fsyncs the store directory after a blob is published.
 //
-// Indirected for the same reason statedir.go's writeOwnerPID is: on a real
-// filesystem this fails only on conditions a test cannot provoke, while the
+// Indirected because on a real filesystem this fails only on conditions a test cannot provoke, while the
 // consequence of skipping it — a durable manifest naming a blob whose rename
 // never landed — is precisely what must not happen.
 //

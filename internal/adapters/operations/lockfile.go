@@ -42,6 +42,9 @@ type LockDependenciesResult struct {
 	// Unreachable names, sorted, every part of the closure that could not be
 	// reached — the items whose previous entries the lock kept.
 	Unreachable []string `json:"unreachable,omitempty"`
+	// Removed names, sorted, the previous entries the rebuilt closure no
+	// longer reaches — dropped by the wholesale write.
+	Removed []string `json:"removed,omitempty"`
 }
 
 // LockDependencies builds lock.yaml from the flattened transitive closure of
@@ -130,13 +133,14 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		preserveUnreachedEntries(prev, lockfile, len(unexpanded))
 	}
 
-	return saveRelock(lockManager, lockfile, unexpanded)
+	return saveRelock(lockManager, prev, lockfile, unexpanded)
 }
 
 // saveRelock persists a rebuilt lockfile and reports it. unreachable carries
 // through to the result so neither "generated" nor "empty" reads as a
-// complete, clean lock when part of the closure was never reached.
-func saveRelock(lockManager *remote.LockfileManager, lockfile *remote.Lockfile, unreachable []string) (*LockDependenciesResult, error) {
+// complete, clean lock when part of the closure was never reached; prev is the
+// lock being replaced, against which a written lock names what it dropped.
+func saveRelock(lockManager *remote.LockfileManager, prev, lockfile *remote.Lockfile, unreachable []string) (*LockDependenciesResult, error) {
 	incomplete := len(unreachable) > 0
 	if lockfile.IsEmpty() {
 		msg := "No remote items found"
@@ -161,6 +165,7 @@ func saveRelock(lockManager *remote.LockfileManager, lockfile *remote.Lockfile, 
 		ItemCount:   len(lockfile.AllEntries()),
 		Incomplete:  incomplete,
 		Unreachable: unreachable,
+		Removed:     droppedEntries(prev, lockfile),
 	}, nil
 }
 

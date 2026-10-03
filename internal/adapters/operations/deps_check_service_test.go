@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,12 +14,16 @@ import (
 )
 
 // depsCheckApp opens the composition over a project whose lockfile holds
-// exactly the given bundle entries.
-func depsCheckApp(t *testing.T, bundles map[trust.BundleKey]remote.LockEntry) *App {
+// exactly the given bundle entries and whose one profile composes the given
+// refs. Check reports only on entries the project composes.
+func depsCheckApp(t *testing.T, bundles map[trust.BundleKey]remote.LockEntry, composes ...string) *App {
 	t.Helper()
 	appDir := t.TempDir()
 	if bundles != nil {
 		require.NoError(t, remote.NewLockfileManager(appDir).Save(&remote.Lockfile{Bundles: bundles}))
+	}
+	if len(composes) > 0 {
+		writeLocalProfile(t, appDir, "default", "bundles:\n  - "+strings.Join(composes, "\n  - ")+"\n")
 	}
 	return fixtureApp(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 }
@@ -57,7 +62,7 @@ func TestCheckDependencies_UnparseableEntryIsRefusedNotCurrent(t *testing.T) {
 func TestCheckDependencies_EmptySHAEntriesAreSkippedAndCounted(t *testing.T) {
 	app := depsCheckApp(t, map[trust.BundleKey]remote.LockEntry{
 		"ctxloom+git://github.com/o/r//bundles/x": {SHA: "", RequestedVersion: "main"},
-	})
+	}, "https://github.com/o/r@bundles/x@abc123def456")
 	res, err := CheckDependencies(context.Background(), app, CheckDependenciesRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Entries)

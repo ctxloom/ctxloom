@@ -136,3 +136,15 @@ func TestRenderPullSummary_NamesAnIncompleteLock(t *testing.T) {
 	renderPullSummary(&out, &operations.SyncDependenciesResult{Total: 1, Installed: 1})
 	assert.NotContains(t, out.String(), strings.SplitN(pullIncompleteFormat, ":", 2)[0])
 }
+
+// Each entry the post-pull lock rebuild dropped is named.
+func TestRenderPullSummary_NamesRemovedEntries(t *testing.T) {
+	var out bytes.Buffer
+	renderPullSummary(&out, &operations.SyncDependenciesResult{
+		Total:     1,
+		Installed: 1,
+		Removed:   []string{"ctxloom+git://github.com/o/r//bundles/gone"},
+	})
+	assert.Contains(t, out.String(),
+		"  Removed ctxloom+git://github.com/o/r//bundles/gone from the lockfile: nothing this project composes depends on it any more.\n")
+}

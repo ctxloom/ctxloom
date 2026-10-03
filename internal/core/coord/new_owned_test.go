@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,25 +26,29 @@ func TestNew_RefusesAProjectAnotherLiveOwnerHolds(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
 
-	// Park the project's owner lock on a live process that is NOT this one.
-	// (claimOwner treats a lock held by THIS pid as stale by design, so the
-	// test process cannot hold it against itself.)
+	// Park the project's owner lock on a descriptor that is not the claim's:
+	// flock conflicts between two open descriptions even within one process,
+	// which is all "another live owner" is to the kernel.
 	const key = "owned-project"
 	dir, err := stateDirForProject(key)
 	require.NoError(t, err)
-	lock := filepath.Join(dir, OwnerLockFileName)
-	stamp := strconv.Itoa(os.Getppid()) + "\n"
-	require.NoError(t, os.WriteFile(lock, []byte(stamp), 0o600))
+	holdOwnerLock(t, dir)
+	owner := ownerStamp{PID: os.Getppid(), Harp: "the-owner-harp", Mode: OwnerNonInteractive, Started: time.Now().UTC()}
+	writeStamp(t, dir, owner)
+	stampPath := filepath.Join(dir, ownerStampFileName)
+	stamp, err := os.ReadFile(stampPath)
+	require.NoError(t, err)
 
 	// A complete Options: the claim is the ONLY thing that can refuse here.
 	c, err := New(Options{ProjectDir: t.TempDir(), ProjectID: key, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	assert.Nil(t, c)
 	require.ErrorIs(t, err, ErrStateOwned)
-	assert.Contains(t, err.Error(), strconv.Itoa(os.Getppid()), "the refusal names the owner's pid so the operator can find the session")
+	assert.Contains(t, err.Error(), strconv.Itoa(owner.PID), "the refusal names the owner's pid so the operator can find the session")
+	assert.Contains(t, err.Error(), owner.Harp, "the refusal names the owner's session")
 
-	raw, rerr := os.ReadFile(lock)
+	raw, rerr := os.ReadFile(stampPath)
 	require.NoError(t, rerr)
-	assert.Equal(t, stamp, string(raw), "the loser must not restamp or remove the winner's lock")
+	assert.Equal(t, string(stamp), string(raw), "the loser must not restamp the winner")
 	journals, gerr := filepath.Glob(filepath.Join(dir, "*.jsonl"))
 	require.NoError(t, gerr)
 	assert.Empty(t, journals, "the loser must not open journals in the winner's state dir")

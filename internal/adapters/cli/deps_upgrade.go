@@ -100,6 +100,10 @@ func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error
 	// is the whole point: one means "you are current", the other means
 	// "somebody published bytes their signature does not cover".
 	reportRefusedAdvances(res.Refused)
+	// Removals print on every branch below: the lock is rewritten wholesale, so
+	// an entry dropped without a line here is indistinguishable from one that
+	// was never pinned — including under "Everything is up to date."
+	reportRemovedPins(res.Removed)
 
 	if res.Advanced == 0 {
 		if len(res.Refused) > 0 {
@@ -181,6 +185,14 @@ func reportRefusedAdvances(refused []operations.RefusedAdvance) {
 			r.Identity, shortSHA(r.ProposedSHA), r.Detail)
 		fmt.Printf("  Keeping the last verified pin %s — your assistant goes on receiving the content at that pin.\n", shortSHA(r.KeptSHA))
 		fmt.Println("  There is nothing to accept: a signature that does not cover its bytes is a tamper signal, not unsigned content, so it is never offered for review. Ask the publisher to re-sign and publish again, then re-run 'ctxloom deps upgrade'.")
+	}
+}
+
+// reportRemovedPins names each lockfile entry upgrade dropped because nothing
+// the project composes reaches it any more.
+func reportRemovedPins(removed []string) {
+	for _, identity := range removed {
+		fmt.Printf("Removed %s from the lockfile: nothing this project composes depends on it any more.\n", identity)
 	}
 }
 

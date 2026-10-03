@@ -95,9 +95,9 @@ func (l Layout) KeepMarker(harp string) string {
 // one. A session with no recorded output dir has nowhere an essence could be,
 // so it is undistilled.
 //
-// It asks the disk, never the index's Summary: the index carries a Summary
-// long before any essence has been written (a harp rename, a resume pass),
-// so a Summary test would pass the one session this exists to protect.
+// It asks the disk, never a recorded flag: a flag set before the essence
+// was written, or left behind after it was removed, would pass the one
+// session this exists to protect.
 func Distilled(dir string) bool {
 	out, ok := OutputDirOf(dir)
 	if !ok {

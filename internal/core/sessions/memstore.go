@@ -17,8 +17,7 @@ import (
 //
 // Filesystem-free names the records and the records only: no session
 // directories, no sidecars, no file lock, no atomic rewrite, and none of the
-// real store's write side effects — BindSession drops no per-harp transcript
-// symlink.
+// real store's write side effects.
 //
 // It does NOT mean disk-free, and callers must not assume it. Find,
 // ListForProject and ListAll run the same computed-on-read enrichment as

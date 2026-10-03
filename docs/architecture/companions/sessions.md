@@ -1,176 +1,130 @@
-# `internal/core/sessions` — the harp-keyed session index
+# `internal/core/sessions` — the harp-keyed session store
 
-**What it is.** A single YAML file, `~/.ctxloom/sessions/index.yaml`, binding a generated harp
-name to a backend session ID, a project dir, a transcript path, and a distilled summary — plus
-the storage port (`Store`) that abstracts it and two adapters (a flock-protected filesystem
-`Manager` and an in-memory `MemStore`).
+**What it is.** The record of every ctxloom session, keyed by its harp name. There is no
+central index: each session is a directory under the ctxloom home's sessions root, and that
+directory's sidecar (`paths.SessionSidecarFileName`) is the session's identity record. The
+package also owns the storage port (`Store`) over those records, the path composition for a
+session's members (`Layout`), the reaper that reclaims them (`Reap`), and the environment codecs
+a launched engine is handed.
 
 **The contract it owns.** *A harp is minted before launch and is the stable identity everything
-else keys on.* `ctxloom run` mints one pre-launch (`AssignHarp`); the spawned engine's
-SessionStart hook binds the backend session ID (`BindSession`); the compactor stamps a summary
-and a staleness fingerprint (`SetSummary`); `session list` and the MCP memory
-tools read through `Find` / `ListForProject` / `ListAll` / `Reconcile`.
-
-Dependency direction is clean: this package depends on `internal/core/paths`, `internal/shared/{harp,
-safefs,upgrade,clidiag}`, and `github.com/gofrs/flock` (a third-party module, not an internal/shared
-package), and nothing above it.
+else keys on.* `ctxloom run` mints one pre-launch (`AssignHarp`) and records the session's
+output dir (`RecordOutputDir`); the engine's SessionStart hook binds the backend session ID and
+transcript (`BindSession`); readers resolve through `Find`, `FindBySessionID`,
+`ListForProject` and `ListAll`.
 
 ---
 
-## 1. Structure
+## 1. Two roots
 
-```mermaid
-classDiagram
-    class Store {
-        <<interface>>
-        +Load() (*Index, error)
-        +Reconcile(isDead func(Entry) bool) ([]Entry, error)
-        +ListForProject(dir) ([]Entry, error)
-        +ListAll() ([]Entry, error)
-        +Find(harp) (*Entry, error)
-        +AssignHarp(dir, backend) (Entry, error)
-        +BindSession(harp, sid, tpath) error
-        +MarkEnded(harp, at) error
-        +Rename(old, new) error
-        +Forget(harp) error
-        +PendingUpgrade() *upgrade.Pending
-        +CommitUpgrade() error
-    }
-    class Manager {
-        -path string
-        -mu sync.Mutex
-        -pendingUpgrade *upgrade.Pending
-        +Path() string
-        +SetSummary(...) error
-    }
-    class MemStore { -mu sync.Mutex; -sessions []Entry }
-    class Index { +Sessions []Entry }
-    class Entry {
-        +HarpName · SessionID · Backend · ProjectDir
-        +StartedAt · EndedAt · TranscriptPath
-        +Summary · Detail · SourceSize
-        +LastActivity  «computed»
-        +CanonicalTranscriptPath  «computed»
-        +Distilled · EssencePath  «never written»
-        +SourceStale() (bool, bool)
-    }
+A session has two homes, and the split is the point of the layout.
 
-    Store <|.. Manager
-    Store <|.. MemStore
-    Manager ..> Index : yaml load/save under flock
-    Index "1" o-- "*" Entry
-    Manager ..> paths : HarpDir · HarpNativeDir · HarpCanonicalTranscriptPath
-    Manager ..> flock : Lock(path + ".lock")
-    Manager ..> safefs : WriteFile
-    Manager ..> harp : GenerateName
-```
+- **The machine session dir** — `Layout.Dir(harp)` under the ctxloom home. Everything ctxloom
+  and the engine need to run and resume the session: the sidecar, the spool, the transcripts,
+  the engine's native history, the disposable engine home, worktrees and scratch. What lives
+  there, and each member's lifetime, is the `paths.HarpMembers` table; `Layout.Member` is the
+  one join that places a row under a harp. Do not restate the members elsewhere — read the
+  table.
+- **The output dir** — the session's human root, where its readable outputs go (essence, next
+  step, plans, segment essences). Recorded ABSOLUTE in the sidecar at mint (`Entry.OutputDir`,
+  written by `RecordOutputDir`), because its default derives from per-platform, per-user state
+  and a configurable base: re-deriving it later could name a different folder than the one the
+  session's files are in.
 
-```mermaid
-flowchart LR
-  RUN["ctxloom run"] -->|AssignHarp| IDX[("index.yaml")]
-  HOOK["SessionStart hook"] -->|BindSession| IDX
-  COMP["internal/adapters/memory compactor"] -->|SetSummary| IDX
-  IDX -->|Find / ListForProject / ListAll| READ["session list · MCP memory tools ·<br/>transcript.CanonicalHistory"]
-  IDX -->|Reconcile isDead| REAP["operations.isUnrecoverable"]
-```
+The project tree holds no session state.
 
----
+### Resolving the output dir
 
-## 2. Types
+- `OutputDir(harp)` reads the recorded path from the sidecar under the resolved home. No sidecar
+  is `ErrNotFound`; a sidecar recording none is `ErrNoOutputDir`.
+- `OutputDirIn(harp, getenv)` prefers `EnvOutputDir` — a containerized run serves exactly one
+  session and mounts its output dir there — and otherwise falls back to `OutputDir`.
+- `OutputDirOf(dir)` reads the same field from a session dir already in hand.
+- `Distilled(dir)` asks the DISK whether that output dir holds an essence. It is what every
+  destroyer of transcripts consults first: an undistilled session's transcript is its only record.
 
-| Symbol | file:line | Notes |
-|---|---|---|
-| `Entry` | `index.go:38` | Three field groups: the **binding** (`HarpName`, `SessionID`, `Backend`, `ProjectDir`, `StartedAt`, `EndedAt`, `TranscriptPath`), the **summary cache** (`Summary`, `Detail`, `SourceSize`), and **read-time enrichment** (`LastActivity`, `CanonicalTranscriptPath`, both `yaml:"-"`) |
-| `Entry.SourceStale` | `index.go:588` | Picks canonical-over-legacy path, delegates to `TranscriptStale` |
-| `Index` | `index.go:95` | `{Sessions []Entry}` — a one-field wrapper so the YAML has a named `sessions:` key. Marshalled directly as the `ctxloom://sessions/all` MCP resource (`internal/adapters/mcp/mcp_resources.go`, `ctxServer.handleResourceSessionsAll`) |
-| `Store` | `store.go:19` | The storage port; twelve methods, deliberately narrower than `*Manager` (`Path` and `SetSummary` stay off it). Compile-time assertions at `store.go:35-38` |
-| `Manager` | `index.go:102` | The filesystem adapter: `{path, mu, pendingUpgrade}` |
-| `MemStore` | `memstore.go:18` | The in-memory adapter (ADR 0026). 22 external test call sites of `NewMemStore`; `internal/adapters/transcript/history_test.go` builds against it |
+### Transcripts
 
----
+- The engine's native history lands under the harp's native member, reached through the
+  disposable engine home's link to it (`engine.HomeSpec.TranscriptStoreRel`).
+- `BindSession` records the transcript path with symlinks resolved (`boundTranscriptPath`), so
+  the binding stays true after the disposable home is deleted on close.
+- `LocateTranscript(harp)` finds the transcript BY LOCATION — the newest transcript-shaped file
+  under the native member, skipping in-harness subagent interiors. A containerized structured
+  child never runs the SessionStart hook, so for it location IS the binding.
 
-## 3. Functions
+## 2. The store
 
-| Symbol | file:line | Notes |
-|---|---|---|
-| `Open` | `manager.go` | Returns a `Manager` over `paths.HomeSessionsDir`, MkdirAll'ing it; the session directories and their `session.yaml` sidecars are the only source of sessions (a retired `index.yaml` is not read) |
-| `Load` / `loadLocked` | `index.go:135`, `:141` | ENOENT and zero-length are both treated as an empty index; the upgrade pipeline runs **in memory** on every load and stages `pendingUpgrade` |
-| `PendingUpgrade` / `CommitUpgrade` | `index.go:171`, `:187` | `CommitUpgrade` **re-stages from the file's current bytes** under the flock before writing, so it cannot clobber a concurrent `BindSession` |
-| `AssignHarp` | `index.go:228` | flock → load → build the used-set → mint a unique harp → append a pending entry → save |
-| `BindSession` | `index.go:268` | **First-bind-wins** fill of `SessionID`/`TranscriptPath`; the path is recorded with symlinks resolved (`boundTranscriptPath`), so a binding made through the disposable engine home names the file under `native/` and survives the home's deletion |
-| `LocateTranscript` | `transcript.go` | Walks `<harp>/native` (`paths.HarpNativeDir`) for the newest `.jsonl` (else newest `.json`), skipping `subagents/` subtrees — where every engine's native history lands through its session home's link, on the host and in a container alike |
-| `fillTranscriptByLocation` / `fillCanonicalTranscript` | `index.go:405`, `:428` | Read-time enrichment, on an entry **copy** |
-| `Find` | `index.go:455` | Load, linear search, return an enriched copy or `(nil, nil)` for absent — the documented contract, not a swallowed error |
-| `ActivityTime` | `index.go:483` | Canonical-transcript mtime → legacy-transcript mtime → `StartedAt` |
-| `ListForProject` / `ListAll` | `index.go:509`, `:527` | Load, filter, `enrichAndSortByActivity` |
-| `enrichAndSortByActivity` | `index.go:540` | Fills both computed paths + `LastActivity` **once per entry, outside the comparator** (documented at `:481`), then sorts desc by activity with a `StartedAt` tiebreak |
-| `TranscriptStale` | `index.go:567` | Size-compare against the stamped fingerprint; `(false, false)` when undeterminable — the tri-state return *is* the error channel |
-| `MarkEnded` / `Rename` / `Forget` | `index.go:597`, `:625`, `:661` | flock → load → mutate → save; unknown harp errors actionably |
-| `Reconcile` | `index.go:691` | flock → load → filter by the caller's `isDead` predicate → **save only if something was dropped** → fill located transcripts on the survivors |
-| `SetSummary` | `index.go:732` | Overwrites `Summary`, `Detail`, `SourceSize`. One production call site: `internal/adapters/memory/compactor.go:579` |
-| `saveLocked` | `index.go:758` | Marshal + `safefs.WriteFile` + clear `pendingUpgrade` |
-| `generateUniqueHarp` | `index.go:775` | 100 tries against a used-set, then one unredeemed fallback — a verbatim reimplementation of the shared `harp.UniqueFrom` (`internal/shared/harp/harp.go:185-193`) |
+`Store` is the port; the operations layer depends on it and nothing narrower. Its surface is
+exactly what operations invokes; store-only helpers (`SetSourceEntries`) stay on the concrete
+type.
 
----
+- **`*Manager`** — the filesystem adapter over the sessions root. `readSidecar` / `writeSidecar`
+  are its only persistence; every mutator goes through `update`, which takes the in-process
+  mutex and then the harp's own cooperative flock (`lock`, at `paths.HarpSidecarLockPath`), reads,
+  applies the mutation, and rewrites only when something changed. Writes are atomic and durable
+  (`safefs.WriteFile` with `safefs.Durable`): the sidecar is the only record of the session's
+  rotation lineage.
+- **`*MemStore`** — an in-memory record set for tests and for demonstrating storage-agnosticism
+  (ADR 0026). It is filesystem-free for the RECORDS only; its reads run the same enrichment as
+  `Manager` and stat real HOME-rooted files (see its doc comment).
 
-## 4. Invariants
+Listing (`enumerate`) walks the sessions root, admits only directories `IsSessionDir` accepts,
+and skips — with a warning — a sidecar that does not parse, so one corrupt session cannot hide
+the rest. `ListForProject` / `ListAll` order by `ActivityTime`, last WORKED, not created.
 
-**Hold, and are load-bearing:**
+### `Entry`
 
-1. **Every mutation is one atomic load+save under a cooperative flock** on `<index path>.lock`
-   (eight sites: `index.go:194,232,272,601,632,665,695,736`), written via `safefs.WriteFile`.
-2. **First bind wins.** `BindSession` fills `SessionID`/`TranscriptPath` only when currently
-   empty (`index.go:291`) — the TOCTOU guard for a concurrent second bind.
-3. **`Reconcile` performs no write when nothing was dropped** (`index.go:691-723`).
-4. **`Find` returns `(nil, nil)` for an absent harp** — absence is not an error.
-5. **The upgrade pipeline is staged, never auto-applied.** `loadLocked` runs upgrades in memory
-   and records them; only an explicit `CommitUpgrade` writes, and it re-reads first.
-6. **Sort keys are computed once per entry, not inside the comparator** (`index.go:540-554`) —
-   otherwise the `os.Stat` calls in `ActivityTime` would run O(n log n) times.
-7. **The harp-dir symlink is skipped when the transcript already lives inside the harp dir**
-   (`index.go:325-331`), so ctxloom never symlinks a file to itself.
-8. **`Distilled` / `EssencePath` are documented as computed at list/show time** — the real
-   computation lives in `internal/adapters/cli`'s `sessionEssenceInfo` → `SessionRow`.
+The sidecar's schema. Persisted fields are those with a yaml tag; the rest are derived on read
+by `enrich` and must never be written back:
 
-**Do not hold, or are narrower than documented:**
+- `HarpName` is the directory's name — never persisted, so a rename cannot desynchronise it.
+- `Summary` / `Detail` come from the essence in the output dir (`fillFromEssence`); the essence
+  is the record and a second copy would be a second thing to disagree.
+- Transcript locations are filled by `fillTranscriptByLocation` and `fillCanonicalTranscript`.
+- `SourceEntries` is the staleness fingerprint: the transcript's ENTRY COUNT at last
+  distillation, not its byte size — see the field's doc comment for why that distinction is
+  load-bearing.
+- `Rotations` preserves every binding a `/clear` displaced (`Rotation`), which is what lets the
+  canonical transcript be rebuilt across clears and `FindBySessionID` resolve a pre-clear ID.
 
-- **`BindSession(harp, "", "")` succeeds having changed nothing** — it finds the entry, assigns
-  `SessionID = ""`, performs a full index rewrite, and returns nil. The only empty-id guard lives
-  one layer out at `operations/sessions.go:255`; `internal/adapters/memory/compactor.go:570` calls
-  `mgr.BindSession` **directly on the Manager**, bypassing it. `MemStore.BindSession`
-  (`memstore.go:137-144`) has the identical hole.
-- ~~**`SetSummary(harp, "", nil, 0)` succeeds and *erases* a good summary, its detail lines, and its
-  staleness fingerprint**; the guard is at the call site, not in the writer.~~ —
-  **RESOLVED `07abd892`** (U099-F20). `SetSummary` (`index.go:742-744`) now refuses an
-  empty summary outright, naming exactly what the write would have erased. The guard
-  moved into the **writer**, which is the point: the call-site guard in
-  `internal/adapters/memory` was correct and a second caller reaching the writer directly would
-  not have replicated it.
-- **`Reconcile` is the only entry-returning method that never fills
-  `CanonicalTranscriptPath`**, so its `isDead` predicate always sees `""`. A session whose legacy
-  engine transcript was deleted but whose ctxloom-captured canonical transcript is present is
-  silently forgotten; `operations.isUnrecoverable` has no canonical branch because the field is
-  never populated on that path.
-- **`Reconcile` invokes the caller's predicate while holding both `mu` and the blocking flock**
-  (`index.go:707`); `github.com/gofrs/flock`'s `Lock` is blocking with no timeout, and
-  `Open("")` mints a fresh `Manager` per call so re-entry is not self-detectable.
-- **`pendingUpgrade` is cleared as a side effect of every *read*.** `Find`/`ListForProject`/
-  `ListAll` all funnel through `Load` → `loadLocked:142`, which unconditionally nils it. Benign
-  only because `CommitUpgrade:208` re-stages from fresh bytes, so a lost staging degrades to "no
-  prompt offered".
-- **`Entry.Distilled` and `Entry.EssencePath` are written by nothing, anywhere.** `Distilled` also
-  carries `json:"distilled"` with no `omitempty`, so it is a constant `false` on any JSON marshal.
-- **`Entry`'s doc claims the json tags are a shared snake_case contract for
-  `session list --format json` and the VSCode companion** — no code path marshals `sessions.Entry`
-  to JSON. `internal/adapters/cli/session_row.go:36-40` says the opposite explicitly, and
-  `ctxloom://sessions/all` marshals as **YAML**, where all four computed fields are dropped.
-- **`MemStore`'s doc claims it mirrors `*Manager` "without touching disk"** — `ListForProject`,
-  `ListAll` and `Find` all call `fillCanonicalTranscript`, which stats
-  `paths.HarpCanonicalTranscriptPath` under the real `$HOME`, and `ActivityTime` stats again. The two adapters
-  also genuinely diverge: `MemStore`'s list methods never call `fillTranscriptByLocation`, which
-  `Manager`'s do.
-- **`saveLocked(nil)` would marshal to the literal `null`** and atomically overwrite the index with
-  it; `loadLocked` would then read that as "you have no sessions" with no error at any point. No
-  caller passes nil today.
-- **`(*Manager).Path` has exactly one call site in the repo, and it is a test in this package.**
+## 3. Identity and environment
 
+`Identity` is a session as a launched process carries it (harp, depth, run, one-shot);
+`Seed` / `MintStamp` / `Origin` describe how it was minted and are stamped with `StampMint`.
+The env codecs in `env.go` are the only place the launch environment's names are spelled:
+`EncodeReach` / `DecodeReach` carry the coordinator endpoint, credential and run id —
+`DecodeReach` takes the credential from `EnvCoordCred`, or else from the file
+`EnvCoordCredFile` names, which is how a CONTAINER runner receives it so it is in neither the
+container's environment nor the `run` client's; `EncodeHookReach` / `DecodeHookReach` carry the
+hook endpoint; `HookEnv` / `DecodeHookEnv` carry the harp and project an engine forwards to its
+hook subprocesses.
+
+## 4. Reaping
+
+`Reap` / `ReapSession` reclaim session members under a `ReapPolicy`. The policy's scope is a
+`paths.Lifetime`; `ReapPolicy.Members` selects the `paths.HarpMembers` rows that scope takes.
+
+- **It never removes a session directory.** The identity row stays under every scope, so the
+  session still lists and resolves afterwards.
+- **Liveness comes from the lock (`Locks`), never the sidecar.** Only a provably dead owner
+  passes, and the lock is held across the removal so a resume waits instead of racing it.
+- **The keep marker exempts a session entirely**, checked before the lock is probed.
+- **The persistent scope takes persistent members from a DISTILLED session only.** An
+  undistilled one keeps them and is reaped as under the default scope.
+- **No symlink is ever followed.**
+- A zero `Cutoff` is refused (`ErrNoAgeBound`): the one function that deletes must not be
+  callable with no age bound stated.
+
+## 5. Invariants
+
+1. **One sidecar per session, mutated only under that session's lock.** Two sessions never
+   contend; a reader never takes a lock.
+2. **First bind wins.** A different session ID with no transcript path never displaces a live
+   binding, and an empty ID never blanks one; `BindSession` with both empty is a no-op that takes
+   no lock.
+3. **A displaced binding is appended to `Rotations`, never discarded.**
+4. **`Find` returns `(nil, nil)` for an absent harp**, and for a name `harp.Validate` rejects —
+   absence is not an error. Mutators refuse an absent harp with `ErrNotFound`.
+5. **Derived `Entry` fields are never persisted** (`yaml:"-"`).
+6. **The recorded output dir is the answer** even if the configured base has changed since.

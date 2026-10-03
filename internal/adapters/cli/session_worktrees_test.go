@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,8 +81,8 @@ func swtInitRepo(t *testing.T) string {
 }
 
 // swtAddScratchWorktree creates a REAL linked worktree under
-// <home>/.ctxloom/sessions/<harp>/ephemeral/ctxloom-wt-<name>, exactly the
-// layout isolation.findEphemeralWorktrees scans — and, when dirty, genuine
+// <home>/.ctxloom/sessions/<harp>/work/ctxloom-wt-<name>, exactly the
+// layout isolation.findWorkWorktrees scans — and, when dirty, genuine
 // uncommitted content no reap may ever destroy.
 //
 // It says NOTHING about liveness: that is the owning session's, seeded once
@@ -89,9 +90,9 @@ func swtInitRepo(t *testing.T) string {
 // unprovable case.
 func swtAddScratchWorktree(t *testing.T, home, repo, harp, name string, dirty bool) string {
 	t.Helper()
-	ephemeral := filepath.Join(home, ".ctxloom", "sessions", harp, "ephemeral")
-	require.NoError(t, os.MkdirAll(ephemeral, 0o755))
-	wtDir := filepath.Join(ephemeral, "ctxloom-wt-"+name)
+	work := filepath.Join(home, ".ctxloom", "sessions", harp, paths.WorkDirName)
+	require.NoError(t, os.MkdirAll(work, 0o755))
+	wtDir := filepath.Join(work, "ctxloom-wt-"+name)
 	swtGit(t, repo, "worktree", "add", "-q", "-b", "wt-"+harp+"-"+name, wtDir)
 	if dirty {
 		require.NoError(t, os.WriteFile(filepath.Join(wtDir, "in-flight.go"), []byte("// uncommitted\n"), 0o644))

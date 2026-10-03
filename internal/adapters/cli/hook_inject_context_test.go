@@ -152,11 +152,11 @@ func TestBuildInjectContextOutput_ResumedEssence(t *testing.T) {
 // resumed harp's essence.md, including the source, chunk, parts, and
 // presence conditions.
 func TestResumedEssenceForInjection(t *testing.T) {
-	home := testsupport.Isolate(t)
+	testsupport.Isolate(t)
 	harp := "swift-amber-falcon"
-	dir := filepath.Join(home, ".ctxloom", "sessions", harp)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "essence.md"), []byte("  distilled summary  \n"), 0o644))
+	essence, err := harpEssencePath(t, harp)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(essence, []byte("  distilled summary  \n"), 0o644))
 
 	assert.Equal(t, "distilled summary",
 		resumedEssenceForInjection(1, "startup", harp, "session,tasks"), "trimmed essence on startup")

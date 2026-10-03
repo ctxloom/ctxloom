@@ -2,7 +2,6 @@ package cli
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,11 +14,11 @@ import (
 // would inject, without distilling (a preview writes nothing). These cover the
 // three states the harp's essence can be in.
 
-func writeEssence(t *testing.T, home, harp, body string) {
+func writeEssence(t *testing.T, _ /* home */, harp, body string) {
 	t.Helper()
-	dir := filepath.Join(home, ".ctxloom", "sessions", harp)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "essence.md"), []byte(body), 0o644))
+	essence, err := harpEssencePath(t, harp)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(essence, []byte(body), 0o644))
 }
 
 func TestDistilledResumePreview_ShowsWhatTheHookInjects(t *testing.T) {

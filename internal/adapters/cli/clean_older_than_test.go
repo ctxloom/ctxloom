@@ -137,8 +137,8 @@ func cotRun(t *testing.T, args ...string) cleanReport {
 }
 
 // TestClean_WithoutOlderThan_ReapsOnTheDefaultAge: a plain `ctxloom clean
-// --yes` sweeps ephemeral/ on the built-in default age — a session older
-// than it loses its scratch, one younger keeps it — and persist/ is never
+// --yes` sweeps scratch/ on the built-in default age — a session older
+// than it loses its scratch, one younger keeps it — and transcripts/ is never
 // part of that.
 func TestClean_WithoutOlderThan_ReapsOnTheDefaultAge(t *testing.T) {
 	cotProject(t)

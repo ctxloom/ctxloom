@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // ssSeedRecorded is crSeedSession with its record: a purge acts only on a
@@ -19,7 +20,9 @@ import (
 func ssSeedRecorded(t *testing.T, harp string, age time.Duration) string {
 	t.Helper()
 	dir := crSeedSession(t, harp, age)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte("project_dir: /elsewhere\n"), 0o644))
+	out, ok := sessions.OutputDirOf(dir)
+	require.True(t, ok, "the seed records an output dir: it is what makes the session distilled")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte("project_dir: /elsewhere\noutput_dir: "+out+"\n"), 0o644))
 	cotBackdate(t, dir, age)
 	return dir
 }

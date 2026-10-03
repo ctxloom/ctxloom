@@ -58,11 +58,11 @@
               "description": "hold is why this run is parked and when it is released; absent for a run nothing holds.",
               "properties": {
                 "kind": {
-                  "description": "The turn failure the hold is for, as its stop_reason spells it (e.g. \"rate_limited\", \"overloaded\").",
+                  "description": "The turn failure the hold is for, as its stop_reason spells it (e.g. \"rate_limited\", \"overloaded\"), or who paused the run (\"human\", \"agent\").",
                   "type": "string"
                 },
                 "source": {
-                  "description": "The credential's source: the carrier's NAMES (variables, store locations), never a value.",
+                  "description": "The credential's source: the carrier's NAMES (variables, store locations), never a value. Empty for a pause.",
                   "type": "string"
                 },
                 "until_unix": {

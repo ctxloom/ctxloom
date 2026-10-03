@@ -29,12 +29,11 @@ rules:
   # so the binary must be re-pinned (reinstall AND relaunch) before a rule
   # uses a shape only the newer binary parses.
   #
-  # Disabled while the rule language changes: the carve-out above needs a
-  # field the current binary has and the next one removes, and no shape both
-  # parse can express it. Without the carve-out the rule would refuse
-  # third-party installs with a remedy that cannot work.
+  # The carve-out above is absent while the rule language changes: it needs a
+  # field the pinned binary has and the next one removes, and no shape both
+  # parse can express it. Until the re-pin, a third-party `go install mod@ver`
+  # is refused too — over-denying is the safe side of that gap.
   - id: install-via-just
-    mode: disable
     match:
       command: [go, install]
     message: "Install through the task runner, not `go install` directly."

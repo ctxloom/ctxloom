@@ -1085,8 +1085,8 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// Cache the finished result for any sibling branch that
 	// reaches this same profile. Safe to share the pointer: Merge only ever
 	// READS from its "other" argument (appendUnique/appendUniqueFragments
-	// append into the receiver's own slice; MergeHooksConfig/MergeMCPConfig
-	// likewise only append into dest), so a cached ResolvedProfile is never
+	// append into the receiver's own slice; MergeHooksConfig likewise
+	// only appends into dest), so a cached ResolvedProfile is never
 	// mutated by whoever merges it in next.
 	if memo != nil {
 		memo[name] = resolved

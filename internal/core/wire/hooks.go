@@ -140,17 +140,21 @@ type BackendHooks map[string][]Hook
 // profiles a caller selected together: one rule, ruled 2026-08-20, rather than
 // a distinction every future caller would have to know about.
 //
-// The hooks half of this vocabulary owns its merge rule here, alongside the
-// types it merges, for the same reason MergeMCPConfig does. A caller one layer
-// up that re-spells the same appends by hand drifts in one direction only: a
-// new unified event reaches Append and is silently dropped by the copy.
-// Callers that need to say something about a nil destination wrap this; the
-// wire package has no diagnostic channel and is not the place to decide that.
+// The merge rule lives here, alongside the types it merges: a caller one
+// layer up that re-spells the same appends by hand drifts in one direction
+// only — a new unified event reaches Append and is silently dropped by the
+// copy. Callers that need to say something about a nil destination wrap
+// this; the wire package has no diagnostic channel and is not the place to
+// decide that.
+//
+// A nil Ext means "no engine-namespace hooks declared"; it is allocated only
+// when other has an Ext entry to write, so merging an empty source never
+// turns it into a declared-empty map.
 func (h *HooksConfig) Append(other HooksConfig) {
 	h.Unified.Append(other.Unified)
 
-	if h.Ext == nil {
-		h.Ext = make(map[string]BackendHooks)
+	if h.Ext == nil && len(other.Ext) > 0 {
+		h.Ext = make(map[string]BackendHooks, len(other.Ext))
 	}
 	for name, hooks := range other.Ext {
 		if h.Ext[name] == nil {

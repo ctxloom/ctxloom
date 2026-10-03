@@ -624,10 +624,6 @@ named, not to the class. Whether any of those five reach a hashed or written art
 `map[string]string` and `bool` — no chan, func, cyclic reference or NaN, none of which
 `json.Marshal` can fail on.
 
-The codebase asserts this itself: both `ComputeContentHash` wrappers annotate the error
-branch *"Unreachable: the struct holds only strings/[]string/map[string]string, none of
-which json.Marshal can fail on."*
-
 So **no user's hook or MCP server can disappear through this path.** The row's premise —
 "a user's configured executable silently disappears from the launched engine" — has no
 input that produces it. Adding a warn to unreachable defensive code is not a fix.

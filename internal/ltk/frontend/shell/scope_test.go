@@ -17,7 +17,8 @@ version: 1
 rules:
   - id: no-force-push
     match:
-      command: [git, push, --force]
+      command: [git, push]
+      args_all: [--force]
     action: deny
     message: force pushes are not allowed
 `))

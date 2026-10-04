@@ -87,7 +87,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 	if err != nil {
 		return UpgradeResult{}, err
 	}
-	loader := profileLoader(cfg)
+	loader := cfg.GetProfileLoader()
 	// The closure roots must match FlattenDependencies' canonical set (inline
 	// config.yaml definitions, directory profiles, and config-default remote
 	// profiles). A narrower set omits deps rooted in inline/config-default

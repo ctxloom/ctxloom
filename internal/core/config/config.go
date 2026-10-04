@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -271,11 +272,10 @@ type Config struct {
 	catalog         func() bundles.Catalog        `config:"runtime"`
 	versionResolver bundles.BundleVersionResolver `config:"runtime"`
 
-	// profileRemote and profileRemoteURL are the generation's remotes
-	// registry lookups, attached by the reader (Builder.BindProfileResolvers)
-	// because the registry is an adapter's file. Nil for a Config no reader
-	// built: no registry, so profile names and refs are read verbatim.
-	profileRemote    func(string) string `config:"runtime"`
+	// profileRemoteURL is the generation's remotes-registry alias lookup,
+	// attached by the reader (Builder.BindProfileResolvers) because the
+	// registry is an adapter's file. Nil for a Config no reader built: no
+	// registry, so profile refs are read verbatim.
 	profileRemoteURL func(string) string `config:"runtime"`
 
 	// lmDefaultOverlay snapshots what OverlayDefaultRegistry overlaid into LM (nil
@@ -970,26 +970,24 @@ func (c *Config) SignKey() string {
 	return c.settings.SignKey()
 }
 
-// GetProfileLoader returns a profiles.Loader for this config's ctxloom paths.
-// It wires a remote resolver from the remotes registry so the loader can qualify
-// legacy bare bundle refs with the remote each profile was installed from.
+// GetProfileLoader returns the profiles.Loader for this config: every bundle
+// profile visible to it (the project bundle's among them) seeded in, and the
+// local bundles roots a new profile item is written under.
 func (c *Config) GetProfileLoader() *profiles.Loader {
-	return profiles.NewLoader(profiles.GetProfileDirs(c.fs, c.appPaths), c.ProfileLoaderOptions()...)
+	roots := make([]string, 0, len(c.appPaths))
+	for _, appPath := range c.appPaths {
+		roots = append(roots, paths.LocalBundlesPathFor(appPath, paths.LayoutV2))
+	}
+	return profiles.NewLoader(roots, c.ProfileLoaderOptions()...)
 }
 
-// ProfileLoaderOptions returns the loader options EVERY profile-loader factory
-// over this config must wire, so no two factories can disagree about which
-// filesystem is read, how a bundle ref canonicalizes, or which profiles exist.
-// A factory differs from GetProfileLoader only in the DIRECTORIES it searches
-// (operations.profileLoader synthesizes one for a fresh install); the option set
-// is not a place for it to differ.
+// ProfileLoaderOptions returns the loader options GetProfileLoader wires:
+// which filesystem is written, how a local bundle profile's alias refs
+// canonicalize, and which profiles exist.
 func (c *Config) ProfileLoaderOptions() []profiles.LoaderOption {
 	opts := []profiles.LoaderOption{profiles.WithReporter(c.rep.Sink)}
 	if c.fs != nil {
 		opts = append(opts, profiles.WithFS(c.fs))
-	}
-	if resolve := c.ProfileRemoteResolver(); resolve != nil {
-		opts = append(opts, profiles.WithRemoteResolver(resolve))
 	}
 	if resolveURL := c.ProfileRemoteURLResolver(); resolveURL != nil {
 		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL), profiles.WithLocalBundleResolver(c.LocalBundleExists))
@@ -1063,20 +1061,29 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 			continue
 		}
 		sourceURL := bundleProfileSourceURL(src)
+		local := src.Class == trust.ClassLocal
 		for _, profName := range bundle.ProfileNames() {
 			p := cloneBundleProfile(bundle.Profiles[profName])
 			key := bundleRef + refuri.ProfileSelector + profName
-			// Resolve the profile's short same-repo leaf refs (bundles/fragments/
-			// prompts/bundle_items) against the bundle's own source, exactly as a
-			// seeded top-level remote profile does; a canonical "<bundle>#profiles/
-			// <name>" parent ref passes through unchanged. No version is pinned here:
-			// the lockfile already pins the bundle, and the version-agnostic leaf
-			// identities let the read path honor that pin.
-			p.ResolveShortRefs(sourceURL, "")
 			p.Name = key
-			// Sentinel path marks the profile read-only (Save/Delete refuse): like a
-			// remote profile, a bundle profile is edited at its source, not locally.
-			p.Path = profiles.SeededProfilePathPrefix + key
+			if local {
+				// A LOCAL bundle's profile is this project's own: it keeps
+				// its refs as authored — a bare parent names a project
+				// profile and a bare bundle a local bundle, which resolving
+				// against the bundle's source would turn into a bundle ref —
+				// and it carries the path of its file, so the write paths
+				// (Save, Delete, edit) work on it.
+				p.Path = filepath.Join(filepath.Dir(bundle.Path), paths.ProfilesDir, profName+".yaml")
+			} else {
+				// Resolve the profile's short same-repo leaf refs against the
+				// bundle's own source. No version is pinned here: the
+				// lockfile already pins the bundle, and the version-agnostic
+				// leaf identities let the read path honor that pin.
+				p.ResolveShortRefs(sourceURL, "")
+				// Sentinel path marks the profile read-only (Save/Delete
+				// refuse): a remote bundle's profile is edited at its source.
+				p.Path = profiles.SeededProfilePathPrefix + key
+			}
 			// The VERIFIED publisher identity of the bundle this profile ships
 			// inside (bundle.Signer() — stamped only by a load path that already
 			// checked a signature against the trust root; "" for unsigned/
@@ -1148,21 +1155,12 @@ func (c *Config) FS() afero.Fs {
 	return c.fs
 }
 
-// ProfileRemoteResolver maps a profile's local name to the short remote it was
-// installed from. The reader binds it once per generation from the remotes
-// registry (Builder.BindProfileResolvers); nil when no registry was bound — a
-// fixture, or an unreadable registry — and the loader then reads profiles
-// verbatim. Exposed so other profile-loader factories (e.g. operations) wire
-// the same qualification.
-func (c *Config) ProfileRemoteResolver() func(string) string {
-	return c.profileRemote
-}
-
-// ProfileRemoteURLResolver maps a remote alias to its canonical repo URL, bound
-// beside ProfileRemoteResolver from the same registry. It lets the profile
-// loader rewrite a legacy profile's bare/alias bundle refs to their canonical
-// URL form on load; nil when no registry was bound (bundle refs are then read
-// verbatim).
+// ProfileRemoteURLResolver maps a remote alias to its canonical repo URL,
+// bound once per generation from the remotes registry
+// (Builder.BindProfileResolvers). It lets the profile loader rewrite a LOCAL
+// bundle profile's "<alias>/<bundle>" refs to their canonical URL form; nil
+// when no registry was bound — a fixture, or an unreadable registry — and
+// bundle refs are then read verbatim.
 func (c *Config) ProfileRemoteURLResolver() func(string) string {
 	return c.profileRemoteURL
 }

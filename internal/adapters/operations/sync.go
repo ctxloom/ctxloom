@@ -481,7 +481,7 @@ type closureRef struct {
 // before that its own dependencies are not yet visible. syncToFixedPoint
 // re-collects after every pull for exactly that reason.
 func closureBundleRefs(cfg *config.Config, profileNames []string) []closureRef {
-	loader := profileLoader(cfg)
+	loader := cfg.GetProfileLoader()
 	var roots []*profiles.Profile
 	if len(profileNames) == 0 {
 		roots, _ = closureRoots(cfg, loader)

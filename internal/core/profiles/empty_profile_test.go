@@ -17,22 +17,22 @@ import (
 // silent no-op this codebase is named for.
 func TestSave_EmptyProfileIsRefused(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	l := NewLoader([]string{"/proj/.ctxloom/profiles"}, WithFS(fs))
+	l := loaderAt(t, fs, "/proj/.ctxloom/content/bundles/v2/project/profiles")
 
 	err := l.Save(&Profile{Name: "hollow"})
 	assert.Error(t, err, "a profile with no content must not be written as `{}`")
 
-	exists, _ := afero.Exists(fs, "/proj/.ctxloom/profiles/hollow.yaml")
+	exists, _ := afero.Exists(fs, "/proj/.ctxloom/content/bundles/v2/project/profiles/hollow.yaml")
 	assert.False(t, exists, "nothing may be written for a refused save")
 }
 
 // A profile carrying any real selection still saves.
 func TestSave_ProfileWithContentStillSaves(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	l := NewLoader([]string{"/proj/.ctxloom/profiles"}, WithFS(fs))
+	l := loaderAt(t, fs, "/proj/.ctxloom/content/bundles/v2/project/profiles")
 
 	require.NoError(t, l.Save(&Profile{Name: "real", Bundles: []string{"go-development"}}))
-	exists, _ := afero.Exists(fs, "/proj/.ctxloom/profiles/real.yaml")
+	exists, _ := afero.Exists(fs, "/proj/.ctxloom/content/bundles/v2/project/profiles/real.yaml")
 	assert.True(t, exists)
 }
 
@@ -49,9 +49,9 @@ func TestLoad_EmptyProfileFileIsReported(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
-			testsupport.WriteFileString(t, fs, "/proj/.ctxloom/profiles/hollow.yaml", body, 0o644)
+			testsupport.WriteFileString(t, fs, "/proj/.ctxloom/content/bundles/v2/project/profiles/hollow.yaml", body, 0o644)
 			var found report.Collector
-			l := NewLoader([]string{"/proj/.ctxloom/profiles"}, WithFS(fs), WithReporter(&found))
+			l := loaderAt(t, fs, "/proj/.ctxloom/content/bundles/v2/project/profiles", WithReporter(&found))
 
 			_, err := l.Load("hollow")
 			require.NoError(t, err, "a hollow profile must still ENUMERATE")

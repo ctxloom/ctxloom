@@ -1,19 +1,14 @@
 package profiles
 
 import (
-	"errors"
 	"os"
-	"strings"
 	"testing"
-
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -24,7 +19,7 @@ import (
 // local name must not. The scheme list itself is remote.IsCanonicalRef's;
 // this pin is what keeps a second, drifting copy of it out of this package.
 func TestLoad_RemoteSchemeRefsReportNoLockfileEntry(t *testing.T) {
-	loader := NewLoader([]string{"/profiles"}, WithFS(afero.NewMemMapFs()))
+	loader := bundleLoader(t, afero.NewMemMapFs())
 
 	for _, ref := range []string{
 		"https://github.com/owner/repo@bundles/b",
@@ -45,29 +40,27 @@ func TestLoad_RemoteSchemeRefsReportNoLockfileEntry(t *testing.T) {
 	assert.NotContains(t, err.Error(), "no lockfile entry")
 }
 
-// TestExists_ReportsPresenceNotLoadability pins that Exists answers "is there a
-// profile under this name", not "does it currently parse". Answering the second
-// question is destructive: CreateProfile treats Exists==false as "the name is
-// free" and Save then writes over whatever is actually on disk, so a profile
-// with a YAML syntax error was silently replaced by a brand-new one and the
-// user's file was gone.
-func TestExists_ReportsPresenceNotLoadability(t *testing.T) {
+// TestSave_NewProfileNeverOverwritesAFileThatDidNotLoad pins the hazard behind
+// "does this name exist?": CreateProfile treats an unknown name as free and
+// Save then writes a new item. A profile file that is present but did not load
+// — malformed, so it never reached the seed — is not free, and writing a new
+// profile over it would silently replace the user's file.
+func TestSave_NewProfileNeverOverwritesAFileThatDidNotLoad(t *testing.T) {
+	const broken = "bundles: [unclosed\n"
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/profiles/broken.yaml", "bundles: [unclosed\n", 0o644)
-	testsupport.WriteFileString(t, fs, "/profiles/good.yaml", "bundles:\n  - go-development\n", 0o644)
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+	require.NoError(t, fs.MkdirAll(testProfilesDir, 0o755))
+	loader := bundleLoader(t, fs)
+	testsupport.WriteFileString(t, fs, testProfilesDir+"/broken.yaml", broken, 0o644)
 
-	// The broken profile genuinely does not load...
-	_, err := loader.Load("broken")
-	require.Error(t, err)
-	require.NotErrorIs(t, err, errs.ErrProfileNotFound, "a malformed profile is present, not absent")
+	assert.False(t, loader.Exists("broken"), "a profile that did not load is not resolvable")
+	err := loader.Save(&Profile{Name: "broken", Bundles: []string{"go-development"}})
+	require.ErrorIs(t, err, os.ErrExist)
 
-	// ...but it is unmistakably there.
-	assert.True(t, loader.Exists("broken"), "a present-but-malformed profile must report as existing")
-	assert.True(t, loader.Exists("good"))
+	after, err := afero.ReadFile(fs, testProfilesDir+"/broken.yaml")
+	require.NoError(t, err)
+	assert.Equal(t, broken, string(after), "the user's file is untouched")
 
-	// Names with no file behind them stay false, including the shapes Load
-	// refuses outright.
+	// Names that can never address a profile stay false.
 	assert.False(t, loader.Exists("absent"))
 	assert.False(t, loader.Exists("../escape"))
 	assert.False(t, loader.Exists("some/bundle#profiles/p"))
@@ -79,156 +72,4 @@ func TestExists_ReportsPresenceNotLoadability(t *testing.T) {
 func TestExists_SeededProfile(t *testing.T) {
 	loader, p, _ := seedTestProfile(t)
 	assert.True(t, loader.Exists(p.Name))
-}
-
-// faultyFs injects per-path Stat and Open failures into an afero filesystem, so
-// a test can exercise the I/O error arms List takes on a directory it cannot
-// interrogate. MemMapFs alone can only ever report "not found".
-type faultyFs struct {
-	afero.Fs
-	statErr map[string]error
-	openErr map[string]error
-}
-
-func (f *faultyFs) Stat(name string) (os.FileInfo, error) {
-	if err, ok := f.statErr[name]; ok {
-		return nil, err
-	}
-	return f.Fs.Stat(name)
-}
-
-func (f *faultyFs) Open(name string) (afero.File, error) {
-	if err, ok := f.openErr[name]; ok {
-		return nil, err
-	}
-	return f.Fs.Open(name)
-}
-
-// TestList_WarnsWhenAProfileDirectoryCannotBeRead pins that a profile directory
-// List cannot interrogate is REPORTED, not silently dropped. An unreadable dir
-// used to `continue` with the error discarded, so `ctxloom profile list`
-// printed an empty, error-free list for a machine whose profiles were all
-// present but unreachable — the shape of failure this project keeps producing.
-func TestList_WarnsWhenAProfileDirectoryCannotBeRead(t *testing.T) {
-	base := afero.NewMemMapFs()
-	require.NoError(t, base.MkdirAll("/profiles", 0o755))
-	fs := &faultyFs{Fs: base, statErr: map[string]error{"/profiles": errors.New("permission denied")}}
-
-	var warnings report.Collector
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs), WithReporter(&warnings))
-	list, _, err := loader.List()
-	require.NoError(t, err, "List still degrades rather than failing the whole command")
-	assert.Empty(t, list)
-	assert.Contains(t, strings.Join(warnings.All().Texts(), "\n"), "/profiles",
-		"the unreadable profiles directory must be named in a finding")
-}
-
-// TestList_WarnsWhenASubdirectoryCannotBeWalked is the same invariant one level
-// down: a subdirectory whose entries cannot be read is skipped, and saying so is
-// the difference between "you have no profiles" and "I could not look".
-func TestList_WarnsWhenASubdirectoryCannotBeWalked(t *testing.T) {
-	base := afero.NewMemMapFs()
-	require.NoError(t, base.MkdirAll("/profiles/team", 0o755))
-	testsupport.WriteFileString(t, base, "/profiles/solo.yaml", "bundles:\n  - go\n", 0o644)
-	testsupport.WriteFileString(t, base, "/profiles/team/shared.yaml", "bundles:\n  - go\n", 0o644)
-	fs := &faultyFs{Fs: base, openErr: map[string]error{"/profiles/team": errors.New("permission denied")}}
-
-	var warnings report.Collector
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs), WithReporter(&warnings))
-	list, _, err := loader.List()
-	require.NoError(t, err)
-
-	names := make([]string, 0, len(list))
-	for _, p := range list {
-		names = append(names, p.Name)
-	}
-	assert.Equal(t, []string{"solo"}, names, "the readable profile is still listed")
-	assert.Contains(t, strings.Join(warnings.All().Texts(), "\n"), "/profiles/team",
-		"the unwalkable subdirectory must be named in a finding")
-}
-
-// TestList_NamesAreDirRelativeAndNeverEmpty pins the invariant behind the
-// discarded filepath.Rel error in List: every listed profile carries the name
-// derived from its path relative to the directory it was found in, and a name is
-// never empty. An empty Name would sort first and address nothing.
-func TestList_NamesAreDirRelativeAndNeverEmpty(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/profiles/team", 0o755))
-	testsupport.WriteFileString(t, fs, "/profiles/solo.yaml", "bundles:\n  - go\n", 0o644)
-	testsupport.WriteFileString(t, fs, "/profiles/team/shared.yml", "bundles:\n  - go\n", 0o644)
-
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
-	list, _, err := loader.List()
-	require.NoError(t, err)
-
-	names := make([]string, 0, len(list))
-	for _, p := range list {
-		require.NotEmpty(t, p.Name, "profile at %s got an empty name", p.Path)
-		names = append(names, p.Name)
-	}
-	assert.Equal(t, []string{"solo", "team/shared"}, names)
-}
-
-// TestCommitUpgrade_RefusesNothingToWrite asserts the PAYLOAD: a commit that
-// carries no bytes must not report success, and must not touch the file. The
-// signature invites both mistakes -- CommitUpgrade(nil) returned nil for a write
-// that never happened, and a zero-length Data was written verbatim, truncating
-// the user's profile to nothing while reporting success.
-func TestCommitUpgrade_RefusesNothingToWrite(t *testing.T) {
-	const authored = "bundles:\n  - go-development\n"
-
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/profiles/p.yaml", authored, 0o644)
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
-
-	require.Error(t, loader.CommitUpgrade(nil), "a nil pending upgrade is not a successful write")
-
-	require.Error(t, loader.CommitUpgrade(&upgrade.Pending{Path: "/profiles/p.yaml"}),
-		"an empty upgrade payload is not a successful write")
-
-	after, err := afero.ReadFile(fs, "/profiles/p.yaml")
-	require.NoError(t, err)
-	assert.Equal(t, authored, string(after), "the profile must be byte-identical after a refused commit")
-}
-
-// TestList_ReportsTheProfilesItSkipped pins that a skip is RETURNED, not only
-// warned. A warning reaches a human; it does not reach the lock rebuild, which
-// treats an absent profile as a removed one and drops every lock entry reached
-// only through it. The skipped set is what lets that caller tell the two apart.
-func TestList_ReportsTheProfilesItSkipped(t *testing.T) {
-	base := afero.NewMemMapFs()
-	require.NoError(t, base.MkdirAll("/profiles/team", 0o755))
-	testsupport.WriteFileString(t, base, "/profiles/good.yaml", "bundles:\n  - go\n", 0o644)
-	testsupport.WriteFileString(t, base, "/profiles/broken.yaml", "bundles: [unterminated\n", 0o644)
-	testsupport.WriteFileString(t, base, "/profiles/team/shared.yaml", "bundles:\n  - go\n", 0o644)
-	fs := &faultyFs{Fs: base, openErr: map[string]error{"/profiles/team": errors.New("permission denied")}}
-
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs), WithReporter(&report.Collector{}))
-	list, skipped, err := loader.List()
-	require.NoError(t, err)
-	require.Len(t, list, 1)
-	assert.Equal(t, "good", list[0].Name)
-	assert.ElementsMatch(t, []string{"broken", "/profiles/team"}, skipped,
-		"an unparseable profile is skipped by name, an unwalkable directory by path")
-}
-
-// TestList_SkipsNothingWhenEveryProfileLoads is the negative: a clean listing
-// reports no skips, or every relock would be needlessly marked incomplete.
-func TestList_SkipsNothingWhenEveryProfileLoads(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/profiles/good.yaml", "bundles:\n  - go\n", 0o644)
-	_, skipped, err := NewLoader([]string{"/profiles"}, WithFS(fs)).List()
-	require.NoError(t, err)
-	assert.Empty(t, skipped)
-}
-
-// TestList_ReportsAnUninterrogableDirectoryAsSkipped: a profiles directory that
-// cannot be stat'ed hides every profile under it, so it is a skip too.
-func TestList_ReportsAnUninterrogableDirectoryAsSkipped(t *testing.T) {
-	base := afero.NewMemMapFs()
-	require.NoError(t, base.MkdirAll("/profiles", 0o755))
-	fs := &faultyFs{Fs: base, statErr: map[string]error{"/profiles": errors.New("permission denied")}}
-	_, skipped, err := NewLoader([]string{"/profiles"}, WithFS(fs), WithReporter(&report.Collector{})).List()
-	require.NoError(t, err)
-	assert.Equal(t, []string{"/profiles"}, skipped)
 }

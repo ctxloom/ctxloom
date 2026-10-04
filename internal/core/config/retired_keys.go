@@ -14,8 +14,8 @@ import (
 // NOT rewrite it — the "copied a stale doc into a current config" case) and
 // ParseConfig, the init path, which skips validation.
 var retiredKeys = map[string]string{
-	"profiles": "the `profiles:` block was RETIRED: a profile is a file — move each definition to " +
-		"`.ctxloom/profiles/<name>.yaml`, keeping its body verbatim (every field is spelled the same). " +
+	"profiles": "the `profiles:` block was RETIRED: a profile is an item of the project bundle — write each definition to " +
+		"a file named <name>.yaml, keeping its body verbatim (every field is spelled the same), and `ctxloom profile import` it. " +
 		"The default context is whatever the default AGENT composes: `default_agent: <name>` and " +
 		"`agents.<name>.profiles: [...]`",
 	"defaults":       "the top-level `defaults` bag was RETIRED: use `llm.defaults.primary` / `llm.defaults.fast` for models, and `default_agent` for the default context",

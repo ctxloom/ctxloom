@@ -743,9 +743,6 @@ func (st *runState) loadConfig() error {
 	// warnings — surface them so a degraded config.yaml never silently
 	// launches an empty-context session.
 	config.ReportWarnings(strictness.Sink("ctxloom"), cfg.GetWarnings())
-	// Profiles can carry an older schema (e.g. bare bundle refs); offer to
-	// persist those rewrites.
-	confirmProfileUpgrades(cfg)
 	return nil
 }
 
@@ -1586,49 +1583,6 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("tag", completeTagNames)
 	_ = runCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
 	_ = runCmd.RegisterFlagCompletionFunc("command", completePromptNames)
-}
-
-// confirmUpgrade offers to persist a profile schema upgrade that loading
-// applied in memory, only with consent: with -y it commits; outside an
-// interactive terminal it leaves the file untouched and the upgrade simply stays
-// in memory for this run (the next interactive run prompts again).
-func confirmUpgrade(path string, applied []string, commit func() error) {
-	if runAssumeYes {
-		commitUpgrade(path, commit)
-		return
-	}
-	if !isInteractiveTerminal() {
-		return // in-memory only — never a silent rewrite
-	}
-
-	fmt.Fprintf(os.Stderr, "ctxloom: %s is an older schema (%s).\n", path, strings.Join(applied, ", "))
-	if yes, err := promptYesNo("Rewrite it to the current format? [y/N] "); err == nil && yes {
-		commitUpgrade(path, commit)
-	}
-}
-
-// confirmProfileUpgrades offers to persist any older-schema rewrites that loading
-// the configured profiles applied in memory (e.g. bare bundle refs qualified with
-// their remote). It resolves each of the default agent's composed profiles through
-// one loader — which loads parents too — so every pending rewrite is surfaced,
-// then prompts per file via the shared confirmUpgrade path. No pending means every
-// profile was current (profiles.defaults was retired — see DefaultAgentProfiles).
-func confirmProfileUpgrades(cfg *config.Config) {
-	loader := cfg.GetProfileLoader()
-	for _, name := range cfg.DefaultAgentProfiles() {
-		_, _ = loader.ResolveProfile(name, nil)
-	}
-	for _, p := range loader.PendingUpgrades() {
-		confirmUpgrade(p.Path, p.Applied, func() error { return loader.CommitUpgrade(p) })
-	}
-}
-
-// commitUpgrade persists a pending upgrade, warning (never fatal) on failure —
-// the in-memory config is valid regardless.
-func commitUpgrade(path string, commit func() error) {
-	if err := commit(); err != nil {
-		clidiag.Warn("ctxloom", "could not rewrite %s: %v", path, err)
-	}
 }
 
 // confirmSyncInstall returns true if startup sync should proceed.

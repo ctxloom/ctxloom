@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -88,8 +89,10 @@ type SurfaceType interface {
 // constant would put a non-gated kind into the gate's vocabulary. The string is
 // "profiles" rather than "profile" so that ItemKind.Dir()'s default branch,
 // which returns the kind verbatim, yields the right directory with no change to
-// the trust package.
-const KindProfile trust.ItemKind = "profiles"
+// the trust package. It is paths.ProfilesDir, the one name for the directory a
+// bundle tree keeps its profiles in, so the loader writing a new profile item
+// and this type reading one cannot disagree about where it lives.
+const KindProfile = trust.ItemKind(paths.ProfilesDir)
 
 var registry struct {
 	mu     sync.RWMutex

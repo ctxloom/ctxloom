@@ -57,7 +57,7 @@ func lockIdentities(t *testing.T, refs ...string) []string {
 // remote bundle referenced only from one of its profiles is locked.
 func TestClosureRoots_PinEveryLocallyAuthoredProfile(t *testing.T) {
 	cfg := closureFixture(t)
-	loader := profileLoader(cfg)
+	loader := cfg.GetProfileLoader()
 	roots, unexpanded := closureRoots(cfg, loader)
 	require.Empty(t, unexpanded)
 
@@ -77,7 +77,7 @@ func TestClosureRoots_PinEveryLocallyAuthoredProfile(t *testing.T) {
 func TestDepWalker_RecurseParent_LocalBundleProfileParent(t *testing.T) {
 	cfg := closureFixture(t)
 	w := newTestWalker(remote.NewMockFetcher())
-	w.loader = profileLoader(cfg)
+	w.loader = cfg.GetProfileLoader()
 
 	w.recurseParent(remote.LocalSource + "@bundles/team#profiles/p")
 	pins, _, missing := w.result()
@@ -89,7 +89,7 @@ func TestDepWalker_RecurseParent_LocalBundleProfileParent(t *testing.T) {
 // bare parent inside it to its locally authored sibling.
 func TestProfileLoader_SelectorlessNameResolvesLocally(t *testing.T) {
 	cfg := closureFixture(t)
-	loader := profileLoader(cfg)
+	loader := cfg.GetProfileLoader()
 
 	dev, err := loader.Load("dev")
 	require.NoError(t, err)
@@ -105,7 +105,7 @@ func TestProfileLoader_SelectorlessNameResolvesLocally(t *testing.T) {
 // gate source is the bundle's own canonical ref.
 func TestProfileLoader_LocalBundleProfileSeed(t *testing.T) {
 	cfg := closureFixture(t)
-	loader := profileLoader(cfg)
+	loader := cfg.GetProfileLoader()
 
 	full, err := loader.Load(remote.LocalSource + "@bundles/team#profiles/p")
 	require.NoError(t, err)

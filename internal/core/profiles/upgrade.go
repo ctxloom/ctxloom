@@ -11,34 +11,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
-// profileUpgrades is the canonical, ordered profile schema upgrade pipeline,
-// oldest-first. Append an Upgrader here as the profile schema evolves; a
-// Pipeline is itself an Upgrader, so the chain composes and the loader runs the
-// whole thing over every profile (see loadFile).
-//
-// It is parameterized by the resolution context a bundle ref needs to be made
-// canonical: ownURL is the repo URL of the remote the profile itself was
-// installed from (so a bare sibling ref resolves against it), and aliasToURL
-// maps any remote alias to its repo URL (so an "<alias>/<bundle>" ref resolves
-// against the aliased repo). Both come from the load name + registry, which live
-// outside the document, so the loader resolves them and threads them in.
-// Remote-dependent upgrades self-gate when they have no resolution context (a
-// local project profile has no remote), so the pipeline is always built — that
-// keeps future remote-independent upgrades from being skipped for local profiles.
-//
-// localBundleExists reports whether a "<alias>/<bundle>" base names a LOCAL
-// bundle; such a ref stays local (decision E, local-file-wins). Nil skips the
-// check.
-//
-// seeded is the loader's bundle-profile seed ("<bundle>#profiles/<name>" keys):
-// the discovery surface for rewriting retired top-level @profiles/ parents to
-// their bundle-shipped successors.
-func profileUpgrades(ownURL string, aliasToURL func(string) string, localBundleExists func(string) bool, seeded map[string]*Profile) upgrade.Pipeline {
-	return upgrade.Pipeline{
-		promptSelectorUpgrade{},
-		retiredParentUpgrade{seeded: seeded},
-		bundleRefCanonicalizeUpgrade{ownURL: ownURL, aliasToURL: aliasToURL, localBundleExists: localBundleExists},
-	}
+// decodeNormalizers are the context-free normalizer stages Decode runs over
+// every profile document, oldest first. Each needs nothing beyond the
+// document itself: the alias stage, which needs this machine's remote
+// registry, runs in the loader and only over a LOCAL bundle's profiles
+// (Loader.canonicalizeLocalAliases), and the retired-parent rewrite, which
+// needs the whole seed, runs over the seed (RewriteRetiredParents).
+var decodeNormalizers = upgrade.Pipeline{
+	promptSelectorUpgrade{},
+	bundleRefCanonicalizeUpgrade{},
 }
 
 // promptSelectorUpgrade rewrites legacy item selectors that targeted a bundle
@@ -72,53 +53,6 @@ func rewriteCommandSelector(ref string) (string, bool) {
 		}
 	}
 	return ref, false
-}
-
-// retiredParentUpgrade rewrites a parent written in the RETIRED top-level
-// profile distribution grammar ("<url>@profiles/<name>") to its bundle-shipped
-// successor ("<url>@bundles/<bundle>#profiles/<name>"). Top-level @profiles/
-// distribution was removed with ItemTypeProfile: the retired form can no longer
-// resolve, sync, or lock. The rewrite is discovery-based, not syntactic — which
-// bundle now ships the profile is unknowable from the ref alone — so it targets
-// the one seeded bundle profile the same repo ships under that name
-// (findBundleProfileKey). An unmatched parent (successor bundle not yet pulled,
-// profile dropped upstream, or ambiguous) is left verbatim per the
-// fault-tolerance rule of this pipeline: persist the authored form and let the
-// resolver warn, rather than guess. Idempotent: successor-form ("#profiles/")
-// and local parents never match the retired grammar.
-//
-// It runs BEFORE bundleRefCanonicalizeUpgrade so the successor ref it emits is
-// re-normalized (legacy "v1/" collapse) by that later stage like any other
-// canonical parent.
-type retiredParentUpgrade struct {
-	seeded map[string]*Profile
-}
-
-// Name identifies the upgrade in logs and the rewrite prompt.
-func (retiredParentUpgrade) Name() string {
-	return "rewrite retired @profiles/ parents to bundle profiles"
-}
-
-// Apply rewrites retired parents in the top-level parents sequence.
-func (u retiredParentUpgrade) Apply(root *yaml.Node) bool {
-	if len(u.seeded) == 0 {
-		return false
-	}
-	return mapScalarSeq(root, "parents", u.rewrite)
-}
-
-// rewrite migrates a single retired parent ref to its seeded successor,
-// reporting whether it changed. Non-retired refs pass through untouched.
-func (u retiredParentUpgrade) rewrite(ref string) (string, bool) {
-	url, name, ok := remote.SplitRetiredProfileRef(ref)
-	if !ok {
-		return ref, false
-	}
-	successor, found := findBundleProfileKey(u.seeded, url, name)
-	if !found {
-		return ref, false
-	}
-	return successor, true
 }
 
 // findBundleProfileKey returns the key in seeded for the profile shipped by
@@ -161,13 +95,12 @@ func findBundleProfileKey(seeded map[string]*Profile, url, name string) (string,
 // bundles by bare name (`core-practices`) or by remote alias
 // (`ctxloom-default/git`); but remote bundles are no longer extracted to disk —
 // they are seeded and resolved by canonical ref ONLY (see
-// config.loadRemoteBundleSeed). So neither short form resolves anymore. This
-// canonicalizes each ref so the seeded resolver finds it unchanged, and — since
-// loadFile records what it changed as a pending rewrite — migrates the on-disk
-// profile to canonical storage on the next consented rewrite.
+// config.loadRemoteBundleSeed). This canonicalizes each ref, in memory, so the
+// seeded resolver finds it unchanged. With no alias resolver (Decode's
+// context-free run) only the context-free parts apply.
 //
-//   - A bare ref ("core-practices") resolves against ownURL (the profile's own
-//     remote).
+//   - A bare ref ("core-practices") names a LOCAL bundle and is left as
+//     written.
 //   - An "<alias>/<bundle>" ref resolves against the alias' repo URL via
 //     aliasToURL — including the common case where the alias is the profile's
 //     own remote (a redundant prefix the old qualifier produced) — through
@@ -180,7 +113,6 @@ func findBundleProfileKey(seeded map[string]*Profile, url, name string) (string,
 //     that fails to parse) is left unchanged — fault tolerant: persist the
 //     authored form rather than drop the ref.
 type bundleRefCanonicalizeUpgrade struct {
-	ownURL            string
 	aliasToURL        func(string) string
 	localBundleExists func(string) bool
 }
@@ -269,14 +201,11 @@ func (u bundleRefCanonicalizeUpgrade) canonicalize(ref string) (string, bool) {
 		return ref, false
 	}
 
-	var resolved string
-	if strings.Contains(base, "/") {
-		// "<alias>/<bundle>": the shared short-ref resolver, local-file-wins.
-		resolved = remote.CanonicalizeShortRef(base, u.aliasToURL, u.localBundleExists)
-	} else if u.ownURL != "" {
-		// Bare "<bundle>": resolve against the profile's own remote.
-		resolved = u.ownURL + "@" + remote.ItemTypeBundle.DirName() + "/" + base
+	if !strings.Contains(base, "/") {
+		return ref, false
 	}
+	// "<alias>/<bundle>": the shared short-ref resolver, local-file-wins.
+	resolved := remote.CanonicalizeShortRef(base, u.aliasToURL, u.localBundleExists)
 	if !remote.IsCanonicalRef(resolved) {
 		return ref, false
 	}

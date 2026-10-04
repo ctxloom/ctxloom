@@ -625,15 +625,13 @@ func AgentSetupNudge(cfg *config.Config) string {
 }
 
 // hasAnyProfiles reports whether the project has any profile to bind an agent
-// to: a configured default or a directory profile. Used only to gate the setup
-// nudge, so a directory-scan failure degrades to "none" (the nudge simply stays
-// quiet) rather than erroring.
+// to: a configured default or any profile the loader resolves. Used only to
+// gate the setup nudge.
 func hasAnyProfiles(cfg *config.Config) bool {
 	if len(cfg.DefaultAgentProfiles()) > 0 {
 		return true
 	}
-	list, _, _ := cfg.GetProfileLoader().List()
-	return len(list) > 0
+	return len(cfg.GetProfileLoader().List()) > 0
 }
 
 // ResolvedAgent is an agent resolved into something run / agent_run can

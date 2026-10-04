@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -65,10 +66,11 @@ type InitializeProjectResult struct {
 const SeedProfileName = "default"
 
 // InitializeProject creates the .ctxloom skeleton (dir tree + config.yaml
-// carrying the chosen engine + default remotes.yaml + a scaffolded local
-// default coding profile). Safe to re-run: directories use MkdirAll and the
-// scaffold files are overwritten — EXCEPT the seed profile, which is left
-// untouched if it already exists so a re-init never clobbers user edits.
+// carrying the chosen engine + default remotes.yaml + the project bundle
+// carrying a scaffolded default coding profile). Safe to re-run: directories
+// use MkdirAll and the scaffold files are overwritten — EXCEPT the project
+// bundle and its seed profile, which are left untouched if they already exist
+// so a re-init never clobbers user edits.
 //
 // req.Engine is validated against the composed engine registry (App.Engines
 // — the one place a "known engine" is defined) BEFORE anything is written: an
@@ -135,7 +137,7 @@ func scaffoldProjectDirs(fs afero.Fs, appDir string) error {
 	// directory is only the parent the format roots are siblings under, and a
 	// bundle sitting in it belongs to no format and is read by nobody. MkdirAll
 	// creates the parent too, so GetBundleDirs still sees it.
-	for _, dir := range []string{appDir, filepath.Join(appDir, paths.ProfilesDir), paths.LocalBundlesPathFor(appDir, paths.LayoutV2)} {
+	for _, dir := range []string{appDir, paths.LocalBundlesPathFor(appDir, paths.LayoutV2)} {
 		if err := fs.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
@@ -216,12 +218,23 @@ func writeDefaultRemotes(fs afero.Fs, appDir string) error {
 	return nil
 }
 
-// scaffoldSeedProfile writes the embedded local default coding profile into
-// .ctxloom/profiles/<SeedProfileName>.yaml. It is write-if-absent: a profile is
-// user-editable content, so a re-init must not overwrite a default the user has
-// since customized (unlike config.yaml/remotes.yaml, which are scaffolding).
+// scaffoldSeedProfile creates the project bundle (paths.ProjectBundleName)
+// when there is none, and writes the embedded local default coding profile
+// into it as its <SeedProfileName> profile item. Both are write-if-absent: a
+// profile is user-editable content, so a re-init must not overwrite a default
+// the user has since customized (unlike config.yaml/remotes.yaml, which are
+// scaffolding).
 func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
-	dest := filepath.Join(paths.ProfilesPath(appDir), SeedProfileName+".yaml")
+	bundleDir := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV2), paths.ProjectBundleName)
+	manifest := filepath.Join(bundleDir, bundles.DirectoryFormManifest)
+	if exists, err := afero.Exists(fs, manifest); err != nil {
+		return fmt.Errorf("check %s: %w", manifest, err)
+	} else if !exists {
+		if err := bundles.NewFSStore(fs, nil).Save(newCreatedBundle(CreateBundleRequest{}, manifest)); err != nil {
+			return fmt.Errorf("create the %q bundle: %w", paths.ProjectBundleName, err)
+		}
+	}
+	dest := filepath.Join(bundleDir, paths.ProfilesDir, SeedProfileName+".yaml")
 	if exists, _ := afero.Exists(fs, dest); exists {
 		return nil
 	}

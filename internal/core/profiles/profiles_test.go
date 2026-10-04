@@ -26,7 +26,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -39,9 +38,8 @@ import (
 // Loader Tests
 // =============================================================================
 //
-// The Loader provides CRUD operations for profile YAML files. It searches
-// through multiple directories (ctxloom paths) and handles both .yaml and .yml
-// extensions.
+// The Loader resolves bundle profiles from its seed and writes a local
+// bundle's profile items.
 
 // TestNewLoader verifies that the loader stores the provided directories.
 func TestNewLoader(t *testing.T) {
@@ -51,7 +49,7 @@ func TestNewLoader(t *testing.T) {
 }
 
 func TestLoader_List(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	// Create profile files
 	profile1 := `description: Profile 1
@@ -63,64 +61,24 @@ bundles:
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "profile1.yaml"), []byte(profile1), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "profile2.yaml"), []byte(profile2), 0644))
 
-	loader := NewLoader([]string{tmpDir})
-	profiles, _, err := loader.List()
-	require.NoError(t, err)
+	loader := osLoader(t, tmpDir)
+	profiles := loader.List()
 
 	assert.Len(t, profiles, 2)
 	// Should be sorted by name
-	assert.Equal(t, "profile1", profiles[0].Name)
-	assert.Equal(t, "profile2", profiles[1].Name)
-}
-
-// TestLoader_List_WithSubdirectories verifies profile naming with nested paths.
-//
-// NON-OBVIOUS: When profiles are in subdirectories (e.g., vendor/profile.yaml),
-// the profile name includes the path (e.g., "vendor/remote"). This allows
-// namespacing of profiles by source/vendor without conflicts.
-func TestLoader_List_WithSubdirectories(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create nested structure
-	subDir := filepath.Join(tmpDir, "vendor")
-	require.NoError(t, os.MkdirAll(subDir, 0755))
-
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "local.yaml"), []byte("description: local"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(subDir, "remote.yaml"), []byte("description: remote"), 0644))
-
-	loader := NewLoader([]string{tmpDir})
-	profiles, _, err := loader.List()
-	require.NoError(t, err)
-
-	assert.Len(t, profiles, 2)
-
-	// Check profile names include subdirectory path
-	names := make([]string, len(profiles))
-	for i, p := range profiles {
-		names[i] = p.Name
-	}
-	assert.Contains(t, names, "local")
-	assert.Contains(t, names, "vendor/remote")
+	assert.Equal(t, projectProfileRef("profile1"), profiles[0].Name)
+	assert.Equal(t, projectProfileRef("profile2"), profiles[1].Name)
 }
 
 func TestLoader_List_EmptyDir(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
-	loader := NewLoader([]string{tmpDir})
-	profiles, _, err := loader.List()
-	require.NoError(t, err)
-	assert.Empty(t, profiles)
-}
-
-func TestLoader_List_NonexistentDir(t *testing.T) {
-	loader := NewLoader([]string{"/nonexistent/path"})
-	profiles, _, err := loader.List()
-	require.NoError(t, err)
-	assert.Empty(t, profiles)
+	loader := osLoader(t, tmpDir)
+	assert.Empty(t, loader.List())
 }
 
 func TestLoader_Load(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	profileContent := `description: Test profile
 bundles:
@@ -133,11 +91,11 @@ variables:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "test-profile.yaml"), []byte(profileContent), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 	profile, err := loader.Load("test-profile")
 	require.NoError(t, err)
 
-	assert.Equal(t, "test-profile", profile.Name)
+	assert.Equal(t, projectProfileRef("test-profile"), profile.Name)
 	assert.Equal(t, "Test profile", profile.Description)
 	assert.Equal(t, []string{"bundle1", "bundle2"}, profile.Bundles)
 	assert.Equal(t, []string{"golang"}, profile.Tags)
@@ -145,8 +103,8 @@ variables:
 }
 
 func TestLoader_Load_NotFound(t *testing.T) {
-	tmpDir := t.TempDir()
-	loader := NewLoader([]string{tmpDir})
+	tmpDir := projectProfilesDir(t)
+	loader := osLoader(t, tmpDir)
 
 	_, err := loader.Load("nonexistent")
 	assert.Error(t, err)
@@ -158,8 +116,8 @@ func TestLoader_Load_NotFound(t *testing.T) {
 // resolve through the lockfile-built seed, so the miss means "not pulled",
 // not "doesn't exist upstream".
 func TestLoader_Load_RemoteRefNotSeeded(t *testing.T) {
-	tmpDir := t.TempDir()
-	loader := NewLoader([]string{tmpDir})
+	tmpDir := projectProfilesDir(t)
+	loader := osLoader(t, tmpDir)
 
 	_, err := loader.Load("https://github.com/owner/repo@profiles/default")
 	assert.Error(t, err)
@@ -167,31 +125,20 @@ func TestLoader_Load_RemoteRefNotSeeded(t *testing.T) {
 	assert.Contains(t, err.Error(), "ctxloom deps pull")
 }
 
-func TestLoader_Load_YmlExtension(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "profile.yml"), []byte("description: YML file"), 0644))
-
-	loader := NewLoader([]string{tmpDir})
-	profile, err := loader.Load("profile")
-	require.NoError(t, err)
-	assert.Equal(t, "YML file", profile.Description)
-}
-
 func TestLoader_Exists(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "exists.yaml"), []byte(""), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 
 	assert.True(t, loader.Exists("exists"))
 	assert.False(t, loader.Exists("not-exists"))
 }
 
 func TestLoader_Save(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 	profile := &Profile{
 		Name:        "new-profile",
 		Description: "A new profile",
@@ -212,19 +159,17 @@ func TestLoader_Save(t *testing.T) {
 	assert.Equal(t, []string{"bundle1"}, loaded.Bundles)
 }
 
-// TestLoader_Save_SubdirName pins saving the subdir-qualified names List
-// itself produces (e.g. "team/dev"): Save must create the intermediate
-// directories instead of failing ENOENT on the file write.
-func TestLoader_Save_SubdirName(t *testing.T) {
-	tmpDir := t.TempDir()
-	loader := NewLoader([]string{tmpDir})
+// TestLoader_Save_RefusesNestedName pins the single-segment rule: a profile
+// item's name is its filename inside the bundle's profiles directory, so a
+// nested name is refused, never written as a subdirectory.
+func TestLoader_Save_RefusesNestedName(t *testing.T) {
+	tmpDir := projectProfilesDir(t)
+	loader := osLoader(t, tmpDir)
 
-	require.NoError(t, loader.Save(&Profile{Name: "team/dev", Description: "nested"}))
-	assert.FileExists(t, filepath.Join(tmpDir, "team", "dev.yaml"))
-
-	loaded, err := loader.Load("team/dev")
-	require.NoError(t, err)
-	assert.Equal(t, "nested", loaded.Description)
+	err := loader.Save(&Profile{Name: "team/dev", Description: "nested"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "single path segment")
+	assert.NoDirExists(t, filepath.Join(tmpDir, "team"))
 }
 
 // TestLoader_Save_RejectsTraversal pins the path-traversal chokepoint: a name
@@ -232,8 +177,8 @@ func TestLoader_Save_SubdirName(t *testing.T) {
 // (Bundles have ValidateBundleName; profiles join Name into a path with the
 // same risk.)
 func TestLoader_Save_RejectsTraversal(t *testing.T) {
-	tmpDir := t.TempDir()
-	loader := NewLoader([]string{filepath.Join(tmpDir, "profiles")})
+	tmpDir := projectProfilesDir(t)
+	loader := osLoader(t, tmpDir)
 
 	for _, name := range []string{"../evil", "/abs/path", "a/../../evil"} {
 		t.Run(name, func(t *testing.T) {
@@ -247,39 +192,20 @@ func TestLoader_Save_RejectsTraversal(t *testing.T) {
 	require.NoError(t, loader.Save(&Profile{Name: "..hidden", Bundles: []string{"go-development"}}))
 }
 
-// TestLoader_Save_RoundTripsYmlFile pins extension round-tripping: a profile
-// loaded from a .yml file saves back to that file instead of duplicating
-// itself as a sibling .yaml.
-func TestLoader_Save_RoundTripsYmlFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "dev.yml"), []byte("description: original\n"), 0o644))
-
-	loader := NewLoader([]string{tmpDir})
-	loaded, err := loader.Load("dev")
-	require.NoError(t, err)
-
-	loaded.Description = "edited"
-	require.NoError(t, loader.Save(loaded))
-
-	assert.NoFileExists(t, filepath.Join(tmpDir, "dev.yaml"), "save must not duplicate the profile under a second extension")
-	again, err := loader.Load("dev")
-	require.NoError(t, err)
-	assert.Equal(t, "edited", again.Description)
-}
-
-func TestLoader_Save_NoDirs(t *testing.T) {
-	loader := NewLoader([]string{})
-	err := loader.Save(&Profile{Name: "test"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no profiles directory")
+// A new profile is written only into a local bundle that exists: with no
+// local bundles root holding the project bundle there is nowhere to write it.
+func TestLoader_Save_NoLocalBundle(t *testing.T) {
+	loader := NewLoader(nil)
+	err := loader.Save(&Profile{Name: "test", Bundles: []string{"go-development"}})
+	assert.ErrorIs(t, err, errs.ErrBundleNotFound)
 }
 
 func TestLoader_Delete(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 	profilePath := filepath.Join(tmpDir, "to-delete.yaml")
 	require.NoError(t, os.WriteFile(profilePath, []byte(""), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 
 	err := loader.Delete("to-delete")
 	require.NoError(t, err)
@@ -288,35 +214,11 @@ func TestLoader_Delete(t *testing.T) {
 }
 
 func TestLoader_Delete_NotFound(t *testing.T) {
-	tmpDir := t.TempDir()
-	loader := NewLoader([]string{tmpDir})
+	tmpDir := projectProfilesDir(t)
+	loader := osLoader(t, tmpDir)
 
 	err := loader.Delete("nonexistent")
 	assert.Error(t, err)
-}
-
-// =============================================================================
-// GetProfileDirs Tests
-// =============================================================================
-
-func TestGetProfileDirs(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create profiles subdirectory in persistent dir
-	profilesDir := paths.ProfilesPath(tmpDir)
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-
-	dirs := GetProfileDirs(nil, []string{tmpDir})
-
-	assert.Len(t, dirs, 1)
-	assert.Equal(t, profilesDir, dirs[0])
-}
-
-func TestGetProfileDirs_NoProfilesDir(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	dirs := GetProfileDirs(nil, []string{tmpDir})
-	assert.Empty(t, dirs)
 }
 
 // =============================================================================
@@ -333,7 +235,7 @@ func TestGetProfileDirs_NoProfilesDir(t *testing.T) {
 //   - Tags: Child tags APPEND to parent tags
 //   - Variables: Child values OVERRIDE parent values (last wins)
 func TestLoader_ResolveProfile(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	// Create parent profile
 	parent := `description: Parent profile
@@ -361,7 +263,7 @@ variables:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 	resolved, err := loader.ResolveProfile("child", nil)
 	require.NoError(t, err)
 
@@ -386,7 +288,7 @@ variables:
 // the directory-side mirror of config.Profile.Commands (D2) that
 // feeds backends.LoadCommandExports' opt-in command curation.
 func TestLoader_ResolveProfile_Commands(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	parent := `description: Parent profile
 commands:
@@ -403,7 +305,7 @@ commands:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 	resolved, err := loader.ResolveProfile("child", nil)
 	require.NoError(t, err)
 
@@ -415,7 +317,7 @@ commands:
 // through save/load and inheritance: a child's llm overrides its parent's, and
 // a child without one inherits the parent's.
 func TestLoader_ResolveProfile_LLM(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	parent := "llm: agy-code\nbundles:\n  - parent-bundle\n"
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "parent.yaml"), []byte(parent), 0644))
@@ -428,7 +330,7 @@ func TestLoader_ResolveProfile_LLM(t *testing.T) {
 	inheritor := "parents:\n  - parent\nbundles:\n  - child-bundle\n"
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "inheritor.yaml"), []byte(inheritor), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 
 	overriderResolved, err := loader.ResolveProfile("overrider", nil)
 	require.NoError(t, err)
@@ -445,7 +347,7 @@ func TestLoader_ResolveProfile_LLM(t *testing.T) {
 // cause infinite recursion. The resolver tracks visited profiles and fails
 // if it encounters one it's already processing.
 func TestLoader_ResolveProfile_CircularReference(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	profileA := `parents:
   - b
@@ -456,7 +358,7 @@ func TestLoader_ResolveProfile_CircularReference(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "a.yaml"), []byte(profileA), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "b.yaml"), []byte(profileB), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 	_, err := loader.ResolveProfile("a", nil)
 
 	assert.Error(t, err)
@@ -464,8 +366,8 @@ func TestLoader_ResolveProfile_CircularReference(t *testing.T) {
 }
 
 func TestLoader_ResolveProfile_NotFound(t *testing.T) {
-	tmpDir := t.TempDir()
-	loader := NewLoader([]string{tmpDir})
+	tmpDir := projectProfilesDir(t)
+	loader := osLoader(t, tmpDir)
 
 	_, err := loader.ResolveProfile("nonexistent", nil)
 	assert.Error(t, err)
@@ -477,7 +379,7 @@ func TestLoader_ResolveProfile_NotFound(t *testing.T) {
 // fault-tolerance philosophy (CLAUDE.md) — a missing parent should not block
 // the user from reaching their LLM.
 func TestLoader_ResolveProfile_ParentNotFound(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	profile := `parents:
   - nonexistent-parent
@@ -486,34 +388,10 @@ bundles:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(profile), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 	resolved, err := loader.ResolveProfile("child", nil)
 
 	require.NoError(t, err)
-	require.NotNil(t, resolved)
-	assert.Equal(t, []string{"own-bundle"}, resolved.Bundles)
-}
-
-// TestLoader_ResolveProfile_CorruptParent verifies that a parent which fails to
-// parse (invalid YAML) is treated like a missing parent: warn-and-continue, the
-// rest of the profile still resolves. Per CLAUDE.md fault tolerance, a corrupt
-// file must not block the user from reaching their LLM.
-func TestLoader_ResolveProfile_CorruptParent(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Invalid YAML (unterminated flow sequence) for the parent.
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "broken.yaml"), []byte("parents: [oops\n  bad: : :\n"), 0644))
-	child := `parents:
-  - broken
-bundles:
-  - own-bundle
-`
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
-
-	loader := NewLoader([]string{tmpDir})
-	resolved, err := loader.ResolveProfile("child", nil)
-
-	require.NoError(t, err, "a corrupt parent must degrade to warn-and-continue, not abort")
 	require.NotNil(t, resolved)
 	assert.Equal(t, []string{"own-bundle"}, resolved.Bundles)
 }
@@ -535,7 +413,7 @@ bundles:
 // This tests that the resolver clones the visited set for each parent branch,
 // allowing shared ancestors to be resolved independently.
 func TestLoader_ResolveProfile_DiamondInheritance(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	// D is the shared ancestor
 	profileD := `description: Base profile D
@@ -588,7 +466,7 @@ variables:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "a.yaml"), []byte(profileA), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 
 	// This should succeed - not falsely detect circular reference
 	resolved, err := loader.ResolveProfile("a", nil)
@@ -644,9 +522,9 @@ func buildDuplicateParentChain(t *testing.T, dir string, depth int) string {
 // under a second regardless of depth, because a distinct profile in the
 // chain is resolved exactly once no matter how many times it's reached.
 func TestLoader_ResolveProfile_DuplicateParentChainIsMemoized(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 	root := buildDuplicateParentChain(t, tmpDir, 24)
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 
 	start := time.Now()
 	resolved, err := loader.ResolveProfile(root, nil)
@@ -664,7 +542,7 @@ func TestLoader_ResolveProfile_DuplicateParentChainIsMemoized(t *testing.T) {
 // This prevents stack overflow from malformed configurations with extremely
 // deep inheritance chains.
 func TestLoader_ResolveProfile_DepthLimit(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	// Create a chain deeper than maxProfileDepth (64)
 	// We'll create 70 profiles: p0 -> p1 -> p2 -> ... -> p69
@@ -679,7 +557,7 @@ func TestLoader_ResolveProfile_DepthLimit(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, filename), []byte(content), 0644))
 	}
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 
 	// Resolving p69 requires 70 levels of depth, exceeding the limit of 64
 	_, err := loader.ResolveProfile("p69", nil)
@@ -766,15 +644,15 @@ func TestAppendUnique(t *testing.T) {
 
 func TestWithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/profiles", 0755))
-	testsupport.WriteFileString(t, fs, "/profiles/test.yaml", "description: test", 0644)
+	require.NoError(t, fs.MkdirAll("/bundles/project/profiles", 0755))
+	testsupport.WriteFileString(t, fs, "/bundles/project/profiles/test.yaml", "description: test", 0644)
 
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+	loader := bundleLoader(t, fs)
 
 	// Verify it uses the custom FS
 	profile, err := loader.Load("test")
 	require.NoError(t, err)
-	assert.Equal(t, "test", profile.Name)
+	assert.Equal(t, projectProfileRef("test"), profile.Name)
 	assert.Equal(t, "test", profile.Description)
 }
 
@@ -791,14 +669,14 @@ func TestNewLoader_WithFS(t *testing.T) {
 func TestLoader_ResolveProfile_LocalParents(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
+	require.NoError(t, fs.MkdirAll(testProfilesDir, 0755))
 
 	// Local parent
 	localParent := `bundles:
   - local-tools
 `
 	testsupport.WriteFileString(t, fs,
-		"/project/.ctxloom/persistent/profiles/local-base.yaml",
+		testProfilesDir+"/local-base.yaml",
 		localParent, 0644)
 
 	// Child with a local parent
@@ -808,10 +686,10 @@ bundles:
   - child-tools
 `
 	testsupport.WriteFileString(t, fs,
-		"/project/.ctxloom/persistent/profiles/mixed.yaml",
+		testProfilesDir+"/mixed.yaml",
 		childProfile, 0644)
 
-	loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"}, WithFS(fs))
+	loader := bundleLoader(t, fs)
 
 	resolved, err := loader.ResolveProfile("mixed", nil)
 	require.NoError(t, err)
@@ -829,7 +707,7 @@ bundles:
 // parent chain — a child cannot un-exclude what a parent excluded, matching
 // the inline config-map profile semantics.
 func TestLoader_ResolveProfile_Exclusions(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	parent := `bundles:
   - shared-bundle
@@ -847,7 +725,7 @@ exclude_fragments:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 	resolved, err := loader.ResolveProfile("child", nil)
 	require.NoError(t, err)
 
@@ -862,7 +740,7 @@ exclude_fragments:
 // child — same shape as TestLoader_ResolveProfile_Exclusions, proving
 // deny_tools survives the SAME resolution path exclude_mcp does.
 func TestLoader_ResolveProfile_DenyTools(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	parent := `deny_tools:
   - Task
@@ -877,7 +755,7 @@ deny_tools:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 	resolved, err := loader.ResolveProfile("child", nil)
 	require.NoError(t, err)
 
@@ -910,7 +788,7 @@ func preToolCommands(h wire.HooksConfig) []string {
 // first (depth-first), then the child's; a "@<commit>" pin stays in the stored
 // fragment Name (version-agnostic identity; split transiently downstream).
 func TestLoader_ResolveProfile_InlineFields(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := projectProfilesDir(t)
 
 	parent := `description: Parent
 fragments:
@@ -942,7 +820,7 @@ hooks:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
 
-	loader := NewLoader([]string{tmpDir})
+	loader := osLoader(t, tmpDir)
 	resolved, err := loader.ResolveProfile("child", nil)
 	require.NoError(t, err)
 
@@ -1011,37 +889,4 @@ func TestResolvedProfile_Merge_IdenticalHookCollapses(t *testing.T) {
 
 	assert.Equal(t, []string{"h1"}, preToolCommands(r1.Hooks),
 		"the same hook declared by two selected profiles runs once, not twice")
-}
-
-// TestGetProfileDirs_UsesInjectedFS pins that directory discovery honours the
-// injected filesystem. It statted the real OS filesystem regardless of the fs
-// wired into the Config/Loader, so a profile written to a MemMapFs was invisible
-// and every dir-profile test had to fall back to real tempdirs — an injection
-// seam that silently did nothing.
-func TestGetProfileDirs_UsesInjectedFS(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	const appDir = "/project/.ctxloom"
-	profilesDir := paths.ProfilesPath(appDir)
-	require.NoError(t, fs.MkdirAll(profilesDir, 0755))
-
-	dirs := GetProfileDirs(fs, []string{appDir})
-
-	assert.Equal(t, []string{profilesDir}, dirs,
-		"a profiles dir present in the injected fs must be discovered")
-}
-
-// TestGetProfileDirs_InjectedFS_Absent is the negative: a dir absent from the
-// injected fs is not reported, even if a same-named path exists on the real disk.
-func TestGetProfileDirs_InjectedFS_Absent(t *testing.T) {
-	assert.Empty(t, GetProfileDirs(afero.NewMemMapFs(), []string{"/project/.ctxloom"}))
-}
-
-// TestGetProfileDirs_NilFS_UsesRealFS keeps the production default: callers that
-// pass no filesystem still resolve against the OS.
-func TestGetProfileDirs_NilFS_UsesRealFS(t *testing.T) {
-	tmpDir := t.TempDir()
-	profilesDir := paths.ProfilesPath(tmpDir)
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-
-	assert.Equal(t, []string{profilesDir}, GetProfileDirs(nil, []string{tmpDir}))
 }

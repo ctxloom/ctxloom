@@ -373,8 +373,7 @@ func (r BundleRead) Claimed() bool {
 // construction, a genuinely local resolution ref — the companion and repofs
 // call sites stamp sourceRef (and sourceRefSet) themselves before
 // calling newRead, so the only ones left unset here are localFSReader's
-// project-provenance bundles and the package's other exported constructor for
-// project-authored (non-Reader) content above. The stamp below is minted with
+// project-provenance bundles. The stamp below is minted with
 // trust.LocalRef accordingly, not re-derived by inspecting prov/tctx: a fifth
 // reader that reached this fallback for a non-local ref would be a bug in
 // THAT reader, not something this function could detect from its own
@@ -388,12 +387,9 @@ func (r BundleRead) Claimed() bool {
 func NewRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts SignatureFacts) BundleRead {
 	if b != nil && !b.sourceRefSet {
 		// The mint failure is not reported here: every reader stamps its
-		// own ref (and reports an unmintable one at that site), and the one
-		// unstamped production caller — the project-authored locality claim
-		// in reader_localfs.go — hands in a bare token the ref grammar always
-		// accepts. A zero ref still sticks, so a caller that reaches this arm
-		// with a bad ref is withheld, not papered over as a local bundle of
-		// that name.
+		// own ref (and reports an unmintable one at that site). A zero ref
+		// still sticks, so a caller that reaches this arm with a bad ref is
+		// withheld, not papered over as a local bundle of that name.
 		typed, _ := trust.LocalRef(ref)
 		b.sourceRef = typed
 		b.sourceRefSet = true

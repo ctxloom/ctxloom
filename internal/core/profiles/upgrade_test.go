@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestPromptSelectorUpgrade_MigratesSelectors pins the prompt→command selector
@@ -62,33 +61,33 @@ func testAliasToURL(alias string) string {
 	return ""
 }
 
-// runProfileUpgrade is a helper: run the profile upgrade pipeline for a profile
-// whose own remote URL is ownURL over data (no bundle-profile seed), and report
-// the upgraded bytes plus which upgrades fired.
-func runProfileUpgrade(ownURL string, data []byte) ([]byte, []string) {
-	return profileUpgrades(ownURL, testAliasToURL, nil, nil).Run(data)
+// runCanonicalize runs the decode normalizers plus the alias stage a LOCAL
+// bundle's profiles get (Loader.canonicalizeLocalAliases) over data, and
+// reports the upgraded bytes plus which upgrades fired.
+func runCanonicalize(data []byte) ([]byte, []string) {
+	return upgrade.Pipeline{promptSelectorUpgrade{}, bundleRefCanonicalizeUpgrade{aliasToURL: testAliasToURL}}.Run(data)
 }
 
-// TestBundleRefCanonicalize_ShortRefsBecomeCanonical verifies that bare and
-// alias-prefixed bundle refs are rewritten to canonical URL form, that a
-// cherry-picked ":fragments/…" selector becomes the canonical "#fragments/…",
-// and that a foreign alias resolves against ITS repo, not the profile's own.
+// TestBundleRefCanonicalize_ShortRefsBecomeCanonical verifies that
+// alias-prefixed bundle refs are rewritten to canonical URL form against the
+// alias's own repo, that a cherry-picked ":fragments/…" selector on one becomes
+// the canonical "#fragments/…", and that a bare ref — a LOCAL bundle — is left
+// as written.
 func TestBundleRefCanonicalize_ShortRefsBecomeCanonical(t *testing.T) {
 	in := []byte("bundles:\n" +
 		"  - core-practices\n" +
 		"  - personal/developer-mindset\n" +
 		"  - ctxloom-default/git\n" +
-		"  - go-development:fragments/testing\n")
+		"  - personal/go-development:fragments/testing\n")
 
-	out, applied := runProfileUpgrade(personalURL, in)
+	out, applied := runCanonicalize(in)
 
 	require.NotEmpty(t, applied, "upgrade should fire when short refs are present")
 	got := string(out)
-	// Bare → profile's own remote.
-	assert.Contains(t, got, "- "+personalURL+"@bundles/core-practices")
-	// Alias matching the profile's own remote → that repo (redundant prefix dropped).
+	// Bare → a local bundle, as written.
+	assert.Contains(t, got, "- core-practices\n")
+	// Alias → that alias's repo.
 	assert.Contains(t, got, "- "+personalURL+"@bundles/developer-mindset")
-	// Foreign alias → ITS repo, not the profile's own.
 	assert.Contains(t, got, "- "+defaultURL+"@bundles/git")
 	// Cherry-pick: bundle canonicalized, ':' selector normalized to '#'.
 	assert.Contains(t, got, "- "+personalURL+"@bundles/go-development#fragments/testing")
@@ -108,13 +107,12 @@ func TestBundleRefCanonicalize_CanonicalURLsUntouched(t *testing.T) {
 		"  - " + personalURL + "@bundles/just\n" +
 		"  - core-practices\n")
 
-	out, applied := runProfileUpgrade(personalURL, in)
+	out, applied := runCanonicalize(in)
 
 	got := string(out)
-	// The bare ref still canonicalizes...
-	require.NotEmpty(t, applied)
-	assert.Contains(t, got, "- "+personalURL+"@bundles/core-practices")
-	// ...but the canonical URLs are left exactly as-is.
+	assert.Empty(t, applied, "nothing here needs rewriting")
+	assert.Contains(t, got, "- core-practices\n")
+	// The canonical URLs are left exactly as-is.
 	assert.Contains(t, got, "- "+defaultURL+"@bundles/default")
 	assert.Contains(t, got, "- "+personalURL+"@bundles/just")
 	assert.NotContains(t, got, "@bundles/https:", "canonical URL must never be re-wrapped")
@@ -126,23 +124,23 @@ func TestBundleRefCanonicalize_CanonicalURLsUntouched(t *testing.T) {
 func TestBundleRefCanonicalize_Idempotent(t *testing.T) {
 	in := []byte("bundles:\n  - core-practices\n  - ctxloom-default/git\n")
 
-	once, applied1 := runProfileUpgrade(personalURL, in)
+	once, applied1 := runCanonicalize(in)
 	require.NotEmpty(t, applied1)
 
-	twice, applied2 := runProfileUpgrade(personalURL, once)
+	twice, applied2 := runCanonicalize(once)
 	assert.Empty(t, applied2, "second pass over canonical refs must not fire")
 	assert.Equal(t, string(once), string(twice))
 }
 
-// TestBundleRefCanonicalize_NoContextNoOp verifies that a profile with no
-// resolution context (a local project profile: empty own URL, and refs whose
-// alias the resolver doesn't know) keeps its bundle refs untouched.
+// TestBundleRefCanonicalize_NoContextNoOp verifies that refs the alias
+// resolver cannot place — a bare local bundle, an unknown alias — stay
+// untouched.
 func TestBundleRefCanonicalize_NoContextNoOp(t *testing.T) {
 	in := []byte("bundles:\n  - core-practices\n  - unknown-alias/thing\n")
 
-	out, applied := profileUpgrades("", testAliasToURL, nil, nil).Run(in)
+	out, applied := runCanonicalize(in)
 
-	assert.Empty(t, applied, "no own URL + unknown alias => no canonicalization")
+	assert.Empty(t, applied, "bare ref + unknown alias => no canonicalization")
 	assert.Equal(t, string(in), string(out))
 }
 
@@ -156,74 +154,8 @@ func testBundleProfileSeed() map[string]*Profile {
 	}
 }
 
-// TestRetiredParentUpgrade_RewritesToBundleProfile verifies a parent in the
-// retired top-level "@profiles/" grammar is rewritten to the one seeded bundle
-// profile its repo ships under that name.
-func TestRetiredParentUpgrade_RewritesToBundleProfile(t *testing.T) {
-	in := []byte("parents:\n  - " + defaultURL + "@profiles/developer\n")
-
-	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
-
-	require.NotEmpty(t, applied, "retired parent should fire the upgrade")
-	got := string(out)
-	assert.Contains(t, got, "- "+seedKey(defaultURL, "ai-developer", "developer"))
-	assert.NotContains(t, got, "@profiles/", "no retired-grammar ref should remain")
-}
-
-// TestRetiredParentUpgrade_DropsVersionPin verifies a "@<version>"-pinned
-// retired parent still discovers its successor — the pin is dropped because the
-// successor pins via the bundle's lockfile entry.
-func TestRetiredParentUpgrade_DropsVersionPin(t *testing.T) {
-	in := []byte("parents:\n  - " + defaultURL + "@profiles/developer@abc1234\n")
-
-	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
-
-	require.NotEmpty(t, applied)
-	assert.Contains(t, string(out), "- "+seedKey(defaultURL, "ai-developer", "developer"))
-}
-
-// TestRetiredParentUpgrade_UnmatchedLeftVerbatim verifies fault tolerance: a
-// retired parent whose profile no installed bundle ships (dropped upstream, or
-// the successor bundle not yet pulled) is persisted as authored so the resolver
-// can warn, rather than guessed at.
-func TestRetiredParentUpgrade_UnmatchedLeftVerbatim(t *testing.T) {
-	in := []byte("parents:\n  - " + defaultURL + "@profiles/go-developer\n")
-
-	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
-
-	assert.Empty(t, applied, "unmatched retired parent must not fire any upgrade")
-	assert.Equal(t, string(in), string(out))
-}
-
-// TestRetiredParentUpgrade_AmbiguousLeftVerbatim verifies that two bundles from
-// the same repo shipping the same profile name block the rewrite — a migration
-// must not guess between them.
-func TestRetiredParentUpgrade_AmbiguousLeftVerbatim(t *testing.T) {
-	seed := testBundleProfileSeed()
-	seed[seedKey(defaultURL, "other-kit", "developer")] = &Profile{}
-	in := []byte("parents:\n  - " + defaultURL + "@profiles/developer\n")
-
-	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, seed).Run(in)
-
-	assert.Empty(t, applied, "ambiguous successor must not fire any upgrade")
-	assert.Equal(t, string(in), string(out))
-}
-
-// TestRetiredParentUpgrade_Idempotent verifies successor-form and local parents
-// never re-fire the upgrade.
-func TestRetiredParentUpgrade_Idempotent(t *testing.T) {
-	in := []byte("parents:\n" +
-		"  - " + defaultURL + "@bundles/ai-developer#profiles/developer\n" +
-		"  - base\n")
-
-	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
-
-	assert.Empty(t, applied, "successor-form and local parents must not change")
-	assert.Equal(t, string(in), string(out))
-}
-
 // TestFindBundleProfileKey pins the discovery rule the retired-parent rewrite
-// (and the config seed post-pass) share: exactly one bundle from the ref's repo
+// (RewriteRetiredParents) uses: exactly one bundle from the ref's repo
 // shipping the profile name — none and ambiguity both yield false.
 func TestFindBundleProfileKey(t *testing.T) {
 	seed := testBundleProfileSeed()
@@ -243,103 +175,46 @@ func TestFindBundleProfileKey(t *testing.T) {
 	assert.False(t, ok, "ambiguity must not match")
 }
 
-// TestLoad_RewritesRetiredParentViaSeed verifies the loader seam: a directory
-// profile whose parent uses the retired "@profiles/" grammar comes back with
-// the parent rewritten to the seeded bundle profile, and the rewrite is
-// recorded as pending for the consented on-disk migration.
-func TestLoad_RewritesRetiredParentViaSeed(t *testing.T) {
+// TestLoader_CanonicalizesLocalBundleProfileAliases verifies the loader seam:
+// a LOCAL bundle's profile comes back with its "<alias>/<bundle>" refs
+// canonicalized against the alias's repo, its bare refs (local bundles) as
+// written.
+func TestLoader_CanonicalizesLocalBundleProfileAliases(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs,
-		"/profiles/dev.yaml",
-		"parents:\n  - "+defaultURL+"@profiles/developer\n", 0644)
+	writeProjectProfile(t, fs, "go-developer", "description: test\nbundles:\n  - core-practices\n  - ctxloom-default/git\n")
 
-	loader := NewLoader([]string{"/profiles"},
-		WithFS(fs),
-		WithSeededProfiles(testBundleProfileSeed()))
+	loader := bundleLoader(t, fs, WithRemoteURLResolver(testAliasToURL))
 
-	p, err := loader.Load("dev")
+	p, err := loader.Load("go-developer")
 	require.NoError(t, err)
-	require.Len(t, p.Parents, 1)
-	assert.Equal(t, seedKey(defaultURL, "ai-developer", "developer"), p.Parents[0])
-	assert.NotEmpty(t, loader.PendingUpgrades(), "rewrite should be staged for consent")
+	assert.Equal(t, []string{"core-practices", defaultURL + "@bundles/git"}, p.Bundles)
 }
 
-// TestLoad_CanonicalizesShortBundlesViaResolver verifies the loader seam: a
-// profile loaded under a name whose resolvers yield a remote comes back with its
-// short bundle refs canonicalized, and records a pending upgrade for the rewrite
-// prompt.
-func TestLoad_CanonicalizesShortBundlesViaResolver(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs,
-		"/profiles/personal/go-developer.yaml",
-		"description: test\nbundles:\n  - core-practices\n  - ctxloom-default/git\n",
-		0o644)
+// TestLoader_RemoteBundleProfileAliasesUntouched verifies the alias stage is
+// LOCAL-only: a remote bundle's profile was not written against this
+// machine's alias table, so its refs are left as they arrived.
+func TestLoader_RemoteBundleProfileAliasesUntouched(t *testing.T) {
+	key := seedKey(defaultURL, "kit", "dev")
+	seed := map[string]*Profile{key: {Name: key, Path: SeededProfilePathPrefix + key, Bundles: []string{"ctxloom-default/git"}}}
 
-	resolver := func(name string) string {
-		if name == "personal/go-developer" {
-			return "personal"
-		}
-		return ""
-	}
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs),
-		WithRemoteResolver(resolver), WithRemoteURLResolver(testAliasToURL))
+	loader := NewLoader(nil, WithSeededProfiles(seed), WithRemoteURLResolver(testAliasToURL))
 
-	p, err := loader.Load("personal/go-developer")
+	p, err := loader.Load(key)
 	require.NoError(t, err)
-	assert.Equal(t, []string{
-		personalURL + "@bundles/core-practices",
-		defaultURL + "@bundles/git",
-	}, p.Bundles)
-
-	pending := loader.PendingUpgrades()
-	require.Len(t, pending, 1, "loader should record a pending rewrite")
-	assert.Equal(t, "/profiles/personal/go-developer.yaml", pending[0].Path)
-	assert.NotEmpty(t, pending[0].Applied)
+	assert.Equal(t, []string{"ctxloom-default/git"}, p.Bundles)
 }
 
-// TestLoad_LocalProfileKeepsBareBundles verifies a profile whose resolver yields
-// no remote (a local project profile) is loaded verbatim with no pending upgrade.
+// TestLoad_LocalProfileKeepsBareBundles verifies a local profile's bare
+// bundle refs — local bundles — load verbatim.
 func TestLoad_LocalProfileKeepsBareBundles(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs,
-		"/profiles/go-developer.yaml",
-		"bundles:\n  - local-bundle\n",
-		0o644)
+	writeProjectProfile(t, fs, "go-developer", "bundles:\n  - local-bundle\n")
 
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs),
-		WithRemoteResolver(func(string) string { return "" }),
-		WithRemoteURLResolver(testAliasToURL))
+	loader := bundleLoader(t, fs, WithRemoteURLResolver(testAliasToURL))
 
 	p, err := loader.Load("go-developer")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"local-bundle"}, p.Bundles)
-	assert.Empty(t, loader.PendingUpgrades())
-}
-
-// TestCommitUpgrade_WritesCanonicalFileAndClearsPending verifies that persisting
-// a pending upgrade rewrites the profile file to the canonical form and removes
-// it from the loader's pending set.
-func TestCommitUpgrade_WritesCanonicalFileAndClearsPending(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	path := "/profiles/personal/go-developer.yaml"
-	testsupport.WriteFileString(t, fs, path,
-		"bundles:\n  - core-practices\n", 0o644)
-
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs),
-		WithRemoteResolver(func(string) string { return "personal" }),
-		WithRemoteURLResolver(testAliasToURL))
-
-	_, err := loader.Load("personal/go-developer")
-	require.NoError(t, err)
-	pending := loader.PendingUpgrades()
-	require.Len(t, pending, 1)
-
-	require.NoError(t, loader.CommitUpgrade(pending[0]))
-
-	data, err := afero.ReadFile(fs, path)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), personalURL+"@bundles/core-practices")
-	assert.Empty(t, loader.PendingUpgrades(), "committed pending should be cleared")
 }
 
 // TestCanonicalize_StripsLegacyV1FromBundlesAndParents verifies the directory
@@ -351,7 +226,7 @@ func TestCanonicalize_StripsLegacyV1FromBundlesAndParents(t *testing.T) {
 		"  - " + defaultURL + "@v1/bundles/git\n" +
 		"  - " + personalURL + "@v1/bundles/just@v1.2.3\n")
 
-	out, applied := runProfileUpgrade(personalURL, in)
+	out, applied := runCanonicalize(in)
 
 	require.NotEmpty(t, applied, "legacy v1 refs should be normalized")
 	got := string(out)
@@ -371,7 +246,7 @@ func TestParentCanonicalize_LocalSiblingsUntouched(t *testing.T) {
 		"  - base-profile\n" +
 		"  - personal/prototype\n")
 
-	out, applied := runProfileUpgrade(personalURL, in)
+	out, applied := runCanonicalize(in)
 
 	assert.Empty(t, applied, "local parent refs must not be canonicalized")
 	assert.Equal(t, string(in), string(out))
@@ -382,62 +257,10 @@ func TestParentCanonicalize_LocalSiblingsUntouched(t *testing.T) {
 func TestParentCanonicalize_AlreadyCanonicalUntouched(t *testing.T) {
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/rust-developer\n")
 
-	out, applied := runProfileUpgrade(personalURL, in)
+	out, applied := runCanonicalize(in)
 
 	assert.Empty(t, applied, "already-canonical parent must not fire the upgrade")
 	assert.Equal(t, string(in), string(out))
-}
-
-// TestLoad_NoResolverIsNoOp verifies a loader constructed without remote
-// resolvers behaves exactly as before — bare refs untouched, no panics.
-func TestLoad_NoResolverIsNoOp(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs,
-		"/profiles/personal/go-developer.yaml",
-		"bundles:\n  - core-practices\n",
-		0o644)
-
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
-
-	p, err := loader.Load("personal/go-developer")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"core-practices"}, p.Bundles)
-	assert.Empty(t, loader.PendingUpgrades())
-}
-
-// TestUpgradeLedger_IsWiredToStorageAndToTheSeed pins the couplings that make
-// the loader's schema-upgrade ledger part of the loader rather than a passenger
-// on it: the ledger is PRODUCED by the storage read path (loadFile), it is
-// COMMITTED through the loader's own filesystem, and its rewrites are DISCOVERED
-// from the loader's seed registry. Extracting the ledger to its own type would
-// have to carry all three, so the test is what makes that cost visible.
-func TestUpgradeLedger_IsWiredToStorageAndToTheSeed(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	const path = "/profiles/dev.yaml"
-	testsupport.WriteFileString(t, fs, path,
-		"parents:\n  - "+defaultURL+"@profiles/developer\n", 0o644)
-
-	loader := NewLoader([]string{"/profiles"},
-		WithFS(fs),
-		WithSeededProfiles(testBundleProfileSeed()))
-
-	// Produced by the storage read path, and only by it.
-	require.Empty(t, loader.PendingUpgrades(), "no ledger entry before anything is read")
-	_, err := loader.Load("dev")
-	require.NoError(t, err)
-	pending := loader.PendingUpgrades()
-	require.Len(t, pending, 1)
-
-	// Discovered through the SEED registry: the retired @profiles/ parent is
-	// rewritten to the bundle-shipped successor the seed map ships, which a
-	// ledger with no view of the seed could not have found.
-	assert.Contains(t, string(pending[0].Data), seedKey(defaultURL, "ai-developer", "developer"))
-
-	// Committed through the loader's OWN filesystem, not the OS one.
-	require.NoError(t, loader.CommitUpgrade(pending[0]))
-	data, err := afero.ReadFile(fs, path)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), seedKey(defaultURL, "ai-developer", "developer"))
 }
 
 // TestSplitBundleSelector_LegacyMarkersAreTheColonEraSections pins which
@@ -483,9 +306,10 @@ func TestRewriteRetiredParents(t *testing.T) {
 		seedKey(repo, "ai-developer", "developer"): {},
 		seedKey(repo, "kit", "dev"): {
 			Parents: []string{
-				repo + "@profiles/developer",    // retired, one successor → rewritten
-				repo + "@profiles/go-developer", // retired, no successor → verbatim
-				"local-parent",                  // local name → untouched
+				repo + "@profiles/developer",         // retired, one successor → rewritten
+				repo + "@profiles/go-developer",      // retired, no successor → verbatim
+				repo + "@profiles/developer@abc1234", // retired and pinned: the pin is dropped, the bundle's lock entry pins
+				"local-parent",                       // local name → untouched
 			},
 		},
 	}
@@ -496,6 +320,7 @@ func TestRewriteRetiredParents(t *testing.T) {
 	assert.Equal(t, []string{
 		seedKey(repo, "ai-developer", "developer"),
 		repo + "@profiles/go-developer",
+		seedKey(repo, "ai-developer", "developer"),
 		"local-parent",
 	}, got)
 }
@@ -549,14 +374,14 @@ func TestBundleRefCanonicalize_LocalBundleWinsOverSameSpelledAlias(t *testing.T)
 
 	t.Run("only a local ref: nothing fires", func(t *testing.T) {
 		in := []byte("bundles:\n  - personal/reviews\n  - personal/reviews#fragments/x\n")
-		out, applied := profileUpgrades(personalURL, testAliasToURL, local, nil).Run(in)
+		out, applied := upgrade.Pipeline{bundleRefCanonicalizeUpgrade{aliasToURL: testAliasToURL, localBundleExists: local}}.Run(in)
 		assert.Empty(t, applied, "a local bundle must not stage an on-disk migration")
 		assert.Equal(t, string(in), string(out))
 	})
 
 	t.Run("a non-local alias ref beside it still canonicalizes", func(t *testing.T) {
 		in := []byte("bundles:\n  - personal/reviews\n  - personal/developer-mindset\n")
-		out, applied := profileUpgrades(personalURL, testAliasToURL, local, nil).Run(in)
+		out, applied := upgrade.Pipeline{bundleRefCanonicalizeUpgrade{aliasToURL: testAliasToURL, localBundleExists: local}}.Run(in)
 		require.NotEmpty(t, applied)
 		got := string(out)
 		assert.Contains(t, got, "- personal/reviews\n")

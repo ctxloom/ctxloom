@@ -29,7 +29,7 @@ func sentinelExecBundle() *bundles.Bundle {
 // TestExtractMCP_ForgottenGate_WithholdsTheServer proves a nil authorizer does
 // not reach settings: the server is omitted, not admitted unevaluated.
 func TestExtractMCP_ForgottenGate_WithholdsTheServer(t *testing.T) {
-	read := bundles.ProjectAuthoredRead("fixture", sentinelExecBundle())
+	read := bundles.NewRead("fixture", sentinelExecBundle(), bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
 
 	got := extractMCPFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), nil)
 	assert.Empty(t, got, "a bundle MCP server reached settings with nothing having decided about it")
@@ -41,7 +41,7 @@ func TestExtractMCP_ForgottenGate_WithholdsTheServer(t *testing.T) {
 // TestExtractHooks_ForgottenGate_WithholdsTheHook is the hook half of the same
 // contract.
 func TestExtractHooks_ForgottenGate_WithholdsTheHook(t *testing.T) {
-	read := bundles.ProjectAuthoredRead("fixture", sentinelExecBundle())
+	read := bundles.NewRead("fixture", sentinelExecBundle(), bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
 
 	got := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), nil, bundles.LinksUnchecked())
 	assert.Empty(t, got.PreTool, "a bundle hook reached settings with nothing having decided about it")

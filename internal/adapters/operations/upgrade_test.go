@@ -72,7 +72,7 @@ func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	assert.False(t, e1.FetchedAt.Before(before), "an advanced entry's fetched_at %s must not predate the upgrade (%s)", e1.FetchedAt, before)
 
 	// The manifest still holds the bare constraint — never rewritten.
-	loaded, err := profileLoader(cfg).Load("default")
+	loaded, err := cfg.GetProfileLoader().Load("default")
 	require.NoError(t, err)
 	assert.Equal(t, []string{ref}, loaded.Bundles, "upgrade never rewrites the manifest ref")
 }

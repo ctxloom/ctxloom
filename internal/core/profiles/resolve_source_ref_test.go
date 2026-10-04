@@ -3,7 +3,6 @@ package profiles
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,44 +50,38 @@ func TestResolveProfile_SourceRef_BundleShippedLocal(t *testing.T) {
 	assert.Empty(t, resolved.Signer, "an unsigned local bundle carries no verified signer")
 }
 
-// TestResolveProfile_SourceRef_GenuinelyLocalIsEmpty proves a bare-named,
-// genuinely local/project-authored profile (.ctxloom/profiles/<name>.yaml, no
-// "#profiles/" selector anywhere in its identity) gets an EMPTY SourceRef —
-// the signal profileGateRefFor (managed.go) falls back to the bare
-// profileName for, which the bare-token fallback resolves IsLocal:true. This must
-// stay true: it is what keeps a genuinely local profile's inline hooks/mcp
-// auto-allowed after the fix, exactly as before it.
-func TestResolveProfile_SourceRef_GenuinelyLocalIsEmpty(t *testing.T) {
+// TestResolveProfile_SourceRef_ProjectProfileIsTheProjectBundle proves a
+// project's own profile keys the exec gate by its OWN bundle — the project
+// bundle — like every other bundle profile: there is no source-less profile
+// left for the gate to treat specially.
+func TestResolveProfile_SourceRef_ProjectProfileIsTheProjectBundle(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/profiles/dev.yaml", "description: local dev profile\n", 0644)
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+	writeProjectProfile(t, fs, "dev", "description: local dev profile\n")
+	loader := bundleLoader(t, fs)
 
 	resolved, err := loader.ResolveProfile("dev", nil)
 	require.NoError(t, err)
-	assert.Empty(t, resolved.SourceRef, "a genuinely local profile must carry no SourceRef")
+	assert.Equal(t, "ctxloom+local:project", resolved.SourceRef)
 	assert.Empty(t, resolved.Signer)
 }
 
 // TestResolveProfile_SourceRef_ChildNeverInheritsParentSource proves a
 // profile's SourceRef/Signer are its OWN provenance, never a parent's: a
-// genuinely local child profile that inherits from a bundle-shipped remote
-// parent must still key its OWN directly-declared hooks/mcp as local — a
-// parent's remote origin must never leak onto the child's gate identity (that
-// would either wrongly deny the child's own local content, or — the more
-// dangerous direction — wrongly key some FUTURE parent-sourcing bug as local).
+// project profile that inherits from a bundle-shipped remote parent still keys
+// its OWN directly-declared hooks/mcp by the project bundle — a parent's
+// remote origin and signer must never leak onto the child's gate identity.
 func TestResolveProfile_SourceRef_ChildNeverInheritsParentSource(t *testing.T) {
 	parentKey := defaultURL + "@bundles/kit#profiles/base"
 	seed := map[string]*Profile{
 		parentKey: {Name: parentKey, Path: SeededProfilePathPrefix + parentKey, Signer: "vendor@example.com"},
 	}
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/profiles/child.yaml",
-		"parents:\n  - "+parentKey+"\ndescription: local child\n", 0644)
+	writeProjectProfile(t, fs, "child", "parents:\n  - "+parentKey+"\ndescription: local child\n")
 
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs), WithSeededProfiles(seed))
+	loader := bundleLoader(t, fs, WithSeededProfiles(seed))
 
 	resolved, err := loader.ResolveProfile("child", nil)
 	require.NoError(t, err)
-	assert.Empty(t, resolved.SourceRef, "the child's own SourceRef must stay empty (genuinely local) despite a remote-sourced parent")
-	assert.Empty(t, resolved.Signer)
+	assert.Equal(t, "ctxloom+local:project", resolved.SourceRef, "the child keys by its own bundle, not its parent's")
+	assert.Empty(t, resolved.Signer, "the parent's signer never leaks onto the child")
 }

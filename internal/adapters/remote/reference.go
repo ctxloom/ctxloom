@@ -723,9 +723,8 @@ func (r *Reference) localRemoteName() string {
 	//   git@github.com:owner/repo     → github.com/owner/repo
 	//   file:///path/to/repo          → to/repo
 	//
-	// A URL with no repository identity has no name: not a copy of its
-	// spelling, which Registry.ResolveItemRemote would match local names
-	// against as though it were one.
+	// A URL with no repository identity has no name, not a copy of its
+	// spelling that a caller would then match against as though it were one.
 	repo, err := refuri.ParseRepoIdentity(r.URL)
 	if err != nil {
 		return ""

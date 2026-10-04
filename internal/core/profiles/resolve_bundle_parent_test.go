@@ -24,9 +24,9 @@ func seededParentLoader(t *testing.T, parentRef string) *Loader {
 		},
 	}
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/profiles/dev.yaml",
+	testsupport.WriteFileString(t, fs, "/bundles/project/profiles/dev.yaml",
 		"parents:\n  - "+parentRef+"\nbundles:\n  - own-bundle\n", 0644)
-	return NewLoader([]string{"/profiles"}, WithFS(fs), WithSeededProfiles(seed))
+	return bundleLoader(t, fs, WithSeededProfiles(seed))
 }
 
 // TestResolveProfile_BundleProfileParent is the regression pin for resolving a

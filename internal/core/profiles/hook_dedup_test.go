@@ -28,7 +28,7 @@ func preToolOf(h wire.HooksConfig) []string {
 // ran twice per event. The resolver memoizes so d RESOLVES once, but its
 // resolved RESULT was merged along both paths.
 func TestResolveProfile_SharedAncestorHookRunsOnce(t *testing.T) {
-	dir := t.TempDir()
+	dir := projectProfilesDir(t)
 	w := func(name, body string) {
 		t.Helper()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(body), 0o644))
@@ -38,7 +38,7 @@ func TestResolveProfile_SharedAncestorHookRunsOnce(t *testing.T) {
 	w("c", "parents:\n  - d\n")
 	w("child", "parents:\n  - b\n  - c\n")
 
-	r, err := NewLoader([]string{dir}).ResolveProfile("child", nil)
+	r, err := osLoader(t, dir).ResolveProfile("child", nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"shared-hook"}, preToolOf(r.Hooks),
 		"a shared ancestor's hook reaches the child once, not once per path")
@@ -49,7 +49,7 @@ func TestResolveProfile_SharedAncestorHookRunsOnce(t *testing.T) {
 // stays two hooks. Without this, "runs once" would also be satisfied by a merge
 // that dropped hooks it should have kept.
 func TestResolveProfile_DistinctHooksAllSurvive(t *testing.T) {
-	dir := t.TempDir()
+	dir := projectProfilesDir(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "p.yaml"), []byte(
 		"hooks:\n  unified:\n    pre_tool:\n"+
 			"      - command: one\n        type: command\n"+
@@ -58,7 +58,7 @@ func TestResolveProfile_DistinctHooksAllSurvive(t *testing.T) {
 			"    session_start:\n      - command: one\n        type: command\n",
 	), 0o644))
 
-	r, err := NewLoader([]string{dir}).ResolveProfile("p", nil)
+	r, err := osLoader(t, dir).ResolveProfile("p", nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"one", "two", "one"}, preToolOf(r.Hooks),
 		"a different matcher is a different hook: only an exact repeat collapses")

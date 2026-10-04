@@ -39,8 +39,8 @@ All ctxloom data (profiles, bundles, fragments, commands) will be stored here.
 If no .ctxloom directory exists when running ctxloom commands, the user home ~/.ctxloom
 is used as a fallback.
 
-init scaffolds a LOCAL default coding profile (.ctxloom/profiles/default.yaml,
-inheriting the ctxloom-default baseline) and wires the trusted ctxloom-default
+init scaffolds the project bundle with a LOCAL default coding profile (its
+"default" profile, inheriting the ctxloom-default baseline) and wires the trusted ctxloom-default
 remote so its code-review lens profiles are available.
 
 It then installs the dependencies that scaffold declares ('ctxloom deps pull'),

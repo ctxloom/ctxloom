@@ -150,7 +150,7 @@ func TestExtractHooksFromBundle_NilLinkGrantWithholdsLinkedHooksOnly(t *testing.
 			PreTool:      []bundles.BundleHook{{Command: "free-guard"}},
 		},
 	}
-	read := bundles.ProjectAuthoredRead("fixture", b)
+	read := bundles.NewRead("fixture", b, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
 
 	got := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), admitall.Authorizer(), nil)
 	assert.Empty(t, hookCommands(got.SessionStart))

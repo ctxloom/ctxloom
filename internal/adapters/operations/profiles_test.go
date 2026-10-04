@@ -224,7 +224,7 @@ func TestProfileLoader_UsesConfigPaths(t *testing.T) {
 		AppPaths: []string{testBaseDir},
 	})
 
-	loader := profileLoader(cfg)
+	loader := cfg.GetProfileLoader()
 	assert.NotNil(t, loader)
 }
 
@@ -857,7 +857,7 @@ func TestProfileLoader_HonoursTheInjectedFSLikeItsTwin(t *testing.T) {
 	require.NoError(t, terr, "the canonical twin reads the injected fs")
 	require.NotNil(t, twin)
 
-	got, err := profileLoader(cfg).Load("reviewer")
+	got, err := cfg.GetProfileLoader().Load("reviewer")
 	require.NoError(t, err, "and so must this one — it already DISCOVERED the directory through that same fs")
 	require.NotNil(t, got)
 	assert.Equal(t, twin.Name, got.Name)
@@ -872,7 +872,7 @@ func TestProfileLoader_HonoursTheInjectedFSLikeItsTwin(t *testing.T) {
 	}
 	twinList, _, terr := cfg.GetProfileLoader().List()
 	require.NoError(t, terr)
-	gotList, _, lerr := profileLoader(cfg).List()
+	gotList, _, lerr := cfg.GetProfileLoader().List()
 	require.NoError(t, lerr)
 	assert.Equal(t, names(twinList), names(gotList), "the two factories must enumerate the same profiles")
 }

@@ -61,17 +61,37 @@ func (t profileType) RefFor(bundle string, src Source) (trust.Ref, error) {
 	return trust.Ref{Bundle: bundle, Kind: KindProfile, Name: name}, nil
 }
 
+// Decode reads the profile document through profiles.Decode, the one profile
+// decoder: schema validation of the document as written plus the normalizer
+// stages, so a profile item from any bundle is held to exactly what a profile
+// may say.
 func (t profileType) Decode(src Source) (Surface, error) {
-	var def profiles.Profile
-	name, err := readExecItem(t, src, 0, &def, nil)
+	name, ok := detectSingleYAML(t.Dir(), src, 0)
+	if !ok {
+		return nil, fmt.Errorf("%w: not a %s item", ErrUnrecognized, t.Dir())
+	}
+	paths, err := src.List()
 	if err != nil {
 		return nil, err
 	}
+	for _, p := range paths {
+		if IsMetaPath(p) {
+			return nil, refuseUnexplainedMeta(t, name, p)
+		}
+	}
+	file := nonMetaPaths(paths)[0]
+	data, err := src.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	def, err := profiles.Decode(data)
+	if err != nil {
+		return nil, fmt.Errorf("content: %s: %w", file, err)
+	}
 	// Name/Path/Signer are yaml:"-" derived fields on profiles.Profile; the
-	// filename is the authority for Name, exactly as it is for a directory
-	// profile.
+	// filename is the authority for Name.
 	def.Name = name
-	return Profile{Name: name, Def: def}, nil
+	return Profile{Name: name, Def: *def}, nil
 }
 
 func (t profileType) Encode(s Surface) ([]Component, error) {

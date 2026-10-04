@@ -12,7 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/shared/keymatch"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -30,26 +29,23 @@ var profileValidator = sync.OnceValues(func() (*schema.ConfigValidator, error) {
 	return schema.NewValidatorFromSchema(data)
 })
 
-// profileSchemaRemedy is the fix every schema-violation finding carries.
-const profileSchemaRemedy = "correct the named keys and values in the profile, or delete it"
+// errProfileSchema is a profile document that does not match the profile
+// schema. Decode wraps it with each violation and where it is.
+var errProfileSchema = errors.New("profile does not match the profile schema")
 
 // validateProfileDocument checks a profile document against the declared
-// profile schema and reports any violation as ONE fail-loudly config finding.
+// profile schema, returning every violation as one error.
 //
 // It must run on the document BEFORE decoding: yaml.v3 drops what it cannot
 // map and coerces what it can, so after Decode a typo'd key is gone, `llm: 5`
 // is the string "5", and a bare `- ` list entry is an empty name. The schema
 // sees the document as written.
 //
-// It reports and never decides: strictness owns whether the finding refuses
-// the launch (strict) or only warns (--degraded), so there is no strict flag
-// here and the finding is deliberately degradable.
-//
-// A document with no content at all is not validated: that is the
-// empty-profile finding loadFile reports, and answering it twice in two
-// vocabularies helps nobody. A schema that cannot be loaded is an error, not
-// a pass — a broken check must not report every profile as valid.
-func validateProfileDocument(rep report.Reporter, path string, doc *yaml.Node, data []byte) error {
+// A document with no content at all is not validated: an empty profile is a
+// question for the writers and the fail-loudly gate, not a schema defect. A
+// schema that cannot be loaded is an error, not a pass — a broken check must
+// not report every profile as valid.
+func validateProfileDocument(doc *yaml.Node, data []byte) error {
 	if doc.Kind == 0 {
 		return nil
 	}
@@ -61,9 +57,7 @@ func validateProfileDocument(rep report.Reporter, path string, doc *yaml.Node, d
 	if verr == nil {
 		return nil
 	}
-	rep.FailOncef(report.KindConfig, profileSchemaRemedy,
-		"profile %s does not match the profile schema: %s", path, describeViolations(verr, v, doc))
-	return nil
+	return fmt.Errorf("%w: %s; correct the named keys and values", errProfileSchema, describeViolations(verr, v, doc))
 }
 
 // describeViolations renders a validation failure as its concrete causes, each

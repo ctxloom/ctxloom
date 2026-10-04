@@ -20,8 +20,8 @@ func seedTestProfile(t *testing.T) (*Loader, *Profile, afero.Fs) {
 		Description: "seeded remote profile",
 	}
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/profiles", 0o755))
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs),
+	require.NoError(t, fs.MkdirAll("/bundles/project/profiles", 0o755))
+	loader := bundleLoader(t, fs,
 		WithSeededProfiles(map[string]*Profile{canonical: p}))
 	return loader, p, fs
 }
@@ -39,7 +39,7 @@ func TestSave_RejectsSeededRemoteProfile(t *testing.T) {
 
 	// Nothing was created on disk — especially no directory derived from the
 	// sentinel path.
-	entries, err := afero.ReadDir(fs, "/profiles")
+	entries, err := afero.ReadDir(fs, "/bundles/project/profiles")
 	require.NoError(t, err)
 	assert.Empty(t, entries)
 	exists, _ := afero.DirExists(fs, "<remote>:https:")
@@ -67,10 +67,10 @@ func TestDelete_RejectsSeededRemoteProfile(t *testing.T) {
 // tree (Delete then removed them).
 func TestLoad_RejectsTraversalNames(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/profiles", 0o755))
+	require.NoError(t, fs.MkdirAll("/bundles/project/profiles", 0o755))
 	// A target OUTSIDE the profiles dir that a traversal name would reach.
 	testsupport.WriteFileString(t, fs, "/secret.yaml", "description: outside\n", 0o644)
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+	loader := bundleLoader(t, fs)
 
 	for _, name := range []string{"../secret", "../../secret", "/secret"} {
 		_, err := loader.Load(name)
@@ -89,9 +89,9 @@ func TestLoad_RejectsTraversalNames(t *testing.T) {
 // now validates).
 func TestDelete_RejectsTraversalNames(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/profiles", 0o755))
+	require.NoError(t, fs.MkdirAll("/bundles/project/profiles", 0o755))
 	testsupport.WriteFileString(t, fs, "/secret.yaml", "description: outside\n", 0o644)
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+	loader := bundleLoader(t, fs)
 
 	err := loader.Delete("../secret")
 	require.Error(t, err)
@@ -106,64 +106,23 @@ func TestDelete_RejectsTraversalNames(t *testing.T) {
 // pull), never an "invalid profile name" rejection.
 func TestLoad_RemoteRefsStillPassValidation(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/profiles", 0o755))
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+	require.NoError(t, fs.MkdirAll("/bundles/project/profiles", 0o755))
+	loader := bundleLoader(t, fs)
 
 	_, err := loader.Load("https://github.com/alice/ctxloom@bundles/dev")
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "invalid profile name")
 }
 
-// TestLoadFile_DedupesPendingUpgradesByPath verifies a legacy file loaded
-// several times in one run (e.g. a shared legacy parent profile) yields ONE
-// pending upgrade, not one consent prompt per load.
-func TestLoadFile_DedupesPendingUpgradesByPath(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs,
-		"/profiles/personal/legacy.yaml",
-		"bundles:\n  - core-practices\n",
-		0o644)
+// TestLoad_ReturnsTheSharedInstance pins the ownership contract the Load doc
+// states: a loaded profile is the ONE shared instance every reader receives,
+// so the write paths work on the profile's file, never on this instance.
+func TestLoad_ReturnsTheSharedInstance(t *testing.T) {
+	loader, seeded, _ := seedTestProfile(t)
 
-	resolver := func(name string) string { return "personal" }
-	urlResolver := func(alias string) string {
-		if alias == "personal" {
-			return "https://github.com/me/ctxloom"
-		}
-		return ""
-	}
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs),
-		WithRemoteResolver(resolver), WithRemoteURLResolver(urlResolver))
-
-	for range 3 {
-		_, err := loader.Load("personal/legacy")
-		require.NoError(t, err)
-	}
-
-	pending := loader.PendingUpgrades()
-	require.Len(t, pending, 1, "repeated loads of one legacy file must record one pending upgrade")
-	assert.Equal(t, "/profiles/personal/legacy.yaml", pending[0].Path)
-}
-
-// TestLoad_SeededProfileIsSharedAndFsProfileIsNot pins the ownership asymmetry
-// the Load doc now states: a seeded profile is the ONE shared instance (it is a
-// reference with no file to re-read), while a filesystem profile is parsed
-// afresh per call. The asymmetry is safe only because every write path refuses a
-// seeded profile before mutating; this pin fixes the contract in place so a
-// caller cannot discover it by corrupting the seed.
-func TestLoad_SeededProfileIsSharedAndFsProfileIsNot(t *testing.T) {
-	loader, seeded, fs := seedTestProfile(t)
-	testsupport.WriteFileString(t, fs, "/profiles/local.yaml",
-		"bundles:\n  - go-development\n", 0o644)
-
-	firstSeeded, err := loader.Load(seeded.Name)
+	first, err := loader.Load(seeded.Name)
 	require.NoError(t, err)
-	secondSeeded, err := loader.Load(seeded.Name)
+	second, err := loader.Load(seeded.Name)
 	require.NoError(t, err)
-	assert.Same(t, firstSeeded, secondSeeded, "a seeded profile is the one shared instance")
-
-	firstLocal, err := loader.Load("local")
-	require.NoError(t, err)
-	secondLocal, err := loader.Load("local")
-	require.NoError(t, err)
-	assert.NotSame(t, firstLocal, secondLocal, "a filesystem profile is parsed afresh per call")
+	assert.Same(t, first, second, "a loaded profile is the one shared instance")
 }

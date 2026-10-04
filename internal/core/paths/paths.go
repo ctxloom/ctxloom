@@ -82,8 +82,17 @@ const (
 	// LockFileName is the name of the lock file (without extension).
 	LockFileName = "lock"
 
-	// ProfilesDir is the subdirectory for profiles.
+	// ProfilesDir is the directory a bundle tree keeps its profile items in
+	// (<bundle>/profiles/<name>.yaml). Directly under an app directory it is
+	// the RETIRED standalone profiles location (ProfilesPath), which loading
+	// refuses rather than reads.
 	ProfilesDir = "profiles"
+
+	// ProjectBundleName is the reserved name of the PROJECT BUNDLE: the local
+	// bundle holding a project's own profiles. A selector-less profile name
+	// resolves to this bundle's profile of that name, and home uses the same
+	// rule under its own app directory.
+	ProjectBundleName = "project"
 
 	// AgentsDir is the RETIRED per-agent definition directory. Agent bindings
 	// live under the `agents:` key of config.yaml and nowhere else; this
@@ -813,7 +822,9 @@ func LockPath(appPath string) string {
 	return filepath.Join(appPath, LockFileName+".yaml")
 }
 
-// ProfilesPath returns the path to the profiles directory (at appPath root).
+// ProfilesPath returns the RETIRED standalone profiles directory (at appPath
+// root). Nothing reads profiles from it; config refuses to load while it
+// exists, naming the move into the project bundle.
 func ProfilesPath(appPath string) string {
 	return filepath.Join(appPath, ProfilesDir)
 }

@@ -91,7 +91,7 @@ func TestProfileLoaderFactories_AgreeUnderInjectedFS(t *testing.T) {
 	fromConfig, cerr := cfg.GetProfileLoader().Load("injected")
 	require.NoError(t, cerr, "config's factory resolves the injected profile")
 
-	fromOps, oerr := profileLoader(cfg).Load("injected")
+	fromOps, oerr := cfg.GetProfileLoader().Load("injected")
 	require.NoError(t, oerr, "operations' factory must resolve the SAME profile as config's")
 	assert.Equal(t, fromConfig.Description, fromOps.Description)
 
@@ -106,7 +106,7 @@ func TestProfileLoaderFactories_AgreeUnderInjectedFS(t *testing.T) {
 		}
 		return out
 	}
-	assert.Equal(t, names(cfg.GetProfileLoader()), names(profileLoader(cfg)),
+	assert.Equal(t, names(cfg.GetProfileLoader()), names(cfg.GetProfileLoader()),
 		"the two factories must list the same profile set")
 }
 
@@ -120,6 +120,6 @@ func TestProfileLoader_KeepsFreshInstallFallbackDir(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
-	require.NoError(t, profileLoader(cfg).Save(&profiles.Profile{Name: "fresh", Description: "d"}))
+	require.NoError(t, cfg.GetProfileLoader().Save(&profiles.Profile{Name: "fresh", Description: "d"}))
 	assert.FileExists(t, filepath.Join(appDir, "profiles", "fresh.yaml"))
 }

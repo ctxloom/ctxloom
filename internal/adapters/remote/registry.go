@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
@@ -450,33 +449,6 @@ func storedRepoURL(raw string) string {
 		return ""
 	}
 	return parsed.Normalized()
-}
-
-// ResolveItemRemote returns the short remote name an installed item (profile or
-// bundle) belongs to, inferred from its local name. A local name is stored under
-// either the remote's short name (`personal/go-developer`) or its URL-derived
-// local name (`github.com/owner/repo/go-developer`); this matches whichever and
-// returns the short name. The longest matching prefix wins so a URL local name
-// is preferred over a coincidentally-shorter short name. Reports false when no
-// remote owns the name (a local project item).
-func (r *Registry) ResolveItemRemote(localName string) (string, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	best, bestLen := "", -1
-	consider := func(prefix, short string) {
-		if prefix == "" || len(prefix) <= bestLen {
-			return
-		}
-		if localName == prefix || strings.HasPrefix(localName, prefix+"/") {
-			best, bestLen = short, len(prefix)
-		}
-	}
-	for short, remote := range r.remotes {
-		consider(short, short)
-		consider((&Reference{URL: remote.URL}).LocalRemoteName(), short)
-	}
-	return best, bestLen >= 0
 }
 
 // Remove deletes a remote by name.

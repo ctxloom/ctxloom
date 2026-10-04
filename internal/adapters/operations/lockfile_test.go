@@ -211,7 +211,7 @@ func TestClosureRoots_UnparseableProfileIsUnexpanded(t *testing.T) {
 
 	var unexpanded []string
 	captureStderr(t, func() {
-		_, unexpanded = closureRoots(cfg, profileLoader(cfg))
+		_, unexpanded = closureRoots(cfg, cfg.GetProfileLoader())
 	})
 	assert.Equal(t, []string{"fragile"}, unexpanded)
 }

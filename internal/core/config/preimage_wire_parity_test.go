@@ -170,7 +170,7 @@ func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]b
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 	})
 
-	got := extractHooksFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", bundle), mustLocalRef(t, "parity-src"), gate, bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundles.NewRead("fixture", bundle, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}), mustLocalRef(t, "parity-src"), gate, bundles.LinksUnchecked())
 
 	out := map[string][]byte{}
 	for label, hooks := range map[string][]wire.Hook{
@@ -222,7 +222,7 @@ func deliverMCPToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]by
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 	})
 
-	servers := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", bundle), mustLocalRef(t, "parity-src"), gate)
+	servers := extractMCPFromBundle(report.Reporter{}, bundles.NewRead("fixture", bundle, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}), mustLocalRef(t, "parity-src"), gate)
 	srv, ok := servers["parity"]
 	if !ok {
 		t.Fatal("the production path produced no wire MCP server — nothing to compare against")

@@ -41,10 +41,10 @@ import (
 type Origin string
 
 const (
-	// OriginProfileDirectory: a directory profile's own `hooks:` block
-	// (.ctxloom/profiles/<name>.yaml, or a bundle-shipped profile reached
-	// through the same loader). These pass the executable trust gate; a hook
-	// with this origin was ALLOWED by it.
+	// OriginProfileDirectory: a profile's own `hooks:` block (a profile item
+	// of the project bundle, or of any other bundle the loader resolves).
+	// These pass the executable trust gate; a hook with this origin was
+	// ALLOWED by it.
 	OriginProfileDirectory Origin = "profile-directory"
 	// OriginCompanion: a companion binary's loadout bundle, discovered on
 	// PATH. Ref is the canonical "ctxloom+companion:<bin>". Also

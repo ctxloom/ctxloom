@@ -198,15 +198,12 @@ func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.Reso
 // profileGateRef is the identity gateProfileHooks keys the
 // executable trust gate by — the profile's own SOURCE, never its display
 // name (a display name is neither honestly local nor a parseable trust
-// ref). Base is the ref the gate composes "#<kind>/<name>" onto; Signer is
-// the origin bundle's verified publisher identity when known (B2, gateProfileExec parity with
-// bundle-declared execs) — empty falls through to local (a genuinely local
-// profile) or pending review, never auto-allow.
+// ref). Base is the ref the gate composes "#<kind>/<name>" onto.
 type profileGateRef struct {
 	Base string
-	// Read is the trust posture the decision keys on: the ORIGIN BUNDLE's read
-	// for a bundle-shipped profile, or the project's own posture for a
-	// genuinely project-authored one (bundles.ProjectAuthoredRead).
+	// Read is the trust posture the decision keys on: the read of the bundle
+	// the profile is an item of — a local bundle's for a project's own
+	// profile, a remote bundle's for a shipped one.
 	//
 	// A verified principal string alone cannot say whether the signature still
 	// covers the bytes, and an empty one means BOTH "unsigned" and "signed by a
@@ -216,29 +213,23 @@ type profileGateRef struct {
 	Read bundles.BundleRead
 }
 
-// profileGateRefFor derives a directory profile's gate identity from its
-// resolved provenance: resolved.SourceRef (profiles.ResolvedProfile) when the
-// profile is bundle-shipped — the origin bundle's canonical ref, WITHOUT the
-// "#profiles/<name>" selector, so the composed "<SourceRef>#hooks/..." ref
-// carries exactly one '#' and parses — and never keys IsLocal for a
-// remote origin. A genuinely local/
-// project-authored profile has an empty SourceRef, so Base falls back to the
-// bare profileName — exactly what parseSourceRef's bare-token fallback
-// resolves to IsLocal, honestly, because it IS local.
+// profileGateRefFor derives a profile's gate identity from its resolved
+// provenance: resolved.SourceRef (profiles.ResolvedProfile) is the canonical
+// ref of the bundle the profile is an item of, WITHOUT the "#profiles/<name>"
+// selector, so the composed "<SourceRef>#hooks/..." ref carries exactly one
+// '#' and parses. Every resolved profile has one: a project's own profiles are
+// the project bundle's items. A profile without one has no source to key the
+// gate by, so its Base is the bare name and its read is left UNCLAIMED, which
+// every Authorizer withholds: fail-closed.
 func profileGateRefFor(cfg *config.Config, resolved *profiles.ResolvedProfile, profileName string) profileGateRef {
 	if resolved == nil || resolved.SourceRef == "" {
-		// Genuinely project-authored: a .ctxloom/profiles/<name>.yaml file in
-		// this project's own tree. That posture is stated out loud now — it used
-		// to be asserted by handing the gate a bare-token ref and letting the ref
-		// grammar resolve it to IsLocal, which is the same claim made where
-		// nothing could see it.
-		return profileGateRef{Base: profileName, Read: bundles.ProjectAuthoredRead(profileName, &bundles.Bundle{Name: profileName})}
+		return profileGateRef{Base: profileName}
 	}
 	ref := profileGateRef{Base: resolved.SourceRef}
 	if cfg != nil {
-		// The ORIGIN BUNDLE's own read, from the loader that read it — not a
-		// posture this call site invents. An origin that will not resolve leaves
-		// the read unclaimed, and an unclaimed read withholds.
+		// The bundle's own read, from the loader that read it — not a posture
+		// this call site invents. A source that will not resolve leaves the
+		// read unclaimed, and an unclaimed read withholds.
 		if read, err := cfg.BundleLoader().Read(resolved.SourceRef); err == nil {
 			ref.Read = read
 		}

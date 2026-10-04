@@ -44,11 +44,9 @@ type DependencyConflict struct {
 // hashless identity, plus any conflict where the same identity appears at more
 // than one hash. Local (ctxloom:local) refs carry no hash and are not tracked.
 //
-// profileNames selects the roots; empty means every local profile — inline
-// config.yaml definitions plus directory profiles on disk, plus any remote
-// refs in the configured default profiles — the same root set sync's
-// collectRemoteReferences walks (so nothing sync installs is erased by
-// the post-sync lock rebuild).
+// profileNames selects the roots; empty means the whole project closure —
+// every local bundle's profiles plus any remote refs in the configured default
+// profiles (closureRoots).
 //
 // The third return lists remote parent profiles that could NOT be expanded
 // (fetch/parse failure) — the closure is INCOMPLETE when it is non-empty, and
@@ -56,7 +54,7 @@ type DependencyConflict struct {
 // entries instead of dropping the unexpanded subtrees (a transient fetch
 // failure must never erase healthy lock entries).
 func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames []string) ([]PinnedRef, []DependencyConflict, []string) {
-	loader := profileLoader(cfg)
+	loader := cfg.GetProfileLoader()
 	var roots []*profiles.Profile
 	var rootsUnexpanded []string
 	if len(profileNames) == 0 {
@@ -73,9 +71,8 @@ func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames [
 	return pins, conflicts, append(unexpanded, rootsUnexpanded...)
 }
 
-// namedRoots resolves profile names to in-memory root profiles. Inline
-// config.yaml definitions win over a same-named directory profile, matching
-// sync's collectProfileReferences resolution order; unknown names are skipped.
+// namedRoots resolves profile names to in-memory root profiles; a name that
+// does not load is skipped and reported in the second return.
 func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) ([]*profiles.Profile, []string) {
 	var roots []*profiles.Profile
 	var unexpanded []string
@@ -107,7 +104,8 @@ func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) ([]
 }
 
 // closureRoots builds the canonical root set for the WHOLE project closure:
-// every inline config.yaml definition, every directory profile on disk, plus a
+// every LOCAL bundle's profiles — a local bundle is the project's manifest, so
+// a remote bundle referenced only from one of its profiles is locked — plus a
 // synthetic root carrying the remote refs named in the configured default
 // profiles (the init-seeded default, or home-config defaults — closure roots
 // even though no local profile names them; the walker resolves remote parents
@@ -117,37 +115,21 @@ func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) ([]
 // every entry rooted only in a config-default profile, and a broader one pins
 // what the project never composes.
 //
-// A profile SHIPPED inside a bundle (IsSeededPath) is never a root. The loader
-// lists one for every bundle whose tree is installed, so rooting on them made
+// A REMOTE bundle's profile (IsSeededPath) is never a root. The loader lists
+// one for every remote bundle whose tree is installed, so rooting on them made
 // the closure feed on the lockfile itself — a bundle's unused profiles pinned
 // their own dependencies, and only while that bundle's tree was cached. A
-// shipped profile belongs to the closure only when something composes it, and
+// remote profile belongs to the closure only when something composes it, and
 // the walk reaches it through that parent edge.
 func closureRoots(cfg *config.Config, loader *profiles.Loader) ([]*profiles.Profile, []string) {
 	var names []string
-	ps, skipped, err := loader.List()
-	// A profile List skipped (it would not parse, or its directory could not be
-	// read) is UNREACHED, not removed: everything only it reaches must be
-	// preserved by a wholesale rewrite, exactly like a root that fails to load.
-	unexpanded := skipped
-	if err != nil {
-		// Losing the whole directory-profile listing is the same hazard as
-		// losing a single root, one order of magnitude larger: every directory
-		// profile drops out of the closure at once. Never silent.
-		clidiag.Warn("ctxloom", "could not list directory profiles (%v); every dependency rooted only in one is missing from the closure", err)
-		// As above, feed the unexpanded-set protection so a wholesale
-		// lockfile rewrite built from this narrowed closure preserves existing
-		// entries instead of silently erasing every directory-profile-rooted one.
-		unexpanded = append(unexpanded, "<directory-profiles>")
-	}
-	for _, p := range ps {
+	for _, p := range loader.List() {
 		if profiles.IsSeededPath(p.Path) {
 			continue
 		}
 		names = append(names, p.Name)
 	}
-	roots, rootsUnexpanded := namedRoots(cfg, loader, names)
-	unexpanded = append(unexpanded, rootsUnexpanded...)
+	roots, unexpanded := namedRoots(cfg, loader, names)
 	if root := configDefaultsRoot(cfg); root != nil {
 		roots = append(roots, root)
 	}

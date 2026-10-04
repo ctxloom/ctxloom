@@ -8,14 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // grammarLoader returns a loader seeded with one remote bundle profile and one
 // local bundle profile, with an alias resolver mapping "myrem" to defaultURL.
 // This is the harness for the reference-grammar pins: which spellings reach
-// which seed entries.
-func grammarLoader(t *testing.T) *Loader {
+// which seed entries. projectProfiles are written into the project bundle
+// first, as name/document pairs.
+func grammarLoader(t *testing.T, projectProfiles ...string) *Loader {
 	t.Helper()
 	remoteKey := defaultURI + "//bundles/ai-developer#profiles/developer"
 	localKey := "ctxloom+local:tools#profiles/probe"
@@ -32,10 +32,10 @@ func grammarLoader(t *testing.T) *Loader {
 		},
 	}
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/profiles/personal/go-developer.yaml",
-		"description: local subdir profile\n", 0644)
-	return NewLoader([]string{"/profiles"},
-		WithFS(fs),
+	for i := 0; i+1 < len(projectProfiles); i += 2 {
+		writeProjectProfile(t, fs, projectProfiles[i], projectProfiles[i+1])
+	}
+	return bundleLoader(t, fs,
 		WithSeededProfiles(seed),
 		WithRemoteURLResolver(func(alias string) string {
 			if alias == "myrem" {
@@ -47,7 +47,7 @@ func grammarLoader(t *testing.T) *Loader {
 
 // TestLoad_ProfileRefGrammar pins which spellings resolve. The alias form
 // ("<alias>/<bundle>#profiles/<name>") must reach the same seed entry as the
-// canonical URL; selector-less two-segment names stay local-only.
+// canonical URL.
 func TestLoad_ProfileRefGrammar(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -64,8 +64,6 @@ func TestLoad_ProfileRefGrammar(t *testing.T) {
 			"ctxloom+local:tools#profiles/probe"},
 		{"explicit ctxloom:local form", "ctxloom:local@bundles/tools#profiles/probe",
 			"ctxloom+local:tools#profiles/probe"},
-		{"subdir local profile (selector-less two-segment name)", "personal/go-developer",
-			"personal/go-developer"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -100,6 +98,21 @@ func TestLoad_BundleProfileMiss_HasPullHint(t *testing.T) {
 	}
 }
 
+// TestLoad_SelectorlessNameIsTheProjectBundleProfile pins the resolution rule:
+// a selector-less name is the project bundle's profile of that name, reached
+// by the bare name and by its full local ref alike.
+func TestLoad_SelectorlessNameIsTheProjectBundleProfile(t *testing.T) {
+	loader := grammarLoader(t, "dev", "bundles:\n  - own-bundle\n")
+
+	bare, err := loader.Load("dev")
+	require.NoError(t, err)
+	assert.Equal(t, "ctxloom+local:project#profiles/dev", bare.Name)
+
+	full, err := loader.Load("ctxloom:local@bundles/project#profiles/dev")
+	require.NoError(t, err)
+	assert.Same(t, bare, full)
+}
+
 // TestValidateProfileName_HashReserved pins the reserved character: '#' can
 // never appear in a local profile name, so a "#profiles/" ref is structurally
 // a bundle-profile ref.
@@ -110,7 +123,6 @@ func TestValidateProfileName_HashReserved(t *testing.T) {
 		wantErr bool
 	}{
 		{"plain name", "developer", false},
-		{"subdir name", "personal/go-developer", false},
 		{"hash in name", "weird#name", true},
 		{"selector-shaped name", "x#profiles/y", true},
 	}
@@ -132,10 +144,7 @@ func TestValidateProfileName_HashReserved(t *testing.T) {
 // "<alias>/<bundle>#profiles/<name>" form must merge the parent's content
 // exactly like the canonical spelling.
 func TestResolveProfile_AliasParent(t *testing.T) {
-	loader := grammarLoader(t)
-	fs := loader.fs
-	testsupport.WriteFileString(t, fs, "/profiles/dev.yaml",
-		"parents:\n  - myrem/ai-developer#profiles/developer\nbundles:\n  - own-bundle\n", 0644)
+	loader := grammarLoader(t, "dev", "parents:\n  - myrem/ai-developer#profiles/developer\nbundles:\n  - own-bundle\n")
 
 	resolved, err := loader.ResolveProfile("dev", nil)
 	require.NoError(t, err)
@@ -148,7 +157,7 @@ func TestResolveProfile_AliasParent(t *testing.T) {
 // registry resolver the alias form cannot resolve, and the error still points
 // at the pull-based fix rather than a bare not-found.
 func TestLoad_AliasWithoutResolver_FailsWithHint(t *testing.T) {
-	loader := NewLoader([]string{"/profiles"}, WithFS(afero.NewMemMapFs()))
+	loader := bundleLoader(t, afero.NewMemMapFs())
 	_, err := loader.Load("myrem/ai-developer#profiles/developer")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errs.ErrProfileNotFound)

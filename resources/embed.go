@@ -86,9 +86,9 @@ func GetConfigSchema() ([]byte, error) {
 	return resourcesFS.ReadFile("schema/input/config-schema.json")
 }
 
-// GetProfileSchema returns the embedded profile schema, the contract for a
-// .ctxloom/profiles/<name>.yaml file (and for a bundle-shipped profile, which
-// is the same document read from elsewhere).
+// GetProfileSchema returns the embedded profile schema, the contract for every
+// bundle's profile item (<bundle>/profiles/<name>.yaml), the project bundle's
+// included.
 //
 // It exists as its own accessor beside GetConfigSchema because a profile is not
 // a config section any more: the inline `profiles:` block was retired, so the
@@ -132,7 +132,7 @@ func GetDefaultRemotes() ([]byte, error) {
 }
 
 // GetSeedProfile returns an embedded profile template `ctxloom init` scaffolds
-// into a fresh project's .ctxloom/profiles/<name>.yaml. These are starting-point
+// into a fresh project's project bundle as its <name> profile. These are starting-point
 // LOCAL profiles (not bare remote refs), so the user owns and can edit the
 // default that `ctxloom run` assembles.
 func GetSeedProfile(name string) ([]byte, error) {

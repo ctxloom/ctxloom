@@ -3,18 +3,15 @@ package cli
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
@@ -25,8 +22,11 @@ var profileCmd = groupNodeDefault(&cobra.Command{
 	Short: "Manage profiles (named fragment collections)",
 	Long: `Manage profiles - named collections of context fragments, bundles, and configuration.
 
-Profiles are stored as YAML files in .ctxloom/profiles/<name>.yaml and allow you to
-quickly switch between different sets of context without specifying them individually.`,
+A profile is an item of a bundle. A project's own profiles live in its
+project bundle, so a bare profile name is that bundle's profile; a profile of
+any other bundle is addressed as <bundle>#profiles/<name>. The write commands
+(create, update, edit, remove, import) write into the project bundle unless
+the name addresses another LOCAL bundle (create and import take --in-bundle).`,
 }, "list")
 
 var profileListCmd = &cobra.Command{
@@ -42,32 +42,17 @@ func runProfileList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// The directory-existence check stays a CLI concern: it distinguishes
-	// "no profiles dir at all" (suggest mkdir) from "dir exists but empty"
-	// (suggest create). operations.ListProfiles would conflate the two by
-	// defaulting the dir. Resolve the structured list up front so --format
-	// json is honored uniformly (emitting [] in both empty cases); the human
-	// path keeps the dir-vs-empty hint messages.
-	profileDirs := profiles.GetProfileDirs(cfg.FS(), cfg.GetAppPaths())
-	var list []operations.ProfileEntry
-	if len(profileDirs) > 0 {
-		res, err := operations.ListProfiles(cmd.Context(), cfg, operations.ListProfilesRequest{})
-		if err != nil {
-			return err
-		}
-		list = res.Profiles
+	res, err := operations.ListProfiles(cmd.Context(), cfg, operations.ListProfilesRequest{})
+	if err != nil {
+		return err
 	}
+	list := res.Profiles
 	if list == nil {
 		list = []operations.ProfileEntry{}
 	}
 
 	return emit(cmd, list, func() error {
 		out := cmd.OutOrStdout()
-		if len(profileDirs) == 0 {
-			fmt.Fprintln(out, "No profiles directory found.")
-			fmt.Fprintln(out, "Create one with: mkdir -p .ctxloom/profiles")
-			return nil
-		}
 		if len(list) == 0 {
 			fmt.Fprintln(out, "No profiles defined.")
 			fmt.Fprintln(out, "Use 'ctxloom profile create <name> -b <bundles...>' to create one.")
@@ -117,6 +102,7 @@ var (
 	profileCreateBundles     []string
 	profileCreateDescription string
 	profileCreateLLM         string
+	profileCreateInBundle    string
 )
 
 var profileCreateCmd = &cobra.Command{
@@ -161,17 +147,13 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 	// against a default remote.
 
 	// Route through the operations core so the CLI shares the MCP path's
-	// validation and the default auto-promotion (so `ctxloom run` doesn't
-	// launch with empty context after the first profile is created). The
-	// pre-built loader preserves the CLI's "default to <appPath>/profiles when
-	// none configured" behavior.
+	// validation and its choice of the local bundle the profile lands in.
 	res, err := operations.CreateProfile(cmd.Context(), cfg, operations.CreateProfileRequest{
-		Name:        name,
+		Name:        inBundle(profileCreateInBundle, name),
 		Description: profileCreateDescription,
 		LLM:         profileCreateLLM,
 		Parents:     profileCreateParents,
 		Bundles:     profileCreateBundles,
-		Loader:      profiles.NewLoader(profileCreateDirs(cfg), profileLoaderFSOptions(cfg)...),
 	})
 	if err != nil {
 		return err
@@ -181,33 +163,14 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// profileCreateDirs returns the profile directories, defaulting to
-// <appPath>/profiles when none are configured yet.
-func profileCreateDirs(cfg *config.Config) []string {
-	dirs := profiles.GetProfileDirs(cfg.FS(), cfg.GetAppPaths())
-	if len(dirs) == 0 {
-		// Mirror the len(AppPaths)==0 guard the rest of internal/core/config uses
-		// before indexing AppPaths[0]; a directly-constructed Config can carry
-		// an empty slice, which would otherwise panic here.
-		appPaths := cfg.GetAppPaths()
-		if len(appPaths) == 0 {
-			return nil
-		}
-		dirs = []string{filepath.Join(appPaths[0], "profiles")}
+// inBundle is the name a profile called name is addressed by in the LOCAL
+// bundle called bundle: the name itself for the project bundle (an empty
+// bundle), the "<bundle>#profiles/<name>" ref for any other.
+func inBundle(bundle, name string) string {
+	if bundle == "" {
+		return name
 	}
-	return dirs
-}
-
-// profileLoaderFSOptions threads the config's filesystem into a profile loader
-// so reads and WRITES land where the directories were discovered (the loader
-// stays on its OS default when the config carries no injected filesystem),
-// and the sink its per-profile findings render through.
-func profileLoaderFSOptions(cfg *config.Config) []profiles.LoaderOption {
-	opts := []profiles.LoaderOption{profiles.WithReporter(strictness.Sink("ctxloom"))}
-	if fs := cfg.FS(); fs != nil {
-		opts = append(opts, profiles.WithFS(fs))
-	}
-	return opts
+	return bundle + refuri.ProfileSelector + name
 }
 
 // printProfileCreated reports a newly-created profile's parents/bundles and path.
@@ -472,7 +435,7 @@ func runProfileEdit(cmd *cobra.Command, args []string) error {
 var profileExportCmd = &cobra.Command{
 	Use:   "export <name> <dest-dir>",
 	Short: "Export a profile to a directory",
-	Long: `Export a profile from .ctxloom/profiles to an arbitrary directory.
+	Long: `Export a local bundle's profile to an arbitrary directory.
 
 Useful for publishing profiles to a shared repository like ctxloom-default.
 
@@ -501,12 +464,16 @@ func runProfileExport(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var profileImportForce bool
+var (
+	profileImportForce    bool
+	profileImportInBundle string
+)
 
 var profileImportCmd = &cobra.Command{
 	Use:   "import <path>",
 	Short: "Import a profile from a local file",
-	Long: `Import a profile YAML file into .ctxloom/profiles.
+	Long: `Import a profile YAML file into the project bundle (or, with --in-bundle,
+another local bundle) as the profile named by the file's basename.
 
 Use --force to overwrite an existing profile.
 
@@ -528,6 +495,7 @@ func runProfileImport(cmd *cobra.Command, args []string) error {
 	res, err := operations.ImportProfile(cmd.Context(), cfg, operations.ImportProfileRequest{
 		SourcePath: srcPath,
 		Force:      profileImportForce,
+		Bundle:     profileImportInBundle,
 	})
 	if err != nil {
 		return err
@@ -566,6 +534,8 @@ func init() {
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveExcludeMCP, "include-mcp", nil, "MCP server name(s) to stop excluding")
 
 	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")
+	profileImportCmd.Flags().StringVar(&profileImportInBundle, "in-bundle", "", "Local bundle to import into (default: the project bundle)")
+	profileCreateCmd.Flags().StringVar(&profileCreateInBundle, "in-bundle", "", "Local bundle to create the profile in (default: the project bundle)")
 	profileRemoveCmd.Flags().BoolVarP(&profileRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
 
 	// Register positional arg completions

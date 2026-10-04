@@ -138,16 +138,6 @@ func HasDuplicateKey(n *yaml.Node) bool {
 	return false
 }
 
-// Pending records that loading upgraded an older on-disk document to the
-// current schema in memory. The upgraded bytes are NOT persisted automatically;
-// an interactive caller may prompt the user and then write Data to Path. Nil
-// means the file was already current.
-type Pending struct {
-	Path    string   // file the document came from
-	Data    []byte   // upgraded bytes, ready to persist verbatim
-	Applied []string // names of the upgrades that fired, for the prompt
-}
-
 // Version reads a top-level integer schema version from key on the root mapping
 // node.
 //

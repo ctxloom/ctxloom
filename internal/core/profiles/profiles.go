@@ -18,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
@@ -91,11 +90,10 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 	for i, b := range p.Bundles {
 		p.Bundles[i] = remote.ResolveRefString(b, sourceURL, sourceHash, remote.ItemTypeBundle)
 	}
-	// A parent is either a bare local-profile name (passes through) or a
-	// <bundle>#profiles/<name> bundle-shipped ref that canonicalizes against the
-	// source repo exactly like Bundles/Commands (the "#profiles/<name>" selector
-	// rides through ItemTypeBundle's item passthrough). Top-level @profiles/
-	// parent distribution was retired, so ItemTypeProfile is no longer used here.
+	// Parents canonicalize against the source repo exactly like
+	// Bundles/Commands: a <bundle>#profiles/<name> parent keeps its selector
+	// through ItemTypeBundle's item passthrough. Top-level @profiles/ parent
+	// distribution was retired, so ItemTypeProfile is no longer used here.
 	for i, par := range p.Parents {
 		p.Parents[i] = remote.ResolveRefString(par, sourceURL, sourceHash, remote.ItemTypeBundle)
 	}
@@ -125,22 +123,9 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 	}
 }
 
-// Profile represents a named collection of fragments, bundles, and configuration.
-// Profiles are stored as YAML files in .ctxloom/profiles/<name>.yaml
-//
-// # Content Reference Syntax
-//
-// Profiles use a standardized path syntax to reference content:
-//
-//	bundle-name                      # Entire bundle (all fragments, commands, MCP)
-//	bundle-name:fragments/name       # Specific fragment from bundle
-//	bundle-name:commands/name       # Specific command from bundle
-//	bundle-name:mcp                  # MCP server from bundle
-//	remote/bundle-name:fragments/x   # Fragment from remote bundle
-//
-// Legacy syntax (for backwards compatibility):
-//
-//	fragment-name                    # Standalone fragment file
+// Profile is a named collection of fragments, bundles, and configuration: a
+// bundle's profile item, stored as <bundle>/profiles/<name>.yaml. A project's
+// own profiles are the items of its project bundle (paths.ProjectBundleName).
 type Profile struct {
 	Name string `yaml:"-"` // Derived from filename
 	Path string `yaml:"-"` // Full path to the file
@@ -256,72 +241,57 @@ func RefuseEmptyFragmentEntries(node *yaml.Node) error {
 	return nil
 }
 
-// Loader handles loading profiles from .ctxloom/profiles directories.
+// Loader resolves profiles. Every profile it knows is a bundle's profile item,
+// handed to it through WithSeededProfiles: a local bundle's profiles (the
+// project bundle, paths.ProjectBundleName, among them) and the profiles of
+// every installed remote bundle. A selector-less name is the project bundle's
+// profile of that name (see profileRef).
 type Loader struct {
+	// dirs are the local bundles roots, in precedence order: where a NEW
+	// profile item is written (Save). Reading never consults them — the seed
+	// is the only read path.
 	dirs []string
 	fs   afero.Fs
-	// remoteResolver maps a profile load name to the short remote name it was
-	// installed from, used to canonicalize bundle refs on load (see upgrade.go).
-	// Nil means no resolution — the loader behaves as a plain reader.
-	remoteResolver func(profileName string) string
-	// remoteURLResolver maps a remote alias to its canonical repo URL. Paired with
-	// remoteResolver, it lets the loader rewrite a profile's bare/alias bundle refs
-	// to their canonical URL form on load. Nil means no canonicalization.
+	// remoteURLResolver maps a remote alias to its canonical repo URL, so a
+	// LOCAL bundle's "<alias>/<bundle>" refs canonicalize to the aliased
+	// remote (see canonicalizeLocalAliases). Nil means no canonicalization.
 	remoteURLResolver func(alias string) string
 	// localBundleExists reports whether a bundle name resolves to a LOCAL
-	// bundle, so an "<alias>/<bundle>" ref spelling one is not canonicalized to
-	// the remote (decision E). Nil skips the check.
+	// bundle: an "<alias>/<bundle>" ref spelling one stays local (decision
+	// E), and Save writes only into a local bundle that exists. Nil skips both
+	// checks.
 	localBundleExists func(name string) bool
-	// pending accumulates in-memory schema upgrades applied during Load that an
-	// interactive caller may persist with consent (see PendingUpgrades).
-	// pendingPaths dedupes by file path: a legacy file loaded several times in
-	// one run (e.g. a shared parent profile) must yield one pending upgrade,
-	// not one consent prompt per load.
-	pending      []*upgrade.Pending
-	pendingPaths map[string]bool
-	// seeded holds remote profiles read from the git clone cache at their locked
-	// SHA, indexed by canonical ref. Remote profiles are pure references (never
-	// materialized to disk), so they enter the loader only via this seed — the
-	// profile-side mirror of bundles.WithSeededBundles. Seeded entries are
-	// returned ahead of any fs lookup.
+	// seeded holds every profile this loader resolves, indexed by canonical
+	// "<bundle>#profiles/<name>" ref — the profile-side mirror of
+	// bundles.WithSeededBundles.
 	seeded map[string]*Profile
 
-	// rep receives what a listing or a load reports about one profile
-	// without failing the operation (an unreadable path, a hollow profile,
-	// a parent that does not resolve). The caller renders it.
+	// rep receives what a load reports about one profile without failing the
+	// operation (a hollow profile, a parent that does not resolve). The caller
+	// renders it.
 	rep report.Reporter
 }
 
 // LoaderOption is a functional option for configuring a Loader.
 type LoaderOption func(*Loader)
 
-// WithFS sets a custom filesystem implementation (for testing).
 // WithReporter names the Sink the Loader reports per-profile findings to;
 // without one they are discarded.
 func WithReporter(sink report.Sink) LoaderOption {
 	return func(l *Loader) { l.rep = report.To(sink) }
 }
 
+// WithFS sets the filesystem Save and Delete write through.
 func WithFS(fs afero.Fs) LoaderOption {
 	return func(l *Loader) {
 		l.fs = fs
 	}
 }
 
-// WithRemoteResolver sets the function that maps a profile load name to the
-// short remote name it was installed from. Paired with WithRemoteURLResolver, the
-// loader uses it to canonicalize bare/alias bundle refs in legacy profiles on
-// load. Without it, profiles load verbatim.
-func WithRemoteResolver(resolve func(profileName string) string) LoaderOption {
-	return func(l *Loader) {
-		l.remoteResolver = resolve
-	}
-}
-
 // WithRemoteURLResolver sets the function that maps a remote alias to its
-// canonical repo URL. The loader uses it (with WithRemoteResolver) to rewrite a
-// legacy profile's bare/alias bundle refs to canonical URL form on load. Without
-// it, no canonicalization is attempted.
+// canonical repo URL. The loader uses it to rewrite a LOCAL bundle profile's
+// "<alias>/<bundle>" refs to canonical URL form. Without it, no
+// canonicalization is attempted.
 func WithRemoteURLResolver(resolve func(alias string) string) LoaderOption {
 	return func(l *Loader) {
 		l.remoteURLResolver = resolve
@@ -329,21 +299,18 @@ func WithRemoteURLResolver(resolve func(alias string) string) LoaderOption {
 }
 
 // WithLocalBundleResolver sets the oracle reporting whether a bundle name
-// resolves to a LOCAL bundle. Load-time canonicalization leaves an
-// "<alias>/<bundle>" ref local when it does (local-file-wins), instead of
-// rewriting it to the same-spelled remote alias and staging that rewrite as an
-// on-disk migration.
+// resolves to a LOCAL bundle. Alias canonicalization leaves an
+// "<alias>/<bundle>" ref local when it does (local-file-wins), and Save
+// refuses to write into a local bundle it denies.
 func WithLocalBundleResolver(exists func(name string) bool) LoaderOption {
 	return func(l *Loader) {
 		l.localBundleExists = exists
 	}
 }
 
-// WithSeededProfiles pre-populates the loader with parsed remote profiles
-// indexed by canonical ref. Seeded entries win over fs hits with the same name,
-// mirroring bundles.WithSeededBundles: remote profiles served from the git clone
-// cache (see remote.ProfileReader) are referenced, never materialized to disk,
-// so they reach the loader only through this seed. Each call merges its map in.
+// WithSeededProfiles pre-populates the loader with parsed bundle profiles
+// indexed by canonical "<bundle>#profiles/<name>" ref. Each call merges its
+// map in.
 func WithSeededProfiles(seeded map[string]*Profile) LoaderOption {
 	return func(l *Loader) {
 		if l.seeded == nil {
@@ -351,6 +318,46 @@ func WithSeededProfiles(seeded map[string]*Profile) LoaderOption {
 		}
 		maps.Copy(l.seeded, seeded)
 	}
+}
+
+// projectProfileRef is the ref a selector-less profile name resolves to: the
+// profile of that name in the project bundle.
+func projectProfileRef(name string) string {
+	return remote.LocalBundleRef(paths.ProjectBundleName) + refuri.ProfileSelector + name
+}
+
+// profileRef maps the name a caller asked for onto the ref the seed is keyed
+// by. A selector-less name — no "#profiles/" selector and no source — is the
+// project bundle's profile of that name, so it must be a valid profile name
+// (validateProfileName); every other spelling passes through for lookupSeeded
+// to canonicalize.
+func profileRef(name string) (string, error) {
+	if strings.Contains(name, "#") || remote.IsCanonicalRef(name) {
+		return name, nil
+	}
+	if err := validateProfileName(name); err != nil {
+		return "", err
+	}
+	return projectProfileRef(name), nil
+}
+
+// localBundleOf returns the LOCAL bundle a "<bundle>#profiles/<name>" ref
+// addresses and the profile's bare name; ok is false for a ref into any other
+// source, or one carrying no profile selector.
+func localBundleOf(ref string) (bundle, profile string, ok bool) {
+	b, name, ok := remote.SplitBundleProfileRef(ref)
+	if !ok {
+		return "", "", false
+	}
+	canon, err := remote.CanonicalBundleRef(b)
+	if err != nil {
+		return "", "", false
+	}
+	parsed, err := remote.ParseReference(canon)
+	if err != nil || !parsed.IsLocal {
+		return "", "", false
+	}
+	return parsed.Path, name, true
 }
 
 // lookupSeeded returns the seeded profile for name, if any. Seeded profiles
@@ -390,14 +397,17 @@ func (l *Loader) lookupSeeded(name string) (*Profile, bool) {
 }
 
 // canonicalProfileName returns the version-less canonical identity of a
-// profile reference, for recursion and visited-map dedup. A bundle-profile
-// ref resolves alias-first (so "<alias>/<bundle>#profiles/<p>" and its
-// canonical URL spelling share one identity), then through the
-// selector-preserving CanonicalProfileKey — CanonicalKey would drop the
-// "#profiles/<name>" selector and collapse the ref to its bundle, which is
-// never a profile name. Non-selector refs and plain local names pass through
-// CanonicalKey / unchanged.
+// profile reference, for recursion and visited-map dedup. A selector-less name
+// is first mapped to its project-bundle ref (profileRef), so "dev" and the
+// ref it resolves to share one identity. A bundle-profile ref resolves
+// alias-first (so "<alias>/<bundle>#profiles/<p>" and its canonical URL
+// spelling share one identity), then through the selector-preserving
+// CanonicalProfileKey — CanonicalKey would drop the "#profiles/<name>"
+// selector and collapse the ref to its bundle, which is never a profile name.
 func (l *Loader) canonicalProfileName(ref string) string {
+	if mapped, err := profileRef(ref); err == nil {
+		ref = mapped
+	}
 	if _, _, ok := remote.SplitBundleProfileRef(ref); ok {
 		if key, ok := l.aliasSeededKey(ref); ok {
 			return key
@@ -414,12 +424,9 @@ func (l *Loader) canonicalProfileName(ref string) string {
 }
 
 // aliasSeededKey resolves an "<alias>/<bundle>#profiles/<name>" reference to
-// its canonical seed key via the remote registry. The bare-name grammar is
-// untouched: a parent or -p WITHOUT a "#profiles/" selector never reaches
-// here, so a local profile in a subdirectory (e.g. "personal/go-developer")
-// keeps winning for selector-less names. ok is false when the loader has no
-// registry resolver, the ref carries no selector, the bundle part is already
-// canonical or ctxloom:local, or the alias names no configured remote.
+// its canonical seed key via the remote registry. ok is false when the loader
+// has no registry resolver, the ref carries no selector, the bundle part is
+// already canonical or ctxloom:local, or the alias names no configured remote.
 func (l *Loader) aliasSeededKey(name string) (string, bool) {
 	if l.remoteURLResolver == nil {
 		return "", false
@@ -440,44 +447,8 @@ func (l *Loader) aliasSeededKey(name string) (string, bool) {
 	return remote.CanonicalProfileKey(candidate)
 }
 
-// PendingUpgrades returns the in-memory schema upgrades Load applied to older
-// profile files this loader has not persisted. An interactive caller prompts the
-// user and calls CommitUpgrade to make a rewrite permanent (see cmd/run.go).
-// Empty when every loaded profile was already current.
-func (l *Loader) PendingUpgrades() []*upgrade.Pending {
-	return l.pending
-}
-
-// CommitUpgrade persists a pending profile upgrade, writing the upgraded bytes
-// verbatim so comments and key order preserved by the node rewrite survive, and
-// drops it from the pending set. Callers prompt the user before invoking this
-// (see cmd/run.go); ctxloom never rewrites a profile without consent.
-func (l *Loader) CommitUpgrade(p *upgrade.Pending) error {
-	// Nothing to write is not a successful write. The caller has just asked
-	// the user to consent to a rewrite, so a nil return here means that
-	// rewrite landed; an empty payload would land as a zero-byte profile.
-	if p == nil {
-		return fmt.Errorf("no pending profile upgrade to commit")
-	}
-	if p.Path == "" {
-		return fmt.Errorf("pending profile upgrade has no path")
-	}
-	if len(p.Data) == 0 {
-		return fmt.Errorf("pending upgrade for profile %s carries no content; refusing to truncate it", p.Path)
-	}
-	if err := afero.WriteFile(l.fs, p.Path, p.Data, 0o644); err != nil {
-		return fmt.Errorf("write upgraded profile %s: %w", p.Path, err)
-	}
-	for i, pending := range l.pending {
-		if pending == p {
-			l.pending = append(l.pending[:i], l.pending[i+1:]...)
-			break
-		}
-	}
-	return nil
-}
-
-// NewLoader creates a new profile loader.
+// NewLoader creates a profile loader. dirs are the local bundles roots a new
+// profile item is written under (Save), in precedence order.
 func NewLoader(dirs []string, opts ...LoaderOption) *Loader {
 	l := &Loader{
 		dirs: dirs,
@@ -486,280 +457,117 @@ func NewLoader(dirs []string, opts ...LoaderOption) *Loader {
 	for _, opt := range opts {
 		opt(l)
 	}
+	l.canonicalizeLocalAliases()
 	return l
 }
 
-// List returns all available profiles (searches subdirectories recursively),
-// and what it SKIPPED: the name of each profile file that failed to load, and
-// the path of each directory it could not read. A skip degrades with a warning
-// rather than failing the listing, but it is returned as well because a caller
-// that rebuilds state from the listing (the lock closure) must tell "absent"
-// from "unreadable", or it erases what only the unreadable profile reached.
-func (l *Loader) List() ([]*Profile, []string, error) {
-	var profiles []*Profile
-	var skipped []string
-	seen := make(map[string]bool)
+// canonicalizeLocalAliases rewrites each LOCAL bundle profile's
+// "<alias>/<bundle>" bundle refs to the aliased remote's canonical URL, in
+// memory. Only a local bundle's profiles mean anything by an alias: the alias
+// table is this machine's, so a publisher's profile could never have been
+// written against it. It runs once every option is applied, so the order the
+// seed and the resolvers were given in does not matter.
+func (l *Loader) canonicalizeLocalAliases() {
+	if l.remoteURLResolver == nil {
+		return
+	}
+	u := bundleRefCanonicalizeUpgrade{aliasToURL: l.remoteURLResolver, localBundleExists: l.localBundleExists}
+	for key, p := range l.seeded {
+		if _, _, ok := localBundleOf(key); !ok {
+			continue
+		}
+		for i, b := range p.Bundles {
+			p.Bundles[i], _ = u.canonicalize(b)
+		}
+	}
+}
 
-	// Seeded remote profiles are emitted first — they carry a non-fs Path (the
-	// canonical ref) so write paths never touch them. This is NOT a precedence
-	// guard against the fs loop below: a seed key always contains "#profiles/"
-	// (built by remote.BundleProfileRef), while the fs loop keys seen by a
-	// .yaml-stripped relative path that never contains that substring, so
-	// `seen[profileName]` there can never match a seeded entry — both a
-	// same-named seeded and on-disk profile are emitted, unlike Load's
-	// (lookupSeeded) precedence.
+// List returns every profile the loader resolves, sorted by name.
+func (l *Loader) List() []*Profile {
+	profiles := make([]*Profile, 0, len(l.seeded))
 	for _, p := range l.seeded {
 		profiles = append(profiles, p)
 	}
-
-	for _, dir := range l.dirs {
-		exists, err := afero.DirExists(l.fs, dir)
-		if err != nil {
-			// A directory that cannot be interrogated is not an empty one.
-			// Degrading silently here reports "you have no profiles" for a
-			// machine whose profiles are all present but unreachable.
-			l.rep.Warnf("skipping profiles directory %s: %v", dir, err)
-			skipped = append(skipped, dir)
-			continue
-		}
-		if !exists {
-			continue
-		}
-
-		err = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				// Same reasoning one level down: skip the entry, but say which
-				// one and why, or the profiles under it vanish undiagnosably.
-				l.rep.Warnf("skipping unreadable profiles path %s: %v", path, err)
-				skipped = append(skipped, path)
-				return nil
-			}
-			if info.IsDir() {
-				return nil
-			}
-			name := info.Name()
-			if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
-				return nil
-			}
-
-			// Use relative path from dir as profile name (e.g., "github/go-developer")
-			relPath, relErr := filepath.Rel(dir, path)
-			if relErr != nil {
-				// Walk derives every path from dir, so this cannot fire today;
-				// the guard exists because the alternative is a profile named
-				// "" — which sorts first and addresses nothing.
-				l.rep.Warnf("skipping profile %s: cannot derive a name relative to %s: %v", path, dir, relErr)
-				skipped = append(skipped, path)
-				return nil
-			}
-			profileName := strings.TrimSuffix(strings.TrimSuffix(relPath, ".yaml"), ".yml")
-			// Normalize path separators to forward slashes for consistency
-			profileName = filepath.ToSlash(profileName)
-
-			if seen[profileName] {
-				return nil // First directory wins
-			}
-			seen[profileName] = true
-
-			profile, err := l.loadFile(path, l.remoteFor(profileName))
-			if err != nil {
-				// Degrade, but say so: a corrupt profile silently vanishing
-				// from list output is undiagnosable.
-				l.rep.Warnf("skipping profile %s: %v", path, err)
-				skipped = append(skipped, profileName)
-				return nil
-			}
-			profile.Name = profileName
-			profiles = append(profiles, profile)
-			return nil
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to scan profiles directory %s: %w", dir, err)
-		}
-	}
-
-	// Sort by name
 	sort.Slice(profiles, func(i, j int) bool {
 		return profiles[i].Name < profiles[j].Name
 	})
-
-	return profiles, skipped, nil
+	return profiles
 }
 
-// Load loads a profile by name (supports subdirectory paths like
-// "github/profile-name"). URL refs are normalized at this boundary so every
-// caller benefits: a seeded remote profile is found under its version-less
-// canonical key (lockfiles and the seed map both use that shape), and a URL
-// ref with no seed entry falls back to its local materialized name (e.g.
-// "github.com/owner/repo/name") for the fs lookup.
+// Load loads a profile by name: a selector-less name is the project bundle's
+// profile of that name, and any "<bundle>#profiles/<name>" ref — local or
+// remote, short, aliased or version-pinned — resolves through the seed under
+// its canonical key.
 //
 // # Ownership
 //
-// A returned profile is READ-ONLY to the caller. The two sources differ in
-// what that costs to violate, so it is stated rather than left to be
-// discovered: a filesystem profile is parsed afresh on every call, while a
-// SEEDED (bundle-shipped) profile is the one shared instance every reader in
-// this run receives — it is a reference with no local file, so there is
-// nothing to re-read it from. Mutating one would corrupt the seed for every
-// later reader and then evaporate on the next pull, which is why every write
-// path (Save, Delete, and operations' edit/import flows) refuses a seeded
-// profile BEFORE mutating anything rather than at the moment of writing.
+// A returned profile is READ-ONLY to the caller: it is the one shared instance
+// every reader in this run receives. Every write path (Save, Delete, and
+// operations' edit/import flows) works on the profile's file, never on this
+// instance in place.
 func (l *Loader) Load(name string) (*Profile, error) {
-	// Seeded remote profiles win over any fs lookup.
-	if p, ok := l.lookupSeeded(name); ok {
-		return p, nil
-	}
-
-	// A bundle-profile ref ("...#profiles/<name>") or scheme-qualified remote
-	// ref that missed the seed can never resolve from disk: bundle profiles
-	// exist only via the lockfile-built seed map. Say so — the bare "not
-	// found" otherwise reads as "the profile doesn't exist upstream". ('#' is
-	// reserved in local profile names, so the selector is unambiguous.)
-	if strings.Contains(name, refuri.ProfileSelector) || remote.IsCanonicalRef(name) {
-		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom deps pull')", errs.ErrProfileNotFound, name)
-	}
-
-	// Names reach here from MCP tools and CLI args, so the local form must be
-	// confined to the profiles directories before it is joined into a path —
-	// the same guard Save applies (and the profile-side mirror of
-	// bundles.Loader.Find validating in the read path).
-	// The name is used as-is: a bundle-shipped (seeded) profile is resolved by
-	// lookupSeeded before this point, and top-level "<url>@profiles/"
-	// distribution was retired, so there is no URL form left to convert.
-	localName := name
-	if err := validateProfileName(localName); err != nil {
-		return nil, err
-	}
-
-	path, ok := l.findFile(localName)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
-	}
-	profile, err := l.loadFile(path, l.remoteFor(name))
+	ref, err := profileRef(name)
 	if err != nil {
 		return nil, err
 	}
-	profile.Name = name
-	return profile, nil
-}
-
-// findFile resolves a validated local profile name to the file backing it,
-// searching the configured dirs in order and both extensions. Shared by Load
-// and Exists so the two can never disagree about which names have a file —
-// "is a profile stored here" is one question with one answer, independent of
-// whether the profile happens to parse.
-func (l *Loader) findFile(localName string) (string, bool) {
-	// Convert forward slashes to OS-specific separator for file lookup
-	osName := filepath.FromSlash(localName)
-	for _, dir := range l.dirs {
-		for _, ext := range []string{".yaml", ".yml"} {
-			path := filepath.Join(dir, osName+ext)
-			if _, err := l.fs.Stat(path); err == nil {
-				return path, true
-			}
+	p, ok := l.lookupSeeded(ref)
+	if !ok {
+		// A selector-less name is the project's own profile: nothing to pull.
+		// Every bundle-profile spelling may name an installed bundle not yet
+		// pulled, so its miss says how to install it.
+		if ref != name {
+			return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
 		}
+		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom deps pull')", errs.ErrProfileNotFound, name)
 	}
-	return "", false
+	// A profile that selects nothing loads, so List and the pickers can still
+	// enumerate a half-authored one, but nothing may launch on it while
+	// pretending it composed something: the fail-loudly gate says so. Only
+	// for a LOCAL profile — the one this project can fix.
+	if _, _, local := localBundleOf(p.Name); local && !p.HasContent() {
+		l.rep.FailOncef(report.KindConfig, "give the profile something to select (parents, bundles, fragments, select_tags) or delete it",
+			"profile %s selects nothing: no parents, bundles, fragments, bundle_items, commands, skills, select_tags, hooks, variables or llm — a session launched on it composes no context", p.Path)
+	}
+	return p, nil
 }
 
-// Exists reports whether a profile is STORED under name — a seeded
-// bundle-shipped profile, or a file in one of the profile directories. It
-// deliberately does not require the profile to parse: callers use Exists to
-// decide whether a name is free (operations.CreateProfile) or whether a
-// declared parent is present (requireProfilesExist), and answering "no" for a
-// profile that is there but malformed makes the first of those overwrite the
-// user's file. A name that can never have a file behind it — traversal,
-// a bundle-profile selector, a remote URL with no seed entry — is false.
+// Exists reports whether a profile is stored under name. It deliberately does
+// not require the profile to select anything: callers use Exists to decide
+// whether a name is free (operations.CreateProfile) or whether a declared
+// parent is present (requireProfilesExist).
 func (l *Loader) Exists(name string) bool {
-	if _, ok := l.lookupSeeded(name); ok {
-		return true
-	}
-	if strings.Contains(name, refuri.ProfileSelector) || remote.IsCanonicalRef(name) {
+	ref, err := profileRef(name)
+	if err != nil {
 		return false
 	}
-	if err := validateProfileName(name); err != nil {
-		return false
-	}
-	_, ok := l.findFile(name)
+	_, ok := l.lookupSeeded(ref)
 	return ok
 }
 
-// remoteFor returns the short remote name a profile was installed from, or ""
-// when no resolver is configured or the profile is local.
-func (l *Loader) remoteFor(name string) string {
-	if l.remoteResolver == nil {
-		return ""
-	}
-	return l.remoteResolver(name)
-}
-
-func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
-	data, err := afero.ReadFile(l.fs, path)
-	if err != nil {
-		return nil, err
-	}
-
-	// Resolution context for canonicalizing legacy bundle refs (see upgrade.go):
-	// ownURL is the profile's own remote repo URL (for bare sibling refs), and
-	// l.remoteURLResolver maps any alias to its repo URL (for "<alias>/<bundle>"
-	// refs). Both are nil/empty for a local project profile, which then loads
-	// verbatim.
-	var ownURL string
-	if l.remoteURLResolver != nil && remoteAlias != "" {
-		ownURL = l.remoteURLResolver(remoteAlias)
-	}
-
-	// Upgrade older on-disk schema (e.g. bare/alias bundle refs, retired
-	// @profiles/ parents) to the current canonical form in memory before
-	// unmarshaling. Applied upgrades are recorded as pending so an interactive
-	// caller may persist the rewrite with consent (see upgrade.go). The seeded
-	// map is the discovery surface for retired-parent rewrites — it is populated
-	// at construction (WithSeededProfiles), before any Load reaches here.
-	if upgraded, applied := profileUpgrades(ownURL, l.remoteURLResolver, l.localBundleExists, l.seeded).Run(data); len(applied) > 0 {
-		data = upgraded
-		if !l.pendingPaths[path] {
-			if l.pendingPaths == nil {
-				l.pendingPaths = make(map[string]bool)
-			}
-			l.pendingPaths[path] = true
-			l.pending = append(l.pending, &upgrade.Pending{Path: path, Data: upgraded, Applied: applied})
-		}
-	}
-
-	profile, err := decodeProfile(l.rep, path, data)
-	if err != nil {
-		return nil, err
-	}
-	// A zero-byte, `{}`, or fully-commented-out profile parses cleanly into a
-	// profile that selects NOTHING, and used to load with err=nil and record
-	// zero strictness findings — a session launches on it, gets no context at
-	// all, and every surface reports success. It is reported
-	// through the fail-loudly gate rather than as a hard load error: `List`
-	// and the pickers must still be able to ENUMERATE a hollow profile (a
-	// half-authored one is a normal intermediate state), but nothing may
-	// launch on one while pretending it composed something.
-	if !profile.HasContent() {
-		l.rep.FailOncef(report.KindConfig, "give the profile something to select (parents, bundles, fragments, select_tags) or delete it",
-			"profile %s selects nothing: no parents, bundles, fragments, bundle_items, commands, skills, select_tags, hooks, mcp, variables or llm — a session launched on it composes no context", path)
-	}
-	profile.Path = path
-	return profile, nil
-}
-
-// decodeProfile parses a profile document, validates it against the profile
-// schema as written, and only then decodes it — decoding is what loses a
-// typo'd key or coerces a wrong type (see validateProfileDocument).
-func decodeProfile(rep report.Reporter, path string, data []byte) (*Profile, error) {
+// Decode is the ONE decoder for a profile document, whichever bundle it is
+// read from: the document is checked against the profile schema AS WRITTEN —
+// decoding is what loses a typo'd key or coerces a wrong type — then the
+// context-free normalizer stages run (legacy prompt selectors, stored-ref
+// renormalization), and only then is it decoded. A document that does not
+// match the schema is an error, not a warning: a bundle carrying one does not
+// load.
+//
+// An empty document decodes to the empty profile; whether one may be written
+// or launched is the writers' and the fail-loudly gate's decision.
+func Decode(data []byte) (*Profile, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("%s: invalid YAML: %w", path, err)
+		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
-	if err := validateProfileDocument(rep, path, &doc, data); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+	if err := validateProfileDocument(&doc, data); err != nil {
+		return nil, err
+	}
+	if upgraded, applied := decodeNormalizers.Run(data); len(applied) > 0 {
+		data = upgraded
 	}
 	var profile Profile
-	if err := doc.Decode(&profile); err != nil {
-		return nil, fmt.Errorf("%s: invalid YAML: %w", path, err)
+	if err := yaml.Unmarshal(data, &profile); err != nil {
+		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
 	return &profile, nil
 }
@@ -796,20 +604,16 @@ func (p *Profile) IsEmptyDocument() bool {
 	return !p.HasContent() && p.Description == "" && len(p.Tags) == 0
 }
 
-// Save saves a profile to disk.
+// Save writes a profile item into a LOCAL bundle tree: back to its own file
+// when it was loaded from one, else as a new item of the local bundle its name
+// addresses — a selector-less name is the project bundle's.
 //
-// Seeded remote profiles are rejected: their Path is the "<remote>:" sentinel
-// (not a filesystem path), and writing one anywhere locally would silently
-// fork it from its source — the edit would evaporate on the next pull.
+// A remote bundle's profile is refused: its Path is the "<remote>:" sentinel,
+// and writing one anywhere locally would silently fork it from its source —
+// the edit would evaporate on the next pull.
 func (l *Loader) Save(profile *Profile) error {
-	if len(l.dirs) == 0 {
-		return fmt.Errorf("no profiles directory configured")
-	}
 	if IsSeededPath(profile.Path) {
 		return fmt.Errorf("profile %q is a remote profile and read-only; edit it at its source and run 'ctxloom deps pull'", profile.Name)
-	}
-	if err := validateProfileName(profile.Name); err != nil {
-		return err
 	}
 	// A profile with NOTHING in it — no selection and not even a description
 	// or tags — serializes to "{}\n", and writing that reported success while
@@ -825,13 +629,12 @@ func (l *Loader) Save(profile *Profile) error {
 			"profile %q selects nothing: it carries only labels, so a session launched on it composes no context", profile.Name)
 	}
 
-	// A profile loaded from disk saves back to its own file (so a .yml
-	// profile round-trips instead of duplicating as .yaml); a new profile
-	// writes under the first directory. Subdir-qualified names — the form
-	// List produces — get their intermediate directories created.
 	path := profile.Path
 	if path == "" {
-		path = filepath.Join(l.dirs[0], filepath.FromSlash(profile.Name)+".yaml")
+		var err error
+		if path, err = l.newItemPath(profile.Name); err != nil {
+			return err
+		}
 	}
 	if err := l.fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("failed to create profiles directory: %w", err)
@@ -852,35 +655,75 @@ func (l *Loader) Save(profile *Profile) error {
 	}
 
 	profile.Path = path
+	// The seed is this loader's view of every profile; the item just written
+	// joins it, so the same loader resolves what it saved.
+	saved := *profile
+	saved.Name = l.canonicalProfileName(profile.Name)
+	if l.seeded == nil {
+		l.seeded = make(map[string]*Profile)
+	}
+	l.seeded[saved.Name] = &saved
 	return nil
 }
 
-// validateProfileName rejects names that would escape the profiles directory
-// when joined into a path. The check is the cleaned-relative form (not a
-// naive ".." prefix test), so legitimate names like "..hidden" pass while
-// "../x" and absolute paths are rejected. This is the profile-side mirror of
-// bundles.ValidateBundleName.
+// newItemPath is where a new profile item named name is written: the
+// paths.ProfilesDir item directory of the local bundle the name addresses,
+// under the first local bundles root holding that bundle.
+func (l *Loader) newItemPath(name string) (string, error) {
+	ref, err := profileRef(name)
+	if err != nil {
+		return "", err
+	}
+	bundle, item, ok := localBundleOf(ref)
+	if !ok {
+		return "", fmt.Errorf("profile %q is not in a local bundle: only a local bundle's profiles are written here", name)
+	}
+	if err := validateProfileName(item); err != nil {
+		return "", err
+	}
+	if l.localBundleExists != nil && !l.localBundleExists(bundle) {
+		return "", fmt.Errorf("%w: no local bundle %q to write profile %q into", errs.ErrBundleNotFound, bundle, item)
+	}
+	for _, root := range l.dirs {
+		dir := filepath.Join(root, filepath.FromSlash(bundle))
+		if exists, err := afero.DirExists(l.fs, dir); err != nil || !exists {
+			continue
+		}
+		path := filepath.Join(dir, paths.ProfilesDir, item+".yaml")
+		// A file already here did not load — it is not in the seed, or this
+		// would not be a NEW profile. It is still the user's file, and a new
+		// profile written over it would silently replace it.
+		if present, err := afero.Exists(l.fs, path); err != nil || present {
+			return "", fmt.Errorf("profile %q: %s is present but did not load; fix or remove it: %w", item, path, os.ErrExist)
+		}
+		return path, nil
+	}
+	return "", fmt.Errorf("%w: no local bundle %q to write profile %q into", errs.ErrBundleNotFound, bundle, item)
+}
+
+// validateProfileName refuses a name that is not a single path segment. A
+// profile item's name is its filename inside a bundle's profiles directory,
+// exactly like every other bundle item, so it can carry no directory part —
+// which is also what keeps a name from escaping that directory when joined
+// into a path. '#' is reserved for bundle-item selectors.
 func validateProfileName(name string) error {
 	if name == "" {
 		return fmt.Errorf("profile name is required")
 	}
-	// '#' is reserved for bundle-item selectors, so a "<bundle>#profiles/<n>"
-	// ref is structurally never a local profile file — the seed intercept in
-	// Load is a guarantee, not a coincidence.
 	if strings.Contains(name, "#") {
 		return fmt.Errorf("invalid profile name %q: '#' is reserved for bundle refs (<bundle>#profiles/<name>)", name)
 	}
-	cleaned := filepath.Clean(filepath.FromSlash(name))
-	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+	if strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("invalid profile name %q: a profile name is a single path segment; rename it, e.g. %q", name, strings.NewReplacer("/", "-", `\`, "-").Replace(name))
+	}
+	if name == "." || name == ".." {
 		return fmt.Errorf("invalid profile name %q: must stay within the profiles directory", name)
 	}
 	return nil
 }
 
-// Delete removes a profile file. Load validates the name (traversal names are
-// rejected before any path join) and resolves the path inside the profiles
-// dirs; seeded remote profiles are read-only references with no local file to
-// remove.
+// Delete removes a local profile item's file. A remote bundle's profile is a
+// read-only reference with no local file to remove.
 func (l *Loader) Delete(name string) error {
 	profile, err := l.Load(name)
 	if err != nil {
@@ -889,29 +732,11 @@ func (l *Loader) Delete(name string) error {
 	if IsSeededPath(profile.Path) {
 		return fmt.Errorf("profile %q is a remote profile and read-only; remove its lockfile entry instead (see 'ctxloom remote')", profile.Name)
 	}
-	return l.fs.Remove(profile.Path)
-}
-
-// GetProfileDirs returns the existing profile directories under the given
-// ctxloom paths, resolved against fs. A nil fs means the real OS filesystem
-// (the production default).
-//
-// fs is a parameter rather than an os.Stat because discovery must follow the
-// SAME filesystem the Loader reads: statting the real disk unconditionally made
-// every injected fs a lie — a profile written to a MemMapFs was never found —
-// which is why callers throughout the tree had to fall back to real tempdirs.
-func GetProfileDirs(fs afero.Fs, scmPaths []string) []string {
-	if fs == nil {
-		fs = afero.NewOsFs()
+	if err := l.fs.Remove(profile.Path); err != nil {
+		return err
 	}
-	var dirs []string
-	for _, scmPath := range scmPaths {
-		profileDir := paths.ProfilesPath(scmPath)
-		if isDir, err := afero.DirExists(fs, profileDir); err == nil && isDir {
-			dirs = append(dirs, profileDir)
-		}
-	}
-	return dirs
+	delete(l.seeded, profile.Name)
+	return nil
 }
 
 // maxProfileDepth prevents stack overflow from deeply nested or malformed configurations.
@@ -978,10 +803,9 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// from (or overwritten by) a parent's Merge below: a profile's
 	// directly-declared hooks/mcp must key the executable
 	// trust gate by ITS OWN origin, not a parent's. profile.Name is already
-	// the canonical identity here — a bare local name for a genuinely local
-	// profile, or the "<bundle>#profiles/<name>" seed key
-	// (config.loadBundleProfileSeed) for a bundle-shipped one — so deriving
-	// from it needs no re-canonicalization.
+	// the canonical identity here — the "<bundle>#profiles/<name>" seed key
+	// (config.loadBundleProfileSeed) — so deriving from it needs no
+	// re-canonicalization.
 	if bundle, _, ok := remote.SplitBundleProfileRef(profile.Name); ok {
 		// Fails the whole resolution rather than degrading. SourceRef is what
 		// this profile's directly-declared hooks and MCP servers key the
@@ -1131,19 +955,16 @@ type ResolvedProfile struct {
 	// executable trust gate on its directly-declared hooks
 	// (managedhooks.gateProfileHooks) by
 	// SOURCE rather than display name. It is
-	// the origin bundle's canonical ref ("<url>@bundles/<bundle>", WITHOUT
-	// the "#profiles/<name>" selector — carrying that selector into the gate
-	// ref is exactly what once produced a double-'#') for a
-	// bundle-shipped profile, or "" for a genuinely local/project-authored
-	// profile — which then keys the gate honestly IsLocal via
-	// the bare-token fallback, never auto-allowing a
-	// remote-sourced profile's inline executables. Populated by
+	// the canonical ref of the bundle the profile is an item of (WITHOUT the
+	// "#profiles/<name>" selector — carrying that selector into the gate
+	// ref is exactly what once produced a double-'#'): a local bundle's for
+	// a project's own profile, a remote bundle's for a shipped one. Populated by
 	// resolveProfileRecursive from THIS profile's own load name; Merge below
 	// deliberately never touches it, so a parent's SourceRef can never leak
 	// onto a child's directly-declared execs.
 	SourceRef string
 	// Signer is the verified publisher identity of the bundle this profile
-	// was shipped inside (Profile.Signer) — "" for a local profile or an
+	// is an item of (Profile.Signer) — "" for an unsigned bundle or an
 	// unsigned/untrusted bundle. Threaded to gateProfileExec so a
 	// trusted-publisher profile's inline hooks/mcp are trusted-signer-allowed
 	// exactly like bundle-declared ones, rather than every one of them

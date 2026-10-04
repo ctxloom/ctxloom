@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -27,23 +26,22 @@ type ProfileEntry struct {
 	Bundles     []string `json:"bundles,omitempty"`
 	Default     bool     `json:"default,omitempty"`
 	Path        string   `json:"path,omitempty"`
-	// IsRemote reports whether this profile is a seeded reference (its Path
+	// IsRemote reports whether this profile is a remote bundle's (its Path
 	// carries the "<remote>:" sentinel) rather than a directly-editable local
-	// file. Both top-level remote profiles and bundle-shipped profiles are
-	// seeded, so both set this; Bundle disambiguates a bundle profile.
+	// bundle's file.
 	IsRemote bool `json:"is_remote"`
-	// Bundle is the canonical bundle ref a bundle-shipped profile came from
-	// ("<bundle>" of a "<bundle>#profiles/<name>" identity), empty for top-level
-	// or local profiles. It attributes the profile to its owning bundle, the way
-	// fragment/command listings carry their source bundle.
+	// Bundle is the canonical ref of the bundle the profile is an item of
+	// ("<bundle>" of its "<bundle>#profiles/<name>" identity) — the project
+	// bundle for a project's own profiles. It attributes the profile to its
+	// owning bundle, the way fragment/command listings carry their source
+	// bundle.
 	Bundle string `json:"bundle,omitempty"`
 }
 
 // profileDisplayName returns a short, human label for a profile reference: the
-// bare profile name for a bundle-shipped profile ("<bundle>#profiles/<name>" →
-// "<name>"), else the name unchanged. Centralizing this in the backend keeps
-// frontends from re-deriving display names by parsing refs. (Top-level
-// "@profiles/" distribution was retired.)
+// bare profile name ("<bundle>#profiles/<name>" → "<name>"), else the name
+// unchanged. Centralizing this in the backend keeps frontends from
+// re-deriving display names by parsing refs.
 func profileDisplayName(name string) string {
 	if _, prof, ok := remote.SplitBundleProfileRef(name); ok {
 		return prof
@@ -51,9 +49,9 @@ func profileDisplayName(name string) string {
 	return name
 }
 
-// profileBundleSource returns the canonical bundle ref a bundle-shipped profile
-// came from ("<bundle>" of a "<bundle>#profiles/<name>" identity), or "" for a
-// top-level or local profile.
+// profileBundleSource returns the canonical bundle ref a profile is an item of
+// ("<bundle>" of its "<bundle>#profiles/<name>" identity), or "" for a name
+// carrying no bundle.
 func profileBundleSource(name string) string {
 	bundle, _, ok := remote.SplitBundleProfileRef(name)
 	if !ok {
@@ -83,19 +81,22 @@ type ListProfilesResult struct {
 func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesRequest) (*ListProfilesResult, error) {
 	loader := req.Loader
 	if loader == nil {
-		loader = profileLoader(cfg)
+		loader = cfg.GetProfileLoader()
 	}
-	profileList, _, err := loader.List()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list profiles: %w", err)
-	}
+	profileList := loader.List()
 
 	query := strings.ToLower(req.Query)
 
 	// A profile is "default" when it is one of the profiles the default AGENT
-	// composes (profiles.defaults was retired — the default set is now whatever
-	// Config.DefaultAgent binds).
-	defaultSet := cfg.DefaultAgentProfiles()
+	// composes. The agent names them as written ("default", a short bundle
+	// ref); the listing names each by its canonical identity, so the defaults
+	// are resolved to theirs before they are compared.
+	defaultSet := make(map[string]bool)
+	for _, name := range cfg.DefaultAgentProfiles() {
+		if p, err := loader.Load(name); err == nil {
+			defaultSet[p.Name] = true
+		}
+	}
 
 	var result []ProfileEntry
 	for _, p := range profileList {
@@ -113,7 +114,7 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 			Parents:     p.Parents,
 			Tags:        p.Tags,
 			Bundles:     p.Bundles,
-			Default:     slices.Contains(defaultSet, p.Name),
+			Default:     defaultSet[p.Name],
 			Path:        p.Path,
 			IsRemote:    strings.HasPrefix(p.Path, profiles.SeededProfilePathPrefix),
 			Bundle:      profileBundleSource(p.Name),
@@ -177,8 +178,8 @@ type GetProfileResult struct {
 	ExcludeFragments []string          `json:"exclude_fragments,omitempty"`
 	ExcludeMCP       []string          `json:"exclude_mcp,omitempty"`
 	Path             string            `json:"path,omitempty"`
-	// Bundle is the canonical bundle ref a bundle-shipped profile came from,
-	// empty for top-level or local profiles (see ProfileEntry.Bundle).
+	// Bundle is the canonical ref of the bundle the profile is an item of
+	// (see ProfileEntry.Bundle).
 	Bundle string `json:"bundle,omitempty"`
 }
 
@@ -190,7 +191,7 @@ func GetProfile(ctx context.Context, cfg *config.Config, req GetProfileRequest) 
 
 	loader := req.Loader
 	if loader == nil {
-		loader = profileLoader(cfg)
+		loader = cfg.GetProfileLoader()
 	}
 	// Return the loader's error verbatim: it carries the ErrProfileNotFound
 	// sentinel plus the actionable detail (the remote-pull hint for a
@@ -248,12 +249,17 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 
 	loader := req.Loader
 	if loader == nil {
-		loader = profileLoader(cfg)
+		loader = cfg.GetProfileLoader()
 	}
 
 	// Check if profile already exists
 	if loader.Exists(req.Name) {
 		return nil, fmt.Errorf("profile %q already exists", req.Name)
+	}
+	// A new profile is an item of a LOCAL bundle: the project bundle for a
+	// selector-less name, else the local bundle the name addresses.
+	if err := prepareLocalBundleWrite(cfg, req.Name); err != nil {
+		return nil, err
 	}
 
 	// Canonicalize-on-store (decision B): a per-remote short bundle/parent ref
@@ -334,7 +340,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	loader := req.Loader
 	if loader == nil {
-		loader = profileLoader(cfg)
+		loader = cfg.GetProfileLoader()
 	}
 	// Return the loader's error verbatim, exactly as GetProfile does: it carries
 	// the errs.ErrProfileNotFound sentinel callers branch on plus the actionable
@@ -351,6 +357,9 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 	// the sentinel path anyway).
 	if profiles.IsSeededPath(profile.Path) {
 		return nil, fmt.Errorf("profile %q is a remote profile and read-only; edit it at its source and run 'ctxloom deps pull'", req.Name)
+	}
+	if err := prepareLocalBundleWrite(cfg, profile.Name); err != nil {
+		return nil, err
 	}
 
 	// Canonicalize-on-store (decision B): short "<remote>/<bundle>[#profiles/...]"
@@ -477,9 +486,14 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 
 	loader := req.Loader
 	if loader == nil {
-		loader = profileLoader(cfg)
+		loader = cfg.GetProfileLoader()
 	}
 
+	if profile, err := loader.Load(req.Name); err == nil && !profiles.IsSeededPath(profile.Path) {
+		if err := prepareLocalBundleWrite(cfg, profile.Name); err != nil {
+			return nil, err
+		}
+	}
 	if err := loader.Delete(req.Name); err != nil {
 		return nil, fmt.Errorf("failed to delete profile: %w", err)
 	}
@@ -488,19 +502,4 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 		Status:  "deleted",
 		Profile: req.Name,
 	}, nil
-}
-
-// profileLoader creates a profile loader using the config. It is
-// config.GetProfileLoader with ONE difference, and only one: on a fresh install
-// no profiles directory exists yet, so GetProfileDirs finds none and this
-// factory synthesizes <appPath>/profiles to give a Save somewhere to land. The
-// option set comes from cfg.ProfileLoaderOptions so the two factories cannot
-// disagree about which filesystem is read, how a bundle ref canonicalizes, or
-// which remote/bundle profiles exist.
-func profileLoader(cfg *config.Config) *profiles.Loader {
-	profileDirs := profiles.GetProfileDirs(cfg.FS(), cfg.GetAppPaths())
-	if len(profileDirs) == 0 && len(cfg.GetAppPaths()) > 0 {
-		profileDirs = []string{filepath.Join(cfg.GetAppPaths()[0], "profiles")}
-	}
-	return profiles.NewLoader(profileDirs, cfg.ProfileLoaderOptions()...)
 }

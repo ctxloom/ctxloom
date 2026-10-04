@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
@@ -146,30 +147,36 @@ func SeedTree(t testing.TB, fs afero.Fs, root string, files map[string]string) {
 	taskstest.SeedTree(t, fs, root, files)
 }
 
-// WriteDirProfiles writes one .ctxloom/profiles/<name>.yaml per entry under
-// appDir, marshalling each value as YAML.
+// WriteDirProfiles writes one profile item per entry into appDir's project
+// bundle (paths.ProjectBundleName), creating the bundle when it has none,
+// marshalling each value as YAML.
 //
 // Values are typically a config.Profile: every field it can carry is spelled
-// identically in a directory profile, so marshalling one produces a valid
-// profile file. The parameter is `any` rather than that type because this
-// package must not import config — config's own comments record that the
-// dependency runs the other way, and closing the loop would cycle.
+// identically in a profile item, so marshalling one produces a valid profile.
+// The parameter is `any` rather than that type because this package must not
+// import config — config's own comments record that the dependency runs the
+// other way, and closing the loop would cycle.
 //
 // It writes through the caller's afero.Fs, so a memfs test stays on memfs:
-// config.ProfileLoaderOptions wires profiles.WithFS from the same fs, which is
-// what makes the loader read what was written here.
+// config.ProfileLoaderOptions wires profiles.WithFS from the same fs, and the
+// bundle reader reads the same fs.
 func WriteDirProfiles(t *testing.T, fs afero.Fs, appDir string, profiles map[string]any) {
 	t.Helper()
-	dir := filepath.Join(appDir, "profiles")
+	bundle := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV2), paths.ProjectBundleName)
+	envelope := filepath.Join(bundle, "bundle.yaml")
+	exists, err := afero.Exists(fs, envelope)
+	require.NoError(t, err)
+	if !exists {
+		require.NoError(t, fs.MkdirAll(bundle, 0o755))
+		require.NoError(t, safefs.WriteFile(fs, envelope, []byte("version: \"1.0.0\"\n"), 0o644))
+	}
+	dir := filepath.Join(bundle, paths.ProfilesDir)
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 	for name, p := range profiles {
+		require.NotContains(t, name, "/", "profile %q: a profile name is a single path segment", name)
 		body, err := yaml.Marshal(p)
 		require.NoError(t, err, "marshal profile %q", name)
-		// A profile name may carry a path ("personal/typescript-dev"), which is
-		// a nested file rather than a literal slash in the filename.
-		out := filepath.Join(dir, filepath.FromSlash(name)+".yaml")
-		require.NoError(t, fs.MkdirAll(filepath.Dir(out), 0o755))
-		require.NoError(t, safefs.WriteFile(fs, out, body, 0o644))
+		require.NoError(t, safefs.WriteFile(fs, filepath.Join(dir, name+".yaml"), body, 0o644))
 	}
 }
 

@@ -122,14 +122,12 @@ func (b *Builder) BindVersionResolver(r bundles.BundleVersionResolver) {
 	b.cfg.versionResolver = r
 }
 
-// BindProfileResolvers attaches the generation's remotes-registry lookups:
-// remote maps an installed profile's local name to the short remote it came
-// from, remoteURL maps a remote alias to its repository URL. The reader opens
-// the registry once per read, before any layer is decoded, because the layer
+// BindProfileResolvers attaches the generation's remotes-registry lookup:
+// remoteURL maps a remote alias to its repository URL. The reader opens the
+// registry once per read, before any layer is decoded, because the layer
 // upgrade's profile-ref canonicalizer already consults it through Shell. A nil
 // function means no registry.
-func (b *Builder) BindProfileResolvers(remote, remoteURL func(string) string) {
-	b.cfg.profileRemote = remote
+func (b *Builder) BindProfileResolvers(remoteURL func(string) string) {
 	b.cfg.profileRemoteURL = remoteURL
 }
 

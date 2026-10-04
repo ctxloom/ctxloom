@@ -478,7 +478,7 @@ func TestExtractMCPFromBundle(t *testing.T) {
 		},
 	}
 
-	result := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", bundle), mustLocalRef(t, "my-bundle"), admitall.Authorizer())
+	result := extractMCPFromBundle(report.Reporter{}, bundles.NewRead("fixture", bundle, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}), mustLocalRef(t, "my-bundle"), admitall.Authorizer())
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)

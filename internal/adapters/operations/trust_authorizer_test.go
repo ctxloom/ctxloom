@@ -208,7 +208,7 @@ func TestAuthorizer_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 		read bundles.BundleRead
 	}{
 		{"local", trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "keeper", IsLocal: true},
-			bundles.ProjectAuthoredRead("kit", authorizerBundle())},
+			bundles.NewRead("kit", authorizerBundle(), bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})},
 		{"companion", trust.Ref{RepoURL: "ctxloom:companion", Bundle: "ltk", Kind: trust.KindFragment, Name: "keeper", IsCompanion: true},
 			companionLikeRead(t)},
 	}
@@ -235,7 +235,7 @@ func TestAuthorizer_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 
 func companionLikeRead(t *testing.T) bundles.BundleRead {
 	t.Helper()
-	read := bundles.ProjectAuthoredRead("ltk", authorizerBundle())
+	read := bundles.NewRead("ltk", authorizerBundle(), bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
 	read.Provenance = bundles.ProvenanceCompanion
 	return read
 }

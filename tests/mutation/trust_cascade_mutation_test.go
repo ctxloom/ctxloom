@@ -393,7 +393,7 @@ var mutationTargets = []mutationTarget{
 	},
 	{
 		// The remote REGISTRY: Add, Update, Remove, Get, List, SetDefault,
-		// GetDefault, SetForge, GetOrCreateByURL, ResolveItemRemote and the
+		// GetDefault, SetForge, GetOrCreateByURL and the
 		// load/save pair beneath them — the code that decides what
 		// .ctxloom/remotes.yaml says, and therefore which address every
 		// dependency operation resolves to.

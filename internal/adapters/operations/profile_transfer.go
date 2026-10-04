@@ -4,73 +4,29 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"strings"
 
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// profileLoaderFS builds a profile loader over the given filesystem. It resolves
-// dirs directly (not via GetProfileDirs, which os.Stat-gates on the real FS) so
-// an injected filesystem works; the loader filters non-existent dirs itself.
-func profileLoaderFS(cfg *config.Config, fs afero.Fs) *profiles.Loader {
-	var dirs []string
-	for _, p := range cfg.GetAppPaths() {
-		dirs = append(dirs, paths.ProfilesPath(p))
-	}
-	return profiles.NewLoader(dirs, profiles.WithFS(fs), profiles.WithReporter(strictness.Sink("ctxloom")))
-}
-
-// loadLocalProfile loads a profile for the edit/export flow, which is
-// deliberately local-only: profileLoaderFS seeds no remote resolvers, so a
-// remote (locked) profile can't be edited or exported in place. On a load
-// failure, distinguish a remote reference — whose "not found" was misleading,
-// since it exists, just not as a local file — from a genuinely absent local
-// profile, and point the user at pulling it first.
-func loadLocalProfile(cfg *config.Config, fs afero.Fs, name string) (*profiles.Profile, error) {
-	profile, err := profileLoaderFS(cfg, fs).Load(name)
+// loadLocalProfile loads a profile for the edit/export flow, which works on a
+// LOCAL bundle's profile file: a remote bundle's profile is a read-only
+// reference with no file here, edited at its source.
+func loadLocalProfile(cfg *config.Config, name string) (*profiles.Profile, error) {
+	profile, err := cfg.GetProfileLoader().Load(name)
 	if err != nil {
-		if isRemoteReference(name) {
-			return nil, fmt.Errorf("profile %q is a remote reference; the edit/export flow is local-only (pull it first, then edit the local copy)", name)
-		}
 		// Verbatim: the loader's error carries the errs.ErrProfileNotFound
 		// sentinel and its actionable detail; re-wrapping flat discards both.
 		return nil, err
 	}
+	if profiles.IsSeededPath(profile.Path) {
+		return nil, fmt.Errorf("profile %q is a remote bundle's profile and read-only; edit it at its source and run 'ctxloom deps pull'", name)
+	}
 	return profile, nil
-}
-
-// validateProfileDocument rejects a profile document that carries nothing at all.
-//
-// yaml.v3 accepts "", whitespace, a comment-only file and `null` into a
-// zero-valued profile with a nil error — only a bare scalar errors. So "does it
-// parse?" was never the question the write paths thought they were asking, and
-// all three of them (import, edit-write-back, export) treated a document that
-// carries NOTHING as a valid profile: `profile edit` truncated a real profile to
-// zero bytes and reported "updated", `profile import` accepted a hollow file as
-// a profile, and `profile export` shipped a hollow one out for someone else to
-// discover.
-//
-// The refusal line is profiles.Profile.IsEmptyDocument — the SAME line
-// profiles.Loader.Save draws, so the four write paths cannot drift apart. A
-// labels-only profile is deliberately above that line: it is a normal
-// half-authored state, it saves, and the fail-loudly gate (which Load and Save
-// already trip) says what it will not do.
-func validateProfileDocument(data []byte, what string) (*profiles.Profile, error) {
-	var probe profiles.Profile
-	if err := yaml.Unmarshal(data, &probe); err != nil {
-		return nil, fmt.Errorf("invalid %s: %w", what, err)
-	}
-	if probe.IsEmptyDocument() {
-		return nil, fmt.Errorf("refusing to write an empty %s: it carries nothing at all — no parents, bundles, fragments, bundle_items, commands, skills, select_tags, hooks, mcp, variables, llm, description or tags (an empty, whitespace-only or comment-only document parses cleanly, which is why this has to be checked explicitly)", what)
-	}
-	return &probe, nil
 }
 
 // ExportProfileRequest is the input for ExportProfile.
@@ -97,7 +53,7 @@ func ExportProfile(_ context.Context, cfg *config.Config, req ExportProfileReque
 		return nil, fmt.Errorf("destination directory is required")
 	}
 	fs := getFS(req.FS)
-	profile, err := loadLocalProfile(cfg, fs, req.Name)
+	profile, err := loadLocalProfile(cfg, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -105,14 +61,14 @@ func ExportProfile(_ context.Context, cfg *config.Config, req ExportProfileReque
 	if err != nil {
 		return nil, fmt.Errorf("failed to read profile: %w", err)
 	}
-	if _, err := validateProfileDocument(srcData, "profile"); err != nil {
+	if _, err := decodeWritableProfile(srcData, "profile"); err != nil {
 		return nil, fmt.Errorf("cannot export %q: %w", req.Name, err)
 	}
 	if err := fs.MkdirAll(req.DestDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create destination directory: %w", err)
 	}
 	dest := filepath.Join(req.DestDir, filepath.Base(profile.Path))
-	// No AllowEmpty: validateProfileDocument above already refuses a hollow
+	// No AllowEmpty: decodeWritableProfile above already refuses a hollow
 	// document.
 	if err := safefs.WriteFile(fs, dest, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write profile: %w", err)
@@ -124,8 +80,12 @@ func ExportProfile(_ context.Context, cfg *config.Config, req ExportProfileReque
 type ImportProfileRequest struct {
 	SourcePath string `json:"source_path"`
 	Force      bool   `json:"force"`
+	// Bundle is the LOCAL bundle the profile is imported into; empty is the
+	// project bundle.
+	Bundle string `json:"bundle,omitempty"`
 
-	// FS is an optional filesystem (defaults to the OS filesystem).
+	// FS is an optional filesystem the source is read from (defaults to the
+	// OS filesystem).
 	FS afero.Fs `json:"-"`
 }
 
@@ -136,51 +96,46 @@ type ImportProfileResult struct {
 	Dest   string `json:"dest"`
 }
 
-// ImportProfile validates a profile YAML file and copies it into the project's
-// profiles directory, refusing to overwrite without Force.
+// ImportProfile validates a profile YAML file and writes it into a local
+// bundle — the project bundle unless Bundle names another — as the profile
+// named by the file's basename, refusing to overwrite without Force.
 func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileRequest) (*ImportProfileResult, error) {
 	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
-	fs := getFS(req.FS)
-	// The destination basename is the source basename, and the profile scan
-	// filters on .yaml/.yml — anything else imports to a path nothing ever
-	// reads, same class as ImportBundle.
-	if err := requireLoadableName(req.SourcePath, "profile", ".yaml", ".yml"); err != nil {
+	// The profile's name is the source basename, and a bundle's profile item
+	// is a .yaml file — anything else imports to a name nothing ever reads,
+	// same class as ImportBundle.
+	if err := requireLoadableName(req.SourcePath, "profile", ".yaml"); err != nil {
 		return nil, err
 	}
-	srcData, err := afero.ReadFile(fs, req.SourcePath)
+	srcData, err := afero.ReadFile(getFS(req.FS), req.SourcePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source file: %w", err)
 	}
-	// Validate it parses as a profile AND carries something before copying
+	// Validate it decodes as a profile AND carries something before writing
 	// (catches a malformed or hollow file at import time rather than at the
 	// next run).
-	if _, err := validateProfileDocument(srcData, "profile file"); err != nil {
+	profile, err := decodeWritableProfile(srcData, "profile file")
+	if err != nil {
 		return nil, err
 	}
-
-	profileDir := paths.ProfilesPath(cfg.GetAppPaths()[0])
-	if err := fs.MkdirAll(profileDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create profiles directory: %w", err)
+	name := bundleProfileName(req.Bundle, strings.TrimSuffix(filepath.Base(req.SourcePath), ".yaml"))
+	if err := prepareLocalBundleWrite(cfg, name); err != nil {
+		return nil, err
 	}
-	dest := filepath.Join(profileDir, filepath.Base(req.SourcePath))
-	// The error mattered: a destination that cannot be STATTED (permissions, a
-	// broken symlink) used to read as "does not exist" and was overwritten
-	// without --force, which is the one outcome the guard exists to prevent.
-	exists, err := afero.Exists(fs, dest)
-	if err != nil {
-		return nil, fmt.Errorf("cannot check whether %s already exists: %w", dest, err)
+	loader := cfg.GetProfileLoader()
+	if existing, err := loader.Load(name); err == nil {
+		if !req.Force {
+			return nil, fmt.Errorf("profile already exists: %s (use --force to overwrite)", existing.Path)
+		}
+		profile.Path = existing.Path
 	}
-	if exists && !req.Force {
-		return nil, fmt.Errorf("profile already exists: %s (use --force to overwrite)", dest)
-	}
-	// No AllowEmpty: validateProfileDocument above already refuses a hollow
-	// document.
-	if err := safefs.WriteFile(fs, dest, srcData, 0644); err != nil {
+	profile.Name = name
+	if err := loader.Save(profile); err != nil {
 		return nil, fmt.Errorf("failed to write profile: %w", err)
 	}
-	return &ImportProfileResult{Status: "imported", Source: req.SourcePath, Dest: dest}, nil
+	return &ImportProfileResult{Status: "imported", Source: req.SourcePath, Dest: profile.Path}, nil
 }
 
 // GetProfileContentRequest / SetProfileContentRequest back the `profile edit`
@@ -202,7 +157,7 @@ type GetProfileContentResult struct {
 // GetProfileContent returns a profile's raw YAML file content.
 func GetProfileContent(_ context.Context, cfg *config.Config, req GetProfileContentRequest) (*GetProfileContentResult, error) {
 	fs := getFS(req.FS)
-	profile, err := loadLocalProfile(cfg, fs, req.Name)
+	profile, err := loadLocalProfile(cfg, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -230,17 +185,21 @@ type SetProfileContentResult struct {
 }
 
 // SetProfileContent validates edited YAML and writes it back to the profile's
-// file. Invalid YAML is rejected so a botched edit doesn't corrupt the profile.
+// file. A document that would not load is rejected so a botched edit doesn't
+// corrupt the profile.
 func SetProfileContent(_ context.Context, cfg *config.Config, req SetProfileContentRequest) (*SetProfileContentResult, error) {
 	fs := getFS(req.FS)
-	profile, err := loadLocalProfile(cfg, fs, req.Name)
+	profile, err := loadLocalProfile(cfg, req.Name)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := validateProfileDocument([]byte(req.Content), "profile"); err != nil {
+	if _, err := decodeWritableProfile([]byte(req.Content), "profile"); err != nil {
 		return nil, err
 	}
-	// No AllowEmpty: validateProfileDocument above already refuses a hollow
+	if err := prepareLocalBundleWrite(cfg, profile.Name); err != nil {
+		return nil, err
+	}
+	// No AllowEmpty: decodeWritableProfile above already refuses a hollow
 	// document, so an empty edit is rejected before this write is reached.
 	if err := safefs.WriteFile(fs, profile.Path, []byte(req.Content), 0644); err != nil {
 		return nil, fmt.Errorf("failed to save profile: %w", err)

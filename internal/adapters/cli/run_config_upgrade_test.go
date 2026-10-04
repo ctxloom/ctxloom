@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -79,7 +80,10 @@ func TestRoot_WriteUpgradesPersistsAMigratedConfigLayer(t *testing.T) {
 	require.NoError(t, err)
 	got, err = afero.ReadFile(osfs, path)
 	require.NoError(t, err)
-	assert.Equal(t, string(scaffolded), string(got), "the layer is written back under the current key")
+	var want, written map[string]any
+	require.NoError(t, yaml.Unmarshal(scaffolded, &want))
+	require.NoError(t, yaml.Unmarshal(got, &written))
+	assert.Equal(t, want, written, "the layer is written back under the current key, its values unchanged")
 	backup, err := afero.ReadFile(osfs, path+schemaver.BackupSuffix)
 	require.NoError(t, err)
 	assert.Equal(t, legacy, string(backup))

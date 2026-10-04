@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	ctxloomconfig "github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
@@ -98,11 +99,11 @@ func (m *MockLM) WriteConfig() error {
 	root := doc.Content[0]
 
 	// Pinned to ctxloomconfig.CurrentConfigVersion rather than a hardcoded
-	// number so this fixture can never itself fall behind the schema again:
-	// a stale version here would make loading apply an in-memory upgrade,
-	// which every run then reports as a pending rewrite
-	// (internal/adapters/cli/run.go's confirmUpgrade).
-	upgrade.SetVersion(root, "version", ctxloomconfig.CurrentConfigVersion)
+	// number so this fixture is never itself an older generation that loading
+	// must migrate. Under schemaver.Key, never the legacy spelling: a config
+	// carrying both is refused as unreadable, and the fixtures this edits
+	// already declare schemaver.Key.
+	upgrade.SetVersion(root, schemaver.Key, ctxloomconfig.CurrentConfigVersion)
 
 	llm := yamlx.EnsureMap(root, "llm")
 	configs := yamlx.EnsureMap(llm, "configs")
@@ -178,7 +179,7 @@ func (e *TestEnvironment) mergeHomeConfig(edit func(root *yaml.Node)) error {
 		doc.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
 	}
 	root := doc.Content[0]
-	upgrade.SetVersion(root, "version", ctxloomconfig.CurrentConfigVersion)
+	upgrade.SetVersion(root, schemaver.Key, ctxloomconfig.CurrentConfigVersion)
 	edit(root)
 
 	var buf bytes.Buffer

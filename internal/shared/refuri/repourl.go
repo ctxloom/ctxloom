@@ -1,10 +1,21 @@
 package refuri
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 )
+
+// errSchemelessPath refuses a repository URL written as a bare absolute
+// filesystem path. Once its leading "/" is trimmed it is indistinguishable from
+// a host-qualified path or GitHub shorthand, so any reading of it is a guess at
+// a network URL the user never named.
+var errSchemelessPath = errors.New("a local repository path needs the file:// scheme")
+
+// fileRemedy is the spelling a scheme-less absolute path should have been
+// written in.
+func fileRemedy(path string) string { return "file://" + path }
 
 // This file is the ONE place the repo-URL grammar lives.
 //
@@ -163,9 +174,11 @@ func IsSCPForm(raw string) bool {
 }
 
 // ParseRepoURL parses a repository URL into the one representation every
-// consumer renders from. It errors only on empty input; every other string is
-// classified into some form, because the callers it replaces were all total
-// functions over strings arriving from argv, remotes.yaml and lockfiles.
+// consumer renders from. It errors on empty input and on a scheme-less
+// absolute path (errSchemelessPath, naming the file:// spelling); every other
+// string is classified into some form, because the callers it replaces were
+// all total functions over strings arriving from argv, remotes.yaml and
+// lockfiles.
 func ParseRepoURL(raw string) (RepoURL, error) {
 	// Ingest boundary: a repo URL reaching here came from argv, remotes.yaml
 	// or a lockfile. Its normalised form becomes the trust key and the left
@@ -187,6 +200,14 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 		return RepoURL{kind: SourceKindLocal, form: formSentinel, raw: raw}, nil
 	case CompanionSource:
 		return RepoURL{kind: SourceKindCompanion, form: formSentinel, raw: raw}, nil
+	}
+
+	// A leading "/" is a filesystem path. Every arm below would trim it and
+	// read the rest as a host or as GitHub shorthand, turning a local bare
+	// repository into a network URL — one that is fetched, trust-keyed and
+	// may well exist under someone else's control.
+	if strings.HasPrefix(raw, "/") {
+		return RepoURL{}, fmt.Errorf("%w: write %q", errSchemelessPath, fileRemedy(raw))
 	}
 
 	r := RepoURL{kind: SourceKindRemote, raw: raw}

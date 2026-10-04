@@ -636,14 +636,20 @@ func (t *targetOps) section(cur []byte, exists bool, from, to fileState, rec *cl
 }
 
 // sectionUser is the user's text before ctxloom's section, found at the end
-// of cur. leave is an unchanged claim the user has since edited, left alone;
-// a section no longer at the end otherwise is not ctxloom's to cut out.
+// of cur. A section the file no longer holds anywhere is a claim it has lost,
+// as a whole file deleted or a structured place removed is: all of cur is the
+// user's, and the effective section goes back after it. leave is an
+// unchanged claim whose section the user has since written after, left
+// alone; a section no longer at the end otherwise is not ctxloom's to cut out.
 func (t *targetOps) sectionUser(cur []byte, exists bool, o claimEntry, hasO bool, n claimEntry, hasN bool) ([]byte, bool, error) {
 	if !hasO || !exists {
 		return cur, false, nil
 	}
 	if u, ok := stripSection(cur, o.Bytes); ok {
 		return u, false, nil
+	}
+	if !bytes.Contains(cur, bytes.TrimRight(o.Bytes, "\n")) {
+		return cur, false, nil
 	}
 	if hasN && bytes.Equal(o.Bytes, n.Bytes) {
 		return cur, true, nil

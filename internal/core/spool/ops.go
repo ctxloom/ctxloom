@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/spf13/afero"
 )
 
@@ -230,25 +231,27 @@ func Fail(m PathMapper, ref Ref) error {
 	return nil
 }
 
-// renameInto is the ONE raw-filesystem move in this package: create the
-// destination directory, rename, then fsync the directory so the rename is
-// durable. Every spool transition (consume, withdraw, fail) is a rename, so
+// renameInto is the ONE move in this package: create the destination
+// directory, rename through the empty-overwrite guard (an empty spool file is
+// a dropped message, so it must never replace a record already under that
+// name), then fsync the directory so the rename is durable. Every spool transition (consume, withdraw, fail) is a rename, so
 // they all land here — a second copy of this sequence would be a second place
 // for the durability fsync to be forgotten.
 //
 // It reports a missing source as ErrAlreadyGone: another sweep winning the
 // race is ordinary, not a fault.
 func renameInto(from, to string) error {
-	if err := os.MkdirAll(filepath.Dir(to), owneronly.DirMode); err != nil {
+	fs := afero.NewOsFs()
+	if err := fs.MkdirAll(filepath.Dir(to), owneronly.DirMode); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(to), err)
 	}
-	if err := os.Rename(from, to); err != nil {
-		if os.IsNotExist(err) {
+	if err := safefs.Rename(safefs.NewGuardFs(fs), from, to); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
 			return ErrAlreadyGone
 		}
 		return err
 	}
-	return syncDir(afero.NewOsFs(), filepath.Dir(to))
+	return syncDir(fs, filepath.Dir(to))
 }
 
 // moveTo renames ref into dir, returning the new ref.

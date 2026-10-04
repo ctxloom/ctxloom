@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // watchBoundaryRule is the text-mode separator drawn at each response boundary.
@@ -84,6 +85,10 @@ func runSessionWatch(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	format, err := streamFormat(cmd)
+	if err != nil {
+		return err
+	}
 
 	// Clean Ctrl-C: cancelling the stream context returns the watch.
 	ctx, stop := signal.NotifyContext(cmd.Context(), shutdownSignals...)
@@ -93,7 +98,7 @@ func runSessionWatch(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return streamWatchEvents(cmd.OutOrStdout(), outputFormatOf(cmd), feed.Events, feed.Errs)
+	return streamWatchEvents(cmd.OutOrStdout(), format, feed.Events, feed.Errs)
 }
 
 // watchFeedSource resolves --source into a feed source. A lookup failure is an
@@ -115,18 +120,18 @@ func watchFeedSource(cmd *cobra.Command) (operations.FeedSource, error) {
 // mode pretty-prints each turn, rules off each response boundary, notes live
 // gaps, and stays silent on idle heartbeats. A fatal mid-stream error (from
 // errs) is returned after the events channel drains.
-func streamWatchEvents(out io.Writer, format string, events <-chan operations.SessionFeedEvent, errs <-chan error) error {
+func streamWatchEvents(out io.Writer, format clifmt.Format, events <-chan operations.SessionFeedEvent, errs <-chan error) error {
 	switch format {
 	case formatJSON:
 		if err := writeWatchNDJSON(out, events); err != nil {
 			return err
 		}
-	case "", formatText:
+	case formatText:
 		if err := writeWatchText(out, events); err != nil {
 			return err
 		}
 	default:
-		return unknownFormatError(format)
+		return unknownFormatError(string(format))
 	}
 	if e := <-errs; e != nil {
 		return e

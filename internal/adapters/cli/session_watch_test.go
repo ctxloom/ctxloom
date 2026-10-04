@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -470,6 +471,12 @@ func startFakeCoordinator(t *testing.T, home string, f *fakeConsumerServer) {
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q}`, ln.Addr().(*net.TCPAddr).Port, fakeConsumerCred)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte(body), 0o600))
+	// A live coordinator holds its root's owner lock; discovery lists only those.
+	lock := flock.New(filepath.Join(dir, paths.CoordOwnerLockFileName), flock.SetPermissions(0o600))
+	held, err := lock.TryLock()
+	require.NoError(t, err)
+	require.True(t, held)
+	t.Cleanup(func() { _ = lock.Close() })
 }
 
 // fakeConsumerCred is the consumer credential every startFakeCoordinator

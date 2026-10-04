@@ -13,9 +13,29 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
+// RefusalCause is why `deps upgrade` declined to move a pin. The causes have
+// different remedies and very different weights — only RefusalSignature is a
+// tamper signal — so a surface reporting a refusal words it by this, never by
+// the bare fact that something was refused.
+type RefusalCause string
+
+const (
+	// RefusalSignature: the proposed content carries a publisher signature
+	// that does not verify over its bytes (bundles.ErrTreeBundleWithheld).
+	RefusalSignature RefusalCause = "signature"
+	// RefusalUnreadable: the proposed content could not be read as a bundle
+	// at all — fetched, opened, checked or parsed — so nothing about its
+	// signature was established. Includes a manifest in the retired format
+	// (content.ErrManifestSuperseded), which is a format, not a forgery.
+	RefusalUnreadable RefusalCause = "unreadable"
+	// RefusalBelowFloor: the proposed content verifies but is signed below
+	// the version the pin recorded, or is no longer signed.
+	RefusalBelowFloor RefusalCause = "below_floor"
+)
+
 // RefusedAdvance is one pin `deps upgrade` DECLINED to move, because the
-// content at the commit it would have advanced to carries a publisher
-// signature that does not verify over those bytes.
+// content at the commit it would have advanced to could not be verified to
+// at least the standard of the pin it would replace. Cause says which way.
 //
 // It is a REPORT, not a failure: the lockfile keeps the entry it already had,
 // so the consumer goes on being served the last content that verified. The
@@ -36,6 +56,8 @@ type RefusedAdvance struct {
 	// signed — rather than by a signature that fails. The remedies differ: this
 	// one the operator can override by naming the ref.
 	BelowFloor bool `json:"below_floor,omitempty"`
+	// Cause is why the advance was refused.
+	Cause RefusalCause `json:"cause"`
 }
 
 // verifyAdvance decides whether a lock writer may move a pin onto p, and

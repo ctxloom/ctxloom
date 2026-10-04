@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	toml "github.com/pelletier/go-toml/v2"
@@ -67,5 +68,14 @@ func TestListItems_EveryStructuredFormatCarriesTheSameTrustStamp(t *testing.T) {
 		require.NoError(t, toml.Unmarshal([]byte(runOutputFlowCommand(t, "toml", "fragment", "list", "--bundle", "demo")), &doc))
 		require.Len(t, doc.Items, 1)
 		assert.Equal(t, want, trustFieldsOf(t, doc.Items[0]), "toml must carry the json trust verdict, not an unstamped zero value")
+	})
+
+	// Markdown is not text: anything but text is stamped. Markdown renders no
+	// parseable document, so the verdict is read off the rendering — the
+	// stamped trust source appears in it, and an unstamped row would carry an
+	// empty cell instead.
+	t.Run("markdown", func(t *testing.T) {
+		out := runOutputFlowCommand(t, "markdown", "fragment", "list", "--bundle", "demo")
+		assert.Contains(t, out, fmt.Sprint(want.TrustSource), "markdown must carry the json trust verdict, not an unstamped zero value")
 	})
 }

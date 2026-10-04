@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2133,6 +2134,27 @@ func TestBundleHooks_EveryEventIsWiredEndToEnd(t *testing.T) {
 			require.Len(t, r.out.Hooks.eventHooks(event), 1,
 				"(*reader).appendHook drops %q on the floor — hooks/%s/ in a bundle tree would decode and vanish", event, event)
 			assert.Equal(t, hook.Command, r.out.Hooks.eventHooks(event)[0].Command)
+		})
+	}
+}
+
+// ExpandedRef.Name is minted from the PARSED selector, never the raw text: a
+// control byte in a profile's selector, or in a bundle-authored fragment name,
+// must not ride into the identity every downstream surface prints and keys on.
+func TestLoader_ExpandBundleRefs_NameCarriesNoControlCharacters(t *testing.T) {
+	loader := expandRefsFixture(t)
+	fs := afero.NewMemMapFs()
+	v1 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
+	writeTree(t, fs, v1, "test/evil", "version: \"1.0.0\"\nfragments:\n  \"ev\\e[2Jil\":\n    content: \"x\"\n")
+	evil := NewLoader(NewProjectReader(fs, []string{"/bundles"}))
+
+	for name, got := range map[string][]ExpandedRef{
+		"targeted":     loader.ExpandBundleRefs([]string{"test/alpha#fragments/a\x1b[2J2"}),
+		"whole bundle": evil.ExpandBundleRefs([]string{"test/evil"}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Len(t, got, 1)
+			assert.Equal(t, refuri.NormalizeRef(got[0].Name), got[0].Name, "the name must already be normalised")
 		})
 	}
 }

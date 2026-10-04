@@ -135,7 +135,7 @@ proceeded on the built-in prompt would be indistinguishable from working.
   raw content intact. `newLLMDistiller` returning no distiller (no label
   resolves) stores content RAW and says so on stderr; `distillerOrNone` is the
   seam that turns that into the operations layer's no-op distiller.
-- **Trust stamps are structured-output only.** `listItems` calls
-  `stampItemTrust` only when `wantsStructuredOutput`, because the stamp
+- **Trust stamps are for every format but text.** `listItems` calls
+  `stampItemTrust` only when `wantsNonTextOutput`, because the stamp
   materializes and hashes every item and the cheaper ref-only human listing
   should not pay for it.

@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/spf13/afero"
 	"strings"
 	"testing"
 
@@ -54,7 +55,7 @@ func TestResolveHarpName(t *testing.T) {
 	t.Run("config field wins over env", func(t *testing.T) {
 		testsupport.Isolate(t)
 		t.Setenv("CTXLOOM_SESSION_HARP", "from-env")
-		c := &Compactor{config: CompactionConfig{HarpName: "from-config"}}
+		c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{HarpName: "from-config"}}
 		if got := c.resolveHarpName(); got != "from-config" {
 			t.Fatalf("got %q, want from-config", got)
 		}
@@ -63,7 +64,7 @@ func TestResolveHarpName(t *testing.T) {
 	t.Run("falls back to env when config empty", func(t *testing.T) {
 		testsupport.Isolate(t)
 		t.Setenv("CTXLOOM_SESSION_HARP", "from-env")
-		c := &Compactor{config: CompactionConfig{}}
+		c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}
 		if got := c.resolveHarpName(); got != "from-env" {
 			t.Fatalf("got %q, want from-env", got)
 		}
@@ -71,7 +72,7 @@ func TestResolveHarpName(t *testing.T) {
 
 	t.Run("empty when neither set", func(t *testing.T) {
 		testsupport.Isolate(t)
-		c := &Compactor{config: CompactionConfig{}}
+		c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}
 		if got := c.resolveHarpName(); got != "" {
 			t.Fatalf("got %q, want empty", got)
 		}
@@ -93,7 +94,7 @@ func TestResolveHarpName(t *testing.T) {
 			t.Fatalf("assign harp: %v", err)
 		}
 
-		c := &Compactor{config: CompactionConfig{HarpName: "caller-own-harp", SessionID: target.HarpName}}
+		c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{HarpName: "caller-own-harp", SessionID: target.HarpName}}
 		if got := c.resolveHarpName(); got != target.HarpName {
 			t.Fatalf("got %q, want the target harp %q — compacting someone else's session must not attribute output to the caller's own harp", got, target.HarpName)
 		}
@@ -104,7 +105,7 @@ func TestResolveHarpName(t *testing.T) {
 	// there is nowhere else to attribute output to.
 	t.Run("explicit SessionID that is not a real harp falls back to caller's own HarpName", func(t *testing.T) {
 		testsupport.Isolate(t)
-		c := &Compactor{config: CompactionConfig{HarpName: "caller-own-harp", SessionID: "not-a-real-harp-anywhere"}}
+		c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{HarpName: "caller-own-harp", SessionID: "not-a-real-harp-anywhere"}}
 		if got := c.resolveHarpName(); got != "caller-own-harp" {
 			t.Fatalf("got %q, want caller-own-harp", got)
 		}
@@ -114,6 +115,6 @@ func TestResolveHarpName(t *testing.T) {
 // updateSessionIndex is a no-op without a harp name; verify it doesn't panic or
 // touch the index in that case (the common non-harp path).
 func TestSessionIndexNoHarpIsNoop(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}
 	c.updateSessionIndex("", "sess-id", "summary", 0) // must not panic / open index
 }

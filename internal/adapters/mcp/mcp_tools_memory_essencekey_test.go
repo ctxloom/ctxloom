@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"github.com/spf13/afero"
 	"io"
 	"os"
 	"path/filepath"
@@ -80,7 +81,7 @@ func fixedCompactor(sessionID, body string) func(memory.CompactionConfig) (*memo
 				},
 			}},
 		}
-		return memory.NewCompactor(memory.CompactionConfig{
+		return memory.NewCompactor(afero.NewOsFs(), memory.CompactionConfig{
 			BackendOverride: be,
 			// The distiller's turn: a canned answer, standing where the
 			// resolved one-shot session's turn stands in production.

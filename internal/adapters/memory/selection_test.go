@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/spf13/afero"
 	"io"
 	"regexp"
 	"strconv"
@@ -64,7 +65,7 @@ func TestRenderToolArgs_UnparseableInputSurvives(t *testing.T) {
 // TestSessionToText_ElidesEditPayload proves the elision is reached through
 // the real render path, not just callable in isolation.
 func TestSessionToText_ElidesEditPayload(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}
 	text, _ := c.sessionToText(&agent.Session{
 		Entries: []agent.SessionEntry{
 			{Type: agent.EntryTypeToolUse, ToolName: "Edit",
@@ -218,7 +219,7 @@ func TestRepairResults_WritesRecoveredFindingIntoTheEntry(t *testing.T) {
 			return 0, nil
 		},
 	}
-	c := &Compactor{config: CompactionConfig{Run: runnerOver(mock)}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{Run: runnerOver(mock)}}
 	sel := unreflectedSelection(t)
 
 	got := c.repairResults(context.Background(), sel)
@@ -244,7 +245,7 @@ func TestRepairResults_FailedRecoveryLeavesTheExcerpt(t *testing.T) {
 			return 0, errors.New("plugin unreachable")
 		},
 	}
-	c := &Compactor{config: CompactionConfig{Run: runnerOver(mock)}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{Run: runnerOver(mock)}}
 	sel := unreflectedSelection(t)
 	before := sel.Entries[sel.Repairs[0].Index].ToolOutput
 
@@ -270,7 +271,7 @@ func TestRepairResults_NoConclusionLeavesTheExcerpt(t *testing.T) {
 			return 0, nil
 		},
 	}
-	c := &Compactor{config: CompactionConfig{Run: runnerOver(mock)}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{Run: runnerOver(mock)}}
 	sel := unreflectedSelection(t)
 	before := sel.Entries[sel.Repairs[0].Index].ToolOutput
 
@@ -292,7 +293,7 @@ func TestRepairResults_NoCandidatesMakesNoCall(t *testing.T) {
 			return 0, nil
 		},
 	}
-	c := &Compactor{config: CompactionConfig{Run: runnerOver(mock)}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{Run: runnerOver(mock)}}
 
 	sel := selectForDistill([]agent.SessionEntry{
 		{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"go vet ./..."}`)},
@@ -347,7 +348,7 @@ func TestRepairResults_ConcurrentRecoveriesEachLandInTheirOwnEntry(t *testing.T)
 			return 0, nil
 		},
 	}
-	c := &Compactor{config: CompactionConfig{Run: runnerOver(mock)}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{Run: runnerOver(mock)}}
 
 	if got := c.repairResults(context.Background(), sel); got != candidates {
 		t.Fatalf("recovered %d of %d", got, candidates)
@@ -369,7 +370,7 @@ func TestSessionToText_ErrorBodyIsNotTruncatedAtTheDisplayCap(t *testing.T) {
 	tail := "TRAILING_ROOT_CAUSE"
 	body := strings.Repeat("e", 900) + tail
 
-	c := &Compactor{config: CompactionConfig{}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}
 	text, _ := c.sessionToText(&agent.Session{Entries: []agent.SessionEntry{
 		{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: body, IsError: true},
 	}})
@@ -436,7 +437,7 @@ func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
 	}
 
 	recordOutputDir(t, "e2e-under-test")
-	c, err := NewCompactor(CompactionConfig{
+	c, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: &mockBackend{history: history},
 		Run:             runnerOver(mock),
 		OutputDir:       t.TempDir(),
@@ -492,7 +493,7 @@ func TestResultShape_DistinguishesEmptyFromDiscarded(t *testing.T) {
 // so a config value that never made it into the prompt would leave distillation
 // with no size instruction at all -- and nothing else would notice.
 func TestDistillPrompt_CarriesTheConfiguredBudget(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{EssenceMaxChars: 7331}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{EssenceMaxChars: 7331}}
 
 	got, err := c.distillPrompt()
 	if err != nil {
@@ -514,7 +515,7 @@ func TestDistillPrompt_CarriesTheConfiguredBudget(t *testing.T) {
 func TestNewCompactor_ClampsBudgetToTheHardCeiling(t *testing.T) {
 	testsupport.Isolate(t)
 	recordOutputDir(t, "clamp-under-test")
-	c, err := NewCompactor(CompactionConfig{
+	c, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: &mockBackend{history: &mockSessionHistory{}},
 		EssenceMaxChars: MaxEssenceChars * 4,
 		OutputDir:       t.TempDir(),
@@ -534,7 +535,7 @@ func TestNewCompactor_ClampsBudgetToTheHardCeiling(t *testing.T) {
 func TestNewCompactor_DefaultsTheBudget(t *testing.T) {
 	testsupport.Isolate(t)
 	recordOutputDir(t, "default-under-test")
-	c, err := NewCompactor(CompactionConfig{
+	c, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: &mockBackend{history: &mockSessionHistory{}},
 		OutputDir:       t.TempDir(),
 		HarpName:        "default-under-test",

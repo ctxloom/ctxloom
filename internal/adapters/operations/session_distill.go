@@ -100,7 +100,7 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	// hook while it was still live. The bool is discarded because there is
 	// nothing else to do with "no hint": an absent hint IS the empty string,
 	// and distillPrompt appends nothing for it.
-	taskHint, _ := memory.ReadNextStep(entry.HarpName)
+	taskHint, _ := memory.ReadNextStep(configFS(cfg), entry.HarpName)
 	// The distiller is a real session on the FAST role's label: one harp for
 	// every turn this compaction makes, started on the first turn and ended
 	// when the compaction is done.
@@ -116,7 +116,7 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 		}
 		source = src
 	}
-	compactor, err := memory.NewCompactor(memory.CompactionConfig{
+	compactor, err := memory.NewCompactor(configFS(cfg), memory.CompactionConfig{
 		Run:              distiller.Turn,
 		Backend:          backendName,
 		Source:           source,

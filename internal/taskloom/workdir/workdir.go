@@ -2,7 +2,10 @@
 // does, so a task added from a repo subdirectory lands in the same project log
 // the session uses:
 //
-//	CTXLOOM_ROOT (valid) -> git root -> cwd -> "."
+//	CTXLOOM_ROOT (valid) -> git root -> cwd
+//
+// (projectroot.WorkDirWithBoundary owns that chain). A working directory that
+// cannot be determined is an error, never a guessed ".".
 //
 // CTXLOOM_ROOT is purely an override at the top of the chain. When unset it
 // changes nothing; when set but invalid (missing path or not a directory) it

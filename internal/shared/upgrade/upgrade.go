@@ -3,9 +3,10 @@
 // representation to the current one *in memory* on load, and an interactive
 // caller may then prompt the user before persisting (see Pending).
 //
-// An Upgrader is one schema step; a Pipeline is an ordered, composable chain of
-// them. Both config (internal/core/config) and the retired session index's one-time migration (internal/core/sessions)
-// build a Pipeline from their own Upgraders and run it over the raw file bytes.
+// An Upgrader is one schema step; a Pipeline is an ordered chain of them. Each
+// on-disk format's loader builds a Pipeline from its own Upgraders and runs it
+// over the raw file bytes — config layers in internal/adapters/configload,
+// bundles, profiles, and the versioned kinds behind schemaver.Kind.Migrate.
 // The layer is YAML-document oriented — Pipeline.Run parses once and re-encodes
 // once — and version-aware via the Version/SetVersion helpers, so an Upgrader
 // can gate on (and bump) a top-level integer schema version.
@@ -178,16 +179,3 @@ func SetVersion(root *yaml.Node, key string, v int) {
 	node.Tag = "!!int"
 	yamlx.MapSet(root, key, node)
 }
-
-// Reporter is how an upgrade step reports a LOSSY change — a user-set value it
-// had to drop — to whoever is driving the pipeline. The Upgrader interface has
-// no return channel for this and deliberately keeps none: a step that silently
-// discards a setting is the failure this exists to prevent, and a caller that
-// wants the report must pass somewhere to put it.
-//
-// It is a plain callback rather than a shared sink type so a step can live in
-// its own package (see internal/core/config/migrate) without that package and its
-// driver having to agree on a concrete buffer. A nil Reporter is legal and
-// means the caller is not collecting; call it through a step's own helper that
-// nil-checks, never directly.
-type Reporter func(format string, args ...any)

@@ -56,9 +56,9 @@ func (px ProjectIndex) ProjectDirOf(p Plan) (projectDir string, ok bool) {
 	return dir, ok
 }
 
-// ListHomeScoped lists ~/.ctxloom/sessions plans split by project attribution:
-// matched holds the plans whose session ran in projectDir (each with ProjectDir
-// filled in), unattributed holds the plans whose session can't be attributed to
+// ListHomeScoped lists every recorded session's plans (ListHome) split by
+// project attribution: matched holds the plans whose session ran in projectDir
+// (each with ProjectDir filled in), unattributed holds the plans whose session can't be attributed to
 // any project at all.
 //
 // The split is two return values rather than one pre-filtered slice so the

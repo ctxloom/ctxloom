@@ -84,12 +84,15 @@ func EncodeLoadoutEnvelope(loadoutBytes []byte, armoredSig []byte, signer string
 	return out, nil
 }
 
-// DecodeLoadoutEnvelope parses raw envelope bytes (as read from a companion's
-// stdout, or any other channel carrying the same JSON shape — spec §4.4) and
-// resolves the loadout's verified publisher, exactly mirroring the remote-
-// bundle verification path (config.verifyBundlePublisher): the KEY comes from
-// the signature, TRUST in that key comes only from root, and the advisory
-// Signer field is never consulted for anything but error messages.
+// DecodeLoadoutEnvelope is the verify-and-withhold composition over the
+// envelope: ParseLoadoutEnvelope, then VerifyPublisher, refusing the loadout
+// on any parse or tamper failure. It applies the same rule every publisher
+// check here does: the KEY comes from the signature, TRUST in that key comes
+// only from root, and the advisory Signer field is never consulted. No
+// production path calls it — companion discovery deliberately parses with
+// ParseLoadoutEnvelope instead (see its doc) — but it is the decoder the
+// emitters' loadout round-trip tests verify their own output with, and the
+// posture a channel that can be tampered with in transit would need.
 //
 // Three outcomes, matching VerifyPublisher's own contract:
 //
@@ -129,14 +132,15 @@ func DecodeLoadoutEnvelope(raw []byte, root trust.TrustRoot, now time.Time) (loa
 //
 // It is split out because the two source classes that read this envelope need
 // the SAME parse and DIFFERENT postures toward a signature that fails to
-// verify. A remote bundle must withhold (an intermediary could have tampered
-// with the bytes in transit — that is exactly what the signature is for). A
+// verify. A channel with an intermediary must withhold, as DecodeLoadoutEnvelope
+// does (the bytes could have been tampered with in transit — that is exactly
+// what the signature is for). A
 // COMPANION loadout must not: its bytes arrive directly on the stdout of a
 // binary the user consented to execute, with no intermediary in between, so a
 // signature that does not verify there is a broken or stale signature in the
 // companion's own release — a bug signal, not an attack signal. Reporting it
 // is right; dropping the loadout over it is not. See
-// config.ProbeCompanionLoadouts.
+// companions.Prober.ProbeCompanionLoadouts.
 //
 // Structural failures are errors for BOTH callers, and stay that way: an
 // envelope that is not valid JSON, carries an unrecognized contract, whose

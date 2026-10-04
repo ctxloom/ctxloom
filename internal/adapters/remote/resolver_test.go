@@ -54,6 +54,7 @@ var (
 // stubRefFetcher records whether it was dispatched to, for the given predicate.
 type stubRefFetcher struct {
 	handles func(*Reference) bool
+	items   []*Reference
 	called  bool
 }
 
@@ -63,7 +64,7 @@ func (s *stubRefFetcher) FetchItem(_ context.Context, _ *Reference, _ string) ([
 	return []byte("stub"), nil
 }
 func (s *stubRefFetcher) ListItems(_ context.Context, _ ItemType) ([]*Reference, error) {
-	return nil, nil
+	return s.items, nil
 }
 
 func canonicalBundleRef(t *testing.T) *Reference {

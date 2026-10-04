@@ -1,11 +1,8 @@
 package remote
 
 import (
-	"context"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -88,74 +85,4 @@ func TestParseReference_NonLocalUnaffected(t *testing.T) {
 	// The short "repo/path" form is rejected outright (no longer a ref at all).
 	_, err = ParseReference("alice/security")
 	assert.Error(t, err)
-}
-
-func TestLocalRefFetcher_FetchItem_FilesystemBackend(t *testing.T) {
-	ctx := context.Background()
-	root := "/proj/.ctxloom/content"
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, root+"/bundles/v2/foo", "name: foo", 0o644)
-
-	f := NewLocalRefFetcher(FSVCSFactory(fs), root)
-	ref, err := ParseReference("ctxloom:local@bundles/foo")
-	require.NoError(t, err)
-
-	data, err := NewResolver(f).Resolve(ctx, ref)
-	require.NoError(t, err)
-	assert.Equal(t, []byte("name: foo"), data)
-}
-
-func TestLocalRefFetcher_Handles(t *testing.T) {
-	f := NewLocalRefFetcher(FSVCSFactory(afero.NewMemMapFs()), "/root")
-
-	local, err := ParseReference("ctxloom:local@bundles/foo")
-	require.NoError(t, err)
-	assert.True(t, f.Handles(local))
-
-	canonical, err := ParseReference("https://github.com/owner/repo@bundles/core")
-	require.NoError(t, err)
-	assert.False(t, f.Handles(canonical))
-	assert.False(t, f.Handles(nil))
-}
-
-func TestLocalRefFetcher_PinnedAgainstFilesystemErrors(t *testing.T) {
-	// A plain filesystem has no history; a pinned local ref must error, not
-	// silently serve the working copy.
-	ctx := context.Background()
-	root := "/proj/.ctxloom/content"
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, root+"/bundles/v2/foo", "name: foo", 0o644)
-
-	f := NewLocalRefFetcher(FSVCSFactory(fs), root)
-	ref, err := ParseReference("ctxloom:local@bundles/foo@somerev")
-	require.NoError(t, err)
-
-	_, err = f.FetchItem(ctx, ref, ref.ContentVersion)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "current/HEAD")
-}
-
-func TestResolver_DispatchesLocalAndRemote(t *testing.T) {
-	ctx := context.Background()
-	root := "/proj/.ctxloom/content"
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, root+"/bundles/v2/foo", "local-bytes", 0o644)
-
-	mf := NewMockFetcher().WithFile(".ctxloom/content/bundles/v2/core", []byte("remote-bytes"))
-	resolver := NewResolver(
-		NewLocalRefFetcher(FSVCSFactory(fs), root),
-		NewRemoteRefFetcher(GitForgeVCSFactory(mockFetcherFactory(mf), AuthConfig{})),
-	)
-
-	localRef, err := ParseReference("ctxloom:local@bundles/foo")
-	require.NoError(t, err)
-	got, err := resolver.Resolve(ctx, localRef)
-	require.NoError(t, err)
-	assert.Equal(t, []byte("local-bytes"), got)
-
-	remoteRef, err := ParseReference("https://github.com/owner/repo@bundles/core")
-	require.NoError(t, err)
-	got, err = resolver.Resolve(ctx, remoteRef)
-	require.NoError(t, err)
-	assert.Equal(t, []byte("remote-bytes"), got)
 }

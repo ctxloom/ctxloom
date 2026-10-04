@@ -165,19 +165,6 @@ func TestRemoteRefFetcher_ListItems_NotMaterializedWarns(t *testing.T) {
 	assert.Contains(t, err.Error(), absent)
 }
 
-func TestLocalRefFetcher_ListItems_LocalRefs(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	root := "/proj/.ctxloom/content"
-	testsupport.WriteFileString(t, fs, root+"/bundles/foo/bundle.yaml", "x", 0o644)
-
-	f := NewLocalRefFetcher(FSVCSFactory(fs), root)
-	refs, err := f.ListItems(context.Background(), ItemTypeBundle)
-	require.NoError(t, err)
-	require.Len(t, refs, 1)
-	assert.True(t, refs[0].IsLocal)
-	assert.Equal(t, "ctxloom+local:foo", refs[0].CanonicalString())
-}
-
 func TestResolver_ListDeleted_RemoteScheme(t *testing.T) {
 	url := "https://github.com/alice/ctxloom"
 	// stubVCS implements Versioned, so the remote fetcher can surface deletions.
@@ -188,8 +175,8 @@ func TestResolver_ListDeleted_RemoteScheme(t *testing.T) {
 			func(string) (VCS, error) { return deletedVCS, nil },
 			WithRemoteSources([]string{url}),
 		),
-		// Local scheme has no history (fsVCS is not Versioned) and is skipped.
-		NewLocalRefFetcher(FSVCSFactory(afero.NewMemMapFs()), "/proj/.ctxloom/content"),
+		// A fetcher with no DeletedItemLister capability is skipped.
+		&stubRefFetcher{handles: func(*Reference) bool { return false }},
 	)
 
 	refs, err := resolver.ListDeleted(context.Background(), ItemTypeBundle)
@@ -199,10 +186,6 @@ func TestResolver_ListDeleted_RemoteScheme(t *testing.T) {
 }
 
 func TestResolver_List_FansOutAcrossSchemes(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	localRoot := "/proj/.ctxloom/content"
-	testsupport.WriteFileString(t, fs, localRoot+"/bundles/localbun/bundle.yaml", "x", 0o644)
-
 	url := "https://github.com/alice/ctxloom"
 	mf := NewMockFetcher().
 		WithDir(".ctxloom/content/bundles", []DirEntry{{Name: "remotebun", IsDir: true}}).
@@ -215,7 +198,10 @@ func TestResolver_List_FansOutAcrossSchemes(t *testing.T) {
 			},
 			WithRemoteSources([]string{url}),
 		),
-		NewLocalRefFetcher(FSVCSFactory(fs), localRoot),
+		&stubRefFetcher{
+			handles: func(r *Reference) bool { return r.IsLocal },
+			items:   []*Reference{{IsLocal: true, ItemType: ItemTypeBundle, Path: "localbun"}},
+		},
 	)
 
 	refs, err := resolver.List(context.Background(), ItemTypeBundle)

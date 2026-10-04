@@ -25,11 +25,10 @@ import (
 // callers, NOT here. A RefFetcher only knows how to turn (source, item-path,
 // version) into bytes.
 //
-// This sits one layer ABOVE the VCS backend (revision-addressable reads). The
-// remote RefFetcher opens a VCS bound to a cloned remote repo; the future local
-// RefFetcher (ctxloom:local) opens a VCS bound to the project working copy
-// under .ctxloom/content/. Resolver is blind to that difference — that is the
-// whole point of the seam.
+// This sits one layer ABOVE the VCS backend (revision-addressable reads): the
+// remote RefFetcher opens a VCS bound to a cloned remote repo. ctxloom:local
+// content is not read through a RefFetcher; a pinned local read walks the
+// project's own repository in operations.BundleVersionResolver.
 type RefFetcher interface {
 	// Handles reports whether this fetcher serves ref's source (scheme).
 	Handles(ref *Reference) bool
@@ -67,8 +66,7 @@ type Resolver struct {
 }
 
 // NewResolver builds a Resolver over the given per-scheme fetchers, tried in
-// registration order. Callers pass the remote fetcher today; the local
-// (ctxloom:local) fetcher joins in a later phase.
+// registration order.
 func NewResolver(fetchers ...RefFetcher) *Resolver {
 	return &Resolver{fetchers: fetchers}
 }
@@ -109,8 +107,8 @@ func (r *Resolver) List(ctx context.Context, kind ItemType) ([]*Reference, error
 
 // DeletedItemLister is the OPTIONAL listing capability for surfacing items
 // removed upstream — present at a past revision, gone now. A RefFetcher whose
-// backend can walk history (the remote git clone) implements it; schemes without
-// history (local working-copy content) do not. Resolver.ListDeleted probes for
+// backend can walk history (the remote git clone) implements it; a fetcher
+// without history does not. Resolver.ListDeleted probes for
 // it by type assertion, exactly like Versioned extends VCS.
 type DeletedItemLister interface {
 	ListDeletedItems(ctx context.Context, kind ItemType) ([]*Reference, error)
@@ -266,72 +264,3 @@ var (
 	_ RefFetcher        = (*RemoteRefFetcher)(nil)
 	_ DeletedItemLister = (*RemoteRefFetcher)(nil)
 )
-
-// LocalRefFetcher is the RefFetcher for ctxloom:local references — project
-// authored content under the committed .ctxloom/content/ working copy. It opens a
-// VCS bound to that directory and reads the referenced item.
-//
-// The VCSFactory chooses the backend: a plain filesystem (current-only, via
-// FSVCSFactory) by default, or a working-copy VCS that adds history + pinning
-// when the project is itself under version control. The fetcher itself is
-// backend-agnostic — like RemoteRefFetcher, it only locates the source and the
-// item path, then defers to readItemAt for capability-aware reading.
-type LocalRefFetcher struct {
-	openVCS VCSFactory
-	root    string
-}
-
-// NewLocalRefFetcher constructs the local-scheme fetcher. root is the committed
-// local-content directory (paths.LocalPath(appDir)); openVCS opens a VCS over it.
-func NewLocalRefFetcher(openVCS VCSFactory, root string) *LocalRefFetcher {
-	return &LocalRefFetcher{openVCS: openVCS, root: root}
-}
-
-// Handles serves ctxloom:local references; everything else is left to other
-// fetchers.
-func (f *LocalRefFetcher) Handles(ref *Reference) bool {
-	return ref != nil && ref.IsLocal
-}
-
-// FetchItem opens the local source and returns the raw item bytes at version.
-// A versionless ref (the common local case) reads the working copy; a pinned
-// ref reads history when the backend supports it, else errors via readItemAt.
-func (f *LocalRefFetcher) FetchItem(ctx context.Context, ref *Reference, version string) ([]byte, error) {
-	if !f.Handles(ref) {
-		return nil, fmt.Errorf("local fetcher: cannot handle reference %q", ref.String())
-	}
-
-	vcs, err := f.openVCS(f.root)
-	if err != nil {
-		return nil, fmt.Errorf("open local source %s: %w", f.root, err)
-	}
-
-	filePath := ref.BuildFilePath(ref.ItemType)
-	data, err := readItemAt(ctx, vcs, filePath, version)
-	if err != nil {
-		return nil, fmt.Errorf("read %s@%s: %w", filePath, version, err)
-	}
-	return data, nil
-}
-
-// ListItems walks the committed local-content root and returns a ctxloom:local
-// reference for every bundle/profile of kind found there. The single source is
-// the project working copy, so there is no "not materialized" case.
-func (f *LocalRefFetcher) ListItems(ctx context.Context, kind ItemType) ([]*Reference, error) {
-	vcs, err := f.openVCS(f.root)
-	if err != nil {
-		return nil, fmt.Errorf("open local source %s: %w", f.root, err)
-	}
-	paths, err := vcs.ListItems(ctx, kind)
-	if err != nil {
-		return nil, err
-	}
-	refs := make([]*Reference, 0, len(paths))
-	for _, p := range paths {
-		refs = append(refs, &Reference{IsLocal: true, ItemType: kind, Path: p})
-	}
-	return refs, nil
-}
-
-// Ensure LocalRefFetcher satisfies the per-scheme interface at compile time.
-var _ RefFetcher = (*LocalRefFetcher)(nil)

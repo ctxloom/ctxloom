@@ -111,6 +111,7 @@ func marshalPreservingComments(original []byte, desired map[string]any) ([]byte,
 	var root *yaml.Node
 	if haveDoc {
 		root = doc.Content[0]
+		renameLegacyVersionKey(root)
 	} else {
 		root = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	}
@@ -121,6 +122,22 @@ func marshalPreservingComments(original []byte, desired map[string]any) ([]byte,
 		return yaml.Marshal(&doc)
 	}
 	return yaml.Marshal(root)
+}
+
+// renameLegacyVersionKey renames the format generation's legacy key to
+// schema_version in place, so the node keeps its position and its comments —
+// including the file header yaml.v3 hangs on a document's first key, which
+// dropping the legacy key and appending the current one would delete.
+func renameLegacyVersionKey(root *yaml.Node) {
+	if mappingValue(root, "schema_version") != nil {
+		return
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "version" {
+			root.Content[i].Value = "schema_version"
+			return
+		}
+	}
 }
 
 // reconcileMappingNode mutates root (a mapping node) so it represents desired,

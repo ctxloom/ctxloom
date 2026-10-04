@@ -139,13 +139,13 @@ func TestConfigSerializers_FirstSaveMatchesRender(t *testing.T) {
 }
 
 var characterizationGolden = map[string]string{
-	"empty/MarshalYAML": `version: 6
+	"empty/MarshalYAML": `schema_version: 6
 `,
-	"empty/authored": `version: 6
+	"empty/authored": `schema_version: 6
 `,
-	"empty/saveLocked-project": `version: 6
+	"empty/saveLocked-project": `schema_version: 6
 `,
-	"empty/saveLocked-home": `version: 6
+	"empty/saveLocked-home": `schema_version: 6
 `,
 	"full/MarshalYAML": `agents:
     worker:
@@ -185,6 +185,7 @@ permissions:
     approver: none
     network: false
 runtime: container
+schema_version: 6
 session_purge_age: 180d
 session_reap_age: 45d
 sync:
@@ -192,7 +193,6 @@ sync:
 ui:
     prefix_key: ctrl-]
     surround: true
-version: 6
 workspace: worktree
 `,
 	"full/authored": `agents:
@@ -233,6 +233,7 @@ permissions:
     approver: none
     network: false
 runtime: container
+schema_version: 6
 session_purge_age: 180d
 session_reap_age: 45d
 sync:
@@ -240,7 +241,6 @@ sync:
 ui:
     prefix_key: ctrl-]
     surround: true
-version: 6
 workspace: worktree
 `,
 	"full/saveLocked-project": `agents:
@@ -266,12 +266,12 @@ llm:
 permissions:
     approver: none
     network: false
+schema_version: 6
 sync:
     auto_sync: true
 ui:
     prefix_key: ctrl-]
     surround: true
-version: 6
 workspace: worktree
 `,
 	"full/saveLocked-home": `agents:
@@ -312,6 +312,7 @@ permissions:
     approver: none
     network: false
 runtime: container
+schema_version: 6
 session_purge_age: 180d
 session_reap_age: 45d
 sync:
@@ -319,32 +320,31 @@ sync:
 ui:
     prefix_key: ctrl-]
     surround: true
-version: 6
 workspace: worktree
 `,
-	"explicit_false_and_stale_version/MarshalYAML": `sync:
+	"explicit_false_and_stale_version/MarshalYAML": `schema_version: 6
+sync:
     auto_sync: false
 ui:
     surround: false
-version: 6
 `,
-	"explicit_false_and_stale_version/authored": `sync:
+	"explicit_false_and_stale_version/authored": `schema_version: 6
+sync:
     auto_sync: false
 ui:
     surround: false
-version: 6
 `,
-	"explicit_false_and_stale_version/saveLocked-project": `sync:
+	"explicit_false_and_stale_version/saveLocked-project": `schema_version: 6
+sync:
     auto_sync: false
 ui:
     surround: false
-version: 6
 `,
-	"explicit_false_and_stale_version/saveLocked-home": `sync:
+	"explicit_false_and_stale_version/saveLocked-home": `schema_version: 6
+sync:
     auto_sync: false
 ui:
     surround: false
-version: 6
 `,
 	"default_overlay/MarshalYAML": `llm:
     configs:
@@ -355,24 +355,24 @@ version: 6
             type: claude-code
     defaults:
         primary: shipped
-version: 6
+schema_version: 6
 `,
 	"default_overlay/authored": `llm:
     configs:
         mine:
             type: codex
-version: 6
+schema_version: 6
 `,
 	"default_overlay/saveLocked-project": `llm:
     configs:
         mine:
             type: codex
-version: 6
+schema_version: 6
 `,
 	"default_overlay/saveLocked-home": `llm:
     configs:
         mine:
             type: codex
-version: 6
+schema_version: 6
 `,
 }

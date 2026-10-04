@@ -511,22 +511,22 @@ func TestImageConfigZeroValue_ResolvesCtxloomBaseSilently(t *testing.T) {
 	assert.Empty(t, buf.String(), "no root means nothing to detect against, so there is nothing to report")
 }
 
-// TestImageOverrideAndBaseImageAreOppositeConcepts PARTIALLY refutes
+// TestImageOverrideAndOverlayImageAreOppositeConcepts PARTIALLY refutes
 // a finding that claimed ImageConfig and ImageBuildOptions "duplicate 6 of the
 // same concepts under different names". Five are genuinely the same and share
 // their names exactly (Base, AppRoot, DevcontainerService, Engines). The sixth pairing the row implies —
-// ImageConfig.Image against ImageBuildOptions.BaseImage — is not a rename of
+// ImageConfig.Image against ImageBuildOptions.OverlayImage — is not a rename of
 // one concept but two OPPOSITE ones, which is why they were never unified:
 //
 //   - ImageConfig.Image is a prebuilt override, run AS-IS and NEVER built: it
 //     suppresses the local recipe entirely (engineInstall is cleared) so an
 //     absent override degrades rather than triggering a build.
-//   - ImageBuildOptions.BaseImage is a base to BUILD ONTO: it produces an
+//   - ImageBuildOptions.OverlayImage is a base to BUILD ONTO: it produces an
 //     overlay build source that layers ctxloom on top.
 //
 // A shared type that merged them would let a user's run-as-is image be built
 // onto, or a build base be launched unbuilt. Pinning the divergence.
-func TestImageOverrideAndBaseImageAreOppositeConcepts(t *testing.T) {
+func TestImageOverrideAndOverlayImageAreOppositeConcepts(t *testing.T) {
 	rt := fakeRuntime{name: "docker", binary: "false", available: true}
 
 	c := containerFor(rt, "mock", ImageConfig{Image: "my-registry/my-mock:v2"})
@@ -535,7 +535,7 @@ func TestImageOverrideAndBaseImageAreOppositeConcepts(t *testing.T) {
 	assert.Empty(t, sources, "an isolation_images override has NO build recipe — the user owns its lifecycle")
 
 	overlay := buildSources(engineContainerSpecFor("mock"), buildSourcesOptions{baseOverride: "my-registry/my-mock:v2"})
-	require.Len(t, overlay, 1, "the same string as a BaseImage is a base to build onto, not an image to run")
+	require.Len(t, overlay, 1, "the same string as a OverlayImage is a base to build onto, not an image to run")
 	assert.Contains(t, string(overlay[0].containerfile), "FROM my-registry/my-mock:v2\n")
 	assert.Contains(t, string(overlay[0].containerfile), "COPY ctxloom /usr/local/bin/ctxloom\n",
 		"a build base gets ctxloom layered onto it; a run-as-is override never would")

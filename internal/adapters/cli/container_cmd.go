@@ -28,7 +28,7 @@ var containerCmd = groupNode(&cobra.Command{
 })
 
 var (
-	containerBuildBaseImage           string
+	containerBuildOverlayImage        string
 	containerBuildBase                string
 	containerBuildDevcontainerService string
 	containerBuildEngines             []string
@@ -56,7 +56,7 @@ should run in the environment the human develops in"), or an image ref to
 build on. Unset, the project's devcontainer is used when one exists, else
 ctxloom's own. The same agent stage layers on top of whichever is chosen, and
 a chosen base that fails to build is refused, never silently substituted.
-Alternatively --base-image skips the client install entirely and overlays
+Alternatively --overlay-image skips the client install entirely and overlays
 ctxloom onto an image that ALREADY ships the client CLI.
 
 A devcontainer.json declaring "features" is NOT honored
@@ -101,7 +101,7 @@ func runContainerBuild(cmd *cobra.Command, args []string) error {
 		cfg = nil
 	}
 	opts := containerBuildOptions(containerBuildFlagValues{
-		BaseImage:           containerBuildBaseImage,
+		OverlayImage:        containerBuildOverlayImage,
 		Base:                containerBuildBase,
 		Runtime:             containerBuildRuntime,
 		DevcontainerService: containerBuildDevcontainerService,
@@ -134,7 +134,7 @@ func runContainerBuild(cmd *cobra.Command, args []string) error {
 // containerBuildOptions, so the flag-over-config precedence is resolvable —
 // and testable — without a cobra command or a container runtime.
 type containerBuildFlagValues struct {
-	BaseImage           string
+	OverlayImage        string
 	Base                string
 	Runtime             string
 	DevcontainerService string
@@ -149,10 +149,10 @@ type containerBuildFlagValues struct {
 //
 // Two invariants live here:
 //
-//   - BaseImage and Base are mutually exclusive (isolation.BuildAgentImage
+//   - OverlayImage and Base are mutually exclusive (isolation.BuildAgentImage
 //     rejects the pair outright), so a config isolation_base is inherited only
 //     when NEITHER flag chose a base. An
-//     explicit --base-image must never be turned into a hard failure by a
+//     explicit --overlay-image must never be turned into a hard failure by a
 //     project default the user did not name on this command line.
 //   - a config isolation_images entry for this backend is run AS-IS and never
 //     built (isolation.containerFor), so whatever this command builds is not
@@ -160,14 +160,14 @@ type containerBuildFlagValues struct {
 //     image nothing will run is otherwise indistinguishable from success.
 func containerBuildOptions(flags containerBuildFlagValues, cfg *config.Config, backend string, warn io.Writer) isolation.ImageBuildOptions {
 	opts := isolation.ImageBuildOptions{
-		BaseImage: flags.BaseImage,
-		Base:      flags.Base,
-		Runtime:   flags.Runtime,
-		KeepCache: flags.KeepCache,
+		OverlayImage: flags.OverlayImage,
+		Base:         flags.Base,
+		Runtime:      flags.Runtime,
+		KeepCache:    flags.KeepCache,
 	}
 	if cfg != nil {
 		img := launch.ImageConfigFor(cfg, engine.Name(backend))
-		if opts.BaseImage == "" && opts.Base == "" {
+		if opts.OverlayImage == "" && opts.Base == "" {
 			opts.Base = img.Base
 		}
 		opts.AppRoot = img.AppRoot
@@ -407,7 +407,7 @@ func renderContainerCheck(out io.Writer, backend string, d isolation.Diagnosis) 
 }
 
 func init() {
-	containerBuildCmd.Flags().StringVar(&containerBuildBaseImage, "base-image", "",
+	containerBuildCmd.Flags().StringVar(&containerBuildOverlayImage, "overlay-image", "",
 		"overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources")
 	containerBuildCmd.Flags().StringVar(&containerBuildBase, "base", "",
 		"the base the engine's agent stage layers onto: ctxloom | devcontainer | <image ref> (overrides config isolation_base)")

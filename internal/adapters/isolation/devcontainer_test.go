@@ -73,7 +73,7 @@ func TestResolveDevcontainerBase_Absent(t *testing.T) {
 
 // TestResolveDevcontainerBase_Image pins the "image:" shape: a synthetic FROM
 // base (a BASE, not a finished agent image — engine fragments still layer on
-// top, unlike the --base-image overlay escape hatch).
+// top, unlike the --overlay-image overlay escape hatch).
 func TestResolveDevcontainerBase_Image(t *testing.T) {
 	root := t.TempDir()
 	writeDevcontainer(t, root, `{"image": "mcr.microsoft.com/devcontainers/go:1"}`)

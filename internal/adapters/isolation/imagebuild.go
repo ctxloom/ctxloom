@@ -206,7 +206,7 @@ func defaultBaseStage() *baseStage {
 
 // imageRefBaseStage is a configured image ref (isolation_base: <ref> /
 // `container build --base <ref>`) as a synthetic single-line FROM base: a
-// BASE the composed engine stage layers onto, unlike the --base-image overlay,
+// BASE the composed engine stage layers onto, unlike the --overlay-image overlay,
 // which asserts the client is already present.
 func imageRefBaseStage(ref string) *baseStage {
 	return &baseStage{desc: "configured base image " + ref, containerfile: []byte("FROM " + ref + "\n"), kind: baseStageKindUser}
@@ -215,7 +215,7 @@ func imageRefBaseStage(ref string) *baseStage {
 // devcontainerImageStage wraps a devcontainer.json (or compose service)
 // "image:" ref as a synthetic single-line FROM base — a BASE, not a finished
 // agent image: composed engine fragments still layer on top of it (unlike the
-// `--base-image` overlay escape hatch, which asserts the client is ALREADY
+// `--overlay-image` overlay escape hatch, which asserts the client is ALREADY
 // present and never installs one).
 func devcontainerImageStage(desc, ref string) *baseStage {
 	return &baseStage{desc: desc, containerfile: []byte("FROM " + ref + "\n"), kind: baseStageKindDevcontainer}
@@ -285,13 +285,13 @@ const (
 	noComposableEnginesRemedy = "bind the agent to an engine that declares an official-installer fragment (see `ctxloom container build --help`), or provide a prebuilt image for this engine via isolation_images"
 )
 
-// buildSourcesOptions carries every input buildSources needs: the base-image
+// buildSourcesOptions carries every input buildSources needs: the overlay-image
 // overlay plus the already-RESOLVED base (resolution happens once, in the
 // caller — see resolveBase — so a resolution failure can be handled per-caller:
 // fatal-unless-degraded in runEnsureImage, a hard CLI error in
 // BuildAgentImage, an advisory line in Diagnose).
 type buildSourcesOptions struct {
-	// baseOverride is --base-image: overlay ctxloom onto a base that ALREADY
+	// baseOverride is --overlay-image: overlay ctxloom onto a base that ALREADY
 	// ships the client, skipping any install. Wins outright.
 	baseOverride string
 	// base is resolveBase's ONE stage the composed agent stage builds on.
@@ -1103,12 +1103,12 @@ func baseStamp(tag string, content []byte) imageStamp {
 // ImageBuildOptions parameterize an explicit agent-image build
 // (`ctxloom container build`).
 type ImageBuildOptions struct {
-	// BaseImage overlays ctxloom onto this user-chosen base — which must
+	// OverlayImage overlays ctxloom onto this user-chosen base — which must
 	// already ship the client CLI — instead of the spec's build sources.
-	BaseImage string
+	OverlayImage string
 	// Base is the isolation_base choice the engine's agent stage layers onto
 	// (config isolation_base / --base) — see ImageConfig.Base. Mutually
-	// exclusive with BaseImage.
+	// exclusive with OverlayImage.
 	Base string
 	// AppRoot is the project root the devcontainer is resolved against; ""
 	// means there is no project devcontainer to find.
@@ -1163,7 +1163,7 @@ func selectBuildRuntime(prefer string) (Runtime, error) {
 }
 
 // BuildAgentImage builds the agent image for the REGISTERED backend name —
-// from the caller's base-image overlay, or the composed single-engine agent
+// from the caller's overlay image, or the composed single-engine agent
 // stage on the base resolveBase chose for opts.Base — layering
 // the RUNNING ctxloom binary in (any dev build works; no ctxloom release
 // needed). Each source validates the client inside the build
@@ -1174,8 +1174,8 @@ func selectBuildRuntime(prefer string) (Runtime, error) {
 // devcontainer, pass --base ctxloom, or configure
 // isolation_devcontainer_service. Returns the image tag it built.
 func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions) (string, error) {
-	if opts.BaseImage != "" && opts.Base != "" {
-		return "", fmt.Errorf("base-image and base are mutually exclusive (base-image asserts the client is preinstalled; base gets the client layered on)")
+	if opts.OverlayImage != "" && opts.Base != "" {
+		return "", fmt.Errorf("overlay-image and base are mutually exclusive (overlay-image asserts the client is preinstalled; base gets the client layered on)")
 	}
 	p := engineContainerSpecFor(backend)
 	base, err := resolveBase(opts.Base, opts.AppRoot, opts.DevcontainerService)
@@ -1183,12 +1183,12 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 		return "", fmt.Errorf("project devcontainer: %w", err)
 	}
 	sources := buildSources(p, buildSourcesOptions{
-		baseOverride: opts.BaseImage,
+		baseOverride: opts.OverlayImage,
 		base:         base,
 		engine:       backend,
 	})
 	if len(sources) == 0 {
-		return "", fmt.Errorf("backend %q has no local build recipe (no official client image and no embedded Containerfile); pass --base-image with the client preinstalled", backend)
+		return "", fmt.Errorf("backend %q has no local build recipe (no official client image and no embedded Containerfile); pass --overlay-image with the client preinstalled", backend)
 	}
 	rt, err := selectBuildRuntime(opts.Runtime)
 	if err != nil {

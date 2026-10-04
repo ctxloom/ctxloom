@@ -116,7 +116,7 @@ func TestEnsureImage_UserImageIsNeverBuilt(t *testing.T) {
 // engineInstall — an unknown/unmapped backend, e.g. engineContainerSpecFor's
 // `default` arm): there is no local-build recipe at all, so buildSources
 // yields nothing regardless of the resolved base —
-// UNLESS an explicit base-image override is given, which still wins outright
+// UNLESS an explicit overlay-image override is given, which still wins outright
 // (the caller asserts the client already lives there; no spec lookup is
 // needed to overlay onto it).
 //
@@ -145,7 +145,7 @@ func TestBuildSources_NonComposableHasNoRecipe(t *testing.T) {
 // (every engine in composableEngines() — engineInstall != nil): the generated
 // single-engine Containerfile builds onto exactly ONE base — the one
 // resolveBase chose — with no fallthrough to another, and an explicit
-// base-image override still wins outright.
+// overlay-image override still wins outright.
 func TestBuildSources_Composable(t *testing.T) {
 	for _, backend := range composableEngines() {
 		p := engineContainerSpecFor(backend)
@@ -158,7 +158,7 @@ func TestBuildSources_Composable(t *testing.T) {
 		require.NotNil(t, got[0].base)
 
 		override := buildSources(p, buildSourcesOptions{engine: backend, base: defaultBaseStage(), baseOverride: "my-base:latest"})
-		require.Len(t, override, 1, "an explicit base-image override wins outright")
+		require.Len(t, override, 1, "an explicit overlay-image override wins outright")
 		assert.Contains(t, override[0].desc, "my-base:latest")
 		assert.Nil(t, override[0].base)
 
@@ -300,7 +300,7 @@ func TestOverlayContainerfile(t *testing.T) {
 // TestBuildSources_OverrideWithoutValidateWarns pins that
 // the overlay Containerfile emits its client-validation `RUN` only
 // when the spec HAS a validate command, and the default (unmapped)
-// spec has none. `ctxloom container build <unmapped> --base-image X`
+// spec has none. `ctxloom container build <unmapped> --overlay-image X`
 // therefore shipped an agent image whose engine was never proven to exist —
 // it builds, tags, passes every ctxloom/companion gate, and fails at run time
 // with the engine binary simply absent. The rendering is correct (there is no
@@ -1002,7 +1002,7 @@ func TestBuildAgentImage_Characterization(t *testing.T) {
 
 	t.Run("base image and base are mutually exclusive", func(t *testing.T) {
 		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{
-			BaseImage: "some/base:1", Base: "ctxloom",
+			OverlayImage: "some/base:1", Base: "ctxloom",
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "mutually exclusive")

@@ -30,7 +30,7 @@ should run in the environment the human develops in"), or an image ref to
 build on. Unset, the project's devcontainer is used when one exists, else
 ctxloom's own. The same agent stage layers on top of whichever is chosen, and
 a chosen base that fails to build is refused, never silently substituted.
-Alternatively --base-image skips the client install entirely and overlays
+Alternatively --overlay-image skips the client install entirely and overlays
 ctxloom onto an image that ALREADY ships the client CLI.
 
 A devcontainer.json declaring "features" is NOT honored
@@ -60,10 +60,10 @@ ctxloom container build [backend] [flags]
 
 ```
       --base string                   the base the engine's agent stage layers onto: ctxloom | devcontainer | <image ref> (overrides config isolation_base)
-      --base-image string             overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources
       --devcontainer-service string   docker-compose service to use as the base when the project devcontainer.json declares dockerComposeFile
       --engines strings               engines to build an agent image for, one image each (any engine that declares a container installer); empty = the configured backend
       --keep-cache                    reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)
+      --overlay-image string          overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources
       --runtime string                container runtime to build with (docker|podman); auto-detected when empty
 ```
 

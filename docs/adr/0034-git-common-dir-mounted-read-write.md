@@ -44,12 +44,12 @@ common dir, `.git/hooks` held live `pre-commit`, `prepare-commit-msg` and
 
 Mount the whole git common dir **read-write, at its identical absolute path**,
 at both call sites. Accept the resulting exposure rather than narrowing it,
-with one exception at the agent call site: its `worktrees/` registry is masked
-by an empty read-only directory, and the checkout's own admin dir is mounted
-back into it. The registry is the part of the common dir that belongs to OTHER
-checkouts and that git acts on by itself: `git worktree prune`, and gc's
-automatic prune, delete every registration whose checkout is not visible, and
-no other checkout is mounted into an agent's container. Option 2 remains
+with one exception at both: the `worktrees/` registry is masked by an empty
+read-only directory, and the checkout's own admin dir is mounted back into it.
+The registry is the part of the common dir that belongs to OTHER checkouts and
+that git acts on by itself: `git worktree prune`, and gc's automatic prune,
+delete every registration whose checkout is not visible, and no other checkout
+is mounted into either container. Option 2 remains
 rejected for everything else: config, packed-refs and refs are updated by
 lock-and-rename inside the common dir, which a file-by-file mount breaks.
 
@@ -62,7 +62,7 @@ documentation debt — one copy gets retired and the others keep asserting it.
 The exposure is real and is accepted knowingly, not overlooked:
 
 - A container can reach the main checkout's refs, objects, and index. The blast
-  radius is the repository, not the container's own tree. An agent container
+  radius is the repository, not the container's own tree. A container
   cannot reach other worktrees' admin dirs, so its git also cannot see which
   branches they have checked out, and does not refuse to check out or delete
   one of those.
@@ -88,7 +88,8 @@ in both directions: the registry is unreachable and read-only, while the
 checkout's admin dir and the common dir's config, packed-refs, hooks, objects
 and refs resolve read-write through the runtime's path mapping. Any further
 narrowing must therefore be deliberate; it cannot happen accidentally in a
-sweep.
+sweep. The `_run` site's mounts come from `scripts/devcontainer-git-mounts.sh`,
+pinned the same way by the `TestDevcontainerGitMounts_` tests.
 
 **Revisit trigger:** per-agent git isolation becoming a requirement, or agents
 ceasing to be trusted by construction. Either flips this back to Proposed for

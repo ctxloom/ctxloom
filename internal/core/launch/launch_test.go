@@ -452,20 +452,38 @@ func (a *modeAssembler) Assemble(_ context.Context, _ *config.Snapshot, sel laun
 	return composite.Package{Context: composite.Context{Text: "ctx"}}, nil
 }
 
-// TestResolve_TheSelectionCarriesTheLaunchMode: what ctxloom's own hooks are
-// assembled for depends on the mode — a structured run is handed its mail as
-// turns, so it must not also be handed the owner's turn-start mail reader
-// (row worried-chief F4). The mode reaches the assembler on the Selection.
-// MUTATION — drop Mode from the Selection Resolve builds — turns this red.
-func TestResolve_TheSelectionCarriesTheLaunchMode(t *testing.T) {
+// TestResolve_TheSelectionCarriesWhoReadsTheMail: ctxloom's own turn-start
+// mail reader is assembled only for the session OWNER — a human's session
+// driven interactively. Every other run is handed its mail as turns by its
+// runner, so it must not also carry the reader (rows worried-chief F4,
+// tacky-carload): a structured run, a one-turn run at depth 0, and an
+// INTERACTIVE delegated child alike. The decision reaches the assembler on
+// the Selection.
+// MUTATION — decide Selection.Mail from the mode alone — turns the
+// interactive child's case red.
+func TestResolve_TheSelectionCarriesWhoReadsTheMail(t *testing.T) {
 	env := launchtest.Deps(t)
 	asm := &modeAssembler{}
 	env.Deps.Assembler = asm
-	for _, mode := range []engine.Mode{engine.Interactive, engine.Structured} {
-		_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: mode, Permission: "bypass", WorkDir: env.Project})
-		require.NoError(t, err)
+	child := env.Identity
+	child.Depth = 1
+	cases := []struct {
+		name string
+		id   sessions.Identity
+		mode engine.Mode
+		want sessions.MailReader
+	}{
+		{"the owner", env.Identity, engine.Interactive, sessions.MailByHook},
+		{"a structured run at depth 0", env.Identity, engine.Structured, sessions.MailByRunner},
+		{"an interactive delegated child", child, engine.Interactive, sessions.MailByRunner},
+		{"a structured delegated child", child, engine.Structured, sessions.MailByRunner},
 	}
-	require.Len(t, asm.got, 2)
-	assert.Equal(t, engine.Interactive, asm.got[0].Mode)
-	assert.Equal(t, engine.Structured, asm.got[1].Mode)
+	for _, c := range cases {
+		_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: c.id, Profiles: []string{"base"}, Mode: c.mode, Permission: "bypass", WorkDir: env.Project})
+		require.NoError(t, err, c.name)
+	}
+	require.Len(t, asm.got, len(cases))
+	for i, c := range cases {
+		assert.Equal(t, c.want, asm.got[i].Mail, c.name)
+	}
 }

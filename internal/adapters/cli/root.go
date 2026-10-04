@@ -61,6 +61,13 @@ var sigCheckEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(bundles.S
 // hands its engine for the engine's own ctxloom children — read ONCE.
 var sessionSigCheckEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(sessions.EnvSigCheckWaived) })
 
+// sessionOwnerEnv is whether this process was started under the session-owner
+// marker (sessions.EnvSessionOwner) the launch puts on the owner's engine
+// alone — read ONCE and removed with the signature-check switches (switches),
+// so no process ctxloom starts inherits it. Only the turn-start mail-drain
+// hook (runHookMailDrain) honours it.
+var sessionOwnerEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(sessions.EnvSessionOwner) })
+
 // consumeEnvSwitch reads one of the signature-check switches and removes it
 // from this process's environment. Every child ctxloom starts is built from
 // os.Environ(), so after this nothing inherits a waiver by the ordinary
@@ -105,6 +112,9 @@ func sigCheckDisabled(cmd *cobra.Command) bool {
 
 // switches are this invocation's process switches.
 func switches(cmd *cobra.Command) operations.Switches {
+	// Consumed here, in every process, whatever command runs: a carrier left in
+	// os.Environ() reaches every runner and engine this process starts.
+	sessionOwnerEnv()
 	if cmd == nil {
 		return operations.Switches{NoCompanions: envSwitchOn("CTXLOOM_NO_COMPANIONS"), SigCheckDisabled: sigCheckDisabled(nil), SessionSigCheckWaived: sessionSigCheckEnv()}
 	}

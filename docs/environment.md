@@ -95,6 +95,7 @@ ctxloom exports these into the LLM subprocess and the MCP server it launches. Yo
 |----------|---------|
 | `CTXLOOM_SESSION_HARP` | The active session (harp) name. Scopes session resolution, task logs, and HUD output to this session. |
 | `CTXLOOM_PROJECT_ID` | Project identifier that scopes the task store. When unset, the task store degrades rather than blocking. |
+| `CTXLOOM_SESSION_OWNER` | Set to `1` on the session owner's engine only (a human's interactive session, never a delegated child or a one-shot). The turn-start mail-drain hook delivers mail only under it. Every ctxloom process removes it at start, so it is never inherited. |
 | `CTXLOOM_RESUMED_FROM` | When resuming, the harp name the session was resumed from. |
 | `CTXLOOM_RESUMED_PARTS` | When resuming, the number of context parts carried over. |
 

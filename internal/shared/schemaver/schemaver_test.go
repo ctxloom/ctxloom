@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
@@ -32,7 +33,7 @@ func (s setKey) Apply(root *yaml.Node) bool {
 // version, because a step marks a generation whether or not it edits keys.
 type noop string
 
-func (n noop) Name() string               { return string(n) }
+func (n noop) Name() string                  { return string(n) }
 func (noop) Apply(*yaml.Node) (changed bool) { return false }
 
 const (
@@ -294,7 +295,7 @@ func TestWriteBack_BacksUpThenReplaces(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const path = "/cfg/file.yaml"
 	old := []byte("old: 1\n")
-	require.NoError(t, afero.WriteFile(fs, path, old, 0o600))
+	taskstest.WriteFile(t, fs, path, old, 0o600)
 	r := Result{Data: []byte(Key + ": 3\n"), From: 1, To: 3, Applied: []string{"x"}}
 
 	require.NoError(t, WriteBack(fs, path, r, nil))
@@ -316,7 +317,7 @@ func TestWriteBack_PrintWritesNothing(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const path = "/cfg/file.yaml"
 	old := []byte("old: 1\n")
-	require.NoError(t, afero.WriteFile(fs, path, old, 0o644))
+	taskstest.WriteFile(t, fs, path, old, 0o644)
 	r := Result{Data: []byte(Key + ": 3\n"), From: 1, To: 3}
 	var out bytes.Buffer
 
@@ -335,7 +336,7 @@ func TestWriteBack_NoBackupNoWrite(t *testing.T) {
 	base := afero.NewMemMapFs()
 	const path = "/cfg/file.yaml"
 	old := []byte("old: 1\n")
-	require.NoError(t, afero.WriteFile(base, path, old, 0o644))
+	taskstest.WriteFile(t, base, path, old, 0o644)
 	fs := afero.NewReadOnlyFs(base)
 
 	err := WriteBack(fs, path, Result{Data: []byte(Key + ": 3\n")}, nil)

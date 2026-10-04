@@ -861,7 +861,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	rt.close = engine.Kill
 	rt.stderrTail = engine.StderrTail
 	rt.runnerWait = engine.Wait
-	rt.workDir = l.Cell.Workspace
+	rt.workDir = l.Cell.Paths.Paths().ProjectRoot.Host
 	c.mu.Unlock()
 
 	err = c.issueStartRun(ctx, rt, hashToken(token), resolved.Launch, l.Prompt, l.Label.Model, start.ResumeKey, true)

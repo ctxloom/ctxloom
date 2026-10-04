@@ -531,7 +531,7 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 	if dir, ok := launch.SessionHome(req.SessionDir, req.Engine, homeMode); ok {
 		roots.SessionHome = present.Root{Host: dir}
 	}
-	return launch.Cell{Placement: launch.Placement{Paths: present.OnHost(roots), Trust: c.trust}, Workspace: req.ProjectRoot, HomeMode: req.HomeMode, Cleanup: func() error { return nil }}, nil
+	return launch.Cell{Placement: launch.Placement{Paths: present.OnHost(roots), Trust: c.trust}, HomeMode: req.HomeMode, Cleanup: func() error { return nil }}, nil
 }
 
 // Structured is a resolved structured-mode launch for one harp on the
@@ -554,7 +554,7 @@ func Structured(harp, backend, label, model, workDir, perm string) launch.Launch
 		Label:      engine.LabelConfig{Label: label, Model: model},
 		Mode:       engine.Structured,
 		Permission: engine.PermissionPolicy{Posture: engine.Posture{Engine: engine.Name(backend), Document: map[string]any{"mode": perm}}, Sandbox: engine.SandboxFull},
-		Cell:       launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}})}, Workspace: workDir, Cleanup: func() error { return nil }},
+		Cell:       launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}})}, Cleanup: func() error { return nil }},
 		Package:    carrier,
 	}
 }

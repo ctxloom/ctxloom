@@ -55,7 +55,7 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project, Workspace: launch.WorkspaceWorktree,
 	})
 	require.NoError(t, err)
-	require.NotEqual(t, host.Cell.Workspace, child.Cell.Workspace, "the child runs in its own worktree cell")
+	require.NotEqual(t, host.Cell.Paths.Paths().ProjectRoot, child.Cell.Paths.Paths().ProjectRoot, "the child runs in its own worktree cell")
 
 	// The host arm: the local launcher opens the package and delivers the
 	// Launch's Loadout through the static writer into its own cell.
@@ -105,7 +105,7 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	// turn and the session's .mcp.json naming the composed servers.
 	require.Len(t, drive.turns, 1)
 	turn := drive.turns[0]
-	require.Equal(t, child.Cell.Workspace, turn.Exec.WorkDir, "the engine is exec'd in the child's cell")
+	require.Equal(t, child.Cell.Paths.Paths().ProjectRoot.Engine, turn.Exec.WorkDir, "the engine is exec'd in the child's cell")
 	require.NotNil(t, turn.Instance, "the session bound to the engine rides the turn")
 	require.Equal(t, "run-1", turn.Launch.Identity.RunID)
 	require.True(t, strings.HasPrefix(turn.Prompt, opened.Package.Context.Text), "the composed context leads the first turn")
@@ -399,7 +399,7 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 		}
 		roots.SessionHome = present.Root{Host: home}
 	}
-	return launch.Cell{Placement: launch.Placement{Paths: present.OnHost(roots), Env: map[string]string{}}, Workspace: workspace, Cleanup: func() error { return nil }}, nil
+	return launch.Cell{Placement: launch.Placement{Paths: present.OnHost(roots), Env: map[string]string{}}, Cleanup: func() error { return nil }}, nil
 }
 
 // recordingDriver is the Driver double: it records what the runner asked
@@ -434,7 +434,7 @@ func cellTree(t *testing.T, l launch.Launch) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	normalize := strings.NewReplacer(l.MCP.URL, "<endpoint>", l.MCP.Credential, "<bearer>")
-	for prefix, root := range map[string]string{"session": l.Cell.Paths.Paths().SessionHome.Host, "workspace": l.Cell.Workspace} {
+	for prefix, root := range map[string]string{"session": l.Cell.Paths.Paths().SessionHome.Host, "workspace": l.Cell.Paths.Paths().ProjectRoot.Host} {
 		for rel, digest := range treeOf(t, root, normalize) {
 			out[prefix+"/"+rel] = digest
 		}

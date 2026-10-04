@@ -45,7 +45,7 @@ func TestWorktreeBase_UnwindsWhatItCreated(t *testing.T) {
 		boom := errors.New("worktree add refused")
 		f := &git.Fake{AddErr: boom}
 
-		dir, cleanup, err := worktreeBase{wt: NewWorktree(f)}.resolveBase(ctx, proj, "m")
+		dir, cleanup, err := worktreeBase{wt: sessionWorktree(t, f)}.resolveBase(ctx, proj, "m")
 
 		require.Error(t, err)
 		assert.ErrorIs(t, err, boom, "the worktree's own failure must reach the caller intact")
@@ -58,7 +58,7 @@ func TestWorktreeBase_UnwindsWhatItCreated(t *testing.T) {
 	t.Run("gitdir mount failed after the worktree exists: the checkout does not survive", func(t *testing.T) {
 		boom := errors.New("common dir unreadable")
 		f := &git.Fake{CommonDirErr: boom}
-		base := worktreeBase{wt: NewWorktree(f)}
+		base := worktreeBase{wt: sessionWorktree(t, f)}
 
 		dir, cleanup, err := base.resolveBase(ctx, proj, "m")
 		require.NoError(t, err, "premise: the checkout comes up — the failure under test is in the MAPPING")

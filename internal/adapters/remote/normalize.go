@@ -270,6 +270,6 @@ func SplitRetiredProfileRef(ref string) (url, name string, ok bool) {
 func IsCanonicalRef(ref string) bool {
 	return strings.HasPrefix(ref, "https://") ||
 		strings.HasPrefix(ref, "http://") ||
-		strings.HasPrefix(ref, "git@") ||
-		strings.HasPrefix(ref, "file://")
+		strings.HasPrefix(ref, "file://") ||
+		refuri.IsSCPForm(ref)
 }

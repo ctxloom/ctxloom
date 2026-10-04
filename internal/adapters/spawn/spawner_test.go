@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // TestChildVerbosity pins the env-only diagnostics knob: CTXLOOM_VERBOSE=1
@@ -25,50 +26,29 @@ func TestChildVerbosity(t *testing.T) {
 	assert.Equal(t, 3, childVerbosity())
 }
 
-// TestViaStartRunBackends pins the spawn-cutover gate: every registered
-// backend admitted by its own per-backend recon routes its delegated
-// children over StartRun.
-// Backends NOT reviewed onto the migrated path stay on the FROZEN legacy
-// chat path only if legacyChatBackends admits them (since S3b: mock alone);
-// any other name is refused at Resolve by checkLegacyChatFreeze — this is a
-// deliberate allowlist, not "has a structured driver", so a new backend
-// never gets swept onto StartRun unreviewed (nor onto the retired legacy
-// path at all).
-func TestViaStartRunBackends(t *testing.T) {
-	cases := map[string]bool{
-		"claude-code":  true,
-		"mock":         true, // hostable by the binary; see TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt
-		"":             false,
-		"unknown-type": false,
-	}
-	for backend, want := range cases {
-		assert.Equal(t, want, viaStartRunBackends[backend], "backend %q", backend)
-	}
-}
-
-// TestResolveResumeMode pins the Slice 2 static per-engine resume-capability
-// table (Fork 3's static half): conversational (and the empty/default) always
+// TestResolveResumeMode pins the per-engine resume-capability gate over the
+// shipped engines' declarations: conversational (and the empty/default) always
 // resolves to coord.ResumeModePersistent regardless of backend; oneshot resolves to
 // coord.ResumeModeOneShot ONLY on a resume-capable backend and otherwise fails
 // loud, never silently downgrading to persistent.
 func TestResolveResumeMode(t *testing.T) {
 	t.Run("conversational is always persistent, any backend", func(t *testing.T) {
 		for _, backend := range []string{"claude-code", "mock", "unknown", ""} {
-			mode, err := resolveResumeMode(agents.DrivingConversational, backend)
+			mode, err := resolveResumeMode(engines.Registry(), agents.DrivingConversational, backend)
 			require.NoError(t, err, "backend %q", backend)
 			assert.Equal(t, coord.ResumeModePersistent, mode, "backend %q", backend)
 		}
 	})
 
 	t.Run("empty driving (the zero value) is persistent", func(t *testing.T) {
-		mode, err := resolveResumeMode("", "mock")
+		mode, err := resolveResumeMode(engines.Registry(), "", "mock")
 		require.NoError(t, err)
 		assert.Equal(t, coord.ResumeModePersistent, mode)
 	})
 
 	t.Run("oneshot on a resume-capable backend resolves to coord.ResumeModeOneShot", func(t *testing.T) {
 		for _, backend := range []string{"claude-code"} {
-			mode, err := resolveResumeMode(agents.DrivingOneshot, backend)
+			mode, err := resolveResumeMode(engines.Registry(), agents.DrivingOneshot, backend)
 			require.NoError(t, err, "backend %q", backend)
 			assert.Equal(t, coord.ResumeModeOneShot, mode, "backend %q", backend)
 		}
@@ -76,7 +56,7 @@ func TestResolveResumeMode(t *testing.T) {
 
 	t.Run("oneshot on a NON-resumable backend FAILS LOUD, never silently downgrades", func(t *testing.T) {
 		for _, backend := range []string{"mock", "unknown-backend", ""} {
-			mode, err := resolveResumeMode(agents.DrivingOneshot, backend)
+			mode, err := resolveResumeMode(engines.Registry(), agents.DrivingOneshot, backend)
 			require.Error(t, err, "backend %q", backend)
 			assert.Equal(t, coord.ResumeModePersistent, mode, "the returned mode on error must never be coord.ResumeModeOneShot (backend %q)", backend)
 			assert.Contains(t, err.Error(), backend)

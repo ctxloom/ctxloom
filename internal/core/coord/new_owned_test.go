@@ -57,3 +57,33 @@ func TestNew_RefusesARootAnotherLiveOwnerHolds(t *testing.T) {
 	require.NoError(t, rerr)
 	assert.Empty(t, entries, "the loser must not mint a state dir of its own")
 }
+
+// TestNew_SecondCoordinatorForOneOwnerHarp_IsRefused pins why two
+// coordinators cannot drain one owner's mail (a doubled spool reactor over
+// one inbox): every production host claims the root its owner harp names —
+// a fresh `ctxloom run` and an internal one-shot host both leave RootHarp
+// empty, so the root IS the owner harp — and that root's kernel lock admits
+// one coordinator. (A resume names another root, but its owner harp is
+// minted fresh for the process, so it is never a second claimant of an owner
+// harp either.)
+func TestNew_SecondCoordinatorForOneOwnerHarp_IsRefused(t *testing.T) {
+	testsupport.Isolate(t)
+	teeHome(t)
+	const key = "one-owner-project"
+	opts := func() Options {
+		return Options{ProjectDir: t.TempDir(), ProjectID: key, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp}
+	}
+
+	first, err := New(opts())
+	require.NoError(t, err)
+	t.Cleanup(first.Close)
+
+	second, err := New(opts())
+	assert.Nil(t, second)
+	require.ErrorIs(t, err, ErrStateOwned, "a second coordinator for the same owner harp must be refused while the first lives")
+
+	first.Close()
+	third, err := New(opts())
+	require.NoError(t, err, "once the first lets go, the owner harp's root is claimable again")
+	third.Close()
+}

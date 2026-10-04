@@ -2,7 +2,6 @@ package isolation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -65,10 +64,11 @@ const worktreeScratchPrefix = "ctxloom-wt"
 type Worktree struct {
 	git git.Git
 	// state is the run's session identity, stamped by Prepare
-	// (withSessionState). A known harp homes the per-agent checkout under the
-	// session's work/ dir and its toolchain temp under scratch/, instead of the
-	// OS temp dir — the session layout accounts for both.
-	// Zero on paths without session accounting → the OS temp dir.
+	// (withSessionState). Its harp homes the per-agent checkout under the
+	// session's work/ dir and its toolchain temp under scratch/, so the
+	// session layout accounts for both. Without a usable harp the worktree is
+	// refused (checkoutPath); SpecBuilder.Session makes every prepared run
+	// carry one.
 	state SessionState
 }
 
@@ -111,8 +111,8 @@ func (Worktree) Name() string { return "worktree" }
 // anything after WorktreeAdd panics (a bug in excludeConfigFromMerge/
 // skipTrackedConfig, or — the case that surfaced this — a mutation-testing
 // mutant deliberately breaking one of them), the caller never gets a handle
-// to clean up, and the checkout + scratch home leak under the OS temp dir
-// with nothing left to remove them. Recovering here, best-effort removing
+// to clean up, and the checkout + scratch home leak in the session's
+// members with nothing left to remove them. Recovering here, best-effort removing
 // what THIS call created, and re-panicking preserves the original failure (a
 // real bug still crashes / a mutant still gets killed) while guaranteeing no
 // resource outlives the call that made it.
@@ -125,7 +125,10 @@ func (w Worktree) resolveWorkspace(ctx context.Context, projectDir, agentID stri
 		return nil, fmt.Errorf("worktree isolation: %q is not a git repository", projectDir)
 	}
 
-	wtPath := w.checkoutPath(agentID)
+	wtPath, err := w.checkoutPath(agentID)
+	if err != nil {
+		return nil, err
+	}
 	reused, err := w.reuseExistingCheckout(ctx, projectDir, wtPath)
 	if err != nil {
 		return nil, err
@@ -188,16 +191,23 @@ func (w Worktree) prepareWorkspace(ctx context.Context, projectDir, agentID stri
 }
 
 // provisionScratchDir creates the per-agent TOOLCHAIN scratch root
-// (worktreeWorkspace.Env()'s TMPDIR/GOTMPDIR) under scratchBase — the
-// session's scratch/ dir when a harp is known, else the OS temp dir. This is the fix for the shared-/tmp toolchain
+// (worktreeWorkspace.Env()'s TMPDIR/GOTMPDIR) under the session's scratch/
+// dir (SessionState.scratchDir). This is the fix for the shared-/tmp toolchain
 // contention that corrupted concurrent agents (spawner-env audit): every
 // worktree member previously inherited the SAME process TMPDIR, so `go
 // build`'s per-invocation $WORK scratch, `git`'s temp blobs, and any other
-// tool honouring TMPDIR collided across members. Returns "" on the MkdirAll
-// failure — best-effort, never blocking the run; Env() then simply omits
-// TMPDIR/GOTMPDIR and the child falls back to the shared process default.
+// tool honouring TMPDIR collided across members. Returns "" when the dir
+// cannot be made — best-effort, never blocking the run; Env() then simply
+// omits TMPDIR/GOTMPDIR and the child falls back to the shared process
+// default. The harp itself is not in question here: checkoutPath already
+// refused a run without a usable one.
 func (w Worktree) provisionScratchDir(agentID string) string {
-	dir := worktreeScratchPath(w.scratchBase(), "ctxloom-tmp", agentID)
+	base, err := w.state.scratchDir()
+	if err != nil {
+		clidiag.Warn("ctxloom", "worktree: per-agent scratch dir unavailable (toolchain temp state will share the process default): %v", err)
+		return ""
+	}
+	dir := worktreeScratchPath(base, "ctxloom-tmp", agentID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		clidiag.Warn("ctxloom", "worktree: per-agent scratch dir unavailable (toolchain temp state will share the process default): %v", err)
 		_ = os.RemoveAll(dir)
@@ -501,9 +511,9 @@ func unsafeToRemove(ctx context.Context, g git.Git, dir string) (unsafe bool, re
 //
 // Matching considers target under BOTH the spelling the caller holds and its
 // realpath resolution: `git worktree list --porcelain` reports every path
-// symlink-resolved, while target is whatever checkoutBase built — os.TempDir()
-// on macOS is /var/folders/… behind the /var → /private/var symlink, and a
-// symlinked HOME does the same to the session work dir. A raw prefix
+// symlink-resolved, while target is whatever checkoutPath built — a
+// symlinked HOME (macOS's /var → /private/var, or any user's) puts the
+// session work dir behind a symlink. A raw prefix
 // match against one spelling then finds nothing nested. Resolution is
 // best-effort: an unresolvable target (a path already removed, or one that
 // never existed — several callers pass synthetic paths) simply keeps the raw
@@ -529,42 +539,8 @@ func nestedUnder(list []git.Worktree, target string) []git.Worktree {
 	return nested
 }
 
-// checkoutBase picks where this worktree's per-agent checkout lives: the
-// session's work/ dir (SessionState.workDir) when the run carries a harp, else
-// the OS temp dir.
-func (w Worktree) checkoutBase() string { return memberBase(w.state, w.state.workDir, "work") }
-
-// scratchBase picks where this worktree's per-agent toolchain scratch lives:
-// the session's scratch/ dir (SessionState.scratchDir) when the run carries a
-// harp, else the OS temp dir.
-func (w Worktree) scratchBase() string { return memberBase(w.state, w.state.scratchDir, "scratch") }
-
-// memberBase is state's session member resolve names, or the OS temp dir
-// when there is none (no session accounting, or the dir cannot be prepared).
-// Best-effort like the rest of the host half (a worktree's checkout and
-// scratch, a host run's secrets): a fallback warns and the run proceeds. The
-// container half refuses instead of falling back.
-func memberBase(state SessionState, resolve func() (string, error), member string) string {
-	dir, err := resolve()
-	switch {
-	case err == nil:
-		return dir
-	case errors.Is(err, errNoSessionHarp):
-		// The documented no-session-accounting construction: silent.
-	case errors.Is(err, errUnsafeSessionHarp):
-		// A rejected value on the same untrusted channel (an env map) the
-		// container path refuses on — reporting it is the least this side can
-		// do, since the fallback silently relocates the resource out of the
-		// session layout the run claims to use.
-		clidiag.WarnOnce("ctxloom", "session harp %q is not a safe path segment; per-agent %s falls back to the OS temp dir instead of the session's %s dir", state.Harp, member, member)
-	default:
-		clidiag.Warn("ctxloom", "session %s dir unavailable (%v); using the OS temp dir", member, err)
-	}
-	return os.TempDir()
-}
-
 // worktreeScratchPath builds a unique, ctxloom-managed path under base (a
-// session member dir, or the OS temp dir — NOT inside the repo tree)
+// session member dir — NOT inside the repo tree)
 // keyed by prefix + a sanitized agent id + a random suffix, so concurrent
 // members never collide.
 func worktreeScratchPath(base, prefix, agentID string) string {
@@ -588,16 +564,16 @@ func worktreeScratchPath(base, prefix, agentID string) string {
 // agents within the same harp already get different agentIDs, so dropping
 // the random suffix here introduces no new collision risk.
 //
-// Without a harp (no session accounting: the legacy/OS-temp-dir fallback),
-// there is no stable cross-process identity to make "is this my own
-// leftover" answerable at all, so this keeps the historical random-suffixed
-// path unchanged — a fresh checkout every call, same as before this fix.
-func (w Worktree) checkoutPath(agentID string) string {
-	base := w.checkoutBase()
-	if safePathSegment(w.state.Harp) {
-		return stableCheckout(base, agentID)
+// The base is the session's work/ dir (SessionState.workDir). A run with no
+// usable harp has no session to hold its checkout, and is refused with
+// workDir's error rather than given a directory outside every session, which
+// no session's teardown or reaper would ever find again.
+func (w Worktree) checkoutPath(agentID string) (string, error) {
+	base, err := w.state.workDir()
+	if err != nil {
+		return "", fmt.Errorf("worktree checkout: %w", err)
 	}
-	return worktreeScratchPath(base, worktreeScratchPrefix, agentID)
+	return stableCheckout(base, agentID), nil
 }
 
 // stableCheckout is the deterministic checkout path under base for agentID.
@@ -608,9 +584,9 @@ func stableCheckout(base, agentID string) string {
 // previewCwd is the cwd a run of this worktree gets, computed with no
 // effects (nothing created, not even the session's work dir): the
 // checkout checkoutPath names, or projectDir where the run falls back to
-// the shared tree (no git repository). Without a safe session harp the run's
-// checkout path carries a random suffix nothing can predict, so projectDir
-// is shown there too.
+// the shared tree (no git repository). Without a safe session harp there is
+// no checkout to name (checkoutPath refuses the run), so projectDir is shown
+// there too.
 func (w Worktree) previewCwd(projectDir, agentID string) string {
 	if !safePathSegment(w.state.Harp) || !w.git.IsRepo(projectDir) {
 		return projectDir

@@ -133,9 +133,8 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*coord.S
 		Label:      "fast",
 		Runtime:    containerAxes("docker").Runtime,
 		Permission: "bypass",
-		// The production resolver's allowlist (viaStartRunBackends) does NOT
-		// list "mock"; this spawner resolves it directly, so the test drives
-		// the real path with a deterministic, credential-free engine.
+		// This spawner resolves mock directly, so the test drives the real
+		// path with a deterministic, credential-free engine.
 	}, nil
 }
 

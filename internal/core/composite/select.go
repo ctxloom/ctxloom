@@ -1,7 +1,6 @@
 package composite
 
 import (
-	"fmt"
 	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -128,11 +127,7 @@ func (sl *selector) declareFragments(p profiles.ResolvedProfile) error {
 		sl.asks = append(sl.asks, ask)
 		sl.sel.Declared[p.Name] = append(sl.sel.Declared[p.Name], ask.Name)
 	}
-	tagged, err := fragmentsByTags(sl.cat, p.SelectTags)
-	if err != nil {
-		return fmt.Errorf("composite: profile tags: %w", err)
-	}
-	for _, ask := range tagged {
+	for _, ask := range fragmentsByTags(sl.cat, p.SelectTags) {
 		declare(ask)
 	}
 	for _, f := range p.Fragments {
@@ -160,10 +155,7 @@ func (sl *selector) addCallerAsks(req SelectRequest) error {
 		sl.sel.Explicit = append(sl.sel.Explicit, name)
 		sl.asks = append(sl.asks, FragmentAsk{Name: name})
 	}
-	tagged, err := fragmentsByTags(sl.cat, req.Tags)
-	if err != nil {
-		return fmt.Errorf("composite: tags: %w", err)
-	}
+	tagged := fragmentsByTags(sl.cat, req.Tags)
 	sl.asks = append(sl.asks, tagged...)
 	sl.sel.Tags = append([]string(nil), req.Tags...)
 	if len(req.Tags) > 0 && len(tagged) == 0 {
@@ -175,14 +167,11 @@ func (sl *selector) addCallerAsks(req SelectRequest) error {
 // fragmentsByTags is every fragment in the catalog carrying any of tags, as
 // asks at priority 0, in listing order. A fragment whose bundle will not
 // canonicalise costs itself, never the query.
-func fragmentsByTags(cat bundles.Catalog, tags []string) ([]FragmentAsk, error) {
+func fragmentsByTags(cat bundles.Catalog, tags []string) []FragmentAsk {
 	if len(tags) == 0 {
-		return nil, nil
+		return nil
 	}
-	infos, err := cat.ByTags(tags)
-	if err != nil {
-		return nil, err
-	}
+	infos := cat.ByTags(tags)
 	asks := make([]FragmentAsk, 0, len(infos))
 	for _, info := range infos {
 		name, _, err := bundles.SplitFragmentVersion(info.Bundle + bundles.FragmentSelector + info.Name)
@@ -191,7 +180,7 @@ func fragmentsByTags(cat bundles.Catalog, tags []string) ([]FragmentAsk, error) 
 		}
 		asks = append(asks, FragmentAsk{Name: name})
 	}
-	return asks, nil
+	return asks
 }
 
 // dedupe keeps one ask per name: the highest priority any ask gave it, an

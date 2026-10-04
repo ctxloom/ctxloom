@@ -376,3 +376,11 @@ func TestRepoURL_OwnerRepoSharesTheGrammar(t *testing.T) {
 	_, _, err := ParseOwnerRepo("a/b/c")
 	assert.Error(t, err)
 }
+
+// TestRepoURL_SCPEmptyUserDefaultsToGit: an scp form that omits its user
+// clones as git, the conventional scp user, never as a bare "@host:path".
+func TestRepoURL_SCPEmptyUserDefaultsToGit(t *testing.T) {
+	r, err := ParseRepoURL("@gitlab.example.com:group/repo")
+	require.NoError(t, err)
+	assert.Equal(t, "git@gitlab.example.com:group/repo", r.CloneArg())
+}

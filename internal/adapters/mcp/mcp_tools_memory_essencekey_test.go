@@ -2,10 +2,12 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,22 +23,36 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// canonicalRecords renders a minimal well-formed canonical transcript: a
-// session record plus one user and one assistant entry, which is the floor
-// loadOrDistillSession needs to get past its own "session appears to be empty"
-// guard.
+// fixtureEntries is the one conversation every fixture in this file speaks:
+// canonicalRecords writes it to disk and fixedCompactor hands it to Compact.
+// It is ONE list because production has one source — the session Compact
+// distills IS the canonical transcript — and Compact stamps the essence with
+// that session's entry count, which the cache check compares against the
+// canonical file. Two copies that disagree make every cached essence look stale.
+//
+// The last turn is long enough that the rendered transcript clears the
+// compactor's distillation floor; below it Compact saves the transcript
+// verbatim and the canned distilled body never comes back.
+var fixtureEntries = []agent.SessionEntry{
+	{Type: agent.EntryTypeUser, Content: "where did the essence go"},
+	{Type: agent.EntryTypeAssistant, Content: "written under one key, read under another"},
+	{Type: agent.EntryTypeAssistant, Content: strings.Repeat("The session worked through the design and settled its open questions. ", 40)},
+}
+
+// canonicalRecords renders fixtureEntries as a well-formed canonical
+// transcript: a session record followed by one entry record per turn.
 func canonicalRecords(harp, sessionID string) []byte {
 	const engine = "claude-code"
-	lines := []string{
-		fmt.Sprintf(`{"v":1,"harp":%q,"session_id":%q,"engine":%q,"seq":0,"ts":"2026-08-06T21:27:20.451494924Z","kind":"session","session":{"model":"claude-opus-5"}}`, harp, sessionID, engine),
-		fmt.Sprintf(`{"v":1,"harp":%q,"session_id":%q,"engine":%q,"seq":1,"ts":"2026-08-06T21:27:20.452047329Z","kind":"entry","entry":{"type":"user","content":"where did the essence go"}}`, harp, sessionID, engine),
-		fmt.Sprintf(`{"v":1,"harp":%q,"session_id":%q,"engine":%q,"seq":2,"ts":"2026-08-06T21:27:20.452249935Z","kind":"entry","entry":{"type":"assistant","content":"written under one key, read under another"}}`, harp, sessionID, engine),
+	var out strings.Builder
+	fmt.Fprintf(&out, `{"v":1,"harp":%q,"session_id":%q,"engine":%q,"seq":0,"ts":"2026-08-06T21:27:20.451494924Z","kind":"session","session":{"model":"claude-opus-5"}}`+"\n", harp, sessionID, engine)
+	for i, e := range fixtureEntries {
+		content, err := json.Marshal(e.Content)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Fprintf(&out, `{"v":1,"harp":%q,"session_id":%q,"engine":%q,"seq":%d,"ts":"2026-08-06T21:27:20.452047329Z","kind":"entry","entry":{"type":%q,"content":%s}}`+"\n", harp, sessionID, engine, i+1, e.Type, content)
 	}
-	out := ""
-	for _, l := range lines {
-		out += l + "\n"
-	}
-	return []byte(out)
+	return []byte(out.String())
 }
 
 // fixedSource reports one session, whatever is asked of it: the compactor only
@@ -57,15 +73,13 @@ func (f *fixedSource) CurrentSession(context.Context) (*agent.Session, error) {
 // it and the staleness stamp is computed from the real transcript.
 func fixedCompactor(sessionID, body string) func(memory.CompactionConfig) (*memory.Compactor, error) {
 	return func(cfg memory.CompactionConfig) (*memory.Compactor, error) {
-		// The reply is long enough to clear the compactor's distillation floor
-		// (memory.minDistillTokens): below it the transcript is saved verbatim
-		// and the canned distiller never runs.
+		// The fixture clears the compactor's distillation floor
+		// (memory.minDistillTokens) and is the SAME list canonicalRecords
+		// writes, so the essence's entry-count stamp matches the canonical
+		// transcript and the cache can hit.
 		src := &fixedSource{session: &agent.Session{
-			ID: sessionID,
-			Entries: []agent.SessionEntry{
-				{Type: agent.EntryTypeUser, Content: "where did the essence go"},
-				{Type: agent.EntryTypeAssistant, Content: strings.Repeat("written under one key, read under another. ", 64)},
-			},
+			ID:      sessionID,
+			Entries: slices.Clone(fixtureEntries),
 		}}
 		return memory.NewCompactor(afero.NewOsFs(), memory.CompactionConfig{
 			Source: src,

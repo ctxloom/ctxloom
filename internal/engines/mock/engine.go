@@ -177,6 +177,15 @@ func (e *endpointEntry) Traits() present.Traits {
 }
 func (e *endpointEntry) Endpoint(ep sessions.Endpoint) wire.MCPServer { return engine.BearerEntry(ep) }
 
+// WithDelegation admits the kind to delegated children: `ctxloom runner
+// mock` stands up a real runner around the deterministic echo, so a mock
+// child is a driveable run. It is safe in a user's binary: no credentials,
+// no network, an echo. The mock keeps no native session, so it does not
+// resume by key.
+func WithDelegation() Option {
+	return func(m *Mock) { m.DelegatedChildren = engine.Provide(engine.DelegatedChildren{}) }
+}
+
 // WithoutGrammar drops a mode's argv grammar (the incoherence test uses it).
 func WithoutGrammar(mode engine.Mode) Option {
 	return func(m *Mock) {
@@ -210,7 +219,7 @@ func NewNamed(name engine.Name, opts ...Option) engine.Engine {
 func Doubles(opts ...Option) []engine.Engine {
 	shipped := append([]Option{WithContainer()}, opts...)
 	return []engine.Engine{
-		New(append(slices.Clone(shipped), WithDynamic())...),
+		New(append(slices.Clone(shipped), WithDynamic(), WithDelegation())...),
 		NewNamed(NameLossy, append(slices.Clone(shipped), WithoutHookEvents("session_start", "session_end"))...),
 		NewNamed(NameLaunch, append(slices.Clone(shipped), Without(present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills))...),
 		NewNoSkills(shipped...),
@@ -244,7 +253,7 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 	// context and hook files are also announced on argv so a session home
 	// the mock was not started in can be found.
 	file := present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}
-	flags := []engine.Flag{{Name: "--resume", HasValue: true}}
+	var flags []engine.Flag
 	for _, sf := range surfaceFlags {
 		flags = append(flags, engine.Flag{Name: sf.flag, HasValue: true})
 	}
@@ -262,8 +271,9 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 			{Mode: engine.Interactive, Binary: "mock", Flags: flags},
 			{Mode: engine.Structured, Binary: "mock", Flags: flags},
 		},
-		ModelAliases: map[string]string{},
-		ExportSchema: []byte(`{"type":"object"}`),
+		ModelAliases:      map[string]string{},
+		ExportSchema:      []byte(`{"type":"object"}`),
+		DelegatedChildren: engine.Absent[engine.DelegatedChildren]("a test double is admitted to delegation only where the binary hosts it (WithDelegation)"),
 	}
 	m := Mock{Base: engine.Base{Definition: d}, fires: map[string]bool{}}
 	for _, e := range hookEvents {
@@ -320,27 +330,24 @@ func (m Mock) Instance(s engine.Session) (engine.Instance, error) {
 	if m.Context == nil {
 		return nil, engine.ErrUnsupported{Engine: m.Name, Capability: "context"}
 	}
-	return &instance{s: s, fires: m.fires}, nil
+	return &instance{name: m.Name, s: s, fires: m.fires}, nil
 }
 
 type instance struct {
+	name  engine.Name
 	s     engine.Session
-	key   string
 	fires map[string]bool
 }
 
 // Exec composes the process from the presentations in delivery order: each
 // one's argv channel (the context and hook files) and env, after the home
-// vars and the resume key.
+// vars.
 func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	env := map[string]string{}
 	for _, h := range i.s.Home {
 		env[h.Var] = h.Path
 	}
 	args := []string{}
-	if i.key != "" {
-		args = append(args, "--resume", i.key)
-	}
 	for _, p := range presented {
 		args = append(args, p.Args...)
 		for k, v := range p.Env {
@@ -359,7 +366,12 @@ func (i *instance) Drivers() []engine.StructuredDriver {
 	deny, _ := mockRules(i.s.Permission.Posture.Document["deny"]) // none declared: nothing denied
 	return []engine.StructuredDriver{driver{fires: i.fires, approver: i.s.Permission.Approver, deny: deny}}
 }
-func (i *instance) Resume(key string) error { i.key = key; return nil }
+
+// Resume refuses: the mock keeps no native session to continue, so a key
+// would be accepted and nothing resumed (see DelegatedChildren.ResumesByKey).
+func (i *instance) Resume(string) error {
+	return engine.ErrUnsupported{Engine: i.name, Capability: "resume"}
+}
 
 // driver is the mock's structured driver (turn.go): it fires the delivered
 // hooks for every event the turn passes through and echoes the prompt. A

@@ -332,11 +332,9 @@ func validateAgentApproaches(reg engine.Registry, cfg *config.Config, name strin
 	return nil
 }
 
-// validateAgentHomeMode refuses an unknown engine_home. It breaks rather than
-// degrades: an unknown value here would otherwise silently resolve to the host
-// default at launch (fault tolerance's usual treatment), which for THIS key
-// means silently dropping the very opt-in the write was trying to make —
-// refused here instead, before it is ever persisted.
+// validateAgentHomeMode refuses an unknown engine_home before it is ever
+// persisted, so the typo is reported by the command that wrote it rather than
+// by every later launch that refuses it.
 func validateAgentHomeMode(name string, req SetAgentRequest) error {
 	if req.HomeMode == nil || *req.HomeMode == "" {
 		return nil
@@ -682,8 +680,8 @@ type ResolvedAgent struct {
 	Driving agents.DrivingMode `json:"driving,omitempty"`
 	// HomeMode is the agent's EFFECTIVE, already-resolved config-home
 	// policy — always agents.HomeModeSession or agents.HomeModeHost,
-	// never empty, whatever the binding declared (agents.ParseHomeMode's
-	// undeclared/unresolvable → session default already applied). It is
+	// never empty (agents.ParseHomeMode's undeclared → session default
+	// already applied; an unparseable declaration refuses the resolve). It is
 	// the value `agent show` reports; the launch resolver reads the same
 	// declaration off the binding itself (agents.HomeMode on the
 	// CellRequest) and the cells adapter threads it into the environment's
@@ -746,6 +744,12 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 	if err := agents.ValidateDriving(sub.Driving); err != nil {
 		return nil, fmt.Errorf("agent %q: %w", name, err)
 	}
+	// engine_home likewise: an unparseable declaration refuses the resolve,
+	// exactly as launch.Resolve refuses it without --degraded.
+	configHome, err := agents.ParseHomeMode(sub.HomeMode)
+	if err != nil {
+		return nil, fmt.Errorf("agent %q: %w", name, err)
+	}
 	if len(sub.Profiles) == 0 && name != "" {
 		// A NAMED agent with no profiles composes empty context — surface it
 		// (the binding is almost certainly a mistake) but don't fail: fault
@@ -801,8 +805,6 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		clidiag.Warn("ctxloom", "agent %q: %v — using %s's default delivery", name, serr, backend)
 	}
 
-	configHome := resolvedHomeMode(name, sub)
-
 	// What an unflagged run resolves to, in the engine's own words; the
 	// launch, not this listing, refuses a declaration it cannot honour.
 	effectivePerm := PostureName(reg, EffectivePosture(reg, backend, sub.Permissions, labelEntry.Permissions))
@@ -823,15 +825,4 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		Driving:              sub.Driving,
 		HomeMode:             configHome,
 	}, nil
-}
-
-// resolvedHomeMode is the binding's effective engine-home mode as `agent
-// show` reports it. A declaration that does not parse warns and reports the
-// default.
-func resolvedHomeMode(name string, sub agents.Agent) agents.HomeMode {
-	home, err := agents.ParseHomeMode(sub.HomeMode)
-	if err != nil {
-		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, err)
-	}
-	return home
 }

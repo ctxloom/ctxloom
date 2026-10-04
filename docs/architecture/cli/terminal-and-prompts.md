@@ -75,15 +75,14 @@ viewer and the surround bar — for one session.
 flowchart LR
     SR["stdinReader — prompt.go<br/>the single bufio.Reader over os.Stdin"]
     PL["promptLine(prompt)"] --> SR
-    PYN["promptYesNo(prompt)"] --> PL
-    PL --> C["every interactive y/N prompt in the package"]
+    PL --> C["every interactive prompt in the package"]
     SR --> STDIN["os.Stdin"]
 ```
 
 `stdinReader` is the single buffered reader over `os.Stdin`, shared by every
-interactive y/N prompt. A fresh `bufio.Reader` per prompt would silently
+interactive prompt. A fresh `bufio.Reader` per prompt would silently
 discard any bytes a previous reader buffered past its line, so all prompts
-read through this one reader. `promptLine`, `promptYesNo` and `plural` live in
+read through this one reader. `promptLine` and `plural` live in
 `prompt.go` as cross-command primitives.
 
 `init.go`'s setup interview has a structurally different reader: `initPrompts`

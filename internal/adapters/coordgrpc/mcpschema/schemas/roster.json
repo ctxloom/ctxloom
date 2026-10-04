@@ -54,6 +54,14 @@
               },
               "type": "object"
             },
+            "cause": {
+              "description": "cause is why an \"ended\" run ended, in the coordinator's terminal cause vocabulary (coord's Cause* constants), so a child that failed is told apart from one that finished. Empty while the run is live.",
+              "type": "string"
+            },
+            "detail": {
+              "description": "detail is the terminal cause's human-readable detail: the stopping session and its reason for a stop, the failure text for a launch failure. Empty when the cause carried none.",
+              "type": "string"
+            },
             "hold": {
               "description": "hold is why this run is parked and when it is released; absent for a run nothing holds.",
               "properties": {

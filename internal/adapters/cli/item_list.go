@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
@@ -109,7 +110,7 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 			Name:        name,
 			Tags:        tags,
 			Bundle:      source,
-			Ref:         remote.NormalizeRef(source + "#" + itemRefPrefix(itemType) + name),
+			Ref:         remote.NormalizeRef(source + "#" + trust.FormatSelector(itemKindOf(itemType), name)),
 			Remote:      remoteName,
 			BundleLabel: bundleLabel,
 			SourceURL:   sourceURL,
@@ -117,20 +118,14 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 	}
 	switch itemType {
 	case ItemTypeFragment:
-		res, err := operations.ListFragments(ctx, cfg, operations.ListFragmentsRequest{SortBy: "source"})
-		if err != nil {
-			return nil, err
-		}
+		res := operations.ListFragments(ctx, cfg, operations.ListFragmentsRequest{SortBy: "source"})
 		rows := make([]itemRow, 0, len(res.Fragments))
 		for _, f := range res.Fragments {
 			rows = append(rows, row(f.Name, f.Tags, f.Source))
 		}
 		return rows, nil
 	case ItemTypeCommand:
-		res, err := operations.ListCommands(ctx, cfg, operations.ListCommandsRequest{SortBy: "source"})
-		if err != nil {
-			return nil, err
-		}
+		res := operations.ListCommands(ctx, cfg, operations.ListCommandsRequest{SortBy: "source"})
 		rows := make([]itemRow, 0, len(res.Commands))
 		for _, p := range res.Commands {
 			rows = append(rows, row(p.Name, p.Tags, p.Source))
@@ -235,9 +230,9 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 			}
 		}
 	}
-	// Stamp effective trust only for the machine surfaces: it materializes
+	// Stamp effective trust for every format but text: it materializes
 	// and hashes each item, so the cheaper ref-only human listing stays unchanged.
-	if wantsStructuredOutput(cmd) {
+	if wantsNonTextOutput(cmd) {
 		stampItemTrust(cfg, itemType, filtered)
 	}
 	return emit(cmd, filtered, func() error {

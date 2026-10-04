@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // The short "repo/path" form has been eliminated: ParseReference rejects any
@@ -457,6 +459,11 @@ func TestExtractRepoName(t *testing.T) {
 			want:    "repo",
 		},
 		{
+			name:    "SSH URL with a non-git scp user",
+			repoURL: "forge@gitlab.example.com:group/repo",
+			want:    "repo",
+		},
+		{
 			name:    "SSH GitLab URL with subgroups",
 			repoURL: "git@gitlab.com:group/subgroup/repo",
 			want:    "repo",
@@ -715,4 +722,32 @@ func TestParseReference_RejectsTraversal(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestParseReference_SCPAnyUser pins plated-ecosystem's ruling: the scp user
+// is TRANSPORT, not identity. Any user is accepted, the clone keeps it (so
+// the clone keeps the user's ssh key), and every user spelling of one
+// repository names the same repository identity.
+func TestParseReference_SCPAnyUser(t *testing.T) {
+	forge, err := ParseReference("forge@gitlab.example.com:group/repo.git@bundles/core")
+	require.NoError(t, err)
+	git, err := ParseReference("git@gitlab.example.com:group/repo.git@bundles/core")
+	require.NoError(t, err)
+
+	forgeRepo, err := ParseRepoURL(forge.URL)
+	require.NoError(t, err)
+	assert.Equal(t, "forge@gitlab.example.com:group/repo.git", forgeRepo.CloneArg(),
+		"the scp user survives on the transport side")
+	gitRepo, err := ParseRepoURL(git.URL)
+	require.NoError(t, err)
+	assert.Equal(t, "git@gitlab.example.com:group/repo.git", gitRepo.CloneArg())
+
+	forgeID, err := refuri.ParseRepoIdentity(forge.URL)
+	require.NoError(t, err)
+	gitID, err := refuri.ParseRepoIdentity(git.URL)
+	require.NoError(t, err)
+	assert.Equal(t, gitID, forgeID, "the scp user is not part of the repository identity")
+
+	assert.Equal(t, ItemTypeBundle, forge.ItemType)
+	assert.Equal(t, "core", forge.Path)
 }

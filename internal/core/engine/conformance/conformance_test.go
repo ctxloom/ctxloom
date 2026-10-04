@@ -195,10 +195,9 @@ func TestConformance_AbsentCapabilities_AreEmptyOrRefuseLoudly(t *testing.T) {
 	require.NotNil(t, eng.Hooks())
 	inst, err := eng.Instance(conformance.SessionFor(t, eng, engine.Structured))
 	require.NoError(t, err)
-	require.NoError(t, inst.Resume("k1"), "mock resumes by key")
-	ex, err := inst.Exec(nil)
-	require.NoError(t, err)
-	require.Contains(t, ex.Args, "k1", "the next Exec continues the resumed session")
+	err = inst.Resume("k1")
+	require.True(t, errors.As(err, &unsupported), "mock keeps no native session: Resume must refuse, not accept a key it cannot continue")
+	require.Equal(t, "resume", unsupported.Capability)
 }
 
 // TestConformance_HomeVars_RootUnderTheSessionHome: a home var the engine

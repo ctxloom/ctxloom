@@ -222,8 +222,7 @@ func TestList_UnreadableBundlesDirIsLoud(t *testing.T) {
 
 	mark := strictness.Checkpoint()
 	l := NewLoader(NewProjectReader(afero.NewOsFs(), []string{dir}, WithReaderReporter(ledger())))
-	got, err := l.List()
-	require.NoError(t, err, "List keeps its signature; loudness rides the strictness choke")
+	got := l.List()
 
 	require.Empty(t, got, "the directory genuinely cannot be read, so nothing can be listed")
 	findings := strictness.Since(mark)

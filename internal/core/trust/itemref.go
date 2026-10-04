@@ -35,25 +35,45 @@ func IsRetiredBuiltinSpelling(ask string) bool {
 	return strings.HasPrefix(ask, "builtin:")
 }
 
-// IsRetiredAskSpelling reports whether ask, TYPED BY A HUMAN, carries a scheme
-// marker belonging to a reference spelling the grammar no longer accepts. Such
-// a token must FAIL CLOSED: a user who types a retired spelling needs to be
-// told so, never silently downgraded to a bare-name search that resolves to
-// something else or to "not found". Those are different faults and they
-// deserve different messages.
+// IsRetiredAtEntry is the ENTRY-BOUNDARY guard: call it only where a human
+// types a reference, never on the load path. It reports whether ask carries
+// a scheme marker belonging to a reference spelling the grammar no longer
+// accepts. Such a token must FAIL CLOSED: a user who types a retired spelling
+// needs to be told so, never silently downgraded to a bare-name search that
+// resolves to something else or to "not found". Those are different faults
+// and they deserve different messages.
 //
-// The set is refuri.IsSelfContainedRef's list (ctxloom:local@,
-// ctxloom:companion@, git@, any "://") plus IsRetiredBuiltinSpelling. It is
+// The set is refuri.IsSelfContainedRef's plus IsRetiredBuiltinSpelling. It is
 // deliberately WIDER than the load path's: at a surface where a human types a
 // reference, the pipeline's own identity spellings are retired input, while on
 // the load path the same strings are live identities a reader stamped.
-func IsRetiredAskSpelling(ask string) bool {
+func IsRetiredAtEntry(ask string) bool {
 	return IsRetiredBuiltinSpelling(ask) || refuri.IsSelfContainedRef(ask)
 }
 
+// FormatSelector renders the "<kind>/<name>" selector (the part after "#")
+// that ParseSelector reads back to exactly (kind, name): the ONE selector
+// renderer, so minting cannot drift from parsing. A command is written
+// under its current spelling, "commands/"; ItemKind.Dir stays the STORED
+// directory ("prompts") that persisted trust keys use, and is not a
+// selector spelling.
+func FormatSelector(kind ItemKind, name string) string {
+	dir := kind.Dir()
+	if kind == KindPrompt {
+		dir = "commands"
+	}
+	return dir + "/" + name
+}
+
 // ParseSelector parses a "<kind>/<name>" selector (the part after "#").
+//
+// The name it returns is NORMALISED (refuri.NormalizeRef): a caller holding the
+// parsed value has every reason to use it and none to reach back for the raw
+// selector, which is the text a control byte rides in on. net/url cuts the
+// fragment before its own control-byte check, so for the item half of a
+// reference this parse is the only place the cleaning can live.
 func ParseSelector(sel string) (ItemKind, string, error) {
-	kindDir, name, found := strings.Cut(sel, "/")
+	kindDir, name, found := strings.Cut(refuri.NormalizeRef(sel), "/")
 	if !found || name == "" {
 		return "", "", fmt.Errorf("selector %q must be <kind>/<name>", sel)
 	}

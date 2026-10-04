@@ -336,7 +336,7 @@ func (c Catalog) Candidates() []Candidate {
 //     migration hint. It is never downgraded to arm 4: "you typed a spelling
 //     the grammar no longer accepts" and "no such bundle" are different faults
 //     and deserve different messages. The WIDER ask-surface set
-//     (trust.IsRetiredAskSpelling, used by ResolveAsk) must not be refused
+//     (trust.IsRetiredAtEntry, used by ResolveAsk) must not be refused
 //     here: arm 2's spellings are live identities on this path, and an
 //     identity that resolves to nothing is a missing bundle, not a retired
 //     spelling.
@@ -490,7 +490,7 @@ func (c Catalog) ResolveAsk(ask string) (trust.BundleRef, error) {
 		}
 		return br, nil
 	}
-	if trust.IsRetiredAskSpelling(ask) {
+	if trust.IsRetiredAtEntry(ask) {
 		return trust.BundleRef{}, retiredSpelling(ask)
 	}
 

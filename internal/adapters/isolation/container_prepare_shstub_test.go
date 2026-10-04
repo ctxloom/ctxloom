@@ -184,7 +184,7 @@ func TestContainerWorktree_FailedMappingDoesNotLeakTheCheckout(t *testing.T) {
 	f := &git.Fake{CommonDirErr: boom}
 
 	c := hermeticHostContainer(t, nil)
-	c.base = worktreeBase{wt: NewWorktree(f)}
+	c.base = worktreeBase{wt: sessionWorktree(t, f)}
 	c.state = SessionState{Harp: "brisk-teal-otter"}
 
 	ws, err := c.prepareWorkspace(ctx, t.TempDir(), "member-unwind")
@@ -278,7 +278,7 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
 		state:      SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"},
-		base:       worktreeBase{wt: NewWorktree(&git.Fake{CommonDirValue: t.TempDir()})},
+		base:       worktreeBase{wt: sessionWorktree(t, &git.Fake{CommonDirValue: t.TempDir()})},
 	}
 
 	ws, err := cw.prepareWorkspace(context.Background(), "/proj", "member-x")

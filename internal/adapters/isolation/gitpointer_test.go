@@ -117,7 +117,7 @@ func TestMountBase_CarriesGitPointerMounts(t *testing.T) {
 	rt := fakeRuntime{name: "docker", binary: "docker", available: true}
 	dir, admin := linkedCheckout(t, "")
 	f := &git.Fake{CommonDirValue: filepath.Dir(filepath.Dir(admin))}
-	wtMounts, err := worktreeBase{wt: NewWorktree(f)}.mountBase(ctx, rt, t.TempDir(), dir, t.TempDir(), engineContainerSpec{}, f)
+	wtMounts, err := worktreeBase{wt: sessionWorktree(t, f)}.mountBase(ctx, rt, t.TempDir(), dir, t.TempDir(), engineContainerSpec{}, f)
 	require.NoError(t, err)
 	assert.Contains(t, targetsOf(wtMounts), "/ctr"+filepath.Join(dir, ".git"))
 	assert.Contains(t, targetsOf(wtMounts), "/ctr"+filepath.Join(admin, "gitdir"))
@@ -189,7 +189,7 @@ func TestMountBase_HidesOtherWorktreesRegistry(t *testing.T) {
 					var mounts []mount
 					var err error
 					if base == "worktree" {
-						mounts, err = worktreeBase{wt: NewWorktree(f)}.mountBase(ctx, rt, t.TempDir(), dir, t.TempDir(), engineContainerSpec{}, f)
+						mounts, err = worktreeBase{wt: sessionWorktree(t, f)}.mountBase(ctx, rt, t.TempDir(), dir, t.TempDir(), engineContainerSpec{}, f)
 					} else {
 						mounts, err = hostBase{}.mountBase(ctx, rt, dir, dir, t.TempDir(), engineContainerSpec{}, f)
 					}

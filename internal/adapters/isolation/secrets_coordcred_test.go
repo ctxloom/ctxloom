@@ -113,7 +113,7 @@ func TestHostEnvironment_StartStagesTheCredentialIntoTheSecretsFile(t *testing.T
 	}
 	t.Cleanup(func() { startHostRunner = prev })
 
-	e, err := None{}.environment(hostWorkspace{dir: t.TempDir()}, launch.Placement{}, nil, engine.Credentials{})
+	e, err := None{state: SessionState{Harp: harpA}}.environment(hostWorkspace{dir: t.TempDir()}, launch.Placement{}, nil, engine.Credentials{})
 	require.NoError(t, err)
 	_, _ = e.Start(context.Background(), RunnerRequest{Engine: "mock", Env: map[string]string{sessions.EnvCoordURL: "http://h:1/mcp", sessions.EnvCoordCred: "c0ffee", sessions.EnvRunID: "run-1"}})
 

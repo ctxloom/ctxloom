@@ -28,18 +28,17 @@ func TestParseHomeMode_AcceptsBothDeclaredValues(t *testing.T) {
 	}
 }
 
-// TestParseHomeMode_UnknownValueWarnsAndDefaultsToSession is the RESOLVE-time
-// (as opposed to write-time) treatment: an unresolvable value returns an error
-// for the CALLER to warn with, but the returned value is still the safe
-// default so a hand-edited config.yaml never blocks a launch over this — and
-// the safe default is the SESSION home: a typo must never land a run on the
-// user's real home, which only an explicit "host" selects.
-func TestParseHomeMode_UnknownValueWarnsAndDefaultsToSession(t *testing.T) {
+// TestParseHomeMode_UnknownValueIsAnErrorCarryingTheSessionDefault: an
+// unrecognized value is an error (every caller refuses on it), and the value
+// returned beside it is the SESSION home — what a --degraded launch proceeds
+// on. A typo must never land a run on the user's real home, which only an
+// explicit "host" selects.
+func TestParseHomeMode_UnknownValueIsAnErrorCarryingTheSessionDefault(t *testing.T) {
 	// The typo must not CONTAIN a valid value, or the "names the valid values"
 	// assertion below is satisfied by the echo of the input alone.
 	got, err := ParseHomeMode("project")
 	require.Error(t, err, "an unknown engine_home must be reported")
 	assert.Contains(t, err.Error(), `"project"`, "the error must echo the rejected value")
 	assert.Contains(t, err.Error(), "known: host, session", "the error must name the valid values")
-	assert.Equal(t, HomeModeSession, got, "even on error, the safe default is returned — never the real home")
+	assert.Equal(t, HomeModeSession, got, "beside the error, the degraded default is the session home — never the real home")
 }

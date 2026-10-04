@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
@@ -332,4 +334,17 @@ func mustRender(t testing.TB, spec RunSpec) []string {
 	args, err := renderRunSpec(spec, pathSeam{})
 	require.NoError(t, err)
 	return args
+}
+
+// sessionWorktree is a worktree policy for a run that carries a harp, as every
+// prepared run does (SpecBuilder.Session). The harp is the test's own name, so
+// a checkout's deterministic path (checkoutPath) never collides with another
+// test's under the binary's sandboxed home.
+var testHarpName = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+
+func sessionWorktree(t *testing.T, g git.Git) Worktree {
+	t.Helper()
+	w := NewWorktree(g)
+	w.state = SessionState{Harp: testHarpName.ReplaceAllString(t.Name(), "-")}
+	return w
 }

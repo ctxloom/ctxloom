@@ -42,8 +42,7 @@ fragments:
 }
 
 func TestListFragments_PayloadCarriesPremiseAndQualifiedRef(t *testing.T) {
-	res, err := ListFragments(context.Background(), nil, ListFragmentsRequest{Loader: listPremiseFixture(t)})
-	require.NoError(t, err)
+	res := ListFragments(context.Background(), nil, ListFragmentsRequest{Loader: listPremiseFixture(t)})
 
 	raw, err := json.Marshal(res.Fragments)
 	require.NoError(t, err)

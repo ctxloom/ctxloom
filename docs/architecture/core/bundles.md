@@ -138,7 +138,7 @@ flowchart TD
 | `Loader.Find(name) (string, error)` | `loader.go:289` | Validates the name, then stats `<dir>/<name>.yaml` and `<dir>/<name>/bundle.yaml`. Stat errors are treated as absent |
 | `Loader.LoadFile(path) (*Bundle, error)` | `loader.go:322` | Seed short-circuit, then parse cache, read, `ParseBundle`, the single-file-bundle-with-skills guard, cache insert. Fails loudly on read and parse errors |
 | `Loader.Load(ref) (*Bundle, error)` | `loader.go:256` | Seed lookup (exact then canonical key), else `Find` plus `LoadFile` |
-| `Loader.List() ([]*BundleInfo, error)` | `loader.go:376` | Seed entries plus a recursive walk of every search dir. Per-bundle failures route through `strictness.Fail`; a dir-level or walk-level error yields an empty list and a nil error |
+| `Loader.List() []*BundleInfo` | `loader.go` | Seed entries plus a recursive walk of every search dir. It returns no error: per-bundle, dir-level and walk-level failures all route through `strictness.Fail` |
 | `Loader.ListAllFragments` / `ListAllCommands` / `ListAllSkills` | `loader_content.go:148` / `:195` / `loader_skills.go:158` | Sweep every listed bundle; a per-bundle load failure is skipped |
 | `Loader.ListByTags` | `loader_content.go:475` | Tag filter over `ListAllFragments` |
 

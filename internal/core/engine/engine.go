@@ -4,8 +4,10 @@
 // the engine-specific logic as methods. It is built ONCE at the composition
 // root (engines.Build returns the Registry) and is immutable; it is
 // instantiated MANY times, once per session, through Instance(Session). Core
-// code holds Engine values and asks them; it never names an engine and no
-// capability flag exists anywhere in core.
+// code holds Engine values and asks them; it never names an engine, and the
+// one capability flag in core is the deliberate exception
+// Definition.DelegatedChildren: delegation admission is a review verdict no method
+// can demonstrate, so it is declared.
 //
 // DRY by construction: the engine declares ONE typed approach per surface
 // kind; every view of them (Surfaces, Carries, Static) and the common

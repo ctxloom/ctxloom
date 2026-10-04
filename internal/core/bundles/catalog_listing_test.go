@@ -25,12 +25,11 @@ import (
 func TestCatalogInfos_ListsTheResolvableRefNotTheLeafName(t *testing.T) {
 	loader := NewLoader(projectReaderOver(t, "lang/go", "version: 1.0.0\n"))
 
-	infos, err := loader.List()
-	require.NoError(t, err)
+	infos := loader.List()
 	require.Len(t, infos, 1)
 	assert.Equal(t, "lang/go", infos[0].Name, "a listing must print the ref the user can type back")
 
-	_, err = loader.Load(infos[0].Name)
+	_, err := loader.Load(infos[0].Name)
 	assert.NoError(t, err, "every name a listing prints must resolve")
 }
 

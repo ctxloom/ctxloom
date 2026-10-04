@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -66,28 +67,18 @@ func ingestLoader(t *testing.T, fs afero.Fs) *bundles.Loader {
 	)
 }
 
-// TestIngest_CompanionFragmentAlsoSelectedByRefIsAssembledOnce is THE
-// provoking case, and the reason ingest idempotence exists at all.
-//
-// A project bundle named "isolation" ships a fragment "isolation-axes" whose
-// bytes are the companion's bytes — which is exactly the situation a profile
-// selecting "isolation#fragments/isolation-axes" produces beside a companion
-// loadout of the same name. The two routes carry DIFFERENT ref strings
-// ("ctxloom+local:isolation#fragments/isolation-axes" from the selection,
-// "ctxloom+companion:isolation#fragments/isolation-axes" from the
-// unconditional companion delivery), so no string comparison of the refs
-// collapses them. Only the ingest identity rule does.
+// TestIngest_CompanionFragmentAlsoSelectedByRefIsAssembledOnce is the
+// provoking case for ingest idempotence: a profile SELECTING the companion's
+// own fragment beside the companion's unconditional delivery of it. One item
+// reaching the context by two routes is assembled once.
 func TestIngest_CompanionFragmentAlsoSelectedByRefIsAssembledOnce(t *testing.T) {
 	fs, _ := setupContextTestFS(t)
 	body := companionIsolationContent(t)
-	writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
-		"picks-isolation": {Fragments: []config.FragmentRef{
-			{Name: "isolation#fragments/isolation-axes"},
-		}},
+		"picks-isolation": {Fragments: []config.FragmentRef{{Name: companionIsolationFragmentRef}}},
 	})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
@@ -99,6 +90,32 @@ func TestIngest_CompanionFragmentAlsoSelectedByRefIsAssembledOnce(t *testing.T) 
 	require.Contains(t, result.Context, body, "sanity: the isolation content must reach the context at all")
 	assert.Equal(t, 1, strings.Count(result.Context, body),
 		"a fragment that is both delivered unconditionally from a companion and SELECTED by ref must be assembled ONCE")
+}
+
+// TestIngest_ProjectTwinOfACompanionFragmentIsAnotherItem pins the other side
+// of the source-qualified identity: a project bundle named "isolation"
+// shipping "isolation-axes" with the companion's exact bytes overrides
+// nothing — it is a different item from a different source, so selecting it
+// delivers it beside the companion's copy rather than collapsing into it.
+func TestIngest_ProjectTwinOfACompanionFragmentIsAnotherItem(t *testing.T) {
+	fs, _ := setupContextTestFS(t)
+	body := companionIsolationContent(t)
+	writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
+
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg.SetFS(fs)
+	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
+		"picks-isolation": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
+	})
+
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Profile:  "picks-isolation",
+		Pipeline: opPipe(cfg, ingestLoader(t, fs)),
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, strings.Count(result.Context, body),
+		"the project's item and the companion's item are two items; both must be assembled")
 }
 
 // TestIngest_SameFragmentSelectedByTwoProfilesIsAssembledOnce covers the
@@ -204,7 +221,6 @@ func TestIngest_OrderIsUnchangedByTheDuplicate(t *testing.T) {
 	assemble := func(t *testing.T, refs []config.FragmentRef) string {
 		t.Helper()
 		fs, _ := setupContextTestFS(t)
-		writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 		cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 		cfg.SetFS(fs)
 		cfg = withProfileDefs(t, cfg, map[string]config.Profile{"p": {Fragments: refs}})
@@ -222,7 +238,7 @@ func TestIngest_OrderIsUnchangedByTheDuplicate(t *testing.T) {
 	})
 	with := assemble(t, []config.FragmentRef{
 		{Name: "dev#fragments/security-rules"},
-		{Name: "isolation#fragments/isolation-axes"},
+		{Name: companionIsolationFragmentRef},
 		{Name: "dev#fragments/go-patterns"},
 	})
 
@@ -231,21 +247,19 @@ func TestIngest_OrderIsUnchangedByTheDuplicate(t *testing.T) {
 		"selecting a fragment that is ALREADY injected must not change one byte of the assembled context")
 }
 
-// TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne pins the
-// silence decision. Re-selecting the SAME ref says nothing (the two asks were
-// textually identical; there is no mistake to surface, and warning would put a
-// line on stderr for every configuration that composes overlapping profiles).
-// Two DIFFERENT refs collapsing DOES warn: that is the only case where the user
-// wrote two different selections and got one fragment, so "I meant two
-// different fragments" is a live reading that a silent drop would mask.
-func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T) {
+// TestIngest_DuplicateWarningIsOnlyForATrueDuplicate pins when the collapsed-
+// duplicate diagnostic speaks. Two sources publishing identical bytes under
+// one item name are two items, both delivered, and there is nothing to warn
+// about. A FindingDuplicate — one item that arrived under two spellings — is
+// voiced once, with its message.
+func TestIngest_DuplicateWarningIsOnlyForATrueDuplicate(t *testing.T) {
 	body := companionIsolationContent(t)
 
 	// captureIngestWarnings swaps the accumulator's diagnostic sink for the
 	// duration of fn. Asserting through clidiag's process-global WarnOnce set
-	// would be order-dependent: this diagnostic's dedup key is the two refs
-	// alone, so whichever test in the package collapses a given pair first
-	// consumes the key and every later one observes silence it did not cause.
+	// would be order-dependent: whichever test in the package voices a given
+	// line first consumes the key and every later one observes silence it did
+	// not cause.
 	captureIngestWarnings := func(t *testing.T, fn func()) []string {
 		t.Helper()
 		var lines []string
@@ -258,7 +272,7 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 		return lines
 	}
 
-	t.Run("two different refs, one item: warns and names both", func(t *testing.T) {
+	t.Run("two sources, identical bytes: both delivered, silent", func(t *testing.T) {
 		fs, _ := setupContextTestFS(t)
 		writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 		cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
@@ -267,17 +281,22 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 			"p": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
 		})
 		lines := captureIngestWarnings(t, func() {
-			_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+			result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 				Profile:  "p",
 				Pipeline: opPipe(cfg, ingestLoader(t, fs)),
 			})
 			require.NoError(t, err)
+			assert.Equal(t, 2, strings.Count(result.Context, body))
 		})
-		require.Len(t, lines, 1, "one collapse under two spellings must say so exactly once")
-		assert.Contains(t, lines[0], "ctxloom+local:isolation#fragments/isolation-axes",
-			"the warning must name the occurrence that was KEPT")
-		assert.Contains(t, lines[0], companionIsolationFragmentRef,
-			"the warning must name the occurrence that was DROPPED")
+		assert.Empty(t, lines, "two distinct items are not a duplicate")
+	})
+
+	t.Run("a duplicate finding is voiced", func(t *testing.T) {
+		finding := composite.Finding{Kind: composite.FindingDuplicate, Ref: companionIsolationFragmentRef, Message: body}
+		lines := captureIngestWarnings(t, func() {
+			voiceFindings(composite.Package{Findings: []composite.Finding{finding}})
+		})
+		assert.Equal(t, []string{body}, lines)
 	})
 }
 
@@ -288,13 +307,11 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 // contributing nothing when its fragment is right there in the context.
 func TestIngest_CollapsedDuplicateStaysReportedAsLoaded(t *testing.T) {
 	fs, _ := setupContextTestFS(t)
-	body := companionIsolationContent(t)
-	writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
-		"p": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
+		"p": {Fragments: []config.FragmentRef{{Name: companionIsolationFragmentRef}}},
 	})
 
 	stderr := captureStderr(t, func() {
@@ -303,7 +320,6 @@ func TestIngest_CollapsedDuplicateStaysReportedAsLoaded(t *testing.T) {
 			Pipeline: opPipe(cfg, ingestLoader(t, fs)),
 		})
 		require.NoError(t, err)
-		assert.Contains(t, result.FragmentsLoaded, "ctxloom+local:isolation#fragments/isolation-axes")
 		assert.Contains(t, result.FragmentsLoaded, companionIsolationFragmentRef,
 			"the dropped occurrence still LOADED and its content is in the context")
 		assert.Empty(t, result.MissingFragments)
@@ -335,11 +351,9 @@ func indentYAML(s string) string {
 func TestIngest_RegenerateContext_CompanionFragmentAlsoSelectedByRefIsWrittenOnce(t *testing.T) {
 	body := companionIsolationContent(t)
 	appDir, workDir := regenTestApp(t)
-	writeRegenBundle(t, appDir, "isolation",
-		"version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := publishedWith(t, cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
-		"default": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
+		"default": {Fragments: []config.FragmentRef{{Name: companionIsolationFragmentRef}}},
 	}, config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
@@ -406,8 +420,6 @@ fragments:
   omega:
     content: "OMEGA-BODY"
 `)
-		writeRegenBundle(t, appDir, "isolation",
-			"version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 		cfg := publishedWith(t, cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
 			"default": {Fragments: refs},
 		}, config.Fixture{
@@ -427,7 +439,7 @@ fragments:
 	})
 	withHash, with := regen(t, []config.FragmentRef{
 		{Name: "dev#fragments/alpha"},
-		{Name: "isolation#fragments/isolation-axes"},
+		{Name: companionIsolationFragmentRef},
 		{Name: "dev#fragments/omega"},
 	})
 
@@ -487,13 +499,12 @@ fragments:
 func TestIngest_FirstOccurrenceIsTheOneKept(t *testing.T) {
 	body := companionIsolationContent(t)
 	fs, _ := setupContextTestFS(t)
-	writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{
-			{Name: "isolation#fragments/isolation-axes"},
+			{Name: companionIsolationFragmentRef},
 			{Name: "dev#fragments/security-rules"},
 		}},
 	})

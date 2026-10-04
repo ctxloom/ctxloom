@@ -146,7 +146,7 @@ func TestCheckFormatWasHonored_NonTextAndNotHonored_ErrorsLoudly(t *testing.T) {
 	withFormatGuardReset(t)
 	cmd, _ := formatCmd("json")
 	cmd.Use = "widget frobnicate"
-	// formatWasHonored stays false: no emit()/outputFormatOf call happened.
+	// formatWasHonored stays false: no emit()/streamFormat call happened.
 	err := checkFormatWasHonored(cmd)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--format json")
@@ -160,10 +160,11 @@ func TestEmit_MarksFormatWasHonored(t *testing.T) {
 	assert.True(t, formatWasHonored)
 }
 
-func TestOutputFormatOf_MarksFormatWasHonored(t *testing.T) {
+func TestStreamFormat_MarksFormatWasHonored(t *testing.T) {
 	withFormatGuardReset(t)
 	cmd, _ := formatCmd("json")
-	outputFormatOf(cmd)
+	_, err := streamFormat(cmd)
+	require.NoError(t, err)
 	assert.True(t, formatWasHonored)
 }
 

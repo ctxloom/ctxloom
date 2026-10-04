@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
@@ -108,7 +109,7 @@ func createItem(cmd *cobra.Command, bundleName, itemName string, itemType ItemTy
 	return emit(cmd, res, func() error {
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "Created %s %q in bundle %q\n", itemType, itemName, bundleName)
-		fmt.Fprintf(out, "Edit with: ctxloom %s edit %s#%s%s\n", itemType, bundleName, itemRefPrefix(itemType), itemName)
+		fmt.Fprintf(out, "Edit with: ctxloom %s edit %s#%s\n", itemType, bundleName, trust.FormatSelector(itemKindOf(itemType), itemName))
 		return nil
 	})
 }

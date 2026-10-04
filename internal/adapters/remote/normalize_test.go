@@ -12,6 +12,7 @@ func TestIsCanonicalRef(t *testing.T) {
 		{"https://github.com/owner/repo@bundles/core", true},
 		{"http://github.com/owner/repo@bundles/core", true},
 		{"git@github.com:owner/repo@bundles/core", true},
+		{"forge@gitlab.example.com:group/repo@bundles/core", true},
 		{"file:///path/to/repo@bundles/core", true},
 		{"alice/security", false},
 		{"ctxloom-github/core-practices", false},

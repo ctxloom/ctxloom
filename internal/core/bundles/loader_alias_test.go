@@ -36,8 +36,7 @@ func TestListAllCommands_TagsDoNotAliasBundleTags(t *testing.T) {
 	}
 	loader := NewLoader(seedLocal(map[string]*Bundle{"seeded": b}))
 
-	infos, err := loader.ListAllCommands()
-	require.NoError(t, err)
+	infos := loader.ListAllCommands()
 	require.Len(t, infos, 2)
 
 	byName := map[string][]string{}

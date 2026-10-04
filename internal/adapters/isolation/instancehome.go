@@ -93,9 +93,7 @@ var ensureOwnerOnlyDir = owneronly.EnsureDir
 // the same harp, as a resume is) cannot interleave their load-modify-write of
 // the same config file. A delegated child is not one of them: it gets a harp,
 // and so an instance, of its own. An instance home outside any
-// .ctxloom tree cannot be keyed and proceeds unlocked — that is only ever the
-// harpless worktree fallback under the OS temp dir, whose home is per-AGENT and
-// therefore has no second writer to race.
+// .ctxloom tree cannot be keyed and proceeds unlocked.
 func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	f, ok := factsFor(req.Engine)
 	if !ok {

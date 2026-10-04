@@ -19,10 +19,10 @@ import (
 // which harp names this run's per-session state dir, and which stable project
 // id keys the shared task log. It decides the SCOPED read-write state mounts a
 // containerized run gets (sessionStateMounts) and where a worktree's checkout
-// and per-run scratch land (Worktree.checkoutBase, Worktree.scratchBase). A
-// container run without a usable harp is refused (SessionState.scratchDir); a
-// worktree without one falls back to the OS temp dir; a zero ProjectID skips
-// the shared task-log facet. Never a
+// and per-run scratch land (SessionState.workDir, SessionState.scratchDir).
+// A run without a usable harp is refused, container and worktree alike, and
+// SpecBuilder.Session stamps every prepared run's state with its own harp; a
+// zero ProjectID skips the shared task-log facet. Never a
 // blanket ~/.ctxloom mount: that would
 // expose cache/bundles/config and every OTHER session's state to the run.
 type SessionState struct {
@@ -31,10 +31,8 @@ type SessionState struct {
 }
 
 // SessionStateFromEnv reads the session identity from a run's env map — the
-// same CTXLOOM_SESSION_HARP / CTXLOOM_PROJECT_ID the launch paths already
-// export into the engine env (run.go's runEnv, the delegated child's env), so
-// the isolation layer and the in-container writers key off ONE source. Absent
-// keys yield zero fields.
+// CTXLOOM_SESSION_HARP / CTXLOOM_PROJECT_ID carriers the launch exports into
+// the engine env. Absent keys yield zero fields.
 func SessionStateFromEnv(env map[string]string) SessionState {
 	return SessionState{
 		Harp:      env[sessions.EnvHarp],
@@ -60,9 +58,9 @@ func safePathSegment(s string) bool {
 }
 
 // errNoSessionHarp and errUnsafeSessionHarp are memberDir's two refusals of
-// the harp itself, told apart from a failure to prepare the dir: the worktree
-// half stays silent on the first, warns on the second, and falls back to the
-// OS temp dir on either, while the container half refuses the run on both.
+// the harp itself, told apart from a failure to prepare the dir. Every caller
+// refuses the run on either: a member dir outside the session is one no
+// session teardown or reaper would ever find.
 var (
 	errNoSessionHarp     = errors.New("the run carries no session harp")
 	errUnsafeSessionHarp = errors.New("session harp is not a safe path segment")

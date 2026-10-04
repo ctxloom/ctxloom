@@ -5,7 +5,8 @@
 // session transcript watch`, a separate CLI invocation from whatever process
 // hosts a coordinator for a session in some project).
 //
-// Deliberately a LEAF package (it imports only internal/core/paths), so both
+// Deliberately a LEAF package (it imports only internal/core/paths and the
+// toolbox's filelock), so both
 // halves of the endpoint.json contract compile against ONE declaration: the
 // file's LAYOUT lives here (DirName, FileName, State, MCPPath, LoopbackURL),
 // and the writer (internal/adapters/coordgrpc's Serve) and the readers
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
 const (
@@ -105,12 +107,17 @@ func (e Endpoint) LogValue() slog.Value {
 	)
 }
 
-// List returns every coordinator root's endpoint this host user can
+// List returns every LIVE coordinator root's endpoint this host user can
 // reach, most-recently-active first (endpoint.json mtime) — the same
 // recency policy the retired agentbus socket scan used. A coordinator with
 // no minted consumer credential yet (Serve() never ran, or a stale pre-D1
 // state dir) is skipped SILENTLY, not erred: that is the common, expected
-// case, and the caller simply tries the next candidate.
+// case, and the caller simply tries the next candidate. So, as silently, is a
+// root whose owner lock (paths.CoordOwnerLockFileName) nobody holds: the
+// coordinator that wrote it has exited — endpoint.json is kept for the next
+// one to re-bind — and its port and credential died with it. The lock is
+// the kernel's answer, so a coordinator killed outright is caught the same
+// as one that closed cleanly.
 //
 // Every OTHER way a candidate fails to become an endpoint (the
 // user home dir unresolvable, the glob itself erroring, a candidate file
@@ -158,31 +165,50 @@ func List() (endpoints []Endpoint, skipped []error) {
 		return snap[i].path < snap[j].path // stable, reproducible tiebreak
 	})
 	for _, s := range snap {
-		m := s.path
-		raw, rerr := os.ReadFile(m)
-		if rerr != nil {
-			skipped = append(skipped, fmt.Errorf("discover: read %s: %w", m, rerr))
-			continue
+		ep, ok, err := readEndpoint(s.path)
+		if err != nil {
+			skipped = append(skipped, err)
 		}
-		var ep State
-		if uerr := json.Unmarshal(raw, &ep); uerr != nil {
-			skipped = append(skipped, fmt.Errorf("discover: decode %s: %w", m, uerr))
-			continue
+		if ok {
+			endpoints = append(endpoints, ep)
 		}
-		if ep.LoopbackPort == 0 || ep.ConsumerCred == "" {
-			// The documented, common, NON-error case: a coordinator whose
-			// Serve() has not minted a consumer credential yet, or a stale
-			// pre-D1 state dir. Deliberately not added to skipped — it is
-			// not distinguishable from "healthy, just early" and reporting
-			// it would make the common case noisy.
-			continue
-		}
-		endpoints = append(endpoints, Endpoint{
-			URL:  LoopbackURL(ep.LoopbackPort),
-			Cred: ep.ConsumerCred,
-		})
 	}
 	return endpoints, skipped
+}
+
+// readEndpoint reads one candidate endpoint.json. ok is false for every
+// candidate that is not a live endpoint; err is set only for the ones List
+// reports (an unreadable or undecodable file, a lock that cannot be probed),
+// never for the two ordinary, silent cases.
+func readEndpoint(m string) (Endpoint, bool, error) {
+	raw, err := os.ReadFile(m)
+	if err != nil {
+		return Endpoint{}, false, fmt.Errorf("discover: read %s: %w", m, err)
+	}
+	var ep State
+	if err := json.Unmarshal(raw, &ep); err != nil {
+		return Endpoint{}, false, fmt.Errorf("discover: decode %s: %w", m, err)
+	}
+	if ep.LoopbackPort == 0 || ep.ConsumerCred == "" {
+		// The documented, common, NON-error case: a coordinator whose
+		// Serve() has not minted a consumer credential yet, or a stale
+		// pre-D1 state dir. Deliberately not reported — it is not
+		// distinguishable from "healthy, just early" and reporting it would
+		// make the common case noisy.
+		return Endpoint{}, false, nil
+	}
+	live, err := filelock.Held(filepath.Join(filepath.Dir(m), paths.CoordOwnerLockFileName))
+	if err != nil {
+		return Endpoint{}, false, fmt.Errorf("discover: %s: %w", m, err)
+	}
+	if !live {
+		// The writer is gone: endpoint.json outlives its coordinator on
+		// purpose (a relaunch re-binds its ports), but its port and
+		// credential died with it. Silent, like the not-yet-minted case:
+		// every coordinator that ever exited leaves one.
+		return Endpoint{}, false, nil
+	}
+	return Endpoint{URL: LoopbackURL(ep.LoopbackPort), Cred: ep.ConsumerCred}, true, nil
 }
 
 // mtime reads a path's modification time (zero on error, which sorts an

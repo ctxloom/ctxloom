@@ -65,17 +65,13 @@ func TestDenyRuleNeedsMessageOrSuggest(t *testing.T) {
 }
 
 // TestExpandSubmodules_RejectsInvalidInjectedPattern pins that
-// ExpandSubmodules injects raw .gitmodules strings into Match.Path AFTER Parse
+// ExpandSubmodules injects raw .gitmodules strings into PathMatch.Path AFTER Parse
 // validated that list, and globMatch swallows the resulting error — so a
 // submodule whose path carries a glob metacharacter (`a[`) expands into a
 // pattern that can never match and the submodule is silently unprotected by a
 // rule written precisely to protect it.
 func TestExpandSubmodules_RejectsInvalidInjectedPattern(t *testing.T) {
-	cfg := cfgWith(Rule{
-		ID:      "no-submodule-edits",
-		Match:   Match{Path: []string{"@submodules"}},
-		Message: "submodules are pinned",
-	})
+	cfg := cfgWith(pathRule("no-submodule-edits", "submodules are pinned", "@submodules"))
 	err := cfg.ExpandSubmodules([]string{"libs/foo", "weird[/dir"})
 	if err == nil {
 		t.Fatal("a submodule path that is not a valid glob must be a loud error, not a dead pattern")
@@ -87,11 +83,7 @@ func TestExpandSubmodules_RejectsInvalidInjectedPattern(t *testing.T) {
 
 // The ordinary expansion still succeeds and still returns no error.
 func TestExpandSubmodules_ValidPathsSucceed(t *testing.T) {
-	cfg := cfgWith(Rule{
-		ID:      "no-submodule-edits",
-		Match:   Match{Path: []string{".gitmodules", "@submodules"}},
-		Message: "submodules are pinned",
-	})
+	cfg := cfgWith(pathRule("no-submodule-edits", "submodules are pinned", ".gitmodules", "@submodules"))
 	if err := cfg.ExpandSubmodules([]string{"libs/foo", "third_party/bar/"}); err != nil {
 		t.Fatalf("valid submodule paths must expand cleanly: %v", err)
 	}

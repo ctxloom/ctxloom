@@ -15,7 +15,7 @@ import (
 func TestEvaluateDeniesNotebookEditByPathRule(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
 	cfg := `version: 1
-rules:
+path_rules:
   - id: no-notebook-edits
     match: { path: ["*.ipynb"] }
     message: "notebooks are generated"

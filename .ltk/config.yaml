@@ -23,14 +23,19 @@ rules:
   # guard whose advice cannot be followed teaches people to route around guards
   # generally — the one thing a cooperative redirect cannot survive.
   #
-  # ORDERING, learned the hard way: a config naming a field only a NEWER ltk
-  # understands makes the installed ltk fail closed on every guarded tool,
-  # including the ones needed to undo the edit. Ship the binary first
-  # (just install), then the rule.
+  # ORDERING, learned the hard way: a config naming a field the RUNNING ltk
+  # does not understand makes it fail closed on every guarded tool, including
+  # the ones needed to undo the edit. The hook runs the companion-pinned ltk,
+  # so the binary must be re-pinned (reinstall AND relaunch) before a rule
+  # uses a shape only the newer binary parses.
+  #
+  # The carve-out above is absent while the rule language changes: it needs a
+  # field the pinned binary has and the next one removes, and no shape both
+  # parse can express it. Until the re-pin, a third-party `go install mod@ver`
+  # is refused too — over-denying is the safe side of that gap.
   - id: install-via-just
     match:
       command: [go, install]
-      unless_arg_contains: ["@"]
     message: "Install through the task runner, not `go install` directly."
     suggest: "just install"
   # Migrated from .claude/hooks/no-direct-go.sh, which predated ltk and

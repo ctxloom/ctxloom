@@ -386,7 +386,7 @@ func TestParseErrorDenyPolicy(t *testing.T) {
 
 // backgroundedCfg carries a `backgrounded: true` deny rule and nothing else —
 // the config-expressible predicate for a detached command (see
-// rules.Match.Backgrounded), on its own default on_parse_error: allow.
+// rules.CommandMatch.Backgrounded), on its own default on_parse_error: allow.
 const backgroundedCfg = `
 version: 1
 rules:

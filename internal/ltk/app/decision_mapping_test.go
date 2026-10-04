@@ -14,7 +14,7 @@ import (
 // Decision -> Response mapping forgets shows up here as a zero value.
 const mappingCfg = `
 version: 1
-rules:
+path_rules:
   - id: path-rule
     match: { path: ["secrets/**"] }
     action: deny
@@ -23,6 +23,7 @@ rules:
     mode: confirm
     window_seconds: 45
     delay_seconds: 6
+rules:
   - id: command-rule
     match: { command: [bash] }
     action: deny

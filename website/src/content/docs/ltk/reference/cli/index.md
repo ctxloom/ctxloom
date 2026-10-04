@@ -36,14 +36,15 @@ model, because that is exactly what it becomes.
 
 ## Command rules and file rules
 
-A rule guards one of two things, never both. Combining them is a config error.
+A rule guards one of two things, and each kind has its own list: command rules
+under `rules:`, file rules under `path_rules:`.
 
 A command rule matches with `match.command` (plus the optional `args_any`,
-`args_all`, `unless`, and `shells` refinements) and fires on shell tool calls. Its
-pattern is a token-classified argv prefix, not a glob and not a regex — a
-distinction worth reading [Writing rules](/ltk/rules/) for, since a pattern
-written as though it were a glob typically matches nothing at all and fails
-silently.
+`args_all`, `unless`, and `shells` refinements) and fires on shell tool calls.
+Each element of its patterns is an anchored regular expression tested against
+one already-classified argument — read [Writing rules](/ltk/rules/) before
+writing one, since a pattern written as though it were a glob means something
+else, or fails to load.
 
 A file rule matches with `match.path` and fires on the agent's editing tools
 (Edit, Write, MultiEdit, NotebookEdit). Here the patterns *are* real globs, with

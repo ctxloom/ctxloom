@@ -33,7 +33,7 @@ func TestSurfaceParity_CheckAndEvaluateAgree(t *testing.T) {
 	if err := os.WriteFile(withRules, []byte(`version: 1
 rules:
   - id: no-force-push
-    match: { command: [git, push, --force] }
+    match: { command: [git, push], args_all: [--force] }
     message: "no force pushes"
     suggest: "git push --force-with-lease"
 `), 0o644); err != nil {

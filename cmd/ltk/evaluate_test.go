@@ -21,7 +21,7 @@ func TestEvaluateDeniesAndAllows(t *testing.T) {
 	cfg := `version: 1
 rules:
   - id: no-force-push
-    match: { command: [git, push, --force] }
+    match: { command: [git, push], args_all: [--force] }
     message: "no force pushes"
     suggest: "git push --force-with-lease"
 `
@@ -259,7 +259,7 @@ func TestEmitDecision_StreamFailuresAreAsymmetric(t *testing.T) {
 // (the diagnostic surface fails loud) — never by returning a clean allow over
 // an expansion that never happened.
 func TestExpandSubmodules_UnknownWorkingDirectoryIsReported(t *testing.T) {
-	cfg, err := rules.Parse([]byte("version: 1\nrules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"))
+	cfg, err := rules.Parse([]byte("version: 1\npath_rules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestExpandSubmodules_UnknownWorkingDirectoryIsReported(t *testing.T) {
 	}
 	// The sentinel is still sitting unexpanded in the rule — which is exactly
 	// why silence here is a guard that gates nothing.
-	if got := cfg.Rules[0].Match.Path; len(got) != 1 || got[0] != "@submodules" {
+	if got := cfg.PathRules[0].Match.Path; len(got) != 1 || got[0] != "@submodules" {
 		t.Fatalf("expected the sentinel left unexpanded, got %v", got)
 	}
 }
@@ -281,7 +281,7 @@ func TestEvaluateFailsClosedOnUnresolvableSubmodules(t *testing.T) {
 	cfgPath := filepath.Join(dir, "rules.yaml")
 	// .gitmodules present but unreadable as a file (it is a directory), which
 	// scm.SubmodulePaths reports rather than treating as "no submodules".
-	if err := os.WriteFile(cfgPath, []byte("version: 1\nrules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("version: 1\npath_rules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, ".gitmodules"), 0o755); err != nil {
@@ -305,7 +305,7 @@ func TestEvaluateFailsClosedOnUnresolvableSubmodules(t *testing.T) {
 // so the hook path must deny.
 func TestEvaluateFailsClosedOnUnknownShell(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
-	cfg := "version: 1\nrules:\n  - id: x\n    match: { command: [git, push, --force] }\n    message: no\n"
+	cfg := "version: 1\nrules:\n  - id: x\n    match: { command: [git, push], args_all: [--force] }\n    message: no\n"
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestEvaluateFailsClosedOnUnknownShell(t *testing.T) {
 // evaluate falls back to claude-code's wire format purely to emit a deny.
 func TestEvaluateFailsClosedOnUnknownEngine(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
-	cfg := "version: 1\nrules:\n  - id: x\n    match: { command: [git, push, --force] }\n    message: no\n"
+	cfg := "version: 1\nrules:\n  - id: x\n    match: { command: [git, push], args_all: [--force] }\n    message: no\n"
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestEvaluateNoConfigFoundAnywhereWarns(t *testing.T) {
 // own .ltk keeps using it (the nearest config always wins).
 func TestConfigSearchCrossesGitfileBoundaries(t *testing.T) {
 	deny := func(message string) string {
-		return "version: 1\nrules:\n  - id: no-force-push\n    match: { command: [git, push, --force] }\n    message: \"" + message + "\"\n"
+		return "version: 1\nrules:\n  - id: no-force-push\n    match: { command: [git, push], args_all: [--force] }\n    message: \"" + message + "\"\n"
 	}
 	payload := `{"tool_name":"Bash","tool_input":{"command":"git push --force"}}`
 
@@ -566,7 +566,7 @@ func TestEvaluateDeniesUnrecognizedToolName(t *testing.T) {
 	cfg := `version: 1
 rules:
   - id: no-force-push
-    match: { command: [git, push, --force] }
+    match: { command: [git, push], args_all: [--force] }
     message: "no force pushes"
 `
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {

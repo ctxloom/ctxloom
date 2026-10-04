@@ -12,7 +12,6 @@ import (
 	"unicode"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
@@ -30,7 +29,12 @@ const (
 type Config struct {
 	Version  int      `yaml:"version"`
 	Defaults Defaults `yaml:"defaults"`
-	Rules    []Rule   `yaml:"rules"`
+	// Rules are command rules, matched against every parsed shell command.
+	Rules []CommandRule `yaml:"rules"`
+	// PathRules are file-edit rules, matched against the target of a
+	// file-editing tool call. The two kinds share ids (unique across both) but
+	// nothing else: neither evaluator reads the other's list.
+	PathRules []PathRule `yaml:"path_rules"`
 }
 
 // Defaults control behavior when no rule fires.
@@ -72,15 +76,14 @@ const (
 	ModeDisable Mode = "disable"
 )
 
-// Rule is a single match → action mapping.
-type Rule struct {
+// RuleBase is what every rule carries whatever it matches: its identity, the
+// action it selects, what it tells the agent, and how firmly it fires.
+type RuleBase struct {
 	ID      string `yaml:"id"`
-	Match   Match  `yaml:"match"`
 	Action  Action `yaml:"action"` // defaults to deny
 	Message string `yaml:"message"`
 	Suggest string `yaml:"suggest"`
-	// Mode is disable | confirm | enable (default enable). It replaces the older
-	// `enabled`/`confirm` booleans:
+	// Mode is disable | confirm | enable (default enable):
 	//   - enable  (default): rule fires; the denial is firm (inviolate).
 	//   - confirm: rule fires; re-running the exact command within the window
 	//              confirms and lets it through.
@@ -99,7 +102,19 @@ type Rule struct {
 	DelaySeconds int `yaml:"delay_seconds"`
 }
 
-func (r Rule) action() Action {
+// CommandRule maps a shell-command match to an action.
+type CommandRule struct {
+	RuleBase `yaml:",inline"`
+	Match    CommandMatch `yaml:"match"`
+}
+
+// PathRule maps a file-edit match to an action.
+type PathRule struct {
+	RuleBase `yaml:",inline"`
+	Match    PathMatch `yaml:"match"`
+}
+
+func (r RuleBase) action() Action {
 	if r.Action == "" {
 		return ActionDeny
 	}
@@ -107,7 +122,7 @@ func (r Rule) action() Action {
 }
 
 // mode returns the rule's mode, defaulting to enable.
-func (r Rule) mode() Mode {
+func (r RuleBase) mode() Mode {
 	if r.Mode == "" {
 		return ModeEnable
 	}
@@ -116,7 +131,7 @@ func (r Rule) mode() Mode {
 
 // isEnabled reports whether the rule participates in evaluation. Only
 // `mode: disable` turns it off.
-func (r Rule) isEnabled() bool {
+func (r RuleBase) isEnabled() bool {
 	return r.mode() != ModeDisable
 }
 
@@ -125,7 +140,7 @@ func (r Rule) isEnabled() bool {
 // the repeat counts, given the global defaults. Only a `confirm` rule is
 // repeatable, and only when a positive window applies (per-rule window overriding
 // the global default). `enable` rules are inviolate.
-func (r Rule) confirmPolicy(d Defaults) (repeatable bool, windowSeconds, delaySeconds int) {
+func (r RuleBase) confirmPolicy(d Defaults) (repeatable bool, windowSeconds, delaySeconds int) {
 	if r.mode() != ModeConfirm {
 		return false, 0, 0
 	}
@@ -140,54 +155,56 @@ func (r Rule) confirmPolicy(d Defaults) (repeatable bool, windowSeconds, delaySe
 	return windowSeconds > 0, windowSeconds, delaySeconds
 }
 
-// CommandPattern is an argv prefix to match. In YAML it may be written as a
-// scalar string (shell-split on whitespace: "sh -c" → ["sh", "-c"]) or as a
-// list, taken verbatim (["go", "test"]).
-type CommandPattern []string
+// Alignment is how a command rule's operand patterns (match.command after the
+// program) line up against the command's operands. The default follows the
+// rule's action; see CommandMatch.Command for why the two actions differ.
+type Alignment string
 
-// UnmarshalYAML accepts either a scalar string or a sequence of strings.
-func (c *CommandPattern) UnmarshalYAML(node *yaml.Node) error {
-	switch node.Kind {
-	case yaml.ScalarNode:
-		*c = strings.Fields(node.Value)
-	case yaml.SequenceNode:
-		var toks []string
-		if err := node.Decode(&toks); err != nil {
-			return err
-		}
-		*c = toks
-	default:
-		return fmt.Errorf("match.command: expected a string or list of strings")
-	}
-	return nil
-}
+const (
+	// AlignSubsequence: the patterns match operands in order, not necessarily
+	// contiguous or leading. The only alignment a deny rule takes, and its
+	// default.
+	AlignSubsequence Alignment = "subsequence"
+	// AlignPrefix: pattern i matches operand i, starting at operand 0; anything
+	// may follow. The default for an allow rule.
+	AlignPrefix Alignment = "prefix"
+	// AlignExact: the command is exactly the pattern — pattern i matches operand
+	// i, and nothing follows: no further operand and no option anywhere. An
+	// allow-only alignment, for clearing one precise invocation (a read) whose
+	// longer forms (a write) must still reach the deny. Options are excluded
+	// too because they are what turn many reads into writes (`git config
+	// --unset user.name` has the read's operands) and never occupy an operand
+	// slot, so an operand count alone cannot see them.
+	AlignExact Alignment = "exact"
+)
 
-// Match is the set of conditions a command must satisfy. All present conditions
-// must hold (AND). An entirely empty Match matches nothing, to avoid accidental
-// catch-all denials.
-type Match struct {
-	// Command matches the program plus arguments. The first token is the
-	// program: it matches argv[0] exactly or by basename, so absolute paths
-	// still match. Remaining tokens are classified per the command's shell into:
+// CommandMatch is the set of conditions a shell command must satisfy. All
+// present conditions must hold (AND). An entirely empty CommandMatch matches
+// nothing, to avoid accidental catch-all denials.
+//
+// Every element of Command, ArgsAny, ArgsAll and Unless is a Pattern: an RE2
+// expression matched against ONE whole argv element (implicitly
+// ^(?:pattern)$). Case-sensitive unless the pattern opts in with (?i). Write
+// each one single-quoted in YAML: a double-quoted "\." is an invalid YAML
+// escape, and | [ * ? { : need quoting in a flow list anyway.
+type CommandMatch struct {
+	// Command is [program, operand...].
 	//
-	//   - positional args (e.g. subcommands like `test`, `commit`): order
-	//     matters, but HOW they must line up against the command's non-option
-	//     arguments (its operands) depends on the rule's action — see "Allow
-	//     vs. deny: matching discipline" below. This is the load-bearing
-	//     asymmetry in the whole model; read that section before changing
-	//     anything here.
-	//   - options (any flag: `-c`, `-x`, `--no-cache`, and `/c` under cmd): no
-	//     implied order; each must appear somewhere in the command's arguments,
-	//     and they never consume a positional slot.
+	// The program pattern matches argv[0] as written or its basename, so
+	// absolute paths still match. Under cmd and pwsh both are first lowercased
+	// and stripped of a trailing .exe (how Windows resolves a program), so a
+	// pattern for them is written lowercase without .exe; POSIX shells match as
+	// written.
 	//
-	// Trailing arguments are always allowed. Examples: `go` matches any `go …`;
-	// `[go, test]` matches `go test …` (and, for a deny rule, `go --mod=mod
-	// test …`); `sh -c` matches `sh -c …` and `sh -e -c …`; `[git, push,
-	// --force, --no-verify]` matches those flags in any order after `push`.
+	// The remaining patterns match the command's OPERANDS (its non-option
+	// arguments, classified per the command's shell) under Align. They are
+	// operand patterns only: a pattern whose literal prefix is `-` is refused
+	// (ErrOptionInCommand). Options go in ArgsAll/ArgsAny/Unless. The check is
+	// best-effort — `(-a|-b)` has no literal prefix and is not caught.
 	//
-	// Bundled short options expand for matching: under a POSIX shell `-rf` is
-	// treated as also carrying `-r` and `-f`, so `[rm, -r, -f]` matches `rm -rf`,
-	// `rm -fr`, and `rm -r -f` alike. See expandShortClusters.
+	// A trailing '.*' operand requires an operand to exist, whatever its text,
+	// the empty string included: `[git, config, 'user\.name', '.*']` matches the
+	// write `git config user.name Bob` and not the read `git config user.name`.
 	//
 	// # Allow vs. deny: matching discipline (the firewall-rule model)
 	//
@@ -195,159 +212,95 @@ type Match struct {
 	// nftables `-j ACCEPT/DROP` chains, OpenBSD pf, cloud security groups):
 	// rules are walked IN ORDER and, for one command, the first that matches
 	// wins (see Evaluate, which also documents how that nests inside the
-	// command walk) — there is no "most specific rule wins" reranking. That
-	// ordering discipline was already correct here; what was missing is the
-	// other firewall-rule principle: a firewall matches on STRUCTURED fields
-	// (source IP, port, protocol) with an EXPLICIT operator per field — exact
-	// equality, CIDR/set membership, an anchored range — never "does this byte
-	// sequence appear anywhere in the packet." `iptables --dport 22` cannot
-	// match a packet merely because the byte `22` occurs somewhere in its
-	// payload. Applying that discipline here means a rule's positional tokens
-	// must be matched against a specific, named field (an argv POSITION) with
-	// an operator appropriate to the rule's consequence, not a fuzzy
-	// pattern-appears-somewhere scan.
+	// command walk) — there is no "most specific rule wins" reranking. The
+	// other firewall principle is that a rule matches STRUCTURED fields with an
+	// explicit operator per field, never "does this byte sequence appear
+	// anywhere in the packet". Here the fields are argv elements, classified
+	// before any pattern runs, and the operator is the anchored regex — which is
+	// why a regex cannot span elements or turn an operand into an option.
 	//
-	// The two rule actions carry opposite consequences, so they get different
-	// operators — this is also standard firewall practice: a narrow allow
-	// carve-out in an otherwise default-deny chain is written tight (exact
-	// match), while the surrounding deny/catch-all can safely be broad, because
-	// broadening a DENY only widens what gets blocked (safe), while broadening
-	// an ALLOW widens what gets let through (unsafe):
+	// Which operand INDEX a pattern is compared to is the structural decision,
+	// and it depends on the rule's action, because broadening a DENY only widens
+	// what gets blocked (safe) while broadening an ALLOW widens what gets let
+	// through (unsafe):
 	//
-	//   - deny rules keep ORDERED SUBSEQUENCE matching: positionals must appear
-	//     in the given order among the operands, but not contiguously or
-	//     leading. A value-taking option whose value lands among the operands
-	//     (the matcher can't know `-C`/`--context`/`--prefix` consumes a word)
-	//     cannot push the subcommand out of match position: `git -C /repo push`,
-	//     `docker --context prod build`, and `npm --prefix /x run …` still
-	//     match `[git, push]` / `[docker, build]` / `[npm, run]`. A positional
-	//     may thus match a non-leading operand of the same spelling — that only
-	//     ever widens what a deny rule catches, which is fail-safe for a guard.
-	//   - allow rules use POSITION-ANCHORED STRICT PREFIX matching: every
-	//     positional must equal the operand at the SAME index, starting at
-	//     operand[0]. This is the fix for the fail-open bug an ordered-
-	//     subsequence allow rule had: `allow: [git, status]` used to match
-	//     `git commit -m status --no-verify`, because `status` — the VALUE of
-	//     `-m`, not a subcommand — is an operand and or an ordered subsequence
-	//     of one element ["status"] is trivially satisfied by ANY operand list
-	//     containing "status" anywhere after the start. On `action: allow` that
-	//     widened match doesn't just widen what's caught, it widens what's
-	//     PERMITTED — the exact inverse of the deny case, so it needed the
-	//     opposite (stricter) operator, not a shared one.
+	//   - deny rules take ORDERED SUBSEQUENCE: operand patterns match in order,
+	//     not contiguously or leading. A value-taking option whose value lands
+	//     among the operands (the matcher can't know `-C`/`--context`/`--prefix`
+	//     consumes a word) cannot push the subcommand out of match position:
+	//     `git -C /repo push`, `docker --context prod build`, and `npm --prefix
+	//     /x run …` still match `[git, push]` / `[docker, build]` / `[npm, run]`.
+	//     A pattern may thus match a non-leading operand — that only ever widens
+	//     what a deny catches, which is fail-safe for a guard.
+	//   - allow rules take a POSITION-ANCHORED PREFIX (or exact) match: pattern
+	//     i must match operand i, starting at operand[0]. An ordered-subsequence
+	//     allow is fail-open: `allow: [git, status]` would clear `git commit -m
+	//     status --no-verify`, because `status` — the VALUE of `-m` — is an
+	//     operand, and a one-element subsequence is satisfied by any operand
+	//     list containing it.
 	//
-	// A too-strict allow rule fails safe: the command just isn't allowed by
-	// that rule, and falls through to the next rule / the default policy. A
-	// too-loose allow rule fails open: it can clear a command a deny rule would
-	// otherwise have caught. That asymmetry is why the operators differ by
-	// action rather than there being one "positional matching" rule for both.
-	//
-	// Consequence: an allow rule whose real subcommand is pushed out of
-	// operand[0] by a value-taking option (`docker --context prod build`) no
-	// longer matches `command: [docker, build]` — strict prefix rejects it,
-	// same as it rejects the smuggling case, because no fixed-index anchor can
-	// tell the two apart without per-program argument-arity knowledge ltk
-	// deliberately doesn't have. The documented escape hatch is `args_all` /
-	// `args_any` (see below), which are program-agnostic set-membership checks
-	// over the whole (short-cluster-expanded) argument list, not
-	// position-sensitive: write `command: [docker], args_all: [build]` instead
-	// of `command: [docker, build]` for an allow rule that must tolerate a
-	// leading value-option.
+	// A too-strict allow fails safe: the command is not cleared by it and falls
+	// through to the next rule. A too-loose allow fails open. Consequence: an
+	// allow whose real subcommand is pushed out of operand[0] by a value-taking
+	// option (`docker --context prod build`) does not match `[docker, build]`,
+	// and there is no position-blind way around that — args_any/args_all are
+	// refused on allow rules (ErrArgsOnAllow) because they are exactly the
+	// smuggling class strict prefix closes. Such a command falls through to the
+	// deny, which is the safe direction.
 	//
 	// (ltk's overall DEFAULT policy is still allow-by-default when nothing
 	// matches — unlike a network firewall's usual default-deny posture. That is
 	// a separate, deliberate design choice ["a guardrail against reflexive
-	// mistakes, not a security boundary" — see docs/ltk] and is unchanged here;
-	// only the PER-RULE matching operator adopts firewall discipline.)
-	//
-	// # Tokens are LITERAL — no globs, no regular expressions
-	//
-	// Every token here is compared for exact string equality (the program token
-	// additionally by basename). This is the opposite of match.Path below, whose
-	// patterns ARE full doublestar globs, and the asymmetry is the trap: a rule
-	// written `command: [git, "push*"]` does not mean "any push subcommand", it
-	// means an argument spelled literally `push*`, so it silently never fires.
-	// Argv reaches the matcher un-globbed (the frontends expand variables but do
-	// not do filename expansion), which is why the equality is right for what
-	// this field matches and also why a metacharacter cannot be reinterpreted
-	// here without changing what an existing literal rule catches. Use several
-	// rules, or args_any/args_all, where a pattern is wanted.
-	Command CommandPattern `yaml:"command"`
-	// ArgsAny / ArgsAll are program-agnostic refinements on the arguments
-	// (beyond the Command prefix); bundled short options are expanded first.
-	ArgsAny []string `yaml:"args_any"` // at least one present in args
-	ArgsAll []string `yaml:"args_all"` // all present in args
-	// Unless lists exception tokens: if the command contains any of them, the
-	// rule does NOT match. This is the read-only/safe escape hatch — e.g. block
-	// `git tag` `unless: [--list]` so the read-only listing form is exempt.
-	Unless []string `yaml:"unless"`
-	// UnlessArgContains is Unless's SUBSTRING twin: if any argument CONTAINS
-	// any listed text, the rule does not match. Unless tests whole tokens,
-	// which cannot express a shape — and some exceptions are shapes rather
-	// than flags.
-	//
-	// The case it exists for: `go install <module>@<version>` installs a
-	// THIRD-PARTY tool, which by Go's own rules is a build of something other
-	// than this module, while a bare `go install` builds this one. A rule
-	// redirecting the latter to the task runner must not also catch the former,
-	// because the task runner cannot install someone else's tool — the refusal
-	// would name a remedy the caller cannot take.
-	//
-	// A glob cannot do this job: Go's path.Match (what Path uses) stops `*` at
-	// `/`, so no pattern spans a module path like golang.org/x/tools/gopls@v1.
-	UnlessArgContains []string `yaml:"unless_arg_contains"`
-	// MinOperands requires the command to carry at least this many operands
-	// (non-option arguments) after the program, subcommands included: `git
-	// config user.name Bob` has three — config, user.name, Bob. Zero means no
-	// constraint. It needs match.command, since a count means nothing without
-	// the command it is a count of.
-	//
-	// It exists to tell a READ from a WRITE where the only difference is
-	// arity: `git config user.name` reads the key, `git config user.name Bob`
-	// sets it, and no token-presence test (args_any, unless) can separate
-	// them. Like Command's positional matching it has no per-program arity
-	// knowledge, so it inherits the same blind spots: a value-taking option's
-	// value is counted as an operand (`git -c k=v config user.name` counts
-	// three), and a write whose arity matches the read (`git config --unset
-	// user.name`) is invisible to it — key that one on its flag in a rule of
-	// its own.
-	MinOperands int `yaml:"min_operands"`
+	// mistakes, not a security boundary" — see docs/ltk]; only the PER-RULE
+	// matching operator adopts firewall discipline.)
+	Command []Pattern `yaml:"command"`
+	// Align selects how the operand patterns line up; empty means the action's
+	// default (deny: subsequence, allow: prefix). Allow takes prefix or exact;
+	// deny takes subsequence only.
+	Align Alignment `yaml:"align"`
+	// ArgsAny / ArgsAll are position-blind tests over the arguments after the
+	// program, with bundled POSIX short options also offered expanded (`-rf`
+	// as `-r` and `-f`; see expandShortClusters). Deny rules only: on an allow
+	// a position-blind positive predicate widens what is cleared.
+	ArgsAny []Pattern `yaml:"args_any"` // some argument matches some pattern
+	ArgsAll []Pattern `yaml:"args_all"` // every pattern matches some argument
+	// Unless lists exceptions: if any argument matches any pattern, the rule
+	// does NOT match — e.g. block `git tag` `unless: ['--list|-l']` so the
+	// read-only listing form is exempt. Position-blind, so on a deny it is the
+	// fail-open direction: write it as tight as the exception really is.
+	Unless []Pattern `yaml:"unless"`
 	// Backgrounded matches a command DETACHED from the invoking session,
-	// rather than one identified by its own spelling. The bug this exists to
-	// close: a rule written as `command: [nohup]` / `command: [setsid]`
-	// catches those two spellings and nothing else — a bare trailing `&`,
-	// which is what actually backgrounds a job (`just test-acceptance &`),
-	// sails through untouched, because the command's own program is `just`,
-	// not a name any command-head pattern could list. `unless`/
-	// `unless_arg_contains` are exception carve-outs on top of a Command
-	// match; there is no existing field that is itself a positive match on
-	// "this job is detached", so it needs its own predicate rather than
-	// composing from what is already here.
+	// rather than one identified by its own spelling. A rule written as
+	// `command: [nohup]` catches that spelling and nothing else — a bare
+	// trailing `&`, which is what actually backgrounds a job (`just
+	// test-acceptance &`), sails through, because the command's own program is
+	// `just`. No other field is a positive match on "this job is detached", so
+	// it is its own predicate.
 	//
-	// True when the command runs detached from the caller: SimpleCommand.
-	// Background (its statement ended in a trailing `&`) OR the command's own
-	// program is nohup, setsid, or disown — three ways to hand a job off
-	// without leaving anything for the caller to wait on. All three have the
-	// same practical effect this field exists to catch: a harness that only
-	// gets notified when a foreground child exits never learns this one
-	// finished.
+	// True when SimpleCommand.Background (the statement ended in `&`) OR the
+	// command's own program is nohup, setsid, or disown. All three leave a
+	// harness that is notified only when a foreground child exits never learning
+	// this one finished.
 	//
-	// Like the other boolean-shaped conditions this Match could grow, false
-	// (the zero value, and so also an explicit `backgrounded: false`) means
-	// "no constraint from this field" — the same "absent = no constraint"
-	// convention every other Match field already uses (an empty Unless or
-	// ArgsAny does not narrow anything either). It only ever narrows a match
-	// when written `true`.
+	// false (the zero value, and so also an explicit `backgrounded: false`)
+	// means "no constraint from this field", the same "absent = no constraint"
+	// convention every other field uses; it only ever narrows when `true`.
 	Backgrounded bool `yaml:"backgrounded"`
-	// Shells restricts the rule to these shells.
+	// Shells restricts the rule to commands owned by these shells.
 	Shells []ir.Shell `yaml:"shells"`
-	// Path makes this a FILE-EDIT rule instead of a command rule: it matches when
-	// a file-editing tool (Edit/Write/MultiEdit/NotebookEdit) targets a file whose
-	// path matches one of these patterns. A rule is either a command rule or a path
-	// rule, never both. Each pattern is one of three forms:
+}
+
+// PathMatch is a file-edit rule's condition: it matches when a file-editing
+// tool (Edit/Write/MultiEdit/NotebookEdit) targets a file whose path matches
+// one of Path. Path patterns are doublestar GLOBS, not regexes — a different
+// input domain from argv elements, where `**` is the idiom and an unescaped
+// `.` in every extension would be the common bug.
+type PathMatch struct {
+	// Path holds patterns of three forms:
 	//
-	//   - a glob (Go path.Match), matched against the file's basename or its full
-	//     slash-path. e.g. `VERSION` blocks hand-editing VERSION anywhere; `*.lock`
-	//     blocks any lockfile; `dist/*` blocks one level under dist/.
+	//   - a glob, matched against the file's basename or its full slash-path.
+	//     e.g. `VERSION` blocks hand-editing VERSION anywhere; `*.lock` blocks
+	//     any lockfile; `dist/*` blocks one level under dist/.
 	//   - a directory subtree, written with a trailing slash: `vendor/` blocks
 	//     every file under any directory named vendor, at any depth. The segments
 	//     are matched literally (not globbed) and bounded on slashes, so `a/b/`
@@ -360,24 +313,16 @@ type Match struct {
 	Path []string `yaml:"path"`
 }
 
+// RuleCount is the number of rules of both kinds.
+func (c *Config) RuleCount() int { return len(c.Rules) + len(c.PathRules) }
+
 // submodulesToken is the reserved match.path value that ExpandSubmodules rewrites
-// into a directory-subtree pattern per .gitmodules entry. See Match.Path.
+// into a directory-subtree pattern per .gitmodules entry. See PathMatch.Path.
 const submodulesToken = "@submodules"
 
-// isPathRule reports whether this match targets file edits rather than commands.
-func (m Match) isPathRule() bool { return len(m.Path) > 0 }
-
-// mixesCommandAndPath reports whether a path rule also carries command-style
-// conditions, which is a config error: a rule is one kind or the other.
-func (m Match) mixesCommandAndPath() bool {
-	return m.isPathRule() && (len(m.Command) > 0 || len(m.ArgsAny) > 0 ||
-		len(m.ArgsAll) > 0 || len(m.Unless) > 0 || len(m.Shells) > 0 || m.Backgrounded)
-}
-
-func (m Match) hasConstraint() bool {
+func (m CommandMatch) hasConstraint() bool {
 	return len(m.Command) > 0 || len(m.ArgsAny) > 0 ||
-		len(m.ArgsAll) > 0 || len(m.Unless) > 0 || len(m.Shells) > 0 ||
-		len(m.UnlessArgContains) > 0 || len(m.Path) > 0 || m.Backgrounded
+		len(m.ArgsAll) > 0 || len(m.Unless) > 0 || len(m.Shells) > 0 || m.Backgrounded
 }
 
 // matchesPath reports whether a file-edit of file is caught by this path rule.
@@ -394,7 +339,7 @@ func (m Match) hasConstraint() bool {
 // A trailing slash is directory sugar: `vendor/` means the whole subtree, i.e.
 // `vendor/**`. The "@submodules" sentinel is inert here — ExpandSubmodules
 // rewrites it into directory patterns first, and an unexpanded one matches nothing.
-func (m Match) matchesPath(file string) bool {
+func (m PathMatch) matchesPath(file string) bool {
 	file = strings.ReplaceAll(strings.TrimSpace(file), "\\", "/")
 	if file == "" {
 		return false
@@ -438,7 +383,7 @@ func (c *Config) ExpandSubmodules(submodulePaths []string) error {
 			dirs = append(dirs, p+"/")
 		}
 	}
-	// These patterns are injected into Match.Path AFTER Parse validated that
+	// These patterns are injected into PathMatch.Path AFTER Parse validated that
 	// list, so they are the one class of pattern that never met
 	// validatePathPatterns — and globMatch treats a malformed pattern as
 	// no-match. A submodule whose path carries a glob metacharacter would
@@ -449,8 +394,8 @@ func (c *Config) ExpandSubmodules(submodulePaths []string) error {
 	if err := validatePathPatterns(dirs); err != nil {
 		return fmt.Errorf("expand @submodules: %w", err)
 	}
-	for i := range c.Rules {
-		pats := c.Rules[i].Match.Path
+	for i := range c.PathRules {
+		pats := c.PathRules[i].Match.Path
 		if !slices.Contains(pats, submodulesToken) {
 			continue
 		}
@@ -462,17 +407,27 @@ func (c *Config) ExpandSubmodules(submodulePaths []string) error {
 				expanded = append(expanded, pat)
 			}
 		}
-		c.Rules[i].Match.Path = expanded
+		c.PathRules[i].Match.Path = expanded
 	}
 	return nil
 }
 
-// strictPrefix selects the operand-matching operator per the allow/deny
-// discipline documented on Match.Command: true for an allow rule (position-
-// anchored strict prefix), false for a deny rule (ordered subsequence, the
-// permissive default). The caller (Evaluate) derives it from the rule's
-// action; matches itself has no notion of "rule".
-func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bool {
+// alignment resolves the rule's operand alignment: the written one, or the
+// action's default (see CommandMatch.Command).
+func (r CommandRule) alignment() Alignment {
+	if r.Match.Align != "" {
+		return r.Match.Align
+	}
+	if r.action() == ActionAllow {
+		return AlignPrefix
+	}
+	return AlignSubsequence
+}
+
+// matches reports whether c, owned by a script in shell, satisfies m with its
+// operand patterns aligned per al. The caller (Evaluate) derives al from the
+// rule; matches itself has no notion of "rule".
+func (m CommandMatch) matches(shell ir.Shell, c ir.SimpleCommand, al Alignment) bool {
 	if !m.hasConstraint() {
 		return false
 	}
@@ -492,23 +447,13 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 	if s := shellForProgram(c.Program()); s != "" {
 		argShell = s
 	}
-	if !m.matchesInvocation(c, argShell, strictPrefix) {
-		return false
-	}
-	return m.matchesArgs(expandShortClusters(c.Args(), argShell))
-}
-
-// matchesInvocation applies the conditions on how the command is invoked —
-// detachment, the Command pattern and its operand count — under argShell's
-// flag conventions, leaving the set-membership argument tests to matchesArgs.
-func (m Match) matchesInvocation(c ir.SimpleCommand, argShell ir.Shell, strictPrefix bool) bool {
 	if m.Backgrounded && !isBackgrounded(c, argShell) {
 		return false
 	}
-	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, argShell, strictPrefix) {
+	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, argShell, al) {
 		return false
 	}
-	return m.MinOperands == 0 || len(classifyOperands(c.Args(), argShell)) >= m.MinOperands
+	return m.matchesArgs(expandShortClusters(c.Args(), argShell))
 }
 
 // detachedPrograms names commands whose own effect is to hand a job off
@@ -536,30 +481,22 @@ func isBackgrounded(c ir.SimpleCommand, argShell ir.Shell) bool {
 	return slices.Contains(detachedPrograms, programBasename(c.Program(), argShell))
 }
 
-// matchesArgs applies the program-agnostic argument conditions — args_all,
-// args_any and the unless exception list — to a command's already
-// cluster-expanded arguments. They are position-insensitive set-membership
-// tests, unlike the Command prefix, which is why they factor out cleanly.
-func (m Match) matchesArgs(args []string) bool {
-	for _, a := range m.ArgsAll {
-		if !slices.Contains(args, a) {
+// matchesArgs applies the position-blind argument conditions — args_all,
+// args_any and the unless exceptions — to a command's already cluster-expanded
+// arguments.
+func (m CommandMatch) matchesArgs(args []string) bool {
+	for _, p := range m.ArgsAll {
+		if !p.anyMatches(args) {
 			return false
 		}
 	}
 	if len(m.ArgsAny) > 0 &&
-		!slices.ContainsFunc(m.ArgsAny, func(a string) bool { return slices.Contains(args, a) }) {
+		!slices.ContainsFunc(m.ArgsAny, func(p Pattern) bool { return p.anyMatches(args) }) {
 		return false
 	}
-	// unless: any listed token present means this invocation is an exception
+	// unless: any matching argument means this invocation is an exception
 	// (e.g. a read-only `--list`/`--dry-run` form), so the rule does not match.
-	if slices.ContainsFunc(m.Unless, func(a string) bool { return slices.Contains(args, a) }) {
-		return false
-	}
-	// unless_arg_contains: the same exception, matched on a SHAPE inside an
-	// argument rather than on a whole token.
-	return !slices.ContainsFunc(m.UnlessArgContains, func(sub string) bool {
-		return slices.ContainsFunc(args, func(a string) bool { return strings.Contains(a, sub) })
-	})
+	return !slices.ContainsFunc(m.Unless, func(p Pattern) bool { return p.anyMatches(args) })
 }
 
 // shellForProgram maps program (a command's argv[0]) to the shell it itself
@@ -569,7 +506,7 @@ func (m Match) matchesArgs(args []string) bool {
 // interpret", and the two tables are free to diverge (ksh is spelled here
 // without its version suffixes, for instance). path.Base is POSIX-only, so a
 // Windows-style absolute path is normalized to forward slashes first — the
-// same fix as programBasename above, for the same reason. Returns "" when
+// same normalization as programNames, for the same reason. Returns "" when
 // program is not one of these.
 func shellForProgram(program string) ir.Shell {
 	name := strings.ToLower(path.Base(strings.ReplaceAll(program, `\`, "/")))
@@ -598,65 +535,51 @@ func shellForProgram(program string) ir.Shell {
 	}
 }
 
-// programBasename returns the trailing path component of argv[0] the way the
-// shell that will actually run it resolves a bare-name match. path.Base is
-// POSIX-only (it splits on '/' alone), so a Windows-style absolute program
-// path — `C:\Windows\System32\cmd.exe`, the normal form under the cmd/pwsh
-// dialects this unit itself supports — never reduced to a bare `cmd.exe` the
-// way `/usr/bin/git` already reduces to `git`: a `command: [cmd]`
-// rule silently never fired against an absolute-backslash-path invocation.
-// Scoped to ShellCmd/ShellPwsh so a literal backslash inside an unusual POSIX
-// filename is never misread as a path separator.
-func programBasename(argv0 string, shell ir.Shell) string {
-	if shell == ir.ShellCmd || shell == ir.ShellPwsh {
-		argv0 = strings.ReplaceAll(argv0, "\\", "/")
+// programNames returns the spellings of argv[0] a program pattern is tried
+// against: as written and its basename. Under cmd and pwsh both are lowercased
+// and lose a trailing .exe, because that is how Windows resolves a program
+// name; a backslash is a path separator there too. POSIX names are taken as
+// written — a literal backslash in a POSIX filename is not a separator.
+func programNames(argv0 string, shell ir.Shell) [2]string {
+	if shell != ir.ShellCmd && shell != ir.ShellPwsh {
+		return [2]string{argv0, path.Base(argv0)}
 	}
-	return path.Base(argv0)
+	norm := func(s string) string { return strings.TrimSuffix(strings.ToLower(s), ".exe") }
+	slashed := strings.ReplaceAll(argv0, `\`, "/")
+	return [2]string{norm(argv0), norm(path.Base(slashed))}
+}
+
+// programBasename returns the trailing path component of argv[0] as the
+// shell that runs it resolves a bare name (see programNames).
+func programBasename(argv0 string, shell ir.Shell) string {
+	return programNames(argv0, shell)[1]
 }
 
 // matchCommand reports whether a command pattern matches a command's argv,
-// using the command's shell to classify flags. See Match.Command for the full
-// model, including why the positional operator depends on strictPrefix.
+// using the command's shell to classify operands. See CommandMatch.Command.
 //
-//   - pattern[0] (the program) matches argv[0] exactly or by basename.
-//   - positional pattern tokens (non-options) must appear among the command's
-//     non-option arguments (operands), in order: as a position-anchored
-//     strict prefix when strictPrefix is true (allow rules), or as an ordered
-//     subsequence when false (deny rules, the permissive default).
-//   - option pattern tokens (flags) must each appear somewhere in args, in any
-//     order (with bundled short options expanded, e.g. -rf ⇒ -r, -f).
-func matchCommand(pattern, argv []string, shell ir.Shell, strictPrefix bool) bool {
+//   - pattern[0] (the program) matches argv[0] as written or by basename.
+//   - pattern[1:] are operand patterns, aligned against the command's operands
+//     per al.
+func matchCommand(pattern []Pattern, argv []string, shell ir.Shell, al Alignment) bool {
 	if len(pattern) == 0 || len(argv) == 0 {
 		return false
 	}
-	if argv[0] != pattern[0] && programBasename(argv[0], shell) != pattern[0] {
+	names := programNames(argv[0], shell)
+	if !pattern[0].MatchString(names[0]) && !pattern[0].MatchString(names[1]) {
 		return false
 	}
-	positionals, options := classifyArgs(pattern[1:], shell)
 	args := argv[1:]
-	expanded := expandShortClusters(args, shell)
-	for _, opt := range options {
-		if !slices.Contains(expanded, opt) {
-			return false
-		}
-	}
 	operands := classifyOperands(args, shell)
-	if strictPrefix {
-		return isPrefix(positionals, operands)
+	switch al {
+	case AlignExact:
+		return len(operands) == len(args) && len(operands) == len(pattern)-1 &&
+			alignPrefix(pattern[1:], operands)
+	case AlignPrefix:
+		return alignPrefix(pattern[1:], operands)
+	default:
+		return alignSubsequence(pattern[1:], operands)
 	}
-	return isSubsequence(positionals, operands)
-}
-
-// classifyArgs splits pattern tokens into positionals (operands) and options.
-func classifyArgs(toks []string, shell ir.Shell) (positionals, options []string) {
-	for _, tok := range toks {
-		if isOption(tok, shell) {
-			options = append(options, tok)
-		} else {
-			positionals = append(positionals, tok)
-		}
-	}
-	return positionals, options
 }
 
 // classifyOperands returns the non-option arguments, in order.
@@ -670,38 +593,32 @@ func classifyOperands(args []string, shell ir.Shell) []string {
 	return operands
 }
 
-// isSubsequence reports whether every element of sub appears in s in the same
-// order, with any other elements allowed in between. This is the DENY-rule
-// operand operator: permissive by design, so a value-taking option's value
-// among the operands cannot shift the real subcommand out of match position.
-// See Match.Command ("Allow vs. deny: matching discipline") for the full
-// model and why allow rules use the strict isPrefix operator instead.
-func isSubsequence(sub, s []string) bool {
+// alignSubsequence reports whether the patterns match elements of s in
+// order, with any other elements allowed in between. Greedy leftmost is
+// complete for per-element predicates: taking the earliest operand a pattern
+// matches never blocks a later pattern from matching. The DENY alignment.
+func alignSubsequence(pats []Pattern, s []string) bool {
 	i := 0
 	for _, w := range s {
-		if i == len(sub) {
+		if i == len(pats) {
 			break
 		}
-		if w == sub[i] {
+		if pats[i].MatchString(w) {
 			i++
 		}
 	}
-	return i == len(sub)
+	return i == len(pats)
 }
 
-// isPrefix reports whether sub matches, element for element, a leading run of
-// s starting at s[0] (a position-anchored strict prefix — not "sub appears as
-// a contiguous substring somewhere in s"). This is the ALLOW-rule operand
-// operator: an empty sub is vacuously a prefix of anything (a pattern with no
-// positionals, e.g. bare options/program only, imposes no positional
-// constraint). See Match.Command for why allow rules need this stricter
-// operator than deny's isSubsequence.
-func isPrefix(sub, s []string) bool {
-	if len(sub) > len(s) {
+// alignPrefix reports whether pattern i matches s[i] for every pattern,
+// starting at s[0] — a position-anchored prefix, not "somewhere in s". No
+// patterns is vacuously a prefix of anything. The ALLOW alignment.
+func alignPrefix(pats []Pattern, s []string) bool {
+	if len(pats) > len(s) {
 		return false
 	}
-	for i, w := range sub {
-		if s[i] != w {
+	for i, p := range pats {
+		if !p.MatchString(s[i]) {
 			return false
 		}
 	}
@@ -772,6 +689,9 @@ func isShortCluster(tok string, shell ir.Shell) bool {
 // rejected so that typos in a rule file surface as errors instead of being
 // silently ignored.
 func Parse(data []byte) (*Config, error) {
+	if err := checkRemovedForms(data); err != nil {
+		return nil, err
+	}
 	var cfg Config
 	if err := yamlx.DecodeStrict(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
@@ -811,16 +731,77 @@ func (c *Config) normalizeAndValidate() error {
 		return fmt.Errorf("defaults.on_parse_error: %w", err)
 	}
 	if c.Defaults.Shell != "" && !c.Defaults.Shell.Valid() {
-		return fmt.Errorf("defaults.shell: unknown shell %q", c.Defaults.Shell)
+		return fmt.Errorf("defaults.shell: %w %q", ErrInvalidShell, c.Defaults.Shell)
 	}
-	seen := make(map[string]bool, len(c.Rules))
+	seen := make(map[string]bool, c.RuleCount())
+	if err := c.validateCommandRules(seen); err != nil {
+		return err
+	}
+	return c.validatePathRules(seen)
+}
+
+// validateCommandRules validates each command rule, recording ids in seen.
+func (c *Config) validateCommandRules(seen map[string]bool) error {
 	for i := range c.Rules {
-		if err := validateRule(&c.Rules[i], i, seen); err != nil {
+		r := &c.Rules[i]
+		if err := validateRuleBase(&r.RuleBase, listCommand, i, seen, c.Defaults); err != nil {
 			return err
 		}
-		if err := validateConfirm(&c.Rules[i], c.Defaults); err != nil {
+		if fe := validateCommandMatch(r); fe != nil {
+			return &RuleError{List: listCommand, Index: i, RuleID: r.ID, Field: fe.field, Err: fe.err}
+		}
+	}
+	return nil
+}
+
+// validatePathRules validates each path rule, recording ids in seen.
+func (c *Config) validatePathRules(seen map[string]bool) error {
+	for i := range c.PathRules {
+		r := &c.PathRules[i]
+		if err := validateRuleBase(&r.RuleBase, listPath, i, seen, c.Defaults); err != nil {
 			return err
 		}
+		if len(r.Match.Path) == 0 {
+			return &RuleError{List: listPath, Index: i, RuleID: r.ID, Field: "match.path", Err: ErrNoConditions}
+		}
+		if err := validatePathPatterns(r.Match.Path); err != nil {
+			return &RuleError{List: listPath, Index: i, RuleID: r.ID, Field: "match.path", Err: err}
+		}
+	}
+	return nil
+}
+
+// fieldErr is a validation failure inside one rule, before it is placed.
+type fieldErr struct {
+	field string
+	err   error
+}
+
+// validateRuleBase checks the fields every rule kind shares and records the
+// id in seen (ids are unique across both lists). Ordered so nothing reports
+// against a rule whose id is not yet known to be usable in the message.
+func validateRuleBase(r *RuleBase, list string, index int, seen map[string]bool, d Defaults) error {
+	fail := func(field string, err error) error {
+		return &RuleError{List: list, Index: index, RuleID: r.ID, Field: field, Err: err}
+	}
+	if r.ID == "" {
+		return fail("id", ErrMissingID)
+	}
+	if seen[r.ID] {
+		return fail("id", ErrDuplicateID)
+	}
+	seen[r.ID] = true
+	if err := validAction(r.action()); err != nil {
+		return fail("action", err)
+	}
+	if err := validMode(r.mode()); err != nil {
+		return fail("mode", err)
+	}
+	if err := validateConfirm(r, d); err != nil {
+		return fail("mode", err)
+	}
+	if err := validateDenyIsExplained(r); err != nil {
+		return fail("message", err)
 	}
 	return nil
 }
@@ -833,81 +814,16 @@ func (c *Config) normalizeAndValidate() error {
 // left to mislead. A delay_seconds in turn must fit inside that window: positive
 // and strictly less than it (the repeat is honored only in the band
 // [delay, window] after the first denial). Non-confirm rules are unaffected.
-func validateConfirm(r *Rule, d Defaults) error {
+func validateConfirm(r *RuleBase, d Defaults) error {
 	if r.mode() != ModeConfirm {
 		return nil
 	}
 	repeatable, window, delay := r.confirmPolicy(d)
 	if !repeatable {
-		return fmt.Errorf("rule %q: mode confirm needs a window; set window_seconds or defaults.repeat_window_seconds", r.ID)
+		return ErrConfirmNeedsWindow
 	}
-	if delay <= 0 {
-		return nil
-	}
-	if delay >= window {
-		return fmt.Errorf("rule %q: delay_seconds (%d) must be less than the confirm window (%d)", r.ID, delay, window)
-	}
-	return nil
-}
-
-// validateRule checks one rule and records its id in seen. The three stages
-// are ordered: nothing downstream may report an error against a rule whose id
-// is not yet known to be usable in that message.
-func validateRule(r *Rule, index int, seen map[string]bool) error {
-	if err := validateRuleIdentity(r, index, seen); err != nil {
-		return err
-	}
-	if err := validateMatchShape(r); err != nil {
-		return err
-	}
-	return validateDenyIsExplained(r)
-}
-
-// validateRuleIdentity checks the fields that name a rule and select its
-// behaviour — id (present and unique), action, mode — and records the id.
-func validateRuleIdentity(r *Rule, index int, seen map[string]bool) error {
-	if r.ID == "" {
-		return fmt.Errorf("rule #%d: missing id", index)
-	}
-	if seen[r.ID] {
-		return fmt.Errorf("duplicate rule id %q", r.ID)
-	}
-	seen[r.ID] = true
-	if err := validAction(r.action()); err != nil {
-		return fmt.Errorf("rule %q: %w", r.ID, err)
-	}
-	if err := validMode(r.mode()); err != nil {
-		return fmt.Errorf("rule %q: %w", r.ID, err)
-	}
-	return nil
-}
-
-// validateMatchShape checks that the rule's match is a well-formed instance of
-// exactly one of the two kinds a Match can be — a command rule or a file-edit
-// (path) rule — and that each condition it does carry is usable.
-func validateMatchShape(r *Rule) error {
-	if !r.Match.hasConstraint() {
-		return fmt.Errorf("rule %q: match has no conditions", r.ID)
-	}
-	if r.Match.mixesCommandAndPath() {
-		return fmt.Errorf("rule %q: match.path cannot be combined with command/args/shells", r.ID)
-	}
-	if slices.Contains(r.Match.Command, "") {
-		return fmt.Errorf("rule %q: empty token in match.command", r.ID)
-	}
-	if r.Match.MinOperands < 0 {
-		return fmt.Errorf("rule %q: match.min_operands must not be negative", r.ID)
-	}
-	if r.Match.MinOperands > 0 && len(r.Match.Command) == 0 {
-		return fmt.Errorf("rule %q: match.min_operands needs match.command", r.ID)
-	}
-	if err := validatePathPatterns(r.Match.Path); err != nil {
-		return fmt.Errorf("rule %q: %w", r.ID, err)
-	}
-	for _, sh := range r.Match.Shells {
-		if !sh.Valid() {
-			return fmt.Errorf("rule %q: unknown shell %q in match.shells", r.ID, sh)
-		}
+	if delay > 0 && delay >= window {
+		return fmt.Errorf("%w: %d >= %d", ErrDelayNotBelowWindow, delay, window)
 	}
 	return nil
 }
@@ -921,10 +837,92 @@ func validateMatchShape(r *Rule) error {
 // actually deny are held to this: an allow rule explains nothing by design, and
 // a `mode: disable` rule never fires (enabling it is the loud moment, and this
 // check fires then).
-func validateDenyIsExplained(r *Rule) error {
+func validateDenyIsExplained(r *RuleBase) error {
 	if r.isEnabled() && r.action() == ActionDeny &&
 		strings.TrimSpace(r.Message) == "" && strings.TrimSpace(r.Suggest) == "" {
-		return fmt.Errorf("rule %q: a deny rule needs a message (or a suggest) — without one the agent is told %q with no reason and no alternative", r.ID, "deny")
+		return ErrDenyUnexplained
+	}
+	return nil
+}
+
+// validateCommandMatch checks a command rule's match: it has a condition, its
+// shells are known, its alignment suits its action, every pattern compiles,
+// operand patterns are not options, and an allow carries no position-blind
+// positive predicate.
+func validateCommandMatch(r *CommandRule) *fieldErr {
+	m := &r.Match
+	if !m.hasConstraint() {
+		return &fieldErr{"match", ErrNoConditions}
+	}
+	for _, sh := range m.Shells {
+		if !sh.Valid() {
+			return &fieldErr{"match.shells", fmt.Errorf("%w %q", ErrInvalidShell, sh)}
+		}
+	}
+	if fe := validateAlignment(r); fe != nil {
+		return fe
+	}
+	if fe := compilePatterns(m); fe != nil {
+		return fe
+	}
+	for i, p := range m.Command {
+		if i > 0 && p.leadsWithOption() {
+			return &fieldErr{fmt.Sprintf("match.command[%d]", i), fmt.Errorf("%w: %q", ErrOptionInCommand, p.src)}
+		}
+	}
+	return validateAllowIsPositional(r)
+}
+
+// validateAllowIsPositional refuses args_any/args_all on an allow rule: a
+// position-blind positive predicate widens what the allow clears.
+func validateAllowIsPositional(r *CommandRule) *fieldErr {
+	switch {
+	case r.action() != ActionAllow:
+		return nil
+	case len(r.Match.ArgsAny) > 0:
+		return &fieldErr{"match.args_any", ErrArgsOnAllow}
+	case len(r.Match.ArgsAll) > 0:
+		return &fieldErr{"match.args_all", ErrArgsOnAllow}
+	}
+	return nil
+}
+
+// validateAlignment checks match.align against the rule's action: an allow
+// takes prefix or exact, a deny subsequence only (see CommandMatch.Command).
+func validateAlignment(r *CommandRule) *fieldErr {
+	al := r.Match.Align
+	if al == "" {
+		return nil
+	}
+	if al != AlignPrefix && al != AlignExact && al != AlignSubsequence {
+		return &fieldErr{"match.align", fmt.Errorf("%w: %q", ErrInvalidAlignment, al)}
+	}
+	if len(r.Match.Command) == 0 {
+		return &fieldErr{"match.align", ErrAlignmentNeedsCommand}
+	}
+	if (r.action() == ActionAllow) == (al == AlignSubsequence) {
+		return &fieldErr{"match.align", fmt.Errorf("%w: %s on %s", ErrAlignmentForAction, al, r.action())}
+	}
+	return nil
+}
+
+// compilePatterns compiles every pattern of m in place, naming the first that
+// fails by field and index.
+func compilePatterns(m *CommandMatch) *fieldErr {
+	for _, f := range []struct {
+		name string
+		pats []Pattern
+	}{
+		{"match.command", m.Command},
+		{"match.args_any", m.ArgsAny},
+		{"match.args_all", m.ArgsAll},
+		{"match.unless", m.Unless},
+	} {
+		for i := range f.pats {
+			if err := f.pats[i].compile(); err != nil {
+				return &fieldErr{fmt.Sprintf("%s[%d]", f.name, i), err}
+			}
+		}
 	}
 	return nil
 }
@@ -935,10 +933,10 @@ func validateDenyIsExplained(r *Rule) error {
 func validatePathPatterns(patterns []string) error {
 	for _, pat := range patterns {
 		if pat == "" {
-			return fmt.Errorf("empty pattern in match.path")
+			return ErrEmptyPattern
 		}
 		if pat != submodulesToken && !doublestar.ValidatePattern(strings.TrimRight(pat, "/")) {
-			return fmt.Errorf("invalid glob in match.path: %q", pat)
+			return fmt.Errorf("%w: %q", ErrInvalidGlob, pat)
 		}
 	}
 	return nil
@@ -949,7 +947,7 @@ func validAction(a Action) error {
 	case ActionAllow, ActionDeny:
 		return nil
 	default:
-		return fmt.Errorf("invalid action %q (want allow or deny)", a)
+		return fmt.Errorf("%w: %q", ErrInvalidAction, a)
 	}
 }
 
@@ -958,6 +956,6 @@ func validMode(m Mode) error {
 	case ModeEnable, ModeConfirm, ModeDisable:
 		return nil
 	default:
-		return fmt.Errorf("invalid mode %q (want enable, confirm, or disable)", m)
+		return fmt.Errorf("%w: %q", ErrInvalidMode, m)
 	}
 }

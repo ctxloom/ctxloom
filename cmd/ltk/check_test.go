@@ -35,7 +35,7 @@ func TestRunCheck(t *testing.T) {
 	cfg := `version: 1
 rules:
   - id: no-force-push
-    match: { command: [git, push, --force] }
+    match: { command: [git, push], args_all: [--force] }
     message: "no force pushes"
     suggest: "git push --force-with-lease"
 `
@@ -149,7 +149,7 @@ rules:
 	t.Run("unresolvable @submodules errors (loud, unlike the hook)", func(t *testing.T) {
 		dir := t.TempDir()
 		subCfg := filepath.Join(dir, "rules.yaml")
-		if err := os.WriteFile(subCfg, []byte("version: 1\nrules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"), 0o644); err != nil {
+		if err := os.WriteFile(subCfg, []byte("version: 1\npath_rules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		// .gitmodules exists but is a directory: unreadable, which

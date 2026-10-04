@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/app"
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
@@ -51,16 +53,48 @@ func (w *world) projectRedirects(table *godog.Table) error {
 		command := strings.TrimSpace(row.Cells[0].Value)
 		instead := strings.TrimSpace(row.Cells[1].Value)
 		because := strings.TrimSpace(row.Cells[2].Value)
-		w.cfg.Rules = append(w.cfg.Rules, rules.Rule{
-			ID:      command,
-			Match:   rules.Match{Command: rules.CommandPattern(strings.Fields(command))},
-			Message: because,
-			Suggest: instead,
-			Mode:    rules.ModeConfirm,
-		})
+		r, err := commandRule(command, command, because, instead, rules.ModeConfirm)
+		if err != nil {
+			return err
+		}
+		w.cfg.Rules = append(w.cfg.Rules, r)
 	}
 	w.app = app.New(w.cfg, app.Shells{})
 	return nil
+}
+
+// commandRule builds the command rule a scenario's command text describes: its
+// operands become match.command and its options match.args_all, each quoted so
+// the text matches literally. It goes through rules.Parse because that is the
+// only constructor of a compiled pattern.
+func commandRule(id, command, message, suggest string, mode rules.Mode) (rules.CommandRule, error) {
+	var operands, options []string
+	for i, tok := range strings.Fields(command) {
+		if i > 0 && strings.HasPrefix(tok, "-") {
+			options = append(options, regexp.QuoteMeta(tok))
+		} else {
+			operands = append(operands, regexp.QuoteMeta(tok))
+		}
+	}
+	match := map[string][]string{"command": operands}
+	if len(options) > 0 {
+		match["args_all"] = options
+	}
+	doc, err := yaml.Marshal(map[string]any{
+		"version":  1,
+		"defaults": map[string]int{"repeat_window_seconds": int(confirmWindow.Seconds())},
+		"rules": []map[string]any{{
+			"id": id, "match": match, "message": message, "suggest": suggest, "mode": string(mode),
+		}},
+	})
+	if err != nil {
+		return rules.CommandRule{}, err
+	}
+	cfg, err := rules.Parse(doc)
+	if err != nil {
+		return rules.CommandRule{}, fmt.Errorf("rule for %q: %w", command, err)
+	}
+	return cfg.Rules[0], nil
 }
 
 // markInviolate adds a rule for command in mode: enable (the default) — a firm
@@ -69,12 +103,11 @@ func (w *world) markInviolate(command string) error {
 	if w.cfg == nil {
 		return fmt.Errorf("no project configured (missing Background)")
 	}
-	w.cfg.Rules = append(w.cfg.Rules, rules.Rule{
-		ID:      "inviolate: " + command,
-		Match:   rules.Match{Command: rules.CommandPattern(strings.Fields(command))},
-		Message: "this command is never allowed through ltk",
-		Mode:    rules.ModeEnable,
-	})
+	r, err := commandRule("inviolate: "+command, command, "this command is never allowed through ltk", "", rules.ModeEnable)
+	if err != nil {
+		return err
+	}
+	w.cfg.Rules = append(w.cfg.Rules, r)
 	w.app = app.New(w.cfg, app.Shells{})
 	return nil
 }

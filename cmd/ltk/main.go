@@ -6,7 +6,7 @@
 //
 // The hook gates two kinds of agent action: shell commands (Bash/PowerShell
 // tools, matched by command rules) and file edits (Edit/Write/MultiEdit/
-// NotebookEdit tools, matched by `match.path` rules). See https://ctxloom.dev/ltk/rules/.
+// NotebookEdit tools, matched by `path_rules`). See https://ctxloom.dev/ltk/rules/.
 package main
 
 import (
@@ -37,12 +37,13 @@ func newRootCmd() *cobra.Command {
 		Short: "Gate an LLM agent's shell commands and file edits via a pre-tool hook",
 		Long: `ltk is a pre-tool hook for LLM coding agents. It gates two kinds of action:
 
-  • shell commands (Bash/PowerShell tools) — matched by command rules, which
-    parse the command and match program/args across shells.
+  • shell commands (Bash/PowerShell tools) — matched by command rules
+    (rules:), which parse the command and match each argument against an
+    anchored regular expression, across shells.
   • file edits (Edit/Write/MultiEdit/NotebookEdit tools) — matched by file
-    rules (match.path), which match the target file path against globs.
+    rules (path_rules:), which match the target file path against globs.
 
-File (match.path) rules use full globs (*, ?, [..], {a,b}, and ** which spans
+File rules use full globs (*, ?, [..], {a,b}, and ** which spans
 directories). A trailing slash means a whole directory subtree (vendor/ blocks
 everything under vendor). The special pattern "@submodules" expands to every
 path in .gitmodules, so one rule blocks edits inside all git submodules.

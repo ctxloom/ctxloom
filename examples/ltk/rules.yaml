@@ -18,15 +18,16 @@ rules:
     message: "Don't run `go test` directly — `just test` sets up the test environment (fixtures, env vars, build tags)."
     suggest: "just test"
 
-  # string form is shell-split: matches `go build …`
+  # each element is an anchored regex: [go, build] matches `go build …`,
+  # never `go builds` or `gox build`
   - id: go-build-to-just
-    match: { command: "go build" }
+    match: { command: [go, build] }
     message: "Use `just build` so artifacts land in the expected place with the right flags."
     suggest: "just build"
 
-  # bare command + a refinement: any `docker` whose args include build/buildx
+  # program + a refinement: any `docker` with a build or buildx argument
   - id: raw-docker-build
-    match: { command: docker, args_any: [build, buildx] }
+    match: { command: [docker], args_any: ['build|buildx'] }
     message: "Image builds go through CI, not local `docker build`."
 
   - id: npm-install-use-pnpm
@@ -34,7 +35,7 @@ rules:
     message: "This repo uses pnpm."
     suggest: "pnpm install"
 
-  # command + flag: matches shell wrappers like `sh -c "…"`
+  # program + option: options go in args_all/args_any, never in command
   - id: no-shell-wrapper
-    match: { command: "sh -c" }
+    match: { command: [sh], args_all: ['-c'] }
     message: "Don't wrap commands in `sh -c` — run them directly so they can be checked."

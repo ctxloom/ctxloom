@@ -45,8 +45,8 @@ func TestAssembleRejectsNoBlocks(t *testing.T) {
 func TestAssembleRejectsInvalidRuleSet(t *testing.T) {
 	// A block that parses as YAML but violates the rule schema (duplicate id).
 	md := []byte("```yaml\nversion: 1\nrules:\n```\n" +
-		"```yaml\n  - id: dup\n    match: { command: a }\n```\n" +
-		"```yaml\n  - id: dup\n    match: { command: b }\n```\n")
+		"```yaml\n  - id: dup\n    match: { command: [a] }\n```\n" +
+		"```yaml\n  - id: dup\n    match: { command: [b] }\n```\n")
 	if _, err := assemble(md, 1); err == nil {
 		t.Error("expected assemble to reject a rule set that fails validation")
 	}

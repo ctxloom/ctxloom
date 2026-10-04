@@ -110,7 +110,7 @@ func TestBackgroundedAloneIsAValidConstraint(t *testing.T) {
 func TestBackgroundedCannotCombineWithPath(t *testing.T) {
 	_, err := Parse([]byte(`
 version: 1
-rules:
+path_rules:
   - id: bad
     match: { path: ["VERSION"], backgrounded: true }
     message: m

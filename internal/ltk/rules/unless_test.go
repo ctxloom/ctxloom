@@ -10,11 +10,7 @@ import (
 // when NONE of the listed tokens are present. e.g. block `git tag` but not the
 // read-only `git tag --list`.
 func TestUnlessExceptions(t *testing.T) {
-	cfg := &Config{Rules: []Rule{{
-		ID:      "no-git-tag",
-		Match:   Match{Command: CommandPattern{"git", "tag"}, Unless: []string{"--list", "-l", "-n"}},
-		Message: "releases go through the pipeline",
-	}}}
+	cfg := mustParse(t, denyRule(`{ command: [git, tag], unless: ['--list', '-l', '-n'] }`))
 
 	deny := [][]string{
 		{"git", "tag", "v1.2.3"}, // creating a tag → denied
@@ -40,11 +36,7 @@ func TestUnlessExceptions(t *testing.T) {
 
 // `unless` is checked against args with bundled short flags expanded.
 func TestUnlessWithBundledFlags(t *testing.T) {
-	cfg := &Config{Rules: []Rule{{
-		ID:      "rm-recursive",
-		Match:   Match{Command: CommandPattern{"rm", "-r"}, Unless: []string{"-i"}},
-		Message: "no recursive delete",
-	}}}
+	cfg := mustParse(t, denyRule(`{ command: [rm], args_all: ['-r'], unless: ['-i'] }`))
 	// `rm -ri` bundles -r and -i; the -i exception must fire even though it's
 	// clustered with -r.
 	if !Evaluate(cfg, cmd(ir.ShellBash, "rm", "-ri", "dir")).Allowed {
@@ -63,7 +55,7 @@ func TestUnlessWithBundledFlags(t *testing.T) {
 //
 // `git clean -fdx -e --dry-run` — real git's `-e` takes an exclude PATTERN
 // argument, so `-e --dry-run` means "exclude files named --dry-run"; this is
-// NOT a dry run, it deletes for real. But `unless: ["-n", "--dry-run"]` sees
+// NOT a dry run, it deletes for real. But `unless: ['-n|--dry-run']` sees
 // `--dry-run` present in argv and exempts it anyway. This is the exact
 // shipped shape of the `no-git-clean` default rule (see DEFAULTS.md) — the
 // bug is real against ltk's own defaults, not a contrived example.
@@ -77,14 +69,7 @@ func TestUnlessWithBundledFlags(t *testing.T) {
 // is matched position-blind), since confirm requires a deliberate
 // repeat rather than trusting an exception token found anywhere in argv.
 func TestUnlessIsPositionBlindToOptionArguments(t *testing.T) {
-	cfg := &Config{Rules: []Rule{{
-		ID: "no-git-clean",
-		Match: Match{
-			Command: CommandPattern{"git", "clean"},
-			Unless:  []string{"-n", "--dry-run"},
-		},
-		Message: "git clean deletes untracked files for good",
-	}}}
+	cfg := mustParse(t, denyRule(`{ command: [git, clean], unless: ['-n|--dry-run'] }`))
 
 	// KNOWN-WRONG: -e's argument value ("--dry-run") satisfies the unless
 	// exception, even though this invocation deletes for real. Documented,
@@ -116,7 +101,8 @@ func TestUnlessParsesAndCountsAsConstraint(t *testing.T) {
 	}
 }
 
-// `unless_arg_contains` carves out an exception by SHAPE rather than by token.
+// `unless` carves out an exception by SHAPE as well as by token, because each
+// pattern is a regex over the whole element.
 //
 // The case: `go install <module>@<version>` installs a THIRD-PARTY tool, which
 // by Go's own rules is a build of something other than this module, while a
@@ -126,17 +112,15 @@ func TestUnlessParsesAndCountsAsConstraint(t *testing.T) {
 //
 // Both directions are asserted, and that pairing is the point: an exemption
 // tested alone is satisfied just as well by a rule that stopped matching
-// anything at all.
-func TestUnlessArgContainsExemptsAShape(t *testing.T) {
-	cfg := &Config{Rules: []Rule{{
-		ID:      "install-via-just",
-		Match:   Match{Command: CommandPattern{"go", "install"}, UnlessArgContains: []string{"@"}},
-		Message: "Install through the task runner",
-	}}}
+// anything at all. The deep module path pins that, unlike a path.Match glob,
+// the pattern spans `/`.
+func TestUnlessExemptsAShape(t *testing.T) {
+	cfg := mustParse(t, denyRule(`{ command: [go, install], unless: ['.+@.+'] }`))
 
 	allow := [][]string{
-		{"go", "install", "golang.org/x/tools/gopls@v0.23.0"}, // versioned module
-		{"go", "install", "golang.org/x/tools/gopls@latest"},  // and its floating form
+		{"go", "install", "golang.org/x/tools/gopls@v0.23.0"},         // versioned module
+		{"go", "install", "golang.org/x/tools/gopls@latest"},          // and its floating form
+		{"go", "install", "example.com/deep/nested/path/tool@v1.2.3"}, // `/` is irrelevant
 	}
 	for _, argv := range allow {
 		if !Evaluate(cfg, cmd(ir.ShellBash, argv...)).Allowed {
@@ -147,26 +131,11 @@ func TestUnlessArgContainsExemptsAShape(t *testing.T) {
 	deny := [][]string{
 		{"go", "install", "./cmd/ctxloom"}, // this module, by path
 		{"go", "install"},                  // and bare
+		{"go", "install", "@v1"},           // no module before the @
 	}
 	for _, argv := range deny {
 		if Evaluate(cfg, cmd(ir.ShellBash, argv...)).Allowed {
 			t.Errorf("%v should still be denied; the exemption must not disable the rule", argv)
 		}
-	}
-}
-
-// A glob cannot express the case above, which is why the field matches a
-// substring: Go's path.Match stops `*` at `/`, so no pattern spans a module
-// path like golang.org/x/tools/gopls@v1. Pinned so nobody "simplifies" the
-// field into a glob and silently stops exempting anything.
-func TestUnlessArgContainsIsNotAGlob(t *testing.T) {
-	cfg := &Config{Rules: []Rule{{
-		ID:      "install-via-just",
-		Match:   Match{Command: CommandPattern{"go", "install"}, UnlessArgContains: []string{"@"}},
-		Message: "Install through the task runner",
-	}}}
-	argv := []string{"go", "install", "example.com/deep/nested/path/tool@v1.2.3"}
-	if !Evaluate(cfg, cmd(ir.ShellBash, argv...)).Allowed {
-		t.Errorf("%v should be allowed: the match is a substring, so path separators are irrelevant", argv)
 	}
 }

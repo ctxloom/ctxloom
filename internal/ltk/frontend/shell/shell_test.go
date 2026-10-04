@@ -118,7 +118,7 @@ func TestBackgroundAndSequence(t *testing.T) {
 	if got := programs(s); !reflect.DeepEqual(got, []string{"go", "echo"}) {
 		t.Errorf("programs = %v, want [go echo]", got)
 	}
-	// SimpleCommand.Background (re-added for rules.Match.Backgrounded, see
+	// SimpleCommand.Background (re-added for rules.CommandMatch.Backgrounded, see
 	// ir.SimpleCommand's doc) marks only the backgrounded statement's own
 	// command: `go test` was launched with a trailing `&` and detaches from
 	// the caller; `echo done` runs afterward in the foreground, ordinarily.

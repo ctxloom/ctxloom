@@ -13,6 +13,10 @@ Each rule below is a YAML chunk followed by **why it's a default**. Every defaul
 is a *cooperative nudge* — it turns a command away and points at the safer path;
 it is not a security boundary (for hard isolation, run the agent in a container).
 
+Command fields (`command`, `args_any`, `args_all`, `unless`) are RE2 regexes,
+each matched against one whole argument, and are written single-quoted;
+`match.path` is a glob. See [Matching commands](https://ctxloom.dev/ltk/rules/#matching-commands).
+
 Rules use `mode` (default `enable`, a firm denial). Workflow redirects ship as
 `mode: confirm` — you can still run the raw command by repeating it after the
 delay and within the window — while the destructive-action guards stay firm
@@ -62,7 +66,7 @@ irreversibly throws away uncommitted changes. Stash or commit first.
 
 ```yaml
   - id: no-reset-hard
-    match: { command: [git, reset, --hard] }
+    match: { command: [git, reset], args_all: ['--hard'] }
     message: "`git reset --hard` discards uncommitted work irreversibly. Stash or commit first."
     suggest: "git stash --include-untracked"
 ```
@@ -75,7 +79,7 @@ only preview, so they're exempt.
   - id: no-git-clean
     match:
       command: [git, clean]
-      unless: ["-n", "--dry-run"]
+      unless: ['-n|--dry-run']
     message: "`git clean` deletes untracked files for good. Preview with `-n`, or stash."
     suggest: "git stash --include-untracked"
 ```
@@ -84,17 +88,19 @@ only preview, so they're exempt.
 
 Agents habitually add `--no-verify` to slip past a failing pre-commit/pre-push
 hook instead of fixing what it caught — the most common way guardrails get
-quietly defeated.
+quietly defeated. For `git commit`, `-n` is the short spelling of
+`--no-verify`; for `git push` it means `--dry-run`, so only the commit rule
+lists it.
 
 ```yaml
   - id: no-skip-commit-hooks
-    match: { command: [git, commit, --no-verify] }
+    match: { command: [git, commit], args_any: ['--no-verify|-n'] }
     message: "Don't bypass commit hooks with --no-verify — fix what the hook flags, then commit."
 ```
 
 ```yaml
   - id: no-skip-push-hooks
-    match: { command: [git, push, --no-verify] }
+    match: { command: [git, push], args_all: ['--no-verify'] }
     message: "Don't bypass push hooks with --no-verify — fix the failure, then push."
 ```
 
@@ -110,36 +116,78 @@ against a program with short aliases, not something specific to `git`.
 
 ```yaml
   - id: no-force-push
-    match: { command: [git, push], args_any: ["--force", "-f"] }
+    match: { command: [git, push], args_any: ['--force|-f'] }
     message: "A plain force-push can overwrite a teammate's commits."
     suggest: "git push --force-with-lease"
+```
+
+A refspec with a leading `+` (`git push origin +main`) force-updates that ref
+with no flag at all, so it is a rule of its own, matched on the operand.
+
+```yaml
+  - id: no-force-push-refspec
+    match: { command: [git, push, '\+.+'] }
+    message: "A `+refspec` push force-updates the ref and can overwrite a teammate's commits."
+    suggest: "git push --force-with-lease <remote> <ref>"
 ```
 
 ## Keep commits scoped
 
 `git add -A` / `git add .` sweeps in files the task never touched (and can stage
-deletions), so the default is to stage in-scope paths explicitly. But blanket
+deletions), so the default is to stage in-scope paths explicitly. The dot is
+escaped: an unescaped `.` is a regex wildcard and would match every
+one-character path. But blanket
 staging is genuinely the right call when a change spans a large file set — so
 this ships as `mode: confirm`: it nudges once, and repeating the command stages
 everything.
 
 ```yaml
   - id: stage-explicitly
-    match: { command: [git, add], args_any: ["-A", "--all", "."] }
+    match: { command: [git, add], args_any: ['-A|--all|\.'] }
     mode: confirm
     message: "Prefer staging the paths this change actually touches. If the change really does span many files, run the same command again to stage them all."
     suggest: "git add <path> [<path> …]"
+```
+
+## Keep the git identity
+
+The agent should commit as you, with an identity configured once outside the
+session — not rewrite `user.name`/`user.email` per command. Reading the
+identity is fine: the write differs from the read only by the value after the
+key, so the rule's trailing `'.*'` operand requires that value to exist (empty
+included). Because it is positional, a value-option ahead of the subcommand
+(`git -c k=v config user.name`) does not count as one. Git config keys are
+case-insensitive, hence `(?i)`. The `unless` list still exempts `--get` with a
+value-pattern, which has the write's shape.
+
+```yaml
+  - id: no-rewrite-git-identity
+    match:
+      command: [git, config, '(?i)user\.(name|email)', '.*']
+      unless: ['--get(-all|-regexp)?|--list|-l|--show-origin']
+    message: "Don't change the git identity from inside the agent; set it once in your own global config."
+```
+
+Unsetting writes with no value, so it is keyed on the unset spelling instead:
+`--unset`, `--unset-all`, or the `git config unset` subcommand.
+
+```yaml
+  - id: no-unset-git-identity
+    match:
+      command: [git, config]
+      args_all: ['(?i)user\.(name|email)', '--unset(-all)?|unset']
+    message: "Don't change the git identity from inside the agent; set it once in your own global config."
 ```
 
 ## Destructive shell and privilege
 
 A recursive force-delete with a typo'd path is catastrophic and irreversible.
 `-rf`, `-fr`, and `-r -f` are all caught (bundled short options are split for
-matching under POSIX shells).
+matching under POSIX shells), as are `-R` and the long spellings.
 
 ```yaml
   - id: rm-rf-careful
-    match: { command: rm, args_all: ["-r", "-f"] }
+    match: { command: [rm], args_all: ['-r|-R|--recursive', '-f|--force'] }
     message: "Double-check the path before a recursive force-delete; delete specific paths, not trees, when you can."
 ```
 
@@ -147,7 +195,7 @@ An unattended agent loop has no business escalating privileges.
 
 ```yaml
   - id: no-sudo
-    match: { command: sudo }
+    match: { command: [sudo] }
     message: "Don't escalate privileges from inside the agent — ask a human to run anything that needs sudo."
 ```
 
@@ -156,13 +204,13 @@ the wrong PID, your editor, or a sibling agent. Target a specific PID instead.
 
 ```yaml
   - id: no-pkill
-    match: { command: pkill }
+    match: { command: [pkill] }
     message: "Avoid pkill by name (wrong-PID risk) — find the specific PID and `kill` it."
 ```
 
 ```yaml
   - id: no-killall
-    match: { command: killall }
+    match: { command: [killall] }
     message: "Avoid killall by name (wrong-PID risk) — find the specific PID and `kill` it."
 ```
 
@@ -172,31 +220,24 @@ the wrong PID, your editor, or a sibling agent. Target a specific PID instead.
 skimming the transcript nor ltk's wrapper expansion can see what it actually
 runs — it is the classic way a denied command slips past inspection. There is
 no agent workflow that needs it: the same command passed plainly via
-`-Command` works and stays inspectable. Both rules ship firm (`enable`).
-The `args_any` list covers the documented aliases (`-e`, `-ec`, `-enc`) and the
-common casings (argument matching is literal).
+`-Command` works and stays inspectable. Ships firm (`enable`). PowerShell
+parameter names are case-insensitive and accept any unambiguous prefix, so the
+pattern is `(?i)` and takes every `-en…` spelling plus the `-e`/`-ec` aliases.
+The program is matched lowercased and without `.exe` (how Windows resolves it),
+so one rule covers `pwsh`, `powershell` and `PowerShell.exe`.
 
 ```yaml
-  - id: no-encoded-command-pwsh
+  - id: no-encoded-command
     match:
-      command: [pwsh]
-      args_any: ["-EncodedCommand", "-encodedcommand", "-e", "-ec", "-enc"]
+      command: ['pwsh|powershell']
+      args_any: ['(?i)-(e|ec|en[a-z]*)']
     message: "Encoded commands can't be inspected. Pass the script in plain text instead."
     suggest: "pwsh -Command '<the same script, unencoded>'"
 ```
 
-```yaml
-  - id: no-encoded-command-powershell
-    match:
-      command: [powershell]
-      args_any: ["-EncodedCommand", "-encodedcommand", "-e", "-ec", "-enc"]
-    message: "Encoded commands can't be inspected. Pass the script in plain text instead."
-    suggest: "powershell -Command '<the same script, unencoded>'"
-```
-
 ## Don't disturb pinned git submodules
 
-These are **file-edit** rules (`match.path`), not command rules — they gate the
+These are **file-edit** rules, listed under `path_rules`, not command rules — they gate the
 agent's Edit/Write/MultiEdit/NotebookEdit tools. A submodule's working tree is a
 separate repo pinned at a commit; editing its files from the superproject is
 almost always a mistake (the change isn't committed where the agent expects and
@@ -209,6 +250,7 @@ there is no "override and edit it from here" that's correct. Make the edit in th
 submodule and commit it there.
 
 ```yaml
+path_rules:
   - id: no-edit-submodules
     match: { path: ["@submodules"] }
     message: "This file is inside a git submodule (a pinned, separate repo). Edit it in that submodule's own repo and commit there — never from the superproject. This is firm; there is no override."

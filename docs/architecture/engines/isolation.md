@@ -693,6 +693,7 @@ image another is between building and running.
 16. **Worktree teardown leaks rather than destroys** — `force=false`, unknown-dirty treated as dirty, and a WIP-bearing orphan is SPARED (`teardownWorktree`, `worktree_reap.go`).
 17. **`WorktreeVerdict`'s unhandled/unclassified case funnels to `VerdictSkipped` (never touch)** — the `default:` case in `ReapOrphanedWorktrees`'s tally.
 18. **Session state names are path-validated** before becoming host paths (`safePathSegment`).
+19. **Every environment shares the host's filesystem** — the host in place, a container by bind mount. `launch.Placement`'s `Paths` are the host and engine views of the SAME files: delivery writes the host side and relies on the engine seeing it there. An environment with no shared filesystem (an ssh host, a pod, a VM that would need a sync) is out of scope by ruling, not an unbuilt case: launch (`isolation.Environment`'s `Start`/`Interactive`), reach (`Listen`) and credentials-as-data would carry over to one, but this file contract would not.
 
 ## Divergences from documented or implied behavior
 

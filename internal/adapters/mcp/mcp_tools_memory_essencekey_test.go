@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,11 +57,14 @@ func (f *fixedSource) CurrentSession(context.Context) (*agent.Session, error) {
 // it and the staleness stamp is computed from the real transcript.
 func fixedCompactor(sessionID, body string) func(memory.CompactionConfig) (*memory.Compactor, error) {
 	return func(cfg memory.CompactionConfig) (*memory.Compactor, error) {
+		// The reply is long enough to clear the compactor's distillation floor
+		// (memory.minDistillTokens): below it the transcript is saved verbatim
+		// and the canned distiller never runs.
 		src := &fixedSource{session: &agent.Session{
 			ID: sessionID,
 			Entries: []agent.SessionEntry{
 				{Type: agent.EntryTypeUser, Content: "where did the essence go"},
-				{Type: agent.EntryTypeAssistant, Content: "written under one key, read under another"},
+				{Type: agent.EntryTypeAssistant, Content: strings.Repeat("written under one key, read under another. ", 64)},
 			},
 		}}
 		return memory.NewCompactor(afero.NewOsFs(), memory.CompactionConfig{

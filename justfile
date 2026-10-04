@@ -1282,6 +1282,10 @@ test-mutation-install:
     go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 
 # Run mutation tests in container
+# The checkout is NOT mounted: tests/mutation/mutation_source.sh streams the
+# module's source in on stdin and it is unpacked into the container's own
+# layer, so nothing the run writes can reach the working tree, however the run
+# ends (see that script for why).
 # The container path carries the same TMPDIR hazard as the host recipes: gremlins
 # copies the module per worker, so its scratch space must be a bind-mounted disk
 # dir, never the container's default (which is backed by the host's /tmp). The
@@ -1289,6 +1293,7 @@ test-mutation-install:
 # so a container run and a host run mutate identically.
 test-mutation-container: _mutation-prereqs
     #!/usr/bin/env bash
+    set -euo pipefail
     # See _run for why --user is skipped under rootless docker.
     user_flag=(--user "$(id -u):$(id -g)")
     if docker info 2>/dev/null | grep -q "rootless"; then
@@ -1296,12 +1301,14 @@ test-mutation-container: _mutation-prereqs
     fi
     # The run's own temp dir is the mount: mutation_tmp.sh exports it as
     # TMPDIR to the command, so it is read inside the command, not here.
-    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" bash -c '
-        exec docker run --rm "$@" \
-            -v "{{TOP}}:/app" \
+    # /tmp/work, not a -w dir: docker creates a missing workdir as root, and
+    # the image runs as an unprivileged user.
+    bash tests/mutation/mutation_source.sh | bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" bash -c '
+        exec docker run --rm -i "$@" \
             -v "$TMPDIR:/mutation-tmp" \
             -e TMPDIR=/mutation-tmp \
-            -w /app gogremlins/gremlins:v0.6.0 gremlins unleash
+            gogremlins/gremlins:v0.6.0 \
+            bash -c "mkdir /tmp/work && tar -C /tmp/work -xf - && cd /tmp/work && exec gremlins unleash"
     ' _ "${user_flag[@]}"
 
 # Mutate one source file per target and drive the CUCUMBER acceptance suite

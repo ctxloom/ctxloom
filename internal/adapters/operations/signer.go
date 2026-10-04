@@ -38,7 +38,7 @@ var SignerNamespaceAliases = map[string]string{
 // ResolveSignerNamespaces expands a list of short aliases ("publish",
 // "approve", "reject") or already-full namespace strings into the full
 // spec namespace strings `allowed_signers` stores. An empty input defaults
-// to []string{NamespacePublish} — signer add's documented default.
+// to []string{NamespacePublish} — signer trust's documented default.
 func ResolveSignerNamespaces(aliases []string) ([]string, error) {
 	if len(aliases) == 0 {
 		return []string{signing.NamespacePublish}, nil
@@ -70,7 +70,7 @@ type SignerKeyInfo struct {
 	Comment     string        `json:"comment"` // from the key file/literal, if any — advisory only
 }
 
-// ResolveSignerKey reads and parses a public key for `signer add`. keyArg is
+// ResolveSignerKey reads and parses a public key for `signer trust`. keyArg is
 // a literal "ssh-<type> AAAA..." authorized-keys line, "-" for stdin, or a
 // path to a file containing one. ctxloom only ever reads PUBLIC key
 // material here — there is no path in this function that can return a
@@ -191,7 +191,7 @@ type AddSignerResult struct {
 
 // AddSigner appends one allowed_signers entry, creating the file (and its
 // parent directory) if needed. It performs no confirmation prompt — that is
-// the CLI's job (signer add is the single most dangerous command in this
+// the CLI's job (signer trust is the single most dangerous command in this
 // feature and the confirmation must show the fingerprint BEFORE this
 // function is ever called, spec §7.2).
 func AddSigner(cfg *config.Config, req AddSignerRequest) (*AddSignerResult, error) {

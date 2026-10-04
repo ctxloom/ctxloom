@@ -795,7 +795,7 @@ func HomeAllowedSignersPath() (string, error) {
 // the configload trust root (signerFiles.trustStore) subtracts any embedded entry matching a
 // line in this file before unioning the trust root. It never edits
 // allowed_signers itself, and it can never remove a key that isn't ctxloom's
-// own compiled-in one — `signer remove` only writes here when the principal
+// own compiled-in one — `signer untrust` only writes here when the principal
 // named matches an embedded entry (see operations.RemoveSigner).
 func DistrustedSignersPath(appPath string) string {
 	return filepath.Join(appPath, DistrustedSignersFileName)

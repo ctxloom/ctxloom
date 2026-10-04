@@ -37,7 +37,7 @@ The planned-not-implemented set, in full, as of 2026-07-13:
 |---|---|---|
 | §4.4, §7A.6 | Org drop-in channel: a signed `(x.yaml, x.yaml.sig)` pair dropped into a directory ctxloom reads is verified | **No filesystem load path verifies a `.sig`.** Verification is wired for the remote-git seed and the companion loadout only. A local pair is treated as first-party (allowed unverified); a dropped-in one gets no signer. |
 | §6 | Three keys, three pipelines (release / bundle / per-companion) | **One key.** `internal/core/config/embedded_signers.allowed_signers` ships a single publish key, which signs both the ctxloom-default bundles and both companion loadouts. `.goreleaser.yml` has **no `signs:` block** — release artifacts are unsigned. |
-| §7 | The embedded defaults are removable (`signer remove` writes a negative entry) | **Not removable.** The embedded trust root is compiled in and unconditionally unioned (`config.TrustRoot`). `operations.RemoveSigner` rewrites only the user/project *file*; there is no negative-entry mechanism, so ctxloom's own key cannot be untrusted. |
+| §7 | The embedded defaults are removable (`signer untrust` writes a negative entry) | **Not removable.** The embedded trust root is compiled in and unconditionally unioned (`config.TrustRoot`). `operations.RemoveSigner` rewrites only the user/project *file*; there is no negative-entry mechanism, so ctxloom's own key cannot be untrusted. |
 | §7A.4 | `--key` / `sign.key` honored on `review` | **Honored by `sign`, not by `review`.** `resolveReviewSigner` passes an empty explicit key into the discovery chain, so `review` resolves via git config → ssh-agent only. (trust-model.md Known gap 6.) |
 | §9.1.2 | Persisted posture acknowledgment (`approvals.posture`, the `[c]/[p]/[q]` prompt, "warn once ever") | **Warns once per `review` invocation.** There is no `approvals.posture` config key and no three-way prompt. (trust-model.md Known gap 5.) |
 
@@ -905,11 +905,11 @@ the namespaces it lists there):**
 > trust root is compiled in and **unconditionally unioned** into every lookup
 > (`config.TrustRoot`), and `operations.RemoveSigner` only rewrites the user or
 > project *file* — it has no way to subtract a key it did not write. There is no
-> negative-entry mechanism, so **`ctxloom signer remove ben+ctxloom@abbitt.me`
+> negative-entry mechanism, so **`ctxloom signer untrust ben+ctxloom@abbitt.me`
 > cannot untrust ctxloom's own key.** A user who does not want to auto-trust
 > ctxloom's published bundles currently has no supported way to say so.
 >
-> The intended design: `signer remove` writes a **negative entry** in the user store,
+> The intended design: `signer untrust` writes a **negative entry** in the user store,
 > which `TrustRoot` subtracts after the union, and then every item from that key
 > takes the review path like any other. (Note this is *distinct* from rejecting
 > content: removing a key means "I will review this myself", not "deny".)
@@ -942,11 +942,11 @@ a reviewer key trusted only to *approve* cannot publish under the org's name.
 **Trusting a publisher or reviewer key: explicit add, never a first-sight prompt.**
 
 ```
-ctxloom signer add <principal> --key <path|->  [--namespace publish|approve|reject]   # default: publish
-ctxloom signer add <principal> --key <path> --project     # write to the committable project store
+ctxloom signer trust <principal> --key <path|->  [--namespace publish|approve|reject]   # default: publish
+ctxloom signer trust <principal> --key <path> --project     # write to the committable project store
 ctxloom signer list [--json]
 ctxloom signer show <principal>                           # fingerprint, namespaces, source store
-ctxloom signer remove <principal>
+ctxloom signer untrust <principal>
 ```
 
 **Consequence-naming confirmation, mirroring `ctxloom remote trust` today.** Adding
@@ -972,7 +972,7 @@ as such: *"Everything this signer ever **approves** reaches your agent unreviewe
 
 **Key/signer management is CLI-only. It is never exposed over MCP** (red line 6,
 ADR 0024). The agent must not be able to enumerate, add, or remove signers — an
-`approve` tool or a `signer add` tool would hand the agent the exact capability
+`approve` tool or a `signer trust` tool would hand the agent the exact capability
 this design exists to deny it.
 
 ### 7.3 THE BOOTSTRAP PROBLEM — the one link cryptography cannot forge for us
@@ -985,7 +985,7 @@ hand-waves it is not a story. The paths, with what each actually guarantees:
 |---|---|---|---|
 | **A. `allowed_signers` committed in the project repo** *(recommended default)* | `.ctxloom/allowed_signers`, checked in | **Trust-on-first-clone.** Exactly as strong as your trust in the repo — which is *already* strong enough that you run its build scripts, its CI, its `Makefile`, and its devcontainer. A repo that can execute code on your machine can certainly name a key. | An attacker who can push to the repo can add a key. But such an attacker can already put code in the repo — so this adds **no new exposure**; it inherits the repo's existing trust boundary. It does **not** protect against a malicious *fork* you cloned by mistake, or a typosquatted repo — those are prior questions the signature was never going to answer. |
 | **B. Org-managed config / MDM push** *(recommended for enterprises)* | the file is placed at `~/.ctxloom/allowed_signers` by the same fleet-management channel that provisions the laptop | **The strongest practical option.** The org already controls the machine image; a key delivered by that channel is as trustworthy as the machine itself. | Requires an org that has such a channel. Useless for individuals and OSS. |
-| **C. Explicit CLI add with an out-of-band fingerprint check** | `ctxloom signer add`, user compares `SHA256:…` against a fingerprint published on the org's website / in a signed announcement / read aloud | **The only path with an independent verification step** — and therefore the only one that resists a compromised repo *and* a compromised distribution channel simultaneously. | Depends entirely on the human actually checking the fingerprint. Most will not. This is SSH's own known weakness and we inherit it honestly. |
+| **C. Explicit CLI add with an out-of-band fingerprint check** | `ctxloom signer trust`, user compares `SHA256:…` against a fingerprint published on the org's website / in a signed announcement / read aloud | **The only path with an independent verification step** — and therefore the only one that resists a compromised repo *and* a compromised distribution channel simultaneously. | Depends entirely on the human actually checking the fingerprint. Most will not. This is SSH's own known weakness and we inherit it honestly. |
 | **D. Embedded in the binary** *(ctxloom's own keys only)* | compiled-in defaults (§7, location 1) | Trust in the binary. Circular by construction, and that is fine and unavoidable: if you do not trust the binary, nothing it says can help you. | Cannot be used by third parties. Not a general path. |
 
 **Recommended default: (A) for teams and OSS, (B) for enterprises, with (C) as the
@@ -1883,7 +1883,7 @@ project's standing rule is to break old users rather than carry legacy formats.
 | Removed | Replaced by |
 |---|---|
 | `trust_bundles: true` in `remotes.yaml` | a publisher key in `allowed_signers` |
-| `ctxloom remote trust <name>` / `untrust` | `ctxloom signer add` / `signer remove` |
+| `ctxloom remote trust <name>` / `untrust` | `ctxloom signer trust` / `signer untrust` |
 | `EffectiveTrust` step 3 (trusted source → hash-blind ALLOW) | step 4 (trusted **signer** → ALLOW) |
 | `remoteTrusted()` (deleted from `internal/adapters/operations/trust.go`) | `allowed_signers` lookup |
 | `Remote.TrustBundles` field | *(gone)* |

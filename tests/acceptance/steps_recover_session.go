@@ -113,13 +113,13 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 		if err := j001200AddIndexEntry(w, harp, "seeded production-shape session", transcriptPath); err != nil {
 			return fmt.Errorf("seed index entry for %s: %w", harp, err)
 		}
-		// Two turns, not zero: Compact short-circuits an empty session to a
-		// placeholder dump with no LLM call, which would let this pass without
-		// a real distillation ever happening.
-		return j001200SeedTranscripts(w, harp, []string{
-			"What broke the essence read-back? " + recoverIdentityMarker,
-			"The write key and the read key disagreed. " + recoverIdentityMarker,
-		})
+		// Padded past the distillation floor: Compact saves a transcript too
+		// small to compress verbatim with no LLM call, which would let this
+		// pass without a real distillation ever happening.
+		return j001200SeedTranscripts(w, harp, distillableTurns(
+			"What broke the essence read-back? "+recoverIdentityMarker,
+			"The write key and the read key disagreed. "+recoverIdentityMarker,
+		))
 	})
 
 	ctx.Step(`^the tool result is under (\d+) bytes$`, func(c context.Context, max int) error {

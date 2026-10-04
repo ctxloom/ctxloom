@@ -21,9 +21,8 @@ import (
 //   - File has no frontmatter → prepend a minimal one with just our session.
 //   - Malformed YAML, or an unterminated frontmatter block → the file is
 //     left untouched (never corrupt it by guessing) AND a non-nil error is
-//     returned (it used to be a silent nil-error no-op here, which
-//     made this comment's own "caller logs" claim false — the caller,
-//     hook_stamp_plan.go, only logs when err != nil).
+//     returned: the plan-stamp hook logs only a non-nil error, so a nil
+//     here would hide the skipped stamp.
 //   - Harp already present in `sessions:` → a genuine no-op (nil, file
 //     untouched) — the one case above that is NOT a failure.
 //   - Empty file → prepend frontmatter, body remains empty.

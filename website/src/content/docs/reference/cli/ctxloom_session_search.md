@@ -33,7 +33,7 @@ ctxloom session search <word>... [flags]
 
 ```
       --all    Search sessions from every project (default: filter to cwd)
-      --full   Include each matched session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)
+      --full   Include each matched session's complete distilled essence body (text output pages through $PAGER on a terminal)
 ```
 
 ### Options inherited from parent commands

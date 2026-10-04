@@ -66,3 +66,12 @@ func TestRegistry_WriterStampsSchemaVersion(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(data, &doc))
 	assert.Equal(t, registryKind.Current(), doc[schemaver.Key])
 }
+
+// An index that is not YAML is its parse failure, not a version fault.
+func TestRegistry_MalformedIsAParseFailureNotAVersionFault(t *testing.T) {
+	m, _ := seedRegistry(t, "projects: [unterminated\n")
+	_, err := m.ResolveByID("seeded-id")
+	require.Error(t, err)
+	var ve *schemaver.VersionError
+	assert.NotErrorAs(t, err, &ve)
+}

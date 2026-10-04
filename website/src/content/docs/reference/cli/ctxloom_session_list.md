@@ -20,7 +20,7 @@ ctxloom session list [flags]
 ```
       --all       Include sessions from every project (default: filter to cwd)
       --distill   Distill sessions whose essence is missing or stale before listing, so every row shows a title
-      --full      Include each session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)
+      --full      Include each session's complete distilled essence body (text output pages through $PAGER on a terminal)
 ```
 
 ### Options inherited from parent commands

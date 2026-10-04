@@ -17,8 +17,9 @@
 //
 // ISOLATION. Every path in this file goes through testenv.TestEnvironment,
 // whose isolatedEnv() roots HOME/USERPROFILE/XDG at e.HomeDir and drops the
-// canonical testsupport.EnvKeys set (environment.go's sessionEnvKeys is built
-// from that one list) — the subprocess analogue of testsupport.Isolate, and
+// ambient variables in testenv's scrubbedEnvKeys (the canonical
+// testsupport.EnvKeys set plus the host's SSH_AUTH_SOCK) — the subprocess
+// analogue of testsupport.Isolate, and
 // the reason `w.env.HomeFileExists(".ctxloom/allowed_signers")` is a
 // MEANINGFUL assertion rather than a read of the developer's real home. No
 // step here sets HOME, USERPROFILE or XDG_* itself; the one variable J001600 does
@@ -27,16 +28,14 @@
 // goes through testenv.GitConfigLocal, which runs git under that same isolated
 // environment.
 //
-// SSH_AUTH_SOCK AND J001500. steps_j001500.go:473-478 deliberately BLANKS SSH_AUTH_SOCK
-// so an ambient developer agent cannot satisfy key discovery and turn its
+// SSH_AUTH_SOCK AND J001500. isolatedEnv drops the host's SSH_AUTH_SOCK, so an
+// ambient developer agent cannot satisfy key discovery and turn J001500's
 // "no signing key anywhere" scenario into a host-dependent coin flip. J001600 does
-// the mirror image: it points SSH_AUTH_SOCK at a hermetic in-process agent so
-// key discovery deterministically SUCCEEDS. The two coexist because both are
-// per-scenario writes through TestEnvironment.SetEnv, and each scenario gets a
-// fresh TestEnvironment whose Cleanup restores the value that was there before
-// it ran. Neither journey reads the variable it did not set, and neither can
-// leave a value behind for the other: J001500 still gets its guaranteed-empty
-// agent, J001600 still gets its guaranteed-present one.
+// the mirror image: it forces SSH_AUTH_SOCK onto its children through
+// TestEnvironment.SetChildEnv, pointed at a hermetic in-process agent, so key
+// discovery deterministically SUCCEEDS. SetChildEnv is per-TestEnvironment and
+// never touches this process's environment, and each scenario gets a fresh
+// TestEnvironment, so neither journey can leave a value behind for the other.
 package acceptance
 
 import (
@@ -355,8 +354,8 @@ func j001600Setup(w *World) error {
 	st.stopAgent = stop
 	// The ONLY environment variable this journey sets, pointed at an absolute
 	// path minted above — never at anything inherited. See the file doc for how
-	// this coexists with steps_j001500.go's deliberate blanking of the same key.
-	w.env.SetEnv("SSH_AUTH_SOCK", sock)
+	// this coexists with J001500's guaranteed-absent agent.
+	w.env.SetChildEnv("SSH_AUTH_SOCK", sock)
 
 	// Step 2 of agentkey's chain: an ordinary developer who already signs his
 	// commits with SSH has this set, and expects tools to find it without being

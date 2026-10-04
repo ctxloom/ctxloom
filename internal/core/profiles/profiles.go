@@ -715,7 +715,11 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 	// caller may persist the rewrite with consent (see upgrade.go). The seeded
 	// map is the discovery surface for retired-parent rewrites — it is populated
 	// at construction (WithSeededProfiles), before any Load reaches here.
-	if upgraded, applied := profileUpgrades(ownURL, l.remoteURLResolver, l.localBundleExists, l.seeded).Run(data); len(applied) > 0 {
+	upgraded, applied, err := profileUpgrades(ownURL, l.remoteURLResolver, l.localBundleExists, l.seeded).Run(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if len(applied) > 0 {
 		data = upgraded
 		if !l.pendingPaths[path] {
 			if l.pendingPaths == nil {

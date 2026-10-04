@@ -42,7 +42,7 @@ returned in a result row (the same lightweight harp/summary/start/end shape
 
 func init() {
 	sessionSearchCmd.Flags().BoolVar(&sessionQueryAll, "all", false, "Search sessions from every project (default: filter to cwd)")
-	sessionSearchCmd.Flags().BoolVar(&sessionQueryFull, "full", false, "Include each matched session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)")
+	sessionSearchCmd.Flags().BoolVar(&sessionQueryFull, "full", false, "Include each matched session's complete distilled essence body (text output pages through $PAGER on a terminal)")
 	sessionCmd.AddCommand(sessionSearchCmd)
 }
 

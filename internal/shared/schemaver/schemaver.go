@@ -282,7 +282,7 @@ var writeUpgrades atomic.Bool
 func BindWriteUpgrades(fs *pflag.FlagSet) {
 	writeUpgrades.Store(false)
 	fs.Var(writeUpgradesValue{}, WriteUpgradesFlag,
-		"persist in-memory upgrades of older-format files (the old file is kept as <file>"+BackupSuffix+")")
+		"Persist in-memory upgrades of older-format files (the old file is kept as <file>"+BackupSuffix+")")
 	fs.Lookup(WriteUpgradesFlag).NoOptDefVal = "true"
 }
 

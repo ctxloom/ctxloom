@@ -71,9 +71,9 @@ func materializeInto(t *testing.T, cfg *config.Config, backend, dir string) {
 // hook-delivered default writes no context file, and an absent file the
 // record does not own is no finding.
 func TestSurfaceCurrencies_StaysSilentWhereNothingIsMaterialized(t *testing.T) {
-	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
+	_, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
 
-	surfaces, errs := surfaceCurrencies(context.Background(), engines.Registry(), cfg, afero.NewOsFs(), workDir)
+	surfaces, errs := surfaceCurrencies(engines.Registry(), afero.NewOsFs(), workDir)
 	assert.Empty(t, errs)
 	got, ok := currencyFor(surfaces, "claude-code")
 	assert.False(t, ok, "claude's context reaches it through the hook, so an absent CLAUDE.md is not a finding; got %+v", got)
@@ -85,35 +85,35 @@ func TestSurfaceCurrencies_LeavesTheHermeticMockEngineOutOfTheReport(t *testing.
 	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
 	materializeInto(t, cfg, "mock", workDir)
 
-	surfaces, _ := surfaceCurrencies(context.Background(), engines.Registry(), cfg, afero.NewOsFs(), workDir)
+	surfaces, _ := surfaceCurrencies(engines.Registry(), afero.NewOsFs(), workDir)
 	got, ok := currencyFor(surfaces, "mock")
 	assert.False(t, ok, "mock must not appear in the report; got %+v", got)
 }
 
-// TestSurfaceCurrencies_ReportsAMaterializedFileTheCompositionMovedAwayFrom:
+// TestSurfaceCurrencies_ReportsAMaterializedFileThatNoLongerHoldsItsDelivery:
 // a materialize into the project root leaves a file the record owns; when
-// the composition moves on the check names it stale, and a fresh
-// materialize makes it delivered again.
-func TestSurfaceCurrencies_ReportsAMaterializedFileTheCompositionMovedAwayFrom(t *testing.T) {
+// the file stops holding what was delivered the check names it stale.
+func TestSurfaceCurrencies_ReportsAMaterializedFileThatNoLongerHoldsItsDelivery(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, workDir := regenTestApp(t)
 	cfg := currencyConfig(t, appDir, "SECURITY-RULES")
 	materializeInto(t, cfg, "claude-code", workDir)
 
-	surfaces, errs := surfaceCurrencies(context.Background(), engines.Registry(), cfg, afero.NewOsFs(), workDir)
+	surfaces, errs := surfaceCurrencies(engines.Registry(), afero.NewOsFs(), workDir)
 	assert.Empty(t, errs)
 	got, ok := currencyFor(surfaces, "claude-code")
 	require.True(t, ok, "claude's freshly materialized context file must be reported")
 	assert.Equal(t, "CLAUDE.md", got.Route)
 	assert.Equal(t, string(agent.StatusDelivered), got.Status, "detail was %q", got.Detail)
 
-	// The composition moves on: the bundle now carries other rules.
-	moved := currencyConfig(t, appDir, "REVISED-RULES")
-	surfaces, errs = surfaceCurrencies(context.Background(), engines.Registry(), moved, afero.NewOsFs(), workDir)
+	// The file is overwritten: it no longer holds what was delivered.
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, got.Route), []byte("REPLACED"), 0o644))
+	surfaces, errs = surfaceCurrencies(engines.Registry(), afero.NewOsFs(), workDir)
 	assert.Empty(t, errs)
 	got, ok = currencyFor(surfaces, "claude-code")
 	require.True(t, ok)
-	assert.Equal(t, string(agent.StatusStale), got.Status, "the file holds last week's copy")
+	assert.Equal(t, string(agent.StatusStale), got.Status, "the file no longer holds the delivery")
+
 }
 
 // TestContextFileCurrency_ReadsOnlyWhatTheRecordOwns: a context file the
@@ -127,7 +127,7 @@ func TestContextFileCurrency_ReadsOnlyWhatTheRecordOwns(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("hand-written"), 0o644))
 
-	_, owned, err := contextFileCurrency(fs, records, dir, "CLAUDE.md", "COMPOSED")
+	_, owned, err := contextFileCurrency(fs, records, dir, "CLAUDE.md")
 	require.NoError(t, err)
 	assert.False(t, owned, "the user's own file is not ctxloom's to judge")
 
@@ -138,13 +138,13 @@ func TestContextFileCurrency_ReadsOnlyWhatTheRecordOwns(t *testing.T) {
 	require.NoError(t, err)
 	rel, ok := contextFileOf(kind)
 	require.True(t, ok)
-	cur, owned, err := contextFileCurrency(fs, records, dir, rel, "COMPOSED")
+	cur, owned, err := contextFileCurrency(fs, records, dir, rel)
 	require.NoError(t, err)
 	require.True(t, owned)
 	assert.Equal(t, agent.StatusDelivered, cur.Status)
 
 	require.NoError(t, os.Remove(filepath.Join(dir, rel)))
-	cur, owned, err = contextFileCurrency(fs, records, dir, rel, "COMPOSED")
+	cur, owned, err = contextFileCurrency(fs, records, dir, rel)
 	require.NoError(t, err)
 	require.True(t, owned)
 	assert.Equal(t, agent.StatusMissing, cur.Status)

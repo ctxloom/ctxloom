@@ -3,10 +3,8 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/spf13/afero"
 
@@ -126,13 +124,12 @@ type HarnessStatusResult struct {
 	// state it to a human and withhold it from every script, CI job and agent.
 	CapabilityLoss []AgentSurfaceLoss `json:"capability_loss,omitempty"`
 	// Surfaces reports delivery currency for the native context files
-	// (CLAUDE.md and its per-backend analogues) under WorkDir — see
-	// Surfaces is the read half: whether a context file the project
-	// writer's record owns still carries what the project's default
-	// profiles currently compose. Wiring alone (Backends, above) cannot
-	// answer that — "hooks present" says nothing about a stale materialized
-	// file. A file the record does not own is absent from this list — see
-	// surfaceCurrencies.
+	// (CLAUDE.md and its per-backend analogues) under WorkDir: whether a
+	// context file the project writer's record owns still holds what ctxloom
+	// delivered into it. Wiring alone (Backends, above) cannot answer that —
+	// "hooks present" says nothing about a materialized file someone has
+	// since overwritten. A file the record does not own is absent from this
+	// list — see surfaceCurrencies.
 	Surfaces []SurfaceCurrency `json:"surfaces,omitempty"`
 	// Errors records per-backend status-read failures; non-empty means the
 	// report is partial. One backend's corrupt/unreadable settings.json no
@@ -141,12 +138,11 @@ type HarnessStatusResult struct {
 }
 
 // SurfaceCurrency reports one backend's native context-surface delivery
-// currency: whether the file (CLAUDE.md, MOCK_CONTEXT.md, …) still carries what the project's
-// default profiles currently compose — or, where the engine declares that file
-// its default context route and there is context to deliver, that it is not
-// there at all. Status/Detail are an agent.Currency, judged from the
-// ownership record (contextFileCurrency) rather than from the file's bytes
-// alone.
+// currency: whether the file (CLAUDE.md, MOCK_CONTEXT.md, …) still holds what
+// ctxloom delivered into it, or is gone. Status/Detail are an agent.Currency,
+// judged against the ownership record's account of the delivery
+// (contextFileCurrency), never against a fresh composition — see
+// surfaceCurrencies for why.
 type SurfaceCurrency struct {
 	Backend string `json:"backend"`
 	Route   string `json:"route"`
@@ -187,7 +183,7 @@ func HarnessStatus(ctx context.Context, reg engine.Registry, cfg *config.Config,
 		})
 	}
 
-	surfaces, surfaceErrs := surfaceCurrencies(ctx, reg, cfg, fs, workDir)
+	surfaces, surfaceErrs := surfaceCurrencies(reg, fs, workDir)
 	result.Surfaces = surfaces
 	for _, e := range surfaceErrs {
 		clidiag.Warn("ctxloom", "%s", e)
@@ -199,11 +195,18 @@ func HarnessStatus(ctx context.Context, reg engine.Registry, cfg *config.Config,
 
 // surfaceCurrencies is the read half `manage check` walks: for every
 // shipped engine whose context approach writes a file at the project root,
-// whether the file the project writer's record OWNS still carries the
-// context the current configuration composes. A file the record does not
-// own is not reported: the hook-delivered default materializes nothing,
-// and an absent file is no finding then.
-func surfaceCurrencies(ctx context.Context, reg engine.Registry, cfg *config.Config, fs afero.Fs, workDir string) (surfaces []SurfaceCurrency, errs []string) {
+// whether the file the project writer's record OWNS still holds what that
+// record says was delivered. A file the record does not own is not
+// reported: the hook-delivered default materializes nothing, and an absent
+// file is no finding then.
+//
+// It composes nothing. Composing the current context resolves the profile
+// set's bundles, and that resolution executes every admitted companion
+// binary; a status report must run no foreign code. The record already
+// holds the delivered bytes, so the comparison it can make without
+// composing is the file against the delivery, not against what the
+// configuration would compose today.
+func surfaceCurrencies(reg engine.Registry, fs afero.Fs, workDir string) (surfaces []SurfaceCurrency, errs []string) {
 	records, err := OwnershipRecordsOn(fs)
 	if err != nil {
 		return nil, []string{err.Error()}
@@ -220,12 +223,7 @@ func surfaceCurrencies(ctx context.Context, reg engine.Registry, cfg *config.Con
 		if !ok {
 			continue
 		}
-		intended, err := intendedContextFile(ctx, reg, cfg, name)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("failed to compose the current context to compare materialized surfaces against: %v", err))
-			return surfaces, errs
-		}
-		cur, owned, err := contextFileCurrency(fs, records, workDir, rel, intended)
+		cur, owned, err := contextFileCurrency(fs, records, workDir, rel)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("failed to read %s's materialized context surface: %v", name, err))
 			continue
@@ -262,39 +260,31 @@ func contextFileOf(kind engine.Engine) (string, bool) {
 	return filepath.ToSlash(rel), true
 }
 
-// intendedContextFile composes the context the current configuration
-// would deliver to backend's file, from the default agent's profile set.
-func intendedContextFile(ctx context.Context, reg engine.Registry, cfg *config.Config, backend string) (string, error) {
-	materialized, err := AssembleContext(ctx, cfg, AssembleContextRequest{
-		Profiles: cfg.DefaultAgentProfiles(),
-		Consumer: MaterializedFor(reg, backend),
-	})
-	if err != nil {
-		return "", err
-	}
-	return materialized.Context, nil
-}
-
 // contextFileCurrency is the verdict on one context file the project
-// writer's record owns: delivered when it carries the composed context,
-// stale when it does not, missing when it is gone. owned is false when the
-// record does not own it, and the verdict is then nobody's business.
-func contextFileCurrency(fs afero.Fs, records delivery.Ownership, workDir, rel, intended string) (cur agent.Currency, owned bool, err error) {
+// writer's record owns: delivered when the file still holds every place the
+// project writer claims in it, stale when it holds something else there,
+// missing when it is gone. owned is false when the record does not own it,
+// and the verdict is then nobody's business.
+func contextFileCurrency(fs afero.Fs, records delivery.Ownership, workDir, rel string) (cur agent.Currency, owned bool, err error) {
 	path := filepath.Join(workDir, filepath.FromSlash(rel))
 	places, err := records.Paths(fs, path)
-	if err != nil || !slices.ContainsFunc(places, func(p delivery.PathState) bool { return slices.Contains(p.Writers, delivery.ProjectWriter) }) {
+	if err != nil {
 		return agent.Currency{}, false, err
 	}
-	raw, err := afero.ReadFile(fs, path)
+	ours := slices.DeleteFunc(places, func(p delivery.PathState) bool { return !slices.Contains(p.Writers, delivery.ProjectWriter) })
+	if len(ours) == 0 {
+		return agent.Currency{}, false, nil
+	}
+	exists, err := afero.Exists(fs, path)
 	switch {
-	case os.IsNotExist(err):
-		return agent.Currency{Status: agent.StatusMissing, Detail: fmt.Sprintf("%s does not exist", rel)}, true, nil
 	case err != nil:
 		return agent.Currency{}, true, err
-	case strings.Contains(string(raw), strings.TrimSpace(intended)):
-		return agent.Currency{Status: agent.StatusDelivered}, true, nil
+	case !exists:
+		return agent.Currency{Status: agent.StatusMissing, Detail: fmt.Sprintf("%s does not exist", rel)}, true, nil
+	case slices.ContainsFunc(ours, func(p delivery.PathState) bool { return !p.Live }):
+		return agent.Currency{Status: agent.StatusStale, Detail: fmt.Sprintf("%s no longer holds the context ctxloom delivered into it", rel)}, true, nil
 	default:
-		return agent.Currency{Status: agent.StatusStale, Detail: fmt.Sprintf("%s carries ctxloom-written context that no longer matches the composed context", rel)}, true, nil
+		return agent.Currency{Status: agent.StatusDelivered}, true, nil
 	}
 }
 

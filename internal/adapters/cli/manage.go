@@ -503,9 +503,8 @@ func printHarnessStatus(w io.Writer, r *operations.HarnessStatusResult, losses [
 }
 
 // printSurfaceCurrencies renders the DELIVERY half of the wiring report — see
-// operations.SurfaceCurrency's doc: whether a native context file's content
-// still matches what the project's default profiles currently compose, or is
-// absent where the engine declares it the default route. Prints nothing at all
+// operations.SurfaceCurrency's doc: whether a native context file ctxloom
+// delivered still holds what it delivered, or is gone. Prints nothing at all
 // when Surfaces is empty (no backend both offers a read half and has anything
 // to say here), matching the "no false alarms" rule the field itself already
 // applies — a bare, unlabeled section would be worse than no section.

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
 
@@ -46,15 +47,17 @@ func executeWith(t *testing.T, l launch.Launch, env *deliveryEnv, drive runner.D
 func TestExecute_ASecretFileReachesTheEngineEnvOnly(t *testing.T) {
 	t.Setenv(tokenVar, "")
 	require.NoError(t, os.Unsetenv(tokenVar))
-	file := filepath.Join(t.TempDir(), tokenVar)
-	require.NoError(t, os.WriteFile(file, []byte(mountedSecret), 0o600))
+	file := filepath.Join(t.TempDir(), "run.env")
+	b, err := sessions.EncodeSecrets(map[string]string{tokenVar: mountedSecret, "OTHER": "not this one"})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(file, b, 0o600))
 	l, env := secretFileLaunch(t, file)
 
 	drive := &childEnvDriver{}
 	require.NoError(t, executeWith(t, l, env, drive))
 	got, ok := envHas(drive.env, tokenVar)
 	require.True(t, ok, "the engine authenticates from the mounted file")
-	assert.Equal(t, mountedSecret, got, "byte for byte: no newline trimmed or added")
+	assert.Equal(t, mountedSecret, got, "the exact value, out of the run's one secrets file")
 	_, inRunner := os.LookupEnv(tokenVar)
 	assert.False(t, inRunner, "the runner's own env never holds the secret")
 }
@@ -69,4 +72,17 @@ func TestExecute_RefusesAnUnreadableSecretFile(t *testing.T) {
 	require.ErrorIs(t, err, runner.ErrSecretUnreadable)
 	assert.Contains(t, err.Error(), tokenVar, "the refusal names the variable")
 	assert.Nil(t, drive.env, "the engine is never driven")
+}
+
+// A secrets file that does not hold the variable the cell names refuses the
+// run the same way.
+func TestExecute_RefusesASecretMissingFromTheFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "run.env")
+	b, err := sessions.EncodeSecrets(map[string]string{"OTHER": "x"})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(file, b, 0o600))
+	l, env := secretFileLaunch(t, file)
+	err = executeWith(t, l, env, &childEnvDriver{})
+	require.ErrorIs(t, err, runner.ErrSecretUnreadable)
+	assert.Contains(t, err.Error(), tokenVar)
 }

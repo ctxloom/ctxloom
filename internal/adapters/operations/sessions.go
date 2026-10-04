@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 )
 
@@ -223,7 +224,11 @@ func OutputBase(cfg *config.Config) (string, error) {
 			return filepath.Clean(dir), nil
 		}
 	}
-	return paths.DefaultOutputBase()
+	docs, err := platform.Current().DocumentsDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve the Documents folder: %w", err)
+	}
+	return paths.DefaultOutputBase(docs)
 }
 
 // AssignSessionHarp mints the harp alone: the session's address, written to

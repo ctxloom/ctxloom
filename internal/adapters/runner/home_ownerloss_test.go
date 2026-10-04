@@ -137,7 +137,7 @@ func TestHome_OwnerLinkBackInsideTheWindowKeepsTheRunner(t *testing.T) {
 // ends OR its home reports the owner lost, and then tears down and returns
 // ErrOwnerLost — the return that ends a container's foreground process.
 func TestMain_EndsWhenItsOwnerIsLost(t *testing.T) {
-	env := &mainEnv{vars: reachEnv("http://127.0.0.1:1/mcp", "t", "run-1")}
+	env := &mainEnv{vars: reachEnv(t, "http://127.0.0.1:1/mcp", "t", "run-1")}
 	t.Setenv(sessions.EnvRunnerOwnerLossWindow, "200ms")
 	deps := mainDeps(env, func(*EngineHost, *Home) (Deps, error) { return Deps{}, nil })
 	done := make(chan error, 1)
@@ -174,7 +174,7 @@ func TestMain_OwnerLossWindowOverride(t *testing.T) {
 				t.Setenv(sessions.EnvRunnerOwnerLossWindow, "")
 			}
 			var sink lockedFindings
-			env := &mainEnv{vars: reachEnv("http://127.0.0.1:1/mcp", "t", "run-1")}
+			env := &mainEnv{vars: reachEnv(t, "http://127.0.0.1:1/mcp", "t", "run-1")}
 			got := make(chan time.Duration, 1)
 			deps := mainDeps(env, func(_ *EngineHost, h *Home) (Deps, error) { got <- h.cfg.OwnerLossWindow; return Deps{}, nil })
 			deps.Reporter = &sink

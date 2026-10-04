@@ -3,6 +3,7 @@ package isolation
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -149,33 +150,28 @@ func writeInstanceConfig(req InstanceHomeRequest, writer engine.InstanceConfigWr
 // adopting or moving it is migration this does not do.
 var ErrHistoryNotLinked = errors.New("the session home's history dir is not the link into the session's native history")
 
-// linkNativeHistory makes <instanceHome>/<rel> a RELATIVE link to
-// <nativeHome>/<rel>, creating the target. Relative, because the same two
-// directories are mounted side by side in a container at different absolute
-// paths. An existing correct link is left alone; anything else is
-// ErrHistoryNotLinked.
+// linkNativeHistory makes <instanceHome>/<rel> the platform's directory link
+// (platform.DirLinker) to <nativeHome>/<rel>, creating the target. An
+// existing correct link is left alone; anything else is ErrHistoryNotLinked.
 func linkNativeHistory(instanceHome, nativeHome, rel string) error {
 	target := filepath.Join(nativeHome, filepath.FromSlash(rel))
 	if err := os.MkdirAll(target, owneronly.DirMode); err != nil {
 		return fmt.Errorf("native history %s: %w", target, err)
 	}
 	link := filepath.Join(instanceHome, filepath.FromSlash(rel))
-	want, err := filepath.Rel(filepath.Dir(link), target)
-	if err != nil {
-		return fmt.Errorf("native history link %s: %w", link, err)
-	}
-	if _, err := os.Lstat(link); err == nil {
-		if got, rerr := os.Readlink(link); rerr == nil && got == want {
-			return nil
-		}
+	ok, err := hostOS.LinksTo(link, target)
+	switch {
+	case err == nil && ok:
+		return nil
+	case err == nil:
 		return fmt.Errorf("%w: %s (start a new session; history written there would be deleted with the home)", ErrHistoryNotLinked, link)
-	} else if !os.IsNotExist(err) {
+	case !errors.Is(err, fs.ErrNotExist):
 		return fmt.Errorf("native history link %s: %w", link, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(link), owneronly.DirMode); err != nil {
 		return fmt.Errorf("native history link %s: %w", link, err)
 	}
-	if err := os.Symlink(want, link); err != nil {
+	if err := hostOS.LinkDir(link, target); err != nil {
 		return fmt.Errorf("native history link %s: %w", link, err)
 	}
 	return nil

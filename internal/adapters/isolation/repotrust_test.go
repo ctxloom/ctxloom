@@ -86,7 +86,7 @@ func TestRepoTrust_APreviewReportsTheVerdict(t *testing.T) {
 
 	stores, err := stageStores(s.backend(), s.creds.Stores)
 	require.NoError(t, err)
-	pl, _, err := hostRelocator{}.relocate(previewLayout(s, stores))
+	pl, _, err := hostRelocator{}.relocate(previewLayout(s, stores, false))
 	require.NoError(t, err)
 	assert.Equal(t, engine.TrustTrusted, pl.Trust)
 }

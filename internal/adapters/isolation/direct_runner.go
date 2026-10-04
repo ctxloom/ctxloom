@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -43,7 +44,7 @@ func (c Container) startRunner(ctx context.Context, backendName, label string, v
 	if err != nil {
 		return nil, err
 	}
-	if spawnEnv, err = stageCoordCred(cw, spawnEnv); err != nil {
+	if spawnEnv, err = stageCoordCred(cw.secrets, spawnEnv, path.Join(secretsTarget, secretsFileName)); err != nil {
 		return nil, err
 	}
 	name := containerName(cw.agentID)
@@ -69,7 +70,7 @@ func (c Container) interactiveRunner(_ context.Context, backendName string, ws w
 	if err != nil {
 		return nil, "", err
 	}
-	if spawnEnv, err = stageCoordCred(cw, spawnEnv); err != nil {
+	if spawnEnv, err = stageCoordCred(cw.secrets, spawnEnv, path.Join(secretsTarget, secretsFileName)); err != nil {
 		return nil, "", err
 	}
 	name := containerName(cw.agentID)

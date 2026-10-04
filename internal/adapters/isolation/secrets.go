@@ -3,10 +3,13 @@ package isolation
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
+	"sync"
 
 	"github.com/spf13/afero"
 
@@ -14,15 +17,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
-// secretsTarget is where a container cell's secret files are mounted,
-// read-only: one file per secret variable, named by the variable. A
-// container path, so slash-separated whatever the host.
+// secretsTarget is where a container cell's secret dir is mounted,
+// read-only. A container path, so slash-separated whatever the host.
 const secretsTarget = "/run/ctxloom/secrets"
+
+// secretsFileName is the run's ONE secrets file in its secret dir: every
+// secret the run's processes read, as dotenv (sessions.EncodeSecrets).
+const secretsFileName = "run.env"
 
 // secretVars are the credential variables a container cell receives as
 // secret files: every variable the mode sets, sorted.
@@ -47,90 +54,146 @@ func containerPlacement(paths present.Paths, l layout) launch.Placement {
 	pl.SecretFiles = make(map[string]string, len(vars))
 	for _, v := range vars {
 		delete(pl.Env, v)
-		pl.SecretFiles[v] = path.Join(secretsTarget, v)
+		pl.SecretFiles[v] = path.Join(secretsTarget, secretsFileName)
 	}
 	return pl
 }
 
-// secretScratchPrefix names a container cell's secret dir (newOwnedScratch).
+// secretScratchPrefix names a run's secret dir (newOwnedScratch).
 const secretScratchPrefix = "ctxloom-secret-"
 
-// errSecretUnstaged: a Placement names a secret file but the workspace made
-// no secret dir to hold it.
-var errSecretUnstaged = errors.New("container secrets: the placement names a secret file but the workspace has no secret dir")
+// errSecretUnstaged: a secret must be written but the run made no secrets
+// file to hold it.
+var errSecretUnstaged = errors.New("run secrets: a secret must be written but the run has no secrets file")
 
-// secretParent is where a container cell's secret dir is made: the user's
-// runtime dir when the session has one — a tmpfs the XDG spec makes
-// owner-only, so the value never reaches a disk — else (macOS, Windows) the
-// session's scratch dir that holds the run's scratch root, on disk. Never the
-// scratch root itself: it is new per run, so a crashed run's secret there
-// would have no later sibling to reap it. The shared-filesystem probe covers
-// either, as it covers every mount. onDisk reports the fallback, which the
-// caller announces (secretsOnDiskNotice).
-func secretParent(getenv func(string) string, scratchRoot string) (dir string, onDisk bool) {
-	if dir, ok := SecretsRuntimeDir(getenv); ok {
+// errCredInExecEnv refuses a runner exec env that still carries the
+// coordinator credential: it must reach the runner through the run's secrets
+// file (stageCoordCred), never an environment a same-uid process can read.
+var errCredInExecEnv = errors.New("run secrets: the coordinator credential is in a runner's exec env instead of its secrets file")
+
+// refuseCredInExecEnv is errCredInExecEnv's check.
+func refuseCredInExecEnv(env map[string]string) error {
+	if _, ok := env[sessions.EnvCoordCred]; ok {
+		return errCredInExecEnv
+	}
+	return nil
+}
+
+// secretsFile is a run's one owner-only secrets file and the values it holds.
+// Each put rewrites the whole file, atomically, from every value so far, so
+// the file is always a complete, decodable dotenv file.
+type secretsFile struct {
+	mu      sync.Mutex
+	scratch *ownedScratch
+	values  map[string]string
+}
+
+// newSecretsFile makes a run's secret dir — on the platform's per-user tmpfs,
+// else under diskParent, announced once (secretParent) — held by its owner's
+// lock, so a crashed run's dir is reaped by the next one made under the same
+// parent.
+func newSecretsFile(diskParent string) (*secretsFile, error) {
+	parent, onDisk := secretParent(os.Getenv, diskParent)
+	if onDisk {
+		clidiag.WarnOnce("ctxloom", "%s", SecretsOnDiskNotice(parent))
+	}
+	scratch, err := newOwnedScratch(parent, secretScratchPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("run secrets: %w", err)
+	}
+	return &secretsFile{scratch: scratch, values: map[string]string{}}, nil
+}
+
+// path is the secrets file's host path.
+func (f *secretsFile) path() string { return filepath.Join(f.scratch.dir, secretsFileName) }
+
+// put adds vals to the file. A value the format cannot hold exactly is
+// refused (sessions.ErrSecretNotRoundTrippable) and the file is left as it
+// was.
+func (f *secretsFile) put(vals map[string]string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	merged := maps.Clone(f.values)
+	maps.Copy(merged, vals)
+	b, err := sessions.EncodeSecrets(merged)
+	if err != nil {
+		return err
+	}
+	if err := safefs.WriteFile(afero.NewOsFs(), f.path(), b, owneronly.FileMode); err != nil {
+		return fmt.Errorf("run secrets: write %s: %w", f.path(), err)
+	}
+	f.values = merged
+	return nil
+}
+
+// release removes the secret dir, reporting errSecretResidue when it
+// survives.
+func (f *secretsFile) release() error {
+	f.scratch.release()
+	if _, err := os.Lstat(f.scratch.dir); !errors.Is(err, fs.ErrNotExist) {
+		warnCleanupResidue("run secrets", f.scratch.dir, errSecretResidue)
+		return fmt.Errorf("remove run secrets %s: %w", f.scratch.dir, errSecretResidue)
+	}
+	return nil
+}
+
+// secretParent is where a run's secret dir is made: the platform's per-user
+// tmpfs when it offers one (platform.PrivateTmpfs), so the value never
+// reaches a disk, else diskParent — on disk, which the caller announces
+// (SecretsOnDiskNotice). For a container run diskParent is the session's
+// scratch dir that holds the run's scratch root, never the scratch root
+// itself: it is new per run, so a crashed run's secret there would have no
+// later sibling to reap it.
+func secretParent(getenv func(string) string, diskParent string) (dir string, onDisk bool) {
+	if dir, ok := hostOS.PrivateTmpfs(getenv); ok {
 		return dir, false
 	}
-	return filepath.Dir(scratchRoot), true
+	return diskParent, true
 }
 
-// SecretsRuntimeDir is the per-user tmpfs a container run's secrets are
-// written to, and whether the platform offers one; when it does not, they go
-// to disk under the session's scratch dir (secretParent). The doctor reports
-// the same decision.
-func SecretsRuntimeDir(getenv func(string) string) (string, bool) {
-	dir := getenv(runtimeDirEnv)
-	return dir, dir != ""
-}
-
-// runtimeDirEnv names the user's per-session tmpfs (XDG base dirs).
-const runtimeDirEnv = "XDG_RUNTIME_DIR"
-
-// SecretsOnDiskNotice is the once-per-process announcement that a container
-// run's secrets are written to disk because the platform offers no per-user
-// tmpfs, naming the platform and dir. The doctor reports the same text.
+// SecretsOnDiskNotice is the once-per-process announcement that a run's
+// secrets are written to disk because the platform offers no per-user tmpfs,
+// naming the platform and dir. The doctor reports the same text.
 func SecretsOnDiskNotice(dir string) string {
-	return fmt.Sprintf("container secrets: %s has no per-user tmpfs ($%s is unset), so each container run's secrets are written owner-only to disk under %s and removed when the run ends", platform.Name, runtimeDirEnv, dir)
+	return fmt.Sprintf("run secrets: %s offers no per-user tmpfs here, so each run's secrets are written owner-only to disk under %s and removed when the run ends", platform.Name, dir)
 }
 
-// stageCoordCred moves the coordinator credential out of a container
-// runner's spawn env into the run's secret dir, and names the file instead
-// (sessions.EnvCoordCredFile): the value is then in neither the `run`
-// client's environment nor the container's, only in an owner-only file the
-// container sees read-only. The runner reads it back byte for byte
-// (sessions.DecodeReach). An env without a credential passes through.
-func stageCoordCred(cw *containerWorkspace, spawnEnv map[string]string) (map[string]string, error) {
+// stageCoordCred moves the coordinator credential out of a runner's spawn
+// env into the run's secrets file f, and names the file instead
+// (sessions.EnvCoordCredFile) as credFile — the path the RUNNER opens it at.
+// The value is then in no exec environment, only in an owner-only file; the
+// runner reads it back (sessions.DecodeReach). An env without a credential
+// passes through.
+func stageCoordCred(f *secretsFile, spawnEnv map[string]string, credFile string) (map[string]string, error) {
 	cred, ok := spawnEnv[sessions.EnvCoordCred]
 	if !ok {
 		return spawnEnv, nil
 	}
-	if cw.secrets == nil {
+	if f == nil {
 		return nil, errSecretUnstaged
 	}
-	if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(cw.secrets.dir, sessions.EnvCoordCred), []byte(cred), owneronly.FileMode); err != nil {
-		return nil, fmt.Errorf("container secrets: write %s: %w", sessions.EnvCoordCred, err)
+	if err := f.put(map[string]string{sessions.EnvCoordCred: cred}); err != nil {
+		return nil, err
 	}
 	out := maps.Clone(spawnEnv)
 	delete(out, sessions.EnvCoordCred)
-	out[sessions.EnvCoordCredFile] = path.Join(secretsTarget, sessions.EnvCoordCred)
+	out[sessions.EnvCoordCredFile] = credFile
 	return out, nil
 }
 
-// materializeSecrets writes each secret variable pl names, from creds, as an
-// owner-only file named by the variable in dir — the host side of the
-// read-only mount at secretsTarget. The exact value is written: the runner
-// reads it back byte for byte.
-func materializeSecrets(dir string, pl launch.Placement, creds engine.Credentials) error {
+// materializeSecrets writes each secret variable pl names, from creds, into
+// the run's secrets file — the host side of the read-only mount at
+// secretsTarget.
+func materializeSecrets(f *secretsFile, pl launch.Placement, creds engine.Credentials) error {
+	vals := make(map[string]string, len(pl.SecretFiles))
 	for v := range pl.SecretFiles {
 		value, ok := creds.Env[v]
 		if !ok {
-			return fmt.Errorf("container secrets: the placement names %s, which the run's credentials do not set", v)
+			return fmt.Errorf("run secrets: the placement names %s, which the run's credentials do not set", v)
 		}
-		if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(dir, v), []byte(value), owneronly.FileMode); err != nil {
-			return fmt.Errorf("container secrets: write %s: %w", v, err)
-		}
+		vals[v] = value
 	}
-	return nil
+	return f.put(vals)
 }
 
 // errSecretResidue: teardown could not remove a secret dir.

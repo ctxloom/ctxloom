@@ -532,18 +532,19 @@ func nestedUnder(list []git.Worktree, target string) []git.Worktree {
 // checkoutBase picks where this worktree's per-agent checkout lives: the
 // session's work/ dir (SessionState.workDir) when the run carries a harp, else
 // the OS temp dir.
-func (w Worktree) checkoutBase() string { return w.memberBase(w.state.workDir, "work") }
+func (w Worktree) checkoutBase() string { return memberBase(w.state, w.state.workDir, "work") }
 
 // scratchBase picks where this worktree's per-agent toolchain scratch lives:
 // the session's scratch/ dir (SessionState.scratchDir) when the run carries a
 // harp, else the OS temp dir.
-func (w Worktree) scratchBase() string { return w.memberBase(w.state.scratchDir, "scratch") }
+func (w Worktree) scratchBase() string { return memberBase(w.state, w.state.scratchDir, "scratch") }
 
-// memberBase is the session member resolve names, or the OS temp dir when
-// there is none (no session accounting, or the dir cannot be prepared).
-// Best-effort like the rest of the worktree half: a fallback warns and the
-// run proceeds. The container half refuses instead of falling back.
-func (w Worktree) memberBase(resolve func() (string, error), member string) string {
+// memberBase is state's session member resolve names, or the OS temp dir
+// when there is none (no session accounting, or the dir cannot be prepared).
+// Best-effort like the rest of the host half (a worktree's checkout and
+// scratch, a host run's secrets): a fallback warns and the run proceeds. The
+// container half refuses instead of falling back.
+func memberBase(state SessionState, resolve func() (string, error), member string) string {
 	dir, err := resolve()
 	switch {
 	case err == nil:
@@ -555,9 +556,9 @@ func (w Worktree) memberBase(resolve func() (string, error), member string) stri
 		// container path refuses on — reporting it is the least this side can
 		// do, since the fallback silently relocates the resource out of the
 		// session layout the run claims to use.
-		clidiag.WarnOnce("ctxloom", "worktree: session harp %q is not a safe path segment; per-agent %s falls back to the OS temp dir instead of the session's %s dir", w.state.Harp, member, member)
+		clidiag.WarnOnce("ctxloom", "session harp %q is not a safe path segment; per-agent %s falls back to the OS temp dir instead of the session's %s dir", state.Harp, member, member)
 	default:
-		clidiag.Warn("ctxloom", "worktree: session %s dir unavailable (%v); using the OS temp dir", member, err)
+		clidiag.Warn("ctxloom", "session %s dir unavailable (%v); using the OS temp dir", member, err)
 	}
 	return os.TempDir()
 }

@@ -792,11 +792,23 @@ func (m *Manager) SetSourceEntries(harpName string, sourceEntries int) error {
 	})
 }
 
+// ErrOutputDirExists refuses a rename whose session's output folder cannot
+// move to the new name because something is already there.
+var ErrOutputDirExists = errors.New("the output folder for the new name already exists")
+
+// ErrOutputDirMove refuses a rename whose session's output folder could not
+// be moved, or whose record of the move could not be written.
+var ErrOutputDirMove = errors.New("the session's output folder could not be moved")
+
 // Rename moves the session directory from oldName to newName — the directory
 // IS the record, so its essence, persisted files and sidecar all travel
-// together. Errors if oldName is not a session, if anything already sits at
-// newName, or if newName is not a usable harp identifier or runs past
-// harp.MaxNameLen.
+// together — and moves the session's output folder beside itself to the new
+// name, recording where it went. Errors if oldName is not a session, if
+// anything already sits at newName, or if newName is not a usable harp
+// identifier or runs past harp.MaxNameLen; and refuses with
+// ErrOutputDirExists or ErrOutputDirMove when the output folder cannot move.
+// A refusal leaves everything where it was: each step is undone if a later
+// one fails.
 //
 // The validation lives HERE, where the data is, not in
 // operations.RenameSession: the new name becomes a path component under the
@@ -823,15 +835,85 @@ func (m *Manager) Rename(oldName, newName string) error {
 		return fmt.Errorf("harp not found: %q", oldName)
 	}
 	newDir := filepath.Join(m.root, newName)
+	if err := m.refuseTakenName(oldName, newName, newDir); err != nil {
+		return err
+	}
+	undo, err := m.moveOutputDir(oldName, cur, newName)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(filepath.Join(m.root, oldName), newDir); err != nil {
+		undo()
+		return fmt.Errorf("rename session dir: %w", err)
+	}
+	return nil
+}
+
+// moveOutputDir moves the output folder cur records to newName beside itself
+// and records the new path in oldName's sidecar, returning the undo of both.
+// A refusal (renamedOutputDir, ErrOutputDirMove) has undone its own steps.
+func (m *Manager) moveOutputDir(oldName string, cur *Entry, newName string) (undo func(), err error) {
+	oldOut, newOut, moving, err := renamedOutputDir(cur.OutputDir, newName)
+	if err != nil {
+		return nil, err
+	}
+	if oldOut == "" {
+		return func() {}, nil
+	}
+	if moving {
+		if err := os.Rename(oldOut, newOut); err != nil {
+			return nil, fmt.Errorf("%w: %s -> %s: %w", ErrOutputDirMove, oldOut, newOut, err)
+		}
+	}
+	unmove := func() {
+		if moving {
+			_ = os.Rename(newOut, oldOut)
+		}
+	}
+	recorded := *cur
+	recorded.OutputDir = newOut
+	if err := m.writeSidecar(oldName, &recorded); err != nil {
+		unmove()
+		return nil, fmt.Errorf("%w: record %s: %w", ErrOutputDirMove, newOut, err)
+	}
+	return func() {
+		_ = m.writeSidecar(oldName, cur)
+		unmove()
+	}, nil
+}
+
+// refuseTakenName refuses a rename onto a name a session dir already holds.
+func (m *Manager) refuseTakenName(oldName, newName, newDir string) error {
 	if _, err := os.Lstat(newDir); err == nil {
 		return fmt.Errorf("name already in use: %q", newName)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("rename %s: inspect %s: %w", oldName, newName, err)
 	}
-	if err := os.Rename(filepath.Join(m.root, oldName), newDir); err != nil {
-		return fmt.Errorf("rename session dir: %w", err)
-	}
 	return nil
+}
+
+// renamedOutputDir is where a session's recorded output folder goes under
+// newName — beside itself — and whether there is a folder to move. A session
+// recording none has nothing to move (oldOut ""); a recorded folder never
+// written moves nothing but is still recorded under the new name. Something
+// already at the target is ErrOutputDirExists.
+func renamedOutputDir(recorded, newName string) (oldOut, newOut string, moving bool, err error) {
+	if recorded == "" {
+		return "", "", false, nil
+	}
+	newOut = filepath.Join(filepath.Dir(recorded), newName)
+	if _, err := os.Lstat(newOut); err == nil {
+		return "", "", false, fmt.Errorf("%w: %s", ErrOutputDirExists, newOut)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", "", false, fmt.Errorf("%w: inspect %s: %w", ErrOutputDirMove, newOut, err)
+	}
+	if _, err := os.Lstat(recorded); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return recorded, newOut, false, nil
+		}
+		return "", "", false, fmt.Errorf("%w: inspect %s: %w", ErrOutputDirMove, recorded, err)
+	}
+	return recorded, newOut, true, nil
 }
 
 // Forget removes the harp's sidecar, and with it the session from every

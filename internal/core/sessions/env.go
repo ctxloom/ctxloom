@@ -31,14 +31,15 @@ const (
 	// (http://host:port/mcp); the gRPC RunnerChannel rides the same
 	// host:port (one h2c listener, content-type routed).
 	EnvCoordURL = "CTXLOOM_COORD_URL"
-	// EnvCoordCred is the caller's bearer token (identity, not just
-	// admission). 256-bit, hex; only its SHA-256 is ever persisted. The
-	// credential is read from the HARNESS-INHERITED process env only — it is
-	// never written into any MCP config structure, file, or Env map.
+	// EnvCoordCred is the key of the caller's bearer token (identity, not
+	// just admission). 256-bit, hex; only its SHA-256 is ever persisted. It
+	// keys the credential in the in-process spawn request (EncodeReach) and
+	// in the run's secrets file (EncodeSecrets); it is never a variable in
+	// any process's environment, nor in an MCP config structure.
 	EnvCoordCred = "CTXLOOM_COORD_CRED"
-	// EnvCoordCredFile names the read-only secret file a CONTAINER runner
-	// reads its credential from instead of EnvCoordCred, so the credential is
-	// in neither the container's environment nor the `run` client's.
+	// EnvCoordCredFile names the run's secrets file, which holds the
+	// credential under EnvCoordCred. Every runner, host and container, reads
+	// its credential from there (DecodeReach).
 	EnvCoordCredFile = "CTXLOOM_COORD_CRED_FILE"
 	// EnvRunID is the coordinator-minted run id for a spawned child's
 	// runner, so RunnerChannel Hello correlates the runner to the run the
@@ -99,25 +100,30 @@ func DecodeHookReach(getenv func(string) string) (Endpoint, error) {
 // coordinator endpoint.
 var ErrNoReachBack = errors.New("sessions: no reach-back endpoint in the process environment")
 
-// EncodeReach renders the reach-back trio for a runner PROCESS.
+// EncodeReach renders the reach-back trio as the SPAWN REQUEST for a runner:
+// an in-process map the environment that starts the runner turns into its
+// exec env, moving the credential into the run's secrets file and naming the
+// file (EnvCoordCredFile) in its place.
 func EncodeReach(reach Endpoint, runID string) map[string]string {
 	return map[string]string{EnvCoordURL: reach.URL, EnvCoordCred: reach.Credential, EnvRunID: runID}
 }
 
-// DecodeReach reads the reach-back trio back: the credential from
-// EnvCoordCred, or else from the file EnvCoordCredFile names (read through
-// readFile, byte for byte). A missing URL or credential, or a named file that
-// cannot be read, is ErrNoReachBack.
+// DecodeReach reads a runner's reach-back: the URL and run id from its
+// environment, the credential from the secrets file EnvCoordCredFile names
+// (read through readFile). A missing URL or credential, or a named file that
+// cannot be read or decoded, is ErrNoReachBack.
 func DecodeReach(getenv func(string) string, readFile func(string) ([]byte, error)) (Endpoint, string, error) {
-	ep := Endpoint{URL: getenv(EnvCoordURL), Credential: getenv(EnvCoordCred)}
-	if ep.Credential == "" {
-		if name := getenv(EnvCoordCredFile); name != "" {
-			b, err := readFile(name)
-			if err != nil {
-				return Endpoint{}, "", fmt.Errorf("%w: reading the credential file %s: %w", ErrNoReachBack, name, err)
-			}
-			ep.Credential = string(b)
+	ep := Endpoint{URL: getenv(EnvCoordURL)}
+	if name := getenv(EnvCoordCredFile); name != "" {
+		b, err := readFile(name)
+		if err != nil {
+			return Endpoint{}, "", fmt.Errorf("%w: reading the secrets file %s: %w", ErrNoReachBack, name, err)
 		}
+		secrets, err := DecodeSecrets(b)
+		if err != nil {
+			return Endpoint{}, "", fmt.Errorf("%w: decoding the secrets file %s: %w", ErrNoReachBack, name, err)
+		}
+		ep.Credential = secrets[EnvCoordCred]
 	}
 	if ep.URL == "" || ep.Credential == "" {
 		return Endpoint{}, "", ErrNoReachBack

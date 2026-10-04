@@ -607,6 +607,9 @@ func withSessionState(chain []policy, state SessionState) []policy {
 		case Worktree:
 			v.state = state
 			chain[i] = v
+		case None:
+			v.state = state
+			chain[i] = v
 		}
 	}
 	return chain

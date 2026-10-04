@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
 
@@ -94,13 +95,15 @@ func TestExecute_CurationNeverStripsOrShadowsARedeemedSecret(t *testing.T) {
 	restoreEnviron(t)
 	t.Setenv(unrelatedSecret, "leak")
 	t.Setenv(tokenVar, "host-stale")
-	file := filepath.Join(t.TempDir(), tokenVar)
-	require.NoError(t, os.WriteFile(file, []byte(mountedSecret), 0o600))
+	file := filepath.Join(t.TempDir(), "run.env")
+	b, err := sessions.EncodeSecrets(map[string]string{tokenVar: mountedSecret})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(file, b, 0o600))
 	l, env := secretFileLaunch(t, file)
 	l.Cell.EnvHost = agents.EnvHost{Curated: true, Env: []string{tokenVar}}
 
 	drive := &childEnvDriver{}
-	_, err := runner.Execute(context.Background(), runner.Deps{
+	_, err = runner.Execute(context.Background(), runner.Deps{
 		Locks: &launchtest.Locks{},
 		Kind:  mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive, Unsetenv: os.Unsetenv, Environ: os.Environ,

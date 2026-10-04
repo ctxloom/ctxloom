@@ -24,7 +24,7 @@ The authorities are code, not this page:
 | Machine, disposable | session dir | rebuilt or recreated per launch | `home/` (engine config homes) |
 | Work | session dir | kept while it holds work; triaged, never removed blind | `work/` (worktree checkouts) |
 | Scratch | session dir | one run | `scratch/` (`ctxloom-iso-*`, `ctxloom-tmp-*`, the secret dir's disk fallback) |
-| Readable output | output dir | the human's; ctxloom's sweeps never delete it | `essence.md`, `next-step.md`, `*.plan.md`, `segments/<id>.md` |
+| Readable output | output dir | the human's; ctxloom's sweeps never delete it | `essence.md`, `next-step.md`, `*.plan.md`, `segments/<id>.md`, `reports/` |
 
 ## Layout
 
@@ -48,7 +48,16 @@ The authorities are code, not this page:
 <Documents>/ctxloom/<project>/<harp>/       output dir (session.yaml output_dir)
   essence.md, next-step.md, *.plan.md
   segments/<id>.md
+  reports/<agent harp>/                     each agent's FINAL report in this tree
+    report.md                               the report's text
+    <artifact name>                         each artifact it published, latest revision
 ```
+
+A FINAL `agent_report` from any agent in the tree is saved into the ROOT session's output
+dir as it is journaled (`Coordinator.saveFinalReport`): the text as `report.md` and each
+artifact it names, at its latest revision, under its base name — prefixed with its artifact
+id when another file of the report already took that name. A later FINAL rewrites the
+files it names. Saving is best-effort: the report is journaled either way.
 
 `<leaf>` is the engine's session-home leaf (`launch.SessionHome`); `<history>` is the
 engine's `engine.HomeSpec.TranscriptStoreRel` (claude: `projects`). `launch.NativeHome`
@@ -70,6 +79,12 @@ on (`sessions.OutputDir`): the default depends on per-user and per-platform stat
 base is configurable, so re-deriving it later could name a folder the session never wrote
 to. A process inside a container reaches it at `/ctxloom/out`, which `CTXLOOM_OUTPUT_DIR`
 names; `sessions.OutputDirIn` prefers that variable, then the record.
+
+Renaming a session (`session edit --name`, `sessions.Manager.Rename`) moves its output dir to
+the new name beside the old one and records the new path. Something already there
+(`sessions.ErrOutputDirExists`) or a move that fails (`sessions.ErrOutputDirMove`) refuses the
+rename, and every step taken is undone. An editor or sync client holding the old folder sees
+it move.
 
 ## Container mounts
 
@@ -113,19 +128,30 @@ one destroyer, the explicit `ctxloom session artifacts purge` (`outputEssenceIte
 
 ## Secrets
 
-A container run's credentials are written owner-only to a per-run secret dir and mounted
-read-only at `/run/ctxloom/secrets`, one file per variable (`materializeSecrets`). The dir
-lives on the per-user tmpfs (`$XDG_RUNTIME_DIR`) when the platform has one; otherwise it
-falls back to disk under the session's `scratch/`, which is allowed but announced — once
-at launch (`isolation.SecretsOnDiskNotice`) and by `DOCTOR-CHECK-SECRETS-STORAGE-k1`, both
-naming the platform and the place.
+Each run has ONE secrets file: dotenv, written by `github.com/joho/godotenv`
+(`sessions.EncodeSecrets`), owner-only, in a per-run secret dir (`secretsFile`). The dir
+lives on the platform's per-user tmpfs (`platform.PrivateTmpfs`: `$XDG_RUNTIME_DIR` on
+Linux) when there is one; otherwise it falls back to disk under the session's `scratch/`,
+which is allowed but announced — once at launch (`isolation.SecretsOnDiskNotice`) and by
+`DOCTOR-CHECK-SECRETS-STORAGE-k1`, both naming the platform and the place.
 
-The coordinator credential follows the same path for a container runner: it is written to
-`/run/ctxloom/secrets/CTXLOOM_COORD_CRED` (`stageCoordCred`) and only
-`CTXLOOM_COORD_CRED_FILE` crosses, so the value is in neither the container's environment
-nor the `docker run` client's. The runner reads it back byte for byte
-(`sessions.DecodeReach`) and scrubs the variable with the rest of the reach-back. A host
-runner still receives `CTXLOOM_COORD_CRED` in its environment.
+The writer proves every value by decoding the file back and refuses one that would not
+return byte for byte (`sessions.ErrSecretNotRoundTrippable`, naming the variable, never the
+value). godotenv cannot hold a value ending in a backslash or in a double quote, and writes
+an integer unquoted (a leading zero is lost); every `$` is escaped, so reading expands
+nothing.
+
+A container run's engine credentials go into the file, mounted read-only at
+`/run/ctxloom/secrets`; the Placement names the file for each variable
+(`launch.Placement.SecretFiles`) and the runner reads them out of it (`redeemSecrets`).
+
+The coordinator credential reaches EVERY runner, host and container, through the same
+file: the environment that starts the runner moves it out of the spawn request
+(`stageCoordCred`) and names the file in `CTXLOOM_COORD_CRED_FILE` — the mounted path for a
+container, the host path for a host runner. `sessions.DecodeReach` reads the credential
+from that file only; `CTXLOOM_COORD_CRED` is never a variable in any process's
+environment, and a host runner start that still carries it is refused
+(`errCredInExecEnv`).
 
 ## Rulings and why
 
@@ -169,9 +195,11 @@ the probe registry (`probeP14` in `tests/acceptance/capability_probe_registry.go
   cell observed the host path as the slug), so host and container runs of one session file
   history under the same slug. A worktree checkout is a different directory from the
   project, and so a different slug, on either runtime.
-- **Windows.** Creating the relative link needs symlink privilege (Developer Mode or an
-  elevated process); without it the session home cannot be prepared and the run is refused
-  with the cause named.
+- **Windows.** The history link is a directory junction (`platform.DirLinker`), which
+  needs no privilege but names its target absolutely, so it does not resolve inside a
+  container. A host run links as everywhere else; a container run keeps its history in the
+  mounted session home instead (`nativeHomeFor`), where it is deleted when the session
+  closes, and says so once at launch.
 - **A missing output dir.** Readers treat a missing directory as "nothing written yet". A
   session whose record has no output dir is reported (`sessions.ErrNoOutputDir`); a
   container run of one is refused.

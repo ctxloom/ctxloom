@@ -49,6 +49,7 @@ require (
 	github.com/benjaminabbitt/hew/go v0.2.2
 	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260905185216-9a2b04465c57
 	github.com/expr-lang/expr v1.17.8
+	github.com/joho/godotenv v1.5.1
 	github.com/knadh/koanf/maps v0.1.2
 	github.com/knadh/koanf/providers/confmap v1.0.0
 	github.com/knadh/koanf/providers/env/v2 v2.0.0

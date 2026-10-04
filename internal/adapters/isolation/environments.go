@@ -2,12 +2,14 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -19,6 +21,12 @@ type hostEnvironment struct {
 	ws        workspace
 	placement launch.Placement
 	axis      WorkspaceAxis
+	// state is the run's session, whose scratch dir holds the secrets file
+	// when the platform has no per-user tmpfs.
+	state SessionState
+	// secrets is the run's secrets file, made by the first runner start that
+	// carries a credential; released by Cleanup.
+	secrets *secretsFile
 }
 
 func (e *hostEnvironment) Placement() launch.Placement { return e.placement }
@@ -27,22 +35,62 @@ func (e *hostEnvironment) Placement() launch.Placement { return e.placement }
 func (*hostEnvironment) Listen() present.Listen { return present.Listen{} }
 
 func (e *hostEnvironment) Start(ctx context.Context, r RunnerRequest) (*RunnerHandle, error) {
-	return e.p.startRunner(ctx, r.Engine, r.Label, r.Verbosity, e.ws, r.Env)
+	env, err := e.stageCred(r.Env)
+	if err != nil {
+		return nil, err
+	}
+	return e.p.startRunner(ctx, r.Engine, r.Label, r.Verbosity, e.ws, env)
 }
 
 // Interactive is the self-exec'd runner; nothing beyond the process is
-// started, so there is no teardown.
+// started, so there is no teardown (the secrets file goes with Cleanup).
 func (e *hostEnvironment) Interactive(ctx context.Context, r RunnerRequest) (Interactive, error) {
-	cmd, _, err := e.p.interactiveRunner(ctx, r.Engine, e.ws, r.Env)
+	env, err := e.stageCred(r.Env)
+	if err != nil {
+		return Interactive{}, err
+	}
+	cmd, _, err := e.p.interactiveRunner(ctx, r.Engine, e.ws, env)
 	if err != nil {
 		return Interactive{}, err
 	}
 	return Interactive{Cmd: cmd}, nil
 }
 
+// stageCred moves the coordinator credential in spawnEnv into the run's
+// secrets file (stageCoordCred), making the file on first need. A host runner
+// opens it at its host path.
+func (e *hostEnvironment) stageCred(spawnEnv map[string]string) (map[string]string, error) {
+	if _, ok := spawnEnv[sessions.EnvCoordCred]; !ok {
+		return spawnEnv, nil
+	}
+	if e.secrets == nil {
+		f, err := newSecretsFile(hostSecretsDiskParent(e.state))
+		if err != nil {
+			return nil, err
+		}
+		e.secrets = f
+	}
+	return stageCoordCred(e.secrets, spawnEnv, e.secrets.path())
+}
+
+// hostSecretsDiskParent is where a host run's secret dir goes when the
+// platform has no per-user tmpfs: the session's scratch dir (memberBase).
+func hostSecretsDiskParent(state SessionState) string {
+	return memberBase(state, state.scratchDir, "scratch")
+}
+
 func (e *hostEnvironment) Describe() Description { return hostDescription(e.axis) }
 
-func (e *hostEnvironment) Cleanup() error { return e.ws.Cleanup() }
+// Cleanup removes the run's secrets file, then the workspace.
+func (e *hostEnvironment) Cleanup() error {
+	var errs error
+	if e.secrets != nil {
+		f := e.secrets
+		e.secrets = nil
+		errs = f.release()
+	}
+	return errors.Join(errs, e.ws.Cleanup())
+}
 
 func hostDescription(axis WorkspaceAxis) Description {
 	return Description{Workspace: string(axis), Runtime: Host{}.Name(), Reach: "loopback"}
@@ -104,7 +152,7 @@ func (e *containerEnvironment) Cleanup() error { return e.cw.Cleanup() }
 func (None) relocator() relocator { return hostRelocator{} }
 
 func (n None) environment(ws workspace, pl launch.Placement, _ []mount, _ engine.Credentials) (Environment, error) {
-	return &hostEnvironment{p: n, ws: ws, placement: pl, axis: WorkspaceShared}, nil
+	return &hostEnvironment{p: n, ws: ws, placement: pl, axis: WorkspaceShared, state: n.state}, nil
 }
 
 func (None) preview(context.Context) (present.Listen, Description) {
@@ -114,7 +162,7 @@ func (None) preview(context.Context) (present.Listen, Description) {
 func (Worktree) relocator() relocator { return hostRelocator{} }
 
 func (w Worktree) environment(ws workspace, pl launch.Placement, _ []mount, _ engine.Credentials) (Environment, error) {
-	return &hostEnvironment{p: w, ws: ws, placement: pl, axis: WorkspaceWorktree}, nil
+	return &hostEnvironment{p: w, ws: ws, placement: pl, axis: WorkspaceWorktree, state: w.state}, nil
 }
 
 func (Worktree) preview(context.Context) (present.Listen, Description) {
@@ -137,7 +185,7 @@ func (c Container) environment(ws workspace, pl launch.Placement, roots []mount,
 		if cw.secrets == nil {
 			return nil, errSecretUnstaged
 		}
-		if err := materializeSecrets(cw.secrets.dir, pl, creds); err != nil {
+		if err := materializeSecrets(cw.secrets, pl, creds); err != nil {
 			return nil, err
 		}
 	}

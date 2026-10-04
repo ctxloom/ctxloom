@@ -17,7 +17,11 @@ var startHostRunner = StartHostRunner
 // the runner is a bare self-invoked `ctxloom runner` subprocess. It is the
 // fault-tolerant floor: None never fails to prepare a workspace or start a
 // runner, so a run always has a working policy to fall back to.
-type None struct{}
+type None struct {
+	// state is the run's session identity (withSessionState): where a host
+	// run's secrets file goes when the platform has no per-user tmpfs.
+	state SessionState
+}
 
 // Ensure None satisfies the policy interface.
 var _ policy = None{}
@@ -54,6 +58,9 @@ func (None) startRunner(ctx context.Context, backendName, label string, _ int, _
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if err := refuseCredInExecEnv(spawnEnv); err != nil {
+		return nil, err
+	}
 	env := make(map[string]string, len(spawnEnv))
 	for k, v := range spawnEnv {
 		env[k] = v
@@ -70,6 +77,9 @@ func (None) startRunner(ctx context.Context, backendName, label string, _ int, _
 // InteractiveRunner is the self-exec'd runner on the host: the originator
 // starts it on the pty it holds.
 func (None) interactiveRunner(_ context.Context, backendName string, _ workspace, spawnEnv map[string]string) (*exec.Cmd, string, error) {
+	if err := refuseCredInExecEnv(spawnEnv); err != nil {
+		return nil, "", err
+	}
 	return RunnerCommand(backendName, spawnEnv), "", nil
 }
 

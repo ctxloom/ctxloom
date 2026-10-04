@@ -45,7 +45,7 @@ func TestContainerCell_StartRunCarriesTheCredentialByReferenceNeverByValue(t *te
 
 	wire := startRunBytes(t, pl)
 	assert.NotContains(t, string(wire), fixtureSecret, "the credential value crossed the coordinator link")
-	want := path.Join(secretsTarget, "CLAUDE_CODE_OAUTH_TOKEN")
+	want := path.Join(secretsTarget, secretsFileName)
 	assert.Equal(t, map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": want}, pl.SecretFiles)
 	assert.NotContains(t, pl.Env, "CLAUDE_CODE_OAUTH_TOKEN", "a secret variable is never ALSO in env")
 	assert.Contains(t, string(wire), want, "the reference rides in its place")

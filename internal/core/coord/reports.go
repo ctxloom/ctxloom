@@ -272,6 +272,7 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s Summary) e
 		return fmt.Errorf("%w: %s: %w", ErrReportNotJournaled, harp, err)
 	}
 	c.audit("agent_report", harp, map[string]string{"scope": string(s.Scope)})
+	c.saveFinalReport(harp, s)
 	c.notifyParentOfFinalReport(harp, s)
 	// FINAL IS A COMPLETION CONTRACT, SO ACT ON IT: the child has said it is
 	// finished, and the coordinator ends its run rather than leaving it idle

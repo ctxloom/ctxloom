@@ -345,7 +345,7 @@ func TestHoldRestart_AHumanPauseSurvivesARestart(t *testing.T) {
 // past every backoff cap — and only the human releases it.
 func TestHoldRestart_ANoDeadlineHoldHasNoTimerAcrossRestart(t *testing.T) {
 	f, clk := newRateFixture(t)
-	src := f.sp.credentialOf("worker")
+	src := f.sp.credentialOf("worker").Source("mock")
 	worker, sibling := f.runOf(t, f.worker), f.runOf(t, f.sibling)
 	now := clk.Now()
 	require.NoError(t, f.c.runs.Exec(func() ([]Fact, error) {
@@ -480,4 +480,61 @@ func TestHoldsFold_ReplayEqualsTheLiveFold(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 	require.Len(t, live, 2)
 	assert.Equal(t, live, replayed.inForce())
+}
+
+// TestHoldRestart_AReauthenticatedEnvironmentReleasesTheRefusedCredentialsHold
+// is the restart remedy: the human exports a fresh credential and restarts
+// the session. The restarted coordinator re-resolves the hold's credential
+// from ITS environment, finds it changed, and releases the hold itself
+// (journaled "reauth"); the runs it parked are resumed as their runners come
+// back, and the mail held meanwhile runs.
+func TestHoldRestart_AReauthenticatedEnvironmentReleasesTheRefusedCredentialsHold(t *testing.T) {
+	f, clk := newRateFixture(t)
+	f.send(t, f.worker, credRefused+" do the work")
+	f.awaitHold(t, f.worker, f.sibling)
+	f.awaitParks(t, f.worker, f.sibling)
+	f.send(t, f.sibling, "held work")
+
+	f.opts.LookupEnv = envOf(map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "sk-fixture-fresh-token"})
+	reasserted := make(chan struct{}, 8)
+	f.restart(t, clk, 0, stepSignal(holdStepReasserted, reasserted))
+	assert.Empty(t, f.c.CredentialHolds(), "a changed credential releases the refused one's hold at adoption")
+	assertReleased(t, f.c, holdCauseReauth)
+	assert.Equal(t, 1, f.findingsWith("re-authenticated"), "the human is told why: %v", f.findings.All())
+	assert.Zero(t, f.findingsWith(refusedFinding), "no stale refusal notice: %v", f.findings.All())
+
+	f.redial(t)
+	within(t, reasserted, "the worker's owed resume was never delivered")
+	within(t, reasserted, "the sibling's owed resume was never delivered")
+	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), resumedHarps(t, f.c))
+	awaitChatText(t, f.sp, 1, "held work")
+}
+
+// TestHoldRestart_TheSameRefusedCredentialKeepsItsHold: a restart whose
+// environment still carries the refused credential — or no longer carries one
+// at all — cannot have fixed it, so the hold stays, with no timer, and the
+// human is told again what to do.
+func TestHoldRestart_TheSameRefusedCredentialKeepsItsHold(t *testing.T) {
+	for name, env := range map[string]map[string]string{
+		"the same credential": {"CLAUDE_CODE_OAUTH_TOKEN": refusedToken},
+		"no credential":       nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, clk := newRateFixture(t)
+			f.send(t, f.worker, credRefused+" do the work")
+			f.awaitHold(t, f.worker, f.sibling)
+			f.awaitParks(t, f.worker, f.sibling)
+
+			f.opts.LookupEnv = envOf(env)
+			clk = f.restart(t, clk, 0, nil)
+			holds := f.c.CredentialHolds()
+			require.Len(t, holds, 1, "the hold stays")
+			assert.Equal(t, agent.FailureCredentialRejected, holds[0].Kind)
+			assert.Zero(t, clk.Pending())
+			assert.Empty(t, journaled[holdReleased](t, f.c, factHoldReleased))
+			assert.Equal(t, 1, f.findingsWith(refusedFinding), "the human is told again: %v", f.findings.All())
+			assert.Equal(t, 1, f.findingsWith("export a fresh CLAUDE_CODE_OAUTH_TOKEN"), "with the remedy: %v", f.findings.All())
+			assert.Zero(t, f.findingsWith(refusedToken), "never the value")
+		})
+	}
 }

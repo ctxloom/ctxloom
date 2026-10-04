@@ -29,7 +29,21 @@ const (
 	// overloadHit: a turn the engine turns away because its server is at
 	// capacity (claude's 529) — no reset time, nothing about the credential.
 	overloadHit = "server-overloaded"
+	// credRefused: a turn the engine turns away because its credential was
+	// refused (claude's authentication_failed).
+	credRefused = "cred-refused"
 )
+
+// refusedToken is the value the fixture's shared credential carries.
+const refusedToken = "sk-fixture-shared-token"
+
+// envOf is an environment lookup over env alone.
+func envOf(env map[string]string) func(string) (string, bool) {
+	return func(k string) (string, bool) {
+		v, ok := env[k]
+		return v, ok
+	}
+}
 
 var (
 	limitResets     = fakeclock.Epoch.Add(10 * time.Minute)
@@ -40,6 +54,8 @@ var (
 // limit, the overload marker on the server's capacity.
 func rateFailure(prompt string) *agent.TurnFailure {
 	switch {
+	case strings.Contains(prompt, credRefused):
+		return &agent.TurnFailure{Kind: agent.FailureCredentialRejected}
 	case strings.Contains(prompt, overloadHit):
 		return &agent.TurnFailure{Kind: agent.FailureOverloaded}
 	case strings.Contains(prompt, limitHitLate):
@@ -79,9 +95,9 @@ func newHoldFixtureOpts(t *testing.T, failed func(prompt string) *agent.TurnFail
 	for _, name := range []string{"sibling", "stranger"} {
 		sp.agents[name] = fakeAgent{perm: "bypass", runtime: launch.RuntimeRootless}
 	}
-	shared := engine.Credentials{Env: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "v"}}.Source("mock")
-	other := engine.Credentials{Env: map[string]string{"ANTHROPIC_API_KEY": "v"}}.Source("mock")
-	sp.credentialFor = func(agentName string) engine.CredentialSource {
+	shared := engine.Credentials{Env: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": refusedToken}}
+	other := engine.Credentials{Env: map[string]string{"ANTHROPIC_API_KEY": "v"}}
+	sp.credentialFor = func(agentName string) engine.Credentials {
 		if agentName == "stranger" {
 			return other
 		}
@@ -95,6 +111,9 @@ func newHoldFixtureOpts(t *testing.T, failed func(prompt string) *agent.TurnFail
 		Spawner:    sp,
 		Reporter:   &findings,
 		OwnerHarp:  ownerIdentity().Harp,
+		// Hermetic: the developer's own exported token must never be what a
+		// restart re-resolves.
+		LookupEnv: envOf(nil),
 	}
 	if opts != nil {
 		opts(&o)
@@ -741,7 +760,7 @@ func TestRateHold_TheRosterShowsTheHold(t *testing.T) {
 		assert.Equal(t, want.Kind, got.Kind)
 		assert.Equal(t, want.Source, got.Source)
 		assert.True(t, want.Until.Equal(got.Until), "got %v", got.Until)
-		assert.NotContains(t, got.Source, "=v", "the source names the carrier, never its value")
+		assert.NotContains(t, got.Source, refusedToken, "the source names the carrier, never its value")
 	}
 	assert.Nil(t, f.holdOf(t, f.stranger), "a run on another credential is not held")
 

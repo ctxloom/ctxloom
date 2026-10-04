@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,8 +77,8 @@ func TestImportBundle_RefusesANewerEnvelope(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 	bundletree.Write(t, fs, "/incoming", "incoming", "version: 1.0.0\nfragments:\n  a:\n    content: hi\n")
-	require.NoError(t, afero.WriteFile(fs, filepath.Join("/incoming", "incoming", bundles.DirectoryFormManifest),
-		[]byte(schemaver.Key+": 99\nversion: 1.0.0\n"), 0o644))
+	testsupport.WriteFile(t, fs, filepath.Join("/incoming", "incoming", bundles.DirectoryFormManifest),
+		[]byte(schemaver.Key+": 99\nversion: 1.0.0\n"), 0o644)
 
 	_, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/incoming/incoming", FS: fs})
 

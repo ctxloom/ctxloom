@@ -208,16 +208,6 @@ func ParseDirtyTreeHandler(s string) (DirtyTreeHandler, error) {
 	}
 }
 
-// The two named isolation_base choices; any other non-empty value is an image
-// ref used as the base.
-const (
-	// IsolationBaseCtxloom is ctxloom's own embedded base.
-	IsolationBaseCtxloom = "ctxloom"
-	// IsolationBaseDevcontainer is the project's devcontainer, required to
-	// exist.
-	IsolationBaseDevcontainer = "devcontainer"
-)
-
 // ImageConfig carries the user's image configuration for containerized
 // isolation: Image is the optional prebuilt agent-image override, run AS-IS
 // and never built; Base is isolation_base verbatim, the base an on-the-fly
@@ -225,7 +215,7 @@ const (
 // DevcontainerService locate and resolve the project devcontainer.
 type ImageConfig struct {
 	Image string
-	// Base is IsolationBaseCtxloom, IsolationBaseDevcontainer, an image ref,
+	// Base is config.IsolationBaseCtxloom, config.IsolationBaseDevcontainer, an image ref,
 	// or "" (the project devcontainer when detected, else ctxloom's own).
 	Base string
 	// AppRoot is the project root the devcontainer is resolved against;

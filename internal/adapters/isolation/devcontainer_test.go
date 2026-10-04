@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // writeDevcontainer writes appRoot/.devcontainer/devcontainer.json.
@@ -236,21 +236,21 @@ func TestResolveBase(t *testing.T) {
 	writeDevcontainer(t, malformed, `{ malformed`)
 
 	t.Run("ctxloom ignores a present devcontainer", func(t *testing.T) {
-		stage, err := resolveBase(launch.IsolationBaseCtxloom, withDev, "")
+		stage, err := resolveBase(config.IsolationBaseCtxloom, withDev, "")
 		require.NoError(t, err)
 		assert.Equal(t, defaultBaseStage().containerfile, stage.containerfile)
 		assert.Empty(t, stage.kind, "ctxloom's own base is not a declaration that refuses substitution")
 	})
 	t.Run("devcontainer adopts the project devcontainer", func(t *testing.T) {
-		stage, err := resolveBase(launch.IsolationBaseDevcontainer, withDev, "")
+		stage, err := resolveBase(config.IsolationBaseDevcontainer, withDev, "")
 		require.NoError(t, err)
 		assert.Equal(t, "FROM debian:13\n", string(stage.containerfile))
 		assert.Equal(t, baseStageKindDevcontainer, stage.kind)
 	})
 	t.Run("devcontainer with none present is a typed error", func(t *testing.T) {
-		_, err := resolveBase(launch.IsolationBaseDevcontainer, without, "")
+		_, err := resolveBase(config.IsolationBaseDevcontainer, without, "")
 		require.ErrorIs(t, err, ErrNoDevcontainer)
-		_, err = resolveBase(launch.IsolationBaseDevcontainer, "", "")
+		_, err = resolveBase(config.IsolationBaseDevcontainer, "", "")
 		require.ErrorIs(t, err, ErrNoDevcontainer, "no project root means nothing to find")
 	})
 	t.Run("an image ref is a declared base", func(t *testing.T) {
@@ -272,7 +272,7 @@ func TestResolveBase(t *testing.T) {
 		}
 	})
 	t.Run("a detection failure still returns a buildable stage with the error", func(t *testing.T) {
-		for _, choice := range []string{"", launch.IsolationBaseDevcontainer} {
+		for _, choice := range []string{"", config.IsolationBaseDevcontainer} {
 			stage, err := resolveBase(choice, malformed, "")
 			require.Error(t, err, choice)
 			require.NotNil(t, stage, "callers that downgrade the error keep a stage to key identity on")

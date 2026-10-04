@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/keymatch"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
@@ -492,10 +493,42 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	if err := validateIdleTimeout(doc.Delegation.IdleTimeout); err != nil {
 		return err
 	}
+	if err := validateIsolationBase(doc.IsolationBase); err != nil {
+		return err
+	}
 	if _, err := engine.ParseAuthMode(string(doc.Auth)); err != nil {
 		return err
 	}
 	c.fromDoc(doc)
+	return nil
+}
+
+// The two named isolation_base choices; any other non-empty value is an image
+// ref used as the base (interpreted by isolation's resolveBase).
+const (
+	// IsolationBaseCtxloom is ctxloom's own embedded base.
+	IsolationBaseCtxloom = "ctxloom"
+	// IsolationBaseDevcontainer is the project's devcontainer, required to
+	// exist.
+	IsolationBaseDevcontainer = "devcontainer"
+)
+
+// ErrIsolationBaseNearMiss refuses an isolation_base that is a bare name
+// within keymatch's typo budget of a named choice.
+var ErrIsolationBaseNearMiss = errors.New("isolation_base looks like a misspelled choice")
+
+// validateIsolationBase refuses a bare isolation_base value that is a near
+// miss of a named choice. Read as an image ref, the typo would surface only as
+// a failed `FROM` at build time, far from the line that caused it. A value
+// shaped like a registry, tagged or digest ref (':' '/' '@') is never a typo
+// of a bare word, and a bare name outside the budget (`ubuntu`) is a ref.
+func validateIsolationBase(v string) error {
+	if v == "" || v == IsolationBaseCtxloom || v == IsolationBaseDevcontainer || strings.ContainsAny(v, ":/@") {
+		return nil
+	}
+	if near := keymatch.Nearest(v, []string{IsolationBaseCtxloom, IsolationBaseDevcontainer}); near != "" {
+		return fmt.Errorf("%w: %q — did you mean `%s`? (any other value is read as an image ref)", ErrIsolationBaseNearMiss, v, near)
+	}
 	return nil
 }
 

@@ -294,7 +294,7 @@ func runContainerScaffold(cmd *cobra.Command, args []string) error {
 	w := errwriter.New(cmd.OutOrStdout())
 	w.Printf("Devcontainer: %s\n", dir)
 	w.Println("Edit its Dockerfile (the engine's agent stage layers on top), then run `ctxloom container build`.")
-	if base := cfg.IsolationBase(); base != "" && base != launch.IsolationBaseDevcontainer {
+	if base := cfg.IsolationBase(); base != "" && base != config.IsolationBaseDevcontainer {
 		clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "isolation_base is %q, so agent images do NOT build on this devcontainer; unset it (or set isolation_base: devcontainer) to use it", base)
 	}
 	return w.Err()

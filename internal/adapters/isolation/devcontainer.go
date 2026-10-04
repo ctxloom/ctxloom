@@ -11,7 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -81,8 +81,8 @@ var ErrNoDevcontainer = errors.New("isolation_base is devcontainer but the proje
 // build layers the agent stage onto — shared by every caller (containerFor,
 // runEnsureImage, BuildAgentImage, Diagnose) so the tag a run looks up and
 // the image a build produces can never disagree:
-//   - launch.IsolationBaseCtxloom → the embedded default, devcontainer or not.
-//   - launch.IsolationBaseDevcontainer → the project devcontainer;
+//   - config.IsolationBaseCtxloom → the embedded default, devcontainer or not.
+//   - config.IsolationBaseDevcontainer → the project devcontainer;
 //     ErrNoDevcontainer when there is none (or no appRoot to look in).
 //   - "" → the project devcontainer when one is detected under appRoot, else
 //     the embedded default.
@@ -93,10 +93,10 @@ var ErrNoDevcontainer = errors.New("isolation_base is devcontainer but the proje
 // (Diagnose) still has an identity to key on. Every caller surfaces the error.
 func resolveBase(choice, appRoot, service string) (*baseStage, error) {
 	switch choice {
-	case launch.IsolationBaseCtxloom:
+	case config.IsolationBaseCtxloom:
 		return defaultBaseStage(), nil
-	case launch.IsolationBaseDevcontainer, "":
-		return projectDevcontainerBase(appRoot, service, choice == launch.IsolationBaseDevcontainer)
+	case config.IsolationBaseDevcontainer, "":
+		return projectDevcontainerBase(appRoot, service, choice == config.IsolationBaseDevcontainer)
 	default:
 		return imageRefBaseStage(choice), nil
 	}

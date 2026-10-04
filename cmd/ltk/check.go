@@ -102,7 +102,7 @@ func runCheck(w, diag io.Writer, command, cfgPath string, forceShell ir.Shell, f
 	if forceShell != "" && !forceShell.Valid() {
 		return fmt.Errorf("unknown --shell %q (known: %s)", forceShell, knownShells())
 	}
-	cfg, resolved, err := loadConfig(cfgPath)
+	cfg, resolved, err := loadConfig(cfgPath, diag)
 	if err != nil {
 		return fmt.Errorf("load rules config: %w", err)
 	}

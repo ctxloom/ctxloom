@@ -229,11 +229,13 @@ network treat that bearer as observable in flight. The container itself opens no
 publishes no port. Mutual TLS on the container-reachable listener is planned and not built.
 
 **The host runtime is not a boundary between agents.** Every agent on `runtime: host` runs as
-you. A runner carries its coordinator credential in its process environment
-(`CTXLOOM_COORD_CRED`), and that credential is the agent's identity to the coordinator. Any
-process running as the same user can read another process's environment, so one host-runtime
-agent can read another's credential and speak as that agent. If agents need to be kept apart
-from each other, run them in containers.
+you. A runner's coordinator credential is the agent's identity to the coordinator; it never
+sits in a process environment, but in the run's owner-only secrets file
+(`CTXLOOM_COORD_CRED_FILE` names it), which lives for the whole run because a relaunch or a
+re-adopted run reads it again. Every process running as the same user can read that file,
+just as it could read an environment variable or ptrace the runner, so one host-runtime agent
+can read another's credential and speak as that agent. If agents need to be kept apart from
+each other, run them in containers: a containerized process sees only its own run's secrets.
 
 **We own the MCP servers we seed. We do not own the ones we did not write.** An MCP
 declaration is not text — a server entry names an executable, and the engine spawns it. So a

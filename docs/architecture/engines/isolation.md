@@ -369,9 +369,10 @@ file holding it, never the value. `Container.bind` makes an owner-only secret
 dir (`newOwnedScratch`, prefix `secretScratchPrefix`) under
 `$XDG_RUNTIME_DIR`, a tmpfs, or under the session's `scratch/` dir where there
 is none (`secretParent`), and binds it read-only at `secretsTarget` inside the
-shared-filesystem probe; `Container.environment` writes one 0600 file per
-variable (`materializeSecrets`); the runner reads each into the engine's env
-alone (`runner.redeemSecrets`, refusing with `ErrSecretUnreadable`).
+shared-filesystem probe; `Container.environment` writes every variable into
+the run's one owner-only dotenv secrets file (`materializeSecrets`,
+`secretsFile`); the runner reads each into the engine's env alone
+(`runner.redeemSecrets`, refusing with `ErrSecretUnreadable`).
 `containerWorkspace.Cleanup` removes the dir, and a crashed run's dir is
 reaped by the next owned secret scratch under the same parent, its owner's
 lock having died with it. `Unset` rides (`launch.Placement.Unset`, the wire's
@@ -399,6 +400,18 @@ removed; every other run's instance has it deleted, so no agent's instance
 ever holds it. `TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed` scans a
 run's output, the ctxloom home, the project and the run's temp dir for a
 sentinel.
+
+**On the host, same-user processes are not a boundary.** A host run's
+secrets file holds its coordinator credential (`stageCoordCred`) and lives
+for the WHOLE run, not one start: it is made at the first runner start that
+needs it and removed only by `hostEnvironment.Cleanup`, because a relaunched
+runner and a re-adopted run read it again. Owner-only means readable by
+every process running as the same user — the same processes that could read
+that credential from an environment variable, or ptrace the runner and read
+it from memory. Keeping it out of the environment narrows who is handed it;
+it does not keep it from another host-runtime agent. Containers are the
+boundary: a process in one sees only its own run's secrets, mounted
+read-only, and no other run's file or process.
 
 A container adds no auth question of its own: `engine.ContainerSpec` says how
 the image is built, and its run authenticates exactly as a host run does.

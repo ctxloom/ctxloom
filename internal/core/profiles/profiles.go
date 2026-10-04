@@ -474,7 +474,7 @@ func NewLoader(dirs []string, opts ...LoaderOption) *Loader {
 }
 
 // canonicalizeLocalAliases rewrites each LOCAL bundle profile's
-// "<alias>/<bundle>" bundle refs to the aliased remote's canonical URL, in
+// "<alias>/<bundle>" bundle refs to the aliased remote's canonical URI, in
 // memory. Only a local bundle's profiles mean anything by an alias: the alias
 // table is this machine's, so a publisher's profile could never have been
 // written against it. It runs once every option is applied, so the order the
@@ -485,11 +485,8 @@ func (l *Loader) canonicalizeLocalAliases() {
 	}
 	u := bundleRefCanonicalizeUpgrade{aliasToURL: l.remoteURLResolver, localBundleExists: l.localBundleExists}
 	for key, p := range l.seeded {
-		if _, _, ok := localBundleOf(key); !ok {
-			continue
-		}
-		for i, b := range p.Bundles {
-			p.Bundles[i], _ = u.canonicalize(b)
+		if _, _, ok := localBundleOf(key); ok {
+			u.applyTo(p)
 		}
 	}
 }

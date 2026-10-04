@@ -1264,19 +1264,14 @@ func TestCollectRemoteReferences_NestedLocalProfiles(t *testing.T) {
 		},
 		// Local parent profile with remote parent
 		"typescript-dev": {
-			Bundles: []string{"https://github.com/owner/repo@v1/bundles/core"},
-			Parents: []string{"https://github.com/owner/repo@v1/bundles/base-kit#profiles/base"},
+			Bundles: []string{"https://github.com/owner/repo@bundles/core"},
+			Parents: []string{"https://github.com/owner/repo@bundles/base-kit#profiles/base"},
 		},
 	}, config.Fixture{})
 
 	bundleSet := collections.NewSetFrom(collectRemoteReferences(cfg, []string{"driftway"})...)
 
-	// Should find the remote bundle from the nested local parent
-	// The refs are CANONICALIZED as the profile loads — the legacy "v1"
-	// segment is stripped — so the closure holds the canonical spelling, not
-	// the one the fixture wrote. The inline map this fixture used to live in
-	// performed no such rewrite; a directory profile passes through
-	// profiles' load-time canonicalization, and that is now the only arm.
+	// Should find the remote bundle from the nested local parent.
 	assert.True(t, bundleSet.Has("https://github.com/owner/repo@bundles/core"),
 		"should find remote bundle in nested local parent")
 

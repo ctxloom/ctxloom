@@ -49,7 +49,8 @@ func readTreeOrEnvelope(ctx context.Context, tree content.Bundle) (*Bundle, erro
 		return nil, fmt.Errorf("enumerating: %w", err)
 	}
 	if len(refs) == 0 {
-		return readEnvelope(ctx, tree)
+		env, _, err := readEnvelope(ctx, tree)
+		return env, err
 	}
 	return ReadTree(ctx, tree)
 }
@@ -256,6 +257,11 @@ func (r *localFSReader) persistEnvelopeUpgrade(ctx context.Context, tree content
 			path, schemaver.Key, res.From, res.To, resignToPersist)
 		return nil
 	}
+	if res.From < profileRefsGeneration {
+		if err := migrateProfileItems(r.fsys, filepath.Dir(path)); err != nil {
+			return err
+		}
+	}
 	if err := schemaver.WriteBack(r.fsys, path, res, nil); err != nil {
 		return err
 	}
@@ -285,6 +291,11 @@ func UpgradeEnvelopeAt(fsys afero.Fs, path string) (schemaver.Result, error) {
 	res, err := envelopeKind.Upgrade(raw)
 	if err != nil || len(res.Applied) == 0 {
 		return res, err
+	}
+	if res.From < profileRefsGeneration {
+		if err := migrateProfileItems(fsys, filepath.Dir(path)); err != nil {
+			return schemaver.Result{}, err
+		}
 	}
 	if err := safefs.WriteFile(fsys, path, res.Data, info.Mode().Perm()); err != nil {
 		return schemaver.Result{}, fmt.Errorf("bundles: upgrading %s: %w", path, err)

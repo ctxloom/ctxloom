@@ -87,20 +87,21 @@ func TestBundleRefCanonicalize_ShortRefsBecomeCanonical(t *testing.T) {
 	// Bare → a local bundle, as written.
 	assert.Contains(t, got, "- core-practices\n")
 	// Alias → that alias's repo.
-	assert.Contains(t, got, "- "+personalURL+"@bundles/developer-mindset")
-	assert.Contains(t, got, "- "+defaultURL+"@bundles/git")
+	assert.Contains(t, got, "- "+remote.CanonicalSpelling(personalURL+"@bundles/developer-mindset"))
+	assert.Contains(t, got, "- "+remote.CanonicalSpelling(defaultURL+"@bundles/git"))
 	// Cherry-pick: bundle canonicalized, ':' selector normalized to '#'.
-	assert.Contains(t, got, "- "+personalURL+"@bundles/go-development#fragments/testing")
+	assert.Contains(t, got, "- "+remote.CanonicalSpelling(personalURL+"@bundles/go-development#fragments/testing"))
 	// No short/alias form should survive.
 	assert.NotContains(t, got, "- personal/")
 	assert.NotContains(t, got, "- ctxloom-default/")
 }
 
 // TestBundleRefCanonicalize_CanonicalURLsUntouched is a regression guard: a
-// canonical URL ref is already fully qualified and must pass through verbatim.
-// The scheme colon in "https://" must NOT be mistaken for the cherry-pick ':'
-// separator — doing so split the bundle name down to "https" and produced a
-// nonsense "<remote>/https://…" ref that no longer resolved.
+// URL ref is already fully qualified, so it is only re-spelled as its
+// canonical URI, never re-resolved. The scheme colon in "https://" must NOT be
+// mistaken for the cherry-pick ':' separator — doing so split the bundle name
+// down to "https" and produced a nonsense "<remote>/https://…" ref that no
+// longer resolved.
 func TestBundleRefCanonicalize_CanonicalURLsUntouched(t *testing.T) {
 	in := []byte("bundles:\n" +
 		"  - " + defaultURL + "@bundles/default\n" +
@@ -110,11 +111,10 @@ func TestBundleRefCanonicalize_CanonicalURLsUntouched(t *testing.T) {
 	out, applied := runCanonicalize(in)
 
 	got := string(out)
-	assert.Empty(t, applied, "nothing here needs rewriting")
+	assert.NotEmpty(t, applied, "URL refs are re-spelled canonically")
 	assert.Contains(t, got, "- core-practices\n")
-	// The canonical URLs are left exactly as-is.
-	assert.Contains(t, got, "- "+defaultURL+"@bundles/default")
-	assert.Contains(t, got, "- "+personalURL+"@bundles/just")
+	assert.Contains(t, got, "- "+remote.CanonicalSpelling(defaultURL+"@bundles/default"))
+	assert.Contains(t, got, "- "+remote.CanonicalSpelling(personalURL+"@bundles/just"))
 	assert.NotContains(t, got, "@bundles/https:", "canonical URL must never be re-wrapped")
 	assert.NotContains(t, got, "/https://", "canonical URL must never be prefixed")
 }
@@ -187,7 +187,7 @@ func TestLoader_CanonicalizesLocalBundleProfileAliases(t *testing.T) {
 
 	p, err := loader.Load("go-developer")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"core-practices", defaultURL + "@bundles/git"}, p.Bundles)
+	assert.Equal(t, []string{"core-practices", remote.CanonicalSpelling(defaultURL + "@bundles/git")}, p.Bundles)
 }
 
 // TestLoader_RemoteBundleProfileAliasesUntouched verifies the alias stage is
@@ -230,9 +230,9 @@ func TestCanonicalize_StripsLegacyV1FromBundlesAndParents(t *testing.T) {
 
 	require.NotEmpty(t, applied, "legacy v1 refs should be normalized")
 	got := string(out)
-	assert.Contains(t, got, "- "+defaultURL+"@bundles/git")
+	assert.Contains(t, got, "- "+remote.CanonicalSpelling(defaultURL+"@bundles/git"))
 	// The content-version pin is preserved across the layout normalization.
-	assert.Contains(t, got, "- "+personalURL+"@bundles/just@v1.2.3")
+	assert.Contains(t, got, "- "+remote.CanonicalSpelling(personalURL+"@bundles/just@v1.2.3"))
 	// No "v1/" schema segment may survive.
 	assert.NotContains(t, got, "@v1/")
 }
@@ -385,6 +385,6 @@ func TestBundleRefCanonicalize_LocalBundleWinsOverSameSpelledAlias(t *testing.T)
 		require.NotEmpty(t, applied)
 		got := string(out)
 		assert.Contains(t, got, "- personal/reviews\n")
-		assert.Contains(t, got, "- "+personalURL+"@bundles/developer-mindset")
+		assert.Contains(t, got, "- "+remote.CanonicalSpelling(personalURL+"@bundles/developer-mindset"))
 	})
 }

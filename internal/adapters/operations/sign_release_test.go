@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
 // authorKit writes an authored directory-form bundle "kit" with envelope as
@@ -158,7 +157,9 @@ func TestSignBundleFile_WithoutAVersionFileKeepsTheHandSetVersion(t *testing.T) 
 	// Current format, so the only rewrite left to rule out is the version's
 	// (an older format's envelope is persisted: see
 	// TestSignBundleFile_PersistsTheEnvelopeUpgradeBeforeHashing).
-	envelope := schemaver.Key + ": 1\nversion: 1.0.0\n"
+	current, err := bundles.TreeEnvelope(&bundles.Bundle{Version: "1.0.0"})
+	require.NoError(t, err)
+	envelope := string(current)
 	dir := authorKit(t, cfg, envelope, "KEEPER\n")
 
 	res, err := SignBundleFile(cfg, SignBundleRequest{Target: SignTarget{BundleName: "kit"}, Signer: testSigner(t)})

@@ -78,6 +78,15 @@ func canonicalizeProfileRefs(refs []string, aliasToURL func(string) string) []st
 	})
 }
 
+// canonicalProfileRefs re-spells refs a profile item is about to STORE in the
+// canonical ctxloom URI grammar (remote.CanonicalSpelling): a profile item is
+// versioned by its bundle's envelope, and every envelope a writer stamps is at
+// the generation where profile refs are canonical. Refs naming no URL pass
+// through as written.
+func canonicalProfileRefs(refs []string) []string {
+	return mapRefs(refs, remote.CanonicalSpelling)
+}
+
 // mapRefs applies fn to each ref, returning the input slice unchanged when empty
 // (nil in, nil out — no allocation for the common no-refs case).
 func mapRefs(refs []string, fn func(string) string) []string {

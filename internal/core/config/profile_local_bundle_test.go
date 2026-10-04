@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
@@ -45,5 +46,5 @@ func TestProfileLoader_LocalBundleWinsOverSameSpelledRemoteAlias(t *testing.T) {
 
 	ctl, err := cfg.GetProfileLoader().Load("ctl")
 	require.NoError(t, err)
-	assert.Equal(t, []string{teamURL + "@bundles/absent"}, ctl.Bundles, "control: a non-local ref resolves through the alias")
+	assert.Equal(t, []string{remote.CanonicalSpelling(teamURL + "@bundles/absent")}, ctl.Bundles, "control: a non-local ref resolves through the alias, canonically spelled")
 }

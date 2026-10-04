@@ -73,11 +73,11 @@ func TestCreateProfile_CanonicalizesShortRefs(t *testing.T) {
 	saved, err := loader.Load("dev")
 	require.NoError(t, err)
 	assert.Equal(t, []string{
-		shortNamePersonalURL + "@bundles/agent-ensemble", // alias bundle → canonical
+		remote.CanonicalSpelling(shortNamePersonalURL + "@bundles/agent-ensemble"), // alias bundle → canonical URI
 		"core-practices", // bare name → local, verbatim
 	}, saved.Bundles)
 	assert.Equal(t, []string{
-		shortNamePersonalURL + "@bundles/agent-ensemble#profiles/finder", // alias parent → canonical
+		remote.CanonicalSpelling(shortNamePersonalURL + "@bundles/agent-ensemble#profiles/finder"), // alias parent → canonical URI
 	}, saved.Parents)
 }
 

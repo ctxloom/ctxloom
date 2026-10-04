@@ -110,3 +110,14 @@ func TestDecode_UnknownKey_SuggestsTheNearKey(t *testing.T) {
 		})
 	}
 }
+
+// Decode reads a profile's refs as written: moving them onto the canonical
+// URI grammar is a FORMAT step (CanonicalRefs) whose running the bundle
+// envelope's generation decides, never an unversioned rewrite at decode.
+func TestDecode_DoesNotRespellRefs(t *testing.T) {
+	const ref = "https://github.com/o/r@bundles/core"
+	p, err := Decode([]byte("bundles:\n  - " + ref + "\nparents:\n  - " + ref + "#profiles/base\n"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{ref}, p.Bundles)
+	assert.Equal(t, []string{ref + "#profiles/base"}, p.Parents)
+}

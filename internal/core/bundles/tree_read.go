@@ -33,7 +33,7 @@ import (
 //     that superseded it;
 //   - no items at all — an empty bundle delivers nothing, loudly to no one.
 func ReadTree(ctx context.Context, b content.Bundle) (*Bundle, error) {
-	out, err := readEnvelope(ctx, b)
+	out, generation, err := readEnvelope(ctx, b)
 	if err != nil {
 		return nil, err
 	}
@@ -61,27 +61,43 @@ func ReadTree(ctx context.Context, b content.Bundle) (*Bundle, error) {
 		}
 	}
 	r.finishHooks()
+	// Item files carry no format key: the envelope's generation is theirs. A
+	// tree written before profileRefsStep has its profiles migrated by the
+	// same rule, in memory, exactly as the step migrates an inline document's.
+	if generation < profileRefsGeneration {
+		for name, p := range r.out.Profiles {
+			p.CanonicalizeRefs()
+			r.out.Profiles[name] = p
+		}
+	}
 	return r.out, nil
 }
 
 // readEnvelope parses the tree's bundle.yaml into the bundle value the items are
-// then filled into, and refuses one that still declares items inline.
-func readEnvelope(ctx context.Context, b content.Bundle) (*Bundle, error) {
+// then filled into, and refuses one that still declares items inline. It
+// reports the format generation the envelope DECLARED — the tree's items are
+// at that generation, whatever the in-memory envelope was migrated to.
+func readEnvelope(ctx context.Context, b content.Bundle) (*Bundle, int, error) {
 	raw, err := b.ReadFile(ctx, DirectoryFormManifest)
 	if err != nil {
-		return nil, fmt.Errorf("bundles: tree bundle %q has no %s, so it carries no version or description "+
+		return nil, 0, fmt.Errorf("bundles: tree bundle %q has no %s, so it carries no version or description "+
 			"and cannot be read as a bundle: %w", b.ID(), DirectoryFormManifest, err)
 	}
 	env, err := ParseBundle(raw)
 	if err != nil {
-		return nil, fmt.Errorf("bundles: parsing %s of tree bundle %q: %w", DirectoryFormManifest, b.ID(), err)
+		return nil, 0, fmt.Errorf("bundles: parsing %s of tree bundle %q: %w", DirectoryFormManifest, b.ID(), err)
 	}
 	if inline := inlineKeys(env); len(inline) > 0 {
-		return nil, fmt.Errorf("bundles: %s of tree bundle %q still declares %s inline while the tree also holds item files; "+
+		return nil, 0, fmt.Errorf("bundles: %s of tree bundle %q still declares %s inline while the tree also holds item files; "+
 			"a half-migrated bundle has two answers for one item and no rule for which wins — "+
 			"finish the migration by removing the inline keys", DirectoryFormManifest, b.ID(), strings.Join(inline, ", "))
 	}
-	return env, nil
+	// ParseBundle accepted it, so the generation reads.
+	res, err := envelopeKind.Upgrade(raw)
+	if err != nil {
+		return nil, 0, err
+	}
+	return env, res.From, nil
 }
 
 // inlineKeys names the item-bearing envelope keys that are populated. It is

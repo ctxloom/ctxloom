@@ -155,7 +155,7 @@ func verifyRemoteTree(ctx context.Context, tree content.Bundle, root trust.Trust
 			ErrTreeUnattested, treeRoot, sha, verdict.Status, verdict.Detail)
 	}
 	rel := verdict.Manifest.Release()
-	env, err := readEnvelope(ctx, tree)
+	env, _, err := readEnvelope(ctx, tree)
 	if err != nil {
 		return remote.Verified{}, fmt.Errorf("bundles: refusing to read remote tree bundle %s at %s: %w", treeRoot, sha, err)
 	}

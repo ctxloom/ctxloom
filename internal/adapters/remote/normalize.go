@@ -36,6 +36,28 @@ func SplitItemPath(ref string) (base, itemPath string) {
 	return ref, ""
 }
 
+// CanonicalSpelling re-spells a bundle reference written in the accepted
+// fetch-address grammar — "<canonical-url>@bundles/<path>", with any version
+// pin and item selector — in the canonical ctxloom URI grammar
+// ("ctxloom+git://<host>/<repo>//bundles/<path>"), keeping the pin and the
+// selector. Anything else — already a ctxloom URI, a local or bare name, a
+// short "<alias>/<bundle>" form, or a ref that does not parse to a bundle
+// identity — is returned as written.
+func CanonicalSpelling(ref string) string {
+	base, selector := SplitItemPath(ref)
+	if !IsCanonicalRef(base) {
+		return ref
+	}
+	parsed, err := ParseReference(base)
+	if err != nil {
+		return ref
+	}
+	if _, err := parsed.BundleRef(); err != nil {
+		return ref
+	}
+	return parsed.CanonicalString() + selector
+}
+
 // CanonicalKey parses ref and returns its version-less canonical IDENTITY —
 // the canonical ctxloom URI ("ctxloom+git://<host>/<repo>//bundles/<path>", or
 // the ctxloom+local / ctxloom+companion / ctxloom+file equivalent), which is

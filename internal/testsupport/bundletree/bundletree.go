@@ -270,8 +270,8 @@ func ProjectProfilesPath(appDir string) string {
 	return filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV2), paths.ProjectBundleName, paths.ProfilesDir)
 }
 
-// ProjectProfilesDirFS makes appDir's project bundle exist on fs (writing its
-// envelope when it has none) and returns its profiles directory, ready for a
+// ProjectProfilesDirFS makes appDir's project bundle exist on fs (writing the
+// current-generation envelope a writer would when it has none) and returns its profiles directory, ready for a
 // fixture to write profile documents into.
 func ProjectProfilesDirFS(t testing.TB, fs afero.Fs, appDir string) string {
 	t.Helper()
@@ -281,7 +281,10 @@ func ProjectProfilesDirFS(t testing.TB, fs afero.Fs, appDir string) string {
 	require.NoError(t, err)
 	if !exists {
 		require.NoError(t, fs.MkdirAll(filepath.Dir(envelope), 0o755))
-		require.NoError(t, safefs.WriteFile(fs, envelope, []byte("version: \"1.0.0\"\n"), 0o644))
+		// The envelope a writer stamps: the current format generation.
+		raw, err := bundles.TreeEnvelope(&bundles.Bundle{Version: "1.0.0"})
+		require.NoError(t, err)
+		require.NoError(t, safefs.WriteFile(fs, envelope, raw, 0o644))
 	}
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 	return dir

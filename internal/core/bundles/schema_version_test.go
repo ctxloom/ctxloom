@@ -3,6 +3,7 @@ package bundles
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -37,7 +38,7 @@ func TestParseBundle_KeylessEnvelopeIsGenerationZeroAndGetsTheShapeUpgrades(t *t
 }
 
 func TestParseBundle_CurrentEnvelopePassesThrough(t *testing.T) {
-	current := []byte(schemaver.Key + ": 1\nversion: 1.2.0\ncommands:\n  review:\n    content: c\n")
+	current := []byte(fmt.Sprintf("%s: %d\nversion: 1.2.0\ncommands:\n  review:\n    content: c\n", schemaver.Key, envelopeKind.Current()))
 
 	b, err := ParseBundle(current)
 
@@ -50,7 +51,7 @@ func TestParseBundle_CurrentEnvelopePassesThrough(t *testing.T) {
 // work: a current envelope still spelling a retired key is refused by the
 // strict decode rather than silently migrated.
 func TestParseBundle_CurrentEnvelopeDoesNotRunTheGenerationZeroSteps(t *testing.T) {
-	stale := []byte(schemaver.Key + ": 1\nversion: 1.2.0\nprompts:\n  review:\n    content: c\n")
+	stale := []byte(fmt.Sprintf("%s: %d\nversion: 1.2.0\nprompts:\n  review:\n    content: c\n", schemaver.Key, envelopeKind.Current()))
 
 	_, err := ParseBundle(stale)
 

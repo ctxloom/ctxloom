@@ -1,8 +1,19 @@
 package bundles
 
 import (
-	"gopkg.in/yaml.v3"
+	"errors"
+	"fmt"
+	"io/fs"
+	"path/filepath"
 	"reflect"
+
+	"github.com/spf13/afero"
+	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -23,7 +34,70 @@ import (
 var envelopeKind = schemaver.Kind{
 	Name:   "bundle",
 	Oldest: 0,
-	Steps:  []upgrade.Upgrader{retiredKeysStep{}},
+	Steps:  []upgrade.Upgrader{retiredKeysStep{}, profileRefsStep{}},
+}
+
+// profileRefsGeneration is the generation profileRefsStep migrates an
+// envelope TO. A tree whose envelope declares an older one has its profile
+// items migrated by the same rule (ReadTree, migrateProfileItems), because
+// item files carry no format key of their own.
+const profileRefsGeneration = 2
+
+// profileRefsStep is generation 1 -> 2: every profile's stored bundle and
+// parent references move onto the canonical ctxloom URI grammar
+// (profiles.CanonicalRefs). On an envelope it rewrites the profiles an
+// inline document carries.
+type profileRefsStep struct{}
+
+func (profileRefsStep) Name() string { return "profiles: " + profiles.CanonicalRefs.Name() }
+
+func (profileRefsStep) Apply(root *yaml.Node) bool {
+	items := yamlx.MapValue(root, "profiles")
+	if items == nil || items.Kind != yaml.MappingNode {
+		return false
+	}
+	changed := false
+	for i := 1; i < len(items.Content); i += 2 {
+		if items.Content[i].Kind == yaml.MappingNode && profiles.CanonicalRefs.Apply(items.Content[i]) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+// migrateProfileItems rewrites the profile item files of the tree at dir in
+// place by profiles.CanonicalRefs — the item half of profileRefsStep, for a
+// writer that persists an envelope's migration past profileRefsGeneration:
+// stamping the envelope current while its items still spell the old grammar
+// would claim a migration that never happened.
+func migrateProfileItems(fsys afero.Fs, dir string) error {
+	itemDir := filepath.Join(dir, paths.ProfilesDir)
+	entries, err := afero.ReadDir(fsys, itemDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("bundles: reading %s: %w", itemDir, err)
+	}
+	step := upgrade.Pipeline{profiles.CanonicalRefs}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".yaml" {
+			continue
+		}
+		path := filepath.Join(itemDir, e.Name())
+		raw, err := afero.ReadFile(fsys, path)
+		if err != nil {
+			return fmt.Errorf("bundles: reading %s: %w", path, err)
+		}
+		out, applied := step.Run(raw)
+		if len(applied) == 0 {
+			continue
+		}
+		if err := safefs.WriteFile(fsys, path, out, e.Mode().Perm()); err != nil {
+			return fmt.Errorf("bundles: migrating %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 // retiredKeysStep is generation 0 -> 1: the key renames a generation-0

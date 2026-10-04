@@ -11,15 +11,27 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
-// decodeNormalizers are the context-free normalizer stages Decode runs over
-// every profile document, oldest first. Each needs nothing beyond the
-// document itself: the alias stage, which needs this machine's remote
-// registry, runs in the loader and only over a LOCAL bundle's profiles
-// (Loader.canonicalizeLocalAliases), and the retired-parent rewrite, which
-// needs the whole seed, runs over the seed (RewriteRetiredParents).
+// decodeNormalizers are the normalizer stages Decode runs over every profile
+// document. The canonical-spelling rewrite is not one of them: it is a FORMAT
+// step (CanonicalRefs) the bundle envelope's generation decides; the alias
+// stage, which needs this machine's remote registry, runs in the loader and
+// only over a LOCAL bundle's profiles (Loader.canonicalizeLocalAliases); and
+// the retired-parent rewrite, which needs the whole seed, runs over the seed
+// (RewriteRetiredParents).
 var decodeNormalizers = upgrade.Pipeline{
 	promptSelectorUpgrade{},
-	bundleRefCanonicalizeUpgrade{},
+}
+
+// CanonicalRefs is the profile-document step that moves a profile's stored
+// bundle and parent references onto the canonical ctxloom URI grammar
+// (remote.CanonicalSpelling). It needs nothing beyond the document, so it is a
+// FORMAT step: the bundle envelope kind carries it, and a bundle whose
+// envelope predates it has its profiles migrated through it.
+var CanonicalRefs upgrade.Upgrader = bundleRefCanonicalizeUpgrade{}
+
+// CanonicalizeRefs applies CanonicalRefs to an already-decoded profile.
+func (p *Profile) CanonicalizeRefs() {
+	bundleRefCanonicalizeUpgrade{}.applyTo(p)
 }
 
 // promptSelectorUpgrade rewrites legacy item selectors that targeted a bundle
@@ -90,17 +102,18 @@ func findBundleProfileKey(seeded map[string]*Profile, url, name string) (string,
 	return match, match != ""
 }
 
-// bundleRefCanonicalizeUpgrade rewrites non-canonical bundle references to their
-// canonical URL form ("<url>@bundles/<path>"). Early/legacy profiles listed
+// bundleRefCanonicalizeUpgrade rewrites bundle references to their canonical
+// ctxloom URI spelling ("ctxloom+git://<host>/<repo>//bundles/<path>"). Early/legacy profiles listed
 // bundles by bare name (`core-practices`) or by remote alias
 // (`ctxloom-default/git`); but remote bundles are no longer extracted to disk —
 // they are seeded and resolved by canonical ref ONLY (see
-// config.loadRemoteBundleSeed). This canonicalizes each ref, in memory, so the
-// seeded resolver finds it unchanged. With no alias resolver (Decode's
-// context-free run) only the context-free parts apply.
+// config.loadRemoteBundleSeed). This canonicalizes each ref so the seeded
+// resolver finds it unchanged. With no alias resolver (the CanonicalRefs
+// format step) only the context-free parts apply.
 //
 //   - A bare ref ("core-practices") names a LOCAL bundle and is left as
 //     written.
+//   - A "<url>@bundles/<path>" ref is re-spelled as its canonical URI.
 //   - An "<alias>/<bundle>" ref resolves against the alias' repo URL via
 //     aliasToURL — including the common case where the alias is the profile's
 //     own remote (a redundant prefix the old qualifier produced) — through
@@ -122,15 +135,25 @@ func (bundleRefCanonicalizeUpgrade) Name() string { return "canonicalize bundle 
 
 // Apply canonicalizes the top-level `bundles` and `parents` sequences, reporting
 // whether it changed anything. Bundles accept the legacy short/alias forms and
-// are resolved to a repo URL; parents are only re-normalized when ALREADY
-// canonical — a bare parent names a local sibling profile, and resolving it
-// against a remote alias would silently turn a local parent into a remote ref.
-// Both paths collapse a legacy "v1/" schema directory (stripLegacySchemaSegment)
-// so a stored ref equals its own canonical identity.
+// are resolved to a repo URL; parents are only re-spelled when they ALREADY
+// name a source — a bare parent names a local sibling profile, and resolving
+// it against a remote alias would silently turn a local parent into a remote
+// ref. Both collapse a legacy "v1/" schema directory, so a stored ref equals
+// its own canonical identity.
 func (u bundleRefCanonicalizeUpgrade) Apply(root *yaml.Node) bool {
 	bundlesChanged := mapScalarSeq(root, "bundles", u.canonicalize)
-	parentsChanged := mapScalarSeq(root, "parents", renormalizeStoredRef)
+	parentsChanged := mapScalarSeq(root, "parents", canonicalStoredRef)
 	return bundlesChanged || parentsChanged
+}
+
+// applyTo is Apply over an already-decoded profile's fields.
+func (u bundleRefCanonicalizeUpgrade) applyTo(p *Profile) {
+	for i, b := range p.Bundles {
+		p.Bundles[i], _ = u.canonicalize(b)
+	}
+	for i, par := range p.Parents {
+		p.Parents[i], _ = canonicalStoredRef(par)
+	}
 }
 
 // mapScalarSeq rewrites every scalar entry of the named top-level sequence via
@@ -153,34 +176,23 @@ func mapScalarSeq(root *yaml.Node, key string, fn func(string) (string, bool)) (
 	return changed
 }
 
-// renormalizeStoredRef re-emits an already-canonical reference in normalized
-// stored form, collapsing a legacy schema directory (e.g. "v1/profiles/x" →
-// "profiles/x"). It re-renders the reference in the grammar it was AUTHORED in
-// — its fetch address, "<url>@bundles/<path>" — rather than as its identity:
-// this pass repairs a retired segment, it does not move a user's document onto
-// the ctxloom+ URI grammar. The content version pin and item selector are
-// preserved. A
-// non-canonical or unparseable ref is returned verbatim, so it is safe to hand
-// any parent ref here — bare local-sibling names and ctxloom:local refs are left
-// untouched.
-func renormalizeStoredRef(ref string) (string, bool) {
+// canonicalStoredRef re-spells a reference that names its source by URL
+// ("<url>@bundles/<path>", any version pin and item selector kept) as its
+// canonical ctxloom URI, collapsing a legacy schema directory on the way. A
+// ref that names no URL — a bare local-sibling name, ctxloom:local, an
+// already-canonical URI — or that does not parse is returned verbatim, so it
+// is safe to hand any parent ref here.
+func canonicalStoredRef(ref string) (string, bool) {
 	if !remote.IsCanonicalRef(ref) {
 		return ref, false
 	}
 	base, selector := splitBundleSelector(ref)
-	parsed, err := remote.ParseReference(base)
-	if err != nil {
+	canonical := remote.CanonicalSpelling(base)
+	if canonical == base {
 		return ref, false
 	}
-	normalized := parsed.URL + "@" + remote.ItemTypeBundle.DirName() + "/" + parsed.Path
-	if parsed.ContentVersion != "" {
-		normalized += "@" + parsed.ContentVersion
-	}
-	normalized += selector
-	if normalized == ref {
-		return ref, false
-	}
-	return normalized, true
+	canonical += selector
+	return canonical, canonical != ref
 }
 
 // canonicalize rewrites a single bundle ref to canonical URL form, reporting
@@ -190,10 +202,9 @@ func (u bundleRefCanonicalizeUpgrade) canonicalize(ref string) (string, bool) {
 	// its scheme colon ("https://") would otherwise be mistaken for the
 	// cherry-pick ':' separator below, splitting the bundle name down to "https"
 	// (the resolver's expandBundleRef hit the same trap; see
-	// internal/core/bundles/loader_content.go). Still re-normalize its layout so a
-	// legacy "v1/" schema dir collapses to canonical storage.
+	// internal/core/bundles/loader_content.go). It is re-spelled canonically.
 	if remote.IsCanonicalRef(ref) {
-		return renormalizeStoredRef(ref)
+		return canonicalStoredRef(ref)
 	}
 
 	base, item := splitBundleSelector(ref)
@@ -216,7 +227,7 @@ func (u bundleRefCanonicalizeUpgrade) canonicalize(ref string) (string, bool) {
 	if _, err := remote.ParseReference(canonical); err != nil {
 		return ref, false
 	}
-	return canonical, true
+	return remote.CanonicalSpelling(resolved) + item, true
 }
 
 // splitBundleSelector separates a bundle ref's bundle portion from an optional

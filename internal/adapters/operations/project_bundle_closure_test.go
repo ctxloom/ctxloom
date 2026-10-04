@@ -112,7 +112,7 @@ func TestProfileLoader_LocalBundleProfileSeed(t *testing.T) {
 	short, err := loader.Load("team#profiles/p")
 	require.NoError(t, err)
 	assert.Equal(t, full.Name, short.Name)
-	assert.Equal(t, []string{closureTeamBundle}, full.Bundles)
+	assert.Equal(t, []string{remote.CanonicalSpelling(closureTeamBundle)}, full.Bundles, "the inline fixture predates the canonical-spelling step")
 
 	resolved, err := loader.ResolveProfile("team#profiles/p", nil)
 	require.NoError(t, err)

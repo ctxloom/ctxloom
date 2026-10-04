@@ -476,13 +476,15 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 // fallback — NEVER p.now() for a fallback, since bumping it would erase the
 // staleness signal the next fallback needs (see LockEntry.RetractionCheckedAt
 // and RecordRetraction, which treats a zero checkedAt as "leave the persisted
-// timestamp alone"). checkedAt is the zero time when there is nothing to fall
-// back to at all (no existing lockfile entry for localName).
+// timestamp alone"). When there is nothing to fall back to at all (no existing
+// lockfile entry for localName), checkedAt is p.now(): the not-retracted
+// answer was reached by the check that ran now, and a zero stamp would persist
+// it as indistinguishable from an entry written before check times existed —
+// warned about as UNKNOWN AGE on every later run.
 //
 // Falling back to a STALE verdict — older than RetractionStaleAfter, or with
 // no recorded check time at all (unknown age: an entry written before this
-// field existed, or one that has simply never had a manifest read
-// successfully) — warns via clidiag, matching the rest of this package's
+// field existed) — warns via clidiag, matching the rest of this package's
 // fault-tolerant-but-not-silent diagnostics. Falling back with NOTHING
 // recorded resolves to Clean, un-warned: that is overwhelmingly the ordinary
 // "this remote publishes no manifest" case (see CheckRetracted's doc), not
@@ -517,7 +519,7 @@ func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, 
 		// there is no verdict to fall back to, and this is far more often
 		// "this remote publishes no signed release" than a first-pull outage.
 		// See the doc above.
-		return false, "", time.Time{}, nil
+		return false, "", p.now(), nil
 	}
 	entry := recorded
 	p.warnStaleFallback(entry, localName, owner, repo)

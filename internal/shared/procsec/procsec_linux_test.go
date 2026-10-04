@@ -33,7 +33,7 @@ const (
 	// without importing the package that owns it: a 64-char token placed in
 	// the child's EXEC environment, where /proc/<pid>/environ snapshots it.
 	helperSecretEnv = "CTXLOOM_PROCSEC_HELPER_CRED"
-	helperSecret    = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	helperSecret    = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" // gitleaks:allow
 )
 
 // TestHelperInspectionTarget is not a test — it is the re-exec target the

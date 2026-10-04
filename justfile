@@ -1248,6 +1248,17 @@ test-mutation-pkg PKG *ARGS: _mutation-prereqs
     pkg="$1"; shift
     bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash "./$pkg" "$@"
 
+# Install gitleaks, the secret scanner lefthook's pre-commit `gitleaks` command
+# runs, at the version pinned in .devcontainer/tool-versions.env. `go install`
+# honours GOBIN, so `GOBIN=<dir> just gitleaks-install` installs elsewhere.
+gitleaks-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a
+    . .devcontainer/tool-versions.env
+    set +a
+    go install github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}
+
 # Install gremlins
 test-mutation-install:
     go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0

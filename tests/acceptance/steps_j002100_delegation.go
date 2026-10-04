@@ -237,7 +237,7 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			// asserted twice.
 			j002100.specs[nameA] = &j002100AgentSpec{
 				Name: nameA, Profile: "review-profile", Bundle: "bundle-review",
-				Server: "docs-lookup", Command: "docs-server", SecretArg: "DOCS-SECRET-7e1d44",
+				Server: "docs-lookup", Command: "docs-server", SecretArg: "DOCS-SECRET-7e1d44", // gitleaks:allow
 				Permission: "plan",
 			}
 			j002100.specs[nameB] = &j002100AgentSpec{

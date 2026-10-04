@@ -1,0 +1,29 @@
+# gitleaks configuration for lefthook's pre-commit `gitleaks` command.
+#
+# The default rule set, plus allowlists for false positives a scan of the
+# tracked tree actually produced. A one-off fake secret in a test is allowed
+# where it lives, with a trailing `gitleaks:allow` comment on its line, not
+# here: that annotation moves and dies with the code it covers, while a path
+# entry here outlives a rename and silently stops meaning anything.
+
+[extend]
+useDefault = true
+
+# generic-api-key matches an identifier ending in "key" followed by any of
+# several separators, a comma among them. A comma after the name is a call
+# argument (`seededBundleKey, "fragments/solid"`) or a list element (an import
+# path ending in `agentkey",`), never an assignment, so the quoted string after
+# it is not the key's value. Only the generic rule is relaxed: every
+# provider-specific rule still fires on a real token passed as an argument.
+[[allowlists]]
+description = "generic-api-key: identifier ending in key, then a comma — an argument or list element, not an assignment"
+targetRules = ["generic-api-key"]
+regexTarget = "match"
+regexes = ['''(?i)key"?,\s*"''']
+
+# A byte-exact golden of a content tree walk: each `key=` is the SHA-256 of a
+# test fixture's bytes, and the file cannot carry an annotation without
+# changing what it pins.
+[[allowlists]]
+description = "content-hash golden: key= values are SHA-256 digests of fixtures"
+paths = ['''internal/adapters/content/testdata/golden/treewalk\.txt$''']

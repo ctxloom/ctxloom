@@ -16,7 +16,7 @@ import (
 // their keypair — the mistake this package's whole "ctxloom never reads private
 // key material" posture exists to make safe. The needle is a marker: if it
 // reaches an error string, the real bytes would have too.
-const privateKeyPaste = "-----BEGIN OPENSSH PRIVATE KEY-----\n" +
+const privateKeyPaste = "-----BEGIN OPENSSH PRIVATE KEY-----\n" + // gitleaks:allow
 	"b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAA-NEEDLE-SECRET-MATERIAL\n" +
 	"-----END OPENSSH PRIVATE KEY-----\n"
 

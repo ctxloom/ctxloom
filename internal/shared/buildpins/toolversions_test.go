@@ -500,3 +500,17 @@ func TestDevcontainerJSONBuildArgsMatchToolVersionsEnv(t *testing.T) {
 		}
 	}
 }
+
+// TestGitleaksInstallDerivesFromToolVersionsEnv: the host install recipe is
+// the only way gitleaks reaches a developer's machine, and lefthook's
+// pre-commit secret scan runs whatever it installed. A hand-copied version
+// there would let the host scanner and the devcontainer's disagree silently.
+func TestGitleaksInstallDerivesFromToolVersionsEnv(t *testing.T) {
+	body := recipeBody(t, justfilePath, "gitleaks-install")
+	if !strings.Contains(body, "tool-versions.env") {
+		t.Fatalf("justfile's gitleaks-install recipe does not read .devcontainer/tool-versions.env:\n%s", body)
+	}
+	if !strings.Contains(body, "${GITLEAKS_VERSION}") {
+		t.Errorf("justfile's gitleaks-install recipe does not install at ${GITLEAKS_VERSION} — it must be using a hardcoded version:\n%s", body)
+	}
+}

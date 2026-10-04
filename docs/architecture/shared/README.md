@@ -43,4 +43,4 @@ The largest package in the layer (26 internal importers). It has no single respo
 | [`process-execution.md`](process-execution.md) | Starting and observing children: pty-attached runs (`ptyrunner`), liveness checks (`pidalive`), stderr tail capture (`stderrtail`), and login-shell `PATH` resolution (`shellenv`). |
 | [`identity-and-primitives.md`](identity-and-primitives.md) | Harp ID minting and markers, git-root discovery, sets and sorted keys, text helpers, and token estimation. |
 | [`wire-types.md`](wire-types.md) | The engine-agnostic hook and MCP-server vocabulary that crosses the host↔engine boundary, and the operations on it. |
-| [`cli-support.md`](cli-support.md) | The six CLI-side leaf helpers shared across the binaries: `clidiag`, `cliemit`, `cliversion`, `companionloadout`, `plans`, `upgrade`. |
+| [`cli-support.md`](cli-support.md) | The CLI-side helpers the family's binaries share: the warning channel, `--format` routing, the version contract and probe, the companion `loadout` subcommand (under `internal/adapters/companions`), the plan reader, and the schema-upgrade primitive. |

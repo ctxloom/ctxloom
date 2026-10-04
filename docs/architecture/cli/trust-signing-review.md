@@ -24,7 +24,7 @@ flowchart TD
     end
 
     subgraph signer["signer.go"]
-        TSN["signer trust &lt;principal&gt;"] --> RSA["runSignerTrust"] --> CSA["confirmSignerTrust → promptSignerTrust"]
+        TSN["signer trust &lt;principal&gt;"] --> RSA["runSignerTrust"] --> CSA["discloseSignerTrust (without --yes)"]
         CSA --> SRW["signerRoleWord (PUBLISHER vs REVIEWER)"]
         CSA --> SCT["signerConsequenceText"]
         SLC["signer list"] --> RSL["runSignerListCmd"] --> PSL["printSignerListings"] --> EA["embeddedAnnotation"]

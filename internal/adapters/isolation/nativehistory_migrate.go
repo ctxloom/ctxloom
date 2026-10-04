@@ -21,45 +21,15 @@ import (
 // historyFs is the filesystem history is migrated on.
 var historyFs = afero.NewOsFs()
 
-// isRealDir reports whether p is a directory itself — not a link, and not a
-// junction, which Lstat reports with a type bit beside ModeDir.
-func isRealDir(p string) bool {
-	st, err := os.Lstat(p)
-	return err == nil && st.Mode().Type() == fs.ModeDir
-}
-
-// adoptHistory moves every entry of the real history directory src into dst
-// — a directory dst lacks moves whole, one it has is merged — then removes
-// src, which is empty by then, ready to be linked. Where both hold a file
-// src's replaces dst's: a home's copy started as native's
-// (restoreNativeHistory) and only grew. A move cut short leaves the rest in
-// src, still a real directory, so the next host run finishes it.
-func adoptHistory(src, dst string) error {
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		from, to := filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())
-		if e.IsDir() && isRealDir(to) {
-			err = adoptHistory(from, to)
-		} else {
-			err = safefs.Rename(historyFs, from, to)
-		}
-		if err != nil {
-			return err
-		}
-	}
-	return os.Remove(src)
-}
-
 // restoreNativeHistory readies <instanceHome>/<rel> as a real history
 // directory holding <nativeHome>/<rel>'s history, for an engine that cannot
 // follow a link into native/. A real directory already there is the history
 // of the run before, kept as it is. Otherwise native's history is copied
 // into a staging directory beside it, the link (if any) removed through the
 // platform (platform.DirLinker.UnlinkDir), and the copy renamed into place:
-// the home never holds a partial copy, and native/ keeps its own.
+// the home never holds a partial copy, and native/ keeps its own. native's
+// store is created even when empty: it is how Close recognises the home's
+// copy as history to keep (sessions.KeepHomeHistory).
 func restoreNativeHistory(instanceHome, nativeHome, rel string) error {
 	link := filepath.Join(instanceHome, filepath.FromSlash(rel))
 	target := filepath.Join(nativeHome, filepath.FromSlash(rel))
@@ -67,11 +37,10 @@ func restoreNativeHistory(instanceHome, nativeHome, rel string) error {
 	if err != nil || at == historyRealDir {
 		return err
 	}
-	linked := at == historyLinked || at == historyLinkedBeforeRename
-	if !isRealDir(target) {
-		return unlinkIf(linked, link)
+	if err := os.MkdirAll(target, owneronly.DirMode); err != nil {
+		return fmt.Errorf("native history %s: %w", target, err)
 	}
-	return swapInCopy(target, link, linked)
+	return swapInCopy(target, link, at == historyLinked || at == historyLinkedBeforeRename)
 }
 
 // swapInCopy copies target into a staging directory beside link, removes the

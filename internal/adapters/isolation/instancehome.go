@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
@@ -179,7 +180,7 @@ func linkNativeHistory(instanceHome, nativeHome, rel string) error {
 	case at == historyLinked:
 		return nil
 	case at == historyRealDir:
-		if err := adoptHistory(link, target); err != nil {
+		if err := sessions.AdoptHistory(link, target); err != nil {
 			return fmt.Errorf("native history: move %s into %s: %w", link, target, err)
 		}
 	case at == historyLinkedBeforeRename:
@@ -224,7 +225,7 @@ func historyAt(link, nativeHome, rel string) (historyState, error) {
 		return historyAbsent, fmt.Errorf("native history link %s: %w", link, err)
 	case ok:
 		return historyLinked, nil
-	case isRealDir(link):
+	case sessions.IsRealDir(link):
 		return historyRealDir, nil
 	case renamedSessionLink(link, nativeHome, rel):
 		return historyLinkedBeforeRename, nil

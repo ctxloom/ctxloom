@@ -98,10 +98,10 @@ func previewLayout(s Spec, stores []sharedStore, inContainer bool) layout {
 // directory in the mounted session home rather than linked into native/: a
 // container run on a host whose directory links do not resolve inside a
 // container (platform.DirLinker.LinksResolveInContainers: Windows' junctions
-// name absolute host paths). The home starts from native/'s history, and
-// what the run adds reaches native/ only when a host run next adopts it
-// (InstanceHomeRequest.HistoryInHome); until then it is deleted with the
-// home (historyInHomeNotice).
+// name absolute host paths). The home starts from native/'s history
+// (InstanceHomeRequest.HistoryInHome), and what the run adds moves into
+// native/ when a host run next adopts it or Close deletes the home
+// (sessions.KeepHomeHistory), whichever comes first.
 func historyInHome(inContainer bool) bool {
 	return inContainer && !hostOS.LinksResolveInContainers()
 }
@@ -149,7 +149,7 @@ func repoTrust(eng engine.Engine, cwd string) engine.WorkspaceTrust {
 
 // historyInHomeNotice is the once-per-process announcement that a container
 // run keeps its conversation history in the session home (historyInHome).
-var historyInHomeNotice = fmt.Sprintf("native history: %s directory links do not resolve inside a container, so a container run keeps its conversation history in the session home, starting from the session's own; what it adds is kept only if a host run of the session follows before the session closes and deletes the home", platform.Name)
+var historyInHomeNotice = fmt.Sprintf("native history: %s directory links do not resolve inside a container, so a container run keeps its conversation history in the session home, starting from the session's own; it moves back into the session's native history at the next host run or when the session closes", platform.Name)
 
 // sessionHomeRemedy is the fix-it on an unpreparable session home. It names
 // no --degraded: the finding is non-degradable, because the only fallback

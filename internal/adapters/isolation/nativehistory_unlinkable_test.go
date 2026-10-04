@@ -16,9 +16,23 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 )
 
-// junctionHost is a host whose directory links name absolute paths (Windows'
-// junctions): they do not resolve inside a container.
+// junctionHost is a host whose directory links name absolute paths, as
+// Windows' junctions do (platform/windows.OS): they do not resolve inside a
+// container. Its links are absolute symbolic links, which stand in for a
+// junction on any OS the test runs on.
 type junctionHost struct{ platform.Host }
+
+func (junctionHost) LinkDir(link, target string) error { return os.Symlink(target, link) }
+
+func (junctionHost) LinksTo(link, target string) (bool, error) {
+	if _, err := os.Lstat(link); err != nil {
+		return false, err
+	}
+	got, err := os.Readlink(link)
+	return err == nil && got == target, nil
+}
+
+func (junctionHost) UnlinkDir(link string) error { return os.Remove(link) }
 
 func (junctionHost) LinksResolveInContainers() bool { return false }
 
@@ -59,4 +73,86 @@ func TestNativeHistory_HostRunOnAnUnlinkableHostStillLinks(t *testing.T) {
 	st, err := os.Lstat(filepath.Join(claudeHome(home, harpA), claude.TranscriptsDirName))
 	require.NoError(t, err)
 	assert.NotZero(t, st.Mode()&fs.ModeSymlink)
+}
+
+// history is the claude history store under a session home or native home.
+func history(dir string) string { return filepath.Join(dir, claude.TranscriptsDirName) }
+
+// writeHistory writes one transcript file under the history store at dir.
+func writeHistory(t *testing.T, dir, rel, body string) {
+	t.Helper()
+	p := filepath.Join(history(dir), filepath.FromSlash(rel))
+	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o700))
+	require.NoError(t, os.WriteFile(p, []byte(body), 0o600))
+}
+
+// readHistory is one transcript file's content under the history store at dir.
+func readHistory(t *testing.T, dir, rel string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(history(dir), filepath.FromSlash(rel)))
+	require.NoError(t, err)
+	return string(b)
+}
+
+// nativeOf is harp's native claude home under home (launch.NativeHome).
+func nativeOf(home, harp string) string {
+	return filepath.Join(sessionDir(home, harp), paths.NativeDirName, claude.HomeLeaf)
+}
+
+// Host then container on an unlinkable host: the container run cannot follow
+// the junction, so the link is removed and the native history copied into
+// the mounted home — the history the host run wrote is there to resume, and
+// native/ still holds it.
+func TestNativeHistory_HostThenContainerCopiesNativeHistoryIntoTheHome(t *testing.T) {
+	withHostOS(t, junctionHost{platform.Current()})
+	home := fakeHostHome(t, tokenFixture)
+	s := homeSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession)
+	placeOn(t, s, t.TempDir(), hostRelocator{})
+	writeHistory(t, claudeHome(home, harpA), "-proj/s.jsonl", "host\n")
+
+	placeOn(t, s, t.TempDir(), containerOf)
+
+	st, err := os.Lstat(history(claudeHome(home, harpA)))
+	require.NoError(t, err)
+	assert.Equal(t, fs.ModeDir, st.Mode().Type(), "a real dir the container can write, not the junction")
+	assert.Equal(t, "host\n", readHistory(t, claudeHome(home, harpA), "-proj/s.jsonl"))
+	assert.Equal(t, "host\n", readHistory(t, nativeOf(home, harpA), "-proj/s.jsonl"), "copied, not moved")
+}
+
+// A container run in a home rebuilt after Close starts from the native
+// history too.
+func TestNativeHistory_ContainerInAFreshHomeStartsFromNativeHistory(t *testing.T) {
+	withHostOS(t, junctionHost{platform.Current()})
+	home := fakeHostHome(t, tokenFixture)
+	s := homeSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession)
+	writeHistory(t, nativeOf(home, harpA), "-proj/s.jsonl", "kept\n")
+
+	placeOn(t, s, t.TempDir(), containerOf)
+
+	assert.Equal(t, "kept\n", readHistory(t, claudeHome(home, harpA), "-proj/s.jsonl"))
+}
+
+// Container then host on an unlinkable host: the history the container run
+// wrote into the home moves into native/ and the home is linked again. Where
+// both hold a file the home's wins — it started as native's copy and only
+// grew — and what only native/ holds is kept.
+func TestNativeHistory_ContainerThenHostMovesHomeHistoryIntoNative(t *testing.T) {
+	withHostOS(t, junctionHost{platform.Current()})
+	home := fakeHostHome(t, tokenFixture)
+	s := homeSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession)
+	writeHistory(t, nativeOf(home, harpA), "-proj/s.jsonl", "old\n")
+	writeHistory(t, nativeOf(home, harpA), "-other/o.jsonl", "native only\n")
+	placeOn(t, s, t.TempDir(), containerOf)
+	writeHistory(t, claudeHome(home, harpA), "-proj/s.jsonl", "old\ngrown\n")
+	writeHistory(t, claudeHome(home, harpA), "-proj/new.jsonl", "container\n")
+
+	placeOn(t, s, t.TempDir(), hostRelocator{})
+
+	native := nativeOf(home, harpA)
+	ok, err := hostOS.LinksTo(history(claudeHome(home, harpA)), history(native))
+	require.NoError(t, err)
+	assert.True(t, ok, "the home is linked into native/ again")
+	assert.Equal(t, "old\ngrown\n", readHistory(t, native, "-proj/s.jsonl"))
+	assert.Equal(t, "container\n", readHistory(t, native, "-proj/new.jsonl"))
+	assert.Equal(t, "native only\n", readHistory(t, native, "-other/o.jsonl"))
 }

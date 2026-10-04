@@ -114,10 +114,10 @@ func (r *Registry) expandWrappers(ctx context.Context, s *ir.Script, depth int) 
 				if atCap {
 					truncated = true
 				} else {
-					// Append whatever the inner frontend salvaged even on a parse error:
-					// the Frontend contract returns a non-nil (possibly partial) Script
-					// alongside an error so callers can still match the commands it did
-					// recover. Dropping those would fail OPEN for a guard. A genuine parse
+					// Append whatever the inner frontend salvaged even on a parse error.
+					// What that is depends on the frontend: cmd and pwsh return the
+					// commands they did recover, while shell returns an empty Script.
+					// Dropping a salvage would fail OPEN for a guard. A genuine parse
 					// error (including an unsupported inner shell, which Registry.Parse
 					// reports as ErrUnsupportedShell with a nil Script) means the view is
 					// incomplete — surfaced via unanalyzed rather than silently ignored.

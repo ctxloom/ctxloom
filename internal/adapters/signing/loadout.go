@@ -136,7 +136,7 @@ func DecodeLoadoutEnvelope(raw []byte, root trust.TrustRoot, now time.Time) (loa
 // signature that does not verify there is a broken or stale signature in the
 // companion's own release — a bug signal, not an attack signal. Reporting it
 // is right; dropping the loadout over it is not. See
-// config.ProbeCompanionLoadouts.
+// companions.Prober.ProbeCompanionLoadouts.
 //
 // Structural failures are errors for BOTH callers, and stay that way: an
 // envelope that is not valid JSON, carries an unrecognized contract, whose

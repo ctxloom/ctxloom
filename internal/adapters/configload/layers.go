@@ -250,7 +250,7 @@ func persistUpgrade(fs afero.Fs, configPath string, r schemaver.Result) error {
 	if !schemaver.WriteUpgrades() {
 		return nil
 	}
-	if err := schemaver.WriteBack(fs, configPath, r, nil); err != nil {
+	if err := schemaver.WriteBack(fs, configPath, r, schemaver.KeepBackup); err != nil {
 		return err
 	}
 	clidiag.Warn("ctxloom", "upgraded %s to %s %d (%s; the previous file is kept as %s%s)",

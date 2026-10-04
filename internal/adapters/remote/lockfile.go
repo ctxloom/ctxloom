@@ -123,7 +123,7 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	}
 
 	if len(r.Applied) > 0 && schemaver.WriteUpgrades() {
-		if err := schemaver.WriteBack(m.fs, path, r, nil); err != nil {
+		if err := schemaver.WriteBack(m.fs, path, r, schemaver.NoBackup); err != nil {
 			return nil, err
 		}
 	}

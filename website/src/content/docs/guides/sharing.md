@@ -66,7 +66,7 @@ is YOUR release version, and no format migration ever touches it.
 
 ctxloom only rewrites `schema_version` on disk when you ask. `bundle create` and
 every edit write the current one; `bundle sign` persists it before hashing; and
-`--write-upgrades` rewrites an unsigned bundle (keeping `bundle.yaml.bak`). A
+`--write-upgrades` rewrites an unsigned bundle (no `.bak` — git holds the old file). A
 signed bundle is never rewritten behind your back, because its signature covers
 those bytes: `--write-upgrades` skips it and says to re-sign.
 

@@ -824,6 +824,9 @@ test-acceptance-container: build _ensure-gotmpdir
 # runs them and no other local gate did: the complexity ratchet drifted for
 # weeks twice, each time green on every local gate and red only in CI.
 #
+# release-check is here because nothing else validates .goreleaser.yml — not
+# CI either — so a broken release config would surface only when a tag is cut.
+#
 #   just merge-gate                 # logs to a fresh tmp dir, printed first
 #   just merge-gate /path/to/logs   # one <leg>.log per leg
 merge-gate LOGDIR="":
@@ -836,7 +839,7 @@ merge-gate LOGDIR="":
     fi
     mkdir -p "$logdir"
     echo "merge-gate: logs in $logdir"
-    legs=(build lint lint-arch complexity-check gen-docs-check gen-mcp-schemas-check build-cross test-arch test test-integration test-docker-integration test-acceptance)
+    legs=(build lint lint-arch complexity-check gen-docs-check gen-mcp-schemas-check release-check build-cross test-arch test test-integration test-docker-integration test-acceptance)
     failed=()
     for leg in "${legs[@]}"; do
         start=$(date +%s)

@@ -1,7 +1,6 @@
 package schemaver
 
 import (
-	"bytes"
 	"errors"
 	"os"
 	"strings"
@@ -321,7 +320,7 @@ func TestWriteBack_BacksUpThenReplaces(t *testing.T) {
 	taskstest.WriteFile(t, fs, path, old, 0o600)
 	r := Result{Data: []byte(Key + ": 3\n"), From: 1, To: 3, Applied: []string{"x"}}
 
-	require.NoError(t, WriteBack(fs, path, r, nil))
+	require.NoError(t, WriteBack(fs, path, r, KeepBackup))
 
 	got, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
@@ -336,22 +335,22 @@ func TestWriteBack_BacksUpThenReplaces(t *testing.T) {
 	}
 }
 
-func TestWriteBack_PrintWritesNothing(t *testing.T) {
+func TestWriteBack_NoBackupReplacesAndLeavesNothingBeside(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	const path = "/cfg/file.yaml"
-	old := []byte("old: 1\n")
-	taskstest.WriteFile(t, fs, path, old, 0o644)
-	r := Result{Data: []byte(Key + ": 3\n"), From: 1, To: 3}
-	var out bytes.Buffer
+	const path = "/proj/file.yaml"
+	taskstest.WriteFile(t, fs, path, []byte("old: 1\n"), 0o640)
+	r := Result{Data: []byte(Key + ": 3\n"), From: 1, To: 3, Applied: []string{"x"}}
 
-	require.NoError(t, WriteBack(fs, path, r, &out))
+	require.NoError(t, WriteBack(fs, path, r, NoBackup))
 
-	assert.Equal(t, string(r.Data), out.String())
 	got, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
-	assert.Equal(t, old, got, "print mode leaves the file alone")
+	assert.Equal(t, r.Data, got)
+	info, err := fs.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm(), "the file keeps the user's mode")
 	_, err = fs.Stat(path + BackupSuffix)
-	assert.True(t, errors.Is(err, os.ErrNotExist), "print mode writes no backup")
+	assert.True(t, errors.Is(err, os.ErrNotExist), "NoBackup writes no backup")
 }
 
 // The backup comes first: when it cannot be written the file is not touched.
@@ -362,7 +361,7 @@ func TestWriteBack_NoBackupNoWrite(t *testing.T) {
 	taskstest.WriteFile(t, base, path, old, 0o644)
 	fs := afero.NewReadOnlyFs(base)
 
-	err := WriteBack(fs, path, Result{Data: []byte(Key + ": 3\n")}, nil)
+	err := WriteBack(fs, path, Result{Data: []byte(Key + ": 3\n")}, KeepBackup)
 	require.Error(t, err)
 	got, rerr := afero.ReadFile(base, path)
 	require.NoError(t, rerr)

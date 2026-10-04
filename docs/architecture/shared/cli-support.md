@@ -56,18 +56,18 @@ flowchart TD
 
 The family's process-wide stderr **warning** channel. It owns the two wire shapes a non-fatal diagnostic can take (`"<prog>: warning: <msg>"` and a `clifmt.WarningEnvelope` JSON-Lines object), the global switch between them, the global redirect of the default destination, and a global per-message dedup set. Its only dependency is `pkg/clifmt`. Every path funnels into `fwarn`, the single place the wire-shape branch lives.
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `Line` | `internal/shared/clidiag/clidiag.go` | Builds the human line without writing it; the dedup key for the `*Once` helpers. `prog` is an argument, never spliced into the format string. |
-| `structured` (`atomic.Bool`) | `internal/shared/clidiag/clidiag.go` | Which wire shape all warnings take. |
-| `SetStructured` | `internal/shared/clidiag/clidiag.go` | Flips the process into JSON-envelope mode. |
-| `Fwarn` | `internal/shared/clidiag/clidiag.go` | Formats args, delegates to `fwarn` against an explicit writer. |
-| `fwarn` | `internal/shared/clidiag/clidiag.go` | The only branch point: `clifmt.EncodeWarning` when structured, `Fprintf("%s: warning: %s\n")` otherwise. Both write errors are discarded. |
-| `sinkStack` / `sinkMu` | `internal/shared/clidiag/clidiag.go` | Every un-restored redirect; the top is the active sink, empty means `os.Stderr`. `sinkMu` guards the stack and every sink write. |
-| `SetSink` | `internal/shared/clidiag/clidiag.go` | Pushes a redirect; its idempotent `restore` removes exactly that entry wherever it sits. |
-| `warnToSink` | `internal/shared/clidiag/clidiag.go` | Resolves the active sink (`activeSink`) and writes to it under one `sinkMu` hold. Every sink-targeting helper funnels here. |
-| `onceSeen` / `onceMu` | `internal/shared/clidiag/clidiag.go` | The print-dedup set; `ResetWarnOnce` clears it for tests. No cap, no eviction. |
-| `FwarnOnce` | `internal/shared/clidiag/clidiag.go` | Formats, computes `Line(...)` as key, dedups under `onceMu`, delegates to `fwarn`. |
+| Symbol | Purpose |
+|---|---|
+| `Line` | Builds the human line without writing it; the dedup key for the `*Once` helpers. `prog` is an argument, never spliced into the format string. |
+| `structured` (`atomic.Bool`) | Which wire shape all warnings take. |
+| `SetStructured` | Flips the process into JSON-envelope mode. |
+| `Fwarn` | Formats args, delegates to `fwarn` against an explicit writer. |
+| `fwarn` | The only branch point: `clifmt.EncodeWarning` when structured, `Fprintf("%s: warning: %s\n")` otherwise. Both write errors are discarded. |
+| `sinkStack` / `sinkMu` | Every un-restored redirect; the top is the active sink, empty means `os.Stderr`. `sinkMu` guards the stack and every sink write. |
+| `SetSink` | Pushes a redirect; its idempotent `restore` removes exactly that entry wherever it sits. |
+| `warnToSink` | Resolves the active sink (`activeSink`) and writes to it under one `sinkMu` hold. Every sink-targeting helper funnels here. |
+| `onceSeen` / `onceMu` | The print-dedup set; `ResetWarnOnce` clears it for tests. No cap, no eviction. |
+| `FwarnOnce` | Computes `Line(...)` as key and dedups under `onceMu` (`warnOnce`, shared with the sink-targeting `*Once` helpers), then delegates to `fwarn`. |
 
 ## `internal/shared/cliemit` — `--format` routing
 
@@ -137,11 +137,11 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 
 ### clidiag
 
-- `SetStructured` and `SetSink` must be called **before any warning is emitted** — both binaries do it from the root command (`internal/adapters/cli/root.go:118`, `cmd/taskloom/root.go:47`). Nothing enforces the ordering.
+- `SetStructured` must be called **before any warning is emitted**, or the earlier warnings take the text shape whatever `--format` says. ctxloom and taskloom call it from their `rootPersistentPreRun`; nothing enforces the ordering. `SetSink`, by contrast, is a mid-run redirect (`redirectDiagnosticsForTUI`, `divertRunnerDiagnostics`) bracketed by its `restore`.
 - Resolving the sink and writing to it happen under one `sinkMu` hold (`warnToSink`), so concurrent warnings never race or interleave whatever writer is installed, and once `restore` returns no write to that writer is in flight. Consequence: nothing reached from inside that hold — the writer, `clifmt` — may warn through `clidiag`, or it deadlocks. Lock order is `onceMu` then `sinkMu`.
 - `restore` is safe for overlapping redirects unwound in any order: it removes only its own entry.
-- The dedup key is the fully-rendered line and **does not include the destination writer**. A message already emitted to a previous sink is permanently suppressed on every later sink — including a per-session diagnostics file installed by `internal/adapters/cli/run_terminal_ui.go:182`, which the user is explicitly pointed at.
-- `onceSeen` has no cap (only the test seam `ResetWarnOnce` clears it). Several `WarnOnce` sites embed a varying `%v` error inside reconnect loops (`internal/core/coord/home.go:232,265,354`; `runnerlink.go:227`), so entries multiply in exactly the long-lived processes the package doc names.
+- The dedup key is the fully-rendered line and **does not include the destination writer**. A message already emitted to a previous sink is permanently suppressed on every later sink — including the per-session diagnostics file `redirectDiagnosticsForTUI` installs, which the user is explicitly pointed at.
+- `onceSeen` has no cap (only the test seam `ResetWarnOnce` clears it). A `*Once` message that embeds a varying value — an error's text, a timestamp — dedups nothing and adds an entry every time it fires, so a call inside a loop in a long-lived process grows the set without bound.
 - Write errors are discarded on both paths, deliberately: warnings never block. The named out-of-band observer is `errwriter.Writer`.
 - `prog` is passed positionally at every call site. Most pass their binary's literal name; a shared package that runs under more than one binary derives it from the running executable instead (`plans.diagProg`), so a warning never names a program the user did not run.
 - Layering rule: `clidiag` is the family-wide convention (hence the `prog` parameter); ctxloom-specific concepts such as findings belong **above** it in `internal/shared/strictness`, never inside it.

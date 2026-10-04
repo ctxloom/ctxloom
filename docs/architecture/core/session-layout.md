@@ -175,13 +175,26 @@ environment, and a host runner start that still carries it is refused
 - **Close cleans every finished agent in the tree.** A finished agent's home and scratch
   are pure cost; an agent whose run has not ended (an adopted run whose runner never came
   back) may still have an engine using its home, so it is left for the sweep.
-- **A real history dir in the home is adopted, never refused.** A host run that finds a
-  real directory where the link belongs (a container run's history on Windows, or a home
-  that predates native history) moves its contents into `native/` and links the home
-  (`sessions.AdoptHistory`); Close does the same before it deletes a home
-  (`sessions.KeepHomeHistory`). Where both hold a file the home's wins, because it started
-  as native's copy and only grew. Only a link somewhere else, which is not the session's
-  history, is refused (`isolation.ErrHistoryNotLinked`).
+- **No migration, with one exception: a real history dir in the home is adopted.**
+  Sessions created under an earlier layout are not otherwise converted. On every platform,
+  a host run that finds a real directory where the history link belongs (a container run's
+  history on Windows, or a home that predates native history) moves its contents into
+  `native/` and links the home (`sessions.AdoptHistory`); Close does the same before it
+  deletes a home (`sessions.KeepHomeHistory`). Where both hold a file the home's wins,
+  because it started as native's copy and only grew. Only a link somewhere else, which is
+  not the session's history, is refused (`isolation.ErrHistoryNotLinked`).
+
+## Live evidence
+
+The two vendor facts the native-history design stands on are probe cells, re-run on every
+claude pin bump (`features/probes/capability_native_history.feature`, judges in
+`tests/acceptance/probe_p14_native_history.go`): claude in a rootless container writes its
+conversation `.jsonl` under its config home's `projects/`, and claude writes through a
+relative symlinked `projects/` without replacing the link. Their current results are in
+the probe registry (`probeP14` in `tests/acceptance/capability_probe_registry.go`).
+
+## Limits
+
 - **Resume across a runtime switch.** claude keys `projects/<slug>` by the working
   directory. A container mounts the project at the host's absolute path (the P14 container
   cell observed the host path as the slug), so host and container runs of one session file

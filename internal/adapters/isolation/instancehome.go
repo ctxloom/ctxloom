@@ -6,11 +6,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gofrs/flock"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
@@ -40,6 +42,12 @@ type InstanceHomeRequest struct {
 	// (launch.NativeHome); "" when it keeps none here, and then nothing is
 	// linked.
 	NativeHome string
+	// HistoryInHome is that the engine runs where a link into NativeHome does
+	// not resolve (a container, on a host whose links name absolute paths:
+	// platform.DirLinker.LinksResolveInContainers), so the home keeps its
+	// history as a real directory, started from NativeHome's
+	// (restoreNativeHistory) instead of linked to it.
+	HistoryInHome bool
 }
 
 // InstanceHomeReport is what one PrepareInstanceHome call decided and wrote.
@@ -104,7 +112,11 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 		return rep, fmt.Errorf("instance home for %s: restrict %s to its owner: %w", req.Engine, req.InstanceHome, err)
 	}
 	if req.NativeHome != "" && f.Home.TranscriptStoreRel != "" {
-		if err := linkNativeHistory(req.InstanceHome, req.NativeHome, f.Home.TranscriptStoreRel); err != nil {
+		place := linkNativeHistory
+		if req.HistoryInHome {
+			place = restoreNativeHistory
+		}
+		if err := place(req.InstanceHome, req.NativeHome, f.Home.TranscriptStoreRel); err != nil {
 			return rep, fmt.Errorf("instance home for %s: %w", req.Engine, err)
 		}
 	}
@@ -144,29 +156,37 @@ func writeInstanceConfig(req InstanceHomeRequest, writer engine.InstanceConfigWr
 }
 
 // ErrHistoryNotLinked is the refusal of a session home whose history dir is
-// not the link into native/: a real directory there (the session home
-// predates native history, or the engine replaced the link) or a link
-// somewhere else. History written through it would die with the home, and
-// adopting or moving it is migration this does not do.
+// neither the link into native/ nor a real directory to adopt: a link
+// somewhere else, or something that is not a directory. It is not the
+// session's history, so it is neither replaced nor moved.
 var ErrHistoryNotLinked = errors.New("the session home's history dir is not the link into the session's native history")
 
 // linkNativeHistory makes <instanceHome>/<rel> the platform's directory link
 // (platform.DirLinker) to <nativeHome>/<rel>, creating the target. An
-// existing correct link is left alone; anything else is ErrHistoryNotLinked.
+// existing correct link is left alone; a real directory there (a container
+// run's history on a host whose links do not resolve in a container, or a
+// home that predates native history) is adopted first (adoptHistory);
+// anything else is ErrHistoryNotLinked.
 func linkNativeHistory(instanceHome, nativeHome, rel string) error {
 	target := filepath.Join(nativeHome, filepath.FromSlash(rel))
 	if err := os.MkdirAll(target, owneronly.DirMode); err != nil {
 		return fmt.Errorf("native history %s: %w", target, err)
 	}
 	link := filepath.Join(instanceHome, filepath.FromSlash(rel))
-	ok, err := hostOS.LinksTo(link, target)
+	at, err := historyAt(link, nativeHome, rel)
 	switch {
-	case err == nil && ok:
+	case err != nil:
+		return err
+	case at == historyLinked:
 		return nil
-	case err == nil:
-		return fmt.Errorf("%w: %s (start a new session; history written there would be deleted with the home)", ErrHistoryNotLinked, link)
-	case !errors.Is(err, fs.ErrNotExist):
-		return fmt.Errorf("native history link %s: %w", link, err)
+	case at == historyRealDir:
+		if err := sessions.AdoptHistory(link, target); err != nil {
+			return fmt.Errorf("native history: move %s into %s: %w", link, target, err)
+		}
+	case at == historyLinkedBeforeRename:
+		if err := hostOS.UnlinkDir(link); err != nil {
+			return fmt.Errorf("native history link %s: %w", link, err)
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(link), owneronly.DirMode); err != nil {
 		return fmt.Errorf("native history link %s: %w", link, err)
@@ -175,6 +195,69 @@ func linkNativeHistory(instanceHome, nativeHome, rel string) error {
 		return fmt.Errorf("native history link %s: %w", link, err)
 	}
 	return nil
+}
+
+// historyState is what sits where a session home's history link belongs.
+type historyState int
+
+const (
+	// historyAbsent: nothing.
+	historyAbsent historyState = iota
+	// historyLinked: the link into the session's native history.
+	historyLinked
+	// historyLinkedBeforeRename: the link the session made under a name it
+	// has since been renamed from (renamedSessionLink).
+	historyLinkedBeforeRename
+	// historyRealDir: a real directory of history.
+	historyRealDir
+)
+
+// historyAt is what sits at link, the history link into
+// <nativeHome>/<rel>. Anything that is not one of historyState's is
+// ErrHistoryNotLinked.
+func historyAt(link, nativeHome, rel string) (historyState, error) {
+	target := filepath.Join(nativeHome, filepath.FromSlash(rel))
+	ok, err := hostOS.LinksTo(link, target)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return historyAbsent, nil
+	case err != nil:
+		return historyAbsent, fmt.Errorf("native history link %s: %w", link, err)
+	case ok:
+		return historyLinked, nil
+	case sessions.IsRealDir(link):
+		return historyRealDir, nil
+	case renamedSessionLink(link, nativeHome, rel):
+		return historyLinkedBeforeRename, nil
+	}
+	return historyAbsent, fmt.Errorf("%w: %s", ErrHistoryNotLinked, link)
+}
+
+// renamedSessionLink reports whether the link at link names this session's
+// native history as it was before the session was renamed. A link that
+// names its target absolutely (a Windows junction) keeps naming the old
+// session dir after Manager.Rename moves the session, history and all; the
+// home holding the link moved with it, so a link of the exact shape
+// <sessions root>/<old name>/<native>/<leaf>/<rel> whose old session dir no
+// longer exists can only be this session's own. One into a session dir that
+// exists is another session's history.
+func renamedSessionLink(link, nativeHome, rel string) bool {
+	got, err := hostOS.LinkTarget(link)
+	if err != nil {
+		return false
+	}
+	sessionDir := filepath.Dir(filepath.Dir(nativeHome))
+	suffix, err := filepath.Rel(sessionDir, filepath.Join(nativeHome, filepath.FromSlash(rel)))
+	if err != nil {
+		return false
+	}
+	oldName := filepath.Base(strings.TrimSuffix(got, string(filepath.Separator)+suffix))
+	oldDir := filepath.Join(filepath.Dir(sessionDir), oldName)
+	if oldDir == sessionDir || filepath.Join(oldDir, suffix) != got {
+		return false
+	}
+	_, err = os.Lstat(oldDir)
+	return errors.Is(err, fs.ErrNotExist)
 }
 
 // lockFileMode and lockDirMode are the modes this instance-home lock's

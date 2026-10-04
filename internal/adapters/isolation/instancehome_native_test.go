@@ -54,13 +54,35 @@ func TestPrepareInstanceHome_LinksTheHistoryStoreIntoNative(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// A real directory where the link belongs means history written there dies
-// with the home: refused, never adopted or moved.
-func TestPrepareInstanceHome_RefusesARealHistoryDirInTheHome(t *testing.T) {
+// A real directory where the link belongs (a container run's history, or a
+// home that predates native history) is adopted: its history moves into
+// native/ and the home is linked, so nothing written there dies with the home.
+func TestPrepareInstanceHome_AdoptsARealHistoryDirInTheHome(t *testing.T) {
 	withFakeHome(t)
 	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{report: engine.InstanceConfigReport{}})
 	instance, native := nativeLayout(t)
-	require.NoError(t, os.MkdirAll(filepath.Join(instance, claude.TranscriptsDirName), 0o700))
+	written := filepath.Join(instance, claude.TranscriptsDirName, "-proj", "s.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(written), 0o700))
+	require.NoError(t, os.WriteFile(written, []byte("{}\n"), 0o600))
+
+	_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, NativeHome: native})
+	require.NoError(t, err)
+
+	st, err := os.Lstat(filepath.Join(instance, claude.TranscriptsDirName))
+	require.NoError(t, err)
+	assert.NotZero(t, st.Mode()&fs.ModeSymlink, "the home is linked")
+	_, err = os.Stat(filepath.Join(native, claude.TranscriptsDirName, "-proj", "s.jsonl"))
+	assert.NoError(t, err, "the history moved into native/")
+}
+
+// A link to somewhere else is not the session's history: refused, never
+// replaced.
+func TestPrepareInstanceHome_RefusesAHistoryLinkElsewhere(t *testing.T) {
+	withFakeHome(t)
+	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{report: engine.InstanceConfigReport{}})
+	instance, native := nativeLayout(t)
+	require.NoError(t, os.MkdirAll(instance, 0o700))
+	require.NoError(t, os.Symlink(t.TempDir(), filepath.Join(instance, claude.TranscriptsDirName)))
 
 	_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, NativeHome: native})
 	assert.ErrorIs(t, err, ErrHistoryNotLinked)

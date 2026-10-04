@@ -827,69 +827,72 @@ func (m *Manager) Rename(oldName, newName string) error {
 	}
 	defer unlock()
 
-	cur, err := m.readSidecar(oldName)
+	cur, newDir, err := m.renameSource(oldName, newName)
 	if err != nil {
 		return err
 	}
-	if cur == nil {
-		return fmt.Errorf("harp not found: %q", oldName)
-	}
-	newDir := filepath.Join(m.root, newName)
-	if err := m.refuseTakenName(oldName, newName, newDir); err != nil {
-		return err
-	}
-	undo, err := m.moveOutputDir(oldName, cur, newName)
+	oldOut, newOut, moving, err := renamedOutputDir(cur.OutputDir, newName)
 	if err != nil {
 		return err
 	}
-	if err := os.Rename(filepath.Join(m.root, oldName), newDir); err != nil {
-		undo()
+	// A move, never copy-then-delete: a rename leaves the folder at exactly
+	// one of its two names.
+	if moving {
+		if err := safefs.Rename(afero.NewOsFs(), oldOut, newOut); err != nil {
+			return fmt.Errorf("%w: %s -> %s: %w", ErrOutputDirMove, oldOut, newOut, err)
+		}
+	}
+	unmove := func() {
+		if moving {
+			_ = safefs.Rename(afero.NewOsFs(), newOut, oldOut)
+		}
+	}
+	unrecord, err := m.recordOutputDir(oldName, cur, newOut)
+	if err != nil {
+		unmove()
+		return err
+	}
+	if err := safefs.Rename(afero.NewOsFs(), filepath.Join(m.root, oldName), newDir); err != nil {
+		unrecord()
+		unmove()
 		return fmt.Errorf("rename session dir: %w", err)
 	}
 	return nil
 }
 
-// moveOutputDir moves the output folder cur records to newName beside itself
-// and records the new path in oldName's sidecar, returning the undo of both.
-// A refusal (renamedOutputDir, ErrOutputDirMove) has undone its own steps.
-func (m *Manager) moveOutputDir(oldName string, cur *Entry, newName string) (undo func(), err error) {
-	oldOut, newOut, moving, err := renamedOutputDir(cur.OutputDir, newName)
-	if err != nil {
-		return nil, err
-	}
-	if oldOut == "" {
+// recordOutputDir records newOut as the output folder in oldName's sidecar,
+// returning the undo. A session recording no folder (newOut "") records
+// nothing.
+func (m *Manager) recordOutputDir(oldName string, cur *Entry, newOut string) (undo func(), err error) {
+	if newOut == "" {
 		return func() {}, nil
-	}
-	if moving {
-		if err := os.Rename(oldOut, newOut); err != nil {
-			return nil, fmt.Errorf("%w: %s -> %s: %w", ErrOutputDirMove, oldOut, newOut, err)
-		}
-	}
-	unmove := func() {
-		if moving {
-			_ = os.Rename(newOut, oldOut)
-		}
 	}
 	recorded := *cur
 	recorded.OutputDir = newOut
 	if err := m.writeSidecar(oldName, &recorded); err != nil {
-		unmove()
 		return nil, fmt.Errorf("%w: record %s: %w", ErrOutputDirMove, newOut, err)
 	}
-	return func() {
-		_ = m.writeSidecar(oldName, cur)
-		unmove()
-	}, nil
+	return func() { _ = m.writeSidecar(oldName, cur) }, nil
 }
 
-// refuseTakenName refuses a rename onto a name a session dir already holds.
-func (m *Manager) refuseTakenName(oldName, newName, newDir string) error {
-	if _, err := os.Lstat(newDir); err == nil {
-		return fmt.Errorf("name already in use: %q", newName)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("rename %s: inspect %s: %w", oldName, newName, err)
+// renameSource is oldName's record and the session dir newName would take,
+// refusing a rename of a harp that is not a session, or onto a name a session
+// dir already holds. The caller holds oldName's lock.
+func (m *Manager) renameSource(oldName, newName string) (cur *Entry, newDir string, err error) {
+	cur, err = m.readSidecar(oldName)
+	if err != nil {
+		return nil, "", err
 	}
-	return nil
+	if cur == nil {
+		return nil, "", fmt.Errorf("harp not found: %q", oldName)
+	}
+	newDir = filepath.Join(m.root, newName)
+	if _, err := os.Lstat(newDir); err == nil {
+		return nil, "", fmt.Errorf("name already in use: %q", newName)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, "", fmt.Errorf("rename %s: inspect %s: %w", oldName, newName, err)
+	}
+	return cur, newDir, nil
 }
 
 // renamedOutputDir is where a session's recorded output folder goes under

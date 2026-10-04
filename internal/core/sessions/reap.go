@@ -364,12 +364,20 @@ func triageSpares(ctx context.Context, triage Triage, name string, probe LockPro
 	return false
 }
 
-// removeReapMembers removes the session's taken members. The lock FILE is
+// removeReapMembers removes the session's taken members, after moving any
+// history an engine home holds as a real directory into native/
+// (KeepHomeHistory), so taking the homes never takes history; a session
+// whose history could not be moved is skipped. The lock FILE is
 // deliberately left behind: unlinking it while we hold it would let a
 // session resuming under this harp create and lock a FRESH inode and believe
 // it owns the session we are still deleting — the exact race holding the
 // lock exists to prevent.
 func removeReapMembers(l Layout, name string, members []paths.HarpMember, c ReapCandidate) ReapCandidate {
+	if err := KeepHomeHistory(l.Dir(name)); err != nil {
+		c.Verdict = ReapSkipped
+		c.Reason = fmt.Sprintf("its engine homes' history could not be moved into native/, so its data is left alone: %v", err)
+		return c
+	}
 	for _, member := range members {
 		if err := os.RemoveAll(l.Member(name, member)); err != nil {
 			c.Verdict = ReapSkipped

@@ -707,3 +707,40 @@ func TestReapPolicy_MembersFollowTheTable(t *testing.T) {
 	assert.NotContains(t, persist, paths.SessionSidecarFileName, "the identity row is never taken")
 	assert.NotContains(t, persist, paths.SessionKeepMarkerFileName, "the keep marker is never taken")
 }
+
+// reapSeedHomeHistory gives dir a container run's history: a real
+// home/claude/projects beside the native/claude/projects store.
+func reapSeedHomeHistory(t *testing.T, dir string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.NativeDirName, "claude", "projects"), 0o700))
+	put(t, filepath.Join(dir, paths.SessionEngineHomesDirName, "claude"), "projects/-p/s.jsonl", "container\n")
+	reapBackdate(t, dir)
+}
+
+// clean takes home/, and a home holding history as a real dir has it moved
+// into native/ first — never deleted with the home.
+func TestReap_MovesAHomesRealHistoryIntoNativeFirst(t *testing.T) {
+	l := reapLayout(t)
+	dir := reapSeed(t, l, "aged-quiet-heron")
+	reapSeedHomeHistory(t, dir)
+
+	_, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	require.NoError(t, err)
+
+	assert.NoDirExists(t, filepath.Join(dir, paths.SessionEngineHomesDirName))
+	assert.Equal(t, "container\n", got(t, filepath.Join(dir, paths.NativeDirName, "claude"), "projects/-p/s.jsonl"))
+}
+
+// --include-persist on an undistilled session spares native/ but takes home/:
+// the home's history still lands in native/.
+func TestReap_PersistScope_UndistilledKeepsTheHomesHistoryInNative(t *testing.T) {
+	l := reapLayout(t)
+	dir := reapSeedUndistilled(t, l, "aged-quiet-heron")
+	reapSeedHomeHistory(t, dir)
+
+	_, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
+	require.NoError(t, err)
+
+	assert.NoDirExists(t, filepath.Join(dir, paths.SessionEngineHomesDirName))
+	assert.Equal(t, "container\n", got(t, filepath.Join(dir, paths.NativeDirName, "claude"), "projects/-p/s.jsonl"))
+}

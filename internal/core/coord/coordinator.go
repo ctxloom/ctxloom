@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -995,8 +996,9 @@ func (c *Coordinator) Close() {
 // removeDisposableMembers deletes the disposable members — the engine homes
 // and the per-run scratch — of every agent in this tree that has finished:
 // the owner, whose process is exiting, and each child whose run has ended.
-// A home is rebuilt from managed writers on the next launch and holds no
-// history (native history lives beside it), so a resume loses nothing; what
+// A home is rebuilt from managed writers on the next launch, and any history
+// it holds is moved into native/ first (disposableHomes), so a resume loses
+// nothing; what
 // stays is everything a resume or a human reads. A run that has NOT ended may
 // still have an engine using its home (an adopted run whose runner never came
 // back), so its members are left. Best-effort: a failure is reported and the
@@ -1014,7 +1016,7 @@ func (c *Coordinator) removeDisposableMembers() {
 		if harp == "" {
 			continue
 		}
-		for _, at := range []func(string) (string, error){paths.HarpSessionEngineHomes, paths.HarpScratchDir} {
+		for _, at := range []func(string) (string, error){c.disposableHomes, paths.HarpScratchDir} {
 			dir, err := at(harp)
 			if err != nil {
 				continue
@@ -1024,6 +1026,23 @@ func (c *Coordinator) removeDisposableMembers() {
 			}
 		}
 	}
+}
+
+// disposableHomes is harp's engine homes dir, once any history a home holds
+// as a real directory (a container run's, where the host's directory links do
+// not resolve in a container) is moved into native/ (sessions.KeepHomeHistory).
+// A home whose history could not be moved is not disposable: it is kept, and
+// the error says so.
+func (c *Coordinator) disposableHomes(harp string) (string, error) {
+	dir, err := paths.HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	if err := sessions.KeepHomeHistory(dir); err != nil {
+		c.rep.Warnf("coordinator close: keeping %s's engine homes, whose history could not be moved into native/: %v", harp, err)
+		return "", err
+	}
+	return paths.HarpSessionEngineHomes(harp)
 }
 
 // rootSettled reports that every run this root ever journaled has ended. A

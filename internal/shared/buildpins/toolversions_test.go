@@ -501,16 +501,26 @@ func TestDevcontainerJSONBuildArgsMatchToolVersionsEnv(t *testing.T) {
 	}
 }
 
-// TestGitleaksInstallDerivesFromToolVersionsEnv: the host install recipe is
-// the only way gitleaks reaches a developer's machine, and lefthook's
-// pre-commit secret scan runs whatever it installed. A hand-copied version
-// there would let the host scanner and the devcontainer's disagree silently.
-func TestGitleaksInstallDerivesFromToolVersionsEnv(t *testing.T) {
-	body := recipeBody(t, justfilePath, "gitleaks-install")
-	if !strings.Contains(body, "tool-versions.env") {
-		t.Fatalf("justfile's gitleaks-install recipe does not read .devcontainer/tool-versions.env:\n%s", body)
-	}
-	if !strings.Contains(body, "${GITLEAKS_VERSION}") {
-		t.Errorf("justfile's gitleaks-install recipe does not install at ${GITLEAKS_VERSION} — it must be using a hardcoded version:\n%s", body)
+// TestHostInstallRecipesDeriveFromToolVersionsEnv: a host install recipe is
+// the only way its tool reaches a developer's machine — lefthook's pre-commit
+// secret scan runs whatever gitleaks-install installed, and a host mutation
+// run uses whatever test-mutation-install built, which test-mutation-container's
+// image must match. A hand-copied version in any of them would let the tool and
+// the devcontainer's disagree silently.
+func TestHostInstallRecipesDeriveFromToolVersionsEnv(t *testing.T) {
+	for _, tc := range []struct{ recipe, versionVar string }{
+		{"gitleaks-install", "GITLEAKS_VERSION"},
+		{"test-mutation-install", "GREMLINS_VERSION"},
+		{"test-mutation-container", "GREMLINS_VERSION"},
+	} {
+		t.Run(tc.recipe, func(t *testing.T) {
+			body := recipeBody(t, justfilePath, tc.recipe)
+			if !strings.Contains(body, "tool-versions.env") {
+				t.Fatalf("justfile's %s recipe does not read .devcontainer/tool-versions.env:\n%s", tc.recipe, body)
+			}
+			if !strings.Contains(body, "${"+tc.versionVar+"}") {
+				t.Errorf("justfile's %s recipe does not install at ${%s} — it must be using a hardcoded version:\n%s", tc.recipe, tc.versionVar, body)
+			}
+		})
 	}
 }

@@ -25,10 +25,10 @@ func progressFixture(t *testing.T, progress io.Writer) *Compactor {
 	mockHistory := &mockSessionHistory{
 		currentSession: &agent.Session{
 			ID: "progress-session",
-			Entries: []agent.SessionEntry{
+			Entries: aboveDistillFloor([]agent.SessionEntry{
 				{Type: agent.EntryTypeUser, Content: "ask"},
 				{Type: agent.EntryTypeAssistant, Content: "answer"},
-			},
+			}),
 		},
 	}
 	mockClient := &scriptedDistiller{

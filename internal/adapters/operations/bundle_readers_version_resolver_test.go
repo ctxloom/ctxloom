@@ -34,9 +34,10 @@ import (
 const localGoTools = "ctxloom:local@bundles/go-tools"
 
 // localContentRepo creates a git repo whose committed .ctxloom/content/ tree
-// holds bundles/v2/go-tools (no extension: format v2's leaf is the bundle's
-// own name). It commits a v1 (fmt=V1-BODY, review=PV1-BODY), then a v2, and
-// returns the appDir (<repo>/.ctxloom) plus the two commit SHAs.
+// holds the bundle go-tools as a TREE (the only form a bundle takes on disk),
+// with its items as files beside its bundle.yaml. It commits a v1
+// (fmt=V1-BODY, review=PV1-BODY), then a v2, and returns the appDir
+// (<repo>/.ctxloom) plus the two commit SHAs.
 func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 	t.Helper()
 	repoDir := filepath.Join(t.TempDir(), "project")
@@ -45,13 +46,10 @@ func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools")
-	commit := func(body, msg string) string {
-		full := filepath.Join(repoDir, rel)
-		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
-		require.NoError(t, os.WriteFile(full, []byte(body), 0o644))
-		_, err := wt.Add(filepath.ToSlash(rel))
-		require.NoError(t, err)
+	root := filepath.Join(repoDir, filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)))
+	commit := func(doc, msg string) string {
+		bundletree.WriteOS(t, root, "go-tools", doc)
+		require.NoError(t, wt.AddWithOptions(&git.AddOptions{All: true}))
 		h, err := wt.Commit(msg, &git.CommitOptions{
 			Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()},
 		})
@@ -59,8 +57,8 @@ func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 		return h.String()
 	}
 
-	rev1 = commit("description: v1\nfragments:\n  fmt:\n    content: V1-BODY\nprompts:\n  review:\n    content: PV1-BODY\n", "v1")
-	rev2 = commit("description: v2\nfragments:\n  fmt:\n    content: V2-BODY\nprompts:\n  review:\n    content: PV2-BODY\n", "v2")
+	rev1 = commit("description: v1\nfragments:\n  fmt:\n    content: V1-BODY\ncommands:\n  review:\n    content: PV1-BODY\n", "v1")
+	rev2 = commit("description: v2\nfragments:\n  fmt:\n    content: V2-BODY\ncommands:\n  review:\n    content: PV2-BODY\n", "v2")
 	return filepath.Join(repoDir, ".ctxloom"), rev1, rev2
 }
 

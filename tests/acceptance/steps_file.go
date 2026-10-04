@@ -330,6 +330,10 @@ func fileContains(c context.Context, home bool, rel, want string) error {
 	if !strings.Contains(body, want) {
 		return fmt.Errorf("%s %q does not contain %q; content:\n%s", kind, rel, want, body)
 	}
+	// j000400Excerpt matches one line at a time, so a multi-line want is
+	// located by its first line.
+	marker, _, _ := strings.Cut(want, "\n")
+	w.docStepMaterialized = rel + ":\n" + j000400Excerpt(body, marker, 2)
 	return nil
 }
 

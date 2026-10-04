@@ -410,14 +410,14 @@ func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
 
 	history := &mockSessionHistory{currentSession: &agent.Session{
 		ID: "e2e-session",
-		Entries: []agent.SessionEntry{
+		Entries: aboveDistillFloor([]agent.SessionEntry{
 			{Type: agent.EntryTypeUser, Content: "why is the suite slow"},
 			{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"go test ./..."}`)},
 			{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: rawBody + bigBody()},
 			// No assistant turn here: nothing was said, so the finding is lost
 			// unless recovery supplies one.
 			{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"true"}`)},
-		},
+		}),
 	}}
 
 	var mu sync.Mutex

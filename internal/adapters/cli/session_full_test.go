@@ -236,22 +236,11 @@ func TestNewSessionFullRow_EssenceAndPathAgree(t *testing.T) {
 	}
 }
 
-// emitSessionRows is an instance of the hand-rolled format
-// branch that bypasses emit(). The parity check across the family's other
-// hand-rolled sites (cmd/taskloom/format_test.go) found them all equivalent to
-// cliemit.Emit's own predicate — except this one, which additionally routes
-// MARKDOWN to the bespoke human renderer:
-//
-//	if format != clifmt.FormatText && format != clifmt.FormatMarkdown
-//
-// So one command answers `--format markdown` two different ways depending on
-// --full: the non-full branch goes through emit(), which hands markdown to
-// clifmt.Render, while --full renders the human text table through the pager.
-// Nothing in the code says that asymmetry is intended, so it is characterized
-// here rather than silently "corrected" — the decision is the command owner's.
-// If the exclusion is deliberate, this test is its record; if it is not, this
-// test is what goes red when it is fixed.
-func TestEmitSessionRows_FullMarkdown_TakesTheHumanBranchUnlikeEmit(t *testing.T) {
+// emitSessionRows hand-rolls emit()'s format branch for --full. That branch
+// must answer `--format markdown` the way emit() does — through clifmt.Render —
+// so one command does not give two different markdown answers depending on
+// whether --full is passed.
+func TestEmitSessionRows_FullMarkdown_RendersThroughClifmtLikeEmit(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
@@ -281,9 +270,8 @@ func TestEmitSessionRows_FullMarkdown_TakesTheHumanBranchUnlikeEmit(t *testing.T
 	// second invocation without it inherits true unless it is reset here.
 	sessionListFull = false
 	plain := render("session", "list", "--format", "markdown")
-
-	assert.NotContains(t, full, "| HARP",
-		"--full --format markdown currently renders the bespoke human view, not a clifmt markdown table")
+	assert.Contains(t, full, "| HARP",
+		"--full --format markdown must be clifmt's markdown table, as it is without --full")
 	assert.Contains(t, plain, "|",
 		"without --full the same flag goes through emit() and gets clifmt's markdown table")
 }

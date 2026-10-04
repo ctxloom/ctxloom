@@ -31,9 +31,9 @@ var errDistillFailed = errors.New("distillation failed")
 // Returning nil means "this content will be stored RAW", which every caller
 // treats as success — so the reason is warned rather than swallowed: a distill
 // command that reports "distilled 4 items" while storing four raw ones is
-// indistinguishable from working. There is exactly ONE reachable reason: no
-// label resolves, i.e. neither llm.defaults.fast nor llm.defaults.primary is
-// set and llm.configs does not hold exactly one entry (config.PrimaryLabel).
+// indistinguishable from working. The one reason is a nil config. An empty
+// cfg.FastLabel is not a second one: configload overlays the embedded default
+// config, which always sets llm.defaults.fast and llm.defaults.primary.
 //
 // A NON-NIL ERROR IS A REFUSAL, not a fault: see the prompt load below.
 func newLLMDistiller(cfg *config.Config, label string) (*llmDistiller, error) {
@@ -43,10 +43,6 @@ func newLLMDistiller(cfg *config.Config, label string) (*llmDistiller, error) {
 	}
 	if label == "" {
 		label = cfg.FastLabel()
-	}
-	if label == "" {
-		clidiag.Warn("ctxloom", "no LLM label resolves for distillation (set llm.defaults.fast or llm.defaults.primary in config.yaml, or keep exactly one llm.configs entry): content will be stored RAW (undistilled)")
-		return nil, nil
 	}
 	// The ONE error this constructor has: the project configured a `distill`
 	// prompt and the trust gate withheld it. Warning-and-continuing here would

@@ -455,7 +455,6 @@ var envLiteralsOnceAllowed = map[string]string{
 	// isolation: handed HostFacts and a CellRequest
 	"internal/adapters/isolation/diagnose.go":   "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 	"internal/adapters/isolation/imagebuild.go": "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
-	"internal/adapters/isolation/worktree.go":   "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 
 	// a leaf adapter not permitted to read the environment: GitPublisher's working clone is
 	// os.MkdirTemp("", …) — a temp-root read; it takes its root as a value once

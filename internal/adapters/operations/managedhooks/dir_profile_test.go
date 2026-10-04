@@ -137,3 +137,20 @@ func TestAssemble_DeniedHookIsWarned(t *testing.T) {
 	assert.Contains(t, buf.String(), "drop-hook",
 		"a denied hook must be warned by name, not silently dropped: got %q", buf.String())
 }
+
+// A locally authored profile's directly-declared hooks key the exec gate by the
+// project's own posture: a claimed read, project provenance, local trust
+// context, and no signature — never an unclaimed read (which withholds) and
+// never a signer nothing verified.
+func TestProfileGateRef_LocallyAuthoredProfileReadsAsProjectLocalUnsigned(t *testing.T) {
+	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
+	resolved, err := cfg.GetProfileLoader().ResolveProfile("dir", nil)
+	require.NoError(t, err)
+
+	read := profileGateRefFor(cfg, resolved, "dir").Read
+	assert.True(t, read.Claimed())
+	assert.Equal(t, bundles.ProvenanceProject, read.Provenance)
+	assert.Equal(t, bundles.TrustCtxLocal, read.TrustCtx())
+	assert.Equal(t, bundles.SignatureNone, read.Signature())
+	assert.Equal(t, bundles.SignerNone, read.Signer())
+}

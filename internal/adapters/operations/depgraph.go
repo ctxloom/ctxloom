@@ -356,13 +356,20 @@ func (w *depWalker) recurseParent(parentRef string) {
 		return
 	}
 	if ref.IsLocal {
-		if child, lerr := w.loader.Load(ref.Path); lerr == nil {
+		// A local BUNDLE profile parent loads by its whole ref: the parsed
+		// Path is the bundle part alone, and loading that names a different
+		// profile — the bundle's name read as a profile name.
+		name := ref.Path
+		if _, _, ok := remote.SplitBundleProfileRef(parentRef); ok {
+			name = parentRef
+		}
+		if child, lerr := w.loader.Load(name); lerr == nil {
 			w.walkProfile(child, remote.LocalSource, "")
 		} else {
 			// An unreadable LOCAL parent profile is the same
 			// "subtree missing from pins" hazard as an unreadable remote one
 			// (lines below) — it was silently skipped instead of recorded.
-			w.markUnexpanded(ref.Path, lerr)
+			w.markUnexpanded(name, lerr)
 		}
 		return
 	}

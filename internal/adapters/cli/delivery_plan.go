@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -63,7 +64,7 @@ const engineHomeLabel = "engine-home"
 // home, that selection. Empty for a launch that stays in its session.
 func unsafeLabels(l launch.Launch) []string {
 	out := unsafeRouteLabels(l.Plan)
-	if l.Cell.HomeMode == launch.HomeModeHost {
+	if l.Cell.HomeMode == agents.HomeModeHost {
 		out = append(out, fmt.Sprintf("%s → %s", engineHomeLabel, l.Cell.HomeMode))
 	}
 	return out
@@ -78,8 +79,8 @@ type engineHomeJSON struct {
 }
 
 // engineHomeRoute is the engine-home selection as the dry-run reports it.
-func engineHomeRoute(mode launch.HomeMode) engineHomeJSON {
-	return engineHomeJSON{Mode: string(mode), Unsafe: mode == launch.HomeModeHost}
+func engineHomeRoute(mode agents.HomeMode) engineHomeJSON {
+	return engineHomeJSON{Mode: string(mode), Unsafe: mode == agents.HomeModeHost}
 }
 
 // printEngineHome renders the engine-home selection as the dry-run's text

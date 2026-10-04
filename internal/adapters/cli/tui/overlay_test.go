@@ -80,6 +80,7 @@ func waitForOverlay(t *testing.T, what string, cond func() bool) {
 // altscreen will be automatically exited when the program quits").
 func TestOverlay_RunEngageKeystrokeAltScreenQuitRestores(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "perky-same-chevy", State: "live"})
+	f.rosterGate = make(chan struct{})
 	o := NewOverlay(context.Background(), f.sources(), 0x1d, termui.OverlayStart{})
 
 	pr, pw := io.Pipe()
@@ -90,17 +91,28 @@ func TestOverlay_RunEngageKeystrokeAltScreenQuitRestores(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- o.Run(pr, &tty, geo) }()
 
-	// Engage: the real Program's Init() fetches the roster for real and
-	// paints it — proving Run wires a live Model, not a stub. (The
-	// "loading agents…" transient status is real, from NewModel's initial
-	// field, but not asserted here: this fake's roster resolves near-
-	// instantly, so waiting for the transient would race the very fetch
-	// that clears it — an inherently non-deterministic assertion, dropped
-	// rather than forced.)
+	// Engage, in a FORCED order: the roster is held until the Program's first
+	// frame is on the tty, so that frame deterministically carries the
+	// "loading agents…" status and the hint line, and the roster always
+	// arrives into a diffed repaint rather than whichever order the
+	// scheduler picks. The repaint still writes the harp whole — its cells
+	// were blank in the first frame, so no cell of it is unchanged — which is
+	// what makes a tty literal a valid assertion here; a literal repainted
+	// over different content is not (TestOverlay_RunKeystrokeNavigatesRoster
+	// asserts through the Watch seam for that reason).
+	waitForOverlay(t, "first frame painted", func() bool {
+		out := tty.String()
+		return strings.Contains(out, "j/k move") && strings.Contains(out, statusLoading)
+	})
+	close(f.rosterGate)
+	// The roster resolved inside the real Program: its first row's feed is
+	// auto-opened, and the row is painted.
+	waitForOverlay(t, "first feed auto-opened", func() bool {
+		return slices.Contains(f.watchedHarps(), "perky-same-chevy")
+	})
 	waitForOverlay(t, "roster row painted", func() bool {
 		return strings.Contains(tty.String(), "perky-same-chevy")
 	})
-	assert.Contains(t, tty.String(), "j/k move", "the real View() hint line renders through the Program")
 
 	// Keystroke round trip: 'f' is the first key this Model sees, so it is
 	// the presentation chord (prefix-then-f = full screen), not a roster

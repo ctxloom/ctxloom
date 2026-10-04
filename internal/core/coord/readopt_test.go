@@ -51,7 +51,8 @@ func newTestCoordinatorOver(t *testing.T, stateDir string, sp Spawner) *Coordina
 // runner when its Hello names the run: the run is live again (not orphaned),
 // mail reaches the SAME runner, and the run's cell ownership — the
 // credential replicator the dead process held — is re-acquired through the
-// spawner so the run's end can release it.
+// spawner so the run's end can release it. The grace window closing after
+// that re-Hello leaves the run alone.
 func TestReadopt_ARestartedCoordinatorReadoptsALiveRunner(t *testing.T) {
 	resetStrictness(t)
 	stateDir := t.TempDir()
@@ -75,6 +76,12 @@ func TestReadopt_ARestartedCoordinatorReadoptsALiveRunner(t *testing.T) {
 	require.Eventually(t, func() bool { return second.runnerConnected(out.RunID) }, conformanceWait, 10*time.Millisecond,
 		"the live runner must re-Hello the restarted coordinator")
 	assert.NotEqual(t, StateEnded, rosterState(second, out.Harp), "a run whose runner re-Hello'd is re-adopted, not orphaned")
+	assert.Equal(t, "", runCause(second, out.RunID))
+
+	// The grace window still closes after the re-Hello; closing it must not
+	// end a run whose runner came back.
+	second.expireRunnerGrace()
+	assert.NotEqual(t, StateEnded, rosterState(second, out.Harp), "an expired grace spares a run whose runner re-Hello'd")
 	assert.Equal(t, "", runCause(second, out.RunID))
 
 	// Mail reaches the SAME runner: no new spawn, the same run id.

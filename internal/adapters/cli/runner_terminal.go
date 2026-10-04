@@ -39,7 +39,7 @@ func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 	}
 	req := &agent.ExecuteRequest{
 		Prompt:    prompt,
-		WorkDir:   turn.Launch.Cell.Workspace,
+		WorkDir:   turn.Launch.Cell.Paths.Paths().ProjectRoot.Engine,
 		Mode:      agent.ModeInteractive,
 		Model:     turn.Launch.Label.Model,
 		Env:       turn.Launch.EngineEnv(),

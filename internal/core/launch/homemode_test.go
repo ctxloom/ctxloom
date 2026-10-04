@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
@@ -22,26 +23,26 @@ func TestResolve_EngineHome_SessionByDefault_HostOnlyBySelection(t *testing.T) {
 	cases := []struct {
 		name string
 		src  func(env launchtest.Env) launch.Source
-		want launch.HomeMode
+		want agents.HomeMode
 	}{
 		{"a binding that declares nothing", func(env launchtest.Env) launch.Source {
 			return launch.Source{Identity: env.Identity, Agent: "silent", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project}
-		}, launch.HomeModeSession},
+		}, agents.HomeModeSession},
 		{"a binding restating session", func(env launchtest.Env) launch.Source {
 			return launch.Source{Identity: env.Identity, Agent: "session", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project}
-		}, launch.HomeModeSession},
+		}, agents.HomeModeSession},
 		{"a binding selecting the host home", func(env launchtest.Env) launch.Source {
 			return launch.Source{Identity: env.Identity, Agent: "host", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project}
-		}, launch.HomeModeHost},
+		}, agents.HomeModeHost},
 		{"an unparseable spelling under --degraded", func(env launchtest.Env) launch.Source {
 			return launch.Source{Identity: env.Identity, Agent: "typo", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: true}
-		}, launch.HomeModeSession},
+		}, agents.HomeModeSession},
 		{"a launch with no binding (a profile set)", func(env launchtest.Env) launch.Source {
 			return launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project}
-		}, launch.HomeModeSession},
+		}, agents.HomeModeSession},
 		{"an internal one-shot", func(env launchtest.Env) launch.Source {
 			return launch.Source{Identity: env.Identity, Internal: true, Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project}
-		}, launch.HomeModeSession},
+		}, agents.HomeModeSession},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -634,7 +634,7 @@ test-integration-run PATTERN: build _ensure-gotmpdir
 # The report exists specifically so a run tells you what it covered even when
 # it passes; that only works if it is actually visible.
 # -timeout 30m is HEADROOM FOR MACHINE LOAD, not evidence the suite is slow.
-# Measured on one box, same 515 scenarios, same commit:
+# Measured on one box, same scenarios, same commit:
 #     IDLE            179s   (0.35 s/scenario)
 #     load avg 12-16  1200s  (2.33 s/scenario)   — 6.7x penalty
 # So the suite fits inside go test's 600s DEFAULT with room to spare when the
@@ -1100,7 +1100,7 @@ plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
 # path whose entire purpose IS the tagged suite, alongside the build case
 # below that already special-cases it. It demands the tag AND a -run filter:
 # the tag because otherwise the suite is invisible, and -run because a tagged
-# unfiltered run drives all 515 scenarios (179s idle, 1200s under load) and
+# unfiltered run drives every scenario (179s idle, 1200s under load) and
 # this recipe is the narrow iteration loop, not `just test-acceptance`.
 # It refuses BEFORE the build below, so a wrong invocation no longer pays
 # ~13s to still run no scenarios.
@@ -1279,16 +1279,24 @@ secrets-scan-staged:
 
 # Install gremlins
 test-mutation-install:
-    go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a
+    . .devcontainer/tool-versions.env
+    set +a
+    go install github.com/go-gremlins/gremlins/cmd/gremlins@v${GREMLINS_VERSION}
 
 # Run mutation tests in container
 # The container path carries the same TMPDIR hazard as the host recipes: gremlins
 # copies the module per worker, so its scratch space must be a bind-mounted disk
 # dir, never the container's default (which is backed by the host's /tmp). The
-# image tag is pinned to the same gremlins version test-mutation-install builds,
-# so a container run and a host run mutate identically.
+# image tag reads the same GREMLINS_VERSION test-mutation-install builds, so a
+# container run and a host run mutate identically.
 test-mutation-container: _mutation-prereqs
     #!/usr/bin/env bash
+    set -a
+    . .devcontainer/tool-versions.env
+    set +a
     # See _run for why --user is skipped under rootless docker.
     user_flag=(--user "$(id -u):$(id -g)")
     if docker info 2>/dev/null | grep -q "rootless"; then
@@ -1301,7 +1309,7 @@ test-mutation-container: _mutation-prereqs
             -v "{{TOP}}:/app" \
             -v "$TMPDIR:/mutation-tmp" \
             -e TMPDIR=/mutation-tmp \
-            -w /app gogremlins/gremlins:v0.6.0 gremlins unleash
+            -w /app "gogremlins/gremlins:v${GREMLINS_VERSION}" gremlins unleash
     ' _ "${user_flag[@]}"
 
 # Mutate one source file per target and drive the CUCUMBER acceptance suite

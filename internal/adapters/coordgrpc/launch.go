@@ -327,7 +327,6 @@ func decodeMode(m pb.Mode) engine.Mode {
 func encodeCell(c launch.Cell) *pb.Cell {
 	out := &pb.Cell{
 		Paths:       encodePaths(c.Paths.Paths()),
-		Workspace:   c.Workspace,
 		Env:         c.Env,
 		Home:        encodeHome(c.Home),
 		UnsetEnv:    c.Unset,
@@ -349,7 +348,6 @@ func decodeCell(w *pb.Cell) launch.Cell {
 			SecretFiles: w.GetSecretFiles(),
 			EnvHost:     agents.EnvHost{Curated: w.GetEnvHost().GetCurated(), Env: w.GetEnvHost().GetEnv()},
 		},
-		Workspace: w.GetWorkspace(),
 	}
 }
 

@@ -46,8 +46,9 @@ func (u profileRefCanonicalizeUpgrade) Apply(root *yaml.Node) (changed bool) {
 	return changed
 }
 
-// configKind versions every config.yaml layer. LegacyKey: config files
-// declared their generation as `version` before schemaver existed.
+// configKind versions every config.yaml layer. LegacyKey: `version` is an
+// older spelling of the same generation number, so a file carrying it reads
+// exactly as one carrying schema_version.
 var configKind = schemaver.Kind{
 	Name:      "ctxloom config",
 	LegacyKey: "version",

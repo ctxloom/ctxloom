@@ -1,8 +1,8 @@
-# CLI-side shared helpers — `clidiag`, `cliemit`, `cliversion`, `companionloadout`, `plans`, `upgrade`
+# CLI-side shared helpers — `clidiag`, `cliemit`, `cliversion`, companion `loadout`, `plans`, `upgrade`
 
-Six independent leaf packages under `internal/shared/` that the three CLI binaries (`ctxloom` via `internal/adapters/cli`, `cmd/taskloom`, `cmd/ltk` — plus `cmd/harp`, which opts out) share so a cross-binary convention is declared once instead of per binary. They own, respectively: the process-wide stderr **warning channel** (`clidiag`), the `--format` **success-output routing** (`cliemit`), the `version --format json` **wire shape** (`cliversion`), the companion `loadout` **subcommand and envelope** (`companionloadout`), the `*.plan.md` **reader** (`plans`), and the in-memory YAML **schema-upgrade primitive** (`upgrade`).
+Packages that the family's CLI binaries share so a cross-binary convention is declared once instead of per binary. They own, respectively: the process-wide stderr **warning channel** (`clidiag`), the `--format` **output routing** for success and failure (`cliemit`), the `version --format json` **wire shape and its probe** (`cliversion`), the companion `loadout` **subcommand and envelope** (`internal/adapters/companions/loadout`), the `*.plan.md` **reader** (`plans`), and the in-memory YAML **schema-upgrade primitive** (`upgrade`).
 
-They do not depend on each other. The only shared substrate is `pkg/clifmt` (three of them) and `cobra` (two of them); `upgrade` and `plans` touch neither.
+They are not a closed set of leaves: `cliemit` builds `cliversion.Info` for every version command, `plans` warns through `clidiag` and reads the session index, and `upgrade` leans on `yamlx` for its node helpers. Import edges are enforced by the architecture rules (`internal/shared/archrules`), not by this page; the diagram shows roles, and `git grep` on an import path gives the current importers.
 
 ```mermaid
 flowchart TD
@@ -13,43 +13,48 @@ flowchart TD
     HARP["cmd/harp"]
   end
 
-  subgraph helpers["internal/shared/* — independent leaves"]
-    CD["clidiag<br/>warning channel<br/>351 call sites"]
-    CE["cliemit<br/>--format routing<br/>Emit / Resolve"]
-    CV["cliversion<br/>Info{Name,Version}"]
-    CL["companionloadout<br/>loadout subcommand"]
+  subgraph helpers["shared helpers"]
+    CD["clidiag<br/>warning channel"]
+    CE["cliemit<br/>--format routing<br/>Emit / EmitError / EmitVersion / Resolve"]
+    CV["cliversion<br/>Info, Probe"]
+    CL["companions/loadout<br/>loadout subcommand"]
     PL["plans<br/>*.plan.md reader"]
     UP["upgrade<br/>Pipeline / Pending"]
   end
 
-  CFMT["pkg/clifmt<br/>Format, Render, EncodeWarning"]
+  CFMT["pkg/clifmt<br/>Format, Render, RenderError, EncodeWarning"]
   SIGN["internal/adapters/signing<br/>EncodeLoadoutEnvelope"]
-  YAML["gopkg.in/yaml.v3"]
+  YAMLX["internal/shared/yamlx<br/>MapValue, MapSet, ScalarNode"]
+  SESS["internal/core/sessions<br/>session index, OutputDir"]
 
-  CLI --> CD & CE & CV & PL
-  TL --> CD & CE & CV & CL & PL
-  LTK --> CE & CV & CL
+  CLI & TL --> CD
+  CLI & TL & LTK & HARP --> CE
   HARP --> CV
-  HARP -.->|"own resolveFormat copy,<br/>does NOT import cliemit"| CFMT
+  CLI & TL & LTK --> CL
+  TL --> PL
 
   CD --> CFMT
   CE --> CFMT
+  CE --> CV
   CL --> SIGN
-  UP --> YAML
+  PL --> CD
+  PL --> SESS
+  UP --> YAMLX
 
-  STR["internal/shared/strictness<br/>Fail → clidiag.Warn"] --> CD
-  CONF["internal/shared/confload<br/>case-4 unknown key"] --> CD
+  STR["internal/shared/strictness<br/>findings → clidiag.WarnRemedy"] --> CD
+  CONF["internal/shared/confload<br/>unknown / empty config keys"] --> CD
 
-  CFG["internal/core/config · sessions · bundles · profiles"] -->|"Pipeline.Run at load"| UP
-  CLI -->|"Pending → prompt → commit"| UP
-  PROBE["internal/core/config/companions.go<br/>execs '&lt;bin&gt; version --format json'<br/>and '&lt;bin&gt; loadout --format json'"]
-  CV -.->|"stdout, ad-hoc decoded"| PROBE
-  CL -.->|"stdout, signed envelope"| PROBE
+  LOAD["configload · bundles · profiles · schemaver"] -->|"Pipeline.Run at load"| UP
+  PROBE["internal/adapters/companions<br/>execs '&lt;bin&gt; version --format json'<br/>and '&lt;bin&gt; loadout --format json'"]
+  PROBE -->|"cliversion.Probe"| CV
+  PROBE -->|"loadout.Subcommand / FormatFlag / FormatJSON"| CL
+  ISO["internal/adapters/isolation<br/>companionVersionKey"] -->|"cliversion.Probe"| CV
+  READERS["memory · runner/interaction · transcript"] -->|"SessionPlanPaths"| PL
 ```
 
 ## `internal/shared/clidiag` — the warning channel
 
-The family's process-wide stderr **warning** channel. It owns the two wire shapes a non-fatal diagnostic can take (`"<prog>: warning: <msg>"` and a `clifmt.WarningEnvelope` JSON-Lines object), the global switch between them, the global redirect of the default destination, and a global per-message dedup set. Highest fan-in package in the module: 123 files across 29 internal packages, 351 call sites (`Warn` ×325, `WarnOnce` ×12, `Fwarn` ×14). Its only dependency is `pkg/clifmt`. Every path funnels into `fwarn`, the single place the wire-shape branch lives.
+The family's process-wide stderr **warning** channel. It owns the two wire shapes a non-fatal diagnostic can take (`"<prog>: warning: <msg>"` and a `clifmt.WarningEnvelope` JSON-Lines object), the global switch between them, the global redirect of the default destination, and a global per-message dedup set. Its only dependency is `pkg/clifmt`. Every path funnels into `fwarn`, the single place the wire-shape branch lives.
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -152,7 +157,7 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 - The dedup key is the fully-rendered line and **does not include the destination writer**. A message already emitted to a previous sink is permanently suppressed on every later sink — including a per-session diagnostics file installed by `internal/adapters/cli/run_terminal_ui.go:182`, which the user is explicitly pointed at.
 - `onceSeen` has no reset and no cap. Several `WarnOnce` sites embed a varying `%v` error inside reconnect loops (`internal/core/coord/home.go:232,265,354`; `runnerlink.go:227`), so entries multiply in exactly the long-lived processes the package doc names.
 - Write errors are discarded on both paths, deliberately: warnings never block. The named out-of-band observer is `errwriter.Writer`.
-- `prog` is a per-binary constant passed positionally at every site: 327 of 351 call sites pass the literal `"ctxloom"`, 4 `"taskloom"`, 3 `"ctxloom hook inject-context"`.
+- `prog` is passed positionally at every call site. Most pass their binary's literal name; a shared package that runs under more than one binary derives it from the running executable instead (`plans.diagProg`), so a warning never names a program the user did not run.
 - Layering rule: `clidiag` is the family-wide convention (hence the `prog` parameter); ctxloom-specific concepts such as findings belong **above** it in `internal/shared/strictness`, never inside it.
 
 ### cliemit

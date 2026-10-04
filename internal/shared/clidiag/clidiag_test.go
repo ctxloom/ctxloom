@@ -209,7 +209,7 @@ func TestLine_MatchesFwarnForAProgContainingAPercent(t *testing.T) {
 // ErrInvalid (*os.File), and fwarn discards the write error — the diagnostic is
 // gone with no trace, this project's signature failure shape. A typed nil must
 // be treated exactly like an untyped one: fall back to the default sink.
-// (warnSink's identity is asserted rather than driving a real Warn,
+// (currentSink's identity is asserted rather than driving a real Warn,
 // which would print onto the suite's own stderr.)
 func TestSetSink_TypedNilFallsBackToTheDefault(t *testing.T) {
 	var file *os.File
@@ -223,7 +223,7 @@ func TestSetSink_TypedNilFallsBackToTheDefault(t *testing.T) {
 		"untyped nil":   nil,
 	} {
 		restore := SetSink(w)
-		assert.Same(t, os.Stderr, warnSink(), "a %s nil writer must not be installed as the sink", name)
+		assert.Same(t, os.Stderr, currentSink(), "a %s nil writer must not be installed as the sink", name)
 		restore()
 	}
 }
@@ -252,7 +252,7 @@ func TestSetSink_OutOfOrderRestoreLeavesTheLiveRedirectAlone(t *testing.T) {
 
 	// The fixture must actually be overlapping-and-out-of-order from SetSink's
 	// point of view before anything is asserted: `late` owns the channel now.
-	require.Same(t, &late, warnSink(), "the later redirect must own the channel before the out-of-order restore")
+	require.Same(t, &late, currentSink(), "the later redirect must own the channel before the out-of-order restore")
 
 	restoreEarly() // the EARLIER owner finishes first
 
@@ -262,7 +262,7 @@ func TestSetSink_OutOfOrderRestoreLeavesTheLiveRedirectAlone(t *testing.T) {
 	assert.Empty(t, early.String(), "the restored redirect must receive nothing more")
 
 	restoreLate()
-	assert.Same(t, os.Stderr, warnSink(),
+	assert.Same(t, os.Stderr, currentSink(),
 		"once every redirect is restored the default is back — never a resurrected earlier sink")
 }
 
@@ -383,4 +383,12 @@ func TestProg_IsNotAPerBinaryConstant(t *testing.T) {
 	}
 	assert.Equal(t, len(progs), strings.Count(b.String(), "same condition 7"),
 		"collapsing prog into a constant would silence every binary but the first")
+}
+
+// currentSink reads the active sink under sinkMu, for identity assertions that
+// must not drive a real write to os.Stderr.
+func currentSink() io.Writer {
+	sinkMu.Lock()
+	defer sinkMu.Unlock()
+	return activeSink()
 }

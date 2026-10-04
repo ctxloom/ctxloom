@@ -83,8 +83,8 @@ func fwarn(w io.Writer, prog, msg, remedy string) {
 // can remove exactly the one it installed.
 type sinkEntry struct{ w io.Writer }
 
-// sink caches the ACTIVE redirect (the top of sinkStack) for lock-free reads on
-// the warn path; nil means no redirect is installed, i.e. os.Stderr.
+// sinkStack holds every redirect that has NOT yet been restored; its top is the
+// active sink, and an empty stack means os.Stderr.
 //
 // The redirect machinery exists because os.Stderr is NOT always a safe place to
 // write: under `ctxloom run` stderr IS the terminal the harness paints its TUI
@@ -92,14 +92,26 @@ type sinkEntry struct{ w io.Writer }
 // "run channel down (reconnecting)" landed straight on the TUI. A session that
 // owns the terminal redirects the sink for its lifetime instead.
 //
-// sinkStack holds every redirect that has NOT yet been restored. It exists
-// because restores are not guaranteed to arrive in LIFO order: an owner that
-// finishes early must not take the channel away from an owner that is still
-// painting, and a later restore must not resurrect a sink whose owner has
-// already closed it. The stack is mutated only by SetSink/restore (rare); the
-// hot read path never touches the mutex.
+// It is a stack because restores are not guaranteed to arrive in LIFO order: an
+// owner that finishes early must not take the channel away from an owner that
+// is still painting, and a later restore must not resurrect a sink whose owner
+// has already closed it.
+//
+// sinkMu guards the stack AND every write to the active sink (see warnToSink).
+// Resolving the sink and writing to it happen under one hold, so:
+//   - concurrent warnings never race or interleave, whatever writer is
+//     installed — the writer need not be safe for concurrent use. Tests
+//     install a plain bytes.Buffer, and goroutines a test started (or an
+//     earlier test left running) warn into it concurrently;
+//   - once SetSink's restore returns, no write to the restored writer is in
+//     flight or can start, so its owner may read or close it without racing.
+//
+// The cost is that a slow sink write delays every other sink warning and every
+// SetSink/restore; warnings are rare, and the only writer that must stay fast
+// is the one already chosen to keep stderr clean. No code may warn through
+// clidiag while holding sinkMu — fwarn reaches only the writer and clifmt,
+// neither of which calls back into clidiag — or it deadlocks.
 var (
-	sink      atomic.Pointer[sinkEntry]
 	sinkMu    sync.Mutex
 	sinkStack []*sinkEntry
 )
@@ -111,7 +123,9 @@ var (
 // Restore removes only THIS redirect and hands the channel to whichever redirect
 // is still active, so overlapping redirects unwound in any order are safe: an
 // early restore cannot steal a live redirect, and a late one cannot resurrect a
-// finished one. It is idempotent — calling it twice pops nothing further.
+// finished one. It is idempotent — calling it twice pops nothing further. It
+// returns only after any warning already writing to w has finished, and no
+// later warning reaches w.
 //
 // Only Warn/WarnOnce move; the explicit Fwarn/FwarnOnce writers are
 // untouched, because a caller that named its own writer already chose.
@@ -123,29 +137,22 @@ func SetSink(w io.Writer) (restore func()) {
 
 	sinkMu.Lock()
 	sinkStack = append(sinkStack, e)
-	sink.Store(e)
 	sinkMu.Unlock()
 
 	var once sync.Once
 	return func() { once.Do(func() { popSink(e) }) }
 }
 
-// popSink removes e from the redirect stack (wherever it sits) and republishes
-// whichever redirect is now on top — nil, meaning os.Stderr, when none is left.
+// popSink removes e from the redirect stack, wherever it sits.
 func popSink(e *sinkEntry) {
 	sinkMu.Lock()
 	defer sinkMu.Unlock()
 	for i := len(sinkStack) - 1; i >= 0; i-- {
 		if sinkStack[i] == e {
 			sinkStack = append(sinkStack[:i], sinkStack[i+1:]...)
-			break
+			return
 		}
 	}
-	if n := len(sinkStack); n > 0 {
-		sink.Store(sinkStack[n-1])
-		return
-	}
-	sink.Store(nil)
 }
 
 // isNilWriter reports whether w carries no usable writer — an untyped nil, or a
@@ -167,26 +174,34 @@ func isNilWriter(w io.Writer) bool {
 	}
 }
 
-// warnSink resolves the current destination for the stderr-flavored helpers: the
-// active redirect, or os.Stderr when none is installed (or when the active
-// redirect is an explicit redirect back to the default).
-func warnSink() io.Writer {
-	if e := sink.Load(); e != nil && e.w != nil {
-		return e.w
+// activeSink resolves the current destination: the top redirect, or os.Stderr
+// when none is installed or the top is an explicit redirect back to the
+// default. The caller holds sinkMu.
+func activeSink() io.Writer {
+	if n := len(sinkStack); n > 0 && sinkStack[n-1].w != nil {
+		return sinkStack[n-1].w
 	}
 	return os.Stderr
+}
+
+// warnToSink writes msg to the active sink, holding sinkMu across both the
+// resolution and the write (see sinkStack for why).
+func warnToSink(prog, msg, remedy string) {
+	sinkMu.Lock()
+	defer sinkMu.Unlock()
+	fwarn(activeSink(), prog, msg, remedy)
 }
 
 // Warn prints a "<prog>: warning: <msg>" line to the current sink (stderr by
 // default — see SetSink).
 func Warn(prog, format string, args ...any) {
-	Fwarn(warnSink(), prog, format, args...)
+	warnToSink(prog, fmt.Sprintf(format, args...), "")
 }
 
 // WarnRemedy is Warn for a warning that names its fix: the text line is
 // followed by clifmt.FixLine, and the structured envelope carries Remedy.
 func WarnRemedy(prog, remedy, format string, args ...any) {
-	fwarn(warnSink(), prog, fmt.Sprintf(format, args...), remedy)
+	warnToSink(prog, fmt.Sprintf(format, args...), remedy)
 }
 
 // WarnErrors is the shared seam for turning a partial-failure result (a
@@ -235,13 +250,14 @@ var (
 // re-hitting the same unresolvable parent — collapse to a single line
 // instead of spamming startup. Best-effort like Fwarn.
 func FwarnOnce(w io.Writer, prog, format string, args ...any) {
-	fwarnOnce(w, prog, "", format, args...)
+	warnOnce(func(prog, msg, remedy string) { fwarn(w, prog, msg, remedy) }, prog, "", format, args...)
 }
 
-// fwarnOnce is FwarnOnce carrying a remedy. The dedup key is the message
-// line alone: one fault is one warning, whichever fix it names.
-func fwarnOnce(w io.Writer, prog, remedy, format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
+// warnOnce hands the message to emit unless an identical line was already
+// emitted. The dedup key is the message line alone: one fault is one warning,
+// whichever fix it names. emit runs under onceMu, so lock order is onceMu then
+// sinkMu (when emit is warnToSink); nothing takes them in the other order.
+func warnOnce(emit func(prog, msg, remedy string), prog, remedy, format string, args ...any) {
 	key := Line(prog, format, args...)
 	onceMu.Lock()
 	defer onceMu.Unlock()
@@ -249,19 +265,19 @@ func fwarnOnce(w io.Writer, prog, remedy, format string, args ...any) {
 		return
 	}
 	onceSeen[key] = struct{}{}
-	fwarn(w, prog, msg, remedy)
+	emit(prog, fmt.Sprintf(format, args...), remedy)
 }
 
 // WarnOnce prints a "<prog>: warning: <msg>" line to the current sink (stderr
 // by default — see SetSink) at most once per process for identical formatted
 // content.
 func WarnOnce(prog, format string, args ...any) {
-	FwarnOnce(warnSink(), prog, format, args...)
+	warnOnce(warnToSink, prog, "", format, args...)
 }
 
 // WarnRemedyOnce is WarnOnce carrying a remedy (see WarnRemedy).
 func WarnRemedyOnce(prog, remedy, format string, args ...any) {
-	fwarnOnce(warnSink(), prog, remedy, format, args...)
+	warnOnce(warnToSink, prog, remedy, format, args...)
 }
 
 // ResetWarnOnce clears onceSeen, WarnOnce/FwarnOnce's process-wide dedup

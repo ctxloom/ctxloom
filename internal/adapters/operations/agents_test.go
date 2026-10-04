@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -175,11 +176,11 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 }
 
 // TestResolveAgent_HomeMode proves the resolve-time treatment of
-// ResolvedAgent.HomeMode: undeclared and unresolvable both warn-and-default
-// to agents.HomeModeSession (never fatal — a hand-edited config.yaml must
-// not block a launch over this, and never onto the real home, which only an
-// explicit "host" selects), a declared "session" or "host" round-trips
-// unchanged, and the field is NEVER empty once an agent resolved at all —
+// ResolvedAgent.HomeMode: undeclared defaults to agents.HomeModeSession
+// (never the real home, which only an explicit "host" selects), a declared
+// "session" or "host" round-trips unchanged (an unparseable one refuses —
+// TestResolveAgent_UnknownEngineHomeIsRefused), and the field is NEVER empty
+// once an agent resolved at all —
 // that emptiness is reserved for "no agent binding was resolved", a state
 // this function (which always resolves SOME binding) can never produce.
 func TestResolveAgent_HomeMode(t *testing.T) {
@@ -189,18 +190,16 @@ func TestResolveAgent_HomeMode(t *testing.T) {
 		"undeclared": {LLM: "fast", Profiles: []string{"p1"}},
 		"session":    {LLM: "fast", Profiles: []string{"p1"}, HomeMode: "session"},
 		"host":       {LLM: "fast", Profiles: []string{"p1"}, HomeMode: "host"},
-		"typo":       {LLM: "fast", Profiles: []string{"p1"}, HomeMode: "sessionn"},
 	})
 	cases := map[string]agents.HomeMode{
 		"undeclared": agents.HomeModeSession, // MUTATION TARGET m1's unit-layer twin
 		"session":    agents.HomeModeSession,
 		"host":       agents.HomeModeHost,
-		"typo":       agents.HomeModeSession, // warn+default, never fatal, never the real home
 	}
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {
 			res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, name, "")
-			require.NoError(t, err, "an unresolvable engine_home must warn, not fail the resolve")
+			require.NoError(t, err)
 			assert.Equal(t, want, res.HomeMode)
 		})
 	}
@@ -335,6 +334,28 @@ func TestResolveAgent_Driving(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "bogus")
 	})
+}
+
+// TestResolveAgent_UnknownEngineHomeIsRefused: a hand-edited engine_home
+// that does not parse REFUSES the resolve — the same treatment a typo'd
+// driving or runtime gets here, and the one launch.Resolve gives it without
+// --degraded. Resolving is not launching, so there is no --degraded to honour
+// on this path; `agent show` prints the definition beside the error and
+// doctor reports it.
+func TestResolveAgent_UnknownEngineHomeIsRefused(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	const typo = "hostt"
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"dev": {LLM: "slow", Profiles: []string{"p1"}, HomeMode: typo},
+	})
+	_, parseErr := agents.ParseHomeMode(typo)
+	require.Error(t, parseErr, "fixture: the spelling must not parse")
+
+	res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "dev", "")
+	require.Error(t, err, "an unparseable engine_home must be refused, not warned past")
+	assert.Nil(t, res)
+	require.EqualError(t, errors.Unwrap(err), parseErr.Error(), "the refusal is the parser's own, naming the value and the known ones")
 }
 
 // TestResolveAgent_NotFound is the unknown-name error path.

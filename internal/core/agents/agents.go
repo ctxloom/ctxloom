@@ -161,12 +161,11 @@ type Agent struct {
 	//
 	// This is the DECLARED value as written — a raw string, because a
 	// hand-edited config.yaml can hold anything. ParseHomeMode turns it
-	// into the EFFECTIVE HomeMode: validated against HomeModeNames when
-	// WRITTEN (operations.SetAgent, same treatment as Surfaces — an unknown
-	// value is refused, naming the two valid ones); a value that fails that
-	// same check at RESOLVE time warns and falls back to HomeModeSession
-	// rather than blocking the launch — never onto the real home, which a
-	// typo must not select.
+	// into the EFFECTIVE HomeMode and refuses an unknown value, naming the
+	// two valid ones — when WRITTEN (operations.SetAgent) and when RESOLVED
+	// (operations.resolveAgentBinding, launch.Resolve) alike. Only a
+	// --degraded launch proceeds past it, on HomeModeSession — never onto
+	// the real home, which a typo must not select.
 	HomeMode string `yaml:"engine_home,omitempty"`
 	// EnvHost is whether this agent's engine inherits the launching
 	// environment whole on the HOST runtime (podman's --env-host). Absent is
@@ -208,19 +207,17 @@ func HomeModeNames() []string {
 
 // ParseHomeMode validates and normalizes a binding's DECLARED
 // Agent.HomeMode into its always-non-empty EFFECTIVE value: the declared
-// value when it is one of HomeModeNames, else HomeModeSession — undeclared
-// (empty) and unrecognized both default to the controlled session home, so
-// the real home is reached only by an explicit "host".
+// value when it is one of HomeModeNames, HomeModeSession when undeclared
+// (empty), so the real home is reached only by an explicit "host". An
+// unrecognized value is an error, returned WITH HomeModeSession: the value a
+// --degraded launch (launch.Resolve) proceeds on.
 //
-// One function for both edges, deliberately — the SAME shape ValidateDriving
-// has for the same reason. The agent WRITE path (operations.SetAgent) calls
-// it so a typo is refused by the command that set it and nothing is
-// persisted; the RESOLVE path (operations.resolveAgentBinding) calls it so a
-// hand-edited config.yaml degrades to the safe default (session) with a
-// warning rather than blocking the launch — unlike the write path, an
-// unresolvable value here is not fatal, because by the time a run reaches
-// this call the binding already exists and refusing to launch over it would
-// be a regression, not a safety net.
+// One function for every edge, deliberately — the SAME shape ValidateDriving
+// has for the same reason — and one behaviour: the error REFUSES. The WRITE
+// path (operations.SetAgent) refuses it so nothing is persisted; the RESOLVE
+// paths (operations.resolveAgentBinding, launch.Resolve) refuse a hand-edited
+// config.yaml the write path never saw, and launch.Resolve alone proceeds
+// past it under --degraded.
 func ParseHomeMode(declared string) (HomeMode, error) {
 	switch HomeMode(declared) {
 	case "":

@@ -106,7 +106,7 @@ flowchart TD
 | `CoversBytes(payload, armoredSig, ns) error` | Trust-free "does this blob cover exactly these bytes". The stale-signature detector. |
 | `EncodeLoadoutEnvelope(loadoutBytes, armoredSig, signer) ([]byte, error)` | Builds the companion JSON envelope; owns the contract string and the base64 discipline. Refuses an empty loadout. |
 | `ParseLoadoutEnvelope(raw) (loadoutBytes, armoredSig, advisorySigner, err)` | The structural half: JSON → exact contract match → base64 → non-empty, verifying nothing. Companion discovery uses this, because a companion's own stdout has no intermediary to tamper with it. |
-| `DecodeLoadoutEnvelope(raw, root, now) ([]byte, string, error)` | `ParseLoadoutEnvelope` then `VerifyPublisher`; withholds on any parse or tamper failure rather than degrading to "unsigned". |
+| `DecodeLoadoutEnvelope(raw, root, now) ([]byte, string, error)` | The verify-and-withhold composition: `ParseLoadoutEnvelope` then `VerifyPublisher`, withholding on any parse or tamper failure rather than degrading to "unsigned". No production caller — companion discovery parses only — but the emitters' loadout round-trip tests verify their output with it. |
 
 ## Invariants
 

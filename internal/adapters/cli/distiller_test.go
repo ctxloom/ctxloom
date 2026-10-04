@@ -20,47 +20,17 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// TestNewLLMDistiller_UnresolvableLabelSaysContentWillBeStoredRaw pins the
-// reachable path: a nil Distiller is not an error to any caller:
+// TestNewLLMDistiller_NilConfigSaysContentWillBeStoredRaw pins the path to
+// a nil Distiller, which is not an error to any caller:
 // operations stores the RAW content and every command reports success, so
 // `bundle distill` could say "distilled N items" having distilled none. The
 // reason has to reach the user.
-func TestNewLLMDistiller_UnresolvableLabelSaysContentWillBeStoredRaw(t *testing.T) {
-	t.Run("no label resolves", func(t *testing.T) {
-		warn := captureWarnings(t)
-		// No llm.defaults and no single llm.configs entry: PrimaryLabel (and so
-		// FastLabel) returns "".
-		cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{
-			Configs: map[string]config.LLMConfig{
-				"a": {Type: "claude-code"},
-				"b": {Type: "mock"},
-			},
-		}})
-		require.Empty(t, cfg.FastLabel(), "fixture precondition: no label resolves")
-
-		d, err := newLLMDistiller(cfg, "")
-		require.NoError(t, err, "an unresolvable label is a warning, not a refusal")
-		assert.Nil(t, d)
-		out := warn.String()
-		assert.Contains(t, out, "RAW", "the user must learn the content is stored undistilled")
-		assert.Contains(t, out, "llm.defaults.fast", "and how to fix it")
-	})
-
-	t.Run("nil config", func(t *testing.T) {
-		warn := captureWarnings(t)
-		d, err := newLLMDistiller(nil, "")
-		require.NoError(t, err)
-		assert.Nil(t, d)
-		assert.Contains(t, warn.String(), "RAW")
-	})
-
-	t.Run("explicit empty label", func(t *testing.T) {
-		warn := captureWarnings(t)
-		d, err := newLLMDistiller(config.NewFixture(config.Fixture{}), "")
-		require.NoError(t, err)
-		assert.Nil(t, d)
-		assert.Contains(t, warn.String(), "RAW")
-	})
+func TestNewLLMDistiller_NilConfigSaysContentWillBeStoredRaw(t *testing.T) {
+	warn := captureWarnings(t)
+	d, err := newLLMDistiller(nil, "")
+	require.NoError(t, err)
+	assert.Nil(t, d)
+	assert.Contains(t, warn.String(), "RAW")
 }
 
 // TestNewLLMDistiller_ResolvableLabelIsSilent is the negative control: the

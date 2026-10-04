@@ -198,23 +198,34 @@ func TestResolveRetraction_FailStale(t *testing.T) {
 	// no verdict to fall back to and nothing whose age could be reported. This
 	// is overwhelmingly the ordinary "this remote publishes no manifest" case
 	// (see CheckRetracted's doc), not evidence of an outage — so it resolves
-	// to Clean, silently, matching the long-standing default.
-	t.Run("no persisted entry at all falls back to clean, unwarned", func(t *testing.T) {
+	// to not-retracted, silently. It is stamped with the time that check RAN:
+	// a zero stamp would be persisted as indistinguishable from an entry
+	// written before check times were tracked, and every later run would then
+	// warn about a verdict of "unknown age" that is in fact a day old.
+	t.Run("no persisted entry resolves unretracted, stamped now, and the next run does not warn", func(t *testing.T) {
 		now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 		p := newPuller(t, now, nil)
-
-		fetcher := newMockFetcher()
 
 		var out bytes.Buffer
 		restore := clidiag.SetSink(&out)
 		defer restore()
 
-		retracted, reason, checkedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
+		retracted, reason, checkedAt, err := p.resolveRetraction(context.Background(), newMockFetcher(), "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
 		require.NoError(t, err)
 		assert.False(t, retracted)
 		assert.Empty(t, reason)
-		assert.True(t, checkedAt.IsZero())
+		assert.True(t, checkedAt.Equal(now), "the verdict is stamped with when the check ran, not left zero")
 		assert.Empty(t, out.String(), "nothing to fall back to must not be reported as a stale warning")
+
+		_, err = p.updateLockfile(localName, PullOptions{ItemType: ItemTypeBundle}, &Remote{URL: "https://github.com/trent/company"},
+			"abc123", "", "", "", retracted, reason, checkedAt, Verified{})
+		require.NoError(t, err)
+
+		p.now = func() time.Time { return now.Add(24 * time.Hour) }
+		_, _, again, err := p.resolveRetraction(context.Background(), newMockFetcher(), "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
+		require.NoError(t, err)
+		assert.True(t, again.Equal(now), "the second run falls back to the first run's stamp, not a fresh one")
+		assert.Empty(t, out.String(), "a day-old verdict from a no-manifest remote is not of unknown age")
 	})
 
 	// Attack (b), stripping: whoever controls the repository replaces the

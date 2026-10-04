@@ -310,25 +310,25 @@ func TestLockfileManager_Load_NilMaps(t *testing.T) {
 // handled separately and unaffected by this). Silently treating it as valid
 // means every remote bundle just vanishes from the session with no
 // diagnostic at all.
-func TestLockfileManager_Load_PresentButEmptyFileIsRefused(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", "", 0o644)
+//
+// It is refused as what it is — a lockfile holding no document — and not as a
+// retired key form: nothing in it is keyed at all, so "keyed by the reference
+// as typed" would send the user hunting for entries that do not exist.
+func TestLockfileManager_Load_DocumentlessFileIsRefusedAsEmpty(t *testing.T) {
+	for name, body := range map[string]string{
+		"0-byte":          "",
+		"whitespace-only": "   \n\n",
+		"comment-only":    "# pinned by hand\n# nothing here yet\n",
+		"explicit null":   "~\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", body, 0o644)
 
-	manager := NewLockfileManager("/test", WithLockfileFS(fs))
-	_, err := manager.Load()
-	if err == nil {
-		t.Error("a present-but-0-byte lockfile must be refused, not silently loaded as an empty lockfile")
-	}
-}
-
-func TestLockfileManager_Load_WhitespaceOnlyFileIsRefused(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", "   \n\n", 0o644)
-
-	manager := NewLockfileManager("/test", WithLockfileFS(fs))
-	_, err := manager.Load()
-	if err == nil {
-		t.Error("a present-but-whitespace-only lockfile must be refused, not silently loaded as an empty lockfile")
+			_, err := NewLockfileManager("/test", WithLockfileFS(fs)).Load()
+			require.ErrorIs(t, err, errLockfileEmpty, "a documentless lockfile must be refused, not loaded as an empty one")
+			assert.NotErrorIs(t, err, ErrLockKeyFormRetired, "a file with no entries is not keyed any way at all")
+		})
 	}
 }
 

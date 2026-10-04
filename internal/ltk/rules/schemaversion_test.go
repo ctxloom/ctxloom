@@ -96,3 +96,15 @@ func TestLoad_ReportsTheMigration(t *testing.T) {
 		})
 	}
 }
+
+// A rules file that is not YAML is its parse failure, not a version fault.
+func TestParse_MalformedIsAParseFailureNotAVersionFault(t *testing.T) {
+	_, err := Parse([]byte("rules: [unterminated\n"))
+	if err == nil {
+		t.Fatal("want a parse failure, got nil")
+	}
+	var ve *schemaver.VersionError
+	if errors.As(err, &ve) {
+		t.Fatalf("want the rules file's parse failure, got a version fault: %v", err)
+	}
+}

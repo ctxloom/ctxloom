@@ -160,7 +160,16 @@ func runCarryCase(t *testing.T, tc carryCase) {
 	sentBundle, bundleSent := pub.files[remoteTreeRoot+"/"+bundles.DirectoryFormManifest]
 	assert.Equal(t, tc.wantBundleSent, bundleSent, "bundle published?")
 	if tc.wantBundleSent {
-		assert.Equal(t, bundleBytesBefore, sentBundle, "the published bytes are the local file's bytes, verbatim")
+		// What travels is the local file exactly as it stands when published. A
+		// re-sign stamps the envelope's current schema_version before hashing
+		// (bundles.UpgradeEnvelopeAt), so for those cells "as it stands" is the
+		// file after the run, not before it.
+		wantSent := bundleBytesBefore
+		if tc.wantReSigned {
+			wantSent, err = os.ReadFile(localBundlePath(cfg))
+			require.NoError(t, err)
+		}
+		assert.Equal(t, wantSent, sentBundle, "the published bytes are the local file's bytes, verbatim")
 	}
 	assert.Equal(t, tc.wantSigPublished, anySigPublished(pub.files), "a .sigs/ entry reached the remote?")
 	assertCarrySource(t, tc, cfg, entriesBefore)

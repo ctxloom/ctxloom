@@ -52,8 +52,14 @@ func IsRetiredAskSpelling(ask string) bool {
 }
 
 // ParseSelector parses a "<kind>/<name>" selector (the part after "#").
+//
+// The name it returns is NORMALISED (refuri.NormalizeRef): a caller holding the
+// parsed value has every reason to use it and none to reach back for the raw
+// selector, which is the text a control byte rides in on. net/url cuts the
+// fragment before its own control-byte check, so for the item half of a
+// reference this parse is the only place the cleaning can live.
 func ParseSelector(sel string) (ItemKind, string, error) {
-	kindDir, name, found := strings.Cut(sel, "/")
+	kindDir, name, found := strings.Cut(refuri.NormalizeRef(sel), "/")
 	if !found || name == "" {
 		return "", "", fmt.Errorf("selector %q must be <kind>/<name>", sel)
 	}

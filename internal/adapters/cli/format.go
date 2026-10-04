@@ -13,8 +13,8 @@ import (
 // Output formats accepted by the global --format flag. These two remain
 // distinct string constants (not clifmt.Format aliases) because a handful of
 // streaming commands — session transcript watch, plan watch, run's structured REPL/chat
-// event stream — parse --format themselves via their own text/json-only
-// switch (see unknownFormatError below) rather than going through emit();
+// event stream — switch on --format themselves, over their own text/json pair
+// (see unknownFormatError below), rather than going through emit();
 // they render one event at a time and structurally can't hand clifmt a
 // single result value. Widening those to the full five formats is out of
 // scope here.
@@ -50,18 +50,17 @@ func emit(cmd *cobra.Command, data any, text func() error) error {
 	return cliemit.Emit(cmd, data, text)
 }
 
-// outputFormatOf reads the raw inherited --format flag value, unparsed. An
-// unset flag (e.g. a unit test that never registered it) reads as "".
+// streamFormat resolves --format for a streaming command — one that renders
+// event by event and so cannot hand emit() a single value. It resolves through
+// cliemit.Resolve like emit() does, so a streaming command and an emitting one
+// read the same flag the same way; the caller then refuses any format outside
+// its own text/json pair with unknownFormatError.
 //
-// Also marks formatWasHonored, same reasoning as emit(): every
-// current caller (session transcript watch, plan watch, run's structured REPL/chat
-// stream) is one of the streaming commands the const block above documents
-// as reading --format itself instead of going through emit() — this is
-// their half of the same proof-of-honoring signal.
-func outputFormatOf(cmd *cobra.Command) string {
+// Also marks formatWasHonored, same reasoning as emit(): resolving here is
+// the streaming command's proof that it read --format.
+func streamFormat(cmd *cobra.Command) (clifmt.Format, error) {
 	formatWasHonored = true
-	format, _ := cmd.Flags().GetString("format")
-	return format
+	return cliemit.Resolve(cmd)
 }
 
 // reviewWantsListing decides which half of `ctxloom review` an invocation
@@ -90,27 +89,25 @@ func reviewWantsListing(cmd *cobra.Command, listFlag, interactive bool) bool {
 	if listFlag || !interactive {
 		return true
 	}
-	if !cliemit.Explicit(cmd) {
-		return false
-	}
-	format, err := cliemit.Resolve(cmd)
-	return err != nil || format != clifmt.FormatText
+	return cliemit.Explicit(cmd) && wantsNonTextOutput(cmd)
 }
 
-// wantsStructuredOutput reports whether this invocation's --format is one a
-// script parses (clifmt.Format.Structured: json, yaml, toml). It is the
-// predicate for a decision made AROUND rendering — stamping a field only a
-// machine reads, or withholding a prompt from a caller that cannot answer one
-// — and it must never narrow to "exactly json": the structured formats share
-// one contract, and a value stamped for one of them and zero-valued for the
-// others is a wrong answer, not a missing one. An unparsable --format reads
-// as not structured; emit() is where that failure is reported.
+// wantsNonTextOutput reports whether this invocation's --format is anything
+// but text. It is THE predicate for a decision made AROUND rendering —
+// stamping a field the human view does not show, or withholding a prompt from
+// a caller that did not ask for the human view — and there is exactly one,
+// because two disagreeing answers to "is this for a human?" is how a format
+// came to be rendered with zero-valued trust fields. Every format but text is
+// stamped, markdown included: a value stamped for one format and zero-valued
+// for another is a wrong answer, not a missing one. An unparsable --format
+// reads as not text — an output contract that cannot be interpreted is not a
+// human at a terminal — and emit() is where that failure is reported.
 //
 // This deliberately does NOT mark formatWasHonored: the proof of honoring is
-// emit() actually rendering, which every caller here also does.
-func wantsStructuredOutput(cmd *cobra.Command) bool {
+// emit() actually rendering.
+func wantsNonTextOutput(cmd *cobra.Command) bool {
 	format, err := cliemit.Resolve(cmd)
-	return err == nil && format.Structured()
+	return err != nil || format != clifmt.FormatText
 }
 
 // formatWasHonored is the runtime guard against --format being registered
@@ -119,8 +116,8 @@ func wantsStructuredOutput(cmd *cobra.Command) bool {
 // is a PERSISTENT flag (registered once below, on rootCmd) inherited by
 // every descendant, so it is ACCEPTED by every command whether or not that
 // command's RunE ever reads it. This tracks whether the invoked command
-// actually did — via emit() or the streaming commands' outputFormatOf escape
-// valve, the only two paths through this package that read --format — and
+// actually did — via emit() or the streaming commands' streamFormat, the
+// only two paths through this package that read --format — and
 // checkFormatWasHonored (rootCmd's PersistentPostRunE, wired in root.go)
 // turns "accepted and silently discarded" into a loud, actionable error
 // instead of a false "success". This is the runtime enforcement counterpart
@@ -137,7 +134,7 @@ func wantsStructuredOutput(cmd *cobra.Command) bool {
 var formatWasHonored bool
 
 // resetFormatGuard clears formatWasHonored; called once per invocation from
-// root.go's PersistentPreRun, before anything can call emit()/outputFormatOf.
+// root.go's PersistentPreRun, before anything can call emit()/streamFormat.
 func resetFormatGuard() { formatWasHonored = false }
 
 // checkFormatWasHonored is root.go's PersistentPostRunE body. Cobra invokes

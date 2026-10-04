@@ -113,7 +113,7 @@ One MCP server, as a bundle's `mcp:` block declares it and as it reaches an engi
 
 **Serialization**
 
-- These types carry **no version field**. Schema evolution happens one layer out, in the document-level upgraders (`internal/core/config/upgrade.go`, `internal/core/bundles/upgrade.go`, `internal/core/profiles/upgrade.go`) plus the hand-authored JSON Schema.
+- These types carry **no version field**. Schema evolution happens one layer out, in the document-level upgraders (each persisted document's `schemaver.Kind`, built on `internal/shared/upgrade`) plus the hand-authored JSON Schema.
 - **Unknown YAML keys are not rejected here** — yaml.v3 without `KnownFields` ignores them silently. They are caught only by `additionalProperties: false` in `resources/schema/input/config-schema.json`, whose drift gate (`internal/core/config/arch_test.go`) covers **top-level keys only**. Round-tripping is total only for the fields the outer schema happens to know about.
 - Schema asymmetry to know about: the `mcpServer` def is `additionalProperties: false` and does **not** list `_ctxloom`, while the `hook` def is `additionalProperties: true` (which is how the same marker is tolerated on hooks). No production writer currently persists an SCM-marked server, so this is latent.
 - Tag sets are inconsistent: `Hook` and `MCPServer` carry `json` tags; `UnifiedHooks`, `HooksConfig`, and `BackendHooks` carry none, so a `json.Marshal` of any container would emit Go field names (`"PreTool"`) while its elements emit snake/marker names. No production code marshals the containers today.

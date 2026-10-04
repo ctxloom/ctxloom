@@ -41,8 +41,8 @@
 // ISOLATION follows steps_j001600_signing.go exactly: everything runs through
 // testenv.TestEnvironment's isolated HOME/XDG, and the single environment
 // variable this file sets is SSH_AUTH_SOCK, pointed at a hermetic in-process
-// agent minted under w.env.Root. See that file's header for why this coexists
-// with steps_j001500.go's deliberate blanking of the same key.
+// agent minted under w.env.Root and forced through SetChildEnv. See that
+// file's header for why this coexists with J001500's guaranteed-absent agent.
 package acceptance
 
 import (
@@ -196,7 +196,7 @@ func j001900Setup(w *World) error {
 		return fmt.Errorf("start hermetic ssh-agent: %w", err)
 	}
 	st.stopAgent = stop
-	w.env.SetEnv("SSH_AUTH_SOCK", sock)
+	w.env.SetChildEnv("SSH_AUTH_SOCK", sock)
 	if err := w.env.GitConfigLocal("user.signingkey", filepath.Join(w.env.ProjectDir, j001900PubKeyFile)); err != nil {
 		return err
 	}

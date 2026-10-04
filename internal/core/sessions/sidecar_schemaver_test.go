@@ -75,3 +75,15 @@ func TestSidecar_WriterStampsSchemaVersion(t *testing.T) {
 	assert.Equal(t, sidecarKind.Current(), doc[schemaver.Key])
 	assert.Equal(t, "another-engine", doc["backend"])
 }
+
+// A sidecar that is not YAML is its parse failure, not a version fault.
+func TestSidecar_MalformedIsAParseFailureNotAVersionFault(t *testing.T) {
+	m, root := openSidecarRoot(t)
+	const harp = "swift-amber-falcon"
+	writeSidecar(t, root, harp, "project_dir: [unterminated\n")
+
+	_, err := m.Find(harp)
+	require.Error(t, err)
+	var ve *schemaver.VersionError
+	assert.NotErrorAs(t, err, &ve)
+}

@@ -419,7 +419,8 @@ func (e *PinnedRemoteBundleError) Unwrap() error { return ErrPinnedRemoteBundle 
 // or canonical — is a bundle locked in the active lockfile, else nil. An
 // unreadable lockfile is returned as that error: without the lockfile it is
 // unknown whether name is a pinned remote bundle, so "not found" would be a
-// verdict nobody established.
+// verdict nobody established. A pin whose installed tree cannot be located is
+// still a pin: that failure is returned wrapped with ErrPinnedRemoteBundle.
 func pinnedRemoteBundleRefusal(cfg *config.Config, name string) error {
 	lock, err := LoadActiveLockfile(cfg)
 	if err != nil {
@@ -431,7 +432,7 @@ func pinnedRemoteBundleRefusal(cfg *config.Config, name string) error {
 	}
 	tree, err := locked.ref.LocalTreePath(ProjectAppDir(cfg))
 	if err != nil {
-		return nil
+		return fmt.Errorf("%w: bundle %q, and its installed tree cannot be located: %w", ErrPinnedRemoteBundle, name, err)
 	}
 	return &PinnedRemoteBundleError{
 		Bundle: locked.ref.CanonicalString(),

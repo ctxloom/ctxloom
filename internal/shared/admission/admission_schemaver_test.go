@@ -83,3 +83,20 @@ func TestStore_KeylessIsRefusedAsTooOld(t *testing.T) {
 	_, err := s.List()
 	require.ErrorIs(t, err, schemaver.ErrTooOld)
 }
+
+// A store that is not YAML is its parse failure, not a version fault — and it
+// still fails closed: it may hold a denial.
+func TestStore_MalformedIsAParseFailureNotAVersionFault(t *testing.T) {
+	s, fs, path := newTestStore(t)
+	testsupport.WriteFileString(t, fs, path, "records: [unterminated\n", 0o600)
+
+	_, err := s.List()
+	require.Error(t, err)
+	var ve *schemaver.VersionError
+	assert.NotErrorAs(t, err, &ve)
+
+	d, derr := s.Decide(context.Background(), testKey{"a", "1"}, nil)
+	require.Error(t, derr)
+	assert.False(t, d.Allow, "an unreadable store may hold a denial")
+	assert.Equal(t, reasonFault, d.Reason)
+}

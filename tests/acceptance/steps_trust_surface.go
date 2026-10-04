@@ -1250,7 +1250,7 @@ func tsAuthorSignAndEdit(w *World) error {
 		return fmt.Errorf("start hermetic ssh-agent: %w", err)
 	}
 	tsOf(w).stopAgent = stop
-	w.env.SetEnv("SSH_AUTH_SOCK", sock)
+	w.env.SetChildEnv("SSH_AUTH_SOCK", sock)
 	if err := w.env.GitConfigLocal("user.signingkey", filepath.Join(w.env.ProjectDir, pubKeyFile)); err != nil {
 		return err
 	}

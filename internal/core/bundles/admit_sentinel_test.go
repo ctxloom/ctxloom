@@ -102,6 +102,23 @@ func TestDecide_NilAuthorizer_Withholds(t *testing.T) {
 	}
 }
 
+// TestDecide_NilAuthorizer_IsATrustFinding pins HOW the nil arm speaks. A
+// surface that reaches Decide with no gate bound is a wiring defect, and a
+// warning line lets it ship while every item it decides is withheld; it must
+// be a fail-loudly trust finding the startup gate acts on.
+func TestDecide_NilAuthorizer_IsATrustFinding(t *testing.T) {
+	var got report.Findings
+	Decide(report.To(&got), nil, BundleRead{}, "demo#fragments/secret", []byte("secret body"), FormRaw)
+
+	fatal := got.Fatal()
+	if len(fatal) != 1 {
+		t.Fatalf("findings = %+v, want exactly one fail-loudly finding", got)
+	}
+	if fatal[0].Kind != report.KindTrust {
+		t.Errorf("Kind = %q, want %q", fatal[0].Kind, report.KindTrust)
+	}
+}
+
 // TestDecide_AdmitAll_StillParsesTheRef pins that no authorizer answers
 // above the ref parse: an unaddressable ref withholds even when the
 // authorizer would admit anything, because nothing can key a decision on it.

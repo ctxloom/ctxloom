@@ -31,6 +31,9 @@ type fakeSources struct {
 	events    map[string]chan operations.SessionFeedEvent
 	cancelled map[string]int
 	exportDir string
+	// rosterGate, when set, holds every Roster fetch until it is closed, so a
+	// test can order the roster's arrival after the Program's first frame.
+	rosterGate chan struct{}
 
 	controlled []coord.ControlRequest // every Control call, in order
 	controlOut coord.ControlResult    // scripted result; a steer with no Delivery reports DeliveryQueued
@@ -48,7 +51,16 @@ func newFakeSources(dir string, rows ...RosterRow) *fakeSources {
 
 func (f *fakeSources) sources() Sources {
 	return Sources{
-		Roster: func(context.Context) ([]RosterRow, error) { return f.rows, nil },
+		Roster: func(ctx context.Context) ([]RosterRow, error) {
+			if f.rosterGate != nil {
+				select {
+				case <-f.rosterGate:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			return f.rows, nil
+		},
 		Watch: func(_ context.Context, harp string) (*Feed, error) {
 			// Watch and Cancel run on bubbletea's command goroutines, so every
 			// write to the fake's maps is under its lock, like watched.

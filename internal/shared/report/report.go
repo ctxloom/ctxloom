@@ -56,8 +56,8 @@ const (
 	// satisfied AS REQUESTED: no reachable runtime, an unrecognized runtime axis
 	// value (a typo that would silently land on the host), an external plugin
 	// binary that cannot be containerized, the agent image absent/unbuildable, a
-	// stale image whose refresh build failed, a configured base image
-	// (isolation_base_containerfile) that failed to build, shared-fs probe
+	// stale image whose refresh build failed, a configured base
+	// (isolation_base) that failed to build, shared-fs probe
 	// failed, or no resolvable auth — so the run would otherwise fall back to the
 	// UNSANDBOXED host, or run a STALE/substituted image instead of the one
 	// requested. Only an explicit request — an agent's `runtime:` trait, the

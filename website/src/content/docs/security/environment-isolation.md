@@ -233,5 +233,5 @@ implies.
 - [A prompt is executable code](/security/prompts-are-code/) — why what an agent reads matters
   as much as where it can write.
 - [`ctxloom container`](/reference/cli/ctxloom_container/) — building and checking agent
-  images; [`ctxloom container build`](/reference/cli/ctxloom_container_build/) for base-image
-  and override options.
+  images; [`ctxloom container build`](/reference/cli/ctxloom_container_build/) for base,
+  overlay-image and override options.

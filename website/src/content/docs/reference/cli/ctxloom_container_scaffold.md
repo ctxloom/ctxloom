@@ -9,35 +9,20 @@ This page is generated from `ctxloom container scaffold --help`.
 
 ## ctxloom container scaffold
 
-Materialize the editable base Containerfile and wire it into config
+Write a project devcontainer seeded from ctxloom's default base
 
 ### Synopsis
 
-Write the embedded default base Containerfile to an editable local file
-(default: .ctxloom/base.Containerfile) and set 'isolation_base_containerfile'
-so every locally-built agent image — the default auto-build included — layers
-on it.
+Write .devcontainer/devcontainer.json and a .devcontainer/Dockerfile seeded
+from ctxloom's embedded default base, so the agent image's base is a file you
+can edit — and the environment your editor's devcontainer support opens too.
 
-Without a project devcontainer the file is content-identical to what the
-default build was already using, so nothing changes until you edit it. WITH
-one (.devcontainer/devcontainer.json or .devcontainer.json) the agent image
-builds from the devcontainer, and a configured base outranks it: scaffolding
-would replace the devcontainer's toolchain with the built-in default base. That
-is refused unless --force, or unless devcontainer detection is off
-(isolation_devcontainer_base: false).
-
-Idempotent and WIP-safe: an already-configured base is returned as-is, and an
-existing file at the target is adopted, never overwritten (--force overwrites).
+With isolation_base unset (or 'devcontainer'), every locally-built agent image
+builds on it from then on. Refused when the project already has a devcontainer
+(.devcontainer/ or .devcontainer.json): edit that one instead.
 
 ```
 ctxloom container scaffold [flags]
-```
-
-### Options
-
-```
-      --force         overwrite an existing file / re-point an already-configured base / replace a detected devcontainer base
-      --path string   project-root-relative path for the base Containerfile (default .ctxloom/base.Containerfile)
 ```
 
 ### Options inherited from parent commands

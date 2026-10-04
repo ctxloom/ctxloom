@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/keymatch"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
@@ -64,9 +64,8 @@ const (
 // views of one document through the one serializer, configDoc.MarshalYAML.
 //
 // NIL RECEIVERS: a *Config method is NOT nil-safe unless its own doc says so.
-// Exactly five of its methods tolerate a nil receiver —
-// MarshalYAML, IsolationImageFor, IsolationBaseContainerfilePath,
-// IsolationDevcontainerBaseEnabled and DefaultAgentProfiles. That set is
+// The methods that tolerate a nil receiver are
+// MarshalYAML, IsolationImageFor, IsolationBase and DefaultAgentProfiles. That set is
 // deliberate and closed, not the start of a migration: a nil *Config means
 // "config was never loaded", which is a caller bug everywhere except where a
 // zero-valued answer is genuinely the right one (an unmarshaler handed a nil
@@ -174,22 +173,14 @@ type Config struct {
 	// instead of triggering the on-the-fly build. Missing entries keep the
 	// built-in default (which IS auto-built when absent).
 	isolationImages map[string]string
-	// isolationBaseContainerfile is a USER-PROVIDED base Containerfile for
-	// locally-built agent images: the on-the-fly build (and `ctxloom container
-	// build`) layers the engine's agent stage onto a base built from this file
-	// instead of an auto-detected devcontainer / the embedded default base
-	// (container/base/Containerfile). Relative paths resolve against the
-	// project root. Beats devcontainer auto-detection (locked decision 8).
-	isolationBaseContainerfile string
-	// isolationDevcontainerBase toggles auto-detecting the project's
-	// .devcontainer/devcontainer.json (or .devcontainer.json) as the
-	// locally-built agent image's BASE: "an isolated agent should run in the
-	// environment the human develops in". Default true
-	// (nil = enabled); set false to opt out and keep the embedded default
-	// base (or an explicit isolation_base_containerfile) instead. A tri-state
-	// pointer like ui.Surround — a plain bool's zero value would default to
-	// disabled.
-	isolationDevcontainerBase *bool
+	// isolationBase picks the locally-built agent image's BASE: "ctxloom" (the
+	// embedded default base), "devcontainer" (the project's own
+	// .devcontainer/devcontainer.json, required to exist), or any other value
+	// as an image ref the engine's agent stage layers onto. Unset = the
+	// project's devcontainer when one is detected, else ctxloom's own — the
+	// detection is the authority for that fact, so no config copy of it
+	// exists. Interpreted by isolation's resolveBase.
+	isolationBase string
 	// isolationDevcontainerService names the docker-compose service to adopt
 	// as the agent image's base when the detected devcontainer.json declares
 	// dockerComposeFile — a multi-service compose project does not map to
@@ -346,8 +337,7 @@ type configDoc struct {
 	Permissions                  agents.NeutralPermissions `yaml:"permissions,omitempty"`
 	Delegation                   DelegationConfig          `yaml:"delegation,omitempty"`
 	IsolationImages              map[string]string         `yaml:"isolation_images,omitempty"`
-	IsolationBaseContainerfile   string                    `yaml:"isolation_base_containerfile,omitempty"`
-	IsolationDevcontainerBase    *bool                     `yaml:"isolation_devcontainer_base,omitempty"`
+	IsolationBase                string                    `yaml:"isolation_base,omitempty"`
 	IsolationDevcontainerService string                    `yaml:"isolation_devcontainer_service,omitempty"`
 	IsolationEngines             []string                  `yaml:"isolation_engines,omitempty"`
 	OutputDir                    string                    `yaml:"output_dir,omitempty"`
@@ -403,8 +393,7 @@ func (c *Config) toDoc() configDoc {
 		Permissions:                  c.permissions.Clone(),
 		Delegation:                   c.delegation,
 		IsolationImages:              maps.Clone(c.isolationImages),
-		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
-		IsolationDevcontainerBase:    cloneBoolPtr(c.isolationDevcontainerBase),
+		IsolationBase:                c.isolationBase,
 		IsolationDevcontainerService: c.isolationDevcontainerService,
 		IsolationEngines:             slices.Clone(c.isolationEngines),
 		OutputDir:                    c.outputDir,
@@ -434,8 +423,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.permissions = doc.Permissions
 	c.delegation = doc.Delegation
 	c.isolationImages = doc.IsolationImages
-	c.isolationBaseContainerfile = doc.IsolationBaseContainerfile
-	c.isolationDevcontainerBase = doc.IsolationDevcontainerBase
+	c.isolationBase = doc.IsolationBase
 	c.isolationDevcontainerService = doc.IsolationDevcontainerService
 	c.isolationEngines = doc.IsolationEngines
 	c.outputDir = doc.OutputDir
@@ -505,10 +493,42 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	if err := validateIdleTimeout(doc.Delegation.IdleTimeout); err != nil {
 		return err
 	}
+	if err := validateIsolationBase(doc.IsolationBase); err != nil {
+		return err
+	}
 	if _, err := engine.ParseAuthMode(string(doc.Auth)); err != nil {
 		return err
 	}
 	c.fromDoc(doc)
+	return nil
+}
+
+// The two named isolation_base choices; any other non-empty value is an image
+// ref used as the base (interpreted by isolation's resolveBase).
+const (
+	// IsolationBaseCtxloom is ctxloom's own embedded base.
+	IsolationBaseCtxloom = "ctxloom"
+	// IsolationBaseDevcontainer is the project's devcontainer, required to
+	// exist.
+	IsolationBaseDevcontainer = "devcontainer"
+)
+
+// ErrIsolationBaseNearMiss refuses an isolation_base that is a bare name
+// within keymatch's typo budget of a named choice.
+var ErrIsolationBaseNearMiss = errors.New("isolation_base looks like a misspelled choice")
+
+// validateIsolationBase refuses a bare isolation_base value that is a near
+// miss of a named choice. Read as an image ref, the typo would surface only as
+// a failed `FROM` at build time, far from the line that caused it. A value
+// shaped like a registry, tagged or digest ref (':' '/' '@') is never a typo
+// of a bare word, and a bare name outside the budget (`ubuntu`) is a ref.
+func validateIsolationBase(v string) error {
+	if v == "" || v == IsolationBaseCtxloom || v == IsolationBaseDevcontainer || strings.ContainsAny(v, ":/@") {
+		return nil
+	}
+	if near := keymatch.Nearest(v, []string{IsolationBaseCtxloom, IsolationBaseDevcontainer}); near != "" {
+		return fmt.Errorf("%w: %q — did you mean `%s`? (any other value is read as an image ref)", ErrIsolationBaseNearMiss, v, near)
+	}
 	return nil
 }
 
@@ -755,25 +775,14 @@ func (c *Config) IsolationImageFor(backend string) string {
 	return c.isolationImages[backend]
 }
 
-// IsolationBaseContainerfilePath returns the user-provided base Containerfile
-// for locally-built agent images, resolved against the project root when
-// relative ("" = the embedded default base; nil-safe).
-func (c *Config) IsolationBaseContainerfilePath() string {
-	if c == nil || c.isolationBaseContainerfile == "" {
+// IsolationBase returns the configured isolation_base choice verbatim ("" =
+// unset; nil-safe). Interpretation belongs to the isolation adapter, which
+// owns detection: config only carries what the user wrote.
+func (c *Config) IsolationBase() string {
+	if c == nil {
 		return ""
 	}
-	p := c.isolationBaseContainerfile
-	if !filepath.IsAbs(p) && c.appRoot != "" {
-		p = filepath.Join(c.appRoot, p)
-	}
-	return p
-}
-
-// IsolationDevcontainerBaseEnabled reports whether devcontainer auto-detection
-// is enabled for locally-built agent images (default true — nil means unset;
-// nil-safe).
-func (c *Config) IsolationDevcontainerBaseEnabled() bool {
-	return c == nil || c.isolationDevcontainerBase == nil || *c.isolationDevcontainerBase
+	return c.isolationBase
 }
 
 // GetEditorCommand returns the editor binary and arguments to use. This is the
@@ -1182,17 +1191,26 @@ func (c *Config) ProfileRemoteURLResolver() func(string) string {
 }
 
 // ParseConfig unmarshals raw YAML into a Config WITHOUT overlaying the embedded
-// default registry. Unlike Load it does not read from disk, validate, upgrade,
-// or merge defaults — callers that need the raw registry entries (e.g. init
-// reading the shipped default-config) use this so the role markers and exact
-// entries survive untouched.
+// default registry. Unlike Load it does not read from disk, schema-validate,
+// upgrade, or merge defaults; callers that need the raw registry entries (e.g.
+// init reading the shipped default-config) use this so the role markers and
+// exact entries survive untouched. It does record a retired key as the same
+// unknown-key warning Load would (retiredKeyWarnings).
 func ParseConfig(data []byte) (*Config, error) {
 	cfg := &Config{
 		lm: LMConfig{Configs: make(map[string]LLMConfig)},
 	}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
+	if len(root.Content) == 0 {
+		return cfg, nil
+	}
+	if err := root.Content[0].Decode(cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	cfg.warnings = append(cfg.warnings, retiredKeyWarnings(root.Content[0], parsedDocumentSource)...)
 	return cfg, nil
 }
 

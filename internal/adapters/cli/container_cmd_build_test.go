@@ -6,71 +6,60 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
-// TestContainerBuildOptions_ExplicitBaseImageDoesNotInheritConfigBaseContainerfile
-// pins that isolation.BuildAgentImage rejects BaseImage+BaseContainerfile
-// as mutually exclusive, so inheriting a project's
-// isolation_base_containerfile while --base-image is set made `container build
-// --base-image X` hard-fail on every project that configures a base
-// Containerfile — a flag the user did pass, defeated by a config default they
-// did not.
-func TestContainerBuildOptions_ExplicitBaseImageDoesNotInheritConfigBaseContainerfile(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		IsolationBaseContainerfile: "/proj/.ctxloom/base.Containerfile",
-	})
+// TestContainerBuildOptions_ExplicitOverlayImageDoesNotInheritConfigBase pins
+// that isolation.BuildAgentImage rejects OverlayImage+Base as mutually
+// exclusive, so inheriting a project's isolation_base while --overlay-image is set
+// would make `container build --overlay-image X` hard-fail on every project that
+// configures a base — a flag the user did pass, defeated by a config default
+// they did not.
+func TestContainerBuildOptions_ExplicitOverlayImageDoesNotInheritConfigBase(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{IsolationBase: "devcontainer"})
 
 	opts := containerBuildOptions(
-		containerBuildFlagValues{BaseImage: "ghcr.io/example/agent:1"},
+		containerBuildFlagValues{OverlayImage: "ghcr.io/example/agent:1"},
 		cfg, "claude-code", io.Discard)
 
-	assert.Equal(t, "ghcr.io/example/agent:1", opts.BaseImage, "the flag the user passed must survive")
-	assert.Empty(t, opts.BaseContainerfile,
-		"a config base Containerfile must not be inherited alongside --base-image")
-	require.False(t, opts.BaseImage != "" && opts.BaseContainerfile != "",
-		"the pair isolation.BuildAgentImage rejects must never be formed from one flag plus config")
+	assert.Equal(t, "ghcr.io/example/agent:1", opts.OverlayImage, "the flag the user passed must survive")
+	assert.Empty(t, opts.Base, "a config isolation_base must not be inherited alongside --overlay-image")
 }
 
-// TestContainerBuildOptions_ConfigBaseContainerfileAppliesWithoutBaseImage is
-// the negative control for the guard above: with no --base-image, the project's
-// configured base Containerfile still applies, so the explicit build and the
-// on-the-fly build keep resolving the same base.
-func TestContainerBuildOptions_ConfigBaseContainerfileAppliesWithoutBaseImage(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
-		IsolationBaseContainerfile: "/proj/.ctxloom/base.Containerfile",
-	})
+// TestContainerBuildOptions_ConfigBaseAppliesWithoutAFlag is the negative
+// control for the guard above: with neither flag, the project's isolation_base
+// still applies, so the explicit build and the on-the-fly build resolve the
+// same base.
+func TestContainerBuildOptions_ConfigBaseAppliesWithoutAFlag(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{IsolationBase: "devcontainer"})
 
 	opts := containerBuildOptions(containerBuildFlagValues{}, cfg, "claude-code", io.Discard)
 
-	assert.Equal(t, "/proj/.ctxloom/base.Containerfile", opts.BaseContainerfile)
-	assert.Empty(t, opts.BaseImage)
+	assert.Equal(t, "devcontainer", opts.Base)
+	assert.Empty(t, opts.OverlayImage)
 }
 
-// TestContainerBuildOptions_ExplicitBaseContainerfileBeatsConfig pins the
-// pre-existing flag-over-config precedence the extraction must preserve.
-func TestContainerBuildOptions_ExplicitBaseContainerfileBeatsConfig(t *testing.T) {
+// TestContainerBuildOptions_FlagsBeatConfig pins flag-over-config precedence:
+// --base overrides isolation_base for this build.
+func TestContainerBuildOptions_FlagsBeatConfig(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
-		IsolationBaseContainerfile:   "/proj/.ctxloom/base.Containerfile",
+		IsolationBase:                "devcontainer",
 		IsolationEngines:             []string{"mock"},
 		IsolationDevcontainerService: "app",
 	})
 
 	opts := containerBuildOptions(containerBuildFlagValues{
-		BaseContainerfile:   "/tmp/mine.Containerfile",
+		Base:                "ctxloom",
 		DevcontainerService: "flagged",
 		Engines:             []string{"claude-code"},
-		NoDevcontainerBase:  true,
 		KeepCache:           true,
 		Runtime:             "podman",
 	}, cfg, "claude-code", io.Discard)
 
-	assert.Equal(t, "/tmp/mine.Containerfile", opts.BaseContainerfile)
+	assert.Equal(t, "ctxloom", opts.Base)
 	assert.Equal(t, "flagged", opts.DevcontainerService)
 	assert.Equal(t, []string{"claude-code"}, opts.Engines)
-	assert.True(t, opts.NoDevcontainerBase)
 	assert.True(t, opts.KeepCache)
 	assert.Equal(t, "podman", opts.Runtime)
 }
@@ -80,11 +69,11 @@ func TestContainerBuildOptions_ExplicitBaseContainerfileBeatsConfig(t *testing.T
 // panics, and no config-derived field is invented.
 func TestContainerBuildOptions_NilConfigResolvesFromFlagsAlone(t *testing.T) {
 	opts := containerBuildOptions(
-		containerBuildFlagValues{BaseImage: "ghcr.io/example/agent:1"},
+		containerBuildFlagValues{OverlayImage: "ghcr.io/example/agent:1"},
 		nil, "claude-code", io.Discard)
 
-	assert.Equal(t, "ghcr.io/example/agent:1", opts.BaseImage)
-	assert.Empty(t, opts.BaseContainerfile)
+	assert.Equal(t, "ghcr.io/example/agent:1", opts.OverlayImage)
+	assert.Empty(t, opts.Base)
 	assert.Empty(t, opts.AppRoot)
 	assert.Nil(t, opts.Engines)
 }
@@ -119,4 +108,11 @@ func TestContainerBuildOptions_NoIsolationImageIsSilent(t *testing.T) {
 	containerBuildOptions(containerBuildFlagValues{}, cfg, "claude-code", &warn)
 
 	assert.Empty(t, warn.String(), "a pinned image for a DIFFERENT backend is not this build's problem")
+}
+
+// TestContainerBuild_OverlayImageFlag pins the flag's name: the overlay is not
+// a base (--base is), and the old spelling is gone with no alias.
+func TestContainerBuild_OverlayImageFlag(t *testing.T) {
+	assert.NotNil(t, containerBuildCmd.Flags().Lookup("overlay-image"))
+	assert.Nil(t, containerBuildCmd.Flags().Lookup("base-image"), "no alias for the retired spelling")
 }

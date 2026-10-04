@@ -15,9 +15,10 @@ Agent-image tooling declarations from admitted companions
 
 Collect every admitted companion's typed 'tooling' declaration — the
 tools its content needs inside the agent container image — and emit them with
-instructions for the LLM: scaffold/locate the editable base Containerfile
-('ctxloom container scaffold'), propose the additions as a diff, get the
-user's explicit approval per change, then rebuild ('ctxloom container build').
+instructions for the LLM: fold the additions into the agent image's base
+(the project devcontainer's Dockerfile; 'ctxloom container scaffold' writes one
+when the project has none) as a diff, get the user's explicit approval per
+change, then rebuild ('ctxloom container build').
 
 Collection is TRUST-GATED: a rejected companion's declaration is withheld
 like any other gated content, and nothing is ever applied automatically on

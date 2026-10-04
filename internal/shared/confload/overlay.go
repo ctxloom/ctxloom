@@ -501,7 +501,7 @@ func coerceEnvValue(raw string) any {
 //     ["agents", "mycoder", "runtime"] (an agent named "mycoder" with a
 //     "runtime" field) — silently creating the wrong shape. Finest-first
 //     tries the fully-split, most-specific interpretation FIRST, so a real
-//     multi-word FIXED field name (e.g. isolation_base_containerfile, one
+//     multi-word FIXED field name (e.g. isolation_devcontainer_service, one
 //     top-level property) is only matched once every finer split has
 //     already failed to validate — which it always does for a genuinely
 //     fixed (non-wildcard) property name, since "isolation" alone is not

@@ -130,9 +130,8 @@ func DefaultPolicy() Policy {
 		{Path: "isolation_images", Scope: ScopeMachine, Note: "image tags present on this machine"},
 		{Path: "isolation_engines", Scope: ScopeMachine, Note: "engines present on this machine"},
 		{Path: "output_dir", Scope: ScopeMachine, Note: "a folder on this machine's filesystem"},
-		{Path: "isolation_devcontainer_base", Scope: ScopeMachine, Note: "whether THIS box has a devcontainer to auto-detect"},
 		{Path: "isolation_devcontainer_service", Scope: ScopeMachine, Note: "a fact about this box's compose setup"},
-		{Path: "isolation_base_containerfile", Scope: ScopeShared, Note: "its own doc: relative paths resolve against the project root — a repo file"},
+		{Path: "isolation_base", Scope: ScopeShared, Note: "which environment the project's agents run in: the repo's devcontainer, ctxloom's own, or a named image the team agrees on"},
 		// Kept as the design doc specifies (ScopeMachine), UNLIKE
 		// agents.*.runtime above: this top-level project DEFAULT is not part
 		// of any agent binding, so agentBindingMergeFunc's atomic-replace
@@ -175,9 +174,7 @@ func DefaultPolicy() Policy {
 		// default — enabled — re-applies). Reclassified to Shared: whether
 		// ctxloom owns the HUD is arguably closer to a per-project UX
 		// preference a team can reasonably standardize on (like
-		// isolation_base_containerfile, ScopeShared for the identical
-		// "only one file exists today" reason) than a hard per-machine
-		// capability fact.
+		// isolation_base) than a hard per-machine capability fact.
 		{Path: "config.statusline", Scope: ScopeShared, Note: "a per-project UX preference; the only file this preference's own CLI command (manage statusline) can write to today"},
 		{Path: "config.sign.key", Scope: ScopeMachine, Note: "a fingerprint or path to this user's key material"},
 		{Path: "config.sign.default", Scope: ScopePreference},

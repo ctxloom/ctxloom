@@ -1842,10 +1842,9 @@ container-build-minimal: _require-generated
 # Build the shared agent-image BASE stage (ctxloom-agent-base:latest): the distro
 # plus the coding-agent tool layer (git, ripgrep, curl, certs, unzip, jq). The
 # composed multi-engine agent stage (isolation.composeAgentContainerfile) layers
-# onto it via --build-arg BASE_IMAGE. To bring your own base instead, use
-# `ctxloom container build --base-containerfile <file>` (or config
-# isolation_base_containerfile) — or a project .devcontainer/devcontainer.json
-# auto-detects (isolation_devcontainer_base).
+# onto it via --build-arg BASE_IMAGE. To bring your own base instead, set
+# isolation_base (or `ctxloom container build --base`) to devcontainer or an
+# image ref; an unset isolation_base adopts a project devcontainer.
 container-build-base:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1859,12 +1858,12 @@ container-build-base:
 # Containerfile generator (base resolution + per-engine official-installer
 # fragments) the on-the-fly build uses, so this ahead-of-time path and a
 # `ctxloom run` build byte-identical images for the same config. Passes
-# --no-devcontainer-base: THIS recipe is a fast local smoke-build of the
+# --base ctxloom: THIS recipe is a fast local smoke-build of the
 # composed-engine mechanism, not "what a real run in this checkout would use"
 # — ctxloom's OWN .devcontainer/ (a heavy CGO/ONNX toolchain image, and one
 # that declares `features:`) would otherwise become the base here. A real
 # `ctxloom run --runtime container` (or an explicit `ctxloom container build`)
-# still auto-detects normally; this recipe opts out deliberately.
+# still adopts it under an unset isolation_base; this recipe opts out deliberately.
 _container-build-via-cli backend *engines: _require-generated
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1873,7 +1872,7 @@ _container-build-via-cli backend *engines: _require-generated
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
         -ldflags "{{version_ldflag}}" \
         -o "$bin" ./cmd/ctxloom
-    args=(container build {{backend}} --no-devcontainer-base)
+    args=(container build {{backend}} --base ctxloom)
     if [ -n "{{engines}}" ]; then args+=(--engines "{{engines}}"); fi
     "$bin" "${args[@]}"
 

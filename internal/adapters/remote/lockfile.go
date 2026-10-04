@@ -107,56 +107,9 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 		return nil, fmt.Errorf("failed to read lockfile: %w", err)
 	}
 
-	// A PRESENT-but-empty (or whitespace-only) file is a DIFFERENT
-	// fact from "no lockfile" (handled above) and must not collapse into it.
-	// Save/write always stamp LockedAt to time.Now() before marshaling, so
-	// any real write produces non-trivial bytes ("schema_version: N\nlocked_at:
-	// ...\n" at minimum) — a genuinely 0-byte or blank file on disk can only
-	// be truncation, a crash mid-write, or a hand-created stub. Loading it as
-	// a valid empty lockfile makes every pinned remote bundle vanish from the
-	// session with no diagnostic at all. (A comment-only or `null` document
-	// that yaml still parses to a non-empty byte count is NOT covered here —
-	// unlike bundles.ParseBundle's analogous floor, this package has no
-	// invariant guaranteeing Version is always non-zero on a legitimate
-	// lockfile, so that stronger check would false-positive on a
-	// test/programmatically-constructed Lockfile{} that was never round-
-	// tripped through Load.)
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return nil, fmt.Errorf("lockfile %s exists but is empty — this is not the same as no lockfile at all (which is fine); "+
-			"fix or delete the file, then re-sync (a legitimate lockfile always declares its %s)", path, schemaver.Key)
-	}
-
-	// REFUSE the retired hold key rather than letting yaml drop it. A lockfile
-	// written by an older ctxloom spells a hold `pinned`, which this struct no
-	// longer models — so it would load cleanly with every hold silently gone,
-	// and the next `deps upgrade` would advance a dependency the user
-	// deliberately froze while reporting success. This key carries a
-	// DECISION, so it is refused rather than migrated.
-	if entry, found := findRetiredHoldField(data); found {
-		return nil, fmt.Errorf("lockfile %s spells a hold %q on entry %q; it is now %q — "+
-			"delete the lockfile and re-run `ctxloom deps pull` to rebuild it, "+
-			"then re-apply the hold with `ctxloom deps hold %s`",
-			path, retiredHoldField, entry, "held", entry)
-	}
-
-	// REFUSE a lockfile keyed the retired way. Its keys spell each bundle as
-	// it was typed, while a retraction is looked up by the bundle's identity,
-	// so an entry keyed any other way is one no lookup reaches — a publisher's
-	// retraction silently not enforced. There is no rekeying on read: a hold
-	// is a decision this read cannot carry across a key it does not trust, so
-	// the user rebuilds the lock and re-applies the holds named here.
-	// A version below lockfileKind.Oldest (or none at all) is that retired
-	// form too, refused the same way.
-	r, err := lockfileKind.Upgrade(data)
-	if errors.Is(err, schemaver.ErrTooOld) {
-		held, _ := findRetiredKeyForm(data)
-		return nil, retiredKeyFormError(path, held)
-	}
+	r, err := upgradeLockfile(path, data)
 	if err != nil {
-		return nil, fmt.Errorf("lockfile %s: %w", path, err)
-	}
-	if held, found := findRetiredKeyForm(r.Data); found {
-		return nil, retiredKeyFormError(path, held)
+		return nil, err
 	}
 
 	var lockfile Lockfile
@@ -176,6 +129,59 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	}
 
 	return &lockfile, nil
+}
+
+// upgradeLockfile brings data to lockfileKind.Current() in memory, or refuses
+// it: present but empty, a retired hold spelling, a newer version, or a
+// retired key form. A lockfile keyed the retired way spells each bundle as it
+// was typed, while a retraction is looked up by the bundle's identity, so an
+// entry keyed any other way is one no lookup reaches — a publisher's
+// retraction silently not enforced. A version below lockfileKind.Oldest (or
+// none at all) is that retired form. There is no rekeying on read: a hold is a
+// decision this read cannot carry across a key it does not trust, so the user
+// rebuilds the lock and re-applies the holds the refusal names.
+func upgradeLockfile(path string, data []byte) (schemaver.Result, error) {
+	// A PRESENT-but-empty (or whitespace-only) file is a DIFFERENT
+	// fact from "no lockfile" (Load's not-exist case) and must not collapse
+	// into it.
+	// Save/write always stamp LockedAt to time.Now() before marshaling, so
+	// any real write produces non-trivial bytes ("schema_version: N\nlocked_at:
+	// ...\n" at minimum) — a genuinely 0-byte or blank file on disk can only
+	// be truncation, a crash mid-write, or a hand-created stub. Loading it as
+	// a valid empty lockfile makes every pinned remote bundle vanish from the
+	// session with no diagnostic at all. (A comment-only or `null` document
+	// declares no version, so the version gate below refuses it as a retired
+	// form.)
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return schemaver.Result{}, fmt.Errorf("lockfile %s exists but is empty — this is not the same as no lockfile at all (which is fine); "+
+			"fix or delete the file, then re-sync (a legitimate lockfile always declares its %s)", path, schemaver.Key)
+	}
+
+	// REFUSE the retired hold key rather than letting yaml drop it. A lockfile
+	// written by an older ctxloom spells a hold `pinned`, which this struct no
+	// longer models — so it would load cleanly with every hold silently gone,
+	// and the next `deps upgrade` would advance a dependency the user
+	// deliberately froze while reporting success. This key carries a
+	// DECISION, so it is refused rather than migrated.
+	if entry, found := findRetiredHoldField(data); found {
+		return schemaver.Result{}, fmt.Errorf("lockfile %s spells a hold %q on entry %q; it is now %q — "+
+			"delete the lockfile and re-run `ctxloom deps pull` to rebuild it, "+
+			"then re-apply the hold with `ctxloom deps hold %s`",
+			path, retiredHoldField, entry, "held", entry)
+	}
+
+	r, err := lockfileKind.Upgrade(data)
+	if errors.Is(err, schemaver.ErrTooOld) {
+		held, _ := findRetiredKeyForm(data)
+		return schemaver.Result{}, retiredKeyFormError(path, held)
+	}
+	if err != nil {
+		return schemaver.Result{}, fmt.Errorf("lockfile %s: %w", path, err)
+	}
+	if held, found := findRetiredKeyForm(r.Data); found {
+		return schemaver.Result{}, retiredKeyFormError(path, held)
+	}
+	return r, nil
 }
 
 // retiredHoldField is the pre-rename spelling of LockEntry.Held. A hold is a

@@ -218,13 +218,7 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 	if err != nil {
 		return nil, err
 	}
-	// An envelope in an older format is persisted in today's before anything
-	// is hashed: signing is the one write a signed tree's envelope may take,
-	// so it is how such a tree comes to declare the current schema_version.
-	if _, err := bundles.UpgradeEnvelopeAt(fs, bundle.Path); err != nil {
-		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
-	}
-	versionFrom, stamp, err := stampRepoVersion(fs, cfg, authored, bundle)
+	versionFrom, stamp, err := stampEnvelope(fs, cfg, authored, bundle)
 	if err != nil {
 		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
 	}
@@ -270,6 +264,19 @@ func openLocalTree(ctx context.Context, fs afero.Fs, dir string) (*content.TreeS
 		return nil, nil, err
 	}
 	return store, tree, nil
+}
+
+// stampEnvelope makes the two writes signing may make to bundle.yaml before
+// anything is hashed, and returns stampRepoVersion's answer.
+//
+// An envelope in an older format is persisted in today's first: signing is
+// the one write a signed tree's envelope may take, so it is how such a tree
+// comes to declare the current schema_version.
+func stampEnvelope(fs afero.Fs, cfg *config.Config, store bundles.Store, b *bundles.Bundle) (string, *VersionStamp, error) {
+	if _, err := bundles.UpgradeEnvelopeAt(fs, b.Path); err != nil {
+		return "", nil, err
+	}
+	return stampRepoVersion(fs, cfg, store, b)
 }
 
 // stampRepoVersion makes bundle.yaml's version equal the project's

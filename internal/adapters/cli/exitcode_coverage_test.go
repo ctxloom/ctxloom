@@ -50,6 +50,21 @@ import (
 // reaches cli.Run. A non-nil error is a return whose LAST result is not the
 // identifier nil.
 func silentFailureSites(files map[string]*ast.File) []string {
+	methods := packageMethods(files)
+	var sites []string
+	for name, f := range files {
+		for _, d := range f.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil && swallowsErrors(fd, methods) {
+				sites = append(sites, name+":"+fd.Name.Name)
+			}
+		}
+	}
+	sort.Strings(sites)
+	return sites
+}
+
+// packageMethods indexes files' methods by name, for ownerMethodPropagates.
+func packageMethods(files map[string]*ast.File) map[string][]*ast.FuncDecl {
 	methods := map[string][]*ast.FuncDecl{}
 	for _, f := range files {
 		for _, d := range f.Decls {
@@ -58,23 +73,18 @@ func silentFailureSites(files map[string]*ast.File) []string {
 			}
 		}
 	}
-	var sites []string
-	for name, f := range files {
-		for _, d := range f.Decls {
-			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Body == nil {
-				continue
-			}
-			for _, errs := range rangedErrorSlices(fd.Body) {
-				if !propagates(fd.Body, errs, methods, map[*ast.FuncDecl]bool{}) {
-					sites = append(sites, name+":"+fd.Name.Name)
-					break
-				}
-			}
+	return methods
+}
+
+// swallowsErrors reports whether fd ranges over an `.Errors` slice it has no
+// error-propagating path for.
+func swallowsErrors(fd *ast.FuncDecl, methods map[string][]*ast.FuncDecl) bool {
+	for _, errs := range rangedErrorSlices(fd.Body) {
+		if !propagates(fd.Body, errs, methods, map[*ast.FuncDecl]bool{}) {
+			return true
 		}
 	}
-	sort.Strings(sites)
-	return sites
+	return false
 }
 
 // rangedErrorSlices returns every `<expr>.Errors` selector body ranges over,

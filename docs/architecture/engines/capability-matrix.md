@@ -157,12 +157,11 @@ interactive-pty gap.
 
 ## 7. One-shot driving and resume
 
-Two gates in `internal/core/coord/spawner.go`, `resumeCapableBackends`
-and `oneShotSupportedBackends`; both name `claude-code` alone.
-
-`driving: oneshot` on a backend outside their intersection **fails loud** rather
-than silently degrading — `resolveResumeMode` refuses at the resume gate, and
-`prodSpawner.Resolve` refuses at the oneshot gate.
+`driving: oneshot` needs a backend in both of the spawner's gates
+(`internal/adapters/spawn`): `resumeCapableBackends` (`resolveResumeMode`)
+and the delegation allowlist `viaStartRunBackends`
+(`checkStartRunAllowlist`). A backend outside either **fails loud** rather
+than silently degrading.
 
 ## 8. Isolation support
 

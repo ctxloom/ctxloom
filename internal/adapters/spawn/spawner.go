@@ -68,7 +68,7 @@ func New(rep report.Sink, app *operations.App, projectDir string, starter Starte
 // delivers the package through the engine's own Setup (runner.Execute), the
 // same writers every host launch goes through.
 //
-// TODO(slice 11b): these three tables are the last name-keyed capability
+// TODO(slice 11b): these tables are the last name-keyed capability
 // declarations in core. They read Instance.Resume(key) — real or refused —
 // once the instance half of the engine port lands; until then the engine's
 // name is spelled here, and the no-engine-name-in-core gate allows it by
@@ -130,18 +130,6 @@ var resumeCapableBackends = map[string]bool{
 	"claude-code": true,
 }
 
-// oneShotSupportedBackends is the set of backends whose driving:oneshot turn
-// loop is wired END TO END in this release (one-shot-resume plan, Slice 4): the
-// MIGRATED (viaStartRunBackends), resume-capable engines, which resume by
-// native session key. That is the intersection of viaStartRunBackends and
-// resumeCapableBackends.
-//
-// A backend in neither table never reaches the gate at all: resolveResumeMode
-// already fails it loud on the capability reason.
-var oneShotSupportedBackends = map[string]bool{
-	"claude-code": true,
-}
-
 // resolveResumeMode is the per-engine resume-capability gate (Fork 3's
 // STATIC half): `driving: oneshot` requires a backend with a cheap
 // resume-by-key primitive. A conversational (or empty/default) driving
@@ -154,11 +142,6 @@ var oneShotSupportedBackends = map[string]bool{
 // can't actually resume would be exactly the class of silent, behavior-
 // changing divergence this project bans; the caller asked for one thing and
 // would silently get another with no error raised.
-//
-// This function does NOT itself decide whether coord.ResumeModeOneShot may be
-// acted on in THIS release — that additional (and, right now, universal)
-// gate lives in Resolve(), clearly separated so it can be deleted alone the
-// day Slice 4 (the turn loop) lands, without touching this capability table.
 func resolveResumeMode(driving agents.DrivingMode, backend string) (coord.ResumeMode, error) {
 	if driving != agents.DrivingOneshot {
 		return coord.ResumeModePersistent, nil
@@ -273,21 +256,15 @@ func labelPermissions(cfg *config.Config, label string) agents.LabelPermissions 
 	return entry.Permissions
 }
 
-// resolveSpawnResumeMode is the per-engine resume-capability gate. It FAILS
+// resolveSpawnResumeMode is resolveResumeMode with the agent named. It FAILS
 // LOUD (never silently downgrades to persistent) when `driving: oneshot`
-// names a backend with no resume-by-key primitive — and when the backend is
-// statically resume-capable but NOT yet wired end to end, rather than
-// resolving a coord.ResumeModeOneShot value the turn loop would silently run
-// conversationally.
+// names a backend with no resume-by-key primitive. A one-shot child must
+// ALSO pass the delegation allowlist (admit), so the backends a one-shot
+// agent can run on are the members of both tables, by construction.
 func resolveSpawnResumeMode(agentName string, driving agents.DrivingMode, backend string) (coord.ResumeMode, error) {
 	resumeMode, err := resolveResumeMode(driving, backend)
 	if err != nil {
 		return 0, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
-	}
-	if resumeMode == coord.ResumeModeOneShot && !oneShotSupportedBackends[backend] {
-		return 0, fmt.Errorf(
-			"agent_run: agent %q: driving: oneshot is not yet available for backend %q in this release; it is resume-capable but ctxloom does not yet tear down/resume THIS engine at turn boundaries",
-			agentName, backend)
 	}
 	return resumeMode, nil
 }

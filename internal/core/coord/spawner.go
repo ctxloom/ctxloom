@@ -68,9 +68,8 @@ const (
 	// ResumeModeOneShot is the turn-boundary teardown+resume-by-key model,
 	// LIVE for the wired backends. Reaching this value requires BOTH a
 	// `driving: oneshot` agent declaration and a statically resume-capable
-	// backend (resolveResumeMode); Resolve narrows it once more to the
-	// backends whose turn loop is wired end to end (oneShotSupportedBackends)
-	// and fails loud for any other resume-capable one.
+	// backend (resolveResumeMode), and the backend must also be admitted
+	// for delegation (checkStartRunAllowlist).
 	ResumeModeOneShot
 )
 

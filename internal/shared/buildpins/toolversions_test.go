@@ -514,3 +514,19 @@ func TestGitleaksInstallDerivesFromToolVersionsEnv(t *testing.T) {
 		t.Errorf("justfile's gitleaks-install recipe does not install at ${GITLEAKS_VERSION} — it must be using a hardcoded version:\n%s", body)
 	}
 }
+
+// TestDevcontainerInstallsTheCommitHookRunner: this project's agent cells are
+// built on the devcontainer (an unset isolation_base auto-detects it), and the
+// commit hooks git runs in a cell are lefthook's — the generated hook falls
+// back to an `echo` that exits 0 when lefthook is not on PATH, so without it a
+// child's every commit skips archlint, reprise and the rest SILENTLY. The
+// image must carry lefthook, at the version tool-versions.env pins.
+func TestDevcontainerInstallsTheCommitHookRunner(t *testing.T) {
+	versions := parseToolVersionsEnv(t, toolVersionsPath)
+	if _, ok := versions["LEFTHOOK_VERSION"]; !ok {
+		t.Fatalf("%s pins no LEFTHOOK_VERSION", toolVersionsPath)
+	}
+	if !strings.Contains(readFile(t, dockerfilePath), "github.com/evilmartians/lefthook@v${LEFTHOOK_VERSION}") {
+		t.Errorf("%s does not install lefthook at ${LEFTHOOK_VERSION}", dockerfilePath)
+	}
+}

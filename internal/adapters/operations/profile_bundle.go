@@ -69,6 +69,18 @@ func prepareLocalBundleWrite(cfg *config.Config, name string) error {
 	return nil
 }
 
+// prepareProfileWrite refuses a write to a remote bundle's profile — the
+// shared in-memory copy of a read-only reference, which a mutation would
+// corrupt for every later reader this run before evaporating on the next
+// pull — and readies the local bundle a write to any other profile lands in.
+// Called before ANY mutation.
+func prepareProfileWrite(cfg *config.Config, p *profiles.Profile) error {
+	if profiles.IsSeededPath(p.Path) {
+		return fmt.Errorf("profile %q is a remote profile and read-only; edit it at its source and run 'ctxloom deps pull'", p.Name)
+	}
+	return prepareLocalBundleWrite(cfg, p.Name)
+}
+
 // createProjectBundle creates the project's (empty) project bundle through a
 // bundle store over the config's filesystem, so the envelope it writes is the
 // store's own and lands where the profile loader writes.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 const (
@@ -56,8 +57,8 @@ func writeProfileTree(t *testing.T, fs afero.Fs, gen int) string {
 	dir := filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), "kit")
 	envelope := filepath.Join(dir, DirectoryFormManifest)
 	require.NoError(t, fs.MkdirAll(filepath.Join(dir, paths.ProfilesDir), 0o755))
-	require.NoError(t, afero.WriteFile(fs, envelope, []byte(fmt.Sprintf("%s: %d\nversion: 1.0.0\n", schemaver.Key, gen)), 0o644))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, paths.ProfilesDir, "dev.yaml"), []byte(profileDoc), 0o644))
+	testsupport.WriteFileString(t, fs, envelope, fmt.Sprintf("%s: %d\nversion: 1.0.0\n", schemaver.Key, gen), 0o644)
+	testsupport.WriteFileString(t, fs, filepath.Join(dir, paths.ProfilesDir, "dev.yaml"), profileDoc, 0o644)
 	return envelope
 }
 

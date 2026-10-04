@@ -196,7 +196,7 @@ func SetProfileContent(_ context.Context, cfg *config.Config, req SetProfileCont
 	if _, err := decodeWritableProfile([]byte(req.Content), "profile"); err != nil {
 		return nil, err
 	}
-	if err := prepareLocalBundleWrite(cfg, profile.Name); err != nil {
+	if err := prepareProfileWrite(cfg, profile); err != nil {
 		return nil, err
 	}
 	// No AllowEmpty: decodeWritableProfile above already refuses a hollow

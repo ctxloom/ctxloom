@@ -691,24 +691,34 @@ func (l *Loader) newItemPath(name string) (string, error) {
 	if err := validateProfileName(item); err != nil {
 		return "", err
 	}
-	if l.localBundleExists != nil && !l.localBundleExists(bundle) {
+	dir, ok := l.bundleDir(bundle)
+	if !ok {
 		return "", fmt.Errorf("%w: no local bundle %q to write profile %q into", errs.ErrBundleNotFound, bundle, item)
+	}
+	path := filepath.Join(dir, paths.ProfilesDir, item+".yaml")
+	// A file already here did not load — it is not in the seed, or this would
+	// not be a NEW profile. It is still the user's file, and a new profile
+	// written over it would silently replace it.
+	if present, err := afero.Exists(l.fs, path); err != nil || present {
+		return "", fmt.Errorf("profile %q: %s is present but did not load; fix or remove it: %w", item, path, os.ErrExist)
+	}
+	return path, nil
+}
+
+// bundleDir is the directory of the local bundle called bundle under the
+// first local bundles root holding it; ok is false when no root does, or the
+// local-bundle oracle denies it.
+func (l *Loader) bundleDir(bundle string) (string, bool) {
+	if l.localBundleExists != nil && !l.localBundleExists(bundle) {
+		return "", false
 	}
 	for _, root := range l.dirs {
 		dir := filepath.Join(root, filepath.FromSlash(bundle))
-		if exists, err := afero.DirExists(l.fs, dir); err != nil || !exists {
-			continue
+		if exists, err := afero.DirExists(l.fs, dir); err == nil && exists {
+			return dir, true
 		}
-		path := filepath.Join(dir, paths.ProfilesDir, item+".yaml")
-		// A file already here did not load — it is not in the seed, or this
-		// would not be a NEW profile. It is still the user's file, and a new
-		// profile written over it would silently replace it.
-		if present, err := afero.Exists(l.fs, path); err != nil || present {
-			return "", fmt.Errorf("profile %q: %s is present but did not load; fix or remove it: %w", item, path, os.ErrExist)
-		}
-		return path, nil
 	}
-	return "", fmt.Errorf("%w: no local bundle %q to write profile %q into", errs.ErrBundleNotFound, bundle, item)
+	return "", false
 }
 
 // validateProfileName refuses a name that is not a single path segment. A

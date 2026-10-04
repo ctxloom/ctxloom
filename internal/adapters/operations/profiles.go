@@ -362,14 +362,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 		return nil, err
 	}
 
-	// A seeded remote profile is the shared in-memory copy of a read-only
-	// reference: reject before ANY mutation, or the edits would corrupt the
-	// seed for every later reader this run and then evaporate (Save refuses
-	// the sentinel path anyway).
-	if profiles.IsSeededPath(profile.Path) {
-		return nil, fmt.Errorf("profile %q is a remote profile and read-only; edit it at its source and run 'ctxloom deps pull'", req.Name)
-	}
-	if err := prepareLocalBundleWrite(cfg, profile.Name); err != nil {
+	if err := prepareProfileWrite(cfg, profile); err != nil {
 		return nil, err
 	}
 
@@ -500,8 +493,8 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 		loader = cfg.GetProfileLoader()
 	}
 
-	if profile, err := loader.Load(req.Name); err == nil && !profiles.IsSeededPath(profile.Path) {
-		if err := prepareLocalBundleWrite(cfg, profile.Name); err != nil {
+	if profile, err := loader.Load(req.Name); err == nil {
+		if err := prepareProfileWrite(cfg, profile); err != nil {
 			return nil, err
 		}
 	}

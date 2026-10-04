@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 )
@@ -72,6 +73,5 @@ func osLoader(t *testing.T, profilesDir string, opts ...LoaderOption) *Loader {
 // bundleLoader to seed.
 func writeProjectProfile(t *testing.T, fs afero.Fs, name, doc string) {
 	t.Helper()
-	require.NoError(t, fs.MkdirAll(testProfilesDir, 0o755))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(testProfilesDir, name+".yaml"), []byte(doc), 0o644))
+	testsupport.WriteFileString(t, fs, filepath.Join(testProfilesDir, name+".yaml"), doc, 0o644)
 }

@@ -972,6 +972,31 @@ func TestClaimsAnUnchangedSectionLeavesTheUsersEdit(t *testing.T) {
 	assert.Equal(t, "# mine\n\nctx\n\nmore\n", read(t, fs, contextFile))
 }
 
+// A section the user removed is a claim the file has lost, not one they
+// edited: nothing of ctxloom's is left in the file, so a redelivery puts the
+// section back after the user's text, which it keeps.
+func TestClaimsAnUnchangedSectionTheUserRemovedIsPutBack(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, contextFile, "# mine\n", 0o644)
+	c := newRecords(t, fs)
+	mustCommit(t, c, fs, stage(contextFile, project, section("ctx\n")))
+	testsupport.WriteFileString(t, fs, contextFile, "# mine\n\nmore of mine\n", 0o644)
+	mustCommit(t, c, fs, release(contextFile, project), stage(contextFile, project, section("ctx\n")))
+	assert.Equal(t, "# mine\n\nmore of mine\n\nctx\n", read(t, fs, contextFile))
+}
+
+// Releasing a section the user already removed has nothing to take out: the
+// user's file is left as they made it rather than refused as not ours.
+func TestClaimsReleasingASectionTheUserRemovedLeavesTheirText(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, contextFile, "# mine\n", 0o644)
+	c := newRecords(t, fs)
+	mustCommit(t, c, fs, stage(contextFile, project, section("ctx\n")))
+	testsupport.WriteFileString(t, fs, contextFile, "# mine\n", 0o644)
+	mustCommit(t, c, fs, release(contextFile, project))
+	assert.Equal(t, "# mine\n", read(t, fs, contextFile))
+}
+
 // An element's array that the user has turned into something else is theirs.
 func TestClaimsRefuseAnElementWhoseArrayIsNotOne(t *testing.T) {
 	fs := afero.NewMemMapFs()

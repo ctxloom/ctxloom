@@ -18,7 +18,7 @@ import (
 // bundles/bundle_items are rewritten to the commands section on load.
 func TestPromptSelectorUpgrade_MigratesSelectors(t *testing.T) {
 	in := []byte("bundles:\n  - core#prompts/review\n  - alias/other:prompts/lint\nbundle_items:\n  - b#prompts/x\n")
-	out, applied := upgrade.Pipeline{promptSelectorUpgrade{}}.Run(in)
+	out, applied := mustRun(t, upgrade.Pipeline{promptSelectorUpgrade{}}, in)
 	require.NotEmpty(t, applied, "migration should fire on legacy prompt selectors")
 	s := string(out)
 	assert.Contains(t, s, "core#commands/review")
@@ -31,7 +31,7 @@ func TestPromptSelectorUpgrade_MigratesSelectors(t *testing.T) {
 // commands vocabulary is left untouched.
 func TestPromptSelectorUpgrade_Idempotent(t *testing.T) {
 	in := []byte("bundles:\n  - core#commands/review\n")
-	_, applied := upgrade.Pipeline{promptSelectorUpgrade{}}.Run(in)
+	_, applied := mustRun(t, upgrade.Pipeline{promptSelectorUpgrade{}}, in)
 	assert.Empty(t, applied, "commands-vocabulary profile must not change")
 }
 
@@ -65,8 +65,9 @@ func testAliasToURL(alias string) string {
 // runProfileUpgrade is a helper: run the profile upgrade pipeline for a profile
 // whose own remote URL is ownURL over data (no bundle-profile seed), and report
 // the upgraded bytes plus which upgrades fired.
-func runProfileUpgrade(ownURL string, data []byte) ([]byte, []string) {
-	return profileUpgrades(ownURL, testAliasToURL, nil, nil).Run(data)
+func runProfileUpgrade(t *testing.T, ownURL string, data []byte) ([]byte, []string) {
+	t.Helper()
+	return mustRun(t, profileUpgrades(ownURL, testAliasToURL, nil, nil), data)
 }
 
 // TestBundleRefCanonicalize_ShortRefsBecomeCanonical verifies that bare and
@@ -80,7 +81,7 @@ func TestBundleRefCanonicalize_ShortRefsBecomeCanonical(t *testing.T) {
 		"  - ctxloom-default/git\n" +
 		"  - go-development:fragments/testing\n")
 
-	out, applied := runProfileUpgrade(personalURL, in)
+	out, applied := runProfileUpgrade(t, personalURL, in)
 
 	require.NotEmpty(t, applied, "upgrade should fire when short refs are present")
 	got := string(out)
@@ -108,7 +109,7 @@ func TestBundleRefCanonicalize_CanonicalURLsUntouched(t *testing.T) {
 		"  - " + personalURL + "@bundles/just\n" +
 		"  - core-practices\n")
 
-	out, applied := runProfileUpgrade(personalURL, in)
+	out, applied := runProfileUpgrade(t, personalURL, in)
 
 	got := string(out)
 	// The bare ref still canonicalizes...
@@ -126,10 +127,10 @@ func TestBundleRefCanonicalize_CanonicalURLsUntouched(t *testing.T) {
 func TestBundleRefCanonicalize_Idempotent(t *testing.T) {
 	in := []byte("bundles:\n  - core-practices\n  - ctxloom-default/git\n")
 
-	once, applied1 := runProfileUpgrade(personalURL, in)
+	once, applied1 := runProfileUpgrade(t, personalURL, in)
 	require.NotEmpty(t, applied1)
 
-	twice, applied2 := runProfileUpgrade(personalURL, once)
+	twice, applied2 := runProfileUpgrade(t, personalURL, once)
 	assert.Empty(t, applied2, "second pass over canonical refs must not fire")
 	assert.Equal(t, string(once), string(twice))
 }
@@ -140,7 +141,7 @@ func TestBundleRefCanonicalize_Idempotent(t *testing.T) {
 func TestBundleRefCanonicalize_NoContextNoOp(t *testing.T) {
 	in := []byte("bundles:\n  - core-practices\n  - unknown-alias/thing\n")
 
-	out, applied := profileUpgrades("", testAliasToURL, nil, nil).Run(in)
+	out, applied := mustRun(t, profileUpgrades("", testAliasToURL, nil, nil), in)
 
 	assert.Empty(t, applied, "no own URL + unknown alias => no canonicalization")
 	assert.Equal(t, string(in), string(out))
@@ -162,7 +163,7 @@ func testBundleProfileSeed() map[string]*Profile {
 func TestRetiredParentUpgrade_RewritesToBundleProfile(t *testing.T) {
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/developer\n")
 
-	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
+	out, applied := mustRun(t, profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()), in)
 
 	require.NotEmpty(t, applied, "retired parent should fire the upgrade")
 	got := string(out)
@@ -176,7 +177,7 @@ func TestRetiredParentUpgrade_RewritesToBundleProfile(t *testing.T) {
 func TestRetiredParentUpgrade_DropsVersionPin(t *testing.T) {
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/developer@abc1234\n")
 
-	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
+	out, applied := mustRun(t, profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()), in)
 
 	require.NotEmpty(t, applied)
 	assert.Contains(t, string(out), "- "+seedKey(defaultURL, "ai-developer", "developer"))
@@ -189,7 +190,7 @@ func TestRetiredParentUpgrade_DropsVersionPin(t *testing.T) {
 func TestRetiredParentUpgrade_UnmatchedLeftVerbatim(t *testing.T) {
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/go-developer\n")
 
-	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
+	out, applied := mustRun(t, profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()), in)
 
 	assert.Empty(t, applied, "unmatched retired parent must not fire any upgrade")
 	assert.Equal(t, string(in), string(out))
@@ -203,7 +204,7 @@ func TestRetiredParentUpgrade_AmbiguousLeftVerbatim(t *testing.T) {
 	seed[seedKey(defaultURL, "other-kit", "developer")] = &Profile{}
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/developer\n")
 
-	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, seed).Run(in)
+	out, applied := mustRun(t, profileUpgrades(personalURL, testAliasToURL, nil, seed), in)
 
 	assert.Empty(t, applied, "ambiguous successor must not fire any upgrade")
 	assert.Equal(t, string(in), string(out))
@@ -216,7 +217,7 @@ func TestRetiredParentUpgrade_Idempotent(t *testing.T) {
 		"  - " + defaultURL + "@bundles/ai-developer#profiles/developer\n" +
 		"  - base\n")
 
-	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
+	out, applied := mustRun(t, profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()), in)
 
 	assert.Empty(t, applied, "successor-form and local parents must not change")
 	assert.Equal(t, string(in), string(out))
@@ -351,7 +352,7 @@ func TestCanonicalize_StripsLegacyV1FromBundlesAndParents(t *testing.T) {
 		"  - " + defaultURL + "@v1/bundles/git\n" +
 		"  - " + personalURL + "@v1/bundles/just@v1.2.3\n")
 
-	out, applied := runProfileUpgrade(personalURL, in)
+	out, applied := runProfileUpgrade(t, personalURL, in)
 
 	require.NotEmpty(t, applied, "legacy v1 refs should be normalized")
 	got := string(out)
@@ -371,7 +372,7 @@ func TestParentCanonicalize_LocalSiblingsUntouched(t *testing.T) {
 		"  - base-profile\n" +
 		"  - personal/prototype\n")
 
-	out, applied := runProfileUpgrade(personalURL, in)
+	out, applied := runProfileUpgrade(t, personalURL, in)
 
 	assert.Empty(t, applied, "local parent refs must not be canonicalized")
 	assert.Equal(t, string(in), string(out))
@@ -382,7 +383,7 @@ func TestParentCanonicalize_LocalSiblingsUntouched(t *testing.T) {
 func TestParentCanonicalize_AlreadyCanonicalUntouched(t *testing.T) {
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/rust-developer\n")
 
-	out, applied := runProfileUpgrade(personalURL, in)
+	out, applied := runProfileUpgrade(t, personalURL, in)
 
 	assert.Empty(t, applied, "already-canonical parent must not fire the upgrade")
 	assert.Equal(t, string(in), string(out))
@@ -549,17 +550,26 @@ func TestBundleRefCanonicalize_LocalBundleWinsOverSameSpelledAlias(t *testing.T)
 
 	t.Run("only a local ref: nothing fires", func(t *testing.T) {
 		in := []byte("bundles:\n  - personal/reviews\n  - personal/reviews#fragments/x\n")
-		out, applied := profileUpgrades(personalURL, testAliasToURL, local, nil).Run(in)
+		out, applied := mustRun(t, profileUpgrades(personalURL, testAliasToURL, local, nil), in)
 		assert.Empty(t, applied, "a local bundle must not stage an on-disk migration")
 		assert.Equal(t, string(in), string(out))
 	})
 
 	t.Run("a non-local alias ref beside it still canonicalizes", func(t *testing.T) {
 		in := []byte("bundles:\n  - personal/reviews\n  - personal/developer-mindset\n")
-		out, applied := profileUpgrades(personalURL, testAliasToURL, local, nil).Run(in)
+		out, applied := mustRun(t, profileUpgrades(personalURL, testAliasToURL, local, nil), in)
 		require.NotEmpty(t, applied)
 		got := string(out)
 		assert.Contains(t, got, "- personal/reviews\n")
 		assert.Contains(t, got, "- "+personalURL+"@bundles/developer-mindset")
 	})
+}
+
+// mustRun runs p over data and fails the test on an encode error, which none
+// of these fixtures can produce.
+func mustRun(t *testing.T, p upgrade.Pipeline, data []byte) ([]byte, []string) {
+	t.Helper()
+	out, applied, err := p.Run(data)
+	require.NoError(t, err)
+	return out, applied
 }

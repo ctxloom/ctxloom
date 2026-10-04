@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,40 +17,86 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
-// cleanBundleYAML parses under the current bundle schema.
-const cleanBundleYAML = `version: 1.0.0
-fragments:
-  greeting:
-    content: hello
-`
+// corpusTipSHA is the commit every fixture remote's default branch resolves
+// to. The check must read at exactly this commit; a read at any other ref is
+// a read of a tree nobody pinned.
+const corpusTipSHA = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
 
-// violatingBundleYAML carries a key the Bundle schema does not model. This is
+// cleanEnvelope is a tree bundle's bundle.yaml: version and nothing inline.
+const cleanEnvelope = "schema_version: 1\nversion: 1.0.0\n"
+
+// violatingEnvelope carries a key the Bundle schema does not model. This is
 // the exact shape that broke the published corpus when ParseBundle went strict
 // (merge 91a7bacd): legal under the old permissive decode, refused under the
 // new one.
-const violatingBundleYAML = `version: 1.0.0
-fragments:
-  greeting:
-    content: hello
-hoooks:
-  pre: echo typo
-`
+const violatingEnvelope = "schema_version: 1\nversion: 1.0.0\nhoooks:\n  pre: echo typo\n"
 
-// corpusFixture builds a mock remote publishing bundle trees at
-// .ctxloom/content/bundles/<name>/bundle.yaml, plus the FetcherOpener that
-// serves it.
-func corpusFixture(t *testing.T, bundles map[string]string) (*remote.MockFetcher, FetcherOpener) {
-	t.Helper()
-	fetcher := remote.NewMockFetcher()
-	entries := make([]remote.DirEntry, 0, len(bundles))
-	for name, body := range bundles {
-		entries = append(entries, remote.DirEntry{Name: name, IsDir: true})
-		fetcher.WithDir(corpusBundlesDir+"/"+name, []remote.DirEntry{{Name: "bundle.yaml"}})
-		fetcher.WithFile(corpusBundlesDir+"/"+name+"/bundle.yaml", []byte(body))
+// cleanTree is one healthy published bundle: an envelope and one item.
+func cleanTree() map[string]string {
+	return map[string]string{
+		bundles.DirectoryFormManifest: cleanEnvelope,
+		"fragments/greeting.md":       "hello\n",
 	}
-	fetcher.WithDir(corpusBundlesDir, entries)
+}
+
+// treeOf lays doc out with the production tree writer and returns the
+// bundle's files keyed bundle-relative, so a fixture publishes exactly the
+// bytes an authored bundle would.
+func treeOf(t *testing.T, doc string) map[string]string {
+	t.Helper()
+	fsys := afero.NewMemMapFs()
+	dir := path.Dir(filepath.ToSlash(bundletree.Write(t, fsys, "/root", "b", doc)))
+	out := map[string]string{}
+	require.NoError(t, afero.Walk(fsys, dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		data, err := afero.ReadFile(fsys, p)
+		if err != nil {
+			return err
+		}
+		out[strings.TrimPrefix(filepath.ToSlash(p), dir+"/")] = string(data)
+		return nil
+	}))
+	return out
+}
+
+// publishCorpusFile serves body at the repo path p on fetcher, listing p in every
+// directory above it.
+func publishCorpusFile(fetcher *remote.MockFetcher, p, body string) {
+	fetcher.WithFile(p, []byte(body))
+	child, isDir := path.Base(p), false
+	for dir := path.Dir(p); dir != "."; dir = path.Dir(dir) {
+		listed := false
+		for _, e := range fetcher.Dirs[dir] {
+			listed = listed || e.Name == child
+		}
+		if !listed {
+			fetcher.WithDir(dir, append(fetcher.Dirs[dir], remote.DirEntry{Name: child, IsDir: isDir}))
+		}
+		child, isDir = path.Base(dir), true
+	}
+}
+
+// tippedFetcher is a mock remote whose default branch resolves to corpusTipSHA.
+func tippedFetcher() *remote.MockFetcher {
+	fetcher := remote.NewMockFetcher()
+	return fetcher.WithRef(fetcher.DefaultBranch, corpusTipSHA)
+}
+
+// corpusFixture builds a mock remote publishing each bundle's files under
+// <bundles-root>/<name>/, plus the FetcherOpener that serves it.
+func corpusFixture(t *testing.T, published map[string]map[string]string) (*remote.MockFetcher, FetcherOpener) {
+	t.Helper()
+	fetcher := tippedFetcher()
+	for name, files := range published {
+		for rel, body := range files {
+			publishCorpusFile(fetcher, corpusBundlesDir+"/"+name+"/"+rel, body)
+		}
+	}
 	return fetcher, func(string) (remote.Fetcher, error) { return fetcher, nil }
 }
 
@@ -57,18 +105,17 @@ func oneRemote() []CorpusRemote {
 }
 
 // TestCorpusViolatingBundleFailsAndIsNamed is the gate's reason to exist: a
-// published bundle that will not parse must fail the check AND be named with
-// the reason. It runs the REAL parser (parseBundleBytes → bundles.ParseBundle),
-// so it tracks whatever the schema enforces today rather than a stand-in.
+// published bundle that will not read must fail the check AND be named with
+// the reason. It runs the REAL reader (readBundleTree → bundles.ReadTree), so
+// it tracks whatever the schema enforces today rather than a stand-in.
 func TestCorpusViolatingBundleFailsAndIsNamed(t *testing.T) {
-	_, open := corpusFixture(t, map[string]string{
-		"good": cleanBundleYAML,
-		"bad":  violatingBundleYAML,
-	})
+	bad := cleanTree()
+	bad[bundles.DirectoryFormManifest] = violatingEnvelope
+	_, open := corpusFixture(t, map[string]map[string]string{"good": cleanTree(), "bad": bad})
 
 	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
 
-	assert.Equal(t, CorpusViolated, report.Verdict(), "a corpus with an unparseable bundle must not pass")
+	assert.Equal(t, CorpusViolated, report.Verdict(), "a corpus with an unreadable bundle must not pass")
 	require.Len(t, report.Violations, 1)
 	v := report.Violations[0]
 	assert.Equal(t, corpusBundlesDir+"/bad/bundle.yaml", v.Bundle.Path, "the offending bundle must be named by its repo path")
@@ -82,14 +129,44 @@ func TestCorpusViolatingBundleFailsAndIsNamed(t *testing.T) {
 	assert.Empty(t, report.Gaps)
 }
 
-// TestCorpusCleanPasses pins the other side: a corpus whose every bundle parses
+// TestCorpusItemFailingSchemaIsAViolation is why the check reads the whole
+// tree rather than the envelope: an item file a load refuses is a bundle a load
+// refuses, however clean its bundle.yaml is.
+func TestCorpusItemFailingSchemaIsAViolation(t *testing.T) {
+	tree := cleanTree()
+	tree["profiles/broken.yaml"] = "fragments: 42\n"
+	_, open := corpusFixture(t, map[string]map[string]string{"itembad": tree})
+
+	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+
+	assert.Equal(t, CorpusViolated, report.Verdict(), "an item the reader refuses must fail the gate")
+	require.Len(t, report.Violations, 1)
+	assert.Equal(t, corpusBundlesDir+"/itembad/bundle.yaml", report.Violations[0].Bundle.Path)
+	assert.Contains(t, report.Violations[0].Err.Error(), "profiles/broken.yaml", "the violation must name the offending item file")
+	assert.Zero(t, report.Parsed)
+}
+
+// TestCorpusItemlessBundleIsAViolation: a published bundle that declares no
+// items is refused by the remote load path, so the gate must refuse it too —
+// otherwise it passes content every consumer then fails to load.
+func TestCorpusItemlessBundleIsAViolation(t *testing.T) {
+	_, open := corpusFixture(t, map[string]map[string]string{
+		"hollow": {bundles.DirectoryFormManifest: cleanEnvelope},
+	})
+
+	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+
+	assert.Equal(t, CorpusViolated, report.Verdict(), "an item-less published bundle must fail the gate")
+	require.Len(t, report.Violations, 1)
+	assert.Equal(t, corpusBundlesDir+"/hollow/bundle.yaml", report.Violations[0].Bundle.Path)
+	assert.Zero(t, report.Parsed)
+}
+
+// TestCorpusCleanPasses pins the other side: a corpus whose every bundle reads
 // is clean and exits 0. Without this the gate could satisfy every other test by
 // always failing.
 func TestCorpusCleanPasses(t *testing.T) {
-	_, open := corpusFixture(t, map[string]string{
-		"alpha": cleanBundleYAML,
-		"beta":  cleanBundleYAML,
-	})
+	_, open := corpusFixture(t, map[string]map[string]string{"alpha": cleanTree(), "beta": cleanTree()})
 
 	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
 
@@ -107,7 +184,7 @@ func TestCorpusCleanPasses(t *testing.T) {
 func TestCorpusEmptyIsUndeterminedNotClean(t *testing.T) {
 	// No WithDir at all: the mock reports the bundles directory as absent,
 	// exactly as a repo that publishes no bundles does.
-	fetcher := remote.NewMockFetcher()
+	fetcher := tippedFetcher()
 	open := func(string) (remote.Fetcher, error) { return fetcher, nil }
 
 	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
@@ -142,7 +219,7 @@ func TestCorpusNoRemotesIsUndetermined(t *testing.T) {
 // a broken one.
 func TestCorpusUnreadableRemoteIsUndeterminedAndNamed(t *testing.T) {
 	boom := errors.New("git clone failed: no such host")
-	fetcher := remote.NewMockFetcher()
+	fetcher := tippedFetcher()
 	fetcher.ListDirErr = boom
 	open := func(string) (remote.Fetcher, error) { return fetcher, nil }
 
@@ -156,13 +233,30 @@ func TestCorpusUnreadableRemoteIsUndeterminedAndNamed(t *testing.T) {
 	assert.Empty(t, report.Violations, "an unreadable remote is not a content violation")
 }
 
+// TestCorpusUnresolvableTipIsAGap: a remote whose tip cannot be pinned to a
+// commit is not read at all. Reading it unpinned would let the listing and the
+// file reads see different trees, and the verdict would describe neither.
+func TestCorpusUnresolvableTipIsAGap(t *testing.T) {
+	noTip := errors.New("ref not found: main")
+	fetcher, open := corpusFixture(t, map[string]map[string]string{"alpha": cleanTree()})
+	fetcher.ResolveRefErr = noTip
+
+	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+
+	assert.Equal(t, CorpusUndetermined, report.Verdict())
+	require.Len(t, report.Gaps, 1)
+	assert.ErrorIs(t, report.Gaps[0].Err, noTip)
+	assert.Empty(t, fetcher.ListDirCalls, "an unpinned remote must not be listed")
+	assert.Zero(t, report.Parsed)
+}
+
 // TestCorpusPartialReadIsUndeterminedNotClean is the anti-false-green case: one
 // remote reads clean while another cannot be read at all. Counting only what
 // was successfully parsed would report OK for a corpus half of which was never
 // looked at.
 func TestCorpusPartialReadIsUndeterminedNotClean(t *testing.T) {
-	good, _ := corpusFixture(t, map[string]string{"alpha": cleanBundleYAML})
-	broken := remote.NewMockFetcher()
+	good, _ := corpusFixture(t, map[string]map[string]string{"alpha": cleanTree()})
+	broken := tippedFetcher()
 	broken.ListDirErr = errors.New("clone missing")
 
 	open := func(url string) (remote.Fetcher, error) {
@@ -186,7 +280,7 @@ func TestCorpusPartialReadIsUndeterminedNotClean(t *testing.T) {
 }
 
 // TestCorpusViolationOutranksGap fixes the precedence: a bundle demonstrably
-// unparseable is a finding whether or not some other remote was also
+// unreadable is a finding whether or not some other remote was also
 // unreachable, so the exit code says "violations" rather than "could not look".
 func TestCorpusViolationOutranksGap(t *testing.T) {
 	report := CorpusReport{
@@ -211,11 +305,11 @@ func TestCorpusOpenFailureIsAGap(t *testing.T) {
 }
 
 // TestCorpusUnreadableBundleIsAGapNotAViolation keeps the two failure kinds
-// apart at file granularity: a bundle listed but not fetchable was never seen,
-// and calling that a schema violation would send someone editing content that
-// may be perfectly fine.
+// apart at bundle granularity: a bundle listed but not fetchable was never
+// seen, and calling that a schema violation would send someone editing content
+// that may be perfectly fine.
 func TestCorpusUnreadableBundleIsAGapNotAViolation(t *testing.T) {
-	fetcher := remote.NewMockFetcher()
+	fetcher := tippedFetcher()
 	// Listed, but no corresponding file: FetchFile reports not-found.
 	fetcher.WithDir(corpusBundlesDir, []remote.DirEntry{{Name: "ghost", IsDir: true}})
 	fetcher.WithDir(corpusBundlesDir+"/ghost", []remote.DirEntry{{Name: "bundle.yaml"}})
@@ -229,21 +323,36 @@ func TestCorpusUnreadableBundleIsAGapNotAViolation(t *testing.T) {
 	assert.Equal(t, corpusBundlesDir+"/ghost/bundle.yaml", report.Gaps[0].Path)
 }
 
-// TestCorpusWalksDirectoryFormBundles proves the sweep recurses, so a
-// directory-form bundle (<name>/bundle.yaml) is checked too. Without this a
-// whole publishing shape could violate the schema unnoticed.
-func TestCorpusWalksDirectoryFormBundles(t *testing.T) {
-	fetcher := remote.NewMockFetcher()
-	fetcher.WithDir(corpusBundlesDir, []remote.DirEntry{{Name: "tree", IsDir: true}})
-	fetcher.WithDir(corpusBundlesDir+"/tree", []remote.DirEntry{{Name: "bundle.yaml"}})
-	fetcher.WithFile(corpusBundlesDir+"/tree/bundle.yaml", []byte(violatingBundleYAML))
-	open := func(string) (remote.Fetcher, error) { return fetcher, nil }
+// TestCorpusTraversalEntryIsAViolation: a published tree whose listing names
+// an entry outside it is refused by the remote load path before a byte is
+// fetched. That is a fact about the content, not a failure to look, so it is
+// a violation rather than a gap.
+func TestCorpusTraversalEntryIsAViolation(t *testing.T) {
+	fetcher, open := corpusFixture(t, map[string]map[string]string{"sly": cleanTree()})
+	dir := corpusBundlesDir + "/sly"
+	fetcher.WithDir(dir, append(fetcher.Dirs[dir], remote.DirEntry{Name: ".."}))
 
 	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
 
 	assert.Equal(t, CorpusViolated, report.Verdict())
 	require.Len(t, report.Violations, 1)
-	assert.Equal(t, corpusBundlesDir+"/tree/bundle.yaml", report.Violations[0].Bundle.Path)
+	assert.ErrorIs(t, report.Violations[0].Err, content.ErrBadPath)
+	assert.Empty(t, report.Gaps)
+}
+
+// TestCorpusWalksNestedBundles proves the sweep recurses through format roots,
+// so a bundle published below one is checked too. Without this a whole
+// publishing shape could violate the schema unnoticed.
+func TestCorpusWalksNestedBundles(t *testing.T) {
+	bad := cleanTree()
+	bad[bundles.DirectoryFormManifest] = violatingEnvelope
+	_, open := corpusFixture(t, map[string]map[string]string{"v2/tree": bad})
+
+	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+
+	assert.Equal(t, CorpusViolated, report.Verdict())
+	require.Len(t, report.Violations, 1)
+	assert.Equal(t, corpusBundlesDir+"/v2/tree/bundle.yaml", report.Violations[0].Bundle.Path)
 }
 
 // TestConfiguredCorpusComesFromTheRemotesRegistry pins the requirement that the
@@ -274,75 +383,68 @@ func TestConfiguredCorpusComesFromTheRemotesRegistry(t *testing.T) {
 	}, byName, "the corpus must be exactly what remotes.yaml declares")
 }
 
-// TestCorpusReadsAtTheCachedCloneWithoutFetching pins the offline contract: the
-// check only ever READS, so a warm cache needs no network. A fetch smuggled in
-// here would make the gate unrunnable in CI and the acceptance suite.
-func TestCorpusReadsAtTheCachedCloneWithoutFetching(t *testing.T) {
-	fetcher, open := corpusFixture(t, map[string]string{"alpha": cleanBundleYAML})
+// TestCorpusReadsAtTheResolvedTipWithoutFetching pins two contracts at once.
+// Every read names the commit the default branch resolved to, so the listing
+// that decided what the corpus holds and the reads that produced its bytes see
+// one tree. And the check only ever READS, so a warm cache needs no network —
+// a forge call smuggled in here would make the gate unrunnable in CI and the
+// acceptance suite.
+func TestCorpusReadsAtTheResolvedTipWithoutFetching(t *testing.T) {
+	fetcher, open := corpusFixture(t, map[string]map[string]string{"alpha": cleanTree()})
 
-	CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
 
-	assert.NotEmpty(t, fetcher.ListDirCalls)
-	assert.NotEmpty(t, fetcher.FetchFileCalls)
+	require.Equal(t, CorpusClean, report.Verdict())
+	require.NotEmpty(t, fetcher.ResolveRefCalls)
+	assert.Equal(t, fetcher.DefaultBranch, fetcher.ResolveRefCalls[0].Ref, "the tip is the default branch's")
+	require.NotEmpty(t, fetcher.ListDirCalls)
+	require.NotEmpty(t, fetcher.FetchFileCalls)
+	for _, c := range fetcher.ListDirCalls {
+		assert.Equal(t, corpusTipSHA, c.Ref, "listing %s must be pinned to the resolved tip", c.Path)
+	}
+	for _, c := range fetcher.FetchFileCalls {
+		assert.Equal(t, corpusTipSHA, c.Ref, "reading %s must be pinned to the resolved tip", c.Path)
+	}
 	assert.Empty(t, fetcher.SearchReposCalls, "the corpus check must not reach a forge API")
-}
-
-// treeSidecarYAML is a real tree-form metadata SIDECAR — the shape
-// content.MetaPath writes beside an item's content file. Its keys are ITEM
-// metadata (notes/installation/content_hash), none of which the Bundle schema
-// models, so ParseBundle refuses it under the strict decode. That refusal is
-// correct: the file is not a bundle. Handing it to the parser at all is the
-// defect.
-const treeSidecarYAML = `notes: Read-only connection to the app database.
-installation: brew install mcp-postgres
-content_hash: sha256:1111111111111111111111111111111111111111111111111111111111111111
-`
-
-// corpusTreeFixture publishes exactly ONE bundle: a tree-form directory at
-// <bundles-root>/v2/atelier holding its bundle.yaml envelope, its SHA256SUMS
-// manifest, and an mcp item directory carrying that item's metadata sidecar.
-//
-// It is the layout a format root actually publishes, which is the point — the
-// flat fixture above cannot exercise a walker's descent because it has nothing
-// to descend into.
-func corpusTreeFixture(t *testing.T) FetcherOpener {
-	t.Helper()
-	root := corpusBundlesDir
-	sidecar := ".postgres" + content.MetaSuffix
-	fetcher := remote.NewMockFetcher()
-	fetcher.WithDir(root, []remote.DirEntry{{Name: "v2", IsDir: true}})
-	fetcher.WithDir(root+"/v2", []remote.DirEntry{{Name: "atelier", IsDir: true}})
-	fetcher.WithDir(root+"/v2/atelier", []remote.DirEntry{
-		{Name: bundles.DirectoryFormManifest},
-		{Name: "SHA256SUMS"},
-		{Name: "mcp", IsDir: true},
-	})
-	fetcher.WithDir(root+"/v2/atelier/mcp", []remote.DirEntry{{Name: sidecar}})
-	fetcher.WithFile(root+"/v2/atelier/"+bundles.DirectoryFormManifest, []byte(cleanBundleYAML))
-	fetcher.WithFile(root+"/v2/atelier/mcp/"+sidecar, []byte(treeSidecarYAML))
-	return func(string) (remote.Fetcher, error) { return fetcher, nil }
 }
 
 // TestCorpusTreeBundleIsOneBundleNotItsSidecars pins the bundle BOUNDARY: a
 // directory holding a bundle manifest is one bundle, and the item files beneath
-// it are that bundle's payload, not more bundles to check.
+// it — an MCP server's `.meta.yaml` sidecar among them — are that bundle's
+// payload, not more bundles to check.
 //
-// A walk that collects every `.yaml` beneath the bundles root cannot tell the
-// two apart, so it hands each item's `.meta.yaml` sidecar to ParseBundle, which
-// refuses it — and the gate reports a violation per item against a corpus that
-// has none. That is the expensive direction for a gate to fail in: it fires on
-// healthy content, and the remedy a reader reaches for is to stop running it.
+// A walk that treats every `.yaml` beneath the bundles root as a bundle hands
+// each sidecar to the envelope parser, which refuses it — and the gate reports
+// a violation per item against a corpus that has none. That is the expensive
+// direction for a gate to fail in: it fires on healthy content, and the remedy
+// a reader reaches for is to stop running it.
 func TestCorpusTreeBundleIsOneBundleNotItsSidecars(t *testing.T) {
-	report := CheckCorpus(context.Background(), oneRemote(), corpusTreeFixture(t), parseBundleBytes)
+	tree := treeOf(t, `version: 1.0.0
+mcp:
+  postgres:
+    command: mcp-postgres
+    notes: Read-only connection to the app database.
+    installation: brew install mcp-postgres
+`)
+	var sidecars int
+	for rel := range tree {
+		if content.IsMetaPath(rel) {
+			sidecars++
+		}
+	}
+	require.NotZero(t, sidecars, "the fixture must publish an item sidecar, or it cannot test the boundary")
+	_, open := corpusFixture(t, map[string]map[string]string{"v2/atelier": tree})
+
+	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
 
 	for _, v := range report.Violations {
 		t.Errorf("healthy tree bundle reported a violation at %s: %v", v.Bundle.Path, v.Err)
 	}
-	// The envelope must still have been PARSED. Without this the assertion above
+	// The bundle must still have been READ. Without this the assertion above
 	// is satisfied by a walk that skips tree directories entirely — no
 	// violations, because nothing was checked, which is the silent pass the
 	// Parsed counter exists to expose.
-	assert.Equal(t, 1, report.Parsed, "the tree's envelope is the one bundle this corpus publishes")
+	assert.Equal(t, 1, report.Parsed, "the tree is the one bundle this corpus publishes")
 	assert.Empty(t, report.Gaps)
 	assert.Equal(t, CorpusClean, report.Verdict())
 }

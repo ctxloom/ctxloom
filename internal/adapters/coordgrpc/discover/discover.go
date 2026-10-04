@@ -165,43 +165,50 @@ func List() (endpoints []Endpoint, skipped []error) {
 		return snap[i].path < snap[j].path // stable, reproducible tiebreak
 	})
 	for _, s := range snap {
-		m := s.path
-		raw, rerr := os.ReadFile(m)
-		if rerr != nil {
-			skipped = append(skipped, fmt.Errorf("discover: read %s: %w", m, rerr))
-			continue
+		ep, ok, err := readEndpoint(s.path)
+		if err != nil {
+			skipped = append(skipped, err)
 		}
-		var ep State
-		if uerr := json.Unmarshal(raw, &ep); uerr != nil {
-			skipped = append(skipped, fmt.Errorf("discover: decode %s: %w", m, uerr))
-			continue
+		if ok {
+			endpoints = append(endpoints, ep)
 		}
-		if ep.LoopbackPort == 0 || ep.ConsumerCred == "" {
-			// The documented, common, NON-error case: a coordinator whose
-			// Serve() has not minted a consumer credential yet, or a stale
-			// pre-D1 state dir. Deliberately not added to skipped — it is
-			// not distinguishable from "healthy, just early" and reporting
-			// it would make the common case noisy.
-			continue
-		}
-		live, lerr := filelock.Held(filepath.Join(filepath.Dir(m), paths.CoordOwnerLockFileName))
-		if lerr != nil {
-			skipped = append(skipped, fmt.Errorf("discover: %s: %w", m, lerr))
-			continue
-		}
-		if !live {
-			// The writer is gone: endpoint.json outlives its coordinator on
-			// purpose (a relaunch re-binds its ports), but its port and
-			// credential died with it. Silent, like the not-yet-minted case:
-			// every coordinator that ever exited leaves one.
-			continue
-		}
-		endpoints = append(endpoints, Endpoint{
-			URL:  LoopbackURL(ep.LoopbackPort),
-			Cred: ep.ConsumerCred,
-		})
 	}
 	return endpoints, skipped
+}
+
+// readEndpoint reads one candidate endpoint.json. ok is false for every
+// candidate that is not a live endpoint; err is set only for the ones List
+// reports (an unreadable or undecodable file, a lock that cannot be probed),
+// never for the two ordinary, silent cases.
+func readEndpoint(m string) (Endpoint, bool, error) {
+	raw, err := os.ReadFile(m)
+	if err != nil {
+		return Endpoint{}, false, fmt.Errorf("discover: read %s: %w", m, err)
+	}
+	var ep State
+	if err := json.Unmarshal(raw, &ep); err != nil {
+		return Endpoint{}, false, fmt.Errorf("discover: decode %s: %w", m, err)
+	}
+	if ep.LoopbackPort == 0 || ep.ConsumerCred == "" {
+		// The documented, common, NON-error case: a coordinator whose
+		// Serve() has not minted a consumer credential yet, or a stale
+		// pre-D1 state dir. Deliberately not reported — it is not
+		// distinguishable from "healthy, just early" and reporting it would
+		// make the common case noisy.
+		return Endpoint{}, false, nil
+	}
+	live, err := filelock.Held(filepath.Join(filepath.Dir(m), paths.CoordOwnerLockFileName))
+	if err != nil {
+		return Endpoint{}, false, fmt.Errorf("discover: %s: %w", m, err)
+	}
+	if !live {
+		// The writer is gone: endpoint.json outlives its coordinator on
+		// purpose (a relaunch re-binds its ports), but its port and
+		// credential died with it. Silent, like the not-yet-minted case:
+		// every coordinator that ever exited leaves one.
+		return Endpoint{}, false, nil
+	}
+	return Endpoint{URL: LoopbackURL(ep.LoopbackPort), Cred: ep.ConsumerCred}, true, nil
 }
 
 // mtime reads a path's modification time (zero on error, which sorts an

@@ -416,48 +416,44 @@ func newRosterFold() *rosterFold {
 func (f *rosterFold) apply(fact Fact) {
 	switch fact.Kind {
 	case factRunEnqueued:
-		var p runEnqueued
-		if fact.decode(&p) != nil {
-			return
-		}
-		f.entries[p.Harp] = &RosterEntry{
-			Harp:             p.Harp,
-			Agent:            p.Agent,
-			State:            StateQueued,
-			Parent:           p.ParentHarp,
-			LastActivityUnix: fact.At.Unix(),
-		}
-		f.current[p.Harp] = p.RunID
-		f.byRun[p.RunID] = p.Harp
+		applyDecoded(fact, f.applyEnqueued)
 	case factRunState:
-		var p runState
-		if fact.decode(&p) != nil {
-			return
-		}
-		f.touch(p.RunID, p.State, fact.At)
+		applyDecoded(fact, func(p runState, at time.Time) { f.touch(p.RunID, p.State, at) })
 	case factRunEnded:
-		var p runEnded
-		if fact.decode(&p) != nil {
-			return
-		}
-		if e := f.touch(p.RunID, StateEnded, fact.At); e != nil {
-			e.Cause, e.Detail = p.Cause, p.Detail
-		}
+		applyDecoded(fact, f.applyEnded)
 	case factRunReaped:
-		var p runReaped
-		if fact.decode(&p) != nil {
-			return
-		}
-		// Retention: forget the reaped runs' run_id→harp back-index. entries
-		// and current are HARP-keyed (one per harp) and untouched — the
-		// roster still shows every harp's latest state; only the per-run
-		// index (which grows one entry per one-shot turn) is pruned. Never
-		// prunes a current run's index (the reap set excludes it), so touch()
-		// for the live run still resolves.
-		for _, id := range p.RunIDs {
-			if h, ok := f.byRun[id]; ok && f.current[h] != id {
-				delete(f.byRun, id)
-			}
+		applyDecoded(fact, f.applyReaped)
+	}
+}
+
+func (f *rosterFold) applyEnqueued(p runEnqueued, at time.Time) {
+	f.entries[p.Harp] = &RosterEntry{
+		Harp:             p.Harp,
+		Agent:            p.Agent,
+		State:            StateQueued,
+		Parent:           p.ParentHarp,
+		LastActivityUnix: at.Unix(),
+	}
+	f.current[p.Harp] = p.RunID
+	f.byRun[p.RunID] = p.Harp
+}
+
+func (f *rosterFold) applyEnded(p runEnded, at time.Time) {
+	if e := f.touch(p.RunID, StateEnded, at); e != nil {
+		e.Cause, e.Detail = p.Cause, p.Detail
+	}
+}
+
+// applyReaped is retention: forget the reaped runs' run_id→harp back-index.
+// entries and current are HARP-keyed (one per harp) and untouched — the
+// roster still shows every harp's latest state; only the per-run index (which
+// grows one entry per one-shot turn) is pruned. Never prunes a current run's
+// index (the reap set excludes it), so touch() for the live run still
+// resolves.
+func (f *rosterFold) applyReaped(p runReaped, _ time.Time) {
+	for _, id := range p.RunIDs {
+		if h, ok := f.byRun[id]; ok && f.current[h] != id {
+			delete(f.byRun, id)
 		}
 	}
 }

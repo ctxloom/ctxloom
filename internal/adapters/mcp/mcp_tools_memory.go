@@ -324,10 +324,12 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 }
 
 // distillMissingForList compacts every entry whose essence is missing or stale,
-// in place (no chdir — see handleListSessions). Per-entry failures are warned
-// and skipped: a session that can't be distilled here (e.g. a legacy session
-// whose engine reader needs the cwd we deliberately don't change) must not fail
-// the whole listing.
+// in place (no chdir — see handleListSessions). A row the staleness gate
+// selects is resolved through operations.ResolveAndHeal first, as every
+// distillation path is; a row it skips pays nothing for a heal. Per-entry
+// failures are warned and skipped: a session that can't be distilled here
+// (e.g. a legacy session whose engine reader needs the cwd we deliberately
+// don't change) must not fail the whole listing.
 func (s *ctxServer) distillMissingForList(ctx context.Context, entries []sessions.Entry) {
 	ctx, cancel := withDistillBudget(ctx)
 	defer cancel()
@@ -339,7 +341,18 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 		if distilled && !knownStale {
 			continue // fresh essence already present
 		}
-		if _, err := compactEntryFn(ctx, s.facts, e, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Progress: io.Discard}); err != nil {
+		src, herr := operations.ResolveAndHeal(ctx, s.facts.Engines, e.HarpName)
+		if herr != nil {
+			clidiag.Warn("ctxloom", "list_sessions: could not resolve %s: %v", e.HarpName, herr)
+			continue
+		}
+		if src.HealErr != nil {
+			clidiag.Warn("ctxloom", "list_sessions: could not refresh transcript for %s: %v", e.HarpName, src.HealErr)
+		}
+		if src.Entry == nil {
+			src.Entry = e
+		}
+		if _, err := compactEntryFn(ctx, s.facts, src.Entry, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Progress: io.Discard}); err != nil {
 			clidiag.Warn("ctxloom", "list_sessions: could not distill %s: %v", e.HarpName, err)
 		}
 	}

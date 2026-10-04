@@ -209,3 +209,72 @@ func TestDistillMissingForList_WarningsGoToTheRedirectableSinkNotStderr(t *testi
 	assert.Contains(t, diagnostics.String(), e.HarpName,
 		"a per-entry distill failure must be reported through the clidiag sink the session can redirect, never straight to the harness's terminal")
 }
+
+// healFixture indexes a harp bound to the real claude vendor transcript, never
+// converted: the engine's own store is the only record of the session.
+func healFixture(t *testing.T) (harp, canonPath string) {
+	t.Helper()
+	testsupport.Isolate(t)
+	mgr, err := sessions.Open(nil)
+	require.NoError(t, err)
+	e, err := mgr.AssignHarp(t.TempDir(), "claude-code")
+	require.NoError(t, err)
+	_, err = mgr.RecordOutputDir(e.HarpName, t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, mgr.BindSession(e.HarpName, "5b0e7a52-2f8d-4c1b-9e47-6a3d1c8f0b29", claudeVendorFixture()))
+	// Adapter selection refuses an entry with no engine version, which would
+	// convert nothing for a reason unrelated to the sweep.
+	require.NoError(t, mgr.RecordEngineVersion(e.HarpName, "2.1.225"))
+	canonPath, err = paths.HarpCanonicalTranscriptPath(e.HarpName)
+	require.NoError(t, err)
+	return e.HarpName, canonPath
+}
+
+// THE list_sessions SWEEP DISTILLS FROM A HEALED TRANSCRIPT.
+//
+// Every distillation path resolves its source through
+// operations.ResolveAndHeal before compacting; a sweep that compacts the
+// stored transcript as-is distills whatever an earlier conversion left
+// behind, or nothing at all for a session never converted. The assertion is
+// on the canonical transcript present at the moment of compaction — the
+// compactor is stubbed, so its output could not tell a healed source from a
+// stale one.
+func TestDistillMissingForList_HealsTheTranscriptBeforeDistilling(t *testing.T) {
+	harp, canonPath := healFixture(t)
+
+	var canonAtCompact []byte
+	prev := compactEntryFn
+	compactEntryFn = func(context.Context, operations.LaunchFacts, *sessions.Entry, *config.Config, operations.DistillOptions) (*memory.CompactionResult, error) {
+		canonAtCompact, _ = os.ReadFile(canonPath)
+		return &memory.CompactionResult{}, nil
+	}
+	defer func() { compactEntryFn = prev }()
+
+	s := &ctxServer{facts: testLaunchFacts(), cfg: config.NewFixture(config.Fixture{AppDir: t.TempDir()})}
+	s.distillMissingForList(context.Background(), []sessions.Entry{{HarpName: harp, Backend: "claude-code"}})
+
+	assert.NotEmpty(t, canonAtCompact,
+		"the sweep must refresh the engine's transcript into the canonical one before it distills")
+}
+
+// THE HEAL IS STALE-GATED: an entry the sweep skips pays nothing for it.
+func TestDistillMissingForList_SkippedEntryIsNotHealed(t *testing.T) {
+	harp, canonPath := healFixture(t)
+	out, err := sessions.OutputDir(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(out, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("---\nsummary: already distilled\n---\n# essence\n"), 0o644))
+
+	prev := compactEntryFn
+	compactEntryFn = func(context.Context, operations.LaunchFacts, *sessions.Entry, *config.Config, operations.DistillOptions) (*memory.CompactionResult, error) {
+		t.Fatal("an entry with an essence and no known staleness is not distilled")
+		return nil, nil
+	}
+	defer func() { compactEntryFn = prev }()
+
+	s := &ctxServer{facts: testLaunchFacts(), cfg: config.NewFixture(config.Fixture{AppDir: t.TempDir()})}
+	s.distillMissingForList(context.Background(), []sessions.Entry{{HarpName: harp, Backend: "claude-code"}})
+
+	_, statErr := os.Stat(canonPath)
+	assert.ErrorIs(t, statErr, os.ErrNotExist, "a sweep across an index must not pay the heal for rows it does not distill")
+}

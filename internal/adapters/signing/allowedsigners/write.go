@@ -10,7 +10,7 @@ import (
 // FormatEntry renders e as one allowed_signers line, in the exact OpenSSH
 // ALLOWED SIGNERS format `ssh-keygen -Y verify -f allowed_signers` (and this
 // package's own Parse) reads. It is the write half of the format Parse
-// already reads — `ctxloom signer add` is the only production caller, and
+// already reads — `ctxloom signer trust` is the only production caller, and
 // TestFormatEntry_RoundTripsThroughParse verifies Parse(FormatEntry(e))
 // reproduces e's trust-relevant fields.
 //
@@ -99,7 +99,7 @@ func formatOptions(e Entry) string {
 // line (ssh.ParseAuthorizedKey then reads the tail as options and drops the
 // entry) and a comma inside one principal silently becomes TWO principals —
 // a LARGER grant than the confirmation prompt displayed. Both used to be
-// written happily, with `ctxloom signer add` reporting success and a key
+// written happily, with `ctxloom signer trust` reporting success and a key
 // fingerprint for an entry that delivered no trust at all.
 //
 // Validating here rather than at the CLI is deliberate: FormatEntry is the
@@ -167,7 +167,7 @@ func validNamespace(ns string) error {
 // validComment rejects a comment that would break FormatEntry's contract of
 // rendering e as ONE line.
 //
-// Comment arrives from the unvalidated `signer add --comment` flag and was
+// Comment arrives from the unvalidated `signer trust --comment` flag and was
 // written verbatim, so a newline in it emitted a SECOND allowed_signers line
 // — a complete, fully-trusted entry the CLI's confirmation prompt never
 // displayed. Parse splits on "\n", so the injected tail parses as real trust.

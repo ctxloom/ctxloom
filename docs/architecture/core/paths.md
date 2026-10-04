@@ -265,11 +265,19 @@ entries and the current code support, and no more.
   (`Container.sessionStateMounts`, derived from `paths.MountedMembers`) that
   also carry its spool, transcripts and task log. Credentials and config overlays are prepared by the container
   workspace. Nothing is left for a separate manifest to describe.
-- **L6, the cache split: wanted, purpose not recorded.** The split between
-  rebuildable and non-rebuildable local state already exists as `cache/`
-  versus `state/` (`paths.Tier`), and every `cache/` entry names its rebuild
-  command (`paths.Layout`). No surviving design says what a further split of
-  `cache/` would buy, so this entry records the ruling, not a purpose.
+- **L6, the cache split: wanted, so library caches can be shared across
+  implementors.** Fetched library content is cached per project today: the
+  repo clones and bundle worktrees sit under the project's own `cache/`
+  (`paths.ReposCachePath`, and the `cache/` rows of `paths.Layout`), so every
+  project re-fetches and re-stores the same remotes. `paths.Tier` separates
+  rebuildable `cache/` from `state/`, but not project-scoped cache from
+  shareable cache. L6 splits `cache/` so that fetched library content —
+  remote repositories and bundle trees, addressed by repository and commit —
+  lives in a shared, home-scoped cache that every project and implementor
+  (agents, engines, tools) can read, while cache that is genuinely about one
+  project stays in that project. Trust is unaffected: pins and verification
+  stay per project, because the lockfile decides what is read and the shared
+  store only spares the re-fetch.
 
 ## Boundaries
 

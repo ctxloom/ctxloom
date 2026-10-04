@@ -156,7 +156,7 @@ code-signing signature; see [Trusting the Binaries](/getting-started/binary-trus
 ## Signing is never exposed to the agent
 
 Signing and verification are **CLI-only** and are never exposed over MCP. Handing an agent a
-`signer add` capability would defeat the entire property this design exists to provide.
+`signer trust` capability would defeat the entire property this design exists to provide.
 
 ## Practical guidance
 

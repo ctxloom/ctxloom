@@ -24,7 +24,8 @@ ltk version [flags]
 ### Options inherited from parent commands
 
 ```
-      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
+      --format string    Output format: json, yaml, toml, text, or markdown (default "text")
+      --write-upgrades   Persist in-memory upgrades of older-format files (the old file is kept as <file>.bak)
 ```
 
 ### SEE ALSO

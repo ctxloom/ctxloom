@@ -115,7 +115,7 @@ func classifyLine(raw string, lineNo int, tooLong bool) (*Entry, *ParseError) {
 	// A UTF-8 BOM is NOT Unicode whitespace, so TrimSpace leaves it in place
 	// and it is absorbed into the first PRINCIPAL — an entry that still grants
 	// trust (TrustedForNamespace matches on the key) under an identity nothing
-	// can name: TrustedAs never matches it and `signer remove`, which compares
+	// can name: TrustedAs never matches it and `signer untrust`, which compares
 	// principals literally, cannot revoke it. It is cut here only to classify
 	// the line; an entry line carrying one is then reported, never silently
 	// repaired, because matching a principal real ssh-keygen would refuse to

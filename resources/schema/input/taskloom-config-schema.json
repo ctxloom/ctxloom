@@ -7,6 +7,11 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The format generation this file is written in — an integer independent of taskloom's release version. A file without it is generation 0. taskloom reads an older generation by migrating it in memory, leaving the file unchanged unless --write-upgrades is passed (the previous file is then kept beside it with a .bak suffix); a file declaring a generation newer than the running taskloom understands is refused, naming both numbers."
+    },
     "homing": {
       "type": "string",
       "description": "Where the project's task-store log is homed. \"home\" keeps it PRIVATE under ~/.ctxloom/tasks/<project-id>.jsonl (today's default behavior; never committed, never shared by a clone). \"repo\" checks the log into the project tree at .taskloom/tasks.jsonl, alongside this config file, so it is SHAREABLE and travels with clones. Unset (at every layer: this key, the TASKLOOM_CONFIG_HOMING environment variable, and --homing) resolves silently to \"home\" — the pre-homing status quo, a no-op for every existing project. Only an explicitly INVALID value (anything other than \"home\"/\"repo\") is a returned error naming the bad value and the valid set.",

@@ -29,11 +29,11 @@ flowchart TD
   end
   BUF --> MAIN --> PROJ --> PT
   BIND --> PT
-  PT --> GOLD[("schemas/*.json — 7 checked-in goldens")]
+  PT --> GOLD[("schemas/*.json — checked-in goldens")]
   SYN["hand-written synthetic literals<br/>binding.go"] -.->|no derivation| BIND
   subgraph RT["runtime — every runner process"]
     TOOLS["Tools() — go:embed + sync.Once<br/>schemas.go"]
-    ROUTES["Routes() — 16 tools<br/>binding.go"]
+    ROUTES["Routes()<br/>binding.go"]
     COO["CoordinatorOnlyTools() — leaf gate<br/>binding.go"]
     RB["RelayBudget()<br/>binding.go"]
   end
@@ -85,8 +85,9 @@ flowchart TD
 | M6 | Every classified tool must be served by some route, checked at runner startup | `runner/interaction/server.go` |
 
 The drift gate is `just gen-mcp-schemas-check` — regenerate, then
-`git diff --exit-code -- internal/adapters/coordgrpc/mcpschema/schemas` — wired at
-`.github/workflows/ci.yml:187`. `binding_test.go` runs in the unit-test job where
+`git diff --exit-code -- internal/adapters/coordgrpc/mcpschema/schemas` — wired into
+CI as the "Check generated MCP tool schemas are current" step of
+`.github/workflows/ci.yml`. `binding_test.go` runs in the unit-test job where
 regeneration does *not* happen, and catches the two cases `git diff --exit-code`
 structurally cannot: a new untracked golden, and a stale golden for a deleted binding.
 
@@ -122,7 +123,7 @@ structurally cannot: a new untracked golden, and a stale golden for a deleted bi
   side is incidentally covered by `binding_test.go`; the output side is not.
 - **`gen.assertSourceInfo` returns on the first `agentcoord.v1` file it finds with
   source info** (`gen/main.go`), but the package spans **two** `.proto` files
-  (`coordination.proto:188`, `artifacts.proto:66`), so it is an existential check where
+  (both `coordination.proto` and `artifacts.proto` declare `package agentcoord.v1`), so it is an existential check where
   the intent is universal.
 - ~~**The generator can write zero files and exit 0.**~~ — **RESOLVED `20451f26`**
   (U027-F01). The loop is now `generateSchemas()`, which **refuses an empty binding

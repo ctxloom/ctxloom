@@ -28,6 +28,9 @@ func TestOverloadHold_BacksOffThatRunAlone(t *testing.T) {
 	parked := journaled[holdParked](t, f.c, factHoldParked)
 	require.Len(t, parked, 1)
 	assert.Equal(t, "turn", parked[0].Cause)
+	// The hold and its parks are journaled before the finding is raised;
+	// the fold's completion is what orders the finding before this read.
+	f.awaitFolds(t, 1)
 	assert.Equal(t, 1, f.findingsWith("overloaded"), "ONE finding for the backoff: %v", f.findings.All())
 	assert.Zero(t, f.findingsWith("rate limit"), "an overload is not reported as a rate limit")
 

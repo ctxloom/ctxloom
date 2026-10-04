@@ -11,8 +11,9 @@ import (
 // Two carriers, two codecs, no overlap:
 //   - the RUNNER process receives the reach-back trio (EncodeReach);
 //   - the ENGINE process (and its hook subprocesses) receives the two
-//     identity values hooks and taskloom key on (HookEnv), and, from a waived
-//     generation only, EnvSigCheckWaived.
+//     identity values hooks and taskloom key on (HookEnv), from a waived
+//     generation only EnvSigCheckWaived, and for the session owner only
+//     EnvSessionOwner.
 const (
 	// EnvSigCheckWaived carries a session's --disable-sig-check to the
 	// ENGINE's own ctxloom children (owner rulings 2026-10-02), so the whole
@@ -67,6 +68,19 @@ const (
 	// EnvHarp carries the run's session harp to the ENGINE process and its
 	// hook subprocesses; it names the session dir and the spool.
 	EnvHarp = "CTXLOOM_SESSION_HARP"
+	// EnvSessionOwner marks the ENGINE process of the session OWNER — a
+	// human's interactive session, the one recipient no runner delivers mail
+	// to — and no other. The turn-start mail-drain hook (`ctxloom hook
+	// mail-drain`) claims the spool EnvHarp names only under it: a child
+	// engine that loads the same hooks (a trusted repository's own settings
+	// file) carries its OWN harp, and would otherwise claim its own in/ and
+	// race the runner that delivers it. The launch sets it for the owner and
+	// removes it for every other run (launch.markOwner), and every ctxloom
+	// process removes it at start, so nothing a session's engine starts
+	// inherits it through os.Environ().
+	EnvSessionOwner = "CTXLOOM_SESSION_OWNER"
+	// SessionOwnerOn is EnvSessionOwner's value when set.
+	SessionOwnerOn = "1"
 	// EnvProjectID carries the project id the run serves, so a containerized
 	// child's taskloom keys the SAME shared host log.
 	EnvProjectID = "CTXLOOM_PROJECT_ID"

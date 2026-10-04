@@ -14,9 +14,10 @@
 // dials the endpoint the engine's delivered MCP config names, with its bearer
 // (testenv.ConnectMCPEndpoint). No shim process, no discovery path.
 //
-// WHY THE OWNER'S HARP IS EXPORTED TO EVERY LATER PROCESS. A later `ctxloom
-// hook mail-drain` reads the spool the harp on its environment names, and
-// those scenarios assert on the owner's own spool.
+// WHY THE OWNER'S HARP AND MARKER ARE EXPORTED TO EVERY LATER PROCESS. A later
+// `ctxloom hook mail-drain` reads the spool the harp on its environment names,
+// only under the session-owner marker (sessions.EnvSessionOwner), and those
+// scenarios assert on the owner's own spool.
 package acceptance
 
 import (
@@ -134,6 +135,9 @@ func (w *World) standSessionOwnerSelecting(bin string, selection []string, extra
 		return fmt.Errorf("session owner: %w; output:\n%s", err, sess.Output())
 	}
 	w.env.SetChildEnv("CTXLOOM_SESSION_HARP", owner.harp)
+	// A later `ctxloom hook mail-drain` stands in for the OWNER's engine, which
+	// its launch marks; without the marker the hook leaves the spool alone.
+	w.env.SetChildEnv(sessions.EnvSessionOwner, sessions.SessionOwnerOn)
 	return nil
 }
 

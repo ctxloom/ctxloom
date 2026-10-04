@@ -266,7 +266,9 @@ Reading it:
 - **The owner's inbox** is read by its turn-start hook, `ctxloom hook mail-drain`
   (`spool.Claim`, then `spool.Deliver` once the context is written). Its runner reads
   nothing from it: a sweep only fires the owner's wake (`Home.wakeOwner`), which
-  starts the turn the hook runs in.
+  starts the turn the hook runs in. The hook claims only under the session-owner
+  marker (`sessions.EnvSessionOwner`) the owner's launch alone carries, so a child
+  engine that fires the same hook leaves its own `in/` to its runner.
 - **The ack** is `spool.Deliver`: record the identity in `in/delivered/`, then
   delete the file — the runner's after the engine accepted the turn
   (`Home.ackMailConsumed`), the hook's after it wrote the context. A crash

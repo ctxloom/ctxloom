@@ -120,3 +120,17 @@ func TestSpawner_AWaivedChildStillRefusesWhenTheApprovalsStoreIsUnreadable(t *te
 	assert.False(t, v.Allow, "a store fault is not the signature step, so the waiver does not reach it")
 	assert.Equal(t, bundles.ReasonRecordsUnreadable, v.Reason)
 }
+
+// tacky-carload: a delegated child's mail is its runner's to deliver, so the
+// child launched through the real spawn path never carries the session-owner
+// marker the turn-start mail-drain hook requires — even when the coordinator
+// that spawns it was itself started under the owner's marker.
+func TestSpawner_ADelegatedChildNeverCarriesTheSessionOwnerMarker(t *testing.T) {
+	t.Setenv(sessions.EnvSessionOwner, sessions.SessionOwnerOn)
+	s, appDir := sigCheckSpawner(t)
+
+	_, resolved, _ := delegate(t, s, filepath.Dir(appDir))
+
+	assert.NotContains(t, resolved.Launch.EngineEnv(), sessions.EnvSessionOwner)
+	assert.NotContains(t, resolved.Launch.Cell.Env, sessions.EnvSessionOwner)
+}

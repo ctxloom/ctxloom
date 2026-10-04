@@ -1191,17 +1191,26 @@ func (c *Config) ProfileRemoteURLResolver() func(string) string {
 }
 
 // ParseConfig unmarshals raw YAML into a Config WITHOUT overlaying the embedded
-// default registry. Unlike Load it does not read from disk, validate, upgrade,
-// or merge defaults — callers that need the raw registry entries (e.g. init
-// reading the shipped default-config) use this so the role markers and exact
-// entries survive untouched.
+// default registry. Unlike Load it does not read from disk, schema-validate,
+// upgrade, or merge defaults; callers that need the raw registry entries (e.g.
+// init reading the shipped default-config) use this so the role markers and
+// exact entries survive untouched. It does record a retired key as the same
+// unknown-key warning Load would (retiredKeyWarnings).
 func ParseConfig(data []byte) (*Config, error) {
 	cfg := &Config{
 		lm: LMConfig{Configs: make(map[string]LLMConfig)},
 	}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
+	if len(root.Content) == 0 {
+		return cfg, nil
+	}
+	if err := root.Content[0].Decode(cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	cfg.warnings = append(cfg.warnings, retiredKeyWarnings(root.Content[0], parsedDocumentSource)...)
 	return cfg, nil
 }
 

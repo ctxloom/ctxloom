@@ -25,44 +25,13 @@ import (
 // those violations into the diagnostic the fail-loudly model promises: the
 // offending key by its DOTTED PATH, the fact that ctxloom ignored it, the
 // near-miss key it probably meant, and — for a key a past schema generation
-// RETIRED — the key that replaced it.
+// RETIRED — the key that replaced it (config.RetiredKeyMessage).
 //
 // Ordering matters and is owned by loadConfigFile: validation (and therefore
 // this classification) runs AFTER the upgrade pipeline, so a key an older config
 // still legitimately carries is migrated forward first and never reaches here.
 // Only a key that survives migration — i.e. one the current schema truly does
 // not know — is reported.
-
-// retiredKeys maps a dotted config path that a schema generation RETIRED to the
-// guidance that names its replacement. These fire only when the migrator did NOT
-// rewrite the key — i.e. the document already claims a version at or above the
-// migration that would have moved it, which is exactly the "copied a stale doc
-// into a current config" case.
-var retiredKeys = map[string]string{
-	"profiles": "the `profiles:` block was RETIRED: a profile is a file — move each definition to " +
-		"`.ctxloom/profiles/<name>.yaml`, keeping its body verbatim (every field is spelled the same). " +
-		"The default context is whatever the default AGENT composes: `default_agent: <name>` and " +
-		"`agents.<name>.profiles: [...]`",
-	"defaults":       "the top-level `defaults` bag was RETIRED: use `llm.defaults.primary` / `llm.defaults.fast` for models, and `default_agent` for the default context",
-	"llm.plugins":    "`llm.plugins` was RENAMED to `llm.configs`",
-	"llm.default":    "`llm.default` was REPLACED by `llm.defaults.primary`",
-	"llm.compaction": "`llm.compaction` was REPLACED by `llm.defaults.fast`",
-	"subagents":      "`subagents` was RENAMED to `agents`",
-	// Deliberately NOT migrated into the state record: a value from a
-	// committed, env-overridable file is not a human's consent, so the old
-	// grant is dropped (fails closed) and the user is told how to re-grant.
-	// No migration: a base Containerfile has no isolation_base value to
-	// become, so the user re-homes it by hand.
-	"isolation_devcontainer_base": "`isolation_devcontainer_base` was REPLACED by `isolation_base`: " +
-		"`isolation_devcontainer_base: false` becomes `isolation_base: ctxloom`; delete it otherwise " +
-		"(an unset isolation_base already uses a detected devcontainer)",
-	"isolation_base_containerfile": "`isolation_base_containerfile` was REPLACED by `isolation_base: ctxloom | devcontainer | <image ref>`: " +
-		"move the Containerfile into the project devcontainer (`ctxloom container scaffold` writes one) " +
-		"or build it and name the image, then delete this key",
-	"dirty_tree_commit_ack": "`dirty_tree_commit_ack` was RETIRED: the consent is no longer a config key, and a value here " +
-		"grants nothing. Re-grant it for this checkout with `ctxloom manage commit trust`, " +
-		"or answer the dirty-tree question in `ctxloom init`",
-}
 
 // additionalPropsRe extracts the offending key names from a jsonschema
 // additionalProperties violation ("additionalProperties 'a', 'b' not allowed").
@@ -216,12 +185,11 @@ func unknownKeyMessage(configPath, instanceLocation, key string, validator *sche
 		path = section + "." + key
 	}
 
+	if msg, ok := config.RetiredKeyMessage(path, configPath); ok {
+		return msg
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "unknown key `%s` in %s: ctxloom does not know it, so it is IGNORED", path, configPath)
-	if hint, ok := retiredKeys[path]; ok {
-		fmt.Fprintf(&b, " — %s", hint)
-		return b.String()
-	}
 
 	// This used to re-walk the RAW schema JSON by hand
 	// (configSchemaDocument/knownKeysAt) and get it wrong the moment the

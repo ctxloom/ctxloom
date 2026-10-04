@@ -634,7 +634,7 @@ test-integration-run PATTERN: build _ensure-gotmpdir
 # The report exists specifically so a run tells you what it covered even when
 # it passes; that only works if it is actually visible.
 # -timeout 30m is HEADROOM FOR MACHINE LOAD, not evidence the suite is slow.
-# Measured on one box, same 515 scenarios, same commit:
+# Measured on one box, same scenarios, same commit:
 #     IDLE            179s   (0.35 s/scenario)
 #     load avg 12-16  1200s  (2.33 s/scenario)   — 6.7x penalty
 # So the suite fits inside go test's 600s DEFAULT with room to spare when the
@@ -1100,7 +1100,7 @@ plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
 # path whose entire purpose IS the tagged suite, alongside the build case
 # below that already special-cases it. It demands the tag AND a -run filter:
 # the tag because otherwise the suite is invisible, and -run because a tagged
-# unfiltered run drives all 515 scenarios (179s idle, 1200s under load) and
+# unfiltered run drives every scenario (179s idle, 1200s under load) and
 # this recipe is the narrow iteration loop, not `just test-acceptance`.
 # It refuses BEFORE the build below, so a wrong invocation no longer pays
 # ~13s to still run no scenarios.

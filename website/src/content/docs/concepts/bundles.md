@@ -8,9 +8,9 @@ A **bundle** collects that content (fragments, commands, skills, MCP server conf
 
 ## Bundle Structure
 
-Local bundles are stored under `.ctxloom/content/bundles/v2/`. `ctxloom bundle create`
-writes a single `<name>.yaml`; a bundle can also be a `<name>/` directory holding
-a `bundle.yaml` and its items as files beside it. That directory is committed — it's the content your project publishes, and it's
+Local bundles are stored under `.ctxloom/content/bundles/v2/`. Each bundle is a
+`<name>/` directory holding a `bundle.yaml` and its items as files beside it —
+`ctxloom bundle create` writes exactly that. That directory is committed — it's the content your project publishes, and it's
 what `ctxloom bundle sign --all` signs — unlike `.ctxloom/cache/`, which is
 gitignored and holds only regenerable, remote-pulled artifacts.
 

@@ -91,11 +91,17 @@ func newPending(now time.Time, delay, window time.Duration) pending {
 // SAME command have the same shape: each reads "armed and ready" before any of
 // them clears, so one confirmation admits several runs.
 //
-// This is not currently prevented; race_test.go pins both directions so the
-// claim is maintained by the suite rather than asserted here. It is bounded by
-// what the mechanism is for — an escape hatch whose cost is a deliberate
-// repeat, not a security control — but "the user consented once and ltk acted
-// on it twice" is a real gap, not a documented safety property.
+// This gap is ACCEPTED, not prevented, and the acceptance is conditional on
+// one invariant: no override window may exceed rules.MaxConfirmWindowSeconds,
+// which rules.Parse enforces by refusing any config whose effective confirm
+// window is longer. Every resurrected or over-admitted override is still
+// bounded by the Expiry Arm stamped on it, so the cap bounds how long a spent
+// confirmation can keep admitting runs. "The user consented once and ltk acted
+// on it twice" remains possible inside that bound — it is a bounded gap in an
+// escape hatch, not a security control or a safety property. Lifting the cap
+// voids the acceptance: close the race (a lock or a delta-merged Save) first.
+// race_test.go pins both directions so the claim is maintained by the suite
+// rather than asserted here.
 type Store struct {
 	fs      afero.Fs
 	path    string

@@ -323,7 +323,11 @@ holds.
 
 The confirm window comes from `defaults.repeat_window_seconds` or a per-rule
 `window_seconds`. A `confirm` rule with no effective window can never be
-satisfied, so it is rejected at load rather than left to mislead you.
+satisfied, so it is rejected at load rather than left to mislead you. The
+effective window may not exceed 30 seconds (`rules.MaxConfirmWindowSeconds`);
+a longer one is refused at load, never silently shortened. The cap bounds how
+long a confirmation can outlive its use: concurrent hook invocations can
+resurrect a spent override, but never past its original window.
 
 `confirm` is defeatable by design — the agent that produced the command can
 reproduce it, and a repeat is faster than complying, which is exactly why an agent
@@ -338,7 +342,7 @@ delay gets a sharper rebuke and does not reset the timer.
   match: { command: [go, test] }
   mode: confirm
   delay_seconds: 10   # ignore an immediate repeat; honor one after 10s
-  window_seconds: 60  # …up to 60s after the first denial
+  window_seconds: 30  # …up to 30s after the first denial (the maximum)
   message: "Run tests through the task runner."
   suggest: "just test"
 ```

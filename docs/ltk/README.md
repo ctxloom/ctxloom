@@ -282,7 +282,9 @@ wins; its `message`/`suggest` is returned to the model. Each rule has a `mode`
 (default `enable`): `enable` is a firm denial, `disable` keeps the rule but turns
 it off, and `confirm` lets the agent proceed by re-running the exact command
 within `defaults.repeat_window_seconds` (or a per-rule `window_seconds`) — an
-explicit, time-boxed escape hatch, not a security control. A `confirm` rule can
+explicit, time-boxed escape hatch, not a security control. The effective window
+may not exceed `rules.MaxConfirmWindowSeconds` (30 seconds): a config asking for
+more is refused at load, never clamped. A `confirm` rule can
 add `delay_seconds` to *ignore* an immediate repeat until N seconds pass — this
 removes the "repeating is quicker than complying" incentive and blocks the
 reflexive instant retry (see [Rule mode](https://ctxloom.dev/ltk/rules/#rule-mode)).

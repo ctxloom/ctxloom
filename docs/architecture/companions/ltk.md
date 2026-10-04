@@ -398,8 +398,12 @@ The package is explicit that this is "an escape hatch, not a security control"
 (`state.go:5-7`, `confirm.go:24-25`). `ConfirmByRepeat` calls `st.Save(now)` at three sites
 (`confirm.go:34`, `:39`, `:46`) and discards the error at all three, so a persistence failure
 leaves the model holding a promise ("run the same command again within Ns") that can never be
-redeemed. `Store`'s race note (`state.go:33-37`) analyses a lost *Arm* (safe: re-deny, re-arm)
-but not a lost *Clear*, which can resurrect a consumed one-time override.
+redeemed. `Store`'s doc comment analyses both directions of its read-modify-write race: a lost
+*Arm* is safe (re-deny, re-arm), a lost *Clear* can resurrect a consumed override or let one
+confirmation admit several runs (`race_test.go` pins both). That gap is accepted only because
+the window is capped: `rules.Parse` refuses any config whose effective confirm window exceeds
+`rules.MaxConfirmWindowSeconds` (`ErrConfirmWindowTooLong`), so a resurrected override still
+expires within that bound. Raising the cap means closing the race first.
 
 ---
 

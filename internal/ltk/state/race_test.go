@@ -7,10 +7,9 @@ import (
 	"github.com/spf13/afero"
 )
 
-// These tests hold Store's documented race analysis to the code. Store's
-// comment used to say a lost read-modify-write "fails safe — the denial just
-// repeats and re-arms". That is true in one direction only, and the tests
-// below are the two directions side by side. They are deterministic by
+// These tests hold Store's documented race analysis to the code. A lost
+// read-modify-write "fails safe — the denial just repeats and re-arms" in one
+// direction only, and the tests below are the two directions side by side. They are deterministic by
 // construction — two Stores opened over one file, saved in a chosen order —
 // because a green -race run proves nothing about a race that did not happen to
 // interleave (and this one is a lost UPDATE, which the detector cannot see at

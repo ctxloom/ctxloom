@@ -466,17 +466,14 @@ message Axes {
 }
 
 // Cell is launch.Cell: the prepared place the run happens in. The roots
-// carry BOTH sides (host and engine) and the mounts that made the engine
-// side true, so the runner inside a container opens engine paths without
-// translating anything. The cell's process-local handles (Cleanup, Handle)
-// do not cross.
+// carry BOTH sides (host and engine), so the runner inside a container opens
+// engine paths without translating anything; the project root is the
+// workspace. The cell's process-local handles (Cleanup, Handle) do not cross.
 message Cell {
-  // A container half was never produced: the Environment owns the runtime.
-  reserved 6;
-  reserved "container";
+  // The Environment owns the runtime and its mounts; neither crosses.
+  reserved 2, 3, 6;
+  reserved "mounts", "workspace", "container";
   Paths paths = 1;
-  repeated Mount mounts = 2;
-  string workspace = 3;
   map<string, string> env = 4;
   repeated HomeBinding home = 5;
   // Variables the engine's process must NOT inherit (launch.Cell.Unset): the
@@ -511,12 +508,6 @@ message Paths {
 message Root {
   string host = 1;
   string engine = 2;
-}
-
-// Mount is present.Mount.
-message Mount {
-  string host_dir = 1;
-  string target_dir = 2;
 }
 
 // HomeBinding is engine.HomeBinding: one home var resolved to its path.

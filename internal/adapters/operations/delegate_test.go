@@ -814,7 +814,7 @@ func TestStartEngine_CellWithoutTransportRefusesInsteadOfPanicking(t *testing.T)
 	l := launch.Launch{
 		Identity: sessions.Identity{Harp: "coder"},
 		Engine:   "mock",
-		Cell:     launch.Cell{Workspace: t.TempDir(), Cleanup: func() error { return nil }},
+		Cell:     launch.Cell{Cleanup: func() error { return nil }},
 	}
 	proc, serr := StartEngine(context.Background(), l, nil, 0, nil)
 	require.Error(t, serr, "StartEngine must refuse a launch it has no transport for, not panic")

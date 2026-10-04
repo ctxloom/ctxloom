@@ -26,7 +26,7 @@ func TestPreviewCells_SessionHomeIsTheOneRule(t *testing.T) {
 	for _, name := range []engine.Name{"claude-code", "mock"} {
 		eng, ok := engines.Registry().Lookup(name)
 		require.True(t, ok, "%s is registered", name)
-		for _, mode := range []launch.HomeMode{launch.HomeModeSession, launch.HomeModeHost} {
+		for _, mode := range []agents.HomeMode{agents.HomeModeSession, agents.HomeModeHost} {
 			cell, err := cells.Prepare(context.Background(), launch.CellRequest{
 				Axes:     launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost},
 				Engine:   eng,

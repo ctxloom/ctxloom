@@ -55,7 +55,7 @@ func claudeKind(t *testing.T) launch.CellRequest {
 		Axes:     launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost},
 		Engine:   eng,
 		Identity: sessions.Identity{Harp: "test-harp"},
-		HomeMode: launch.HomeModeHost,
+		HomeMode: agents.HomeModeHost,
 		Auth:     engine.AuthToken, // the resolver always settles one (launch.RunAuth)
 		Env:      map[string]string{sessions.EnvHarp: "test-harp"},
 	}
@@ -81,7 +81,7 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 	prepared, ok := EnvironmentOf(cell)
 	require.True(t, ok)
 	require.Equal(t, "worktree", prepared.Describe().Workspace, "a git repo + worktree axis must resolve a worktree, not degrade to none")
-	require.NotEqual(t, repo, cell.Workspace, "the resolved workspace must be a distinct worktree checkout, not the shared project dir")
+	require.NotEqual(t, repo, cell.Paths.Paths().ProjectRoot.Host, "the resolved workspace must be a distinct worktree checkout, not the shared project dir")
 
 	require.Contains(t, cell.Env, "TMPDIR", "the per-agent toolchain scratch dir")
 	require.Contains(t, cell.Env, "GIT_AUTHOR_NAME", "the per-agent git identity")
@@ -94,7 +94,7 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 }
 
 func TestCellsPrepare_SessionHome(t *testing.T) {
-	prepare := func(t *testing.T, workDir string, home launch.HomeMode, workspace launch.WorkspaceAxis, harp string) launch.Cell {
+	prepare := func(t *testing.T, workDir string, home agents.HomeMode, workspace launch.WorkspaceAxis, harp string) launch.Cell {
 		t.Helper()
 		req := claudeKind(t)
 		req.ProjectRoot = workDir
@@ -114,7 +114,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 		resetStrictness(t)
 		fakeHostHome(t, "login") // the login agent's shared store, present on the host
 		workDir := t.TempDir()
-		cell := prepare(t, workDir, launch.HomeModeSession, launch.WorkspaceNone, "test-harp")
+		cell := prepare(t, workDir, agents.HomeModeSession, launch.WorkspaceNone, "test-harp")
 
 		want := claudeInstanceDir(t, workDir, "test-harp")
 		assert.Equal(t, want, cell.Env[claude.ConfigDirEnv])
@@ -131,7 +131,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 		resetStrictness(t)
 		fakeHostHome(t, "login")
 		workDir := t.TempDir()
-		cell := prepare(t, workDir, launch.HomeModeHost, launch.WorkspaceNone, "test-harp")
+		cell := prepare(t, workDir, agents.HomeModeHost, launch.WorkspaceNone, "test-harp")
 
 		assert.NotContains(t, cell.Env, claude.ConfigDirEnv, "a host engine_home must keep the real ~/.claude")
 		assert.Empty(t, cell.Home)
@@ -144,7 +144,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 		workDir := t.TempDir()
 		homes := map[string]string{}
 		for _, harp := range []string{"ugly-icy-squid", "brave-warm-otter"} {
-			cell := prepare(t, workDir, launch.HomeModeSession, launch.WorkspaceNone, harp)
+			cell := prepare(t, workDir, agents.HomeModeSession, launch.WorkspaceNone, harp)
 			got := cell.Env[claude.ConfigDirEnv]
 			require.NotEmpty(t, got, "%s: the controlled home must be contributed", harp)
 			homes[harp] = got
@@ -169,12 +169,12 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 		if trusted {
 			trustRepoOnHost(t, home, repo)
 		}
-		cell := prepare(t, repo, launch.HomeModeSession, launch.WorkspaceWorktree, "test-harp")
+		cell := prepare(t, repo, agents.HomeModeSession, launch.WorkspaceWorktree, "test-harp")
 
 		env, ok := EnvironmentOf(cell)
 		require.True(t, ok)
 		require.Equal(t, "worktree", env.Describe().Workspace, "the worktree axis must not have degraded")
-		require.NotEqual(t, repo, cell.Workspace)
+		require.NotEqual(t, repo, cell.Paths.Paths().ProjectRoot.Host)
 		want := claudeInstanceDir(t, repo, "test-harp")
 		assert.Equal(t, want, cell.Env[claude.ConfigDirEnv],
 			"the worktree cell's home is the session instance under the PROJECT root, exactly as on the live tree")
@@ -184,7 +184,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 		var cfg map[string]any
 		require.NoError(t, json.Unmarshal(raw, &cfg))
 		projects, _ := cfg["projects"].(map[string]any)
-		entry, _ := projects[cell.Workspace].(map[string]any)
+		entry, _ := projects[cell.Paths.Paths().ProjectRoot.Host].(map[string]any)
 		return entry
 	}
 
@@ -232,7 +232,7 @@ func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing
 	workDir := t.TempDir()
 	req := claudeKind(t)
 	req.ProjectRoot = workDir
-	req.HomeMode = launch.HomeModeSession
+	req.HomeMode = agents.HomeModeSession
 	req.Auth = engine.AuthToken
 	req.Identity = sessions.Identity{Harp: harpA, Depth: 1}
 	req.Env = map[string]string{sessions.EnvHarp: harpA}
@@ -270,7 +270,7 @@ func TestCellsPrepare_ASpawnedRunWithNoTokenIsRefusedDespiteTheHumansLogin(t *te
 			t.Setenv("PATH", t.TempDir())
 			req := claudeKind(t)
 			req.ProjectRoot = t.TempDir()
-			req.HomeMode = launch.HomeModeSession
+			req.HomeMode = agents.HomeModeSession
 			req.Identity = id
 			req.Auth = launch.RunAuth(id, engine.AuthLogin)
 			req.Env = map[string]string{sessions.EnvHarp: harpA}
@@ -293,7 +293,7 @@ func TestCellsPrepare_WithNoTokenExportedIsRefused(t *testing.T) {
 
 	req := claudeKind(t)
 	req.ProjectRoot = t.TempDir()
-	req.HomeMode = launch.HomeModeSession
+	req.HomeMode = agents.HomeModeSession
 	req.Auth = engine.AuthToken
 	req.Identity = sessions.Identity{Harp: harpA, Depth: 1}
 	req.Env = map[string]string{sessions.EnvHarp: harpA}
@@ -340,7 +340,7 @@ func TestCellsPrepare_HostHomeAppliesTheDeclaredAuth(t *testing.T) {
 	prepare := func(t *testing.T) (launch.Cell, error) {
 		req := claudeKind(t)
 		req.ProjectRoot = t.TempDir()
-		req.HomeMode = launch.HomeModeHost
+		req.HomeMode = agents.HomeModeHost
 		req.Identity = sessions.Identity{Harp: harpA}
 		req.Env = map[string]string{sessions.EnvHarp: harpA}
 		req.SessionDir = harpDir(t, harpA)
@@ -377,7 +377,7 @@ func TestCellsPrepare_AnEngineThatRelocatesNothingGetsTheRulesSessionHome(t *tes
 	eng, ok := engines.Registry().Lookup("mock")
 	require.True(t, ok)
 	require.False(t, eng.Home().Relocates(), "the case needs an engine that relocates nothing")
-	for _, mode := range []launch.HomeMode{launch.HomeModeSession, launch.HomeModeHost} {
+	for _, mode := range []agents.HomeMode{agents.HomeModeSession, agents.HomeModeHost} {
 		resetStrictness(t)
 		fakeHostHome(t, "")
 		req := claudeKind(t)
@@ -535,7 +535,7 @@ func TestCellsPrepare_APreviewResolvesCredentialsReadOnly(t *testing.T) {
 			Axes:        launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost},
 			Engine:      eng,
 			Identity:    sessions.Identity{Harp: harpA},
-			HomeMode:    launch.HomeModeHost,
+			HomeMode:    agents.HomeModeHost,
 			ProjectRoot: t.TempDir(),
 			SessionDir:  harpDir(t, harpA),
 			Auth:        engine.AuthToken,

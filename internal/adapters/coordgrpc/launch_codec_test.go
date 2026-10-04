@@ -123,11 +123,11 @@ func TestDecodeLaunch_AnUnsetVerdictIsUntrusted(t *testing.T) {
 // — a runner built from one branch reads field 8 as whatever its own .proto
 // says field 8 is. Branches adding fields in parallel each reach for the
 // next free number, and renumbering one on merge is only safe while nothing
-// has shipped; this pins the whole set and the reserved hole by name, so a
+// has shipped; this pins the whole set and the reserved holes, so a
 // renumbering or reuse fails here instead of misreading bytes in production.
 func TestCell_WireFieldNumbersArePinned(t *testing.T) {
 	want := map[protoreflect.Name]protoreflect.FieldNumber{
-		"paths": 1, "mounts": 2, "workspace": 3, "env": 4, "home": 5,
+		"paths": 1, "env": 4, "home": 5,
 		"unset_env": 7, "env_host": 8, "secret_files": 9,
 	}
 	desc := (&pb.Cell{}).ProtoReflect().Descriptor()
@@ -137,7 +137,9 @@ func TestCell_WireFieldNumbersArePinned(t *testing.T) {
 		got[f.Name()] = f.Number()
 	}
 	require.Equal(t, want, got)
-	require.True(t, desc.ReservedRanges().Has(6), "6 is the retired container half's number; reusing it would misread old bytes")
+	for _, n := range []protoreflect.FieldNumber{2, 3, 6} {
+		require.True(t, desc.ReservedRanges().Has(n), "%d is a retired field's number (mounts, workspace, the container half); reusing it would misread old bytes", n)
+	}
 }
 
 // TestCell_EnvHostAndSecretFilesCrossTheWireTogether: the two newest cell

@@ -115,7 +115,7 @@ func selectWithHome(cfg *config.Config, src Source) (selection, error) {
 		return selection{}, err
 	}
 	if sel.homeMode == "" {
-		sel.homeMode = HomeModeSession
+		sel.homeMode = agents.HomeModeSession
 	}
 	return sel, nil
 }
@@ -294,7 +294,7 @@ type selection struct {
 	llm         string
 	runtime     string
 	permissions agents.Permissions
-	homeMode    HomeMode
+	homeMode    agents.HomeMode
 	envHost     agents.EnvHost
 	surfaces    map[string]string
 	roots       map[string]string
@@ -327,12 +327,9 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		}
 		return selection{}, fmt.Errorf("%w: %q (declare it with `ctxloom agent set %s`, or `ctxloom agent default <name>` for a bare launch)", ErrNoAgent, name, name)
 	}
-	home, err := parseHomeMode(binding.HomeMode)
-	if err != nil {
-		if !degraded {
-			return selection{}, fmt.Errorf("agent %q: %w", name, err)
-		}
-		home = HomeModeSession
+	home, err := agents.ParseHomeMode(strings.TrimSpace(binding.HomeMode))
+	if err != nil && !degraded {
+		return selection{}, fmt.Errorf("agent %q: %w", name, err)
 	}
 	envHost := binding.HostEnv()
 	if err := envHost.Validate(); err != nil {
@@ -349,20 +346,6 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		surfaces:    maps.Clone(binding.Surfaces),
 		roots:       maps.Clone(binding.Roots),
 	}, nil
-}
-
-// parseHomeMode is the one conversion of the binding's `engine_home`
-// spelling; empty is the session default, "host" is the unsafe selection
-// of the real home, an unknown spelling is refused.
-func parseHomeMode(s string) (HomeMode, error) {
-	switch HomeMode(strings.TrimSpace(s)) {
-	case "", HomeModeSession:
-		return HomeModeSession, nil
-	case HomeModeHost:
-		return HomeModeHost, nil
-	default:
-		return "", fmt.Errorf("unknown engine_home %q (known: %s|%s)", s, HomeModeHost, HomeModeSession)
-	}
 }
 
 // selectEngine maps the label to a composed engine: a configured entry's

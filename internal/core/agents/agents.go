@@ -212,7 +212,7 @@ func HomeModeNames() []string {
 // (empty) and unrecognized both default to the controlled session home, so
 // the real home is reached only by an explicit "host".
 //
-// One function, two callers, deliberately — the SAME shape ValidateDriving
+// One function for both edges, deliberately — the SAME shape ValidateDriving
 // has for the same reason. The agent WRITE path (operations.SetAgent) calls
 // it so a typo is refused by the command that set it and nothing is
 // persisted; the RESOLVE path (operations.resolveAgentBinding) calls it so a

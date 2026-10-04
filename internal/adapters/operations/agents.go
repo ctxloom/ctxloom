@@ -685,7 +685,7 @@ type ResolvedAgent struct {
 	// never empty, whatever the binding declared (agents.ParseHomeMode's
 	// undeclared/unresolvable → session default already applied). It is
 	// the value `agent show` reports; the launch resolver reads the same
-	// declaration off the binding itself (launch.HomeMode on the
+	// declaration off the binding itself (agents.HomeMode on the
 	// CellRequest) and the cells adapter threads it into the environment's
 	// Spec (isolation.SpecBuilder.Home) — a launch with NO binding gets the session
 	// home by the resolver's own default, not by this field's value.

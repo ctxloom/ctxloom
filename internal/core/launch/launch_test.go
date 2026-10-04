@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -178,7 +179,19 @@ func TestRebindEndpoint_MintsANewAddressOnly(t *testing.T) {
 	require.Equal(t, first.Engine, rebound.Engine)
 	require.Equal(t, first.Prompt, rebound.Prompt)
 	require.Equal(t, first.Plan, rebound.Plan)
-	require.Equal(t, first.Cell.Workspace, rebound.Cell.Workspace)
+	require.Equal(t, first.Cell.Paths, rebound.Cell.Paths)
+}
+
+// TestLaunch_WorkDirReadsTheProjectRootSideItsReaderSees: a relocated project
+// root has two sides. The engine is started in the side IT sees; the delivery
+// writer works in the side the writing process opens (Mapped.Host — which the
+// runner has already rewritten to the engine side before it delivers).
+func TestLaunch_WorkDirReadsTheProjectRootSideItsReaderSees(t *testing.T) {
+	l := launch.Launch{Cell: launch.Cell{Placement: launch.Placement{Paths: present.Advised(present.Paths{
+		ProjectRoot: present.Root{Host: "/host/proj", Engine: "/work"},
+	})}}}
+	assert.Equal(t, "/work", l.Session().WorkDir, "the engine's cwd is the project as the engine sees it")
+	assert.Equal(t, "/host/proj", l.Loadout(composite.Package{}).WorkDir, "delivery writes where the writing process opens the project")
 }
 
 // TestLaunch_Session_IsTheOnlyProjection: Session() carries what the engine
@@ -191,7 +204,7 @@ func TestLaunch_Session_IsTheOnlyProjection(t *testing.T) {
 	require.Equal(t, l.Identity, s.Identity)
 	require.Equal(t, l.Label, s.Label)
 	require.Equal(t, l.Permission, s.Permission)
-	require.Equal(t, l.Cell.Workspace, s.WorkDir)
+	require.Equal(t, l.Cell.Paths.Paths().ProjectRoot.Engine, s.WorkDir)
 	require.Equal(t, l.Cell.Paths.Paths(), s.Roots)
 	require.Equal(t, l.MCP, s.MCP)
 	require.Equal(t, "hello", s.Prompt)

@@ -95,7 +95,7 @@ func TestLaunchDiscovery_LaunchesTheInterviewInItsOwnSessionHome(t *testing.T) {
 		"session home %q must be under the session's own dir %q", home, sessionDir)
 	assert.False(t, strings.HasPrefix(home, project+string(filepath.Separator)),
 		"session home %q must not be inside the project %q", home, project)
-	assert.Equal(t, project, captured.Cell.Workspace, "the interview works in the project")
+	assert.Equal(t, project, captured.Cell.Paths.Paths().ProjectRoot.Host, "the interview works in the project")
 
 	// The interview is context-free BY DECLARATION (an internal source: the
 	// setup prompt is the whole brief), so the one static surface it carries

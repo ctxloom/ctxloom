@@ -246,6 +246,11 @@ func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing
 	assert.Equal(t, tokenFixture, cell.Env[claude.OAuthTokenEnv], "the agent's mode resolved to the exported token")
 	assert.NotContains(t, cell.Env, claude.APIKeyEnv)
 	assert.Contains(t, cell.Unset, claude.APIKeyEnv, "the shell's key is unset: the declared mode decides")
+	// What a restart re-resolves: the source's variables, read again from the
+	// same environment, give the fingerprint the launch recorded.
+	assert.NotEmpty(t, cell.CredentialFingerprint)
+	assert.NotContains(t, cell.CredentialFingerprint, tokenFixture)
+	assert.Equal(t, cell.CredentialFingerprint, engine.EnvFingerprint(cell.Credential.EnvVars, os.LookupEnv))
 	assert.NoFileExists(t, filepath.Join(cell.Env[claude.ConfigDirEnv], ".credentials.json"))
 	assert.NoDirExists(t, ownerHome, "the owner's session home is never consulted")
 }

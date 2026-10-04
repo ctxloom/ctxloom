@@ -252,7 +252,13 @@ type Cell struct {
 	// one refusal parks them together. Local to the launching process, like
 	// HomeMode: the coordinator reads it, the runner never needs it.
 	Credential engine.CredentialSource
-	Cleanup    func() error
+	// CredentialFingerprint is the captured credential's one-way digest
+	// (engine.Credentials.Fingerprint), "" when none was captured. Local to
+	// the launching process, like Credential: a refused credential's hold
+	// keeps it, so a restarted coordinator can tell a re-authenticated
+	// environment from the one that was refused.
+	CredentialFingerprint string
+	Cleanup               func() error
 	// Handle is what the cells adapter keeps to START a process in this cell:
 	// the prepared environment itself, opaque to core and read back only by
 	// the adapter that made it.

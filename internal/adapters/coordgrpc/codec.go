@@ -850,6 +850,8 @@ func RunsSnapshotToWire(s coord.RunsSnapshot) *agentcoordpb.ListRunsResult {
 			ParentRunId:    r.ParentRunID,
 			PermissionMode: r.PermissionMode,
 			McpServers:     r.MCPServers,
+			Cause:          r.Cause,
+			Detail:         r.Detail,
 			Hold:           runHoldToWire(r.Hold),
 		})
 	}

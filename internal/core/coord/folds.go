@@ -384,6 +384,13 @@ type RosterEntry struct {
 	State            string `json:"state"`
 	Parent           string `json:"parent,omitempty"`
 	LastActivityUnix int64  `json:"last_activity_unix,omitempty"`
+	// Cause and Detail are the harp's current run's terminal cause (a Cause*
+	// constant) and its human-readable detail — the run-ended fact's, so an
+	// ended child says WHY it ended (a launch failure or a lost runner is not
+	// a clean finish). Empty until the current run ends; a later run of the
+	// same harp starts a fresh entry without them.
+	Cause  string `json:"cause,omitempty"`
+	Detail string `json:"detail,omitempty"`
 	// Hold is the hold parking the harp's current run — a turn failure's, or
 	// a pause (nil when none does). It is holdsFold's, joined by Coordinator.Roster; this
 	// fold never sets it.
@@ -433,7 +440,9 @@ func (f *rosterFold) apply(fact Fact) {
 		if fact.decode(&p) != nil {
 			return
 		}
-		f.touch(p.RunID, StateEnded, fact.At)
+		if e := f.touch(p.RunID, StateEnded, fact.At); e != nil {
+			e.Cause, e.Detail = p.Cause, p.Detail
+		}
 	case factRunReaped:
 		var p runReaped
 		if fact.decode(&p) != nil {
@@ -453,15 +462,20 @@ func (f *rosterFold) apply(fact Fact) {
 	}
 }
 
-func (f *rosterFold) touch(runID, state string, at time.Time) {
+// touch moves the harp's entry to state and returns it — nil when runID is not
+// the harp's current run, since a superseded attempt no longer drives the
+// roster.
+func (f *rosterFold) touch(runID, state string, at time.Time) *RosterEntry {
 	harp, ok := f.byRun[runID]
 	if !ok || f.current[harp] != runID {
-		return // a superseded attempt no longer drives the roster
+		return nil
 	}
-	if e := f.entries[harp]; e != nil {
+	e := f.entries[harp]
+	if e != nil {
 		e.State = state
 		e.LastActivityUnix = at.Unix()
 	}
+	return e
 }
 
 // snapshot lists the roster sorted by harp (stable output), as copies.

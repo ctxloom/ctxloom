@@ -157,11 +157,12 @@ interactive-pty gap.
 
 ## 7. One-shot driving and resume
 
-`driving: oneshot` needs a backend in both of the spawner's gates
-(`internal/adapters/spawn`): `resumeCapableBackends` (`resolveResumeMode`)
-and the delegation allowlist `viaStartRunBackends`
-(`checkStartRunAllowlist`). A backend outside either **fails loud** rather
-than silently degrading.
+An engine declares whether it admits delegated children, and whether a
+one-shot child resumes by native key, in one slot:
+`engine.Definition.DelegatedChildren`. The spawner's gates
+(`checkStartRunAllowlist`, `resolveResumeMode` in `internal/adapters/spawn`)
+read it, and `driving: oneshot` on an engine that does not declare
+`ResumesByKey` **fails loud** rather than silently degrading.
 
 ## 8. Isolation support
 

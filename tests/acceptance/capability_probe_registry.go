@@ -574,7 +574,7 @@ var probeRegistry = []probeSpec{
 		Channel:      channelTurnOnePrompt,
 		Paid:         true,
 		Cells: []probeCell{
-			hostCell("claude-code", probePlanned, "spawn.resumeCapableBackends and viaStartRunBackends both admit claude-code"),
+			hostCell("claude-code", probePlanned, "claude declares DelegatedChildren with ResumesByKey"),
 		},
 	},
 	{

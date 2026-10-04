@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
@@ -46,131 +46,90 @@ func New(rep report.Sink, app *operations.App, projectDir string, starter Starte
 	return &spawner{rep: report.To(rep), app: app, projectDir: projectDir, starter: starter}
 }
 
-// viaStartRunBackends is the delegation allowlist: the set of backend types
-// that may run delegated children at all. Every child's engine control rides
-// the StartRun path (spawn the runner process, await its dial-home, issue
-// StartRun on its RunnerChannel). The runner-side EngineHost drives every
-// engine through its instance's driver (engine.Instance.Drivers), never a
-// backend name, so every member of this set gets the identical
-// StartRun/adaptation/resume machinery; the per-backend deltas are in model
-// delivery.
-//
-// Any backend NOT in this set is refused at Resolve (checkStartRunAllowlist)
-// — this gate is deliberately an allowlist of VERIFIED backends, not
-// "has a structured driver", so a new backend must be reviewed onto
-// StartRun explicitly rather than swept in.
-//
-// The bar for admitting one is a per-backend recon showing that delta is
-// empty. What makes it empty generally: the runner-side standup
-// (internal/adapters/cli's standUpRunner), the isolation starter
-// (`ctxloom runner <backend>`) and the launch codec
-// (coordgrpc.EncodeLaunch) never name a backend at all, and the runner
-// delivers the package through the engine's own Setup (runner.Execute), the
-// same writers every host launch goes through.
-//
-// TODO(slice 11b): these tables are the last name-keyed capability
-// declarations in core. They read Instance.Resume(key) — real or refused —
-// once the instance half of the engine port lands; until then the engine's
-// name is spelled here, and the no-engine-name-in-core gate allows it by
-// that slice.
-var viaStartRunBackends = map[string]bool{
-	"claude-code": true,
-	// mock is reviewed onto StartRun because the binary can HOST it: `ctxloom
-	// runner mock` stands up a real runner around the deterministic echo, so
-	// a mock child is a driveable run, not a run nothing can answer. That is
-	// what the acceptance journeys rely on when they delegate through a real
-	// ctxloom binary. It is safe in a user's binary for the same reason it was
-	// before the spool cutover: no credentials, no network, an echo.
-	config.BackendMock: true,
+// delegatedChildren is backend's engine.Definition.DelegatedChildren
+// declaration: whether delegated children may run on it at all, and how a
+// one-shot child resumes. Every child's engine control rides the StartRun
+// path (spawn the runner process, await its dial-home, issue StartRun on its
+// RunnerChannel), and the runner-side EngineHost drives every engine through
+// its instance's driver, never a backend name — so admission is a REVIEW
+// verdict the engine declares (the per-backend delta from StartRun was
+// checked empty), not "has a structured driver", and a new engine is
+// reviewed onto delegation explicitly rather than swept in. The second
+// result is false for an unregistered backend or one that declares no
+// delegated children; the string is its declared reason, when it gave one.
+func delegatedChildren(reg engine.Registry, backend string) (engine.DelegatedChildren, bool, string) {
+	e, ok := reg.Lookup(engine.Name(backend))
+	if !ok {
+		return engine.DelegatedChildren{}, false, ""
+	}
+	decl := e.Root().DelegatedChildren
+	d, admitted := decl.Get()
+	return d, admitted, decl.AbsentReason()
+}
+
+// delegatingEngines lists, sorted, the registered engines keep accepts among
+// those that admit delegated children, for error messages that enumerate a
+// gate's membership.
+func delegatingEngines(reg engine.Registry, keep func(engine.DelegatedChildren) bool) string {
+	names := reg.Names(func(d engine.Definition) bool {
+		dc, ok := d.DelegatedChildren.Get()
+		return ok && keep(dc)
+	})
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = string(n)
+	}
+	return strings.Join(out, ", ")
 }
 
 // admit is Resolve's backend gate: checkStartRunAllowlist, nothing else. A
 // Starter (Options.Starter) changes HOW an admitted backend's runner is
 // stood up — in-process double instead of `ctxloom runner` — never WHETHER
-// it is admitted. An earlier shape special-cased mock here on the premise
-// that it had no runner process of its own; that was false (the binary hosts
-// it), so mock is on the allowlist and the special case is gone.
+// it is admitted.
 func (s *spawner) admit(backend string) error {
-	return checkStartRunAllowlist(backend)
+	return checkStartRunAllowlist(s.app.Engines(), backend)
 }
 
-// checkStartRunAllowlist refuses a delegated spawn whose backend has not been
-// reviewed onto the StartRun path: a newly registered backend, or a
-// config-declared llm type that matches no backend, fails loud here at
+// checkStartRunAllowlist refuses a delegated spawn whose backend's engine
+// does not admit delegated children: an engine that declares them absent, or
+// a config-declared llm type that matches no engine, fails loud here at
 // Resolve time (ctxloom never silently no-ops).
-func checkStartRunAllowlist(backend string) error {
-	if viaStartRunBackends[backend] {
+func checkStartRunAllowlist(reg engine.Registry, backend string) error {
+	_, admitted, reason := delegatedChildren(reg, backend)
+	if admitted {
 		return nil
 	}
+	if reason != "" {
+		reason = " (" + reason + ")"
+	}
 	return fmt.Errorf(
-		"backend %q cannot run delegated children: delegated children run runner-side via StartRun, and only reviewed backends are admitted (backends: %s)",
-		backend, strings.Join(backendNames(viaStartRunBackends), ", "))
+		"backend %q cannot run delegated children%s: delegated children run runner-side via StartRun, and only reviewed engines are admitted (engines: %s)",
+		backend, reason, delegatingEngines(reg, func(engine.DelegatedChildren) bool { return true }))
 }
 
-// resumeCapableBackends is the one-shot-resume plan's Slice 2 / Fork 3
-// STATIC gating table: which backends have a cheap resume-by-key primitive
-// at all, independent of viaStartRunBackends (that table is about WHICH
-// wire path a child's Chat rides; this one is about whether ASKING an
-// already-ended engine to continue its own native session is even possible).
-//
-//   - claude-code: resume by asking the engine to load its own prior
-//     session — LIVE-gated a second time on
-//     the adapter's advertised loadSession capability once Slice 4 records it
-//     from the first StartRunResult/init (see coord.SpawnPlan.ResumeMode's doc);
-//     this table is the STATIC half alone.
-//   - a MIGRATED backend is not automatically resume-capable: the two tables
-//     answer different questions, and one that neither consumes
-//     engine.Turn.Resume nor emits a native session-id Session event
-//     stays FALSE here and re-primes from rendered history instead
-//     (the rendered-history lead, ResumeHistory), over StartRun all the same.
-//   - mock (tests) and any unlisted/future backend: FALSE — an allowlist,
-//     exactly like viaStartRunBackends, so a new backend is reviewed onto
-//     resume explicitly rather than swept in by having a structured driver.
-var resumeCapableBackends = map[string]bool{
-	"claude-code": true,
-}
-
-// resolveResumeMode is the per-engine resume-capability gate (Fork 3's
-// STATIC half): `driving: oneshot` requires a backend with a cheap
-// resume-by-key primitive. A conversational (or empty/default) driving
-// value always resolves to coord.ResumeModePersistent — the identical behavior
-// every agent gets today, byte-for-byte.
+// resolveResumeMode is the per-engine resume-capability gate: `driving:
+// oneshot` requires an engine that declares ResumesByKey. A conversational
+// (or empty/default) driving value always resolves to
+// coord.ResumeModePersistent.
 //
 // An oneshot agent on an INCAPABLE backend FAILS LOUD here rather than
 // silently downgrading to persistent — per isolation-must-not-negotiate,
 // silently running a "oneshot" agent conversationally because the engine
 // can't actually resume would be exactly the class of silent, behavior-
 // changing divergence this project bans; the caller asked for one thing and
-// would silently get another with no error raised.
-func resolveResumeMode(driving agents.DrivingMode, backend string) (coord.ResumeMode, error) {
+// would silently get another with no error raised. A resume-capable engine
+// that does not admit delegated children is incapable here too: its
+// declaration carries no ResumesByKey to read.
+func resolveResumeMode(reg engine.Registry, driving agents.DrivingMode, backend string) (coord.ResumeMode, error) {
 	if driving != agents.DrivingOneshot {
 		return coord.ResumeModePersistent, nil
 	}
-	if !resumeCapableBackends[backend] {
+	if d, admitted, _ := delegatedChildren(reg, backend); !admitted || !d.ResumesByKey {
 		return coord.ResumeModePersistent, fmt.Errorf(
 			"driving: oneshot requires a resume-capable engine; backend %q has no resume-by-key primitive (known resume-capable: %s)",
-			backend, resumeCapableBackendNames())
+			backend, delegatingEngines(reg, func(d engine.DelegatedChildren) bool { return d.ResumesByKey }))
 	}
 	return coord.ResumeModeOneShot, nil
-}
-
-// resumeCapableBackendNames lists resumeCapableBackends' keys, sorted, for
-// the resolveResumeMode error message.
-func resumeCapableBackendNames() []string {
-	return backendNames(resumeCapableBackends)
-}
-
-// backendNames lists a backend table's true-valued keys, sorted, for error
-// messages that enumerate a gate's membership.
-func backendNames(table map[string]bool) []string {
-	names := make([]string, 0, len(table))
-	for name, ok := range table {
-		if ok {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	return names
 }
 
 // spawnGeneration is the ONE Reload a spawn performs: an agent definition
@@ -221,7 +180,7 @@ func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPl
 	if err := agents.ValidateDriving(binding.Driving); err != nil {
 		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
 	}
-	resumeMode, err := resolveSpawnResumeMode(agentName, binding.Driving, backend)
+	resumeMode, err := resolveSpawnResumeMode(s.app.Engines(), agentName, binding.Driving, backend)
 	if err != nil {
 		return nil, err
 	}
@@ -259,10 +218,9 @@ func labelPermissions(cfg *config.Config, label string) agents.LabelPermissions 
 // resolveSpawnResumeMode is resolveResumeMode with the agent named. It FAILS
 // LOUD (never silently downgrades to persistent) when `driving: oneshot`
 // names a backend with no resume-by-key primitive. A one-shot child must
-// ALSO pass the delegation allowlist (admit), so the backends a one-shot
-// agent can run on are the members of both tables, by construction.
-func resolveSpawnResumeMode(agentName string, driving agents.DrivingMode, backend string) (coord.ResumeMode, error) {
-	resumeMode, err := resolveResumeMode(driving, backend)
+// ALSO pass the delegation gate (admit); both read the one declaration.
+func resolveSpawnResumeMode(reg engine.Registry, agentName string, driving agents.DrivingMode, backend string) (coord.ResumeMode, error) {
+	resumeMode, err := resolveResumeMode(reg, driving, backend)
 	if err != nil {
 		return 0, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
 	}

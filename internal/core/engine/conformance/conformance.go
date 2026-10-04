@@ -31,6 +31,7 @@ import (
 // under the session home it was handed; Home validates; Container is a real
 // spec or ErrUnsupported naming the engine; Hooks is never nil. An engine
 // that declares an approval codec meets its contract (ApprovalCodec).
+// DelegatedChildren is decided, and Resume agrees with it (checkDelegation).
 func Run(t *testing.T, eng engine.Engine) {
 	t.Helper()
 	def := eng.Root()
@@ -53,6 +54,28 @@ func Run(t *testing.T, eng engine.Engine) {
 		require.Empty(t, inst.Drivers(), "a driver exists but Structured is not declared")
 	}
 	ApprovalCodec(t, eng)
+	checkDelegation(t, eng, def)
+}
+
+// checkDelegation holds the declaration and the method to one answer:
+// Instance.Resume is real exactly when Definition.DelegatedChildren provides
+// ResumesByKey, and otherwise refuses with ErrUnsupported naming the engine.
+// A method that "succeeds" without resuming anything would let a one-shot
+// child silently restart instead of continuing its session.
+func checkDelegation(t *testing.T, eng engine.Engine, def engine.Base) {
+	t.Helper()
+	require.True(t, def.DelegatedChildren.Decided(), "%s leaves DelegatedChildren undecided", def.Name)
+	d, admitted := def.DelegatedChildren.Get()
+	inst, err := eng.Instance(SessionFor(t, eng, def.Modes[0]))
+	require.NoError(t, err)
+	err = inst.Resume("conformance-key")
+	if admitted && d.ResumesByKey {
+		require.NoError(t, err, "%s declares ResumesByKey, so Resume must be real", def.Name)
+		return
+	}
+	var unsupported engine.ErrUnsupported
+	require.True(t, errors.As(err, &unsupported), "%s does not declare ResumesByKey, so Resume must refuse with ErrUnsupported (got %v)", def.Name, err)
+	require.Equal(t, def.Name, unsupported.Engine)
 }
 
 // checkDerivedViews asserts the declarative half: the derived views agree

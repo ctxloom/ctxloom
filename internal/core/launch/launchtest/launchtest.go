@@ -343,6 +343,7 @@ func newFixtureEngine(modes []engine.Mode, relocatableHome, approvals bool, mode
 		Modes:        modes,
 		ModelAliases: map[string]string{"fast-model": "fixture-fast-2"},
 		Context:      a, MCP: a, Settings: a, Hooks: a, Commands: a, Skills: a,
+		DelegatedChildren: engine.Absent[engine.DelegatedChildren]("the fixture is not reviewed onto delegation"),
 	}
 	for _, m := range modes {
 		d.CLI = append(d.CLI, engine.CLIGrammar{Mode: m, Binary: "fixture", Positional: 1})

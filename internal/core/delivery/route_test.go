@@ -29,7 +29,8 @@ func root(t *testing.T, name engine.Name, dynamic bool, roots ...present.RootKin
 	a := &ctxApproach{fileApproach{roots}}
 	d := engine.Definition{Name: name, Distribution: engine.DistributionDefault, Modes: []engine.Mode{engine.Structured},
 		Context: a, MCP: a, Settings: a, Hooks: a, Commands: a, Skills: a,
-		CLI: []engine.CLIGrammar{{Mode: engine.Structured, Binary: "x"}}}
+		CLI:               []engine.CLIGrammar{{Mode: engine.Structured, Binary: "x"}},
+		DelegatedChildren: engine.Absent[engine.DelegatedChildren]("a routing fixture runs no children")}
 	if dynamic {
 		d.Dynamic = &dynApproach{fileApproach{roots}}
 	}

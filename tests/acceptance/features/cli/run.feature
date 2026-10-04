@@ -280,7 +280,7 @@ Feature: run — assembling a project's context and handing it to an engine
       And a profile "dev" with bundle "demo"
       And the project already has the file ".ctxloom/config.yaml":
         """
-        version: 6
+        schema_version: 6
         runt1me: host
         """
       And the mock LLM responds "MOCK-REPLY"
@@ -301,7 +301,7 @@ Feature: run — assembling a project's context and handing it to an engine
       And a profile "dev" with bundle "demo"
       And the project already has the file ".ctxloom/config.yaml":
         """
-        version: 6
+        schema_version: 6
         runt1me: host
         """
       And the mock LLM responds "MOCK-REPLY"

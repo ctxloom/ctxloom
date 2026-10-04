@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -54,12 +55,12 @@ func TestPrintDeliveryRoutes_NamesTheUnsafeRoute(t *testing.T) {
 // writes outside its session, and neither is a default.
 func TestUnsafeLabels_TheHostHomeSelectionIsUnsafe(t *testing.T) {
 	assert.Equal(t, []string{"mcp → project-root", "engine-home → host"},
-		unsafeLabels(launch.Launch{Plan: twoRoutePlan(), Cell: launch.Cell{HomeMode: launch.HomeModeHost}}))
+		unsafeLabels(launch.Launch{Plan: twoRoutePlan(), Cell: launch.Cell{HomeMode: agents.HomeModeHost}}))
 	assert.Equal(t, []string{"engine-home → host"},
-		unsafeLabels(launch.Launch{Cell: launch.Cell{HomeMode: launch.HomeModeHost}}))
+		unsafeLabels(launch.Launch{Cell: launch.Cell{HomeMode: agents.HomeModeHost}}))
 	assert.Empty(t, unsafeLabels(launch.Launch{
 		Plan: delivery.Plan{Static: []delivery.StaticItem{{Kind: present.Context, Root: present.RootSessionHome}}},
-		Cell: launch.Cell{HomeMode: launch.HomeModeSession},
+		Cell: launch.Cell{HomeMode: agents.HomeModeSession},
 	}))
 }
 
@@ -67,16 +68,16 @@ func TestUnsafeLabels_TheHostHomeSelectionIsUnsafe(t *testing.T) {
 // engine-home line on the wire and in text — "session" plain, "host"
 // unsafe, and the text form says so once.
 func TestEngineHomeRoute_And_PrintNamesTheHostSelectionUnsafe(t *testing.T) {
-	assert.Equal(t, engineHomeJSON{Mode: "session", Unsafe: false}, engineHomeRoute(launch.HomeModeSession))
-	assert.Equal(t, engineHomeJSON{Mode: "host", Unsafe: true}, engineHomeRoute(launch.HomeModeHost))
+	assert.Equal(t, engineHomeJSON{Mode: "session", Unsafe: false}, engineHomeRoute(agents.HomeModeSession))
+	assert.Equal(t, engineHomeJSON{Mode: "host", Unsafe: true}, engineHomeRoute(agents.HomeModeHost))
 
 	var buf bytes.Buffer
-	printEngineHome(&buf, engineHomeRoute(launch.HomeModeHost))
+	printEngineHome(&buf, engineHomeRoute(agents.HomeModeHost))
 	assert.Contains(t, buf.String(), "engine-home → host  (unsafe")
 	assert.Equal(t, 1, bytes.Count(buf.Bytes(), []byte("unsafe")))
 
 	buf.Reset()
-	printEngineHome(&buf, engineHomeRoute(launch.HomeModeSession))
+	printEngineHome(&buf, engineHomeRoute(agents.HomeModeSession))
 	assert.Contains(t, buf.String(), "engine-home → session\n")
 	assert.NotContains(t, buf.String(), "unsafe")
 }

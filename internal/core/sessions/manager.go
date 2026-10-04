@@ -36,6 +36,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // lockFileMode and lockDirMode are the modes a sidecar's advisory-lock file
@@ -271,19 +273,46 @@ func (m *Manager) readSidecar(harpName string) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	var e Entry
-	if err := yaml.Unmarshal(data, &e); err != nil {
+	e, err := decodeSidecar(data)
+	if err != nil {
 		return nil, fmt.Errorf("parse %s for %s: %w", paths.SessionSidecarFileName, harpName, err)
 	}
 	e.HarpName = harpName
-	return &e, nil
+	return e, nil
+}
+
+// sidecarKind versions the session sidecar. The sidecar was unversioned before
+// it declared schemaver.Key, so a keyless sidecar is generation 0.
+var sidecarKind = schemaver.Kind{Name: "session sidecar", Oldest: 0, Steps: []upgrade.Upgrader{schemaver.IntroduceKey}}
+
+// sidecarDoc is the sidecar on disk: an Entry plus the format generation,
+// which is a fact about the file rather than about the session, so Entry does
+// not carry it.
+type sidecarDoc struct {
+	SchemaVersion int `yaml:"schema_version"`
+	Entry         `yaml:",inline"`
+}
+
+// decodeSidecar reads a sidecar's bytes at the current generation. Reading
+// never writes: an older sidecar is migrated here in memory and reaches disk
+// with the next writeSidecar.
+func decodeSidecar(data []byte) (*Entry, error) {
+	r, err := sidecarKind.Upgrade(data)
+	if err != nil {
+		return nil, err
+	}
+	var d sidecarDoc
+	if err := yaml.Unmarshal(r.Data, &d); err != nil {
+		return nil, err
+	}
+	return &d.Entry, nil
 }
 
 // writeSidecar atomically replaces harpName's sidecar with e. Durable: the
 // sidecar is the only record of the session's rotation lineage, and a rename
 // that silently reverts after a crash loses that lineage with no signal.
 func (m *Manager) writeSidecar(harpName string, e *Entry) error {
-	data, err := yaml.Marshal(e)
+	data, err := yaml.Marshal(sidecarDoc{SchemaVersion: sidecarKind.Current(), Entry: *e})
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", paths.SessionSidecarFileName, err)
 	}

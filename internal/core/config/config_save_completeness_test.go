@@ -31,7 +31,7 @@ func fullyPopulatedFixture() Fixture {
 	surround := true
 	autoSync := true
 	return Fixture{
-		Version:                      CurrentConfigVersion,
+		SchemaVersion:                CurrentConfigVersion,
 		LM:                           LMConfig{Configs: map[string]LLMConfig{"fast": {Type: "claude-code"}}},
 		Editor:                       EditorConfig{Command: "vi"},
 		Settings:                     SettingsConfig{EssenceMaxChars: 4096},
@@ -61,7 +61,7 @@ func fullyPopulatedFixture() Fixture {
 // would surface as the default, not the value written.
 func TestSessionReapAgeSurvivesSaveRoundTrip(t *testing.T) {
 	cfg := NewFixture(Fixture{
-		Version:        CurrentConfigVersion,
+		SchemaVersion:  CurrentConfigVersion,
 		SessionReapAge: "45d",
 	})
 
@@ -80,8 +80,8 @@ func TestSessionReapAgeSurvivesSaveRoundTrip(t *testing.T) {
 func TestUISurvivesSaveRoundTrip(t *testing.T) {
 	surround := false
 	cfg := NewFixture(Fixture{
-		Version: CurrentConfigVersion,
-		UI:      UIConfig{PrefixKey: "ctrl-b", Surround: &surround},
+		SchemaVersion: CurrentConfigVersion,
+		UI:            UIConfig{PrefixKey: "ctrl-b", Surround: &surround},
 	})
 
 	data, err := yaml.Marshal(cfg)
@@ -103,8 +103,8 @@ func TestUISurvivesSaveRoundTrip(t *testing.T) {
 // it — this is the case that actually loses a user's setting.
 func TestDelegationDepthAloneSurvivesSaveRoundTrip(t *testing.T) {
 	cfg := NewFixture(Fixture{
-		Version:    CurrentConfigVersion,
-		Delegation: DelegationConfig{Depth: 2},
+		SchemaVersion: CurrentConfigVersion,
+		Delegation:    DelegationConfig{Depth: 2},
 	})
 
 	data, err := yaml.Marshal(cfg)
@@ -123,13 +123,13 @@ func TestDelegationDepthAloneSurvivesSaveRoundTrip(t *testing.T) {
 // session_purge_age has NO default: unset reads as empty, so a sweep
 // reports its purge rows and acts on none of them.
 func TestSessionPurgeAgeSurvivesSaveRoundTrip(t *testing.T) {
-	data, err := yaml.Marshal(NewFixture(Fixture{Version: CurrentConfigVersion, SessionPurgeAge: "180d"}))
+	data, err := yaml.Marshal(NewFixture(Fixture{SchemaVersion: CurrentConfigVersion, SessionPurgeAge: "180d"}))
 	require.NoError(t, err)
 	reloaded, err := ParseConfig(data)
 	require.NoError(t, err)
 	assert.Equal(t, "180d", reloaded.SessionPurgeAge())
 
-	data, err = yaml.Marshal(NewFixture(Fixture{Version: CurrentConfigVersion}))
+	data, err = yaml.Marshal(NewFixture(Fixture{SchemaVersion: CurrentConfigVersion}))
 	require.NoError(t, err)
 	reloaded, err = ParseConfig(data)
 	require.NoError(t, err)

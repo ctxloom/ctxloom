@@ -57,8 +57,8 @@ On the host arm the plugin run-start selects legacy forms by name;
 `operations.PreferPlanRoots` projects the plan's project routes onto that
 selection so `roots:` governs it too, and the mock's legacy default form is
 its session form (`mock.MockSessionFile`). The engine home is the
-session's by default (`engine_home: session`; `agents.ParseHomeMode`,
-`launch.parseHomeMode`), so claude on that arm advises its session home
+session's by default (`engine_home: session`; `agents.ParseHomeMode`), so
+claude on that arm advises its session home
 for context and MCP; only the binding's explicit `engine_home: host` — the
 unsafe selection, named beside the project routes in the plan and the
 banner (`cli.unsafeLabels`) — gives the launch no session home

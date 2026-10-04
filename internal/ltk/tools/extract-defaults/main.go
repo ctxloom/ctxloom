@@ -2,8 +2,7 @@
 // shipped with ltk and embedded into the binary — from the fenced ```yaml blocks
 // in docs/ltk/DEFAULTS.md, which is the source of truth. Run with no args to
 // (re)generate the file; run with -check to exit non-zero if it is out of sync.
-// Nothing currently invokes -check: there is no lefthook entry and no CI step
-// for it (see docs/architecture/companions/ltk.md, "Invariants").
+// The -check form is the drift gate `just gen-docs-check` runs.
 package main
 
 import (

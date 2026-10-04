@@ -82,7 +82,7 @@ func TestSurvivorBaseline_HasARowForEveryTarget(t *testing.T) {
 	rows := readSurvivorBaseline(t)
 
 	for _, target := range mutationTargets {
-		key := "TestAcceptanceMutation/" + target.Name
+		key := "TestAcceptanceMutation/" + target.Name // gitleaks:allow
 		if _, ok := rows[key]; !ok {
 			t.Errorf("no baseline row for %q — that target's survivors are not ratcheted, and a run of it would have nothing to be judged against", key)
 		}

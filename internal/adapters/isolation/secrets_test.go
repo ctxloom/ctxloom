@@ -23,7 +23,7 @@ const fixtureSecret = "sk-ant-oat01-fixture-NEVER-ON-THE-WIRE-7f3a"
 func startRunBytes(t *testing.T, pl launch.Placement) []byte {
 	t.Helper()
 	l := launchtest.FullLaunch(t)
-	l.Cell = launch.Cell{Placement: pl, Workspace: "/work"}
+	l.Cell = launch.Cell{Placement: pl}
 	raw, err := proto.Marshal(coordgrpc.EncodeLaunch(l))
 	require.NoError(t, err)
 	return raw

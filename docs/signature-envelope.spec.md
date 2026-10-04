@@ -2019,8 +2019,12 @@ versioned independently, because they change for independent reasons:
 | Exec-item preimage | `"preimage":"ctxloom-exec/2"` **first field** (§3.3.2) | all MCP/hook approvals invalidate |
 | Companion loadout envelope | `"contract":"ctxloom-loadout/2"` | companions must re-emit |
 | Sibling path convention | `<bundle>.yaml.sig` | a new path is a new contract |
+| Bundle envelope format | integer `schema_version` in `bundle.yaml` (absent = generation 0) | a reader migrates an older envelope in memory, after verifying the signature over the raw bytes; it refuses a newer one, naming both numbers. A publisher persists the migration by re-signing |
 
-All six are emitted by the code today. A third party binding to any of them should
+Each is emitted by the code today. The envelope's `schema_version` is not the
+bundle's `version`: `version` is the publisher's semver release — the version the
+manifest's release header signs and the rollback floor is measured in — and no
+format migration reads or rewrites it. A third party binding to any of them should
 bind to the strings above, not to a paraphrase of them: the `ref` serialization in
 particular is easy to reinvent incorrectly, and §3.2.1 pins it byte for byte for that
 reason.

@@ -64,7 +64,7 @@ func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 	require.Len(t, dyn.served, 1, "the endpoint is served once, before the engine is driven")
 	assert.Equal(t, l.MCP, dyn.served[0].MCP, "the runner binds the endpoint the Launch carries")
 	assert.Equal(t, l.Identity, dyn.served[0].Identity)
-	assert.Equal(t, l.Cell.Workspace, dyn.served[0].WorkDir)
+	assert.Equal(t, l.Cell.Paths.Paths().ProjectRoot.Engine, dyn.served[0].WorkDir, "the runner delivers at the project's engine side")
 	assert.Equal(t, "MARKER-7f3a", lastWord(dyn.served[0].Package.Context.Text), "the loadout is the decoded package")
 
 	require.Len(t, drive.turns, 1)

@@ -53,7 +53,7 @@ func TestRuntimeAxis_ConfigFileControl(t *testing.T) {
 				// An agent binds an engine or it is refused at load (an axis
 				// alone is not an agent), so the probe binds the built-in
 				// engine label: the axis under test is what varies.
-				fmt.Sprintf("version: %d\nagents:\n  probe:\n    llm: claude-code\n    runtime: %s\n", config.CurrentConfigVersion, tc.runtime)))
+				fmt.Sprintf("schema_version: %d\nagents:\n  probe:\n    llm: claude-code\n    runtime: %s\n", config.CurrentConfigVersion, tc.runtime)))
 
 			// The valid row's exit 0 must not depend on the machine: a
 			// container-rootless axis is refused (exit 3) wherever no rootless

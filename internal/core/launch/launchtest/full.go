@@ -48,7 +48,6 @@ func FullLaunch(t *testing.T) launch.Launch {
 				Unset:       []string{"FIXTURE_STORE"},
 				EnvHost:     agents.EnvHost{Curated: true, Env: []string{"FIXTURE_PASS"}},
 			},
-			Workspace: "/proj/.worktrees/harp-1",
 		},
 		Home:    []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
 		Trust:   engine.TrustTrusted,

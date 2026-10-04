@@ -120,18 +120,6 @@ type Cells interface {
 	Prepare(ctx context.Context, req CellRequest) (Cell, error)
 }
 
-// HomeMode is the binding's engine-home policy: this session's controlled
-// home (the default), or the home the runtime gives the engine — the
-// binding's unsafe selection, rendered as such wherever the launch is
-// shown. It rides CellRequest until Engine.Home() is the engine's own
-// declaration.
-type HomeMode string
-
-const (
-	HomeModeHost    HomeMode = "host"
-	HomeModeSession HomeMode = "session"
-)
-
 // SessionHome is the ONE rule placing a session's home for an engine:
 // <sessionDir>/home/<leaf>, where the leaf is the engine's declared home
 // subdir when it relocates one and its name when it relocates nothing. Every
@@ -139,7 +127,7 @@ const (
 // delivery always has a root that is not the project. ok is false for
 // agents.HomeModeHost — that binding runs the engine on the home its runtime
 // gives it, which is not ours to deliver into — and for a run with no session
-// dir, which has nowhere to put one. The zero HomeMode is the parser's
+// dir, which has nowhere to put one. The zero agents.HomeMode is the parser's
 // default, the session.
 //
 // The leaf is the DECLARED subdir rather than the engine name because the
@@ -182,7 +170,7 @@ type CellRequest struct {
 	Image       ImageConfig
 	Host        HostFacts
 	Degraded    bool
-	HomeMode    HomeMode
+	HomeMode    agents.HomeMode
 	// Auth is the mode the run authenticates in, settled by RunAuth; the
 	// cells adapter resolves it to the run's credentials against the engine
 	// it binds.
@@ -236,12 +224,11 @@ type Cell struct {
 	// Placement is embedded so every Cell.Paths / .Env / .Home reader reads
 	// the environment's outcome directly.
 	Placement
-	Workspace string
 	// HomeMode is the engine-home policy this cell was prepared under: the
 	// session home, or the real one the binding selected — the unsafe
 	// selection a plan and a banner name. Local to the launching process;
 	// Home is what crosses the wire.
-	HomeMode HomeMode
+	HomeMode agents.HomeMode
 	// Listen is what the coordinator must listen on so this cell's runner can
 	// dial home: zero for a host cell and for a runtime that routes to the
 	// host's loopback. Local to the launching process, like HomeMode: the
@@ -349,7 +336,7 @@ func WithLead(ctx context.Context, deps Deps, l Launch, blocks ...composite.Frag
 // package: the ONE builder, so the runner and the local launcher deliver
 // the same value.
 func (l Launch) Loadout(pkg composite.Package) delivery.Loadout {
-	return delivery.Loadout{Plan: l.Plan, Package: pkg, Exports: l.Exports, Index: l.Index, MCP: l.MCP, Identity: l.Identity, WorkDir: l.Cell.Workspace}
+	return delivery.Loadout{Plan: l.Plan, Package: pkg, Exports: l.Exports, Index: l.Index, MCP: l.MCP, Identity: l.Identity, WorkDir: l.Cell.Paths.Paths().ProjectRoot.Host}
 }
 
 // Target is where this launch's static items land: the cell's advised
@@ -377,7 +364,7 @@ func (l Launch) EngineEnv() map[string]string {
 func (l Launch) Session() engine.Session {
 	return engine.Session{
 		Identity: l.Identity, Label: l.Label, Mode: l.Mode, Permission: l.Permission,
-		Roots: l.Cell.Paths.Paths(), WorkDir: l.Cell.Workspace, Home: l.Home, MCP: l.MCP,
+		Roots: l.Cell.Paths.Paths(), WorkDir: l.Cell.Paths.Paths().ProjectRoot.Engine, Home: l.Home, MCP: l.MCP,
 		Prompt: l.Prompt, Resume: l.Resume, Env: l.Env, Trust: l.Trust,
 	}
 }

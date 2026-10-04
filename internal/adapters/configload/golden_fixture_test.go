@@ -153,9 +153,9 @@ func TestGoldenFixture_D3Drift_IsAdditiveOnly(t *testing.T) {
 	layered, err := Load(WithFS(fsLayered), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 
-	// init-config.yaml sets exactly: version and config.use_distilled (see the
+	// init-config.yaml sets exactly: schema_version and config.use_distilled (see the
 	// template's own doc comment — llm, agents, default_agent are deliberately
 	// absent, filled in by `init` itself, not the static template).
-	assert.Equal(t, projectOnly.ToFixture().Version, layered.ToFixture().Version)
+	assert.Equal(t, projectOnly.ToFixture().SchemaVersion, layered.ToFixture().SchemaVersion)
 	assert.Equal(t, projectOnly.ToFixture().Settings.UseDistilled, layered.ToFixture().Settings.UseDistilled)
 }

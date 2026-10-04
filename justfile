@@ -250,9 +250,7 @@ gen-schemas:
 
 # Regenerate cmd/ltk/sample.ltk.yaml (the shipped default rule set, embedded in
 # the ltk binary) from the ```yaml blocks in docs/ltk/DEFAULTS.md, the source
-# of truth. The tool also has a -check form that fails on drift, but nothing
-# invokes it — no lefthook hook, no CI step — so this is a run-by-hand recipe,
-# not a gate. See docs/architecture/companions/ltk.md, "Invariants".
+# of truth. Its -check form, which fails on drift, runs inside `gen-docs-check`.
 defaults:
     go run ./internal/ltk/tools/extract-defaults
 
@@ -1249,6 +1247,35 @@ test-mutation-pkg PKG *ARGS: _mutation-prereqs
     set -euo pipefail
     pkg="$1"; shift
     bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash "./$pkg" "$@"
+
+# Install gitleaks, the secret scanner lefthook's pre-commit `gitleaks` command
+# runs, at the version pinned in .devcontainer/tool-versions.env. `go install`
+# honours GOBIN, so `GOBIN=<dir> just gitleaks-install` installs elsewhere.
+gitleaks-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a
+    . .devcontainer/tool-versions.env
+    set +a
+    go install github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}
+
+# Scan the STAGED changes for secrets — lefthook's pre-commit `gitleaks`
+# command. Rules and allowlists are .gitleaks.toml; output is redacted. A
+# missing binary fails rather than skipping: a scan that passes by not running
+# reports "no secrets" having looked at nothing.
+secrets-scan-staged:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v gitleaks >/dev/null 2>&1; then
+        echo "gitleaks is not on PATH — run 'just gitleaks-install'." >&2
+        echo "The secret scan cannot pass by not running." >&2
+        exit 1
+    fi
+    if ! gitleaks git --pre-commit --staged --redact --verbose --no-banner --config .gitleaks.toml; then
+        echo "gitleaks found a secret in the staged changes (redacted above)." >&2
+        echo "A real credential: unstage it and rotate it. A test fixture: end its line with 'gitleaks:allow'." >&2
+        exit 1
+    fi
 
 # Install gremlins
 test-mutation-install:

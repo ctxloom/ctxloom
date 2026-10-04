@@ -334,6 +334,9 @@ func TestRateHold_OneLimitParksTheCredentialsRunsUntilItResets(t *testing.T) {
 	assert.Equal(t, []string{"CLAUDE_CODE_OAUTH_TOKEN"}, hold.Source.EnvVars)
 	assert.True(t, limitResets.Equal(hold.Until), "the hold waits for the engine's reset time: %v", hold.Until)
 	f.awaitParks(t, f.worker, f.sibling)
+	// The hold and its parks are journaled before the finding is raised;
+	// the fold's completion is what orders the finding before this read.
+	f.awaitFolds(t, 1)
 	assert.Equal(t, 1, f.findingsWith("rate limit"), "ONE finding for the hold: %v", f.findings.All())
 	opened := assertOpened(t, f.c, agent.FailureRateLimited, holdScopeCredential)
 	require.Len(t, opened, 1)
@@ -516,6 +519,9 @@ func TestRateHold_AHumanPausedRunsLimitStillParksItsSiblings(t *testing.T) {
 
 	f.awaitParks(t, f.sibling)
 	f.awaitHold(t, f.sibling)
+	// The hold and its parks are journaled before the finding is raised;
+	// the fold's completion is what orders the finding before this read.
+	f.awaitFolds(t, 1)
 	assert.Equal(t, 1, f.findingsWith("rate limit"), "the human is told: %v", f.findings.All())
 
 	clk.Advance(limitResets.Sub(clk.Now()))

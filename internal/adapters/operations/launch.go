@@ -337,7 +337,6 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	}
 	return launch.Cell{
 		Placement:             placement,
-		Workspace:             cwd,
 		HomeMode:              req.HomeMode,
 		Listen:                env.Listen(),
 		Credential:            creds.Source(req.Engine.Root().Name),

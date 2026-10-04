@@ -105,7 +105,7 @@ func (s *liveChildSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnP
 		Mode:       engine.Structured,
 		Permission: engine.PermissionPolicy{Posture: engine.Posture{Engine: engine.Name(plan.Backend), Document: map[string]any{"mode": plan.Permission}}, Sandbox: engine.SandboxFull},
 		Axes:       launch.Axes{Workspace: plan.Workspace, Runtime: plan.Runtime},
-		Cell:       launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: "/work"}}), Env: map[string]string{sessions.EnvHarp: start.Identity.Harp}}, Workspace: "/work", Cleanup: func() error { return nil }},
+		Cell:       launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: "/work"}}), Env: map[string]string{sessions.EnvHarp: start.Identity.Harp}}, Cleanup: func() error { return nil }},
 		Package:    carrier,
 		Prompt:     start.Prompt,
 		Resume:     sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey},

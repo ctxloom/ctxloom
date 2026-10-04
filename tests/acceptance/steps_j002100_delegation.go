@@ -115,7 +115,7 @@ func j002100Of(w *World) *j002100State {
 // j002100.order pins it).
 func j002100RenderConfig(j002100 *j002100State) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "version: %d\nllm:\n  configs:\n    fast:\n      type: mock\n", config.CurrentConfigVersion)
+	fmt.Fprintf(&b, "schema_version: %d\nllm:\n  configs:\n    fast:\n      type: mock\n", config.CurrentConfigVersion)
 
 	b.WriteString("  defaults:\n    primary: fast\n    fast: fast\nagents:\n")
 	for _, name := range j002100.order {
@@ -237,7 +237,7 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			// asserted twice.
 			j002100.specs[nameA] = &j002100AgentSpec{
 				Name: nameA, Profile: "review-profile", Bundle: "bundle-review",
-				Server: "docs-lookup", Command: "docs-server", SecretArg: "DOCS-SECRET-7e1d44",
+				Server: "docs-lookup", Command: "docs-server", SecretArg: "DOCS-SECRET-7e1d44", // gitleaks:allow
 				Permission: "plan",
 			}
 			j002100.specs[nameB] = &j002100AgentSpec{

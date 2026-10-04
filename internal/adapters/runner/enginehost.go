@@ -1135,7 +1135,7 @@ func runStartedConfig(rep report.Reporter, t Turn) *structpb.Struct {
 	cfg, err := structpb.NewStruct(map[string]any{
 		"harness":                         string(t.Launch.Engine),
 		"model":                           t.Launch.Label.Model,
-		"workspace":                       t.Launch.Cell.Workspace,
+		"workspace":                       t.Launch.Cell.Paths.Paths().ProjectRoot.Engine,
 		"permission_posture":              string(posture),
 		"permission_approver":             p.Approver.String(),
 		"permission_sandbox":              p.Sandbox.String(),

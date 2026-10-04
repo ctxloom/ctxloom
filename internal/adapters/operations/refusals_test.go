@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
 // refusal is one fixture's worth of the B2 cause, already run: a project
@@ -61,7 +62,7 @@ func TestRefusals_UpgradeRecordsTheRefusalWhereAnInspectorCanReadIt(t *testing.T
 	require.NoError(t, err, "the refusal must be persisted; without it `doctor` has nothing to report")
 	var doc refusalDoc
 	require.NoError(t, yaml.Unmarshal(raw, &doc))
-	assert.Equal(t, refusalStoreVersion, doc.Version)
+	assert.Equal(t, refusalKind.Current(), doc.SchemaVersion)
 	require.Len(t, doc.Refusals, 1)
 	assert.Equal(t, string(lockKeyOf(t, r.ref)), doc.Refusals[0].Identity, "the record must name WHICH bundle")
 	assert.Equal(t, r.proposed, doc.Refusals[0].ProposedSHA, "the record must name the REVISION that was refused")
@@ -163,8 +164,7 @@ func TestRefusals_AnUnreadableRecordIsReportedNotReadAsSilence(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte("version: 99\nrefusals: []\n"), 0o644))
 	_, err = LiveRefusedAdvances(cfg)
-	require.Error(t, err, "a version this build does not understand must be reported, never read as an empty store")
-	assert.Contains(t, err.Error(), "version 99")
+	require.ErrorIs(t, err, schemaver.ErrNewer, "a version this build does not understand must be reported, never read as an empty store")
 
 	require.NoError(t, os.WriteFile(path, []byte("\tnot: [yaml\n"), 0o644))
 	_, err = LiveRefusedAdvances(cfg)

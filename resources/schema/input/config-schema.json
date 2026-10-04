@@ -5,12 +5,11 @@
   "description": "Schema for ctxloom config.yaml files",
   "type": "object",
   "properties": {
-    "version": {
+    "schema_version": {
       "type": "integer",
-      "description": "Config schema version (integer; distinct from the application version)",
+      "description": "Config format generation (integer; distinct from the application version). A file older than this ctxloom reads, or newer than it knows, is refused.",
       "examples": [
-        1,
-        2
+        6
       ]
     },
     "llm": {

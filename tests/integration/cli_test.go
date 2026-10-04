@@ -945,7 +945,7 @@ func TestInit_GitMissing_FailsLoudBeforeClone(t *testing.T) {
 // not merely that it exited 0 with something plausible on stdout.
 func writeConfig(t *testing.T, env *testenv.TestEnvironment) {
 	t.Helper()
-	require.NoError(t, env.WriteFile(".ctxloom/config.yaml", `version: 6
+	require.NoError(t, env.WriteFile(".ctxloom/config.yaml", `schema_version: 6
 llm:
   configs:
     payload-probe-engine:

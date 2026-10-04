@@ -49,6 +49,7 @@ The envelope, `bundle.yaml`, carries the bundle's own fields and no items:
 
 ```yaml
 # .ctxloom/content/bundles/v2/go-development/bundle.yaml
+schema_version: 1
 version: 1.0.0
 description: Go development context and best practices
 author: your-name
@@ -56,6 +57,18 @@ tags:
   - golang
   - development
 ```
+
+The two version keys mean different things. `schema_version` is the envelope's
+FORMAT generation, an integer ctxloom writes and reads: an envelope without one
+is the oldest format and still loads, migrated in memory, and an envelope newer
+than your ctxloom is refused with both numbers named — upgrade ctxloom. `version`
+is YOUR release version, and no format migration ever touches it.
+
+ctxloom only rewrites `schema_version` on disk when you ask. `bundle create` and
+every edit write the current one; `bundle sign` persists it before hashing; and
+`--write-upgrades` rewrites an unsigned bundle (keeping `bundle.yaml.bak`). A
+signed bundle is never rewritten behind your back, because its signature covers
+those bytes: `--write-upgrades` skips it and says to re-sign.
 
 Each fragment is a Markdown file under `fragments/`. Its YAML front matter
 holds the item's fields and the body is its content.
@@ -265,9 +278,10 @@ Use semantic versioning for bundles:
 - **Minor** (1.0 → 1.1): New fragments/features
 - **Patch** (1.0.0 → 1.0.1): Bug fixes, typo corrections
 
-ctxloom does not parse, validate, or enforce the bundle's `version:` field —
-it's a label for your own bookkeeping and changelog. What a consumer actually
-pins to is a git tag, SHA, or semver range in their reference, below.
+`bundle sign` requires `version:` to be strict semver (MAJOR.MINOR.PATCH) and
+signs it into the release; a consumer refuses a tree whose `bundle.yaml` names a
+different version from the one signed. What a consumer actually pins to is a git
+tag, SHA, or semver range in their reference, below.
 
 ### Git Tags
 

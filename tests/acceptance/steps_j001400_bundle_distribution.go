@@ -162,7 +162,7 @@ func j001400BundleRel(rel string) string {
 // declared is not a configuration any consumer would have, and the matrix is
 // supposed to describe one.
 func j001400ConfigYAML() string {
-	return fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
+	return fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     claude-code:
       type: claude-code

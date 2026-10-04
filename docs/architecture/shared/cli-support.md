@@ -146,6 +146,7 @@ The one implementation of a file kind's format generation: an integer under `sch
 | `Key` | `schema_version`, the top-level key every versioned kind declares. |
 | `Kind` | `{Name, LegacyKey, Oldest, Steps}`. `Steps[i]` migrates generation `Oldest+i` to `Oldest+i+1`; `LegacyKey` is a per-kind opt-in older spelling of `Key`. |
 | `Kind.Current` | `Oldest + len(Steps)` — derived, so a version bump without its step cannot be written. |
+| `IntroduceKey` | The no-op first step of a kind that was unversioned before it declared `Key` (`Oldest: 0`): a keyless file means what generation 1 means. |
 | `Kind.Upgrade` | Raw bytes → `Result`: legacy rename, version read, refusal, steps from the declared generation, stamp. A current document comes back as the input slice. |
 | `Result` | `{Data, From, To, Applied}`; empty `Applied` means nothing to write back. |
 | `VersionError` | `{Kind, Found, Current, Oldest, Err}`, `Err` being or wrapping `ErrNewer`, `ErrTooOld` or `ErrUnreadable`. |

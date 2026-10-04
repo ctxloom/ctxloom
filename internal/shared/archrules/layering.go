@@ -128,6 +128,7 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/exectoken",
 			"internal/shared/textblocks",
 			"internal/shared/owneronly",
+			"internal/shared/schemaver",
 		},
 		Allowed: map[string]string{
 			// core/profiles — the remote edge was planned; the others were
@@ -143,7 +144,7 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/adapters/remote":             "slice 5: readers become adapters behind bundles.Reader",
 			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
 			"internal/core/bundles -> internal/shared/admission":            "slice 5: admission is decided by composite.Trust, not by the bundle package",
-			"internal/core/bundles -> internal/shared/upgrade":              "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
+			"internal/core/bundles -> internal/shared/upgrade":              "the envelope's schema-upgrade steps (upgrade.Upgrader), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
 
 			// core/config
 			"internal/core/config -> internal/shared/admission": "slice 5: admission is decided by composite.Trust",
@@ -152,6 +153,10 @@ var LayeringRules = []LayeringRule{
 			// lockwait and safefs edges reach the toolbox, which is excepted, so they
 			// are not violations.
 			"internal/core/agent -> internal/shared/ledger": "slice 12: shared/ledger is deleted",
+
+			// core/sessions — the sidecar's schemaver.Kind spells its steps
+			// as upgrade.Upgraders.
+			"internal/core/sessions -> internal/shared/upgrade": "a schemaver.Kind's Steps are []upgrade.Upgrader, so a core package that versions a file names that type; leaves if upgrade joins the toolbox or schemaver stops exposing the type (urban-borough)",
 		},
 	},
 	{

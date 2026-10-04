@@ -16,6 +16,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // Registry manages configured remote sources.
@@ -68,6 +70,10 @@ func NewRegistry(configPath string, opts ...RegistryOption) (*Registry, error) {
 	return r, nil
 }
 
+// remotesKind versions remotes.yaml. The file was unversioned before it
+// declared schemaver.Key, so a keyless file is generation 0.
+var remotesKind = schemaver.Kind{Name: "remotes", Oldest: 0, Steps: []upgrade.Upgrader{schemaver.IntroduceKey}}
+
 // configFile represents the structure of the config file.
 // Only contains remotes-related fields to avoid overwriting other config.
 type configFile struct {
@@ -76,15 +82,20 @@ type configFile struct {
 	Default string                 `yaml:"default,omitempty"`
 }
 
-// load reads remotes from the config file.
+// load reads remotes from the config file. Reading never writes: an older file
+// is migrated here in memory and reaches disk with the next save.
 func (r *Registry) load() error {
 	data, err := afero.ReadFile(r.fs, r.configPath)
 	if err != nil {
 		return err
 	}
+	up, err := remotesKind.Upgrade(data)
+	if err != nil {
+		return fmt.Errorf("%s: %w", r.configPath, err)
+	}
 
 	var cfg configFile
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal(up.Data, &cfg); err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
@@ -123,6 +134,7 @@ func (r *Registry) save() error {
 	if existingRaw == nil {
 		existingRaw = make(map[string]interface{})
 	}
+	existingRaw[schemaver.Key] = remotesKind.Current()
 
 	// Update remotes
 	remotesMap := make(map[string]Remote)

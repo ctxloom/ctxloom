@@ -1,7 +1,7 @@
 package config
 
-// CurrentConfigVersion is the config SCHEMA version: the integer Save stamps
-// into every config.yaml it writes, and the floor the reader requires — a
-// file declaring an older version (or none) is refused with a fatal-class
-// finding, never rewritten in place. Distinct from the application version.
+// CurrentConfigVersion is the config format generation this build reads and
+// writes: the integer every writer stamps as schema_version. The reader gates
+// each layer against it (configload's configKind, whose derived Current a
+// test pins to this). Distinct from the application version.
 const CurrentConfigVersion = 6

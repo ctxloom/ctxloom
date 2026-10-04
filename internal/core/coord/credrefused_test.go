@@ -31,6 +31,9 @@ func TestCredentialHold_ARefusalParksTheCredentialsRunsUntilTheHumanReleases(t *
 	assert.True(t, hold.Until.IsZero(), "a refused credential has no deadline: %v", hold.Until)
 	assert.Zero(t, clk.Pending(), "no timer: nothing but a human (or a re-authenticated restart) releases it")
 
+	// The hold and its parks are journaled before the finding is raised;
+	// the fold's completion is what orders the finding before this read.
+	f.awaitFolds(t, 1)
 	require.Equal(t, 1, f.findingsWith(refusedFinding), "ONE finding for the hold: %v", f.findings.All())
 	assert.Equal(t, 1, f.findingsWith("export a fresh CLAUDE_CODE_OAUTH_TOKEN"), "the remedy names the variable to refresh: %v", f.findings.All())
 	assert.Equal(t, 1, f.findingsWith("ctxloom run --session "+ownerIdentity().Harp), "and the restart that picks it up: %v", f.findings.All())

@@ -51,7 +51,7 @@ func TestArch_ConfigSave_PersistsEveryConfigDocField(t *testing.T) {
 // must not be satisfiable by emitting every key unconditionally. An unset
 // section is still pruned, so an empty config stays empty on disk.
 func TestArch_ConfigSave_PrunesUnsetSections(t *testing.T) {
-	cfg := NewFixture(Fixture{Version: CurrentConfigVersion})
+	cfg := NewFixture(Fixture{SchemaVersion: CurrentConfigVersion})
 
 	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)

@@ -1,7 +1,7 @@
 // Tests for the REMOTE half of the bundleVersionResolver seam: a canonical
 // "@<commit>" ref must fetch that commit's bundle document out of the local git
-// clone cache and turn those exact bytes into a Bundle through the schema
-// upgrade pipeline. Its local sibling is covered in local_version_resolver_test.go.
+// clone cache and turn those exact bytes into a Bundle through ParseBundle.
+// Its local sibling is covered in local_version_resolver_test.go.
 package operations
 
 import (

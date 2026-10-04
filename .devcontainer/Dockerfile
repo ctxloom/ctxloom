@@ -67,6 +67,7 @@ ARG GORELEASER_VERSION
 ARG LIZARD_VERSION
 ARG JUST_VERSION
 ARG GOPLS_VERSION
+ARG GITLEAKS_VERSION
 
 RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-image', which reads .devcontainer/tool-versions.env}" \
     && : "${UPX_VERSION:?missing --build-arg UPX_VERSION — see .devcontainer/tool-versions.env}" \
@@ -80,7 +81,8 @@ RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-imag
     && : "${GORELEASER_VERSION:?missing --build-arg GORELEASER_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${LIZARD_VERSION:?missing --build-arg LIZARD_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${JUST_VERSION:?missing --build-arg JUST_VERSION — see .devcontainer/tool-versions.env}" \
-    && : "${GOPLS_VERSION:?missing --build-arg GOPLS_VERSION — see .devcontainer/tool-versions.env}"
+    && : "${GOPLS_VERSION:?missing --build-arg GOPLS_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${GITLEAKS_VERSION:?missing --build-arg GITLEAKS_VERSION — see .devcontainer/tool-versions.env}"
 
 # Install Go
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xzf -
@@ -156,6 +158,9 @@ RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@v${GREMLINS_VERSION}
 
 # Install versionator for version management
 RUN go install github.com/benjaminabbitt/versionator@v${VERSIONATOR_VERSION}
+
+# Install gitleaks, the secret scanner lefthook's pre-commit hook runs
+RUN go install github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}
 
 # GoReleaser: `just release-check` / `just release-snapshot` run here, never on
 # the host. The host has no upx and no cross toolchain, so a host snapshot

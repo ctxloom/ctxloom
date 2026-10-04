@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
@@ -72,4 +73,23 @@ func TestRemoteUpgrade_ReportsEachRemovedPinByName(t *testing.T) {
 		"Removed ctxloom+git://github.com/o/r//bundles/a from the lockfile: nothing this project composes depends on it any more.\n"+
 			"Removed ctxloom+git://github.com/o/r//bundles/b from the lockfile: nothing this project composes depends on it any more.\n",
 		out)
+}
+
+// A refusal is worded by its cause. A tamper report is the most alarming thing
+// this CLI says, so a refusal that is NOT a signature failure — a tree that
+// could not be read as a bundle — must not borrow its words: crying wolf
+// trains people to ignore the real one.
+func TestRemoteUpgrade_WordsARefusalByItsCause(t *testing.T) {
+	refused := func(cause operations.RefusalCause) operations.RefusedAdvance {
+		return operations.RefusedAdvance{Identity: "ctxloom+git://github.com/o/r//bundles/a",
+			KeptSHA: "1111111111111111", ProposedSHA: "2222222222222222", Detail: "the verifier's words", Cause: cause}
+	}
+
+	tamper := captureStdout(t, func() { reportRefusedAdvances([]operations.RefusedAdvance{refused(operations.RefusalSignature)}) })
+	assert.Contains(t, tamper, msgRefusedTamper)
+	assert.NotContains(t, tamper, msgRefusedUnreadable)
+
+	unreadable := captureStdout(t, func() { reportRefusedAdvances([]operations.RefusedAdvance{refused(operations.RefusalUnreadable)}) })
+	assert.Contains(t, unreadable, msgRefusedUnreadable)
+	assert.NotContains(t, unreadable, msgRefusedTamper, "a structural read failure is not a tamper signal")
 }

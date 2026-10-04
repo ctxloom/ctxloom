@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gofrs/flock"
 
@@ -171,13 +172,19 @@ func linkNativeHistory(instanceHome, nativeHome, rel string) error {
 		return fmt.Errorf("native history %s: %w", target, err)
 	}
 	link := filepath.Join(instanceHome, filepath.FromSlash(rel))
-	linked, err := historyLinked(link, target)
-	if err != nil || linked {
+	at, err := historyAt(link, nativeHome, rel)
+	switch {
+	case err != nil:
 		return err
-	}
-	if isRealDir(link) {
+	case at == historyLinked:
+		return nil
+	case at == historyRealDir:
 		if err := adoptHistory(link, target); err != nil {
 			return fmt.Errorf("native history: move %s into %s: %w", link, target, err)
+		}
+	case at == historyLinkedBeforeRename:
+		if err := hostOS.UnlinkDir(link); err != nil {
+			return fmt.Errorf("native history link %s: %w", link, err)
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(link), owneronly.DirMode); err != nil {
@@ -189,20 +196,67 @@ func linkNativeHistory(instanceHome, nativeHome, rel string) error {
 	return nil
 }
 
-// historyLinked reports whether link is the history link to target. Nothing
-// at link, or a real directory, is false; anything else is
+// historyState is what sits where a session home's history link belongs.
+type historyState int
+
+const (
+	// historyAbsent: nothing.
+	historyAbsent historyState = iota
+	// historyLinked: the link into the session's native history.
+	historyLinked
+	// historyLinkedBeforeRename: the link the session made under a name it
+	// has since been renamed from (renamedSessionLink).
+	historyLinkedBeforeRename
+	// historyRealDir: a real directory of history.
+	historyRealDir
+)
+
+// historyAt is what sits at link, the history link into
+// <nativeHome>/<rel>. Anything that is not one of historyState's is
 // ErrHistoryNotLinked.
-func historyLinked(link, target string) (bool, error) {
+func historyAt(link, nativeHome, rel string) (historyState, error) {
+	target := filepath.Join(nativeHome, filepath.FromSlash(rel))
 	ok, err := hostOS.LinksTo(link, target)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return false, nil
+		return historyAbsent, nil
 	case err != nil:
-		return false, fmt.Errorf("native history link %s: %w", link, err)
-	case !ok && !isRealDir(link):
-		return false, fmt.Errorf("%w: %s", ErrHistoryNotLinked, link)
+		return historyAbsent, fmt.Errorf("native history link %s: %w", link, err)
+	case ok:
+		return historyLinked, nil
+	case isRealDir(link):
+		return historyRealDir, nil
+	case renamedSessionLink(link, nativeHome, rel):
+		return historyLinkedBeforeRename, nil
 	}
-	return ok, nil
+	return historyAbsent, fmt.Errorf("%w: %s", ErrHistoryNotLinked, link)
+}
+
+// renamedSessionLink reports whether the link at link names this session's
+// native history as it was before the session was renamed. A link that
+// names its target absolutely (a Windows junction) keeps naming the old
+// session dir after Manager.Rename moves the session, history and all; the
+// home holding the link moved with it, so a link of the exact shape
+// <sessions root>/<old name>/<native>/<leaf>/<rel> whose old session dir no
+// longer exists can only be this session's own. One into a session dir that
+// exists is another session's history.
+func renamedSessionLink(link, nativeHome, rel string) bool {
+	got, err := hostOS.LinkTarget(link)
+	if err != nil {
+		return false
+	}
+	sessionDir := filepath.Dir(filepath.Dir(nativeHome))
+	suffix, err := filepath.Rel(sessionDir, filepath.Join(nativeHome, filepath.FromSlash(rel)))
+	if err != nil {
+		return false
+	}
+	oldName := filepath.Base(strings.TrimSuffix(got, string(filepath.Separator)+suffix))
+	oldDir := filepath.Join(filepath.Dir(sessionDir), oldName)
+	if oldDir == sessionDir || filepath.Join(oldDir, suffix) != got {
+		return false
+	}
+	_, err = os.Lstat(oldDir)
+	return errors.Is(err, fs.ErrNotExist)
 }
 
 // lockFileMode and lockDirMode are the modes this instance-home lock's

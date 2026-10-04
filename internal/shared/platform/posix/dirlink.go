@@ -46,6 +46,19 @@ func (Linker) LinksTo(link, target string) (bool, error) {
 // UnlinkDir removes the symbolic link at link; unlink(2) never follows it.
 func (Linker) UnlinkDir(link string) error { return os.Remove(link) }
 
+// LinkTarget is the directory the symbolic link at link names, resolved
+// against link's parent when it is relative.
+func (Linker) LinkTarget(link string) (string, error) {
+	got, err := os.Readlink(link)
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(got) {
+		got = filepath.Join(filepath.Dir(link), got)
+	}
+	return filepath.Clean(got), nil
+}
+
 // LinksResolveInContainers is true: a relative symbolic link inside a bind
 // mount is followed by a Linux container's kernel.
 func (Linker) LinksResolveInContainers() bool { return true }

@@ -53,3 +53,21 @@ func TestLinksTo_SaysWhatIsThere(t *testing.T) {
 func TestLinksResolveInContainers(t *testing.T) {
 	assert.True(t, Linker{}.LinksResolveInContainers())
 }
+
+// LinkTarget is the absolute directory a relative link names; a real
+// directory is not a link.
+func TestLinkTarget_ResolvesTheRelativeLink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "native", "claude", "projects")
+	link := filepath.Join(root, "home", "claude", "projects")
+	require.NoError(t, os.MkdirAll(target, 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Dir(link), 0o700))
+	require.NoError(t, Linker{}.LinkDir(link, target))
+
+	got, err := Linker{}.LinkTarget(link)
+	require.NoError(t, err)
+	assert.Equal(t, target, got)
+
+	_, err = Linker{}.LinkTarget(target)
+	assert.Error(t, err)
+}

@@ -206,7 +206,11 @@ the probe registry (`probeP14` in `tests/acceptance/capability_probe_registry.go
   removes the junction (`platform.DirLinker.UnlinkDir`) and starts from a copy of
   `native/`'s history (`isolation.restoreNativeHistory`); the next host run adopts the
   home's history back into `native/` and links again. What a container run adds is deleted
-  with the home if the session closes before a host run adopts it.
+  with the home if the session closes before a host run adopts it. A junction keeps
+  naming the session dir it was made under, so after `session edit --name` it points at the
+  old name; the next host run recognises that as the session's own pre-rename link (the old
+  session dir is gone and the shape matches, `isolation.renamedSessionLink`) and relinks
+  it. A junction into any other place is refused (`isolation.ErrHistoryNotLinked`).
 - **A missing output dir.** Readers treat a missing directory as "nothing written yet". A
   session whose record has no output dir is reported (`sessions.ErrNoOutputDir`); a
   container run of one is refused.

@@ -63,13 +63,11 @@ func adoptHistory(src, dst string) error {
 func restoreNativeHistory(instanceHome, nativeHome, rel string) error {
 	link := filepath.Join(instanceHome, filepath.FromSlash(rel))
 	target := filepath.Join(nativeHome, filepath.FromSlash(rel))
-	if isRealDir(link) {
-		return nil
-	}
-	linked, err := historyLinked(link, target)
-	if err != nil {
+	at, err := historyAt(link, nativeHome, rel)
+	if err != nil || at == historyRealDir {
 		return err
 	}
+	linked := at == historyLinked || at == historyLinkedBeforeRename
 	if !isRealDir(target) {
 		return unlinkIf(linked, link)
 	}

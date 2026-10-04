@@ -250,9 +250,7 @@ gen-schemas:
 
 # Regenerate cmd/ltk/sample.ltk.yaml (the shipped default rule set, embedded in
 # the ltk binary) from the ```yaml blocks in docs/ltk/DEFAULTS.md, the source
-# of truth. The tool also has a -check form that fails on drift, but nothing
-# invokes it — no lefthook hook, no CI step — so this is a run-by-hand recipe,
-# not a gate. See docs/architecture/companions/ltk.md, "Invariants".
+# of truth. Its -check form, which fails on drift, runs inside `gen-docs-check`.
 defaults:
     go run ./internal/ltk/tools/extract-defaults
 

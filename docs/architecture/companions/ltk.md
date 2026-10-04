@@ -348,9 +348,9 @@ flowchart LR
   because rules are inherited downward but submodule paths must not be. It distinguishes "no
   submodules" (`nil, nil`) from "could not find out" (an error).
 - `extract-defaults`' `assemble` refuses an assembled rule set below `minDefaultRules`. Its
-  `-check` flag (fail on doc/binary drift) has no invoker: `just defaults` runs the generating
-  form, and no hook runs the check. `TestEmbeddedSampleMatchesDoc` enforces the same invariant,
-  but only when the test suite runs.
+  `-check` flag (fail on doc/binary drift) runs inside `just gen-docs-check`; `just defaults`
+  runs the generating form. `TestEmbeddedSampleMatchesDoc` enforces the same invariant wherever
+  the test suite runs.
 
 ---
 

@@ -43,8 +43,8 @@ import (
 // harmless insurance: it is this list claiming a tier exists, read by anyone
 // auditing what ctxloom keeps out of git, and it outlived both features that
 // would have justified it. Removing it only stops ctxloom WRITING the line —
-// projects that already carry it keep it (Ensure appends and never removes
-// anything but a superseded blanket rule), where it is inert.
+// projects that already carry it keep it (nothing ctxloom runs removes a line
+// but a superseded blanket rule), where it is inert.
 // `.ctxloom/*.lock` is the one entry here for a path current ctxloom does NOT
 // write, and it is deliberate rather than an oversight of the rule above:
 // advisory lock sidecars now live under state/locks (paths.ProjectPathFor),
@@ -166,8 +166,8 @@ type NestedOutcome struct {
 // descend into an ignored directory, so a project whose root file blanket-
 // ignores .ctxloom/ can never READ the nested file — every rule in it is dead,
 // silently, and the private state it names would be committed. Retiring lives
-// inside this call for the same reason it lives inside Ensure: every writer of
-// these rules must repair that, so no caller is given the chance to forget.
+// inside this call because every writer of these rules must repair that, so
+// no caller is given the chance to forget.
 //
 // The write is wholesale rather than an append. That is the entire point: the
 // file has no user content to preserve, so it cannot accumulate stale headers
@@ -193,9 +193,8 @@ func EnsureNested(fsys afero.Fs, projectDir string) (NestedOutcome, error) {
 	return NestedOutcome{Retired: retired, Changed: changed}, nil
 }
 
-// writeNested is EnsureNested's write half, without the root retirement, so
-// Ensure can install the replacement rules during its own migration without
-// retiring twice.
+// writeNested is EnsureNested's write half: the wholesale write of the nested
+// file, without the root retirement.
 func writeNested(fsys afero.Fs, projectDir string) (bool, error) {
 	path := NestedGitignorePath(projectDir)
 	want := nestedContent()
@@ -294,8 +293,8 @@ var WorktreeArtifactPatterns = []string{
 // remotes.yaml and lock.yaml alongside it). Left in place it silently un-tracks
 // the project's own content: `git add` reports nothing, and a content repo
 // publishes an empty tree while every consumer's bundle refs fail to resolve.
-// Ensure only ever appends, so no amount of re-running it can undo this —
-// retirement must be explicit.
+// ctxloom's append path (EnsureFile) never removes a line, so no amount of
+// re-running it can undo this — retirement must be explicit.
 //
 // This list is what ctxloom itself ever WROTE. Retirement matches on effect,
 // not on this list (see isSupersededBlanket): a project's rule may have been
@@ -346,7 +345,7 @@ var supersededComments = []string{"# ctxloom local files"}
 //
 // This exists because `ctxloom doctor`'s gitignore-posture check must not
 // mutate a project's .gitignore just to ask "is it broken", and every other
-// entry point in this package writes (Ensure/EnsureFile/RetireSupersededFile
+// entry point in this package writes (EnsureNested/EnsureFile/RetireSupersededFile
 // all call retireBlock, which replaces the file). Read-only detection is a
 // genuinely separate need, not an oversight.
 func SupersededBlanketLines(fsys afero.Fs, path string) ([]string, error) {
@@ -368,8 +367,7 @@ func SupersededBlanketLines(fsys afero.Fs, path string) ([]string, error) {
 
 // RetireSupersededFile removes any SupersededPatterns line (and any
 // ctxloom-authored header left heading nothing) from path, reporting whether
-// the file changed. An absent file is a no-op, not an error. Callers that
-// write the private-state block should retire first, then Ensure.
+// the file changed. An absent file is a no-op, not an error.
 //
 // Routed through SupersededBlanketLines first so there is exactly ONE
 // detector for "is this line a superseded blanket rule" (isSupersededBlanket,
@@ -435,7 +433,7 @@ func retireBlock(fsys afero.Fs, path string, headers []string, retire func(strin
 // The file being rewritten here is USER-AUTHORED — a project's .gitignore, or
 // a repo's .git/info/exclude — and it is rewritten by removing lines from it.
 // A plain truncate-then-write loses all of it if the process dies in between,
-// which for the migration path is the worst possible moment: Ensure has
+// which for the migration path is the worst possible moment: EnsureNested has
 // already decided the blanket rule must go and has nothing to restore it
 // from.
 //
@@ -469,52 +467,14 @@ func keepLines(lines []string, retire, isOrphanHeader func(string) bool) []strin
 	return kept
 }
 
-// Ensure appends the given patterns to projectDir/.gitignore under a single
-// comment header, creating the file if absent. It is idempotent: only patterns
-// not already present (by exact trimmed-line match) are written, and when none
-// are missing the file is left untouched. An empty patterns list is a no-op.
+// EnsureFile appends the given patterns to the ignore file at path (e.g. a
+// common-dir .git/info/exclude for per-agent worktrees) under a single comment
+// header, creating the file if absent. It is idempotent: only patterns not
+// already present (by exact trimmed-line match) are written, and when none are
+// missing the file is left untouched. path's parent must already exist. An
+// empty patterns list is a no-op.
 //
-// It first retires any SupersededPatterns. Retirement lives HERE, not at the
-// call sites, because appending is powerless against a blanket .ctxloom/: git
-// gives no way to re-include a path whose parent directory is excluded, so the
-// granular patterns would be written and silently overridden, leaving the
-// project's own .ctxloom/content/ invisible. Every writer of a project
-// .gitignore must repair that rule, so no caller is given the chance to forget.
-func Ensure(projectDir, comment string, patterns ...string) error {
-	path := filepath.Join(projectDir, ".gitignore")
-	fsys := afero.NewOsFs()
-
-	retired, err := RetireSupersededFile(fsys, path)
-	if err != nil {
-		return err
-	}
-	if retired {
-		// The blanket rule just removed WAS what kept private state out of git,
-		// so retiring without replacing would leak cache/ and sessions/ into the
-		// repo. Retirement and its replacement are one migration, and no caller
-		// gets the chance to do only half of it — not every caller passes the
-		// private-state tier (the hook path passes only transient artifacts).
-		//
-		// The replacement now goes in the NESTED file rather than back into this
-		// one. Writing it here is what the whole change is undoing, and it is
-		// specifically wrong on this path: appending granular .ctxloom/* rules
-		// to the root file is how the stale-header accumulation started.
-		if _, err := writeNested(fsys, projectDir); err != nil {
-			return err
-		}
-		clidiag.WarnOnce("ctxloom",
-			"removed a blanket .ctxloom/ rule from .gitignore: it predates version-controlled content living under .ctxloom/content/ and was hiding that content from git — the private-state rules now live in .ctxloom/.gitignore, which was just written; review and commit both changes")
-	}
-
-	return EnsureFile(path, comment, patterns...)
-}
-
-// EnsureFile is Ensure targeting an arbitrary ignore file (e.g. a common-dir
-// .git/info/exclude for per-agent worktrees), so the append/idempotency logic is
-// written once. path's parent must already exist. An empty patterns list is a
-// no-op.
-//
-// Ensure and EnsureFile take no afero.Fs, and that is not an omission: their
+// EnsureFile takes no afero.Fs, and that is not an omission: its
 // write is an in-place append (appendBlock, safefs.WriteFileInPlace), which
 // exists for real mounted files and takes no fs by design. Reading through an
 // injected fs while appending to the OS one would let the two disagree about
@@ -573,8 +533,7 @@ func warnOverriddenNegations(path string, content []byte, appended []string) {
 // by exact trimmed-line equality, each emitted at most ONCE.
 //
 // Deduping against the FILE alone is not enough: a caller list carrying a
-// repeated pattern (the private-state replacement prepended to a caller list
-// that already contains it, see Ensure) would write the same line twice, and
+// repeated pattern would write the same line twice, and
 // compensating for that needs a second map-based filter over the same
 // []string. Seeding `present` and marking each emitted pattern makes one
 // filter answer both questions.
@@ -610,9 +569,8 @@ func missingPatterns(content []byte, patterns []string) []string {
 // whole block already known: a partial write is then a failed write rather
 // than half a block appended to the user's file. safefs surfaces a failed Close
 // (ENOSPC/EDQUOT/EIO) rather than discarding it, which is load-bearing here —
-// the migration path in Ensure has already committed the REMOVAL of the
-// superseded blanket rule before this append runs, so an append that reported
-// a false success would leave the project with FEWER ignore rules than before.
+// an append that reported a false success would leave the caller believing
+// paths are ignored that are not.
 func appendBlock(path string, content []byte, comment string, patterns []string) error {
 	var block bytes.Buffer
 	if err := writeBlock(&block, content, comment, patterns); err != nil {

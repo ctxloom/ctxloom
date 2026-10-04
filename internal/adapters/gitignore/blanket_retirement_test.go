@@ -98,19 +98,19 @@ func ensureHarness(t *testing.T, dir string) {
 	require.NoError(t, err)
 }
 
-// TestEnsure_RetiresEveryBlanketSpelling_WhenNothingIsMissing is the end-to-end
+// TestEnsureNested_RetiresEveryBlanketSpelling_WhenNothingIsMissing is the end-to-end
 // half of the table, in the exact shape that made the original report look like
-// a silent no-op: a .gitignore that ALREADY contains every pattern Ensure would
-// append, so the append path has nothing to do and retirement is the ONLY thing
+// a silent no-op: a .gitignore that ALREADY contains every pattern EnsureNested
+// would write, so the append path has nothing to do and retirement is the ONLY thing
 // that can change the file. If retirement misses the spelling, the file comes
 // back byte-identical while the command still exits 0 — which is precisely what
 // was observed.
 //
 // Covering the spellings at this layer as well as at the predicate layer is not
-// redundant: retirement runs inside Ensure, ahead of the append, and a change
+// redundant: retirement runs inside EnsureNested, ahead of the write, and a change
 // to that ordering (or an early return added in front of it) would leave the
 // predicate tests green while every real migration silently stopped working.
-func TestEnsure_RetiresEveryBlanketSpelling_WhenNothingIsMissing(t *testing.T) {
+func TestEnsureNested_RetiresEveryBlanketSpelling_WhenNothingIsMissing(t *testing.T) {
 	for _, blanket := range blanketSpellings {
 		t.Run(blanket, func(t *testing.T) {
 			dir := t.TempDir()
@@ -122,7 +122,7 @@ func TestEnsure_RetiresEveryBlanketSpelling_WhenNothingIsMissing(t *testing.T) {
 
 			got := readGitignore(t, dir)
 			assert.NotEqual(t, original, got,
-				"a file carrying %q is not migrated, so Ensure must not leave it byte-identical", blanket)
+				"a file carrying %q is not migrated, so EnsureNested must not leave it byte-identical", blanket)
 			assert.NotContains(t, ignoreRules(got), strings.TrimSpace(blanket),
 				"the blanket rule %q must be gone", blanket)
 			assert.Contains(t, got, ".DS_Store", "unrelated user entries survive")
@@ -143,7 +143,7 @@ func TestEnsure_RetiresEveryBlanketSpelling_WhenNothingIsMissing(t *testing.T) {
 	}
 }
 
-// TestEnsure_MigratesRealWorldBlanketFile replays the shape this repo's own
+// TestEnsureNested_MigratesRealWorldBlanketFile replays the shape this repo's own
 // pre-migration .gitignore had: the blanket under a hand-written header, a
 // user's deliberate re-include beneath it, a nested-dir defence rule that also
 // mentions .ctxloom, and the granular private-state rules already present
@@ -153,7 +153,7 @@ func TestEnsure_RetiresEveryBlanketSpelling_WhenNothingIsMissing(t *testing.T) {
 // while the blanket stands — git cannot re-include a path whose parent
 // directory is excluded — and it becomes live again only once the blanket is
 // retired. Removing it instead would silently discard a user's decision.
-func TestEnsure_MigratesRealWorldBlanketFile(t *testing.T) {
+func TestEnsureNested_MigratesRealWorldBlanketFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	original := strings.Join([]string{
@@ -190,10 +190,10 @@ func TestEnsure_MigratesRealWorldBlanketFile(t *testing.T) {
 	}
 }
 
-// TestEnsure_SecondRunAfterMigrationIsAByteNoOp pins that once a project is
+// TestEnsureNested_SecondRunAfterMigrationIsAByteNoOp pins that once a project is
 // migrated there is genuinely nothing left to do, so anything reporting an
 // update on a re-run is reporting fiction rather than describing the file.
-func TestEnsure_SecondRunAfterMigrationIsAByteNoOp(t *testing.T) {
+func TestEnsureNested_SecondRunAfterMigrationIsAByteNoOp(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	require.NoError(t, os.WriteFile(path, []byte("# Local config\n.ctxloom/*\n"), 0644))
@@ -212,7 +212,7 @@ func TestEnsure_SecondRunAfterMigrationIsAByteNoOp(t *testing.T) {
 // TestSupersededBlanketLines_ReadOnly is doctor's gitignore-posture check's
 // whole contract: it must be able to ASK whether a blanket rule is present
 // without ever writing to the file, unlike every other exported entry point
-// in this package (Ensure/EnsureFile/RetireSupersededFile all mutate).
+// in this package (EnsureNested/EnsureFile/RetireSupersededFile all mutate).
 func TestSupersededBlanketLines_ReadOnly(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")

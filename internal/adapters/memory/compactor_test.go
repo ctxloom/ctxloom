@@ -180,29 +180,6 @@ func TestLoadDistilledSession_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestListDistilledSessions(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "abc123.md"), []byte("---\nsession_id: abc123\n---\n\n# x\n"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "def456.md"), []byte("---\nsession_id: def456\n---\n\n# x\n"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "other.txt"), []byte("ignored"), 0644))
-
-	sessions, err := ListDistilledSessions(afero.NewOsFs(), tmpDir)
-	require.NoError(t, err)
-
-	assert.Len(t, sessions, 2)
-	assert.Contains(t, sessions, "abc123")
-	assert.Contains(t, sessions, "def456")
-}
-
-func TestListDistilledSessions_Empty(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	sessions, err := ListDistilledSessions(afero.NewOsFs(), tmpDir)
-	require.NoError(t, err)
-	assert.Empty(t, sessions)
-}
-
 func TestCompactor_RunDistill_WithMockClient(t *testing.T) {
 	tmpDir := t.TempDir()
 

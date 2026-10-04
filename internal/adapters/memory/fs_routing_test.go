@@ -60,9 +60,6 @@ func TestMemory_ReadsAndWritesThroughTheGivenFs(t *testing.T) {
 		require.NoError(t, fsys.MkdirAll(dir, 0o755))
 		testsupport.WriteFileString(t, fsys, filepath.Join(dir, "s1.md"), "---\nsession_id: s1\n---\n\nbody\n", 0o600)
 
-		ids, err := ListDistilledSessions(fsys, dir)
-		require.NoError(t, err)
-		require.Equal(t, []string{"s1"}, ids)
 		ds, err := LoadDistilledSession(fsys, dir, "s1")
 		require.NoError(t, err)
 		require.Equal(t, "s1", ds.SessionID)

@@ -1274,30 +1274,6 @@ func parseDistilledMarkdown(data []byte) (*DistilledSession, error) {
 	}, nil
 }
 
-// ListDistilledSessions returns the IDs of every distilled .md file
-// directly under sessionsDir.
-func ListDistilledSessions(fsys afero.Fs, sessionsDir string) ([]string, error) {
-	entries, err := afero.ReadDir(fsys, sessionsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var sessions []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if strings.HasSuffix(name, ".md") {
-			sessions = append(sessions, strings.TrimSuffix(name, ".md"))
-		}
-	}
-	return sessions, nil
-}
-
 // sessionDistillPromptName is the prompt file's stem, shared by the embedded
 // lookup and the on-disk PromptDir override so the two can never name
 // different files.

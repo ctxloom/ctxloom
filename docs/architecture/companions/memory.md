@@ -103,7 +103,7 @@ flowchart TD
 | `distillPrompt` | `compactor.go` | The prompt plus the injected essence budget; loads from `PromptDir` when set, failing rather than falling back |
 | `saveDistilled` / `saveEssence` | `compactor.go` | Builds the frontmatter doc and writes it twice under the harp: `essence.md` (the current distillation) and this rotation's `segments/<sessionID>.md`. Refuses an empty body. `saveEssence` warns before every degrade |
 | `resolveHarpName` / `identityBoundSessionID` / `updateSessionIndex` | `compactor.go` | The index-mutating group |
-| `LoadDistilledSession` / `parseDistilledMarkdown` / `ListDistilledSessions` | `compactor.go` | The read side |
+| `LoadDistilledSession` / `parseDistilledMarkdown` | `compactor.go` | The read side |
 | `RenderPlans` / `planFilesToBlocks` / `IsPlanFile` | `plans.go` | |
 | `StampPlanFile` / `prependFrontmatter` / `updateFrontmatter` / `addHarpToSessionsNode` | `stamp.go` | Ensures a plan file's `sessions:` frontmatter contains the harp |
 

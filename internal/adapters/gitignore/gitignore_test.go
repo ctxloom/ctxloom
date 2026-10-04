@@ -48,10 +48,10 @@ func readPlainFile(t *testing.T, path string) string {
 	return string(data)
 }
 
-func TestEnsure_CreatesFileWithPatterns(t *testing.T) {
+func TestEnsureFile_CreatesFileWithPatterns(t *testing.T) {
 	dir := t.TempDir()
 
-	require.NoError(t, Ensure(dir, testComment, ".ctxloom/ephemeral/", ".ctxloom/project-id"))
+	require.NoError(t, EnsureFile(filepath.Join(dir, ".gitignore"), testComment, ".ctxloom/ephemeral/", ".ctxloom/project-id"))
 
 	got := readGitignore(t, dir)
 	assert.Contains(t, got, testComment)
@@ -59,12 +59,12 @@ func TestEnsure_CreatesFileWithPatterns(t *testing.T) {
 	assert.Contains(t, got, ".ctxloom/project-id")
 }
 
-func TestEnsure_AppendsOnlyMissingPatterns(t *testing.T) {
+func TestEnsureFile_AppendsOnlyMissingPatterns(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	require.NoError(t, os.WriteFile(path, []byte("node_modules/\n.ctxloom/ephemeral/\n"), 0644))
 
-	require.NoError(t, Ensure(dir, testComment, ".ctxloom/ephemeral/", ".agents/"))
+	require.NoError(t, EnsureFile(filepath.Join(dir, ".gitignore"), testComment, ".ctxloom/ephemeral/", ".agents/"))
 
 	got := readGitignore(t, dir)
 	// The already-present pattern is not duplicated.
@@ -75,32 +75,32 @@ func TestEnsure_AppendsOnlyMissingPatterns(t *testing.T) {
 	assert.Contains(t, got, "node_modules/")
 }
 
-func TestEnsure_NoMissingPatternsLeavesFileUntouched(t *testing.T) {
+func TestEnsureFile_NoMissingPatternsLeavesFileUntouched(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	original := "node_modules/\n.agents/\n"
 	require.NoError(t, os.WriteFile(path, []byte(original), 0644))
 
-	require.NoError(t, Ensure(dir, testComment, ".agents/"))
+	require.NoError(t, EnsureFile(filepath.Join(dir, ".gitignore"), testComment, ".agents/"))
 
 	assert.Equal(t, original, readGitignore(t, dir))
 }
 
-func TestEnsure_EmptyPatternsIsNoOp(t *testing.T) {
+func TestEnsureFile_EmptyPatternsIsNoOp(t *testing.T) {
 	dir := t.TempDir()
 
-	require.NoError(t, Ensure(dir, testComment))
+	require.NoError(t, EnsureFile(filepath.Join(dir, ".gitignore"), testComment))
 
 	_, err := os.Stat(filepath.Join(dir, ".gitignore"))
 	assert.True(t, os.IsNotExist(err), "no .gitignore should be created")
 }
 
-func TestEnsure_InsertsSeparatorWhenFileLacksTrailingNewline(t *testing.T) {
+func TestEnsureFile_InsertsSeparatorWhenFileLacksTrailingNewline(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	require.NoError(t, os.WriteFile(path, []byte("node_modules/"), 0644))
 
-	require.NoError(t, Ensure(dir, testComment, ".agents/"))
+	require.NoError(t, EnsureFile(filepath.Join(dir, ".gitignore"), testComment, ".agents/"))
 
 	got := readGitignore(t, dir)
 	// The pre-existing line stays intact on its own line.
@@ -108,12 +108,12 @@ func TestEnsure_InsertsSeparatorWhenFileLacksTrailingNewline(t *testing.T) {
 	assert.Contains(t, got, ".agents/")
 }
 
-func TestEnsure_IsIdempotentAcrossRuns(t *testing.T) {
+func TestEnsureFile_IsIdempotentAcrossRuns(t *testing.T) {
 	dir := t.TempDir()
 
-	require.NoError(t, Ensure(dir, testComment, ".agents/", "*.ctxloom.bak"))
+	require.NoError(t, EnsureFile(filepath.Join(dir, ".gitignore"), testComment, ".agents/", "*.ctxloom.bak"))
 	first := readGitignore(t, dir)
-	require.NoError(t, Ensure(dir, testComment, ".agents/", "*.ctxloom.bak"))
+	require.NoError(t, EnsureFile(filepath.Join(dir, ".gitignore"), testComment, ".agents/", "*.ctxloom.bak"))
 	second := readGitignore(t, dir)
 
 	assert.Equal(t, first, second)
@@ -171,7 +171,7 @@ func TestWorktreeArtifactPatterns_CoverTheProjectIDMarker(t *testing.T) {
 		"the worktree exclude and the project's own nested .gitignore must agree the marker is private")
 }
 
-// TestPatternSets_AreNonEmpty pins against a pattern list arriving empty. Every production call site of Ensure /
+// TestPatternSets_AreNonEmpty pins against a pattern list arriving empty. Every production call site of
 // EnsureFile passes one of these package-level sets verbatim, so an empty list
 // is not something a caller can construct — but if one of these sets were ever
 // emptied, the failure would be silent twice over: EnsureFile returns nil for
@@ -276,8 +276,8 @@ func TestPrivateStatePatterns_AreAllUnderTheCtxloomDir(t *testing.T) {
 // TestEnsure_LeavesRetiredPhantomPatternsAlone is the other half of removing a
 // pattern from PrivateStatePatterns: every project initialized by an older
 // ctxloom already has `.ctxloom/pieces/` and `.ctxloom/ephemeral/` written into
-// its .gitignore, and those lines are the USER'S file now. Ensure appends and
-// retires only the superseded blanket rule, so ceasing to write a pattern must
+// its .gitignore, and those lines are the USER'S file now. ctxloom retires only
+// the superseded blanket rule, so ceasing to write a pattern must
 // leave existing ones exactly where they are — untouched, inert, and nobody's
 // merge conflict.
 func TestEnsureNested_LeavesRetiredPhantomPatternsAlone(t *testing.T) {
@@ -388,7 +388,7 @@ func countOccurrences(s, sub string) int {
 // ctxloom wrote a blanket `.ctxloom/` ignore, which predates version-controlled
 // content living INSIDE .ctxloom/content/. Left in place it silently un-tracks
 // the project's own content: git add reports nothing and a content repo
-// publishes an empty tree. Ensure only appends, so nothing could ever remove it.
+// publishes an empty tree. EnsureFile only appends, so nothing could ever remove it.
 func TestRetireSuperseded_RemovesBlanketCtxloomRule(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
@@ -411,7 +411,7 @@ func TestRetireSuperseded_RemovesBlanketCtxloomRule(t *testing.T) {
 // project's own .ctxloom/content/ becomes invisible to git, `git add` reports
 // nothing, and a content repo publishes an empty tree while every consumer's
 // bundle refs fail to resolve. A spelling the migration does not recognise is
-// a project it silently leaves broken — and Ensure only ever APPENDS, so no
+// a project it silently leaves broken — and EnsureFile only ever APPENDS, so no
 // amount of re-running repairs it.
 func TestRetireSuperseded_RetiresEveryBlanketSpelling(t *testing.T) {
 	for _, blanket := range []string{
@@ -576,10 +576,10 @@ func TestRetireWorktreeConfigBlock_MissingFile(t *testing.T) {
 	assert.False(t, changed)
 }
 
-// TestRetireSuperseded_ThenEnsure_UnignoresContent pins the end-to-end repair an
-// old project needs: after retire+Ensure, private state stays ignored while
+// TestRetireSuperseded_ThenEnsureNested_UnignoresContent pins the end-to-end repair an
+// old project needs: after retire+EnsureNested, private state stays ignored while
 // .ctxloom/content/ (and config/lock alongside it) becomes trackable again.
-func TestRetireSuperseded_ThenEnsure_UnignoresContent(t *testing.T) {
+func TestRetireSuperseded_ThenEnsureNested_UnignoresContent(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
 		[]byte("# ctxloom local files\n.ctxloom/\n"), 0644))
@@ -621,7 +621,7 @@ func TestEnsureNested_RetiresTheBlanketThatWouldMakeItUnreadable(t *testing.T) {
 }
 
 // TestEnsureFile_WarnsWhenAppendingOverAUserNegation pins that .gitignore
-// is LAST-MATCH-WINS and Ensure only ever appends at the end of the file, so a
+// is LAST-MATCH-WINS and EnsureFile only ever appends at the end of the file, so a
 // pattern ctxloom appends silently overrides a user's earlier `!` re-include
 // of the same path — against the package doc's promise to append "without
 // disturbing user entries".

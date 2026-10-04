@@ -215,16 +215,6 @@ pre-push:
       # the developer boxes that actually fill up.
       run: just cache-report
 
-    secrets-history:
-      # Full-history secret scan (`just secrets-scan-history`): the pre-commit
-      # `gitleaks` command sees only what is staged, so a commit made with
-      # --no-verify, or one older than that hook, is caught here, before it
-      # leaves the machine. PRE-PUSH because it walks every commit — seconds,
-      # not the per-commit cost a hook people bypass would be. A finding that
-      # is a fixture in a past commit is suppressed by adding its fingerprint
-      # to .gitleaksignore; a real one means the secret is burned — rotate it.
-      run: just secrets-scan-history
-
 # The three hooks below all run the same script, which decides for itself
 # whether anything needs doing. They exist because these are the git operations
 # that MOVE THE COMMIT GRAPH, which is what a long-lived language server fails

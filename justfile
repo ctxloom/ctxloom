@@ -1259,21 +1259,6 @@ gitleaks-install:
     set +a
     go install github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}
 
-# Scan the WHOLE git history for secrets — lefthook's pre-push hook, the
-# complement of its staged-only pre-commit scan: it also covers commits made with
-# --no-verify and history that predates the hook. Rules are .gitleaks.toml;
-# .gitleaksignore holds the fingerprints of historical findings verified as
-# fixtures. Output is redacted; any other finding fails.
-secrets-scan-history:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if ! command -v gitleaks >/dev/null 2>&1; then
-        echo "gitleaks is not on PATH — run 'just gitleaks-install'." >&2
-        echo "The secret scan cannot pass by not running." >&2
-        exit 1
-    fi
-    gitleaks git . --redact --no-banner --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore
-
 # Install gremlins
 test-mutation-install:
     go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0

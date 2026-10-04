@@ -144,6 +144,7 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
 			"internal/core/bundles -> internal/shared/admission":            "slice 5: admission is decided by composite.Trust, not by the bundle package",
 			"internal/core/bundles -> internal/shared/upgrade":              "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
+			"internal/core/bundles -> internal/shared/schemaver":            "the envelope's format-version gate (envelopeKind), run by ParseBundle before the strict decode — row urban-borough: it moves with the reader to the adapter side (slice 5), alongside the upgrade edge above",
 
 			// core/config
 			"internal/core/config -> internal/shared/admission": "slice 5: admission is decided by composite.Trust",

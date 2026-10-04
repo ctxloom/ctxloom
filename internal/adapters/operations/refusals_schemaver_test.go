@@ -47,3 +47,13 @@ func TestReadRefusalDoc_NewerIsRefusedNamingBothNumbers(t *testing.T) {
 	assert.Equal(t, refusalKind.Current()+1, ve.Found)
 	assert.Equal(t, refusalKind.Current(), ve.Current)
 }
+
+// A cache that is not YAML is its parse failure, not a version fault.
+func TestReadRefusalDoc_MalformedIsAParseFailureNotAVersionFault(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fsys, refusalTestPath, "refusals: [unterminated\n", 0o644)
+	_, err := readRefusalDoc(fsys, refusalTestPath)
+	require.Error(t, err)
+	var ve *schemaver.VersionError
+	assert.NotErrorAs(t, err, &ve)
+}

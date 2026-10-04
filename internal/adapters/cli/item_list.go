@@ -118,20 +118,14 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 	}
 	switch itemType {
 	case ItemTypeFragment:
-		res, err := operations.ListFragments(ctx, cfg, operations.ListFragmentsRequest{SortBy: "source"})
-		if err != nil {
-			return nil, err
-		}
+		res := operations.ListFragments(ctx, cfg, operations.ListFragmentsRequest{SortBy: "source"})
 		rows := make([]itemRow, 0, len(res.Fragments))
 		for _, f := range res.Fragments {
 			rows = append(rows, row(f.Name, f.Tags, f.Source))
 		}
 		return rows, nil
 	case ItemTypeCommand:
-		res, err := operations.ListCommands(ctx, cfg, operations.ListCommandsRequest{SortBy: "source"})
-		if err != nil {
-			return nil, err
-		}
+		res := operations.ListCommands(ctx, cfg, operations.ListCommandsRequest{SortBy: "source"})
 		rows := make([]itemRow, 0, len(res.Commands))
 		for _, p := range res.Commands {
 			rows = append(rows, row(p.Name, p.Tags, p.Source))

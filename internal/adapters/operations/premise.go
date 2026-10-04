@@ -115,7 +115,7 @@ func RenderPremiseIndex(entries []PremiseIndexEntry) string {
 //
 // Sorted by name so the same corpus always renders the same index; a row order
 // that moved between calls would defeat prompt caching for every consumer.
-func PremiseIndex(cat bundles.Catalog) ([]PremiseIndexEntry, error) {
+func PremiseIndex(cat bundles.Catalog) []PremiseIndexEntry {
 	var entries []PremiseIndexEntry
 	for _, info := range cat.ListAllFragments() {
 		if info.Premise == "" {
@@ -131,5 +131,5 @@ func PremiseIndex(cat bundles.Catalog) ([]PremiseIndexEntry, error) {
 		})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-	return entries, nil
+	return entries
 }

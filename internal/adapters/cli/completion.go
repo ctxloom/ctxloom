@@ -85,10 +85,7 @@ func completeFragmentNames(cmd *cobra.Command, args []string, toComplete string)
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	res, err := operations.ListFragments(cmd.Context(), cfg, operations.ListFragmentsRequest{})
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
+	res := operations.ListFragments(cmd.Context(), cfg, operations.ListFragmentsRequest{})
 
 	var names []string
 	for _, f := range res.Fragments {
@@ -165,10 +162,7 @@ func completePromptNames(cmd *cobra.Command, args []string, toComplete string) (
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	res, err := operations.ListCommands(cmd.Context(), cfg, operations.ListCommandsRequest{})
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
+	res := operations.ListCommands(cmd.Context(), cfg, operations.ListCommandsRequest{})
 
 	var names []string
 	for _, p := range res.Commands {

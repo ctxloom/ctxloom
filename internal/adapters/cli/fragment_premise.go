@@ -193,10 +193,7 @@ func proposePremise(ctx context.Context, cfg *config.Config, label, ref string, 
 	if fragmentDraftPremiseNoCritique {
 		return p, nil
 	}
-	siblings, err := premiseSiblings(cfg, ref)
-	if err != nil {
-		return nil, err
-	}
+	siblings := premiseSiblings(cfg, ref)
 	if p.Critique, err = runPremisePass(ctx, cfg, label, func(c operations.PremiseAuthorConfig) (*operations.PremiseCritique, error) {
 		return operations.CritiquePremise(ctx, c, ref, cur.Content, p.Draft, siblings)
 	}); err != nil {
@@ -239,18 +236,15 @@ func runPremisePass[T any](ctx context.Context, cfg *config.Config, label string
 
 // premiseSiblings is the premise index minus the fragment being authored: the
 // premises the draft could collide with.
-func premiseSiblings(cfg *config.Config, ref string) ([]operations.PremiseIndexEntry, error) {
-	entries, err := operations.PremiseIndex(cfg.BundleLoader().Catalog())
-	if err != nil {
-		return nil, fmt.Errorf("failed to list sibling premises: %w", err)
-	}
+func premiseSiblings(cfg *config.Config, ref string) []operations.PremiseIndexEntry {
+	entries := operations.PremiseIndex(cfg.BundleLoader().Catalog())
 	siblings := make([]operations.PremiseIndexEntry, 0, len(entries))
 	for _, e := range entries {
 		if e.Name != ref {
 			siblings = append(siblings, e)
 		}
 	}
-	return siblings, nil
+	return siblings
 }
 
 // decidePremise asks the author to accept, edit or reject, setting Decision

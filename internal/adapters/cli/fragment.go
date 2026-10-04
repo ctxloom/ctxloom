@@ -202,10 +202,7 @@ func runFragmentPremises(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	entries, err := operations.PremiseIndex(cfg.BundleLoader().Catalog())
-	if err != nil {
-		return fmt.Errorf("failed to list premised fragments: %w", err)
-	}
+	entries := operations.PremiseIndex(cfg.BundleLoader().Catalog())
 	// The INSTRUCTION travels with the entries, in every format. Piped output
 	// resolves to JSON, so the programmatic caller -- an agent running this
 	// command -- is the common case, and handing it the index without the

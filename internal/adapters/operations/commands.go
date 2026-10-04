@@ -44,7 +44,7 @@ type ListCommandsResult struct {
 // ListFragments: it filters and sorts the raw ContentInfo (so SortBy:"source"
 // groups by bundle) before projecting, keeping one read path for both the MCP
 // resource surface and the grouped CLI listing.
-func ListCommands(ctx context.Context, cfg *config.Config, req ListCommandsRequest) (*ListCommandsResult, error) {
+func ListCommands(ctx context.Context, cfg *config.Config, req ListCommandsRequest) *ListCommandsResult {
 	loader := req.Loader
 	if loader == nil {
 		loader = bundleLoader(cfg)
@@ -79,7 +79,7 @@ func ListCommands(ctx context.Context, cfg *config.Config, req ListCommandsReque
 		})
 	}
 
-	return result, nil
+	return result
 }
 
 // GetCommandRequest contains parameters for getting a command.

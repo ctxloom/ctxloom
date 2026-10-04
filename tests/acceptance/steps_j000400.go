@@ -104,7 +104,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 		if err := w.env.InitGitRepo(); err != nil {
 			return err
 		}
-		if err := w.env.WriteFile(".ctxloom/config.yaml", fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)); err != nil {
+		if err := w.env.WriteFile(".ctxloom/config.yaml", fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion)); err != nil {
 			return err
 		}
 		if err := testenv.WriteBundleTree(w.env.ProjectDir, "team", j000400TeamBundleYAML()); err != nil {

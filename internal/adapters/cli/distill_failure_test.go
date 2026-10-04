@@ -20,7 +20,7 @@ import (
 
 // mockProjectYAML is a project whose fast role is the mock engine, so an
 // internal one-shot resolves without any real vendor CLI.
-const mockProjectYAML = "version: 6\nllm:\n  configs:\n    fast: { type: mock }\n  defaults:\n    fast: fast\n"
+const mockProjectYAML = "schema_version: 6\nllm:\n  configs:\n    fast: { type: mock }\n  defaults:\n    fast: fast\n"
 
 // blockCoordinatorRoots makes every coordinator root of the project
 // impossible to create: a regular file stands where the project's directory

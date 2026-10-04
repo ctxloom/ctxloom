@@ -68,7 +68,7 @@ func readAgentFromDisk(t *testing.T, appDir, name string) (agents.Agent, bool) {
 // binding under the `agents:` key and that a fresh load reads it back — the
 // path the agent-assisted setup uses to record the user's choice.
 func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 
 	entry, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:     "finder",
@@ -202,7 +202,7 @@ func TestSetAgent_AcceptsBackendNamesAndConfigLabels(t *testing.T) {
 // covered by internal/core/config's own layerscope tests. What this test still
 // pins is that SetAgent itself writes the byte, never silently discarding it.
 func TestSetAgent_PersistsRuntime(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	mgr := managerFor(t, appDir)
 
 	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
@@ -232,7 +232,7 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 // layer) would pass even if SetAgent still wrote the bad value alongside the
 // error; reading the file back is what actually proves the refusal.
 func TestSetAgent_RejectsUnknownRuntime(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	mgr := managerFor(t, appDir)
 
 	// Create: the agent must not come into existence at all.
@@ -272,7 +272,7 @@ func TestSetAgent_RejectsUnknownRuntime(t *testing.T) {
 // is the "configurable by agent" knob the run resolver consults. An unknown value
 // is stored as written (advisory warn only; it resolves to the default posture).
 func TestSetAgent_PersistsPermissions(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	mgr := managerFor(t, appDir)
 
 	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
@@ -314,7 +314,7 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 // errors and nothing is persisted (agents.ValidateDriving's doc: a typo here
 // changes execution semantics, so it never gets the advisory-warn treatment).
 func TestSetAgent_PersistsDriving(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	mgr := managerFor(t, appDir)
 
 	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
@@ -353,7 +353,7 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 // "must be rejected" assertion below goes red — an unknown engine_home would
 // be written as though it were valid.
 func TestSetAgent_PersistsHomeMode(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	mgr := managerFor(t, appDir)
 
 	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
@@ -385,7 +385,7 @@ func TestSetAgent_PersistsHomeMode(t *testing.T) {
 // TestSetAgent_PersistsHomeModeHost is the opt-out half: "host" is just as
 // valid a declared value as "session", and round-trips the same way.
 func TestSetAgent_PersistsHomeModeHost(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:     "human-adjacent",
@@ -405,7 +405,7 @@ func TestSetAgent_PersistsHomeModeHost(t *testing.T) {
 // TestSetAgent_UpdatesExisting proves a second set with the same name REPLACES
 // the binding (whole-binding rewrite, not a merge).
 func TestSetAgent_UpdatesExisting(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	mgr := managerFor(t, appDir)
 
 	// Real engine names, not "a"/"b" placeholders: SetAgent now validates the
@@ -464,7 +464,7 @@ agents:
 
 // TestSetAgent_EmptyName errors rather than writing a nameless binding.
 func TestSetAgent_EmptyName(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "", Profiles: ptr([]string{"p"})})
 	assert.Error(t, err)
 }
@@ -472,7 +472,7 @@ func TestSetAgent_EmptyName(t *testing.T) {
 // TestRemoveAgent_RoundTrips proves remove deletes the config-key entry and
 // persists the removal.
 func TestRemoveAgent_RoundTrips(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	mgr := managerFor(t, appDir)
 	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{Name: "finder", Profiles: ptr([]string{"p1"})})
 	require.NoError(t, err)
@@ -487,7 +487,7 @@ func TestRemoveAgent_RoundTrips(t *testing.T) {
 
 // TestRemoveAgent_NotFound errors on an unknown name.
 func TestRemoveAgent_NotFound(t *testing.T) {
-	_, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	_, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	assert.Error(t, RemoveAgent(context.Background(), managerFor(t, appDir), "nope"))
 }
 
@@ -500,7 +500,7 @@ func TestRemoveAgent_NotFound(t *testing.T) {
 // one another. Owner.Update's fresh reload happens INSIDE the lock, so
 // every writer's change survives regardless of interleaving.
 func TestSetAgent_ConcurrentWritesAllSurvive(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	mgr := managerFor(t, appDir)
 
 	const n = 20
@@ -589,7 +589,7 @@ func TestAgentSetupNudge_AnyProfileOnDiskCountsAsProfiles(t *testing.T) {
 // what RELOADS can catch it — the create call's own return value carried the
 // engine correctly and would have looked fine.
 func TestSetAgent_PersistsTheSurfacePreference(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:     "writer",
@@ -609,7 +609,7 @@ func TestSetAgent_PersistsTheSurfacePreference(t *testing.T) {
 // A preference the engine cannot honour is refused, and the refusal must leave
 // NOTHING behind — the whole point of validating before the transaction opens.
 func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:     "scout",
@@ -628,7 +628,7 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 // approach whose writer was deleted is refused with the typed error that
 // names the replacement, and the refusal writes nothing.
 func TestSetAgent_RetiredSurfaceApproachIsRefusedTyped(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:     "writer",
@@ -650,7 +650,7 @@ func TestSetAgent_RetiredSurfaceApproachIsRefusedTyped(t *testing.T) {
 // command actually has. The engine is chosen with --llm; there is no
 // --engine flag.
 func TestSetAgent_SurfaceWithoutEngineNamesTheFlagThatSetsIt(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:     "writer",
@@ -771,7 +771,7 @@ func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
 // as null/null and resolving to nothing at launch. The write edge refuses it
 // the same way it refuses an unknown engine, and nothing lands.
 func TestSetAgent_RefusesABindingWithNoEngine(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "help"})
 	require.ErrorIs(t, err, ErrAgentWithoutEngine, "an agent with no llm and no profiles is not an agent; the write must be refused")
@@ -815,7 +815,7 @@ func TestSetAgent_RefusesAnEditThatClearsTheLastEngineBinding(t *testing.T) {
 // validated against the roots the engine's approach for that kind offers,
 // and written as the binding's roots.
 func TestSetAgent_PersistsARootSelectionTheApproachOffers(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:  "writer",
@@ -835,7 +835,7 @@ func TestSetAgent_PersistsARootSelectionTheApproachOffers(t *testing.T) {
 // approach does not offer for the kind is refused with the offered roots
 // named, and the refusal writes nothing.
 func TestSetAgent_RefusesARootTheApproachDoesNotOffer(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:  "scout",

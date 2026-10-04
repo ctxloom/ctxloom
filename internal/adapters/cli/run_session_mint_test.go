@@ -32,7 +32,7 @@ func TestRun_SessionMintFailureRefusesTheRunBeforeAnyEngineSpawn(t *testing.T) {
 	// The fixture's config names no engine; the mock backend is the one that
 	// needs no binary installed, so it is configured under its own label.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"),
-		[]byte(fmt.Sprintf("version: %d\nllm:\n  configs:\n    mock:\n      type: mock\n", config.CurrentConfigVersion)), 0o644))
+		[]byte(fmt.Sprintf("schema_version: %d\nllm:\n  configs:\n    mock:\n      type: mock\n", config.CurrentConfigVersion)), 0o644))
 	resetApp()
 
 	witness := filepath.Join(t.TempDir(), "runner-spawned")

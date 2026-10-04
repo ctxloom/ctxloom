@@ -28,7 +28,7 @@ func stagePremisedProject(t *testing.T) string {
 	workDir := t.TempDir()
 	appDir := filepath.Join(workDir, ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(fmt.Sprintf("version: %d\nllm:\n  configs:\n    claude-code:\n      type: claude-code\n", config.CurrentConfigVersion)), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(fmt.Sprintf("schema_version: %d\nllm:\n  configs:\n    claude-code:\n      type: claude-code\n", config.CurrentConfigVersion)), 0o644))
 	bundleDir := authoredV1(filepath.Join(workDir, ".ctxloom"))
 	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
 	doc := `version: "1.0"

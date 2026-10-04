@@ -458,7 +458,7 @@ func isoMatrixConfigYAML(engineType, engineHome, sessionAuth string) string {
 	if sessionAuth != "" {
 		authLine = fmt.Sprintf("auth: %s\n", sessionAuth)
 	}
-	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+authLine+`llm:
+	return fmt.Sprintf(fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion)+authLine+`llm:
   configs:
     iso:
       type: %s

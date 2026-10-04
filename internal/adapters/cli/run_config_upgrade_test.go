@@ -29,7 +29,7 @@ func TestRunLoadConfig_NeverPromptsToRewriteTheConfig(t *testing.T) {
 	const short = "short-ref"
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
 	path := paths.ConfigPath(appDir)
-	body := fmt.Sprintf("version: %d\nagents:\n  dev:\n    llm: claude-code\n    profiles:\n      - %s\n", config.CurrentConfigVersion, short)
+	body := fmt.Sprintf("schema_version: %d\nagents:\n  dev:\n    llm: claude-code\n    profiles:\n      - %s\n", config.CurrentConfigVersion, short)
 	osfs := afero.NewOsFs()
 	testsupport.WriteFileString(t, osfs, path, body, 0o644)
 

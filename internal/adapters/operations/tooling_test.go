@@ -64,7 +64,7 @@ func TestCollectTooling_NilSafe(t *testing.T) {
 // beside it, seeded from the embedded default base — which is exactly what an
 // unset isolation_base then adopts as the agent image's base.
 func TestScaffoldDevcontainer_WritesADevcontainerOnTheEmbeddedBase(t *testing.T) {
-	cfg, _ := loadConfigDir(t, "version: 5\n")
+	cfg, _ := loadConfigDir(t, "schema_version: 6\n")
 
 	dir, err := ScaffoldDevcontainer(cfg)
 	require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestScaffoldDevcontainer_RefusesAnExistingDevcontainer(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			cfg, _ := loadConfigDir(t, "version: 5\n")
+			cfg, _ := loadConfigDir(t, "schema_version: 6\n")
 			existing := plant(cfg.GetAppRoot())
 
 			_, err := ScaffoldDevcontainer(cfg)

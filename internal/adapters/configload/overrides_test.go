@@ -27,7 +27,7 @@ func TestRead_BodyMapKeyCasePreserved(t *testing.T) {
 	home := testsupport.Isolate(t)
 	appDir := filepath.Join(home, "proj", config.AppDirName)
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte(`version: 6
+	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte(`schema_version: 6
 llm:
   configs:
     m:
@@ -61,7 +61,7 @@ llm:
 func TestNew_CapturesEnvAndConfigSetFlag_NotBusinessFlags(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir := t.TempDir()
-	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte("version: 6\nworkspace: none\n"), 0o644))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte("schema_version: 6\nworkspace: none\n"), 0o644))
 
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	fs.StringArray(confload.ConfigSetFlagName, nil, "")

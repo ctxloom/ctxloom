@@ -43,11 +43,11 @@ import (
 // writeMinimalConfig): editor.command/args are ScopeMachine
 // (internal/core/config/layerscope) — a binary on THIS box — so a committed
 // project-file value no longer survives a real Load.
-var minimalConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)
+var minimalConfig = fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion)
 
 // minimalHomeEditorConfig is minimalConfig's HOME half: the no-op editor
 // pin. See minimalConfig's doc and writeMinimalConfig.
-var minimalHomeEditorConfig = fmt.Sprintf("version: %d\neditor:\n  command: \"true\"\n", config.CurrentConfigVersion)
+var minimalHomeEditorConfig = fmt.Sprintf("schema_version: %d\neditor:\n  command: \"true\"\n", config.CurrentConfigVersion)
 
 // writeMinimalConfig writes minimalConfig to the project layer and
 // minimalHomeEditorConfig to home — every scenario that used to write
@@ -71,7 +71,7 @@ func writeMinimalConfig(env *testenv.TestEnvironment) error {
 // editor" step, which writes minimalConfig to project and THIS to home) —
 // editor.command/args are ScopeMachine, so a committed project value would
 // not survive a real Load.
-var markerEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `editor:
+var markerEditorConfig = fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `editor:
   command: sh
   args:
     - "-c"
@@ -87,7 +87,7 @@ var markerEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersio
 // what makes that refusal path reachable hermetically.
 //
 // Lives entirely in the HOME layer — see markerEditorConfig's doc for why.
-var emptyEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `editor:
+var emptyEditorConfig = fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `editor:
   command: sh
   args:
     - "-c"
@@ -104,7 +104,7 @@ var emptyEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion
 // exit code.
 //
 // Lives entirely in the HOME layer — see markerEditorConfig's doc for why.
-var descriptionEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `editor:
+var descriptionEditorConfig = fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `editor:
   command: sh
   args:
     - "-c"
@@ -119,7 +119,7 @@ var descriptionEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigV
 // valid manifest behind or the command reads back garbage.
 //
 // Lives entirely in the HOME layer — see markerEditorConfig's doc for why.
-var commandEditorConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `editor:
+var commandEditorConfig = fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `editor:
   command: sh
   args:
     - "-c"

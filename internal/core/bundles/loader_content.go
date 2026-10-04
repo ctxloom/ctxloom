@@ -695,28 +695,39 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 		}
 	}
 	if sep != -1 {
-		bundleName := ref[:sep]
-		rest := ref[sep+1:]
-		if !strings.HasPrefix(rest, "fragments/") {
-			// Targeted at commands, mcp, or unknown — not a fragment ref.
-			return nil
-		}
-		// The bundle part may pin a content version ("bundle@<commit>"); keep it
-		// (the read path resolves the cherry-pick at that commit) while the
-		// emitted Name stays the version-agnostic canonical identity.
-		canonical, version, err := splitBundleVersion(bundleName)
-		if err != nil {
-			l.Catalog().warnUnresolvedBundle(bundleName, err)
-			return nil
-		}
-		name, err := expandedFragmentName(canonical, rest)
-		if err != nil {
-			l.Catalog().warnUnresolvedBundle(ref, err)
-			return nil
-		}
-		return []ExpandedRef{{Name: name, Version: version}}
+		return l.expandTargetedRef(ref, sep)
 	}
+	return l.expandWholeBundle(ref)
+}
 
+// expandTargetedRef expands a ref that selects one item, whose selector starts
+// at sep; anything but a fragment selector expands to nothing.
+func (l *Loader) expandTargetedRef(ref string, sep int) []ExpandedRef {
+	bundleName := ref[:sep]
+	rest := ref[sep+1:]
+	if !strings.HasPrefix(rest, "fragments/") {
+		// Targeted at commands, mcp, or unknown — not a fragment ref.
+		return nil
+	}
+	// The bundle part may pin a content version ("bundle@<commit>"); keep it
+	// (the read path resolves the cherry-pick at that commit) while the
+	// emitted Name stays the version-agnostic canonical identity.
+	canonical, version, err := splitBundleVersion(bundleName)
+	if err != nil {
+		l.Catalog().warnUnresolvedBundle(bundleName, err)
+		return nil
+	}
+	name, err := expandedFragmentName(canonical, rest)
+	if err != nil {
+		l.Catalog().warnUnresolvedBundle(ref, err)
+		return nil
+	}
+	return []ExpandedRef{{Name: name, Version: version}}
+}
+
+// expandWholeBundle expands a ref naming a whole bundle into every fragment it
+// holds.
+func (l *Loader) expandWholeBundle(ref string) []ExpandedRef {
 	// Whole-bundle ref: enumerate every fragment in the bundle. A pinned
 	// "@<commit>" enumerates that historical version (its fragment set may
 	// differ from the default) and stamps every item with the commit so each

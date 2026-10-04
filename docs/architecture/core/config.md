@@ -9,7 +9,7 @@ The contract it owns: one published generation per process at a time, produced b
 - The immutable `Config` value, its persisted data model (`configDoc`, exported as `Draft`) and YAML round-trip, and the copy-on-read accessors (`accessors.go`).
 - The lifecycle: `Open`, `Owner.Current`, `Owner.Reload`, `Owner.Update` (`lifecycle.go`). A `Snapshot` carries the `Config`, the generation's bundle `Catalog()` (resolved once, on first use), the `composite.Trust` built from `Sources.TrustPorts`, the generation number and the reader's warnings.
 - The `Sources` port the reader implements: `Read` (an ABSENT layer is the shipped default; a PRESENT unparsable one is refused by name), `Readers` (the bundle sources a generation resolves), `TrustPorts` (the executable gate).
-- The reader's hand-off into the value: `Builder` (`reading.go`) — `NewBuilder`, `Warn`, `SetPendingUpgrades`, `Decode`, `OverlayDefaultRegistry`, `BindVersionResolver`, `Build` — and the `PendingUpgrade` a layer's in-memory upgrade leaves for `CommitUpgrade`/`CommitHomeUpgrade` to persist on consent.
+- The reader's hand-off into the value: `Builder` (`reading.go`) — `NewBuilder`, `Warn`, `Decode`, `OverlayDefaultRegistry`, `BindVersionResolver`, `Build`. Each layer's format generation (`schema_version`) is gated by `internal/shared/schemaver` in the reader (`configload`'s `configKind`) before any of this; a migrated layer is persisted only under `--write-upgrades`, by the reader, never through `Config`.
 - The write transaction: `Owner.Update` takes the cross-process file lock (`withUpdateLock`), re-reads the sources fresh, hands `fn` a `Draft`, writes through `saveLocked` (atomic, section-merging, unknown keys preserved) and reloads. An injected filesystem (`Config.injectedFS`) skips the lock: nothing else reads it.
 - The trust root (`TrustRoot`: embedded signers minus distrusted, plus user and project `allowed_signers`), agent bindings from the `agents:` key, inline-profile inheritance (`ResolveProfile`), and the bundle-content resolvers (`ResolveBundleMCPServers`, `ResolveBundleHooks`, `ResolveBundleCommands`, `ResolveBundleSkills`) that read the generation's catalog through `Config.Catalog()` / `Config.BundleLoader()`.
 
@@ -41,12 +41,11 @@ A retired generation is never rewritten: a consumer that captured `gen 1` keeps 
 
 | Type | What it carries |
 |---|---|
-| `Config` | The persisted document fields (unexported; read through `Get*` accessors, written through `Draft`), the resolved workspace (`appPaths`, `appDir`, `appRoot`, `source`, `fs`, `injectedFS`), the reader's diagnostics (`warnings`, `pendingUpgrade`, `homePendingUpgrade`), and the generation's bundle view bound by the Owner (`catalog`, `execGate`) or attached by the reader (`versionResolver`, `lmDefaultOverlay`) |
+| `Config` | The persisted document fields (unexported; read through `Get*` accessors, written through `Draft`), the resolved workspace (`appPaths`, `appDir`, `appRoot`, `source`, `fs`, `injectedFS`), the reader's diagnostics (`warnings`), and the generation's bundle view bound by the Owner (`catalog`, `execGate`) or attached by the reader (`versionResolver`, `lmDefaultOverlay`) |
 | `Snapshot` | `Config`, `Trust`, `Generation`, `LoadedAt`, `Warnings`, and `Catalog()` |
 | `Owner` | `Sources` + the published `*Snapshot`; `Open`, `Current`, `Reload`, `Update` |
 | `Sources` | The reader port: `Read`, `Readers`, `TrustPorts` |
 | `Builder` | The reader's hand-off into a `Config` before publication |
-| `PendingUpgrade` | `Path`, `Data`, `Applied` — one layer's in-memory upgrade awaiting consent |
 | `Draft` (= `configDoc`) | The mutable view `Owner.Update` hands `fn`: every persisted field, exported |
 | `Fixture` | Exported mirror of `Config` for tests; a fixture no Owner published resolves its own project and builtin readers on every `Catalog()` call — it has no generation to pin |
 | `Warning` / `WarningKind` | One load diagnostic and its class; every kind is fatal-class under the strict startup gate |
@@ -58,7 +57,7 @@ A retired generation is never rewritten: a consumer that captured `gen 1` keeps 
 3. **Absent layer = shipped default; present unparsable = refusal by name** (`configload.ErrUnparsableLayer`; `TestSources_Read_AbsentLayers_YieldShippedDefaultWithoutError`, `TestSources_Read_PresentUnparsableLayer_RefusesNamingTheFile`). `ctxloom init` on a machine with no config starts.
 4. **Trust follows the lockfile of its generation.** After a pull, the next generation's `Trust` withholds the retracted item (`TestPullThenSpawn_NextGenerationHoldsThePulledBundleAndItsRetraction`); an earlier generation's gate is untouched.
 5. **A generation resolves its readers once, on first use.** Reading a config value never executes a companion probe (`TestOwner_Reload_CatalogResolvesOnFirstUseOnly`); a command that merely looks must never run a foreign binary.
-6. **`config.yaml` has two writer families.** The section-merge writer `saveLocked`, reachable only from `Owner.Update`; the verbatim writer `commitPendingUpgrade`, reachable only from `CommitUpgrade`/`CommitHomeUpgrade` after the CLI prompted.
+6. **`config.yaml` has two writer families.** The section-merge writer `saveLocked`, reachable only from `Owner.Update`; and `schemaver.WriteBack` from the reader (`configload`'s `persistUpgrade`), reachable only under `--write-upgrades`.
 7. **The write is lost-update safe** (`TestOwnerUpdate_SerializesConcurrentWritersInProcess`, `TestOwnerUpdate_HoldsFileLockAcrossReadModifyWrite`): the lock sidecar lives under the project's `state/locks` tree; a lock that cannot be acquired fails closed; an abandoned `fn` writes nothing and publishes nothing.
 8. **Layer precedence, lowest to highest:** the shipped default LLM registry (`Builder.OverlayDefaultRegistry`, only when the user configured no LLMs) < `~/.ctxloom/config.yaml` < `<project>/.ctxloom/config.yaml` < env < `--config-set`. Each file layer is upgraded, validated and diagnosed independently before merging, so every warning names its own file.
 9. **Accessors are copy-on-read** (`TestOwnerCurrent_AccessorsCopy`): no holder can mutate the published generation through a returned container.

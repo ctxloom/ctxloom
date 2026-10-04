@@ -7,7 +7,7 @@
   "properties": {
     "schema_version": {
       "type": "integer",
-      "description": "Config format generation (integer; distinct from the application version). A file older than this ctxloom reads, or newer than it knows, is refused",
+      "description": "Config format generation (integer; distinct from the application version). A file older than this ctxloom reads, or newer than it knows, is refused.",
       "examples": [
         6
       ]

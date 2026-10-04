@@ -3,12 +3,13 @@ package operations
 import (
 	"context"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"time"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -190,10 +191,7 @@ type relockPass struct {
 // moves below its previous entry's signed floor keeps the previous entry
 // (warned), or fails the rebuild under failOnConflict.
 func (r *relockPass) add(p PinnedRef, prevEntries map[string]remote.LockEntry) error {
-	// RequestedVersion records the manifest constraint so a later relock can
-	// carry this SHA forward while the constraint is unchanged; Version records
-	// the tag a semver constraint chose, for display and satisfaction checks.
-	entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
+	entry := pinnedEntry(p)
 	prevEntry, ok := prevEntries[relockKey(p.Type, p.Identity)]
 	if !ok {
 		r.lockfile.AddEntry(p.Type, p.Identity, entry)
@@ -205,6 +203,7 @@ func (r *relockPass) add(p PinnedRef, prevEntries map[string]remote.LockEntry) e
 	switch {
 	case prevEntry.SHA == p.Hash:
 		entry.SignedVersion, entry.Publisher = prevEntry.SignedVersion, prevEntry.Publisher
+		keepFetchedAt(&entry, prevEntry)
 	case prevEntry.SignedVersion != "":
 		v, refusal := r.verify(p, prevEntry)
 		if refusal != nil {
@@ -219,6 +218,26 @@ func (r *relockPass) add(p PinnedRef, prevEntries map[string]remote.LockEntry) e
 	}
 	r.lockfile.AddEntry(p.Type, p.Identity, entry)
 	return nil
+}
+
+// pinnedEntry is the lock entry p resolves to, stamped as fetched now.
+// RequestedVersion records the manifest constraint so a later relock can carry
+// this SHA forward while the constraint is unchanged; Version records the tag a
+// semver constraint chose, for display and satisfaction checks.
+func pinnedEntry(p PinnedRef) remote.LockEntry {
+	return remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind,
+		FetchedAt: time.Now().UTC()}
+}
+
+// keepFetchedAt carries prev's fetch time onto entry when the pin did not move:
+// fetched_at records when THIS content was pulled, so rewriting the lock around
+// an unmoved pin is not a new fetch. A zero prev (an entry written before its
+// time was recorded) keeps entry's fresh stamp rather than a zero that reads as
+// data.
+func keepFetchedAt(entry *remote.LockEntry, prev remote.LockEntry) {
+	if !prev.FetchedAt.IsZero() {
+		entry.FetchedAt = prev.FetchedAt
+	}
 }
 
 // verify is verifyAdvance for a moved pin, opening the fetcher on first use.

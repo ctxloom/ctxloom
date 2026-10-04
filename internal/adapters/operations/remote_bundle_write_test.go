@@ -3,6 +3,8 @@ package operations
 import (
 	"context"
 	"errors"
+	"os"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,4 +62,22 @@ func TestItemWrite_PinnedRemoteBundleRefusesNamingThePin(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A write whose bundle the store does not hold must not fall back to "not
+// found" when the lockfile that decides whether it is a pinned remote bundle
+// could not be read: that verdict was never established, so the read failure
+// is the error, carried through for the user to fix.
+func TestItemWrite_UnreadableLockfileSurfacesInsteadOfNotFound(t *testing.T) {
+	cfg, canonicalRef, _ := seedRemoteFragmentFixture(t)
+
+	// A directory where lock.yaml should be: present, and unreadable as a file.
+	lockPath := remote.NewLockfileManager(cfg.GetAppPaths()[0]).Path()
+	require.NoError(t, os.Remove(lockPath))
+	require.NoError(t, os.Mkdir(lockPath, 0o755))
+
+	_, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{Name: canonicalRef, SetDescription: sp("d")})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, syscall.EISDIR, "the lockfile read failure must be carried, not replaced by not-found")
+	assert.NotErrorIs(t, err, ErrPinnedRemoteBundle, "an unread lockfile establishes no pin")
 }

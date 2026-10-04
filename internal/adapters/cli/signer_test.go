@@ -30,7 +30,7 @@ func testSignerKeyLine(t *testing.T) string {
 }
 
 // TestRunSignerAdd_YesFlagSkipsPromptAndWrites drives the full CLI-layer
-// `signer add` path (confirmation → operations.AddSigner) with --yes so no
+// `signer trust` path (confirmation → operations.AddSigner) with --yes so no
 // TTY is needed, then verifies the entry actually landed via
 // operations.ShowSigner — the same round trip operations/signer_test.go
 // already proves cryptographically; this test is about the CLI wiring

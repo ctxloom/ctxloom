@@ -107,9 +107,9 @@ type TestRunnerHooks struct {
 	// ErrCoordinatorUnreachable is the Home's refusal of a request that
 	// never got through.
 	ErrCoordinatorUnreachable error
-	// StartRunRefusal is the runner's answer refusing a StartRun with err,
-	// encoded the way the engine host encodes a failed launch.
-	StartRunRefusal func(err error) *agentcoordpb.RunnerResponse
+	// RunnerRefusal is the runner's answer refusing a request with err,
+	// encoded the way the engine host encodes a refusal it raises itself.
+	RunnerRefusal func(err error) *agentcoordpb.RunnerResponse
 }
 
 var runnerHooks TestRunnerHooks

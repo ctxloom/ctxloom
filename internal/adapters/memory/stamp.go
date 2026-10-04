@@ -30,11 +30,11 @@ import (
 //
 // Designed to be invoked from a PostFileEdit hook with stdin-supplied JSON,
 // but takes a raw path so it's also unit-testable and CLI-callable.
-func StampPlanFile(path, harpName string) error {
+func StampPlanFile(fsys afero.Fs, path, harpName string) error {
 	if harpName == "" {
 		return fmt.Errorf("harpName required")
 	}
-	data, err := os.ReadFile(path)
+	data, err := afero.ReadFile(fsys, path)
 	if err != nil {
 		return err
 	}
@@ -47,31 +47,31 @@ func StampPlanFile(path, harpName string) error {
 	// file keeps it. A stat failure is not fatal — the file was readable a line
 	// ago — so fall back to the historical 0644.
 	mode := os.FileMode(0o644)
-	if st, sErr := os.Stat(path); sErr == nil {
+	if st, sErr := fsys.Stat(path); sErr == nil {
 		mode = st.Mode().Perm()
 	}
 
 	if !strings.HasPrefix(content, "---\n") {
-		return prependFrontmatter(path, content, harpName, mode)
+		return prependFrontmatter(fsys, path, content, harpName, mode)
 	}
-	return updateFrontmatter(path, content, harpName, mode)
+	return updateFrontmatter(fsys, path, content, harpName, mode)
 }
 
 // prependFrontmatter writes a new frontmatter block ahead of content that has
 // none, preserving a single newline gap before the body for readability.
-func prependFrontmatter(path, content, harpName string, mode os.FileMode) error {
+func prependFrontmatter(fsys afero.Fs, path, content, harpName string, mode os.FileMode) error {
 	prefix := fmt.Sprintf("---\nsessions:\n  - %s\n---\n", harpName)
 	if !strings.HasPrefix(content, "\n") && content != "" {
 		prefix += "\n"
 	}
-	return safefs.WriteFile(afero.NewOsFs(), path, []byte(prefix+content), mode)
+	return safefs.WriteFile(fsys, path, []byte(prefix+content), mode)
 }
 
 // updateFrontmatter parses content's leading frontmatter, adds harpName to its
 // sessions list, and rewrites the file. It bails (no change) on a malformed or
 // unterminated block, or when the harp is already present. yaml.Node is used so
 // unknown keys, comments, key order, and scalar styles round-trip verbatim.
-func updateFrontmatter(path, content, harpName string, mode os.FileMode) error {
+func updateFrontmatter(fsys afero.Fs, path, content, harpName string, mode os.FileMode) error {
 	rest := content[len("---\n"):]
 	var block, body string
 	switch {
@@ -125,7 +125,7 @@ func updateFrontmatter(path, content, harpName string, mode os.FileMode) error {
 	if body != "" {
 		newContent += "\n" + body
 	}
-	return safefs.WriteFile(afero.NewOsFs(), path, []byte(newContent), mode)
+	return safefs.WriteFile(fsys, path, []byte(newContent), mode)
 }
 
 // encodeFrontmatter renders a parsed frontmatter document back to YAML. Both

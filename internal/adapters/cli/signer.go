@@ -15,7 +15,7 @@ import (
 )
 
 // signer management is CLI-only (ADR 0024): none of this is exposed over
-// MCP. Handing an agent a "signer add" tool would give it exactly the
+// MCP. Handing an agent a "signer trust" tool would give it exactly the
 // capability the signature-envelope design exists to deny it — an agent
 // that could name its own key as trusted could forge publisher/reviewer
 // trust for itself.

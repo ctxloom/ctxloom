@@ -72,7 +72,7 @@ Feature: An incident — a bad command ships and must be pulled
   # show`/`signer list` never revealed ctxloom's own embedded publisher
   # principal at all (justified by a comment at operations/signer.go:245-251
   # claiming the embedded root was "empty today" — false the moment a release
-  # key was actually embedded), and `signer remove` aimed at it reported a
+  # key was actually embedded), and `signer untrust` aimed at it reported a
   # bare "no entry for", indistinguishable from a typo'd principal that never
   # existed. Both were dishonest, not merely incomplete: an operator auditing
   # "whom do I trust to publish?" had no surface that would even show them
@@ -81,7 +81,7 @@ Feature: An incident — a bad command ships and must be pulled
   # The fix is two-part. Visibility: ListSigners (operations/signer.go) now
   # enumerates config.EmbeddedSigners() alongside the on-disk user/project
   # stores, tagged "embedded" and not-removable. Local revocation: `signer
-  # remove <embedded-principal>` still cannot delete the compiled-in bytes —
+  # untrust <embedded-principal>` still cannot delete the compiled-in bytes —
   # nothing this CLI does can; shipping a new binary remains the only way to
   # change what's IN the binary — but it now writes a REAL local suppression
   # record (a new distrusted_signers store) that config.TrustRoot() subtracts

@@ -524,7 +524,7 @@ func TestParse_DeclaredKeyTypeMatching_StillParses(t *testing.T) {
 //
 // Before this fix, this package parsed the line CLEANLY (zero ParseErrors)
 // into principals []string{"\"alice@x.com", "bob@x.com\""} — two strings no
-// human could type and `signer remove` could never match — while still
+// human could type and `signer untrust` could never match — while still
 // granting publish trust through TrustedForNamespace (which matches on the
 // KEY, not the principal). That combination is the bug: this test pins the
 // principals a correct parse must produce.
@@ -625,13 +625,13 @@ func TestParse_QuoteInsideUnquotedFieldIsMalformed(t *testing.T) {
 // depending on internal/adapters/operations (this package is a dependency-free leaf
 // being extracted as a standalone library — see the package doc — so it
 // cannot import the CLI operations package that implements `ctxloom signer
-// remove` without creating a cycle).
+// untrust` without creating a cycle).
 //
 // operations.RemoveSigner's entire mechanism (removeFromAllowedSignersFile in
 // internal/adapters/operations/signer.go) is: parse the file, then for each entry,
 // slices.Contains(entry.Principals, principal) — an exact, literal string
 // match against Entry.Principals. So the property that makes a principal
-// "revocable by signer remove" is exactly this: the string a human typed
+// "revocable by signer untrust" is exactly this: the string a human typed
 // appears, byte-for-byte, in Principals. That is what this test asserts.
 func TestParse_QuotedPrincipalIsRevocableBySignerRemove(t *testing.T) {
 	line := `"alice@x.com,bob@x.com" ` + testNS + testEd25519Key + "\n"
@@ -644,11 +644,11 @@ func TestParse_QuotedPrincipalIsRevocableBySignerRemove(t *testing.T) {
 	// This is literally `slices.Contains(principals, "alice@x.com")` —
 	// operations.RemoveSigner's own revocation test, reproduced here.
 	assert.Contains(t, principals, "alice@x.com",
-		"the exact string an operator would pass to `ctxloom signer remove` must be present")
+		"the exact string an operator would pass to `ctxloom signer untrust` must be present")
 	assert.Contains(t, principals, "bob@x.com")
 
 	// The mangled strings the pre-fix parser produced must be gone: a
-	// `signer remove alice@x.com` against the OLD output would find neither.
+	// `signer untrust alice@x.com` against the OLD output would find neither.
 	assert.NotContains(t, principals, `"alice@x.com`)
 	assert.NotContains(t, principals, `bob@x.com"`)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/spf13/afero"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -71,7 +72,7 @@ func TestCaptureNextStep_WritesTheTurnsFinalMessageUnderTheHarp(t *testing.T) {
 
 	require.NoError(t, captureNextStep(nextStepCmd(stopPayload(turnEndingWith(t, final)))))
 
-	got, ok := memory.ReadNextStep(harp)
+	got, ok := memory.ReadNextStep(afero.NewOsFs(), harp)
 	require.True(t, ok, "the capture must leave a next step on disk, not merely exit 0")
 	assert.Equal(t, final, got)
 }
@@ -93,7 +94,7 @@ func TestCaptureNextStep_TakesTheFinalMessageNotTheToolCall(t *testing.T) {
 
 	require.NoError(t, captureNextStep(nextStepCmd(stopPayload(transcript))))
 
-	got, _ := memory.ReadNextStep(harp)
+	got, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
 	assert.Equal(t, "THE closing statement", got)
 }
 
@@ -111,7 +112,7 @@ func TestCaptureNextStep_OverwritesEachTurn(t *testing.T) {
 		require.NoError(t, captureNextStep(nextStepCmd(stopPayload(turnEndingWith(t, text)))))
 	}
 
-	got, ok := memory.ReadNextStep(harp)
+	got, ok := memory.ReadNextStep(afero.NewOsFs(), harp)
 	require.True(t, ok)
 	assert.Equal(t, "turn three intends C", got, "the last turn's statement is the one that survives")
 }
@@ -151,7 +152,7 @@ func TestCaptureNextStep_NamesWhyItCapturedNothing(t *testing.T) {
 			require.Error(t, err, "a capture that did not happen must say why")
 			assert.NotEmpty(t, err.Error())
 			if harp != "" {
-				_, ok := memory.ReadNextStep(harp)
+				_, ok := memory.ReadNextStep(afero.NewOsFs(), harp)
 				assert.False(t, ok, "nothing must be stored when the capture failed")
 			}
 		})

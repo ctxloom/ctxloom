@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
@@ -60,7 +61,7 @@ func executeTaskloom(t *testing.T, argv ...string) (string, error) {
 		rootCmd.SetArgs(nil)
 		resetGlobalFormatFlags()
 		clidiag.SetStructured(false)
-		for _, name := range []string{"degraded", "tag"} {
+		for _, name := range []string{"degraded", "tag", schemaver.WriteUpgradesFlag} {
 			f := rootCmd.PersistentFlags().Lookup(name)
 			if f == nil {
 				f = addCmd.Flags().Lookup(name)

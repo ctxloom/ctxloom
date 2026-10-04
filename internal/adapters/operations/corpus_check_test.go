@@ -113,7 +113,7 @@ func TestCorpusViolatingBundleFailsAndIsNamed(t *testing.T) {
 	bad[bundles.DirectoryFormManifest] = violatingEnvelope
 	_, open := corpusFixture(t, map[string]map[string]string{"good": cleanTree(), "bad": bad})
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	assert.Equal(t, CorpusViolated, report.Verdict(), "a corpus with an unreadable bundle must not pass")
 	require.Len(t, report.Violations, 1)
@@ -137,7 +137,7 @@ func TestCorpusItemFailingSchemaIsAViolation(t *testing.T) {
 	tree["profiles/broken.yaml"] = "fragments: 42\n"
 	_, open := corpusFixture(t, map[string]map[string]string{"itembad": tree})
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	assert.Equal(t, CorpusViolated, report.Verdict(), "an item the reader refuses must fail the gate")
 	require.Len(t, report.Violations, 1)
@@ -154,7 +154,7 @@ func TestCorpusItemlessBundleIsAViolation(t *testing.T) {
 		"hollow": {bundles.DirectoryFormManifest: cleanEnvelope},
 	})
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	assert.Equal(t, CorpusViolated, report.Verdict(), "an item-less published bundle must fail the gate")
 	require.Len(t, report.Violations, 1)
@@ -168,7 +168,7 @@ func TestCorpusItemlessBundleIsAViolation(t *testing.T) {
 func TestCorpusCleanPasses(t *testing.T) {
 	_, open := corpusFixture(t, map[string]map[string]string{"alpha": cleanTree(), "beta": cleanTree()})
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	assert.Equal(t, CorpusClean, report.Verdict())
 	assert.Empty(t, report.Violations)
@@ -187,7 +187,7 @@ func TestCorpusEmptyIsUndeterminedNotClean(t *testing.T) {
 	fetcher := tippedFetcher()
 	open := func(string) (remote.Fetcher, error) { return fetcher, nil }
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	assert.Equal(t, CorpusUndetermined, report.Verdict(), "an empty corpus must not report success")
 	assert.NotEqual(t, CorpusClean, report.Verdict())
@@ -207,7 +207,7 @@ func TestCorpusNoRemotesIsUndetermined(t *testing.T) {
 		return nil, nil
 	}
 
-	report := CheckCorpus(context.Background(), nil, open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), nil, open, readBundleTree)
 
 	assert.Equal(t, CorpusUndetermined, report.Verdict())
 	assert.Zero(t, report.Parsed)
@@ -223,7 +223,7 @@ func TestCorpusUnreadableRemoteIsUndeterminedAndNamed(t *testing.T) {
 	fetcher.ListDirErr = boom
 	open := func(string) (remote.Fetcher, error) { return fetcher, nil }
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	assert.Equal(t, CorpusUndetermined, report.Verdict())
 	require.Len(t, report.Gaps, 1)
@@ -241,7 +241,7 @@ func TestCorpusUnresolvableTipIsAGap(t *testing.T) {
 	fetcher, open := corpusFixture(t, map[string]map[string]string{"alpha": cleanTree()})
 	fetcher.ResolveRefErr = noTip
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	assert.Equal(t, CorpusUndetermined, report.Verdict())
 	require.Len(t, report.Gaps, 1)
@@ -270,7 +270,7 @@ func TestCorpusPartialReadIsUndeterminedNotClean(t *testing.T) {
 		{Name: "broken", URL: "https://github.com/acme/broken"},
 	}
 
-	report := CheckCorpus(context.Background(), remotes, open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), remotes, open, readBundleTree)
 
 	assert.Equal(t, CorpusUndetermined, report.Verdict(),
 		"bundles that did parse cannot vouch for a remote that was never read")
@@ -297,7 +297,7 @@ func TestCorpusViolationOutranksGap(t *testing.T) {
 func TestCorpusOpenFailureIsAGap(t *testing.T) {
 	open := func(string) (remote.Fetcher, error) { return nil, errors.New("unknown forge") }
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	assert.Equal(t, CorpusUndetermined, report.Verdict())
 	require.Len(t, report.Gaps, 1)
@@ -315,7 +315,7 @@ func TestCorpusUnreadableBundleIsAGapNotAViolation(t *testing.T) {
 	fetcher.WithDir(corpusBundlesDir+"/ghost", []remote.DirEntry{{Name: "bundle.yaml"}})
 	open := func(string) (remote.Fetcher, error) { return fetcher, nil }
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	assert.Equal(t, CorpusUndetermined, report.Verdict())
 	assert.Empty(t, report.Violations)
@@ -332,7 +332,7 @@ func TestCorpusTraversalEntryIsAViolation(t *testing.T) {
 	dir := corpusBundlesDir + "/sly"
 	fetcher.WithDir(dir, append(fetcher.Dirs[dir], remote.DirEntry{Name: ".."}))
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	assert.Equal(t, CorpusViolated, report.Verdict())
 	require.Len(t, report.Violations, 1)
@@ -348,7 +348,7 @@ func TestCorpusWalksNestedBundles(t *testing.T) {
 	bad[bundles.DirectoryFormManifest] = violatingEnvelope
 	_, open := corpusFixture(t, map[string]map[string]string{"v2/tree": bad})
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	assert.Equal(t, CorpusViolated, report.Verdict())
 	require.Len(t, report.Violations, 1)
@@ -392,7 +392,7 @@ func TestConfiguredCorpusComesFromTheRemotesRegistry(t *testing.T) {
 func TestCorpusReadsAtTheResolvedTipWithoutFetching(t *testing.T) {
 	fetcher, open := corpusFixture(t, map[string]map[string]string{"alpha": cleanTree()})
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	require.Equal(t, CorpusClean, report.Verdict())
 	require.NotEmpty(t, fetcher.ResolveRefCalls)
@@ -435,7 +435,7 @@ mcp:
 	require.NotZero(t, sidecars, "the fixture must publish an item sidecar, or it cannot test the boundary")
 	_, open := corpusFixture(t, map[string]map[string]string{"v2/atelier": tree})
 
-	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
+	report := CheckCorpus(context.Background(), oneRemote(), open, readBundleTree)
 
 	for _, v := range report.Violations {
 		t.Errorf("healthy tree bundle reported a violation at %s: %v", v.Bundle.Path, v.Err)

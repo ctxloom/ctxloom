@@ -407,7 +407,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	// nested .ctxloom/.gitignore ctxloom owns rather than by appending to the
 	// project's own root file. The nested file is meant to be COMMITTED: that
 	// is what carries the rules into clones and linked worktrees.
-	if _, err := gitignore.EnsureNested(filepath.Dir(appDir)); err != nil {
+	if _, err := gitignore.EnsureNested(afero.NewOsFs(), filepath.Dir(appDir)); err != nil {
 		clidiag.Warn("ctxloom", "failed to write %s: %v", gitignore.NestedGitignorePath(filepath.Dir(appDir)), err)
 	}
 

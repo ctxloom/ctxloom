@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -92,7 +94,7 @@ func TestIsSupersededBlanket_RejectsNonBlanketLines(t *testing.T) {
 // patterns to the project's own file.
 func ensureHarness(t *testing.T, dir string) {
 	t.Helper()
-	_, err := EnsureNested(dir)
+	_, err := EnsureNested(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 }
 
@@ -217,7 +219,7 @@ func TestSupersededBlanketLines_ReadOnly(t *testing.T) {
 	original := "# Local config\n.ctxloom/*\n!.ctxloom/plans/\n"
 	require.NoError(t, os.WriteFile(path, []byte(original), 0644))
 
-	lines, err := SupersededBlanketLines(path)
+	lines, err := SupersededBlanketLines(afero.NewOsFs(), path)
 	require.NoError(t, err)
 	assert.Equal(t, []string{".ctxloom/*"}, lines)
 
@@ -233,7 +235,7 @@ func TestSupersededBlanketLines_ReadOnly(t *testing.T) {
 // case "the file doesn't exist yet" as a failure.
 func TestSupersededBlanketLines_MissingFileIsEmptyNotError(t *testing.T) {
 	dir := t.TempDir()
-	lines, err := SupersededBlanketLines(filepath.Join(dir, ".gitignore"))
+	lines, err := SupersededBlanketLines(afero.NewOsFs(), filepath.Join(dir, ".gitignore"))
 	require.NoError(t, err)
 	assert.Empty(t, lines)
 }
@@ -245,7 +247,7 @@ func TestSupersededBlanketLines_CleanFileIsEmpty(t *testing.T) {
 	path := filepath.Join(dir, ".gitignore")
 	require.NoError(t, os.WriteFile(path, []byte(".ctxloom/cache/\n.ctxloom/sessions/\n"), 0644))
 
-	lines, err := SupersededBlanketLines(path)
+	lines, err := SupersededBlanketLines(afero.NewOsFs(), path)
 	require.NoError(t, err)
 	assert.Empty(t, lines)
 }
@@ -261,7 +263,7 @@ func TestRetireSupersededFile_DegeneratesToEmptyFile(t *testing.T) {
 	path := filepath.Join(dir, ".gitignore")
 	require.NoError(t, os.WriteFile(path, []byte("# ctxloom local files\n.ctxloom/\n"), 0644))
 
-	changed, err := RetireSupersededFile(path)
+	changed, err := RetireSupersededFile(afero.NewOsFs(), path)
 	require.NoError(t, err)
 	assert.True(t, changed)
 
@@ -284,15 +286,15 @@ func TestSupersededBlanketLines_AgreesWithRetireSupersededFile(t *testing.T) {
 			path := filepath.Join(dir, ".gitignore")
 			require.NoError(t, os.WriteFile(path, []byte("# Local config\n"+blanket+"\n"), 0644))
 
-			before, err := SupersededBlanketLines(path)
+			before, err := SupersededBlanketLines(afero.NewOsFs(), path)
 			require.NoError(t, err)
 			assert.NotEmpty(t, before, "the detector must see %q before retirement", blanket)
 
-			changed, err := RetireSupersededFile(path)
+			changed, err := RetireSupersededFile(afero.NewOsFs(), path)
 			require.NoError(t, err)
 			assert.True(t, changed)
 
-			after, err := SupersededBlanketLines(path)
+			after, err := SupersededBlanketLines(afero.NewOsFs(), path)
 			require.NoError(t, err)
 			assert.Empty(t, after, "the detector must see nothing left after retirement removed %q", blanket)
 		})

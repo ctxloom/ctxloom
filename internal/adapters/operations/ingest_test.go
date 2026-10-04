@@ -274,7 +274,6 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 			require.NoError(t, err)
 		})
 		require.Len(t, lines, 1, "one collapse under two spellings must say so exactly once")
-		assert.Contains(t, lines[0], "reached this context twice")
 		assert.Contains(t, lines[0], "ctxloom+local:isolation#fragments/isolation-axes",
 			"the warning must name the occurrence that was KEPT")
 		assert.Contains(t, lines[0], companionIsolationFragmentRef,

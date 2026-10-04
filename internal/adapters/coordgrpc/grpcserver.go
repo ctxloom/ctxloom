@@ -12,6 +12,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
 // mdToken extracts the bearer token from gRPC metadata.
@@ -34,6 +35,10 @@ func mdToken(ctx context.Context) string {
 type coordService struct {
 	agentcoordpb.UnimplementedCoordinatorServiceServer
 	c *coord.Coordinator
+	// build is this binary's version stamp, against which a runner's
+	// RunnerHello.version is judged (runnerBuildSkew). It is the adapter's,
+	// not the coordinator's: core knows nothing of how its binary was built.
+	build string
 }
 
 // coordinatorServiceMethodPrefix is every RPC a read-only consumer
@@ -85,7 +90,7 @@ func grpcServer(c *coord.Coordinator) *grpc.Server {
 			return handler(ctx, req)
 		}),
 	)
-	agentcoordpb.RegisterCoordinatorServiceServer(srv, &coordService{c: c})
+	agentcoordpb.RegisterCoordinatorServiceServer(srv, &coordService{c: c, build: version.Version})
 	agentcoordpb.RegisterConsumerServiceServer(srv, &consumerService{c: c})
 	agentcoordpb.RegisterArtifactTransferServiceServer(srv, &artifactService{c: c})
 	return srv
@@ -137,6 +142,11 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 			HelloAck: &agentcoordpb.RunnerHelloAck{Accepted: false, RejectReason: StatusErr(code, err.Error())},
 		}})
 		return status.Error(code, err.Error())
+	}
+	// Reported BEFORE the ack, so the runner's view of an accepted handshake
+	// happens-after the report.
+	if skew, ok := runnerBuildSkew(s.build, hello.Version); ok {
+		c.Reporter().Warnf("coordinator: runner %s %s", id.Harp, skew)
 	}
 	if err := stream.Send(&agentcoordpb.RuntimeFrame{Kind: &agentcoordpb.RuntimeFrame_HelloAck{
 		HelloAck: &agentcoordpb.RunnerHelloAck{Accepted: true},

@@ -266,6 +266,10 @@ message RuntimeFrame {
 // metadata), never from a self-declared field. Hello carries only
 // capabilities and active runs.
 message RunnerHello {
+  // The runner binary's build stamp. A coordinator of a different build
+  // REPORTS the skew and accepts the runner — a re-Helloing runner may hold
+  // live runs a refusal would strand; an empty or partial stamp cannot be
+  // judged and is not a mismatch.
   string version = 1;
   // Harness adapters this runner can drive (e.g. "claude-code"). Runtime
   // MUST NOT StartRun a harness the runner didn't advertise.

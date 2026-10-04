@@ -101,7 +101,7 @@ func TestComposedIdentity_ReusesWithinAVersionAndSeparatesAcross(t *testing.T) {
 		orig := binaryVersion
 		SetBinaryVersion(stamp)
 		defer SetBinaryVersion(orig)
-		id, ok := composedIdentity(spec, "", nil, "claude-code")
+		id, ok := composedIdentity(spec, defaultBaseStage(), "claude-code")
 		image, provenance := id.ref, id.provenance
 		require.True(t, ok, "a composable spec always resolves an identity")
 		return image, provenance
@@ -149,23 +149,23 @@ func TestComposedIdentity_BuildAndLaunchAgreeAndCompanionSetsCoexist(t *testing.
 	spec := engineContainerSpecFor("claude-code")
 	require.NotNil(t, spec.engineInstall, "claude-code must be composable, or this test proves nothing")
 	rt := fakeRuntime{name: "docker", available: true}
-	img := ImageConfig{NoDevcontainerBase: true}
+	img := ImageConfig{} // no AppRoot: ctxloom's own base
 
 	withCompanions(t, map[string]string{"taskloom": "v1.0.0", "ltk": "v2.0.0"})
-	id, ok := composedIdentity(spec, "", nil, "claude-code")
+	id, ok := composedIdentity(spec, defaultBaseStage(), "claude-code")
 	builtTag, builtLabel := id.ref, id.provenance
 	require.True(t, ok)
 	require.NotEmpty(t, builtLabel, "the staleness gate must be live, or the assertions below prove nothing")
 
 	launch := containerFor(rt, "claude-code", img)
 	assert.Equal(t, builtTag, launch.image, "a launch must look for the tag the build wrote")
-	assert.False(t, imageStale(map[string]string{provenanceLabel: builtLabel}, launch.identityFor(nil).provenance),
+	assert.False(t, imageStale(map[string]string{provenanceLabel: builtLabel}, launch.identityFor(defaultBaseStage()).provenance),
 		"a launch in the environment that built the image must find it current")
 
 	withCompanions(t, map[string]string{})
 	elsewhere := containerFor(rt, "claude-code", img)
 	assert.NotEqual(t, builtTag, elsewhere.image,
 		"an environment admitting different companions stages a different image, so it must not share the tag and rebuild over it")
-	assert.True(t, imageStale(map[string]string{provenanceLabel: builtLabel}, elsewhere.identityFor(nil).provenance),
+	assert.True(t, imageStale(map[string]string{provenanceLabel: builtLabel}, elsewhere.identityFor(defaultBaseStage()).provenance),
 		"the provenance must still tell the two companion sets apart")
 }

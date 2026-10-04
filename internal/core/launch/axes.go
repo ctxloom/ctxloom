@@ -208,23 +208,29 @@ func ParseDirtyTreeHandler(s string) (DirtyTreeHandler, error) {
 	}
 }
 
+// The two named isolation_base choices; any other non-empty value is an image
+// ref used as the base.
+const (
+	// IsolationBaseCtxloom is ctxloom's own embedded base.
+	IsolationBaseCtxloom = "ctxloom"
+	// IsolationBaseDevcontainer is the project's devcontainer, required to
+	// exist.
+	IsolationBaseDevcontainer = "devcontainer"
+)
+
 // ImageConfig carries the user's image configuration for containerized
 // isolation: Image is the optional prebuilt agent-image override, run AS-IS
-// and never built; BaseContainerfile is the optional user base Containerfile
-// an on-the-fly local build layers the engine's agent stage onto instead of
-// an auto-detected devcontainer / the embedded default base. AppRoot +
-// NoDevcontainerBase + DevcontainerService drive the auto-detected project
-// devcontainer base. Zero value = the engine's defaults (devcontainer
-// auto-detect ON).
+// and never built; Base is isolation_base verbatim, the base an on-the-fly
+// local build layers the engine's agent stage onto. AppRoot +
+// DevcontainerService locate and resolve the project devcontainer.
 type ImageConfig struct {
-	Image             string
-	BaseContainerfile string
-	// AppRoot is the project root devcontainer auto-detection resolves
-	// .devcontainer/devcontainer.json (or .devcontainer.json) against; ""
-	// disables auto-detection (same effect as NoDevcontainerBase).
+	Image string
+	// Base is IsolationBaseCtxloom, IsolationBaseDevcontainer, an image ref,
+	// or "" (the project devcontainer when detected, else ctxloom's own).
+	Base string
+	// AppRoot is the project root the devcontainer is resolved against;
+	// "" means there is no project devcontainer to find.
 	AppRoot string
-	// NoDevcontainerBase opts out of devcontainer auto-detection.
-	NoDevcontainerBase bool
 	// DevcontainerService names the docker-compose service to use as the base
 	// when the detected devcontainer.json declares dockerComposeFile.
 	DevcontainerService string

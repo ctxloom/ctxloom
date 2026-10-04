@@ -132,8 +132,8 @@ func TestBuildSources_NonComposableHasNoRecipe(t *testing.T) {
 	require.Nil(t, p.engineInstall, "precondition: an unmapped backend is the non-composable default spec")
 
 	assert.Empty(t, buildSources(p, buildSourcesOptions{}), "no recipe for an unmapped/non-composable backend")
-	assert.Empty(t, buildSources(p, buildSourcesOptions{baseContainerfile: "/proj/Containerfile.base"}),
-		"a user base Containerfile alone still yields nothing without an engineInstall fragment to layer onto it")
+	assert.Empty(t, buildSources(p, buildSourcesOptions{base: imageRefBaseStage("acme/dev:1")}),
+		"a configured base alone still yields nothing without an engineInstall fragment to layer onto it")
 
 	override := buildSources(p, buildSourcesOptions{baseOverride: "my-base:latest"})
 	require.Len(t, override, 1, "an explicit base override wins outright, even for a non-composable spec")
@@ -142,43 +142,34 @@ func TestBuildSources_NonComposableHasNoRecipe(t *testing.T) {
 }
 
 // TestBuildSources_Composable pins the COMPOSABLE spec shape
-// (every engine in composableEngines() — engineInstall != nil): the SAME
-// generated single-engine Containerfile builds onto each candidate base in
-// precedence order (explicit user base > auto-detected devcontainer >
-// embedded default), and an explicit base-image override still wins outright
-// exactly like the legacy shape.
+// (every engine in composableEngines() — engineInstall != nil): the generated
+// single-engine Containerfile builds onto exactly ONE base — the one
+// resolveBase chose — with no fallthrough to another, and an explicit
+// base-image override still wins outright.
 func TestBuildSources_Composable(t *testing.T) {
 	for _, backend := range composableEngines() {
 		p := engineContainerSpecFor(backend)
 		require.NotNil(t, p.engineInstall, "backend %q must be composable", backend)
 
-		got := buildSources(p, buildSourcesOptions{engine: backend})
+		got := buildSources(p, buildSourcesOptions{engine: backend, base: defaultBaseStage()})
 		require.Len(t, got, 1, "backend %q: default-base only", backend)
 		assert.Contains(t, got[0].desc, "agent stage (engine:")
-		assert.Contains(t, got[0].desc, "embedded default base")
+		assert.Contains(t, got[0].desc, "default base Containerfile")
 		require.NotNil(t, got[0].base)
 
-		override := buildSources(p, buildSourcesOptions{engine: backend, baseOverride: "my-base:latest"})
+		override := buildSources(p, buildSourcesOptions{engine: backend, base: defaultBaseStage(), baseOverride: "my-base:latest"})
 		require.Len(t, override, 1, "an explicit base-image override wins outright")
 		assert.Contains(t, override[0].desc, "my-base:latest")
 		assert.Nil(t, override[0].base)
 
-		userBase := buildSources(p, buildSourcesOptions{engine: backend, baseContainerfile: "/proj/Containerfile.base"})
-		require.Len(t, userBase, 2, "user base Containerfile leads, default base falls back")
-		assert.Contains(t, userBase[0].desc, "user base Containerfile /proj/Containerfile.base")
-		assert.Contains(t, userBase[1].desc, "embedded default base")
-
 		dev := &baseStage{desc: "test devcontainer", containerfile: []byte("FROM debian:13\n"), kind: baseStageKindDevcontainer}
-		withDev := buildSources(p, buildSourcesOptions{engine: backend, devBase: dev})
-		require.Len(t, withDev, 2, "auto-detected devcontainer base, default base falls back")
-		assert.Contains(t, withDev[0].desc, "auto-detected project devcontainer")
-		assert.Contains(t, withDev[1].desc, "embedded default base")
+		withDev := buildSources(p, buildSourcesOptions{engine: backend, base: dev})
+		require.Len(t, withDev, 1, "a declared base has no fallthrough: substituting another is what the refusal forbids")
+		assert.Same(t, dev, withDev[0].base)
+		assert.Contains(t, withDev[0].desc, "test devcontainer")
 
-		all := buildSources(p, buildSourcesOptions{engine: backend, baseContainerfile: "/proj/Containerfile.base", devBase: dev})
-		require.Len(t, all, 3, "explicit user base beats the auto-detected devcontainer, default base still falls back")
-		assert.Contains(t, all[0].desc, "user base Containerfile")
-		assert.Contains(t, all[1].desc, "auto-detected project devcontainer")
-		assert.Contains(t, all[2].desc, "embedded default base")
+		assert.Empty(t, buildSources(p, buildSourcesOptions{engine: backend}),
+			"no resolved base, no recipe — never an implicit default")
 	}
 }
 
@@ -194,7 +185,7 @@ func TestBuildSources_VendorlessIsComposable(t *testing.T) {
 	p := engineContainerSpecFor("vendorless-build")
 	require.NotNil(t, p.engineInstall, "precondition: the fixture declares a fragment")
 
-	got := buildSources(p, buildSourcesOptions{engine: "vendorless-build"})
+	got := buildSources(p, buildSourcesOptions{engine: "vendorless-build", base: defaultBaseStage()})
 	require.NotEmpty(t, got, "a declared fragment is a local-build recipe")
 	assert.Contains(t, got[0].desc, "agent stage (engine:")
 }
@@ -394,7 +385,7 @@ func TestHostProvenanceDigest_TracksTheVersionNotTheBinary(t *testing.T) {
 		orig := binaryVersion
 		SetBinaryVersion(stamp)
 		defer SetBinaryVersion(orig)
-		return hostProvenanceDigest("")
+		return hostProvenanceDigest()
 	}
 
 	first := stampedDigest(testStamp)
@@ -556,7 +547,7 @@ func TestEnsureImage_ParallelCallersShareOneBuild(t *testing.T) {
 	// never the legacy hostProvenanceDigest — computed here with the same
 	// nil devBase; the engine is the one ensureImage itself resolves for this Container
 	// (appRoot == "" short-circuits devcontainer auto-detection to nil).
-	id, ok := composedIdentity(spec, "", nil, "claude-code")
+	id, ok := composedIdentity(spec, defaultBaseStage(), "claude-code")
 	provenance := id.provenance
 	require.True(t, ok, "precondition: a composable spec always resolves a provenance")
 	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, provenance)
@@ -657,34 +648,27 @@ func TestBuildFromSource_BaseTagPerConfigContent(t *testing.T) {
 	// a missing file still errors.
 	userFile := filepath.Join(t.TempDir(), "Containerfile.base")
 	require.NoError(t, os.WriteFile(userFile, []byte("FROM debian:13\n"), 0o644))
-	tag, err := buildBaseImage(context.Background(), rt, userBaseStage(userFile), false, nil)
+	tag, err := buildBaseImage(context.Background(), rt, &baseStage{desc: "on-disk base", path: userFile}, false, nil)
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(tag, "ctxloom-agent-base:own-"), "the base is handed on by its ownership tag: %s", tag)
 	assert.Contains(t, tag, baseContentHash([]byte("FROM debian:13\n")))
-	_, err = buildBaseImage(context.Background(), rt, userBaseStage(filepath.Join(t.TempDir(), "missing")), false, nil)
+	_, err = buildBaseImage(context.Background(), rt, &baseStage{desc: "on-disk base", path: filepath.Join(t.TempDir(), "missing")}, false, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "base containerfile")
 }
 
-// TestCombineProvenance_CoversBaseConfig: the ONE existing staleness gate (the
-// ctxloom.provenance label) also covers the base Containerfile config — same
-// binaries + different base config → different digest, so the agent image
-// rebuilds onto the right base. An unknown half yields "" (the check disables
-// rather than force a wrong rebuild), and the suffix is the base tag's content
-// hash, naming the base generation the image rode on.
+// TestCombineProvenance_CoversBaseConfig: the provenance label is suffixed
+// with the base content's hash — same binaries + different base → different
+// digest — and an unknown version key yields "" (the check disables rather
+// than force a wrong rebuild).
 func TestCombineProvenance_CoversBaseConfig(t *testing.T) {
-	deflt := combineProvenance("bin-digest", "")
+	deflt := combineProvenance("bin-digest", containerfiles.Base())
 	assert.Equal(t, "bin-digest-"+baseContentHash(containerfiles.Base()), deflt)
 
-	userFile := filepath.Join(t.TempDir(), "Containerfile.base")
-	require.NoError(t, os.WriteFile(userFile, []byte("FROM debian:13\n"), 0o644))
-	user := combineProvenance("bin-digest", userFile)
-	assert.Equal(t, "bin-digest-"+baseContentHash([]byte("FROM debian:13\n")), user)
-	assert.NotEqual(t, deflt, user, "a different base config is a different provenance")
+	other := combineProvenance("bin-digest", []byte("FROM debian:13\n"))
+	assert.NotEqual(t, deflt, other, "a different base is a different provenance")
 
-	assert.Empty(t, combineProvenance("", ""), "unknown binaries digest disables the check")
-	assert.Empty(t, combineProvenance("bin-digest", filepath.Join(t.TempDir(), "missing")),
-		"unreadable base config disables the check")
+	assert.Empty(t, combineProvenance("", containerfiles.Base()), "unknown binaries digest disables the check")
 }
 
 // TestCopyExecutable_Forces0755: staged binaries land at 0755 EXACTLY, even
@@ -759,7 +743,7 @@ exit 0
 // a gate that was switched off.
 func forceProvenance(t *testing.T) {
 	t.Helper()
-	require.NotEmpty(t, hostProvenanceDigest(""), "the staleness gate must be live, or the assertions below prove nothing")
+	require.NotEmpty(t, hostProvenanceDigest(), "the staleness gate must be live, or the assertions below prove nothing")
 }
 
 // TestEnsureImage_UnverifiableProvenanceIsNotCurrent pins that the
@@ -850,10 +834,8 @@ func TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded(t *testing.T) {
 }
 
 // TestEnsureImage_UserBaseBuildFail_RefusesInBothModes pins that a failed build
-// from an EXPLICITLY-configured base Containerfile (isolation_base_containerfile)
-// REFUSES rather than silently falling through to a DIFFERENT base. The fallback
-// sources still only warn — nothing was declared about them, so nothing is being
-// substituted.
+// on an EXPLICITLY-configured base image (isolation_base: <image ref>) REFUSES
+// rather than silently substituting a DIFFERENT base.
 //
 // RENAMED from _FatalUnlessDegraded, and its degraded arm inverted (ruled
 // 2026-09-15). The old arm was named "degraded: no finding — falls through to
@@ -866,33 +848,31 @@ func TestEnsureImage_UserBaseBuildFail_RefusesInBothModes(t *testing.T) {
 		withFakeSelfExe(t)
 		t.Setenv("PATH", t.TempDir())
 		dir := t.TempDir()
-		base := filepath.Join(dir, "Containerfile.base")
-		require.NoError(t, os.WriteFile(base, []byte("FROM scratch\n"), 0o644))
 		script := filepath.Join(dir, "fake-docker")
 		writeAbsentBuildFailScript(t, script) // absent image → enter the build loop; builds fail
 		return Container{
 			runtime:           fakeRuntime{name: "docker", binary: script, available: true},
 			image:             "ctxloom-agent-userbase-test:latest",
-			baseContainerfile: base,
+			baseChoice:        "acme/declared-base:1",
 			engine:            "claude-code",
 			engineSpec:        engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")},
 		}
 	}
 
-	t.Run("strict: the configured base failure is one fatal finding; fallbacks warn", func(t *testing.T) {
+	t.Run("strict: the configured base failure is one fatal finding", func(t *testing.T) {
 		resetStrictness(t)
 		c := setup(t)
 		err := c.ensureImage(context.Background())
 		require.Error(t, err, "all sources failed on an absent image, so ensure still errors")
 
 		findings := strictness.All()
-		require.Len(t, findings, 1, "only the configured user-base source is a finding; the fallbacks warn")
+		require.Len(t, findings, 1, "the configured base is the only source: there is nothing to fall to")
 		assert.Equal(t, report.KindIsolation, findings[0].Kind)
-		assert.Contains(t, findings[0].Text, "configured base Containerfile",
+		assert.Contains(t, findings[0].Text, "configured base image acme/declared-base:1",
 			"the finding must name the user-configured base that failed")
 		assert.True(t, findings[0].NonDegradable,
-			"a declared base ctxloom cannot use is refused in both modes: it cannot read the Containerfile to know the substitution was safe")
-		assert.Contains(t, findings[0].Remedy, "isolation_base_containerfile")
+			"a declared base ctxloom cannot use is refused in both modes: it cannot read the base to know the substitution was safe")
+		assert.Contains(t, findings[0].Remedy, "isolation_base")
 		assert.NotContains(t, findings[0].Remedy, "--degraded",
 			"a non-degradable refusal must not offer --degraded as its remedy")
 		assert.Contains(t, findings[0].Remedy, "deliberately",
@@ -1020,9 +1000,9 @@ func TestSelfLinuxExe_ResolvedELFOrAnError(t *testing.T) {
 func TestBuildAgentImage_Characterization(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("base image and base containerfile are mutually exclusive", func(t *testing.T) {
+	t.Run("base image and base are mutually exclusive", func(t *testing.T) {
 		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{
-			BaseImage: "some/base:1", BaseContainerfile: "/tmp/Containerfile",
+			BaseImage: "some/base:1", Base: "ctxloom",
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "mutually exclusive")
@@ -1083,7 +1063,7 @@ func TestEnsureImage_FlightKeyDiscriminatesByRuntime(t *testing.T) {
 
 	dir := t.TempDir()
 	spec := engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")}
-	id, ok := composedIdentity(spec, "", nil, "claude-code")
+	id, ok := composedIdentity(spec, defaultBaseStage(), "claude-code")
 	provenance := id.provenance
 	require.True(t, ok)
 	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, provenance)
@@ -1126,11 +1106,11 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("FROM debian:13\n"), 0o644))
 
 	spec := engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")}
-	stage := userBaseStage(path)
+	stage := &baseStage{desc: "on-disk base", path: path}
 
 	firstContent, err := stage.content()
 	require.NoError(t, err)
-	first, ok := composedIdentity(spec, path, nil, "claude-code")
+	first, ok := composedIdentity(spec, stage, "claude-code")
 	firstAgentTag, firstProvenance := first.ref, first.provenance
 	require.True(t, ok)
 	firstBaseTag := baseImageTagFor(firstContent)
@@ -1139,7 +1119,7 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 
 	secondContent, err := stage.content()
 	require.NoError(t, err)
-	second, ok := composedIdentity(spec, path, nil, "claude-code")
+	second, ok := composedIdentity(spec, stage, "claude-code")
 	secondAgentTag, secondProvenance := second.ref, second.provenance
 	require.True(t, ok)
 

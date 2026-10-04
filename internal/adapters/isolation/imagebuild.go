@@ -106,22 +106,6 @@ func composedImageTagFor(content []byte, engine, versionKey string) string {
 	return agentImageRepo + "-" + engine + ":" + tag
 }
 
-// baseForIdentity resolves WHICH base stage a spec's local build would use
-// — without building anything — for content-keying the composed tag/
-// provenance: an explicit user Containerfile beats an auto-detected
-// devcontainer base beats the embedded default, mirroring composableBuildSources'
-// precedence exactly (kept in the ONE place callers share, so the two can
-// never drift).
-func baseForIdentity(baseContainerfile string, devBase *baseStage) *baseStage {
-	if baseContainerfile != "" {
-		return userBaseStage(baseContainerfile)
-	}
-	if devBase != nil {
-		return devBase
-	}
-	return defaultBaseStage()
-}
-
 // agentImageID is the identity one agent-image build is made under: the tag
 // it lands on, the provenance label its staleness is judged by, and the slot
 // labels pruning reads. slot and companions are empty for a non-composable
@@ -142,15 +126,16 @@ func (id agentImageID) stamp(from string) imageStamp {
 }
 
 // composedIdentity resolves a COMPOSABLE spec's identity (image tag,
-// provenance label, slot) for the given base/engine configuration. ok=false
-// when the spec isn't composable (no known engine fragment) or the resolved
-// base's content can't be read — callers fall back to the spec's static image
-// field and the legacy hostProvenanceDigest.
-func composedIdentity(p engineContainerSpec, baseContainerfile string, devBase *baseStage, engine string) (agentImageID, bool) {
-	if p.engineInstall == nil {
+// provenance label, slot) on the given resolved base (resolveBase) — the same
+// stage composableBuildSources builds on, so the tag a run looks up is the tag
+// a build produces. ok=false when the spec isn't composable (no known engine
+// fragment), there is no base, or its content can't be read — callers fall
+// back to the spec's static image field and hostProvenanceDigest.
+func composedIdentity(p engineContainerSpec, base *baseStage, engine string) (agentImageID, bool) {
+	if p.engineInstall == nil || base == nil {
 		return agentImageID{}, false
 	}
-	content, err := baseForIdentity(baseContainerfile, devBase).content()
+	content, err := base.content()
 	if err != nil {
 		return agentImageID{}, false
 	}
@@ -176,10 +161,10 @@ type buildSource struct {
 	base *baseStage
 }
 
-// baseStage describes the shared stage-1 base image build: a user-provided
-// Containerfile on disk, an auto-detected project devcontainer (a build
-// Dockerfile, or a synthetic FROM wrapping an "image:" ref), or the embedded
-// default base.
+// baseStage describes the shared stage-1 base image build: the project
+// devcontainer (a build Dockerfile, or a synthetic FROM wrapping an "image:"
+// ref), a configured image ref (a synthetic FROM), or the embedded default
+// base — whichever resolveBase chose.
 type baseStage struct {
 	desc          string
 	path          string // Containerfile path on disk ("" = embedded content below)
@@ -189,8 +174,7 @@ type baseStage struct {
 	// build context) — "" means path's directory (today's default behaviour).
 	context string
 	// buildArgs are extra --build-arg entries threaded into the base build
-	// (a devcontainer's "build.args"); nil for the embedded default / a plain
-	// user Containerfile.
+	// (a devcontainer's "build.args"); nil otherwise.
 	buildArgs []string
 	// kind marks an EXPLICITLY-adopted base ("user" | "devcontainer") whose
 	// build failure is an explicit-request failure — see fromUserBase /
@@ -206,8 +190,8 @@ const (
 )
 
 // content returns the base stage's Containerfile bytes: the embedded content
-// when path is unset, or a fresh read of the on-disk file otherwise (a user
-// Containerfile, or an auto-detected devcontainer build.dockerfile).
+// when path is unset, or a fresh read of the on-disk file otherwise (a
+// devcontainer build.dockerfile).
 func (b *baseStage) content() ([]byte, error) {
 	if b.path == "" {
 		return b.containerfile, nil
@@ -220,10 +204,12 @@ func defaultBaseStage() *baseStage {
 	return &baseStage{desc: "default base Containerfile", containerfile: containerfiles.Base()}
 }
 
-// userBaseStage is a user-provided base Containerfile on disk
-// (isolation_base_containerfile / --base-containerfile).
-func userBaseStage(path string) *baseStage {
-	return &baseStage{desc: "user base Containerfile " + path, path: path, kind: baseStageKindUser}
+// imageRefBaseStage is a configured image ref (isolation_base: <ref> /
+// `container build --base <ref>`) as a synthetic single-line FROM base: a
+// BASE the composed engine stage layers onto, unlike the --base-image overlay,
+// which asserts the client is already present.
+func imageRefBaseStage(ref string) *baseStage {
+	return &baseStage{desc: "configured base image " + ref, containerfile: []byte("FROM " + ref + "\n"), kind: baseStageKindUser}
 }
 
 // devcontainerImageStage wraps a devcontainer.json (or compose service)
@@ -249,8 +235,8 @@ func devcontainerBuildStage(desc, dockerfile, contextDir string, args map[string
 }
 
 // fromUserBase reports whether this build source builds on a user-CONFIGURED
-// base Containerfile (isolation_base_containerfile) rather than an embedded,
-// auto-detected, or official base. A failure of THIS source is an
+// base image (isolation_base: <image ref>) rather than the embedded default or
+// the project devcontainer. A failure of THIS source is an
 // explicit-request failure: a silent fallthrough to a different base ships an
 // image the user never asked for, so runEnsureImage records a finding instead
 // of degrading quietly.
@@ -259,8 +245,8 @@ func (s buildSource) fromUserBase() bool {
 }
 
 // fromDevcontainerBase reports whether this build source builds on the
-// project's AUTO-DETECTED devcontainer.json — likewise an explicit-request
-// failure (the human's own .devcontainer/ was auto-adopted; falling through
+// project's devcontainer.json — likewise an explicit-request failure (the
+// human's own .devcontainer/ was adopted; falling through
 // to the embedded default silently produces a DIFFERENT environment than the
 // one they develop in, the exact failure the devcontainer-base feature exists
 // to prevent).
@@ -271,9 +257,8 @@ func (s buildSource) fromDevcontainerBase() bool {
 // staleRebuildRemedy is attached to the finding raised when a STALE image's
 // refresh build fails and the run would otherwise launch the existing stale
 // image (which, pre-entrypoint, can run as root). userBaseBuildRemedy is
-// attached when an explicitly-configured base Containerfile fails to build;
-// devcontainerBaseBuildRemedy when the auto-detected project devcontainer
-// fails to build; devcontainerDetectRemedy when the devcontainer.json itself
+// attached when a configured base image fails to build;
+// devcontainerBaseBuildRemedy when the project devcontainer fails to build; devcontainerDetectRemedy when the devcontainer.json itself
 // could not be resolved to a base at all (malformed JSON, an unresolvable
 // dockerComposeFile).
 const (
@@ -291,31 +276,26 @@ const (
 	// That is the point of the ruling: the substitution may happen, but only
 	// because the user said so, never because a flag about startup faults
 	// happened to be set.
-	userBaseBuildRemedy         = "fix the configured base Containerfile (isolation_base_containerfile) so it builds, or remove that setting to accept ctxloom's own base deliberately"
-	devcontainerBaseBuildRemedy = "fix the project .devcontainer/devcontainer.json (or its build.dockerfile) so it builds, or opt out with isolation_devcontainer_base: false to accept ctxloom's own base deliberately"
-	devcontainerDetectRemedy    = "fix the project .devcontainer/devcontainer.json (malformed JSON, or a dockerComposeFile with no resolvable service — set isolation_devcontainer_service), or opt out with isolation_devcontainer_base: false / --no-devcontainer-base"
+	userBaseBuildRemedy         = "fix the configured base image (isolation_base) so it builds, or set isolation_base: ctxloom to accept ctxloom's own base deliberately"
+	devcontainerBaseBuildRemedy = "fix the project .devcontainer/devcontainer.json (or its build.dockerfile) so it builds, or set isolation_base: ctxloom to accept ctxloom's own base deliberately"
+	devcontainerDetectRemedy    = "fix the project devcontainer (malformed JSON, a dockerComposeFile with no resolvable service — set isolation_devcontainer_service — or, under isolation_base: devcontainer, none at all: `ctxloom container scaffold` writes one), or set isolation_base: ctxloom"
 	// noComposableEnginesRemedy is attached when the ONE engine an agent image
 	// is composed for has no install fragment: the image would otherwise
 	// build green with zero engine-install layers and fail every run.
 	noComposableEnginesRemedy = "bind the agent to an engine that declares an official-installer fragment (see `ctxloom container build --help`), or provide a prebuilt image for this engine via isolation_images"
 )
 
-// buildSourcesOptions carries every input buildSources needs to order a
-// spec's local-build sources: the CLI/config overrides plus the
-// already-RESOLVED devcontainer base (detection happens once, in the caller —
-// see resolveDevBase — so a detection failure can be handled per-caller:
+// buildSourcesOptions carries every input buildSources needs: the base-image
+// overlay plus the already-RESOLVED base (resolution happens once, in the
+// caller — see resolveBase — so a resolution failure can be handled per-caller:
 // fatal-unless-degraded in runEnsureImage, a hard CLI error in
 // BuildAgentImage, an advisory line in Diagnose).
 type buildSourcesOptions struct {
 	// baseOverride is --base-image: overlay ctxloom onto a base that ALREADY
 	// ships the client, skipping any install. Wins outright.
 	baseOverride string
-	// baseContainerfile is isolation_base_containerfile / --base-containerfile:
-	// an explicit user base. Beats auto-detection (locked decision 8).
-	baseContainerfile string
-	// devBase is the auto-detected project devcontainer base (nil = none
-	// detected, or opted out) — see resolveDevBase.
-	devBase *baseStage
+	// base is resolveBase's ONE stage the composed agent stage builds on.
+	base *baseStage
 	// engine is THIS agent's engine for a COMPOSABLE spec (p.engineInstall !=
 	// nil); ignored for a non-composable spec. One engine, not a set: an agent
 	// image carries exactly the engine that agent runs, so there is no
@@ -323,14 +303,11 @@ type buildSourcesOptions struct {
 	engine string
 }
 
-// buildSources orders a spec's local-build sources. An explicit base-IMAGE
+// buildSources resolves a spec's local-build sources. An explicit base-IMAGE
 // override wins outright (the caller asserts the client lives there). A
 // COMPOSABLE spec (engineInstall != nil — every engine in
-// composableEngines()) then builds the generated SINGLE-ENGINE Containerfile
-// (composeAgentContainerfile) onto, in order: the explicit user base
-// Containerfile, the auto-detected project devcontainer, and the embedded
-// default base — precedence locked decision 8 (explicit beats auto-detect
-// beats default). A non-composable spec (no known official-installer
+// composableEngines()) builds the generated SINGLE-ENGINE Containerfile
+// (composeAgentContainerfile) onto the resolved base. A non-composable spec (no known official-installer
 // fragment yet — an unknown/unmapped backend, e.g. engineContainerSpecFor's
 // `default` arm) has no local-build recipe at all: empty means the image
 // cannot be built locally, and the caller must have a preexisting image or
@@ -362,9 +339,10 @@ func buildSources(p engineContainerSpec, opts buildSourcesOptions) []buildSource
 	return nil
 }
 
-// composableBuildSources builds the ordered source list for a COMPOSABLE
-// spec: the generated SINGLE-ENGINE Containerfile layered onto each candidate
-// base in precedence order.
+// composableBuildSources is a COMPOSABLE spec's one source: the generated
+// SINGLE-ENGINE Containerfile layered onto the resolved base. There is no
+// second source to fall to — a base the user (or the project's devcontainer)
+// declared is never silently substituted, see recordBuildSourceFailure.
 func composableBuildSources(p engineContainerSpec, opts buildSourcesOptions) []buildSource {
 	engine := opts.engine
 	if engineContainerSpecFor(engine).engineInstall == nil {
@@ -377,29 +355,14 @@ func composableBuildSources(p engineContainerSpec, opts buildSourcesOptions) []b
 			"no known engine-install recipe for engine %q; the agent image would contain no engine at all", engine)
 		return nil
 	}
-	composed := composeAgentContainerfile(engine)
-	enginesDesc := engine
-	var out []buildSource
-	if opts.baseContainerfile != "" {
-		out = append(out, buildSource{
-			desc:          fmt.Sprintf("agent stage (engine: %s) on the user base Containerfile %s", enginesDesc, opts.baseContainerfile),
-			containerfile: composed,
-			base:          userBaseStage(opts.baseContainerfile),
-		})
+	if opts.base == nil {
+		return nil
 	}
-	if opts.devBase != nil {
-		out = append(out, buildSource{
-			desc:          fmt.Sprintf("agent stage (engine: %s) on the auto-detected project devcontainer (%s)", enginesDesc, opts.devBase.desc),
-			containerfile: composed,
-			base:          opts.devBase,
-		})
-	}
-	out = append(out, buildSource{
-		desc:          fmt.Sprintf("agent stage (engine: %s) on the embedded default base", enginesDesc),
-		containerfile: composed,
-		base:          defaultBaseStage(),
-	})
-	return out
+	return []buildSource{{
+		desc:          fmt.Sprintf("agent stage (engine: %s) on the %s", engine, opts.base.desc),
+		containerfile: composeAgentContainerfile(engine),
+		base:          opts.base,
+	}}
 }
 
 // overlayContainerfile renders the generated OVERLAY Containerfile: the running
@@ -684,8 +647,8 @@ const provenanceLabel = "ctxloom.provenance"
 // uncommitted (tracked-dirty) rebuild, an updated companion, or a changed base
 // config changes it, and ensureImage rebuilds. Empty when this binary carries no usable stamp or
 // the base config can't be read — the check then disables rather than churn.
-func hostProvenanceDigest(baseContainerfile string) string {
-	return combineProvenance(hostImageKeys().provenance, baseContainerfile)
+func hostProvenanceDigest() string {
+	return combineProvenance(hostImageKeys().provenance, containerfiles.Base())
 }
 
 // imageKeys is the running binary's image keys: the tag key, the provenance
@@ -735,28 +698,14 @@ func hostImageKeys() imageKeys {
 // hash, so the ONE existing staleness gate (the ctxloom.provenance label vs
 // imageStale) also rebuilds an agent image whose base Containerfile config
 // changed — no parallel staleness mechanism. The suffix is baseContentHash,
-// i.e. the baseImageTagFor generation the image rode on. Either half unknown
-// yields "" — an untrustable key disables the check rather than forcing a
+// i.e. the baseImageTagFor generation the image rode on. An unknown version
+// key yields "" — an untrustable key disables the check rather than forcing a
 // wrong rebuild.
-func combineProvenance(versionKey, baseContainerfile string) string {
+func combineProvenance(versionKey string, baseContent []byte) string {
 	if versionKey == "" {
 		return ""
 	}
-	content, err := baseContent(baseContainerfile)
-	if err != nil {
-		return ""
-	}
-	return versionKey + "-" + baseContentHash(content)
-}
-
-// baseContent resolves the base Containerfile content a build on this config
-// would layer the agent stage onto: the user-provided file
-// (isolation_base_containerfile), or the embedded default.
-func baseContent(baseContainerfile string) ([]byte, error) {
-	if baseContainerfile == "" {
-		return containerfiles.Base(), nil
-	}
-	return os.ReadFile(baseContainerfile)
+	return versionKey + "-" + baseContentHash(baseContent)
 }
 
 // warnProvenanceDisabled names the capability lost when this build cannot be
@@ -834,9 +783,9 @@ func (c Container) ensureImage(ctx context.Context) error {
 // so the caller degrades down the chain — a fatal finding (ClassIsolation) the
 // choke owner aborts on unless --degraded.
 func (c Container) runEnsureImage(ctx context.Context) error {
-	sources, devBase, devErr := c.containerBuildSources("")
+	sources, base, baseErr := c.containerBuildSources("")
 	present := c.imagePresent(ctx)
-	want := c.identityFor(devBase)
+	want := c.identityFor(base)
 	if c.imageRunsAsIs(ctx, present, sources, want.provenance) {
 		return nil
 	}
@@ -861,14 +810,15 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		return fmt.Errorf("container image %q is not present and cannot be built from this binary: %w", c.image, err)
 	}
 	if present {
-		clidiag.Warn("ctxloom", "container image %q was built by a different ctxloom version (or from different base Containerfile/devcontainer/engine-set config) than is running now; rebuilding it", c.image)
+		clidiag.Warn("ctxloom", "container image %q was built by a different ctxloom version (or on a different base or engine) than is running now; rebuilding it", c.image)
 	} else {
 		clidiag.Warn("ctxloom", "container image %q not found; building it locally (first run — this may take a few minutes)", c.image)
 	}
-	if devErr != nil {
-		// The project's own .devcontainer/devcontainer.json was auto-adopted
-		// but could not be resolved to a base (malformed JSON, an
-		// unresolvable dockerComposeFile). Building without it produces a
+	if baseErr != nil {
+		// The project's own devcontainer was adopted (detected, or declared
+		// by isolation_base: devcontainer) but could not be resolved to a base
+		// (malformed JSON, an unresolvable dockerComposeFile, or declared and
+		// absent). Building without it produces a
 		// DIFFERENT environment than the human develops in — the exact failure
 		// the devcontainer-base feature exists to prevent.
 		//
@@ -877,10 +827,11 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		// read it to find out whether what it declares matters. A
 		// devcontainer.json that is PRESENT but unreadable is refused on the
 		// same terms as one that fails to build — "I could not parse it" is not
-		// evidence that it was unimportant. A project with no devcontainer at
-		// all declares nothing and never reaches here.
+		// evidence that it was unimportant. A project that neither ships a
+		// devcontainer nor sets isolation_base: devcontainer declares nothing
+		// and never reaches here.
 		strictness.FailAlways(report.KindIsolation, devcontainerDetectRemedy,
-			"refusing to build the agent image without this project's own devcontainer: auto-detection failed (%v), and ctxloom cannot read it to know what it provides", devErr)
+			"refusing to build the agent image without this project's own devcontainer: %v, and ctxloom cannot read what it would provide", baseErr)
 	}
 	lastErr := c.buildFirstWorkingSource(ctx, sources, selfExe, want)
 	if lastErr == nil {
@@ -981,7 +932,7 @@ func recordBuildSourceFailure(src buildSource, err error) {
 	switch {
 	case src.fromUserBase():
 		strictness.FailAlways(report.KindIsolation, userBaseBuildRemedy,
-			"refusing to build the agent image on a base you did not declare: the configured base Containerfile (%s) failed to build (%v), and ctxloom cannot know what that base provides, so it will not silently substitute another", src.desc, err)
+			"refusing to build the agent image on a base you did not declare: the %s failed to build (%v), and ctxloom cannot know what that base provides, so it will not silently substitute another", src.desc, err)
 	case src.fromDevcontainerBase():
 		strictness.FailAlways(report.KindIsolation, devcontainerBaseBuildRemedy,
 			"refusing to build the agent image on a base this project did not declare: the auto-detected project devcontainer (%s) failed to build (%v), and substituting another would give this agent a different environment than the one you develop in", src.desc, err)
@@ -1155,18 +1106,13 @@ type ImageBuildOptions struct {
 	// BaseImage overlays ctxloom onto this user-chosen base — which must
 	// already ship the client CLI — instead of the spec's build sources.
 	BaseImage string
-	// BaseContainerfile builds the shared base stage from this user-provided
-	// Containerfile instead of the embedded default; the engine's agent stage
-	// layers on top. Mutually exclusive with BaseImage. Beats devcontainer
-	// auto-detection (locked decision 8).
-	BaseContainerfile string
-	// AppRoot is the project root devcontainer auto-detection resolves
-	// .devcontainer/devcontainer.json (or .devcontainer.json) against; ""
-	// disables auto-detection (same effect as NoDevcontainerBase).
+	// Base is the isolation_base choice the engine's agent stage layers onto
+	// (config isolation_base / --base) — see ImageConfig.Base. Mutually
+	// exclusive with BaseImage.
+	Base string
+	// AppRoot is the project root the devcontainer is resolved against; ""
+	// means there is no project devcontainer to find.
 	AppRoot string
-	// NoDevcontainerBase opts out of devcontainer auto-detection
-	// (config isolation_devcontainer_base: false / --no-devcontainer-base).
-	NoDevcontainerBase bool
 	// DevcontainerService names the docker-compose service to use as the base
 	// when the detected devcontainer.json declares dockerComposeFile
 	// (config isolation_devcontainer_service).
@@ -1216,34 +1162,30 @@ func selectBuildRuntime(prefer string) (Runtime, error) {
 	return rt, nil
 }
 
-// BuildAgentImage builds the agent image for the REGISTERED backend name from
-// the best available source — the caller's base-image overlay, the composed
-// single-engine agent stage on a user base Containerfile / the auto-detected
-// project devcontainer / the embedded default base (locked decision 8:
-// explicit beats auto-detect beats default), or (for a non-composable
-// backend) the client's official image / embedded install recipe — layering
+// BuildAgentImage builds the agent image for the REGISTERED backend name —
+// from the caller's base-image overlay, or the composed single-engine agent
+// stage on the base resolveBase chose for opts.Base — layering
 // the RUNNING ctxloom binary in (any dev build works; no ctxloom release
 // needed). Each source validates the client inside the build
 // (`<client> --version`), so a broken image never ships. A devcontainer.json
 // that is present but cannot be resolved to a base (malformed JSON, an
 // unresolvable dockerComposeFile) is a HARD error here — this is the explicit
 // `container build` command, so there is no chain to degrade down; fix the
-// devcontainer, pass --no-devcontainer-base, or configure
+// devcontainer, pass --base ctxloom, or configure
 // isolation_devcontainer_service. Returns the image tag it built.
 func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions) (string, error) {
-	if opts.BaseImage != "" && opts.BaseContainerfile != "" {
-		return "", fmt.Errorf("base-image and base-containerfile are mutually exclusive (an image asserts the client is preinstalled; a containerfile gets the client layered on)")
+	if opts.BaseImage != "" && opts.Base != "" {
+		return "", fmt.Errorf("base-image and base are mutually exclusive (base-image asserts the client is preinstalled; base gets the client layered on)")
 	}
 	p := engineContainerSpecFor(backend)
-	devBase, err := resolveDevBase(opts.AppRoot, opts.NoDevcontainerBase, opts.DevcontainerService)
+	base, err := resolveBase(opts.Base, opts.AppRoot, opts.DevcontainerService)
 	if err != nil {
 		return "", fmt.Errorf("project devcontainer: %w", err)
 	}
 	sources := buildSources(p, buildSourcesOptions{
-		baseOverride:      opts.BaseImage,
-		baseContainerfile: opts.BaseContainerfile,
-		devBase:           devBase,
-		engine:            backend,
+		baseOverride: opts.BaseImage,
+		base:         base,
+		engine:       backend,
 	})
 	if len(sources) == 0 {
 		return "", fmt.Errorf("backend %q has no local build recipe (no official client image and no embedded Containerfile); pass --base-image with the client preinstalled", backend)
@@ -1256,9 +1198,9 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 	if err != nil {
 		return "", err
 	}
-	id, composable := composedIdentity(p, opts.BaseContainerfile, devBase, backend)
+	id, composable := composedIdentity(p, base, backend)
 	if !composable {
-		id = agentImageID{ref: p.image, provenance: hostProvenanceDigest(opts.BaseContainerfile)}
+		id = agentImageID{ref: p.image, provenance: hostProvenanceDigest()}
 	}
 	if err := buildExplicitFromSources(ctx, rt, id, sources, selfExe, opts); err != nil {
 		return "", err

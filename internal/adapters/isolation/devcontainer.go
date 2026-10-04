@@ -11,15 +11,15 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// This file implements the "project devcontainer as agent-image BASE"
-// resolver: the project's .devcontainer/devcontainer.json — when present and
-// not opted out — becomes an auto-detected local-build BASE (stage 1) that composed engine
-// fragments (enginespec.go, imagebuild.go's composeAgentContainerfile) layer
-// onto, exactly like the embedded default base or an explicit
-// isolation_base_containerfile.
+// This file implements the agent-image BASE resolver (resolveBase): the
+// isolation_base choice mapped to the ONE local-build BASE (stage 1) that
+// composed engine fragments (enginespec.go, imagebuild.go's
+// composeAgentContainerfile) layer onto — ctxloom's embedded default, a
+// configured image ref, or the project's .devcontainer/devcontainer.json.
 //
 // FEATURES ARE NOT HONORED (D1, pre1): a devcontainer.json declaring
 // "features" (ghcr.io/devcontainers/features/*) needs the devcontainer CLI
@@ -58,8 +58,8 @@ type devcontainerBuild struct {
 // `.devcontainer/<name>/devcontainer.json` layout is deliberately out of
 // scope — this resolver picks ONE base, and a project with several named
 // configs has no unambiguous "the" devcontainer to auto-adopt (a user with
-// that layout should use isolation_base_containerfile / --base-containerfile
-// explicitly, or opt out and provide their own base).
+// that layout builds the one they want and names it: isolation_base: <image
+// ref>).
 func FindDevcontainerJSON(appRoot string) string {
 	for _, rel := range []string{
 		filepath.Join(".devcontainer", "devcontainer.json"),
@@ -73,24 +73,58 @@ func FindDevcontainerJSON(appRoot string) string {
 	return ""
 }
 
-// resolveDevBase wraps resolveDevcontainerBase with the opt-out gate every
-// caller (containerFor, runEnsureImage, BuildAgentImage, Diagnose) shares:
-// NoDevcontainerBase (config isolation_devcontainer_base: false /
-// --no-devcontainer-base) or an empty appRoot (a test harness, or a caller
-// that never learned the project root) means "no auto-detect", never an
-// error — only an EXPLICITLY-detected devcontainer.json that turns out
-// unusable raises one.
-func resolveDevBase(appRoot string, noDevcontainerBase bool, service string) (*baseStage, error) {
-	if noDevcontainerBase || appRoot == "" {
-		return nil, nil
+// ErrNoDevcontainer is isolation_base: devcontainer in a project that has no
+// devcontainer.json at either canonical path.
+var ErrNoDevcontainer = errors.New("isolation_base is devcontainer but the project has no .devcontainer/devcontainer.json or .devcontainer.json")
+
+// resolveBase maps the isolation_base choice to the ONE base stage a local
+// build layers the agent stage onto — shared by every caller (containerFor,
+// runEnsureImage, BuildAgentImage, Diagnose) so the tag a run looks up and
+// the image a build produces can never disagree:
+//   - launch.IsolationBaseCtxloom → the embedded default, devcontainer or not.
+//   - launch.IsolationBaseDevcontainer → the project devcontainer;
+//     ErrNoDevcontainer when there is none (or no appRoot to look in).
+//   - "" → the project devcontainer when one is detected under appRoot, else
+//     the embedded default.
+//   - anything else → that image ref as a declared base.
+//
+// The stage is NEVER nil: on an error it is the embedded default, so a caller
+// that downgrades the error to a finding (runEnsureImage) or an advisory line
+// (Diagnose) still has an identity to key on. Every caller surfaces the error.
+func resolveBase(choice, appRoot, service string) (*baseStage, error) {
+	switch choice {
+	case launch.IsolationBaseCtxloom:
+		return defaultBaseStage(), nil
+	case launch.IsolationBaseDevcontainer:
+		if appRoot == "" {
+			return defaultBaseStage(), ErrNoDevcontainer
+		}
+		dev, err := resolveDevcontainerBase(appRoot, service)
+		if err == nil && dev == nil {
+			err = ErrNoDevcontainer
+		}
+		if err != nil {
+			return defaultBaseStage(), err
+		}
+		return dev, nil
+	case "":
+		if appRoot == "" {
+			return defaultBaseStage(), nil
+		}
+		dev, err := resolveDevcontainerBase(appRoot, service)
+		if err != nil || dev == nil {
+			return defaultBaseStage(), err
+		}
+		return dev, nil
+	default:
+		return imageRefBaseStage(choice), nil
 	}
-	return resolveDevcontainerBase(appRoot, service)
 }
 
 // resolveDevcontainerBase auto-detects the project's devcontainer.json (or
 // .devcontainer.json) and maps it to a base stage per the locked decisions:
-//   - absent devcontainer.json → (nil, nil): no auto-detected base, the
-//     caller falls through to the next source (explicit base > default).
+//   - absent devcontainer.json → (nil, nil): resolveBase decides what that
+//     means for the configured choice.
 //   - "image": <ref> → a synthetic FROM base.
 //   - "build": {dockerfile, context, args} → that Dockerfile as the base,
 //     with the devcontainer's own context dir + build args threaded through.

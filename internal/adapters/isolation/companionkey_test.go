@@ -19,15 +19,15 @@ import (
 // taskloom / reprise was reused indefinitely.
 func TestImageStale_UpdatingACompanionInvalidatesTheImage(t *testing.T) {
 	withCompanions(t, map[string]string{"taskloom": "v1.0.0", "ltk": "v2.0.0"})
-	baked := hostProvenanceDigest("")
+	baked := hostProvenanceDigest()
 	require.NotEmpty(t, baked, "the staleness gate must be live, or the assertions below prove nothing")
 	labels := map[string]string{provenanceLabel: baked}
 
-	require.False(t, imageStale(labels, hostProvenanceDigest("")),
+	require.False(t, imageStale(labels, hostProvenanceDigest()),
 		"nothing changed: the image must be REUSED, or this test only proves the key is unstable")
 
 	withCompanions(t, map[string]string{"taskloom": "v1.0.1", "ltk": "v2.0.0"})
-	assert.True(t, imageStale(labels, hostProvenanceDigest("")),
+	assert.True(t, imageStale(labels, hostProvenanceDigest()),
 		"an updated companion must invalidate the image it is baked into")
 }
 
@@ -38,7 +38,7 @@ func TestImageStale_UpdatingACompanionInvalidatesTheImage(t *testing.T) {
 func TestHostProvenanceDigest_CoversEveryCompanionAndCtxloomItself(t *testing.T) {
 	base := map[string]string{"taskloom": "v1.0.0", "ltk": "v2.0.0", "reprise": "v3.0.0"}
 	withCompanions(t, base)
-	want := hostProvenanceDigest("")
+	want := hostProvenanceDigest()
 	require.NotEmpty(t, want)
 
 	// Every companion, one at a time: none may be a passenger in the digest.
@@ -49,15 +49,15 @@ func TestHostProvenanceDigest_CoversEveryCompanionAndCtxloomItself(t *testing.T)
 		}
 		bumped[name] = base[name] + ".1"
 		withCompanions(t, bumped)
-		assert.NotEqual(t, want, hostProvenanceDigest(""),
+		assert.NotEqual(t, want, hostProvenanceDigest(),
 			"a new %s must change the key; it is baked into the image", name)
 	}
 
 	// Absent -> installed is a different image, so it must be a different key.
 	withCompanions(t, map[string]string{"taskloom": "v1.0.0"})
-	alone := hostProvenanceDigest("")
+	alone := hostProvenanceDigest()
 	withCompanions(t, map[string]string{"taskloom": "v1.0.0", "ltk": "v2.0.0"})
-	assert.NotEqual(t, alone, hostProvenanceDigest(""),
+	assert.NotEqual(t, alone, hostProvenanceDigest(),
 		"installing a companion changes what gets staged, so it must change the key")
 
 	// ctxloom's own version, with the companions held still.
@@ -65,7 +65,7 @@ func TestHostProvenanceDigest_CoversEveryCompanionAndCtxloomItself(t *testing.T)
 	orig := binaryVersion
 	t.Cleanup(func() { SetBinaryVersion(orig) })
 	SetBinaryVersion("v0.8.0-def5678-20260904T031516")
-	assert.NotEqual(t, want, hostProvenanceDigest(""),
+	assert.NotEqual(t, want, hostProvenanceDigest(),
 		"ctxloom's own version must still contribute")
 }
 
@@ -75,7 +75,7 @@ func TestHostProvenanceDigest_CoversEveryCompanionAndCtxloomItself(t *testing.T)
 // the LEADING segment, and the base content hash stays the trailing one.
 func TestHostProvenanceDigest_LabelStaysReadable(t *testing.T) {
 	withCompanions(t, map[string]string{"taskloom": "v1.0.0"})
-	got := hostProvenanceDigest("")
+	got := hostProvenanceDigest()
 	require.NotEmpty(t, got)
 
 	assert.True(t, strings.HasPrefix(got, versionProvenanceKey(testStamp)+companionKeySeparator),
@@ -103,7 +103,7 @@ func TestCompanionVersionKey_UnreportableCompanionRefusesByDefault(t *testing.T)
 	mark := strictness.Checkpoint()
 	t.Cleanup(func() { strictness.Close(mark) })
 
-	_ = hostProvenanceDigest("")
+	_ = hostProvenanceDigest()
 
 	err := strictness.Mode{}.FindingsError(mark)
 	require.Error(t, err, "an unreportable staged companion must be a fatal finding, not a silent omission")
@@ -123,7 +123,7 @@ func TestCompanionVersionKey_UnreportableCompanionWarnsUnderDegraded(t *testing.
 	mark := strictness.Checkpoint()
 	t.Cleanup(func() { strictness.Close(mark) })
 
-	got := hostProvenanceDigest("")
+	got := hostProvenanceDigest()
 
 	assert.NoError(t, strictness.Mode{Degraded: true}.FindingsError(mark),
 		"--degraded must warn and continue, never refuse over a companion probe")

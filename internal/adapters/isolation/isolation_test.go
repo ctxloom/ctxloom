@@ -495,43 +495,26 @@ func TestNonePrepareWorkspace_CannotFail(t *testing.T) {
 	assert.Equal(t, "/proj", ws.Dir())
 }
 
-// TestImageConfigZeroValue_DisablesDevcontainerDetectionSilently REFUTES
-// a finding that called ImageConfig's zero value "self-contradictory"
-// (NoDevcontainerBase false says auto-detect ON while AppRoot "" forces it OFF)
-// and asked for a diagnostic. Both halves are wrong:
-//
-//   - It is not a contradiction but a DOCUMENTED equivalence, stated at both
-//     sites — ImageConfig.AppRoot's own field doc ('"" disables auto-detection
-//     (same effect as NoDevcontainerBase)') and resolveDevBase's ("an empty
-//     appRoot ... means 'no auto-detect', never an error").
-//   - There is nothing to diagnose. An empty AppRoot means no project root is
-//     known, so there is no directory to resolve .devcontainer/devcontainer.json
-//     AGAINST; detection is impossible rather than skipped. The zero value
-//     arises for callers that legitimately never learned a root, and warning on
-//     every one of them would be noise on a path that has no alternative.
-//     Where a config-load failure IS the cause, the CLI already names the gap
-//     (containerCheckConfigGap in cli/container_cmd.go).
-//
-// Pinning the silence, so re-introducing the requested diagnostic goes red.
-func TestImageConfigZeroValue_DisablesDevcontainerDetectionSilently(t *testing.T) {
+// TestImageConfigZeroValue_ResolvesCtxloomBaseSilently pins that an unknown
+// project root (ImageConfig's zero value) resolves ctxloom's own base with no
+// error and no warning: there is no directory to find a devcontainer AGAINST,
+// so detection is impossible rather than skipped, and the callers that
+// legitimately never learned a root would otherwise warn on every run. Where a
+// config-load failure IS the cause, the CLI already names the gap
+// (containerCheckConfigGap in cli/container_cmd.go).
+func TestImageConfigZeroValue_ResolvesCtxloomBaseSilently(t *testing.T) {
 	buf := captureWarnings(t)
 
-	stage, err := resolveDevBase("", ImageConfig{}.NoDevcontainerBase, "")
+	stage, err := resolveBase(ImageConfig{}.Base, ImageConfig{}.AppRoot, "")
 	require.NoError(t, err, "an unknown project root is never an error")
-	assert.Nil(t, stage, "and never resolves a base")
-
-	optedOut, err := resolveDevBase("/some/root", true, "")
-	require.NoError(t, err)
-	assert.Nil(t, optedOut)
-	assert.Empty(t, buf.String(),
-		"an empty AppRoot is the documented equivalent of the explicit opt-out — no root means nothing to detect against, so there is nothing to report")
+	assert.Equal(t, defaultBaseStage().containerfile, stage.containerfile)
+	assert.Empty(t, buf.String(), "no root means nothing to detect against, so there is nothing to report")
 }
 
 // TestImageOverrideAndBaseImageAreOppositeConcepts PARTIALLY refutes
 // a finding that claimed ImageConfig and ImageBuildOptions "duplicate 6 of the
 // same concepts under different names". Five are genuinely the same and share
-// their names exactly (BaseContainerfile, AppRoot, NoDevcontainerBase,
-// DevcontainerService, Engines). The sixth pairing the row implies —
+// their names exactly (Base, AppRoot, DevcontainerService, Engines). The sixth pairing the row implies —
 // ImageConfig.Image against ImageBuildOptions.BaseImage — is not a rename of
 // one concept but two OPPOSITE ones, which is why they were never unified:
 //

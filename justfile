@@ -1290,6 +1290,10 @@ test-mutation-install:
     go install github.com/go-gremlins/gremlins/cmd/gremlins@v${GREMLINS_VERSION}
 
 # Run mutation tests in container
+# The checkout is NOT mounted: tests/mutation/mutation_source.sh streams the
+# module's source in on stdin and it is unpacked into the container's own
+# layer, so nothing the run writes can reach the working tree, however the run
+# ends (see that script for why).
 # The container path carries the same TMPDIR hazard as the host recipes: gremlins
 # copies the module per worker, so its scratch space must be a bind-mounted disk
 # dir, never the container's default (which is backed by the host's /tmp). The
@@ -1297,6 +1301,7 @@ test-mutation-install:
 # container run and a host run mutate identically.
 test-mutation-container: _mutation-prereqs
     #!/usr/bin/env bash
+    set -euo pipefail
     set -a
     . .devcontainer/tool-versions.env
     set +a
@@ -1307,12 +1312,14 @@ test-mutation-container: _mutation-prereqs
     fi
     # The run's own temp dir is the mount: mutation_tmp.sh exports it as
     # TMPDIR to the command, so it is read inside the command, not here.
-    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" bash -c '
-        exec docker run --rm "$@" \
-            -v "{{TOP}}:/app" \
+    # /tmp/work, not a -w dir: docker creates a missing workdir as root, and
+    # the image runs as an unprivileged user.
+    bash tests/mutation/mutation_source.sh | bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" bash -c '
+        exec docker run --rm -i "$@" \
             -v "$TMPDIR:/mutation-tmp" \
             -e TMPDIR=/mutation-tmp \
-            -w /app "gogremlins/gremlins:v${GREMLINS_VERSION}" gremlins unleash
+            "gogremlins/gremlins:v${GREMLINS_VERSION}" \
+            bash -c "mkdir /tmp/work && tar -C /tmp/work -xf - && cd /tmp/work && exec gremlins unleash"
     ' _ "${user_flag[@]}"
 
 # Mutate one source file per target and drive the CUCUMBER acceptance suite
@@ -2048,23 +2055,19 @@ _run +ARGS:
         # error, so the build SUCCEEDS carrying a binary that cannot say what it
         # was built from.
         #
-        # READ-WRITE and whole-common-dir: docs/adr/0034 records why the
-        # exposure is accepted and why a file-by-file mount is not viable (git
-        # updates config, packed-refs and refs by lock-and-rename inside the
-        # common dir). The worktrees/ registry is NOT masked here, and no other
-        # checkout is mounted: a `git worktree prune` (or gc's auto-prune) run
-        # in this container deletes every other worktree's registration.
-        #
-        # --mount, not -v: MEASURED — the `-v src:dst:ro` form mis-parses a
-        # destination ending in `.git`, silently landing the bind at a truncated
-        # path (…/main/o), so the mount reports success and .git is still absent.
-        # --mount takes named keys and has no colon ambiguity.
+        # scripts/devcontainer-git-mounts.sh computes this checkout's git
+        # mounts — the agent call site's layout, docs/adr/0034: the common dir
+        # read-write, its worktrees/ registry masked by the empty read-only dir
+        # made here, and this checkout's own admin dir mounted back. The mask
+        # holds only empty mountpoint dirs, so removing it on exit removes
+        # nothing of the repository's.
+        git_mask="$(mktemp -d)" || exit 1
+        trap 'rm -rf -- "$git_mask"' EXIT
         git_mount=()
-        if [ -f .git ]; then
-            gitcommon="$(git rev-parse --git-common-dir 2>/dev/null)"
-            if [ -n "$gitcommon" ] && gitcommon="$(cd "$gitcommon" 2>/dev/null && pwd -P)"; then
-                git_mount=(--mount "type=bind,src=$gitcommon,dst=$gitcommon")
-            fi
+        if [ -e .git ]; then
+            git_mount_args="$(bash scripts/devcontainer-git-mounts.sh "{{TOP}}" /workspace "$git_mask")" || exit 1
+            mapfile -t git_mount <<< "$git_mount_args"
+            [ -n "$git_mount_args" ] || git_mount=()
         fi
         # The version stamp is computed on the HOST and handed in, never
         # recomputed inside. The mount below overlays justfile.container onto

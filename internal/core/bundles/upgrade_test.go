@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
 // TestParseBundle_MigratesPromptsKeyToCommands pins the on-load migration: a
@@ -116,4 +118,12 @@ func TestParseBundle_LegacySkillsKeyErrorOnARealBundle(t *testing.T) {
 	assert.Contains(t, msg, "commands:", "the remedy must be named")
 	assert.NotContains(t, msg, "bundle :", "no empty identifier where a name would go")
 	assert.NotContains(t, msg, "bundle:", "no empty identifier where a name would go")
+}
+
+// A bundle that is not YAML is its parse failure, not a version fault.
+func TestParseBundle_MalformedIsAParseFailureNotAVersionFault(t *testing.T) {
+	_, err := ParseBundle([]byte("fragments: [unterminated\n"))
+	require.Error(t, err)
+	var ve *schemaver.VersionError
+	assert.NotErrorAs(t, err, &ve)
 }

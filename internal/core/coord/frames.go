@@ -293,6 +293,10 @@ type RunInfo struct {
 	ParentRunID    string
 	PermissionMode string
 	MCPServers     []string
+	// Cause and Detail are the run's terminal cause and detail
+	// (RosterEntry.Cause/Detail); empty while it is live.
+	Cause  string
+	Detail string
 	// Hold is the hold parking this run, nil when none does.
 	Hold *RunHold
 }

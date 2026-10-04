@@ -194,10 +194,10 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 
 	// TR4 interactive trust review: render per-item effective trust and offer a
 	// per-hook trust/blacklist action. TTY-gated and suppressed for every
-	// structured format so the bundle body above is byte-for-byte unchanged and
-	// a machine caller is never parked on a prompt; all trust UI goes to
+	// format but text so the bundle body above is byte-for-byte unchanged and
+	// a non-text caller is never parked on a prompt; all trust UI goes to
 	// stderr. Viewing never trusts.
-	if bundleShowInteractive && !wantsStructuredOutput(cmd) && isInteractiveTerminal() {
+	if bundleShowInteractive && !wantsNonTextOutput(cmd) && isInteractiveTerminal() {
 		return offerBundleTrust(cmd, cfg, name, bundle)
 	}
 	return nil

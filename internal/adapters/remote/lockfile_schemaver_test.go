@@ -134,3 +134,14 @@ func TestLoad_KeylessIsARetiredKeyForm(t *testing.T) {
 	require.ErrorIs(t, err, ErrLockKeyFormRetired)
 	assert.Contains(t, err.Error(), string(schemaverLockKey), "the refusal lists the held entry")
 }
+
+// A lockfile that is not YAML is reported as the parse failure it is — the
+// user fixes or deletes the file — not as an unreadable format version, which
+// would point them at the wrong fault.
+func TestLoad_MalformedIsAParseFailureNotAVersionFault(t *testing.T) {
+	lm := lockWithBody(t, "bundles: [unterminated\n")
+	_, err := lm.Load()
+	require.Error(t, err)
+	var ve *schemaver.VersionError
+	assert.NotErrorAs(t, err, &ve)
+}

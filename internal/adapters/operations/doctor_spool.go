@@ -340,12 +340,12 @@ const doctorSpoolCountersMarker = "DOCTOR-CHECK-SPOOL-COUNTERS-w3"
 //
 // Distinguishable outcomes, worded differently on purpose (a success line
 // over zero bytes examined is this project's characteristic defect):
-//   - no endpoint.json anywhere: nothing has ever served — INFO, not a pass;
-//     there was nothing to ask.
-//   - endpoints recorded, none answering: the ordinary state between
-//     sessions — endpoint.json is kept after exit so a relaunch re-binds the
-//     same port — INFO, naming each endpoint, so a stale file is not read
-//     as a live coordinator with clean counters.
+//   - no live coordinator: none is running — INFO, not a pass; there was
+//     nothing to ask. An exited coordinator's endpoint.json is kept so a
+//     relaunch re-binds the same port, but discover.List does not hand it
+//     back, so this is also the ordinary state between sessions.
+//   - live roots whose endpoint did not answer: INFO, naming each endpoint,
+//     so it is not read as a live coordinator with clean counters.
 //   - one or more answered: the state actually observed. Every counter is
 //     printed with its name and value. A non-zero `failed` (a message that
 //     has not arrived) or `doorbell_rejected` (a ref that did not parse: a
@@ -363,7 +363,7 @@ func doctorCheckSpoolCounters(ctx context.Context) DoctorCheck {
 	}
 	if len(endpoints) == 0 && len(problems) == 0 {
 		return DoctorCheck{Marker: doctorSpoolCountersMarker, Status: DoctorInfo,
-			Detail: "no coordinator endpoint recorded under ~/.ctxloom/coord; the spool counters live only " +
+			Detail: "no live coordinator under ~/.ctxloom/coord; the spool counters live only " +
 				"in a running coordinator, so there is nothing to query"}
 	}
 
@@ -407,8 +407,9 @@ func spoolCountersLine(url string, stats *agentcoordpb.SpoolStatsResult) (string
 	return line, faults
 }
 
-// spoolCountersVerdict words the live and not-live endpoints: INFO when none
-// answered, OK when some did cleanly, WARN when any answered with a fault.
+// spoolCountersVerdict words the answering and unanswering endpoints: INFO
+// when none answered, OK when some did cleanly, WARN when any answered with a
+// fault.
 func spoolCountersVerdict(live, dead []string, faults int) (DoctorStatus, []string) {
 	var parts []string
 	status := DoctorInfo
@@ -421,11 +422,10 @@ func spoolCountersVerdict(live, dead []string, faults int) (DoctorStatus, []stri
 	}
 	if len(dead) > 0 {
 		if len(live) == 0 {
-			parts = append(parts, fmt.Sprintf("%d recorded coordinator endpoint(s), none live (an endpoint.json outlives "+
-				"its coordinator by design, so this is the ordinary state between sessions); nothing to query: %s",
+			parts = append(parts, fmt.Sprintf("%d coordinator(s) hold their root but did not answer; nothing to query: %s",
 				len(dead), strings.Join(dead, ", ")))
 		} else {
-			parts = append(parts, fmt.Sprintf("%d not live: %s", len(dead), strings.Join(dead, ", ")))
+			parts = append(parts, fmt.Sprintf("%d did not answer: %s", len(dead), strings.Join(dead, ", ")))
 		}
 	}
 	return status, parts

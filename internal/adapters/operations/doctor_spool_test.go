@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -428,15 +429,41 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry(t *testi
 
 // --- DOCTOR-CHECK-SPOOL-COUNTERS-w3 ----------------------------------------
 
-// writeDeadEndpoint records a coordinator endpoint nothing listens on — the
-// shape an endpoint.json has once its coordinator exits (the file is kept
-// for port re-bind, so this is the ordinary state, not corruption).
-func writeDeadEndpoint(t *testing.T, home, projectKey string) string {
+// holdRootLock is a live coordinator's hold on its root: the owner lock,
+// held until the test ends. discover.List hands back only a root whose lock
+// is held.
+func holdRootLock(t *testing.T, dir string) {
+	t.Helper()
+	fl := flock.New(filepath.Join(dir, paths.CoordOwnerLockFileName), flock.SetPermissions(0o600))
+	got, err := fl.TryLock()
+	require.NoError(t, err)
+	require.True(t, got)
+	t.Cleanup(func() { _ = fl.Close() })
+}
+
+// writeEndpointFile records an endpoint nothing listens on, in projectKey's
+// root, and returns that root's dir.
+func writeEndpointFile(t *testing.T, home, projectKey string) string {
 	t.Helper()
 	dir := filepath.Join(home, ".ctxloom", "coord", projectKey, "root-harp")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"),
 		[]byte(`{"loopback_port":1,"consumer_cred":"stale"}`), 0o600))
+	return dir
+}
+
+// writeExitedEndpoint is the shape a root has once its coordinator exits: the
+// endpoint.json is kept for port re-bind, and nobody holds the owner lock.
+func writeExitedEndpoint(t *testing.T, home, projectKey string) {
+	t.Helper()
+	writeEndpointFile(t, home, projectKey)
+}
+
+// writeUnansweringEndpoint is a root some process still holds whose endpoint
+// does not answer; it returns that endpoint's URL.
+func writeUnansweringEndpoint(t *testing.T, home, projectKey string) string {
+	t.Helper()
+	holdRootLock(t, writeEndpointFile(t, home, projectKey))
 	return discover.LoopbackURL(1)
 }
 
@@ -449,20 +476,33 @@ func TestDoctorCheckSpoolCounters_NoCoordinatorRecorded_IsInfoNotPass(t *testing
 	check := doctorCheckSpoolCounters(context.Background())
 	assert.Equal(t, doctorSpoolCountersMarker, check.Marker)
 	assert.Equal(t, DoctorInfo, check.Status)
-	assert.Contains(t, check.Detail, "no coordinator endpoint recorded")
+	assert.Contains(t, check.Detail, "no live coordinator")
 }
 
-// TestDoctorCheckSpoolCounters_RecordedButDead_IsInfoNamingEndpoint: an
-// endpoint that outlived its coordinator is the common case and must read as
-// "not live" — naming the endpoint — rather than as a warning or as zeros.
-func TestDoctorCheckSpoolCounters_RecordedButDead_IsInfoNamingEndpoint(t *testing.T) {
+// TestDoctorCheckSpoolCounters_ExitedCoordinator_IsNoLiveCoordinator: an
+// endpoint.json that outlived its coordinator is the ordinary state between
+// sessions, and reads exactly as "no live coordinator" — never as a warning
+// or as zeros.
+func TestDoctorCheckSpoolCounters_ExitedCoordinator_IsNoLiveCoordinator(t *testing.T) {
 	home := testsupport.Isolate(t)
-	url := writeDeadEndpoint(t, home, "gone")
+	writeExitedEndpoint(t, home, "gone")
 	check := doctorCheckSpoolCounters(context.Background())
 	assert.Equal(t, DoctorInfo, check.Status)
-	assert.Contains(t, check.Detail, "none live")
+	assert.Contains(t, check.Detail, "no live coordinator")
+	assert.NotContains(t, check.Detail, "delivered=", "an exited coordinator has no counters to print")
+}
+
+// TestDoctorCheckSpoolCounters_HeldButUnanswering_IsInfoNamingEndpoint: a
+// root some process still holds whose endpoint does not answer is named, so
+// it is not read as a live coordinator with clean counters.
+func TestDoctorCheckSpoolCounters_HeldButUnanswering_IsInfoNamingEndpoint(t *testing.T) {
+	home := testsupport.Isolate(t)
+	url := writeUnansweringEndpoint(t, home, "stuck")
+	check := doctorCheckSpoolCounters(context.Background())
+	assert.Equal(t, DoctorInfo, check.Status)
+	assert.Contains(t, check.Detail, "did not answer")
 	assert.Contains(t, check.Detail, url)
-	assert.NotContains(t, check.Detail, "delivered=", "a dead coordinator has no counters to print")
+	assert.NotContains(t, check.Detail, "delivered=", "an unanswering coordinator has no counters to print")
 }
 
 // TestDoctorCheckSpoolCounters_LiveCleanCounters_OK is the state actually
@@ -525,13 +565,13 @@ func TestDoctorCheckSpoolCounters_DropsAreNotFaults(t *testing.T) {
 	assert.Contains(t, check.Detail, "doorbell_dropped=4")
 }
 
-// TestDoctorCheckSpoolCounters_LiveAndDeadTogether: one live coordinator
-// beside a stale endpoint is still a read of the live one — its counters
-// decide the status, and the dead endpoint is listed as not live, not as an
-// error that masks the answer.
-func TestDoctorCheckSpoolCounters_LiveAndDeadTogether(t *testing.T) {
+// TestDoctorCheckSpoolCounters_LiveAndUnansweringTogether: one live
+// coordinator beside one that does not answer is still a read of the live
+// one — its counters decide the status, and the other is listed as not
+// answering, not as an error that masks the answer.
+func TestDoctorCheckSpoolCounters_LiveAndUnansweringTogether(t *testing.T) {
 	home := testsupport.Isolate(t)
-	deadURL := writeDeadEndpoint(t, home, "gone")
+	deadURL := writeUnansweringEndpoint(t, home, "stuck")
 	f := newFakeConsumerServer()
 	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 1}
 	startFakeCoordinator(t, home, "proj", f)
@@ -539,7 +579,7 @@ func TestDoctorCheckSpoolCounters_LiveAndDeadTogether(t *testing.T) {
 	check := doctorCheckSpoolCounters(context.Background())
 	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "delivered=1")
-	assert.Contains(t, check.Detail, "1 not live")
+	assert.Contains(t, check.Detail, "1 did not answer")
 	assert.Contains(t, check.Detail, deadURL)
 }
 

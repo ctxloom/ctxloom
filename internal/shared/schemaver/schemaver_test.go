@@ -164,14 +164,14 @@ func TestUpgrade_KeylessBelowFloorIsRefused(t *testing.T) {
 
 func TestUpgrade_Unreadable(t *testing.T) {
 	cases := map[string]string{
-		"not an integer":      Key + ": banana\n",
-		"a float":             Key + ": 1.5\n",
-		"a mapping":           Key + ": {a: 1}\n",
-		"a sequence document": "- a\n- b\n",
-		"a scalar document":   "hello\n",
-		"malformed":           "a: [unterminated\n",
-		"multi-document":      Key + ": 1\n---\nb: 2\n",
-		"trailing separator":  Key + ": 1\n---\n",
+		"not an integer":     Key + ": banana\n",
+		"a float":            Key + ": 1.5\n",
+		"a mapping":          Key + ": {a: 1}\n",
+		"multi-document":     Key + ": 1\n---\nb: 2\n",
+		"trailing separator": Key + ": 1\n---\n",
+		// The first document parsed, so there is more than one: which one
+		// declares the generation is the ambiguity, not the syntax.
+		"malformed second document": Key + ": 1\n---\na: [unterminated\n",
 	}
 	for _, k := range []Kind{withSteps, zeroSteps} {
 		for name, in := range cases {
@@ -185,11 +185,34 @@ func TestUpgrade_Unreadable(t *testing.T) {
 	}
 }
 
-// A duplicate key would be resolved by whichever entry the node helpers
-// reach first if the document were re-encoded; refuse rather than guess.
-func TestUpgrade_DuplicateKeyNeedingMigrationIsUnreadable(t *testing.T) {
-	_, err := withSteps.Upgrade(doc(1, "kept: x\nkept: y\n"))
-	assert.Equal(t, withSteps.Name, requireVersionError(t, err, ErrUnreadable).Kind)
+// A document that is not a well-formed YAML mapping has no generation to
+// judge: it is the kind's parse failure, not a version fault. It passes through
+// untouched so the kind's own decode reports it — as that decode does for any
+// malformed file — instead of being mislabelled ErrUnreadable. A duplicate key
+// belongs here too: every struct/map decode refuses it, and re-encoding it
+// would silently keep whichever entry the node helpers reached first.
+func TestUpgrade_NotAWellFormedMappingPassesThroughToTheKindsParse(t *testing.T) {
+	cases := map[string]string{
+		"malformed":                       "a: [unterminated\n",
+		"malformed after a version":       Key + ": 1\nkept: [unterminated\n",
+		"a sequence document":             "- a\n- b\n",
+		"a scalar document":               "hello\n",
+		"duplicate key needing migration": string(doc(1, "kept: x\nkept: y\n")),
+		"duplicate version key":           Key + ": 1\n" + Key + ": 2\n",
+	}
+	for _, k := range []Kind{withSteps, zeroSteps} {
+		for name, in := range cases {
+			t.Run(k.Name+"/"+name, func(t *testing.T) {
+				data := []byte(in)
+				r, err := k.Upgrade(data)
+				require.NoError(t, err)
+				assert.Empty(t, r.Applied)
+				assert.Equal(t, in, string(r.Data))
+				var probe map[string]any
+				assert.Error(t, yaml.Unmarshal(r.Data, &probe), "the kind's decode must still refuse it")
+			})
+		}
+	}
 }
 
 func TestUpgrade_EmptyAndCommentOnlyAreGenerationZero(t *testing.T) {

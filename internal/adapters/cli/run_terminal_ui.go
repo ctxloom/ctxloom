@@ -87,11 +87,16 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coor
 		go func() { _ = modalPresenter{ui: ui, clock: systemClock{}}.Present(ctx, src.Approvals) }()
 	}
 	// A rate limit or a refused credential parks the runs that share it; the
-	// bar keeps the root human told until the hold releases them.
+	// bar keeps the root human told until the hold releases them — or, with
+	// no bar, a line on the terminal as each hold opens and releases.
 	if sessionCoord != nil {
-		go presentCredentialHolds(ctx, &credentialPresenter{
+		p := &credentialPresenter{
 			holds: sessionCoord.CredentialHolds, noteBar: ui.NoteBar, ring: ui.Ring, session: id.Harp, clock: systemClock{},
-		})
+		}
+		if !cfg.UISurroundEnabled() {
+			p.announce = ui.Announce
+		}
+		go presentCredentialHolds(ctx, p)
 	}
 	return ui
 }

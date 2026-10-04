@@ -76,7 +76,9 @@ raised it and covers only its own children.
   phase stays `idle`; the `hold` is what tells it apart. The root terminal's bar says how many
   runs are waiting and when they resume, the overlay's agents pane marks each held run and its
   feed title reads `held: rate limited until <time>`, and a held run is never reported as
-  stalled.
+  stalled. With the bar turned off (`ui.surround: false`), the root terminal prints a line as
+  each hold opens and another as it releases, for this and every hold below, and still rings
+  the bell for a refused credential.
 - **Only the human can cut it short.** Resuming any held run from the overlay releases the whole
   hold early; a coordinator's own resume of a held child is refused, since it would only meet
   the limit again.

@@ -448,6 +448,37 @@ func TestController_RingRingsOnceWhileTheBarShows(t *testing.T) {
 	assert.Equal(t, 2, bells())
 }
 
+// TestController_WithoutABarAnnounceAndRingReachTheTerminal: with the bar
+// off (ui.surround: false) nothing paints a note, so Announce writes its line
+// to the terminal itself, on a line of its own between engine output, and Ring
+// still rings — once per call.
+func TestController_WithoutABarAnnounceAndRingReachTheTerminal(t *testing.T) {
+	h := newCtlHarness(t, func(o *Options) { o.Surround = false })
+	_, _ = h.c.Stdout().Write([]byte("engine says hi"))
+	h.c.Announce("CREDENTIAL REFUSED: claude (TOKEN): 2 parked")
+	assert.Contains(t, h.tty.String(), "engine says hi\r\nCREDENTIAL REFUSED: claude (TOKEN): 2 parked\r\n")
+	assert.True(t, h.c.Ring(), "the bell rings with no bar to show")
+	assert.Equal(t, 1, strings.Count(h.tty.String(), "\a"))
+}
+
+// TestOutputGate_InjectWaitsBehindAHold: a line injected while an overlay
+// holds the engine's output is held with it and replayed in order, never
+// written over the overlay.
+func TestOutputGate_InjectWaitsBehindAHold(t *testing.T) {
+	var mu sync.Mutex
+	dst := &lockedBuffer{}
+	g := newOutputGate(&mu, dst, nil, nil)
+	g.Hold(1 << 10)
+	_, _ = g.Write([]byte("held engine bytes"))
+	g.Inject([]byte("\r\nNOTICE\r\n"))
+	assert.Empty(t, dst.String(), "nothing reaches the overlay's screen")
+	_, err := g.Release(holdReplay, restore{})
+	require.NoError(t, err)
+	assert.Equal(t, "held engine bytes\r\nNOTICE\r\n", dst.String())
+	g.Inject([]byte("open"))
+	assert.Equal(t, "held engine bytes\r\nNOTICE\r\nopen", dst.String())
+}
+
 func TestController_RosterPollFeedsBar(t *testing.T) {
 	h := newCtlHarness(t, func(o *Options) {
 		o.RosterInterval = 5 * time.Millisecond

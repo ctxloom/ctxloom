@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,43 +35,79 @@ type credentialPresenter struct {
 	noteBar func(text string, d time.Duration)
 	// ring rings the bell once (termui.Controller.Ring).
 	ring func() bool
+	// announce, set when there is no bar (ui.surround: false), says a line as
+	// each hold opens and as it releases (termui.Controller.Announce).
+	announce func(text string)
 	// session is the root harp a refused credential's remedy restarts.
 	session string
 	clock   termui.Clock
 	shown   string
 	shownAt time.Time
-	// refused are the refusal holds already seen, by key and opening; nil until the
+	// known are the holds seen at the last poll, by holdID; nil until the
 	// first poll, which only seeds it — a hold in force then was rebuilt by a
-	// restart, which re-raises its finding instead of ringing again.
-	refused map[string]bool
+	// restart, which re-raises its finding instead of ringing or announcing
+	// it again.
+	known map[string]coord.CredentialHold
 }
 
-// ringForNewRefusals rings once if a refused credential's hold appeared since
-// the last poll.
-func (p *credentialPresenter) ringForNewRefusals(holds []coord.CredentialHold) {
-	seen := make(map[string]bool)
-	fresh := false
+// holdID tells holds apart across polls: one hold opens at one instant (an
+// upgraded hold keeps the instant it opened as a limit), and an overload's is
+// one run's own.
+func holdID(h coord.CredentialHold) string {
+	id := h.Source.Key + "@" + h.Since.UTC().Format(time.RFC3339Nano)
+	if h.Kind == agent.FailureOverloaded && len(h.Harps) > 0 {
+		id += "/" + h.Harps[0]
+	}
+	return id
+}
+
+// track rings for a refusal that opened since the last poll (a hold upgraded
+// to one included) and, with no bar, announces each hold that opened or
+// changed kind, and each that released.
+func (p *credentialPresenter) track(holds []coord.CredentialHold) {
+	now := make(map[string]coord.CredentialHold, len(holds))
 	for _, h := range holds {
-		if h.Kind != agent.FailureCredentialRejected {
+		now[holdID(h)] = h
+	}
+	if p.known != nil {
+		p.announceChanges(now)
+	}
+	p.known = now
+}
+
+// announceChanges compares now with the last poll's holds.
+func (p *credentialPresenter) announceChanges(now map[string]coord.CredentialHold) {
+	rang := false
+	for _, id := range slices.Sorted(maps.Keys(now)) {
+		h := now[id]
+		if prev, seen := p.known[id]; seen && prev.Kind == h.Kind {
 			continue
 		}
-		// One credential's hold opens at one instant; an upgraded hold keeps
-		// the instant it opened as a limit.
-		id := h.Source.Key + "@" + h.Since.UTC().Format(time.RFC3339Nano)
-		seen[id] = true
-		fresh = fresh || (p.refused != nil && !p.refused[id])
+		if h.Kind == agent.FailureCredentialRejected && !rang {
+			p.ring()
+			rang = true
+		}
+		p.say(holdNotice(h, p.session))
 	}
-	if fresh {
-		p.ring()
+	for _, id := range slices.Sorted(maps.Keys(p.known)) {
+		if _, still := now[id]; !still {
+			p.say(holdReleasedNotice(p.known[id]))
+		}
 	}
-	p.refused = seen
 }
 
-// refresh polls the holds once, rings for a refusal that just opened, and
-// sets, re-sets or clears the notice.
+// say announces text when there is no bar to carry it.
+func (p *credentialPresenter) say(text string) {
+	if p.announce != nil {
+		p.announce(text)
+	}
+}
+
+// refresh polls the holds once, rings and announces what changed (track),
+// and sets, re-sets or clears the notice.
 func (p *credentialPresenter) refresh() {
 	holds := p.holds()
-	p.ringForNewRefusals(holds)
+	p.track(holds)
 	text := credentialNoticeText(holds, p.session)
 	now := p.clock.Now()
 	switch {
@@ -101,27 +139,42 @@ func presentCredentialHolds(ctx context.Context, p *credentialPresenter) {
 
 // credentialNoticeText is the bar's notice for holds ("" for none) in the
 // session whose root harp is session: the oldest hold in full, and how many
-// more there are. The time is absolute: a countdown would change the note
-// every tick.
+// more there are.
 func credentialNoticeText(holds []coord.CredentialHold, session string) string {
 	if len(holds) == 0 {
 		return ""
 	}
-	h := holds[0]
-	who, at := cmp.Or(string(h.Engine), "the engine"), h.Until.Local().Format("15:04:05")
-	var text string
-	switch h.Kind {
-	case agent.FailureCredentialRejected:
-		text = fmt.Sprintf("CREDENTIAL REFUSED: %s (%s): %d parked — %s",
-			who, h.Source.Carrier(), len(h.Harps), coord.RefusedCredentialRemedy(h.Source, session))
-	case agent.FailureOverloaded:
-		// An overload hold is one run's own backoff: no credential is spent.
-		text = fmt.Sprintf("OVERLOADED: %s: %s backs off — it resumes on its own at %s", who, strings.Join(h.Harps, ", "), at)
-	default:
-		text = fmt.Sprintf("RATE LIMITED: %s (%s): %d waiting — they resume on their own at %s", who, h.Source.Carrier(), len(h.Harps), at)
-	}
+	text := holdNotice(holds[0], session)
 	if more := len(holds) - 1; more > 0 {
 		text += fmt.Sprintf(" (+%d more)", more)
 	}
 	return text
+}
+
+// holdNotice is one hold's notice. The time is absolute: a countdown would
+// change the note every tick.
+func holdNotice(h coord.CredentialHold, session string) string {
+	who, at := cmp.Or(string(h.Engine), "the engine"), h.Until.Local().Format("15:04:05")
+	switch h.Kind {
+	case agent.FailureCredentialRejected:
+		return fmt.Sprintf("CREDENTIAL REFUSED: %s (%s): %d parked — %s",
+			who, h.Source.Carrier(), len(h.Harps), coord.RefusedCredentialRemedy(h.Source, session))
+	case agent.FailureOverloaded:
+		// An overload hold is one run's own backoff: no credential is spent.
+		return fmt.Sprintf("OVERLOADED: %s: %s backs off — it resumes on its own at %s", who, strings.Join(h.Harps, ", "), at)
+	}
+	return fmt.Sprintf("RATE LIMITED: %s (%s): %d waiting — they resume on their own at %s", who, h.Source.Carrier(), len(h.Harps), at)
+}
+
+// holdReleasedNotice says h released and which runs it held resume.
+func holdReleasedNotice(h coord.CredentialHold) string {
+	label := "RATE LIMITED"
+	switch h.Kind {
+	case agent.FailureCredentialRejected:
+		label = "CREDENTIAL REFUSED"
+	case agent.FailureOverloaded:
+		label = "OVERLOADED"
+	}
+	return fmt.Sprintf("%s hold released: %s (%s): %s resume", label, cmp.Or(string(h.Engine), "the engine"),
+		cmp.Or(h.Source.Carrier(), "no credential"), strings.Join(h.Harps, ", "))
 }

@@ -95,6 +95,20 @@ func (g *outputGate) Write(p []byte) (int, error) {
 	return len(p), err
 }
 
+// Inject writes p — a line of the UI's own, not engine output — to the tty
+// between engine chunks, unfiltered: the guard leaves the written stream at a
+// boundary, so p never lands inside an engine sequence. While held, p joins
+// the hold and is replayed in order with it.
+func (g *outputGate) Inject(p []byte) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.held {
+		g.holdLocked(p)
+		return
+	}
+	_, _ = g.dst.Write(p)
+}
+
 func (g *outputGate) holdLocked(p []byte) {
 	if g.overflowed {
 		return

@@ -7,6 +7,8 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // The fs-taking entry points read and write through the fs they are handed.
@@ -21,7 +23,7 @@ func TestGitignore_ReadsAndWritesThroughTheGivenFs(t *testing.T) {
 		t.Helper()
 		fsys := afero.NewMemMapFs()
 		require.NoError(t, fsys.MkdirAll(project, 0o755))
-		require.NoError(t, afero.WriteFile(fsys, root, []byte(content), 0o644))
+		testsupport.WriteFile(t, fsys, root, []byte(content), 0o644)
 		return fsys
 	}
 

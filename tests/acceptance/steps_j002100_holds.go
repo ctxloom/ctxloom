@@ -5,8 +5,8 @@
 // A hold (a child parked on its rate limit) and a pause (the human's) are the
 // coordinator's own state, journaled in runs.jsonl. These steps kill the
 // session owner's `ctxloom run` — the process that hosts the coordinator — the
-// way a crash would (SIGKILL: no drain, so the children's runners, their own
-// session leaders, live on), resume the session with `ctxloom run --session`,
+// way a crash would (SIGKILL: no drain; a host child's runner dies with it, by
+// its parent-death signal), resume the session with `ctxloom run --session`,
 // and read the result where a user would: the roster tool, and the journal.
 //
 // The human's pause is the OVERLAY's (Ctrl-] in the owner's terminal, select
@@ -182,6 +182,14 @@ func registerJ002100HoldSteps(ctx *godog.ScenarioContext) {
 				// No worktree: this journey's repository has no commit to
 				// branch one from, and isolation is not what is under test.
 				"input": map[string]any{"prompt": fmt.Sprintf("do the work mock:rate-limited=%d", resets), "workspace": "none"},
+			})
+		})
+
+	ctx.Step(`^the agent calls tool "agent_run" for "([^"]*)" with a briefing whose credential is refused$`,
+		func(c context.Context, role string) error {
+			return callTool(c, "agent_run", map[string]any{
+				"role":  role,
+				"input": map[string]any{"prompt": "do the work mock:credential-rejected", "workspace": "none"},
 			})
 		})
 

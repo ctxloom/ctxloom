@@ -237,6 +237,20 @@ Feature: Coordinator delegates isolated work
     And the journal records "reviewer"'s hold released by its own backoff
     And the roster shows "fixer" held with kind "human"
 
+  # A REFUSED CREDENTIAL has no deadline: nothing about it changes on its own,
+  # so its hold outlives a restart until the human acts. (The mock engine
+  # declares no auth, so its child carries no credential a restart could
+  # re-resolve and compare: the hold stays, as it does when the human restarts
+  # from an environment with the same refused credential.)
+  @durable-holds
+  Scenario: A child whose credential is refused stays held across the session's coordinator restart
+    When the agent calls tool "agent_run" for "reviewer" with a briefing whose credential is refused
+    Then the tool call succeeds
+    And "reviewer"'s spawned session is remembered
+    And within 45s the roster shows "reviewer" held with kind "credential_rejected"
+    When the session's coordinator dies and the session is resumed
+    Then within 60s the roster shows "reviewer" held with kind "credential_rejected"
+
   # REMOVED with the orchestrator-routed escalation ladder (2026-08-31). The
   # scenario's own Given configured a ladder ("whose escalation ladder relays to
   # a parent that never answers"), so its subject no longer exists.

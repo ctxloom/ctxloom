@@ -12,7 +12,6 @@ import (
 	"unicode"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
@@ -698,21 +697,14 @@ func isShortCluster(tok string, shell ir.Shell) bool {
 // configKind versions the rules file. Its format generation is consumed by
 // schemaver before the strict decode, which is why Config carries no version
 // field. LegacyKey: ltk configs spelled their version `version` before
-// schemaver existed.
+// schemaver existed. ltk has no older format, so its first generation is
+// schemaver.IntroduceKey.
 var configKind = schemaver.Kind{
 	Name:      "ltk config",
 	LegacyKey: "version",
 	Oldest:    0,
-	Steps:     []upgrade.Upgrader{introduceSchemaVersion{}},
+	Steps:     []upgrade.Upgrader{schemaver.IntroduceKey},
 }
-
-// introduceSchemaVersion is generation 1, the first to declare
-// schemaver.Key. It edits nothing: ltk has no older format, so a file with no
-// version at all means exactly what a generation-1 file means.
-type introduceSchemaVersion struct{}
-
-func (introduceSchemaVersion) Name() string                    { return "introduce " + schemaver.Key }
-func (introduceSchemaVersion) Apply(*yaml.Node) (changed bool) { return false }
 
 // Parse decodes and validates a config from YAML bytes, migrating an older
 // format in memory first. Unknown fields are rejected so that typos in a rule

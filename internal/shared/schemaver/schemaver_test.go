@@ -407,3 +407,21 @@ func TestWriteUpgrades_ConcurrentReadAndSet(t *testing.T) {
 	wg.Wait()
 	assert.True(t, WriteUpgrades())
 }
+
+// IntroduceKey is the first step of a kind that was unversioned: a keyless
+// file means what a generation-1 file means, so the step edits nothing and
+// only the stamp changes the document.
+func TestIntroduceKey_KeylessBecomesGenerationOneUnchangedOtherwise(t *testing.T) {
+	k := Kind{Name: "was unversioned", Oldest: 0, Steps: []upgrade.Upgrader{IntroduceKey}}
+	var root yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte("kept: x\n"), &root))
+	assert.False(t, IntroduceKey.Apply(root.Content[0]), "the step edits nothing")
+
+	r, err := k.Upgrade([]byte("kept: x\n"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{IntroduceKey.Name()}, r.Applied)
+	assert.Equal(t, 1, declared(t, r.Data))
+	var m map[string]any
+	require.NoError(t, yaml.Unmarshal(r.Data, &m))
+	assert.Equal(t, map[string]any{Key: 1, "kept": "x"}, m)
+}

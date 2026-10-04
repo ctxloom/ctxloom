@@ -58,6 +58,17 @@ type Kind struct {
 	Steps []upgrade.Upgrader
 }
 
+// IntroduceKey is generation 1 of a kind that was unversioned before it
+// declared Key: Oldest 0, IntroduceKey as the first step. It edits nothing,
+// because a file with no version at all means exactly what a generation-1 file
+// means; Upgrade's stamp is the whole migration.
+var IntroduceKey upgrade.Upgrader = introduceKey{}
+
+type introduceKey struct{}
+
+func (introduceKey) Name() string                    { return "introduce " + Key }
+func (introduceKey) Apply(*yaml.Node) (changed bool) { return false }
+
 // Current is the generation this binary reads and writes.
 func (k Kind) Current() int { return k.Oldest + len(k.Steps) }
 

@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // writtenVersion records one decision and returns the schema_version the
@@ -42,7 +43,7 @@ func TestStore_CurrentAndLegacyKeyedFilesLoadAndReadingNeverWrites(t *testing.T)
 		t.Run(key, func(t *testing.T) {
 			s, fs, path := newTestStore(t)
 			body := recordBody(key, current)
-			require.NoError(t, afero.WriteFile(fs, path, []byte(body), 0o600))
+			testsupport.WriteFileString(t, fs, path, body, 0o600)
 
 			recs, err := s.List()
 			require.NoError(t, err)
@@ -59,7 +60,7 @@ func TestStore_CurrentAndLegacyKeyedFilesLoadAndReadingNeverWrites(t *testing.T)
 func TestStore_NewerIsRefusedNamingBothNumbers(t *testing.T) {
 	current := writtenVersion(t)
 	s, fs, path := newTestStore(t)
-	require.NoError(t, afero.WriteFile(fs, path, []byte(recordBody(schemaver.Key, current+1)), 0o600))
+	testsupport.WriteFileString(t, fs, path, recordBody(schemaver.Key, current+1), 0o600)
 
 	_, err := s.List()
 	require.ErrorIs(t, err, schemaver.ErrNewer)
@@ -78,7 +79,7 @@ func TestStore_NewerIsRefusedNamingBothNumbers(t *testing.T) {
 // migration from it, and reading it as empty would re-open closed doors.
 func TestStore_KeylessIsRefusedAsTooOld(t *testing.T) {
 	s, fs, path := newTestStore(t)
-	require.NoError(t, afero.WriteFile(fs, path, []byte("records: []\n"), 0o600))
+	testsupport.WriteFileString(t, fs, path, "records: []\n", 0o600)
 	_, err := s.List()
 	require.ErrorIs(t, err, schemaver.ErrTooOld)
 }

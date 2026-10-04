@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -21,7 +22,7 @@ const (
 func seedRemotes(t *testing.T, body string) afero.Fs {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, remotesTestPath, []byte(body), 0o644))
+	testsupport.WriteFileString(t, fs, remotesTestPath, body, 0o644)
 	return fs
 }
 

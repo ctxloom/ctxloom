@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 const refusalTestPath = "/proj/.ctxloom/cache/refused_advances.yaml"
@@ -22,7 +23,7 @@ func TestReadRefusalDoc_CurrentAndLegacyKeyedLoadAndReadingNeverWrites(t *testin
 		t.Run(key, func(t *testing.T) {
 			fsys := afero.NewMemMapFs()
 			body := refusalBody(key, refusalKind.Current())
-			require.NoError(t, afero.WriteFile(fsys, refusalTestPath, []byte(body), 0o644))
+			testsupport.WriteFileString(t, fsys, refusalTestPath, body, 0o644)
 
 			d, err := readRefusalDoc(fsys, refusalTestPath)
 			require.NoError(t, err)
@@ -38,7 +39,7 @@ func TestReadRefusalDoc_CurrentAndLegacyKeyedLoadAndReadingNeverWrites(t *testin
 
 func TestReadRefusalDoc_NewerIsRefusedNamingBothNumbers(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, refusalTestPath, []byte(refusalBody(schemaver.Key, refusalKind.Current()+1)), 0o644))
+	testsupport.WriteFileString(t, fsys, refusalTestPath, refusalBody(schemaver.Key, refusalKind.Current()+1), 0o644)
 	_, err := readRefusalDoc(fsys, refusalTestPath)
 	require.ErrorIs(t, err, schemaver.ErrNewer)
 	var ve *schemaver.VersionError

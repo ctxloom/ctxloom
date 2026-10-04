@@ -19,7 +19,7 @@ import (
 // Draft is the mutable view an Owner.Update transaction hands fn: every
 // PERSISTED Config field (the set configDoc carries), exported so the write
 // sites in adapters/operations mutate it directly. Runtime-only facts
-// (AppPaths, Warnings, PendingUpgrade, ...) are absent: they describe WHERE a
+// (AppPaths, Warnings, ...) are absent: they describe WHERE a
 // config came from, not values a write edits. A plain alias for configDoc —
 // the same exported mirror of the persisted fields, for the same reason
 // (yaml reflection and the caller both need exported fields).

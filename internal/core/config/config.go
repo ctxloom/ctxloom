@@ -227,35 +227,13 @@ type Config struct {
 
 	// Runtime-only fields: populated during Load, never part of the persisted
 	// config — configDoc (their yaml counterpart) simply omits them, which
-	// keeps them out of every marshal exactly like their old yaml:"-" tag did:
-	// notably `config show`, which would otherwise dump resolved paths, load
-	// warnings, and (worst) the pendingUpgrade's raw []byte config as an
-	// integer array.
+	// keeps them out of every marshal: notably `config show`, which would
+	// otherwise dump resolved paths and load warnings.
 	appPaths []string     `config:"runtime"` // Resolved .ctxloom directory (at most one)
 	appRoot  string       `config:"runtime"` // Project root (parent of .ctxloom directory)
 	appDir   string       `config:"runtime"` // Full path to the .ctxloom directory
 	source   ConfigSource `config:"runtime"` // Where the configuration was loaded from
 	warnings []Warning    `config:"runtime"` // Kind-tagged warnings collected during load
-
-	// pendingUpgrade is set when Load upgraded an older on-disk schema to the
-	// current one in memory. The upgraded bytes are NOT persisted automatically;
-	// an interactive caller may prompt the user and call CommitUpgrade. Nil when
-	// the file was already current. This tracks the PROJECT (or, when no
-	// project was found, home) layer only — the same file identity this field
-	// named before layering existed — so every existing CommitUpgrade caller
-	// keeps working unchanged.
-	pendingUpgrade *PendingUpgrade `config:"runtime"`
-
-	// homePendingUpgrade is pendingUpgrade's counterpart for the HOME layer,
-	// populated only when a project layer ALSO exists (so home is being read
-	// as the lower-precedence layer, not as the effective single source —
-	// that case populates pendingUpgrade instead, exactly as before layering).
-	// CommitHomeUpgrade persists it, on the same consent rule as
-	// PendingUpgrade: the caller prompts and the prompt names the path, so
-	// home is never rewritten as a silent side effect of a project-scoped
-	// run. Before that existed, home was upgraded in memory on every load and
-	// never written back — visible, but never converging (long-ice).
-	homePendingUpgrade *PendingUpgrade `config:"runtime"`
 
 	fs afero.Fs `config:"runtime"` // Filesystem for file operations (nil = OS filesystem)
 
@@ -320,11 +298,10 @@ type Config struct {
 // whose fields are unexported; yaml.v3 prefers a type's Marshaler/Unmarshaler
 // methods over reflecting its fields.
 //
-// Runtime-only fields (appPaths, appRoot, appDir, source, warnings,
-// pendingUpgrade, homePendingUpgrade) are deliberately absent here, exactly
-// mirroring their old yaml:"-" tag: configDoc IS the persisted-fields subset.
+// Runtime-only fields (appPaths, appRoot, appDir, source, warnings) are
+// deliberately absent here: configDoc IS the persisted-fields subset.
 type configDoc struct {
-	Version                      int                       `yaml:"version"`
+	SchemaVersion                int                       `yaml:"schema_version"`
 	LM                           LMConfig                  `yaml:"llm,omitempty"`
 	Editor                       EditorConfig              `yaml:"editor,omitempty"`
 	Settings                     SettingsConfig            `yaml:"config,omitempty"`

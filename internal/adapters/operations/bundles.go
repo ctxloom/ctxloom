@@ -417,12 +417,13 @@ func (e *PinnedRemoteBundleError) Unwrap() error { return ErrPinnedRemoteBundle 
 
 // pinnedRemoteBundleRefusal returns a *PinnedRemoteBundleError when name — short
 // or canonical — is a bundle locked in the active lockfile, else nil. An
-// unreadable lockfile yields nil: the caller's own "not found" then stands, and
-// the lockfile failure surfaces on every read path that needs it.
+// unreadable lockfile is returned as that error: without the lockfile it is
+// unknown whether name is a pinned remote bundle, so "not found" would be a
+// verdict nobody established.
 func pinnedRemoteBundleRefusal(cfg *config.Config, name string) error {
 	lock, err := LoadActiveLockfile(cfg)
 	if err != nil {
-		return nil
+		return fmt.Errorf("cannot tell whether bundle %q is pinned from a remote: reading the lockfile: %w", name, err)
 	}
 	locked, ok := findLockedBundle(cfg, lock, name)
 	if !ok {

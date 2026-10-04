@@ -54,7 +54,9 @@ func TestIdentityKey_IsSourceQualifiedAndVersionless(t *testing.T) {
 // sources' items that happen to carry identical bytes: both of those reach
 // the package.
 func TestDeliver_DuplicateFindingOnlyForATrueDuplicate(t *testing.T) {
-	frag := func(ref string) Item[Fragment] { return Item[Fragment]{Ref: ref, Value: Fragment{Name: ref, Body: "SAME"}} }
+	frag := func(ref string) Item[Fragment] {
+		return Item[Fragment]{Ref: ref, Value: Fragment{Name: ref, Body: "SAME"}}
+	}
 
 	a := &assembly{ingest: newIngest()}
 	a.deliver(frag("ctxloom+local:dev#fragments/rules"), "ctxloom+local:dev#fragments/rules")

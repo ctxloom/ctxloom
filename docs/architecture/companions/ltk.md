@@ -373,7 +373,8 @@ flowchart LR
    and the mixed YAML shape is refused by `checkRemovedForms`.
 9. **`manage install` writes the file `evaluate` prefers**: `configSearch` begins with
    `defaultConfigPath`.
-10. **`wrapperRules` and `prefixWrapperRules` program sets are disjoint.** Nothing tests it.
+10. **`wrapperRules` and `prefixWrapperRules` program sets are disjoint**, by explicit name and by
+    shell dialect — `TestWrapperTablesAreDisjoint`.
 11. **`Nested` must form a tree.** `Script.Walk` recurses with no cycle guard and no depth cap;
     the only bound is the producer-side `maxWrapDepth`.
 12. **`ExpandWrappers` mutates its argument in place** and must be called after `Parse` and

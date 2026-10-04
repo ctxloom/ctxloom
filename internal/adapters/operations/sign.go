@@ -192,9 +192,12 @@ type VersionStamp struct {
 // In a project with a VERSION file (RepoVersionFile) the signed version is
 // that file's, stamped into bundle.yaml first (see stampRepoVersion).
 //
+// An envelope in an older format (no or an older schema_version) is rewritten
+// in the current one first (bundles.UpgradeEnvelopeAt).
+//
 // Signing failure is always returned as an error: the operation either
-// produces a verifiable signature or changes nothing on disk beyond that
-// version stamp. The stamp lands BEFORE the re-sign refusal on purpose:
+// produces a verifiable signature or changes nothing on disk beyond those
+// envelope stamps. The stamps land BEFORE the re-sign refusal on purpose:
 // bundle.yaml is covered by the manifest, so the refusal can only judge the
 // content that would actually be signed once bundle.yaml says VERSION.
 func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResult, error) {
@@ -214,6 +217,12 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 	bundle, err := loadBundleForUpdate(authored, cfg, req.Target.BundleName)
 	if err != nil {
 		return nil, err
+	}
+	// An envelope in an older format is persisted in today's before anything
+	// is hashed: signing is the one write a signed tree's envelope may take,
+	// so it is how such a tree comes to declare the current schema_version.
+	if _, err := bundles.UpgradeEnvelopeAt(fs, bundle.Path); err != nil {
+		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
 	}
 	versionFrom, stamp, err := stampRepoVersion(fs, cfg, authored, bundle)
 	if err != nil {

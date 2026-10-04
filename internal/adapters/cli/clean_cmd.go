@@ -88,9 +88,10 @@ that is what regenerable means. To strip ctxloom's integration with this
 project — its hooks, statusline, MCP registration and generated command
 files — use 'ctxloom manage uninstall'.
 
-Neither command makes ctxloom stay gone: running ctxloom in this project
-again re-delivers every surface, because nothing records that you removed
-them.`,
+A run does not bring those surfaces back: running ctxloom never writes the
+project. They are written only when you ask — 'ctxloom manage hooks install'
+or 'ctxloom profile materialize' — so what 'manage uninstall' removes stays
+gone until you run one of those again.`,
 	Args: cobra.NoArgs,
 	RunE: runClean,
 }

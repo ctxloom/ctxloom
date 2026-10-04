@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -16,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // envelopeOnDisk decodes the bundle.yaml at path into its top-level keys.
@@ -64,4 +66,22 @@ func TestSignBundleFile_PersistsTheEnvelopeUpgradeBeforeHashing(t *testing.T) {
 	require.NoError(t, verr)
 	assert.True(t, verdict.OK(), "the upgraded tree is what was signed; got %q (%s)", verdict.Status, verdict.Detail)
 	assert.NoError(t, verdict.Contents)
+}
+
+// Import copies a tree verbatim (its signature covers those bytes), so it
+// never stamps; what it must do is refuse an envelope newer than this binary
+// reads before anything lands.
+func TestImportBundle_RefusesANewerEnvelope(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+	bundletree.Write(t, fs, "/incoming", "incoming", "version: 1.0.0\nfragments:\n  a:\n    content: hi\n")
+	require.NoError(t, afero.WriteFile(fs, filepath.Join("/incoming", "incoming", bundles.DirectoryFormManifest),
+		[]byte(schemaver.Key+": 99\nversion: 1.0.0\n"), 0o644))
+
+	_, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/incoming/incoming", FS: fs})
+
+	require.ErrorIs(t, err, schemaver.ErrNewer)
+	landed, existsErr := afero.Exists(fs, filepath.Join(authoredV1(filepath.Join("/proj", ".ctxloom")), "incoming"))
+	require.NoError(t, existsErr)
+	assert.False(t, landed)
 }

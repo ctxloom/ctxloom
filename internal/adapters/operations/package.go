@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -45,9 +46,9 @@ type PackageRequest struct {
 	// materialized surface); it decides whether premised fragments are held
 	// back or written.
 	Consumer ContextConsumer
-	// Mode is the mode of the session the package is assembled for; the
-	// zero value is engine.Interactive, the session a human drives.
-	Mode engine.Mode
+	// Mail is who reads the session's spool; the zero value is the session
+	// owner's (sessions.MailByHook), the session a human drives.
+	Mail sessions.MailReader
 	// Pipeline is the injected-stage seam: a pre-built process stage in
 	// place of the generation's gated one (tests).
 	Pipeline *bundles.Pipeline
@@ -106,7 +107,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		// resolvers take the set THIS assembly resolved, so a profile that
 		// did not resolve is reported once, here.
 		opts.MCP = cfg.ResolveBundleMCPServersFor(resolved)
-		opts.Hooks = *managedhooks.AssembleFor(cfg, resolved, req.Mode).Wire()
+		opts.Hooks = *managedhooks.AssembleFor(cfg, resolved, req.Mail).Wire()
 		opts.Statusline = managedStatuslineEnabled(cfg)
 	}
 	sel, err := composite.Select(resolved, cat, composite.SelectRequest{Fragments: req.Fragments, Tags: req.Tags, Versions: versions, VersionRoot: versionRoot})

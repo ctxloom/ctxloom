@@ -101,9 +101,9 @@ type Selection struct {
 	Profiles  []string
 	Fragments []string
 	Tags      []string
-	// Mode is the launch's mode: what ctxloom's own managed hooks are
-	// assembled for (a structured run is handed its mail as turns).
-	Mode engine.Mode
+	// Mail is who reads the session's spool (mailReaderOf): ctxloom's own
+	// managed hooks declare the turn-start mail reader only for MailByHook.
+	Mail sessions.MailReader
 }
 
 // EndpointMinter mints the session's MCP endpoint: loopback URL and bearer.
@@ -360,13 +360,16 @@ func (l Launch) Target(records delivery.Ownership) delivery.Target {
 
 // EngineEnv is the environment the engine process is started with: the
 // cell's own env, the caller's passthrough over it, and the identity
-// carriers the hooks read (sessions.HookEnv) over both. Every arm that
-// starts the engine reads it here, so no arm merges its own.
+// carriers the hooks read (sessions.HookEnv) over both, with the
+// session-owner marker decided last (markOwner) so nothing beneath it can
+// forge or keep it. Every arm that starts the engine reads it here, so no arm
+// merges its own.
 func (l Launch) EngineEnv() map[string]string {
 	env := map[string]string{}
 	maps.Copy(env, l.Cell.Env)
 	maps.Copy(env, l.Env)
 	maps.Copy(env, sessions.HookEnv(l.Identity))
+	markOwner(env, l.Identity, l.Mode)
 	return env
 }
 

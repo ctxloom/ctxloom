@@ -131,7 +131,7 @@ func assembleSelection(ctx context.Context, deps Deps, src Source, sel selection
 	if len(sel.profiles) == 0 && len(sel.fragments) == 0 && len(sel.tags) == 0 {
 		return pkg, nil
 	}
-	pkg, err := deps.Assembler.Assemble(ctx, deps.Snapshot, Selection{Profiles: sel.profiles, Fragments: sel.fragments, Tags: sel.tags, Mode: src.Mode})
+	pkg, err := deps.Assembler.Assemble(ctx, deps.Snapshot, Selection{Profiles: sel.profiles, Fragments: sel.fragments, Tags: sel.tags, Mail: mailReaderOf(src.Identity, src.Mode)})
 	if err != nil {
 		return composite.Package{}, err
 	}
@@ -184,6 +184,7 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 	sessionSigCheck(passthrough, deps.Snapshot.Trust)
 	env := sessions.HookEnv(src.Identity)
 	maps.Copy(env, passthrough)
+	markOwner(env, src.Identity, src.Mode)
 	cell, err := deps.Cells.Prepare(ctx, CellRequest{
 		Axes:        axes,
 		Engine:      eng,
@@ -215,6 +216,31 @@ func sessionSigCheck(env map[string]string, tr composite.Trust) {
 		return
 	}
 	delete(env, sessions.EnvSigCheckWaived)
+}
+
+// mailReaderOf is the ONE owner rule: a human's session
+// (sessions.OriginSession) driven interactively is the session owner, the
+// one recipient no runner delivers mail to (sessions.MailByHook); every other
+// run, an interactive delegated child included, is MailByRunner. Both the
+// managed mail-drain hook's declaration (Selection.Mail) and the marker it
+// fires under (markOwner) decide from it.
+func mailReaderOf(id sessions.Identity, mode engine.Mode) sessions.MailReader {
+	if id.Origin() == sessions.OriginSession && mode == engine.Interactive {
+		return sessions.MailByHook
+	}
+	return sessions.MailByRunner
+}
+
+// markOwner sets the session-owner marker (sessions.EnvSessionOwner) on env
+// for the session owner's engine (mailReaderOf) and removes it for every
+// other run, whatever the caller's passthrough said, so no caller can hand a
+// child the owner's mail-drain.
+func markOwner(env map[string]string, id sessions.Identity, mode engine.Mode) {
+	if mailReaderOf(id, mode) == sessions.MailByHook {
+		env[sessions.EnvSessionOwner] = sessions.SessionOwnerOn
+		return
+	}
+	delete(env, sessions.EnvSessionOwner)
 }
 
 // deliverLaunch fills l's delivery over its prepared cell: Exports, Route

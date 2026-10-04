@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -311,7 +312,7 @@ func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
 func TestResilientStartup_NonExistentProfile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(appDir), 0755))
+	require.NoError(t, fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755))
 
 	// config.Config references a non-existent profile. Written in the CURRENT schema:
 	// a fixture spelled in a retired one only passes while a migration happens
@@ -374,8 +375,8 @@ llm:
       unknown_property: true
 `, config.CurrentConfigVersion)
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte(configYAML), 0644)
-	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(appDir), 0755))
-	testsupport.WriteFile(t, fs, filepath.Join(paths.ProfilesPath(appDir), "valid-profile.yaml"),
+	require.NoError(t, fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755))
+	testsupport.WriteFile(t, fs, filepath.Join(bundletree.ProjectProfilesDirFS(t, fs, appDir), "valid-profile.yaml"),
 		[]byte("description: \"This is valid\"\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))

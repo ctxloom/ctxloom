@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // writeDirProfile drops a directory profile body at .ctxloom/profiles/<name>.yaml
@@ -28,7 +29,7 @@ import (
 func writeDirProfile(t *testing.T, name, body string) string {
 	t.Helper()
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
-	profilesDir := paths.ProfilesPath(appDir)
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))
 	return appDir

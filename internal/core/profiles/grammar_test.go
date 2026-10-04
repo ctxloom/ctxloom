@@ -198,3 +198,15 @@ func TestResolveProfile_SpellingsAgree(t *testing.T) {
 	assert.Equal(t, viaCanonical.Bundles, viaAlias.Bundles)
 	assert.Equal(t, viaCanonical.SourceRef, viaAlias.SourceRef)
 }
+
+// A miss on an explicitly LOCAL profile ref — the spelling resolution itself
+// produces for a selector-less name — is a plain not-found: there is nothing
+// to pull for a profile of this project's own.
+func TestLoad_ExplicitLocalMiss_HasNoPullHint(t *testing.T) {
+	loader := grammarLoader(t)
+	for _, ref := range []string{"ctxloom:local@bundles/project#profiles/absent", "ctxloom+local:project#profiles/absent"} {
+		_, err := loader.Load(ref)
+		require.ErrorIs(t, err, errs.ErrProfileNotFound, ref)
+		assert.NotContains(t, err.Error(), "ctxloom deps pull", ref)
+	}
+}

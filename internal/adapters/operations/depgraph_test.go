@@ -2,11 +2,12 @@ package operations
 
 import (
 	"context"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -205,9 +206,7 @@ func TestNamedRoots_LoadableProfileIsNeverUnexpanded(t *testing.T) {
 	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
 		"onfile": {Bundles: []string{"ctxloom:local@bundles/x"}},
 	}, config.Fixture{})
-	loader := profiles.NewLoader([]string{paths.ProfilesPath(appDir)})
-
-	roots, unexpanded := namedRoots(cfg, loader, []string{"onfile"})
+	roots, unexpanded := namedRoots(cfg, cfg.GetProfileLoader(), []string{"onfile"})
 	assert.Len(t, roots, 1)
 	assert.Empty(t, unexpanded, "a profile that loads is expanded, never reported as missing")
 }

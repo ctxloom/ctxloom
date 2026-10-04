@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -44,6 +45,16 @@ type ProfileEntry struct {
 // re-deriving display names by parsing refs.
 func profileDisplayName(name string) string {
 	if _, prof, ok := remote.SplitBundleProfileRef(name); ok {
+		return prof
+	}
+	return name
+}
+
+// profileAskName is the name a user types to reach a profile: the bare name
+// for a project-bundle profile, which is what a selector-less name resolves
+// to, else its full "<bundle>#profiles/<name>" ref.
+func profileAskName(name string) string {
+	if bundle, prof, ok := remote.SplitBundleProfileRef(name); ok && bundle == remote.LocalBundleRef(paths.ProjectBundleName) {
 		return prof
 	}
 	return name
@@ -108,7 +119,7 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 			}
 		}
 		result = append(result, ProfileEntry{
-			Name:        p.Name,
+			Name:        profileAskName(p.Name),
 			DisplayName: profileDisplayName(p.Name),
 			Description: p.Description,
 			Parents:     p.Parents,
@@ -203,7 +214,7 @@ func GetProfile(ctx context.Context, cfg *config.Config, req GetProfileRequest) 
 	}
 
 	return &GetProfileResult{
-		Name:             profile.Name,
+		Name:             profileAskName(profile.Name),
 		Description:      profile.Description,
 		LLM:              profile.LLM,
 		Parents:          profile.Parents,

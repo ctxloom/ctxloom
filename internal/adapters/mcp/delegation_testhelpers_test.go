@@ -31,7 +31,7 @@ func delegationFixture(t *testing.T, subs map[string]agents.Agent) (*config.Conf
 	root := t.TempDir()
 	app := filepath.Join(root, ".ctxloom")
 	bundletree.WriteOS(t, paths.LocalBundlesPathFor(app, paths.LayoutV2), "kit1", "version: \"1.0.0\"\nfragments:\n  f1:\n    content: \"FRAG-ONE\"\n")
-	writeDelegationFile(t, filepath.Join(app, "profiles", "p1.yaml"),
+	writeDelegationFile(t, filepath.Join(bundletree.ProjectProfilesDir(t, app), "p1.yaml"),
 		"bundles:\n  - ctxloom:local@bundles/kit1\n")
 	writeDelegationConfigYAML(t, app, subs)
 	cfg := config.NewFixture(config.Fixture{

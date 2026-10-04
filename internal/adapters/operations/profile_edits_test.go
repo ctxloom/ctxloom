@@ -1,9 +1,12 @@
 package operations
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 )
 
@@ -75,6 +78,9 @@ func TestApplyListEdits(t *testing.T) {
 // unknown name so UpdateProfile halts before mutating or saving.
 func TestRequireProfilesExist(t *testing.T) {
 	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, paths.ProjectBundleName), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	loader := profiles.NewLoader([]string{tmp})
 	if err := loader.Save(&profiles.Profile{Name: "exists", Bundles: []string{"go-development"}}); err != nil {
 		t.Fatalf("save: %v", err)

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -561,7 +562,7 @@ func TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers(t *testing
 	defer restoreProbe()
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
 		[]byte("exclude_mcp:\n  - ltk-server\n"), 0o644))

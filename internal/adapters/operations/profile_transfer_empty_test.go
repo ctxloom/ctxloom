@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // emptyProfileDocs are the documents yaml.v3 accepts into a zero-valued
@@ -112,12 +112,12 @@ func profileTransferFixture(t *testing.T, name, body string) (*config.Config, af
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{"/app/.ctxloom"}})
-	dir := paths.ProfilesPath(cfg.GetAppPaths()[0])
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
+	cfg.SetFS(fs)
+	bundletree.ProjectProfilesDirFS(t, fs, cfg.GetAppPaths()[0])
 	require.NoError(t, afero.WriteFile(fs, profilePath(cfg, name), []byte(body), 0o644))
 	return cfg, fs
 }
 
 func profilePath(cfg *config.Config, name string) string {
-	return paths.ProfilesPath(cfg.GetAppPaths()[0]) + "/" + name + ".yaml"
+	return bundletree.ProjectProfilesPath(cfg.GetAppPaths()[0]) + "/" + name + ".yaml"
 }

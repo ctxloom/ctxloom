@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // entryNames reads the order out of a sorted result by MEMBERSHIP on a parsed
@@ -70,9 +71,9 @@ func TestSortMCPServers_KnownSortByUnchanged(t *testing.T) {
 func TestListProfiles_UnknownSortByIsDeterministicAndLoud(t *testing.T) {
 	warnings := captureWarnings(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "profiles"), 0o755))
+	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
 	for _, name := range []string{"zulu", "alpha", "mike"} {
-		require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", name+".yaml"),
+		require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), name+".yaml"),
 			[]byte("select_tags: [a]\n"), 0o644))
 	}
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
@@ -81,7 +82,7 @@ func TestListProfiles_UnknownSortByIsDeterministicAndLoud(t *testing.T) {
 	require.NoError(t, err)
 	names := make([]string, 0, len(res.Profiles))
 	for _, p := range res.Profiles {
-		names = append(names, p.Name)
+		names = append(names, p.DisplayName)
 	}
 	assert.Equal(t, []string{"alpha", "mike", "zulu"}, names)
 	assert.Contains(t, warnings.String(), "nonsense")

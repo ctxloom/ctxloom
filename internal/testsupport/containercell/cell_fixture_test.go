@@ -45,7 +45,7 @@ func writeCellFixture(t *testing.T, root string) string {
 	bundlesRoot := paths.LocalBundlesPathFor(filepath.Join(project, ".ctxloom"), paths.LayoutV2)
 	bundle := filepath.Join(bundlesRoot, cellBundle)
 	mustMkdirAll(t, filepath.Join(root, "home"))
-	mustMkdirAll(t, filepath.Join(project, ".ctxloom", "profiles"))
+	mustMkdirAll(t, bundletree.ProjectProfilesDir(t, filepath.Join(project, ".ctxloom")))
 
 	var b strings.Builder
 	b.WriteString("version: 1.0.0\ndescription: container cell fixture\nfragments:\n  cell-marker:\n    tags: [cell]\n    content: |\n")
@@ -62,7 +62,7 @@ func writeCellFixture(t *testing.T, root string) string {
 	// rather than the product.
 	mustWrite(t, filepath.Join(bundle, "skills", "reviewer", "scripts", "run.sh"), scriptBody, 0o755)
 
-	mustWrite(t, filepath.Join(project, ".ctxloom", "profiles", "default.yaml"),
+	mustWrite(t, filepath.Join(bundletree.ProjectProfilesDir(t, filepath.Join(project, ".ctxloom")), "default.yaml"),
 		"fragments:\n  - cell#fragments/cell-marker\nskills:\n  - cell#skills/reviewer\n", 0o644)
 	mustWrite(t, filepath.Join(project, ".ctxloom", "config.yaml"), fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion), 0o644)
 	// The approvals store as `ctxloom init` leaves it: absent is not empty,

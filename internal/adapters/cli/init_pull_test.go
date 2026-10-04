@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // pullFixtureMarker is the payload the seeded remote publishes. Asserting it
@@ -93,17 +94,16 @@ func seedProjectReferencing(t *testing.T, bundleRef string) (project, appDir str
 	t.Helper()
 	project = t.TempDir()
 	appDir = filepath.Join(project, ".ctxloom")
-	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "profiles"), 0o755))
+	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
 
 	cfgBody, err := operations.BuildInitialConfig("claude-code", "", "")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), cfgBody, 0o644))
 
-	profile := "version: \"1.0.0\"\n" +
-		"description: seeded default profile\n" +
+	profile := "description: seeded default profile\n" +
 		"bundles:\n" +
 		"  - " + bundleRef + "\n"
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", "default.yaml"), []byte(profile), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "default.yaml"), []byte(profile), 0o644))
 	return project, appDir
 }
 
@@ -269,7 +269,7 @@ func TestRunInit_FailedPullKeepsTheProjectAndSaysSo(t *testing.T) {
 	require.NoError(t, runErr, "a failed pull must not fail the init")
 	assert.FileExists(t, filepath.Join(appDir, "config.yaml"),
 		"init must keep everything it wrote when the pull fails")
-	assert.FileExists(t, filepath.Join(appDir, "profiles", "default.yaml"),
+	assert.FileExists(t, filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "default.yaml"),
 		"init must keep the seeded profile when the pull fails")
 	assert.NotContains(t, lockedRefs(t, appDir), ref, "an unreachable remote must not be pinned")
 

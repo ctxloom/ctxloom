@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // ---- the PUSH path's builtin/companion injection ----
@@ -90,7 +91,7 @@ func pushPremiseConfig(t *testing.T, appDir string, defs map[string]config.Profi
 	for name, p := range defs {
 		seed[name] = p
 	}
-	testsupport.WriteDirProfiles(t, fs, appDir, seed)
+	bundletree.WriteDirProfiles(t, fs, appDir, seed)
 
 	cfg := gatedFixture(config.Fixture{
 		AppPaths:     []string{appDir},

@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // This file covers the OTHER two surfaces of the silent-capability-loss
@@ -56,7 +57,7 @@ hooks:
 func setupCapabilityLossProject(t *testing.T, engine string) (string, *config.Config) {
 	t.Helper()
 	root, cfg := setupProject(t, engine)
-	path := filepath.Join(root, ".ctxloom", "profiles", "default.yaml")
+	path := filepath.Join(bundletree.ProjectProfilesDir(t, filepath.Join(root, ".ctxloom")), "default.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(capabilityLossFixtureProfile), 0o644))
 	return root, cfg
 }

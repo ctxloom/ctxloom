@@ -117,7 +117,7 @@ func TestBundleProfile_ListAndShowAttribution(t *testing.T) {
 	require.NotNil(t, entry, "bundle profile must appear in `profile list`")
 	assert.Equal(t, "ctxloom+local:kit", entry.Bundle, "attributed to its bundle")
 	assert.Equal(t, "p1", entry.DisplayName, "friendly display name is the bare profile name")
-	assert.True(t, entry.IsRemote, "bundle profiles are seeded (read-only) references")
+	assert.False(t, entry.IsRemote, "a LOCAL bundle's profile is the project's own, editable, not a read-only reference")
 
 	show, err := GetProfile(ctx, cfg, GetProfileRequest{Name: kitProfileKey})
 	require.NoError(t, err)

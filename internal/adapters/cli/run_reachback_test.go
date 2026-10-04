@@ -40,37 +40,6 @@ func TestStartOwnedRun_NilCoordinatorRefusesTheLaunch(t *testing.T) {
 		"the refusal must name what is missing, so the operator can act on it")
 }
 
-// TestConfirmProfileUpgrades_UnresolvableProfileIsNotFatal pins the harvesting
-// loop's tolerance, which is what makes discarding ResolveProfile's error at
-// that site correct rather than a swallow.
-//
-// confirmProfileUpgrades resolves the default agent's profiles for ONE reason:
-// to make the loader populate PendingUpgrades, so an older-schema file can be
-// offered a rewrite. It is not the place that decides whether the run's context
-// is resolvable -- AssembleContext does that later and fails loud through
-// report.KindRef. So an unresolvable name here must neither abort the
-// harvest nor stop the remaining profiles from being walked: the only thing a
-// resolve failure can cost is an upgrade prompt for a file that could not be
-// loaded anyway, and reporting it here would double-report a fault the
-// assembly path is about to raise properly.
-func TestConfirmProfileUpgrades_UnresolvableProfileIsNotFatal(t *testing.T) {
-	warnings := captureWarnings(t)
-
-	cfg := config.NewFixture(config.Fixture{
-		DefaultAgent: "dev",
-		Agents: map[string]agents.Agent{
-			"dev": {Profiles: []string{"no-such-profile", "also-missing"}},
-		},
-	})
-	require.NotEmpty(t, cfg.DefaultAgentProfiles(), "the fixture must actually give the harvest something to walk")
-
-	assert.NotPanics(t, func() { confirmProfileUpgrades(cfg) },
-		"an unresolvable profile must not abort the upgrade harvest")
-
-	assert.NotContains(t, warnings.String(), "no-such-profile",
-		"the harvest must not report a resolution fault here — AssembleContext raises it as a ClassRef finding, and warning twice for one broken reference reads as two problems")
-}
-
 // TestRunState_MayDelegateIsTheBoundBindings: the root hands coord the
 // may_delegate of the binding it launched under — --agent's, or the default
 // agent's for a bare launch — and none for an assembly that bound no agent.

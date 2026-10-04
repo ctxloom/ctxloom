@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -62,9 +60,7 @@ func TestCreateProfile_CanonicalizesShortRefs(t *testing.T) {
 	cfg := agentTestConfig(root, nil)
 	registerPersonalRemote(t, cfg.GetAppPaths()[0])
 
-	dir := filepath.Join(root, ".ctxloom", "profiles")
-	require.NoError(t, os.MkdirAll(dir, 0755))
-	loader := profiles.NewLoader([]string{dir})
+	loader := cfg.GetProfileLoader()
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:    "dev",

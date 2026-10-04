@@ -2,10 +2,12 @@ package operations
 
 import (
 	"context"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -54,9 +56,9 @@ func setupSeededLockProject(t *testing.T) (baseDir, ref string, cfg *config.Conf
 	// baseDir stays AppPaths[0] — that is where the lockfile lives — and the
 	// profile goes in a SECOND app dir the loader also searches.
 	profileDir := filepath.Join(tmp, "profiles-home", ".ctxloom")
-	require.NoError(t, os.MkdirAll(paths.ProfilesPath(profileDir), 0o755))
+	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, profileDir), 0o755))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(paths.ProfilesPath(profileDir), "onfile.yaml"),
+		filepath.Join(bundletree.ProjectProfilesDir(t, profileDir), "onfile.yaml"),
 		[]byte("bundles:\n  - "+ref+"\n"), 0o644))
 
 	base := testConfigWithSCMPath(baseDir).ToFixture()

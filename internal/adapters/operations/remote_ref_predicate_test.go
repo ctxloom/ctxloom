@@ -1,15 +1,15 @@
 package operations
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // TestIsRemoteReference_RecognizesEveryFetchableSpelling pins the predicate that
@@ -57,12 +57,15 @@ func TestIsRemoteReference_RecognizesEveryFetchableSpelling(t *testing.T) {
 func loaderWith(t *testing.T, names ...string) *profiles.Loader {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	dir := "/app/" + paths.AppDirName + "/profiles"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
+	appDir := "/app/" + paths.AppDirName
+	defs := make(map[string]any, len(names))
 	for _, n := range names {
-		require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, n+".yaml"), []byte("description: seeded\n"), 0o644))
+		defs[n] = map[string]any{"description": "seeded"}
 	}
-	return profiles.NewLoader([]string{dir}, profiles.WithFS(fs))
+	bundletree.WriteDirProfiles(t, fs, appDir, defs)
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg.SetFS(fs)
+	return cfg.GetProfileLoader()
 }
 
 // TestRequireProfilesExist_CanonicalParentIsNotLookedUpLocally is the

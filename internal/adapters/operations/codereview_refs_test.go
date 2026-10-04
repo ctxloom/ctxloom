@@ -45,7 +45,7 @@ func TestCodeReviewProfile_CanonicalCherryPickResolves(t *testing.T) {
 	loader := seedLoader(t, seed)
 
 	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), t.TempDir()+"/.ctxloom", map[string]config.Profile{
-		"code-review/security": {
+		"code-review-security": {
 			Bundles: []string{
 				canonical + "#fragments/reviewer-base",
 				canonical + "#fragments/security",
@@ -54,7 +54,7 @@ func TestCodeReviewProfile_CanonicalCherryPickResolves(t *testing.T) {
 	}, config.Fixture{})
 
 	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile:  "code-review/security",
+		Profile:  "code-review-security",
 		Pipeline: opPipe(cfg, loader),
 	})
 	require.NoError(t, err)

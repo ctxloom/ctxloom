@@ -7,11 +7,13 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -326,7 +328,7 @@ func TestDoctorCheckGitIdentity_WrongState_BlankValueTreatedAsUnset(t *testing.T
 func TestDoctorCheckAgents_RightState(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	check := doctorCheckAgents(context.Background(), engines.Registry(), cfg, nil)
-	assert.Equal(t, DoctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status, check.Detail)
 	assert.Contains(t, check.Detail, "default")
 }
 
@@ -378,7 +380,7 @@ func TestDoctorCheckSetupLockAndAssembly_RightState(t *testing.T) {
 // the unresolved parent as a skipped ref.
 func stubLocalDefaultProfile(t *testing.T, root string) {
 	t.Helper()
-	path := filepath.Join(root, ".ctxloom", "profiles", "default.yaml")
+	path := filepath.Join(bundletree.ProjectProfilesDir(t, filepath.Join(root, ".ctxloom")), "default.yaml")
 	content := "description: \"self-contained test profile, no remote dependency\"\ntags:\n  - default\n"
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 }

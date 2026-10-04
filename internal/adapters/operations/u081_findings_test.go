@@ -2,10 +2,11 @@ package operations
 
 import (
 	"context"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -259,8 +260,7 @@ func TestImportBundle_RejectsEmptyBundle(t *testing.T) {
 // verbatim, and every loader filters that directory by extension. So the
 // question "could the loader ever find what I just wrote?" has to be asked by
 // each of them, and the accepted set is not the same: a bundle is a tree, so
-// no single file of any name is one, while the profile scan takes .yaml and
-// .yml alike.
+// no single file of any name is one, while a profile item is a .yaml file.
 //
 // Blind spot, stated: this covers the two importers that exist today. It is a
 // table, not a reflective sweep over every writer — a third importer added
@@ -286,7 +286,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 		unusable []string
 	}{
 		{"bundle", bundleBody, importBundle, nil, []string{"seed.yaml", "seed.txt", "seed", "seed.yml", "seed.yaml.bak", "seed.json"}},
-		{"profile", profileBody, importProfile, []string{"p.yaml", "p.yml"}, []string{"p.txt", "p", "p.yaml.bak", "p.json"}},
+		{"profile", profileBody, importProfile, []string{"p.yaml"}, []string{"p.yml", "p.txt", "p", "p.yaml.bak", "p.json"}},
 	}
 
 	for _, tc := range cases {
@@ -294,6 +294,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 			t.Run(tc.kind+"/rejects/"+name, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
 				cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+				cfg.SetFS(fs)
 				require.NoError(t, fs.MkdirAll("/incoming", 0755))
 				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
 
@@ -306,6 +307,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 			t.Run(tc.kind+"/accepts/"+name, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
 				cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+				cfg.SetFS(fs)
 				require.NoError(t, fs.MkdirAll("/incoming", 0755))
 				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
 

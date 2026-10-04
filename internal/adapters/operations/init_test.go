@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -181,7 +182,7 @@ func TestInitializeProject_ScaffoldsSeedProfileAndDefaultAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	// The local default coding profile file is written.
-	profilePath := filepath.Join(paths.ProfilesPath(appDir), SeedProfileName+".yaml")
+	profilePath := filepath.Join(bundletree.ProjectProfilesPath(appDir), SeedProfileName+".yaml")
 	data, err := afero.ReadFile(fs, profilePath)
 	require.NoError(t, err, "seed profile should be scaffolded locally")
 	body := string(data)
@@ -216,8 +217,8 @@ func TestInitializeProject_ScaffoldsSeedProfileAndDefaultAgent(t *testing.T) {
 func TestScaffoldSeedProfile_WriteIfAbsent(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	profilePath := filepath.Join(paths.ProfilesPath(appDir), SeedProfileName+".yaml")
-	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(appDir), 0755))
+	profilePath := filepath.Join(bundletree.ProjectProfilesPath(appDir), SeedProfileName+".yaml")
+	require.NoError(t, fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755))
 	require.NoError(t, afero.WriteFile(fs, profilePath, []byte("# my edits\n"), 0644))
 
 	_, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code", FS: fs})

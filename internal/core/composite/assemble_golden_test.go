@@ -71,7 +71,7 @@ func goldenAppDir(t *testing.T) string {
 	// the bit for this fixture, so the copy restores it.
 	require.NoError(t, fs.Chmod(filepath.Join(bundlesRoot, "code-quality", "skills", "code-reviewer", "scripts", "run.sh"), 0o755))
 	bundletree.Write(t, fs, bundlesRoot, "premised", premisedBundle)
-	testsupport.SeedTree(t, fs, paths.ProfilesPath(appDir), map[string]string{
+	testsupport.SeedTree(t, fs, bundletree.ProjectProfilesDir(t, appDir), map[string]string{
 		"golden-auto.yaml":    goldenAutoProfile,
 		"golden-curated.yaml": goldenCuratedProfile,
 	})

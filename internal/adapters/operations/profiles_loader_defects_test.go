@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // TestCreateProfile_DoesNotClobberAnUnparseableProfile asserts the PAYLOAD, not
@@ -23,12 +24,12 @@ func TestCreateProfile_DoesNotClobberAnUnparseableProfile(t *testing.T) {
 	const authored = "bundles: [unclosed\ndescription: hand written\n"
 
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/app/profiles", 0o755))
-	require.NoError(t, afero.WriteFile(fs, "/app/profiles/mine.yaml", []byte(authored), 0o644))
+	mine := bundletree.ProjectProfilesDirFS(t, fs, "/app") + "/mine.yaml"
+	require.NoError(t, afero.WriteFile(fs, mine, []byte(authored), 0o644))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{"/app"}})
 	cfg.SetFS(fs)
-	loader := profiles.NewLoader([]string{"/app/profiles"}, profiles.WithFS(fs))
+	loader := cfg.GetProfileLoader()
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:    "mine",
@@ -37,7 +38,7 @@ func TestCreateProfile_DoesNotClobberAnUnparseableProfile(t *testing.T) {
 	})
 	require.Error(t, err, "creating over an existing (if broken) profile must be refused")
 
-	after, readErr := afero.ReadFile(fs, "/app/profiles/mine.yaml")
+	after, readErr := afero.ReadFile(fs, mine)
 	require.NoError(t, readErr)
 	assert.Equal(t, authored, string(after), "the authored bytes must survive untouched")
 }
@@ -50,8 +51,7 @@ func TestCreateProfile_DoesNotClobberAnUnparseableProfile(t *testing.T) {
 // `profile list` reported zero profiles with no error at all.
 func TestProfileLoader_HonoursTheInjectedFilesystem(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/app/profiles", 0o755))
-	require.NoError(t, afero.WriteFile(fs, "/app/profiles/alpha.yaml", []byte("bundles:\n  - go-development\n"), 0o644))
+	bundletree.WriteDirProfiles(t, fs, "/app", map[string]any{"alpha": map[string]any{"bundles": []string{"go-development"}}})
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{"/app"}})
 	cfg.SetFS(fs)

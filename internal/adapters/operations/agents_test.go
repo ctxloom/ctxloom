@@ -40,11 +40,11 @@ func writeAgentProfileFixture(t *testing.T, root string) {
 	app := filepath.Join(root, ".ctxloom")
 	bundletree.WriteOS(t, authoredV1(app), "kit1", "version: \"1.0.0\"\nfragments:\n  f1:\n    content: \"FRAG-ONE\"\n")
 	bundletree.WriteOS(t, authoredV1(app), "kit2", "version: \"1.0.0\"\nfragments:\n  f2:\n    content: \"FRAG-TWO\"\n")
-	writeFile(t, filepath.Join(app, "profiles", "p1.yaml"),
+	writeFile(t, filepath.Join(bundletree.ProjectProfilesDir(t, app), "p1.yaml"),
 		"llm: fast\nbundles:\n  - ctxloom:local@bundles/kit1\n")
-	writeFile(t, filepath.Join(app, "profiles", "p2.yaml"),
+	writeFile(t, filepath.Join(bundletree.ProjectProfilesDir(t, app), "p2.yaml"),
 		"llm: slow\nbundles:\n  - ctxloom:local@bundles/kit2\n")
-	writeFile(t, filepath.Join(app, "profiles", "p3.yaml"),
+	writeFile(t, filepath.Join(bundletree.ProjectProfilesDir(t, app), "p3.yaml"),
 		"bundles:\n  - ctxloom:local@bundles/kit1\n")
 }
 

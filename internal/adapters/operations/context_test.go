@@ -177,7 +177,7 @@ func withProfileDefs(t *testing.T, cfg *config.Config, defs map[string]config.Pr
 	for name, p := range defs {
 		seed[name] = p
 	}
-	testsupport.WriteDirProfiles(t, fs, appDir, seed)
+	bundletree.WriteDirProfiles(t, fs, appDir, seed)
 	out := gatedFixture(f)
 	out.SetFS(fs)
 	return out

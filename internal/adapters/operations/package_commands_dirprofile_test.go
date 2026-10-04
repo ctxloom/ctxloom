@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // dirCurationCfg builds a config whose default profiles resolve from real
@@ -45,7 +46,7 @@ func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]stri
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
-	profilesDir := paths.ProfilesPath(appDir)
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	for name, body := range dirProfiles {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))

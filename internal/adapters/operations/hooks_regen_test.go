@@ -87,7 +87,7 @@ fragments:
     content: "DEFAULT-AGENT-CONTENT"
 `)
 	// TWO directory profiles, so nothing masks the default-agent selection.
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "devprof.yaml"),
 		[]byte("description: dev default\nselect_tags: [go]\nbundles: [dev]\n"), 0o644))

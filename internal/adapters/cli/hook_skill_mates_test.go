@@ -36,11 +36,11 @@ func linkedSkillsProject(t *testing.T) string {
 	t.Setenv(projectroot.EnvVar, root)
 
 	appDir := filepath.Join(root, paths.AppDirName)
-	require.NoError(t, os.MkdirAll(paths.ProfilesPath(appDir), 0o755))
+	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
 	provisionApprovals(t, appDir)
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir),
 		[]byte(fmt.Sprintf("schema_version: %d\ndefault_agent: default\nagents:\n  default:\n    profiles:\n      - ops\n", config.CurrentConfigVersion)), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(paths.ProfilesPath(appDir), "ops.yaml"),
+	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "ops.yaml"),
 		[]byte("bundles:\n  - nightly\n"), 0o644))
 
 	bundlesRoot := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)

@@ -22,9 +22,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // ltkLoadoutWithTaskRunnerCommand is a minimal stand-in for
@@ -144,8 +144,8 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 	cfg := companionCfg(t)
 	cfg.BindTrustForTesting(compositetest.Trust())
 	appDir := cfg.GetAppPaths()[0]
-	require.NoError(t, os.MkdirAll(paths.ProfilesPath(appDir), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(paths.ProfilesPath(appDir), "p.yaml"),
+	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "p.yaml"),
 		[]byte("commands:\n  - dev-tools#commands/review\n"), 0o644))
 	cfg = gatedFixture(config.Fixture{
 		AppPaths:     cfg.GetAppPaths(),

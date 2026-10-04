@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // TestResolveHooks_DirectoryProfileHookCannotForgeItsProvenance is the
@@ -28,7 +29,7 @@ import (
 func TestResolveHooks_DirectoryProfileHookCannotForgeItsProvenance(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
-	profilesDir := paths.ProfilesPath(appDir)
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	body := "hooks:\n  unified:\n    pre_tool:\n" +
 		"      - command: honest-hook\n        type: command\n" +

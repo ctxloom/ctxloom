@@ -2,15 +2,12 @@ package operations
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -27,9 +24,7 @@ func TestStoreProfile_LocalBundleWinsOverSameSpelledAlias(t *testing.T) {
 	bundletree.WriteOS(t, paths.BundlesLayoutRoot(paths.LocalBundlesPath(appDir), paths.LayoutV2),
 		"personal/reviews", "version: \"1.0\"\ndescription: local reviews\n")
 
-	dir := filepath.Join(root, ".ctxloom", "profiles")
-	require.NoError(t, os.MkdirAll(dir, 0755))
-	loader := profiles.NewLoader([]string{dir})
+	loader := cfg.GetProfileLoader()
 	want := []string{"personal/reviews", shortNamePersonalURL + "@bundles/agent-ensemble"}
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{

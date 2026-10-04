@@ -170,7 +170,7 @@ func TestExtractHooksFromBundle_FailClosed(t *testing.T) {
 func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
@@ -189,7 +189,7 @@ func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 // profile-bundle hook is absent while a trusted one survives.
 func TestResolveBundleHooks_GatedEndToEnd(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))

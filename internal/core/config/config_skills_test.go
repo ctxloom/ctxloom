@@ -23,7 +23,7 @@ import (
 // skills instead of MCP servers.
 func TestConfig_ResolveBundleSkills_FromDirectoryProfile(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	skillDir := filepath.Join(bundlesDir, "skill-bundle", "skills", "humanize")
@@ -65,7 +65,7 @@ func TestConfig_ResolveBundleSkills_FromDirectoryProfile(t *testing.T) {
 // TestConfig_ResolveBundle_ScopesToSelectedProfile for commands/MCP.
 func TestConfig_ResolveBundleSkills_ScopedToSelectedProfile(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 

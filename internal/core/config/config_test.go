@@ -535,7 +535,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	resetConfigStrictness(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/project/.ctxloom"
-	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
+	require.NoError(t, fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755))
 
 	newCfg := func() *Config {
 		cfg := &Config{
@@ -582,7 +582,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 // loadBundleProfileSeed (config.go) already reports exactly this fault.
 func TestConfig_BundleRefThatFailsToLoadIsReported(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
@@ -632,7 +632,7 @@ func TestConfig_BundleRefThatFailsToLoadIsReported(t *testing.T) {
 func TestConfig_ItemScopedBundleRefIsNotAFailure(t *testing.T) {
 	resetConfigStrictness(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
@@ -687,7 +687,7 @@ func resetConfigStrictness(t *testing.T) {
 // prompt were still exported through other paths).
 func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
@@ -715,7 +715,7 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 // applies in profileBuilder.toProfile.
 func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
@@ -744,7 +744,7 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 // commands into X's session.
 func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
@@ -821,7 +821,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 	newProject := func(t *testing.T) (appDir, profilesDir, bundlesDir string) {
 		t.Helper()
 		appDir = filepath.Join(t.TempDir(), ".ctxloom")
-		profilesDir = filepath.Join(appDir, "profiles")
+		profilesDir = bundletree.ProjectProfilesDir(t, appDir)
 		bundlesDir = paths.LocalBundlesPathFor(appDir, paths.LayoutV2) // committed content tree
 		require.NoError(t, os.MkdirAll(profilesDir, 0755))
 		require.NoError(t, os.MkdirAll(bundlesDir, 0755))

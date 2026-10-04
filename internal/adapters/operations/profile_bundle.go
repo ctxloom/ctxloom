@@ -69,15 +69,16 @@ func prepareLocalBundleWrite(cfg *config.Config, name string) error {
 	return nil
 }
 
-// createProjectBundle creates the project's (empty) project bundle through the
-// session's bundle store, so the envelope it writes is the store's own.
+// createProjectBundle creates the project's (empty) project bundle through a
+// bundle store over the config's filesystem, so the envelope it writes is the
+// store's own and lands where the profile loader writes.
 func createProjectBundle(cfg *config.Config) error {
 	appPaths := cfg.GetAppPaths()
 	if len(appPaths) == 0 {
 		return fmt.Errorf("no .ctxloom directory configured")
 	}
 	path := filepath.Join(paths.LocalBundlesPathFor(appPaths[0], paths.LayoutV2), paths.ProjectBundleName, bundles.DirectoryFormManifest)
-	if err := bundleStore(cfg, nil).Save(newCreatedBundle(CreateBundleRequest{}, path)); err != nil {
+	if err := bundles.NewFSStore(getFS(cfg.FS()), nil).Save(newCreatedBundle(CreateBundleRequest{}, path)); err != nil {
 		return fmt.Errorf("create the %q bundle: %w", paths.ProjectBundleName, err)
 	}
 	return nil

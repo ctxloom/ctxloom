@@ -20,7 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 	"github.com/spf13/afero"
 )
 
@@ -40,7 +40,7 @@ func curationCfg(t *testing.T, defaults []string, defs map[string]config.Profile
 	for name, p := range defs {
 		seed[name] = p
 	}
-	testsupport.WriteDirProfiles(t, fs, appDir, seed)
+	bundletree.WriteDirProfiles(t, fs, appDir, seed)
 	cfg := gatedFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",

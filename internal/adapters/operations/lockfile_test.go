@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // =============================================================================
@@ -66,7 +67,7 @@ func TestLockDependenciesResult_EmptyStatus(t *testing.T) {
 // writeLocalProfile writes a local profile file under baseDir/profiles.
 func writeLocalProfile(t *testing.T, baseDir, name, body string) {
 	t.Helper()
-	dir := paths.ProfilesPath(baseDir)
+	dir := bundletree.ProjectProfilesDir(t, baseDir)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(body), 0o644))
 }
@@ -201,8 +202,10 @@ func TestLockDependencies_UnparseableProfileKeepsItsEntries(t *testing.T) {
 	assert.Equal(t, "0123456789ab", entry.SHA)
 }
 
-// closureRoots is shared by lock and upgrade, so the skip must surface in its
-// unexpanded set for both to preserve what the skipped profile reached.
+// closureRoots is shared by lock and upgrade, so an unreadable local bundle —
+// here the project bundle, made unreadable by one malformed profile item —
+// must surface in its unexpanded set for both to preserve what its profiles
+// reached.
 func TestClosureRoots_UnparseableProfileIsUnexpanded(t *testing.T) {
 	tmp := t.TempDir()
 	writeLocalProfile(t, tmp, "good", "bundles:\n  - go\n")
@@ -213,7 +216,7 @@ func TestClosureRoots_UnparseableProfileIsUnexpanded(t *testing.T) {
 	captureStderr(t, func() {
 		_, unexpanded = closureRoots(cfg, cfg.GetProfileLoader())
 	})
-	assert.Equal(t, []string{"fragile"}, unexpanded)
+	assert.Equal(t, []string{paths.ProjectBundleName}, unexpanded)
 }
 
 // TestLockDependencies_StampsFetchedAt pins lock.yaml's per-entry fetched_at:

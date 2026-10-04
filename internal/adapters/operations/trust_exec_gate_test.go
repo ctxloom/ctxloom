@@ -154,7 +154,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	provisionApprovals(t, afero.NewOsFs(), appDir)
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
@@ -229,7 +229,7 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	provisionApprovals(t, afero.NewOsFs(), appDir)
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))

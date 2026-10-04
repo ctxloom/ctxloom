@@ -38,7 +38,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 
 	appDir := filepath.Join(projectDir, ".ctxloom")
 	bundlesDir := authoredV1(appDir)
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	provisionApprovals(t, afero.NewOsFs(), appDir)

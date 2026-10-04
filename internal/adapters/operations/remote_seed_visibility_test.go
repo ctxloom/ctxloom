@@ -179,7 +179,7 @@ func TestSearchContent_FindsDirectoryAndSeededProfiles(t *testing.T) {
 	cfg, profileRef, _ := seedRemoteFixture(t)
 
 	// Add a directory profile alongside the seeded remote one.
-	profilesDir := filepath.Join(cfg.GetAppPaths()[0], "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, cfg.GetAppPaths()[0])
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "local-dev.yaml"),
 		[]byte("description: local directory profile\n"), 0o644))

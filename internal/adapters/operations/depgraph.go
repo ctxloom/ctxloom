@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
@@ -130,10 +131,28 @@ func closureRoots(cfg *config.Config, loader *profiles.Loader) ([]*profiles.Prof
 		names = append(names, p.Name)
 	}
 	roots, unexpanded := namedRoots(cfg, loader, names)
+	unexpanded = append(unexpanded, unreadableLocalBundles(cfg)...)
 	if root := configDefaultsRoot(cfg); root != nil {
 		roots = append(roots, root)
 	}
 	return roots, unexpanded
+}
+
+// unreadableLocalBundles names every local bundle its reader found but could
+// not read. Its profiles are closure roots like every local bundle's, and
+// none of them reached the loader, so everything only they reach is
+// UNREACHED, not removed: a wholesale rewrite must preserve it, exactly as for
+// a root that fails to load. The reader reported each fault itself.
+func unreadableLocalBundles(cfg *config.Config) []string {
+	r := bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs())
+	if _, err := r.Read(context.Background()); err != nil {
+		return []string{"<local-bundles>"}
+	}
+	rf, ok := r.(bundles.ReadFailureReporter)
+	if !ok {
+		return nil
+	}
+	return collections.SortedKeys(rf.ReadFailures())
 }
 
 // configDefaultsRoot returns a synthetic root profile whose parents are the

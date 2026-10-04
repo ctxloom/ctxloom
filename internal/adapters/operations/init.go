@@ -238,6 +238,9 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 	if exists, _ := afero.Exists(fs, dest); exists {
 		return nil
 	}
+	if err := fs.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", filepath.Dir(dest), err)
+	}
 	data, err := resources.GetSeedProfile(SeedProfileName)
 	if err != nil {
 		return fmt.Errorf("read embedded seed profile: %w", err)

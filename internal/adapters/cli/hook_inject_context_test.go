@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // TestBuildInjectContextOutput covers the wrapping logic that surrounds
@@ -385,9 +386,9 @@ func TestAgentSetupNudge_Wiring(t *testing.T) {
 		require.NoError(t, os.MkdirAll(appDir, 0755))
 		require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0644))
 		if len(profiles) > 0 {
-			require.NoError(t, os.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
+			require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0755))
 			for _, name := range profiles {
-				require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", name+".yaml"),
+				require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), name+".yaml"),
 					[]byte("description: seeded by the test\n"), 0644))
 			}
 		}

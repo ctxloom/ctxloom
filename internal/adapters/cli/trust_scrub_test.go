@@ -45,7 +45,7 @@ func scrubProjectRoot(t *testing.T) string {
 		[]byte(fmt.Sprintf("version: %d\ndefault_agent: default\nagents:\n  default:\n    profiles:\n      - dev\n",
 			config.CurrentConfigVersion)), 0o644))
 
-	profilesDir := paths.ProfilesPath(appDir)
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
 		[]byte("bundles:\n  - tools\n"), 0o644))

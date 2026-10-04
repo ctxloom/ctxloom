@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // cfgWithDirProfiles builds a config whose profiles are DIRECTORY profiles
@@ -26,7 +26,7 @@ func cfgWithDirProfiles(t *testing.T, fs afero.Fs, appDir string, defs map[strin
 	for name, p := range defs {
 		seed[name] = p
 	}
-	testsupport.WriteDirProfiles(t, fs, appDir, seed)
+	bundletree.WriteDirProfiles(t, fs, appDir, seed)
 
 	found := false
 	for _, p := range extra.AppPaths {

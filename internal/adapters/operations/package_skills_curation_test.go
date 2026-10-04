@@ -52,7 +52,7 @@ func skillCurationFixture(t *testing.T, appDir string) {
 // with an optional skills: curation body appended verbatim.
 func writeSkillProfile(t *testing.T, appDir, name, curationYAML string) {
 	t.Helper()
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	body := "bundles:\n  - skill-bundle\n" + curationYAML
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))

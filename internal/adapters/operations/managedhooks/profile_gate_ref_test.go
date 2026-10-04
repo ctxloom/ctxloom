@@ -22,7 +22,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
@@ -42,22 +41,20 @@ func TestProfileGateRefFor_BundleShippedUsesSourceRef(t *testing.T) {
 		"an origin bundle that cannot be read must leave the posture unclaimed, never assumed")
 }
 
-func TestProfileGateRefFor_LocalFallsBackToProfileName(t *testing.T) {
-	resolved := &profiles.ResolvedProfile{} // SourceRef empty: genuinely local
-	ref := profileGateRefFor(nil, resolved, "my-local-profile")
+// A profile with no source has nothing to key the gate by: every resolved
+// profile is a bundle's item, so this is a resolution that went wrong, and the
+// read is left UNCLAIMED — withheld by every Authorizer — never minted as a
+// project-local posture nothing verified.
+func TestProfileGateRefFor_SourcelessProfileIsUnclaimed(t *testing.T) {
+	ref := profileGateRefFor(nil, &profiles.ResolvedProfile{}, "my-local-profile")
 	assert.Equal(t, "my-local-profile", ref.Base)
-	// A project-authored profile states its posture out loud instead of
-	// smuggling it through a bare-token ref the grammar resolves to IsLocal.
-	assert.Equal(t, bundles.TrustCtxLocal, ref.Read.TrustCtx())
-	assert.Equal(t, bundles.ProvenanceProject, ref.Read.Provenance)
-	assert.Equal(t, bundles.SignatureNone, ref.Read.Signature(),
-		"and it claims no signature, because there is none to claim")
+	assert.False(t, ref.Read.Claimed(), "a source-less profile's read is unclaimed: fail-closed")
 }
 
-func TestProfileGateRefFor_NilResolvedFallsBackToProfileName(t *testing.T) {
+func TestProfileGateRefFor_NilResolvedIsUnclaimed(t *testing.T) {
 	ref := profileGateRefFor(nil, nil, "my-local-profile")
 	assert.Equal(t, "my-local-profile", ref.Base)
-	assert.Equal(t, bundles.TrustCtxLocal, ref.Read.TrustCtx())
+	assert.False(t, ref.Read.Claimed())
 }
 
 // TestGateProfileHooks_RemoteSourcedProfile_GatedBySourceRef is the core

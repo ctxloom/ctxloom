@@ -7,13 +7,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // u085ProfileProject builds an app dir with one real local profile, on the OS
@@ -21,8 +22,8 @@ import (
 func u085ProfileProject(t *testing.T) *config.Config {
 	t.Helper()
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "profiles"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", "local-one.yaml"),
+	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "local-one.yaml"),
 		[]byte("description: real\n"), 0o644))
 	return gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 }
@@ -58,68 +59,34 @@ func TestUpdateProfile_PreservesLoaderError(t *testing.T) {
 // flattened the loader error the same way UpdateProfile did.
 func TestLoadLocalProfile_PreservesLoaderError(t *testing.T) {
 	cfg := u085ProfileProject(t)
-	fs := afero.NewOsFs()
 
-	_, err := loadLocalProfile(cfg, fs, "no-such-local")
+	_, err := loadLocalProfile(cfg, "no-such-local")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errs.ErrProfileNotFound,
 		"the sentinel must survive the local-only edit/export path too")
 
-	// The deliberate remote-reference branch is unaffected: it answers a
-	// DIFFERENT question ("it exists, just not locally") and keeps its hint.
-	_, rerr := loadLocalProfile(cfg, fs, "https://github.com/o/r@bundles/b#profiles/p")
-	require.Error(t, rerr)
-	assert.Contains(t, rerr.Error(), "local-only")
+	// A remote bundle profile that is not installed keeps the sentinel and
+	// its pull hint.
+	_, rerr := loadLocalProfile(cfg, "https://github.com/o/r@bundles/b#profiles/p")
+	require.ErrorIs(t, rerr, errs.ErrProfileNotFound)
+	assert.Contains(t, rerr.Error(), "ctxloom deps pull")
 }
 
-// TestProfileLoaderFactories_AgreeUnderInjectedFS is a parity test
-// across BOTH loader factories, written before the collapse. They are near-
-// identical, and where they DIVERGE the divergence is the defect: config's
-// GetProfileLoader threads WithFS(c.fs) while operations' profileLoader never
-// did, so under an injected filesystem the two disagreed about which profiles
-// exist — operations' read the real OS filesystem while every directory it had
-// just discovered came from the injected one.
-func TestProfileLoaderFactories_AgreeUnderInjectedFS(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := "/injected/.ctxloom"
-	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0o755))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "profiles", "injected.yaml"),
-		[]byte("description: from the injected fs\n"), 0o644))
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
-	cfg.SetFS(fs)
-
-	fromConfig, cerr := cfg.GetProfileLoader().Load("injected")
-	require.NoError(t, cerr, "config's factory resolves the injected profile")
-
-	fromOps, oerr := cfg.GetProfileLoader().Load("injected")
-	require.NoError(t, oerr, "operations' factory must resolve the SAME profile as config's")
-	assert.Equal(t, fromConfig.Description, fromOps.Description)
-
-	names := func(l interface {
-		List() ([]*profiles.Profile, []string, error)
-	}) []string {
-		infos, _, err := l.List()
-		require.NoError(t, err)
-		out := make([]string, 0, len(infos))
-		for _, p := range infos {
-			out = append(out, p.Name)
-		}
-		return out
-	}
-	assert.Equal(t, names(cfg.GetProfileLoader()), names(cfg.GetProfileLoader()),
-		"the two factories must list the same profile set")
-}
-
-// TestProfileLoader_KeepsFreshInstallFallbackDir pins the ONE behaviour that is
-// genuinely operations-only and must survive the collapse: on a fresh install
-// no profiles directory exists yet, so GetProfileDirs returns nothing and the
-// operations factory synthesizes <appPath>/profiles so a Save has somewhere to
-// land.
-func TestProfileLoader_KeepsFreshInstallFallbackDir(t *testing.T) {
+// TestCreateProfile_FreshProjectCreatesTheProjectBundle pins the fresh-install
+// path: a project with no project bundle yet gets one on its first profile
+// write, and the profile lands in it as an item.
+func TestCreateProfile_FreshProjectCreatesTheProjectBundle(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
-	require.NoError(t, cfg.GetProfileLoader().Save(&profiles.Profile{Name: "fresh", Description: "d"}))
-	assert.FileExists(t, filepath.Join(appDir, "profiles", "fresh.yaml"))
+	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{Name: "fresh", Bundles: []string{"go-development"}})
+	require.NoError(t, err)
+	bundle := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV2), paths.ProjectBundleName)
+	assert.FileExists(t, filepath.Join(bundle, bundles.DirectoryFormManifest))
+	assert.FileExists(t, filepath.Join(bundle, paths.ProfilesDir, "fresh.yaml"))
+
+	p, err := cfg.GetProfileLoader().Load("fresh")
+	require.NoError(t, err, "the created profile resolves under its selector-less name")
+	assert.Equal(t, []string{"go-development"}, p.Bundles)
 }

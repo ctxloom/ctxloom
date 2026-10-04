@@ -41,7 +41,7 @@ import (
 func writeBundleFixture(t *testing.T, root string) {
 	t.Helper()
 
-	profilesDir := filepath.Join(root, ".ctxloom", "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, filepath.Join(root, ".ctxloom"))
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	provisionApprovals(t, afero.NewOsFs(), filepath.Join(root, paths.AppDirName))
 

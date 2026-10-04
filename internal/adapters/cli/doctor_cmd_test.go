@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -108,7 +109,7 @@ func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend stri
 // the unresolved parent as a skipped ref.
 func stubLocalDefaultProfile(t *testing.T, root string) {
 	t.Helper()
-	path := filepath.Join(root, ".ctxloom", "profiles", "default.yaml")
+	path := filepath.Join(bundletree.ProjectProfilesDir(t, filepath.Join(root, ".ctxloom")), "default.yaml")
 	content := "description: \"self-contained test profile, no remote dependency\"\ntags:\n  - default\n"
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 }
@@ -302,7 +303,7 @@ func TestDoctorCmd_AlwaysExitsCleanEvenWhenMisconfigured(t *testing.T) {
 	// diagnostic-only per its documented contract: always exits 0, never
 	// blocks. (Absent project-side hooks are NOT a misconfiguration: a
 	// session carries its own, so HOOKS-TRUST reports that posture as ok.)
-	require.NoError(t, os.Remove(filepath.Join(root, ".ctxloom", "profiles", operations.SeedProfileName+".yaml")))
+	require.NoError(t, os.Remove(filepath.Join(bundletree.ProjectProfilesDir(t, filepath.Join(root, ".ctxloom")), operations.SeedProfileName+".yaml")))
 	out, err := runDoctor(t, root)
 	require.NoError(t, err, "`ctxloom doctor` must never fail the process even when it finds a misconfiguration")
 	assert.Equal(t, operations.DoctorWarn, doctorCheckNamed(t, out, "DOCTOR-CHECK-AGENTS-b2").Status,
@@ -533,7 +534,7 @@ func TestDoctorCmd_ReadOnly(t *testing.T) {
 	// Also across the WARN path: remove the default agent's seed profile so
 	// a real check fails, and confirm the failure report itself still writes
 	// nothing.
-	require.NoError(t, os.Remove(filepath.Join(root, ".ctxloom", "profiles", operations.SeedProfileName+".yaml")))
+	require.NoError(t, os.Remove(filepath.Join(bundletree.ProjectProfilesDir(t, filepath.Join(root, ".ctxloom")), operations.SeedProfileName+".yaml")))
 	before2 := hashTree(t, root)
 	out, err := runDoctor(t, root)
 	require.NoError(t, err)

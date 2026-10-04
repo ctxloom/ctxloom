@@ -360,6 +360,18 @@ func localBundleOf(ref string) (bundle, profile string, ok bool) {
 	return parsed.Path, name, true
 }
 
+// explicitlyLocal reports whether ref spells its bundle in an explicit LOCAL
+// grammar (ctxloom:local@bundles/<name>, or its canonical form) — not a short
+// "<bundle>" or "<alias>/<bundle>" spelling, which may name a remote.
+func explicitlyLocal(ref string) bool {
+	bundle, _, ok := remote.SplitBundleProfileRef(ref)
+	if !ok {
+		return false
+	}
+	parsed, err := remote.ParseReference(bundle)
+	return err == nil && parsed.IsLocal
+}
+
 // lookupSeeded returns the seeded profile for name, if any. Seeded profiles
 // are keyed by their version-less canonical ref (the lockfile key shape), so a
 // URL ref carrying a content version ("...@<sha>") is normalized to that form
@@ -512,10 +524,11 @@ func (l *Loader) Load(name string) (*Profile, error) {
 	}
 	p, ok := l.lookupSeeded(ref)
 	if !ok {
-		// A selector-less name is the project's own profile: nothing to pull.
-		// Every bundle-profile spelling may name an installed bundle not yet
-		// pulled, so its miss says how to install it.
-		if ref != name {
+		// A selector-less name, or an explicitly local ref, is a profile of
+		// this project's own: nothing to pull. Any other bundle-profile
+		// spelling may name an installed bundle not yet pulled, so its miss
+		// says how to install it.
+		if ref != name || explicitlyLocal(ref) {
 			return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
 		}
 		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom deps pull')", errs.ErrProfileNotFound, name)

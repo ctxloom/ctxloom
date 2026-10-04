@@ -1,7 +1,6 @@
 package config
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -9,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
@@ -26,12 +24,13 @@ func TestProfileLoader_LocalBundleWinsOverSameSpelledRemoteAlias(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	bundletree.Write(t, fs, paths.BundlesLayoutRoot(paths.LocalBundlesPath(appDir), paths.LayoutV2),
 		"team/reviews", "version: \"1.0\"\ndescription: local reviews\n")
-	profileDir := paths.ProfilesPath(appDir)
-	testsupport.WriteFileString(t, fs, filepath.Join(profileDir, "dev.yaml"), "bundles:\n  - team/reviews\n", 0o644)
-	testsupport.WriteFileString(t, fs, filepath.Join(profileDir, "ctl.yaml"), "bundles:\n  - team/absent\n", 0o644)
+	bundletree.WriteDirProfiles(t, fs, appDir, map[string]any{
+		"dev": Profile{Bundles: []string{"team/reviews"}},
+		"ctl": Profile{Bundles: []string{"team/absent"}},
+	})
 
 	b := NewBuilder(fs, true, appDir, SourceProject)
-	b.BindProfileResolvers(nil, func(alias string) string {
+	b.BindProfileResolvers(func(alias string) string {
 		if alias == "team" {
 			return teamURL
 		}
@@ -43,7 +42,6 @@ func TestProfileLoader_LocalBundleWinsOverSameSpelledRemoteAlias(t *testing.T) {
 	dev, err := loader.Load("dev")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"team/reviews"}, dev.Bundles, "the local bundle must not be re-pointed at the remote")
-	assert.Empty(t, loader.PendingUpgrades(), "no on-disk migration may be staged for a local bundle")
 
 	ctl, err := cfg.GetProfileLoader().Load("ctl")
 	require.NoError(t, err)

@@ -79,7 +79,8 @@ func TestLoad_RetiredProfilesBlock_AtCurrentVersion_NamesReplacement(t *testing.
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
 	assert.Contains(t, warns[0].Text, "RETIRED", "the user must be told the key is gone, not misspelled")
-	assert.Contains(t, warns[0].Text, ".ctxloom/profiles/", "and pointed at where a profile lives now")
+	assert.Contains(t, warns[0].Text, "project bundle", "and pointed at where a profile lives now")
+	assert.Contains(t, warns[0].Text, "ctxloom profile import", "and at how to put it there")
 	assert.Contains(t, warns[0].Text, "default_agent", "and at how the default context is chosen")
 }
 

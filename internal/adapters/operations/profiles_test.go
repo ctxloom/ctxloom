@@ -13,8 +13,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 func TestProfileEntry_Fields(t *testing.T) {
@@ -25,7 +25,7 @@ func TestProfileEntry_Fields(t *testing.T) {
 		Tags:        []string{"test"},
 		Bundles:     []string{"bundle1", "bundle2"},
 		Default:     true,
-		Path:        paths.ProfilesPath(testBaseDir) + "/my-profile.yaml",
+		Path:        bundletree.ProjectProfilesPath(testBaseDir) + "/my-profile.yaml",
 	}
 
 	assert.Equal(t, "my-profile", entry.Name)
@@ -128,7 +128,7 @@ func TestCreateProfileResult_Fields(t *testing.T) {
 	result := CreateProfileResult{
 		Status:  "created",
 		Profile: "my-profile",
-		Path:    paths.ProfilesPath(testBaseDir) + "/my-profile.yaml",
+		Path:    bundletree.ProjectProfilesPath(testBaseDir) + "/my-profile.yaml",
 	}
 
 	assert.Equal(t, "created", result.Status)
@@ -161,7 +161,7 @@ func TestUpdateProfileResult_Fields(t *testing.T) {
 		Status:  "updated",
 		Profile: "my-profile",
 		Changes: []string{"added parent: base", "added tag: test"},
-		Path:    paths.ProfilesPath(testBaseDir) + "/my-profile.yaml",
+		Path:    bundletree.ProjectProfilesPath(testBaseDir) + "/my-profile.yaml",
 	}
 
 	assert.Equal(t, "updated", result.Status)
@@ -235,7 +235,7 @@ func setupProfileTestFS(t *testing.T) (afero.Fs, *profiles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create profiles directory
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
 	// Create test profiles
 	baseProfile := `description: Base development profile
@@ -245,7 +245,7 @@ tags:
 bundles:
   - core
 `
-	_ = afero.WriteFile(fs, paths.ProfilesPath(testBaseDir)+"/base.yaml", []byte(baseProfile), 0644)
+	_ = afero.WriteFile(fs, bundletree.ProjectProfilesDirFS(t, fs, testBaseDir)+"/base.yaml", []byte(baseProfile), 0644)
 
 	goDevProfile := `description: Go developer profile
 parents:
@@ -259,7 +259,7 @@ bundles:
 variables:
   GOPROXY: "https://proxy.golang.org"
 `
-	_ = afero.WriteFile(fs, paths.ProfilesPath(testBaseDir)+"/go-developer.yaml", []byte(goDevProfile), 0644)
+	_ = afero.WriteFile(fs, bundletree.ProjectProfilesDirFS(t, fs, testBaseDir)+"/go-developer.yaml", []byte(goDevProfile), 0644)
 
 	frontendProfile := `description: Frontend developer profile
 tags:
@@ -269,15 +269,23 @@ bundles:
   - react
   - typescript
 `
-	_ = afero.WriteFile(fs, paths.ProfilesPath(testBaseDir)+"/frontend.yaml", []byte(frontendProfile), 0644)
+	_ = afero.WriteFile(fs, bundletree.ProjectProfilesDirFS(t, fs, testBaseDir)+"/frontend.yaml", []byte(frontendProfile), 0644)
 
-	loader := profiles.NewLoader([]string{paths.ProfilesPath(testBaseDir)}, profiles.WithFS(fs))
-	return fs, loader
+	return fs, profileTestCfg(fs).GetProfileLoader()
+}
+
+// profileTestCfg is the config every setupProfileTestFS test runs against:
+// the project at testBaseDir, over the same filesystem its profiles were
+// written to, so the loader and the write paths see one project.
+func profileTestCfg(fs afero.Fs) *config.Config {
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg.SetFS(fs)
+	return cfg
 }
 
 func TestListProfiles_AllProfiles(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		Loader: loader,
@@ -289,16 +297,18 @@ func TestListProfiles_AllProfiles(t *testing.T) {
 }
 
 func TestListProfiles_DisplayNameAndIsRemote(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{Loader: loader})
 	require.NoError(t, err)
 	require.NotEmpty(t, result.Profiles)
 	for _, p := range result.Profiles {
-		// The fixtures are local profiles: the display name is the plain name and
-		// none are seeded remote references.
+		// The fixtures are the project bundle's profiles: the name is the bare
+		// name a user types, the bundle is the project bundle, and none is a
+		// remote bundle's read-only reference.
 		assert.Equal(t, p.Name, p.DisplayName, "local profile display name should equal name")
+		assert.Equal(t, "ctxloom+local:project", p.Bundle)
 		assert.False(t, p.IsRemote, "local profile should not be flagged remote")
 	}
 }
@@ -309,8 +319,8 @@ func TestProfileDisplayName(t *testing.T) {
 }
 
 func TestListProfiles_WithQuery(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		Query:  "go",
@@ -331,8 +341,8 @@ func TestListProfiles_WithQuery(t *testing.T) {
 }
 
 func TestListProfiles_SortByName(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy:    "name",
@@ -350,8 +360,8 @@ func TestListProfiles_SortByName(t *testing.T) {
 }
 
 func TestListProfiles_SortDescending(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy:    "name",
@@ -369,11 +379,12 @@ func TestListProfiles_SortDescending(t *testing.T) {
 }
 
 func TestListProfiles_SortByDefault(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
+	fs, loader := setupProfileTestFS(t)
 	cfg := gatedFixture(config.Fixture{
 		AppPaths:     []string{testBaseDir},
 		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"base"}}},
 	})
+	cfg.SetFS(fs)
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy: "default",
@@ -385,15 +396,16 @@ func TestListProfiles_SortByDefault(t *testing.T) {
 
 	// Default profile should come first
 	assert.True(t, result.Profiles[0].Default)
-	assert.Equal(t, "base", result.Profiles[0].Name)
+	assert.Equal(t, "base", result.Profiles[0].DisplayName)
 }
 
 func TestListProfiles_SortByDefaultDescending(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
+	fs, loader := setupProfileTestFS(t)
 	cfg := gatedFixture(config.Fixture{
 		AppPaths:     []string{testBaseDir},
 		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"base"}}},
 	})
+	cfg.SetFS(fs)
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy:    "default",
@@ -407,12 +419,12 @@ func TestListProfiles_SortByDefaultDescending(t *testing.T) {
 	// Default profile should come last with desc sort
 	lastIdx := len(result.Profiles) - 1
 	assert.True(t, result.Profiles[lastIdx].Default)
-	assert.Equal(t, "base", result.Profiles[lastIdx].Name)
+	assert.Equal(t, "base", result.Profiles[lastIdx].DisplayName)
 }
 
 func TestListProfiles_QueryByDescription(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		Query:  "Go developer",
@@ -423,7 +435,7 @@ func TestListProfiles_QueryByDescription(t *testing.T) {
 	// Should match the go-developer profile by its description
 	found := false
 	for _, p := range result.Profiles {
-		if p.Name == "go-developer" {
+		if p.DisplayName == "go-developer" {
 			found = true
 			break
 		}
@@ -432,8 +444,8 @@ func TestListProfiles_QueryByDescription(t *testing.T) {
 }
 
 func TestGetProfile_Success(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := GetProfile(context.Background(), cfg, GetProfileRequest{
 		Name:   "go-developer",
@@ -459,8 +471,8 @@ func TestGetProfile_ValidationError(t *testing.T) {
 }
 
 func TestGetProfile_NotFound(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	_, err := GetProfile(context.Background(), cfg, GetProfileRequest{
 		Name:   "nonexistent-profile",
@@ -473,7 +485,7 @@ func TestGetProfile_NotFound(t *testing.T) {
 
 func TestCreateProfile_Success(t *testing.T) {
 	fs, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := profileTestCfg(fs)
 
 	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:        "new-profile",
@@ -494,8 +506,8 @@ func TestCreateProfile_Success(t *testing.T) {
 }
 
 func TestCreateProfile_ValidationError(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:   "",
@@ -507,8 +519,8 @@ func TestCreateProfile_ValidationError(t *testing.T) {
 }
 
 func TestCreateProfile_AlreadyExists(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:   "base",
@@ -520,8 +532,8 @@ func TestCreateProfile_AlreadyExists(t *testing.T) {
 }
 
 func TestCreateProfile_WithParents(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:        "child-profile",
@@ -540,8 +552,8 @@ func TestCreateProfile_WithParents(t *testing.T) {
 // scheme-qualified remote ref without resolving it locally. Remote refs are
 // validated at pull/lock time instead.
 func TestCreateProfile_RemoteParentSkipsLocalValidation(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:    "remote-child",
@@ -554,8 +566,8 @@ func TestCreateProfile_RemoteParentSkipsLocalValidation(t *testing.T) {
 }
 
 func TestCreateProfile_ParentNotFound(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:    "orphan-profile",
@@ -569,8 +581,8 @@ func TestCreateProfile_ParentNotFound(t *testing.T) {
 }
 
 func TestUpdateProfile_AddTags(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:    "base",
@@ -584,8 +596,8 @@ func TestUpdateProfile_AddTags(t *testing.T) {
 }
 
 func TestUpdateProfile_RemoveTags(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",
@@ -599,8 +611,8 @@ func TestUpdateProfile_RemoveTags(t *testing.T) {
 }
 
 func TestUpdateProfile_AddBundles(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",
@@ -614,8 +626,8 @@ func TestUpdateProfile_AddBundles(t *testing.T) {
 }
 
 func TestUpdateProfile_AddParents(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	// Frontend profile doesn't have base as parent, add it
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -630,8 +642,8 @@ func TestUpdateProfile_AddParents(t *testing.T) {
 }
 
 func TestUpdateProfile_UpdateDescription(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	newDesc := "Updated description"
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -646,8 +658,8 @@ func TestUpdateProfile_UpdateDescription(t *testing.T) {
 }
 
 func TestUpdateProfile_NoChanges(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:   "base",
@@ -668,8 +680,8 @@ func TestUpdateProfile_ValidationError(t *testing.T) {
 }
 
 func TestUpdateProfile_NotFound(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:    "nonexistent",
@@ -682,8 +694,8 @@ func TestUpdateProfile_NotFound(t *testing.T) {
 }
 
 func TestUpdateProfile_ParentNotFound(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",
@@ -697,8 +709,8 @@ func TestUpdateProfile_ParentNotFound(t *testing.T) {
 }
 
 func TestUpdateProfile_RemoveParents(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	// First add a parent to base, then remove it
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -720,8 +732,8 @@ func TestUpdateProfile_RemoveParents(t *testing.T) {
 }
 
 func TestUpdateProfile_RemoveBundles(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	// Base profile has "core" bundle, remove it
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -737,7 +749,7 @@ func TestUpdateProfile_RemoveBundles(t *testing.T) {
 
 func TestUpdateProfile_AddExcludeFragments(t *testing.T) {
 	tmpDir := t.TempDir()
-	profilesDir := filepath.Join(tmpDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, tmpDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 
 	profile := `description: Test profile
@@ -746,8 +758,8 @@ exclude_fragments:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profile), 0644))
 
-	loader := profiles.NewLoader([]string{profilesDir})
-	cfg := &config.Config{}
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{tmpDir}})
+	loader := cfg.GetProfileLoader()
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:                   "test",
@@ -764,14 +776,14 @@ exclude_fragments:
 
 func TestUpdateProfile_AddExcludeMCP(t *testing.T) {
 	tmpDir := t.TempDir()
-	profilesDir := filepath.Join(tmpDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, tmpDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 
 	profile := `description: Test profile`
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profile), 0644))
 
-	loader := profiles.NewLoader([]string{profilesDir})
-	cfg := &config.Config{}
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{tmpDir}})
+	loader := cfg.GetProfileLoader()
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:          "test",
@@ -786,10 +798,10 @@ func TestUpdateProfile_AddExcludeMCP(t *testing.T) {
 
 func TestDeleteProfile_Success(t *testing.T) {
 	fs, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := profileTestCfg(fs)
 
 	// First verify the file exists
-	exists, _ := afero.Exists(fs, paths.ProfilesPath(testBaseDir)+"/frontend.yaml")
+	exists, _ := afero.Exists(fs, bundletree.ProjectProfilesDirFS(t, fs, testBaseDir)+"/frontend.yaml")
 	require.True(t, exists)
 
 	result, err := DeleteProfile(context.Background(), cfg, DeleteProfileRequest{
@@ -802,7 +814,7 @@ func TestDeleteProfile_Success(t *testing.T) {
 	assert.Equal(t, "frontend", result.Profile)
 
 	// Verify file was deleted
-	exists, _ = afero.Exists(fs, paths.ProfilesPath(testBaseDir)+"/frontend.yaml")
+	exists, _ = afero.Exists(fs, bundletree.ProjectProfilesDirFS(t, fs, testBaseDir)+"/frontend.yaml")
 	assert.False(t, exists)
 }
 
@@ -816,8 +828,8 @@ func TestDeleteProfile_ValidationError(t *testing.T) {
 }
 
 func TestDeleteProfile_NotFound(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fs, loader := setupProfileTestFS(t)
+	cfg := profileTestCfg(fs)
 
 	_, err := DeleteProfile(context.Background(), cfg, DeleteProfileRequest{
 		Name:   "nonexistent",
@@ -825,54 +837,4 @@ func TestDeleteProfile_NotFound(t *testing.T) {
 	})
 
 	require.Error(t, err)
-}
-
-// TestProfileLoader_HonoursTheInjectedFSLikeItsTwin is the parity
-// test, run across BOTH implementations of the same factory. config's
-// GetProfileLoader and operations' profileLoader build the same
-// profiles.Loader from the same config, and GetProfileLoader's own doc names
-// operations.profileLoader as the sibling that must "wire the exact same
-// seed... so the two never disagree about which profiles exist".
-//
-// They disagreed. profileLoader discovered profile DIRECTORIES through the
-// injected filesystem (GetProfileDirs takes cfg.FS()) and then read profile
-// CONTENT from the real OS filesystem, because it never passed
-// profiles.WithFS — the exact inversion GetProfileDirs' own doc warns about
-// ("discovery must follow the SAME filesystem the Loader reads: statting the
-// real disk unconditionally made every injected fs a lie"). Every caller of
-// FlattenDependencies, ListProfiles, ShowProfile and DeleteProfile inherited
-// it: on an injected fs the directory is found and every profile in it is
-// invisible.
-func TestProfileLoader_HonoursTheInjectedFSLikeItsTwin(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	profileDir := paths.ProfilesPath(testBaseDir)
-	require.NoError(t, fs.MkdirAll(profileDir, 0o755))
-	require.NoError(t, afero.WriteFile(fs, profileDir+"/reviewer.yaml",
-		[]byte("bundles:\n  - ctxloom:local@bundles/demo\n"), 0o644))
-
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	cfg.SetFS(fs)
-
-	twin, terr := cfg.GetProfileLoader().Load("reviewer")
-	require.NoError(t, terr, "the canonical twin reads the injected fs")
-	require.NotNil(t, twin)
-
-	got, err := cfg.GetProfileLoader().Load("reviewer")
-	require.NoError(t, err, "and so must this one — it already DISCOVERED the directory through that same fs")
-	require.NotNil(t, got)
-	assert.Equal(t, twin.Name, got.Name)
-	assert.Equal(t, twin.Bundles, got.Bundles)
-
-	names := func(ps []*profiles.Profile) []string {
-		out := make([]string, 0, len(ps))
-		for _, p := range ps {
-			out = append(out, p.Name)
-		}
-		return out
-	}
-	twinList, _, terr := cfg.GetProfileLoader().List()
-	require.NoError(t, terr)
-	gotList, _, lerr := cfg.GetProfileLoader().List()
-	require.NoError(t, lerr)
-	assert.Equal(t, names(twinList), names(gotList), "the two factories must enumerate the same profiles")
 }

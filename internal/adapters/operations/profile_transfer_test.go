@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // memProfileFS seeds an in-memory profiles dir with one profile ("dev").
@@ -18,11 +18,13 @@ func memProfileFS(t *testing.T) (afero.Fs, *config.Config) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	pdir := paths.ProfilesPath(appDir)
+	pdir := bundletree.ProjectProfilesDirFS(t, fs, appDir)
 	require.NoError(t, fs.MkdirAll(pdir, 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(pdir, "dev.yaml"),
 		[]byte("description: dev\nbundles:\n  - x\n"), 0644))
-	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg.SetFS(fs)
+	return fs, cfg
 }
 
 func TestGetSetProfileContent(t *testing.T) {

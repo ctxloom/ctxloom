@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // childMCPServers can compose a set with no ctxloom MCP server in it —
@@ -38,9 +39,9 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 		appDir := filepath.Join(t.TempDir(), ".ctxloom")
 		writeSpawnerConfig(t, appDir, body)
 		if len(dirProfiles) > 0 {
-			require.NoError(t, os.MkdirAll(filepath.Join(appDir, "profiles"), 0o755))
+			require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
 			for name, doc := range dirProfiles {
-				require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", name+".yaml"), []byte(doc), 0o644))
+				require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), name+".yaml"), []byte(doc), 0o644))
 			}
 		}
 		return newSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)

@@ -59,6 +59,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // syncMockPuller is a test puller that records calls for sync tests.
@@ -160,7 +161,7 @@ func TestCollectRemoteReferences(t *testing.T) {
 	}, config.Fixture{})
 
 	// Create the profiles directory
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
 	bundles := collectRemoteReferences(cfg, nil)
 
@@ -187,7 +188,7 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 		}}},
 		AppPaths: []string{testBaseDir},
 	})
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
 	bundles := collectRemoteReferences(cfg, nil)
 	if len(bundles) != 1 || bundles[0] != seededDefaultBundle {
@@ -220,7 +221,7 @@ func TestCollectRemoteReferences_RetiredProfileRefsSkipped(t *testing.T) {
 			},
 		},
 	}, config.Fixture{})
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
 	bundles := collectRemoteReferences(cfg, nil)
 	if len(bundles) != 1 || bundles[0] != validBundle {
@@ -239,7 +240,7 @@ func TestCollectRemoteReferences_RetiredDefaultProfileSkipped(t *testing.T) {
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/o/r@profiles/dev"}}},
 		AppPaths:     []string{testBaseDir},
 	})
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
 	bundles := collectRemoteReferences(cfg, nil)
 	if len(bundles) != 0 {
@@ -314,7 +315,7 @@ func TestSyncDependencies_NoRemotes(t *testing.T) {
 	}, config.Fixture{})
 
 	// Create the profiles directory
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
 	result, err := SyncDependencies(context.Background(), fixtureApp(t, cfg), SyncDependenciesRequest{
 		FS: fs,
@@ -338,7 +339,7 @@ func TestSyncDependencies_WithRemotes(t *testing.T) {
 	}, config.Fixture{})
 
 	// Create necessary directories
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 
 	// Create registry with test remote
@@ -390,7 +391,7 @@ func TestSyncDependencies_PullOutputAvoidsStdout(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
@@ -455,7 +456,7 @@ func TestSyncDependencies_SkipsExisting(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
@@ -508,7 +509,7 @@ func TestSyncDependencies_RetractedInstalledRef(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
@@ -558,7 +559,7 @@ func TestSyncDependencies_NotRetractedInstalledRef(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
@@ -606,7 +607,7 @@ func TestSyncDependencies_UnreachableRemoteHonorsFallbackVerdict(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
@@ -658,7 +659,7 @@ func TestSyncDependencies_RecordRetractionSaveFailureIsWarnedNotSwallowed(t *tes
 		"test": {Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"}},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
@@ -705,7 +706,7 @@ func TestSyncDependencies_SkipCanonicalizesRef(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(`
 remotes:
   github:
@@ -746,7 +747,7 @@ func TestSyncDependencies_ForceRedownload(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
@@ -790,7 +791,7 @@ func TestSyncDependencies_PullError(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
@@ -843,7 +844,7 @@ func TestSyncDependencies_UpdatedStatus(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 	_ = fs.MkdirAll(authoredV1(testBaseDir), 0755)
 
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
@@ -927,7 +928,7 @@ func TestCheckMissingDependencies(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
 
 	// One bundle's content is retrievable at its locked address AND its cache
 	// tree is materialized on disk; the other's is neither.
@@ -968,7 +969,7 @@ func TestCheckMissingDependencies_RetiredProfileRefNotOffered(t *testing.T) {
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/o/r@profiles/dev"}}},
 		AppPaths:     []string{testBaseDir},
 	})
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
 		BundleReader: fakeBundleSource{readable: map[string]bool{}},
@@ -991,7 +992,7 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
 
 	markInstalled(t, appDir, "https://github.com/test/forge@bundles/go-tools")
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/forge@bundles/go-tools": true}}
@@ -1071,7 +1072,7 @@ func TestCheckMissingDependencies_CanonicalizesRefs(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(appDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, appDir), 0755)
 
 	markInstalled(t, appDir, "https://github.com/test/forge@bundles/go-tools")
 	markInstalled(t, appDir, "https://github.com/test/forge@bundles/security")
@@ -1106,7 +1107,7 @@ func TestCheckMissingDependencies_DanglingLockEntry(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
 	// Empty readable set: the entry exists conceptually but content cannot be
 	// read back.
@@ -1146,7 +1147,7 @@ func TestSyncOnStartup(t *testing.T) {
 	}, config.Fixture{})
 
 	// Create profiles directory
-	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755)
 
 	// With only local bundles, should return up_to_date or empty
 	result, err := SyncOnStartup(context.Background(), fixtureApp(t, cfg))
@@ -1259,10 +1260,10 @@ func TestCollectRemoteReferences_NestedLocalProfiles(t *testing.T) {
 		// Top-level profile with local parent
 		"driftway": {
 			Bundles: []string{"local-bundle"},
-			Parents: []string{"profile:personal/typescript-dev"},
+			Parents: []string{"profile:typescript-dev"},
 		},
 		// Local parent profile with remote parent
-		"personal/typescript-dev": {
+		"typescript-dev": {
 			Bundles: []string{"https://github.com/owner/repo@v1/bundles/core"},
 			Parents: []string{"https://github.com/owner/repo@v1/bundles/base-kit#profiles/base"},
 		},
@@ -1294,9 +1295,9 @@ func TestCollectRemoteReferences_ProfilePrefixStripped(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
 		"top": {
-			Parents: []string{"profile:nested/profile"},
+			Parents: []string{"profile:nested-profile"},
 		},
-		"nested/profile": {
+		"nested-profile": {
 			Bundles: []string{"https://github.com/test/forge@bundles/remote-bundle"},
 		},
 	}, config.Fixture{})
@@ -1409,7 +1410,7 @@ func revealProfileOnDisk(fs afero.Fs, name, bundleRef string) error {
 	// invoked deep inside the sync code under test as a remote.Puller, so it
 	// cannot use testsupport.WriteFile and must route through safefs directly —
 	// the same MkdirAll-then-atomic-write sequence that helper wraps.
-	path := paths.ProfilesPath(testBaseDir) + "/" + name + ".yaml"
+	path := bundletree.ProjectProfilesPath(testBaseDir) + "/" + name + ".yaml"
 	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -1439,7 +1440,7 @@ func TestSyncDependencies_PullsRefsRevealedByEarlierPulls(t *testing.T) {
 		revealedRef = "https://github.com/test/ctxloom@bundles/beta"
 	)
 
-	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755))
 	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
 	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
@@ -1504,7 +1505,7 @@ func profileFileNameFor(ref string) string {
 func TestSyncDependencies_NoUnconvergedWarningWhenLastPassConverges(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(bundletree.ProjectProfilesDirFS(t, fs, testBaseDir), 0755))
 	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
 	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
@@ -1524,7 +1525,7 @@ remotes:
 	}
 
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
-		refs[0]: {Bundles: []string{refs[0]}},
+		"chain": {Bundles: []string{refs[0]}},
 	}, config.Fixture{})
 	cfg.SetFS(fs)
 

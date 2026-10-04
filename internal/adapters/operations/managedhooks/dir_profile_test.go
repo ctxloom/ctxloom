@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // dirProfileCfg writes directory profiles (name → YAML body) under a fresh
@@ -34,7 +35,7 @@ func dirProfileCfg(t *testing.T, defaults []string, dirProfiles map[string]strin
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
-	profilesDir := paths.ProfilesPath(appDir)
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	for name, body := range dirProfiles {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))

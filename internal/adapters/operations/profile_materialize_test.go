@@ -18,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -183,7 +182,7 @@ func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 	cfg, target = materializeFixture(t, "HOOKED-CONTENT")
 	f := cfg.ToFixture()
 	require.NotEmpty(t, f.AppPaths, "materializeFixture must supply an app dir to seed the profile into")
-	profilesDir := paths.ProfilesPath(f.AppPaths[0])
+	profilesDir := bundletree.ProjectProfilesDir(t, f.AppPaths[0])
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "reviewer.yaml"), []byte(
 		"select_tags:\n  - security\nhooks:\n  unified:\n    session_start:\n      - type: command\n        command: echo team-guardrail\n",
@@ -269,7 +268,7 @@ func TestMaterializeProfile_ReportsNoHookLossWhenNoHooksDeclared(t *testing.T) {
 func TestMaterializeProfile_WritesSkills(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	bundlesDir := authoredV1(appDir)
 	skillDir := filepath.Join(bundlesDir, "skill-bundle", "skills", "humanize")
@@ -319,7 +318,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "skilled.yaml"),
@@ -438,7 +437,7 @@ func TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName(t *testing.T) {
 func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(filepath.Join(bundlesDir, "premise-bundle"), 0755))
@@ -500,7 +499,7 @@ func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
 func TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(filepath.Join(bundlesDir, "premise-bundle-2"), 0755))

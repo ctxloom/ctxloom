@@ -24,7 +24,7 @@ func TestAssembleContext_LinkedFragmentFollowsTheRunsGrantedMCPSet(t *testing.T)
 	t.Skip("unexpressible: a bundle is a tree, and the tree's MCP sidecar carries no tags, so an MCP server cannot declare ctxloom:link_id — raised with the human (unruly-frostbite) as a tree-format decision")
 	root := t.TempDir()
 	appDir := filepath.Join(root, paths.AppDirName)
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "with.yaml"),
 		[]byte("bundles:\n  - linked\n"), 0644))

@@ -245,7 +245,7 @@ func searchProfiles(cfg *config.Config, query string) []SearchResult {
 	}
 
 	for _, p := range cfg.GetProfileLoader().List() {
-		match(p.Name, p.Description, p.Tags)
+		match(profileAskName(p.Name), p.Description, p.Tags)
 	}
 	return results
 }

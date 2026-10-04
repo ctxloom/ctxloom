@@ -41,7 +41,7 @@ func TestAssemble_ProvenanceNamesDirectoryProfileAndItsBundles(t *testing.T) {
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	bundletree.WriteOS(t, bundlesDir, "kit", "version: \"1.0\"\nhooks:\n  pre_tool:\n    - command: from-bundle\n      type: command\n")
-	profilesDir := paths.ProfilesPath(appDir)
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte(
 		"bundles:\n  - kit\nhooks:\n  unified:\n    pre_tool:\n      - command: from-dir-profile\n        type: command\n"), 0o644))

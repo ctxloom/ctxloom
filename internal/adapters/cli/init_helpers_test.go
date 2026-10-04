@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -71,7 +72,7 @@ func TestWriteInitialConfig(t *testing.T) {
 	}
 
 	// Directory tree exists.
-	for _, dir := range []string{appDir, filepath.Join(appDir, paths.ProfilesDir), authoredV1(appDir)} {
+	for _, dir := range []string{appDir, bundletree.ProjectProfilesDir(t, appDir), authoredV1(appDir)} {
 		info, err := os.Stat(dir)
 		if err != nil || !info.IsDir() {
 			t.Errorf("expected directory %s to exist (err=%v)", dir, err)

@@ -64,9 +64,9 @@ func pulledProject(t *testing.T) (appDir, repoURL string) {
 	bundleRef := repoURL + "@bundles/tools"
 
 	appDir = filepath.Join(t.TempDir(), ".ctxloom")
-	require.NoError(t, os.MkdirAll(paths.ProfilesPath(appDir), 0o755))
+	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, appDir), 0o755))
 	provisionApprovals(t, afero.NewOsFs(), appDir)
-	require.NoError(t, os.WriteFile(filepath.Join(paths.ProfilesPath(appDir), "dev.yaml"),
+	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "dev.yaml"),
 		[]byte("bundles:\n  - "+bundleRef+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir),
 		[]byte("schema_version: 6\ndefault_agent: default\nagents:\n  default:\n    profiles: [dev]\n"), 0o644))

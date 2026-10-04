@@ -10,8 +10,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // cfgWithProfileHooks builds a config whose one selected profile declares h.
@@ -27,7 +27,7 @@ func cfgWithProfileHooks(t *testing.T, fs afero.Fs, appDir string, h wire.HooksC
 	t.Helper()
 	body, err := yaml.Marshal(map[string]any{"hooks": h})
 	require.NoError(t, err)
-	profilesDir := paths.ProfilesPath(appDir)
+	profilesDir := bundletree.ProjectProfilesDirFS(t, fs, appDir)
 	require.NoError(t, fs.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(profilesDir, "hooked.yaml"), body, 0o644))
 

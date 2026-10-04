@@ -28,7 +28,7 @@ import (
 func writeLinkedBundleFixture(t *testing.T) *Config {
 	t.Helper()
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	skillDir := filepath.Join(bundlesDir, "linked", "skills", "reason")
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))

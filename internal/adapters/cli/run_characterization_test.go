@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // =============================================================================
@@ -488,7 +489,7 @@ func TestRunCharacterization_NonGitRootWarnsButProceeds(t *testing.T) {
 // in every mode.
 func TestRunCharacterization_DryRunRefusesAMissingBundleLikeARun(t *testing.T) {
 	dir := runCLIFixture(t)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "profiles", "broken.yaml"),
+	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, filepath.Join(dir, ".ctxloom")), "broken.yaml"),
 		[]byte("description: references a missing bundle\nbundles:\n  - does-not-exist\nfragments:\n  - demo#fragments/testing\n"), 0o644))
 	resetApp()
 

@@ -60,8 +60,8 @@ func newShippedProfileProject(t *testing.T) *shippedProfileProject {
 	require.NoError(t, err)
 
 	p.appDir = filepath.Join(t.TempDir(), ".ctxloom")
-	require.NoError(t, os.MkdirAll(paths.ProfilesPath(p.appDir), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(paths.ProfilesPath(p.appDir), "dev.yaml"),
+	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, p.appDir), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, p.appDir), "dev.yaml"),
 		[]byte("bundles:\n  - "+p.kitRef+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(p.appDir),
 		[]byte("schema_version: 6\ndefault_agent: default\nagents:\n  default:\n    profiles: [dev]\n"), 0o644))

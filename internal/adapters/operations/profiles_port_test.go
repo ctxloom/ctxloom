@@ -11,7 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // TestProfileOperations_ListCreateDelete_RoundTrip drives the authoring
@@ -31,15 +31,14 @@ import (
 func TestProfileOperations_ListCreateDelete_RoundTrip(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/app/" + paths.AppDirName
-	dir := paths.ProfilesPath(appDir)
+	dir := bundletree.ProjectProfilesDirFS(t, fs, appDir)
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 	for _, name := range []string{"alpha", "beta"} {
 		require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, name+".yaml"), []byte("description: seeded\n"), 0o644))
 	}
-	loader := profiles.NewLoader([]string{dir}, profiles.WithFS(fs))
-
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	cfg.SetFS(fs)
+	loader := cfg.GetProfileLoader()
 
 	list, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{Loader: loader})
 	require.NoError(t, err)

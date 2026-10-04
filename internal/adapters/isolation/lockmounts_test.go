@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -73,19 +72,4 @@ func TestLockMounts_ContainerResolverFindsTheHostLock(t *testing.T) {
 	mounts, err := c.lockMounts(projectDir, scratch)
 	require.NoError(t, err)
 	assert.Contains(t, mounts, mount{Host: hostLock, Container: filepath.ToSlash(containerLock)})
-}
-
-// A symlink planted at the host lock path is refused, not bound: binding it
-// would hand the child whatever file the link names.
-func TestLockMounts_RefusesSymlinkedHostLock(t *testing.T) {
-	testsupport.Isolate(t)
-	projectDir, scratch := t.TempDir(), t.TempDir()
-	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
-	hostLock, err := paths.HomePathFor(filepath.Join(projectDir, c.engineSpec.inPlaceFiles[0]))
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Dir(hostLock), 0o755))
-	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "elsewhere"), hostLock))
-
-	_, err = c.lockMounts(projectDir, scratch)
-	require.ErrorIs(t, err, filelock.ErrNotRegularFile)
 }

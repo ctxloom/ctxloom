@@ -131,7 +131,6 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 | `Pending` | `{Path string; Data []byte; Applied []string}` — records that a load upgraded an older document in memory; `Data` is "ready to persist verbatim". |
 | `Version` | Reads a top-level int schema version as `(version int, ok bool)`: a missing key is `(0, true)`, the pre-versioning generation; a present but non-integer value is `(0, false)`. |
 | `SetVersion` | Builds a scalar with `Tag = "!!int"` and sets it via `yamlx.MapSet`. The tag override is essential: without it the version round-trips as a quoted string and `Version` stops reading it as an integer. |
-| `Reporter` | Callback through which a step reports a **lossy** change (a user value it had to drop), since `Upgrader` has no return channel for it. A nil `Reporter` is legal. |
 
 ## Invariants and contracts
 
@@ -183,7 +182,7 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 
 - Stages run **oldest-first** and stage *N* may depend on stage *N-1* having already fired. Order is the contract, and `Pipeline` is an ordered slice for that reason.
 - `Upgrader.Apply` must be **idempotent**: given a document already at or past its target form it must leave the node untouched and return `false`. Nothing verifies this. `Run` trusts the bool absolutely — it is the sole input to the "did anything happen" decision and to every caller's persist/prompt decision. A stage that mutates and returns `false` has its migration silently discarded; a stage that returns `true` without mutating causes a re-prompt every load.
-- `Apply` has **no error channel**. `Reporter` is the declared shape for reporting a lossy change: a driver hands it to a step directly, never through the `Upgrader` interface.
+- `Apply` has **no error channel**: a stage that cannot migrate a document safely can only skip it or overwrite it.
 - `Run` never writes to disk. Persisting is the caller's, gated on user consent via `Pending` — that separation is the package's central design rule.
 - `Run` returns the caller's bytes **verbatim** with `applied == nil` on: unparseable YAML (deliberate — callers re-parse and report), a stream with more than one document, a non-mapping root, a duplicate key anywhere in the tree, no stage firing, and an encode or close failure. Refusing multi-document streams and duplicate keys is what stops a re-encode from silently deleting later documents or keeping whichever duplicate the `yamlx` helpers reached first.
 - Callers must gate on `Version`'s `ok`: treating an unreadable version as generation 0 would replay every migration over a probably-corrupt file and stamp the current version on it.

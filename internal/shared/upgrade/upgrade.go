@@ -179,16 +179,3 @@ func SetVersion(root *yaml.Node, key string, v int) {
 	node.Tag = "!!int"
 	yamlx.MapSet(root, key, node)
 }
-
-// Reporter is how an upgrade step reports a LOSSY change — a user-set value it
-// had to drop — to whoever is driving the pipeline. The Upgrader interface has
-// no return channel for this and deliberately keeps none: a step that silently
-// discards a setting is the failure this exists to prevent, and a caller that
-// wants the report must pass somewhere to put it.
-//
-// It is a plain callback rather than a shared sink type so a step can live in
-// its own package without that package and its driver having to agree on a
-// concrete buffer. A nil Reporter is legal and
-// means the caller is not collecting; call it through a step's own helper that
-// nil-checks, never directly.
-type Reporter func(format string, args ...any)

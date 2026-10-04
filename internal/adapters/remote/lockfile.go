@@ -13,8 +13,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
 // LockfileManager handles reading and writing the active lockfile (lock.yaml —
@@ -81,8 +81,18 @@ func (m *LockfileManager) Path() string {
 	return paths.LockPath(m.baseDir)
 }
 
+// lockfileKind versions lock.yaml. LegacyKey: the lockfile spelled its format
+// generation `version` before schemaver. Oldest is LockfileVersion because an
+// older lockfile is keyed by the reference as typed, and no migration can
+// rekey it — a hold cannot be carried across a key the read does not trust —
+// so Load refuses it as ErrLockKeyFormRetired instead of migrating it.
+var lockfileKind = schemaver.Kind{Name: "lockfile", LegacyKey: "version", Oldest: LockfileVersion}
+
 // Load reads the lockfile from disk.
 // Returns an empty lockfile if the file doesn't exist.
+//
+// Reading never writes: an older spelling is migrated in memory and reaches
+// disk on the next Save, or at once under --write-upgrades.
 func (m *LockfileManager) Load() (*Lockfile, error) {
 	path := m.Path()
 
@@ -100,7 +110,7 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	// A PRESENT-but-empty (or whitespace-only) file is a DIFFERENT
 	// fact from "no lockfile" (handled above) and must not collapse into it.
 	// Save/write always stamp LockedAt to time.Now() before marshaling, so
-	// any real write produces non-trivial bytes ("version: N\nlocked_at:
+	// any real write produces non-trivial bytes ("schema_version: N\nlocked_at:
 	// ...\n" at minimum) — a genuinely 0-byte or blank file on disk can only
 	// be truncation, a crash mid-write, or a hand-created stub. Loading it as
 	// a valid empty lockfile makes every pinned remote bundle vanish from the
@@ -113,16 +123,15 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	// tripped through Load.)
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return nil, fmt.Errorf("lockfile %s exists but is empty — this is not the same as no lockfile at all (which is fine); "+
-			"fix or delete the file, then re-sync (a legitimate lockfile always contains at least 'version: 1')", path)
+			"fix or delete the file, then re-sync (a legitimate lockfile always declares its %s)", path, schemaver.Key)
 	}
 
 	// REFUSE the retired hold key rather than letting yaml drop it. A lockfile
 	// written by an older ctxloom spells a hold `pinned`, which this struct no
 	// longer models — so it would load cleanly with every hold silently gone,
 	// and the next `deps upgrade` would advance a dependency the user
-	// deliberately froze while reporting success. Unlike the schema-version
-	// residue below, this key carries a DECISION, so it is not something a
-	// read may quietly rewrite on the user's behalf.
+	// deliberately froze while reporting success. This key carries a
+	// DECISION, so it is refused rather than migrated.
 	if entry, found := findRetiredHoldField(data); found {
 		return nil, fmt.Errorf("lockfile %s spells a hold %q on entry %q; it is now %q — "+
 			"delete the lockfile and re-run `ctxloom deps pull` to rebuild it, "+
@@ -136,12 +145,22 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	// retraction silently not enforced. There is no rekeying on read: a hold
 	// is a decision this read cannot carry across a key it does not trust, so
 	// the user rebuilds the lock and re-applies the holds named here.
-	if held, found := findRetiredKeyForm(data); found {
+	// A version below lockfileKind.Oldest (or none at all) is that retired
+	// form too, refused the same way.
+	r, err := lockfileKind.Upgrade(data)
+	if errors.Is(err, schemaver.ErrTooOld) {
+		held, _ := findRetiredKeyForm(data)
+		return nil, retiredKeyFormError(path, held)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lockfile %s: %w", path, err)
+	}
+	if held, found := findRetiredKeyForm(r.Data); found {
 		return nil, retiredKeyFormError(path, held)
 	}
 
 	var lockfile Lockfile
-	if err := yaml.Unmarshal(data, &lockfile); err != nil {
+	if err := yaml.Unmarshal(r.Data, &lockfile); err != nil {
 		return nil, fmt.Errorf("failed to parse lockfile: %w", err)
 	}
 
@@ -150,29 +169,14 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 		lockfile.Bundles = make(map[trust.BundleKey]LockEntry)
 	}
 
-	// Self-heal legacy schema-version residue (ctxloom_version: v1). The field no
-	// longer exists on LockEntry, so re-marshalling drops it; persist the cleaned
-	// form up front rather than waiting for the next sync. Best-effort: a write
-	// failure leaves the (still-valid) in-memory lockfile untouched.
-	//
-	// The trigger is the KEY, not the characters. A read that writes has to be
-	// sure it has something to clean: re-marshalling replaces the file with the
-	// struct's view of it, discarding comments and any key this version does not
-	// model, and a repository URL, a bundle path or a retraction reason may
-	// mention "ctxloom_version" without one existing anywhere.
-	if hasLegacySchemaField(data) {
-		if err := m.write(&lockfile); err != nil {
-			clidiag.Warn("ctxloom", "failed to clean legacy lockfile %s: %v", path, err)
+	if len(r.Applied) > 0 && schemaver.WriteUpgrades() {
+		if err := schemaver.WriteBack(m.fs, path, r, nil); err != nil {
+			return nil, err
 		}
 	}
 
 	return &lockfile, nil
 }
-
-// legacySchemaField is the retired per-entry schema-version key. Git tag/SHA is
-// the sole content version now; an entry still carrying it is pre-removal
-// residue.
-const legacySchemaField = "ctxloom_version"
 
 // retiredHoldField is the pre-rename spelling of LockEntry.Held. A hold is a
 // user DECISION, so a file still using this key is refused by name rather than
@@ -183,15 +187,13 @@ const retiredHoldField = "pinned"
 // LockfileVersion or carries a key that is not its own bundle identity.
 var ErrLockKeyFormRetired = errors.New("lockfile uses a retired key form")
 
-// findRetiredKeyForm reports whether data is a lockfile this build must not
-// read — a version below LockfileVersion, or any key k that is not
-// trust.ParseBundleRef(k).BundleIdentity() — and, when it is, the keys of the
-// entries it holds (sorted), so the refusal can list them for re-holding.
-// Unparseable input reports false and leaves the loader's own yaml.Unmarshal
-// to produce the error.
+// findRetiredKeyForm reports whether data carries any key k that is not
+// trust.ParseBundleRef(k).BundleIdentity(), and the keys of the entries it
+// holds (sorted), so a refusal can list them for re-holding. The version half
+// of the retired form is lockfileKind's to judge. Unparseable input reports
+// false and leaves the loader's own decode to produce the error.
 func findRetiredKeyForm(data []byte) (held []string, found bool) {
 	var doc struct {
-		Version int `yaml:"version"`
 		Bundles map[string]struct {
 			Held bool `yaml:"held"`
 		} `yaml:"bundles"`
@@ -199,7 +201,6 @@ func findRetiredKeyForm(data []byte) (held []string, found bool) {
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, false
 	}
-	found = doc.Version < LockfileVersion
 	for key, entry := range doc.Bundles {
 		if !IsBundleIdentity(key) {
 			found = true
@@ -234,8 +235,7 @@ func retiredKeyFormError(path string, held []string) error {
 // findRetiredHoldField returns the first bundle entry carrying the retired hold
 // key as a FIELD, and whether one was found. Parsing is what separates a key
 // from a URL, a bundle path or a retraction reason that merely contains the
-// word — the same distinction hasLegacySchemaField draws, for the same reason.
-// Unparseable input reports false and leaves the loader's own yaml.Unmarshal to
+// word. Unparseable input reports false and leaves the loader's own yaml.Unmarshal to
 // produce the error.
 func findRetiredHoldField(data []byte) (string, bool) {
 	var doc struct {
@@ -257,26 +257,6 @@ func findRetiredHoldField(data []byte) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// hasLegacySchemaField reports whether any bundle entry in data carries the
-// retired key as a FIELD. Parsing the document is what separates a key from a
-// URL, a path or a sentence that happens to contain the same characters.
-// Unparseable input reports false: the loader's own yaml.Unmarshal will surface
-// that as an error, and a file nobody can read is not a file to rewrite.
-func hasLegacySchemaField(data []byte) bool {
-	var doc struct {
-		Bundles map[string]map[string]any `yaml:"bundles"`
-	}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return false
-	}
-	for _, entry := range doc.Bundles {
-		if _, ok := entry[legacySchemaField]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 // ErrLockfileWouldErase reports a refused write: the incoming lockfile is
@@ -366,6 +346,12 @@ func (m *LockfileManager) guardDestructiveWrite(incoming *Lockfile, o saveOption
 			ErrLockfileUnreadable, path, err)
 	}
 
+	// A newer lockfile is not this binary's to replace: the write would
+	// downgrade it, dropping whatever the newer format records.
+	if _, verr := lockfileKind.Upgrade(data); errors.Is(verr, schemaver.ErrNewer) {
+		return fmt.Errorf("lockfile %s: %w", path, verr)
+	}
+
 	var current Lockfile
 	if uerr := yaml.Unmarshal(data, &current); uerr != nil {
 		return fmt.Errorf("%w: %s: %v (fix the file, or delete it to start a fresh lock — every hold and retraction it records will be lost)",
@@ -382,7 +368,7 @@ func (m *LockfileManager) guardDestructiveWrite(incoming *Lockfile, o saveOption
 }
 
 // write marshals the lockfile and atomically replaces the on-disk file without
-// modifying LockedAt. Shared by Save and the load-time self-heal.
+// modifying LockedAt.
 func (m *LockfileManager) write(lockfile *Lockfile) error {
 	data, err := yaml.Marshal(lockfile)
 	if err != nil {

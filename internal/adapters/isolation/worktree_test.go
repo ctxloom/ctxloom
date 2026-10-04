@@ -14,6 +14,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -31,7 +33,7 @@ func TestWorktree_AMemberWithoutAUsableHarpIsRefused(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := &git.Fake{CommonDirValue: t.TempDir()}
-			w := NewWorktree(f)
+			w := sessionWorktree(t, f)
 			w.state = tc.state
 			ws, err := w.prepareWorkspace(context.Background(), "/proj", "member-a")
 			require.ErrorIs(t, err, tc.want)
@@ -41,29 +43,37 @@ func TestWorktree_AMemberWithoutAUsableHarpIsRefused(t *testing.T) {
 	}
 }
 
-// TestHostSecretsDiskParent_RefusesWithoutAUsableHarp: a host run's on-disk
-// secrets parent is its session's scratch dir; with no usable harp there is
-// none, and the answer is the refusal, not a shared directory instead.
-func TestHostSecretsDiskParent_RefusesWithoutAUsableHarp(t *testing.T) {
-	_, err := hostSecretsDiskParent(SessionState{})
-	require.ErrorIs(t, err, errNoSessionHarp)
-	_, err = hostSecretsDiskParent(SessionState{Harp: ".."})
-	require.ErrorIs(t, err, errUnsafeSessionHarp)
+// TestHostStageCred_RefusesWithoutAUsableHarp: a host run's secrets go on
+// disk under its session's scratch dir; with no usable harp there is none,
+// and the answer is the refusal, not a shared directory instead.
+func TestHostStageCred_RefusesWithoutAUsableHarp(t *testing.T) {
+	for state, want := range map[SessionState]error{
+		{}:           errNoSessionHarp,
+		{Harp: ".."}: errUnsafeSessionHarp,
+	} {
+		e := &hostEnvironment{state: state}
+		_, err := e.stageCred(map[string]string{sessions.EnvCoordCred: "cred"})
+		require.ErrorIs(t, err, want)
+		assert.Nil(t, e.secrets, "no secrets file is made")
+	}
 }
 
-// TestWorktree_PrepareCreatesWorktree: in a repo, PrepareWorkspace adds a detached
-// worktree under the OS temp dir (NOT inside the repo) and exposes it as Dir(),
-// with the env for what it provisioned.
+// TestWorktree_PrepareCreatesWorktree: in a repo, PrepareWorkspace adds a
+// worktree in the run's session work/ dir (NOT inside the repo) and exposes it
+// as Dir(), with the env for what it provisioned.
 func TestWorktree_PrepareCreatesWorktree(t *testing.T) {
 	common := t.TempDir() // stand-in .git common dir so the exclude write succeeds
 	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f).prepareWorkspace(context.Background(), "/proj", "member-a")
+	w := sessionWorktree(t, f)
+	ws, err := w.prepareWorkspace(context.Background(), "/proj", "member-a")
 	require.NoError(t, err)
 	// Safety net registered BEFORE any assertion below can fail/panic and skip
 	// the ws.Cleanup() call at the end of this test (see requireCleanWorkspace).
 	requireCleanWorkspace(t, ws)
 
-	assert.True(t, strings.HasPrefix(ws.Dir(), os.TempDir()), "worktree lives under the OS temp dir, not the repo tree")
+	work, err := paths.HarpWorkDir(w.state.Harp)
+	require.NoError(t, err)
+	assert.Equal(t, work, filepath.Dir(ws.Dir()), "worktree lives in the run's session work dir, not the repo tree")
 	assert.NotContains(t, ws.Dir(), "/proj/", "worktree is not created inside the project tree")
 
 	// The Fake records exactly one add: checked out to HEAD on a NEW branch
@@ -75,7 +85,7 @@ func TestWorktree_PrepareCreatesWorktree(t *testing.T) {
 	assert.False(t, f.Worktrees[0].Detached, "never detached")
 	assert.Equal(t, worktreeBranchName(ws.Dir()), f.Worktrees[0].Branch,
 		"on the branch derived from the checkout's own name")
-	assert.True(t, strings.HasPrefix(f.Worktrees[0].Branch, worktreeBranchPrefix+"member-a-"),
+	assert.True(t, strings.HasPrefix(f.Worktrees[0].Branch, worktreeBranchPrefix+"member-a"),
 		"the branch carries the agent id under the agent namespace")
 
 	env := workspaceEnv(ws)
@@ -101,7 +111,7 @@ func TestWorktree_SkipsTrackedConfig(t *testing.T) {
 		CommonDirValue: common,
 		TrackedFiles:   []string{".mcp.json", ".claude/settings.json"},
 	}
-	ws, err := NewWorktree(f).prepareWorkspace(context.Background(), "/proj", "member-t")
+	ws, err := sessionWorktree(t, f).prepareWorkspace(context.Background(), "/proj", "member-t")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ws.Cleanup() })
 	requireCleanWorkspace(t, ws)
@@ -114,7 +124,7 @@ func TestWorktree_SkipsTrackedConfig(t *testing.T) {
 // the caller degrades to None. None never fails.
 func TestWorktree_DegradesOnNonRepo(t *testing.T) {
 	f := &git.Fake{Repos: map[string]bool{}} // no dirs are repos
-	_, err := NewWorktree(f).prepareWorkspace(context.Background(), "/not-a-repo", "m")
+	_, err := sessionWorktree(t, f).prepareWorkspace(context.Background(), "/not-a-repo", "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a git repository")
 	assert.Empty(t, f.Calls, "no worktree add is attempted on a non-repo")
@@ -124,7 +134,7 @@ func TestWorktree_DegradesOnNonRepo(t *testing.T) {
 // degrades), never returning a half-built workspace.
 func TestWorktree_DegradesOnAddFailure(t *testing.T) {
 	f := &git.Fake{AddErr: assertErr("disk full")}
-	_, err := NewWorktree(f).prepareWorkspace(context.Background(), "/proj", "m")
+	_, err := sessionWorktree(t, f).prepareWorkspace(context.Background(), "/proj", "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "worktree add")
 }
@@ -281,7 +291,7 @@ func TestWorktree_CheckoutAndScratchLiveInTheSessionDir(t *testing.T) {
 	home := testsupport.Isolate(t)
 	f := &git.Fake{CommonDirValue: t.TempDir()}
 
-	w := NewWorktree(f)
+	w := sessionWorktree(t, f)
 	w.state = SessionState{Harp: "brisk-teal-otter"}
 	ws, err := w.prepareWorkspace(context.Background(), "/proj", "member-a")
 	require.NoError(t, err)
@@ -323,7 +333,7 @@ func TestWorktree_CheckoutAndScratchLiveInTheSessionDir(t *testing.T) {
 func TestWorktree_ScratchDir_TMPDIRAndGOTMPDIRMatchAndExist(t *testing.T) {
 	common := t.TempDir()
 	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f).prepareWorkspace(context.Background(), "/proj", "member-scratch")
+	ws, err := sessionWorktree(t, f).prepareWorkspace(context.Background(), "/proj", "member-scratch")
 	require.NoError(t, err)
 	requireCleanWorkspace(t, ws)
 
@@ -359,7 +369,7 @@ func TestWorktree_ConcurrentAgents_DisjointScratchDirs(t *testing.T) {
 		wg.Add(1)
 		go func(i int, agentID string) {
 			defer wg.Done()
-			ws, err := NewWorktree(f).prepareWorkspace(context.Background(), "/proj", agentID)
+			ws, err := sessionWorktree(t, f).prepareWorkspace(context.Background(), "/proj", agentID)
 			results[i] = result{ws: ws, env: workspaceEnv(ws), err: err}
 		}(i, agentID)
 	}
@@ -385,7 +395,7 @@ func TestWorktree_ConcurrentAgents_DisjointScratchDirs(t *testing.T) {
 func TestWorktree_ScratchDir_CleanedUpOnTeardown(t *testing.T) {
 	common := t.TempDir()
 	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f).prepareWorkspace(context.Background(), "/proj", "member-teardown")
+	ws, err := sessionWorktree(t, f).prepareWorkspace(context.Background(), "/proj", "member-teardown")
 	require.NoError(t, err)
 	requireCleanWorkspace(t, ws)
 
@@ -407,7 +417,7 @@ func TestWorktree_ScratchDir_CleanedUpOnTeardown(t *testing.T) {
 func TestWorktree_GitIdentity_AttributesToAgentNotHuman(t *testing.T) {
 	common := t.TempDir()
 	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f).prepareWorkspace(context.Background(), "/proj", "reviewer-3")
+	ws, err := sessionWorktree(t, f).prepareWorkspace(context.Background(), "/proj", "reviewer-3")
 	require.NoError(t, err)
 	requireCleanWorkspace(t, ws)
 
@@ -446,7 +456,7 @@ func TestWorktree_PanicRecoveryPrunesRegistration(t *testing.T) {
 	t.Setenv("TMPDIR", tmp)
 
 	f := &git.Fake{}
-	w := NewWorktree(panicAfterAddGit{Fake: f})
+	w := sessionWorktree(t, panicAfterAddGit{Fake: f})
 	assert.Panics(t, func() {
 		_, _ = w.prepareWorkspace(context.Background(), "/proj", "member-panic")
 	}, "the original failure is preserved, not swallowed")
@@ -465,9 +475,9 @@ func TestWorktree_PanicRecoveryPrunesRegistration(t *testing.T) {
 
 // TestNestedUnder_MatchesRealpathResolvedPaths is a red-first pin.
 // `git worktree list --porcelain` reports every path REALPATH-RESOLVED, while
-// the target teardown is given is whatever scratchBase built — os.TempDir() on
-// macOS is /var/folders/… behind the /var → /private/var symlink, and a
-// symlinked HOME does the same to the session work dir. Matching by raw
+// the target teardown is given is whatever checkoutPath built — a symlinked
+// HOME (macOS's /var → /private/var, or any user's) puts the session work dir
+// behind a symlink. Matching by raw
 // string prefix then finds nothing nested, so the inner-first removal never
 // happens.
 func TestNestedUnder_MatchesRealpathResolvedPaths(t *testing.T) {
@@ -490,48 +500,6 @@ func TestNestedUnder_MatchesRealpathResolvedPaths(t *testing.T) {
 		"resolving the target must not widen the match to unrelated trees")
 }
 
-// TestWorktree_UnsafeHarpIsReported pins that scratchBase runs the
-// SAME safePathSegment validator on the SAME untrusted input the container
-// path validates (a harp arriving from the env map), but where the container
-// path turns a rejection into a hard error, this one silently swapped in the
-// OS temp dir: no warning, no finding, and a run that reports session-scoped
-// ephemeral state while writing none. The EMPTY harp keeps its silence — that
-// is the documented no-session-accounting construction, not a rejected value.
-func TestWorktree_UnsafeHarpIsReported(t *testing.T) {
-	t.Run("rejected harp is reported", func(t *testing.T) {
-		const badHarp = "wave31/u065-unsafe-harp"
-		f := &git.Fake{CommonDirValue: t.TempDir()}
-		w := NewWorktree(f)
-		w.state = SessionState{Harp: badHarp}
-
-		done := captureStderr(t)
-		ws, err := w.prepareWorkspace(context.Background(), "/proj", "member-badharp")
-		stderr := done()
-		require.NoError(t, err)
-		requireCleanWorkspace(t, ws)
-		t.Cleanup(func() { _ = ws.Cleanup() })
-
-		assert.Contains(t, stderr, badHarp, "the warning names the harp it refused to use")
-		assert.True(t, strings.HasPrefix(ws.Dir(), filepath.Clean(os.TempDir())+string(os.PathSeparator)),
-			"the fallback itself is unchanged: scratch %q lands in the OS temp dir", ws.Dir())
-	})
-
-	t.Run("absent harp stays silent", func(t *testing.T) {
-		f := &git.Fake{CommonDirValue: t.TempDir()}
-		w := NewWorktree(f)
-
-		done := captureStderr(t)
-		ws, err := w.prepareWorkspace(context.Background(), "/proj", "member-noharp")
-		stderr := done()
-		require.NoError(t, err)
-		requireCleanWorkspace(t, ws)
-		t.Cleanup(func() { _ = ws.Cleanup() })
-
-		assert.Empty(t, strings.TrimSpace(stderr),
-			"no session accounting is the documented construction, not a fault to warn about")
-	})
-}
-
 // TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern pins a claim, and
 // the row is REFUTED. The claim is that excludeConfigFromMerge "reports success
 // having written zero bytes when handed an empty pattern list", because
@@ -548,7 +516,7 @@ func TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern(t *testing.T) {
 
 	common := t.TempDir()
 	f := &git.Fake{CommonDirValue: common}
-	NewWorktree(f).excludeConfigFromMerge(context.Background(), "/proj")
+	sessionWorktree(t, f).excludeConfigFromMerge(context.Background(), "/proj")
 
 	raw, err := os.ReadFile(filepath.Join(common, "info", "exclude"))
 	require.NoError(t, err, "the exclude file must exist")
@@ -579,7 +547,7 @@ func TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern(t *testing.T) {
 func TestWorktreeCleanup_NoResourceStrandedByTheDirGuard(t *testing.T) {
 	withFakeHome(t)
 	f := &git.Fake{CommonDirValue: t.TempDir()}
-	ws, err := NewWorktree(f).prepareWorkspace(context.Background(), "/proj", "member-a")
+	ws, err := sessionWorktree(t, f).prepareWorkspace(context.Background(), "/proj", "member-a")
 	require.NoError(t, err)
 	requireCleanWorkspace(t, ws)
 	concrete, ok := ws.(*worktreeWorkspace)
@@ -646,7 +614,7 @@ func TestWorktree_ResumeFindsItsOwnSurvivingCheckout(t *testing.T) {
 	testsupport.Isolate(t)
 	f := &git.Fake{CommonDirValue: t.TempDir()}
 
-	w1 := NewWorktree(f)
+	w1 := sessionWorktree(t, f)
 	w1.state = SessionState{Harp: "resume-harp-a"}
 	ws1, err := w1.prepareWorkspace(context.Background(), "/proj", "worker")
 	require.NoError(t, err, "first (original) run prepares normally")
@@ -666,7 +634,7 @@ func TestWorktree_ResumeFindsItsOwnSurvivingCheckout(t *testing.T) {
 	// Resume: a FRESH Worktree value (a new process), but the SAME harp and
 	// the SAME agentID — precisely what the coordinator's resume path
 	// (currentRun(harp)) hands back to PrepareWorkspace.
-	w2 := NewWorktree(f)
+	w2 := sessionWorktree(t, f)
 	w2.state = SessionState{Harp: "resume-harp-a"}
 	ws2, err := w2.prepareWorkspace(context.Background(), "/proj", "worker")
 	require.NoError(t, err, "resume must succeed — reuse or a named refusal, never a silent fresh checkout")
@@ -697,17 +665,18 @@ func TestWorktree_RefusesAStrangerAtTheResumePath(t *testing.T) {
 	testsupport.Isolate(t)
 	f := &git.Fake{CommonDirValue: t.TempDir()}
 
-	w := NewWorktree(f)
+	w := sessionWorktree(t, f)
 	w.state = SessionState{Harp: "resume-harp-b"}
 
 	// Pre-create the deterministic path by hand, WITHOUT registering it as a
 	// git worktree — the "stranger" case: something occupies the path that
 	// git itself does not recognize as this repo's checkout.
-	path := w.checkoutPath("worker")
+	path, err := w.checkoutPath("worker")
+	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(path, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(path, "not-mine.txt"), []byte("x"), 0o644))
 
-	_, err := w.prepareWorkspace(context.Background(), "/proj", "worker")
+	_, err = w.prepareWorkspace(context.Background(), "/proj", "worker")
 	require.Error(t, err, "an unverifiable occupant at the resume path must refuse, not adopt or silently degrade")
 	assert.Contains(t, err.Error(), strconv.Quote(path), "the refusal names the path, quoted")
 }
@@ -721,14 +690,15 @@ func TestWorktree_RefusesWrongBranchAtTheResumePath(t *testing.T) {
 	testsupport.Isolate(t)
 	f := &git.Fake{CommonDirValue: t.TempDir()}
 
-	w := NewWorktree(f)
+	w := sessionWorktree(t, f)
 	w.state = SessionState{Harp: "resume-harp-c"}
 
-	path := w.checkoutPath("worker")
+	path, err := w.checkoutPath("worker")
+	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(path, 0o755))
 	f.Worktrees = []git.Worktree{{Path: path, Branch: "some/unrelated-branch"}}
 
-	_, err := w.prepareWorkspace(context.Background(), "/proj", "worker")
+	_, err = w.prepareWorkspace(context.Background(), "/proj", "worker")
 	require.Error(t, err, "a registered worktree on the wrong branch is not provably this agent's own")
 	assert.Contains(t, err.Error(), strconv.Quote(path))
 }

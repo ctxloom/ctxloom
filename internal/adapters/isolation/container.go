@@ -109,7 +109,7 @@ type Container struct {
 	// state is the run's session identity (harp + project id), stamped by
 	// Prepare (withSessionState); it scopes the read-write state mounts that
 	// keep transcripts/session artifacts/task writes durable across teardown
-	// (sessionStateMounts). Zero on paths without session accounting.
+	// (sessionStateMounts). A zero harp is refused (SessionState.scratchDir).
 	state SessionState
 	// git is the DI seam used to resolve the live project's git common-dir when
 	// the project is itself a LINKED WORKTREE (or submodule) — see

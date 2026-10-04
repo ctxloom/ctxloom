@@ -298,7 +298,9 @@ func TestSpecBuilder_SessionStateCarriesTheRunsHarp(t *testing.T) {
 			require.ErrorIs(t, err, ErrSpecIncomplete)
 		})
 	}
-	_, err := NewSpec(hostAxes, mock.New()).Project(t.TempDir()).Session(harpA, t.TempDir(), SessionState{Harp: harpA}).Build()
+	_, err := NewSpec(hostAxes, mock.New()).Project(t.TempDir()).Session("..", t.TempDir(), SessionState{Harp: ".."}).Build()
+	require.ErrorIs(t, err, ErrSpecIncomplete, "a harp that is not a safe path segment names no session member")
+	_, err = NewSpec(hostAxes, mock.New()).Project(t.TempDir()).Session(harpA, t.TempDir(), SessionState{Harp: harpA}).Build()
 	require.NoError(t, err, "the run's own harp is accepted")
 }
 

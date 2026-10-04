@@ -177,7 +177,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	// container-worktree can't launch (unavailable runtime) → degrade; the bare
 	// worktree prepares → chain stops there.
 	failing := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, &git.Fake{CommonDirValue: common})
-	working := NewWorktree(&git.Fake{CommonDirValue: common})
+	working := sessionWorktree(t, &git.Fake{CommonDirValue: common})
 	pol, ws := prepareChain(ctx, []policy{failing, working, None{}}, surveyRuntimes(), RuntimeContainerRootless, "/proj", "m")
 	require.NotNil(t, ws)
 	// Safety net registered BEFORE the assertions below can fail/panic and skip
@@ -193,7 +193,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	pol2, ws2 := prepareChain(ctx,
 		[]policy{
 			NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, nonRepo),
-			NewWorktree(nonRepo),
+			sessionWorktree(t, nonRepo),
 			None{},
 		}, surveyRuntimes(), RuntimeContainerRootless, "/proj", "m")
 	require.NotNil(t, ws2)

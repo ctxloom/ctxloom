@@ -327,7 +327,7 @@ func isoIsPerAgentScratch(w *World, val string) bool {
 	// sessions root (~/.ctxloom/sessions/<harp>/home/<leaf>, paths.HarpSessionEngineHomes),
 	// so "under sessions/" no longer means scratch. The per-agent worktree
 	// checkout is the harp's WORK member and its toolchain scratch its
-	// SCRATCH member (Worktree.checkoutBase, Worktree.scratchBase); the
+	// SCRATCH member (SessionState.workDir, SessionState.scratchDir); the
 	// instance is its HOME member. Discriminate on the member RELATIVE TO the
 	// sessions root — the absolute path may pass through an unrelated
 	// directory of the same name (the outer sandbox worktree).

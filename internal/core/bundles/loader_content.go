@@ -164,7 +164,7 @@ type ContentInfo struct {
 }
 
 // ListAllFragments returns info about all fragments across all bundles.
-func (c Catalog) ListAllFragments() ([]ContentInfo, error) {
+func (c Catalog) ListAllFragments() []ContentInfo {
 	var infos []ContentInfo
 	seen := collections.NewSet[string]()
 
@@ -194,7 +194,7 @@ func (c Catalog) ListAllFragments() ([]ContentInfo, error) {
 		}
 	}
 
-	return infos, nil
+	return infos
 }
 
 // ListAllCommands returns info about all commands across all bundles. Unlike
@@ -205,7 +205,7 @@ func (c Catalog) ListAllFragments() ([]ContentInfo, error) {
 // fabricated placeholder. This is a genuine, permanent shape difference
 // between the two item kinds, not drift to reconcile.
 // reprise:accept-drift
-func (c Catalog) ListAllCommands() ([]ContentInfo, error) {
+func (c Catalog) ListAllCommands() []ContentInfo {
 	seen := collections.NewSet[string]()
 	var infos []ContentInfo
 	for _, read := range c.Reads() {
@@ -232,7 +232,7 @@ func (c Catalog) ListAllCommands() ([]ContentInfo, error) {
 		}
 	}
 
-	return infos, nil
+	return infos
 }
 
 // ReadFragment reports every fragment this reader holds under name, with the
@@ -576,11 +576,8 @@ func (c Catalog) searchCommand(name string) ([]*ItemRead, error) {
 }
 
 // ByTags returns fragments matching any of the given tags.
-func (c Catalog) ByTags(tags []string) ([]ContentInfo, error) {
-	all, err := c.ListAllFragments()
-	if err != nil {
-		return nil, err
-	}
+func (c Catalog) ByTags(tags []string) []ContentInfo {
+	all := c.ListAllFragments()
 
 	tagSet := collections.NewSetFrom(tags...)
 
@@ -591,7 +588,7 @@ func (c Catalog) ByTags(tags []string) ([]ContentInfo, error) {
 		}
 	}
 
-	return matched, nil
+	return matched
 }
 
 // ExpandedRef is one fragment produced by expanding a profile bundle reference.

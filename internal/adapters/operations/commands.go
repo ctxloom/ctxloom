@@ -50,10 +50,7 @@ func ListCommands(ctx context.Context, cfg *config.Config, req ListCommandsReque
 		loader = bundleLoader(cfg)
 	}
 
-	infos, err := loader.ListAllCommands()
-	if err != nil {
-		return nil, err
-	}
+	infos := loader.ListAllCommands()
 
 	// Filter by query if provided (name match, matching the prior behavior).
 	if req.Query != "" {

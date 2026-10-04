@@ -71,15 +71,10 @@ func ListFragments(ctx context.Context, cfg *config.Config, req ListFragmentsReq
 	}
 
 	var infos []bundles.ContentInfo
-	var err error
-
 	if len(req.Tags) > 0 {
-		infos, err = loader.ListByTags(req.Tags)
+		infos = loader.ListByTags(req.Tags)
 	} else {
-		infos, err = loader.ListAllFragments()
-	}
-	if err != nil {
-		return nil, err
+		infos = loader.ListAllFragments()
 	}
 
 	// Filter by query if provided

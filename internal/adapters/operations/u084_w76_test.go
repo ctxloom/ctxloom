@@ -252,29 +252,16 @@ func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
 //
 // The claim says ListFragments "returns the loader's error verbatim with no
 // context — the caller cannot tell whether tag-listing or full-listing
-// failed". Measured against the code, that consequence cannot occur:
+// failed". The bundle listers it reads (bundles.Loader.ListAllFragments,
+// ListByTags) return no error at all: every read fault (unreadable bundles
+// root, un-walkable directory, corrupt bundle file) is reported through
+// strictness.Fail, which streams a diagnostic to stderr in BOTH modes and
+// records a fatal-class finding in strict mode. So the information the claim
+// says is lost is delivered — on a different channel than a return value.
 //
-//  1. bundles.Loader.List() has exactly one non-callback return statement,
-//     `return bundles, nil`. It structurally cannot return a non-nil error.
-//     Every read fault (unreadable bundles root, un-walkable directory,
-//     corrupt bundle file) is reported through strictness.Fail, which streams
-//     a diagnostic to stderr in BOTH modes and records a fatal-class finding
-//     in strict mode. So the information the claim says is lost is delivered —
-//     just on a different channel than the return value.
-//  2. ListAllFragments and ListByTags each propagate only that error, so both
-//     are equally incapable of failing; ListByTags is IMPLEMENTED as a filter
-//     over ListAllFragments, so even a hypothetical error would be the same
-//     error from the same origin. The distinction the claim asks ListFragments
-//     to draw does not exist below it.
-//
-// The `if err != nil` at fragments.go:60 is therefore an unreachable branch,
-// not a lossy one. Wrapping it would add context to an error that is never
-// constructed — and no pin could drive that wrapping red, because
-// ListFragments takes a CONCRETE *bundles.Loader with no failure seam.
-//
-// What this test holds instead: a genuinely unreadable bundles root produces
-// a nil error AND a loud stderr line, which is the behaviour the claim assumed
-// was missing.
+// What this test holds: a genuinely unreadable bundles root produces a nil
+// error AND a loud stderr line, which is the behaviour the claim assumed was
+// missing.
 func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores the 0000 mode bit, so the fixture cannot be made hostile")

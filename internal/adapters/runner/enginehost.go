@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"strings"
@@ -166,6 +167,9 @@ type EngineHost struct {
 	// turn — and refuses every later turn.
 	driver engine.StructuredDriver
 	exec   engine.Exec
+	// secretFiles are the launch's secret variables and the files that hold
+	// them (launch.Placement.SecretFiles), re-read at every turn (turnExec).
+	secretFiles map[string]string
 	// posture is every turn's permission posture; each turn adds the
 	// session grants its approval route holds (approvals.heldGrants).
 	posture engine.TurnPosture
@@ -461,6 +465,7 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	eh.started = true
 	eh.driver = t.Instance.Drivers()[0]
 	eh.exec = t.Exec
+	eh.secretFiles = t.Launch.Cell.SecretFiles
 	eh.nativeKey = t.Launch.Resume.NativeKey
 	ctx, cancel := context.WithCancel(eh.baseCtx)
 	eh.cancel = cancel
@@ -698,7 +703,7 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	home := eh.home
 	ctx := eh.runCtx
 	driver := eh.driver
-	ex := eh.exec
+	ex, secretErr := turnExec(eh.exec, eh.secretFiles)
 	posture := eh.posture
 	rec := eh.rec
 	appr := eh.approvals
@@ -768,7 +773,11 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 		}
 	}()
 
-	res, err := driver.Turn(turnCtx, ex, engine.Turn{Prompt: text, Resume: key, Posture: posture}, out)
+	var res engine.TurnResult
+	var err error
+	if secretErr == nil {
+		res, err = driver.Turn(turnCtx, ex, engine.Turn{Prompt: text, Resume: key, Posture: posture}, out)
+	}
 	interrupted := turnCtx.Err() != nil && ctx.Err() == nil
 	close(out)
 	<-adapted
@@ -818,6 +827,10 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	final := eh.takeTurnFinal()
 	if final == "" {
 		final = res.Answer
+	}
+	if secretErr != nil {
+		final = "TURN FAILED: the run's secrets could not be read, so the engine was not started and the prompt was NOT done — resend it once they can be: " + secretErr.Error()
+		eh.rep.Warnf("engine host: this turn did not run: %v", secretErr)
 	}
 	if interrupted {
 		final = strings.TrimSpace(interruptedTurnNote + "\n\n" + final)
@@ -1348,4 +1361,26 @@ func asciiLower(s string) string {
 		}
 	}
 	return string(out)
+}
+
+// turnExec is the exec one turn's engine process starts from: ex, with each
+// secret variable laid over its env as its file holds it NOW — so a secrets
+// file rewritten while the run lives (a restarted coordinator's fresh
+// credential) reaches the next turn. A file that cannot be read fails the
+// turn (ErrSecretUnreadable) rather than starting it on a stale value.
+func turnExec(ex engine.Exec, secretFiles map[string]string) (engine.Exec, error) {
+	if len(secretFiles) == 0 {
+		return ex, nil
+	}
+	vals, err := readSecretFiles(secretFiles)
+	if err != nil {
+		return ex, err
+	}
+	env := maps.Clone(ex.Env)
+	if env == nil {
+		env = map[string]string{}
+	}
+	maps.Copy(env, vals)
+	ex.Env = env
+	return ex, nil
 }

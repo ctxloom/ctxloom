@@ -70,6 +70,7 @@ func (stubEnvironment) Interactive(context.Context, isolation.RunnerRequest) (is
 	return isolation.Interactive{}, nil
 }
 func (stubEnvironment) Describe() isolation.Description { return isolation.Description{} }
+func (stubEnvironment) SecretsFile() string             { return "" }
 func (stubEnvironment) Cleanup() error                  { return nil }
 
 // stubPrepareEnvironment swaps the cells adapter's isolation seam for one

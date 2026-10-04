@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -66,8 +68,14 @@ type fakeSpawner struct {
 	// credentialFor, when set, names each agent's credential source on the
 	// launch it resolves (launch.Cell.Credential), as the cells adapter does
 	// from the credentials it resolved.
-	credentialFor func(agentName string) engine.CredentialSource
-	kills         []func()
+	credentialFor func(agentName string) engine.Credentials
+	// secretsDir and secretAgents, when set, give each named agent's run a
+	// real secrets file under secretsDir holding its credential, named on
+	// its cell as a container's is (Placement.SecretFiles, Cell.SecretsFile):
+	// its runner reads the file at every turn.
+	secretsDir   string
+	secretAgents map[string]bool
+	kills        []func()
 	// released[i] closes when the i-th engine's Kill fired — the seam a
 	// production child's container teardown hangs off. A test that must
 	// prove a stop RELEASED the child watches this rather than inferring it
@@ -314,7 +322,11 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 		Prompt:     start.Prompt,
 		Resume:     sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey},
 	}
-	l.Cell.Credential = s.credentialOf(plan.AgentName)
+	creds := s.credentialOf(plan.AgentName)
+	l.Cell.Credential, l.Cell.CredentialFingerprint = creds.Source("mock"), creds.Fingerprint()
+	if err := s.secretsCell(&l.Cell, plan.AgentName, start.Identity.Harp, creds); err != nil {
+		return Resolved{}, err
+	}
 	plan.Launch = l
 	s.mu.Lock()
 	s.launches = append(s.launches, l)
@@ -322,11 +334,33 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 	return Resolved{Launch: l}, nil
 }
 
-// credentialOf is agentName's credential source: credentialFor's answer, the
-// zero source without one.
-func (s *fakeSpawner) credentialOf(agentName string) engine.CredentialSource {
+// secretsCell gives agentName's cell a real secrets file holding creds, named
+// as a container's is, when secretsDir and secretAgents ask for one.
+func (s *fakeSpawner) secretsCell(cell *launch.Cell, agentName, harp string, creds engine.Credentials) error {
+	if s.secretsDir == "" || !s.secretAgents[agentName] || len(creds.Env) == 0 {
+		return nil
+	}
+	file := filepath.Join(s.secretsDir, harp+".env")
+	b, err := sessions.EncodeSecrets(creds.Env)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(file, b, 0o600); err != nil {
+		return err
+	}
+	cell.SecretFiles = make(map[string]string, len(creds.Env))
+	for v := range creds.Env {
+		cell.SecretFiles[v] = file
+	}
+	cell.SecretsFile = file
+	return nil
+}
+
+// credentialOf is agentName's credentials: credentialFor's answer, none
+// without one.
+func (s *fakeSpawner) credentialOf(agentName string) engine.Credentials {
 	if s.credentialFor == nil {
-		return engine.CredentialSource{}
+		return engine.Credentials{}
 	}
 	return s.credentialFor(agentName)
 }

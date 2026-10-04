@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -123,6 +124,60 @@ func (f *secretsFile) put(vals map[string]string) error {
 		return fmt.Errorf("run secrets: write %s: %w", f.path(), err)
 	}
 	f.values = merged
+	return nil
+}
+
+// ErrSecretsOwned refuses to take over a secrets file whose owner still
+// holds it: only a dead owner's file is a restarted coordinator's to rewrite.
+var ErrSecretsOwned = errors.New("run secrets: the secrets file's owner still holds it")
+
+// RefreshSecrets takes over the secrets file at file — a run's, left behind
+// by the coordinator process that launched it and has since ended — and
+// rewrites vals into it, keeping every other entry, atomically and
+// owner-only. It is the SAME file, in the same dir, that a container mounts
+// read-only, so the container's runner reads the new values at its next turn
+// (a dir recreated at the path would not be what the container sees).
+// Holding the dir's owner lock keeps any later prepare from sweeping it as a
+// dead owner's; release, once the run is over, removes the dir and lets go.
+func RefreshSecrets(file string, vals map[string]string) (release func(), err error) {
+	dir := filepath.Dir(file)
+	fl := flock.New(filepath.Join(dir, ownedScratchLockName), flock.SetPermissions(owneronly.FileMode))
+	locked, err := fl.TryLock()
+	if err != nil {
+		return nil, fmt.Errorf("run secrets: take over %s: %w", dir, err)
+	}
+	if !locked {
+		return nil, fmt.Errorf("%w: %s", ErrSecretsOwned, dir)
+	}
+	if err := rewriteSecrets(file, vals); err != nil {
+		_ = fl.Unlock()
+		return nil, err
+	}
+	return func() {
+		// Removed while holding the lock, as reapDeadScratch does.
+		_ = os.RemoveAll(dir)
+		_ = fl.Unlock()
+		_ = os.RemoveAll(dir)
+	}, nil
+}
+
+// rewriteSecrets lays vals over the dotenv secrets file at file.
+func rewriteSecrets(file string, vals map[string]string) error {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return fmt.Errorf("run secrets: read %s: %w", file, err)
+	}
+	merged, err := sessions.DecodeSecrets(b)
+	if err != nil {
+		return fmt.Errorf("run secrets: decode %s: %w", file, err)
+	}
+	maps.Copy(merged, vals)
+	if b, err = sessions.EncodeSecrets(merged); err != nil {
+		return err
+	}
+	if err := safefs.WriteFile(afero.NewOsFs(), file, b, owneronly.FileMode); err != nil {
+		return fmt.Errorf("run secrets: write %s: %w", file, err)
+	}
 	return nil
 }
 

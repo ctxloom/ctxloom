@@ -482,17 +482,32 @@ var ErrSecretUnreadable = errors.New("runner: a secret file the launch names cou
 // — a copy, in this process's memory — so Launch.EngineEnv hands the value to
 // the engine's process alone. The value never crossed the coordinator link:
 // the originator wrote it to the run's secrets file (sessions.EncodeSecrets),
-// mounted read-only into this runner's container. Each file is read once.
+// mounted read-only into this runner's container. Every turn reads the file
+// again (turnExec).
 func redeemSecrets(c launch.Cell) (launch.Cell, error) {
 	if len(c.SecretFiles) == 0 {
 		return c, nil
+	}
+	vals, err := readSecretFiles(c.SecretFiles)
+	if err != nil {
+		return c, err
 	}
 	env := maps.Clone(c.Env)
 	if env == nil {
 		env = map[string]string{}
 	}
+	maps.Copy(env, vals)
+	c.Env = env
+	return c, nil
+}
+
+// readSecretFiles is each secret variable's value as the file secretFiles
+// names for it holds it now, each file read once. Errors name variables and
+// files, never a value.
+func readSecretFiles(secretFiles map[string]string) (map[string]string, error) {
+	out := make(map[string]string, len(secretFiles))
 	files := map[string]map[string]string{}
-	for v, file := range c.SecretFiles {
+	for v, file := range secretFiles {
 		vals, ok := files[file]
 		if !ok {
 			b, err := os.ReadFile(file)
@@ -500,16 +515,15 @@ func redeemSecrets(c launch.Cell) (launch.Cell, error) {
 				vals, err = sessions.DecodeSecrets(b)
 			}
 			if err != nil {
-				return c, fmt.Errorf("%w: %s from %s: %w", ErrSecretUnreadable, v, file, err)
+				return nil, fmt.Errorf("%w: %s from %s: %w", ErrSecretUnreadable, v, file, err)
 			}
 			files[file] = vals
 		}
 		value, ok := vals[v]
 		if !ok {
-			return c, fmt.Errorf("%w: %s is not in %s", ErrSecretUnreadable, v, file)
+			return nil, fmt.Errorf("%w: %s is not in %s", ErrSecretUnreadable, v, file)
 		}
-		env[v] = value
+		out[v] = value
 	}
-	c.Env = env
-	return c, nil
+	return out, nil
 }

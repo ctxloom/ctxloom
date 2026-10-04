@@ -29,7 +29,27 @@ const (
 	// overloadHit: a turn the engine turns away because its server is at
 	// capacity (claude's 529) — no reset time, nothing about the credential.
 	overloadHit = "server-overloaded"
+	// credRefused: a turn the engine turns away because its credential was
+	// refused (claude's authentication_failed).
+	credRefused = "cred-refused"
 )
+
+// The fixture's shared credential: the variable carrying it, the value its
+// runs launch with (refused, under credRefused), and the fresh one a human
+// re-authenticates with.
+const (
+	tokenVar     = "CLAUDE_CODE_OAUTH_TOKEN"
+	refusedToken = "sk-fixture-shared-token"
+	freshToken   = "sk-fixture-fresh-token"
+)
+
+// envOf is an environment lookup over env alone.
+func envOf(env map[string]string) func(string) (string, bool) {
+	return func(k string) (string, bool) {
+		v, ok := env[k]
+		return v, ok
+	}
+}
 
 var (
 	limitResets     = fakeclock.Epoch.Add(10 * time.Minute)
@@ -37,9 +57,12 @@ var (
 )
 
 // rateFailure is the fixture's engine: the limit markers end the turn on the
-// limit, the overload marker on the server's capacity.
-func rateFailure(prompt string) *agent.TurnFailure {
+// limit, the overload marker on the server's capacity, and the refusal marker
+// on the credential — unless the turn carries the fresh one (freshToken).
+func rateFailure(ex engine.Exec, prompt string) *agent.TurnFailure {
 	switch {
+	case strings.Contains(prompt, credRefused) && ex.Env[tokenVar] != freshToken:
+		return &agent.TurnFailure{Kind: agent.FailureCredentialRejected}
 	case strings.Contains(prompt, overloadHit):
 		return &agent.TurnFailure{Kind: agent.FailureOverloaded}
 	case strings.Contains(prompt, limitHitLate):
@@ -71,7 +94,7 @@ type holdFixture struct {
 // newHoldFixtureOpts is the hold fixture with its engine's failures decided
 // by failed, its Options adjusted by opts, and the coordinator adjusted by
 // tune before any child is spawned (both may be nil).
-func newHoldFixtureOpts(t *testing.T, failed func(prompt string) *agent.TurnFailure, opts func(*Options), tune func(*Coordinator)) *holdFixture {
+func newHoldFixtureOpts(t *testing.T, failed func(ex engine.Exec, prompt string) *agent.TurnFailure, opts func(*Options), tune func(*Coordinator)) *holdFixture {
 	t.Helper()
 	resetStrictness(t)
 	teeHome(t)
@@ -79,9 +102,9 @@ func newHoldFixtureOpts(t *testing.T, failed func(prompt string) *agent.TurnFail
 	for _, name := range []string{"sibling", "stranger"} {
 		sp.agents[name] = fakeAgent{perm: "bypass", runtime: launch.RuntimeRootless}
 	}
-	shared := engine.Credentials{Env: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "v"}}.Source("mock")
-	other := engine.Credentials{Env: map[string]string{"ANTHROPIC_API_KEY": "v"}}.Source("mock")
-	sp.credentialFor = func(agentName string) engine.CredentialSource {
+	shared := engine.Credentials{Env: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": refusedToken}}
+	other := engine.Credentials{Env: map[string]string{"ANTHROPIC_API_KEY": "v"}}
+	sp.credentialFor = func(agentName string) engine.Credentials {
 		if agentName == "stranger" {
 			return other
 		}
@@ -95,6 +118,9 @@ func newHoldFixtureOpts(t *testing.T, failed func(prompt string) *agent.TurnFail
 		Spawner:    sp,
 		Reporter:   &findings,
 		OwnerHarp:  ownerIdentity().Harp,
+		// Hermetic: the developer's own exported token must never be what a
+		// restart re-resolves.
+		LookupEnv: envOf(nil),
 	}
 	if opts != nil {
 		opts(&o)
@@ -741,7 +767,7 @@ func TestRateHold_TheRosterShowsTheHold(t *testing.T) {
 		assert.Equal(t, want.Kind, got.Kind)
 		assert.Equal(t, want.Source, got.Source)
 		assert.True(t, want.Until.Equal(got.Until), "got %v", got.Until)
-		assert.NotContains(t, got.Source, "=v", "the source names the carrier, never its value")
+		assert.NotContains(t, got.Source, refusedToken, "the source names the carrier, never its value")
 	}
 	assert.Nil(t, f.holdOf(t, f.stranger), "a run on another credential is not held")
 

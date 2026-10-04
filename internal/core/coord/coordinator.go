@@ -100,6 +100,18 @@ type Options struct {
 	// time.AfterFunc. An Option rather than a field set after New, because
 	// New itself re-arms the timers of the holds it adopts.
 	AfterFunc func(d time.Duration, f func()) (stop func() bool)
+	// LookupEnv reads this process's environment (os.LookupEnv's shape). Nil
+	// = os.LookupEnv. Adoption re-resolves a refused credential's carriers
+	// through it, to tell a re-authenticated environment from the refused one
+	// (engine.EnvFingerprint); the value is digested, never kept.
+	LookupEnv func(string) (string, bool)
+	// RefreshSecrets takes over a re-adopted run's secrets file (the host
+	// path launch.Cell.SecretsFile named), left by the process that launched
+	// it, and rewrites vals into it — the credential re-resolved from THIS
+	// process's environment — returning the release to call once the run is
+	// over. Composed at the root (isolation.RefreshSecrets); nil refreshes
+	// nothing, and a re-adopted run keeps the credential it launched with.
+	RefreshSecrets func(file string, vals map[string]string) (release func(), err error)
 	// ConcurrencyCap overrides the number of concurrently EXECUTING child
 	// turns the coordinator admits (Coordinator.slots' cap). <= 0 keeps the package
 	// default (agentConcurrencyCap, children.go). This is a RESOURCE
@@ -355,6 +367,12 @@ type Coordinator struct {
 	// seam).
 	afterFunc func(d time.Duration, f func()) (stop func() bool)
 	holdStep  func(step string)
+	// lookupEnv is Options.LookupEnv, resolved.
+	lookupEnv func(string) (string, bool)
+	// refreshSecrets is Options.RefreshSecrets; secretReleases are the
+	// releases of the secrets files it took over, by run id, guarded by mu.
+	refreshSecrets func(file string, vals map[string]string) (release func(), err error)
+	secretReleases map[string]func()
 	// onAskPublished, when set, is called by controlAsk between RECORDING the
 	// ask open and PUBLISHING it — the record-before-publish test seam. It
 	// fires on that side of the publish deliberately: a hook fired after it
@@ -414,6 +432,9 @@ type Coordinator struct {
 	// big lock.
 	transportMu sync.Mutex
 	transport   Transport
+	// untilServing is what whenServing deferred to the first BindTransport.
+	// Guarded by transportMu.
+	untilServing []func()
 
 	// admissionClosed is the application-layer DRAIN flag (task
 	// definite-phoniness): BeginDrain sets it once, and every admission
@@ -562,6 +583,9 @@ func New(opts Options) (*Coordinator, error) {
 		byHarp:             make(map[string]*childRt),
 		holds:              make(map[string]*holdLocal),
 		afterFunc:          t.afterFunc,
+		lookupEnv:          t.lookupEnv,
+		refreshSecrets:     opts.RefreshSecrets,
+		secretReleases:     make(map[string]func()),
 		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*RunChannel),
@@ -613,6 +637,7 @@ func (c *Coordinator) abortNew(err error) error {
 type tunables struct {
 	now                func() time.Time
 	afterFunc          func(d time.Duration, f func()) (stop func() bool)
+	lookupEnv          func(string) (string, bool)
 	concurrencyCap     int
 	depthCap           int
 	endedRunTail       int
@@ -630,6 +655,7 @@ func resolveTunables(opts Options) tunables {
 	t := tunables{
 		now:                opts.Clock,
 		afterFunc:          opts.AfterFunc,
+		lookupEnv:          opts.LookupEnv,
 		concurrencyCap:     opts.ConcurrencyCap,
 		depthCap:           opts.Depth,
 		endedRunTail:       opts.EndedRunTail,
@@ -639,6 +665,9 @@ func resolveTunables(opts Options) tunables {
 	}
 	if t.now == nil {
 		t.now = time.Now
+	}
+	if t.lookupEnv == nil {
+		t.lookupEnv = os.LookupEnv
 	}
 	if t.afterFunc == nil {
 		t.afterFunc = func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
@@ -802,11 +831,12 @@ func (c *Coordinator) waitTracked() {
 
 // adopt reconciles state read from disk with the fresh process: queued mail
 // is preserved as-is (drainable); every non-ended run gets ONE runner-loss
-// grace window in which its runner — a container's foreground process, or a
-// host runner that is its own session leader — may dial back naming the run
+// grace window in which its runner may dial back naming the run
 // (RunnerHello.active_run_ids), whereupon readopt gives it its attachment
 // and its cell owner back; a run whose runner never returns ends as runner
-// loss. Live-child engine-stream continuity is Wave C.
+// loss. Only a container's runner can return: a host runner is signalled to
+// end with the process that started it (isolation's isolateRunner), so its
+// run ends here and its harp relaunches as a fresh run. Live-child engine-stream continuity is Wave C.
 func (c *Coordinator) adopt() {
 	type pending struct {
 		runID    string
@@ -823,6 +853,7 @@ func (c *Coordinator) adopt() {
 	})
 	for _, p := range stale {
 		runID, credHash := p.runID, p.credHash
+		c.refreshRunSecrets(runID)
 		fired := make(chan struct{})
 		var once sync.Once
 		fire := func() {

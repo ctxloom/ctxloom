@@ -1,8 +1,11 @@
 package engine
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -108,8 +111,9 @@ type SharedStore struct {
 
 // CredentialSource identifies WHERE a run's credential comes from, never what
 // it is: the engine, the NAMES of the variables that carry it, and the
-// locations of the stores it is read from. No value is read, hashed or kept,
-// so a source may be journaled and shown.
+// locations of the stores it is read from. No value is read or kept, so a
+// source may be journaled and shown; the values' digest is Fingerprint's, kept
+// apart from it.
 //
 // Two runs of one coordinator with equal Keys authenticate as one principal:
 // every run's credential is resolved from the coordinator's one launching
@@ -124,6 +128,15 @@ type CredentialSource struct {
 	// env names, else where the engine finds it under $HOME, else (a store
 	// that is no directory) the variable that names it.
 	Stores []string
+}
+
+// Carrier names what carries the credential, for a human: its variables,
+// else its stores; "" for none.
+func (s CredentialSource) Carrier() string {
+	if len(s.EnvVars) > 0 {
+		return strings.Join(s.EnvVars, ", ")
+	}
+	return strings.Join(s.Stores, ", ")
 }
 
 // Source is where c's credential comes from, for engine eng.
@@ -142,6 +155,38 @@ func (c Credentials) Source(eng Name) CredentialSource {
 	slices.Sort(src.Stores)
 	src.Key = fmt.Sprintf("%s env=%s store=%s", eng, strings.Join(src.EnvVars, ","), strings.Join(src.Stores, ","))
 	return src
+}
+
+// Fingerprint is a one-way digest of the credential values c captured (Env),
+// with the variables that carry them: what tells a re-authenticated
+// credential from the one an engine refused without keeping either. "" when
+// c captured no value — a store read in place is not in hand, and a login
+// refresh reaches the runs sharing it without one.
+func (c Credentials) Fingerprint() string {
+	return EnvFingerprint(slices.Collect(maps.Keys(c.Env)), func(k string) (string, bool) {
+		v, ok := c.Env[k]
+		return v, ok
+	})
+}
+
+// EnvFingerprint is Fingerprint over the values lookup gives vars now: what a
+// launch from that environment would record. "" when vars is empty or any of
+// them is unset, which tells nothing about the credential.
+func EnvFingerprint(vars []string, lookup func(string) (string, bool)) string {
+	if len(vars) == 0 {
+		return ""
+	}
+	h := sha256.New()
+	_, _ = h.Write([]byte("ctxloom credential fingerprint\x00"))
+	for _, k := range slices.Sorted(slices.Values(vars)) {
+		v, ok := lookup(k)
+		if !ok {
+			return ""
+		}
+		// Length-prefixed, so no pair of carriers and values reads as another.
+		_, _ = fmt.Fprintf(h, "%d:%s%d:%s", len(k), k, len(v), v)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // location names the store without resolving $HOME: the launching env's

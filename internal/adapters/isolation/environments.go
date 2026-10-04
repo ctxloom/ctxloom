@@ -81,6 +81,11 @@ func hostSecretsDiskParent(state SessionState) string {
 
 func (e *hostEnvironment) Describe() Description { return hostDescription(e.axis) }
 
+// SecretsFile is "": a host run's secrets file is made only as its runner
+// starts, and a host runner ends with the process that started it, so no
+// restart ever re-adopts one to refresh.
+func (*hostEnvironment) SecretsFile() string { return "" }
+
 // Cleanup removes the run's secrets file, then the workspace.
 func (e *hostEnvironment) Cleanup() error {
 	var errs error
@@ -144,6 +149,15 @@ func (e *containerEnvironment) Interactive(ctx context.Context, r RunnerRequest)
 }
 
 func (e *containerEnvironment) Describe() Description { return e.c.describe(e.cw.reach) }
+
+// SecretsFile is the host side of the file mounted at secretsTarget, "" for
+// a run with no secret.
+func (e *containerEnvironment) SecretsFile() string {
+	if e.cw.secrets == nil {
+		return ""
+	}
+	return e.cw.secrets.path()
+}
 
 func (e *containerEnvironment) Cleanup() error { return e.cw.Cleanup() }
 

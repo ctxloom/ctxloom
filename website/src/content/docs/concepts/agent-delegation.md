@@ -76,7 +76,9 @@ raised it and covers only its own children.
   phase stays `idle`; the `hold` is what tells it apart. The root terminal's bar says how many
   runs are waiting and when they resume, the overlay's agents pane marks each held run and its
   feed title reads `held: rate limited until <time>`, and a held run is never reported as
-  stalled.
+  stalled. With the bar turned off (`ui.surround: false`), the root terminal prints a line as
+  each hold opens and another as it releases, for this and every hold below, and still rings
+  the bell for a refused credential.
 - **Only the human can cut it short.** Resuming any held run from the overlay releases the whole
   hold early; a coordinator's own resume of a held child is refused, since it would only meet
   the limit again.
@@ -90,6 +92,36 @@ raised it and covers only its own children.
 To exercise this without spending a real limit, send a turn to an agent on the `mock` engine
 whose prompt contains `mock:rate-limited` (or `mock:rate-limited=<unix seconds>` to name the
 reset time): that turn ends on a rate limit exactly as a real engine's does.
+
+## When a credential is refused
+
+When an engine refuses a child's credential (an expired or revoked token), no turn on that
+credential can succeed until you re-authenticate. The coordinator **holds every run that shares
+the credential**, as it does for a rate limit, but nothing releases this hold on its own.
+
+- **Nothing is retried silently.** The child whose turn was refused did no work; its parent gets
+  an error report leading `CREDENTIAL REFUSED` that says the prompt was not done and must be
+  resent. Mail sent to a held run waits and runs once the hold lifts.
+- **It has no deadline.** `roster` marks each held run with a `hold` of `kind`
+  `credential_rejected` and no `until_unix`, and the overlay's feed title reads
+  `held: credential rejected`.
+- **You are told once, loudly.** The coordinator raises one finding, the root terminal's bar
+  shows a `CREDENTIAL REFUSED` notice naming the credential's variable or store and how many runs
+  are parked, and the terminal bell rings once as the hold opens.
+- **The remedy depends on where the credential comes from.** A credential read from a variable
+  (such as `CLAUDE_CODE_OAUTH_TOKEN`) is captured when a child launches, so a running session
+  never sees a new value: export a fresh one, then restart the session from that shell with
+  `ctxloom run --session <harp>` (the notice names the command). A credential read in place from
+  a store (a login) reaches the running session: sign in again, then resume any held run from the
+  overlay.
+- **A refusal outranks a rate limit.** If a refusal arrives while the credential is held on its
+  rate limit, the hold becomes a refused-credential hold: its timer is cleared and only you
+  release it. A rate limit arriving on a refused credential changes nothing.
+- **A coordinator cannot release it.** A coordinating agent's resume of a held child is refused;
+  resuming one from the overlay releases the whole hold.
+
+On the `mock` engine, a prompt containing `mock:credential-rejected` ends its turn on a refused
+credential.
 
 ## When the engine is overloaded
 
@@ -120,11 +152,31 @@ ended by that agent or by the human. Stopping a paused child ends its pause with
 
 A hold, and a pause you or a coordinating agent put on a child, is recorded in the
 session's coordinator state as it happens. If the coordinator restarts (or you resume the
-session with `--session`) while children are held or paused, it picks them up where they
-were: held children stay held until the same reset time, a hold whose time passed while it
-was down lifts as soon as it is back, and a paused child stays paused until someone resumes
-it. The `roster`'s `hold` and the root terminal's bar show the hold again, and the human is
+session with `--session`) while children are held or paused, the holds come back with it:
+held children stay held until the same reset time, a hold whose time passed while it was
+down lifts as soon as it is back, and a paused child stays paused until someone resumes it.
+The `roster`'s `hold` and the root terminal's bar show the hold again, and the human is
 told once more which holds are still in force.
+
+What happens to the children themselves depends on where they run:
+
+- A **container** child outlives its session's process for a while (see
+  `CTXLOOM_RUNNER_OWNER_LOSS_WINDOW` in the environment reference). A restarted coordinator
+  re-adopts it mid-task, still held or paused if it was.
+- A **host** child ends with its session's process. Its harp stays held, and it is relaunched
+  as a fresh run with the same identity when its hold lifts and mail is waiting for it, or when
+  a message is sent to it afterwards.
+
+A refused credential's hold is settled at the restart. The restarted coordinator reads the
+credential again from the environment you restarted it from: if it changed, the hold lifts and
+the held children resume; if it is the same refused credential, or none is set, the hold stays
+and you are told again what to do. The comparison uses a one-way fingerprint of the credential,
+never the credential itself. A relaunched host child launches with the new credential. A
+re-adopted container child is handed it too: the restart rewrites the private secrets file the
+child reads its credential from, and the child reads that file again at the start of every
+turn, so its next turn runs on the new credential without a relaunch. If that file cannot be
+read at the start of a turn, that turn fails with an error saying so, and the next one tries
+again.
 
 ## Every session is its own tree
 

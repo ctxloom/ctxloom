@@ -935,6 +935,7 @@ func (c *Coordinator) startRunPayloadErr(rt *childRt, first, resumeSessionID str
 }
 
 func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, l launch.Launch, first, model, resumeSessionID string, mayRebind bool) error {
+	c.recordLaunch(rt.runID, l)
 	actx, acancel := context.WithTimeout(ctx, c.runnerAwaitTimeout)
 	// The standup RACE: readiness (awaitRunner, a push the runner's Hello
 	// closes) against DEATH (the runner process exiting). Without the second
@@ -975,16 +976,21 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	// on this engine (Seed), delivered on the StartRun itself rather than a
 	// SetGrants after it: the StartRun carries the first turn, which a later
 	// set would race.
+	//
+	// A run that starts on a held credential (or harp) starts PAUSED
+	// (joinLaunchHold): it comes up and takes no turn until the release.
 	var resp RunnerResponse
+	paused, holdDone := c.joinLaunchHold(rt.runID, rt.harp)
 	_ = c.approvals.Seed(Identity{Harp: rt.harp, RunID: rt.runID}, l.Engine, func(grants []string) error {
 		rctx, rcancel := context.WithTimeout(ctx, DefaultRequestTimeout)
 		defer rcancel()
-		resp, err = c.requestRunner(rctx, credHash, RunnerRequest{Kind: StartRun{RunID: rt.runID, Launch: l, Grants: grants}})
+		resp, err = c.requestRunner(rctx, credHash, RunnerRequest{Kind: StartRun{RunID: rt.runID, Launch: l, Grants: grants, StartPaused: paused}})
 		if err == nil && resp.Err != nil {
 			return resp.Err
 		}
 		return err
 	})
+	holdDone()
 	if err != nil {
 		err = fmt.Errorf("StartRun never completed: %w", err)
 		c.failChild(rt, err)
@@ -1014,6 +1020,17 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	// startup sweep's to deliver, as turns.
 	c.noteLaunchAttached(rt.harp) // a launch that came up resets the retry budget
 	c.markAttached(rt)            // StartRun round-tripped: the migrated run is up
+	if paused {
+		// Up, and parked before its first turn: it reads idle and gives back
+		// its slot, like any held run at its boundary — a hold can last hours,
+		// and a slot held through it would stall every other child. The first
+		// turn claims one when the release lets it start (onTurnStarted).
+		c.mu.Lock()
+		rt.idleSince = c.now()
+		c.mu.Unlock()
+		c.setState(rt, StateIdle)
+		c.releaseSlot(rt)
+	}
 	return nil
 }
 
@@ -1513,9 +1530,6 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail bool) {
 	c.clearReqTrack(rec.Harp)
 	// Nobody is left to act on a decision: withdraw what the run parked.
 	c.approvals.cancelFrom(rec.Harp, runID)
-	// The pause gate lived in the ended run's runner; the record of it ends here.
-	c.setRunPaused(runID, false)
-
 	// Drain BEFORE anything below that can tear the RunChannel's underlying
 	// connection down — closeFn (engine.Kill) closes the runner's WHOLE gRPC
 	// ClientConn, which multiplexes RunChannel too, so calling it first can
@@ -1858,7 +1872,16 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 // — this is the backstop for an attempt armed before the drain began
 // (relaunchForLeftoverMail and driveQueued refuse to arm one after).
 func (c *Coordinator) resumeBlocked(lctx context.Context, harp string, delay time.Duration) bool {
-	return !sleepLaunchBackoff(lctx, delay) || c.launchStopped(harp) || c.Draining()
+	if !sleepLaunchBackoff(lctx, delay) || c.launchStopped(harp) || c.Draining() {
+		return true
+	}
+	// An attempt armed before a hold came to cover the harp: the release
+	// relaunches it (relaunchReleased).
+	if c.harpHeld(harp) {
+		c.step(holdStepRelaunchHeld)
+		return true
+	}
+	return false
 }
 
 // resumableRun is the run this attempt was armed for, when it is still the
@@ -1931,10 +1954,11 @@ func (c *Coordinator) claimResumedSlot(rt *childRt) bool {
 // that will not happen.
 const deliveryEndedDraining = "ended-draining"
 
-// deliveryPaused is observeRecipient's observation for a recipient whose
-// current run this coordinator has PAUSED (ControlPause): the message waits at
-// the runner's gate until ControlResume, so it is described as queued rather
-// than as the new turn an idle recipient would otherwise be woken into.
+// deliveryPaused is observeRecipient's observation for a recipient this
+// coordinator holds — its current run paused (ControlPause, or a turn
+// failure's hold), or its harp covered by a hold after its run ended: the
+// message waits until the release, so it is described as queued rather than
+// as the new turn (or resume) the recipient would otherwise be given.
 const deliveryPaused = "paused"
 
 // observeRecipient reads the state a delivery to harp is judged by: the
@@ -1949,7 +1973,10 @@ func (c *Coordinator) observeRecipient(harp string) (state, runID string) {
 			state, runID = r.State, r.RunID
 		}
 	})
-	if state != StateEnded && c.runPaused(runID) {
+	// A held harp waits for its hold's release whether or not its run still
+	// lives: an ended one is not resumed into the hold (relaunchReleased
+	// resumes it then).
+	if (state != StateEnded && c.runPaused(runID)) || c.harpHeld(harp) {
 		state = deliveryPaused
 	}
 	return state, runID

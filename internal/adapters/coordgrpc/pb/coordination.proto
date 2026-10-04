@@ -349,6 +349,12 @@ message StartRun {
   // the coordinator's journal holds them. The runner checks each against
   // the engine's rule syntax and drops, with a finding, one it refuses.
   repeated string grants = 9;
+  // The run starts PAUSED: the coordinator holds it (its credential's hold is
+  // in force), so the runner raises its pause gate before driving anything.
+  // The run comes up and answers this StartRun, but takes NO turn — not even
+  // the launch's first — until a ResumeRun lifts the gate; then the first turn
+  // goes ahead of any mail that queued meanwhile.
+  bool start_paused = 10;
 }
 
 // Launch is the resolved launch on the wire — the projection of
@@ -1405,13 +1411,14 @@ message ListRunsResult {
 // rate-limit hold pauses every run sharing the credential whose engine turned
 // a turn away, and releases them together; an overload hold pauses only the
 // run whose turn was turned away, since the server's capacity is not the
-// credential's limit.
+// credential's limit; a pause holds the one run an initiator paused.
 message RunHold {
   // The turn failure the hold is for, as its stop_reason spells it
-  // (e.g. "rate_limited", "overloaded").
+  // (e.g. "rate_limited", "overloaded"), or who paused the run ("human",
+  // "agent").
   string kind = 1;
   // The credential's source: the carrier's NAMES (variables, store
-  // locations), never a value.
+  // locations), never a value. Empty for a pause.
   string source = 2;
   // When the hold releases itself, in Unix seconds; 0 = only when cleared.
   int64 until_unix = 3;
@@ -1534,7 +1541,7 @@ message ControlPause {
     example: "\"swift-amber-falcon\""
   }];
   string reason = 2 [(field_schema) = {
-    doc: "Why you are pausing — recorded in the coordinator's audit journal so a later reader can tell a deliberate hold from a stall",
+    doc: "Why you are pausing — recorded with the pause in the coordinator's run journal so a later reader can tell a deliberate hold from a stall",
     example: "\"reviewing its first batch before it continues\""
   }];
 }

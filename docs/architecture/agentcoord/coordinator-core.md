@@ -39,8 +39,8 @@ flowchart TD
 | `openStore` / `openStoreFromOffset` | open, clamp a distrusted checkpoint offset, replay, start the writer goroutine |
 | `Store.replay` | applies every complete line; truncates a **torn tail**, fails loudly on interior corruption. Reads the whole journal with `io.ReadAll` |
 | `Store.execLocked` | `decide → append → fsync → apply` under the write lock — this ordering *is* the durability contract |
-| `Store.Exec` | serializes `decide` through the writer goroutine; 28 production call sites |
-| `Store.View` | quiescent read window; 45 call sites. Contract: do not retain references into fold state past the call |
+| `Store.Exec` | serializes `decide` through the writer goroutine |
+| `Store.View` | quiescent read window. Contract: do not retain references into fold state past the call |
 | `Store.Offset` | write position, for the items checkpoint |
 
 `decide` must not call `Exec` re-entrantly — it deadlocks on the unbuffered request
@@ -59,6 +59,7 @@ on a marshal failure — loud, and correct for own-struct payloads).
 | `rosterFold` | per-harp coordinator-visible state, latest attempt wins | `touch` silently no-ops for a superseded run — that guard is the point |
 | `itemsFold` | plane-1 counting projection: `counts`, `chars`, `maxSeq` keyed by **run_id** | never stores delta text, only sizes |
 | `reportsFold` | latest summary / checkpoint / per-artifact revision / per-harp seq watermark | see [artifacts.md](artifacts.md) |
+| `holdsFold` | holds in force by key (kind, scope, credential source, deadline, member harps), the run and harp each parks, resumes still owed, each run's journaled launch identity (`run.launched`) | the **sole** record of holds — rate-limit, overload and initiator pauses (`holds.go`, `credhold.go`) |
 
 `runsFold.byHarp` and `rosterFold.current` are the same harp→run_id index maintained
 twice from one journal, with two reap policies (`runsFold` never prunes `byHarp`;
@@ -67,6 +68,23 @@ twice from one journal, with two reap policies (`runsFold` never prunes `byHarp`
 Every fold arm decodes with `if fact.decode(&p) != nil { return }`.
 Forward-compatible by design; a *corrupt* payload is indistinguishable from an unknown
 one, and neither warns.
+
+**Holds are journaled, then acted on.** Every hold change is a `runs.jsonl` fact
+(`hold.opened`, `hold.parked`, `hold.extended`, `hold.dropped`, `hold.released`,
+`hold.resumed`) written BEFORE the pause or resume it implies is sent. The coordinator
+keeps only what no journal can carry — each hold's release timer and park barrier
+(`holdLocal`). So a restarted coordinator (`adoptHolds`) re-arms every hold still in
+force, releases at once one whose deadline passed while it was down, arms nothing for a
+hold with no deadline (a pause), and — once each re-adopted run's runner re-Hellos
+(`readoptHold`) — re-sends a held run's pause or a released run's owed resume. Both are
+idempotent at the runner, whose pause gate is process memory that outlives a redial. A
+member whose run ends stays in the hold by **harp**: no relaunch path resumes a held
+harp, and the release relaunches it if mail waits — unless an `agent_stop` takes the harp
+out first (`dropStoppedHarp`). A run that starts on a credential (or harp) with a hold in force is
+journaled into it and started PAUSED (`joinLaunchHold`, StartRun's `start_paused`): it takes
+no turn, its first included, until the release. Lock order: `holdMu` (which
+serializes hold transitions and their timers) before `mu`; neither is ever taken inside
+an `Exec` decide.
 
 **Fold concurrency is sound.** `execLocked` holds the write lock across
 decide→append→fsync→apply and `View` takes the read lock, so folds are single-writer

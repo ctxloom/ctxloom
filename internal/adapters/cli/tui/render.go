@@ -66,8 +66,13 @@ func rowGlyph(r RosterRow) string {
 // when ("" for no hold) — the one wording for a hold on every root surface
 // (the overlay's feed title, the bar's digest).
 func HoldLabel(h *coord.RunHold) string {
-	if h == nil {
+	switch {
+	case h == nil:
 		return ""
+	case h.Kind == coord.HoldKindHuman:
+		return "paused by the human"
+	case h.Kind == coord.HoldKindAgent:
+		return "paused by its parent"
 	}
 	label := "held: " + strings.ReplaceAll(h.Kind, "_", " ")
 	if !h.Until.IsZero() {

@@ -39,7 +39,7 @@ Pause one of your delegated children: hold its turn hand-off so nothing NEW is h
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `harp` | string | Yes | The child session harp to pause (from agent_run's harp, or the roster) |
-| `reason` | string | No | Why you are pausing — recorded in the coordinator's audit journal so a later reader can tell a deliberate hold from a stall |
+| `reason` | string | No | Why you are pausing — recorded with the pause in the coordinator's run journal so a later reader can tell a deliberate hold from a stall |
 
 ### agent_report
 

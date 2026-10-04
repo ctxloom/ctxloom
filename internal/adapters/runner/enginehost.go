@@ -399,6 +399,11 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	if runner == nil {
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, ErrNoRunner.Error())}
 	}
+	if sr.GetStartPaused() {
+		// The gate is up before anything is driven: Drive hands the first turn
+		// off behind it (deliverFirstTurn), and ResumeRun lifts it.
+		eh.installPause()
+	}
 	if err := runner.Execute(eh.baseCtx, sr.GetLaunch()); err != nil {
 		// The ONE refusal the coordinator answers with a rebind rides a code
 		// of its own: the minted endpoint could not be bound (another
@@ -491,27 +496,18 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	eh.rec = rec
 	eh.mu.Unlock()
 
-	// The briefing is the first turn, handed off HERE, synchronously, before
-	// the turn sink exists — so nothing delivered can overtake it and make
-	// the child's first turn something other than its task.
-	if prompt != "" {
-		if err := eh.enqueueTurn(eh.baseCtx, turnTag{}, prompt); err != nil {
-			return err
-		}
+	// A run started paused answers its StartRun now and hands its first turn
+	// off once the gate lifts; otherwise the hand-off is synchronous, and a
+	// briefing that cannot start fails the launch.
+	if eh.pauseGate() != nil {
+		eh.goTracked(func() {
+			if err := eh.deliverFirstTurn(home, prompt); err != nil {
+				eh.rep.Warnf("engine host: the run started paused never handed off its first turn: %v", err)
+			}
+		})
+	} else if err := eh.deliverFirstTurn(home, prompt); err != nil {
+		return err
 	}
-
-	// The engine turn-delivery seam: coordinator mail lands as new turns
-	// (an arrival mid-turn waits for the boundary; a parked host starts a
-	// fresh engine process for it). It rides enqueueTurn like every other
-	// locally-originated turn, so mail and the control verbs cannot reach
-	// the engine by two different disciplines.
-	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
-		// The delivered message's id rides the turn's attribution tag, so the
-		// report this turn produces can quote it (spoolturnresult.go). It is
-		// the id the DELIVERY used — the file's origin id — which is exactly
-		// what the sender registered its waiter under.
-		return eh.enqueueTurn(eh.baseCtx, turnTag{mail: pm.GetMessageId()}, FrameCoordinatorMessage(pm)) == nil
-	})
 	// The run's cancellation ends a PARKED run too: with no turn in flight
 	// nothing else would report the terminal. A turn in flight ends with
 	// the cancellation itself and reports it (runTurn → finish).
@@ -524,6 +520,32 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 			<-busy
 		}
 		eh.finish(home, nil, ctx.Err())
+	})
+	return nil
+}
+
+// deliverFirstTurn hands the launch's first turn (its briefing, when it has
+// one) to the engine and THEN opens the turn sink — so nothing delivered can
+// overtake it and make the child's first turn something other than its task:
+// mail that arrives before the sink is buffered by the home and replayed
+// behind it.
+func (eh *EngineHost) deliverFirstTurn(home engineHome, prompt string) error {
+	if prompt != "" {
+		if err := eh.enqueueTurn(eh.baseCtx, turnTag{}, prompt); err != nil {
+			return err
+		}
+	}
+	// The engine turn-delivery seam: coordinator mail lands as new turns
+	// (an arrival mid-turn waits for the boundary; a parked host starts a
+	// fresh engine process for it). It rides enqueueTurn like every other
+	// locally-originated turn, so mail and the control verbs cannot reach
+	// the engine by two different disciplines.
+	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
+		// The delivered message's id rides the turn's attribution tag, so the
+		// report this turn produces can quote it (spoolturnresult.go). It is
+		// the id the DELIVERY used — the file's origin id — which is exactly
+		// what the sender registered its waiter under.
+		return eh.enqueueTurn(eh.baseCtx, turnTag{mail: pm.GetMessageId()}, FrameCoordinatorMessage(pm)) == nil
 	})
 	return nil
 }

@@ -321,8 +321,14 @@ func (c *Coordinator) ControlPause(ctx context.Context, by ControlInitiator, har
 	if err != nil {
 		return false, err
 	}
+	// The pause is a hold, journaled BEFORE it is sent, so a coordinator that
+	// dies in between re-asserts it on adopt.
+	id := c.recordPause(by, rec, reason)
 	resp, err := c.runnerControl(ctx, by, rec, "pause", reason)
 	if err != nil {
+		if id != "" {
+			c.dropFromHold(pauseKey(rec.Harp), id, heldRun{rec.RunID, rec.Harp})
+		}
 		return false, err
 	}
 	res, _ := resp.Kind.(PauseRunResult)
@@ -331,9 +337,10 @@ func (c *Coordinator) ControlPause(ctx context.Context, by ControlInitiator, har
 
 // ControlResume releases a paused target: turns held at the gate are handed to
 // the engine in arrival order. newlyResumed mirrors ControlPause's
-// newlyPaused: whether this call released the gate or found none. A target
-// parked on a refused credential is the hold's to release (releaseHold): only
-// the human may, and it releases every run the hold parked.
+// newlyPaused: whether this call released the gate or found none. A held
+// target is its hold's to release (releaseHold) — a pause by whoever may
+// control the run; a failure's hold only by the human, releasing every harp
+// it covers.
 func (c *Coordinator) ControlResume(ctx context.Context, by ControlInitiator, harp string) (newlyResumed bool, err error) {
 	rec, err := c.controlTarget(by, harp)
 	if err != nil {
@@ -345,6 +352,13 @@ func (c *Coordinator) ControlResume(ctx context.Context, by ControlInitiator, ha
 	resp, err := c.runnerControl(ctx, by, rec, "resume", "")
 	if err != nil {
 		return false, err
+	}
+	// A run a released hold still owed its resume has it now.
+	var owedKey string
+	var owed bool
+	c.runs.View(func() { owedKey, owed = c.holdsF.owedOf(rec.RunID) })
+	if owed {
+		c.ackOwed(owedKey, heldRun{rec.RunID, rec.Harp})
 	}
 	res, _ := resp.Kind.(ResumeRunResult)
 	return res.NewlyResumed, nil
@@ -404,11 +418,6 @@ func (c *Coordinator) sendRunnerControl(ctx context.Context, rec *RunRecord, ver
 	if resp.Err != nil {
 		return RunnerResponse{}, fmt.Errorf("%s %s refused: %s", verb, harp, resp.Err.Error())
 	}
-	// The runner owns the gate; this is the coordinator's record of it, which
-	// is what lets a delivery say "held" instead of "woke it into a new turn".
-	// Every pause and resume passes through here, so the record cannot miss
-	// one this coordinator issued.
-	c.setRunPaused(rec.RunID, verb == "pause")
 	return resp, nil
 }
 
@@ -422,27 +431,4 @@ func (c *Coordinator) currentRunRecord(harp string) *RunRecord {
 		}
 	})
 	return rec
-}
-
-// setRunPaused records (or clears) that runID is held at its runner's gate.
-func (c *Coordinator) setRunPaused(runID string, paused bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !paused {
-		delete(c.pausedRuns, runID)
-		return
-	}
-	if c.pausedRuns == nil {
-		c.pausedRuns = make(map[string]struct{})
-	}
-	c.pausedRuns[runID] = struct{}{}
-}
-
-// runPaused reports whether runID is held at its runner's gate by a pause
-// this coordinator issued.
-func (c *Coordinator) runPaused(runID string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	_, ok := c.pausedRuns[runID]
-	return ok
 }

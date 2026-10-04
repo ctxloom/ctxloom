@@ -393,6 +393,14 @@ func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail strin
 	if pending == 0 {
 		return
 	}
+	// A held harp is not relaunched into what holds it (a spent limit, a
+	// pause): its mail waits, and the hold's release relaunches it
+	// (relaunchReleased). Checked before the claim and the budget, which a
+	// deferral spends neither of.
+	if c.harpHeld(rec.Harp) {
+		c.step(holdStepRelaunchHeld)
+		return
+	}
 	if c.Draining() {
 		// Drain is shutdown, not supervision: a child that dies mid-drain
 		// stays dead, whatever it left queued. Said out loud, because a

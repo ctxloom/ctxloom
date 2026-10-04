@@ -24,7 +24,10 @@ func TestOverloadHold_BacksOffThatRunAlone(t *testing.T) {
 	assert.Equal(t, agent.FailureOverloaded, hold.Kind)
 	assert.True(t, clk.Now().Add(overloadBackoff).Equal(hold.Until), "got %v", hold.Until)
 	f.awaitParks(t, f.worker)
-	assertHoldEvents(t, readAuditKind(t, f.c, auditHold), agent.FailureOverloaded, holdScopeRun, "turn")
+	assertOpened(t, f.c, agent.FailureOverloaded, holdScopeRun)
+	parked := journaled[holdParked](t, f.c, factHoldParked)
+	require.Len(t, parked, 1)
+	assert.Equal(t, "turn", parked[0].Cause)
 	assert.Equal(t, 1, f.findingsWith("overloaded"), "ONE finding for the backoff: %v", f.findings.All())
 	assert.Zero(t, f.findingsWith("rate limit"), "an overload is not reported as a rate limit")
 
@@ -48,7 +51,7 @@ func TestOverloadHold_BacksOffThatRunAlone(t *testing.T) {
 
 	clk.Advance(time.Second) // the release runs on this goroutine, inside Advance
 	assert.Empty(t, f.c.CredentialHolds(), "at the backoff's end the hold releases itself")
-	assertHoldEvents(t, readAuditKind(t, f.c, auditHoldRelease), agent.FailureOverloaded, holdScopeRun, "backoff")
+	assertReleased(t, f.c, "backoff")
 	awaitChatText(t, f.sp, 0, "held work")
 }
 

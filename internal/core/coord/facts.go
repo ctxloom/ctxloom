@@ -11,7 +11,7 @@ import (
 )
 
 // Fact kinds. The run-registry journal (runs.jsonl — run lifecycle, session
-// credentials) carries these; plane-1 item events have their own journal
+// credentials, holds) carries these; plane-1 item events have their own journal
 // (items.jsonl, see items.go), and the interaction journal
 // (interactions.jsonl) is an audit log with no projection. Peer mail is not
 // journaled: the spool file is the message (spooldelivery.go).
@@ -72,6 +72,100 @@ const (
 	// under.
 	factPlanApproved = "plan.approved"
 )
+
+// Hold fact kinds, journaled in the run-registry journal beside the runs they
+// park. holdsFold folds them and is the ONLY record of which harps a hold
+// covers, why, and until when: a restarted coordinator rebuilds every hold in
+// force, and every resume still owed, from them. The coordinator keeps only
+// what no journal can carry — the armed timers (credhold.go, holdLocal).
+const (
+	// factHoldOpened brings a hold into force under its key.
+	factHoldOpened = "hold.opened"
+	// factHoldParked records one run (and its harp) joining a hold — BEFORE
+	// its pause is sent, so a crash between the two is re-asserted on adopt.
+	factHoldParked = "hold.parked"
+	// factHoldExtended moves a hold's deadline out, or changes its kind.
+	factHoldExtended = "hold.extended"
+	// factHoldDropped takes one run's harp out of a hold: its pause could not
+	// be sent.
+	factHoldDropped = "hold.dropped"
+	// factHoldReleased takes a hold out of force. From here every member run
+	// still live is OWED a resume, until factHoldResumed acks it.
+	factHoldReleased = "hold.released"
+	// factHoldResumed records a member's runner acking its released hold's
+	// resume: nothing is owed to that run any more.
+	factHoldResumed = "hold.resumed"
+	// factRunLaunched records a run's resolved engine and credential source
+	// (names, never a value), so a run re-adopted after a restart still knows
+	// which credential's hold it belongs to.
+	factRunLaunched = "run.launched"
+)
+
+// holdOpened is factHoldOpened's payload. ID tells this hold apart from a
+// later one under the same key, which a release that waited must not take
+// out of force. A ZERO Until is a hold with NO deadline — a pause, or a
+// refused credential — that only an initiator's resume releases.
+type holdOpened struct {
+	ID     string                  `json:"id"`
+	Key    string                  `json:"key"`
+	Scope  holdScope               `json:"scope"`
+	Kind   string                  `json:"kind"`
+	Engine engine.Name             `json:"engine,omitempty"`
+	Source engine.CredentialSource `json:"source"`
+	// By is who paused the run, for a pause hold (ControlInitiator.auditName),
+	// and Reason why, as they gave it: what tells a deliberate hold from a
+	// stall.
+	By     string    `json:"by,omitempty"`
+	Reason string    `json:"reason,omitempty"`
+	Until  time.Time `json:"until,omitzero"`
+}
+
+// holdParked is factHoldParked's payload; Cause is "turn" (its own turn met
+// the failure), "sibling" (another run's turn did) or "pause" (an initiator
+// paused it).
+type holdParked struct {
+	Key   string `json:"key"`
+	RunID string `json:"run_id"`
+	Harp  string `json:"harp"`
+	Cause string `json:"cause"`
+}
+
+// holdExtended is factHoldExtended's payload.
+type holdExtended struct {
+	Key   string    `json:"key"`
+	Kind  string    `json:"kind"`
+	Until time.Time `json:"until,omitzero"`
+}
+
+// holdDropped is factHoldDropped's payload.
+type holdDropped struct {
+	Key   string `json:"key"`
+	RunID string `json:"run_id"`
+	Harp  string `json:"harp"`
+}
+
+// holdReleased is factHoldReleased's payload; Cause is "backoff" (its own
+// deadline), "human" or "agent" (that initiator's resume; By names it), or
+// "empty" (its last member dropped out).
+type holdReleased struct {
+	Key   string `json:"key"`
+	Cause string `json:"cause"`
+	By    string `json:"by,omitempty"`
+}
+
+// holdResumed is factHoldResumed's payload.
+type holdResumed struct {
+	Key   string `json:"key"`
+	RunID string `json:"run_id"`
+	Harp  string `json:"harp"`
+}
+
+// runLaunched is factRunLaunched's payload.
+type runLaunched struct {
+	RunID  string                  `json:"run_id"`
+	Engine engine.Name             `json:"engine"`
+	Source engine.CredentialSource `json:"source"`
+}
 
 // Terminal causes recorded on factRunEnded.
 const (

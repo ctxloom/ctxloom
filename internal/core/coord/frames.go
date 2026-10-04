@@ -53,6 +53,9 @@ type StartRun struct {
 	Launch launch.Launch
 	// Grants are the session grants the run starts holding (Seed).
 	Grants []string
+	// StartPaused starts the run behind its pause gate: it takes no turn, its
+	// first included, until ResumeRun (joinLaunchHold).
+	StartPaused bool
 }
 
 // PauseRun asks the runner to hold the engine at its next boundary.
@@ -294,9 +297,10 @@ type RunInfo struct {
 }
 
 // RunHold is why a run is parked and when it is released: the turn failure
-// its credential's hold is for (an agent.FailureKind value), the hold's
-// credential source (carrier names, never a value), and when it releases
-// itself (zero: only when cleared).
+// its hold is for (an agent.FailureKind value) or, for a pause, who paused it
+// (HoldKindHuman, HoldKindAgent); the hold's credential source (carrier
+// names, never a value; empty for a pause); and when it releases itself
+// (zero: only when cleared).
 type RunHold struct {
 	Kind   string
 	Source string

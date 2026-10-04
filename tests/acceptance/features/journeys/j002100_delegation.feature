@@ -203,6 +203,40 @@ Feature: Coordinator delegates isolated work
     When "fixer" answers that ask from its own outbox with "the reversible one"
     Then within 45s the coordinator's reader delivers "fixer"'s answer "the reversible one", quoting the ask's id
 
+  # DURABLE HOLDS — a child parked on its rate limit, and a child the human
+  # paused, are the coordinator's own state: the session's coordinator dying
+  # mid-hold must not free either. The owner's `ctxloom run` (which hosts the
+  # coordinator) is KILLED, not shut down, and the session is resumed with
+  # `run --session`. A HOST child's runner dies with its host (the runner is
+  # armed with a parent-death signal so a crash never orphans one), so the
+  # children's runs end at the restart — and the holds stay on the CHILDREN:
+  # neither is relaunched before its hold lets it. What a user sees is read
+  # where they would see it: the roster's hold on each child, with the same
+  # deadline, and the hold releasing itself at the engine's reset time, not
+  # earlier and not never — while the human's pause, with no deadline, stays.
+  @durable-holds
+  Scenario: A held child's hold and a paused child's pause survive the session's coordinator restart
+    When the agent calls tool "agent_run" for "reviewer" with a briefing that hits a rate limit resetting in 75 seconds
+    Then the tool call succeeds
+    And "reviewer"'s spawned session is remembered
+    When the agent calls tool "agent_run" with:
+      | role            | fixer |
+      | input.prompt    | go    |
+      | input.workspace | none  |
+    Then the tool call succeeds
+    And "fixer"'s spawned session is remembered
+    And within 45s the roster shows "reviewer" held with kind "rate_limited"
+    And "reviewer"'s hold deadline is remembered
+    When the human pauses "fixer" from the overlay
+    Then within 15s the roster shows "fixer" held with kind "human"
+    When the session's coordinator dies and the session is resumed
+    Then within 60s the roster shows "reviewer" held with kind "rate_limited"
+    And "reviewer"'s hold deadline is unchanged
+    And the roster shows "fixer" held with kind "human"
+    And within 120s the roster shows "reviewer" released on time
+    And the journal records "reviewer"'s hold released by its own backoff
+    And the roster shows "fixer" held with kind "human"
+
   # REMOVED with the orchestrator-routed escalation ladder (2026-08-31). The
   # scenario's own Given configured a ladder ("whose escalation ladder relays to
   # a parent that never answers"), so its subject no longer exists.

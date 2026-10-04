@@ -89,20 +89,21 @@ func (c *Coordinator) idleReaper() { c.every(idleReapInterval, c.reapIdleRuns) }
 // and its bound endpoint freed. The harp stays resumable: the next mail
 // starts a new incarnation through the resume arm.
 //
-// A paused run — a human's pause or a credential hold, both of which keep it
-// in pausedRuns until its runner is resumed — is waiting, not idle: a hold
-// outlasts idleTimeout routinely, and reaping it would defeat the shared
-// backoff. Its idle clock restarts on every sweep it is spared, so once
+// A paused run — any hold parks it, a pause or a turn failure's, or a
+// released hold still owes it its resume (pausedRunIDs) — is waiting, not
+// idle: a hold outlasts idleTimeout routinely, and reaping it would defeat the
+// shared backoff. Its idle clock restarts on every sweep it is spared, so once
 // resumed it gets a full idleTimeout before it is reapable.
 func (c *Coordinator) reapIdleRuns() {
 	now := c.now()
 	var reap []string
+	paused := c.pausedRunIDs()
 	c.mu.Lock()
 	for runID, rt := range c.attach {
 		if rt.idleSince.IsZero() {
 			continue
 		}
-		if _, paused := c.pausedRuns[runID]; paused {
+		if paused[runID] {
 			rt.idleSince = now
 			continue
 		}
@@ -143,15 +144,19 @@ func (c *Coordinator) runnerConnected(runID string) bool {
 // its runtime attachment: a childRt the terminal path can end (terminateRun
 // reads attach), and its cell ownership through Spawner.Adopt (the release
 // becomes the attachment's close, so the run's end releases what the dead
-// process held). Idempotent per run: a runner that reconnects twice is
+// process held). A hold the journal says parks it (or owes it a resume) is
+// re-sent to its runner (readoptHold); its credential, which keys it into a
+// credential's hold, is the journal's (run.launched) restart or not. Idempotent per run: a runner that reconnects twice is
 // adopted once.
 func (c *Coordinator) readopt(runID string) {
 	var rec RunRecord
-	found := false
+	found, held := false, false
 	c.runs.View(func() {
 		if r := c.runsF.run(runID); r != nil && !r.Ended {
 			rec, found = *r, true
 		}
+		_, owed := c.holdsF.owedOf(runID)
+		held = c.holdsF.holdOfRun(runID) != nil || owed
 	})
 	if !found {
 		return
@@ -182,6 +187,9 @@ func (c *Coordinator) readopt(runID string) {
 	close(rt.attached)
 
 	c.audit("run_readopted", rec.Harp, map[string]string{"run_id": runID})
+	if held {
+		c.goTracked(func() { c.readoptHold(runID, rec.Harp, rec.CredHash) })
+	}
 }
 
 // expireRunnerGrace fires every pending runner-loss grace window at once —

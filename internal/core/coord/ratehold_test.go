@@ -60,6 +60,9 @@ type holdFixture struct {
 	sp                        *fakeSpawner
 	findings                  *report.Collector
 	worker, sibling, stranger string
+	// opts are the coordinator's Options, kept so a restart (holdrestart_test.go)
+	// serves the same state dir and spawner.
+	opts Options
 	// folded receives once per turn failure its hold has taken in
 	// (newRateFixture only).
 	folded chan struct{}
@@ -103,7 +106,7 @@ func newHoldFixtureOpts(t *testing.T, failed func(prompt string) *agent.TurnFail
 	}
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
-	f := &holdFixture{c: c, sp: sp, findings: &findings}
+	f := &holdFixture{c: c, sp: sp, findings: &findings, opts: o}
 	f.worker = f.spawnIdle(t, "worker", 0)
 	f.sibling = f.spawnIdle(t, "sibling", 1)
 	f.stranger = f.spawnIdle(t, "stranger", 2)
@@ -117,8 +120,7 @@ func newRateFixture(t *testing.T, tune ...func(*Coordinator)) (*holdFixture, *fa
 	t.Helper()
 	clk := fakeclock.New()
 	folded := make(chan struct{}, 64) // beyond any test's failures: a full buffer would stall the coordinator
-	f := newHoldFixtureOpts(t, rateFailure, func(o *Options) { o.Clock = clk.Now }, func(c *Coordinator) {
-		c.afterFunc = clk.AfterFunc
+	f := newHoldFixtureOpts(t, rateFailure, func(o *Options) { o.Clock, o.AfterFunc = clk.Now, clk.AfterFunc }, func(c *Coordinator) {
 		c.holdStep = func(step string) {
 			if step == holdStepTurnFolded {
 				folded <- struct{}{}
@@ -175,35 +177,56 @@ func (f *holdFixture) awaitHold(t *testing.T, harps ...string) CredentialHold {
 	return got[0]
 }
 
-// awaitParks waits for the hold event to have journaled exactly harps.
+// awaitParks waits for the journal to have parked exactly harps on turn
+// failures' holds (hold.parked; a pause's own park is not one).
 func (f *holdFixture) awaitParks(t *testing.T, harps ...string) {
 	t.Helper()
 	want := sortedCopy(harps)
 	var got []string
 	require.Eventually(t, func() bool {
-		got = auditHarps(readAuditKind(t, f.c, auditHold))
+		got = parkedHarps(journaled[holdParked](t, f.c, factHoldParked))
 		return assert.ObjectsAreEqual(want, got)
-	}, conformanceWait, 10*time.Millisecond, "no hold event journaled %v (saw %v)", want, got)
+	}, conformanceWait, 10*time.Millisecond, "no hold parked %v (saw %v)", want, got)
 }
 
-// assertHoldEvents pins what every hold or release record must carry: the
-// hold's kind and scope, which a reader cannot recover from its source key.
-func assertHoldEvents(t *testing.T, entries []auditEntry, kind agent.FailureKind, scope holdScope, cause string) {
+// assertOpened pins what every hold the journal opened carries: the hold's
+// kind and scope, which a reader cannot recover from its key.
+func assertOpened(t *testing.T, c *Coordinator, kind agent.FailureKind, scope holdScope) []holdOpened {
 	t.Helper()
-	require.NotEmpty(t, entries)
-	for _, e := range entries {
-		assert.Equal(t, string(kind), e.Detail["kind"], "%+v", e)
-		assert.Equal(t, string(scope), e.Detail["scope"], "%+v", e)
-		if cause != "" {
-			assert.Equal(t, cause, e.Detail["cause"], "%+v", e)
-		}
+	opened := journaled[holdOpened](t, c, factHoldOpened)
+	require.NotEmpty(t, opened)
+	for _, o := range opened {
+		assert.Equal(t, string(kind), o.Kind, "%+v", o)
+		assert.Equal(t, scope, o.Scope, "%+v", o)
+	}
+	return opened
+}
+
+// assertReleased pins that every release the journal holds was for cause.
+func assertReleased(t *testing.T, c *Coordinator, cause string) {
+	t.Helper()
+	released := journaled[holdReleased](t, c, factHoldReleased)
+	require.NotEmpty(t, released)
+	for _, r := range released {
+		assert.Equal(t, cause, r.Cause, "%+v", r)
 	}
 }
 
-func auditHarps(entries []auditEntry) []string {
+func parkedHarps(ps []holdParked) []string {
 	var out []string
-	for _, e := range entries {
-		out = append(out, e.Detail["harp"])
+	for _, p := range ps {
+		if p.Cause != "pause" {
+			out = append(out, p.Harp)
+		}
+	}
+	return sortedCopy(out)
+}
+
+// resumedHarps is every harp whose runner acked a released hold's resume.
+func resumedHarps(t *testing.T, c *Coordinator) []string {
+	var out []string
+	for _, r := range journaled[holdResumed](t, c, factHoldResumed) {
+		out = append(out, r.Harp)
 	}
 	return sortedCopy(out)
 }
@@ -286,14 +309,10 @@ func TestRateHold_OneLimitParksTheCredentialsRunsUntilItResets(t *testing.T) {
 	assert.True(t, limitResets.Equal(hold.Until), "the hold waits for the engine's reset time: %v", hold.Until)
 	f.awaitParks(t, f.worker, f.sibling)
 	assert.Equal(t, 1, f.findingsWith("rate limit"), "ONE finding for the hold: %v", f.findings.All())
-	holds := readAuditKind(t, f.c, auditHold)
-	assertHoldEvents(t, holds, agent.FailureRateLimited, holdScopeCredential, "")
-	for _, e := range holds {
-		assert.Equal(t, hold.Source.Key, e.Detail["source"], "a credential hold names its credential")
-		if e.Detail["cause"] == "turn" {
-			assert.Equal(t, "2026-09-30T12:10:00Z", e.Detail["until"], "the turn's park names the deadline")
-		}
-	}
+	opened := assertOpened(t, f.c, agent.FailureRateLimited, holdScopeCredential)
+	require.Len(t, opened, 1)
+	assert.Equal(t, hold.Source.Key, opened[0].Key, "a credential hold is keyed by its credential")
+	assert.True(t, limitResets.Equal(opened[0].Until), "the journal names the deadline: %v", opened[0].Until)
 
 	f.send(t, f.sibling, "held work")
 	f.send(t, f.stranger, "free work")
@@ -309,9 +328,8 @@ func TestRateHold_OneLimitParksTheCredentialsRunsUntilItResets(t *testing.T) {
 
 	clk.Advance(time.Second) // the release runs on this goroutine, inside Advance
 	assert.Empty(t, f.c.CredentialHolds(), "at the reset time the hold releases itself")
-	resumes := readAuditKind(t, f.c, auditHoldRelease)
-	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(resumes))
-	assertHoldEvents(t, resumes, agent.FailureRateLimited, holdScopeCredential, "backoff")
+	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), resumedHarps(t, f.c))
+	assertReleased(t, f.c, "backoff")
 	awaitChatText(t, f.sp, 1, "held work")
 	f.send(t, f.worker, "work after the reset")
 	awaitChatText(t, f.sp, 0, "work after the reset")
@@ -429,9 +447,8 @@ func TestRateHold_TheHumanMayReleaseEarly(t *testing.T) {
 	assert.True(t, newly)
 	assert.Empty(t, f.c.CredentialHolds())
 	assert.Zero(t, clk.Pending(), "the released hold's timer is disarmed")
-	releases := readAuditKind(t, f.c, auditHoldRelease)
-	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(releases))
-	assertHoldEvents(t, releases, agent.FailureRateLimited, holdScopeCredential, "human")
+	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), resumedHarps(t, f.c))
+	assertReleased(t, f.c, "human")
 	f.send(t, f.sibling, "after the human")
 	awaitChatText(t, f.sp, 1, "after the human")
 }
@@ -593,7 +610,7 @@ func TestRateHold_TheBackoffAndTheHumanReleaseItOnce(t *testing.T) {
 	}
 
 	assert.Empty(t, f.c.CredentialHolds())
-	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), auditHarps(readAuditKind(t, f.c, auditHoldRelease)),
+	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), resumedHarps(t, f.c),
 		"each held run is resumed once")
 }
 
@@ -650,7 +667,7 @@ func TestRateHold_ADrainingRunsLimitOpensNoHold(t *testing.T) {
 	require.Eventually(t, func() bool { return f.c.runEnded(runID) }, conformanceWait, 10*time.Millisecond)
 
 	assert.Empty(t, f.c.CredentialHolds(), "a run ending at its boundary opens no hold")
-	assert.Empty(t, readAuditKind(t, f.c, auditHold))
+	assert.Empty(t, journaled[holdOpened](t, f.c, factHoldOpened))
 	assert.Zero(t, f.findingsWith("rate limit"), "%v", f.findings.All())
 	assert.Zero(t, clk.Pending())
 	f.send(t, f.worker, "work after the drain")
@@ -740,6 +757,8 @@ func TestRateHold_TheInProcessRosterShowsTheHold(t *testing.T) {
 	f, clk := newRateFixture(t)
 	f.send(t, f.worker, limitHit+" do the work")
 	f.awaitHold(t, f.worker, f.sibling)
+	// The hold is in force before the worker's turn boundary marks it idle.
+	require.Eventually(t, func() bool { return f.state(f.worker) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
 	for _, harp := range []string{f.worker, f.sibling} {
 		e := f.entry(harp)

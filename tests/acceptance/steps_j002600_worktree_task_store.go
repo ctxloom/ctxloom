@@ -106,7 +106,7 @@ func registerJ002600Steps(ctx *godog.ScenarioContext) {
 		// Exactly what `git worktree add` produces for a project that commits
 		// its .ctxloom: the directory and its tracked contents, and no
 		// project-id, because that one file is gitignored.
-		if err := os.MkdirAll(filepath.Join(dir, ".ctxloom", "profiles"), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0755); err != nil {
 			return fmt.Errorf("create %s/.ctxloom: %w", dir, err)
 		}
 		cfg := filepath.Join(dir, ".ctxloom", "config.yaml")

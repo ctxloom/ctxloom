@@ -128,7 +128,7 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^profile "([^"]*)" curates skill "([^"]*)"$`, func(c context.Context, profile, ref string) error {
 		w := worldFrom(c)
-		path := ".ctxloom/profiles/" + profile + ".yaml"
+		path := testenv.ProjectProfileFile(profile)
 		body, err := w.env.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read profile %q: %w", profile, err)

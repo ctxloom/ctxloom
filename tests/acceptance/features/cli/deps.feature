@@ -254,7 +254,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --bundle origin/demo"
-      And the project already has the file ".ctxloom/profiles/orphan.yaml":
+      And the project already has the file ".ctxloom/content/bundles/v2/project/profiles/orphan.yaml":
         """
         parents:
           - file:///nonexistent-ctxloom-remote@bundles/kit#profiles/parent

@@ -197,7 +197,7 @@ func j002300WriteAgent(w *World, s *j002300AgentSpec) error {
 	if err := testenv.WriteBundleTree(w.env.ProjectDir, s.Bundle, j002300BundleYAML(s)); err != nil {
 		return err
 	}
-	return w.env.WriteFile(".ctxloom/profiles/"+s.Profile+".yaml", j002300ProfileYAML(s))
+	return w.env.WriteFile(testenv.ProjectProfileFile(s.Profile), j002300ProfileYAML(s))
 }
 
 // --- Canonical transcript reading (hermetic observable) ---------------------

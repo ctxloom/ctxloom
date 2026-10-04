@@ -9,7 +9,7 @@ Feature: profile — the composition that decides what an agent actually receive
 
   A profile is a COMPOSITION. It owns no content of its own: it names bundles
   to draw from, parents to inherit from, and a mask of what to leave out, and
-  the result is the context one agent starts with. `.ctxloom/profiles/<name>.yaml`
+  the result is the context one agent starts with. `.ctxloom/content/bundles/v2/project/profiles/<name>.yaml`
   is the whole of it — which is why every scenario below judges a profile by
   what it ASSEMBLES, not by what its file says it wants.
 
@@ -60,11 +60,11 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile create dev -b demo -d day-to-day-work
         """
       Then the command succeeds
-      And the file ".ctxloom/profiles/dev.yaml" exists
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" exists
       # The composition, not just the name: a create that wrote a profile with
       # an empty bundles list would satisfy a name check and assemble nothing.
-      And the file ".ctxloom/profiles/dev.yaml" contains "- demo"
-      And the file ".ctxloom/profiles/dev.yaml" contains "day-to-day-work"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "- demo"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "day-to-day-work"
       When I run "ctxloom profile list <flags>"
       Then the command succeeds
       And the output reports "$.0.name" as "<the sole entry>"
@@ -87,11 +87,11 @@ Feature: profile — the composition that decides what an agent actually receive
       # fixture where a create demonstrably DOES write one.
       When I run "ctxloom profile create dev -b demo"
       Then the command succeeds
-      And the file ".ctxloom/profiles/dev.yaml" exists
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" exists
       When I run "ctxloom profile create hollow"
       Then the command fails
       And the output contains "at least one parent (--parent) or bundle (-b) is required"
-      And the file ".ctxloom/profiles/hollow.yaml" does not exist
+      And the file ".ctxloom/content/bundles/v2/project/profiles/hollow.yaml" does not exist
 
     Scenario Outline: Showing a profile reads its composition back
       Given an initialized ctxloom project
@@ -222,10 +222,10 @@ Feature: profile — the composition that decides what an agent actually receive
       # than about `--parent` never having worked in this fixture.
       When I run "ctxloom profile create good --parent base -b demo"
       Then the command succeeds
-      And the file ".ctxloom/profiles/good.yaml" exists
+      And the file ".ctxloom/content/bundles/v2/project/profiles/good.yaml" exists
       When I run "ctxloom profile create dev --parent no-such-base -b demo"
       Then the command fails
-      And the file ".ctxloom/profiles/dev.yaml" does not exist
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" does not exist
 
     # `modify` with nothing to do must not read as a successful change.
     #
@@ -241,7 +241,7 @@ Feature: profile — the composition that decides what an agent actually receive
       When I run "ctxloom profile modify dev"
       Then the command succeeds
       And the output contains "No changes made."
-      And the file ".ctxloom/profiles/dev.yaml" contains "- demo"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "- demo"
 
   Rule: The mask hides inherited content without deleting it
 
@@ -267,7 +267,7 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile modify dev --exclude-fragment testing
         """
       Then the command succeeds
-      And the file ".ctxloom/profiles/dev.yaml" contains "exclude_fragments"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "exclude_fragments"
       When I run "ctxloom profile materialize dev --target masked"
       Then the command succeeds
       And the file "masked/CLAUDE.md" does not contain "FRAGMENT-BODY-testing"
@@ -340,7 +340,7 @@ Feature: profile — the composition that decides what an agent actually receive
         """
       Then the command succeeds
       And the output contains "Updated profile"
-      And the file ".ctxloom/profiles/dev.yaml" contains "EDITED-BY-TEST"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "EDITED-BY-TEST"
       When I run "ctxloom profile show dev"
       Then the command succeeds
       And the output contains "EDITED-BY-TEST"
@@ -349,14 +349,14 @@ Feature: profile — the composition that decides what an agent actually receive
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a profile "dev" with bundle "demo"
-      And the file ".ctxloom/profiles/dev.yaml" contains "acceptance fixture profile"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "acceptance fixture profile"
       When Alice re-describes the profile without opening an editor:
         """
         ctxloom profile modify dev -d updated-desc
         """
       Then the command succeeds
-      And the file ".ctxloom/profiles/dev.yaml" contains "updated-desc"
-      And the file ".ctxloom/profiles/dev.yaml" does not contain "acceptance fixture profile"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "updated-desc"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" does not contain "acceptance fixture profile"
       When I run "ctxloom profile show dev <flags>"
       Then the output reports "description" as "<the new description>"
 
@@ -379,7 +379,7 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile modify dev --llm big
         """
       Then the command succeeds
-      And the file ".ctxloom/profiles/dev.yaml" contains "llm: big"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "llm: big"
 
   Rule: Export publishes the definition; materialize writes the runnable surface
 
@@ -404,7 +404,7 @@ Feature: profile — the composition that decides what an agent actually receive
       And the file "pexport/dev.yaml" contains "- demo"
       When I run "ctxloom profile remove dev --yes"
       Then the command succeeds
-      And the file ".ctxloom/profiles/dev.yaml" does not exist
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" does not exist
       When Alice imports it back:
         """
         ctxloom profile import pexport/dev.yaml -f
@@ -439,13 +439,13 @@ Feature: profile — the composition that decides what an agent actually receive
       Then the command fails
       And the output contains "profile already exists"
       And the output contains "use --force to overwrite"
-      And the file ".ctxloom/profiles/dev.yaml" contains "LOCAL-EDIT-MARKER"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" contains "LOCAL-EDIT-MARKER"
       When Alice decides she meant it:
         """
         ctxloom profile import pexport/dev.yaml --force
         """
       Then the command succeeds
-      And the file ".ctxloom/profiles/dev.yaml" does not contain "LOCAL-EDIT-MARKER"
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" does not contain "LOCAL-EDIT-MARKER"
 
     # THE DISTINCTION THE WHOLE RULE IS NAMED FOR, asserted by writing both
     # from one profile and reading each other's payload out of neither. An
@@ -510,7 +510,7 @@ Feature: profile — the composition that decides what an agent actually receive
       And the output reports "applied" as "<nothing was applied>"
       And the output reports "detail" containing "<the cost>"
       And the output reports "apply" as "<the command to actually do it>"
-      And the file ".ctxloom/profiles/dev.yaml" exists
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" exists
       When I run "ctxloom profile list <flags>"
       Then the output reports "$.0.name" as "<the profile survives>"
 
@@ -535,7 +535,7 @@ Feature: profile — the composition that decides what an agent actually receive
         ctxloom profile remove dev --yes
         """
       Then the command succeeds
-      And the file ".ctxloom/profiles/dev.yaml" does not exist
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" does not exist
       When I run "ctxloom profile list --format text"
       Then the output contains "No profiles defined."
 
@@ -549,10 +549,10 @@ Feature: profile — the composition that decides what an agent actually receive
       When I run "ctxloom profile rm dev <flags>"
       Then the command succeeds
       And the output reports "applied" as "<nothing was applied>"
-      And the file ".ctxloom/profiles/dev.yaml" exists
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" exists
       When I run "ctxloom profile del dev --yes"
       Then the command succeeds
-      And the file ".ctxloom/profiles/dev.yaml" does not exist
+      And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" does not exist
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied                              |

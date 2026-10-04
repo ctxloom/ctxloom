@@ -5,7 +5,6 @@ package integration
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -87,7 +86,7 @@ func writeSkill(t *testing.T, env *testenv.TestEnvironment, name, description st
 
 func writeProfile(t *testing.T, env *testenv.TestEnvironment, name, content string) {
 	t.Helper()
-	path := fmt.Sprintf(".ctxloom/profiles/%s.yaml", name)
+	path := testenv.ProjectProfileFile(name)
 	require.NoError(t, env.WriteFile(path, content), "failed to write profile")
 }
 

@@ -251,7 +251,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 			if err := testenv.WriteBundleTree(w.env.ProjectDir, "bundle-"+mcpProbeAgent, mcpProbeBundleYAML(relBinary, relDir)); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/profiles/"+mcpProbeAgent+"-profile.yaml",
+			if err := w.env.WriteFile(testenv.ProjectProfileFile(mcpProbeAgent+"-profile"),
 				"bundles:\n  - ctxloom:local@bundles/bundle-"+mcpProbeAgent+"\n"); err != nil {
 				return err
 			}

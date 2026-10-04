@@ -173,7 +173,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 				hookProbeBundleYAML(h.scriptPath, h.stampHarp)); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/profiles/"+hookProbeAgent+"-profile.yaml",
+			if err := w.env.WriteFile(testenv.ProjectProfileFile(hookProbeAgent+"-profile"),
 				"bundles:\n  - ctxloom:local@bundles/bundle-"+hookProbeAgent+"\n"); err != nil {
 				return err
 			}
@@ -189,7 +189,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 			// the hook" on a run where no writer ever executed.
 			for _, rel := range []string{
 				treeBundlePath("bundle-" + hookProbeAgent),
-				".ctxloom/profiles/" + hookProbeAgent + "-profile.yaml",
+				testenv.ProjectProfileFile(hookProbeAgent + "-profile"),
 				".ctxloom/config.yaml",
 			} {
 				h.authored = append(h.authored, filepath.Join(w.env.ProjectDir, rel))

@@ -57,7 +57,7 @@ func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 	isolatedLocks(t)
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
+	profilesDir := bundletree.ProjectProfilesDir(t, appDir)
 	bundlesDir := testenv.LocalBundlesDir(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))

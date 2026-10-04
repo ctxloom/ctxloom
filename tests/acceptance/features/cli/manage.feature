@@ -362,7 +362,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     Scenario Outline: The hook list names the specific place each hook was declared
       Given an initialized ctxloom project
       And a signed companion "ctxloom-companion-hooky" shipping a "pre_tool" hook is on PATH
-      And the project already has the file ".ctxloom/profiles/dir-prov.yaml":
+      And the project already has the file ".ctxloom/content/bundles/v2/project/profiles/dir-prov.yaml":
         """
         hooks:
           unified:

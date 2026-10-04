@@ -169,7 +169,7 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 			if err := testenv.WriteBundleTree(w.env.ProjectDir, "bundle-"+matrixAgent, matrixBundleYAML(m.nonce)); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/profiles/"+matrixAgent+"-profile.yaml",
+			if err := w.env.WriteFile(testenv.ProjectProfileFile(matrixAgent+"-profile"),
 				"bundles:\n  - ctxloom:local@bundles/bundle-"+matrixAgent+"\n"); err != nil {
 				return err
 			}

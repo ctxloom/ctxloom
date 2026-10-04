@@ -254,10 +254,10 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			if err := testenv.WriteBundleTree(w.env.ProjectDir, "bundle-fix", j002100BundleYAML(j002100.specs[nameB])); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/profiles/review-profile.yaml", j002100ProfileYAML(j002100.specs[nameA])); err != nil {
+			if err := w.env.WriteFile(testenv.ProjectProfileFile("review-profile"), j002100ProfileYAML(j002100.specs[nameA])); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/profiles/fix-profile.yaml", j002100ProfileYAML(j002100.specs[nameB])); err != nil {
+			if err := w.env.WriteFile(testenv.ProjectProfileFile("fix-profile"), j002100ProfileYAML(j002100.specs[nameB])); err != nil {
 				return err
 			}
 			return w.env.WriteFile(".ctxloom/config.yaml", j002100RenderConfig(j002100))

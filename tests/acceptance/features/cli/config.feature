@@ -130,7 +130,7 @@ Feature: config — the project's one configuration document, read and scaffolde
         ctxloom config show llm
         """
       Then the output contains "RETIRED"
-      And the output contains ".ctxloom/profiles/"
+      And the output contains "project bundle"
       And the output contains "default_agent"
 
     # The refusal has to be USEFUL, not merely correct: a caller who guessed
@@ -176,7 +176,7 @@ Feature: config — the project's one configuration document, read and scaffolde
       And the file ".ctxloom/config.yaml" is valid YAML
       And the file ".ctxloom/config.yaml" contains "llm: claude-code"
       And the file ".ctxloom/remotes.yaml" contains "ctxloom-default"
-      And the file ".ctxloom/profiles/default.yaml" exists
+      And the file ".ctxloom/content/bundles/v2/project/profiles/default.yaml" exists
       When I run "ctxloom config show"
       Then the command succeeds
       And the output contains "claude-code"

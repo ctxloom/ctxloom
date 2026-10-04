@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"golang.org/x/crypto/ssh"
@@ -131,10 +132,6 @@ func NewTestEnvironment() (*TestEnvironment, error) {
 	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".ctxloom", "bundles"), 0755); err != nil {
 		_ = env.Cleanup()
 		return nil, fmt.Errorf("failed to create home .ctxloom/bundles: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".ctxloom", "profiles"), 0755); err != nil {
-		_ = env.Cleanup()
-		return nil, fmt.Errorf("failed to create home .ctxloom/profiles: %w", err)
 	}
 
 	// Create project directory
@@ -757,7 +754,6 @@ func (e *TestEnvironment) CreateProjectConfig() error {
 		// The FORMAT root authored bundles go in; MkdirAll creates the
 		// bundles root above it, which is what GetBundleDirs stats.
 		filepath.Join(e.ProjectDir, ".ctxloom", "content", "bundles", "v1"),
-		filepath.Join(e.ProjectDir, ".ctxloom", "profiles"),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -773,18 +769,53 @@ func (e *TestEnvironment) CreateProjectConfig() error {
 // also provisions the approvals store the way `ctxloom init` does: an
 // unprovisioned project withholds everything. A scenario about an
 // unprovisioned or removed store deletes it after its last such write.
+//
+// A file written into the project bundle gets the bundle's envelope too when
+// it has none — the current-generation one a writer stamps — because a tree
+// without one is not a bundle and its profiles would never load.
 func (e *TestEnvironment) WriteFile(relPath, content string) error {
 	fullPath := filepath.Join(e.ProjectDir, relPath)
 	dir := filepath.Dir(fullPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
-	if strings.HasPrefix(filepath.ToSlash(filepath.Clean(relPath)), paths.AppDirName+"/") {
+	clean := filepath.ToSlash(filepath.Clean(relPath))
+	if strings.HasPrefix(clean, paths.AppDirName+"/") {
 		if err := e.provisionApprovals(); err != nil {
 			return err
 		}
 	}
+	if bundle := filepath.ToSlash(projectBundleDir()); strings.HasPrefix(clean, bundle+"/") && clean != bundle+"/"+bundles.DirectoryFormManifest {
+		if err := e.ensureProjectBundleEnvelope(); err != nil {
+			return err
+		}
+	}
 	return os.WriteFile(fullPath, []byte(content), 0644)
+}
+
+// ProjectProfileFile is the project-relative path of the project bundle's
+// profile item called name — where a project's own profiles live.
+func ProjectProfileFile(name string) string {
+	return filepath.ToSlash(filepath.Join(projectBundleDir(), paths.ProfilesDir, name+".yaml"))
+}
+
+// projectBundleDir is the project-relative directory of the project bundle.
+func projectBundleDir() string {
+	return filepath.Join(paths.LocalBundlesPathFor(paths.AppDirName, paths.LayoutV2), paths.ProjectBundleName)
+}
+
+// ensureProjectBundleEnvelope writes the project bundle's envelope when the
+// project has none.
+func (e *TestEnvironment) ensureProjectBundleEnvelope() error {
+	envelope := filepath.Join(e.ProjectDir, projectBundleDir(), bundles.DirectoryFormManifest)
+	if _, err := os.Stat(envelope); err == nil {
+		return nil
+	}
+	raw, err := bundles.TreeEnvelope(&bundles.Bundle{Version: "1.0.0"})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(envelope, raw, 0644)
 }
 
 // provisionApprovals creates the project approvals store with its tracked

@@ -306,7 +306,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	// validation doesn't reject it — the point is that USING it degrades.
 	ctx.Step(`^a profile "([^"]*)" referencing a missing bundle$`, func(c context.Context, name string) error {
 		body := "description: references a missing bundle\nbundles:\n  - does-not-exist\n"
-		return worldFrom(c).env.WriteFile(".ctxloom/profiles/"+name+".yaml", body)
+		return worldFrom(c).env.WriteFile(testenv.ProjectProfileFile(name), body)
 	})
 
 	ctx.Step(`^a bundle "([^"]*)" exists$`, func(c context.Context, name string) error {
@@ -370,12 +370,12 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	// run end to end.
 	ctx.Step(`^a profile "([^"]*)" with bundle "([^"]*)" and deny_tools "([^"]*)"$`, func(c context.Context, name, bundle, tool string) error {
 		body := "description: acceptance fixture profile\nbundles:\n  - " + bundle + "\ndeny_tools:\n  - " + tool + "\n"
-		return worldFrom(c).env.WriteFile(".ctxloom/profiles/"+name+".yaml", body)
+		return worldFrom(c).env.WriteFile(testenv.ProjectProfileFile(name), body)
 	})
 
 	// An INLINE profile, written straight into config.yaml's `profiles:
 	// definitions:` map — as opposed to `profile create`, which always writes a
-	// directory profile (.ctxloom/profiles/<name>.yaml). `ctxloom config
+	// profile item of the project bundle. `ctxloom config
 	// get profiles` only ever reflects this inline map (cfg.Profiles.Definitions):
 	// there is no CLI surface that populates it, so a scenario asserting on that
 	// section must seed it directly. Appends to the existing config.yaml — safe

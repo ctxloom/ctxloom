@@ -47,11 +47,11 @@ func newSessionFullRow(fsys afero.Fs, v operations.SessionView) SessionFullRow {
 	return SessionFullRow{SessionRow: row, Essence: essence}
 }
 
-// renderSessionFullText is the human (text/markdown) body for `--full`
+// renderSessionFullText is the human (text) body for `--full`
 // output: one block per session — harp, summary, start/end, essence path,
 // then the complete essence body — rather than clifmt's reflective table,
 // which packs each struct field into a table cell and has no good way to
-// lay out a multi-paragraph essence body. json/yaml/toml skip this path
+// lay out a multi-paragraph essence body. Every other format skips this path
 // entirely (see emitSessionRows) and go straight through clifmt.Render,
 // which handles SessionFullRow's embedded-struct shape natively.
 func renderSessionFullText(w io.Writer, rows []SessionFullRow) error {
@@ -89,13 +89,13 @@ func renderSessionFullText(w io.Writer, rows []SessionFullRow) error {
 // query`: the lean SessionRow projection by default, or — when full is true
 // — the FULL projection carrying each session's complete essence body.
 //
-// FULL text/markdown output is routed through pagerWriter, which only ever
+// FULL text output is routed through pagerWriter, which only ever
 // actually pages when the command is writing to a real, TTY-attached
 // os.Stdout (shouldPage); every other case — a test's captured buffer, a
 // redirected file, a pipe into jq — passes the writer through unchanged.
-// Structured formats (json/yaml/toml) never reach pagerWriter at all: they
-// return straight out of clifmt.Render, so `--full --format json | jq` stays
-// exactly as pipeable as it was before `--full` existed.
+// Every other format, markdown included, never reaches pagerWriter: it
+// returns straight out of clifmt.Render, exactly as emit() renders it, so
+// `--full --format json | jq` stays as pipeable as the non-full form.
 func emitSessionRows(cmd *cobra.Command, views []operations.SessionView, full bool) error {
 	if !full {
 		rows := make([]SessionRow, len(views))
@@ -116,12 +116,12 @@ func emitSessionRows(cmd *cobra.Command, views []operations.SessionView, full bo
 	if err != nil {
 		return err
 	}
-	// The runtime guard (format.go) only sees emit()/outputFormatOf;
+	// The runtime guard (format.go) only sees emit()/streamFormat;
 	// both branches below are the direct clifmt.Render/renderSessionFullText
 	// bypass, a hand-rolled duplicate of emit()'s own format branch, so this
 	// marks the guard on their behalf.
 	formatWasHonored = true
-	if format != clifmt.FormatText && format != clifmt.FormatMarkdown {
+	if format != clifmt.FormatText {
 		return clifmt.Render(cmd.OutOrStdout(), fullRows, format)
 	}
 

@@ -24,12 +24,12 @@ flowchart TD
     end
 
     subgraph signer["signer.go"]
-        TSN["signer trust &lt;principal&gt;"] --> RSA["runSignerAdd"] --> CSA["confirmSignerAdd → promptSignerAdd"]
+        TSN["signer trust &lt;principal&gt;"] --> RSA["runSignerTrust"] --> CSA["discloseSignerTrust (without --yes)"]
         CSA --> SRW["signerRoleWord (PUBLISHER vs REVIEWER)"]
         CSA --> SCT["signerConsequenceText"]
         SLC["signer list"] --> RSL["runSignerListCmd"] --> PSL["printSignerListings"] --> EA["embeddedAnnotation"]
         SSC["signer show &lt;principal&gt;"] --> RSH["runSignerShowCmd"]
-        SUC["signer untrust &lt;principal&gt;"] --> RSR["runSignerRemove"]
+        SUC["signer untrust &lt;principal&gt;"] --> RSR["runSignerUntrust"]
     end
 
     subgraph trust["bundle_trust.go"]
@@ -136,7 +136,7 @@ says out loud that nothing was trusted or rejected.
   `--project` case, and degrades (with an explicit `confirmUnsignedReview`
   prompt) otherwise. The ambiguous-key case lists the candidates.
 - **Prompts fail closed.** `confirmUnsignedReview` returns `false` on a read
-  error; `confirmSignerAdd` treats a prompt error as "no". The one deliberate
+  error; `confirmSignerTrust` treats a prompt error as "no". The one deliberate
   exception is `warnIfSoftwareKey`, which returns `true` on a read error — a
   warning must never block.
 - **A trust decision is re-applied to disk immediately.**

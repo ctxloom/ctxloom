@@ -23,6 +23,11 @@ already-published bundles into parse failures that surface only as a warning in
 every project that has them installed. Run this before landing such a change:
 it applies THIS BUILD's rules to the bundles the remotes actually serve.
 
+WHAT IS READ. Each bundle whole — its bundle.yaml and every item file —
+through the same reader a remote load uses, at the commit the remote's default
+branch resolves to. A bundle that declares no items is a violation: a load
+refuses it.
+
 WHERE THE CORPUS COMES FROM. Every remote in .ctxloom/remotes.yaml, read from
 its local clone under .ctxloom/cache/repos. Nothing is hardcoded, so adding a
 remote extends the gate automatically.
@@ -49,7 +54,7 @@ ctxloom deps verify-corpus [flags]
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
-      --write-upgrades           Persist in-memory upgrades of older-format files (the old file is kept as <file>.bak)
+      --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
 ```
 
 ### SEE ALSO

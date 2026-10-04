@@ -123,7 +123,7 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	}
 
 	if len(r.Applied) > 0 && schemaver.WriteUpgrades() {
-		if err := schemaver.WriteBack(m.fs, path, r, nil); err != nil {
+		if err := schemaver.WriteBack(m.fs, path, r, schemaver.NoBackup); err != nil {
 			return nil, err
 		}
 	}
@@ -141,20 +141,17 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 // decision this read cannot carry across a key it does not trust, so the user
 // rebuilds the lock and re-applies the holds the refusal names.
 func upgradeLockfile(path string, data []byte) (schemaver.Result, error) {
-	// A PRESENT-but-empty (or whitespace-only) file is a DIFFERENT
-	// fact from "no lockfile" (Load's not-exist case) and must not collapse
-	// into it.
-	// Save/write always stamp LockedAt to time.Now() before marshaling, so
-	// any real write produces non-trivial bytes ("schema_version: N\nlocked_at:
-	// ...\n" at minimum) — a genuinely 0-byte or blank file on disk can only
-	// be truncation, a crash mid-write, or a hand-created stub. Loading it as
-	// a valid empty lockfile makes every pinned remote bundle vanish from the
-	// session with no diagnostic at all. (A comment-only or `null` document
-	// declares no version, so the version gate below refuses it as a retired
-	// form.)
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return schemaver.Result{}, fmt.Errorf("lockfile %s exists but is empty — this is not the same as no lockfile at all (which is fine); "+
-			"fix or delete the file, then re-sync (a legitimate lockfile always declares its %s)", path, schemaver.Key)
+	// A PRESENT lockfile with no document is a DIFFERENT fact from "no
+	// lockfile" (Load's not-exist case) and must not collapse into it: every
+	// real write stamps its generation and LockedAt, so a documentless file
+	// can only be truncation, a crash mid-write, or a hand-created stub, and
+	// loading it as a valid empty lockfile would make every pinned remote
+	// bundle vanish with no diagnostic. It is checked BEFORE the generation
+	// gate, which would read it as generation 0 and refuse it as a retired
+	// key form it does not have.
+	if isDocumentless(data) {
+		return schemaver.Result{}, fmt.Errorf("%w: %s — this is not the same as no lockfile at all (which is fine); "+
+			"delete it and re-run `ctxloom deps pull` to rebuild it", errLockfileEmpty, path)
 	}
 
 	// REFUSE the retired hold key rather than letting yaml drop it. A lockfile
@@ -188,6 +185,19 @@ func upgradeLockfile(path string, data []byte) (schemaver.Result, error) {
 // user DECISION, so a file still using this key is refused by name rather than
 // read with the decision dropped.
 const retiredHoldField = "pinned"
+
+// errLockfileEmpty reports a lock.yaml that is present but holds no document.
+// Every lockfile ctxloom writes records its format generation and its entries,
+// so a documentless one was truncated or created by hand; a project with
+// nothing pinned has no lock.yaml at all.
+var errLockfileEmpty = errors.New("lockfile holds no document (it is empty, or whitespace and comments only)")
+
+// isDocumentless reports whether data decodes to no value at all: empty,
+// whitespace, comments only, or an explicit null.
+func isDocumentless(data []byte) bool {
+	var v any
+	return yaml.Unmarshal(data, &v) == nil && v == nil
+}
 
 // ErrLockKeyFormRetired reports a lockfile Load refused because it predates
 // LockfileVersion or carries a key that is not its own bundle identity.

@@ -381,16 +381,14 @@ func TestBundleLoader_ReadsCompanionAlongsideRemote(t *testing.T) {
 	cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}})
 
 	loader := cfg.BundleLoader()
-	infos, err := loader.List()
-	require.NoError(t, err)
+	infos := loader.List()
 	var names []string
 	for _, info := range infos {
 		names = append(names, info.Name)
 	}
 	assert.Contains(t, names, remote.CompanionSource+"@ltk")
 
-	frags, err := loader.ListAllFragments()
-	require.NoError(t, err)
+	frags := loader.ListAllFragments()
 	found := false
 	for _, f := range frags {
 		if f.Bundle == remote.CompanionSource+"@ltk" && f.Name == "ltk" {
@@ -416,8 +414,7 @@ func TestBundleLoader_NoAppPaths_SkipsCompanionProbing(t *testing.T) {
 	defer restoreLook()
 
 	cfg := companionConfig(t, config.Fixture{})
-	_, err := cfg.BundleLoader().List()
-	require.NoError(t, err)
+	cfg.BundleLoader().List()
 	assert.False(t, probed, "no AppPaths means no project to seed companion content into — must not probe at all")
 }
 

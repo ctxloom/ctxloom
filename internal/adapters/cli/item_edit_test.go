@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -92,7 +93,7 @@ func TestEditItem_NoDistillClearsDistilledAndWarns(t *testing.T) {
 			seedDistilledItem(t, cfg, tc.kind, "x", "v1")
 			setFakeEditor(t, "v2")
 
-			ref := "demo#" + itemRefPrefix(tc.itemType) + "x"
+			ref := "demo#" + trust.FormatSelector(itemKindOf(tc.itemType), "x")
 			// The renderer writes to cmd.OutOrStdout(), not the process's real
 			// stdout, so this buffer IS the delivered payload.
 			cmd, buf := testCmd()

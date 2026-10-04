@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -445,6 +446,15 @@ func mcpTrustHash(t *testing.T, m BundleMCP) string {
 	return HashPayload(payload)
 }
 
+// hookTrustHash is the hash the trust path computes for a hook: HashPayload
+// over its ContentPayload.
+func hookTrustHash(t *testing.T, h BundleHook) string {
+	t.Helper()
+	payload, err := h.ContentPayload()
+	require.NoError(t, err)
+	return HashPayload(payload)
+}
+
 func TestBundleMCP_TrustHash(t *testing.T) {
 	base := BundleMCP{
 		Command:      "postgres-mcp",
@@ -542,20 +552,6 @@ func TestBundleMCP_ContentPayload_IsHashPreimage(t *testing.T) {
 	// pins the exact byte layout and its field ORDER (JSONEq below is
 	// order-insensitive and would not catch a misplaced version carrier).
 	assert.JSONEq(t, `{"preimage":"ctxloom-exec/2","command":"postgres-mcp","args":["--host","db"],"env":{"PGUSER":"admin"},"url":"","headers":null,"installation":"npm i -g postgres-mcp"}`, string(payload))
-}
-
-func TestBundleHook_ContentPayload_IsHashPreimage(t *testing.T) {
-	hook := BundleHook{
-		Matcher:         "Bash",
-		Type:            "command",
-		Command:         "echo hi",
-		Prompt:          "",
-		PreToolFallback: true,
-	}
-
-	payload, err := hook.ContentPayload()
-	require.NoError(t, err)
-	assert.Equal(t, hashContent(payload), hook.ComputeContentHash())
 }
 
 // skillFileSpec is one file of a staged skill package.
@@ -960,9 +956,8 @@ func TestNewLoader_ReadsWhatItsReadersReport(t *testing.T) {
 	writeTree(t, fs, paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), "kit", "version: \"1.0\"\n")
 	loader := NewLoader(NewProjectReader(fs, []string{"/bundles"}))
 
-	infos, err := loader.List()
+	infos := loader.List()
 
-	require.NoError(t, err)
 	require.Len(t, infos, 1)
 	assert.Equal(t, "kit", infos[0].Name)
 	assert.Equal(t, fs, loader.FS(), "the loader reads skill trees through the same fs its project reader used")
@@ -974,9 +969,8 @@ func TestNewLoader_ReadsWhatItsReadersReport(t *testing.T) {
 func TestNewLoader_NoReadersSeesNothing(t *testing.T) {
 	loader := NewLoader()
 
-	infos, err := loader.List()
+	infos := loader.List()
 
-	require.NoError(t, err)
 	assert.Empty(t, infos)
 	_, lerr := loader.Load("anything")
 	assert.ErrorIs(t, lerr, errs.ErrBundleNotFound)
@@ -1068,8 +1062,7 @@ fragments:
 description: Bundle 2`)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-	bundles, err := loader.List()
-	require.NoError(t, err)
+	bundles := loader.List()
 
 	assert.Len(t, bundles, 2)
 	// Should be sorted by name
@@ -1095,8 +1088,7 @@ fragments:
 	writeTree(t, afero.NewOsFs(), seedBundleRoot(t, tmpDir, paths.LayoutV2), "test", bundleYAML)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-	infos, err := loader.ListAllFragments()
-	require.NoError(t, err)
+	infos := loader.ListAllFragments()
 
 	assert.Len(t, infos, 2)
 
@@ -1126,8 +1118,7 @@ commands:
 	writeTree(t, afero.NewOsFs(), seedBundleRoot(t, tmpDir, paths.LayoutV2), "test", bundleYAML)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-	infos, err := loader.ListAllCommands()
-	require.NoError(t, err)
+	infos := loader.ListAllCommands()
 
 	assert.Len(t, infos, 1)
 	assert.Equal(t, "prompt1", infos[0].Name)
@@ -1408,27 +1399,23 @@ fragments:
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
 
 	t.Run("single tag", func(t *testing.T) {
-		infos, err := loader.ListByTags([]string{"golang"})
-		require.NoError(t, err)
+		infos := loader.ListByTags([]string{"golang"})
 		assert.Len(t, infos, 1)
 		assert.Equal(t, "golang-frag", infos[0].Name)
 	})
 
 	t.Run("multiple tags (OR logic)", func(t *testing.T) {
-		infos, err := loader.ListByTags([]string{"golang", "python"})
-		require.NoError(t, err)
+		infos := loader.ListByTags([]string{"golang", "python"})
 		assert.Len(t, infos, 2)
 	})
 
 	t.Run("shared tag", func(t *testing.T) {
-		infos, err := loader.ListByTags([]string{"programming"})
-		require.NoError(t, err)
+		infos := loader.ListByTags([]string{"programming"})
 		assert.Len(t, infos, 2)
 	})
 
 	t.Run("no matches", func(t *testing.T) {
-		infos, err := loader.ListByTags([]string{"nonexistent"})
-		require.NoError(t, err)
+		infos := loader.ListByTags([]string{"nonexistent"})
 		assert.Len(t, infos, 0)
 	})
 }
@@ -1444,8 +1431,7 @@ fragments:
 func TestLoader_EmptySearchDirs(t *testing.T) {
 	loader := NewLoader(NewProjectReader(nil, []string{}))
 
-	bundles, err := loader.List()
-	require.NoError(t, err, "empty dirs should not error")
+	bundles := loader.List()
 	assert.Empty(t, bundles)
 }
 
@@ -1455,8 +1441,7 @@ func TestLoader_EmptySearchDirs(t *testing.T) {
 func TestLoader_NonexistentSearchDir(t *testing.T) {
 	loader := NewLoader(NewProjectReader(nil, []string{"/nonexistent/path"}))
 
-	bundles, err := loader.List()
-	require.NoError(t, err, "nonexistent dir should not error")
+	bundles := loader.List()
 	assert.Empty(t, bundles)
 }
 
@@ -1532,8 +1517,7 @@ fragments:
     content: Nested content`)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-	bundles, err := loader.List()
-	require.NoError(t, err)
+	bundles := loader.List()
 
 	// Should find the nested bundle
 	var found bool
@@ -1801,7 +1785,7 @@ func TestLoader_ResolveFragmentAsk(t *testing.T) {
 	assert.Equal(t, "nope", resolve("nope"))
 }
 
-func TestBundleHook_ComputeContentHash(t *testing.T) {
+func TestBundleHook_TrustHash(t *testing.T) {
 	base := BundleHook{
 		Matcher:         "Bash",
 		Command:         "echo hi",
@@ -1811,15 +1795,15 @@ func TestBundleHook_ComputeContentHash(t *testing.T) {
 		Async:           true,
 		PreToolFallback: true,
 	}
-	baseHash := base.ComputeContentHash()
+	baseHash := hookTrustHash(t, base)
 	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, baseHash)
-	assert.Equal(t, baseHash, base.ComputeContentHash(), "deterministic across calls")
+	assert.Equal(t, baseHash, hookTrustHash(t, base), "deterministic across calls")
 
 	// Operational knobs (Timeout/Async) are excluded from the executable hash.
 	knobs := base
 	knobs.Timeout = 99
 	knobs.Async = false
-	assert.Equal(t, baseHash, knobs.ComputeContentHash(), "Timeout/Async must not change the hash")
+	assert.Equal(t, baseHash, hookTrustHash(t, knobs), "Timeout/Async must not change the hash")
 
 	// Each executable-surface field is part of the hash.
 	for name, mut := range map[string]func(*BundleHook){
@@ -1831,7 +1815,7 @@ func TestBundleHook_ComputeContentHash(t *testing.T) {
 	} {
 		changed := base
 		mut(&changed)
-		assert.NotEqualf(t, baseHash, changed.ComputeContentHash(), "%s must be part of the hash", name)
+		assert.NotEqualf(t, baseHash, hookTrustHash(t, changed), "%s must be part of the hash", name)
 	}
 }
 
@@ -2145,6 +2129,27 @@ func TestBundleHooks_EveryEventIsWiredEndToEnd(t *testing.T) {
 			require.Len(t, r.out.Hooks.eventHooks(event), 1,
 				"(*reader).appendHook drops %q on the floor — hooks/%s/ in a bundle tree would decode and vanish", event, event)
 			assert.Equal(t, hook.Command, r.out.Hooks.eventHooks(event)[0].Command)
+		})
+	}
+}
+
+// ExpandedRef.Name is minted from the PARSED selector, never the raw text: a
+// control byte in a profile's selector, or in a bundle-authored fragment name,
+// must not ride into the identity every downstream surface prints and keys on.
+func TestLoader_ExpandBundleRefs_NameCarriesNoControlCharacters(t *testing.T) {
+	loader := expandRefsFixture(t)
+	fs := afero.NewMemMapFs()
+	v1 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
+	writeTree(t, fs, v1, "test/evil", "version: \"1.0.0\"\nfragments:\n  \"ev\\e[2Jil\":\n    content: \"x\"\n")
+	evil := NewLoader(NewProjectReader(fs, []string{"/bundles"}))
+
+	for name, got := range map[string][]ExpandedRef{
+		"targeted":     loader.ExpandBundleRefs([]string{"test/alpha#fragments/a\x1b[2J2"}),
+		"whole bundle": evil.ExpandBundleRefs([]string{"test/evil"}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Len(t, got, 1)
+			assert.Equal(t, refuri.NormalizeRef(got[0].Name), got[0].Name, "the name must already be normalised")
 		})
 	}
 }

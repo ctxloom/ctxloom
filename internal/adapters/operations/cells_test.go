@@ -93,6 +93,59 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 	assert.Equal(t, cell.Env["TMPDIR"], env["TMPDIR"], "the isolation-resolved workspace env reaches the engine env")
 }
 
+// TestCellsPrepare_UnknownHomeModeIsRefused: the cells adapter re-parses the
+// home mode the resolver settled and refuses one that does not parse, rather
+// than preparing a cell under a spelling nothing checked.
+func TestCellsPrepare_UnknownHomeModeIsRefused(t *testing.T) {
+	resetStrictness(t)
+	const typo = agents.HomeMode("hostt")
+	_, parseErr := agents.ParseHomeMode(string(typo))
+	require.Error(t, parseErr, "fixture: the spelling must not parse")
+
+	req := claudeKind(t)
+	req.ProjectRoot = t.TempDir()
+	req.SessionDir = harpDir(t, "test-harp")
+	req.HomeMode = typo
+	_, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
+	require.EqualError(t, err, parseErr.Error())
+}
+
+// TestCellsPrepare_AWorktreeLivesInItsOwnSession: the session a cell's
+// worktree checks out under is the run's own identity — the harp the launch
+// minted — whatever the request's env map carries, so an env that lost the
+// harp carrier (or names another session) can neither strand the checkout
+// outside every session nor file it under someone else's.
+func TestCellsPrepare_AWorktreeLivesInItsOwnSession(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping the worktree isolation integration test")
+	}
+	for name, env := range map[string]map[string]string{
+		"no harp in the env":      {},
+		"another harp in the env": {sessions.EnvHarp: harpB},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resetStrictness(t)
+			fakeHostHome(t, "")
+			t.Setenv(claude.OAuthTokenEnv, tokenFixture)
+			req := claudeKind(t)
+			req.Axes.Workspace = launch.WorkspaceWorktree
+			req.ProjectRoot = initIsolationTestRepo(t)
+			req.Identity.Harp = harpA
+			req.SessionDir = harpDir(t, harpA)
+			req.Env = env
+
+			cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = cell.Cleanup() })
+
+			work, err := paths.HarpWorkDir(harpA)
+			require.NoError(t, err)
+			checkout := cell.Paths.Paths().ProjectRoot.Host
+			assert.Equal(t, work, filepath.Dir(checkout), "the checkout is a member of the run's own session")
+		})
+	}
+}
+
 func TestCellsPrepare_SessionHome(t *testing.T) {
 	prepare := func(t *testing.T, workDir string, home agents.HomeMode, workspace launch.WorkspaceAxis, harp string) launch.Cell {
 		t.Helper()

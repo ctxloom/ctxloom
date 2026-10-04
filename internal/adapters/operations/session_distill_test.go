@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -34,9 +33,8 @@ func TestCompactionModelFor_ModelOverrideBeatsConfig(t *testing.T) {
 // resolution moved out of the compactor to the caller (slice 14a), so the
 // "session index unavailable" reason — the one that actually happened — is
 // reported HERE, not swapped for a misleading "backend does not support
-// session history". A retired-scraper backend has no legacy leg, so the
-// canonical index IS the only source and its failure to open is the whole
-// reason there is nothing to read.
+// session history". The canonical index IS the only source, so its failure to
+// open is the whole reason there is nothing to read.
 func TestDistillSource_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) {
 	home := testsupport.Isolate(t)
 
@@ -46,11 +44,7 @@ func TestDistillSource_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T)
 	require.NoError(t, os.MkdirAll(filepath.Dir(sessionsPath), 0o755))
 	require.NoError(t, os.WriteFile(sessionsPath, []byte("not a directory"), 0o644))
 
-	backend := "claude-code"
-	_, herr := HistoryForBackend(engines.Registry(), backend)
-	require.ErrorIs(t, herr, errNoSessionHistory, "fixture assumes a backend with no legacy scraper leg")
-
-	_, err := distillSource(engines.Registry(), backend, home)
+	_, err := distillSource(home)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "session index",
 		"the failure that actually happened must be the one reported")
@@ -58,33 +52,16 @@ func TestDistillSource_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T)
 		"reporting an unsupported backend sends the user after the wrong remedy")
 }
 
-// TestDistillPreload_CanonicalCaptureBeatsAVendorPathWithNoReader pins
-// harmful-sprout: a container-runtime harp records the engine's transcript path
-// but never gets a session_id bound host-side. The default engine keeps no
-// legacy reader, so trying that path first refused the distill with "has no
-// session history" even though ctxloom's own canonical capture was on disk.
-func TestDistillPreload_CanonicalCaptureBeatsAVendorPathWithNoReader(t *testing.T) {
+// TestDistillable_CanonicalCaptureBeatsAVendorPath pins harmful-sprout: a
+// container-runtime harp records the engine's transcript path but never gets
+// a session_id bound host-side. Its canonical capture is on disk, and that is
+// what a distill reads.
+func TestDistillable_CanonicalCaptureBeatsAVendorPath(t *testing.T) {
 	testsupport.Isolate(t)
-	backend := "claude-code"
-	_, herr := HistoryForBackend(engines.Registry(), backend)
-	require.ErrorIs(t, herr, errNoSessionHistory, "fixture assumes a backend with no legacy reader")
-
-	preloaded, err := distillPreload(engines.Registry(), &sessions.Entry{
+	err := distillable(&sessions.Entry{
 		HarpName:                "vexed-scary-gab",
 		TranscriptPath:          "/nonexistent/vendor/transcript.jsonl",
 		CanonicalTranscriptPath: "/nonexistent/canonical/transcript.jsonl",
-	}, backend)
+	})
 	require.NoError(t, err, "a canonical capture must be read rather than refused over a vendor path nothing can parse")
-	assert.Nil(t, preloaded, "the canonical capture is resolved inside the compactor, by HarpName")
-}
-
-// Without a canonical capture the vendor path is all there is, and a backend
-// with no reader for it is still an honest refusal.
-func TestDistillPreload_VendorPathOnlyWithNoReaderRefuses(t *testing.T) {
-	testsupport.Isolate(t)
-	_, err := distillPreload(engines.Registry(), &sessions.Entry{
-		HarpName:       "vexed-scary-gab",
-		TranscriptPath: "/nonexistent/vendor/transcript.jsonl",
-	}, "claude-code")
-	require.ErrorIs(t, err, errNoSessionHistory)
 }

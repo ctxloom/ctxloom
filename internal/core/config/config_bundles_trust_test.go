@@ -25,7 +25,7 @@ import (
 // recordingGate denies any ref containing one of denySubstrs and records every
 // (ref → hash) it is fed, so a test can assert the executable choke passes the
 // ref shape "<bundle>#mcp/<name>" / "<bundle>#hooks/<event>/<index>" and the
-// item's ComputeContentHash. A nil seen map just decides.
+// item's executable-surface hash. A nil seen map just decides.
 func recordingGate(seen map[string]string, denySubstrs ...string) bundles.Authorizer {
 	return bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		ref := e.RefString()
@@ -64,7 +64,7 @@ func rejectingTrust(denySubstrs ...string) composite.Trust {
 // TestExtractMCPFromBundle_GateOmitsDeniedKeepsTrusted proves the MCP-server
 // choke (TR5): a denied server is omitted from the resolved map while a trusted
 // sibling survives, and the gate is fed the ref "<bundle>#mcp/<name>" with the
-// server's executable-surface ComputeContentHash.
+// server's executable-surface hash.
 func TestExtractMCPFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	b := &bundles.Bundle{
 		Name: "tools",
@@ -115,7 +115,7 @@ func TestExtractMCPFromBundle_NilGate_Ungated(t *testing.T) {
 
 // TestExtractHooksFromBundle_GateOmitsDeniedKeepsTrusted proves the bundle-hook
 // choke (TR5): a denied hook is omitted while siblings survive, keyed on the
-// "<bundle>#hooks/<event>/<index>" identity with the hook's ComputeContentHash.
+// "<bundle>#hooks/<event>/<index>" identity with the hook's executable-surface hash.
 func TestExtractHooksFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	b := &bundles.Bundle{
 		Name: "tools",
@@ -144,9 +144,9 @@ func TestExtractHooksFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	h0 := b.Hooks.PreTool[0]
 	h1 := b.Hooks.PreTool[1]
 	hc := b.Hooks.PostFileEdit[0]
-	assert.Equal(t, h0.ComputeContentHash(), seen["ctxloom+local:remote/tools#hooks/pre_tool/0"])
-	assert.Equal(t, h1.ComputeContentHash(), seen["ctxloom+local:remote/tools#hooks/pre_tool/1"])
-	assert.Equal(t, hc.ComputeContentHash(), seen["ctxloom+local:remote/tools#hooks/post_file_edit/0"])
+	assert.Equal(t, hookHash(t, h0), seen["ctxloom+local:remote/tools#hooks/pre_tool/0"])
+	assert.Equal(t, hookHash(t, h1), seen["ctxloom+local:remote/tools#hooks/pre_tool/1"])
+	assert.Equal(t, hookHash(t, hc), seen["ctxloom+local:remote/tools#hooks/post_file_edit/0"])
 }
 
 // TestExtractHooksFromBundle_FailClosed proves a deny-all gate withholds every
@@ -205,4 +205,13 @@ func TestResolveBundleHooks_GatedEndToEnd(t *testing.T) {
 		"a trusted profile-bundle hook must survive")
 	assert.False(t, hasHookCommand(result.SessionStart, "echo session-start", "bundle:ctxloom+local:hook-bundle"),
 		"the denied profile-bundle hook must NOT be applied")
+}
+
+// hookHash is the hash the hook choke feeds the gate: HashPayload over the
+// hook's ContentPayload.
+func hookHash(t *testing.T, h bundles.BundleHook) string {
+	t.Helper()
+	payload, err := h.ContentPayload()
+	require.NoError(t, err)
+	return bundles.HashPayload(payload)
 }

@@ -89,8 +89,7 @@ func TestLoader_LoadedContentCarriesBundleAndItem(t *testing.T) {
 	}
 	loader := NewLoader(seedLocal(map[string]*Bundle{canonical: b}))
 
-	infos, err := loader.ListAllCommands()
-	require.NoError(t, err)
+	infos := loader.ListAllCommands()
 	require.Len(t, infos, 1)
 
 	prompt, err := admitAllPipe(loader, false).GetCommand(infos[0].Name)

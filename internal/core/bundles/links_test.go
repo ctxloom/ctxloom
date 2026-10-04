@@ -243,5 +243,5 @@ func TestBundleHook_TagsAreOutsideTheExecutablePreimage(t *testing.T) {
 	plain := BundleHook{Matcher: "Bash", Command: "think-warmup"}
 	linked := plain
 	linked.Tags = []string{"ctxloom:link_id=think"}
-	assert.Equal(t, plain.ComputeContentHash(), linked.ComputeContentHash())
+	assert.Equal(t, hookTrustHash(t, plain), hookTrustHash(t, linked))
 }

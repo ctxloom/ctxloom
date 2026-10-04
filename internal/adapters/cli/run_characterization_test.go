@@ -116,13 +116,13 @@ func runCLI(t *testing.T, args ...string) cliResult {
 		llm, agent, workspace, permissions, prompt, profile, savedPrompt string
 		session, seedTask, seedStatus                                    string
 		fragments, tags                                                  []string
-		dryRun, oneShot, plain, assumeYes, distill                       bool
+		dryRun, oneShot, plain, distill                                  bool
 		verbosity                                                        int
 	}{
 		runLLM, runAgent, runWorkspace, runPermissions, runPrompt, runProfile, runSavedPrompt,
 		runResumeSession, runSeedTask, runSeedStatus,
 		runFragments, runTags,
-		runDryRun, runOneShot, runPlainTerminal, runAssumeYes, runResumeDistill,
+		runDryRun, runOneShot, runPlainTerminal, runResumeDistill,
 		runVerbosity,
 	}
 	defer func() {
@@ -132,7 +132,7 @@ func runCLI(t *testing.T, args ...string) cliResult {
 		runSeedTask, runSeedStatus = savedFlags.seedTask, savedFlags.seedStatus
 		runFragments, runTags = savedFlags.fragments, savedFlags.tags
 		runDryRun, runOneShot = savedFlags.dryRun, savedFlags.oneShot
-		runPlainTerminal, runAssumeYes, runResumeDistill = savedFlags.plain, savedFlags.assumeYes, savedFlags.distill
+		runPlainTerminal, runResumeDistill = savedFlags.plain, savedFlags.distill
 		runVerbosity = savedFlags.verbosity
 	}()
 

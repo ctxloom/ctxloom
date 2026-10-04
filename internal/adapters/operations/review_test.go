@@ -545,8 +545,7 @@ func TestPendingReview_DualFormExposesBothForms(t *testing.T) {
 // tree cannot be parsed (no SKILL.md at the resolved directory) is the one
 // branch of the four bare continues in pendingItems that is reachable with
 // realistic bundle data: BundleMCP/BundleHook.ContentPayload() encode only
-// strings/slices/maps and cannot fail via json.Marshal (see
-// BundleHook.ComputeContentHash's own "Unreachable" comment), and the skill's
+// strings/slices/maps and cannot fail via json.Marshal, and the skill's
 // own ContentPayload() call is never reached once EffectiveManifest itself
 // has already failed. Those three got the identical warn-before-continue
 // treatment for consistency but have no failure this suite can force.

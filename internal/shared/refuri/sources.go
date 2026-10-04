@@ -48,7 +48,7 @@ const CompanionSource = "ctxloom:companion"
 //     dispatches on. An "ssh://…" or "git://…" ref is scheme-qualified even
 //     though ParseReference cannot parse it, and must fail closed rather than
 //     be re-read as a bare name.
-//   - the git@ scp-like prefix, and both ctxloom: source tokens.
+//   - the scp-like form (any user), and both ctxloom: source tokens.
 //
 // Adding a dispatch prefix to ParseReference means adding it here too;
 // anything ParseReference recognises but this does not is a fail-open.
@@ -58,12 +58,12 @@ func IsSelfContainedRef(ref string) bool {
 		strings.HasPrefix(ref, LocalSource+"@"),
 		strings.HasPrefix(ref, CompanionSource+"@"),
 		// Any scp user, not just "git" — the sentinel arms above already
-		// claim the "ctxloom:...@" spellings, which isSCPForm declines
+		// claim the "ctxloom:...@" spellings, which IsSCPForm declines
 		// anyway because their ":" precedes their "@". Testing "git@" alone
 		// classified a gitolite or gerrit ref as a SHORT same-repo ref, so
 		// it was expanded against the containing source instead of being
 		// read as the remote it names.
-		isSCPForm(ref),
+		IsSCPForm(ref),
 		strings.Contains(ref, "://"):
 		return true
 	default:

@@ -3,6 +3,7 @@ package composite_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -102,21 +103,20 @@ func TestAssemble_WithheldItemRefusesUnlessDropped(t *testing.T) {
 	assert.NotContains(t, pkg.Context.Text, "Prefer small functions.")
 }
 
-// The same item reaching the context twice — selected by ref and delivered
-// unconditionally from a companion loadout under another ref — is assembled
-// once, first occurrence kept, and the drop is a finding the surface can
-// voice.
-func TestAssemble_DuplicateContentUnderTwoRefsIsAssembledOnce(t *testing.T) {
+// Two sources publishing byte-identical content under one item name are two
+// items: a profile-selected local fragment and a companion loadout's
+// unconditional fragment of the same name and bytes both reach the package,
+// and nothing is reported as a duplicate.
+func TestAssemble_IdenticalContentFromTwoSourcesBothArrive(t *testing.T) {
 	cat := corpusWith(t, bundles.CompanionLoadout{Bin: "alpha", Document: []byte(
 		"run:\n  version: 1.0.0\n  fragments:\n    style:\n      content: Prefer small functions.\n    axes:\n      content: Axes.\n")})
 	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), compositetest.Trust(), composite.Options{})
 	require.NoError(t, err)
 
-	assert.Equal(t, "Prefer small functions.\n\n---\n\nRules for golden.\n\n---\n\nAxes.", pkg.Context.Text)
-	assert.Equal(t, []string{alphaStyle, alphaRules, "ctxloom+companion:alpha#fragments/axes"}, itemRefs(pkg.Fragments))
-	require.Len(t, pkg.Findings, 1)
-	assert.Equal(t, composite.FindingDuplicate, pkg.Findings[0].Kind)
-	assert.Equal(t, "ctxloom+companion:alpha#fragments/style", pkg.Findings[0].Ref)
+	assert.Equal(t, 2, strings.Count(pkg.Context.Text, "Prefer small functions."))
+	assert.Contains(t, itemRefs(pkg.Fragments), alphaStyle)
+	assert.Contains(t, itemRefs(pkg.Fragments), "ctxloom+companion:alpha#fragments/style")
+	assert.Empty(t, pkg.Findings)
 }
 
 // A fragment ask that does not load is a finding, never a refusal: the

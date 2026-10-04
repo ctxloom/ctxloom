@@ -20,7 +20,7 @@ the one place claude's surface membership is stated.
 | Symbol | Location | Meaning |
 |---|---|---|
 | `ClaudeCode` | `claudecode.go` | The launch backend; embeds `agent.LaunchBackend` |
-| `NewClaudeCode` | `claudecode.go` | Constructor: sets the binary, embeds `agent.LaunchBackend`, and hands `InitLaunch` the lifecycle, the context provider, a nil `SessionHistory`, and `Surfaces` — claude's `agent.Declaration` |
+| `NewClaudeCode` | `claudecode.go` | Constructor: sets the binary, embeds `agent.LaunchBackend`, and hands `InitLaunch` the lifecycle, the context provider, and `Surfaces` — claude's `agent.Declaration` |
 | `ClaudeConfig` | `claudecode.go:18` | Typed decode target. `BinaryPath`/`Args`/`Env` are live; `Model` is decoded and never read |
 | `ClaudeConfig.BackendType` | `claudecode.go:33` | `"claude-code"` |
 | `Configure` | `claudecode.go:96` | `agent.Configurable`: binary/args/env |
@@ -40,7 +40,7 @@ the one place claude's surface membership is stated.
 | `flagArgs` | `surfaces.go` | Reads the out-of-cwd launch flags off the run's `Resolved()` selection — flag name from each approach's own `Present`, path from what it recorded — and contributes nothing for an approach that delivered nothing |
 | `HookPayload` / `HookOutput` / `DecodeHookPayload` / `EncodeDeny` | `hooks_wire.go:33` / `:103` / `:110` | The hook wire contract `internal/ltk/engine` and `internal/adapters/cli` import rather than redefine |
 
-**Stubbed or absent:** `SessionHistory` is `nil` (`claudecode.go:67`). There is no
+**Stubbed or absent:** there is no
 `Setup` override — the shared `LaunchBackend` path is used.
 
 ## How it drives the engine
@@ -70,8 +70,8 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 | MCP | Project `.mcp.json` (`mcpApproach.DeliverMCP`'s claims, `definition.go`). In a shared cell it is an out-of-cwd file passed as `--mcp-config`; in a trusted repository ctxloom's servers **layer over** the project `.mcp.json`, and otherwise `--strict-mcp-config` keeps it out (`repoSourceArgs`, invariant 8). Global via `MCPRegistrar.ConfigPath` → `~/.claude.json` |
 | Commands | `.claude/commands/*.md`, frontmatter + mustache→`$N` body (`commandfiles.go:18`, `:44`); optional home dedup against `~/.claude/commands` (`surfacedelivery.go:99-104`) |
 | Skills | `.claude/skills/<name>/**` (`skillfiles.go:21`) |
-| One-shot / resume | **Supported.** In both `resumeCapableBackends` and `oneShotSupportedBackends` (`internal/core/coord/spawner.go:225`, `:248`). This adapter's only session-identity lever is `--name <harp>` (display name only) |
-| Transcript | **No scrape.** `SessionHistory` is `nil`; the `~/.claude/projects/<encoded-cwd>/*.jsonl` scraper was deleted (`capabilities.go:17-27`) after its cwd→slug encoder produced non-existent dirs for any path with a dot, underscore, or space. An opt-in vendor reader exists for the interactive-pty gap (`internal/adapters/operations/vendorreader.go:71`) |
+| One-shot / resume | **Supported.** Declares `DelegatedChildren` with `ResumesByKey` (`Build`). This adapter's only session-identity lever is `--name <harp>` (display name only) |
+| Transcript | **No scrape.** The `~/.claude/projects/<encoded-cwd>/*.jsonl` scraper was deleted (`capabilities.go:17-27`) after its cwd→slug encoder produced non-existent dirs for any path with a dot, underscore, or space. An opt-in vendor reader exists for the interactive-pty gap (`internal/adapters/operations/vendorreader.go:71`) |
 | Model + auth | `--model` emitted when non-empty; empty lets the CLI pick (`claudecode.go:263-266`). Auth is the run's mode (`claudeAuth`, settled by `launch.RunAuth`; see [isolation](isolation.md#credential-delivery)): the token for every agent, the top-level `auth:` for the human's own session |
 | Isolation | **Supported, no auth gap.** Every agent authenticates with `token` (`CLAUDE_CODE_OAUTH_TOKEN`, the `claude setup-token` token the human exports), read from the launching env and set in the launch env with every other credential variable removed (`claudeAuth`); no credential file is ever copied. Only the human's own session may run in `login`, which shares their storage in place on the host and is refused in a container (`engine.ErrHostOnlyStore`, remedy `auth: token`). `~/.claude.json` is never copied: its `primaryApiKey` crosses only into the human's own `login` session's generated instance. Additionally, claude is the one engine that can isolate a *shared* cwd without a container, via the out-of-cwd flag trio |
 | Status | **Supported — the exercised default** |

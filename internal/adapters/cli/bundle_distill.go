@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/compression"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
@@ -378,10 +379,11 @@ func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 // hasSiblingsOfType reports whether a bundle has sibling items of a kind worth
 // listing: more than one of that kind, or exactly one that isn't the excluded
 // (currently-distilling) item. It takes the item KIND, not a spelled-out
-// prefix, so the "fragments/"/"commands/" ref grammar lives only in
-// itemRefPrefix (item_kind.go).
+// prefix, so the selector grammar lives only in trust (FormatSelector /
+// ParseSelector).
 func hasSiblingsOfType(count int, excludeName string, kind ItemType) bool {
-	return count > 1 || (count == 1 && !strings.HasPrefix(excludeName, itemRefPrefix(kind)))
+	excludedKind, _, err := trust.ParseSelector(excludeName)
+	return count > 1 || (count == 1 && (err != nil || excludedKind != itemKindOf(kind)))
 }
 
 // firstLineTruncated returns the first line of s, trimmed and capped at 60
@@ -403,7 +405,7 @@ func appendSiblingFragments(ctx *strings.Builder, bundle *bundles.Bundle, exclud
 	}
 	ctx.WriteString("Sibling fragments:\n")
 	for _, name := range slices.Sorted(maps.Keys(bundle.Fragments)) {
-		if itemRefPrefix(ItemTypeFragment)+name == excludeName {
+		if trust.FormatSelector(trust.KindFragment, name) == excludeName {
 			continue
 		}
 		fmt.Fprintf(ctx, "- %s: %s\n", name, firstLineTruncated(bundle.Fragments[name].Content))
@@ -420,7 +422,7 @@ func appendSiblingPrompts(ctx *strings.Builder, bundle *bundles.Bundle, excludeN
 	}
 	ctx.WriteString("Sibling commands:\n")
 	for _, name := range slices.Sorted(maps.Keys(bundle.Commands)) {
-		if itemRefPrefix(ItemTypeCommand)+name == excludeName {
+		if trust.FormatSelector(trust.KindPrompt, name) == excludeName {
 			continue
 		}
 		prompt := bundle.Commands[name]

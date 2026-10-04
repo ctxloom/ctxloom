@@ -165,8 +165,7 @@ func TestPremiseIndex_ListsOnlyPremisedFragments(t *testing.T) {
 	writeSelectionFixture(t, root, true)
 	cfg := selectionConfig(root)
 
-	entries, err := PremiseIndex(cfg.BundleLoader().Catalog())
-	require.NoError(t, err)
+	entries := PremiseIndex(cfg.BundleLoader().Catalog())
 
 	require.Len(t, entries, 1, "only the premised fragment is indexed; unconditional ones are not decisions")
 	assert.Equal(t, "sel#fragments/gamma", entries[0].Name,

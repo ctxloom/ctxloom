@@ -631,7 +631,7 @@ func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.C
 
 // extractHooksFromBundle converts a bundle's hooks to wire.Hooks. Each
 // hook's executable surface is
-// hashed (BundleHook.ComputeContentHash) and run through the cascade keyed on
+// hashed (bundles.HashPayload over BundleHook.ContentPayload) and run through the cascade keyed on
 // the canonical bundle-reference grammar's item selector over source
 // (bundles.ItemRefFor(src, trust.KindHook, "<event>/<index>")); a DENY omits the
 // hook — a bundle hook is an arbitrary-command executable that must never be

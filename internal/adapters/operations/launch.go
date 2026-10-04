@@ -363,7 +363,7 @@ func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string) (i
 	}
 	spec, err := isolation.NewSpec(req.Axes, req.Engine).
 		Project(req.ProjectRoot).
-		Session(harp, req.SessionDir, isolation.SessionStateFromEnv(req.Env)).
+		Session(harp, req.SessionDir, isolation.SessionState{Harp: harp, ProjectID: req.Identity.Project}).
 		Image(req.Image).
 		Home(homeMode).
 		Credentials(creds).

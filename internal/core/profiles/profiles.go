@@ -572,7 +572,11 @@ func Decode(data []byte) (*Profile, error) {
 	if err := validateProfileDocument(&doc, data); err != nil {
 		return nil, err
 	}
-	if upgraded, applied := decodeNormalizers.Run(data); len(applied) > 0 {
+	upgraded, applied, err := decodeNormalizers.Run(data)
+	if err != nil {
+		return nil, err
+	}
+	if len(applied) > 0 {
 		data = upgraded
 	}
 	var profile Profile

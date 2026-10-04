@@ -376,8 +376,7 @@ flowchart TD
 
 - `internal/core/config` — `loadRemoteBundleSeed` calls `LoadAllBytes` over a
   `CachingBundleReader` and hands each `(bytes, signature)` pair to
-  `signing.VerifyPublisher`; also wires `LocalRefFetcher`/`LocalGitVCSFactory` for pinned
-  local reads.
+  `signing.VerifyPublisher`.
 - `internal/adapters/operations` — owns pull/sync/lock/upgrade/publish command flows, constructs
   `Puller`, `PublishManager`, `RepoCache`, `Resolver` and `LockfileStore`, and is the only
   other writer of `lock.yaml`.

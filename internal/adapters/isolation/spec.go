@@ -59,13 +59,19 @@ func (b *SpecBuilder) Project(root string) *SpecBuilder {
 
 // Session names the run's session: its harp, its directory (where its
 // session home is placed, launch.SessionHome) and the identity its state
-// mounts are keyed from. Required.
+// mounts, worktree checkout and scratch are keyed from. Required. state must
+// carry harp itself: every member a run's isolation resolves belongs to the
+// session that run was minted, never to none and never to another.
 func (b *SpecBuilder) Session(harp, dir string, state SessionState) *SpecBuilder {
 	switch {
 	case harp == "":
 		b.fail("session", "needs a harp")
+	case !safePathSegment(harp):
+		b.fail("session", fmt.Sprintf("harp %q is not a safe path segment", harp))
 	case dir == "" || !filepath.IsAbs(dir):
 		b.fail("session", fmt.Sprintf("dir must be an absolute path, got %q", dir))
+	case state.Harp != harp:
+		b.fail("session", fmt.Sprintf("state names harp %q, not the run's %q", state.Harp, harp))
 	}
 	b.s.harp, b.s.sessionDir, b.s.state = harp, dir, state
 	return b

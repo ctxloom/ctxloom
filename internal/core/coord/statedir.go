@@ -47,7 +47,7 @@ const coordDirName = paths.CoordDirName
 // state dir. The file persists across owners: whether it is LOCKED is the
 // ownership fact (ProbeOwner), its presence only says a claim was once made —
 // which is also what makes a directory a root (ListRoots).
-const OwnerLockFileName = "owner.lock"
+const OwnerLockFileName = paths.CoordOwnerLockFileName
 
 // RootStateDir resolves one coordinator root's state dir without creating or
 // claiming it: the project's key (its stable id when one resolved, otherwise

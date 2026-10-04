@@ -154,7 +154,7 @@ version is `transcript.SchemaVersion`.
 ## 7. Reading it back
 
 `transcript.CanonicalHistory` is the harp-keyed read view, implementing
-`agent.SessionHistory`. It is the live read path behind
+`transcript.Source`. It is the live read path behind
 compaction, the MCP memory tools and `ctxloom session`.
 
 No reader validates a line against `docs/transcript.schema.json` at runtime;

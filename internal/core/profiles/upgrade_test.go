@@ -17,7 +17,7 @@ import (
 // bundles/bundle_items are rewritten to the commands section on load.
 func TestPromptSelectorUpgrade_MigratesSelectors(t *testing.T) {
 	in := []byte("bundles:\n  - core#prompts/review\n  - alias/other:prompts/lint\nbundle_items:\n  - b#prompts/x\n")
-	out, applied := upgrade.Pipeline{promptSelectorUpgrade{}}.Run(in)
+	out, applied := mustRun(t, upgrade.Pipeline{promptSelectorUpgrade{}}, in)
 	require.NotEmpty(t, applied, "migration should fire on legacy prompt selectors")
 	s := string(out)
 	assert.Contains(t, s, "core#commands/review")
@@ -30,7 +30,7 @@ func TestPromptSelectorUpgrade_MigratesSelectors(t *testing.T) {
 // commands vocabulary is left untouched.
 func TestPromptSelectorUpgrade_Idempotent(t *testing.T) {
 	in := []byte("bundles:\n  - core#commands/review\n")
-	_, applied := upgrade.Pipeline{promptSelectorUpgrade{}}.Run(in)
+	_, applied := mustRun(t, upgrade.Pipeline{promptSelectorUpgrade{}}, in)
 	assert.Empty(t, applied, "commands-vocabulary profile must not change")
 }
 
@@ -64,8 +64,9 @@ func testAliasToURL(alias string) string {
 // runCanonicalize runs the decode normalizers plus the alias stage a LOCAL
 // bundle's profiles get (Loader.canonicalizeLocalAliases) over data, and
 // reports the upgraded bytes plus which upgrades fired.
-func runCanonicalize(data []byte) ([]byte, []string) {
-	return upgrade.Pipeline{promptSelectorUpgrade{}, bundleRefCanonicalizeUpgrade{aliasToURL: testAliasToURL}}.Run(data)
+func runCanonicalize(t *testing.T, data []byte) ([]byte, []string) {
+	t.Helper()
+	return mustRun(t, upgrade.Pipeline{promptSelectorUpgrade{}, bundleRefCanonicalizeUpgrade{aliasToURL: testAliasToURL}}, data)
 }
 
 // TestBundleRefCanonicalize_ShortRefsBecomeCanonical verifies that
@@ -80,7 +81,7 @@ func TestBundleRefCanonicalize_ShortRefsBecomeCanonical(t *testing.T) {
 		"  - ctxloom-default/git\n" +
 		"  - personal/go-development:fragments/testing\n")
 
-	out, applied := runCanonicalize(in)
+	out, applied := runCanonicalize(t, in)
 
 	require.NotEmpty(t, applied, "upgrade should fire when short refs are present")
 	got := string(out)
@@ -108,7 +109,7 @@ func TestBundleRefCanonicalize_CanonicalURLsUntouched(t *testing.T) {
 		"  - " + personalURL + "@bundles/just\n" +
 		"  - core-practices\n")
 
-	out, applied := runCanonicalize(in)
+	out, applied := runCanonicalize(t, in)
 
 	got := string(out)
 	assert.NotEmpty(t, applied, "URL refs are re-spelled canonically")
@@ -124,10 +125,10 @@ func TestBundleRefCanonicalize_CanonicalURLsUntouched(t *testing.T) {
 func TestBundleRefCanonicalize_Idempotent(t *testing.T) {
 	in := []byte("bundles:\n  - core-practices\n  - ctxloom-default/git\n")
 
-	once, applied1 := runCanonicalize(in)
+	once, applied1 := runCanonicalize(t, in)
 	require.NotEmpty(t, applied1)
 
-	twice, applied2 := runCanonicalize(once)
+	twice, applied2 := runCanonicalize(t, once)
 	assert.Empty(t, applied2, "second pass over canonical refs must not fire")
 	assert.Equal(t, string(once), string(twice))
 }
@@ -138,7 +139,7 @@ func TestBundleRefCanonicalize_Idempotent(t *testing.T) {
 func TestBundleRefCanonicalize_NoContextNoOp(t *testing.T) {
 	in := []byte("bundles:\n  - core-practices\n  - unknown-alias/thing\n")
 
-	out, applied := runCanonicalize(in)
+	out, applied := runCanonicalize(t, in)
 
 	assert.Empty(t, applied, "bare ref + unknown alias => no canonicalization")
 	assert.Equal(t, string(in), string(out))
@@ -226,7 +227,7 @@ func TestCanonicalize_StripsLegacyV1FromBundlesAndParents(t *testing.T) {
 		"  - " + defaultURL + "@v1/bundles/git\n" +
 		"  - " + personalURL + "@v1/bundles/just@v1.2.3\n")
 
-	out, applied := runCanonicalize(in)
+	out, applied := runCanonicalize(t, in)
 
 	require.NotEmpty(t, applied, "legacy v1 refs should be normalized")
 	got := string(out)
@@ -246,7 +247,7 @@ func TestParentCanonicalize_LocalSiblingsUntouched(t *testing.T) {
 		"  - base-profile\n" +
 		"  - personal/prototype\n")
 
-	out, applied := runCanonicalize(in)
+	out, applied := runCanonicalize(t, in)
 
 	assert.Empty(t, applied, "local parent refs must not be canonicalized")
 	assert.Equal(t, string(in), string(out))
@@ -257,7 +258,7 @@ func TestParentCanonicalize_LocalSiblingsUntouched(t *testing.T) {
 func TestParentCanonicalize_AlreadyCanonicalUntouched(t *testing.T) {
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/rust-developer\n")
 
-	out, applied := runCanonicalize(in)
+	out, applied := runCanonicalize(t, in)
 
 	assert.Empty(t, applied, "already-canonical parent must not fire the upgrade")
 	assert.Equal(t, string(in), string(out))
@@ -374,17 +375,26 @@ func TestBundleRefCanonicalize_LocalBundleWinsOverSameSpelledAlias(t *testing.T)
 
 	t.Run("only a local ref: nothing fires", func(t *testing.T) {
 		in := []byte("bundles:\n  - personal/reviews\n  - personal/reviews#fragments/x\n")
-		out, applied := upgrade.Pipeline{bundleRefCanonicalizeUpgrade{aliasToURL: testAliasToURL, localBundleExists: local}}.Run(in)
+		out, applied := mustRun(t, upgrade.Pipeline{bundleRefCanonicalizeUpgrade{aliasToURL: testAliasToURL, localBundleExists: local}}, in)
 		assert.Empty(t, applied, "a local bundle must not stage an on-disk migration")
 		assert.Equal(t, string(in), string(out))
 	})
 
 	t.Run("a non-local alias ref beside it still canonicalizes", func(t *testing.T) {
 		in := []byte("bundles:\n  - personal/reviews\n  - personal/developer-mindset\n")
-		out, applied := upgrade.Pipeline{bundleRefCanonicalizeUpgrade{aliasToURL: testAliasToURL, localBundleExists: local}}.Run(in)
+		out, applied := mustRun(t, upgrade.Pipeline{bundleRefCanonicalizeUpgrade{aliasToURL: testAliasToURL, localBundleExists: local}}, in)
 		require.NotEmpty(t, applied)
 		got := string(out)
 		assert.Contains(t, got, "- personal/reviews\n")
 		assert.Contains(t, got, "- "+remote.CanonicalSpelling(personalURL+"@bundles/developer-mindset"))
 	})
+}
+
+// mustRun runs p over data and fails the test on an encode error, which none
+// of these fixtures can produce.
+func mustRun(t *testing.T, p upgrade.Pipeline, data []byte) ([]byte, []string) {
+	t.Helper()
+	out, applied, err := p.Run(data)
+	require.NoError(t, err)
+	return out, applied
 }

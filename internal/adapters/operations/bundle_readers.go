@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -370,10 +372,10 @@ func (u unreadableTrees) ReadFailures() map[string]error {
 //
 //   - remote/canonical ref → the whole pinned TREE out of the local git clone
 //     cache (bundles.ReadRemoteRef), verified before it is interpreted;
-//   - ctxloom:local ref → the file's bytes as of <commit> in the PROJECT'S OWN
-//     git history (the committed .ctxloom/content/ tree), via the local working-copy
-//     VCS — `git show <commit>:<path>` semantics. The unversioned local path is
-//     untouched: the loader only invokes the resolver for an explicit "@<commit>".
+//   - ctxloom:local ref → the whole bundle TREE as of <commit> in the PROJECT'S
+//     OWN git history (the committed .ctxloom/content/ tree), read through
+//     readLocalTreeAt. The unversioned local path is untouched: the loader only
+//     invokes the resolver for an explicit "@<commit>".
 //
 // Given a version-less canonical ref and an opaque commit, it reads exactly that
 // historical version. Returns nil when there is no app dir to anchor either
@@ -404,18 +406,10 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 		}
 
 		// Local (project-authored) refs version against the PROJECT'S own git
-		// history, not the remote clone cache. The committed .ctxloom/content/ tree
-		// is read at <commit> through the working-copy VCS; a non-git project,
-		// unknown rev, or path-absent-at-rev errors here and the caller withholds.
+		// history, not the remote clone cache; a non-git project, unknown rev,
+		// or tree-absent-at-rev errors here and the caller withholds.
 		if ref.IsLocal {
-			data, err := remote.NewLocalRefFetcher(
-				remote.LocalGitVCSFactory(afero.NewOsFs()),
-				paths.LocalPath(baseDir),
-			).FetchItem(context.Background(), ref, commit)
-			if err != nil {
-				return nil, err
-			}
-			return bundles.ParseBundle(data)
+			return readLocalTreeAt(context.Background(), paths.LocalPath(baseDir), ref, commit)
 		}
 
 		// Remote/canonical refs: FetchItem over the local clone cache (auth +
@@ -432,6 +426,62 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 		b, _, err := bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, root)
 		return b, err
 	}
+}
+
+// readLocalTreeAt reads the WHOLE local bundle tree ref names as of rev in the
+// git repository enclosing contentRoot — every item file, not just the
+// manifest, for the reason bundles.ReadRemoteRef gives: a tree's items are
+// files beside its bundle.yaml, so the manifest alone parses to a bundle with
+// zero items.
+//
+// The tree is walked with the same remotetree.FetchFiles the remote path uses
+// (its budgets and traversal refusal included), over a git fetcher opened on
+// the project's own repository. It is served with LOCAL provenance and is not
+// attestation-checked: project content is trusted by locality, exactly as the
+// unversioned local reader trusts it.
+func readLocalTreeAt(ctx context.Context, contentRoot string, ref *remote.Reference, rev string) (*bundles.Bundle, error) {
+	repoRoot, err := gitutil.FindRoot(contentRoot)
+	if err != nil {
+		return nil, fmt.Errorf("read %s@%s: locate the project repository: %w", ref.String(), rev, err)
+	}
+	fetcher, err := remote.NewGitCloneFetcher(repoRoot, "", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("read %s@%s: %w", ref.String(), rev, err)
+	}
+	sha, err := fetcher.ResolveRef(ctx, "", "", rev)
+	if err != nil {
+		return nil, fmt.Errorf("read %s@%s: resolve revision: %w", ref.String(), rev, err)
+	}
+	files, root, err := remote.ProbeBundleTreeRoots(ref.BuildFilePath(ref.ItemType), func(root string) (map[string]remote.TreeFile, error) {
+		rel, err := filepath.Rel(repoRoot, filepath.Join(contentRoot, filepath.FromSlash(root)))
+		if err != nil {
+			return nil, err
+		}
+		return remotetree.FetchFiles(ctx, fetcher, remotetree.Spec{SHA: sha, Root: filepath.ToSlash(rel)})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read %s@%s: the bundle tree at %s: %w", ref.String(), rev, root, err)
+	}
+	// Re-keyed under the bundle's id, the segment content.FSStore resolves a
+	// BundleID against — the same rooting bundles.ReadRemoteRef applies.
+	id := path.Base(root)
+	nested := make(map[string][]byte, len(files))
+	for rel, f := range files {
+		nested[path.Join(id, rel)] = f.Data
+	}
+	tfs, err := content.NewMapTreeFS(nested)
+	if err != nil {
+		return nil, fmt.Errorf("read %s@%s: %w", ref.String(), rev, err)
+	}
+	store, err := content.NewFSStore(tfs, content.Provenance{IsLocal: true})
+	if err != nil {
+		return nil, fmt.Errorf("read %s@%s: %w", ref.String(), rev, err)
+	}
+	tree, err := store.Open(ctx, content.BundleID(id))
+	if err != nil {
+		return nil, fmt.Errorf("read %s@%s: %w", ref.String(), rev, err)
+	}
+	return bundles.ReadTree(ctx, tree)
 }
 
 // projectReader is the one-off local reader an operation opens to touch a

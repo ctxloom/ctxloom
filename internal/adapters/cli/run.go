@@ -58,7 +58,6 @@ var (
 	runOneShot       bool
 	runPlainTerminal bool
 	runVerbosity     int
-	runAssumeYes     bool
 	runSeedTask      string
 	runSeedStatus    string
 	// runResumeSession/runResumeDistill are the two deterministic-resume flags
@@ -795,12 +794,13 @@ func (st *runState) withShutdownSignals() context.CancelFunc {
 func (st *runState) runStartupTasks() {
 	// Auto-sync remote dependencies on startup if enabled (graceful failure),
 	// so the run doesn't hard-fail on missing parent profiles or bundles that
-	// sync would have fetched. In a TTY, confirm with the user before
-	// installing anything new. The sync ANNOUNCES itself: it is the one
+	// sync would have fetched. The user's auto-sync setting is the answer to
+	// whether to install; the summary afterwards says what arrived, and
+	// `run --dry-run` previews without syncing. The sync ANNOUNCES itself: it is the one
 	// startup task with a network side, and a dry run's suppression of it is
 	// observable only because a real start says so.
 	syncCfg := st.cfg.GetSyncConfig()
-	if syncCfg.ShouldAutoSync() && !runDryRun && confirmSyncInstall(st.ctx, st.cfg) {
+	if syncCfg.ShouldAutoSync() && !runDryRun {
 		fmt.Fprintf(os.Stderr, "ctxloom: syncing remote bundles and profiles from config...\n")
 		syncCtx, syncCancel := context.WithTimeout(st.ctx, 60*time.Second)
 		result, syncErr := operations.SyncOnStartup(syncCtx, App())
@@ -1561,7 +1561,6 @@ func init() {
 	runCmd.Flags().BoolVar(&runPlainTerminal, "plain-terminal", false, "Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session")
 	runCmd.Flags().BoolVar(&runNoStartupFindings, "no-startup-findings", false, "Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
-	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")
 
 	// Deterministic resume (two modes; see resumeFullContext/resumeDistillEnv):
 	// bare --session folds the harp's full recorded transcript into this run's
@@ -1583,31 +1582,4 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("tag", completeTagNames)
 	_ = runCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
 	_ = runCmd.RegisterFlagCompletionFunc("command", completePromptNames)
-}
-
-// confirmSyncInstall returns true if startup sync should proceed.
-// In an interactive terminal with pending installs, it lists them and asks
-// for y/N confirmation. Non-interactive contexts (CI, piped) and --yes
-// auto-confirm so they don't hang. On any check error, it falls through to
-// the existing graceful-failure path in SyncOnStartup.
-func confirmSyncInstall(ctx context.Context, cfg *config.Config) bool {
-	if runAssumeYes || !isInteractiveTerminal() {
-		return true
-	}
-
-	check, err := operations.CheckMissingDependencies(ctx, cfg, operations.CheckMissingDependenciesRequest{})
-	if err != nil || check == nil || check.Count == 0 {
-		return true
-	}
-
-	fmt.Fprintf(os.Stderr, "ctxloom will install %d missing dependenc%s:\n", check.Count, plural(check.Count, "y", "ies"))
-	for _, dep := range check.Missing {
-		fmt.Fprintf(os.Stderr, "  - %s (%s, from profile %q)\n", dep.Reference, dep.Type, dep.Profile)
-	}
-	yes, err := promptYesNo("Proceed? [y/N] ")
-	if err != nil || !yes {
-		fmt.Fprintln(os.Stderr, "ctxloom: skipping sync")
-		return false
-	}
-	return true
 }

@@ -124,18 +124,13 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 
 // searchFragments returns fragments whose name (or, failing that, a tag) matches
 // query. When tags are given, the candidate set is the tag-filtered fragments;
-// otherwise it is all fragments. Loader errors yield no results (search degrades
-// rather than failing).
+// otherwise it is all fragments.
 func searchFragments(cat bundles.Catalog, query string, tags []string) []SearchResult {
 	var infos []bundles.ContentInfo
-	var err error
 	if len(tags) > 0 {
-		infos, err = cat.ByTags(tags)
+		infos = cat.ByTags(tags)
 	} else {
-		infos, err = cat.ListAllFragments()
-	}
-	if err != nil {
-		return nil
+		infos = cat.ListAllFragments()
 	}
 
 	var results []SearchResult
@@ -159,13 +154,9 @@ func searchFragments(cat bundles.Catalog, query string, tags []string) []SearchR
 	return results
 }
 
-// searchCommands returns prompts whose name matches query. Loader errors
-// yield no results.
+// searchCommands returns prompts whose name matches query.
 func searchCommands(cat bundles.Catalog, query string) []SearchResult {
-	prompts, err := cat.ListAllCommands()
-	if err != nil {
-		return nil
-	}
+	prompts := cat.ListAllCommands()
 	var results []SearchResult
 	for _, p := range prompts {
 		if strings.Contains(strings.ToLower(p.Name), query) {

@@ -97,6 +97,35 @@ func WithLock(fs afero.Fs, lockPath string, fn func() error) error {
 	return fn()
 }
 
+// Held reports whether some open handle holds the lock at lockPath. A lock
+// dies with the process holding it, so this is the kernel's answer to "is the
+// holder alive" — no pid, which can be reused, is consulted. A lock file that
+// does not exist is not held. The probe opens read-only, never creates the
+// file, and holds the lock only for the instant it takes to release it. A
+// path that resolves to anything but a regular file is ErrNotRegularFile, and
+// the open is guarded (openGuard) so a FIFO there cannot hang the probe.
+func Held(lockPath string) (bool, error) {
+	info, err := os.Stat(lockPath)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("filelock: probing %s: %w", lockPath, err)
+	case !info.Mode().IsRegular():
+		return false, fmt.Errorf("%w: %s is %s", ErrNotRegularFile, lockPath, info.Mode().Type())
+	}
+	fl := flock.New(lockPath, flock.SetFlag(os.O_RDONLY|openGuard))
+	got, err := fl.TryLock()
+	_ = fl.Close()
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("filelock: probing %s: %w", lockPath, err)
+	}
+	return !got, nil
+}
+
 // Prepare creates the lock file at lockPath (and its directory) without
 // taking the lock, under the same refusals WithLock applies — for a caller
 // that must hand the file to someone else, such as a bind-mount source that

@@ -62,7 +62,6 @@ func newClaudeCode(kind Claude) *ClaudeCode {
 	b.InitLaunch(
 		agent.NewBaseLifecycle(EngineName),
 		agent.NewBaseContextProvider(),
-		nil, // SessionHistory: the legacy scraper was deleted; canonical capture is the only transcript source
 		kind.Declaration(),
 	)
 	// The run's CLAUDE_CONFIG_DIR is the engine home the record-backed

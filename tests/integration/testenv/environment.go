@@ -527,7 +527,7 @@ func (e *TestEnvironment) storeAndSetEnv(key, value string) {
 // environment is the parent's with the spawn env laid over it —
 // isolation's hostRunnerCmd) — a variable it will see.
 //
-// A SCRUBBED key (testsupport.EnvKeys) is also forced onto the child through
+// A SCRUBBED key (scrubbedEnvKeys) is also forced onto the child through
 // SetChildEnv, because isolatedEnv drops those from os.Environ(). Without that,
 // a key a scenario set on purpose (an API-key scenario exporting
 // ANTHROPIC_API_KEY) would be dropped as if it were the host's. The scrub
@@ -537,7 +537,7 @@ func (e *TestEnvironment) storeAndSetEnv(key, value string) {
 // that InstallFakeCompanion and the runtime stubs make via storeAndSetEnv.
 func (e *TestEnvironment) SetEnv(key, value string) {
 	e.storeAndSetEnv(key, value)
-	if sessionEnvKeys[key] {
+	if scrubbedEnvKeys[key] {
 		e.SetChildEnv(key, value)
 	}
 }
@@ -670,26 +670,36 @@ func (e *TestEnvironment) AddGitWorktree(name string) (string, error) {
 	return dir, nil
 }
 
-// sessionEnvKeys are the ambient session / forge variables scrubbed before any
-// child binary is spawned, so a test never inherits the host session's project
-// id, harp, or tokens and resolves its home-rooted stores against our fake
-// home instead. Sourced from the canonical testsupport key list so there is
-// one definition of "ambient state to isolate from".
-var sessionEnvKeys = func() map[string]bool {
-	m := make(map[string]bool, len(testsupport.EnvKeys))
+// sshAuthSockEnv names the host's ssh-agent socket. It is not ctxloom session
+// state, so testsupport.EnvKeys does not list it, but an inherited one hands the
+// child the DEVELOPER's agent: its identities (emails, key fingerprints) then
+// appear in doctor and signer output, make a scenario's result depend on the
+// machine running it, and land in every living-docs page generated there. A
+// scenario that needs an agent stands up a hermetic one
+// (StartSSHAgent) and forces it with SetChildEnv.
+const sshAuthSockEnv = "SSH_AUTH_SOCK"
+
+// scrubbedEnvKeys are the ambient variables dropped before any child binary is
+// spawned: the canonical testsupport.EnvKeys session / forge set, so a test
+// never inherits the host session's project id, harp, or tokens and resolves
+// its home-rooted stores against our fake home instead, plus the host
+// identity carriers above that are not session state.
+var scrubbedEnvKeys = func() map[string]bool {
+	m := make(map[string]bool, len(testsupport.EnvKeys)+1)
 	for _, k := range testsupport.EnvKeys {
 		m[k] = true
 	}
+	m[sshAuthSockEnv] = true
 	return m
 }()
 
-// scrubSessionEnv returns env with the ambient session variables removed,
+// scrubAmbientEnv returns env with the scrubbedEnvKeys variables removed,
 // without mutating the input slice.
-func scrubSessionEnv(env []string) []string {
+func scrubAmbientEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
 		key, _, _ := strings.Cut(kv, "=")
-		if sessionEnvKeys[key] {
+		if scrubbedEnvKeys[key] {
 			continue
 		}
 		out = append(out, kv)
@@ -698,13 +708,13 @@ func scrubSessionEnv(env []string) []string {
 }
 
 // isolatedEnv returns environment variables with home directory properly
-// isolated and ambient ctxloom session state scrubbed. Replacing HOME alone is
-// not enough: when the suite itself runs inside a ctxloom session, inherited
-// vars like CTXLOOM_ROOT (the authoritative project root) and
-// CTXLOOM_SESSION_HARP would steer the spawned binary at the LIVE repo's
-// .ctxloom instead of the fake project. scrubSessionEnv drops the canonical
-// testsupport.EnvKeys set so Run/RunWithStdin/Command/StartMCP are all
-// isolated the same way.
+// isolated and ambient host state scrubbed. Replacing HOME alone is not
+// enough: when the suite itself runs inside a ctxloom session, inherited vars
+// like CTXLOOM_ROOT (the authoritative project root) and CTXLOOM_SESSION_HARP
+// would steer the spawned binary at the LIVE repo's .ctxloom instead of the
+// fake project, and an inherited SSH_AUTH_SOCK would hand it the developer's
+// ssh-agent. scrubAmbientEnv drops scrubbedEnvKeys so
+// Run/RunWithStdin/Command/StartMCP are all isolated the same way.
 func (e *TestEnvironment) isolatedEnv() []string {
 	// Variables to replace with our test paths
 	replacements := map[string]string{
@@ -715,7 +725,7 @@ func (e *TestEnvironment) isolatedEnv() []string {
 	}
 
 	var env []string
-	for _, v := range scrubSessionEnv(os.Environ()) {
+	for _, v := range scrubAmbientEnv(os.Environ()) {
 		key := strings.SplitN(v, "=", 2)[0]
 		if _, shouldReplace := replacements[key]; shouldReplace {
 			continue // Skip, we'll add our own

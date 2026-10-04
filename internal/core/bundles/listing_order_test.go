@@ -39,12 +39,10 @@ commands:
 	cat := NewLoader(NewProjectReader(nil, []string{tmpDir})).Catalog()
 	want := []string{"alpha", "bravo", "charlie", "echo", "kilo", "mike", "yankee", "zulu"}
 
-	frags, err := cat.ListAllFragments()
-	require.NoError(t, err)
+	frags := cat.ListAllFragments()
 	require.Equal(t, want, names(frags))
 
-	cmds, err := cat.ListAllCommands()
-	require.NoError(t, err)
+	cmds := cat.ListAllCommands()
 	require.Equal(t, want, names(cmds))
 }
 

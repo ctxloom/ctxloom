@@ -6,8 +6,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"sort"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/release"
@@ -231,13 +233,31 @@ func (u *upgradeRound) apply(p PinnedRef) {
 // refuse keeps cur verbatim and records why p's advance was refused.
 func (u *upgradeRound) refuse(p PinnedRef, cur remote.LockEntry, refusal error) {
 	u.newActive.AddEntry(p.Type, p.Identity, cur)
+	cause := refusalCauseOf(refusal)
 	u.result.Refused = append(u.result.Refused, RefusedAdvance{
 		Identity:    string(p.Identity),
 		KeptSHA:     cur.SHA,
 		ProposedSHA: p.Hash,
 		Detail:      refusal.Error(),
-		BelowFloor:  errors.Is(refusal, release.ErrRollback) || errors.Is(refusal, release.ErrSignatureDowngrade),
+		BelowFloor:  cause == RefusalBelowFloor,
+		Cause:       cause,
 	})
+}
+
+// refusalCauseOf classifies a verifyAdvance refusal. Only a withheld tree is a
+// signature failure, and not even that when what withheld it is a manifest in
+// the retired format: that is a format the publisher must re-sign in, not a
+// signature lying about its bytes. Everything else verifyAdvance refuses on
+// is a read that established nothing about the signature at all.
+func refusalCauseOf(refusal error) RefusalCause {
+	switch {
+	case errors.Is(refusal, release.ErrRollback) || errors.Is(refusal, release.ErrSignatureDowngrade):
+		return RefusalBelowFloor
+	case errors.Is(refusal, bundles.ErrTreeBundleWithheld) && !errors.Is(refusal, content.ErrManifestSuperseded):
+		return RefusalSignature
+	default:
+		return RefusalUnreadable
+	}
 }
 
 // upgradedEntry is the lock entry p lands as.

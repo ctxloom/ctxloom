@@ -32,17 +32,9 @@ import (
 const feedWait = 5 * time.Second
 
 // seedFeedHarp mints an index entry; withTranscript records a canonical
-// transcript.jsonl for it (the store-tail's by-location association).
-//
-// This used to drop a raw claude-code legacy-format fixture into the harp's
-// session dir, exercising the by-location LEGACY reader
-// (operations.HistoryForBackend -> claude's SessionHistory). That reader was
-// deleted outright (the user's DELETE decision — claude's scraper is gone,
-// not demoted to a vendor reader; see internal/engines/claude/claudecode.go's doc).
-// These tests were never actually about claude's file format — they exist
-// to exercise the store-tail SOURCE-SELECTION mechanism (live vs. store,
-// auto fallback) — so they now seed the one by-location association every
-// backend still supports: ctxloom's own canonical capture.
+// transcript.jsonl for it — the store tail's only source. These tests
+// exercise the store-tail SOURCE-SELECTION mechanism (live vs. store, auto
+// fallback), not any engine's file format.
 func seedFeedHarp(t *testing.T, home string, withTranscript bool) string {
 	t.Helper()
 	mgr, err := sessions.Open(nil)
@@ -180,6 +172,7 @@ func startFakeCoordinator(t *testing.T, home, projectKey string, f *fakeConsumer
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q}`, port, fakeConsumerCred)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte(body), 0o600))
+	holdRootLock(t, dir)
 }
 
 // fakeConsumerCred is the consumer credential every startFakeCoordinator

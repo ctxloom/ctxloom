@@ -328,6 +328,13 @@ const (
 	// host-local — it also carries the read-only consumer credential.
 	CoordEndpointFileName = "endpoint.json"
 
+	// CoordOwnerLockFileName is the exclusive-owner lock inside a coordinator
+	// root's state dir. A live coordinator holds it for its whole life and the
+	// kernel drops it when the process dies, so whether it is HELD is the
+	// liveness of everything the root's coordinator wrote — endpoint.json
+	// included (discover.List).
+	CoordOwnerLockFileName = "owner.lock"
+
 	// SegmentsDirName holds per-rotation artifacts, one pair per displaced
 	// session ID in a harp's sessions.Entry.Rotations lineage, split by kind:
 	// the converted-once canonical <sessionID>.jsonl (ResolveHarpSegmentPath)

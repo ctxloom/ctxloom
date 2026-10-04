@@ -408,16 +408,16 @@ func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
 		toolCall = "<tool_call>"
 	)
 
-	history := &mockSessionHistory{currentSession: &agent.Session{
+	history := &mockSource{currentSession: &agent.Session{
 		ID: "e2e-session",
-		Entries: []agent.SessionEntry{
+		Entries: aboveDistillFloor([]agent.SessionEntry{
 			{Type: agent.EntryTypeUser, Content: "why is the suite slow"},
 			{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"go test ./..."}`)},
 			{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: rawBody + bigBody()},
 			// No assistant turn here: nothing was said, so the finding is lost
 			// unless recovery supplies one.
 			{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"true"}`)},
-		},
+		}),
 	}}
 
 	var mu sync.Mutex
@@ -438,10 +438,10 @@ func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
 
 	recordOutputDir(t, "e2e-under-test")
 	c, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: &mockBackend{history: history},
-		Run:             runnerOver(mock),
-		OutputDir:       t.TempDir(),
-		HarpName:        "e2e-under-test",
+		Source:    history,
+		Run:       runnerOver(mock),
+		OutputDir: t.TempDir(),
+		HarpName:  "e2e-under-test",
 	})
 	if err != nil {
 		t.Fatalf("NewCompactor: %v", err)
@@ -516,7 +516,7 @@ func TestNewCompactor_ClampsBudgetToTheHardCeiling(t *testing.T) {
 	testsupport.Isolate(t)
 	recordOutputDir(t, "clamp-under-test")
 	c, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: &mockBackend{history: &mockSessionHistory{}},
+		Source:          &mockSource{},
 		EssenceMaxChars: MaxEssenceChars * 4,
 		OutputDir:       t.TempDir(),
 		HarpName:        "clamp-under-test",
@@ -536,9 +536,9 @@ func TestNewCompactor_DefaultsTheBudget(t *testing.T) {
 	testsupport.Isolate(t)
 	recordOutputDir(t, "default-under-test")
 	c, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: &mockBackend{history: &mockSessionHistory{}},
-		OutputDir:       t.TempDir(),
-		HarpName:        "default-under-test",
+		Source:    &mockSource{},
+		OutputDir: t.TempDir(),
+		HarpName:  "default-under-test",
 	})
 	if err != nil {
 		t.Fatalf("NewCompactor: %v", err)

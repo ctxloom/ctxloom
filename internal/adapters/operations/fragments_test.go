@@ -245,11 +245,10 @@ fragments:
 func TestListFragments_AllFragments(t *testing.T) {
 	_, loader := setupBundleTestFS(t)
 
-	result, err := ListFragments(context.Background(), nil, ListFragmentsRequest{
+	result := ListFragments(context.Background(), nil, ListFragmentsRequest{
 		Loader: loader,
 	})
 
-	require.NoError(t, err)
 	assert.Equal(t, 4, result.Count) // security, testing, golang, python
 	assert.Len(t, result.Fragments, 4)
 }
@@ -257,12 +256,11 @@ func TestListFragments_AllFragments(t *testing.T) {
 func TestListFragments_WithQuery(t *testing.T) {
 	_, loader := setupBundleTestFS(t)
 
-	result, err := ListFragments(context.Background(), nil, ListFragmentsRequest{
+	result := ListFragments(context.Background(), nil, ListFragmentsRequest{
 		Query:  "go",
 		Loader: loader,
 	})
 
-	require.NoError(t, err)
 	// Should match "golang" by name
 	assert.GreaterOrEqual(t, result.Count, 1)
 
@@ -279,12 +277,11 @@ func TestListFragments_WithQuery(t *testing.T) {
 func TestListFragments_WithTags(t *testing.T) {
 	_, loader := setupBundleTestFS(t)
 
-	result, err := ListFragments(context.Background(), nil, ListFragmentsRequest{
+	result := ListFragments(context.Background(), nil, ListFragmentsRequest{
 		Tags:   []string{"security"},
 		Loader: loader,
 	})
 
-	require.NoError(t, err)
 	assert.GreaterOrEqual(t, result.Count, 1)
 
 	// All results should have security tag
@@ -296,13 +293,12 @@ func TestListFragments_WithTags(t *testing.T) {
 func TestListFragments_SortByName(t *testing.T) {
 	_, loader := setupBundleTestFS(t)
 
-	result, err := ListFragments(context.Background(), nil, ListFragmentsRequest{
+	result := ListFragments(context.Background(), nil, ListFragmentsRequest{
 		SortBy:    "name",
 		SortOrder: "asc",
 		Loader:    loader,
 	})
 
-	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(result.Fragments), 2)
 
 	// Verify sorted ascending
@@ -314,13 +310,12 @@ func TestListFragments_SortByName(t *testing.T) {
 func TestListFragments_SortDescending(t *testing.T) {
 	_, loader := setupBundleTestFS(t)
 
-	result, err := ListFragments(context.Background(), nil, ListFragmentsRequest{
+	result := ListFragments(context.Background(), nil, ListFragmentsRequest{
 		SortBy:    "name",
 		SortOrder: "desc",
 		Loader:    loader,
 	})
 
-	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(result.Fragments), 2)
 
 	// Verify sorted descending

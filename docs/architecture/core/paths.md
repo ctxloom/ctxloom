@@ -284,7 +284,7 @@ entries and the current code support, and no more.
 - **Imports:** one shared leaf only — `internal/shared/harp` (harp validation). Nothing here
   degrades or guesses, so nothing here reports: every resolver either composes a path from what it
   was given or returns an error.
-- **Imported by:** 23 internal packages plus `cmd/validate` — `config` and `operations` for
+- **Imported by:** every package that locates an artifact on disk — for example `config` and `operations` for
   project artifacts; `sessions`, `memory`, `transcript`,
   `agentcoord/coord` and `cli` for per-harp session state; `claude` for the
   per-session engine-home instance.

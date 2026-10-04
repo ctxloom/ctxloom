@@ -58,7 +58,7 @@ func TestReapOrphanedWorktrees_ReapsCleanOrphan(t *testing.T) {
 	testsupport.Isolate(t)
 	repo := initRealRepo(t)
 
-	pol := NewWorktree(git.NewExec())
+	pol := sessionWorktree(t, git.NewExec())
 	pol.state = SessionState{Harp: "reap-clean-harp"}
 	ctx := context.Background()
 	ws, err := pol.prepareWorkspace(ctx, repo, "member-crashed")
@@ -92,7 +92,7 @@ func TestReapOrphanedWorktrees_SparesUncommittedWIP(t *testing.T) {
 	testsupport.Isolate(t)
 	repo := initRealRepo(t)
 
-	pol := NewWorktree(git.NewExec())
+	pol := sessionWorktree(t, git.NewExec())
 	pol.state = SessionState{Harp: "reap-wip-harp"}
 	ctx := context.Background()
 	ws, err := pol.prepareWorkspace(ctx, repo, "member-crashed-wip")
@@ -131,7 +131,7 @@ func TestReapOrphanedWorktrees_SkipsLiveOwner(t *testing.T) {
 	testsupport.Isolate(t)
 	repo := initRealRepo(t)
 
-	pol := NewWorktree(git.NewExec())
+	pol := sessionWorktree(t, git.NewExec())
 	pol.state = SessionState{Harp: "reap-live-harp"}
 	ctx := context.Background()
 	ws, err := pol.prepareWorkspace(ctx, repo, "member-live")
@@ -245,7 +245,7 @@ func buildFourVerdictFixture(t *testing.T) (repo string, dirs []string) {
 
 	ctx := context.Background()
 	prepare := func(harp, member string) workspace {
-		pol := NewWorktree(git.NewExec())
+		pol := sessionWorktree(t, git.NewExec())
 		pol.state = SessionState{Harp: harp}
 		ws, err := pol.prepareWorkspace(ctx, repo, member)
 		require.NoError(t, err)

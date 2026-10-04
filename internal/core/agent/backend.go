@@ -69,9 +69,8 @@ type ModelInfo struct {
 }
 
 // Backend is the core contract the runner depends on for an interactive
-// turn: identify the agent, declare its modes, run Execute over what the
-// runner delivered, and expose session history (read by the host for /clear
-// recovery and compaction).
+// turn: identify the agent, declare its modes, and run Execute over what the
+// runner delivered.
 //
 // It deliberately does NOT carry the hook/command/context/MCP capability
 // accessors: those are an agent's internal setup wiring, not something the runner
@@ -82,10 +81,6 @@ type Backend interface {
 	Name() string
 	Version() string
 	SupportedModes() []ExecutionMode
-
-	// History exposes conversation history (transcripts) and /clear recovery.
-	// The host reads it via the agent server and the compactor.
-	History() SessionHistory
 
 	// Execution lifecycle
 	Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr io.Writer) (*ExecuteResult, error)
@@ -100,32 +95,6 @@ type ContextProvider interface {
 	Provide(workDir string, fragments []*Fragment) error
 	// Clear removes any provided context.
 	Clear(workDir string) error
-}
-
-// SessionHistory provides access to the LLM's conversation history and tracks
-// sessions for /clear recovery. Combines reading transcripts with tracking
-// which sessions belong to which ctxloom run.
-// Implementation varies by backend: JSONL files (Claude), etc.
-type SessionHistory interface {
-	// Reading sessions
-	// GetCurrentSession returns the current/most recent session transcript.
-	GetCurrentSession(workDir string) (*Session, error)
-	// ListSessions returns available session metadata.
-	ListSessions(workDir string) ([]SessionMeta, error)
-	// GetSession returns a specific session by ID.
-	GetSession(workDir string, sessionID string) (*Session, error)
-	// GetSessionByPath returns a session by its transcript file path.
-	GetSessionByPath(path string) (*Session, error)
-
-	// Tracking for /clear recovery
-	// TranscriptPathFromHook extracts or computes the transcript path from hook input.
-	// Claude: computes path from sessionID + workDir
-	TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string
-
-	// Note: "which session is previous" is resolved by ctxloom from its session
-	// index (operations.ResolvePreviousSession), not by the agent — the index is
-	// the authority for ordering, agent-of-origin, and cross-agent routing. The
-	// agent only materializes a given session id (GetSession).
 }
 
 // Session represents a conversation session with normalized entries.

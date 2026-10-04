@@ -27,7 +27,7 @@ import (
 //     loss.
 //
 // It decorates Source rather than living inside any one reader so the
-// canonical reader, the legacy reader and the fallback composition all get the
+// canonical reader and the fallback composition both get the
 // same policy from one wrap, and so a caller that genuinely wants the total
 // record can simply not wrap.
 type FilteredSource struct {

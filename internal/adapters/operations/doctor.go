@@ -1380,6 +1380,14 @@ func classifyContentTrust(marker string, pending *PendingReviewResult) DoctorChe
 // LiveRefusedAdvances to those still describing the pin the lockfile
 // actually holds, so a record left over from a world that has moved on is
 // dropped rather than reported.
+// The per-record phrase doctorCheckUpstreamSignatures words a refusal with,
+// by its recorded RefusalCause.
+const (
+	doctorRefusedSignature  = "carries a publisher signature that does not verify over its bytes"
+	doctorRefusedUnreadable = "could not be read as a bundle"
+	doctorRefusedBelowFloor = "is signed below the version this project last pinned, or is no longer signed"
+)
+
 func doctorCheckUpstreamSignatures(cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5"
 	if cfgErr != nil {
@@ -1400,15 +1408,27 @@ func doctorCheckUpstreamSignatures(cfg *config.Config, cfgErr error) DoctorCheck
 	sort.Slice(refused, func(i, j int) bool { return refused[i].Identity < refused[j].Identity })
 	var parts []string
 	for _, r := range refused {
-		parts = append(parts, fmt.Sprintf("%s at revision %s does not verify, so the pin is being kept at %s (refused %s)",
-			r.Identity, gitutil.AbbrevSHA(r.ProposedSHA, 16), gitutil.AbbrevSHA(r.KeptSHA, 16), r.RefusedAt.Format("2006-01-02")))
+		parts = append(parts, fmt.Sprintf("%s at revision %s %s, so the pin is being kept at %s (refused %s)",
+			r.Identity, gitutil.AbbrevSHA(r.ProposedSHA, 16), doctorRefusedPhrase(r.Cause), gitutil.AbbrevSHA(r.KeptSHA, 16), r.RefusedAt.Format("2006-01-02")))
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorWarn,
-		Detail: fmt.Sprintf("%d upstream revision(s) were REFUSED because the PUBLISHER's signature does not cover the bytes it sits beside: %s. "+
+		Detail: fmt.Sprintf("%d upstream revision(s) were REFUSED: %s. "+
 			"Nothing is wrong on this machine and nothing is withheld from your assistant — it is served the content at the kept pin. "+
-			"There is nothing to configure here: the publisher must re-sign and republish, and `ctxloom deps upgrade` picks it up "+
+			"There is nothing to configure here: the publisher must re-sign or repair the bundle and republish, and `ctxloom deps upgrade` picks it up "+
 			"and clears this the next time it runs",
 			len(refused), strings.Join(parts, "; "))}
+}
+
+// doctorRefusedPhrase words one recorded refusal by its cause.
+func doctorRefusedPhrase(cause RefusalCause) string {
+	switch cause {
+	case RefusalSignature:
+		return doctorRefusedSignature
+	case RefusalBelowFloor:
+		return doctorRefusedBelowFloor
+	default:
+		return doctorRefusedUnreadable
+	}
 }
 
 // ===== J001300 close-out: doctor's share of the journey's checks ====

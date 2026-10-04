@@ -53,10 +53,9 @@ flowchart TD
 
 | Symbol | Purpose |
 |---|---|
-| `LaunchBackend.InitLaunch` | Wires lifecycle, context provider, history and the engine's `Declaration` in one call. No validation performed. |
+| `LaunchBackend.InitLaunch` | Wires lifecycle, context provider and the engine's `Declaration` in one call. No validation performed. |
 | `LaunchBackend.Resolved` | The selection `Setup` built and delivered for the current run, or nil before `Setup`. An engine reads it to learn what its own approaches recorded (claude's out-of-cwd file paths for argv) — never to deliver again. |
 | `LaunchBackend.SetExecuteEnv` | Registers an extra per-backend child-env contributor on top of the shared `ExecuteEnv`. |
-| `LaunchBackend.History` | Returns the injected `SessionHistory`, satisfying `Backend`. |
 | `LaunchBackend.ManagedChatMCPServers` | Capability-probes the lifecycle for `ChatMCPServers()`. |
 | `LaunchBackend.ExecuteCLI` | Dry-run stop, argv trace, env assembly, then interactive vs oneshot routing; propagates the runner error with its exit code. |
 | `LaunchBackend.TraceArgs` | Verbosity-gated argv trace. |

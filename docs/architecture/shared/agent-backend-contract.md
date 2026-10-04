@@ -1,6 +1,6 @@
 # agent — backend contract and base embeddables
 
-`internal/core/agent` is the engine-agnostic substrate: it declares what every LLM backend must implement (`Backend`, `ContextProvider`, `SessionHistory`, `SettingsReader`) and supplies the embeddable state every concrete engine reuses (`BaseBackend`, `BaseLifecycle`, `BaseContextProvider`). It owns the process-launch seam (`Launcher`/`LaunchSpec`), so `os/exec` and pty handling stay outside this package. It sits at the bottom of the import graph — 26 internal packages import it and it imports only `internal/core/paths`, `internal/adapters/selfexec`, `internal/shared/{clidiag,collections,safefs,wire}`; nothing here reaches back up into config, bundles, or CLI.
+`internal/core/agent` is the engine-agnostic substrate: it declares what every LLM backend must implement (`Backend`, `ContextProvider`, `SettingsReader`) and supplies the embeddable state every concrete engine reuses (`BaseBackend`, `BaseLifecycle`, `BaseContextProvider`). It owns the process-launch seam (`Launcher`/`LaunchSpec`), so `os/exec` and pty handling stay outside this package. It sits at the bottom of the import graph — 26 internal packages import it and it imports only `internal/core/paths`, `internal/adapters/selfexec`, `internal/shared/{clidiag,collections,safefs,wire}`; nothing here reaches back up into config, bundles, or CLI.
 
 ```mermaid
 classDiagram
@@ -9,7 +9,6 @@ classDiagram
         Name() string
         Version() string
         SupportedModes() ExecutionMode~list~
-        History() SessionHistory
         Setup(SetupRequest) error
         Execute(ExecuteRequest) ExecuteResult
         Cleanup() error
@@ -18,11 +17,6 @@ classDiagram
         <<interface>>
         Provide(workDir, frags) contextHash
         Clear(workDir) error
-    }
-    class SessionHistory {
-        <<interface>>
-        GetSession/ListSessions/...
-        TranscriptPathFromHook(...)
     }
     class SettingsReader {
         <<interface>>
@@ -67,10 +61,9 @@ classDiagram
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `Backend` | `internal/core/agent/backend.go:65` | The runner-facing contract: identity, supported modes, `History()`, and the Setup/Execute/Cleanup lifecycle. |
+| `Backend` | `internal/core/agent/backend.go:65` | The runner-facing contract: identity, supported modes, and the Setup/Execute/Cleanup lifecycle. |
 | `BackendConfig` | `internal/core/agent/backend.go:22` | One-method discriminator interface for a decoded per-backend config block. |
 | `ContextProvider` | `internal/core/agent/backend.go:83` | Provide/Clear the assembled context; embedded by `HashedContext`. |
-| `SessionHistory` | `internal/core/agent/backend.go:95` | Transcript reads (`Get*`/`List*`) plus `TranscriptPathFromHook`, a pure path computation with no session state. |
 | `SettingsReader` | `internal/core/agent/settings.go` | Report what ctxloom has wired into an engine's settings files. Writes are claims through `delivery.Static`. |
 | `Launcher` | `internal/core/agent/base.go:42` | The process-execution seam; the only thing that turns a `LaunchSpec` into a child process. |
 

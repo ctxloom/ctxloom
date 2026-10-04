@@ -11,8 +11,7 @@ import (
 // TestMain closes config.findAppDir's walk-up from the working directory for
 // every test in this binary, not only the ones that remember to isolate. A
 // temp HOME alone does not: see testsupport.SandboxedMain. It composes the
-// engines too: the compactor reads each backend's retirement declaration off
-// the registry, and an empty registry would hand every backend a legacy leg.
+// shipped engines too.
 func TestMain(m *testing.M) {
 	enginefixture.MustComposeShipped()
 	os.Exit(testsupport.SandboxedMain(m))

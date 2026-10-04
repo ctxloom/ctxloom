@@ -626,12 +626,9 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
 			return err
 		}
-		// Neutralize any AMBIENT ssh-agent on the machine running this suite:
-		// isolatedEnv() replaces HOME/XDG_* and scrubs ctxloom session vars, but
-		// SSH_AUTH_SOCK is neither — a developer's real agent would otherwise
-		// leak in and satisfy key discovery, making this scenario flaky/host-
-		// dependent instead of a deterministic "no key anywhere" case.
-		w.env.SetEnv("SSH_AUTH_SOCK", "")
+		// "No key anywhere" is deterministic because testenv's isolatedEnv
+		// drops the host's SSH_AUTH_SOCK: a developer's real agent cannot
+		// satisfy key discovery here.
 
 		// One unsigned, untrusted pending item so `review --project` has
 		// something to act on: an empty pending set short-circuits ("Nothing is

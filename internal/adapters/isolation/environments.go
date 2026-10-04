@@ -58,25 +58,25 @@ func (e *hostEnvironment) Interactive(ctx context.Context, r RunnerRequest) (Int
 
 // stageCred moves the coordinator credential in spawnEnv into the run's
 // secrets file (stageCoordCred), making the file on first need. A host runner
-// opens it at its host path.
+// opens it at its host path. Where the platform has no per-user tmpfs the
+// secret dir goes on disk under the session's scratch dir; a run with no
+// usable harp has none, and is refused rather than given a shared dir.
 func (e *hostEnvironment) stageCred(spawnEnv map[string]string) (map[string]string, error) {
 	if _, ok := spawnEnv[sessions.EnvCoordCred]; !ok {
 		return spawnEnv, nil
 	}
 	if e.secrets == nil {
-		f, err := newSecretsFile(hostSecretsDiskParent(e.state))
+		diskParent, err := e.state.scratchDir()
+		if err != nil {
+			return nil, fmt.Errorf("run secrets: %w", err)
+		}
+		f, err := newSecretsFile(diskParent)
 		if err != nil {
 			return nil, err
 		}
 		e.secrets = f
 	}
 	return stageCoordCred(e.secrets, spawnEnv, e.secrets.path())
-}
-
-// hostSecretsDiskParent is where a host run's secret dir goes when the
-// platform has no per-user tmpfs: the session's scratch dir (memberBase).
-func hostSecretsDiskParent(state SessionState) string {
-	return memberBase(state, state.scratchDir, "scratch")
 }
 
 func (e *hostEnvironment) Describe() Description { return hostDescription(e.axis) }

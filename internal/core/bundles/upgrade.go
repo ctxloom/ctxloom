@@ -89,7 +89,10 @@ func migrateProfileItems(fsys afero.Fs, dir string) error {
 		if err != nil {
 			return fmt.Errorf("bundles: reading %s: %w", path, err)
 		}
-		out, applied := step.Run(raw)
+		out, applied, err := step.Run(raw)
+		if err != nil {
+			return fmt.Errorf("bundles: migrating %s: %w", path, err)
+		}
 		if len(applied) == 0 {
 			continue
 		}

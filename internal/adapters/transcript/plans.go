@@ -29,10 +29,8 @@ import (
 // The tolerance is kept, but it is no longer SILENT: every degraded path is
 // warned about. A distill or cross-agent handoff that omitted plan documents
 // which exist on disk used to be indistinguishable from a session that has no
-// plans, and the consumers (GetPlans, internal/adapters/memory's compactor) fold the
-// empty result straight into distilled output where the omission is invisible
-// forever after. EngineReader.GetPlans and the compactor's PlansSource
-// consumers read through here.
+// plans, and a consumer folds the empty result straight into distilled output
+// where the omission is invisible forever after.
 func ReadPlanFiles(harp string) []agent.PlanFile {
 	out, problems := readPlanFiles(harp)
 	for _, err := range problems {

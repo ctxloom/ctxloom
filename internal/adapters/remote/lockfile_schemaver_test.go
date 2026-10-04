@@ -108,7 +108,8 @@ func TestLoad_RetiredEntryFieldIsDroppedOnTheNextSaveNotOnRead(t *testing.T) {
 	assert.Contains(t, string(reloaded), schemaver.Key+": "+strconv.Itoa(LockfileVersion))
 }
 
-// --write-upgrades persists the in-memory migration, keeping the old bytes.
+// --write-upgrades persists the in-memory migration and leaves no backup: the
+// lockfile is committed, so git holds the old bytes.
 func TestLoad_WriteUpgradesPersistsTheRename(t *testing.T) {
 	withWriteUpgrades(t)
 	body := lockBody("version", LockfileVersion)
@@ -120,9 +121,9 @@ func TestLoad_WriteUpgradesPersistsTheRename(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(onDisk), schemaver.Key+": "+strconv.Itoa(LockfileVersion))
 	assert.Contains(t, string(onDisk), "# kept by hand", "the write-back keeps comments")
-	backup, err := afero.ReadFile(lm.FS(), lm.Path()+schemaver.BackupSuffix)
+	backup, err := afero.Exists(lm.FS(), lm.Path()+schemaver.BackupSuffix)
 	require.NoError(t, err)
-	assert.Equal(t, body, string(backup))
+	assert.False(t, backup, "no .bak is left beside a committed lockfile")
 }
 
 // A lockfile with no version key at all predates key-by-identity: refused as
@@ -132,4 +133,15 @@ func TestLoad_KeylessIsARetiredKeyForm(t *testing.T) {
 	_, err := lm.Load()
 	require.ErrorIs(t, err, ErrLockKeyFormRetired)
 	assert.Contains(t, err.Error(), string(schemaverLockKey), "the refusal lists the held entry")
+}
+
+// A lockfile that is not YAML is reported as the parse failure it is — the
+// user fixes or deletes the file — not as an unreadable format version, which
+// would point them at the wrong fault.
+func TestLoad_MalformedIsAParseFailureNotAVersionFault(t *testing.T) {
+	lm := lockWithBody(t, "bundles: [unterminated\n")
+	_, err := lm.Load()
+	require.Error(t, err)
+	var ve *schemaver.VersionError
+	assert.NotErrorAs(t, err, &ve)
 }

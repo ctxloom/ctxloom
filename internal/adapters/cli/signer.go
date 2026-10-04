@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -21,13 +22,18 @@ import (
 // trust for itself.
 
 var (
-	signerAddKey        string
-	signerAddNamespaces []string
-	signerAddComment    string
-	signerAddProject    bool
-	signerAddUser       bool
-	signerAddYes        bool
+	signerTrustKey        string
+	signerTrustNamespaces []string
+	signerTrustComment    string
+	signerTrustProject    bool
+	signerTrustUser       bool
+	signerTrustYes        bool
 )
+
+// errSignerTrustNeedsYes is `signer trust` without --yes: the key and the
+// consequence of trusting it were shown, and nothing was trusted. The
+// command never asks; --yes is the answer, given up front.
+var errSignerTrustNeedsYes = errors.New("not trusted: verify the fingerprint above out of band, then re-run with --yes to trust it")
 
 // signerCreateLong documents `ctxloom signer trust`.
 const signerCreateLong = `Add a public key to your allowed_signers store, trusted for the given
@@ -51,14 +57,14 @@ Examples:
   ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
   ctxloom signer trust lead@team.example --key lead.pub --namespace approve,reject --user`
 
-// runSignerAddCmd is signerTrustCmd's RunE.
-func runSignerAddCmd(cmd *cobra.Command, args []string) error {
+// runSignerTrustCmd is signerTrustCmd's RunE.
+func runSignerTrustCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	return runSignerAdd(cmd, cfg, args[0], signerAddKey, signerAddNamespaces, signerAddComment,
-		effectiveSignerProject(signerAddProject, signerAddUser), signerAddYes)
+	return runSignerTrust(cmd, cfg, args[0], signerTrustKey, signerTrustNamespaces, signerTrustComment,
+		effectiveSignerProject(signerTrustProject, signerTrustUser), signerTrustYes)
 }
 
 // effectiveSignerProject resolves a signer command's write-target flag pair —
@@ -77,11 +83,11 @@ func effectiveSignerProject(project, user bool) bool {
 	return project && !user
 }
 
-// runSignerAdd is the testable body of `ctxloom signer trust`: cfg is DI'd
+// runSignerTrust is the testable body of `ctxloom signer trust`: cfg is DI'd
 // (a real config.Config over a temp project) and every flag value is an
-// explicit parameter, so a test can drive the confirmation → write path
+// explicit parameter, so a test can drive the --yes → write path
 // without touching cobra's global flag vars or a real home directory.
-func runSignerAdd(cmd *cobra.Command, cfg *config.Config, principal, keyArg string, namespaceAliases []string, comment string, project, assumeYes bool) error {
+func runSignerTrust(cmd *cobra.Command, cfg *config.Config, principal, keyArg string, namespaceAliases []string, comment string, project, assumeYes bool) error {
 	keyInfo, err := operations.ResolveSignerKey(keyArg, nil, cmd.InOrStdin())
 	if err != nil {
 		return err
@@ -91,9 +97,9 @@ func runSignerAdd(cmd *cobra.Command, cfg *config.Config, principal, keyArg stri
 		return err
 	}
 
-	if !confirmSignerAdd(cmd, principal, keyInfo, namespaces, assumeYes) {
-		fmt.Fprintln(cmd.OutOrStdout(), "not trusted (aborted)")
-		return nil
+	if !assumeYes {
+		discloseSignerTrust(cmd, principal, keyInfo, namespaces)
+		return errSignerTrustNeedsYes
 	}
 
 	res, err := operations.AddSigner(cfg, operations.AddSignerRequest{
@@ -120,38 +126,19 @@ func runSignerAdd(cmd *cobra.Command, cfg *config.Config, principal, keyArg stri
 	})
 }
 
-// confirmSignerAdd names the real consequence of trusting a signer (spec
-// §7.2) and shows the fingerprint the user is supposed to check out of
-// band. --yes and a non-interactive terminal (scripted/CI use, or
-// a piped stdin already consumed by --key -) both skip the prompt and
-// proceed — trusting a signer is a deliberate, explicit CLI invocation either way,
-// never a first-sight TOFU prompt (spec explicitly rejects TOFU; this
-// confirmation is the opposite: an EXPLICIT add the user already chose to
-// run, being asked to double check what they typed).
-func confirmSignerAdd(cmd *cobra.Command, principal string, key operations.SignerKeyInfo, namespaces []string, assumeYes bool) bool {
-	if assumeYes || !isInteractiveTerminal() {
-		return true
-	}
-	return promptSignerAdd(cmd, principal, key, namespaces)
-}
-
-// promptSignerAdd renders the consequence block and reads the answer. It is
-// split out of confirmSignerAdd — whose only other job is the --yes/no-TTY
-// gate — because the gate made the prompt untestable: in any test process
-// isInteractiveTerminal() is false, so every existing test took the skip path
-// and the most consequential text in the product had nothing asserting it is
-// shown at all. It writes to cmd.ErrOrStderr() rather than
-// os.Stderr for the same reason; in production those are the same descriptor.
+// discloseSignerTrust shows what trusting the signer would mean (spec §7.2)
+// — the principal and role, the fingerprint the user is supposed to check
+// out of band, and the consequence — and asks nothing: `signer trust`
+// without --yes is this preview, and --yes applies it. Trusting a signer is
+// never a first-sight TOFU prompt (the spec rejects TOFU); it is an explicit
+// command the user re-runs once the fingerprint checks out.
 //
 // The principal goes through termsafe.Field: it is supplied by the entity
 // seeking trust, and this is the line the operator reads to decide whether to
 // grant it. A control byte there could rewrite that line while it is read.
-func promptSignerAdd(cmd *cobra.Command, principal string, key operations.SignerKeyInfo, namespaces []string) bool {
-	consequence := signerConsequenceText(namespaces)
-	fmt.Fprintf(cmd.ErrOrStderr(), "\nTrust %s as a %s?\n\n  %s  (%s)\n\n  %s\n  Verify this fingerprint out of band before you continue.\n\n",
-		termsafe.Field(principal), signerRoleWord(namespaces), key.Fingerprint, key.PublicKey.Type(), consequence)
-	yes, err := promptYesNo("  [y/N] ")
-	return err == nil && yes
+func discloseSignerTrust(cmd *cobra.Command, principal string, key operations.SignerKeyInfo, namespaces []string) {
+	fmt.Fprintf(cmd.ErrOrStderr(), "\nTrust %s as a %s\n\n  %s  (%s)\n\n  %s\n  Verify this fingerprint out of band before you continue.\n\n",
+		termsafe.Field(principal), signerRoleWord(namespaces), key.Fingerprint, key.PublicKey.Type(), signerConsequenceText(namespaces))
 }
 
 // hasPublishNamespace reports whether a grant includes the publish namespace —
@@ -282,8 +269,8 @@ func runSignerShowCmd(cmd *cobra.Command, args []string) error {
 }
 
 var (
-	signerRemoveProject bool
-	signerRemoveUser    bool
+	signerUntrustProject bool
+	signerUntrustUser    bool
 )
 
 // signerDeleteLong documents `ctxloom signer untrust`.
@@ -312,20 +299,20 @@ Examples:
   ctxloom signer untrust context@acme.com
   ctxloom signer untrust lead@team.example --user`
 
-func runSignerRemoveCmd(cmd *cobra.Command, args []string) error {
+func runSignerUntrustCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	return runSignerRemove(cmd, cfg, args[0], effectiveSignerProject(signerRemoveProject, signerRemoveUser))
+	return runSignerUntrust(cmd, cfg, args[0], effectiveSignerProject(signerUntrustProject, signerUntrustUser))
 }
 
-// runSignerRemove is the testable body of `ctxloom signer untrust`: cfg is
+// runSignerUntrust is the testable body of `ctxloom signer untrust`: cfg is
 // DI'd (a real config.Config over a temp project) and project is an explicit
-// parameter, mirroring runSignerAdd's split — so a test can drive the
+// parameter, mirroring runSignerTrust's split — so a test can drive the
 // resolve → write → report path without touching cobra's global flag vars or
 // a real home directory.
-func runSignerRemove(cmd *cobra.Command, cfg *config.Config, principal string, project bool) error {
+func runSignerUntrust(cmd *cobra.Command, cfg *config.Config, principal string, project bool) error {
 	res, err := operations.RemoveSigner(cfg, operations.RemoveSignerRequest{
 		Principal: principal,
 		Project:   project,
@@ -372,8 +359,8 @@ own embedded trust root.
 Trusting a signer is the single most consequential command in the signing
 feature: everything that key ever publishes (or approves, for an
 approve-namespace key) reaches your agent WITHOUT REVIEW, forever, until you
-untrust it. 'signer trust' names that consequence and shows the fingerprint
-you are supposed to verify out of band before continuing.
+untrust it. 'signer trust' without --yes names that consequence and shows the
+fingerprint you are supposed to verify out of band; re-run with --yes to trust.
 
   ctxloom signer                         List trusted signers
   ctxloom signer show <principal>        Show every trust-root entry for one
@@ -386,7 +373,7 @@ var signerTrustCmd = &cobra.Command{
 	Short: "Trust a signer's public key",
 	Long:  signerCreateLong,
 	Args:  cobra.ExactArgs(1),
-	RunE:  runSignerAddCmd,
+	RunE:  runSignerTrustCmd,
 }
 
 var signerListCmd = &cobra.Command{
@@ -407,7 +394,7 @@ var signerUntrustCmd = &cobra.Command{
 	Short: "Withdraw trust from a signer's public key",
 	Long:  signerDeleteLong,
 	Args:  cobra.ExactArgs(1),
-	RunE:  runSignerRemoveCmd,
+	RunE:  runSignerUntrustCmd,
 }
 
 func init() {
@@ -418,16 +405,16 @@ func init() {
 	signerCmd.AddCommand(signerTrustCmd)
 	signerCmd.AddCommand(signerUntrustCmd)
 
-	signerTrustCmd.Flags().StringVar(&signerAddKey, "key", "", "public key: a file path, '-' for stdin, or a literal authorized_keys line (required)")
-	signerTrustCmd.Flags().StringSliceVar(&signerAddNamespaces, "namespace", nil, "namespace(s) to trust this key for: publish|approve|reject (default: publish)")
-	signerTrustCmd.Flags().StringVar(&signerAddComment, "comment", "", "override the key's own comment")
-	signerTrustCmd.Flags().BoolVar(&signerAddProject, "project", true, "write to the committable project store (.ctxloom/allowed_signers) — the default; falls back to the user store when no project is configured")
-	signerTrustCmd.Flags().BoolVar(&signerAddUser, "user", false, "write to your PER-MACHINE user store (~/.ctxloom/allowed_signers) instead of the project store")
-	signerTrustCmd.Flags().BoolVarP(&signerAddYes, "yes", "y", false, "skip the confirmation prompt")
+	signerTrustCmd.Flags().StringVar(&signerTrustKey, "key", "", "public key: a file path, '-' for stdin, or a literal authorized_keys line (required)")
+	signerTrustCmd.Flags().StringSliceVar(&signerTrustNamespaces, "namespace", nil, "namespace(s) to trust this key for: publish|approve|reject (default: publish)")
+	signerTrustCmd.Flags().StringVar(&signerTrustComment, "comment", "", "override the key's own comment")
+	signerTrustCmd.Flags().BoolVar(&signerTrustProject, "project", true, "write to the committable project store (.ctxloom/allowed_signers) — the default; falls back to the user store when no project is configured")
+	signerTrustCmd.Flags().BoolVar(&signerTrustUser, "user", false, "write to your PER-MACHINE user store (~/.ctxloom/allowed_signers) instead of the project store")
+	signerTrustCmd.Flags().BoolVarP(&signerTrustYes, "yes", "y", false, "trust the key; without it the key and the consequence are shown and nothing is trusted")
 	signerTrustCmd.MarkFlagsMutuallyExclusive("project", "user")
 	_ = signerTrustCmd.MarkFlagRequired("key")
 
-	signerUntrustCmd.Flags().BoolVar(&signerRemoveProject, "project", true, "write the removal/distrust decision to the committable project store — the default; falls back to the user store when no project is configured")
-	signerUntrustCmd.Flags().BoolVar(&signerRemoveUser, "user", false, "write to your PER-MACHINE user store (~/.ctxloom/allowed_signers) instead of the project store")
+	signerUntrustCmd.Flags().BoolVar(&signerUntrustProject, "project", true, "write the removal/distrust decision to the committable project store — the default; falls back to the user store when no project is configured")
+	signerUntrustCmd.Flags().BoolVar(&signerUntrustUser, "user", false, "write to your PER-MACHINE user store (~/.ctxloom/allowed_signers) instead of the project store")
 	signerUntrustCmd.MarkFlagsMutuallyExclusive("project", "user")
 }

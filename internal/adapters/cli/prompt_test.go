@@ -34,21 +34,6 @@ func TestPromptLine_SharedReaderKeepsTypeAheadAcrossPrompts(t *testing.T) {
 		"the second prompt must see input the first one read ahead into the shared buffer")
 }
 
-func TestPromptYesNo_OnlyAnExplicitYesIsYes(t *testing.T) {
-	for answer, want := range map[string]bool{
-		"y": true, "Y": true, "yes": true, "YES": true, "  yes  ": true,
-		"n": false, "": false, "yep": false, "sure": false,
-	} {
-		saved := stdinReader
-		stdinReader = bufio.NewReader(strings.NewReader(answer + "\n"))
-		got, err := promptYesNo("? ")
-		stdinReader = saved
-
-		require.NoError(t, err, answer)
-		assert.Equal(t, want, got, "answer %q", answer)
-	}
-}
-
 func TestPlural(t *testing.T) {
 	assert.Equal(t, "y", plural(1, "y", "ies"))
 	assert.Equal(t, "ies", plural(0, "y", "ies"))

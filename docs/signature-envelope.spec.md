@@ -370,7 +370,7 @@ security surface. That is also why the attestation vocabulary is CLOSED — what
 verifies must never depend on which plugins are loaded.
 
 There is **exactly one** definition of "the bytes of item X in form F": the
-`ContentPayload` method for that kind. `ComputeContentHash` hashes precisely that
+`ContentPayload` method for that kind. The content hash is taken over precisely that
 function's output, and the signer signs precisely that function's output. Two
 definitions is the bug.
 

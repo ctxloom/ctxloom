@@ -109,7 +109,7 @@ type Container struct {
 	// state is the run's session identity (harp + project id), stamped by
 	// Prepare (withSessionState); it scopes the read-write state mounts that
 	// keep transcripts/session artifacts/task writes durable across teardown
-	// (sessionStateMounts). Zero on paths without session accounting.
+	// (sessionStateMounts). A zero harp is refused (SessionState.scratchDir).
 	state SessionState
 	// git is the DI seam used to resolve the live project's git common-dir when
 	// the project is itself a LINKED WORKTREE (or submodule) — see
@@ -542,8 +542,9 @@ func (hostBase) resolveBase(_ context.Context, projectDir, _ string) (string, fu
 }
 
 // mountBase maps the LIVE project dir: the managed-config overlays shadow the
-// engine's config writers off the host project, and a pointer-file .git gets
-// its own git data mirrored so in-container git resolves. dir is the
+// engine's config writers off the host project, a pointer-file .git gets its
+// own git data mirrored so in-container git resolves, and a main checkout's
+// worktree registry is masked (gitdirMirrorMounts). dir is the
 // already-resolved cwd (== the project dir for this base). Failure returns the
 // error (the caller tears the workspace down); nothing is created here but
 // overlay mountpoints, which are kept (see containerConfigOverlay), and the git
@@ -559,7 +560,8 @@ func (hostBase) mountBase(ctx context.Context, rt Runtime, _, projectDir, scratc
 	// When the LIVE project is itself a linked worktree (or a submodule) its .git
 	// is a POINTER FILE whose common dir lives OUTSIDE projectDir — and so is not
 	// covered by the project mount. Mirror this checkout's git data so
-	// in-container git resolves the repo, exactly as the worktree base does. A
+	// in-container git resolves the repo, exactly as the worktree base does; a
+	// main checkout gets its worktree registry masked instead. A
 	// resolution failure fails this workspace so the chain degrades
 	// (fatal-unless-degraded), never a silent broken-git launch.
 	gitMounts, err := gitdirMirrorMounts(ctx, rt, g, projectDir, scratchRoot)
@@ -573,10 +575,15 @@ func (hostBase) mountBase(ctx context.Context, rt Runtime, _, projectDir, scratc
 // LIVE PROJECT is itself a linked worktree (or a submodule) — i.e.
 // projectDir/.git is a POINTER FILE, not a directory — whose git data lives
 // OUTSIDE projectDir and so is NOT covered by the project mount, leaving
-// in-container `git` unable to resolve the repo. None when .git is a directory
-// or absent: the git dir is inside the project mount already (a normal
-// main-repo checkout), or there is no repo to mirror. It builds the same set the
+// in-container `git` unable to resolve the repo. It builds the same set the
 // worktree base does (gitDirMounts).
+//
+// When .git is a DIRECTORY (a main checkout) the git dir is inside the
+// read-write project mount already, and so is its worktrees/ registry — every
+// OTHER checkout's registration, none of which is mounted, so git in here
+// (`git worktree prune`, gc's auto-prune) would delete them through the
+// mount. That registry is masked the same way (gitRegistryMask). None when
+// .git is absent: there is no repo.
 func gitdirMirrorMounts(ctx context.Context, rt Runtime, g git.Git, projectDir, scratchRoot string) ([]mount, error) {
 	gitPath := filepath.Join(projectDir, ".git")
 	info, err := os.Stat(gitPath)
@@ -591,7 +598,7 @@ func gitdirMirrorMounts(ctx context.Context, rt Runtime, g git.Git, projectDir, 
 		return nil, fmt.Errorf("stat %s to decide the container gitdir mirror: %w", gitPath, err)
 	}
 	if info.IsDir() {
-		return nil, nil
+		return gitRegistryMask(rt, gitPath, projectDir, scratchRoot)
 	}
 	return gitDirMounts(ctx, rt, g, projectDir, scratchRoot)
 }

@@ -115,7 +115,7 @@ each one contradicts what the surrounding code looks like it does.
 
 1. ~~**An unprofiled backend's container inherits claude's credentials.**~~ — **RESOLVED `a6d9bd95`.** The `default:` arm of `engineContainerSpecFor` returned `resolveClaudeContainerAuth` for any unrecognized engine. It now fails closed, and `runtime: container-*` for an engine with no auth mapping is refused when the binding is *written*, not when it is launched. → [isolation](isolation.md)
 2. **Isolating a shared cwd without a container requires `agent.OutOfCwd`.** claude-code's approaches declare it; a backend whose approaches lack it falls back to the loudly-warned well-known write, and concurrent per-agent isolation for it needs a worktree or a container cell. → [matrix §4](capability-matrix.md)
-3. **No composed engine has a live transcript scraper.** claude-code's was deleted outright rather than demoted (its `Backend.History()` is nil, which `operations.HistoryForBackend` refuses by name), and the mock's answers every read with an error; canonical capture is written runner-side into `internal/adapters/transcript`. → [matrix §6](capability-matrix.md)
+3. **No composed engine has a live transcript scraper.** `agent.Backend` carries no history accessor: canonical capture, written runner-side into `internal/adapters/transcript`, is the only transcript. → [matrix §6](capability-matrix.md)
 
 ## Scope
 

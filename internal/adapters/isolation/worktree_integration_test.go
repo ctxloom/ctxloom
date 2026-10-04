@@ -27,7 +27,7 @@ func TestWorktreePolicy_RealGitLifecycle(t *testing.T) {
 	ctx := context.Background()
 	repo := initRealRepo(t)
 
-	pol := NewWorktree(git.NewExec())
+	pol := sessionWorktree(t, git.NewExec())
 	ws, err := pol.prepareWorkspace(ctx, repo, "member-int")
 	require.NoError(t, err, "PrepareWorkspace must add a worktree in a real repo")
 	wtDir := ws.Dir()
@@ -79,7 +79,7 @@ func TestWorktreePolicy_RealGitPreservesInnerWIP(t *testing.T) {
 	ctx := context.Background()
 	repo := initRealRepo(t)
 
-	pol := NewWorktree(git.NewExec())
+	pol := sessionWorktree(t, git.NewExec())
 	ws, err := pol.prepareWorkspace(ctx, repo, "member-nest")
 	require.NoError(t, err)
 	outer := ws.Dir()
@@ -140,7 +140,7 @@ func TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan(t *testing.T
 	gitRun(t, repo, "add", "CLAUDE.md")
 	gitRun(t, repo, "commit", "-m", "seed CLAUDE.md")
 
-	pol := NewWorktree(git.NewExec())
+	pol := sessionWorktree(t, git.NewExec())
 	ws, err := pol.prepareWorkspace(ctx, repo, "member-ctx")
 	require.NoError(t, err)
 	wtDir := ws.Dir()

@@ -110,48 +110,23 @@ func (w *sessionWatcher) step(sess *agent.Session) []*WatchEvent {
 	return nil
 }
 
-// WatchHistoryByPath streams a transcript's structured turns by HOST file
-// path, polling the engine's normalized GetSessionByPath parser. It exists
-// for transcripts bound by LOCATION rather than by the SessionStart hook
-// (sessions.LocateTranscript): a containerized child's transcript lives in
-// ctxloom's own per-harp store (~/.ctxloom/sessions/<harp>/native/…), which
-// the engine's own project-scoped store lookup never finds — the host owns
-// that file, so the host parses it. The same sessionWatcher core as
-// EngineReader.WatchSession decides what to emit, so both feeds speak one
-// contract. poll <= 0 uses the default cadence. A transient read error is
-// warned and retried next tick (a long-lived stream must not die on a blip);
-// the stream ends when ctx is cancelled, after which both channels close
-// (errs carries a fatal stream error, so consumers render either source
-// identically).
-func WatchHistoryByPath(ctx context.Context, hist agent.SessionHistory, path string, poll time.Duration) (<-chan *WatchEvent, <-chan error) {
-	return pollTranscript(ctx, "watch transcript", path, poll, func() (*agent.Session, error) {
-		return hist.GetSessionByPath(path)
-	})
-}
-
 // WatchCanonicalTranscript streams a captured transcript.jsonl's structured
-// turns by polling ParseTranscriptFile — the canonical counterpart to
-// WatchHistoryByPath (which polls a legacy per-engine file). `session
-// transcript watch` prefers this over both EngineReader.WatchSession (an
-// engine session id) and WatchHistoryByPath (a located legacy transcript)
-// whenever the harp has a canonical transcript, since ctxloom's own capture
-// is available host-side regardless of where the engine ran. harpName is
-// both the file's lookup key and the resulting Session.ID; poll <= 0 uses
-// the default cadence. Same fault-tolerance and lifecycle contract as
-// WatchHistoryByPath: a transient parse error is warned and retried next
-// tick, never kills the stream; it ends when ctx is cancelled.
+// turns by polling ParseTranscriptFile. ctxloom's own capture is available
+// host-side regardless of where the engine ran. harpName is both the file's
+// lookup key and the resulting Session.ID; poll <= 0 uses the default
+// cadence. A transient parse error is warned and retried next tick, never
+// kills the stream; it ends when ctx is cancelled, after which both channels
+// close.
 func WatchCanonicalTranscript(ctx context.Context, path, harpName string, poll time.Duration) (<-chan *WatchEvent, <-chan error) {
 	return pollTranscript(ctx, "watch canonical transcript", path, poll, func() (*agent.Session, error) {
 		return ParseTranscriptFile(path, harpName)
 	})
 }
 
-// pollTranscript is the host-side polling feed every watcher is: read
-// the whole conversation, hand it to the shared sessionWatcher core to decide
-// what is new, emit that. Only WHICH reader runs (and the label its failures
-// are warned under) differs between the two locators, so the lifecycle is
-// stated once here — poll <= 0 falls back to the default cadence, a read
-// failure is warned and retried on the next tick rather than ending a
+// pollTranscript is the host-side polling feed: read the whole conversation,
+// hand it to the sessionWatcher core to decide what is new, emit that.
+// poll <= 0 falls back to the default cadence, a read failure is warned
+// (under label) and retried on the next tick rather than ending a
 // long-lived stream, and ctx cancellation closes both channels. errs mirrors
 // the gRPC watch signature so a consumer renders either source identically.
 func pollTranscript(ctx context.Context, label, path string, poll time.Duration, read func() (*agent.Session, error)) (<-chan *WatchEvent, <-chan error) {

@@ -1,7 +1,6 @@
 package schemaver
 
 import (
-	"bytes"
 	"errors"
 	"os"
 	"strings"
@@ -165,14 +164,14 @@ func TestUpgrade_KeylessBelowFloorIsRefused(t *testing.T) {
 
 func TestUpgrade_Unreadable(t *testing.T) {
 	cases := map[string]string{
-		"not an integer":      Key + ": banana\n",
-		"a float":             Key + ": 1.5\n",
-		"a mapping":           Key + ": {a: 1}\n",
-		"a sequence document": "- a\n- b\n",
-		"a scalar document":   "hello\n",
-		"malformed":           "a: [unterminated\n",
-		"multi-document":      Key + ": 1\n---\nb: 2\n",
-		"trailing separator":  Key + ": 1\n---\n",
+		"not an integer":     Key + ": banana\n",
+		"a float":            Key + ": 1.5\n",
+		"a mapping":          Key + ": {a: 1}\n",
+		"multi-document":     Key + ": 1\n---\nb: 2\n",
+		"trailing separator": Key + ": 1\n---\n",
+		// The first document parsed, so there is more than one: which one
+		// declares the generation is the ambiguity, not the syntax.
+		"malformed second document": Key + ": 1\n---\na: [unterminated\n",
 	}
 	for _, k := range []Kind{withSteps, zeroSteps} {
 		for name, in := range cases {
@@ -186,11 +185,34 @@ func TestUpgrade_Unreadable(t *testing.T) {
 	}
 }
 
-// A duplicate key would be resolved by whichever entry the node helpers
-// reach first if the document were re-encoded; refuse rather than guess.
-func TestUpgrade_DuplicateKeyNeedingMigrationIsUnreadable(t *testing.T) {
-	_, err := withSteps.Upgrade(doc(1, "kept: x\nkept: y\n"))
-	assert.Equal(t, withSteps.Name, requireVersionError(t, err, ErrUnreadable).Kind)
+// A document that is not a well-formed YAML mapping has no generation to
+// judge: it is the kind's parse failure, not a version fault. It passes through
+// untouched so the kind's own decode reports it — as that decode does for any
+// malformed file — instead of being mislabelled ErrUnreadable. A duplicate key
+// belongs here too: every struct/map decode refuses it, and re-encoding it
+// would silently keep whichever entry the node helpers reached first.
+func TestUpgrade_NotAWellFormedMappingPassesThroughToTheKindsParse(t *testing.T) {
+	cases := map[string]string{
+		"malformed":                       "a: [unterminated\n",
+		"malformed after a version":       Key + ": 1\nkept: [unterminated\n",
+		"a sequence document":             "- a\n- b\n",
+		"a scalar document":               "hello\n",
+		"duplicate key needing migration": string(doc(1, "kept: x\nkept: y\n")),
+		"duplicate version key":           Key + ": 1\n" + Key + ": 2\n",
+	}
+	for _, k := range []Kind{withSteps, zeroSteps} {
+		for name, in := range cases {
+			t.Run(k.Name+"/"+name, func(t *testing.T) {
+				data := []byte(in)
+				r, err := k.Upgrade(data)
+				require.NoError(t, err)
+				assert.Empty(t, r.Applied)
+				assert.Equal(t, in, string(r.Data))
+				var probe map[string]any
+				assert.Error(t, yaml.Unmarshal(r.Data, &probe), "the kind's decode must still refuse it")
+			})
+		}
+	}
 }
 
 func TestUpgrade_EmptyAndCommentOnlyAreGenerationZero(t *testing.T) {
@@ -298,7 +320,7 @@ func TestWriteBack_BacksUpThenReplaces(t *testing.T) {
 	taskstest.WriteFile(t, fs, path, old, 0o600)
 	r := Result{Data: []byte(Key + ": 3\n"), From: 1, To: 3, Applied: []string{"x"}}
 
-	require.NoError(t, WriteBack(fs, path, r, nil))
+	require.NoError(t, WriteBack(fs, path, r, KeepBackup))
 
 	got, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
@@ -313,22 +335,22 @@ func TestWriteBack_BacksUpThenReplaces(t *testing.T) {
 	}
 }
 
-func TestWriteBack_PrintWritesNothing(t *testing.T) {
+func TestWriteBack_NoBackupReplacesAndLeavesNothingBeside(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	const path = "/cfg/file.yaml"
-	old := []byte("old: 1\n")
-	taskstest.WriteFile(t, fs, path, old, 0o644)
-	r := Result{Data: []byte(Key + ": 3\n"), From: 1, To: 3}
-	var out bytes.Buffer
+	const path = "/proj/file.yaml"
+	taskstest.WriteFile(t, fs, path, []byte("old: 1\n"), 0o640)
+	r := Result{Data: []byte(Key + ": 3\n"), From: 1, To: 3, Applied: []string{"x"}}
 
-	require.NoError(t, WriteBack(fs, path, r, &out))
+	require.NoError(t, WriteBack(fs, path, r, NoBackup))
 
-	assert.Equal(t, string(r.Data), out.String())
 	got, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
-	assert.Equal(t, old, got, "print mode leaves the file alone")
+	assert.Equal(t, r.Data, got)
+	info, err := fs.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm(), "the file keeps the user's mode")
 	_, err = fs.Stat(path + BackupSuffix)
-	assert.True(t, errors.Is(err, os.ErrNotExist), "print mode writes no backup")
+	assert.True(t, errors.Is(err, os.ErrNotExist), "NoBackup writes no backup")
 }
 
 // The backup comes first: when it cannot be written the file is not touched.
@@ -339,7 +361,7 @@ func TestWriteBack_NoBackupNoWrite(t *testing.T) {
 	taskstest.WriteFile(t, base, path, old, 0o644)
 	fs := afero.NewReadOnlyFs(base)
 
-	err := WriteBack(fs, path, Result{Data: []byte(Key + ": 3\n")}, nil)
+	err := WriteBack(fs, path, Result{Data: []byte(Key + ": 3\n")}, KeepBackup)
 	require.Error(t, err)
 	got, rerr := afero.ReadFile(base, path)
 	require.NoError(t, rerr)

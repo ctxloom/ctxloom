@@ -51,7 +51,7 @@ func TestPipeline_Run_AppliesStagesInOrder(t *testing.T) {
 		renameUpgrade{name: "a", from: "one", to: "two"},
 		renameUpgrade{name: "b", from: "two", to: "three"},
 	}
-	out, applied := p.Run([]byte("one: x\n"))
+	out, applied := mustRun(t, p, []byte("one: x\n"))
 	assert.Equal(t, []string{"a", "b"}, applied)
 
 	var root map[string]any
@@ -64,7 +64,7 @@ func TestPipeline_Run_AppliesStagesInOrder(t *testing.T) {
 func TestPipeline_Run_NoStageApplies_ReturnsBytesVerbatim(t *testing.T) {
 	in := []byte("# pristine\nkept: yes\n")
 	p := Pipeline{renameUpgrade{name: "a", from: "absent", to: "x"}}
-	out, applied := p.Run(in)
+	out, applied := mustRun(t, p, in)
 	assert.Empty(t, applied)
 	assert.Same(t, &in[0], &out[0], "no-op must return the same backing bytes, not a copy")
 }
@@ -72,7 +72,7 @@ func TestPipeline_Run_NoStageApplies_ReturnsBytesVerbatim(t *testing.T) {
 func TestPipeline_Run_MalformedYAML_ReturnsVerbatim(t *testing.T) {
 	in := []byte("key: [unterminated\n")
 	p := Pipeline{renameUpgrade{name: "a", from: "key", to: "x"}}
-	out, applied := p.Run(in)
+	out, applied := mustRun(t, p, in)
 	assert.Empty(t, applied)
 	assert.Equal(t, in, out)
 }
@@ -83,7 +83,7 @@ func TestPipeline_Run_PreservesCommentsAndIndent(t *testing.T) {
 	// comment here sits on the sibling key that the upgrade leaves alone).
 	in := []byte("# top comment\nkept: 1\nold:\n  nested: 2\n")
 	p := Pipeline{renameUpgrade{name: "a", from: "old", to: "new"}}
-	out, applied := p.Run(in)
+	out, applied := mustRun(t, p, in)
 	require.Equal(t, []string{"a"}, applied)
 	assert.Contains(t, string(out), "# top comment")
 	assert.Contains(t, string(out), "new:")
@@ -92,9 +92,9 @@ func TestPipeline_Run_PreservesCommentsAndIndent(t *testing.T) {
 
 func TestPipeline_Run_Idempotent_SecondRunIsNoOp(t *testing.T) {
 	p := Pipeline{renameUpgrade{name: "a", from: "old", to: "new"}}
-	once, applied := p.Run([]byte("old: v\n"))
+	once, applied := mustRun(t, p, []byte("old: v\n"))
 	require.NotEmpty(t, applied)
-	twice, appliedAgain := p.Run(once)
+	twice, appliedAgain := mustRun(t, p, once)
 	assert.Empty(t, appliedAgain, "already-upgraded input must pass through unchanged")
 	assert.Equal(t, string(once), string(twice))
 }
@@ -108,7 +108,7 @@ func TestPipeline_Run_Idempotent_SecondRunIsNoOp(t *testing.T) {
 func TestPipeline_Run_MultiDocumentStream_ReturnsVerbatim(t *testing.T) {
 	in := []byte("one: x\n---\nsecond: doc\n")
 	p := Pipeline{renameUpgrade{name: "a", from: "one", to: "two"}}
-	out, applied := p.Run(in)
+	out, applied := mustRun(t, p, in)
 
 	assert.Empty(t, applied, "a multi-document stream must not report an upgrade it cannot safely re-encode")
 	assert.Equal(t, string(in), string(out), "every document in the stream must survive")
@@ -124,7 +124,7 @@ func TestPipeline_Run_MultiDocumentStream_ReturnsVerbatim(t *testing.T) {
 func TestPipeline_Run_DuplicateKey_ReturnsVerbatim(t *testing.T) {
 	in := []byte("one: first\none: second\n")
 	p := Pipeline{renameUpgrade{name: "a", from: "one", to: "two"}}
-	out, applied := p.Run(in)
+	out, applied := mustRun(t, p, in)
 
 	assert.Empty(t, applied, "a document with a duplicate key must not be silently normalized")
 	assert.Equal(t, string(in), string(out))
@@ -134,7 +134,7 @@ func TestPipeline_Run_DuplicateKey_ReturnsVerbatim(t *testing.T) {
 func TestPipeline_Run_NestedDuplicateKey_ReturnsVerbatim(t *testing.T) {
 	in := []byte("outer:\n  dup: 1\n  dup: 2\n")
 	p := Pipeline{renameUpgrade{name: "a", from: "outer", to: "renamed"}}
-	out, applied := p.Run(in)
+	out, applied := mustRun(t, p, in)
 
 	assert.Empty(t, applied)
 	assert.Equal(t, string(in), string(out))
@@ -145,7 +145,7 @@ func TestPipeline_Run_NestedDuplicateKey_ReturnsVerbatim(t *testing.T) {
 func TestPipeline_Run_SameKeyInDifferentMappings_StillUpgrades(t *testing.T) {
 	in := []byte("one:\n  name: a\ntwo:\n  name: b\n")
 	p := Pipeline{renameUpgrade{name: "a", from: "one", to: "renamed"}}
-	_, applied := p.Run(in)
+	_, applied := mustRun(t, p, in)
 
 	assert.Equal(t, []string{"a"}, applied)
 }
@@ -154,16 +154,16 @@ func TestVersion_MissingIsZero_RoundTrips(t *testing.T) {
 	p := Pipeline{versionStampUpgrade{target: 2}}
 
 	// Unversioned doc upgrades by gaining version: 2.
-	out, applied := p.Run([]byte("k: v\n"))
+	out, applied := mustRun(t, p, []byte("k: v\n"))
 	require.Equal(t, []string{"version-stamp"}, applied)
 	assert.Contains(t, string(out), "version: 2")
 
 	// Re-running is a no-op once stamped.
-	_, again := p.Run(out)
+	_, again := mustRun(t, p, out)
 	assert.Empty(t, again)
 
 	// A doc already at a higher version is left alone.
-	_, none := p.Run([]byte("version: 5\nk: v\n"))
+	_, none := mustRun(t, p, []byte("version: 5\nk: v\n"))
 	assert.Empty(t, none)
 }
 
@@ -261,22 +261,11 @@ func TestEncoder_FailingNodesFailAtEncodeNotAtClose(t *testing.T) {
 	}
 }
 
-// CHARACTERIZATION of an ESCALATED defect, not a contract anyone
-// should rely on. When re-encoding fails after stages have demonstrably fired,
-// Run returns (original bytes, nil) — indistinguishable from "this file is
-// already current" — and the caller goes on to parse the LEGACY bytes with the
+// When re-encoding fails after stages have fired, Run must report it. Handing
+// back the original bytes instead is indistinguishable from "this file is
+// already current", and the caller would parse the LEGACY bytes with the
 // current schema, quietly losing whatever the migration would have supplied.
-//
-// Run has no error channel, so there is no honest value it can return here;
-// closing this needs Pipeline.Run to grow one, which propagates to five
-// production call sites across config, sessions, bundles and profiles. That is
-// a signature change through profile loading, so it is escalated rather than
-// taken in a sweep.
-//
-// INVERT THIS TEST when Run gains an error return: the assertion should become
-// "reports the failure", and the presence of a red here is the signal that the
-// escalated fix has landed.
-func TestPipeline_Run_EncodeFailure_IsReportedAsAlreadyCurrent(t *testing.T) {
+func TestPipeline_Run_EncodeFailure_IsAnError(t *testing.T) {
 	// An upgrader that mutates the document and leaves behind a node the
 	// encoder refuses — the shape a future upgrader bug would take.
 	poison := nodeSurgery{name: "poison", fn: func(root *yaml.Node) bool {
@@ -286,11 +275,11 @@ func TestPipeline_Run_EncodeFailure_IsReportedAsAlreadyCurrent(t *testing.T) {
 		return true
 	}}
 
-	in := []byte("legacy: v\n")
-	out, applied := Pipeline{poison}.Run(in)
+	out, applied, err := Pipeline{poison}.Run([]byte("legacy: v\n"))
 
-	assert.Empty(t, applied, "escalated: a failed re-encode is currently indistinguishable from an already-current file")
-	assert.Equal(t, string(in), string(out), "the caller is handed the un-upgraded bytes to parse as if current")
+	require.ErrorIs(t, err, ErrEncode, "a failed re-encode is a failure, not an already-current file")
+	assert.Nil(t, out, "no bytes may be passed off as upgraded")
+	assert.Nil(t, applied)
 }
 
 // nodeSurgery is a test-only Upgrader whose Apply is supplied inline.
@@ -301,3 +290,12 @@ type nodeSurgery struct {
 
 func (n nodeSurgery) Name() string            { return n.name }
 func (n nodeSurgery) Apply(r *yaml.Node) bool { return n.fn(r) }
+
+// mustRun runs p over data and fails the test on an encode error, which none
+// of these fixtures can produce.
+func mustRun(t *testing.T, p Pipeline, data []byte) ([]byte, []string) {
+	t.Helper()
+	out, applied, err := p.Run(data)
+	require.NoError(t, err)
+	return out, applied
+}

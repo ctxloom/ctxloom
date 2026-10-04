@@ -82,13 +82,37 @@ func TestContainer_GitdirMirrorMount(t *testing.T) {
 	require.NoError(t, os.Mkdir(filepath.Join(dirProj, ".git"), 0o755))
 	ms, err = gitdirMirrorMounts(ctx, rt, g, dirProj, t.TempDir())
 	require.NoError(t, err)
-	assert.Empty(t, ms, "a normal .git directory is covered by the project mount; no mirror")
+	assert.Empty(t, ms, "a normal .git directory with no worktree registry is covered by the project mount; nothing to add")
 
 	// No repo at all → nothing to mirror.
 	bareProj := t.TempDir()
 	ms, err = gitdirMirrorMounts(ctx, rt, g, bareProj, t.TempDir())
 	require.NoError(t, err)
 	assert.Empty(t, ms, "a non-repo project needs no gitdir mirror")
+}
+
+// TestContainer_MainCheckoutMasksTheWorktreeRegistry: a MAIN checkout's .git
+// directory rides the read-write project mount, and with it <project>/.git/
+// worktrees — the registry of every OTHER checkout, none of which is mounted.
+// An in-container `git worktree prune` (or gc's auto-prune) reads each of
+// their back-pointers as dangling and deletes the host's registrations
+// through the mount. The registry is masked exactly as for a linked worktree
+// (gitRegistryMask): an empty read-only dir over it.
+func TestContainer_MainCheckoutMasksTheWorktreeRegistry(t *testing.T) {
+	rt := fakeRuntime{name: "docker", available: true}
+	proj := t.TempDir()
+	registry := filepath.Join(proj, ".git", "worktrees")
+	require.NoError(t, os.MkdirAll(filepath.Join(registry, "other"), 0o755))
+	scratch := t.TempDir()
+
+	ms, err := gitdirMirrorMounts(context.Background(), rt, &git.Fake{CommonDirValue: filepath.Join(proj, ".git")}, proj, scratch)
+	require.NoError(t, err)
+	require.Len(t, ms, 1, "the mask alone: the common dir is already the project's, and a main checkout has no admin dir of its own to restore")
+	assert.Equal(t, mapped(t, rt, registry), ms[0].Container, "the mask lands on the registry")
+	assert.True(t, ms[0].ReadOnly, "a registration git tries to create in here fails loudly instead of vanishing into scratch")
+	entries, err := os.ReadDir(ms[0].Host)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "the mask hides every other checkout's registration")
 }
 
 // TestContainerName_SanitizesAndScopes: the name is a valid, unique,

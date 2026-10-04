@@ -52,7 +52,7 @@ func TestBundleHooks_TrustIdentityIsStableUnderVocabularyGrowth(t *testing.T) {
 		"every baselined event plus the one that joined must enumerate")
 	for i, want := range hookIdentityBaseline {
 		assert.Equal(t, want.id, entries[i].ID(), "position %d: a baselined ref moved", i)
-		assert.Equal(t, want.hash, entries[i].Hook.ComputeContentHash(), "position %d: a baselined hash changed", i)
+		assert.Equal(t, want.hash, hookTrustHash(t, entries[i].Hook), "position %d: a baselined hash changed", i)
 	}
 	assert.Equal(t, HookEventTurnStart+"/0", entries[len(hookIdentityBaseline)].ID(),
 		"the event that joined the vocabulary enumerates after every baselined one — appended, not slotted in")

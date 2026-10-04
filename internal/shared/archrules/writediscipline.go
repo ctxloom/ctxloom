@@ -15,7 +15,6 @@ var WriteDisciplineAllowed = map[string]string{
 	"internal/adapters/runner/homeartifacts.go#placeVerified":                "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",
 	"internal/core/coord/journal.go#openStoreFromOffset":                     "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",
 	"internal/adapters/coordgrpc/mcpschema/gen/main.go#writeSpec":            "pre-ratchet baseline, codegen tool — migrate to safefs (fs-consolidation plan C3/C10)",
-	"internal/core/spool/ops.go#renameInto":                                  "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",
 	"internal/adapters/cli/bundle_items.go#editInEditor":                     "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",
 	"internal/adapters/cli/run_terminal_ui.go#redirectDiagnosticsForTUI":     "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",
 	"internal/adapters/contextmetrics/contextmetrics.go#Append":              "pre-ratchet baseline — migrate to safefs (fs-consolidation plan C3/C10)",

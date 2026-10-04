@@ -87,10 +87,9 @@ type CompactionConfig struct {
 	// it — the canonical-capture source in production (transcript.CanonicalHistory
 	// behind operations' resolver), a fake in a test — so this package never
 	// opens the session index to build a reader and never names an engine to
-	// pick one. Nil is legal only alongside PreloadedSession (or the
-	// BackendOverride test seam); a nil source with neither is "no history".
-	Source          Source
-	BackendOverride agent.Backend // Optional: inject an in-process SessionHistory directly for testing (bypasses Source)
+	// pick one. Nil is legal only alongside PreloadedSession; a nil source
+	// without one is "no history".
+	Source Source
 	// Progress receives human-readable distillation progress. It belongs to
 	// the CALLER because only the caller knows whether it has anywhere safe to
 	// put it: a CLI owns its terminal, while the coordinator's host-relay
@@ -181,48 +180,13 @@ type Source interface {
 	CurrentSession(ctx context.Context) (*agent.Session, error)
 }
 
-// memoryHistorySource adapts an in-process SessionHistory to Source. It backs
-// the BackendOverride test seam (unit-testing compaction logic against a fake
-// transcript store); production injects Source directly.
-type memoryHistorySource struct {
-	history agent.SessionHistory
-	workDir string
-}
-
-func (s memoryHistorySource) GetSession(_ context.Context, id string) (*agent.Session, error) {
-	return s.history.GetSession(s.workDir, id)
-}
-func (s memoryHistorySource) ListSessions(_ context.Context) ([]agent.SessionMeta, error) {
-	return s.history.ListSessions(s.workDir)
-}
-func (s memoryHistorySource) CurrentSession(_ context.Context) (*agent.Session, error) {
-	return s.history.GetCurrentSession(s.workDir)
-}
-
 // NewCompactor creates a new compactor with the given config. The transcript
-// SOURCE is the caller's to resolve and inject (CompactionConfig.Source); this
-// constructor only adapts the BackendOverride test seam when no Source was
-// given, so the compactor itself opens no session index and picks no engine.
+// SOURCE is the caller's to resolve and inject (CompactionConfig.Source), so
+// the compactor itself opens no session index and picks no engine.
 func NewCompactor(fsys afero.Fs, config CompactionConfig) (*Compactor, error) {
 	applyCompactionDefaults(&config)
 	clampCompactionBounds(&config)
-	return &Compactor{fs: fsys, config: config, source: resolveSource(config)}, nil
-}
-
-// resolveSource picks the transcript source: the injected one, else the
-// BackendOverride test seam's in-process history, else nil (which
-// loadSessionToCompact reports as "no history" unless a PreloadedSession
-// short-circuits it).
-func resolveSource(config CompactionConfig) Source {
-	if config.Source != nil {
-		return config.Source
-	}
-	if config.BackendOverride != nil {
-		if h := config.BackendOverride.History(); h != nil {
-			return memoryHistorySource{history: h, workDir: config.WorkDir}
-		}
-	}
-	return nil
+	return &Compactor{fs: fsys, config: config, source: config.Source}, nil
 }
 
 // applyCompactionDefaults fills the fields a zero value leaves unusable. These
@@ -284,13 +248,12 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	result.Selection = sel.Stats
 	result.TotalTokensIn = tokens.Estimate(logText)
 
-	// A session with zero main-thread entries has nothing to
-	// distill — see isEmptySession for why "zero entries" (not a byte/token
-	// floor) is the bright line. Skip distillation entirely (no plugin
-	// subprocess spawned at all) and persist a trivial dump instead, so the
-	// resume flow still finds a valid essence.
-	if isEmptySession(session.Entries) || rendersToNothing(logText) {
-		return c.dumpEmptySession(session, harpName, sourceEntries, app, result, start)
+	// Below the floor there is nothing to compress (see minDistillTokens).
+	// Skip distillation entirely (no plugin subprocess spawned at all) and
+	// persist the transcript itself, so the resume flow still finds a valid
+	// essence.
+	if tooLittleToDistill(logText) {
+		return c.dumpUndistilled(session, harpName, sourceEntries, app, result, logText, start)
 	}
 
 	// ONE distillation call over the whole transcript. An oversized transcript
@@ -340,82 +303,74 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	return c.finishDistill(session, harpName, sourceEntries, app, result, summary, cleanedBody, start)
 }
 
-// isEmptySession reports whether a session has no main-thread content at all
-// (zero entries — loadSessionToCompact has already dropped sidechain entries
-// via agent.MainThreadEntries, so this is the post-filter count). Zero
-// entries is the bright line, not a byte/token floor: a genuinely tiny but
-// real exchange — a single "hello" with no reply (TestCompact_
-// DeliversSystemPromptOnTheMinimalForm), or a two-line "Hello, how are you?" /
-// "I'm doing well" round trip (TestCompact_WithMockClient) — renders to well
-// under 20 estimated tokens, so any threshold generous enough to spare those
-// real conversations would spare essentially everything; it would not be a
-// usable "skip the pipeline" signal. "Zero entries" has no such false
-// positive: nothing was ever said, so there is nothing to condense, and
-// spawning a plugin subprocess to summarize an empty transcript is pure
-// waste.
-func isEmptySession(entries []agent.SessionEntry) bool {
-	return len(entries) == 0
-}
-
-// rendersToNothing reports whether the text sessionToText produced for the
-// session is empty — the same "nothing was ever said" state isEmptySession
-// describes, reached with entries present.
+// minDistillTokens is the floor below which a transcript is not distilled.
 //
-// This is NOT the byte/token floor isEmptySession argues against, and the
-// distinction is the whole point: a floor would have to guess how small a real
-// conversation can be, while this is exact. Entries can render to nothing for
-// reasons that have nothing to do with how much was said — a session whose only
-// main-thread entries are `thinking`, which appendEntryText suppresses by
-// policy, or entries carrying a type this renderer has no case
-// for. Without this check the pipeline spawns an LLM plugin subprocess to
-// summarize a transcript containing nothing, then writes whatever the model
-// invents over the session's essence.
-func rendersToNothing(logText string) bool {
-	return strings.TrimSpace(logText) == ""
+// Distillation exists to compress, and its output has a fixed shape (a
+// frontmatter title plus five headed sections) that costs a couple of hundred
+// tokens however little it says. A transcript below the floor is no larger
+// than any essence of it would be, so the transcript itself is the most
+// faithful essence there can be. Handing the model that little content is
+// worse than wasteful: it answers with a refusal or an invention ("the
+// provided content appears to be corrupted"), and that answer would be saved
+// as the session's essence, fluent and authoritative and containing nothing.
+const minDistillTokens = 256
+
+// tooLittleToDistill reports whether the rendered transcript is below
+// minDistillTokens. It keys on the RENDERED text, not on the entries: a
+// session with no main-thread entries, and one whose entries render to
+// nothing (only `thinking`, which appendEntryText suppresses by policy, or a
+// type this renderer has no case for), are the zero end of the same range.
+func tooLittleToDistill(logText string) bool {
+	return tokens.Estimate(logText) < minDistillTokens
 }
 
-// emptySessionPlaceholder is the body written for a session with zero
-// main-thread entries, so the saved essence is never a literal empty string
+// emptySessionPlaceholder is the body written for a session whose transcript
+// renders to nothing, so the saved essence is never a literal empty string
 // (a blank file would look indistinguishable from a write failure to a
 // human skimming <output dir>/essence.md).
 const emptySessionPlaceholder = "_(empty session — no conversation content to distill)_"
 
-// dumpEmptySession is the short-circuit for isEmptySession: it skips
+// dumpUndistilled is the short-circuit for tooLittleToDistill: it skips
 // distillation entirely — no LLM plugin subprocess is spawned — and
-// persists a trivial but valid
-// essence (any plan files still re-attached verbatim) via the same
+// persists the transcript text itself as the essence (emptySessionPlaceholder
+// when it is empty; any plan files still re-attached verbatim) via the same
 // saveDistilled/updateSessionIndex plumbing normal distillation uses, so a
 // later `session list` sees a well-formed entry rather than
-// a hole. Returns success: an empty session is not a failure, just nothing
-// to compact.
-func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, sourceEntries int, app appendices, result *CompactionResult, start time.Time) (*CompactionResult, error) {
+// a hole. Returns success: too little to distill is not a failure, just
+// nothing to compact.
+func (c *Compactor) dumpUndistilled(session *agent.Session, harpName string, sourceEntries int, app appendices, result *CompactionResult, logText string, start time.Time) (*CompactionResult, error) {
 	label := harpName
 	if label == "" {
 		label = session.ID
 	}
-	// An empty session must never REPLACE work that was already distilled. The
-	// dump writes a 54-byte placeholder through the same atomic saveDistilled
-	// the real pipeline uses, and deriveSummary turns that placeholder into a
-	// non-empty summary, so it also overwrote the index summary. Re-distills
-	// are automatic (the staleness path) and a session can read as empty for
+	// A below-floor dump must never REPLACE work that was already distilled.
+	// The dump writes through the same atomic saveDistilled the real pipeline
+	// uses, and deriveSummary turns its body into a non-empty summary, so it
+	// would also overwrite the index summary. Re-distills are automatic (the
+	// staleness path) and a session can read as empty or near-empty for
 	// reasons that have nothing to do with its essence — a reaped transcript,
 	// an all-sidechain log — so this fired on real, populated sessions.
 	//
-	// Keeping the existing essence is the right outcome, not an error: an empty
-	// session is still not a failure, there is simply nothing better to write.
+	// Keeping the existing essence is the right outcome, not an error: too
+	// little to distill is still not a failure, there is simply nothing better
+	// to write.
 	if path, ok := c.existingEssence(session.ID, harpName); ok {
-		c.warnf("session %s is empty but already has a distilled essence; keeping %s", label, path)
+		c.warnf("session %s has too little to distill but already has a distilled essence; keeping %s", label, path)
 		result.TotalTokensOut = result.TotalTokensIn
 		result.DistilledPath = path
 		result.Duration = time.Since(start)
 		return result, nil
 	}
 
-	c.progressf("ctxloom: session %s empty — dumped without distillation\n", label)
+	c.progressf("ctxloom: session %s has too little to distill — saved verbatim\n", label)
 
 	result.TotalTokensOut = result.TotalTokensIn // verbatim dump: no compression ran
 
-	return c.finishDistill(session, harpName, sourceEntries, app, result, "", emptySessionPlaceholder, start)
+	body := strings.TrimSpace(logText)
+	if body == "" {
+		body = emptySessionPlaceholder
+	}
+	return c.finishDistill(session, harpName, sourceEntries, app, result, "", body, start)
 }
 
 // rotationEssencePath returns where THIS session's per-rotation essence lives:
@@ -470,8 +425,9 @@ func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 // finishDistill assembles the index summary + Open-Items detail, re-attaches
 // plan blocks, and persists the distilled artifact plus session-index entry.
 // Shared by the normal compaction path (cleanedBody is the LLM's combined,
-// possibly-reduced output) and dumpEmptySession (cleanedBody is the trivial
-// placeholder) so both produce an identically-shaped on-disk essence.
+// possibly-reduced output) and dumpUndistilled (cleanedBody is the transcript
+// itself, or the empty placeholder) so both produce an identically-shaped
+// on-disk essence.
 func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourceEntries int, app appendices, result *CompactionResult, frontmatterSummary, cleanedBody string, start time.Time) (*CompactionResult, error) {
 	// Fall back to the first prose line when there's no frontmatter summary,
 	// so a distilled session never renders as "(no summary)" in `session list`.
@@ -504,7 +460,7 @@ func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourc
 // nothing-to-do cases (no backend history support, no session found). An
 // empty session (found, but zero main-thread entries) is NOT rejected here:
 // it's a valid session for Compact to short-circuit to a dump via
-// isEmptySession, not a lookup failure.
+// tooLittleToDistill, not a lookup failure.
 func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, error) {
 	// PreloadedSession short-circuits before the source is even consulted:
 	// the container-harp path loads the transcript by its mounted path itself
@@ -567,7 +523,7 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 	// (sidechain) entries are attribution data for viewers, not essence input.
 	// A session with zero main-thread entries (including an all-sidechain
 	// session, which filters down to none) is not an error here:
-	// Compact's isEmptySession check short-circuits it to a plain dump rather
+	// Compact's tooLittleToDistill check short-circuits it to a plain dump rather
 	// than failing, since "nothing to distill" is not "nothing was found".
 	session.Entries = agent.MainThreadEntries(session.Entries)
 	return session, nil
@@ -1280,30 +1236,6 @@ func parseDistilledMarkdown(data []byte) (*DistilledSession, error) {
 		TokensOut:     meta.TokensOut,
 		Body:          body,
 	}, nil
-}
-
-// ListDistilledSessions returns the IDs of every distilled .md file
-// directly under sessionsDir.
-func ListDistilledSessions(fsys afero.Fs, sessionsDir string) ([]string, error) {
-	entries, err := afero.ReadDir(fsys, sessionsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var sessions []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if strings.HasSuffix(name, ".md") {
-			sessions = append(sessions, strings.TrimSuffix(name, ".md"))
-		}
-	}
-	return sessions, nil
 }
 
 // sessionDistillPromptName is the prompt file's stem, shared by the embedded

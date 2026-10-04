@@ -67,14 +67,13 @@ func (m Mock) NewConfig() agent.BackendConfig { return &Config{kind: m.Name} }
 // Backend is agent.Hosted's: a fresh backend for this double. The doubles
 // differ ONLY in name and in what their kind declares, so they share one
 // constructor rather than a body each that could drift into behaving
-// differently. History is NilSessionHistory — mock keeps no transcripts.
+// differently.
 func (m Mock) Backend(agent.Launcher) agent.Backend {
 	b := &Backend{kind: m}
 	b.BaseBackend = agent.NewBaseBackend(string(m.Name), "1.0.0")
 	b.InitLaunch(
 		agent.NewBaseLifecycle(string(m.Name)),
 		agent.NewBaseContextProvider(),
-		&NilSessionHistory{},
 		m.Declaration(),
 	)
 	for _, v := range m.home.Vars {

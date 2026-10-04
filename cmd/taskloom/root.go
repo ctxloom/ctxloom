@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -99,6 +100,7 @@ func init() {
 			`and TASKLOOM_CONFIG_HOMING.`)
 	rootCmd.PersistentFlags().StringArray(confload.ConfigSetFlagName, nil,
 		"Override a taskloom config value for this invocation: --config-set <dotted.path>=<value> (repeatable)")
+	schemaver.BindWriteUpgrades(rootCmd.PersistentFlags())
 }
 
 // taskContext gathers the inputs operations needs to resolve the project task

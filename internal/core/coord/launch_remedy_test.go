@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -94,7 +96,7 @@ func TestLaunchFailureDetail(t *testing.T) {
 func TestIssueStartRun_RefusalNoticeCarriesTheRemedy(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
-	sp.refuseStartRun = fmt.Errorf("execute: %w", report.Errorf(launchRemedyFix, "%w", errLaunchRemedyCause))
+	sp.refuse = refuseOnly(func(req *agentcoordpb.RunnerRequest) bool { return req.GetStartRun() != nil }, remedialRefusal())
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -104,4 +106,70 @@ func TestIssueStartRun_RefusalNoticeCarriesTheRemedy(t *testing.T) {
 	assert.Contains(t, notice.Body, "StartRun refused", "the refusal is the runner's")
 	assert.Contains(t, notice.Body, errLaunchRemedyCause.Error(), "the refusal's text still reaches the parent")
 	assert.Contains(t, notice.Body, clifmt.FixLine("", launchRemedyFix), "the remedy reaches the parent as its fix line")
+}
+
+// refuseOnly refuses, with err, every runner request match picks out; every
+// other request reaches the engine host as usual.
+func refuseOnly(match func(*agentcoordpb.RunnerRequest) bool, err error) func(*agentcoordpb.RunnerRequest) error {
+	return func(req *agentcoordpb.RunnerRequest) error {
+		if match(req) {
+			return err
+		}
+		return nil
+	}
+}
+
+// remedialRefusal is a runner refusal naming its own fix.
+func remedialRefusal() error {
+	return fmt.Errorf("execute: %w", report.Errorf(launchRemedyFix, "%w", errLaunchRemedyCause))
+}
+
+// TestTurn_RefusalCarriesTheRemedy: a runner that refuses a Turn frame with
+// an error naming its fix — over the real wire — answers the caller with an
+// error the fix is still reachable from, not the refusal flattened to text.
+func TestTurn_RefusalCarriesTheRemedy(t *testing.T) {
+	resetStrictness(t)
+	sp := oneShotSpawner(t, func() *scriptedChat { return &scriptedChat{} })
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
+
+	sp.mu.Lock()
+	sp.refuse = refuseOnly(func(req *agentcoordpb.RunnerRequest) bool { return req.GetTurn() != nil }, remedialRefusal())
+	sp.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	_, err = c.Turn(ctx, out.RunID, engine.Turn{Prompt: "framed turn", Resume: nativeSession(c, out.Harp)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), errLaunchRemedyCause.Error(), "the refusal's text still reaches the caller")
+	fix, ok := clifmt.RemedyOf(err)
+	require.True(t, ok, "the refusal's remedy must survive the coordinator's wrap: %v", err)
+	assert.Equal(t, launchRemedyFix, fix)
+}
+
+// TestControlPause_RefusalCarriesTheRemedy: a runner that refuses a pause
+// with an error naming its fix answers ControlPause's caller with an error
+// the fix is still reachable from.
+func TestControlPause_RefusalCarriesTheRemedy(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(t, 0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChild(t, c, sp, "first task")
+
+	sp.mu.Lock()
+	sp.refuse = refuseOnly(func(req *agentcoordpb.RunnerRequest) bool { return req.GetPauseRun() != nil }, remedialRefusal())
+	sp.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	_, err := c.ControlPause(ctx, humanInitiator(), out.Harp, "human is reviewing")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), errLaunchRemedyCause.Error(), "the refusal's text still reaches the caller")
+	fix, ok := clifmt.RemedyOf(err)
+	require.True(t, ok, "the refusal's remedy must survive the coordinator's wrap: %v", err)
+	assert.Equal(t, launchRemedyFix, fix)
 }

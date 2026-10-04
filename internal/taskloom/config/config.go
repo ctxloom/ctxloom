@@ -8,7 +8,7 @@
 // process tree (see TestConfload_SecondProductReusesPattern in
 // internal/shared/confload, which this package makes real).
 //
-// Today's only setting is the task-store HOMING MODE (paths.ModeHome /
+// One setting is the task-store HOMING MODE (paths.ModeHome /
 // paths.ModeRepo — see the `homing` key in
 // resources/schema/input/taskloom-config-schema.json): where a project's
 // task log lives. ResolveMode defaults to paths.ModeHome when NOTHING at any
@@ -41,14 +41,17 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -230,6 +233,42 @@ func (c Config) ParsedTagSchema() (*tagschema.Schema, error) {
 	return tagschema.Parse(c.ResolvedTagSchema())
 }
 
+// configKind versions taskloom's config files. Each file is gated on its own
+// (see upgradeFile), before the merge, so a newer file is refused whichever
+// layer it sits in. Config carries no version field: the merged document
+// holds schemaver.Key only for the schema to accept it.
+var configKind = schemaver.Kind{
+	Name:   "taskloom config",
+	Oldest: 0,
+	Steps:  []upgrade.Upgrader{introduceSchemaVersion{}},
+}
+
+// introduceSchemaVersion is generation 1, the first to declare
+// schemaver.Key. It edits nothing: a taskloom config with no version means
+// exactly what a generation-1 file means.
+type introduceSchemaVersion struct{}
+
+func (introduceSchemaVersion) Name() string                    { return "introduce " + schemaver.Key }
+func (introduceSchemaVersion) Apply(*yaml.Node) (changed bool) { return false }
+
+// upgradeFile is taskloom's confload.Product.UpgradeFile: it brings one
+// config file to configKind.Current() in memory, and under --write-upgrades
+// persists a migration to that file.
+func upgradeFile(path string, data []byte) ([]byte, error) {
+	r, err := configKind.Upgrade(data)
+	if err != nil {
+		return nil, err
+	}
+	if len(r.Applied) > 0 && schemaver.WriteUpgrades() {
+		if err := schemaver.WriteBack(afero.NewOsFs(), path, r, nil); err != nil {
+			return nil, err
+		}
+		clidiag.Warn("taskloom", "upgraded %s to %s %d (the previous file is kept as %s%s)",
+			path, schemaver.Key, r.To, path, schemaver.BackupSuffix)
+	}
+	return r.Data, nil
+}
+
 // product builds the confload.Product describing taskloom's own on-disk/env
 // conventions, mirroring internal/adapters/configload's (*Sources).product — including
 // leaving KnownPath NIL when validator is nil (schema failed to load), which
@@ -238,10 +277,11 @@ func (c Config) ParsedTagSchema() (*tagschema.Schema, error) {
 // defeat that path rather than take it.
 func product(validator *schema.ConfigValidator) confload.Product {
 	p := confload.Product{
-		Name:      "taskloom",
-		DirName:   DirName,
-		FileName:  FileName,
-		EnvPrefix: envPrefix,
+		Name:        "taskloom",
+		DirName:     DirName,
+		FileName:    FileName,
+		EnvPrefix:   envPrefix,
+		UpgradeFile: upgradeFile,
 	}
 	if validator != nil {
 		p.KnownPath = validator.KnownPath

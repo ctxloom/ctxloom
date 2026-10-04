@@ -13,6 +13,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 	"github.com/ctxloom/ctxloom/internal/ltk/scm"
 	"github.com/ctxloom/ctxloom/internal/ltk/shellenv"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
 // configSearch lists the default config locations, in order. The .ltk/ layout
@@ -88,28 +90,48 @@ func knownShells() string {
 
 // loadConfig loads the given path, or searches the default locations in the
 // cwd and each ancestor up to the repository root, returning the resolved
-// path (empty when falling back to the built-in allow-all config).
+// path (empty when falling back to the built-in allow-all config). An
+// older-format file is migrated in memory; under --write-upgrades the
+// migration is also persisted to the resolved file, and reported on diag.
 //
 // The ancestor walk matters because hook hosts can differ in the cwd they
 // give hooks: Claude Code runs them at the project root, but a host may run
 // them in a subdirectory of the workspace. A cwd-only search would miss the
 // project's rules from there and silently fall back to the built-in
 // allow-all config — the wrong direction for a guard to fail.
-func loadConfig(path string) (*rules.Config, string, error) {
-	if path != "" {
-		c, err := rules.Load(path)
-		return c, path, err
+func loadConfig(path string, diag io.Writer) (*rules.Config, string, error) {
+	if path == "" {
+		path = searchConfig()
 	}
+	if path == "" {
+		return rules.Empty(), "", nil
+	}
+	c, r, err := rules.Load(path)
+	if err != nil {
+		return nil, path, err
+	}
+	if len(r.Applied) > 0 && schemaver.WriteUpgrades() {
+		if err := schemaver.WriteBack(afero.NewOsFs(), path, r, nil); err != nil {
+			return nil, path, err
+		}
+		fmt.Fprintf(diag, "%s: upgraded %s to %s %d (the previous file is kept as %s%s)\n",
+			progName, path, schemaver.Key, r.To, path, schemaver.BackupSuffix)
+	}
+	return c, path, nil
+}
+
+// searchConfig returns the nearest default-named rules file, or "" when there
+// is none.
+func searchConfig() string {
 	for _, dir := range configSearchDirs() {
 		for _, candidate := range configSearch {
 			p := filepath.Join(dir, candidate)
 			if _, err := os.Stat(p); err == nil {
-				c, err := rules.Load(p)
-				return c, p, err
+				return p
 			}
 		}
 	}
-	return rules.Empty(), "", nil
+	return ""
 }
 
 // configSearchDirs returns the cwd and its ancestors, stopping at the first

@@ -14,6 +14,7 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/procpin"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
@@ -251,18 +252,11 @@ func RemoveRoot(projectID, projectDir, rootHarp string) error {
 // Held is the kernel's answer; the rest is the holder's stamp and the orphan
 // judgement a claim would act on.
 func ProbeOwner(dir string) (OwnerStatus, error) {
-	lockPath := filepath.Join(dir, OwnerLockFileName)
-	if _, err := os.Lstat(lockPath); errors.Is(err, fs.ErrNotExist) {
-		return OwnerStatus{}, nil
-	}
-	// Read-only and never created: a probe must not mint a lock file.
-	fl := flock.New(lockPath, flock.SetFlag(os.O_RDONLY))
-	got, err := fl.TryLock()
-	_ = fl.Close()
+	held, err := filelock.Held(filepath.Join(dir, OwnerLockFileName))
 	if err != nil {
-		return OwnerStatus{}, fmt.Errorf("coord: probe owner lock %s: %w", lockPath, err)
+		return OwnerStatus{}, fmt.Errorf("coord: probe owner lock: %w", err)
 	}
-	if got {
+	if !held {
 		return OwnerStatus{}, nil
 	}
 	st, _ := heldOwner(dir)

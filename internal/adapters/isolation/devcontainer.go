@@ -95,30 +95,30 @@ func resolveBase(choice, appRoot, service string) (*baseStage, error) {
 	switch choice {
 	case launch.IsolationBaseCtxloom:
 		return defaultBaseStage(), nil
-	case launch.IsolationBaseDevcontainer:
-		if appRoot == "" {
-			return defaultBaseStage(), ErrNoDevcontainer
-		}
-		dev, err := resolveDevcontainerBase(appRoot, service)
-		if err == nil && dev == nil {
-			err = ErrNoDevcontainer
-		}
-		if err != nil {
-			return defaultBaseStage(), err
-		}
-		return dev, nil
-	case "":
-		if appRoot == "" {
-			return defaultBaseStage(), nil
-		}
-		dev, err := resolveDevcontainerBase(appRoot, service)
-		if err != nil || dev == nil {
-			return defaultBaseStage(), err
-		}
-		return dev, nil
+	case launch.IsolationBaseDevcontainer, "":
+		return projectDevcontainerBase(appRoot, service, choice == launch.IsolationBaseDevcontainer)
 	default:
 		return imageRefBaseStage(choice), nil
 	}
+}
+
+// projectDevcontainerBase is the project devcontainer's base stage, or — when
+// there is none — ctxloom's own, which is an ErrNoDevcontainer when the
+// devcontainer was required. Any error comes with the embedded default (see
+// resolveBase).
+func projectDevcontainerBase(appRoot, service string, required bool) (*baseStage, error) {
+	var dev *baseStage
+	var err error
+	if appRoot != "" {
+		dev, err = resolveDevcontainerBase(appRoot, service)
+	}
+	if err == nil && dev == nil && required {
+		err = ErrNoDevcontainer
+	}
+	if err != nil || dev == nil {
+		return defaultBaseStage(), err
+	}
+	return dev, nil
 }
 
 // resolveDevcontainerBase auto-detects the project's devcontainer.json (or

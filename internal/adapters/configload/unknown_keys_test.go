@@ -301,3 +301,17 @@ func TestLoad_RetiredDirtyTreeCommitAck_NamesRegrantCommand(t *testing.T) {
 	assert.Contains(t, warns[0].Text, "RETIRED", "the user must be told the key is gone, not misspelled")
 	assert.Contains(t, warns[0].Text, "ctxloom manage commit trust", "and how to re-grant the consent")
 }
+
+// Both keys isolation_base replaced must fail validation naming the
+// replacement: an ignored old key would leave the agent image building on a
+// base the user did not choose, and there is no migration to carry it over.
+func TestLoad_RetiredIsolationBaseKeys_NameIsolationBase(t *testing.T) {
+	for _, doc := range []string{
+		"version: 6\nisolation_base_containerfile: .ctxloom/base.Containerfile\n",
+		"version: 6\nisolation_devcontainer_base: false\n",
+	} {
+		warns := unknownKeyWarnings(loadYAML(t, doc))
+		require.Len(t, warns, 1, doc)
+		assert.Contains(t, warns[0].Text, "REPLACED by `isolation_base", "the fix line names the replacement key: %s", warns[0].Text)
+	}
+}

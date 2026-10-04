@@ -51,6 +51,14 @@ var retiredKeys = map[string]string{
 	// Deliberately NOT migrated into the state record: a value from a
 	// committed, env-overridable file is not a human's consent, so the old
 	// grant is dropped (fails closed) and the user is told how to re-grant.
+	// No migration: a base Containerfile has no isolation_base value to
+	// become, so the user re-homes it by hand.
+	"isolation_devcontainer_base": "`isolation_devcontainer_base` was REPLACED by `isolation_base`: " +
+		"`isolation_devcontainer_base: false` becomes `isolation_base: ctxloom`; delete it otherwise " +
+		"(an unset isolation_base already uses a detected devcontainer)",
+	"isolation_base_containerfile": "`isolation_base_containerfile` was REPLACED by `isolation_base: ctxloom | devcontainer | <image ref>`: " +
+		"move the Containerfile into the project devcontainer (`ctxloom container scaffold` writes one) " +
+		"or build it and name the image, then delete this key",
 	"dirty_tree_commit_ack": "`dirty_tree_commit_ack` was RETIRED: the consent is no longer a config key, and a value here " +
 		"grants nothing. Re-grant it for this checkout with `ctxloom manage commit trust`, " +
 		"or answer the dirty-tree question in `ctxloom init`",

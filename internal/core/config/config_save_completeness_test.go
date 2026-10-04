@@ -30,7 +30,6 @@ import (
 func fullyPopulatedFixture() Fixture {
 	surround := true
 	autoSync := true
-	devcontainerBase := true
 	return Fixture{
 		Version:                      CurrentConfigVersion,
 		LM:                           LMConfig{Configs: map[string]LLMConfig{"fast": {Type: "claude-code"}}},
@@ -45,8 +44,7 @@ func fullyPopulatedFixture() Fixture {
 		Permissions:                  agents.NeutralPermissions{Approver: "none", Network: func() *bool { b := false; return &b }()},
 		Delegation:                   DelegationConfig{Concurrency: 7, Depth: 2},
 		IsolationImages:              map[string]string{"claude-code": "example.invalid/img:tag"},
-		IsolationBaseContainerfile:   "Containerfile.base",
-		IsolationDevcontainerBase:    &devcontainerBase,
+		IsolationBase:                "devcontainer",
 		IsolationDevcontainerService: "app",
 		IsolationEngines:             []string{"claude-code"},
 		UI:                           UIConfig{PrefixKey: "ctrl-]", Surround: &surround},

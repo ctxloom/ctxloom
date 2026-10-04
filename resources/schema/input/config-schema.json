@@ -147,7 +147,7 @@
     },
     "permissions": {
       "$ref": "#/$defs/neutralPermissions",
-      "description": "Project default permissions block for engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. The engine-neutral fields only; each resolves the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's default. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them."
+      "description": "Project default permissions block for engines started in THIS project directory \u2014 the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. The engine-neutral fields only; each resolves the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's default. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate \u2014 the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them."
     },
     "delegation": {
       "type": "object",
@@ -179,14 +179,10 @@
         "minLength": 1
       }
     },
-    "isolation_base_containerfile": {
+    "isolation_base": {
       "type": "string",
       "minLength": 1,
-      "description": "USER-PROVIDED base Containerfile for locally-built agent images: local builds (on-the-fly and `ctxloom container build`) build the shared base stage from this file \u2014 your tools, your certs \u2014 and layer the engine's agent stage on top, instead of an auto-detected devcontainer or the embedded default base. Relative paths resolve against the project root. Beats devcontainer auto-detection."
-    },
-    "isolation_devcontainer_base": {
-      "type": "boolean",
-      "description": "Toggles auto-detecting the project's .devcontainer/devcontainer.json (or .devcontainer.json) as the locally-built agent image's BASE \u2014 \"an isolated agent should run in the environment the human develops in\". Default true; set false to opt out and use the embedded default base (or an explicit isolation_base_containerfile) instead. A devcontainer.json declaring \"features\" is NOT honored (a loud warning names what is skipped); one declaring dockerComposeFile needs isolation_devcontainer_service (or its own \"service\" key) to resolve one service as the base."
+      "description": "The locally-built agent image's BASE, which the engine's agent stage layers onto. `ctxloom`: ctxloom's own embedded base. `devcontainer`: the project's .devcontainer/devcontainer.json (or .devcontainer.json), which must exist. Any other value: an image ref used as the base. Unset: the project's devcontainer when one is detected, else ctxloom's own base. A declared base that fails to build is refused, never silently substituted. A devcontainer.json declaring \"features\" is NOT honored (a loud warning names what is skipped); one declaring dockerComposeFile needs isolation_devcontainer_service (or its own \"service\" key) to resolve one service as the base."
     },
     "isolation_devcontainer_service": {
       "type": "string",
@@ -214,7 +210,7 @@
         "properties": {
           "llm": {
             "type": "string",
-            "description": "llm.configs label hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend). A label names an engine AND a model — it is not an engine, and it carries no credentials (an engine reads those from the ambient environment; the retired key 'env' is refused at load). The retired spelling 'engine' is refused at load"
+            "description": "llm.configs label hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend). A label names an engine AND a model \u2014 it is not an engine, and it carries no credentials (an engine reads those from the ambient environment; the retired key 'env' is refused at load). The retired spelling 'engine' is refused at load"
           },
           "profiles": {
             "type": "array",
@@ -511,7 +507,7 @@
               "additionalProperties": {
                 "type": "string"
               },
-              "description": "The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment, and the retired key 'env' is refused at load."
+              "description": "The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map \u2014 an engine reads its credentials from the ambient environment, and the retired key 'env' is refused at load."
             }
           },
           "additionalProperties": false
@@ -611,7 +607,7 @@
         },
         "turn_start": {
           "$ref": "#/$defs/hookArray",
-          "description": "When a prompt is submitted, before the agent acts on it — once per turn; a command hook's stdout becomes that turn's context"
+          "description": "When a prompt is submitted, before the agent acts on it \u2014 once per turn; a command hook's stdout becomes that turn's context"
         },
         "permission_ask": {
           "$ref": "#/$defs/hookArray",

@@ -35,19 +35,19 @@ func IsRetiredBuiltinSpelling(ask string) bool {
 	return strings.HasPrefix(ask, "builtin:")
 }
 
-// IsRetiredAskSpelling reports whether ask, TYPED BY A HUMAN, carries a scheme
-// marker belonging to a reference spelling the grammar no longer accepts. Such
-// a token must FAIL CLOSED: a user who types a retired spelling needs to be
-// told so, never silently downgraded to a bare-name search that resolves to
-// something else or to "not found". Those are different faults and they
-// deserve different messages.
+// IsRetiredAtEntry is the ENTRY-BOUNDARY guard: call it only where a human
+// types a reference, never on the load path. It reports whether ask carries
+// a scheme marker belonging to a reference spelling the grammar no longer
+// accepts. Such a token must FAIL CLOSED: a user who types a retired spelling
+// needs to be told so, never silently downgraded to a bare-name search that
+// resolves to something else or to "not found". Those are different faults
+// and they deserve different messages.
 //
-// The set is refuri.IsSelfContainedRef's list (ctxloom:local@,
-// ctxloom:companion@, git@, any "://") plus IsRetiredBuiltinSpelling. It is
+// The set is refuri.IsSelfContainedRef's plus IsRetiredBuiltinSpelling. It is
 // deliberately WIDER than the load path's: at a surface where a human types a
 // reference, the pipeline's own identity spellings are retired input, while on
 // the load path the same strings are live identities a reader stamped.
-func IsRetiredAskSpelling(ask string) bool {
+func IsRetiredAtEntry(ask string) bool {
 	return IsRetiredBuiltinSpelling(ask) || refuri.IsSelfContainedRef(ask)
 }
 

@@ -835,17 +835,16 @@ func (m *Manager) Rename(oldName, newName string) error {
 	if err != nil {
 		return err
 	}
-	// Both folder moves are raw rename(2), here and not in a helper: rename
-	// leaves a folder at exactly one of its two names, and safefs has no move
-	// primitive — Manager.Rename is the one write-discipline exemption for it.
+	// A move, never copy-then-delete: a rename leaves the folder at exactly
+	// one of its two names.
 	if moving {
-		if err := os.Rename(oldOut, newOut); err != nil {
+		if err := safefs.Rename(afero.NewOsFs(), oldOut, newOut); err != nil {
 			return fmt.Errorf("%w: %s -> %s: %w", ErrOutputDirMove, oldOut, newOut, err)
 		}
 	}
 	unmove := func() {
 		if moving {
-			_ = os.Rename(newOut, oldOut)
+			_ = safefs.Rename(afero.NewOsFs(), newOut, oldOut)
 		}
 	}
 	unrecord, err := m.recordOutputDir(oldName, cur, newOut)
@@ -853,7 +852,7 @@ func (m *Manager) Rename(oldName, newName string) error {
 		unmove()
 		return err
 	}
-	if err := os.Rename(filepath.Join(m.root, oldName), newDir); err != nil {
+	if err := safefs.Rename(afero.NewOsFs(), filepath.Join(m.root, oldName), newDir); err != nil {
 		unrecord()
 		unmove()
 		return fmt.Errorf("rename session dir: %w", err)

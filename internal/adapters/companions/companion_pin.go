@@ -59,7 +59,7 @@ func PinAdmittedCompanions(storeRoot string, root trust.TrustRoot) (string, erro
 	if err := fillPinDir(tmp, names, admitted); err != nil {
 		return "", err
 	}
-	if err := os.Rename(tmp, dir); err != nil {
+	if err := safefs.Rename(afero.NewOsFs(), tmp, dir); err != nil {
 		// A concurrent launch pinned the same set first, or a directory under
 		// this digest no longer holds it. Keep a good one; replace a bad one.
 		if pinHolds(dir, admitted) {
@@ -68,7 +68,7 @@ func PinAdmittedCompanions(storeRoot string, root trust.TrustRoot) (string, erro
 		if rmErr := os.RemoveAll(dir); rmErr != nil {
 			return "", fmt.Errorf("companion pin store: replace %s: %w", dir, errors.Join(err, rmErr))
 		}
-		if err := os.Rename(tmp, dir); err != nil {
+		if err := safefs.Rename(afero.NewOsFs(), tmp, dir); err != nil {
 			return "", fmt.Errorf("companion pin store: %w", err)
 		}
 	}

@@ -167,7 +167,7 @@ func moveTrustObjects(fs afero.Fs, src, dst string) error {
 	if err := fs.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(dst), err)
 	}
-	if err := fs.Rename(src, dst); err == nil {
+	if err := safefs.Rename(fs, src, dst); err == nil {
 		return nil
 	}
 	if err := copyTrustObjects(fs, src, dst); err != nil {

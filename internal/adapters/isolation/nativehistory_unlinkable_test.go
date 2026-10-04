@@ -60,8 +60,10 @@ func TestNativeHistory_ContainerOnAnUnlinkableHostKeepsHistoryInTheHome(t *testi
 		assert.False(t, strings.Contains(m.Host, string(filepath.Separator)+paths.NativeDirName+string(filepath.Separator)),
 			"native/ is not mounted: %s", m.Host)
 	}
-	_, err := os.Lstat(filepath.Join(claudeHome(home, harpA), claude.TranscriptsDirName))
-	assert.ErrorIs(t, err, fs.ErrNotExist, "no link: the engine makes its history dir in the home itself")
+	st, err := os.Lstat(filepath.Join(claudeHome(home, harpA), claude.TranscriptsDirName))
+	require.NoError(t, err)
+	assert.Equal(t, fs.ModeDir, st.Mode().Type(), "no link: a real history dir in the home")
+	assert.DirExists(t, history(nativeOf(home, harpA)), "native/ holds the store, so Close knows what to keep")
 }
 
 // The same host still links a HOST run's history into native/.

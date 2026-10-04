@@ -82,3 +82,25 @@ func TestClose_LeavesTheMembersOfARunThatHasNotEnded(t *testing.T) {
 	assert.FileExists(t, filepath.Join(child, paths.SessionEngineHomesDirName, "f"))
 	assert.FileExists(t, filepath.Join(child, paths.ScratchDirName, "f"))
 }
+
+// A run whose engine kept its history as a real dir in its home (a container
+// run on a host whose links do not resolve in a container) has it moved into
+// native/ before Close deletes the home.
+func TestClose_MovesAHomesRealHistoryIntoNativeFirst(t *testing.T) {
+	resetStrictness(t)
+	rootsHome(t)
+	c := newRoot(t, ownerIdentity().Harp, "", startRunSpawner(func() *scriptedChat { return &scriptedChat{} }))
+	dir, err := paths.HarpDir(ownerIdentity().Harp)
+	require.NoError(t, err)
+	native := filepath.Join(dir, paths.NativeDirName, "claude", "projects")
+	require.NoError(t, os.MkdirAll(native, 0o700))
+	written := filepath.Join(dir, paths.SessionEngineHomesDirName, "claude", "projects", "-p", "s.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(written), 0o700))
+	require.NoError(t, os.WriteFile(written, []byte("container\n"), 0o600))
+
+	awaitDrain(t, c.BeginDrain())
+	c.Close()
+
+	assert.NoDirExists(t, filepath.Join(dir, paths.SessionEngineHomesDirName))
+	assert.FileExists(t, filepath.Join(native, "-p", "s.jsonl"), "the history outlives the home")
+}

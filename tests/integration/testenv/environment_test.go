@@ -186,7 +186,7 @@ func childEnvValue(env []string, key string) (string, bool) {
 func TestIsolatedEnv_ScrubsAmbientButKeepsWhatTheScenarioSet(t *testing.T) {
 	const ambient, chosen = "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"
 	for _, k := range []string{ambient, chosen} {
-		if !sessionEnvKeys[k] {
+		if !scrubbedEnvKeys[k] {
 			t.Fatalf("%s is not a scrubbed key, so this test proves nothing about the scrub", k)
 		}
 	}
@@ -203,5 +203,25 @@ func TestIsolatedEnv_ScrubsAmbientButKeepsWhatTheScenarioSet(t *testing.T) {
 	}
 	if v, ok := childEnvValue(env, chosen); !ok || v != "scenario-chosen" {
 		t.Errorf("scenario-set %s reached the child as %q (present=%v), want %q", chosen, v, ok, "scenario-chosen")
+	}
+}
+
+// TestIsolatedEnv_DropsTheHostSSHAgentButKeepsAHermeticOne: the developer's
+// ssh-agent must never reach a child — its identities would surface in
+// doctor/signer output and in every living-docs page generated from it — while
+// an agent a scenario stood up itself and forced through SetChildEnv must.
+func TestIsolatedEnv_DropsTheHostSSHAgentButKeepsAHermeticOne(t *testing.T) {
+	const hostSock, hermeticSock = "/host/agent.sock", "/scenario/agent.sock"
+	t.Setenv(sshAuthSockEnv, hostSock)
+
+	bare := &TestEnvironment{HomeDir: t.TempDir(), originalEnv: map[string]string{}}
+	if v, ok := childEnvValue(bare.isolatedEnv(), sshAuthSockEnv); ok {
+		t.Errorf("the host's %s reached the child as %q; the scrub must drop it", sshAuthSockEnv, v)
+	}
+
+	hermetic := &TestEnvironment{HomeDir: t.TempDir(), originalEnv: map[string]string{}}
+	hermetic.SetChildEnv(sshAuthSockEnv, hermeticSock)
+	if v, ok := childEnvValue(hermetic.isolatedEnv(), sshAuthSockEnv); !ok || v != hermeticSock {
+		t.Errorf("the scenario's %s reached the child as %q (present=%v), want %q", sshAuthSockEnv, v, ok, hermeticSock)
 	}
 }

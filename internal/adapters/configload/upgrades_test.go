@@ -56,7 +56,7 @@ func TestAgentProfileCanonicalizeUpgrade(t *testing.T) {
 		"      - ctxloom:local@bundles/dev#profiles/x\n" + // already canonical → verbatim
 		"      - work/agent-ensemble#profiles/finder\n" // unknown alias → verbatim
 
-	out, applied := pipe.Run([]byte(in))
+	out, applied := mustRun(t, pipe, []byte(in))
 	require.NotEmpty(t, applied, "the short alias ref should trigger a rewrite")
 
 	var root map[string]any
@@ -71,7 +71,7 @@ func TestAgentProfileCanonicalizeUpgrade(t *testing.T) {
 	}, got)
 
 	// Idempotent: a second pass over the already-canonicalized output changes nothing.
-	_, again := pipe.Run(out)
+	_, again := mustRun(t, pipe, out)
 	assert.Empty(t, again, "migration must be idempotent")
 }
 
@@ -83,7 +83,16 @@ func TestAgentProfileCanonicalizeUpgrade(t *testing.T) {
 func TestProfileRefCanonicalizeUpgrade_IdentityAppliesNothing(t *testing.T) {
 	pipe := upgrade.Pipeline{profileRefCanonicalizeUpgrade{canonical: func(ref string) string { return ref }}}
 	in := "agents:\n  dev:\n    profiles:\n      - personal/agent-ensemble#profiles/finder\n"
-	out, applied := pipe.Run([]byte(in))
+	out, applied := mustRun(t, pipe, []byte(in))
 	assert.Empty(t, applied)
 	assert.Equal(t, in, string(out))
+}
+
+// mustRun runs p over data and fails the test on an encode error, which none
+// of these fixtures can produce.
+func mustRun(t *testing.T, p upgrade.Pipeline, data []byte) ([]byte, []string) {
+	t.Helper()
+	out, applied, err := p.Run(data)
+	require.NoError(t, err)
+	return out, applied
 }

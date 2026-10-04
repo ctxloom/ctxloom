@@ -235,7 +235,7 @@ must say so") does not bite.
 Interactive behaviour: with `--reap` on a TTY and no `--yes`, print the plan
 then prompt per candidate whose verdict is *reap*, via `cli.promptYesNo` **[V]**.
 With `--reap` and no `--yes` on a **non-TTY**, print the plan and **do not act**
-— note this is the *opposite* of `confirmSignerAdd`, which auto-confirms when
+— note this is the *opposite* of `confirmSignerTrust`, which auto-confirms when
 `!isInteractiveTerminal()` **[V]**. Copying that precedent onto a destructive
 verb would make an unattended `--reap` destroy without consent; it is
 deliberately not copied.

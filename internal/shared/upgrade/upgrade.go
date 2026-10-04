@@ -13,8 +13,10 @@ package upgrade
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"gopkg.in/yaml.v3"
@@ -44,17 +46,21 @@ type Pipeline []Upgrader
 // reserialization), leaving the normal parse path to surface any real error.
 // applied lists the names of the stages that fired, in order, for the caller's
 // rewrite prompt.
-func (p Pipeline) Run(data []byte) (out []byte, applied []string) {
+//
+// A document that stages changed but that cannot be re-encoded is ErrEncode,
+// never the original bytes: those would read as "already current", and the
+// caller would parse the legacy form as if it were migrated.
+func (p Pipeline) Run(data []byte) (out []byte, applied []string, err error) {
 	doc, err := DecodeSingle(data)
 	if err != nil {
-		return data, nil
+		return data, nil, nil
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return data, nil
+		return data, nil, nil
 	}
 	root := doc.Content[0]
 	if HasDuplicateKey(root) {
-		return data, nil
+		return data, nil, nil
 	}
 
 	for _, u := range p {
@@ -63,14 +69,18 @@ func (p Pipeline) Run(data []byte) (out []byte, applied []string) {
 		}
 	}
 	if len(applied) == 0 {
-		return data, nil
+		return data, nil, nil
 	}
 	encoded, err := Encode(&doc)
 	if err != nil {
-		return data, nil
+		return nil, nil, fmt.Errorf("%w after %s: %w", ErrEncode, strings.Join(applied, ", "), err)
 	}
-	return encoded, applied
+	return encoded, applied, nil
 }
+
+// ErrEncode reports that a document the pipeline's stages changed could not
+// be serialized again — an upgrader left a node the encoder refuses.
+var ErrEncode = errors.New("cannot encode the upgraded document")
 
 // ErrMultiDocument reports a YAML stream carrying more than one document.
 var ErrMultiDocument = errors.New("more than one YAML document")

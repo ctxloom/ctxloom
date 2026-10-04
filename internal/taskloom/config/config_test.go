@@ -77,7 +77,7 @@ func TestConfig_HomeOnlyStillApplies(t *testing.T) {
 // wins regardless of truthiness -- not just confload in the abstract
 // (already proven generically by TestConfload_SecondProductReusesPattern).
 // It exercises loadRaw directly with a synthetic "enabled" key outside
-// taskloom's real (single-key) schema, since Load's schema validation would
+// taskloom's real schema, since Load's schema validation would
 // otherwise reject an unrecognized key before this precedence question is
 // even reached.
 func TestConfig_ExplicitFalseBeatsInheritedTrue(t *testing.T) {

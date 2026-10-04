@@ -8,7 +8,7 @@
 // process tree (see TestConfload_SecondProductReusesPattern in
 // internal/shared/confload, which this package makes real).
 //
-// Today's only setting is the task-store HOMING MODE (paths.ModeHome /
+// One setting is the task-store HOMING MODE (paths.ModeHome /
 // paths.ModeRepo — see the `homing` key in
 // resources/schema/input/taskloom-config-schema.json): where a project's
 // task log lives. ResolveMode defaults to paths.ModeHome when NOTHING at any

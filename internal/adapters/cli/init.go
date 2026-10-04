@@ -278,7 +278,7 @@ func engineForExistingDir(selected, appDir string) string {
 // that signs every bundle the "ctxloom-default" remote serves. It reads the
 // live trust root (Config.TrustRoot) rather than asserting trust
 // unconditionally: a human can locally distrust an embedded principal
-// (`ctxloom signer remove <principal>`, writing
+// (`ctxloom signer untrust <principal>`, writing
 // ~/.ctxloom/distrusted_signers or its project equivalent), and init used to
 // claim "this binary trusts" the seeded remote regardless, then in the same
 // run print a dozen "withheld: signed by a key this machine does not trust"
@@ -407,7 +407,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	// nested .ctxloom/.gitignore ctxloom owns rather than by appending to the
 	// project's own root file. The nested file is meant to be COMMITTED: that
 	// is what carries the rules into clones and linked worktrees.
-	if _, err := gitignore.EnsureNested(filepath.Dir(appDir)); err != nil {
+	if _, err := gitignore.EnsureNested(afero.NewOsFs(), filepath.Dir(appDir)); err != nil {
 		clidiag.Warn("ctxloom", "failed to write %s: %v", gitignore.NestedGitignorePath(filepath.Dir(appDir)), err)
 	}
 
@@ -472,7 +472,7 @@ func writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions st
 // A remote is no longer trusted on add (spec §11): trusting content is now
 // keyed to a publisher KEY, not to the repo it came from. To auto-trust your own
 // personal repo's content, sign its bundles with `ctxloom sign` and trust your
-// key with `ctxloom signer add`. Until you do, its content takes the review
+// key with `ctxloom signer trust`. Until you do, its content takes the review
 // path, which is exactly right for content nobody has vouched for.
 func personalRemoteRequests(repos []string, forge string) []operations.AddRemoteRequest {
 	reqs := make([]operations.AddRemoteRequest, 0, len(repos))

@@ -197,10 +197,10 @@ One task, one foreign repo — a task spanning two is two tasks, because it cann
 land atomically. That rule is PROSE, not enforced, and the reason is worth
 knowing: `tagma.arity:"..."=scalar` only binds a namespaced key=value target
 like `triage:kind`. `repo:` is shaped like `area:` — a bare namespace:key with
-no value — so there is nothing for the arity enforcer to bind to, and a
-declaration against it is silently a no-op. `area:` has always had the same
-prose-only "exactly one per task" rule for the same reason. Verified by writing
-two values of each: `triage:kind` collapsed, `repo:` did not.
+no value — so there is nothing for the arity enforcer to bind to. taskloom
+refuses such a declaration when it loads the tag schema rather than accepting
+one that would enforce nothing. `area:` has the same prose-only "exactly one
+per task" rule for the same reason.
 
 This was not designed up front. Four independent auditors hit the same wall on
 the same day and each invented a different workaround — one wrote a

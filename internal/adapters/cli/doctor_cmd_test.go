@@ -154,6 +154,10 @@ func runDoctorClean(t *testing.T, root, sshAuthSock string, args ...string) (str
 	gitconfig := "[user]\n\tname = Ben\n\temail = ben@abbitt.me\n"
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".gitconfig"), []byte(gitconfig), 0644))
 	isolateGitHostState(t, sshAuthSock, home)
+	// DOCTOR-CHECK-SECRETS-STORAGE-k1 warns when the platform has no per-user
+	// tmpfs, which on linux is read from XDG_RUNTIME_DIR — absent in a CI
+	// runner container, so leaving it ambient made "clean" depend on the host.
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	return execDoctor(t, root, args...)
 }
 

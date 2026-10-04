@@ -13,7 +13,7 @@ import (
 //
 //   - REPORTED. Every structurally malformed declaration is an error --
 //     at parse time (add: unparseable, no namespace, wrong namespace,
-//     unknown facet, no value) or at access time (Range, and Enum),
+//     unknown facet, no value, an arity target that is not namespace:key) or at access time (Range, and Enum),
 //     never silently dropped.
 //   - THE ONE EXCEPTION. A `hide` value that is not "true"/"false" is
 //     skipped by HideFacts and configures nothing, deliberately -- see that
@@ -32,6 +32,7 @@ func TestMalformedDeclarationPolicy(t *testing.T) {
 		`tagma:"triage:kind"=scalar`,
 		`tagma.arty:"triage:kind"=scalar`,
 		`tagma.arity:"triage:kind"`,
+		`tagma.arity:area=scalar`,
 	}
 	for _, decl := range reportedAtParse {
 		t.Run("parse/"+decl, func(t *testing.T) {

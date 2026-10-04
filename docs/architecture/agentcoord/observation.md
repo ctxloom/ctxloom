@@ -110,7 +110,7 @@ The watchdog is read-only: it never terminates, relaunches or reaps.
 - **`roster`'s `include_descendants` and `task_id` filters are accepted and discarded.**
   `serveListRuns` passes only `include_terminal` and `role`, so
   `include_descendants: true` returns the identical result.
-- **`AgentIdentity` is 2 of 7 fields populated.** `display_name`, `harness`,
+- **`AgentIdentity` is mostly unpopulated.** `display_name`, `harness`,
   `harness_version`, `model` and `runner_id` are never set, so `RunStarted`'s claim that
   the identity is "repeated here so the log is self-contained without Hello" does not
   hold; `runner_id`'s own comment says it is "coordinator-assigned and validated against

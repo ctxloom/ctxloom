@@ -64,7 +64,7 @@ func init() {
 		FrameCoordinatorMessage:   runner.FrameCoordinatorMessage,
 		CoordinatorFrameOpen:      runner.CoordinatorFrameOpen,
 		ErrCoordinatorUnreachable: runner.ErrCoordinatorUnreachable,
-		StartRunRefusal: func(err error) *agentcoordpb.RunnerResponse {
+		RunnerRefusal: func(err error) *agentcoordpb.RunnerResponse {
 			return &agentcoordpb.RunnerResponse{Status: remedystatus.Refusal(codes.InvalidArgument, err)}
 		},
 	})

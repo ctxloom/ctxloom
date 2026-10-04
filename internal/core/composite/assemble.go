@@ -205,7 +205,9 @@ func (a *assembly) deliver(item Item[Fragment], identity string) {
 	if dup {
 		if kept != item.Ref {
 			a.findings = append(a.findings, Finding{Kind: FindingDuplicate, Ref: item.Ref,
-				Message: fmt.Sprintf("the same fragment reached this context twice: %q is already assembled and %q is the same item with identical content, so the second copy was dropped — if these were meant to be two DIFFERENT fragments, one of the two references is wrong", kept, item.Ref)})
+				Message: fmt.Sprintf("%q and %q both name the item %s and carry identical content, so it was assembled once, from the first: "+
+					"item identity ignores the source, so two sources publishing the same bytes under one name collapse to one copy — "+
+					"both references are valid, and nothing was lost", kept, item.Ref, identityKey(identity))})
 		}
 		return
 	}

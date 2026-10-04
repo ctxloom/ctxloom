@@ -4,18 +4,46 @@ import (
 	"gopkg.in/yaml.v3"
 	"reflect"
 
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
-// bundleUpgrades is the canonical, ordered bundle schema upgrade pipeline,
-// oldest-first. ParseBundle runs it over raw bundle YAML on every load so older
-// on-disk and remote-seeded bundles normalize to the current schema in memory —
-// ctxloom upgrades on load rather than silently dropping a renamed key. Append
-// an Upgrader here as the bundle schema evolves; each must be idempotent.
-var bundleUpgrades = upgrade.Pipeline{
-	commandsKeyUpgrade{},
-	exportsKeyUpgrade{},
+// envelopeKind versions a bundle's envelope (bundle.yaml), and through it the
+// whole tree: item files carry no format key of their own.
+//
+// No LegacyKey, and that is not an omission: an envelope's `version` is its
+// AUTHOR'S semver release, never a format generation, so it must never be read
+// as one or renamed.
+//
+// Generation 0 is every envelope that declares no schemaver.Key — which is
+// every bundle signed before the key existed, so it must keep loading exactly
+// as it always has. ParseBundle runs the Upgrade on the raw bytes, after any
+// signature check and before the strict decode, and nothing is re-signed or
+// written back implicitly (see persistEnvelopeUpgrade and UpgradeEnvelopeAt).
+var envelopeKind = schemaver.Kind{
+	Name:   "bundle",
+	Oldest: 0,
+	Steps:  []upgrade.Upgrader{retiredKeysStep{}},
 }
+
+// retiredKeysStep is generation 0 -> 1: the key renames a generation-0
+// envelope may still spell.
+type retiredKeysStep struct{}
+
+func (retiredKeysStep) Name() string {
+	return commandsKeyUpgrade{}.Name() + "; " + exportsKeyUpgrade{}.Name()
+}
+
+func (retiredKeysStep) Apply(root *yaml.Node) bool {
+	commands := commandsKeyUpgrade{}.Apply(root)
+	exports := exportsKeyUpgrade{}.Apply(root)
+	return commands || exports
+}
+
+// resignToPersist is what --write-upgrades says instead of rewriting a signed
+// tree's envelope: the signature covers those bytes, and nothing re-signs
+// implicitly.
+const resignToPersist = "re-sign to persist"
 
 // commandsKeyUpgrade renames the legacy top-level `prompts:` map key to
 // `commands:`. The bundle item-kind "prompt" was renamed to "skill" and then
@@ -30,7 +58,7 @@ type commandsKeyUpgrade struct{}
 // Name identifies the upgrade in logs.
 func (commandsKeyUpgrade) Name() string { return "rename bundle prompts to commands" }
 
-// Apply renames the top-level prompts key to commands. Idempotent: a bundle
+// Apply renames the top-level prompts key to commands. A bundle
 // already using `commands:` (or with no prompts) is left untouched.
 func (commandsKeyUpgrade) Apply(root *yaml.Node) bool {
 	return renameMapKey(root, "prompts", "commands")

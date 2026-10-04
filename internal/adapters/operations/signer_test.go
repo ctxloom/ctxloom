@@ -550,7 +550,7 @@ func TestRemoveSigner_EmbeddedPrincipal_IsIdempotent(t *testing.T) {
 }
 
 // TestRemoveSigner_EmbeddedPrincipal_TakesEffectOnTrustRoot proves the
-// suppression is a REAL effect, not just a message: after `signer remove
+// suppression is a REAL effect, not just a message: after `signer untrust
 // <embedded-principal> --project`, a FRESH config pointed at the same project
 // no longer trusts that principal's key for publish — content signed only by
 // it is withheld (operations.EffectiveTrust step 5 no longer allows, falling
@@ -569,14 +569,14 @@ func TestRemoveSigner_EmbeddedPrincipal_TakesEffectOnTrustRoot(t *testing.T) {
 	require.NoError(t, err)
 
 	after := onDiskRoot(t, appDir).TrustedForNamespace(key, signing.NamespacePublish, now)
-	assert.False(t, after.Trusted, "after `signer remove` suppresses the embedded principal, a fresh generation's root must no longer trust its key")
+	assert.False(t, after.Trusted, "after `signer untrust` suppresses the embedded principal, a fresh generation's root must no longer trust its key")
 }
 
 // TestRemoveSigner_BothOnDiskAndEmbedded_EffectsAreAdditive: a principal
 // that is BOTH an on-disk allowed_signers line AND an embedded
 // entry used to get only the on-disk line deleted (the `if removed > 0
 // {return}` early return skipped the embedded check entirely), leaving the
-// embedded key still trusted after `signer remove` reported success. Both
+// embedded key still trusted after `signer untrust` reported success. Both
 // effects must now land from a single call: the on-disk line is deleted
 // AND the embedded principal is locally suppressed, so a fresh generation's root no
 // longer trusts EITHER key (the on-disk one, deleted outright; the
@@ -623,7 +623,7 @@ func TestRemoveSigner_BothOnDiskAndEmbedded_EffectsAreAdditive(t *testing.T) {
 // expansion, e.g. typing "bob@example.com" against an entry whose
 // Principals is "*@example.com") would write a suppression line the read
 // side's literal check can never find among that entry's actual Principals,
-// so `signer remove` would report success while trust is never revoked.
+// so `signer untrust` would report success while trust is never revoked.
 //
 // ctxloom's real embedded store carries only a literal principal today (see
 // testEmbeddedPrincipal), so this exercises the fixed function directly with
@@ -787,7 +787,7 @@ func writeAllowedSignersLines(t *testing.T, cfg *config.Config, fs afero.Fs, lin
 	return path
 }
 
-// `signer remove` parses the store to find the principal's line. A line the
+// `signer untrust` parses the store to find the principal's line. A line the
 // parser DROPS contributes no entry, so the principal appears absent and the
 // command reports "no entry for X" — telling an operator the key is not
 // trusted when the file still holds a line they cannot see and did not
@@ -880,7 +880,7 @@ func requireNonRoot(t *testing.T) {
 	}
 }
 
-// The headline case: `ctxloom signer remove alice` against a store the
+// The headline case: `ctxloom signer untrust alice` against a store the
 // process CANNOT OPEN used to print "no entry for alice in <path>" and exit
 // 0 — a false statement about the trust root. Absent, unreadable, and
 // never-asked are three different states; a bare `return 0, nil` collapsed

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/stretchr/testify/assert"
@@ -197,7 +199,7 @@ func TestArtifactPatterns_GranularityRule(t *testing.T) {
 }
 
 // TestEnsureNested_InitBehavior_CommitsContentIgnoresPrivateState mirrors the
-// call init.go makes (gitignore.EnsureNested(projectDir)) and asserts the
+// call init.go makes (gitignore.EnsureNested over the OS filesystem) and asserts the
 // resulting .ctxloom/.gitignore ignores the rebuildable/local-state paths while
 // leaving the content/config/trust paths committed-by-omission (never
 // mentioned, so git tracks them by default).
@@ -208,7 +210,7 @@ func TestArtifactPatterns_GranularityRule(t *testing.T) {
 func TestEnsureNested_InitBehavior_CommitsContentIgnoresPrivateState(t *testing.T) {
 	dir := t.TempDir()
 
-	_, err := EnsureNested(dir)
+	_, err := EnsureNested(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 
 	got := readNested(t, dir)
@@ -239,7 +241,7 @@ func TestEnsureNested_DoesNotWriteTheProjectsRootGitignore(t *testing.T) {
 	original := "# OS files\n.DS_Store\n"
 	require.NoError(t, os.WriteFile(root, []byte(original), 0644))
 
-	_, err := EnsureNested(dir)
+	_, err := EnsureNested(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 
 	assert.Equal(t, original, readGitignore(t, dir),
@@ -283,7 +285,7 @@ func TestEnsureNested_LeavesRetiredPhantomPatternsAlone(t *testing.T) {
 	pre := ".ctxloom/cache/\n.ctxloom/pieces/\n.ctxloom/sessions/\n.ctxloom/ephemeral/\n.ctxloom/project-id\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(pre), 0644))
 
-	_, err := EnsureNested(dir)
+	_, err := EnsureNested(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 
 	assert.Equal(t, pre, readGitignore(t, dir),
@@ -304,7 +306,7 @@ func TestEnsureNested_ReportsPreExistingRootRulesAsRedundant(t *testing.T) {
 	pre := "# ctxloom private working state\n" + strings.Join(PrivateStatePatterns, "\n") + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(pre), 0644))
 
-	found, err := RedundantRootPatterns(dir)
+	found, err := RedundantRootPatterns(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 	assert.Equal(t, PrivateStatePatterns, found,
 		"every private-state rule still sitting in the root file must be reported")
@@ -317,11 +319,11 @@ func TestRedundantRootPatterns_SilentOnACleanProject(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("# OS files\n.DS_Store\n"), 0644))
 
-	found, err := RedundantRootPatterns(dir)
+	found, err := RedundantRootPatterns(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 	assert.Empty(t, found)
 
-	missing, err := RedundantRootPatterns(t.TempDir())
+	missing, err := RedundantRootPatterns(afero.NewOsFs(), t.TempDir())
 	require.NoError(t, err, "an absent root .gitignore is nothing to report, not an error")
 	assert.Empty(t, missing)
 }
@@ -329,12 +331,12 @@ func TestRedundantRootPatterns_SilentOnACleanProject(t *testing.T) {
 func TestEnsureNested_IsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 
-	first, err := EnsureNested(dir)
+	first, err := EnsureNested(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 	assert.True(t, first.Changed, "the first run writes the file")
 	firstBytes := readNested(t, dir)
 
-	second, err := EnsureNested(dir)
+	second, err := EnsureNested(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 	assert.False(t, second.Changed,
 		"a second run must report no change rather than claiming a write it did not make")
@@ -353,7 +355,7 @@ func TestEnsureNested_RewritesAHandEditedFileWholesale(t *testing.T) {
 	drifted := "# ctxloom private working state\n# ctxloom private working state\n/cache\n/pieces\n/ephemeral\n"
 	require.NoError(t, os.WriteFile(NestedGitignorePath(dir), []byte(drifted), 0644))
 
-	outcome, err := EnsureNested(dir)
+	outcome, err := EnsureNested(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 	assert.True(t, outcome.Changed)
 
@@ -392,7 +394,7 @@ func TestRetireSuperseded_RemovesBlanketCtxloomRule(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
 		[]byte("# OS files\n.DS_Store\n\n# ctxloom local files\n.ctxloom/\n"), 0644))
 
-	changed, err := RetireSupersededFile(filepath.Join(dir, ".gitignore"))
+	changed, err := RetireSupersededFile(afero.NewOsFs(), filepath.Join(dir, ".gitignore"))
 	require.NoError(t, err)
 	assert.True(t, changed, "retiring a blanket .ctxloom/ rule must report a change")
 
@@ -423,7 +425,7 @@ func TestRetireSuperseded_RetiresEveryBlanketSpelling(t *testing.T) {
 			path := filepath.Join(dir, ".gitignore")
 			require.NoError(t, os.WriteFile(path, []byte("# OS files\n.DS_Store\n"+blanket+"\n"), 0644))
 
-			changed, err := RetireSupersededFile(path)
+			changed, err := RetireSupersededFile(afero.NewOsFs(), path)
 			require.NoError(t, err)
 			assert.True(t, changed, "%q blanket-excludes .ctxloom/content/ and must be retired", blanket)
 			assert.NotContains(t, readGitignore(t, dir), ".ctxloom")
@@ -448,7 +450,7 @@ func TestRetireSuperseded_LeavesNonBlanketLinesAlone(t *testing.T) {
 			original := keep + "\n"
 			require.NoError(t, os.WriteFile(path, []byte(original), 0644))
 
-			changed, err := RetireSupersededFile(path)
+			changed, err := RetireSupersededFile(afero.NewOsFs(), path)
 			require.NoError(t, err)
 			assert.False(t, changed, "%q is not a blanket .ctxloom exclusion", keep)
 			assert.Equal(t, original, readGitignore(t, dir))
@@ -464,7 +466,7 @@ func TestRetireSuperseded_PreservesGranularRules(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
 		[]byte(".ctxloom/cache/\n.ctxloom/sessions/\n.ctxloom/project-id\n"), 0644))
 
-	changed, err := RetireSupersededFile(filepath.Join(dir, ".gitignore"))
+	changed, err := RetireSupersededFile(afero.NewOsFs(), filepath.Join(dir, ".gitignore"))
 	require.NoError(t, err)
 	assert.False(t, changed, "granular patterns are current, not superseded")
 
@@ -490,7 +492,7 @@ func TestRetireSuperseded_PreservesFileMode(t *testing.T) {
 			require.NoError(t, os.WriteFile(path, []byte("# ctxloom local files\n.ctxloom/\n.DS_Store\n"), mode))
 			require.NoError(t, os.Chmod(path, mode), "umask must not decide what this test asserts")
 
-			changed, err := RetireSupersededFile(path)
+			changed, err := RetireSupersededFile(afero.NewOsFs(), path)
 			require.NoError(t, err)
 			require.True(t, changed)
 
@@ -513,7 +515,7 @@ func TestRetireSuperseded_LeavesNoTempFile(t *testing.T) {
 	path := filepath.Join(dir, ".gitignore")
 	require.NoError(t, os.WriteFile(path, []byte("# ctxloom local files\n.ctxloom/\n.DS_Store\n"), 0644))
 
-	changed, err := RetireSupersededFile(path)
+	changed, err := RetireSupersededFile(afero.NewOsFs(), path)
 	require.NoError(t, err)
 	require.True(t, changed)
 
@@ -530,7 +532,7 @@ func TestRetireSuperseded_Idempotent(t *testing.T) {
 	original := "# OS files\n.DS_Store\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(original), 0644))
 
-	changed, err := RetireSupersededFile(filepath.Join(dir, ".gitignore"))
+	changed, err := RetireSupersededFile(afero.NewOsFs(), filepath.Join(dir, ".gitignore"))
 	require.NoError(t, err)
 	assert.False(t, changed)
 	assert.Equal(t, original, readGitignore(t, dir), "a file with nothing to retire must not be rewritten")
@@ -539,7 +541,7 @@ func TestRetireSuperseded_Idempotent(t *testing.T) {
 // TestRetireSuperseded_MissingFile is a no-op, not an error: a project may have
 // no .gitignore at all.
 func TestRetireSuperseded_MissingFile(t *testing.T) {
-	changed, err := RetireSupersededFile(filepath.Join(t.TempDir(), ".gitignore"))
+	changed, err := RetireSupersededFile(afero.NewOsFs(), filepath.Join(t.TempDir(), ".gitignore"))
 	require.NoError(t, err)
 	assert.False(t, changed)
 }
@@ -554,7 +556,7 @@ func TestRetireWorktreeConfigBlock_RemovesHeaderAndPatterns(t *testing.T) {
 	content := "*.log\n\n" + WorktreeComment + "\n" + strings.Join(WorktreeArtifactPatterns, "\n") + "\n"
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
-	changed, err := RetireWorktreeConfigBlock(path)
+	changed, err := RetireWorktreeConfigBlock(afero.NewOsFs(), path)
 	require.NoError(t, err)
 	assert.True(t, changed)
 
@@ -569,7 +571,7 @@ func TestRetireWorktreeConfigBlock_RemovesHeaderAndPatterns(t *testing.T) {
 // TestRetireWorktreeConfigBlock_MissingFile mirrors
 // TestRetireSuperseded_MissingFile: an absent file is a no-op, not an error.
 func TestRetireWorktreeConfigBlock_MissingFile(t *testing.T) {
-	changed, err := RetireWorktreeConfigBlock(filepath.Join(t.TempDir(), "exclude"))
+	changed, err := RetireWorktreeConfigBlock(afero.NewOsFs(), filepath.Join(t.TempDir(), "exclude"))
 	require.NoError(t, err)
 	assert.False(t, changed)
 }
@@ -582,9 +584,9 @@ func TestRetireSuperseded_ThenEnsure_UnignoresContent(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
 		[]byte("# ctxloom local files\n.ctxloom/\n"), 0644))
 
-	_, err := RetireSupersededFile(filepath.Join(dir, ".gitignore"))
+	_, err := RetireSupersededFile(afero.NewOsFs(), filepath.Join(dir, ".gitignore"))
 	require.NoError(t, err)
-	_, err = EnsureNested(dir)
+	_, err = EnsureNested(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 
 	assert.NotContains(t, readGitignore(t, dir), "\n.ctxloom/\n", "content must no longer be blanket-ignored")
@@ -606,7 +608,7 @@ func TestEnsureNested_RetiresTheBlanketThatWouldMakeItUnreadable(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
 				[]byte("# Local config\n"+blanket+"\n"), 0644))
 
-			outcome, err := EnsureNested(dir)
+			outcome, err := EnsureNested(afero.NewOsFs(), dir)
 			require.NoError(t, err)
 
 			assert.Equal(t, []string{strings.TrimSpace(blanket)}, outcome.Retired,

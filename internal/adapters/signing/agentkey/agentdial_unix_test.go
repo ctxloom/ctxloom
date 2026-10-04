@@ -48,9 +48,11 @@ func TestDialAgentAt_ReturnsAClosableAgent(t *testing.T) {
 }
 
 // The discoverer dials the ssh-agent socket its composition handed it, never
-// one it read from its own environment; no socket means no agent.
+// one it read from its own environment; no socket means no agent. The absent
+// socket sits under testsupport.SocketDir: past sun_path the dial fails EINVAL
+// before it can report the ENOENT asserted here, and darwin's limit is 104.
 func TestNewDiscoverer_DialsTheHandedSocket(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "absent.sock")
+	sock := filepath.Join(testsupport.SocketDir(t, "absent.sock"), "absent.sock")
 	_, err := NewDiscoverer(Env{AgentSocket: sock}).dialAgent()
 	var dialErr *AgentDialError
 	require.ErrorAs(t, err, &dialErr, "an unreachable socket is a typed dial failure")
@@ -63,7 +65,7 @@ func TestNewDiscoverer_DialsTheHandedSocket(t *testing.T) {
 
 // The typed dial failure survives the discovery chain's NoKeyError wrapping.
 func TestDiscover_AgentDialFailureIsTyped(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "absent.sock")
+	sock := filepath.Join(testsupport.SocketDir(t, "absent.sock"), "absent.sock")
 	d := NewDiscoverer(Env{AgentSocket: sock})
 	d.GitConfig = func(context.Context, string, string) (string, bool, error) { return "", false, nil }
 

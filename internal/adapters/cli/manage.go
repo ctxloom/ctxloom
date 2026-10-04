@@ -154,7 +154,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		initialized = true
 	}
 
-	ignored, err := ensureHarnessGitignore(projectDir)
+	ignored, err := ensureHarnessGitignore(afero.NewOsFs(), projectDir)
 	if err != nil {
 		return err
 	}
@@ -324,25 +324,25 @@ func (o gitignoreOutcome) summary(path, nestedPath string) string {
 // instead of swallowing it — callers must not report success when the file was
 // never updated (`manage gitignore install` used to print "Updated <path>" and
 // exit 0 even when the write failed).
-func ensureHarnessGitignore(projectDir string) (gitignoreOutcome, error) {
+func ensureHarnessGitignore(fsys afero.Fs, projectDir string) (gitignoreOutcome, error) {
 	path := filepath.Join(projectDir, ".gitignore")
 	// A pre-read failure is not reported here: an absent .gitignore is the
 	// normal first-run case, and any other read problem is the same one
 	// gitignore.Ensure is about to hit and report with its own context.
-	before, _ := os.ReadFile(path)
+	before, _ := afero.ReadFile(fsys, path)
 
 	// Everything ctxloom ignores goes to the nested .ctxloom/.gitignore it
 	// owns. The project's own root file is never ADDED to — it is touched only
 	// to RETIRE a blanket rule that would stop git descending into .ctxloom/
 	// and make the nested file unreadable.
-	nested, err := gitignore.EnsureNested(projectDir)
+	nested, err := gitignore.EnsureNested(fsys, projectDir)
 	if err != nil {
 		return gitignoreOutcome{}, fmt.Errorf("failed to write %s: %w", gitignore.NestedGitignorePath(projectDir), err)
 	}
 
 	// Read from the file rather than from `before`: Ensure may have retired a
 	// blanket rule since, and the question is what the root file carries NOW.
-	redundant, err := gitignore.RedundantRootPatterns(projectDir)
+	redundant, err := gitignore.RedundantRootPatterns(fsys, projectDir)
 	if err != nil {
 		return gitignoreOutcome{}, fmt.Errorf("failed to inspect %s: %w", path, err)
 	}
@@ -351,7 +351,7 @@ func ensureHarnessGitignore(projectDir string) (gitignoreOutcome, error) {
 	// nothing to it, so a project that never had one still does not. Any OTHER
 	// read failure stays loud — softening that into "no change" is exactly the
 	// unevidenced claim this function exists to prevent.
-	after, err := os.ReadFile(path)
+	after, err := afero.ReadFile(fsys, path)
 	if errors.Is(err, os.ErrNotExist) {
 		after = nil
 	} else if err != nil {
@@ -822,7 +822,7 @@ func runManageGitignoreInstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	projectDir := filepath.Dir(appDir)
-	outcome, err := ensureHarnessGitignore(projectDir)
+	outcome, err := ensureHarnessGitignore(afero.NewOsFs(), projectDir)
 	if err != nil {
 		return err
 	}

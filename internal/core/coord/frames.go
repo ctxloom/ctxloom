@@ -101,7 +101,8 @@ func (StopRun) runnerRequestKind() {}
 // RunnerResponse answers one RunnerRequest. Err is the runner's refusal (nil
 // on success); the adapter wraps the wire's UNAVAILABLE in
 // ErrRunnerUnavailable, the one refusal the coordinator answers with a
-// rebind, and every other code as a plain error carrying the message.
+// rebind, and every other code as an error carrying the message and any fix
+// it named. Wrap Err with %w: clifmt.RemedyOf reads that fix off the chain.
 type RunnerResponse struct {
 	RequestID string
 	Err       error

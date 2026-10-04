@@ -3,7 +3,6 @@ package memory
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -37,7 +36,7 @@ var ErrEmptyNextStep = errors.New("next step is empty: refusing to overwrite the
 // WriteNextStep stores text as harpName's next step, replacing any previous
 // one. Empty (or whitespace-only) text is refused with ErrEmptyNextStep; see
 // there for why that is not a silent no-op.
-func WriteNextStep(harpName, text string) error {
+func WriteNextStep(fsys afero.Fs, harpName, text string) error {
 	bounded := boundNextStep(text)
 	if bounded == "" {
 		return ErrEmptyNextStep
@@ -46,11 +45,11 @@ func WriteNextStep(harpName, text string) error {
 	if err != nil {
 		return fmt.Errorf("resolve output dir for %s: %w", harpName, err)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := fsys.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create output dir %s: %w", dir, err)
 	}
 	path := filepath.Join(dir, paths.NextStepFileName)
-	if err := safefs.WriteFile(afero.NewOsFs(), path, []byte(bounded), 0o644); err != nil {
+	if err := safefs.WriteFile(fsys, path, []byte(bounded), 0o644); err != nil {
 		return fmt.Errorf("write next step %s: %w", path, err)
 	}
 	return nil
@@ -64,12 +63,12 @@ func WriteNextStep(harpName, text string) error {
 // harp, an unreadable file, a file holding only whitespace — reports the same
 // ("", false), because the single question this answers is whether a usable
 // hint is available, and there is no caller that could act on the difference.
-func ReadNextStep(harpName string) (string, bool) {
+func ReadNextStep(fsys afero.Fs, harpName string) (string, bool) {
 	dir, err := harpOutputDir(harpName)
 	if err != nil {
 		return "", false
 	}
-	data, err := os.ReadFile(filepath.Join(dir, paths.NextStepFileName))
+	data, err := afero.ReadFile(fsys, filepath.Join(dir, paths.NextStepFileName))
 	if err != nil {
 		return "", false
 	}

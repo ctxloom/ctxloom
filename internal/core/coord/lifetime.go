@@ -57,7 +57,7 @@ func (c *Coordinator) Turn(ctx context.Context, runID string, t engine.Turn) (en
 			// caller — a distill left raw, a probe that failed — reports.
 			return engine.TurnResult{}, fmt.Errorf("turn %s: the run ended before answering: %s", runID, c.runTerminal(runID))
 		}
-		return engine.TurnResult{}, fmt.Errorf("turn %s refused: %s", runID, resp.Err.Error())
+		return engine.TurnResult{}, fmt.Errorf("turn %s refused: %w", runID, resp.Err)
 	}
 	res, _ := resp.Kind.(TurnResult)
 	return res.Result, nil

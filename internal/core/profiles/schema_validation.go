@@ -3,12 +3,15 @@ package profiles
 import (
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/shared/keymatch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 	"github.com/ctxloom/ctxloom/resources"
@@ -59,7 +62,7 @@ func validateProfileDocument(rep report.Reporter, path string, doc *yaml.Node, d
 		return nil
 	}
 	rep.FailOncef(report.KindConfig, profileSchemaRemedy,
-		"profile %s does not match the profile schema: %s", path, describeViolations(verr))
+		"profile %s does not match the profile schema: %s", path, describeViolations(verr, v, doc))
 	return nil
 }
 
@@ -72,7 +75,11 @@ func validateProfileDocument(rep report.Reporter, path string, doc *yaml.Node, d
 // describe how the schema chose a branch rather than a second defect. When
 // every cause is an alternative, they are all the information there is, so
 // all are kept.
-func describeViolations(err error) string {
+//
+// An unknown-key cause also names the key the author most likely meant, read
+// from the document as written (doc) against the keys the schema declares at
+// that location (v).
+func describeViolations(err error, v *schema.ConfigValidator, doc *yaml.Node) string {
 	var ve *jsonschema.ValidationError
 	if !errors.As(err, &ve) {
 		return err.Error()
@@ -94,7 +101,7 @@ func describeViolations(err error) string {
 		if loc == "" {
 			loc = "/"
 		}
-		part := "`" + loc + "`: " + leaf.Message
+		part := "`" + loc + "`: " + leaf.Message + nearKeys(leaf, v, doc)
 		if !seen[part] {
 			seen[part] = true
 			parts = append(parts, part)
@@ -121,4 +128,85 @@ func leafViolations(ve *jsonschema.ValidationError) []*jsonschema.ValidationErro
 // into the schema).
 func inBranchAlternative(leaf *jsonschema.ValidationError) bool {
 	return strings.Contains(leaf.KeywordLocation, "/oneOf/") || strings.Contains(leaf.KeywordLocation, "/anyOf/")
+}
+
+// nearKeys renders a did-you-mean for each undeclared key of the mapping an
+// additionalProperties violation concerns, or "" for any other violation.
+//
+// The undeclared keys come from the document, not the violation's message:
+// the mapping at the violation's location minus the keys the schema declares
+// there. keymatch.Nearest is the one calibration every unknown-key surface
+// shares, so a profile suggests exactly what a config or a bundle would.
+func nearKeys(leaf *jsonschema.ValidationError, v *schema.ConfigValidator, doc *yaml.Node) string {
+	if !strings.HasSuffix(leaf.KeywordLocation, "/additionalProperties") {
+		return ""
+	}
+	segs := pointerSegments(leaf.InstanceLocation)
+	m := mappingAt(doc, segs)
+	if m == nil {
+		return ""
+	}
+	known := v.KnownKeys(segs)
+	var b strings.Builder
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		key := m.Content[i].Value
+		if slices.Contains(known, key) {
+			continue
+		}
+		if near := keymatch.Nearest(key, known); near != "" {
+			fmt.Fprintf(&b, " — did you mean `%s` for `%s`?", near, key)
+		}
+	}
+	return b.String()
+}
+
+// pointerSegments splits a JSON pointer (RFC 6901) into its unescaped
+// segments; the root pointer "" is no segments.
+func pointerSegments(ptr string) []string {
+	if ptr == "" || ptr == "/" {
+		return nil
+	}
+	segs := strings.Split(strings.TrimPrefix(ptr, "/"), "/")
+	for i, s := range segs {
+		segs[i] = strings.ReplaceAll(strings.ReplaceAll(s, "~1", "/"), "~0", "~")
+	}
+	return segs
+}
+
+// mappingAt walks doc along segs — mapping keys and sequence indices — and
+// returns the mapping node it lands on, or nil when the path does not resolve
+// to one.
+func mappingAt(doc *yaml.Node, segs []string) *yaml.Node {
+	n := doc
+	if n != nil && n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
+		n = n.Content[0]
+	}
+	for _, seg := range segs {
+		n = yamlChild(n, seg)
+	}
+	if n == nil || n.Kind != yaml.MappingNode {
+		return nil
+	}
+	return n
+}
+
+// yamlChild is n's value under one pointer segment: a mapping's value for that
+// key, or a sequence's element at that index; nil when there is none.
+func yamlChild(n *yaml.Node, seg string) *yaml.Node {
+	if n == nil {
+		return nil
+	}
+	switch n.Kind {
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if n.Content[i].Value == seg {
+				return n.Content[i+1]
+			}
+		}
+	case yaml.SequenceNode:
+		if idx, err := strconv.Atoi(seg); err == nil && idx >= 0 && idx < len(n.Content) {
+			return n.Content[idx]
+		}
+	}
+	return nil
 }

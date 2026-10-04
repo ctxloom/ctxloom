@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/priority"
@@ -76,7 +77,7 @@ func TestConfig_HomeOnlyStillApplies(t *testing.T) {
 // wins regardless of truthiness -- not just confload in the abstract
 // (already proven generically by TestConfload_SecondProductReusesPattern).
 // It exercises loadRaw directly with a synthetic "enabled" key outside
-// taskloom's real (single-key) schema, since Load's schema validation would
+// taskloom's real schema, since Load's schema validation would
 // otherwise reject an unrecognized key before this precedence question is
 // even reached.
 func TestConfig_ExplicitFalseBeatsInheritedTrue(t *testing.T) {
@@ -289,6 +290,11 @@ func TestSchema_TopLevelAdditionalPropertiesFalse(t *testing.T) {
 		assert.Truef(t, ok, "Config field %q has no matching taskloom-config-schema property", name)
 	}
 	for name := range doc.Properties {
+		if name == schemaver.Key {
+			// The format generation is consumed per file by configKind
+			// before decode; Config deliberately carries no field for it.
+			continue
+		}
 		found := false
 		for i := 0; i < rt.NumField(); i++ {
 			tag := rt.Field(i).Tag.Get("yaml")

@@ -30,6 +30,7 @@ taskloom plan show <path> [flags]
       --homing homing            Task-store location for this invocation: "home" keeps it private under ~/.ctxloom/tasks (today's default behavior); "repo" checks it into .taskloom/tasks.jsonl so it travels with clones. Overrides the homing key in .taskloom/config.yaml and TASKLOOM_CONFIG_HOMING.
       --json                     shorthand for --format json (for jq)
       --project string           Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)
+      --write-upgrades           Persist in-memory upgrades of older-format files (the old file is kept as <file>.bak)
 ```
 
 ### SEE ALSO

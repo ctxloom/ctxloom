@@ -1,21 +1,24 @@
 # Identity and primitives
 
-Six leaf packages supply the values ctxloom builds identity and bookkeeping from. `internal/shared/harp` mints the pronounceable `swift-amber-falcon` identifiers that name every session, task, and project. `internal/shared/harpmarker` formats the `<ctxloom name="…" kind="harp" />` element a session writes into its own backend transcript, and recovers it back out. `internal/shared/gitutil` answers repo-root and remote-URL questions in-process via go-git. `internal/shared/collections`, `internal/shared/textutil`, and `internal/shared/tokens` are the small shared value helpers: a generic `Set`, UTF-8-safe byte truncation, and the one owned token-count heuristic.
+Leaf packages that supply the values ctxloom builds identity and bookkeeping from. `internal/shared/harp` mints and validates the pronounceable `swift-amber-falcon` identifiers that name every session, task, and project. `internal/shared/harpmarker` formats the `<ctxloom name="…" kind="harp" />` element a session writes into its own backend transcript, and recovers it back out. `internal/shared/gitutil` answers repo-root and remote-URL questions in-process via go-git. `internal/shared/collections`, `internal/shared/textutil`, and `internal/shared/tokens` are the small shared value helpers: a generic `Set` and key/membership helpers, UTF-8-safe byte truncation, and the one owned token-count heuristic.
 
-The contract they jointly own: **an identifier is generated in exactly one place, becomes a filesystem path segment and a primary key, and can be recovered from a transcript; text and token budgets are computed by one shared rule so independent surfaces agree.**
+The contract they jointly own: **an identifier is generated in exactly one place, is validated before it becomes a filesystem path segment or a primary key, and can be recovered from a transcript; text and token budgets are computed by one shared rule so independent surfaces agree.**
+
+Each package's consumers are found by searching for its import path; this page does not list them.
 
 ```mermaid
 flowchart TD
   subgraph harp["internal/shared/harp"]
-    EMB["//go:embed *.txt — 4 files<br/>default/long × adjectives/nouns"]
+    EMB["//go:embed *.txt<br/>group.type.txt word lists"]
     LG["loadGroups() — package var init, PANICS"]
     GRP[("groups map[string]wordGroup")]
     GNWO["GenerateNameWithOptions(Options)"]
-    GN["GenerateName() — 3 components"]
-    GSN["GenerateShortName() — 2 components"]
-    UF["UniqueFrom(used, gen) — 100 tries"]
-    PW["pickWord(words, maxLen) — 1000 tries then words[0]"]
-    RI["randIndex(n) — rejection sampled, panics on rng fail"]
+    GN["GenerateName() — default group"]
+    GSN["GenerateShortName() — long group, 2 components"]
+    UF["UniqueFrom(used, gen) — error on exhaustion"]
+    PW["pickWord(words, maxLen)"]
+    RI["randIndex(n) — rejection sampled"]
+    VAL["Validate / ValidateRename"]
     EMB --> LG --> GRP --> GNWO
     GN --> GNWO
     GSN --> GNWO
@@ -23,201 +26,161 @@ flowchart TD
     UF --> GN & GSN
   end
 
-  subgraph out["what a harp becomes — no validator exists"]
-    PATH["paths.HarpDir = filepath.Join(root, harp)<br/>internal/core/paths/paths.go:182"]
+  subgraph out["what a harp becomes"]
+    PATH["paths.HarpDir — validates first"]
     IDX["sessions index key / rename target"]
     TASK["task-id and project-id primary key"]
   end
-  GNWO --> PATH & IDX
+  VAL --> PATH & IDX
   UF --> TASK
 
   subgraph hm["internal/shared/harpmarker"]
-    FMT["Format(harp) — '' when empty"]
+    FMT["Format(harp) — '' when unrepresentable"]
     FIND["Find(s) — first marker WITH a name"]
     SCAN["Scan(line []byte) — raw, then JSON"]
     FIV["findInValue(v any) — recursive descent"]
-    MRE["markerRe / nameRe"]
-    FMT --> WIRE["SessionStart hook stdout<br/>cli/session_cmd.go:269"]
+    FMT --> WIRE["SessionStart hook stdout<br/>cli emitHarpMarker"]
     WIRE --> TR["backend transcript JSONL<br/>nested + escaped"]
     TR -.->|"read half has no production caller"| SCAN
-    SCAN --> FIND --> MRE
+    SCAN --> FIND
     SCAN --> FIV --> FIND
   end
   GNWO --> FMT
 
   subgraph gu["internal/shared/gitutil (go-git, in-process)"]
+    RSD["resolveStartDir — stat error is an error"]
     FR["FindRoot(startPath)"]
     GRU["GetRemoteURL(startPath, remoteName)"]
-    GOU["GetOriginURL(startPath)"]
-    GOU --> GRU
-    FR & GRU --> GG["PlainOpenWithOptions{DetectDotGit:true}<br/>EnableDotGitCommonDir FALSE"]
+    ENV["RepoLocationEnvVars / SanitizedEnviron"]
+    RSD --> FR & GRU
   end
-  GG -.->|"consults NO git env var"| OTHER["internal/adapters/git (exec.go)<br/>cmd.Env = os.Environ() — honours GIT_DIR"]
+  ENV -->|"child-process env for"| OTHER["internal/adapters/git · internal/adapters/remote<br/>(exec the git binary)"]
 
   subgraph vals["value helpers"]
-    SET["collections.Set[T] + SortedKeys"]
-    TB["textutil.TruncateBytes(s, maxBytes)"]
-    TOK["tokens.CharsPerToken = 4<br/>tokens.Estimate(text) = len(text)/4"]
+    SET["collections.Set[T] · SortedKeys · Member"]
+    TB["textutil.TruncateBytes · Ellipsize"]
+    TOK["tokens.Estimate · Budget<br/>BytesPerToken"]
   end
-  TOK -->|"reported"| PREVIEW["cli/run.go:699,804 payload.Tokens"]
-  TOK -->|"CONTROL: byte offsets the chunker slices at"| CHUNK["memory/compactor.go:741,742,778"]
-  TB --> CHUNK
 ```
 
 ## `internal/shared/harp`
 
-Generates pronounceable identifiers from embedded word lists. Shaped as a future extraction (`// API mirrors the Rust crate so a future extraction to github.com/benjaminabbitt/harp-go is mechanical`). Consumers: `cmd/harp`, `internal/core/sessions`, `internal/shared/tasks`, `internal/shared/tasks/projectid`.
+Generates pronounceable identifiers from embedded word lists, and validates the names that become identifiers. Shaped as a future extraction: the package doc says the API mirrors the Rust crate so a move to `github.com/benjaminabbitt/harp-go` is mechanical.
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `DefaultGroup = "default"` | `internal/shared/harp/harp.go:21` | Word-list group used when `Options.Group` is empty or unknown |
-| `//go:embed *.txt` | `internal/shared/harp/harp.go:26` | Four files: `{default,long}.{adjectives,nouns}.txt` |
-| `wordGroup{adjectives, nouns []string}` | `internal/shared/harp/harp.go:30` | One named group's two lists |
-| `typeAdjectives`, `typeNouns` | `internal/shared/harp/harp.go:36-37` | The two filename type tokens |
-| `groups` | `internal/shared/harp/harp.go:42` | Package-level registry, `= loadGroups()` |
-| `loadGroups() map[string]wordGroup` | `internal/shared/harp/harp.go:46` | Reads every embedded file, builds the registry, prunes incomplete groups. Panics at `:49` |
-| `parseWordGroupEntry(...)` | `internal/shared/harp/harp.go:68` | Splits `"<group>.<type>.txt"`; `ok=false` for non-matching names (`:70-76`); panics on `ReadFile` failure (`:79`) |
-| `assignWordGroup(...)` | `internal/shared/harp/harp.go:86` | Stores words into the adjective or noun slot; the only interpreter of the two type strings |
-| `pruneIncompleteGroups(...)` | `internal/shared/harp/harp.go:99` | Deletes any group missing either list — the guard that makes `pickWord` safe |
-| `Groups() []string` | `internal/shared/harp/harp.go:108` | Usable group names, **unsorted** (map iteration order). Sole production caller `cmd/harp/root.go:76` |
-| `parseList(...)` | `internal/shared/harp/harp.go:116` | Splits file contents into non-empty lines |
-| `Options{Components int; MaxElementLength int; Separator string; Group string}` | `internal/shared/harp/harp.go:129` | Generation parameters |
-| `(Options).normalize()` | `internal/shared/harp/harp.go:146` | Clamps `Components` to 2..16 (`:147-152`), defaults `Separator` to `-`, falls back to `DefaultGroup` for an empty or unknown group (`:156-158`) |
-| `rngRead` | `internal/shared/harp/harp.go:164` | Entropy seam, `= rand.Read` |
-| `GenerateName() string` | `internal/shared/harp/harp.go:167` | `GenerateNameWithOptions(Options{})` — 3 components. Callers: `internal/core/sessions/index.go:777,782`, `internal/shared/tasks/projectid/registry.go:280` |
-| `GenerateShortName() string` | `internal/shared/harp/harp.go:174` | `Options{Components: 2}`. Caller: `internal/shared/tasks/task.go:154` |
-| `UniqueFrom(used map[string]struct{}, gen func() string) string` | `internal/shared/harp/harp.go:185` | First `gen()` not in `used`, up to 100 tries; then **one unchecked `gen()`** (`:192`). Callers: `internal/shared/tasks/projectid/registry.go:280`, `internal/shared/tasks/task.go:154` |
-| `GenerateNameWithOptions(o Options) string` | `internal/shared/harp/harp.go:197` | Normalizes, picks N-1 adjectives + 1 noun, joins. Caller: `cmd/harp/root.go:102` |
-| `pickWord(words []string, maxLen int) string` | `internal/shared/harp/harp.go:211` | Uniform random word, retrying up to 1000× until `maxLen` is satisfied; then `words[0]` (`:218`) |
-| `randIndex(n int) int` | `internal/shared/harp/harp.go:224` | Uniform `[0,n)` by rejection sampling (no modulo bias); `0` for `n <= 0` (`:225-227`); panics on `rngRead` failure (`:233`) |
+| Symbol | Purpose |
+|---|---|
+| `DefaultGroup` | Word-list group used when `Options.Group` is empty or unknown |
+| `MinComponents`, `MaxComponents` | The bounds `normalize` enforces; a caller advertising the range (CLI help) reads them rather than restating them |
+| `wordFS` (`//go:embed *.txt`) | The embedded `<group>.<type>.txt` word lists |
+| `wordGroup`, `typeAdjectives`, `typeNouns` | One group's two lists, and the two filename type tokens |
+| `groups` / `loadGroups` | Package-level registry built at init. Panics if the embedded FS cannot be read |
+| `parseWordGroupEntry` / `assignWordGroup` / `pruneIncompleteGroups` / `parseList` | Parse the filenames and contents; drop any group missing either list |
+| `Groups()` | Usable group names, **sorted** — the result is rendered into CLI usage text, so map order would change it between runs |
+| `Options` / `(Options).normalize` | Generation parameters; `normalize` defaults or clamps every field and falls back to `DefaultGroup` for an unknown group |
+| `rngRead` | Entropy seam, `= rand.Read` |
+| `GenerateName()` | Default options: adjectives + noun from `DefaultGroup` |
+| `GenerateShortName()` | Two components drawn from the `long` group, for per-project task ids; its doc records why the wider group was chosen |
+| `UniqueFrom(used, gen) (string, error)` | First `gen()` not in `used`, with a bounded number of tries; on exhaustion it returns an error and an empty id, never an unchecked name. The shared allocator behind the session index, the project-id registry and task ids |
+| `GenerateNameWithOptions(Options)` | Normalizes, picks N-1 adjectives + 1 noun, joins |
+| `pickWord(words, maxLen)` | Uniform pick from the words within `maxLen`; an unsatisfiable cap draws from the full list rather than collapsing to a constant |
+| `randIndex(n)` | Uniform `[0,n)` by rejection sampling (no modulo bias) |
+| `Validate(name)` | Whether `name` can be one path component: non-empty, not `.`/`..`, no `/`, `\` or `:`, no control character, no edge whitespace. Deliberately permissive on charset |
+| `ValidateRename(name)` / `MaxNameLen` / `ErrNameTooLong` | `Validate` plus a length bound for names a human chooses; the bound comes from the MCP instructions' character budget, and is not part of `Validate` so an older, longer name still resolves |
 
-Identity-space sizes: `default` group is 443 adjectives × 1102 nouns, so `GenerateShortName` draws from **488,186** names and `GenerateName` from ~2.16 × 10⁸. The `long` group is 1269 × 4396.
+### Invariants
+
+- `groups` is built by a **package-level variable initializer**, so `loadGroups` runs before `main()` in every binary that imports the package, and its panics are uncatchable startup crashes. They assert an impossible state (the FS is compile-time embedded), not a runtime error.
+- A badly-*named* embedded file is skipped silently; an unreadable one panics.
+- **`pruneIncompleteGroups` makes generation total**: any group missing either list is deleted before generation can see it. `randIndex` panics on `n < 1` rather than returning an index into an empty list, so a missing list fails at its cause.
+- `normalize` **must run before any field is read**, or `groups[o.Group]` yields a zero `wordGroup`. `GenerateNameWithOptions` normalizes on its first line.
+- Invalid options are **clamped, not rejected**, inside the package. A CLI that wants to refuse bad input checks it itself (`cmd/harp` refuses an unknown `--group`).
+- `randIndex` panics on CSPRNG failure, deliberately: silently degrading randomness would be worse than crashing.
+- **Validation sits where a name becomes a path.** `paths.HarpDir` calls `Validate` before joining, so no harp-derived path can be built from a name that escapes the sessions root, whichever caller supplied it.
 
 ## `internal/shared/harpmarker`
 
-Formats and recovers a self-closing `<ctxloom name="…" kind="harp" />` element written into a session's own backend transcript, so a later reader can answer "which harp owns this transcript?" from the transcript alone. Positioned as the identity channel of last resort: the package doc (`marker.go:9-12`) names the session index, the PID registry, the binding, and hook bookkeeping as having proven unreliable.
+Formats and recovers a self-closing `<ctxloom name="…" kind="harp" />` element written into a session's own backend transcript, so a later reader can answer "which harp owns this transcript?" from the transcript alone. The package doc positions it as the identity channel of last resort, independent of the session index, the PID registry, the binding and hook bookkeeping.
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `markerRe` | `internal/shared/harpmarker/marker.go:29` | `` `<ctxloom\b[^>]*\bkind="harp"[^>]*?/?>` `` |
-| `nameRe` | `internal/shared/harpmarker/marker.go:32` | `` `\bname="([^"]+)"` `` |
-| `Format(harp string) string` | `internal/shared/harpmarker/marker.go` | `""` when `harp == ""` **or** when the name contains `"` or `>` (the characters that would make the element name a different harp, or no harp); else `` `<ctxloom name="` + harp + `" kind="harp" />` ``. Whatever it returns round-trips through `Find`. Sole production caller `emitHarpMarker`, `internal/adapters/cli/session_bind.go` |
-| `Find(s string) string` | `internal/shared/harpmarker/marker.go:45` | `FindAllString` over the input (`:46`), returns the `name` of the first matched element **that has one** (`:47`). No production caller |
-| `Scan(line []byte) string` | `internal/shared/harpmarker/marker.go:60` | `Find` on the raw bytes first (`:61`); on a miss, `json.Unmarshal` (error → `""`, `:65-67`) and delegate to `findInValue` (`:68`). No production caller |
-| `findInValue(v any) string` | `internal/shared/harpmarker/marker.go` | Recursive descent: string leaf → `Find`, then re-decode if it parses as JSON and recurse; `map[string]any` → recurse over values **in sorted key order**; `[]any` → recurse over elements in order |
+| Symbol | Purpose |
+|---|---|
+| `markerRe` / `nameRe` | Match a `<ctxloom … kind="harp" …>` element, and pull its `name` attribute |
+| `unrepresentable` | The characters (`"` and `>`) a name cannot carry through the attribute syntax |
+| `Format(harp)` | `""` for an empty name or one containing an `unrepresentable` character; else the element. Whatever it returns reads back through `Find` as the harp it was given |
+| `Find(s)` | The `name` of the first matched element **that has one** |
+| `Scan(line)` | `Find` on the raw bytes first; on a miss, decode the line as JSON and search it with `findInValue` |
+| `findInValue(v)` | Recursive descent: string leaf → `Find`, then re-decode if it is itself JSON; objects in **sorted key order**; arrays in order |
 
-The write path is installed as the SessionStart hook for every ctxloom session (`emitHarpMarker`, `internal/adapters/cli/session_bind.go`). The read half (`Scan`/`Find`/`findInValue`) has no production caller: ADR 0017 names `ClaudeSessionHistory.harpFromTranscript` and `previousSessionByListing` as its consumers, and both were removed at `6683bc4c` with the four per-engine transcript scrapers. Its fate is the open decision recorded as U112-F01.
+The write path is the SessionStart hook (`emitHarpMarker` in `internal/adapters/cli`), which reports every case where `Format` returns `""` on the diagnostic channel; stdout stays the hook's contract channel. `Scan` and `Find` have no production caller.
+
+### Invariants
+
+- `Format` is the **single authoritative spelling** of a wire format that crosses a process boundary and a storage layer.
+- `Format` **refuses** a name it cannot represent rather than emitting a corrupt element: a `"` would end the attribute early and name a different harp; a `>` would end the element before `kind="harp"`. `harp.Validate` admits both characters, so the guard lives here.
+- `Find` returns `""` both for "not present" and for "present but nameless".
+- `Scan` checks the raw bytes before any structural interpretation, and `findInValue` descends into every value with no field-name filter, so user-authored message content is searched as well as the hook envelope.
+- Sorted key order makes two markers under different keys resolve to the same harp on every scan of the same bytes. Which key wins is arbitrary; stability is the contract.
+- The nested re-decode has **no depth bound**; it terminates because each decode strips a quoting layer and the string strictly shrinks.
+- `kind="harp"` is the only discriminator: `<ctxloom\b` also matches the prefix of `<ctxloom-context …>`, and the closing slash is optional.
 
 ## `internal/shared/gitutil`
 
-Read-only, in-process answers to two questions about the git repository enclosing a path, via go-git v5.19.1 rather than shelling out. Declares no types. `internal/adapters/cli/hook_inject_context.go:85` passes `FindRoot` as a `func(string) (string, error)` value, making that signature a de-facto interface with one implementation and one stub (`hook_inject_context.go:338`).
+Read-only, in-process answers about the git repository enclosing a path, via go-git rather than the git binary. The package doc states the boundary with `internal/adapters/git`, which executes git: use that layer to do things or to get git's own answer, and this one for small, hot, read-only questions on the startup path. The two do not resolve "the repository" by the same rules.
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `GetOriginURL(startPath string) (string, error)` | `internal/shared/gitutil/gitutil.go:15` | `return GetRemoteURL(startPath, "origin")`. Sole production caller `internal/adapters/operations/bundles.go:856`, which discards the error |
-| `GetRemoteURL(startPath, remoteName string) (string, error)` | `internal/shared/gitutil/gitutil.go:21` | Abs-path; `os.Stat` (error **ignored**, `:26`); demote a file path to its dir; `PlainOpenWithOptions{DetectDotGit: true}` (`:30-32`); `repo.Remote(name).Config().URLs[0]` (`:45`). Wraps four failure modes. No production caller outside `GetOriginURL` |
-| `FindRoot(startPath string) (string, error)` | `internal/shared/gitutil/gitutil.go:51` | Abs-path; `os.Stat` (error **returned** as `stat path: %w`, `:58-61`); demote a file path to its dir; open with the same options (`:66-68`); return `repo.Worktree().Filesystem.Root()`. Callers: `internal/adapters/projectroot/projectroot.go:82,102`, `internal/taskloom/workdir/workdir.go:118`, `internal/adapters/cli/hook_inject_context.go:85` |
+| Symbol | Purpose |
+|---|---|
+| `RepoLocationEnvVars` / `SanitizedEnviron()` | The environment variables that override which repository git operates on, and `os.Environ()` with them removed. The one list, used by `internal/adapters/git` and `internal/adapters/remote` for every git child process, so `cmd.Dir` alone selects the repository |
+| `resolveStartDir(startPath)` | Absolute directory to open from; a file resolves to its parent. A path that cannot be stat'd is an **error**, because go-git's upward discovery would otherwise answer from an ancestor repository |
+| `GetRemoteURL(startPath, remoteName)` | The remote's **fetch** URL (the first configured URL) |
+| `FindRoot(startPath)` | The worktree root of the enclosing repository |
+| `IsNoRepository(err)` | Distinguishes "not inside a repository" from every other `FindRoot` failure |
+| `ShortSHA` / `AbbrevSHA` / `DefaultShortSHALen` | SHA abbreviation that never slices past the end of a malformed hash |
+
+### Invariants
+
+- No write operations here: a mutation go-git and git disagree about is not reviewable.
+- Both openers set `DetectDotGit` **and** `EnableDotGitCommonDir`. Without the second, go-git treats a linked worktree's private admin directory as the whole repository and finds no remote config there.
+- Every failure path returns a non-nil error; there is no `return "", nil`.
+- `GetRemoteURL` deliberately returns the fetch URL: a remote's identity is where it is read from.
 
 ## `internal/shared/collections`
 
-A generic `Set[T]` over `map[T]struct{}` plus a map-key sorter, used as readability sugar by `internal/core/bundles`, `internal/core/config`, `internal/lm/backends`, `internal/adapters/operations`, `internal/adapters/remote`, and `internal/core/agent`. The dominant use is the "seen"/"visited" idiom in recursive resolvers (`internal/core/config/config_resolve.go`, `internal/adapters/operations/sync.go`, `internal/core/bundles/loader.go`).
-
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `Set[T comparable]` | `internal/shared/collections/set.go:32` | Declared map type (not a struct) — the type *is* the storage |
-| `NewSet[T]() Set[T]` | `internal/shared/collections/set.go:35` | `make(Set[T])`. 24 production call sites |
-| `NewSetFrom[T](elements ...T) Set[T]` | `internal/shared/collections/set.go:40` | Length-hinted variadic seeding. 3 call sites |
-| `(Set[T]).Add(v T)` | `internal/shared/collections/set.go:49` | `s[v] = struct{}{}`. 14 production call sites |
-| `(Set[T]).AddAll(values ...T)` | `internal/shared/collections/set.go:54` | Loops `Add`. 3 call sites, all in `internal/core/bundles/bundles.go:710,712,715` |
-| `(Set[T]).Has(v T) bool` | `internal/shared/collections/set.go:61` | Membership. Passed as a *method value* at `internal/core/bundles/loader_content.go:485` (`slices.ContainsFunc(info.Tags, tagSet.Has)`). 20+ call sites |
-| `(Set[T]).Items() []T` | `internal/shared/collections/set.go:68` | Pre-sized slice; **order not guaranteed**. 6 call sites, incl. `internal/core/config/config_resolve.go:270,271,272` |
-| `(Set[T]).Clone() Set[T]` | `internal/shared/collections/set.go:77` | Pre-sized copy. 1 production call site: `internal/core/config/config_resolve.go:337` (`visited.Clone()` per DAG branch) |
-| `SortedKeys[K ~string, V](m map[K]V) []K` | `internal/shared/collections/sorted_keys.go:9` | Collects keys, `sort.Slice` by `<`. 3 call sites: `internal/core/config/accessors.go:363`, `internal/core/config/config_bundles.go:301`, `internal/adapters/operations/vendorreader_backfill.go:60` |
-
-Go 1.25 equivalents, for reference when reading call sites: `NewSet` = `make(map[T]struct{})`, `Items` = `slices.Collect(maps.Keys(s))`, `Clone` = `maps.Clone(s)`, `SortedKeys` = `slices.Sorted(maps.Keys(m))`.
+| Symbol | Purpose |
+|---|---|
+| `Set[T]` | A declared `map[T]struct{}`; the type is the storage. Its doc states the nil-map semantics: reads (`Has`, `Items`, `Clone`, `len`) work on the zero value, writes panic |
+| `NewSet` / `NewSetFrom` | Construct a writable set |
+| `Add` / `AddAll` / `Has` / `Clone` | The usual operations |
+| `Items()` | Elements as a slice; **order not guaranteed** |
+| `SortedKeys(m)` | A map's keys in sorted order, for any order-sensitive consumer |
+| `Member(members, name)` | Resolve a string against a closed vocabulary's members — the one membership test under a vocabulary's `Parse` |
 
 ## `internal/shared/textutil`
 
-One function. Twelve production call sites across `internal/adapters/cli` (6), `internal/adapters/memory` (5), `internal/shared/compression` (1).
+The package holds one invariant: shortening a string to a **byte** budget without splitting a UTF-8 rune.
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `TruncateBytes(s string, maxBytes int) string` | `internal/shared/textutil/textutil.go:10` | `""` when `maxBytes <= 0` (`:11-13`); `s` unchanged when already within the cap; else `s[:maxBytes]` with trailing bytes stripped while `utf8.DecodeLastRuneInString` reports `(RuneError, size <= 1)` (`:22-29`) |
-
-Three distinct concepts share the one function:
-
-| Use | Sites |
+| Symbol | Purpose |
 |---|---|
-| Ellipsize for a display column — the caller appends `"..."` itself | `internal/shared/compression/json.go:221`, `internal/adapters/memory/compactor.go:679`, `internal/adapters/cli/search.go:315,320`, `internal/adapters/cli/remote_discover.go:83,88`, `internal/adapters/cli/bundle_distill.go:299`, `internal/adapters/cli/bundle_list.go:267`, `internal/adapters/cli/memory.go:302` |
-| Hard byte cap | `internal/adapters/memory/compactor.go:943` |
-| Rune-boundary **offset** — `len(TruncateBytes(s, n))` used as an `int`, string discarded | `internal/adapters/memory/compactor.go:774,793` |
+| `TruncateBytes(s, maxBytes)` | `""` for `maxBytes <= 0`; `s` unchanged when within the cap; else the prefix, backed off to a rune boundary |
+| `Ellipsize(s, maxBytes)` | Cut and append `"..."`, with the suffix reserved **from** the budget, so `len(result) <= maxBytes` |
+
+### Invariants
+
+- **A cut never produces invalid UTF-8 from valid input, and never destroys a legitimately-encoded U+FFFD.** `utf8.DecodeLastRuneInString` returns `RuneError` both for an incomplete sequence (size 1) and for a real U+FFFD (size 3); only the size-1 case is debris.
+- The back-off is bounded at `utf8.UTFMax - 1` bytes, the most a split rune can leave. Input that was already invalid is passed through, not walked away to `""`.
+- Callers must not hand-roll `TruncateBytes(s, w-3) + "..."`: that overflows the column by the suffix length. Use `Ellipsize`.
+- The budget is bytes, not runes and not display width: 15 bytes of CJK is 5 characters occupying 10 terminal columns.
 
 ## `internal/shared/tokens`
 
-One constant and one function; the package exists for *ownership*, not arithmetic (`tokens.go:1-4`: "deliberately the one place that knows the heuristic … a real tokenizer can replace the heuristic here without touching call sites").
+The package exists for *ownership*, not arithmetic: its doc makes it the one place that knows the heuristic, so a real tokenizer can replace it without touching call sites.
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `CharsPerToken = 4` | `internal/shared/tokens/tokens.go:9` | The ratio. Referenced at `internal/adapters/memory/compactor.go:35` (re-aliased as an exported `internal/adapters/memory` constant), used at `compactor.go:741,742` |
-| `Estimate(text string) int` | `internal/shared/tokens/tokens.go:12` | `len(text) / CharsPerToken`. Callers: `internal/adapters/cli/run.go:699,804`, `internal/adapters/memory/compactor.go:1128` (via the local `estimateTokens` wrapper at `compactor.go:1127-1129`, itself called from `:222,251,261`) |
+| Symbol | Purpose |
+|---|---|
+| `BytesPerToken` | The ratio, named for **bytes** because `len()` counts bytes |
+| `Estimate(text)` | Token estimate, rounded **up**, so only empty text estimates at zero |
+| `Budget(tokens)` | The inverse: the byte size that would estimate at `tokens` |
 
-Two use classes with very different stakes: **reporting** (`cli/run.go:699,804`, `compactor.go:222,251,261` — a wrong number is cosmetic) and **control** (`compactor.go:741-742` converts a token budget into the byte offsets `chunkText` actually slices at, `compactor.go:778`).
+### Invariants
 
-## Invariants and contracts
-
-**Harp generation**
-
-- `groups` is built by a **package-level variable initializer**, so `loadGroups` runs before `main()` in every family binary (`ctxloom`, `taskloom`, `ltk`, `harp`), and its two panics (`harp.go:49`, `:79`) are uncatchable startup crashes. Both are asserting an impossible state (the FS is compile-time embedded), not handling an error.
-- A badly-*named* embedded file is skipped silently; an unreadable one panics.
-- **`pruneIncompleteGroups` is the guard that makes generation total**: any group missing either list is deleted before generation can see it, so `GenerateNameWithOptions` cannot return an empty string for any registered group.
-- `Options.normalize()` **must run before any field is read** or `groups[o.Group]` yields a zero `wordGroup` and `pickWord` indexes a nil slice. Today `GenerateNameWithOptions:198` is the only reader and normalizes on its first line.
-- Invalid options are **silently clamped, not rejected** — documented at `harp.go:196`. `harp -c 1` yields three words; `harp --group lng` silently draws from `default` and the output looks plausible.
-- `randIndex` panics on CSPRNG failure — correct, and deliberately different from the load-time panics: silently degrading randomness would be worse. It returns `0` for `n <= 0`, which papers over a caller bug (unreachable today).
-- `pickWord` falls back to `words[0]` after 1000 rejected draws, so an unsatisfiable `MaxElementLength` makes **every generated name a constant** with no signal (the shortest word in either default list is 3 characters, so `--max-len 2` returns the literal `aged-aged-able`).
-- Real vs documented: `UniqueFrom` is documented as best-effort and its doc instructs callers who cannot tolerate a residual collision to check the result against `used`; **neither of its two callers performs that check**, so a duplicate id can be returned and stored. The short-name space is 488,186, and `used` covers only one store, so independent branches share no guard.
-- `Groups()` returns map-iteration order, so `harp`'s group listing differs between invocations.
-- `internal/core/sessions/index.go:772-783` (`generateUniqueHarp`) reimplements `UniqueFrom` line-for-line, including the unchecked fallback; its comment's "5.6M names" figure understates the 3-component space by ~39×.
-
-**Harp marker**
-
-- `Format` is the **single authoritative spelling** of a wire format that crosses a process boundary and a storage layer: a Go hook writes it, a backend nests and escapes it into a transcript, and a different Go process is meant to recover it.
-- `Format` returns `""` for a name it cannot represent, and the sole caller REPORTS every such case: `emitHarpMarker` (`internal/adapters/cli/session_bind.go`) warns on the diagnostic channel for an empty return, a marshal failure and a write failure alike, naming `CTXLOOM_SESSION_HARP`'s value. stdout stays the hook's contract channel and never carries a diagnostic.
-- `Format` **refuses** a name containing `"` or `>` rather than emitting a corrupt element. A `"` would truncate `nameRe`'s match (silently naming a different harp, and admitting attribute injection); a `>` would stop `markerRe` matching at all. `harp.Validate` is permissive enough to admit both, so the guard lives here.
-- `Find` returns the name of the first marker **that has one** — a `kind="harp"` element without `name=` is skipped, not treated as a match. `""` means "not present" and is indistinguishable from "present but malformed".
-- `Scan` checks the **raw bytes before** any structural interpretation (`:61`) and `findInValue` descends into every map value and slice element with no field-name filter, so the search covers user-authored message content as well as the hook envelope.
-- `findInValue` walks `map[string]any` in **sorted key order**, so two markers under different object keys resolve to the same harp on every scan of the same bytes. Which key wins is arbitrary and not a contract; stability is.
-- The nested re-decode has **no depth bound**; it terminates only because each JSON-decode round strips a quoting layer and the string strictly shrinks.
-- `kind="harp"` is the only discriminator, and the package doc now says so. `<ctxloom\b` matches the `<ctxloom` prefix of `<ctxloom-context …>` (`-` is a word boundary) and `/?` makes the closing slash optional, so neither the element name nor the self-closing shape separates the marker from the content wrapper.
-
-**Git access**
-
-- `gitutil` is **read-only and environment-blind**: it constructs no `exec.Cmd` and consults no git environment variable — not `GIT_DIR`, `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`, or `GIT_COMMON_DIR`. `internal/adapters/git` (`exec.go:437`, `cmd.Env = os.Environ()`) is the other git layer and does honour all of them, so under a hook invocation (where git sets `GIT_DIR`) the two answer different questions. Nothing documents the boundary.
-- `FindRoot`'s invariant: walk up from an arbitrary path — which may be a file, may be relative, may be inside a linked worktree or submodule — and return the absolute worktree root or a typed error, never a plausible-looking wrong directory. It handles `.git`-as-a-file, demotes a file argument to its directory, and rejects a bare repo.
-- All three functions return a **non-nil error rather than an empty string** on every failure path — there is no `return "", nil`.
-- The two functions handle the identical "is `startPath` a file or a directory?" precondition with **opposite error policies**: `FindRoot` returns `stat path: %w`, `GetRemoteURL` drops the stat error, so a nonexistent path yields a different (and for the remote path misleading) message from each.
-- `PlainOpenOptions` sets `DetectDotGit: true` but leaves `EnableDotGitCommonDir` false. In a **linked git worktree** — this project's standard agent workflow — go-git then treats `<main>/.git/worktrees/<name>/` as the whole repository, and that directory contains no `config`, so `GetRemoteURL`/`GetOriginURL` fail with `remote "origin" not configured`. `FindRoot` is unaffected, because go-git returns the containing directory as the worktree filesystem regardless.
-- `GetRemoteURL` returns `urls[0]`, the **fetch** URL. Git treats multiple `url =` entries as fetch-from-first / push-to-all, and the one consumer uses the answer to decide where to *push*.
-
-**Collections**
-
-- Real vs documented: `set.go:31` says "The zero value is not usable". In fact the **read methods (`Has`, `Items`, `Clone`) are nil-safe and the write methods (`Add`, `AddAll`) panic** on a nil receiver. `internal/adapters/operations/items.go:223` already depends on the nil-safe read: `var failed collections.Set[string]` is assigned only inside `switch req.Kind` arms and read unconditionally at `items.go:346`.
-- `Items()` returns map-iteration order and disclaims ordering. Three of its call sites feed `internal/core/config` resolved-profile fields (`config_resolve.go:270,271,272` → `ExcludeFragments`, `ExcludeMCP`, `DenyTools`), while the sibling `sortedCompanionRefs` (`config_bundles.go:295-301`) exists precisely because that package promises a stable result across runs.
-- `Items()` and `Clone()` return **empty non-nil** values for empty or nil input; neither can fail.
-- The package holds two unrelated concerns — `sorted_keys.go` shares no type, state, or caller pattern with `set.go`, and `SortedKeys` is never called on a `Set`.
-
-**Text truncation**
-
-- The invariant: **cutting to a byte budget never produces invalid UTF-8, and never destroys a legitimately-encoded U+FFFD.** The second half is the subtle one — `utf8.DecodeLastRuneInString` returns `RuneError` both for an incomplete sequence (`size == 1`) and for a correctly-encoded U+FFFD (`size == 3`), so the `size <= 1` qualifier at `:24` is what distinguishes the cut's own debris from real input. Testing only `r == utf8.RuneError` silently eats replacement characters.
-- Why it matters: a mid-rune split makes a chunk invalid UTF-8, which fails proto3 string marshaling and silently turns the chunk into a failure marker — documented content loss at `internal/adapters/memory/compactor.go:770-772`.
-- `maxBytes <= 0` returns `""` **silently**, and every ellipsize caller immediately concatenates its suffix — so a zero budget renders as a bare `"..."` with the content gone. The one call site whose budget is configuration rather than a literal (`internal/shared/compression/json.go:221`, `c.MaxValueLength`) is protected only by `NewJSONCompressor` supplying `30`; `&JSONCompressor{}` compiles and zeroes it.
-- The result **exceeds** the requested cap at every ellipsize site, because the caller appends the suffix afterward. Each has pre-compensated by subtracting 3 from its real column width (17, 15, 32, 16, 57, 67 for widths 20, 18, 35, 19, 60, 70), and nothing enforces that relationship.
-- The cap is a **byte** budget, not a display-width budget: 15 bytes of CJK is 5 characters occupying 10 terminal columns, versus 15 columns for ASCII.
-- For input that is not valid UTF-8 the strip loop can consume the entire prefix and return `""` — a legitimate cut can only ever leave `utf8.UTFMax - 1 == 3` bytes of debris, and the loop has no such floor.
-
-**Token estimation**
-
-- The invariant is **agreement**, not arithmetic: the dry-run assembly preview and the distillation chunker must use the same ratio, or ctxloom reports one budget and chunks to another.
-- Real vs documented: `len()` counts **bytes**, but the constant is named `CharsPerToken` and its doc says "characters". `compactor.go:741` computes `targetTokens * CharsPerToken` and `chunkText` slices by byte offset, so for multi-byte text the chunk overshoots its token budget — the direction that overfills a model window, not the safe one.
-- Real vs documented: the promise that "a real tokenizer can replace the heuristic here without touching call sites" holds for `Estimate`'s three call sites but **not for `CharsPerToken`**, which is consumed as a bare arithmetic multiplier to answer the inverse question ("how many bytes is N tokens?"). A real tokenizer has no such ratio.
-- `internal/adapters/memory/compactor.go:33-35` re-exports the constant as its own exported `CharsPerToken`, and both uses inside `compactor.go` read the alias rather than the original — so "one place knows the heuristic" has a second spelling in front of it. The same re-alias habit applies to `stderrtail.DefaultBytes` at three sites.
-- Integer division makes `Estimate` return `0` for any text of 1-3 bytes. No current caller gates on the result; all three assign it to a report field.
+- The invariant is **agreement**: every surface that reports or budgets tokens goes through this package, so a reported budget and an enforced one cannot diverge.
+- `Budget` exists so the substitution point covers both directions; a caller multiplying the ratio itself would be a second copy of the heuristic that no real tokenizer could satisfy.
+- Rounding up is the safe direction for a budget: the estimate can never under-report.

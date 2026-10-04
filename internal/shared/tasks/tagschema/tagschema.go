@@ -31,6 +31,7 @@
 package tagschema
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -110,6 +111,13 @@ func KnownFacets() []string {
 // precedence.
 const SemverTypeName = "semver"
 
+// errArityTargetShape is wrapped by add's refusal of an arity declaration
+// whose target is not the "namespace:key" shape Target reconstructs from a
+// namespaced tag. The write seam's scalar collapse never considers a tag
+// without a namespace, so a target such as a bare namespace ("area", "repo")
+// or one carrying a value would parse clean and constrain nothing.
+var errArityTargetShape = errors.New(`arity target must be "namespace:key"`)
+
 // Schema is the parsed form of a tag_schema declaration list: facet name ->
 // target string -> declared value.
 type Schema struct {
@@ -120,7 +128,8 @@ type Schema struct {
 // the same facet+target overwrites an earlier one, "last wins") into a
 // Schema. A malformed declaration — one tagma.ParseTag rejects, one with no
 // namespace, one whose namespace isn't "tagma" or "tagma.<facet>", one
-// naming a facet outside KnownFacets, or one with no value — is a returned
+// naming a facet outside KnownFacets, one with no value, or an arity
+// declaration whose target is not "namespace:key" — is a returned
 // error naming the offending declaration: fail loud, never silently drop a
 // schema entry (a dropped arity=scalar declaration would silently stop
 // collapsing a task's tags).
@@ -158,6 +167,10 @@ func (s *Schema) add(decl string) error {
 	if tag.Value == nil {
 		return fmt.Errorf("tag_schema: declaration %q has no value (expected %s:%q=<value>)", decl, ns, tag.Key)
 	}
+	if facet == ArityFacet && !isNamespacedKey(tag.Key) {
+		return fmt.Errorf("tag_schema: declaration %q targets %q, which no tag's Target can equal: %w",
+			decl, tag.Key, errArityTargetShape)
+	}
 	m := s.facets[facet]
 	if m == nil {
 		m = map[string]string{}
@@ -165,6 +178,13 @@ func (s *Schema) add(decl string) error {
 	}
 	m[tag.Key] = *tag.Value
 	return nil
+}
+
+// isNamespacedKey reports whether target parses as a namespaced, valueless
+// tag — the only shape Target produces for a tag the scalar collapse examines.
+func isNamespacedKey(target string) bool {
+	t, err := tagma.ParseTag(target)
+	return err == nil && t.Namespace != nil && t.Value == nil && Target(t) == target
 }
 
 // Get returns the declared value for (facet, target) and whether it was

@@ -172,21 +172,21 @@ type NestedOutcome struct {
 // The write is wholesale rather than an append. That is the entire point: the
 // file has no user content to preserve, so it cannot accumulate stale headers
 // or drift from PrivateStatePatterns the way an appended block did.
-func EnsureNested(projectDir string) (NestedOutcome, error) {
+func EnsureNested(fsys afero.Fs, projectDir string) (NestedOutcome, error) {
 	rootPath := filepath.Join(projectDir, ".gitignore")
-	retired, err := SupersededBlanketLines(rootPath)
+	retired, err := SupersededBlanketLines(fsys, rootPath)
 	if err != nil {
 		return NestedOutcome{}, err
 	}
 	if len(retired) > 0 {
-		if _, err := RetireSupersededFile(rootPath); err != nil {
+		if _, err := RetireSupersededFile(fsys, rootPath); err != nil {
 			return NestedOutcome{}, err
 		}
 		clidiag.WarnOnce("ctxloom",
 			"removed a blanket .ctxloom/ rule from .gitignore: it predates version-controlled content living under .ctxloom/content/, and it also stops git descending into .ctxloom/ at all, which would have made the nested .ctxloom/.gitignore unreadable — review and commit the .gitignore change")
 	}
 
-	changed, err := writeNested(projectDir)
+	changed, err := writeNested(fsys, projectDir)
 	if err != nil {
 		return NestedOutcome{}, err
 	}
@@ -196,20 +196,20 @@ func EnsureNested(projectDir string) (NestedOutcome, error) {
 // writeNested is EnsureNested's write half, without the root retirement, so
 // Ensure can install the replacement rules during its own migration without
 // retiring twice.
-func writeNested(projectDir string) (bool, error) {
+func writeNested(fsys afero.Fs, projectDir string) (bool, error) {
 	path := NestedGitignorePath(projectDir)
 	want := nestedContent()
 
-	if got, err := os.ReadFile(path); err == nil && bytes.Equal(got, want) {
+	if got, err := afero.ReadFile(fsys, path); err == nil && bytes.Equal(got, want) {
 		return false, nil
 	} else if err != nil && !os.IsNotExist(err) {
 		return false, err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := fsys.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return false, err
 	}
-	if err := safefs.WriteFile(afero.NewOsFs(), path, want, 0644); err != nil {
+	if err := safefs.WriteFile(fsys, path, want, 0644); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -223,8 +223,8 @@ func writeNested(projectDir string) (bool, error) {
 // functional gain (the duplicate rules are inert, not harmful), so ctxloom
 // reports them and lets the user delete them deliberately. A missing root file
 // yields nothing, not an error.
-func RedundantRootPatterns(projectDir string) ([]string, error) {
-	content, err := os.ReadFile(filepath.Join(projectDir, ".gitignore"))
+func RedundantRootPatterns(fsys afero.Fs, projectDir string) ([]string, error) {
+	content, err := afero.ReadFile(fsys, filepath.Join(projectDir, ".gitignore"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -349,8 +349,8 @@ var supersededComments = []string{"# ctxloom local files"}
 // entry point in this package writes (Ensure/EnsureFile/RetireSupersededFile
 // all call retireBlock, which replaces the file). Read-only detection is a
 // genuinely separate need, not an oversight.
-func SupersededBlanketLines(path string) ([]string, error) {
-	content, err := os.ReadFile(path)
+func SupersededBlanketLines(fsys afero.Fs, path string) ([]string, error) {
+	content, err := afero.ReadFile(fsys, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -376,15 +376,15 @@ func SupersededBlanketLines(path string) ([]string, error) {
 // reached both ways) rather than two independent scans that could drift apart
 // — the read-only doctor check and this mutating retirement must never
 // disagree about what counts.
-func RetireSupersededFile(path string) (bool, error) {
-	lines, err := SupersededBlanketLines(path)
+func RetireSupersededFile(fsys afero.Fs, path string) (bool, error) {
+	lines, err := SupersededBlanketLines(fsys, path)
 	if err != nil {
 		return false, err
 	}
 	if len(lines) == 0 {
 		return false, nil
 	}
-	return retireBlock(path, supersededComments, isSupersededBlanket)
+	return retireBlock(fsys, path, supersededComments, isSupersededBlanket)
 }
 
 // RetireWorktreeConfigBlock removes the WorktreeComment header and any
@@ -398,16 +398,16 @@ func RetireSupersededFile(path string) (bool, error) {
 // removed once nothing else is relying on it, or it silently reappears as
 // dirty/untracked noise for every OTHER worktree (including the developer's
 // own main checkout) the moment it is gone.
-func RetireWorktreeConfigBlock(path string) (bool, error) {
-	return retireBlock(path, []string{WorktreeComment}, exactlyOneOf(WorktreeArtifactPatterns))
+func RetireWorktreeConfigBlock(fsys afero.Fs, path string) (bool, error) {
+	return retireBlock(fsys, path, []string{WorktreeComment}, exactlyOneOf(WorktreeArtifactPatterns))
 }
 
 // retireBlock is RetireSupersededFile's mechanism, generalized: remove every
 // line retire reports, from the file at path, along with an orphaned header
 // (one of headers) left immediately above a removed run. An absent file is a
 // no-op, not an error.
-func retireBlock(path string, headers []string, retire func(string) bool) (bool, error) {
-	content, err := os.ReadFile(path)
+func retireBlock(fsys afero.Fs, path string, headers []string, retire func(string) bool) (bool, error) {
+	content, err := afero.ReadFile(fsys, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -422,7 +422,7 @@ func retireBlock(path string, headers []string, retire func(string) bool) (bool,
 	if updated == string(content) {
 		return false, nil
 	}
-	if err := replaceFile(path, []byte(updated)); err != nil {
+	if err := replaceFile(fsys, path, []byte(updated)); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -444,12 +444,12 @@ func retireBlock(path string, headers []string, retire func(string) bool) (bool,
 // surviving line (the file held nothing but the retired header and rule)
 // degenerately empties it. That is the caller correctly emptying a file that
 // existed, not a bug — AllowEmpty is passed for exactly that.
-func replaceFile(path string, data []byte) error {
+func replaceFile(fsys afero.Fs, path string, data []byte) error {
 	mode := os.FileMode(0644)
-	if info, err := os.Stat(path); err == nil {
+	if info, err := fsys.Stat(path); err == nil {
 		mode = info.Mode().Perm()
 	}
-	return safefs.WriteFile(afero.NewOsFs(), path, data, mode, safefs.AllowEmpty())
+	return safefs.WriteFile(fsys, path, data, mode, safefs.AllowEmpty())
 }
 
 // keepLines returns lines with every retired line dropped, along with any
@@ -482,8 +482,9 @@ func keepLines(lines []string, retire, isOrphanHeader func(string) bool) []strin
 // .gitignore must repair that rule, so no caller is given the chance to forget.
 func Ensure(projectDir, comment string, patterns ...string) error {
 	path := filepath.Join(projectDir, ".gitignore")
+	fsys := afero.NewOsFs()
 
-	retired, err := RetireSupersededFile(path)
+	retired, err := RetireSupersededFile(fsys, path)
 	if err != nil {
 		return err
 	}
@@ -498,7 +499,7 @@ func Ensure(projectDir, comment string, patterns ...string) error {
 		// one. Writing it here is what the whole change is undoing, and it is
 		// specifically wrong on this path: appending granular .ctxloom/* rules
 		// to the root file is how the stale-header accumulation started.
-		if _, err := writeNested(projectDir); err != nil {
+		if _, err := writeNested(fsys, projectDir); err != nil {
 			return err
 		}
 		clidiag.WarnOnce("ctxloom",
@@ -512,6 +513,12 @@ func Ensure(projectDir, comment string, patterns ...string) error {
 // .git/info/exclude for per-agent worktrees), so the append/idempotency logic is
 // written once. path's parent must already exist. An empty patterns list is a
 // no-op.
+//
+// Ensure and EnsureFile take no afero.Fs, and that is not an omission: their
+// write is an in-place append (appendBlock, safefs.WriteFileInPlace), which
+// exists for real mounted files and takes no fs by design. Reading through an
+// injected fs while appending to the OS one would let the two disagree about
+// the file, so both legs stay on the OS filesystem together.
 func EnsureFile(path, comment string, patterns ...string) error {
 	if len(patterns) == 0 {
 		return nil

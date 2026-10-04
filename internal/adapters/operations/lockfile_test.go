@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -213,4 +214,39 @@ func TestClosureRoots_UnparseableProfileIsUnexpanded(t *testing.T) {
 		_, unexpanded = closureRoots(cfg, profileLoader(cfg))
 	})
 	assert.Equal(t, []string{"fragile"}, unexpanded)
+}
+
+// TestLockDependencies_StampsFetchedAt pins lock.yaml's per-entry fetched_at:
+// a fresh entry records when it was resolved, and a relock that leaves the pin
+// where it was keeps that time rather than restamping it — fetched_at answers
+// "when did we pull this", which locked_at (the whole file's write time) does
+// not. A zero value here is the defect: it serializes and reads as data.
+func TestLockDependencies_StampsFetchedAt(t *testing.T) {
+	tmp := t.TempDir()
+	identity := "https://github.com/test/repo@bundles/demo"
+	writeLocalProfile(t, tmp, "default", "bundles:\n  - "+identity+"@abc123def456\n")
+	cfg := testConfigWithSCMPath(tmp)
+	load := func() remote.LockEntry {
+		t.Helper()
+		lf, err := remote.NewLockfileManager(tmp).Load()
+		require.NoError(t, err)
+		entry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
+		require.True(t, ok)
+		return entry
+	}
+
+	before := time.Now().UTC()
+	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
+	require.NoError(t, err)
+	after := time.Now().UTC()
+
+	first := load()
+	require.False(t, first.FetchedAt.IsZero(), "a locked entry must record when it was fetched")
+	assert.False(t, first.FetchedAt.Before(before) || first.FetchedAt.After(after),
+		"fetched_at %s must fall within the lock call [%s, %s]", first.FetchedAt, before, after)
+
+	_, err = LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
+	require.NoError(t, err)
+	assert.True(t, first.FetchedAt.Equal(load().FetchedAt),
+		"a relock that does not move the pin keeps the time it was fetched")
 }

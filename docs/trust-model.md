@@ -426,7 +426,7 @@ anything else. Signer keys are managed with `ctxloom signer trust|list|show|remo
 and signatures are produced with `ctxloom bundle sign`; a hand-edited `allowed_signers`
 file is still read verbatim, so editing it by hand remains equivalent.
 Signing/verification is CLI-only and is
-**never** exposed over MCP — handing the agent a `signer add` capability would
+**never** exposed over MCP — handing the agent a `signer trust` capability would
 defeat the property this design exists to provide.
 
 > **A remote carries no trust.** Adding a remote (an address) and trusting a

@@ -330,6 +330,9 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	if err != nil {
 		return BundleRead{}, err
 	}
+	if err := r.persistEnvelopeUpgrade(ctx, tree, path); err != nil {
+		return BundleRead{}, err
+	}
 	bundle.Path = path
 	// A DECLARED name wins. The path-derived leaf name ("go" for
 	// lang/go/bundle.yaml) is only the FALLBACK for a bundle that declares no

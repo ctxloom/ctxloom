@@ -22,7 +22,7 @@ import (
 func progressFixture(t *testing.T, progress io.Writer) *Compactor {
 	t.Helper()
 	testsupport.Isolate(t)
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		currentSession: &agent.Session{
 			ID: "progress-session",
 			Entries: aboveDistillFloor([]agent.SessionEntry{
@@ -39,11 +39,11 @@ func progressFixture(t *testing.T, progress io.Writer) *Compactor {
 	}
 	recordOutputDir(t, "compactor-under-test")
 	c, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: &mockBackend{history: mockHistory},
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		HarpName:        "compactor-under-test",
-		Progress:        progress,
+		Source:    mockHistory,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		HarpName:  "compactor-under-test",
+		Progress:  progress,
 	})
 	require.NoError(t, err)
 	return c

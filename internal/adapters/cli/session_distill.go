@@ -18,10 +18,10 @@ import (
 
 // distillMissingOrStale distills every entry whose essence is missing or stale
 // (SourceStale), so `session list --distill` shows a title on every row. Each
-// session is compacted in its own project dir — the legacy transcript reader is
-// cwd-bound — so the loop chdir's per entry and restores the original cwd on
+// session is compacted in its own project dir — its project config governs the
+// distillation — so the loop chdir's per entry and restores the original cwd on
 // return. Per-entry failures are warned and skipped: a session that can't be
-// distilled (e.g. a legacy-only session with no reachable transcript) must not
+// distilled (e.g. one with no captured transcript) must not
 // block the listing (CLAUDE.md — a usable partial listing beats a hard fail).
 func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir string) {
 	origWd, _ := os.Getwd()

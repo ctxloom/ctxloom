@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -26,10 +25,8 @@ import (
 // feed per harp, one vocabulary (WatchEvent/SessionEntry), two sources behind
 // it. The LIVE TAP — a coordinator currently holding the child's run, reached
 // over its ConsumerService (internal/adapters/coordgrpc/discover finds
-// candidate coordinators) — is preferred; the STORE TAIL (the transcript
-// locators: the canonical transcript by harp, the engine's store by bound
-// session id, WatchHistoryByPath by located transcript) is the workhorse
-// fallback. Consumers never know which source fed them.
+// candidate coordinators) — is preferred; the STORE TAIL (the canonical
+// transcript, by harp) is the workhorse fallback. Consumers never know which source fed them.
 //
 // The coordinator the tap reaches lives in ANOTHER process, so this file is a
 // wire client of it by construction: it dials agentcoordpb.ConsumerService
@@ -131,7 +128,7 @@ func WatchSessionFeed(ctx context.Context, reg engine.Registry, req SessionFeedR
 		// visible signal; the fallback itself is still the right behavior.
 		clidiag.Warn("ctxloom", "watch %s: live tap unavailable, using store tail: %v", req.Harp, lerr)
 	}
-	return watchStoreFeed(ctx, reg, entry, backend)
+	return watchStoreFeed(ctx, entry)
 }
 
 // watchLiveFeed dials each candidate coordinator (internal/adapters/coordgrpc/pb/
@@ -319,7 +316,7 @@ func adaptConsumerFeed(ctx context.Context, reg engine.Registry, entry *sessions
 			}
 		}
 		sent := 0
-		for _, e := range feedScrollback(ctx, reg, entry, backend) {
+		for _, e := range feedScrollback(entry) {
 			if !emit(entryFeedEvent(e)) {
 				return
 			}
@@ -438,39 +435,17 @@ func entryFeedEvent(e agent.SessionEntry) SessionFeedEvent {
 	return SessionFeedEvent{Event: &transcript.WatchEvent{Entry: &e}}
 }
 
-// historyForBackend resolves a backend's session history reader for
-// feedScrollback's by-location locator. A package-private indirection over
-// HistoryForBackend (never exported) so an in-package test can substitute a
-// fake agent.SessionHistory without a new public test-only API — see
-// TestFeedScrollback_NilSessionNoErrorWarns.
-var historyForBackend = HistoryForBackend
-
-// feedScrollback reads the harp's recorded transcript once, for the live
+// feedScrollback reads the harp's captured transcript once, for the live
 // feed's scrollback prefix. Best-effort by design: a failed read degrades the
 // view to live-only with a warning, never kills the feed.
-func feedScrollback(ctx context.Context, reg engine.Registry, entry *sessions.Entry, backend string) []agent.SessionEntry {
-	var (
-		sess *agent.Session
-		err  error
-	)
-	switch {
-	case entry.CanonicalTranscriptPath != "":
-		// ctxloom's own captured transcript is available host-side regardless
-		// of where the engine ran — prefer it over both locators below.
-		sess, err = transcript.ParseTranscriptFile(entry.CanonicalTranscriptPath, entry.HarpName)
-	case entry.SessionID != "":
-		var hist agent.SessionHistory
-		if hist, err = historyForBackend(reg, backend); err == nil {
-			sess, err = transcript.NewEngineReader(hist, entry.ProjectDir).GetSession(ctx, entry.SessionID)
+func feedScrollback(entry *sessions.Entry) []agent.SessionEntry {
+	if entry.CanonicalTranscriptPath == "" {
+		if entry.SessionID != "" || entry.TranscriptPath != "" {
+			clidiag.Warn("ctxloom", "watch %s: no captured transcript, starting live-only", entry.HarpName)
 		}
-	case entry.TranscriptPath != "":
-		var hist agent.SessionHistory
-		if hist, err = historyForBackend(reg, backend); err == nil {
-			sess, err = hist.GetSessionByPath(entry.TranscriptPath)
-		}
-	default:
-		return nil // no transcript association — live-only, from now
+		return nil // no captured transcript — live-only, from now
 	}
+	sess, err := transcript.ParseTranscriptFile(entry.CanonicalTranscriptPath, entry.HarpName)
 	if err != nil {
 		clidiag.Warn("ctxloom", "watch %s: scrollback unavailable, starting live-only: %v", entry.HarpName, err)
 		return nil
@@ -487,41 +462,14 @@ func feedScrollback(ctx context.Context, reg engine.Registry, entry *sessions.En
 	return sess.Entries
 }
 
-// watchStoreFeed is the store tail behind the unified shape. Three locators,
-// one contract: a harp with a canonical transcript is tailed from it; a
-// hook-bound session id is tailed through the owning engine's own store
-// (EngineReader.WatchSession); an entry bound only by location — a
-// transcript discovered in the harp's own native/ history, where the bind hook
-// never fired — is tailed by path (WatchHistoryByPath), since the engine's
-// project-scoped store lookup cannot see a file in ctxloom's session dir.
-func watchStoreFeed(ctx context.Context, reg engine.Registry, entry *sessions.Entry, backend string) (*SessionFeed, error) {
-	var (
-		watchEvents <-chan *transcript.WatchEvent
-		errs        <-chan error
-	)
-	switch {
-	case entry.CanonicalTranscriptPath != "":
-		// Prefer ctxloom's own captured transcript — host-side, and correct
-		// regardless of which engine or container ran the session.
-		watchEvents, errs = transcript.WatchCanonicalTranscript(ctx, entry.CanonicalTranscriptPath, entry.HarpName, 0)
-	case entry.SessionID != "":
-		hist, err := HistoryForBackend(reg, backend)
-		if err != nil {
-			return nil, fmt.Errorf("watch %s: %w", entry.HarpName, err)
-		}
-		watchEvents, errs, err = transcript.NewEngineReader(hist, entry.ProjectDir).WatchSession(ctx, entry.SessionID)
-		if err != nil {
-			return nil, fmt.Errorf("watch %s: %w", entry.HarpName, err)
-		}
-	case entry.TranscriptPath != "":
-		hist, err := HistoryForBackend(reg, backend)
-		if err != nil {
-			return nil, fmt.Errorf("watch %s: %w", entry.HarpName, err)
-		}
-		watchEvents, errs = transcript.WatchHistoryByPath(ctx, hist, entry.TranscriptPath, 0)
-	default:
-		return nil, fmt.Errorf("harp %q has no session bound and no transcript in its session store; nothing to watch yet (the SessionStart bind hook records the id for sessions launched via ctxloom run; containerized runs surface their transcript once the engine writes it)", entry.HarpName)
+// watchStoreFeed is the store tail behind the unified shape: the harp's
+// captured transcript, tailed host-side — correct regardless of which engine
+// or container ran the session.
+func watchStoreFeed(ctx context.Context, entry *sessions.Entry) (*SessionFeed, error) {
+	if entry.CanonicalTranscriptPath == "" {
+		return nil, fmt.Errorf("harp %q has no captured transcript; nothing to watch yet (ctxloom captures a session's transcript as its turns are recorded)", entry.HarpName)
 	}
+	watchEvents, errs := transcript.WatchCanonicalTranscript(ctx, entry.CanonicalTranscriptPath, entry.HarpName, 0)
 
 	events := make(chan SessionFeedEvent)
 	go func() {
@@ -536,22 +484,3 @@ func watchStoreFeed(ctx context.Context, reg engine.Registry, entry *sessions.En
 	}()
 	return &SessionFeed{Source: "store", Events: events, Errs: errs}, nil
 }
-
-// HistoryForBackend returns the named backend's in-process transcript reader,
-// used for host-located (by-location) transcript reads.
-func HistoryForBackend(reg engine.Registry, name string) (agent.SessionHistory, error) {
-	h, ok := agent.HostedIn(reg, name)
-	if !ok {
-		return nil, fmt.Errorf("unknown backend %q", name)
-	}
-	hist := h.Backend(nil).History()
-	if hist == nil {
-		return nil, fmt.Errorf("backend %q: %w", name, errNoSessionHistory)
-	}
-	return hist, nil
-}
-
-// errNoSessionHistory is the refusal for an engine whose backend keeps no
-// legacy session store: canonical capture is its only transcript source, so
-// a session-source builder constructs no legacy leg for it.
-var errNoSessionHistory = errors.New("has no session history")

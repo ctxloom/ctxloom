@@ -45,7 +45,7 @@ the adapters on the registry's value (`engines.Hosted(name)`):
 
 | `agent.Hosted` | what it is for | read by |
 |---|---|---|
-| `Backend(Launcher) Backend` | a fresh backend over the runner's launcher | `cli.runRunner` (the interactive launch), `operations.HistoryForBackend` |
+| `Backend(Launcher) Backend` | a fresh backend over the runner's launcher | `cli.runRunner` (the interactive launch) |
 | `NewConfig() BackendConfig` | the zero typed config a labeled LLM entry's body decodes into | `operations.DecodeEngineConfig` |
 | `Declaration() Declaration` | the named-form table a binding's `surfaces:` is validated against | `operations.ResolveAgentSurfaces` |
 | `SettingsReader(SettingsOptions) SettingsReader` | the reader whose `Status` `manage status` reports (writes are claims through `delivery.Static`) | `operations.engineSettingsStatus` |

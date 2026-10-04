@@ -2,7 +2,6 @@ package transcript
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -111,61 +110,6 @@ func TestSessionWatcher_NilSessionIsIdle(t *testing.T) {
 
 // --- WatchSession streaming handler ---
 
-// fakeHistory is an agent.SessionHistory whose reads are scripted: by id
-// (getSessionFunc, what EngineReader.WatchSession polls) and by path
-// (getSessionByPathFunc, what WatchHistoryByPath polls).
-type fakeHistory struct {
-	agent.SessionHistory
-	getSessionFunc       func(workDir, id string) (*agent.Session, error)
-	getSessionByPathFunc func(path string) (*agent.Session, error)
-}
-
-func (h *fakeHistory) GetSession(workDir, id string) (*agent.Session, error) {
-	if h.getSessionFunc == nil {
-		return nil, nil
-	}
-	return h.getSessionFunc(workDir, id)
-}
-
-func (h *fakeHistory) GetSessionByPath(path string) (*agent.Session, error) {
-	if h.getSessionByPathFunc == nil {
-		return nil, nil
-	}
-	return h.getSessionByPathFunc(path)
-}
-
-// TestEngineReader_WatchSession_TransientErrorDoesNotTerminate: a failing
-// read (the transcript momentarily unreadable) is retried on the next tick,
-// not fatal.
-func TestEngineReader_WatchSession_TransientErrorDoesNotTerminate(t *testing.T) {
-	var calls int
-	var mu sync.Mutex
-	hist := &fakeHistory{getSessionFunc: func(_, _ string) (*agent.Session, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		calls++
-		if calls <= 2 {
-			return nil, errors.New("transcript not ready")
-		}
-		return sessionWith("recovered"), nil
-	}}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	events, errs, err := NewEngineReader(hist, "/proj").WatchSession(ctx, "s1")
-	require.NoError(t, err)
-	get, done := collectWatch(events)
-
-	waitForWatch(t, get, 1, 2*time.Second)
-	cancel()
-	<-done
-	require.NoError(t, <-errs)
-
-	// The first streamed event is the entry that appeared after recovery,
-	// proving the two earlier errors did not terminate the stream.
-	assert.Equal(t, "recovered", get()[0].Entry.Content)
-}
-
 // collectWatch drains events into a slice (goroutine-safe getter) so tests can
 // poll for progress while the watcher runs.
 func collectWatch(events <-chan *WatchEvent) (get func() []*WatchEvent, done <-chan struct{}) {
@@ -200,22 +144,15 @@ func waitForWatch(t *testing.T, get func() []*WatchEvent, n int, within time.Dur
 	}
 }
 
-// TestWatchHistoryByPath_StreamsEntriesAndBoundary: the by-path watcher polls
-// GetSessionByPath with the given path and emits the same entry/boundary
-// vocabulary as the gRPC watch — one contract, two locators.
-func TestWatchHistoryByPath_StreamsEntriesAndBoundary(t *testing.T) {
-	var mu sync.Mutex
-	gotPaths := map[string]int{}
-	hist := &fakeHistory{getSessionByPathFunc: func(path string) (*agent.Session, error) {
-		mu.Lock()
-		gotPaths[path]++
-		mu.Unlock()
-		return sessionWith("a", "b"), nil
-	}}
-
+// TestPollTranscript_StreamsEntriesAndBoundary: the polling feed emits the
+// same entry/boundary vocabulary as the gRPC watch — new entries as they
+// appear, then the stall boundary.
+func TestPollTranscript_StreamsEntriesAndBoundary(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	events, errs := WatchHistoryByPath(ctx, hist, "/harp/persist/t.jsonl", time.Millisecond)
+	events, errs := pollTranscript(ctx, "watch", "/harp/persist/t.jsonl", time.Millisecond, func() (*agent.Session, error) {
+		return sessionWith("a", "b"), nil
+	})
 	get, done := collectWatch(events)
 
 	// Two entries, then the stall boundary [0,2).
@@ -231,71 +168,12 @@ func TestWatchHistoryByPath_StreamsEntriesAndBoundary(t *testing.T) {
 	require.NotNil(t, b, "growth stall must emit a boundary")
 	assert.Equal(t, 0, b.FromIndex)
 	assert.Equal(t, 2, b.ToIndex)
-
-	mu.Lock()
-	defer mu.Unlock()
-	require.Len(t, gotPaths, 1, "the watcher must poll exactly the given path")
-	assert.Positive(t, gotPaths["/harp/persist/t.jsonl"])
-}
-
-// TestWatchHistoryByPath_TransientErrorDoesNotTerminate: a failing read (e.g.
-// the transcript momentarily unreadable) is retried on the next tick, not
-// fatal — mirroring every watcher's fault posture.
-func TestWatchHistoryByPath_TransientErrorDoesNotTerminate(t *testing.T) {
-	var mu sync.Mutex
-	calls := 0
-	hist := &fakeHistory{getSessionByPathFunc: func(string) (*agent.Session, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		calls++
-		if calls <= 2 {
-			return nil, errors.New("transcript not ready")
-		}
-		return sessionWith("recovered"), nil
-	}}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	events, errs := WatchHistoryByPath(ctx, hist, "/p/t.jsonl", time.Millisecond)
-	get, done := collectWatch(events)
-
-	waitForWatch(t, get, 1, 2*time.Second)
-	cancel()
-	<-done
-	require.NoError(t, <-errs)
-	assert.Equal(t, "recovered", get()[0].Entry.Content)
-}
-
-// TestWatchHistoryByPath_CancelClosesChannels: cancelling the context ends the
-// stream cleanly — both channels close, no error.
-func TestWatchHistoryByPath_CancelClosesChannels(t *testing.T) {
-	hist := &fakeHistory{getSessionByPathFunc: func(string) (*agent.Session, error) {
-		return sessionWith(), nil // always idle
-	}}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	events, errs := WatchHistoryByPath(ctx, hist, "/p/t.jsonl", time.Millisecond)
-	cancel()
-
-	deadline := time.After(2 * time.Second)
-	for {
-		select {
-		case _, ok := <-events:
-			if !ok {
-				require.NoError(t, <-errs)
-				return
-			}
-		case <-deadline:
-			t.Fatal("events channel did not close after context cancel")
-		}
-	}
 }
 
 // --- client WatchSession: server stream → channels ---
 
-// The canonical watcher shares WatchHistoryByPath's whole lifecycle contract
-// and differs only in WHICH reader it polls, so its fault posture is pinned the
-// same way: an unreadable transcript is warned and retried on the next tick.
+// The canonical watcher's fault posture: an unreadable transcript is warned
+// and retried on the next tick.
 // A long-lived stream must not die because the file is not there yet — the
 // capture writer creates it lazily on the first successful record.
 func TestWatchCanonicalTranscript_UnreadableFileDoesNotTerminate(t *testing.T) {
@@ -338,25 +216,16 @@ func TestWatchCanonicalTranscript_CancelClosesChannels(t *testing.T) {
 }
 
 // poll <= 0 must fall back to the package default rather than panicking in
-// time.NewTicker — the two watchers share that guard, and every caller that
-// omits a cadence depends on it.
-func TestWatchers_NonPositivePollUsesTheDefault(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	hist := &fakeHistory{getSessionByPathFunc: func(string) (*agent.Session, error) {
-		return sessionWith(), nil
-	}}
-	byPathEvents, byPathErrs := WatchHistoryByPath(ctx, hist, "/p/t.jsonl", 0)
-	canonEvents, canonErrs := WatchCanonicalTranscript(ctx, filepath.Join(t.TempDir(), "t.jsonl"), "h", -1)
-
-	cancel()
-	for range byPathEvents { //nolint:revive // draining to closure
+// time.NewTicker — every caller that omits a cadence depends on it.
+func TestWatchCanonicalTranscript_NonPositivePollUsesTheDefault(t *testing.T) {
+	for _, poll := range []time.Duration{0, -1} {
+		ctx, cancel := context.WithCancel(context.Background())
+		events, errs := WatchCanonicalTranscript(ctx, filepath.Join(t.TempDir(), "t.jsonl"), "h", poll)
+		cancel()
+		for range events { //nolint:revive // draining to closure
+		}
+		require.NoError(t, <-errs)
 	}
-	for range canonEvents { //nolint:revive // draining to closure
-	}
-	require.NoError(t, <-byPathErrs)
-	require.NoError(t, <-canonErrs)
 }
 
 // TestSessionWatcher_ShrunkTranscriptResyncsInsteadOfWedging: a transcript that

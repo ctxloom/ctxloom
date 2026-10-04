@@ -72,8 +72,8 @@ not resumable from the copy that conversion had just made.
 
 Fixed 2026-08-05: `RecordedSessionEntries` now prefers
 `entry.CanonicalTranscriptPath` (populated only when `transcript.jsonl` exists
-on disk) via `transcript.ParseTranscriptFile`, falling back to the backend
-reader only for a session that predates canonical capture. Nothing about this
+on disk) via `transcript.ParseTranscriptFile`; that transcript is now its only
+source. Nothing about this
 was hard to fix and nothing about it was visible without asking; it had
 presumably been true the whole time, and closing it also closed a measured
 blind spot in the retention scenario below (a consuming resume placed right
@@ -141,7 +141,7 @@ and not as a surface anyone could inspect — resume folded a transcript in from
 the wrong archive, a step table used the wrong argument name, and a resume
 mode's delivery mechanism was invisible to `--dry-run` by construction. Two of
 those are now fixed (`RecordedSessionEntries` reads ctxloom's own canonical
-transcript first; the MCP argument name and marker were corrected to match
+transcript; the MCP argument name and marker were corrected to match
 `load_session`'s real, deliberate essence-only behaviour). The third —
 `--distill --dry-run` showing nothing — remains open pending a design decision
 on where the preview lives; see its own scenario comment for the two shapes

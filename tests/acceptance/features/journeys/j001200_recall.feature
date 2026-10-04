@@ -140,11 +140,8 @@ Feature: The archaeologist — what did we decide in March?
   # native store) and resumed from the wrong one. Fixed by making
   # RecordedSessionEntries prefer entry.CanonicalTranscriptPath (populated
   # only when transcript.jsonl exists on disk) via transcript.ParseTranscriptFile,
-  # falling back to the backend reader only when no canonical transcript was
-  # ever captured for the harp — so a session predating canonical capture still
-  # resumes exactly as before. Mutation: disabling the canonical-transcript
-  # branch (falling straight through to the backend reader, the OLD behaviour)
-  # turns this red again.
+  # which is now its only source. Mutation: disabling the canonical-transcript
+  # read turns this red again.
   Scenario: Resuming the March session puts that conversation back in front of a model
     When I run "ctxloom run --session amber-quiet-heron --dry-run -p default"
     Then the assembled context carries the conversation she had in March
@@ -294,9 +291,8 @@ Feature: The archaeologist — what did we decide in March?
   # (the mock backend has no `seeded-amber-quiet-heron`) and the resume warned
   # and gave up before reaching any code downstream of it. That was inherited
   # from "resuming the March session" two rows up, which has since been fixed:
-  # RecordedSessionEntries now reads entry.CanonicalTranscriptPath FIRST (the
-  # path that actually runs in this fixture) and only falls back to the
-  # backend when no canonical transcript exists. Re-measured with an
+  # RecordedSessionEntries now reads entry.CanonicalTranscriptPath (the path
+  # that actually runs in this fixture) and nothing else. Re-measured with an
   # os.Remove(entry.CanonicalTranscriptPath) placed immediately after a
   # successful transcript.ParseTranscriptFile — the position a consuming
   # resume would actually occupy now — and it DOES turn this row red. The gap

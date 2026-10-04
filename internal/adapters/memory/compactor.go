@@ -87,10 +87,9 @@ type CompactionConfig struct {
 	// it — the canonical-capture source in production (transcript.CanonicalHistory
 	// behind operations' resolver), a fake in a test — so this package never
 	// opens the session index to build a reader and never names an engine to
-	// pick one. Nil is legal only alongside PreloadedSession (or the
-	// BackendOverride test seam); a nil source with neither is "no history".
-	Source          Source
-	BackendOverride agent.Backend // Optional: inject an in-process SessionHistory directly for testing (bypasses Source)
+	// pick one. Nil is legal only alongside PreloadedSession; a nil source
+	// without one is "no history".
+	Source Source
 	// Progress receives human-readable distillation progress. It belongs to
 	// the CALLER because only the caller knows whether it has anywhere safe to
 	// put it: a CLI owns its terminal, while the coordinator's host-relay
@@ -181,48 +180,13 @@ type Source interface {
 	CurrentSession(ctx context.Context) (*agent.Session, error)
 }
 
-// memoryHistorySource adapts an in-process SessionHistory to Source. It backs
-// the BackendOverride test seam (unit-testing compaction logic against a fake
-// transcript store); production injects Source directly.
-type memoryHistorySource struct {
-	history agent.SessionHistory
-	workDir string
-}
-
-func (s memoryHistorySource) GetSession(_ context.Context, id string) (*agent.Session, error) {
-	return s.history.GetSession(s.workDir, id)
-}
-func (s memoryHistorySource) ListSessions(_ context.Context) ([]agent.SessionMeta, error) {
-	return s.history.ListSessions(s.workDir)
-}
-func (s memoryHistorySource) CurrentSession(_ context.Context) (*agent.Session, error) {
-	return s.history.GetCurrentSession(s.workDir)
-}
-
 // NewCompactor creates a new compactor with the given config. The transcript
-// SOURCE is the caller's to resolve and inject (CompactionConfig.Source); this
-// constructor only adapts the BackendOverride test seam when no Source was
-// given, so the compactor itself opens no session index and picks no engine.
+// SOURCE is the caller's to resolve and inject (CompactionConfig.Source), so
+// the compactor itself opens no session index and picks no engine.
 func NewCompactor(fsys afero.Fs, config CompactionConfig) (*Compactor, error) {
 	applyCompactionDefaults(&config)
 	clampCompactionBounds(&config)
-	return &Compactor{fs: fsys, config: config, source: resolveSource(config)}, nil
-}
-
-// resolveSource picks the transcript source: the injected one, else the
-// BackendOverride test seam's in-process history, else nil (which
-// loadSessionToCompact reports as "no history" unless a PreloadedSession
-// short-circuits it).
-func resolveSource(config CompactionConfig) Source {
-	if config.Source != nil {
-		return config.Source
-	}
-	if config.BackendOverride != nil {
-		if h := config.BackendOverride.History(); h != nil {
-			return memoryHistorySource{history: h, workDir: config.WorkDir}
-		}
-	}
-	return nil
+	return &Compactor{fs: fsys, config: config, source: config.Source}, nil
 }
 
 // applyCompactionDefaults fills the fields a zero value leaves unusable. These

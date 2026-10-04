@@ -11,16 +11,15 @@
 // exists at all: the broken per-engine scrapers were deleted outright, and
 // the interactive-pty gap that left was later closed for pre-capture and
 // pty-driven sessions through the canonical Recorder instead of a bespoke
-// SessionHistory scraper.
+// per-engine scraper.
 //
 // READER, NOT IMPORTER — and NOT the deleted scrapers either. These are not
 // one-time imports into a ctxloom-owned archive: a vendor reader is consulted
 // whenever a conversation is needed and transforms the vendor's own store
 // into ctxloom's canonical form ON READ (task virtuous-evil). Do not
-// confuse this package with the per-engine Backend.History() SCRAPERS it
-// replaced, deleted as PROVEN BROKEN (ADR 0035 names their defects). Both
-// were implementations of the same interface; the scrapers were deleted for
-// being WRONG, not for being the wrong shape. Comments elsewhere that say
+// confuse this package with the per-engine transcript SCRAPERS it
+// replaced, deleted as PROVEN BROKEN (ADR 0035 names their defects). The
+// scrapers were deleted for being WRONG, not for being the wrong shape. Comments elsewhere that say
 // "the deleted reader" or "the deleted scraper" mean those scrapers, not
 // this package.
 //

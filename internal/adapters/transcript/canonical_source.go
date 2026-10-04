@@ -13,16 +13,9 @@ import (
 // CanonicalFallbackSource is the Source every production reader (compactor,
 // MCP memory tools, `memory`/`session` CLI commands) reads through. It
 // prefers ctxloom's own captured transcript.jsonl (CanonicalHistory) for any
-// harp that has one, and falls back to a legacy per-engine Source (an
-// EngineReader over the engine's own store) only for a harp that predates
-// capture. Every new session has a canonical transcript (the runner records
-// every structured turn), so the fallback decays to zero over time.
-//
-// An engine that retired its own scraper DECLARES that on its descriptor
-// (hosting.Hosting.NoLegacyHistoryReason; read through
-// backends.NoLegacyHistoryReason), and a caller building a source for it
-// passes legacy=nil: canonical capture is the ONLY source, with no legacy
-// leg to ever fall back to. Every other engine keeps its legacy leg.
+// harp that has one, and falls back to a legacy Source only when one is
+// given. No shipped engine keeps a transcript store of its own, so every
+// production caller passes legacy=nil: canonical capture is the ONLY source.
 
 // CanonicalFallbackSource wraps a legacy Source with canonical-first
 // selection. Store resolves a backend-native session id to the harp that owns

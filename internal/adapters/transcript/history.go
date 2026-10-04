@@ -27,10 +27,7 @@ import (
 )
 
 // CanonicalHistory is the harp-keyed, project-scoped read view over ctxloom's
-// own captured transcripts. Unlike the per-engine SessionHistory
-// implementations it supersedes — which need workDir on every call to locate
-// a backend-native session-store directory before they can even resolve a
-// sessionID — a harp alone is enough to resolve
+// own captured transcripts. A harp alone is enough to resolve
 // paths.HarpCanonicalTranscriptPath, so GetSession takes no workDir at all.
 // workDir is still needed to scope ListSessions/CurrentSession to "this
 // project's sessions" (there is no per-project canonical directory; harps

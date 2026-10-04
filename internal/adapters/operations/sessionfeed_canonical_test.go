@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -55,7 +54,7 @@ func TestFeedScrollback_ReadsCanonical(t *testing.T) {
 	testsupport.Isolate(t)
 	entry := seedCanonicalFeedHarp(t, "SCROLLBACK-REAL-PAYLOAD")
 
-	entries := feedScrollback(context.Background(), engines.Registry(), entry, "claude-code")
+	entries := feedScrollback(entry)
 	require.Len(t, entries, 1)
 	assert.Equal(t, "SCROLLBACK-REAL-PAYLOAD", entries[0].Content)
 }
@@ -70,7 +69,7 @@ func TestWatchStoreFeed_StreamsCanonical(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), feedWait)
 	defer cancel()
 
-	feed, err := watchStoreFeed(ctx, engines.Registry(), entry, "claude-code")
+	feed, err := watchStoreFeed(ctx, entry)
 	require.NoError(t, err)
 	assert.Equal(t, "store", feed.Source)
 

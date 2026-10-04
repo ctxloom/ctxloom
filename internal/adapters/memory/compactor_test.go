@@ -278,75 +278,42 @@ func TestCompactor_SaveDistilled_RefusesEmptyBody(t *testing.T) {
 	require.Error(t, err, "an empty distilled body must not be written over a good essence")
 }
 
-// mockBackend implements agent.Backend for testing compactor.
-type mockBackend struct {
-	history agent.SessionHistory
-}
-
-func (m *mockBackend) Name() string    { return "mock-test" }
-func (m *mockBackend) Version() string { return "1.0.0" }
-func (m *mockBackend) SupportedModes() []agent.ExecutionMode {
-	return []agent.ExecutionMode{agent.ModeInteractive, agent.ModeOneshot}
-}
-func (m *mockBackend) History() agent.SessionHistory { return m.history }
-func (m *mockBackend) WorkDir() string               { return "" }
-func (m *mockBackend) SetWorkDir(string)             {}
-func (m *mockBackend) Execute(context.Context, *agent.ExecuteRequest, io.Writer, io.Writer) (*agent.ExecuteResult, error) {
-	return &agent.ExecuteResult{ExitCode: 0}, nil
-}
-func (m *mockBackend) Cleanup(context.Context) error { return nil }
-
-// mockSessionHistory implements agent.SessionHistory for testing.
-type mockSessionHistory struct {
+// mockSource is a canned transcript Source for testing the compactor.
+type mockSource struct {
 	currentSession *agent.Session
 	sessions       map[string]*agent.Session
-	sessionList    []agent.SessionMeta
 }
 
-func (m *mockSessionHistory) GetCurrentSession(workDir string) (*agent.Session, error) {
+func (m *mockSource) CurrentSession(context.Context) (*agent.Session, error) {
 	if m.currentSession == nil {
 		return nil, errors.New("no current session")
 	}
 	return m.currentSession, nil
 }
 
-func (m *mockSessionHistory) ListSessions(workDir string) ([]agent.SessionMeta, error) {
-	return m.sessionList, nil
-}
-
-func (m *mockSessionHistory) GetSession(workDir string, sessionID string) (*agent.Session, error) {
+func (m *mockSource) GetSession(_ context.Context, sessionID string) (*agent.Session, error) {
 	if s, ok := m.sessions[sessionID]; ok {
 		return s, nil
 	}
 	return nil, errors.New("session not found")
 }
 
-func (m *mockSessionHistory) GetSessionByPath(path string) (*agent.Session, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string {
-	return ""
-}
-
-func TestNewCompactor_WithBackendOverride(t *testing.T) {
-	mockHistory := &mockSessionHistory{}
-	mockBe := &mockBackend{history: mockHistory}
+func TestNewCompactor_WithSource(t *testing.T) {
+	src := &mockSource{}
 
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		WorkDir:         "/test",
+		Source:  src,
+		WorkDir: "/test",
 	})
 	require.NoError(t, err)
-	assert.NotNil(t, compactor)
-	assert.NotNil(t, compactor.source, "BackendOverride history must be adapted to a Source")
+	assert.Same(t, src, compactor.source, "the injected Source is the one read")
 }
 
 func TestNewCompactor_SetsDefaults(t *testing.T) {
-	mockBe := &mockBackend{history: &mockSessionHistory{}}
+	mockBe := &mockSource{}
 
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
+		Source: mockBe,
 	})
 	require.NoError(t, err)
 
@@ -357,11 +324,7 @@ func TestNewCompactor_SetsDefaults(t *testing.T) {
 }
 
 func TestCompact_NoHistorySupport(t *testing.T) {
-	mockBe := &mockBackend{history: nil}
-
-	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-	})
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{})
 	require.NoError(t, err)
 
 	_, err = compactor.Compact(context.Background())
@@ -372,11 +335,11 @@ func TestCompact_NoHistorySupport(t *testing.T) {
 func TestCompact_NoSession(t *testing.T) {
 	testsupport.Isolate(t) // see TestCompact_EmptySession: isolates CTXLOOM_SESSION_HARP
 	// so identityBoundSessionID can't resolve a real ambient session.
-	mockHistory := &mockSessionHistory{currentSession: nil}
-	mockBe := &mockBackend{history: mockHistory}
+	mockHistory := &mockSource{currentSession: nil}
+	mockBe := mockHistory
 
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
+		Source: mockBe,
 	})
 	require.NoError(t, err)
 
@@ -396,13 +359,13 @@ func TestCompact_EmptySession(t *testing.T) {
 	// has no harp-index binding, and without isolation an ambient real session's
 	// CTXLOOM_SESSION_HARP would make identityBoundSessionID resolve a REAL
 	// session id from the real ~/.ctxloom/sessions/index.yaml.
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		currentSession: &agent.Session{
 			ID:      "empty-session",
 			Entries: []agent.SessionEntry{},
 		},
 	}
-	mockBe := &mockBackend{history: mockHistory}
+	mockBe := mockHistory
 
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
@@ -413,10 +376,10 @@ func TestCompact_EmptySession(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -437,7 +400,7 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		currentSession: &agent.Session{
 			ID: "sidechain-session",
 			Entries: aboveDistillFloor([]agent.SessionEntry{
@@ -447,7 +410,7 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 			}),
 		},
 	}
-	mockBe := &mockBackend{history: mockHistory}
+	mockBe := mockHistory
 
 	var mu sync.Mutex
 	var prompts []string
@@ -463,10 +426,10 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       tmpDir,
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: tmpDir,
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -490,7 +453,7 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		currentSession: &agent.Session{
 			ID: "thinking-session",
 			Entries: aboveDistillFloor([]agent.SessionEntry{
@@ -500,7 +463,7 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 			}),
 		},
 	}
-	mockBe := &mockBackend{history: mockHistory}
+	mockBe := mockHistory
 
 	var mu sync.Mutex
 	var prompts []string
@@ -516,10 +479,10 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -543,7 +506,7 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 	testsupport.Isolate(t) // see TestCompact_EmptySession: isolates CTXLOOM_SESSION_HARP
 	// so identityBoundSessionID can't resolve a real ambient session.
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		currentSession: &agent.Session{
 			ID: "interior-only",
 			Entries: []agent.SessionEntry{
@@ -551,7 +514,7 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 			},
 		},
 	}
-	mockBe := &mockBackend{history: mockHistory}
+	mockBe := mockHistory
 
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
@@ -562,10 +525,10 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -587,10 +550,10 @@ func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
 	existing := filepath.Join(outDir, sessionID+".md")
 	require.NoError(t, os.WriteFile(existing, []byte(goodEssence), 0o644))
 
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		currentSession: &agent.Session{ID: sessionID, Entries: []agent.SessionEntry{}},
 	}
-	mockBe := &mockBackend{history: mockHistory}
+	mockBe := mockHistory
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatal("empty session must not reach the LLM")
@@ -600,10 +563,10 @@ func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       outDir,
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: outDir,
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -620,7 +583,7 @@ func TestCompact_WithMockClient(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		currentSession: &agent.Session{
 			ID: "test-compact-session",
 			Entries: []agent.SessionEntry{
@@ -629,7 +592,7 @@ func TestCompact_WithMockClient(t *testing.T) {
 			},
 		},
 	}
-	mockBe := &mockBackend{history: mockHistory}
+	mockBe := mockHistory
 
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
@@ -640,10 +603,10 @@ func TestCompact_WithMockClient(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       tmpDir,
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: tmpDir,
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -672,7 +635,7 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	big := strings.Repeat("the session worked through many decisions and edits. ", 200)
-	mockBe := &mockBackend{history: &mockSessionHistory{
+	mockBe := &mockSource{
 		currentSession: &agent.Session{
 			ID: "oversized-reduce-session",
 			Entries: []agent.SessionEntry{
@@ -680,7 +643,7 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 				{Type: agent.EntryTypeAssistant, Content: big},
 			},
 		},
-	}}
+	}
 
 	oversized := strings.Repeat("z", MaxEssenceChars+1)
 	mockClient := &scriptedDistiller{
@@ -694,10 +657,10 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       tmpDir,
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: tmpDir,
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -728,12 +691,12 @@ func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
-	mockBe := &mockBackend{history: &mockSessionHistory{
+	mockBe := &mockSource{
 		currentSession: &agent.Session{
 			ID:      "sysprompt-session",
 			Entries: aboveDistillFloor([]agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "hello"}}),
 		},
-	}}
+	}
 
 	var sawPrompt string
 	mockClient := &scriptedDistiller{
@@ -746,10 +709,10 @@ func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       tmpDir,
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: tmpDir,
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -773,7 +736,7 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 	planDir := recordOutputDir(t, "plan-harp")
 	require.NoError(t, os.WriteFile(filepath.Join(planDir, "schema.plan.md"), []byte(planBody), 0o644))
 
-	mockBe := &mockBackend{history: &mockSessionHistory{
+	mockBe := &mockSource{
 		currentSession: &agent.Session{
 			ID: "plan-survival",
 			Entries: []agent.SessionEntry{
@@ -781,7 +744,7 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 				{Type: agent.EntryTypeAssistant, Content: "plan ready"},
 			},
 		},
-	}}
+	}
 
 	// Capture the prompt the LLM sees: plans live in files, so the transcript
 	// the LLM summarizes never carries the plan body.
@@ -795,9 +758,9 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 	}
 
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       tmpDir,
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: tmpDir,
 	})
 	require.NoError(t, err)
 
@@ -829,7 +792,7 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 	legacyPath := filepath.Join(tmpDir, "fail-session.md")
 	require.NoError(t, os.WriteFile(legacyPath, []byte(prior), 0o644))
 
-	mockBe := &mockBackend{history: &mockSessionHistory{
+	mockBe := &mockSource{
 		currentSession: &agent.Session{
 			ID: "fail-session",
 			Entries: aboveDistillFloor([]agent.SessionEntry{
@@ -837,7 +800,7 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 				{Type: agent.EntryTypeAssistant, Content: "world"},
 			}),
 		},
-	}}
+	}
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			return 0, errors.New("backend down")
@@ -846,10 +809,10 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 
 	recordOutputDir(t, "fail-harp")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       tmpDir,
-		HarpName:        "fail-harp",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: tmpDir,
+		HarpName:  "fail-harp",
 	})
 	require.NoError(t, err)
 
@@ -921,12 +884,12 @@ func TestCompact_BySessionID(t *testing.T) {
 			{Type: agent.EntryTypeUser, Content: "Specific request"},
 		},
 	}
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		sessions: map[string]*agent.Session{
 			"specific-session": targetSession,
 		},
 	}
-	mockBe := &mockBackend{history: mockHistory}
+	mockBe := mockHistory
 
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
@@ -937,11 +900,11 @@ func TestCompact_BySessionID(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       tmpDir,
-		HarpName:        "compactor-under-test",
-		SessionID:       "specific-session",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: tmpDir,
+		HarpName:  "compactor-under-test",
+		SessionID: "specific-session",
 	})
 	require.NoError(t, err)
 
@@ -970,7 +933,7 @@ func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(entry.HarpName, "correct-session", ""))
 
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		// What an mtime-position pick ("current session") would wrongly return —
 		// a stale/resumed transcript that out-ranks the real one by mtime.
 		currentSession: &agent.Session{
@@ -984,7 +947,7 @@ func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
 			},
 		},
 	}
-	mockBe := &mockBackend{history: mockHistory}
+	mockBe := mockHistory
 
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
@@ -994,11 +957,11 @@ func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
 	}
 
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		Backend:         "claude-code",
-		HarpName:        entry.HarpName,
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		Backend:   "claude-code",
+		HarpName:  entry.HarpName,
 		// SessionID intentionally left empty: "compact my current session".
 	})
 	require.NoError(t, err)
@@ -1016,13 +979,13 @@ func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
 func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		currentSession: &agent.Session{
 			ID:      "mtime-current-session",
 			Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "hi"}},
 		},
 	}
-	mockBe := &mockBackend{history: mockHistory}
+	mockBe := mockHistory
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled content"))
@@ -1032,10 +995,10 @@ func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		HarpName:  "compactor-under-test",
 		// No HarpName, no SessionID.
 	})
 	require.NoError(t, err)
@@ -1063,7 +1026,7 @@ func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(entry.HarpName, "dead-session", ""))
 
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		// "dead-session" is intentionally absent from sessions: its transcript
 		// is gone. currentSession is the genuine last-resort fallback.
 		currentSession: &agent.Session{
@@ -1072,7 +1035,7 @@ func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 		},
 		sessions: map[string]*agent.Session{},
 	}
-	mockBe := &mockBackend{history: mockHistory}
+	mockBe := mockHistory
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled content"))
@@ -1081,11 +1044,11 @@ func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 	}
 
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		Backend:         "claude-code",
-		HarpName:        entry.HarpName,
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		Backend:   "claude-code",
+		HarpName:  entry.HarpName,
 		// SessionID intentionally left empty: "compact my current session".
 	})
 	require.NoError(t, err)
@@ -1102,14 +1065,14 @@ func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 func TestCompact_ExplicitSessionIDStaleHardErrors(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mockHistory := &mockSessionHistory{
+	mockHistory := &mockSource{
 		currentSession: &agent.Session{
 			ID:      "mtime-current-session",
 			Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "hi"}},
 		},
 		sessions: map[string]*agent.Session{},
 	}
-	mockBe := &mockBackend{history: mockHistory}
+	mockBe := mockHistory
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled content"))
@@ -1119,12 +1082,12 @@ func TestCompact_ExplicitSessionIDStaleHardErrors(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		HarpName:        "compactor-under-test",
-		Backend:         "claude-code",
-		SessionID:       "dead-session", // explicit, and absent from sessions
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		HarpName:  "compactor-under-test",
+		Backend:   "claude-code",
+		SessionID: "dead-session", // explicit, and absent from sessions
 	})
 	require.NoError(t, err)
 
@@ -1284,9 +1247,9 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	require.Empty(t, strings.TrimSpace(probe),
 		"fixture is not hostile: these entries render to non-empty text")
 
-	mockBe := &mockBackend{history: &mockSessionHistory{
+	mockBe := &mockSource{
 		currentSession: &agent.Session{ID: "thinking-only-session", Entries: thinkingOnly},
-	}}
+	}
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatalf("an LLM subprocess was spawned to distil an empty transcript; prompt was %q", prompt)
@@ -1296,10 +1259,10 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -1323,7 +1286,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	}
 	recordOutputDir(t, "compactor-under-test")
 	inclusive, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
+		Source:          mockBe,
 		Run:             runnerOver(includeClient),
 		OutputDir:       t.TempDir(),
 		HarpName:        "compactor-under-test",
@@ -1459,7 +1422,7 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 	// The shape that broke: the session's own id is NOT a plausible vendor
 	// UUID, it is the harp, because that is what Compact resolves to.
 	const resolvedID = "shut-hoary-yahoo"
-	mockBe := &mockBackend{history: &mockSessionHistory{
+	mockBe := &mockSource{
 		currentSession: &agent.Session{
 			ID: resolvedID,
 			Entries: aboveDistillFloor([]agent.SessionEntry{
@@ -1467,7 +1430,7 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 				{Type: agent.EntryTypeAssistant, Content: "written under one key, read under another"},
 			}),
 		},
-	}}
+	}
 	const body = "Distilled: the write key and the read key must agree."
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
@@ -1478,10 +1441,10 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       outputDir,
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: outputDir,
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -1575,9 +1538,9 @@ func TestCompact_BelowDistillFloor_DumpsVerbatimWithoutLLM(t *testing.T) {
 		{Type: agent.EntryTypeUser, Content: "Say the exact phrase: " + phrase + " and nothing else."},
 		{Type: agent.EntryTypeAssistant, Content: phrase},
 	}
-	mockBe := &mockBackend{history: &mockSessionHistory{
+	mockBe := &mockSource{
 		currentSession: &agent.Session{ID: "below-floor-session", Entries: tiny},
-	}}
+	}
 	mockClient := &scriptedDistiller{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatalf("an LLM subprocess was spawned to distil a below-floor transcript; prompt was %q", prompt)
@@ -1587,10 +1550,10 @@ func TestCompact_BelowDistillFloor_DumpsVerbatimWithoutLLM(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 

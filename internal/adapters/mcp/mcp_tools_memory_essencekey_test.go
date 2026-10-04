@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/spf13/afero"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -40,29 +38,16 @@ func canonicalRecords(harp, sessionID string) []byte {
 	return []byte(out)
 }
 
-// fixedHistory reports one session, whatever is asked of it: the compactor only
+// fixedSource reports one session, whatever is asked of it: the compactor only
 // needs a session to distill, and this test is about what happens to the RESULT.
-type fixedHistory struct {
-	mock.NilSessionHistory
-	session *agent.Session
+type fixedSource struct{ session *agent.Session }
+
+func (f *fixedSource) GetSession(context.Context, string) (*agent.Session, error) {
+	return f.session, nil
 }
 
-func (h *fixedHistory) GetCurrentSession(string) (*agent.Session, error) { return h.session, nil }
-
-func (h *fixedHistory) GetSession(_, _ string) (*agent.Session, error) { return h.session, nil }
-
-// fixedBackend is the minimum agent.Backend the compactor will accept: identity
-// from BaseBackend, a canned history, and a lifecycle that does nothing because
-// no engine is ever launched (the LLM call goes through the mock client).
-type fixedBackend struct {
-	agent.BaseBackend
-	history *fixedHistory
-}
-
-func (b *fixedBackend) History() agent.SessionHistory { return b.history }
-func (b *fixedBackend) Cleanup(context.Context) error { return nil }
-func (b *fixedBackend) Execute(context.Context, *agent.ExecuteRequest, io.Writer, io.Writer) (*agent.ExecuteResult, error) {
-	return &agent.ExecuteResult{}, nil
+func (f *fixedSource) CurrentSession(context.Context) (*agent.Session, error) {
+	return f.session, nil
 }
 
 // fixedCompactor returns a compactorFactory that distills the given session id
@@ -71,18 +56,15 @@ func (b *fixedBackend) Execute(context.Context, *agent.ExecuteRequest, io.Writer
 // it and the staleness stamp is computed from the real transcript.
 func fixedCompactor(sessionID, body string) func(memory.CompactionConfig) (*memory.Compactor, error) {
 	return func(cfg memory.CompactionConfig) (*memory.Compactor, error) {
-		be := &fixedBackend{
-			BaseBackend: agent.NewBaseBackend("fixed", "1.0.0"),
-			history: &fixedHistory{session: &agent.Session{
-				ID: sessionID,
-				Entries: []agent.SessionEntry{
-					{Type: agent.EntryTypeUser, Content: "where did the essence go"},
-					{Type: agent.EntryTypeAssistant, Content: "written under one key, read under another"},
-				},
-			}},
-		}
+		src := &fixedSource{session: &agent.Session{
+			ID: sessionID,
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeUser, Content: "where did the essence go"},
+				{Type: agent.EntryTypeAssistant, Content: "written under one key, read under another"},
+			},
+		}}
 		return memory.NewCompactor(afero.NewOsFs(), memory.CompactionConfig{
-			BackendOverride: be,
+			Source: src,
 			// The distiller's turn: a canned answer, standing where the
 			// resolved one-shot session's turn stands in production.
 			Run:       func(context.Context, string) (string, error) { return body, nil },

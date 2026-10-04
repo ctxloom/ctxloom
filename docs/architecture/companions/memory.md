@@ -76,7 +76,6 @@ flowchart TD
 | `CompactionConfig` | `compactor.go` | Source selection, LLM invocation and output settings for one compaction |
 | `CompactionResult` | `compactor.go` | What one `Compact` reports back to its caller |
 | `Compactor` | `compactor.go` | The configured pipeline. It holds **no field for the session index it mutates** — each method that needs the index calls `sessions.Open` itself, so one `Compact` parses the index more than once |
-| `memoryHistorySource` | `compactor.go` | Adapter from `agent.SessionHistory` to `pb.SessionSource` for the `BackendOverride` test seam |
 | `distilledMeta` | `compactor.go` | The YAML frontmatter written at the top of every essence |
 | `DistilledSession` | `compactor.go` | The parsed form of an essence: `distilledMeta` plus `Body` |
 | `PlanBlock` | `plans.go` | One plan file's label and verbatim content, as `RenderPlans` re-attaches it |

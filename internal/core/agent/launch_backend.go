@@ -35,7 +35,7 @@ type HashedContext interface {
 }
 
 // LaunchBackend is the shared core of a local-CLI launch agent (claude).
-// It owns the capability wiring (lifecycle/commands/context/history) and the
+// It owns the capability wiring (lifecycle/context) and the
 // generic Execute tail every launch agent shares. A concrete agent embeds
 // it, calls InitLaunch with its constructed capabilities, and implements only
 // the genuinely engine-specific surface: Configure, Execute, and its config's
@@ -45,7 +45,6 @@ type LaunchBackend struct {
 	BaseBackend
 	lifecycle ManagedLifecycle
 	context   HashedContext
-	history   SessionHistory
 
 	// surfaces is the engine's static Declaration: which approaches it
 	// constructs for each surface kind — the engine's own account of its
@@ -67,10 +66,9 @@ type LaunchBackend struct {
 // concrete constructor once the capabilities (which usually close over the
 // concrete backend) have been built. surfaces is the engine's Declaration of
 // the approaches it delivers at launch.
-func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, ctxProvider HashedContext, history SessionHistory, surfaces Declaration) {
+func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, ctxProvider HashedContext, surfaces Declaration) {
 	b.lifecycle = lifecycle
 	b.context = ctxProvider
-	b.history = history
 	b.surfaces = surfaces
 }
 
@@ -85,9 +83,6 @@ func (b *LaunchBackend) SetExecuteEnv(fn func(req *ExecuteRequest) map[string]st
 // home, so a run that carries it (an agent binding with engine_home: session)
 // advises its private engine home to every writer. See engineHomeVar.
 func (b *LaunchBackend) SetEngineHomeVar(name string) { b.engineHomeVar = name }
-
-// History returns the session history accessor.
-func (b *LaunchBackend) History() SessionHistory { return b.history }
 
 // ExecuteCLI runs the shared tail of an exec-style Execute: the dry-run
 // preview stop, the v16 argv trace, env assembly (the request env plus the

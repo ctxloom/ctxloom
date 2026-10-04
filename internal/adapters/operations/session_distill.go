@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 
@@ -13,10 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/policy"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // The distillation/compaction cluster the session commands share with the MCP
@@ -61,21 +58,17 @@ type DistillOptions struct {
 
 // CompactEntry runs the compactor for a single session entry and returns the
 // result. It does NOT change the working directory and does NOT load config —
-// the caller supplies cfg and situates the process. This split lets the
-// one-shot CLI (`session distill`, `session list --distill`) chdir into the
-// entry's project dir first, so the cwd-bound legacy transcript reader
-// resolves, while the long-lived MCP server — which must never chdir — calls
-// it as-is: canonical-transcript sessions resolve cwd-independently through
-// WorkDir, and legacy-only sessions there degrade to the clear "nothing to
-// distill" error below rather than corrupting the server's cwd.
+// the caller supplies cfg and situates the process. Canonical-transcript
+// sessions resolve cwd-independently through WorkDir, so the long-lived MCP
+// server — which must never chdir — calls it as-is.
 //
 // session_id is recorded forward by the `ctxloom hook session-bind`
 // SessionStart hook (see sessionBindCmd). A container-runtime harp's bind hook
 // runs INSIDE the container, though, and the host session index is not mounted
 // in — so its session_id never gets bound host-side. The unbound case is
-// distillPreload's to settle: ctxloom's canonical capture first, the engine's
-// recorded transcript path only without one, and a hard error when there is
-// neither — genuinely nothing to distill.
+// distillable's to settle: ctxloom's canonical capture is read by HarpName,
+// and a harp with neither a bound id nor a capture has genuinely nothing to
+// distill.
 // opts carries the per-invocation knobs; its zero value is the ordinary
 // config-driven distill.
 //
@@ -83,7 +76,6 @@ type DistillOptions struct {
 // wiring can be observed in a test; that test seam stays in mcp and is not
 // duplicated here.
 func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
-	reg := f.Engines
 	model := CompactionModelFor(cfg, opts.Model)
 	backendName := entry.Backend
 	if backendName == "" {
@@ -91,8 +83,7 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	}
 
 	sessionID := entry.SessionID
-	preloaded, err := distillPreload(reg, entry, backendName)
-	if err != nil {
+	if err := distillable(entry); err != nil {
 		return nil, err
 	}
 
@@ -106,27 +97,21 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	// when the compaction is done.
 	distiller := OneShot(f, opts.Hosts, cfg).Label(cfg.FastLabel()).Model(model).WorkDir(entry.ProjectDir).Lazy()
 	defer distiller.End()
-	// The compactor no longer builds its own source: resolve it here (unless a
-	// transcript was preloaded by path, which short-circuits it) and inject.
-	var source memory.Source
-	if preloaded == nil {
-		src, serr := distillSource(reg, backendName, entry.ProjectDir)
-		if serr != nil {
-			return nil, fmt.Errorf("resolve transcript source for backend %q: %w", backendName, serr)
-		}
-		source = src
+	// The compactor does not build its own source: resolve it here and inject.
+	source, err := distillSource(entry.ProjectDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve transcript source for backend %q: %w", backendName, err)
 	}
 	compactor, err := memory.NewCompactor(configFS(cfg), memory.CompactionConfig{
-		Run:              distiller.Turn,
-		Backend:          backendName,
-		Source:           source,
-		EssenceMaxChars:  cfg.GetEssenceMaxChars(),
-		SessionID:        sessionID,
-		PreloadedSession: preloaded,
-		WorkDir:          entry.ProjectDir,
-		HarpName:         entry.HarpName,
-		Progress:         opts.Progress,
-		PromptDir:        opts.PromptDir,
+		Run:             distiller.Turn,
+		Backend:         backendName,
+		Source:          source,
+		EssenceMaxChars: cfg.GetEssenceMaxChars(),
+		SessionID:       sessionID,
+		WorkDir:         entry.ProjectDir,
+		HarpName:        entry.HarpName,
+		Progress:        opts.Progress,
+		PromptDir:       opts.PromptDir,
 		// What this session said it was about to do next, captured by the
 		// TurnEnd hook while it was still live. Absent on a harp that has not
 		// finished a turn, and absent is free: distillPrompt appends nothing.
@@ -142,60 +127,16 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	return result, nil
 }
 
-// distillPreload picks what a distill reads when no session_id is bound: nil
-// when the compactor resolves the transcript itself (a bound id, or ctxloom's
-// canonical capture by HarpName), a session loaded from the engine's recorded
-// transcript path otherwise, and an error when there is nothing to read.
-func distillPreload(reg engine.Registry, entry *sessions.Entry, backendName string) (*agent.Session, error) {
-	if entry.SessionID != "" {
-		return nil, nil
+// distillable reports whether the compactor has anything to resolve for
+// entry: a bound session id, or ctxloom's canonical capture (read by
+// HarpName). A recorded vendor transcript path alone is not readable: no
+// shipped engine keeps a reader for its own store, so canonical capture is
+// the only source.
+func distillable(entry *sessions.Entry) error {
+	if entry.SessionID != "" || entry.CanonicalTranscriptPath != "" {
+		return nil
 	}
-	switch {
-	case entry.CanonicalTranscriptPath != "":
-		// Canonical first: the compactor resolves the harp's own capture by
-		// HarpName, and it is readable for every engine. The vendor path below
-		// needs a legacy reader the default engine does not have, so preferring
-		// it refused sessions whose canonical capture was sitting on disk.
-		return nil, nil
-	case entry.TranscriptPath != "":
-		hist, herr := HistoryForBackend(reg, backendName)
-		if herr != nil {
-			return nil, fmt.Errorf("resolve history reader for backend %q: %w", backendName, herr)
-		}
-		preloaded, herr := hist.GetSessionByPath(entry.TranscriptPath)
-		if herr != nil {
-			return nil, fmt.Errorf("load session from transcript %q: %w", entry.TranscriptPath, herr)
-		}
-		return preloaded, nil
-	default:
-		return nil, fmt.Errorf("harp %q has no session_id bound, no transcript path recorded, and no captured transcript; nothing to distill (the SessionStart bind hook records the ID for sessions launched via ctxloom run)", entry.HarpName)
-	}
-}
-
-// distillSource builds the transcript source the compactor reads for a
-// distill: ctxloom's own canonical capture (transcript.CanonicalHistory via
-// the canonical-fallback source), with the legacy per-engine scraper behind
-// it only for a backend that still declares one — none of the shipped engines
-// do. It is the resolution the compactor used to do inline before slice 14a
-// moved source-building to the caller, minus the read-side content policy
-// (a distill reads the raw transcript, the same bytes it always did). A
-// session-index open failure degrades to the legacy-only reader, or errors
-// when there is no legacy leg to fall back to.
-// legacyTranscriptSource is the legacy leg of a transcript source: a reader
-// over the engine's OWN store for an engine that still keeps one, scoped to
-// workDir; nil (no error) for a retired-scraper engine, whose transcripts are
-// canonical capture alone. As a transcript.Source interface value it is nil
-// exactly when there is no leg — never a typed nil the fallback would
-// dereference.
-func legacyTranscriptSource(reg engine.Registry, backend, workDir string) (transcript.Source, error) {
-	hist, err := HistoryForBackend(reg, backend)
-	if err != nil {
-		if errors.Is(err, errNoSessionHistory) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return transcript.NewEngineReader(hist, workDir), nil
+	return fmt.Errorf("harp %q has no session_id bound and no captured transcript; nothing to distill", entry.HarpName)
 }
 
 // DistillSource resolves the transcript source a compactor reads for a
@@ -203,37 +144,25 @@ func legacyTranscriptSource(reg engine.Registry, backend, workDir string) (trans
 // memory tools). It is distillSource behind an exported name so those callers
 // need not know how a canonical source is assembled.
 func DistillSource(reg engine.Registry, backend, workDir string) (memory.Source, error) {
-	return distillSource(reg, backend, workDir)
+	return distillSource(workDir)
 }
 
-func distillSource(reg engine.Registry, backend, workDir string) (memory.Source, error) {
-	legacy, err := legacyTranscriptSource(reg, backend, workDir)
-	if err != nil {
-		return nil, err
-	}
+// distillSource builds the transcript source the compactor reads for a
+// distill: ctxloom's own canonical capture, scoped to workDir, read raw (no
+// read-side content policy — a distill reads the transcript's own bytes).
+func distillSource(workDir string) (memory.Source, error) {
 	store, err := sessions.Open(strictness.Sink("ctxloom"))
-	switch {
-	case err == nil:
-		return transcript.NewCanonicalFallbackSource(legacy, workDir, store), nil
-	case legacy != nil:
-		return legacy, nil
-	default:
-		return nil, fmt.Errorf("session index unavailable and %s has no legacy transcript reader: %w", backend, err)
+	if err != nil {
+		return nil, fmt.Errorf("session index unavailable: %w", err)
 	}
+	return transcript.NewCanonicalFallbackSource(nil, workDir, store), nil
 }
 
 // ResolveSessionSource resolves the backend (defaulting when empty) and a
 // transcript source for it, returning the resolved backend name for display.
-// Shared by loadOrDistillSession's callers (mcp's memory tools). The legacy
-// leg (a transcript.EngineReader over the engine's own store, scoped to
-// workDir) is wrapped in CanonicalFallbackSource so any harp with a captured
-// canonical transcript is read from that instead — workDir scopes the
-// canonical side to this project too. A session-index open failure degrades
-// to the legacy-only reader rather than failing the caller outright.
-//
-// A retired-scraper backend (claude-code — its scraper was deleted, not
-// demoted) never gets a legacy leg at all: there is no History() left to
-// ask. Every other backend keeps its legacy leg unchanged.
+// Shared by loadOrDistillSession's callers (mcp's memory tools). The source
+// is ctxloom's canonical capture, scoped to workDir; a session-index open
+// failure is the caller's error, since there is no other source to read.
 func ResolveSessionSource(reg engine.Registry, cfg *config.Config, backendName, workDir string) (transcript.Source, string, error) {
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLM()
@@ -241,17 +170,9 @@ func ResolveSessionSource(reg engine.Registry, cfg *config.Config, backendName, 
 	if !EngineExists(reg, backendName) {
 		return nil, backendName, fmt.Errorf("unknown backend: %s", backendName)
 	}
-	legacy, err := legacyTranscriptSource(reg, backendName, workDir)
-	if err != nil {
-		return nil, backendName, err
-	}
 	store, err := sessions.Open(strictness.Sink("ctxloom"))
 	if err != nil {
-		clidiag.Warn("ctxloom", "session index open failed, reading legacy transcripts only: %v", err)
-		if legacy != nil {
-			return transcript.NewFilteredSource(legacy, policy.Default()), backendName, nil
-		}
-		return nil, backendName, fmt.Errorf("session index unavailable and %s has no legacy transcript reader: %w", backendName, err)
+		return nil, backendName, fmt.Errorf("session index unavailable: %w", err)
 	}
 	// The content policy is applied HERE, at the one place a read source is
 	// built, so every consumer that resolves a source through this function —
@@ -261,7 +182,7 @@ func ResolveSessionSource(reg engine.Registry, cfg *config.Config, backendName, 
 	// changing the policy changes what every existing transcript yields, with
 	// no migration. See transcript.FilteredSource.
 	return transcript.NewFilteredSource(
-		transcript.NewCanonicalFallbackSource(legacy, workDir, store),
+		transcript.NewCanonicalFallbackSource(nil, workDir, store),
 		policy.Default(),
 	), backendName, nil
 }

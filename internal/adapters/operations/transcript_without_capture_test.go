@@ -78,29 +78,23 @@ func TestRecordedSessionEntries_UnreadableCanonicalCaptureRefuses(t *testing.T) 
 	}
 }
 
-func TestDistillPreload_VendorPathWithoutCanonicalCaptureRefuses(t *testing.T) {
-	for _, eng := range shippedEngines {
-		t.Run(eng, func(t *testing.T) {
-			testsupport.Isolate(t)
-			preloaded, err := distillPreload(engines.Registry(), &sessions.Entry{
-				HarpName:       "vexed-scary-gab",
-				TranscriptPath: "/nonexistent/vendor/transcript.jsonl",
-			}, eng)
-			require.Error(t, err)
-			assert.Nil(t, preloaded)
-		})
-	}
+func TestDistillable_VendorPathWithoutCanonicalCaptureRefuses(t *testing.T) {
+	testsupport.Isolate(t)
+	require.Error(t, distillable(&sessions.Entry{
+		HarpName:       "vexed-scary-gab",
+		TranscriptPath: "/nonexistent/vendor/transcript.jsonl",
+	}))
 }
 
 func TestFeedScrollback_WithoutCanonicalCaptureIsLiveOnly(t *testing.T) {
 	for _, eng := range shippedEngines {
 		for name, entry := range map[string]*sessions.Entry{
-			"session id": {HarpName: "vexed-scary-gab", SessionID: "engine-native-id", ProjectDir: "/proj"},
+			"session id":  {HarpName: "vexed-scary-gab", SessionID: "engine-native-id", ProjectDir: "/proj"},
 			"vendor path": {HarpName: "vexed-scary-gab", TranscriptPath: "/nonexistent/vendor/transcript.jsonl"},
 		} {
 			t.Run(eng+"/"+name, func(t *testing.T) {
 				testsupport.Isolate(t)
-				assert.Nil(t, feedScrollback(context.Background(), engines.Registry(), entry, eng))
+				assert.Nil(t, feedScrollback(entry))
 			})
 		}
 	}
@@ -108,12 +102,12 @@ func TestFeedScrollback_WithoutCanonicalCaptureIsLiveOnly(t *testing.T) {
 
 func TestWatchStoreFeed_WithoutCanonicalCaptureRefuses(t *testing.T) {
 	for name, entry := range map[string]*sessions.Entry{
-		"session id": {HarpName: "vexed-scary-gab", SessionID: "engine-native-id", ProjectDir: "/proj"},
+		"session id":  {HarpName: "vexed-scary-gab", SessionID: "engine-native-id", ProjectDir: "/proj"},
 		"vendor path": {HarpName: "vexed-scary-gab", TranscriptPath: "/nonexistent/vendor/transcript.jsonl"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			testsupport.Isolate(t)
-			feed, err := watchStoreFeed(context.Background(), engines.Registry(), entry, "claude-code")
+			feed, err := watchStoreFeed(context.Background(), entry)
 			require.Error(t, err)
 			assert.Nil(t, feed)
 		})
@@ -128,7 +122,7 @@ func TestSessionSources_ServeOnlyCanonicalCapture(t *testing.T) {
 
 			resolved, _, err := ResolveSessionSource(engines.Registry(), &config.Config{}, eng, home)
 			require.NoError(t, err)
-			distill, err := distillSource(engines.Registry(), eng, home)
+			distill, err := distillSource(home)
 			require.NoError(t, err)
 
 			for name, src := range map[string]interface {

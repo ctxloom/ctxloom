@@ -143,13 +143,10 @@ an engine with a declared loss and say nothing — neither calls
 
 ## 6. Session history and transcripts
 
-| Backend | `History()` | Mechanism | Note |
-|---|---|---|---|
-| `claude-code` | **nil** | scraper **deleted** | its cwd→slug encoder produced non-existent dirs for any path with a dot/underscore/space |
-| the doubles | `NilSessionHistory` — non-nil, holds nothing | the double keeps no transcript store | — |
-
-A `nil` history **fails loudly** at its consumer
-(`internal/adapters/operations/sessionfeed.go`). Canonical capture is written runner-side
+No backend keeps a transcript store of its own: `agent.Backend` has no
+history accessor, and claude-code's scraper was **deleted** (its cwd→slug
+encoder produced non-existent dirs for any path with a dot/underscore/space).
+Canonical capture is written runner-side
 into `internal/adapters/transcript`'s canonical JSONL; each engine declares its own
 vendor reader on its descriptor (`engine.Descriptor.TranscriptReaders`), and
 `internal/adapters/operations/vendorreader.go` reads that declaration for the

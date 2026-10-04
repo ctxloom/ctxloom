@@ -232,7 +232,7 @@ func TestCompact_DistillsInExactlyOneLLMCall(t *testing.T) {
 	// Comfortably larger than the old 8,000-token chunk size, so under the old
 	// pipeline this fixture would have produced several map calls plus a reduce.
 	big := strings.Repeat("decision content that must be summarized. ", 4000)
-	mockBe := &mockBackend{history: &mockSessionHistory{
+	mockBe := &mockSource{
 		currentSession: &agent.Session{
 			ID: "one-call-session",
 			Entries: []agent.SessionEntry{
@@ -241,7 +241,7 @@ func TestCompact_DistillsInExactlyOneLLMCall(t *testing.T) {
 				{Type: agent.EntryTypeUser, Content: big},
 			},
 		},
-	}}
+	}
 
 	var calls int
 	mockClient := &scriptedDistiller{
@@ -254,10 +254,10 @@ func TestCompact_DistillsInExactlyOneLLMCall(t *testing.T) {
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 
@@ -282,7 +282,7 @@ func TestCompact_OversizedTranscriptStillOneCallAndReportsReduction(t *testing.T
 
 	// Past SinglePassInputTokens once rendered.
 	huge := strings.Repeat("y", tokens.Budget(SinglePassInputTokens))
-	mockBe := &mockBackend{history: &mockSessionHistory{
+	mockBe := &mockSource{
 		currentSession: &agent.Session{
 			ID: "oversized-session",
 			Entries: []agent.SessionEntry{
@@ -290,7 +290,7 @@ func TestCompact_OversizedTranscriptStillOneCallAndReportsReduction(t *testing.T
 				{Type: agent.EntryTypeAssistant, Content: huge},
 			},
 		},
-	}}
+	}
 
 	var calls int
 	var sawBytes int
@@ -305,10 +305,10 @@ func TestCompact_OversizedTranscriptStillOneCallAndReportsReduction(t *testing.T
 
 	recordOutputDir(t, "compactor-under-test")
 	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
-		BackendOverride: mockBe,
-		Run:             runnerOver(mockClient),
-		OutputDir:       t.TempDir(),
-		HarpName:        "compactor-under-test",
+		Source:    mockBe,
+		Run:       runnerOver(mockClient),
+		OutputDir: t.TempDir(),
+		HarpName:  "compactor-under-test",
 	})
 	require.NoError(t, err)
 

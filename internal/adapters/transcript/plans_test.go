@@ -1,7 +1,6 @@
 package transcript
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -42,19 +41,6 @@ func TestReadPlanFiles_MissingDirAndEmptyHarp(t *testing.T) {
 	testsupport.Isolate(t)
 	assert.Nil(t, ReadPlanFiles("never-created"), "no such session → no plans, no error")
 	assert.Nil(t, ReadPlanFiles(""), "empty harp → no plans")
-}
-
-func TestEngineReader_GetPlans_ReadsTheOutputDir(t *testing.T) {
-	testsupport.Isolate(t)
-	dir := mintOutputDir(t, "h1")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "p"+paths.PlanFileExt), []byte("body"), 0o644))
-
-	r := NewEngineReader(nil, "")
-	got, err := r.GetPlans(context.Background(), "h1")
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "p", got[0].Name)
-	assert.Equal(t, "body", got[0].Content)
 }
 
 // An unreadable plan file is dropped from the result. The listing

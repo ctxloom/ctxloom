@@ -289,9 +289,8 @@ func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 // TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly: claude-code has
 // no by-location legacy-file reader. A watch addressed by HARP whose only
 // association is a located legacy-format transcript (no hook-bound session, no
-// captured canonical transcript.jsonl) must fail CLEANLY through
-// operations.HistoryForBackend ("no session history") rather than hang, panic,
-// or silently stream zero entries.
+// captured canonical transcript.jsonl) must fail CLEANLY — there is nothing
+// to watch — rather than hang, panic, or silently stream zero entries.
 func TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly(t *testing.T) {
 	for _, backend := range []string{"claude-code"} {
 		t.Run(backend, func(t *testing.T) {
@@ -307,7 +306,7 @@ func TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly(t *testing.T) {
 
 			err := runSessionWatch(cmd, []string{harp})
 			require.Error(t, err, "a retired scraper's by-location watch must fail loudly, not hang or stream nothing silently")
-			assert.Contains(t, err.Error(), "no session history")
+			assert.Contains(t, err.Error(), "nothing to watch")
 		})
 	}
 }
@@ -331,22 +330,6 @@ func TestRunSessionWatch_NothingToWatch(t *testing.T) {
 	err = runSessionWatch(cmd, []string{entry.HarpName})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nothing to watch")
-}
-
-// TestRunSessionWatch_UnknownBackend: a by-location entry whose backend isn't
-// registered fails loudly instead of watching with the wrong parser.
-func TestRunSessionWatch_UnknownBackend(t *testing.T) {
-	home := testsupport.Isolate(t)
-	harp := seedUnboundHarp(t, home, "no-such-engine", "t.jsonl", "{}\n")
-
-	cmd := &cobra.Command{}
-	cmd.SetContext(context.Background())
-	cmd.SetOut(io.Discard)
-	cmd.Flags().String("source", "auto", "") // as the real command registers it
-
-	err := runSessionWatch(cmd, []string{harp})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown backend")
 }
 
 // TestRunSessionWatch_UnknownSource: an invalid --source is rejected before

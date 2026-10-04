@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -136,7 +137,7 @@ hooks:
 func TestBundleKeySites_AreDerivedFromTheStructs(t *testing.T) {
 	sites := bundleKeySites()
 
-	root := sites["bundles.Bundle"]
+	root := sites[reflect.TypeOf(envelopeDocument{}).String()]
 	assert.Equal(t, "the top level of the bundle", root.where)
 	for _, key := range []string{"version", "fragments", "commands", "skills", "mcp", "profiles", "hooks"} {
 		assert.Contains(t, root.keys, key, "declaresNothing's vocabulary must be spellable at the top level")

@@ -61,7 +61,7 @@ func runCLIFixture(t *testing.T) string {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
 	provisionApprovals(t, filepath.Join(dir, ".ctxloom"))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"),
-		[]byte(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)), 0o644))
+		[]byte(fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion)), 0o644))
 	// editor.command lives in HOME, not the project fixture: it is
 	// ScopeMachine (internal/core/config/layerscope) — a binary on THIS box — so
 	// a committed PROJECT file may no longer carry it (a startup-gate fatal
@@ -71,7 +71,7 @@ func runCLIFixture(t *testing.T) string {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".ctxloom"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".ctxloom", "config.yaml"),
-		[]byte(fmt.Sprintf("version: %d\neditor:\n  command: \"true\"\n", config.CurrentConfigVersion)), 0o644))
+		[]byte(fmt.Sprintf("schema_version: %d\neditor:\n  command: \"true\"\n", config.CurrentConfigVersion)), 0o644))
 	// The default agent authenticates with a token from the launching env. A
 	// dry run refuses where the run would, and a run with none exported
 	// refuses: without this every preview here would be the credential's

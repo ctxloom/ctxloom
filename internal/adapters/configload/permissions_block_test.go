@@ -33,20 +33,20 @@ func parseRefusal(t *testing.T, doc string) string {
 // undeclared while the launch reports success. A binding's non-neutral key
 // must be an engine's block; the project knows no engine at all.
 func TestLoad_PermissionsBlockRefusesAnUnknownKey(t *testing.T) {
-	assert.Contains(t, parseRefusal(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions:\n      dney: [Bash]\n"),
+	assert.Contains(t, parseRefusal(t, "schema_version: 6\nagents:\n  a:\n    llm: e\n    permissions:\n      dney: [Bash]\n"),
 		`"dney" is not a neutral key`)
-	assert.Contains(t, parseRefusal(t, "version: 6\nagents:\n  a:\n    llm: e\npermissions:\n  aprover: none\n"),
+	assert.Contains(t, parseRefusal(t, "schema_version: 6\nagents:\n  a:\n    llm: e\npermissions:\n  aprover: none\n"),
 		"the project's permissions take only approver, approval_timeout, sandbox, network")
-	assert.Contains(t, parseRefusal(t, "version: 6\nagents:\n  a:\n    llm: e\npermissions:\n  mode: bypass\n"),
+	assert.Contains(t, parseRefusal(t, "schema_version: 6\nagents:\n  a:\n    llm: e\npermissions:\n  mode: bypass\n"),
 		"declare it at agents.<name>.permissions.<engine>.mode")
 }
 
 func TestLoad_PermissionsScalarIsRefusedWithTheBlockSpelling(t *testing.T) {
-	assert.Contains(t, parseRefusal(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions: bypass\n"), "permissions: {<engine>: {mode: bypass}}")
+	assert.Contains(t, parseRefusal(t, "schema_version: 6\nagents:\n  a:\n    llm: e\n    permissions: bypass\n"), "permissions: {<engine>: {mode: bypass}}")
 }
 
 func TestLoad_PermissionsBlockLoads(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions:\n      approver: none\n      approval_timeout: 20m\n      sandbox: full\n      network: false\n      e:\n        mode: plan\n        after_plan: acceptEdits\n        deny: [\"Bash(rm *)\"]\n")
+	cfg := loadYAML(t, "schema_version: 6\nagents:\n  a:\n    llm: e\n    permissions:\n      approver: none\n      approval_timeout: 20m\n      sandbox: full\n      network: false\n      e:\n        mode: plan\n        after_plan: acceptEdits\n        deny: [\"Bash(rm *)\"]\n")
 	a, ok := cfg.Agent("a")
 	require.True(t, ok)
 	assert.Equal(t, map[string]map[string]any{"e": {"mode": "plan", "after_plan": "acceptEdits", "deny": []any{"Bash(rm *)"}}}, a.Permissions.Engines)

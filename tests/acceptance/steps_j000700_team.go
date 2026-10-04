@@ -280,7 +280,7 @@ func j000700SetupTeamProject(w *World) error {
 // default) so the scenario's "with distilled context enabled" precondition
 // is honest about what it depends on.
 func j000700SetupDistillProject(w *World) error {
-	cfg := fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) +
+	cfg := fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) +
 		"llm:\n" +
 		"  configs:\n" +
 		"    mock:\n" +

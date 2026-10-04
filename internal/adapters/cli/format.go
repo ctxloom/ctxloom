@@ -78,11 +78,20 @@ func outputFormatOf(cmd *cobra.Command) string {
 // contract cannot be interpreted is not one to start an approval session on,
 // and emit reports the parse failure properly.
 //
+// Only a format the caller ASKED for (cliemit.Explicit) counts. One Resolve
+// would derive from stdout is not a request, and an interactive invocation
+// that asked for nothing is a human at a terminal, which is who the walk is
+// for. That also keeps cliemit's own stdout check out of this decision, so
+// both arms are testable from here.
+//
 // This deliberately does NOT mark formatWasHonored: the proof of honoring is
 // emit() actually rendering, further down the listing path.
 func reviewWantsListing(cmd *cobra.Command, listFlag, interactive bool) bool {
 	if listFlag || !interactive {
 		return true
+	}
+	if !cliemit.Explicit(cmd) {
+		return false
 	}
 	format, err := cliemit.Resolve(cmd)
 	return err != nil || format != clifmt.FormatText

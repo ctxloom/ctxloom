@@ -18,62 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
-// CommitUpgrade persists a pending in-memory schema upgrade to disk, writing the
-// upgraded bytes verbatim so the comments and key order preserved by the node
-// rewrite survive. It is a no-op when nothing is pending, and clears
-// PendingUpgrade on success. Callers prompt the user before invoking this (see
-// cmd/run.go); ctxloom never rewrites a config without consent.
-func (c *Config) CommitUpgrade() error {
-	if err := c.commitPendingUpgrade(c.pendingUpgrade); err != nil {
-		return err
-	}
-	c.pendingUpgrade = nil
-	return nil
-}
-
-// CommitHomeUpgrade is CommitUpgrade for the HOME layer (HomePendingUpgrade),
-// used when a project config.yaml also exists and home is therefore read as
-// the lower-precedence layer.
-//
-// Without it, a stale ~/.ctxloom/config.yaml was upgraded in memory on every
-// single load and never written back: the home file never converged and the
-// upgrade pipeline redid identical work forever (long-ice). The write itself
-// needed no new machinery — the shared committer is keyed on Pending.Path, so
-// "a file other than the ambient one" was never actually the hard part.
-//
-// Same consent rule as CommitUpgrade, and it matters more here: the caller
-// prompts first (the prompt names the path, so a user sees it is their HOME
-// file), and ctxloom never rewrites home as a silent side effect of a
-// project-scoped run.
-func (c *Config) CommitHomeUpgrade() error {
-	if err := c.commitPendingUpgrade(c.homePendingUpgrade); err != nil {
-		return err
-	}
-	c.homePendingUpgrade = nil
-	return nil
-}
-
-// commitPendingUpgrade writes one pending upgrade's bytes to its own recorded
-// path, verbatim so the comments and key order preserved by the node rewrite
-// survive. Shared by both layers' committers so they cannot drift on how an
-// upgrade is persisted; nil is a no-op.
-func (c *Config) commitPendingUpgrade(p *PendingUpgrade) error {
-	if p == nil {
-		return nil
-	}
-	// Nothing to write is not a successful write. The caller has just asked the
-	// user to consent to a REWRITE, so returning nil says that rewrite landed —
-	// while an empty payload lands as a zero-byte config.yaml over a file that
-	// was valid until this moment.
-	if len(p.Data) == 0 {
-		return fmt.Errorf("pending upgrade for %s carries no content; refusing to truncate it", p.Path)
-	}
-	if err := safefs.WriteFile(c.getFS(), p.Path, p.Data, 0o644); err != nil {
-		return fmt.Errorf("write upgraded config %s: %w", p.Path, err)
-	}
-	return nil
-}
-
 // saveLocked is the read-merge-write at the heart of persisting a Config: it
 // re-reads the on-disk file fresh, merges c's in-memory sections onto it
 // (preserving unknown keys), and writes back atomically so a crash can never
@@ -167,6 +111,7 @@ func marshalPreservingComments(original []byte, desired map[string]any) ([]byte,
 	var root *yaml.Node
 	if haveDoc {
 		root = doc.Content[0]
+		renameLegacyVersionKey(root)
 	} else {
 		root = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	}
@@ -177,6 +122,22 @@ func marshalPreservingComments(original []byte, desired map[string]any) ([]byte,
 		return yaml.Marshal(&doc)
 	}
 	return yaml.Marshal(root)
+}
+
+// renameLegacyVersionKey renames the format generation's legacy key to
+// schema_version in place, so the node keeps its position and its comments —
+// including the file header yaml.v3 hangs on a document's first key, which
+// dropping the legacy key and appending the current one would delete.
+func renameLegacyVersionKey(root *yaml.Node) {
+	if mappingValue(root, "schema_version") != nil {
+		return
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "version" {
+			root.Content[i].Value = "schema_version"
+			return
+		}
+	}
 }
 
 // reconcileMappingNode mutates root (a mapping node) so it represents desired,
@@ -280,13 +241,13 @@ func readExistingConfig(fs afero.Fs, configPath string) ([]byte, map[string]inte
 }
 
 // effectiveDoc is c as every run resolves it: toDoc's lossless copy, role and
-// the shipped default registry included, with the version stamped current
-// (load has already migrated whatever the file held). `config show`, whole
+// the shipped default registry included, with the format generation stamped
+// current (load has already migrated whatever the file held). `config show`, whole
 // or by section, renders it, so they describe the configuration actually in
 // force rather than only the part a file spells out.
 func (c *Config) effectiveDoc() configDoc {
 	d := c.toDoc()
-	d.Version = CurrentConfigVersion
+	d.SchemaVersion = CurrentConfigVersion
 	return d
 }
 
@@ -316,6 +277,7 @@ func (v authoredView) MarshalYAML() (any, error) { return v.c.persistedDoc(), ni
 // models; a save removes them from the file rather than carrying them forward
 // as unknown keys.
 var retiredConfigKeys = []string{
+	"version",    // the format generation's legacy key, now schema_version
 	"lm",         // renamed to llm
 	"generators", // no longer supported
 	"profiles",   // the inline arm is retired; profiles are files

@@ -283,7 +283,7 @@ func TestLoadDistillPrompt_AlwaysYieldsAUsablePrompt(t *testing.T) {
 	require.NotEmpty(t, defaultDistillPrompt, "the embedded fallback is the whole reason absence needs no error")
 
 	t.Run("no distill command anywhere falls back to the embedded default", func(t *testing.T) {
-		agentProject(t, "version: 6\n")
+		agentProject(t, "schema_version: 6\n")
 		cfg, err := GetConfig()
 		require.NoError(t, err)
 
@@ -294,7 +294,7 @@ func TestLoadDistillPrompt_AlwaysYieldsAUsablePrompt(t *testing.T) {
 	})
 
 	t.Run("a bundle-provided distill command wins", func(t *testing.T) {
-		agentProject(t, "version: 6\n")
+		agentProject(t, "schema_version: 6\n")
 		cfg, err := GetConfig()
 		require.NoError(t, err)
 		cfg = seedDistillCommand(t, cfg)
@@ -376,7 +376,7 @@ func isolatedHome(t *testing.T) {
 // distillProjectYAML is a project whose fast role resolves, so a distiller is
 // actually constructed — without a resolvable label newLLMDistiller
 // returns early and the prompt is never resolved at all.
-const distillProjectYAML = "version: 6\nllm:\n  configs:\n    fast: { type: claude-code, model: haiku }\n  defaults:\n    fast: fast\n"
+const distillProjectYAML = "schema_version: 6\nllm:\n  configs:\n    fast: { type: claude-code, model: haiku }\n  defaults:\n    fast: fast\n"
 
 // TestBundleDistill_WithheldPromptRefuses is the decisive assertion for the
 // swallow. A withheld `distill` prompt means the trust gate DECLINED to supply

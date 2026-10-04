@@ -3,6 +3,7 @@ package safefs_test
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -33,7 +34,7 @@ func TestDurableFs_RenameSyncsBothParents(t *testing.T) {
 	require.NoError(t, afero.WriteFile(base, "/a/f", []byte("x"), 0o644))
 
 	require.NoError(t, safefs.NewDurableFs(base).Rename("/a/f", "/b/f"))
-	assert.Equal(t, []string{"/b", "/a"}, *synced)
+	assert.Equal(t, []string{filepath.FromSlash("/b"), filepath.FromSlash("/a")}, *synced)
 }
 
 func TestDurableFs_RenameWithinOneDirSyncsItOnce(t *testing.T) {
@@ -42,7 +43,7 @@ func TestDurableFs_RenameWithinOneDirSyncsItOnce(t *testing.T) {
 	require.NoError(t, afero.WriteFile(base, "/a/f", []byte("x"), 0o644))
 
 	require.NoError(t, safefs.NewDurableFs(base).Rename("/a/f", "/a/g"))
-	assert.Equal(t, []string{"/a"}, *synced)
+	assert.Equal(t, []string{filepath.FromSlash("/a")}, *synced)
 }
 
 func TestDurableFs_FailedRenameSyncsNothing(t *testing.T) {
@@ -73,7 +74,7 @@ func TestDurableFs_CreatedFileSyncsItsParentOnClose(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, *synced, "nothing is synced before Close")
 	require.NoError(t, f.Close())
-	assert.Equal(t, []string{"/a"}, *synced)
+	assert.Equal(t, []string{filepath.FromSlash("/a")}, *synced)
 }
 
 // Writing into a file that already existed adds no directory entry, so there

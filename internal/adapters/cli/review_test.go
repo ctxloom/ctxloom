@@ -423,11 +423,15 @@ func TestPrintReviewItem_ChangedUpdateStillDiffs(t *testing.T) {
 // afterwards, with the countersignatures already written. An invocation that
 // asked for a value it can parse must get the pending table instead.
 func TestReviewWantsListing(t *testing.T) {
-	newCmd := func(format string) *cobra.Command {
+	newCmd := func(format string, jsonFlag bool) *cobra.Command {
 		c := &cobra.Command{Use: "review"}
 		c.Flags().String("format", "text", "")
+		c.Flags().Bool("json", false, "")
 		if format != "" {
 			require.NoError(t, c.Flags().Set("format", format))
+		}
+		if jsonFlag {
+			require.NoError(t, c.Flags().Set("json", "true"))
 		}
 		return c
 	}
@@ -435,28 +439,26 @@ func TestReviewWantsListing(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		format      string
+		jsonFlag    bool
 		listFlag    bool
 		interactive bool
 		want        bool
 	}{
-		// An UNSET --format is resolved against stdout, and a test binary's
-		// stdout is never a terminal — so the default lands machine-readable
-		// here and the listing wins even with interactive true. The other half
-		// of that default (a real terminal resolving to text, which is what
-		// makes the walk below reachable for a human) is cliemit's own
-		// contract, pinned by cliemit.TestResolve_DefaultFollowsTTY; it cannot
-		// be presented from this package, whose seam is a different one.
-		{"default format off a terminal, lists", "", false, true, true},
-		{"tty, explicit text, walks", "text", false, true, false},
-		{"tty, --list, lists", "", true, true, true},
-		{"no tty, lists", "", false, false, true},
-		{"tty, --format json, lists", "json", false, true, true},
-		{"tty, --format yaml, lists", "yaml", false, true, true},
-		{"tty, --format markdown, lists", "markdown", false, true, true},
-		{"tty, unparseable format, lists", "xml", false, true, true},
+		// An unrequested format is not a request: a human at a terminal who
+		// asked for nothing gets the walk, whatever format a pipe would
+		// derive.
+		{"tty, default format, walks", "", false, false, true, false},
+		{"tty, --json, lists", "", true, false, true, true},
+		{"tty, explicit text, walks", "text", false, false, true, false},
+		{"tty, --list, lists", "", false, true, true, true},
+		{"no tty, lists", "", false, false, false, true},
+		{"tty, --format json, lists", "json", false, false, true, true},
+		{"tty, --format yaml, lists", "yaml", false, false, true, true},
+		{"tty, --format markdown, lists", "markdown", false, false, true, true},
+		{"tty, unparseable format, lists", "xml", false, false, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := reviewWantsListing(newCmd(tc.format), tc.listFlag, tc.interactive)
+			got := reviewWantsListing(newCmd(tc.format, tc.jsonFlag), tc.listFlag, tc.interactive)
 			assert.Equal(t, tc.want, got)
 		})
 	}

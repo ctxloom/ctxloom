@@ -309,7 +309,7 @@ func TestP4PermissionValue_MapsThePairAndPanicsOnAnythingElse(t *testing.T) {
 // reaching config.yaml the two cells would become the same cell — both at
 // bypass, both green, the ladder reporting plan enforcement it never exercised.
 func TestP4ConfigYAML_CarriesThePostureOntoTheProductionBindingSurface(t *testing.T) {
-	a := liveAgent{config: fmt.Sprintf("version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
+	a := liveAgent{config: fmt.Sprintf("schema_version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
 
 	plan := p4ConfigYAML(a, "claude", p4Plan, "host")
 	control := p4ConfigYAML(a, "claude", p4Control, "host")

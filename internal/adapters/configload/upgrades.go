@@ -3,14 +3,16 @@ package configload
 import (
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // profileRefCanonicalizeUpgrade rewrites every agents.<name>.profiles entry
-// to its canonical form through the injected canonicalizer. It is the one
-// live in-memory upgrade: the permanent schema migrations are gone (a config
-// below config.CurrentConfigVersion is refused, never rewritten), and this
-// step fires only when a ref actually changes.
+// to its canonical form through the injected canonicalizer. It is a
+// normalizer, not a schema step (see Sources.normalize): it fires only when a
+// ref actually changes.
 type profileRefCanonicalizeUpgrade struct {
 	canonical func(ref string) string
 }
@@ -44,14 +46,11 @@ func (u profileRefCanonicalizeUpgrade) Apply(root *yaml.Node) (changed bool) {
 	return changed
 }
 
-// declaredConfigVersion reads the top-level `version` key: the value and
-// whether the document declared one at all (a pre-versioning file has none).
-func declaredConfigVersion(data []byte) (version int, declared bool) {
-	var doc struct {
-		Version *int `yaml:"version"`
-	}
-	if err := yaml.Unmarshal(data, &doc); err != nil || doc.Version == nil {
-		return 0, false
-	}
-	return *doc.Version, true
+// configKind versions every config.yaml layer. LegacyKey: `version` is an
+// older spelling of the same generation number, so a file carrying it reads
+// exactly as one carrying schema_version.
+var configKind = schemaver.Kind{
+	Name:      "ctxloom config",
+	LegacyKey: "version",
+	Oldest:    config.CurrentConfigVersion,
 }

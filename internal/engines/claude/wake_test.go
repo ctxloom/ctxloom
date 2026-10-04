@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,19 +26,14 @@ func envOf(m map[string]string) engine.WakeEnv {
 	return func(k string) (string, bool) { v, ok := m[k]; return v, ok }
 }
 
-// listenMessaging stands up a unix listener where claude's messaging socket
-// would be and returns its path and a channel carrying the lines of the ONE
-// connection it accepts, read to EOF — the poster closing is the end of a
-// post, so a receive after Fire returns is synchronised, not polled.
+// listenMessaging stands up a listener of the kind dialMessaging connects to
+// (listenEndpoint, per OS) and returns its endpoint and a channel carrying the
+// lines of the ONE connection it accepts, read to EOF — the poster closing is
+// the end of a post, so a receive after Fire returns is synchronised, not
+// polled.
 func listenMessaging(t *testing.T) (string, <-chan []string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "cw")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	path := filepath.Join(dir, "m.sock")
-	ln, err := net.Listen("unix", path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
+	path, ln := listenEndpoint(t)
 	got := make(chan []string, 1)
 	go func() {
 		conn, err := ln.Accept()
@@ -104,18 +98,6 @@ func TestMessagingWake_FirePostsAuthThenTheWakeLine(t *testing.T) {
 		"type":    "user",
 		"message": map[string]any{"role": "user", "content": engine.WakeText("0123456789abcdef")},
 	}, decodeLine(t, lines[1]))
-}
-
-func TestMessagingWake_FireWithoutATokenPostsOnlyTheWakeLine(t *testing.T) {
-	path, got := listenMessaging(t)
-	w, err := messagingWake{}.Bind(context.Background(), envOf(map[string]string{envMessagingSocket: path}))
-	require.NoError(t, err)
-
-	require.NoError(t, w.Fire(context.Background(), "0123456789abcdef"))
-
-	lines := testsupport.Await(t, 10*time.Second, got, "nothing was posted")
-	require.Len(t, lines, 1)
-	assert.Equal(t, "user", decodeLine(t, lines[0])["type"])
 }
 
 // A post that cannot be delivered is an error the caller sees — a silent

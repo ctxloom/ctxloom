@@ -117,7 +117,7 @@ func dirFormBundle(t *testing.T, appDir, name string) {
 // validator. That keeps the two in agreement no matter how either is reworded,
 // and it fails the moment the bundle name is appended back on.
 func TestRunSkillImport_AdvisesAReviewCommandTheCLIAccepts(t *testing.T) {
-	root := agentProject(t, "version: 6\n")
+	root := agentProject(t, "schema_version: 6\n")
 	appDir := filepath.Join(root, ".ctxloom")
 	cfg, err := GetConfig()
 	require.NoError(t, err)

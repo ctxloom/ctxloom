@@ -84,7 +84,7 @@ func j002200Of(w *World) *j002200State {
 // agents.*, llm.configs.* has no atomic-replace merge rule), so the project's
 // own `type: mock` and home's `mock_control` deep-merge into one usable entry.
 func j002200ConfigYAML() string {
-	return fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
+	return fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     fast:
       type: mock
@@ -113,7 +113,7 @@ agents:
 // EVERY run with a fresh recordFile so sequential runs never clobber each
 // other's evidence, while the project half stays static and committed.
 func j002200HomeConfigYAML(recordFile string) string {
-	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`llm:
+	return fmt.Sprintf(fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion)+`llm:
   configs:
     fast:
       mock_control:

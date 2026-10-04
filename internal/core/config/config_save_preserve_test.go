@@ -24,7 +24,10 @@ func TestConfig_Save_PreservesCommentsAndKeyOrder(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
 
 	// A hand-authored file: leading comment, a deliberately NON-alphabetical key
-	// order (version, editor, custom_unknown, mcp), and inline comments.
+	// order (version, editor, custom_unknown, mcp), and inline comments. Its
+	// version is under the legacy key, which the save renames IN PLACE: the
+	// file's leading comment hangs on that first key, so dropping and
+	// re-appending it would take the comment with it.
 	seed := "# ctxloom project config — hand edited, do not clobber\n" +
 		"version: 5\n" +
 		"editor:\n" +
@@ -64,12 +67,15 @@ func TestConfig_Save_PreservesCommentsAndKeyOrder(t *testing.T) {
 	// Unknown key + its value survive.
 	assert.Contains(t, got, "custom_unknown: keepme", "unknown keys must survive a save")
 
-	// The unrelated change landed and the version was stamped forward.
+	// The unrelated change landed and the version was stamped forward under
+	// the current key, the legacy one gone.
 	assert.Contains(t, got, "reviewer", "the unrelated default_agent change must land")
+	assert.Contains(t, got, "\nschema_version: 6\n")
+	assert.NotContains(t, got, "\nversion:")
 
 	// Original key ORDER is preserved (version before editor before
 	// custom_unknown), NOT re-sorted alphabetically.
-	iVersion := strings.Index(got, "version:")
+	iVersion := strings.Index(got, "schema_version:")
 	iEditor := strings.Index(got, "editor:")
 	iCustom := strings.Index(got, "custom_unknown:")
 	require.True(t, iVersion >= 0 && iEditor >= 0 && iCustom >= 0)

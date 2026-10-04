@@ -7,7 +7,7 @@ package layerscope
 // key can be added without its scope being decided here first.
 func DefaultPolicy() Policy {
 	return Policy{
-		{Path: "version", Scope: ScopePreference, Note: "the file's own schema generation; per-file by construction"},
+		{Path: "schema_version", Scope: ScopePreference, Note: "the file's own schema generation; per-file by construction"},
 
 		{Path: "default_agent", Scope: ScopeShared, Note: "which agent a bare `ctxloom run` resolves is project policy"},
 		{Path: "agents.*.profiles", Scope: ScopeShared, Note: "which context this project's roles compose"},

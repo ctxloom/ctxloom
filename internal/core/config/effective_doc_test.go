@@ -13,7 +13,7 @@ import (
 // reader reads it: the shipped registry fills the whole llm block.
 func shippedOverlaidConfig(t *testing.T) *Config {
 	t.Helper()
-	cfg := NewFixture(Fixture{Version: CurrentConfigVersion, Editor: EditorConfig{Command: "vi"}})
+	cfg := NewFixture(Fixture{SchemaVersion: CurrentConfigVersion, Editor: EditorConfig{Command: "vi"}})
 	overlayDefaultRegistry(cfg)
 	require.NotNil(t, cfg.lmDefaultOverlay, "the shipped registry must have overlaid, or these tests pin nothing")
 	return cfg
@@ -76,7 +76,7 @@ func TestSave_NeverWritesTheShippedRegistry(t *testing.T) {
 // holds, so a role a user set survives a save and reads back as itself.
 func TestSave_RoleRoundTrips(t *testing.T) {
 	cfg := NewFixture(Fixture{
-		Version: CurrentConfigVersion,
+		SchemaVersion: CurrentConfigVersion,
 		LM: LMConfig{
 			Configs:  map[string]LLMConfig{"quick": {Type: "codex", Role: "fast"}},
 			Defaults: RoleDefaults{Fast: "quick"},

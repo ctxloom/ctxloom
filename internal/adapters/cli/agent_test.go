@@ -278,14 +278,14 @@ func textCmd() (*cobra.Command, *bytes.Buffer) {
 
 func TestRunAgentList_EmptyAndPopulated(t *testing.T) {
 	t.Run("no agents", func(t *testing.T) {
-		agentProject(t, "version: 6\n")
+		agentProject(t, "schema_version: 6\n")
 		cmd, out := textCmd()
 		require.NoError(t, runAgentList(cmd, nil))
 		assert.Contains(t, out.String(), "No agents defined.")
 	})
 
 	t.Run("one agent", func(t *testing.T) {
-		agentProject(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    profiles: [default]\n")
+		agentProject(t, "schema_version: 6\nagents:\n  dev:\n    llm: claude-code\n    profiles: [default]\n")
 		cmd, out := textCmd()
 		require.NoError(t, runAgentList(cmd, nil))
 		got := out.String()
@@ -301,7 +301,7 @@ func TestRunAgentList_EmptyAndPopulated(t *testing.T) {
 // way if you only test one of them.
 func TestRunAgentShow_HelpShortcutOnlyWhenAbsent(t *testing.T) {
 	t.Run("absent help renders command help", func(t *testing.T) {
-		agentProject(t, "version: 6\n")
+		agentProject(t, "schema_version: 6\n")
 		// The REAL command, not a bare one: cobra's help template renders from
 		// Use/Short/Long, so a stub command would "pass" by printing nothing.
 		var out bytes.Buffer
@@ -316,7 +316,7 @@ func TestRunAgentShow_HelpShortcutOnlyWhenAbsent(t *testing.T) {
 	})
 
 	t.Run("an agent named help is shown, not swallowed", func(t *testing.T) {
-		agentProject(t, "version: 6\nagents:\n  help:\n    profiles: [default]\n")
+		agentProject(t, "schema_version: 6\nagents:\n  help:\n    profiles: [default]\n")
 		cmd, out := textCmd()
 		require.NoError(t, runAgentShow(cmd, []string{"help"}))
 		assert.Contains(t, out.String(), "Agent: help")
@@ -326,7 +326,7 @@ func TestRunAgentShow_HelpShortcutOnlyWhenAbsent(t *testing.T) {
 // checkAgentExistence is the whole point of splitting the old upsert `agent
 // set` into create + edit: each verb refuses exactly the case the other owns.
 func TestCheckAgentExistence_EachVerbRefusesTheOthersCase(t *testing.T) {
-	agentProject(t, "version: 6\nagents:\n  dev:\n    profiles: [default]\n")
+	agentProject(t, "schema_version: 6\nagents:\n  dev:\n    profiles: [default]\n")
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 
@@ -413,7 +413,7 @@ func TestRenderDefaultAgent_BothArms(t *testing.T) {
 // anyway) but must still PERSIST the choice — a warn-and-do-nothing would look
 // identical on stdout.
 func TestRunAgentDefault_PersistsTheBinding(t *testing.T) {
-	root := agentProject(t, "version: 6\nagents:\n  dev:\n    profiles: [default]\n")
+	root := agentProject(t, "schema_version: 6\nagents:\n  dev:\n    profiles: [default]\n")
 	cmd, out := textCmd()
 	require.NoError(t, runAgentDefault(cmd, []string{"dev"}))
 	assert.Contains(t, out.String(), `Set default agent to "dev"`)
@@ -435,7 +435,7 @@ func TestRunAgentDefault_PersistsTheBinding(t *testing.T) {
 // "preview" that quietly removes anyway passes a test that only checks
 // output text; this one re-reads config.
 func TestRunAgentRemove_BareReportsAndDestroysNothing(t *testing.T) {
-	agentProject(t, "version: 6\nagents:\n  dev:\n    profiles: [default]\n")
+	agentProject(t, "schema_version: 6\nagents:\n  dev:\n    profiles: [default]\n")
 	agentRemoveYes = false
 	cmd, out := textCmd()
 	require.NoError(t, runAgentRemove(cmd, []string{"dev"}))
@@ -455,7 +455,7 @@ func TestRunAgentRemove_BareReportsAndDestroysNothing(t *testing.T) {
 // destroys, or --yes no-ops — is caught by an assertion on the agent's
 // continued (non-)existence in config.
 func TestRunAgentRemove_YesRemovesAndReports(t *testing.T) {
-	agentProject(t, "version: 6\nagents:\n  dev:\n    profiles: [default]\n")
+	agentProject(t, "schema_version: 6\nagents:\n  dev:\n    profiles: [default]\n")
 	agentRemoveYes = true
 	t.Cleanup(func() { agentRemoveYes = false })
 	cmd, out := textCmd()
@@ -475,7 +475,7 @@ func TestRunAgentRemove_YesRemovesAndReports(t *testing.T) {
 // binding, so the list cannot reach it in either rendering — the JSON path,
 // where null/null was visible, is asserted directly.
 func TestRunAgentList_CannotRenderAnEnginelessAgent(t *testing.T) {
-	agentProject(t, "version: 6\nagents:\n  x: {}\n  dev:\n    profiles: [default]\n")
+	agentProject(t, "schema_version: 6\nagents:\n  x: {}\n  dev:\n    profiles: [default]\n")
 
 	cmd, out := textCmd()
 	require.NoError(t, runAgentList(cmd, nil))

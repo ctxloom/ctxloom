@@ -127,22 +127,18 @@ func TestRenderConfigYAML_RoundTripsTopLevelKeys(t *testing.T) {
 }
 
 func TestRenderConfigYAML_OmitsRuntimeOnlyFields(t *testing.T) {
-	// Runtime-only Config fields (resolved paths, load warnings, and the
-	// in-memory PendingUpgrade) must never appear in `config show`. Before the
-	// yaml:"-" tags, a config that upgraded on load dumped PendingUpgrade,
-	// whose []byte payload rendered as a raw integer array. Set the pending
-	// upgrade explicitly and assert none of the runtime keys leak.
+	// Runtime-only Config fields (resolved paths, load warnings) must never
+	// appear in `config show`. Set them explicitly and assert none leaks.
 	f := fixtureConfig().ToFixture()
 	f.AppRoot = "/tmp/should-not-appear"
 	f.Warnings = []config.Warning{{Kind: config.WarnKindValidate, Text: "leaky"}}
-	f.PendingUpgrade = &config.PendingUpgrade{Path: "/x", Data: []byte("version: 6\n")}
 	cfg := config.NewFixture(f)
 
 	var buf bytes.Buffer
 	require.NoError(t, renderConfigYAML(cfg, &buf))
 
 	out := buf.String()
-	for _, leak := range []string{"pendingupgrade", "warnings", "approot", "apppaths", "appdir", "source", "should-not-appear"} {
+	for _, leak := range []string{"warnings", "approot", "apppaths", "appdir", "source", "should-not-appear"} {
 		assert.NotContains(t, out, leak,
 			"config show leaked runtime-only field %q:\n%s", leak, out)
 	}
@@ -155,7 +151,7 @@ func TestConfigFileExists_DistinguishesAbsentFromUnknown(t *testing.T) {
 
 	t.Run("present", func(t *testing.T) {
 		path := filepath.Join(dir, "config.yaml")
-		require.NoError(t, os.WriteFile(path, []byte("version: 6\n"), 0o644))
+		require.NoError(t, os.WriteFile(path, []byte("schema_version: 6\n"), 0o644))
 		exists, err := configFileExists(afero.NewOsFs(), path)
 		require.NoError(t, err)
 		assert.True(t, exists)
@@ -313,7 +309,7 @@ func setConfigRaw(t *testing.T, v bool) {
 }
 
 func TestRunConfigShow_RendersTheShippedRegistry(t *testing.T) {
-	agentProject(t, "version: 6\nworkspace: worktree\n")
+	agentProject(t, "schema_version: 6\nworkspace: worktree\n")
 	setConfigRaw(t, false)
 	cmd, out := textCmd()
 	require.NoError(t, runConfigShow(cmd, nil))
@@ -322,7 +318,7 @@ func TestRunConfigShow_RendersTheShippedRegistry(t *testing.T) {
 }
 
 func TestRunConfigShow_RawShowsOnlyWhatTheConfigSets(t *testing.T) {
-	agentProject(t, "version: 6\nworkspace: worktree\n")
+	agentProject(t, "schema_version: 6\nworkspace: worktree\n")
 	setConfigRaw(t, true)
 	cmd, out := textCmd()
 	require.NoError(t, runConfigShow(cmd, nil))
@@ -331,7 +327,7 @@ func TestRunConfigShow_RawShowsOnlyWhatTheConfigSets(t *testing.T) {
 }
 
 func TestRunConfigShow_SectionRawNarrowsTheAuthoredDocument(t *testing.T) {
-	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: mock, role: fast }\n")
+	agentProject(t, "schema_version: 6\nllm:\n  configs:\n    big: { type: mock, role: fast }\n")
 	setConfigRaw(t, true)
 	cmd, out := textCmd()
 	require.NoError(t, runConfigShow(cmd, []string{"llm"}))
@@ -340,7 +336,7 @@ func TestRunConfigShow_SectionRawNarrowsTheAuthoredDocument(t *testing.T) {
 }
 
 func TestRunConfigShow_SectionRawLeavesTheShippedRegistryOut(t *testing.T) {
-	agentProject(t, "version: 6\nworkspace: worktree\n")
+	agentProject(t, "schema_version: 6\nworkspace: worktree\n")
 	for _, raw := range []bool{false, true} {
 		setConfigRaw(t, raw)
 		cmd, out := textCmd()
@@ -356,7 +352,7 @@ func TestRunConfigShow_SectionRawLeavesTheShippedRegistryOut(t *testing.T) {
 // TestRunConfigShow_SectionScopesTheOutput pins that the section positional
 // is honoured: `show llm` prints the llm section and nothing outside it.
 func TestRunConfigShow_SectionScopesTheOutput(t *testing.T) {
-	agentProject(t, "version: 6\nworkspace: worktree\n")
+	agentProject(t, "schema_version: 6\nworkspace: worktree\n")
 	setConfigRaw(t, false)
 	cmd, out := textCmd()
 	require.NoError(t, runConfigShow(cmd, []string{"llm"}))
@@ -365,7 +361,7 @@ func TestRunConfigShow_SectionScopesTheOutput(t *testing.T) {
 }
 
 func TestRunConfigShow_UnknownSectionRefuses(t *testing.T) {
-	agentProject(t, "version: 6\nworkspace: worktree\n")
+	agentProject(t, "schema_version: 6\nworkspace: worktree\n")
 	setConfigRaw(t, false)
 	cmd, out := textCmd()
 	err := runConfigShow(cmd, []string{"nonsense"})

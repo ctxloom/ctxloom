@@ -180,7 +180,7 @@ func addSourceAsRemote(w *World, name, profile string) error {
 // touching ctxloom-default remote/parent-profile scaffolding (see file doc).
 func buildJ000200Config(label, engineType string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "version: %d\n", config.CurrentConfigVersion)
+	fmt.Fprintf(&b, "schema_version: %d\n", config.CurrentConfigVersion)
 	b.WriteString("llm:\n  configs:\n")
 	fmt.Fprintf(&b, "    %s:\n      type: %s\n", label, engineType)
 	fmt.Fprintf(&b, "  defaults:\n    primary: %s\n    fast: %s\n", label, label)

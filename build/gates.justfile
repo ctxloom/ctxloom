@@ -334,28 +334,28 @@ test-conformance:
 # Run the acceptance suite against a COVERAGE-INSTRUMENTED ctxloom and report
 # what it actually executed.
 #
-# WHY THIS EXISTS, and what it is NOT for. completeness_test.go answers
-# "was this leaf REACHED?" from testenv.RecordedInvocations() — the argv the
-# suite actually started, resolved to a leaf by cobra's own root.Find(). That
-# gate is correct and stays: it keeps flag-level credit (`--engine <name>`
-# is a separate row), works in both lanes, and cannot be fooled by a mention.
+# WHY THIS EXISTS. It answers two questions from what ctxloom's own code DID
+# rather than from what the suite says it ran:
 #
-# What it cannot answer is "how MUCH of that leaf ran". A leaf invoked once
-# with no flags is fully credited. This lane answers that second question, and
-# only that one — it is a DEPTH signal, never the reach gate.
+#   - "was every CLI leaf REACHED?" — TestCLICoverage_EveryLeafActuallyRan
+#     (tests/acceptance/cli_coverage_gate_test.go) reads the merged profile and
+#     fails unless each leaf's RunE executed. An argv that dies in flag parsing
+#     or config load starts a process but runs none of the leaf, and cannot
+#     earn credit here.
+#   - "how MUCH of it ran?" — the covdata percentages printed below.
 #
 # Coverage is measurable here at all only because the suite drives ctxloom as a
 # SUBPROCESS and `go test -coverprofile` cannot follow an exec.
-#
-# DO NOT repoint the reach gate at this data. Measured: a SIGKILLed process
-# never flushes its counters, and the harness hard-kills servers — `mcp serve`
-# reads 0.0% while running in every @mcp scenario (taskloom unsure-cadet).
 #
 # `go build -cover` + GOCOVERDIR (Go 1.20+) can: the instrumented binary
 # writes counters at exit, once per exec, and covdata merges them. That is the
 # standard mechanism for exactly this problem, and this repo already built
 # half of it — `_ensure-covdata` installs a version-matched covdata into
-# GOTOOLDIR. Only the instrumentation was missing.
+# GOTOOLDIR.
+#
+# A process killed before exit never flushes its counters, so "never ran" and
+# "killed before it could say so" read identically here; the gate test's
+# allowlist carries that warning.
 #
 # GOCOVERDIR reaches the binary because testenv's isolatedEnv() starts from
 # os.Environ() and scrubSessionEnv only strips CTXLOOM session keys. The dir

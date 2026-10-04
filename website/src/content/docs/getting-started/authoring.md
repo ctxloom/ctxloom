@@ -99,6 +99,7 @@ commands:
 A bundle is a YAML file containing fragments (context), commands (exported as slash commands), MCP servers, profiles, and hooks.
 
 ```yaml
+schema_version: 1                   # Format generation, written by ctxloom (not your version)
 version: "1.0.0"                    # Required: semantic version
 description: "Bundle description"   # Optional: what this bundle provides
 author: "your-name"                 # Optional: author name

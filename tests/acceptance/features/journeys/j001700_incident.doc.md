@@ -77,7 +77,7 @@ enumerate the embedded root like any other trust-root location, tagged
 ordinary on-disk entry. Then revocation: this key's bytes are still compiled
 into the ctxloom binary, and nothing this CLI does can delete them — shipping
 a new binary remains the only way to change what's actually IN it, and that
-has not changed. But `signer remove` aimed at the embedded principal is no
+has not changed. But `signer untrust` aimed at the embedded principal is no
 longer a no-op that reports "no entry for" and walks away. It now writes a
 real, local record — this machine (or this project, with `--project`) no
 longer trusts that key — and every subsequent trust decision honors it. The

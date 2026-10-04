@@ -41,7 +41,7 @@ Feature: init — the setup interview, and what it does to a project that alread
     it.
 
     # THE CONFIG IS ASSERTED BY ITS BYTES, not by the exit code and not by the
-    # message. `version: 6` is the fixture's own content (it tracks
+    # message. `schema_version: 6` is the fixture's own content (it tracks
     # config.CurrentConfigVersion — bump both together) and `engine:` is a key
     # only the scaffold writes — so the pair says "your config survived" AND
     # "no scaffold ran over it", which a file-exists check cannot distinguish.
@@ -53,7 +53,7 @@ Feature: init — the setup interview, and what it does to a project that alread
     # hermetic branch rather than merely happening to pass offline.
     Scenario: A second init reports the directory and leaves the configuration alone
       Given an initialized ctxloom project
-      And the file ".ctxloom/config.yaml" contains "version: 6"
+      And the file ".ctxloom/config.yaml" contains "schema_version: 6"
       And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"
       When Alice runs setup again on a project that already has it:
         """
@@ -62,7 +62,7 @@ Feature: init — the setup interview, and what it does to a project that alread
       Then the command succeeds
       And the output contains "ctxloom directory already exists"
       And the output does not contain "Seeded remote"
-      And the file ".ctxloom/config.yaml" contains "version: 6"
+      And the file ".ctxloom/config.yaml" contains "schema_version: 6"
       And the file ".ctxloom/config.yaml" does not contain "engine:"
       And the file ".ctxloom/lock.yaml" does not exist
 

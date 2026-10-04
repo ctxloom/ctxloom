@@ -24,14 +24,8 @@ import (
 // accessors.go's clone helpers, so this type obeys the same copy-on-read
 // policy the Get* accessors do — see TestToFixture_NeverAliasesConfigContainers
 // for the reflective gate that keeps a newly added field honest.
-//
-// ONE deliberate exception, matching GetPendingUpgrade: PendingUpgrade and
-// HomePendingUpgrade are carried as the same *PendingUpgrade. They are a
-// handle on a pending on-disk schema upgrade that CommitPendingUpgrade
-// consumes, not user data a caller amends, and duplicating one would hand out
-// a second commit token for a single upgrade.
 type Fixture struct {
-	Version                      int
+	SchemaVersion                int
 	LM                           LMConfig
 	Editor                       EditorConfig
 	Settings                     SettingsConfig
@@ -54,13 +48,11 @@ type Fixture struct {
 	Auth                         engine.AuthMode
 
 	// Runtime-only fields, mirroring Config's own (see Config's doc).
-	AppPaths           []string
-	AppRoot            string
-	AppDir             string
-	Source             ConfigSource
-	Warnings           []Warning
-	PendingUpgrade     *PendingUpgrade
-	HomePendingUpgrade *PendingUpgrade
+	AppPaths []string
+	AppRoot  string
+	AppDir   string
+	Source   ConfigSource
+	Warnings []Warning
 
 	// VersionResolver is the generation's pinned-version resolver (bound by
 	// the reader in production); carried so a fixture can exercise a
@@ -84,7 +76,7 @@ type Fixture struct {
 func (c *Config) ToFixture() Fixture {
 	d := c.toDoc()
 	return Fixture{
-		Version:                      d.Version,
+		SchemaVersion:                d.SchemaVersion,
 		LM:                           d.LM,
 		Editor:                       d.Editor,
 		Settings:                     d.Settings,
@@ -110,8 +102,6 @@ func (c *Config) ToFixture() Fixture {
 		AppDir:                       c.appDir,
 		Source:                       c.source,
 		Warnings:                     cloneWarnings(c.warnings),
-		PendingUpgrade:               c.pendingUpgrade,
-		HomePendingUpgrade:           c.homePendingUpgrade,
 		VersionResolver:              c.versionResolver,
 	}
 }
@@ -135,7 +125,7 @@ func (c *Config) ToFixture() Fixture {
 // If you do not already know you need this, you almost certainly do not.
 func NewFixture(f Fixture) *Config {
 	return &Config{
-		version:                      f.Version,
+		schemaVersion:                f.SchemaVersion,
 		lm:                           cloneLMConfig(f.LM),
 		editor:                       cloneEditor(f.Editor),
 		settings:                     cloneSettings(f.Settings),
@@ -161,8 +151,6 @@ func NewFixture(f Fixture) *Config {
 		appDir:                       f.AppDir,
 		source:                       f.Source,
 		warnings:                     cloneWarnings(f.Warnings),
-		pendingUpgrade:               f.PendingUpgrade,
-		homePendingUpgrade:           f.HomePendingUpgrade,
 		versionResolver:              f.VersionResolver,
 	}
 }

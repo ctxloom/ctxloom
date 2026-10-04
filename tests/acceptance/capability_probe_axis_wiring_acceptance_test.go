@@ -18,7 +18,7 @@ import (
 // records an axis but never writes it runs on the HOST while its cell id, tags
 // and evidence all say "container".
 func TestProbeConfigYAML_TaggedProbesCarryTheRuntimeAxis(t *testing.T) {
-	a := liveAgent{config: fmt.Sprintf("version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
+	a := liveAgent{config: fmt.Sprintf("schema_version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
 
 	builders := map[string]func(string) string{
 		"p2 mcpProbeConfigYAML":  func(rt string) string { return mcpProbeConfigYAML(a, "claude", rt) },

@@ -21,6 +21,11 @@ import (
 // longer needs an engine reader to attach them. An empty harp and a genuinely
 // absent session directory are quietly "no plans"; a file present but
 // unreadable is a per-file warning, not a failed compaction.
+//
+// It reads the OS filesystem, not the compactor's fs: its candidates come
+// from plans.SessionPlanPaths, which applies symlink containment against the
+// real filesystem, and reading them through a different fs would let listing
+// and reading disagree.
 func readSessionPlans(harp string) []agent.PlanFile {
 	if harp == "" {
 		return nil

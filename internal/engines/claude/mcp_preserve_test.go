@@ -24,7 +24,7 @@ import (
 // ctxloom itself writes.
 func TestWriteMCPConfig_PreservesForeignTopLevelKeys(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	dir := "/proj"
+	dir := t.TempDir()
 	path := filepath.Join(dir, MCPFileName)
 	original := `{
   "$schema": "https://example.com/mcp.schema.json",
@@ -45,7 +45,7 @@ func TestWriteMCPConfig_PreservesForeignTopLevelKeys(t *testing.T) {
 
 func TestWriteMCPConfig_PreservesUnmodelledServerFields(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	dir := "/proj"
+	dir := t.TempDir()
 	path := filepath.Join(dir, MCPFileName)
 	// A REMOTE MCP server ctxloom did not create. It must not be touched.
 	original := `{
@@ -84,7 +84,7 @@ func TestWriteMCPConfig_PreservesUnmodelledServerFields(t *testing.T) {
 // The stdio entry beside it is unaffected.
 func TestWriteMCPConfig_RemoteServerEntry(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	dir := "/proj"
+	dir := t.TempDir()
 	path := filepath.Join(dir, MCPFileName)
 
 	require.NoError(t, atRest(t, fs, dir).Install(composite.Package{MCP: map[string]wire.MCPServer{

@@ -26,7 +26,7 @@ import (
 // yaml's own complaint for that case is
 //
 //	yaml: unmarshal errors:
-//	  line 12: field hoooks not found in type bundles.Bundle
+//	  line 12: field hoooks not found in type bundles.envelopeDocument
 //
 // which names the key and a Go type nobody authoring a bundle has heard of,
 // and says nothing about what to write instead. strictDecodeError rewrites it
@@ -96,7 +96,7 @@ var (
 	keySitesMap  map[string]keySite
 )
 
-// bundleKeySites maps the Go type name yaml reports ("bundles.Bundle",
+// bundleKeySites maps the Go type name yaml reports ("bundles.envelopeDocument",
 // "bundles.BundleFragment", "profiles.Profile") to the vocabulary legal at
 // that point in a bundle document.
 //
@@ -107,7 +107,7 @@ var (
 func bundleKeySites() map[string]keySite {
 	keySitesOnce.Do(func() {
 		keySitesMap = map[string]keySite{}
-		collectKeySites(reflect.TypeOf(Bundle{}), "", keySitesMap)
+		collectKeySites(reflect.TypeOf(envelopeDocument{}), "", keySitesMap)
 	})
 	return keySitesMap
 }

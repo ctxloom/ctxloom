@@ -1279,16 +1279,24 @@ secrets-scan-staged:
 
 # Install gremlins
 test-mutation-install:
-    go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a
+    . .devcontainer/tool-versions.env
+    set +a
+    go install github.com/go-gremlins/gremlins/cmd/gremlins@v${GREMLINS_VERSION}
 
 # Run mutation tests in container
 # The container path carries the same TMPDIR hazard as the host recipes: gremlins
 # copies the module per worker, so its scratch space must be a bind-mounted disk
 # dir, never the container's default (which is backed by the host's /tmp). The
-# image tag is pinned to the same gremlins version test-mutation-install builds,
-# so a container run and a host run mutate identically.
+# image tag reads the same GREMLINS_VERSION test-mutation-install builds, so a
+# container run and a host run mutate identically.
 test-mutation-container: _mutation-prereqs
     #!/usr/bin/env bash
+    set -a
+    . .devcontainer/tool-versions.env
+    set +a
     # See _run for why --user is skipped under rootless docker.
     user_flag=(--user "$(id -u):$(id -g)")
     if docker info 2>/dev/null | grep -q "rootless"; then
@@ -1301,7 +1309,7 @@ test-mutation-container: _mutation-prereqs
             -v "{{TOP}}:/app" \
             -v "$TMPDIR:/mutation-tmp" \
             -e TMPDIR=/mutation-tmp \
-            -w /app gogremlins/gremlins:v0.6.0 gremlins unleash
+            -w /app "gogremlins/gremlins:v${GREMLINS_VERSION}" gremlins unleash
     ' _ "${user_flag[@]}"
 
 # Mutate one source file per target and drive the CUCUMBER acceptance suite

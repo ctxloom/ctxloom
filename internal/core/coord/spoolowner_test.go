@@ -42,7 +42,7 @@ func recvNothing(t *testing.T, c *Coordinator, body string) {
 func TestSpoolOwner_FinalReportReachesTheOwnerThroughTheSpool(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 
@@ -65,7 +65,7 @@ func TestSpoolOwner_FinalReportReachesTheOwnerThroughTheSpool(t *testing.T) {
 func TestSpoolOwner_ChildSendRidesTheFileToTheOwner(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 
@@ -92,7 +92,7 @@ func TestSpoolOwner_ChildSendRidesTheFileToTheOwner(t *testing.T) {
 func TestSpoolOwner_ClaimHoldsUntilAck(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 	owner := ownerIdentity().Harp
@@ -145,7 +145,7 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 
 	teeHome(t)
 	first, err := New(Options{
-		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil),
+		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(t, nil, nil),
 		OwnerHarp: owner,
 	})
 	require.NoError(t, err)
@@ -158,7 +158,7 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 
 	teeHome(t)
 	second, err := New(Options{
-		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil),
+		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(t, nil, nil),
 		OwnerHarp: owner,
 	})
 	require.NoError(t, err)
@@ -180,7 +180,7 @@ func TestSpoolOwner_RefusesAnUndeclaredOwner(t *testing.T) {
 	teeHome(t)
 	teeHome(t)
 	_, err := New(Options{
-		ProjectDir: t.TempDir(), StateDir: t.TempDir(), Spawner: newFakeSpawner(nil, nil),
+		ProjectDir: t.TempDir(), StateDir: t.TempDir(), Spawner: newFakeSpawner(t, nil, nil),
 	})
 	require.ErrorIs(t, err, ErrNeedsOwner)
 }
@@ -194,7 +194,7 @@ func TestSpoolOwner_MailToAQueuedChildIsNotStranded(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	gate := make(chan struct{})
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{Gate: gate} }
 	teeHome(t)
 	c, err := New(Options{
@@ -242,7 +242,7 @@ func TestSpoolOwner_MailToAQueuedChildIsNotStranded(t *testing.T) {
 func TestSpoolOwner_TheOwnersRunnerSendReachesTheChild(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 

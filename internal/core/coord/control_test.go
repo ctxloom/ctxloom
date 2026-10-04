@@ -53,7 +53,7 @@ func TestControlInitiator_Validate(t *testing.T) {
 // and can steer itself in a loop with no floor.
 func TestControlSteer_RefusesSelfTarget(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -71,7 +71,7 @@ func TestControlSteer_RefusesSelfTarget(t *testing.T) {
 // switch is exhaustive rather than defaulting.
 func TestControlSteer_AgentInitiatorControlsOnlyItsOwnChildren(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -86,7 +86,7 @@ func TestControlSteer_AgentInitiatorControlsOnlyItsOwnChildren(t *testing.T) {
 
 func TestControlSteer_RefusesUnrecognisedInitiator(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")

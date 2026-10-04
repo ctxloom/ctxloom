@@ -53,7 +53,7 @@ func writeInSpool(t *testing.T, harp, kind, originID, body string) spool.Ref {
 func TestSpoolSteer_RidesTheFileAndIsConsumedAtTheTurn(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
@@ -90,7 +90,7 @@ func TestSpoolSteer_RidesTheFileAndIsConsumedAtTheTurn(t *testing.T) {
 func TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	// IDLE first: the withdrawal must race nothing. A fixture written while the
 	// child's first turn boundary is still pending would be delivered by that
@@ -146,7 +146,7 @@ func TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine(t *testing.T) {
 func TestSpoolSteer_WithdrawAfterDeliverySaysSoHonestly(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
@@ -222,7 +222,7 @@ func askOverTheWire(t *testing.T, c *Coordinator, harp, text string) string {
 func TestSpoolAsk_ChildThatEndsWithoutAnsweringSendsACorrelatedNotice(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 
@@ -258,7 +258,7 @@ func askOpen(c *Coordinator, askID string) bool {
 func TestSpoolAsk_RecordedOpenBeforeItIsPublished(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 
@@ -283,7 +283,7 @@ func TestSpoolAsk_RecordedOpenBeforeItIsPublished(t *testing.T) {
 func TestSpoolAsk_OnlyTheTargetsDeliberateReplyClosesIt(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 
@@ -317,7 +317,7 @@ func TestSpoolAsk_OnlyTheTargetsDeliberateReplyClosesIt(t *testing.T) {
 func TestSpoolAsk_UnreadAskOfAnEndedChildIsNotNoticed(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 	// Stopped: the one cause the ended-child rule does not resume, so the run
@@ -347,7 +347,7 @@ func TestSpoolAsk_UnreadAskOfAnEndedChildIsNotNoticed(t *testing.T) {
 func TestSpoolAsk_AnAskThatFailsToPublishIsNotLeftOpen(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 
@@ -363,7 +363,7 @@ func TestSpoolAsk_AnAskThatFailsToPublishIsNotLeftOpen(t *testing.T) {
 func TestSpoolAsk_EmptyTextIsRefused(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "", "")
@@ -394,7 +394,7 @@ func TestSpoolAsk_EmptyTextIsRefused(t *testing.T) {
 func TestSpoolControl_PauseHoldsTurnsAndLeavesMailUnconsumed(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
@@ -441,7 +441,7 @@ func TestSpoolControl_PauseHoldsTurnsAndLeavesMailUnconsumed(t *testing.T) {
 func TestSpoolControl_PauseRefusesAnotherRunsId(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
@@ -476,7 +476,7 @@ func TestSpoolControl_PauseRefusesAnotherRunsId(t *testing.T) {
 func TestSpoolSteer_ToAPausedTargetIsNotReportedAsANewTurn(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 

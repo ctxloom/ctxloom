@@ -18,7 +18,7 @@ import (
 // inbound one is dropped before the tee, acked like any foreign payload, and
 // named in the log.
 func TestHandleAgentEvent_ForgedEventsLostIsDroppedBeforeTheTee(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ch := &RunChannel{
 		role:        "child-forger",

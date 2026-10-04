@@ -34,7 +34,7 @@ func TestVerifyToken_ConstantTimeMatch(t *testing.T) {
 // longer speak as that run.
 func TestCredentialRevocation_RevokesTheChildsCredential(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")

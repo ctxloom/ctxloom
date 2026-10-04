@@ -26,7 +26,7 @@ import (
 func TestFakeSpawner_ARunnerHalfEndsWithTheTestThatSpawnedIt(t *testing.T) {
 	var sp *fakeSpawner
 	t.Run("spawning test", func(t *testing.T) {
-		sp = newFakeSpawner(nil, nil)
+		sp = newFakeSpawner(t, nil, nil)
 		// A coordinator that is not there: the runner half dials, fails and
 		// waits on its owner — exactly the state a closed test coordinator
 		// leaves it in.

@@ -155,7 +155,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	ownerHarp := entry.HarpName
 
 	starter := &dockerOwnerRunStarter{image: image, projectDir: projectDir, harp: ownerHarp}
-	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "owner-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: coord.OwnerIdentity().Harp})
+	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "owner-itest", Spawner: coord.NewFakeSpawner(t, nil, nil), OwnerHarp: coord.OwnerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)
@@ -263,7 +263,7 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	ownerHarp := entry.HarpName
 
 	starter := &dockerOwnerRunStarter{image: image, projectDir: projectDir, harp: ownerHarp}
-	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "owner-oneshot-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: coord.OwnerIdentity().Harp})
+	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "owner-oneshot-itest", Spawner: coord.NewFakeSpawner(t, nil, nil), OwnerHarp: coord.OwnerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)

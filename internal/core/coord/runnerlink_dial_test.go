@@ -47,7 +47,7 @@ func TestDialRunner_HelloAgainstNoListenerFailsAndReturnsNoLink(t *testing.T) {
 // answers the Hello with accepted=false must not read as a transport error —
 // the redial loop treats the two differently.
 func TestDialRunner_HelloClaimingAnUnownedRunIsRejected(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	token, err := c.RegisterSessionOwner("owner-harp")
 	require.NoError(t, err)
 

@@ -34,7 +34,7 @@ func writeChildOut(t *testing.T, childHarp, origin, body string) spool.Ref {
 func TestSpoolRouting_ACrashBetweenRouteAndConsumeDeliversOnce(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 	const origin, body = "m-route-crash", "routed before the crash"

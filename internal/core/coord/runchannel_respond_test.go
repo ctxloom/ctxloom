@@ -17,7 +17,7 @@ import (
 // runner reissues on reconnect" when a LIVE channel's request simply fails at
 // Home.Request's own budget.
 func TestRespond_FullPumpDoesNotStallTheCaller(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	// Unbuffered and never read: the pump is as saturated as it gets.
@@ -36,7 +36,7 @@ func TestRespond_FullPumpDoesNotStallTheCaller(t *testing.T) {
 // drains inside the window now DELIVERS the response instead of dropping it —
 // asserted on the frame arriving, not on respond's return.
 func TestRespond_ResponseIsDeliveredOnceTheFullPumpDrains(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	ch := &RunChannel{role: "child-drain", id: Identity{Harp: "child-drain", RunID: "run-drain"},
@@ -62,7 +62,7 @@ func TestRespond_ResponseIsDeliveredOnceTheFullPumpDrains(t *testing.T) {
 // is full: an approval request's reissue after a reconnect must not freeze the new
 // channel's inbound traffic.
 func TestHandleAgentRequest_CachedRedeliveryDoesNotStallOnAFullPump(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	role := "child-reissue"

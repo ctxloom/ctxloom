@@ -131,7 +131,7 @@ func TestFrameCoordinatorMessage_StructuredKindIsInert(t *testing.T) {
 // that forges a header must land inert on this path too.
 func TestLegacyMailTurn_CarriesProvenance(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")

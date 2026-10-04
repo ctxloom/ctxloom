@@ -21,7 +21,7 @@ import (
 // The budget here is generous and the bound tight, so the clock arm cannot be
 // what ends the wait.
 func TestStartOwnedRun_RunnerDeathBeforeDialHomeFailsFast(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:         t.TempDir(),

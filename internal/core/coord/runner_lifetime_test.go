@@ -41,7 +41,7 @@ func newTestCoordinatorIdle(t *testing.T, sp Spawner, clock func() time.Time, id
 // process resumed by the captured native key. One spawn for two turns.
 func TestRunnerLifetime_OneShotBoundaryParksTheRunner_MailRidesTheSameRunner(t *testing.T) {
 	resetStrictness(t)
-	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{} })
+	sp := oneShotSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -79,7 +79,7 @@ func TestRunnerLifetime_OneShotBoundaryParksTheRunner_MailRidesTheSameRunner(t *
 // result and the key the next turn resumes by.
 func TestRunnerLifetime_TurnFrameDrivesAParkedRunner(t *testing.T) {
 	resetStrictness(t)
-	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{} })
+	sp := oneShotSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -110,7 +110,7 @@ func TestRunnerLifetime_IdleReaper_EndsAParkedRunnerAfterIdleTimeout(t *testing.
 	clock := func() time.Time { clockMu.Lock(); defer clockMu.Unlock(); return now }
 	advance := func(d time.Duration) { clockMu.Lock(); now = now.Add(d); clockMu.Unlock() }
 
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	c := newTestCoordinatorIdle(t, sp, clock, time.Minute)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -149,7 +149,7 @@ func TestRunnerLifetime_IdleReaper_EndsAParkedRunnerAfterIdleTimeout(t *testing.
 // no new spawn, and the run comes up.
 func TestRunnerLifetime_EndpointUnavailable_RebindsAndReissuesToTheSameRunner(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	sp.refuseBinds = 1
 	c := newTestCoordinator(t, sp, nil)
 
@@ -170,7 +170,7 @@ func TestRunnerLifetime_EndpointUnavailable_RebindsAndReissuesToTheSameRunner(t 
 // problem no second mint fixes, and the child fails loud.
 func TestRunnerLifetime_EndpointUnavailableTwice_FailsTheChild(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	sp.refuseBinds = 2
 	c := newTestCoordinator(t, sp, nil)
 

@@ -28,7 +28,7 @@ import (
 // is ever removed.
 func TestArtifactUpload_ArtifactIDIsTheAuditCorrelation(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	child := childHome(t, c, out.RunID)
 
@@ -48,7 +48,7 @@ func TestArtifactUpload_ArtifactIDIsTheAuditCorrelation(t *testing.T) {
 // are read, so an unattributable blob cannot be created at all.
 func TestArtifactUpload_EmptyArtifactIDRefused(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])

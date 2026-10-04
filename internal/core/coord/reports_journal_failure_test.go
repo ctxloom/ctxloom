@@ -29,7 +29,7 @@ import (
 func TestRecordSummary_JournalFailureDoesNotClaimTheReportWasFiled(t *testing.T) {
 	dir := t.TempDir()
 	teeHome(t)
-	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
+	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
@@ -66,7 +66,7 @@ func TestRecordSummary_JournalFailureDoesNotClaimTheReportWasFiled(t *testing.T)
 func TestRecordSummary_SuccessStillAuditsAndCheckpoints(t *testing.T) {
 	dir := t.TempDir()
 	teeHome(t)
-	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
+	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
@@ -94,7 +94,7 @@ func TestRecordSummary_SuccessStillAuditsAndCheckpoints(t *testing.T) {
 func TestReport_JournalFailureIsReturnedToTheFiler(t *testing.T) {
 	dir := t.TempDir()
 	teeHome(t)
-	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
+	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)

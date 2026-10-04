@@ -56,8 +56,8 @@ func newCutoverCoordinator(t *testing.T, sp Spawner, sweep time.Duration) *Coord
 // cutoverSpawner is startRunSpawner with the given spool sweep interval. Only
 // a runner-backed child is cut over, so every test here rides the StartRun
 // path.
-func cutoverSpawner(sweep time.Duration) *fakeSpawner {
-	sp := startRunSpawner(nil)
+func cutoverSpawner(t testing.TB, sweep time.Duration) *fakeSpawner {
+	sp := startRunSpawner(t, nil)
 	sp.spoolSweepInterval = sweep
 	return sp
 }
@@ -202,7 +202,7 @@ func awaitSpoolCount(t *testing.T, harp string, dir spool.Dir, n int, why string
 func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsDelivered(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
@@ -247,7 +247,7 @@ func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsDelivered(t *testing.T) {
 func TestSpoolDelivery_ChildSendRidesOutAndReachesTheParent(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChild(t, c, sp, "first task")
 
@@ -316,7 +316,7 @@ func TestSpoolDelivery_SweepDeliversWhatNoDoorbellEverAnnounced(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	const cadence = 150 * time.Millisecond
-	sp := cutoverSpawner(cadence)
+	sp := cutoverSpawner(t, cadence)
 	c := newCutoverCoordinator(t, sp, cadence)
 	out, home := awaitCutoverChild(t, c, sp, "first task")
 	require.Zero(t, home.SpoolDoorbellStats().Rejected)
@@ -481,7 +481,7 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 	teeHome(t)
 	stateDir := t.TempDir()
 
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	first, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, OwnerHarp: ownerIdentity().Harp,
 	})
@@ -501,7 +501,7 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 	// A fresh coordinator on the same state: adopt() replays the run
 	// records, then the startup sweep finds the file.
 	second, err := New(Options{
-		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp,
+		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	require.NoError(t, runnerHooks.Serve(second))
@@ -529,7 +529,7 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 func TestSpoolDelivery_DeliveredMailIsNeverDeliveredTwice(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChild(t, c, sp, "first task")
 
@@ -592,7 +592,7 @@ func TestSpoolDelivery_DeliveredMailIsNeverDeliveredTwice(t *testing.T) {
 func TestSpoolDelivery_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	// awaitCutoverChildIdle, not awaitCutoverChild: this test writes straight
 	// into out.Harp's own in/ and out/ spools and then races its own manual
@@ -632,7 +632,7 @@ func TestSpoolDelivery_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 func TestSpoolDelivery_SenderIdentityIsTheDirectoryNotTheFile(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
@@ -719,7 +719,7 @@ func TestSpoolDelivery_NonObjectStructuredSurvivesTheDelivery(t *testing.T) {
 func TestSpoolDelivery_PendingCountReadsTheSpool(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	// awaitCutoverChildIdle, not awaitCutoverChild: the runner's in/ reactor
 	// sweeps on the first turn boundary, and without waiting for that boundary
@@ -749,7 +749,7 @@ func TestSpoolDelivery_PendingCountReadsTheSpool(t *testing.T) {
 func TestSpoolDelivery_PendingCountSkipsARecordedDelivery(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 	home.Crash() // no reader: the file must stay put for the count to read
@@ -776,7 +776,7 @@ func TestSpoolDelivery_PendingCountSkipsARecordedDelivery(t *testing.T) {
 func TestSpoolDelivery_UnparsableFileIsReportedNeverSkipped(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(150 * time.Millisecond)
+	sp := cutoverSpawner(t, 150*time.Millisecond)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChild(t, c, sp, "first task")
 

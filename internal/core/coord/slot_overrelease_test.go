@@ -28,7 +28,7 @@ func TestReleaseSlot_OverReleaseIsLoudNotSilentCapInflation(t *testing.T) {
 	// is exactly the state a mis-ordered release produces. releaseSlot acts on
 	// that bit, so it hands back a token the semaphore never issued.
 	t.Run("releasing a slot that was never acquired panics", func(t *testing.T) {
-		sp := newFakeSpawner(nil, nil)
+		sp := newFakeSpawner(t, nil, nil)
 		c := newTestCoordinatorCap(t, sp, nil, 1)
 		rt := &childRt{harp: "child-a", runID: "run-a", slot: slotHeld}
 
@@ -44,7 +44,7 @@ func TestReleaseSlot_OverReleaseIsLoudNotSilentCapInflation(t *testing.T) {
 	// commitSlotClaim rather than performed here — and a slotFree rt holds
 	// nothing to give back at all.
 	t.Run("the guarded states release nothing and stay quiet", func(t *testing.T) {
-		sp := newFakeSpawner(nil, nil)
+		sp := newFakeSpawner(t, nil, nil)
 		c := newTestCoordinatorCap(t, sp, nil, 1)
 
 		claimed := &childRt{harp: "child-b", runID: "run-b", slot: slotClaimed}

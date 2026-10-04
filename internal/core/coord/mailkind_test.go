@@ -58,7 +58,7 @@ func childSpoolSend(t *testing.T, req *agentcoordpb.PeerSendRequest) (*Coordinat
 	t.Helper()
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newTestCoordinator(t, sp, nil)
 	out, home := awaitCutoverChild(t, c, sp, "do the thing")
 	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: req}})

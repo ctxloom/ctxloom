@@ -115,7 +115,7 @@ func assertDroppedNotConsumed(t *testing.T, harp, name string) {
 func TestSpoolDrop_UnmappableKindTellsTheParentAndCarriesTheText(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
@@ -151,7 +151,7 @@ func TestSpoolDrop_UnmappableKindTellsTheParentAndCarriesTheText(t *testing.T) {
 func TestSpoolDrop_RefusedRoutingTellsTheParentNotOnlyTheSender(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 

@@ -51,7 +51,7 @@ func TestSpoolCredit_ACoordinatorRestartCreditsNothingNew(t *testing.T) {
 	teeHome(t)
 	stateDir := t.TempDir()
 
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	first, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, OwnerHarp: ownerIdentity().Harp,
 	})
@@ -66,7 +66,7 @@ func TestSpoolCredit_ACoordinatorRestartCreditsNothingNew(t *testing.T) {
 	first.Close()
 
 	second, err := New(Options{
-		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp,
+		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	t.Cleanup(second.Close)

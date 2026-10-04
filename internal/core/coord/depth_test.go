@@ -38,7 +38,7 @@ func TestRunnerEnv_CarriesTheReachBackTrioOnly(t *testing.T) {
 // applyEnqueued) and on the live childRt.
 func TestEnqueueRun_DepthIncrementsFromCallerDepth(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	caller := Identity{Harp: "some-child", RunID: "run-child", Depth: 1}
@@ -69,7 +69,7 @@ func TestEnqueueRun_DepthIncrementsFromCallerDepth(t *testing.T) {
 // guard firing for an unrelated reason.
 func TestAgentRun_OneShotCallerRefusedLoudly(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	caller := Identity{Harp: "oneshot-owner", Depth: 0, OneShot: true}
 
@@ -89,8 +89,8 @@ func TestAgentRun_OneShotCallerRefusedLoudly(t *testing.T) {
 // shape (runchannel_test.go) — the legacy (non-StartRun) path: this test is
 // about plane-2/mailbox mechanics, which B1.6 already unified across both
 // engine-hosting paths, so the simpler path is the faithful one to drive.
-func workerSpawner() *fakeSpawner {
-	return newFakeSpawner(map[string]fakeAgent{
+func workerSpawner(t testing.TB) *fakeSpawner {
+	return newFakeSpawner(t, map[string]fakeAgent{
 		"worker": {perm: "bypass", profiles: []string{"p1"}},
 	}, nil)
 }
@@ -104,7 +104,7 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	// The grandchild's engine is gated: its briefing turn never ends, so it
 	// files no automatic turn report and the marker below is the ONLY
 	// message that reaches the child on hop 1.
-	sp := workerSpawner()
+	sp := workerSpawner(t)
 	var spawned int
 	sp.nextChat = func() *scriptedChat {
 		spawned++

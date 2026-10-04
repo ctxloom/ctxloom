@@ -24,7 +24,7 @@ import (
 // it: after a failed flush, the facts must be back in ch.items (so the next
 // attempt retries them) and flushedSeq must NOT have advanced.
 func TestFlushItems_JournalFailure_RestoresFactsAndDoesNotAdvanceAck(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	ch := &RunChannel{role: "child-a", ackSeq: 5}
@@ -47,7 +47,7 @@ func TestFlushItems_JournalFailure_RestoresFactsAndDoesNotAdvanceAck(t *testing.
 // accumulated (bufferItem) WHILE the failed flush's own goroutine was still
 // unscheduled must land AFTER the restored (older) facts, preserving order.
 func TestFlushItems_JournalFailure_PrependsAheadOfNewerBuffered(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	ch := &RunChannel{role: "child-a", ackSeq: 5}

@@ -17,7 +17,7 @@ import (
 
 func TestReport_FromAnEndedRunIsRefused(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, startRunSpawner(nil), nil)
+	c := newTestCoordinator(t, startRunSpawner(t, nil), nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)

@@ -17,7 +17,7 @@ func TestRunChannel_CapturesHelloCapabilities(t *testing.T) {
 	// No shipped runner advertises anything; the round trip is about the
 	// field, so the advertisement is synthetic.
 	testAdvertisement := []string{"test_capability"}
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	url, err := c.ReachURL("host")
 	require.NoError(t, err)
 

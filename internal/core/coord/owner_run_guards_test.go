@@ -17,7 +17,7 @@ import (
 // of which run produced it, while the richer text went only into the run's own
 // terminal record.
 func TestStartOwnedRun_LaunchFailureReturnsTheWrappedError(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -56,7 +56,7 @@ func TestStartOwnedRun_LaunchFailureReturnsTheWrappedError(t *testing.T) {
 // double-count every failed owner-run launch and halve the budget that exists
 // to stop a runaway relaunch loop. Apply the row's fix and this goes red.
 func TestStartOwnedRun_IssueStartRunFailureCountsOneLaunchFailure(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:         t.TempDir(),
@@ -104,7 +104,7 @@ func TestStartOwnedRun_IssueStartRunFailureCountsOneLaunchFailure(t *testing.T) 
 // routing, audit trail and result bridge all bypassed. An owner-run verb must
 // answer only for an owner run.
 func TestSendOwnedRunTurn_RefusesADelegatedChildsRun(t *testing.T) {
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "hello", "", "")
@@ -132,7 +132,7 @@ func TestSendOwnedRunTurn_RefusesADelegatedChildsRun(t *testing.T) {
 // pinned: by the time the starter runs, every flag is already set. Move the
 // mutations after start() — the shape the row describes — and this goes red.
 func TestStartOwnedRun_FlagsAreSetBeforeTheRunnerCanExist(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

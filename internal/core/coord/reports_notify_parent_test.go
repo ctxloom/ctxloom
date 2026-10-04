@@ -20,7 +20,7 @@ import (
 // a notification was emitted.
 func TestFinalReport_IsQueuedToTheParent(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 	owner := ownerIdentity()
 
@@ -45,7 +45,7 @@ func TestFinalReport_IsQueuedToTheParent(t *testing.T) {
 // under one-shot driving those arrive constantly — so only FINAL may queue.
 func TestProgressReport_IsNotQueuedToTheParent(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 	owner := ownerIdentity()
 

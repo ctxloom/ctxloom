@@ -20,7 +20,7 @@ import (
 // agent whose only input is its mailbox, and the coordinator's stderr is a
 // channel it cannot read.
 func TestGiveUpLaunching_NotifiesTheParentForANonLaunchCause(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	const harp = "spin-harp"
@@ -59,7 +59,7 @@ func TestGiveUpLaunching_NotifiesTheParentForANonLaunchCause(t *testing.T) {
 // and must NOT mail the parent. Without this the "be loud whatever burned it"
 // fix would turn every agent_stop into an error report.
 func TestGiveUpLaunching_StaysSilentForAnOperatorStop(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	const harp = "stopped-harp"
@@ -89,7 +89,7 @@ func TestGiveUpLaunching_StaysSilentForAnOperatorStop(t *testing.T) {
 // stop that lands on an ended run still marks the harp stopped. That is the
 // load-bearing part: not the message, but that no relaunch may follow.
 func TestAgentStop_OnAnEndedRunStillStopsTheRelaunch(t *testing.T) {
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "hello", "", "")

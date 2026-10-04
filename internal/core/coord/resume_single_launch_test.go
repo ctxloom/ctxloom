@@ -20,7 +20,7 @@ import (
 // engine was handed.
 func TestResume_OneMessageOneLaunch(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(
+	sp := newFakeSpawner(t,
 		map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{EndAfterTurns: 1} }, // its run ends after each turn
 	)
@@ -77,7 +77,7 @@ func launchDiagnostic(c *Coordinator, sp *fakeSpawner, harp string) string {
 // that run must still be the harp's current one, or the attempt stands down.
 func TestResumeChild_StaleAttemptStandsDownWhenTheHarpHasMovedOn(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(
+	sp := newFakeSpawner(t,
 		map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{EndAfterTurns: 1} },
 	)

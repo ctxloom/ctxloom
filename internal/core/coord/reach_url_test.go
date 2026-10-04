@@ -25,7 +25,7 @@ func TestAgentRun_ChildRunnerIsHandedTheLoopbackReachOnEveryAxis(t *testing.T) {
 	for _, axis := range reachAxes {
 		t.Run(string(axis), func(t *testing.T) {
 			resetStrictness(t)
-			sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: axis}}, nil)
+			sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", runtime: axis}}, nil)
 			sp.bindHold = make(chan struct{})
 			sp.bindEntered = make(chan struct{}, 1)
 			c := newTestCoordinator(t, sp, nil)
@@ -51,7 +51,7 @@ func TestAgentRun_ChildRunnerIsHandedTheLoopbackReachOnEveryAxis(t *testing.T) {
 func TestStartOwnedRun_RunnerIsHandedTheLoopbackReachOnEveryAxis(t *testing.T) {
 	for _, axis := range reachAxes {
 		t.Run(string(axis), func(t *testing.T) {
-			c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+			c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 			const ownerHarp = "owner-harp"
 			token, err := c.RegisterSessionOwner(ownerHarp)
 			require.NoError(t, err)

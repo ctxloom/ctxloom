@@ -66,9 +66,9 @@ func (s *failingLaunchSpawner) Resolve(ctx context.Context, agentName string) (*
 	return s.fakeSpawner.Resolve(ctx, agentName)
 }
 
-func newFailingLaunchSpawner() *failingLaunchSpawner {
+func newFailingLaunchSpawner(t testing.TB) *failingLaunchSpawner {
 	return &failingLaunchSpawner{
-		fakeSpawner: newFakeSpawner(map[string]fakeAgent{
+		fakeSpawner: newFakeSpawner(t, map[string]fakeAgent{
 			"worker": {perm: "bypass", runtime: launch.RuntimeRootless},
 		}, nil),
 		delay: 10 * time.Millisecond,
@@ -139,7 +139,7 @@ func assertLaunchesStop(t *testing.T, sp *failingLaunchSpawner) {
 func stopDuringArmedRelaunch(t *testing.T) {
 	t.Helper()
 	resetStrictness(t)
-	sp := newFailingLaunchSpawner()
+	sp := newFailingLaunchSpawner(t)
 	sp.resolveGate = make(chan struct{})
 	c := newTestCoordinator(t, sp, nil)
 
@@ -176,7 +176,7 @@ func TestAgentStop_StopsFailingLaunchRetryLoop(t *testing.T) {
 // freely spinning and the stop lands wherever it lands.
 func TestAgentStop_StopsRunningLaunchRetryLoop(t *testing.T) {
 	resetStrictness(t)
-	sp := newFailingLaunchSpawner()
+	sp := newFailingLaunchSpawner(t)
 	c := newTestCoordinator(t, sp, nil)
 	harp := spinUpRetryLoop(t, c, sp)
 
@@ -192,7 +192,7 @@ func TestAgentStop_StopsRunningLaunchRetryLoop(t *testing.T) {
 // than letting it run to completion and re-arm the loop behind the stop.
 func TestAgentStop_CancelsInFlightLaunch(t *testing.T) {
 	resetStrictness(t)
-	sp := newFailingLaunchSpawner()
+	sp := newFailingLaunchSpawner(t)
 	sp.delay = 3 * time.Second // a slow launch: the stop lands mid-flight
 	c := newTestCoordinator(t, sp, nil)
 
@@ -215,7 +215,7 @@ func TestAgentStop_CancelsInFlightLaunch(t *testing.T) {
 // silently for an hour.
 func TestFailingLaunch_RetryIsBoundedAndGivesUpLoudly(t *testing.T) {
 	resetStrictness(t)
-	sp := newFailingLaunchSpawner()
+	sp := newFailingLaunchSpawner(t)
 	c := newTestCoordinator(t, sp, nil)
 	spinUpRetryLoop(t, c, sp)
 
@@ -242,7 +242,7 @@ func TestFailingLaunch_RetryIsBoundedAndGivesUpLoudly(t *testing.T) {
 // harp: some party must resume it.
 func TestAgentSend_MailRacingTheTerminalIsNotStranded(t *testing.T) {
 	resetStrictness(t)
-	sp := newFailingLaunchSpawner()
+	sp := newFailingLaunchSpawner(t)
 	sp.delay = time.Hour // the first launch stays in flight until its terminal cancels it
 	c := newTestCoordinator(t, sp, nil)
 
@@ -281,7 +281,7 @@ func TestAgentSend_MailRacingTheTerminalIsNotStranded(t *testing.T) {
 // second loop beside the tail's.
 func TestAgentSend_MailRacingTheTerminalKeepsTheRetryBound(t *testing.T) {
 	resetStrictness(t)
-	sp := newFailingLaunchSpawner()
+	sp := newFailingLaunchSpawner(t)
 	sp.firstDelay = time.Hour // the original launch stays in flight until its terminal cancels it
 	c := newTestCoordinator(t, sp, nil)
 
@@ -320,7 +320,7 @@ func TestAgentSend_MailRacingTheTerminalKeepsTheRetryBound(t *testing.T) {
 // later terminal can arm another and the count is exact.
 func TestAgentSend_MailRacingTheTerminalArmsOneRelaunch(t *testing.T) {
 	resetStrictness(t)
-	sp := newFailingLaunchSpawner()
+	sp := newFailingLaunchSpawner(t)
 	sp.delay = time.Hour
 	c := newTestCoordinator(t, sp, nil)
 

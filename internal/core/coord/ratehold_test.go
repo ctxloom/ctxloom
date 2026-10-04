@@ -75,7 +75,7 @@ func newHoldFixtureOpts(t *testing.T, failed func(prompt string) *agent.TurnFail
 	t.Helper()
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	for _, name := range []string{"sibling", "stranger"} {
 		sp.agents[name] = fakeAgent{perm: "bypass", runtime: launch.RuntimeRootless}
 	}

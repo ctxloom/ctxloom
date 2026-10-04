@@ -27,10 +27,10 @@ func TestNew_TwoCoordinatorsInOneProcess_ReportToTheirOwnReporters(t *testing.T)
 	dirA, dirB := unreadableSnapshot(t), unreadableSnapshot(t)
 
 	var foundA, foundB report.Collector
-	a, err := New(Options{ProjectDir: t.TempDir(), StateDir: dirA, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp, Reporter: &foundA})
+	a, err := New(Options{ProjectDir: t.TempDir(), StateDir: dirA, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp, Reporter: &foundA})
 	require.NoError(t, err)
 	t.Cleanup(a.Close)
-	b, err := New(Options{ProjectDir: t.TempDir(), StateDir: dirB, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp, Reporter: &foundB})
+	b, err := New(Options{ProjectDir: t.TempDir(), StateDir: dirB, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp, Reporter: &foundB})
 	require.NoError(t, err)
 	t.Cleanup(b.Close)
 
@@ -49,7 +49,7 @@ func TestNew_NilReporter_IsSilent(t *testing.T) {
 	teeHome(t)
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, itemsSnapshotFileName), []byte("{not json"), 0o600))
-	c, err := New(Options{ProjectDir: t.TempDir(), StateDir: dir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
+	c, err := New(Options{ProjectDir: t.TempDir(), StateDir: dir, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	c.Close()
 }

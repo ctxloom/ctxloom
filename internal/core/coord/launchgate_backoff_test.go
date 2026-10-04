@@ -18,7 +18,7 @@ import (
 //
 // The ceiling is a ceiling for every attempt, first included.
 func TestLaunchBackoff_FirstRetryHonoursTheCeiling(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 
 	c.launchBackoffBase = 5 * time.Second
 	c.launchBackoffMax = 250 * time.Millisecond
@@ -36,7 +36,7 @@ func TestLaunchBackoff_FirstRetryHonoursTheCeiling(t *testing.T) {
 // TestLaunchBackoff_NormalCurveUnchanged pins the ordinary base<max case so the
 // cap fix cannot quietly flatten the exponential curve it is meant to bound.
 func TestLaunchBackoff_NormalCurveUnchanged(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 
 	c.launchBackoffBase = 100 * time.Millisecond
 	c.launchBackoffMax = 1 * time.Second

@@ -59,7 +59,7 @@ func TestRequest_DeliveredButSlowIsADeadlineNotUnreachable(t *testing.T) {
 	// Released before the coordinator's Close (a t.Cleanup, which runs after
 	// this defer), so Close never joins a handler still parked on it.
 	defer close(release)
-	c := newTestCoordinatorWithHost(t, researcherSpawner(), &recordingHostApp{fn: func(context.Context, Identity, HostRequest) (HostResult, error) {
+	c := newTestCoordinatorWithHost(t, researcherSpawner(t), &recordingHostApp{fn: func(context.Context, Identity, HostRequest) (HostResult, error) {
 		deliveredOnce.Do(func() { close(delivered) })
 		<-release // the host is WORKING, not gone
 		return HostResult{Body: json.RawMessage(`{}`)}, nil
@@ -91,7 +91,7 @@ func TestRequest_DeliveredButSlowIsADeadlineNotUnreachable(t *testing.T) {
 // runnerHooks.ErrCoordinatorUnreachable remains the right answer.
 func TestRequest_NeverAttachedIsUnreachable(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 

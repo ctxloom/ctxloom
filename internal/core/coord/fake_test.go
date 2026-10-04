@@ -179,8 +179,26 @@ type fakeAgent struct {
 	oneshot bool
 }
 
-func newFakeSpawner(agents map[string]fakeAgent, next func() *scriptedChat) *fakeSpawner {
-	return &fakeSpawner{nextChat: next, agents: agents}
+// newFakeSpawner builds the fake for t, and ends every runner half it starts
+// when t ends. A runner half is detached from the coordinator on purpose (a
+// restarted coordinator re-adopts it), so nothing else ends it: one left
+// running redials an absent coordinator for the whole owner-loss window and
+// warns through clidiag's PROCESS-WIDE sink — into whatever unsynchronised
+// buffer a later test installed there.
+func newFakeSpawner(t testing.TB, agents map[string]fakeAgent, next func() *scriptedChat) *fakeSpawner {
+	s := &fakeSpawner{nextChat: next, agents: agents}
+	t.Cleanup(s.killAll)
+	return s
+}
+
+// killAll kills every runner half this fake started (see newFakeSpawner).
+func (s *fakeSpawner) killAll() {
+	s.mu.Lock()
+	kills := slices.Clone(s.kills)
+	s.mu.Unlock()
+	for _, kill := range kills {
+		kill()
+	}
 }
 
 func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan, error) {
@@ -393,15 +411,18 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 	}
 	host.BindHome(home)
 	released := make(chan struct{})
-	var releaseOnce sync.Once
+	var killOnce sync.Once
+	// Once: a test's own killEngine and the end-of-test killAll both reach it.
 	kill := func() {
-		cancel()
-		// The runner's own teardown order: the engine host is joined before
-		// the Home crashes, so no turn goroutine of the host reaches the
-		// Home's spool after the Home is gone.
-		host.Close()
-		home.Crash()
-		releaseOnce.Do(func() { close(released) })
+		killOnce.Do(func() {
+			cancel()
+			// The runner's own teardown order: the engine host is joined
+			// before the Home crashes, so no turn goroutine of the host
+			// reaches the Home's spool after the Home is gone.
+			host.Close()
+			home.Crash()
+			close(released)
+		})
 	}
 	s.mu.Lock()
 	s.kills = append(s.kills, kill)
@@ -767,7 +788,7 @@ func newTestCoordinatorAt(t *testing.T, stateDir string) *Coordinator {
 	c, err := New(Options{
 		ProjectDir: stateDir,
 		StateDir:   stateDir,
-		Spawner:    newFakeSpawner(nil, nil),
+		Spawner:    newFakeSpawner(t, nil, nil),
 		Clock:      nil,
 		OwnerHarp:  ownerIdentity().Harp,
 		Reporter:   termSink(),

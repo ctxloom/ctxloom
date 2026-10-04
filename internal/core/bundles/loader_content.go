@@ -653,6 +653,19 @@ func (l *Loader) ExpandBundleRefs(refs []string) []ExpandedRef {
 	return out
 }
 
+// expandedFragmentName mints an ExpandedRef.Name from a canonical bundle ref
+// and a "<kind>/<name>" selector. The name is the one trust.ParseSelector
+// returns — normalised — never the selector text it was handed: a profile's
+// selector and a bundle-authored fragment name are both outside input, and
+// this Name is what every downstream surface prints and keys on.
+func expandedFragmentName(canonical, sel string) (string, error) {
+	kind, name, err := trust.ParseSelector(sel)
+	if err != nil {
+		return "", err
+	}
+	return canonical + "#" + kind.Dir() + "/" + name, nil
+}
+
 // expandBundleRef returns the canonical fragment refs for a single ref.
 // See ExpandBundleRefs for the supported syntax.
 func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
@@ -696,7 +709,12 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 			l.Catalog().warnUnresolvedBundle(bundleName, err)
 			return nil
 		}
-		return []ExpandedRef{{Name: canonical + "#" + rest, Version: version}}
+		name, err := expandedFragmentName(canonical, rest)
+		if err != nil {
+			l.Catalog().warnUnresolvedBundle(ref, err)
+			return nil
+		}
+		return []ExpandedRef{{Name: name, Version: version}}
 	}
 
 	// Whole-bundle ref: enumerate every fragment in the bundle. A pinned
@@ -723,7 +741,12 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 	}
 	out := make([]ExpandedRef, 0, len(read.Bundle.Fragments))
 	for fragName := range read.Bundle.Fragments {
-		out = append(out, ExpandedRef{Name: canonical + remote.FragmentSelector + fragName, Version: version})
+		name, err := expandedFragmentName(canonical, trust.KindFragment.Dir()+"/"+fragName)
+		if err != nil {
+			l.Catalog().warnUnresolvedBundle(ref, err)
+			continue
+		}
+		out = append(out, ExpandedRef{Name: name, Version: version})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

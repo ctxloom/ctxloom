@@ -100,7 +100,7 @@ func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend stri
 // --- DOCTOR-CHECK-SETUP-MARKER-e5 ---
 
 // stubLocalDefaultProfile overwrites the scaffolded seed profile
-// (.ctxloom/profiles/default.yaml) with a self-contained profile carrying no
+// (the project bundle's default profile) with a self-contained profile carrying no
 // remote parent. The embedded seed profile (resources/profiles/default.yaml)
 // inherits https://github.com/ctxloom/ctxloom-default, which a hermetic test
 // never installs (no `ctxloom deps pull` ever runs here) — a fixture meant to

@@ -377,8 +377,8 @@ func TestAgentSetupNudge_Wiring(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv(projectroot.EnvVar, "") // don't let an ambient root override workDir
 
-	// A profile is a FILE now, so "the project has profiles" means one exists in
-	// .ctxloom/profiles/ — writing a config block would only produce a
+	// A profile is a project-bundle item, so "the project has profiles" means one
+	// exists in the project bundle — writing a config block would only produce a
 	// retired-key warning and no profile at all.
 	writeRoot := func(t *testing.T, body string, profiles ...string) string {
 		root := t.TempDir()

@@ -365,7 +365,7 @@ func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
 	// config.Config with some valid and some invalid parts (unknown property in plugin).
 	// Schema validation may catch this, but we should still not fail -- and the
 	// VALID part must survive, which is the whole claim. The profile lives in
-	// .ctxloom/profiles/ now that the inline arm is retired, so the surviving
+	// the project bundle now that the inline arm is retired, so the surviving
 	// good part is read through the loader rather than off the config struct.
 	configYAML := fmt.Sprintf(`
 version: %d

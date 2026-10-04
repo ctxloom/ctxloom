@@ -538,9 +538,7 @@ func applyFragmentEdits(bundle *bundles.Bundle, set map[string]BundleFragmentInp
 		merged.Premise = in.Premise
 		if !hadExisting || existing.Content != in.Content {
 			merged.Content = in.Content
-			merged.Distilled = ""
-			merged.DistilledBy = ""
-			merged.ContentHash = ""
+			invalidateDerived(&merged.ItemBody)
 			if !in.NoDistill {
 				distillTargets = append(distillTargets, name)
 			}
@@ -560,6 +558,17 @@ func applyFragmentEdits(bundle *bundles.Bundle, set map[string]BundleFragmentInp
 	return changes, distillTargets
 }
 
+// invalidateDerived clears every ItemBody field derived from Content, so a
+// derived artifact never outlives the text it was derived from. It is the one
+// place both edit sites (applyFragmentEdits, applyPromptEdits) invalidate;
+// TestContentEditClearsEveryDerivedField fails when an ItemBody field is
+// neither cleared here nor taken from the edit input.
+func invalidateDerived(b *bundles.ItemBody) {
+	b.Distilled = ""
+	b.DistilledBy = ""
+	b.ContentHash = ""
+}
+
 // applyPromptEdits is the prompt counterpart of applyFragmentEdits, with the
 // same content-aware (re)distillation rule plus a Description field.
 func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundleCommandInput, remove []string, changes []string) (newChanges, distillTargets []string) {
@@ -576,9 +585,7 @@ func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundleCommandInput,
 		merged.NoDistill = in.NoDistill
 		if !hadExisting || existing.Content != in.Content {
 			merged.Content = in.Content
-			merged.Distilled = ""
-			merged.DistilledBy = ""
-			merged.ContentHash = ""
+			invalidateDerived(&merged.ItemBody)
 			if !in.NoDistill {
 				distillTargets = append(distillTargets, name)
 			}

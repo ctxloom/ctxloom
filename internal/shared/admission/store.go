@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
 // The trust-on-first-use store: the first time a given thing would be
@@ -39,11 +40,12 @@ import (
 // else) key and scope are the same function and the asymmetry collapses to
 // nothing.
 
-// storeVersion is the only on-disk version this build understands. A future
-// format change must fail LOUD rather than be misread as an empty store —
+// storeKind versions every admission store's file. A newer format must fail
+// LOUD (schemaver.ErrNewer) rather than be misread as an empty store —
 // "nothing recorded" is exactly the reading that re-opens a door a human
-// closed.
-const storeVersion = 1
+// closed. LegacyKey: the file spelled its format generation `version` before
+// schemaver.
+var storeKind = schemaver.Kind{Name: "admission record", LegacyKey: "version", Oldest: 1}
 
 // Record is one recorded human decision.
 type Record[K comparable] struct {
@@ -315,8 +317,8 @@ func (s *Store[K, R]) configured() error {
 
 // doc is the on-disk shape.
 type doc[K comparable] struct {
-	Version int         `yaml:"version"`
-	Records []Record[K] `yaml:"records"`
+	SchemaVersion int         `yaml:"schema_version"`
+	Records       []Record[K] `yaml:"records"`
 }
 
 // Load reads the store once. An ABSENT file is the ordinary "nobody has
@@ -348,12 +350,15 @@ func (s *Store[K, R]) Load() (*Snapshot[K], error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", s.path, err)
 	}
-	var d doc[K]
-	if uerr := yaml.Unmarshal(data, &d); uerr != nil {
-		return nil, fmt.Errorf("parse %s: %w", s.path, uerr)
+	// Reading never writes: an older spelling is migrated here in memory and
+	// reaches disk with the next recorded decision.
+	r, err := storeKind.Upgrade(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", s.path, err)
 	}
-	if d.Version != storeVersion {
-		return nil, fmt.Errorf("%s declares version %d, this build understands %d", s.path, d.Version, storeVersion)
+	var d doc[K]
+	if uerr := yaml.Unmarshal(r.Data, &d); uerr != nil {
+		return nil, fmt.Errorf("parse %s: %w", s.path, uerr)
 	}
 	return &Snapshot[K]{records: d.Records, key: s.key, scope: s.scope}, nil
 }
@@ -524,7 +529,7 @@ func (s *Store[K, R]) write(recs []Record[K]) error {
 		return err
 	}
 	s.sortByScopeThenKey(recs)
-	data, err := yaml.Marshal(doc[K]{Version: storeVersion, Records: recs})
+	data, err := yaml.Marshal(doc[K]{SchemaVersion: storeKind.Current(), Records: recs})
 	if err != nil {
 		return fmt.Errorf("marshal admission records: %w", err)
 	}

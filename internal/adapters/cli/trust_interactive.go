@@ -191,7 +191,7 @@ func warnPromptFault(cmd *cobra.Command, err error) {
 // line to w. The ref uses the local bundle name as its source, matching how the
 // `fragment/prompt list` stamp addresses items of a materialized bundle.
 func printBundleItemTrust(w io.Writer, stamper *operations.TrustStamper, bundle string, kind trust.ItemKind, name string) {
-	ref := bundle + "#" + kind.Dir() + "/" + name
+	ref := bundle + "#" + trust.FormatSelector(kind, name)
 	res := stamper.ForRef(ref)
 	// name is bundle-authored and reaches this print RAW; ForRef normalizes
 	// its own copy for the trust decision (via trust.Ref.Key), but never
@@ -201,7 +201,7 @@ func printBundleItemTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 	// the same bytes -- and it ESCAPES rather than deletes, so the reviewer
 	// sees that the publisher put a control byte here instead of being shown
 	// a name that silently lost one.
-	fmt.Fprintf(w, "  %s/%s: %s\n", kind.Dir(), termsafe.Field(name), stampedTrust(res))
+	fmt.Fprintf(w, "  %s: %s\n", trust.FormatSelector(kind, termsafe.Field(name)), stampedTrust(res))
 }
 
 // printBundleHookTrust stamps one bundle hook by its (bundle, entry) identity and

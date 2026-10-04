@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
@@ -118,7 +119,7 @@ func runFragmentDraftPremise(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ref = bundleName + "#" + itemRefPrefix(ItemTypeFragment) + itemName
+	ref = bundleName + "#" + trust.FormatSelector(trust.KindFragment, itemName)
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)

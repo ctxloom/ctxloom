@@ -12,7 +12,7 @@ both are cross-item operations.
 
 The reference grammar used throughout is `bundle-name#fragments/name`,
 `bundle#commands/name`, `bundle#skills/name` — split by `itemRefTarget` and
-built from `itemRefPrefix`. `cli.ItemType` is an alias of
+built by `trust.FormatSelector`, the exact inverse of `trust.ParseSelector`. `cli.ItemType` is an alias of
 `operations.ItemKind`, so the kind vocabulary has one definition.
 
 ## Structure
@@ -35,7 +35,7 @@ flowchart TD
     end
 
     subgraph items["item_*.go — fragment + command share one body"]
-        IT["ItemType = operations.ItemKind"] --> PIR["itemRefTarget / itemRefPrefix"]
+        IT["ItemType = operations.ItemKind"] --> PIR["itemRefTarget / trust.FormatSelector"]
         LI["listItems"] --> LIR["listItemRows"] --> CS["classifySource"] --> RUM["remoteURLMap"]
         LI --> FB["filterByBundle"] --> PII["printItemInfos"]
         LI --> SIT["stampItemTrust"]
@@ -118,7 +118,7 @@ proceeded on the built-in prompt would be indistinguishable from working.
 ## Invariants
 
 - **The ref grammar has one splitter and one builder.** `itemRefTarget`
-  splits, `itemRefPrefix` builds.
+  splits, `trust.FormatSelector` builds.
 - **`bundle view` renders identically in text and JSON.** `bundleViewResult`
   carries the exact bytes `--format text` prints in its `Content` field, so
   structured consumers see the same thing a human does. `writeViewContent`

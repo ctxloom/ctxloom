@@ -274,11 +274,6 @@ Examples:
 	RunE: runMCPServerEdit,
 }
 
-// mcpServerRefPrefix is the selector directory that addresses a bundle-scoped
-// MCP server (`<bundle>#mcp/<name>`). Unlike fragments and commands the kind
-// is not pluralized, so it does not go through itemRefPrefix.
-const mcpServerRefPrefix = "mcp/"
-
 // runMCPServerEdit edits a bundle-scoped MCP server named by a
 // `<bundle>#mcp/<name>` ref, judged by bundles.ParseItemAsk — the one selector
 // parser every reader shares.
@@ -289,7 +284,7 @@ const mcpServerRefPrefix = "mcp/"
 // is the failure mode this refusal exists to prevent.
 func runMCPServerEdit(cmd *cobra.Command, args []string) error {
 	notBundleScoped := func() error {
-		return fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s<name>); every MCP server lives in a bundle, so there is no other store to edit", args[0], mcpServerRefPrefix)
+		return fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s); every MCP server lives in a bundle, so there is no other store to edit", args[0], trust.FormatSelector(trust.KindMCP, "<name>"))
 	}
 	ask, err := bundles.ParseItemAsk(args[0])
 	if err != nil {
@@ -299,7 +294,7 @@ func runMCPServerEdit(cmd *cobra.Command, args []string) error {
 		return notBundleScoped()
 	}
 	if ask.Bundle == "" || ask.Item == "" {
-		return fmt.Errorf("mcp server edit: incomplete ref %q (expected <bundle>#%s<name>)", args[0], mcpServerRefPrefix)
+		return fmt.Errorf("mcp server edit: incomplete ref %q (expected <bundle>#%s)", args[0], trust.FormatSelector(trust.KindMCP, "<name>"))
 	}
 	return runBundleMCPEdit(cmd, []string{ask.Bundle, ask.Item})
 }

@@ -51,6 +51,20 @@ func IsRetiredAtEntry(ask string) bool {
 	return IsRetiredBuiltinSpelling(ask) || refuri.IsSelfContainedRef(ask)
 }
 
+// FormatSelector renders the "<kind>/<name>" selector (the part after "#")
+// that ParseSelector reads back to exactly (kind, name): the ONE selector
+// renderer, so minting cannot drift from parsing. A command is written
+// under its current spelling, "commands/"; ItemKind.Dir stays the STORED
+// directory ("prompts") that persisted trust keys use, and is not a
+// selector spelling.
+func FormatSelector(kind ItemKind, name string) string {
+	dir := kind.Dir()
+	if kind == KindPrompt {
+		dir = "commands"
+	}
+	return dir + "/" + name
+}
+
 // ParseSelector parses a "<kind>/<name>" selector (the part after "#").
 func ParseSelector(sel string) (ItemKind, string, error) {
 	kindDir, name, found := strings.Cut(sel, "/")

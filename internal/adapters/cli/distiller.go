@@ -8,6 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -94,9 +95,9 @@ func (d *llmDistiller) Distill(ctx context.Context, req operations.DistillReques
 	var excludeName string
 	switch req.Kind {
 	case operations.DistillKindFragment:
-		excludeName = itemRefPrefix(ItemTypeFragment) + req.Name
+		excludeName = trust.FormatSelector(trust.KindFragment, req.Name)
 	case operations.DistillKindCommand:
-		excludeName = itemRefPrefix(ItemTypeCommand) + req.Name
+		excludeName = trust.FormatSelector(trust.KindPrompt, req.Name)
 	}
 	var siblingCtx string
 	if req.Bundle != nil {

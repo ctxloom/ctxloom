@@ -190,7 +190,7 @@ func TestUpgrade_Unreadable(t *testing.T) {
 // reach first if the document were re-encoded; refuse rather than guess.
 func TestUpgrade_DuplicateKeyNeedingMigrationIsUnreadable(t *testing.T) {
 	_, err := withSteps.Upgrade(doc(1, "kept: x\nkept: y\n"))
-	requireVersionError(t, err, ErrUnreadable)
+	assert.Equal(t, withSteps.Name, requireVersionError(t, err, ErrUnreadable).Kind)
 }
 
 func TestUpgrade_EmptyAndCommentOnlyAreGenerationZero(t *testing.T) {
@@ -269,7 +269,7 @@ func TestUpgrade_LegacyRenameThenMigrates(t *testing.T) {
 func TestUpgrade_LegacyAndKeyBothPresentIsUnreadable(t *testing.T) {
 	k := Kind{Name: "legacy", LegacyKey: "version", Oldest: 1}
 	_, err := k.Upgrade([]byte("version: 1\n" + Key + ": 1\n"))
-	requireVersionError(t, err, ErrUnreadable)
+	assert.Equal(t, k.Name, requireVersionError(t, err, ErrUnreadable).Kind)
 }
 
 func TestStamp(t *testing.T) {

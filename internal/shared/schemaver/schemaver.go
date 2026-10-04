@@ -130,39 +130,15 @@ func (k Kind) unreadable(cause error) *VersionError {
 // A document already current passes through untouched: Result.Data is the
 // input slice and Applied is empty.
 func (k Kind) Upgrade(data []byte) (Result, error) {
-	doc, err := upgrade.DecodeSingle(data)
-	commentOnly := errors.Is(err, io.EOF)
-	switch {
-	case commentOnly || (err == nil && isNullDocument(&doc)):
-		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
-	case err != nil:
-		return Result{}, k.unreadable(err)
-	case doc.Content[0].Kind != yaml.MappingNode:
-		return Result{}, k.unreadable(errNotMapping)
+	doc, commentOnly, err := k.parse(data)
+	if err != nil {
+		return Result{}, err
 	}
 	root := doc.Content[0]
-
-	var applied []string
-	if k.LegacyKey != "" {
-		renamed, err := renameKey(root, k.LegacyKey)
-		if err != nil {
-			return Result{}, k.unreadable(err)
-		}
-		if renamed {
-			applied = append(applied, renameStepName(k.LegacyKey))
-		}
+	found, applied, err := k.gate(root)
+	if err != nil {
+		return Result{}, err
 	}
-
-	found, ok := upgrade.Version(root, Key)
-	switch {
-	case !ok:
-		return Result{}, k.unreadable(errNotInteger)
-	case found > k.Current():
-		return Result{}, k.refuse(found, ErrNewer)
-	case found < k.Oldest:
-		return Result{}, k.refuse(found, ErrTooOld)
-	}
-
 	for _, step := range k.Steps[found-k.Oldest:] {
 		step.Apply(root)
 		applied = append(applied, step.Name())
@@ -170,20 +146,72 @@ func (k Kind) Upgrade(data []byte) (Result, error) {
 	if len(applied) == 0 {
 		return Result{Data: data, From: found, To: found}, nil
 	}
+	out, err := k.encode(&doc, data, commentOnly)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Data: out, From: found, To: k.Current(), Applied: applied}, nil
+}
+
+// parse returns data's single document with a mapping root. An empty,
+// comment-only or null document comes back as an empty mapping; commentOnly
+// reports that yaml.v3 kept no node for it at all.
+func (k Kind) parse(data []byte) (doc yaml.Node, commentOnly bool, err error) {
+	doc, err = upgrade.DecodeSingle(data)
+	commentOnly = errors.Is(err, io.EOF)
+	switch {
+	case commentOnly || (err == nil && isNullDocument(&doc)):
+		empty := yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
+		return empty, commentOnly, nil
+	case err != nil:
+		return doc, false, k.unreadable(err)
+	case doc.Content[0].Kind != yaml.MappingNode:
+		return doc, false, k.unreadable(errNotMapping)
+	}
+	return doc, false, nil
+}
+
+// gate renames the legacy key, then reads and checks the declared
+// generation. applied carries the rename when one happened.
+func (k Kind) gate(root *yaml.Node) (found int, applied []string, err error) {
+	if k.LegacyKey != "" {
+		renamed, err := renameKey(root, k.LegacyKey)
+		if err != nil {
+			return 0, nil, k.unreadable(err)
+		}
+		if renamed {
+			applied = append(applied, renameStepName(k.LegacyKey))
+		}
+	}
+	found, ok := upgrade.Version(root, Key)
+	switch {
+	case !ok:
+		return 0, nil, k.unreadable(errNotInteger)
+	case found > k.Current():
+		return 0, nil, k.refuse(found, ErrNewer)
+	case found < k.Oldest:
+		return 0, nil, k.refuse(found, ErrTooOld)
+	}
+	return found, applied, nil
+}
+
+// encode stamps and serializes a changed document.
+func (k Kind) encode(doc *yaml.Node, data []byte, commentOnly bool) ([]byte, error) {
+	root := doc.Content[0]
 	if upgrade.HasDuplicateKey(root) {
-		return Result{}, k.unreadable(errDuplicate)
+		return nil, k.unreadable(errDuplicate)
 	}
 	k.Stamp(root)
-	out, err := upgrade.Encode(&doc)
+	out, err := upgrade.Encode(doc)
 	if err != nil {
-		return Result{}, k.unreadable(err)
+		return nil, k.unreadable(err)
 	}
 	if commentOnly && len(strings.TrimSpace(string(data))) > 0 {
 		// yaml.v3 keeps no node for a comment-only stream, so the comments —
 		// the file's whole content — are carried over as bytes.
 		out = append([]byte(strings.TrimRight(string(data), "\n")+"\n"), out...)
 	}
-	return Result{Data: out, From: found, To: k.Current(), Applied: applied}, nil
+	return out, nil
 }
 
 // isNullDocument reports a document whose only content is null (`---`, `~`):

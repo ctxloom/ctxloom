@@ -35,15 +35,11 @@ import (
 // socket lives under dir (pass TestEnvironment.Root, so it is removed with the
 // rest of the scenario's temp tree even if stop is somehow never called).
 //
-// It also deliberately does NOT set SSH_AUTH_SOCK itself. Pointing the world
-// at the agent is one line at the call site
-// (w.env.SetEnv("SSH_AUTH_SOCK", sock)) and keeping it there keeps the
-// interaction with steps_j001500.go's DELIBERATE blanking of the same variable
-// visible: J001500 sets it to "" to force agentkey's no-key-anywhere branch, J001600
-// sets it to this socket to force the key-found branch, and neither can
-// silently change the other's meaning because both writes are explicit,
-// per-scenario, and restored by TestEnvironment.Cleanup (SetEnv's
-// first-write-wins bookkeeping).
+// It also deliberately does NOT set SSH_AUTH_SOCK itself. isolatedEnv drops
+// the host's SSH_AUTH_SOCK, so a scenario sees no agent at all (agentkey's
+// no-key-anywhere branch) until it opts in with one line at the call site,
+// w.env.SetChildEnv("SSH_AUTH_SOCK", sock). Keeping that write explicit and
+// per-scenario keeps visible which scenarios force the key-found branch.
 //
 // The comment attached to each identity is the ssh-agent key COMMENT — the
 // string `ctxloom bundle sign --key <name>` matches case-insensitively as the

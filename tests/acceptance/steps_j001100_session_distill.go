@@ -99,13 +99,13 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 		if err := j001200AddIndexEntry(w, harp, "seeded acceptance fixture session", transcriptPath); err != nil {
 			return fmt.Errorf("seed index entry for %s: %w", harp, err)
 		}
-		// Two turns, not zero: Compact's isEmptySession short-circuit (zero
-		// main-thread entries -> a placeholder dump, no LLM call at all) would
-		// make this scenario pass vacuously against an empty session.
-		if err := j001200WriteCanonicalTranscript(w, harp, []string{
-			"What should we do about stale cached responses? " + j001100TranscriptMarker,
-			"Cache by ETag and revalidate on 304. " + j001100TranscriptMarker,
-		}); err != nil {
+		// Padded past the distillation floor: Compact saves a transcript too
+		// small to compress verbatim with no LLM call at all, which would make
+		// this scenario pass vacuously — the marker is in the transcript.
+		if err := j001200WriteCanonicalTranscript(w, harp, distillableTurns(
+			"What should we do about stale cached responses? "+j001100TranscriptMarker,
+			"Cache by ETag and revalidate on 304. "+j001100TranscriptMarker,
+		)); err != nil {
 			return fmt.Errorf("seed transcript for %s: %w", harp, err)
 		}
 		return nil
@@ -126,4 +126,13 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+}
+
+// distillableTurns appends an ordinary user/assistant exchange long enough
+// that the seeded transcript clears the distillation floor
+// (memory.minDistillTokens), so a scenario about what the distiller receives
+// actually reaches the distiller instead of a verbatim dump.
+func distillableTurns(turns ...string) []string {
+	filler := strings.Repeat("We walked through the design and settled its open questions one by one. ", 40)
+	return append(turns, "Summarize where the design discussion landed.", filler)
 }

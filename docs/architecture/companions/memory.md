@@ -40,11 +40,11 @@ flowchart TD
 
   C --> LS["loadSessionToCompact<br/>preloaded → identity-bound id → CurrentSession"]
   LS --> SRC
-  LS --> ES{"isEmptySession<br/>len(entries) == 0"}
+  LS --> S2T["renderEntries → appendEntryText"]
+  S2T --> ES{"tooLittleToDistill<br/>under minDistillTokens"}
 
-  ES -->|yes| DUMP["dumpEmptySession<br/>placeholder body"]
-  ES -->|no| S2T["renderEntries → appendEntryText"]
-  S2T --> FB["fitToBudget<br/>recency-graded, rune-safe<br/>only when over SinglePassInputTokens"]
+  ES -->|yes| DUMP["dumpUndistilled<br/>transcript verbatim"]
+  ES -->|no| FB["fitToBudget<br/>recency-graded, rune-safe<br/>only when over SinglePassInputTokens"]
   FB --> RD["runDistill (ONE call)"]
   RD --> LLM
   RES -.->|"session-distill.md"| RD
@@ -90,8 +90,8 @@ flowchart TD
 | `NewCompactor` | `compactor.go` | Defaults and clamps the config, and resolves the `SessionSource` (`resolveSource`) |
 | `Compact` | `compactor.go` | The whole pipeline. `finishDistill` saves the essence before it updates the session index, so a fingerprint is never recorded for an essence that was not written |
 | `loadSessionToCompact` | `compactor.go` | Preloaded → identity-bound id → `CurrentSession`. Explicit-id failures hard-error; index-derived failures fall through with a documented rationale |
-| `isEmptySession` | `compactor.go` | `len(entries) == 0` |
-| `dumpEmptySession` | `compactor.go` | Short-circuits to a placeholder essence |
+| `tooLittleToDistill` | `compactor.go` | The rendered transcript is under `minDistillTokens`: too small for distillation to compress, and small enough that the model answers with a refusal rather than a summary |
+| `dumpUndistilled` | `compactor.go` | Short-circuits to the transcript itself as the essence (a placeholder when it rendered to nothing); never replaces an existing essence |
 | `fitToBudget` | `compactor.go` | Deterministic recency-graded reduction to `SinglePassInputTokens`; each entry may claim at most half of what remains, so the budget is never exceeded and the head decays geometrically |
 | `splitEntryBlocks` | `compactor.go` | Splits rendered text back into the `## `-headed per-entry blocks `appendEntryText` wrote |
 | `runDistill` | `compactor.go` | The one distillation call, through the package's `Distill`: a run that fails, or exits 0 with no output, is an error rather than an empty essence |

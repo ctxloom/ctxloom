@@ -379,7 +379,7 @@ test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
     # hooks as absolute paths rather than the bare name — different bytes, so a
     # different program measured. See cmd/ctxloom/justfile's build-cover.
     # -timeout 30m for the same reason test-acceptance carries it, only more so:
-    # this lane runs the SAME 515 scenarios through a coverage-instrumented
+    # this lane runs the SAME scenarios through a coverage-instrumented
     # binary, so it is strictly slower than the 1200s the plain suite measured.
     # Under go test's 600s default this lane died mid-suite and still emitted a
     # profile — a TRUNCATED one, which is worse than none: every leaf and flag

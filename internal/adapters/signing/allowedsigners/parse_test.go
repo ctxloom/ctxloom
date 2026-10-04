@@ -620,7 +620,7 @@ func TestParse_QuoteInsideUnquotedFieldIsMalformed(t *testing.T) {
 	assert.Empty(t, store.Entries(), "a stray quote must never garble its way into a granted identity")
 }
 
-// TestParse_QuotedPrincipalIsRevocableBySignerRemove proves the round-trip
+// TestParse_QuotedPrincipalIsRevocableBySignerUntrust proves the round-trip
 // this whole fix exists for, at the level this package can prove it without
 // depending on internal/adapters/operations (this package is a dependency-free leaf
 // being extracted as a standalone library — see the package doc — so it
@@ -633,7 +633,7 @@ func TestParse_QuoteInsideUnquotedFieldIsMalformed(t *testing.T) {
 // match against Entry.Principals. So the property that makes a principal
 // "revocable by signer untrust" is exactly this: the string a human typed
 // appears, byte-for-byte, in Principals. That is what this test asserts.
-func TestParse_QuotedPrincipalIsRevocableBySignerRemove(t *testing.T) {
+func TestParse_QuotedPrincipalIsRevocableBySignerUntrust(t *testing.T) {
 	line := `"alice@x.com,bob@x.com" ` + testNS + testEd25519Key + "\n"
 	store, perrs, err := Parse(strings.NewReader(line))
 	require.NoError(t, err)

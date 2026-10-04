@@ -91,10 +91,12 @@ var (
 	ErrTooOld     = errors.New("older than the oldest format this binary can migrate")
 	ErrUnreadable = errors.New("format version cannot be read")
 
-	errNotMapping = errors.New("the document is not a mapping")
 	errNotInteger = errors.New(Key + " is not an integer")
 	errBothKeys   = errors.New("both " + Key + " and its legacy spelling are present")
-	errDuplicate  = errors.New("a mapping repeats a key")
+
+	// errMalformed marks a document that is not a well-formed YAML mapping.
+	// It never leaves Upgrade, which passes such a document through.
+	errMalformed = errors.New("not a well-formed YAML mapping")
 )
 
 // VersionError is a refused document. Err is (or wraps) ErrNewer, ErrTooOld
@@ -132,16 +134,23 @@ func (k Kind) unreadable(cause error) *VersionError {
 //
 //  1. rename LegacyKey to Key, when the kind opts in;
 //  2. read the generation — an empty or comment-only document is generation
-//     0; a non-integer version, a non-mapping document or more than one
-//     document is ErrUnreadable; above Current is ErrNewer, below Oldest is
-//     ErrTooOld;
+//     0; a non-integer version or more than one document is ErrUnreadable;
+//     above Current is ErrNewer, below Oldest is ErrTooOld;
 //  3. run the steps from that generation up;
 //  4. stamp Current, when anything changed.
 //
 // A document already current passes through untouched: Result.Data is the
-// input slice and Applied is empty.
+// input slice and Applied is empty. So does one that is not a well-formed
+// YAML mapping — a syntax error, a non-mapping root, a repeated key — with
+// From and To zero: it has no generation to judge, and refusing it here would
+// report a file that does not parse as a version fault, pointing at the wrong
+// thing. The kind's own decode, which follows, reports it as the parse failure
+// it is.
 func (k Kind) Upgrade(data []byte) (Result, error) {
 	doc, commentOnly, err := k.parse(data)
+	if errors.Is(err, errMalformed) {
+		return Result{Data: data}, nil
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -166,18 +175,30 @@ func (k Kind) Upgrade(data []byte) (Result, error) {
 
 // parse returns data's single document with a mapping root. An empty,
 // comment-only or null document comes back as an empty mapping; commentOnly
-// reports that yaml.v3 kept no node for it at all.
+// reports that yaml.v3 kept no node for it at all. A document that is not a
+// well-formed mapping is errMalformed.
+//
+// More than one document is ErrUnreadable even when a later one is what fails
+// to parse: the first parsed, so which document declares the generation is
+// the fault, and a caller's single-document decode would read the first and
+// never see the rest.
 func (k Kind) parse(data []byte) (doc yaml.Node, commentOnly bool, err error) {
 	doc, err = upgrade.DecodeSingle(data)
 	commentOnly = errors.Is(err, io.EOF)
+	firstParsed := doc.Kind == yaml.DocumentNode
 	switch {
 	case commentOnly || (err == nil && isNullDocument(&doc)):
 		empty := yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
 		return empty, commentOnly, nil
-	case err != nil:
+	case err != nil && firstParsed:
 		return doc, false, k.unreadable(err)
-	case doc.Content[0].Kind != yaml.MappingNode:
-		return doc, false, k.unreadable(errNotMapping)
+	case err != nil,
+		doc.Content[0].Kind != yaml.MappingNode,
+		// A repeated key is refused by every struct/map decode, but a node
+		// decode accepts it and the node helpers act on the FIRST match: a
+		// migration would silently keep one entry and drop the other.
+		upgrade.HasDuplicateKey(doc.Content[0]):
+		return doc, false, errMalformed
 	}
 	return doc, false, nil
 }
@@ -209,9 +230,6 @@ func (k Kind) gate(root *yaml.Node) (found int, applied []string, err error) {
 // encode stamps and serializes a changed document.
 func (k Kind) encode(doc *yaml.Node, data []byte, commentOnly bool) ([]byte, error) {
 	root := doc.Content[0]
-	if upgrade.HasDuplicateKey(root) {
-		return nil, k.unreadable(errDuplicate)
-	}
 	k.Stamp(root)
 	out, err := upgrade.Encode(doc)
 	if err != nil {

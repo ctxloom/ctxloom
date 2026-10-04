@@ -161,8 +161,8 @@ Build orchestration: `Container.ensureImage` (single-flight per `(runtime, tag)`
 implicit pull** — an absent image is either built from a known source or the
 policy degrades (`Container.imagePresent`).
 
-Devcontainer resolution (`resolveDevBase`) strips JSONC and handles image /
-build / compose forms. Declared devcontainer **features are warned about, not
+Base resolution (`resolveBase`) maps `isolation_base` to ONE base stage;
+devcontainer resolution strips JSONC and handles image / build / compose forms. Declared devcontainer **features are warned about, not
 honored** (`warnDevcontainerFeatures`).
 
 ### Run mechanics
@@ -645,7 +645,7 @@ image another is between building and running.
 | `Isolated` | `isolation.go` | `p.Name() != "none"`; gates per-member config writes |
 | `StarterForWorkspace` / `FactoryForWorkspace` / `WorkspaceEnv` | `isolation.go` | Binding adapters for `internal/adapters/operations` |
 | `EngineStarter` / `RunnerHandle` | `isolation.go` | Launch closure; `{Name, Kill func(), Wait, StderrTail}` |
-| `ImageConfig` | `isolation.go` | `Image`, `BaseContainerfile`, `AppRoot`, `NoDevcontainerBase`, `DevcontainerService`, `Engines` |
+| `ImageConfig` | `isolation.go` | Alias of `launch.ImageConfig`: the image override, the `isolation_base` choice, and the devcontainer inputs |
 | `None` / `Container` / `Worktree` | `none.go` / `container.go` / `worktree.go` | The three policy types (four policy identities, six requestable postures) |
 | `PrepareClaudeHome` | `auth.go` | The exported one-way copy-in seam, for per-session instance homes outside a `Policy` |
 | `Runtime` / `Docker` / `Podman` / `Host` | `runtime.go` | Pluggable launcher substrate |
@@ -717,7 +717,6 @@ image another is between building and running.
 - **`gitDirMounts` mounts the git common dir read-write** (only the `worktrees/` registry is masked). A member can therefore rewrite main's refs/objects/index, hooks and config.
 - **`TraceProbe`'s doc claims the loosened seccomp profile is structurally unreachable from a normal run**, but the gate is a plain `os.Getenv` (`traceProbeFromEnv`) — any parent exporting `CTXLOOM_ISOLATION_PROBE_TRACE_DIR` makes every container run in that process ptrace-permitted and strace-wrapped.
 - **`worktreeWorkspace.Env()` advertises `HomeVar` target directories that nothing creates** if `prepareHomeVarDirs` failed; isolation then depends on each engine choosing to `mkdir -p` rather than falling back to its global home.
-- **`ImageConfig`'s doc claims "zero value = devcontainer auto-detect ON"** but `resolveDevBase` turns detection *off* when `AppRoot == ""`.
 
 **Signal quality**
 

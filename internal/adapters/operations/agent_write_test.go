@@ -40,7 +40,7 @@ func loadConfigDir(t *testing.T, body string) (*config.Config, string) {
 
 // managerFor returns the App targeting the same on-disk appDir a
 // loadConfigDir config was read from — the real read-modify-write transaction
-// SetAgent/RemoveAgent/ScaffoldContainerBase perform, not a stand-in.
+// SetAgent/RemoveAgent perform, not a stand-in.
 func managerFor(t *testing.T, appDir string) *App {
 	t.Helper()
 	return testApp(t, configload.WithAppDir(appDir))

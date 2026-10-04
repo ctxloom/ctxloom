@@ -3,9 +3,9 @@
 # container/production/ layer the agent specifics — engine CLI install, the
 # ctxloom binary, the build gates — onto this via ARG BASE_IMAGE, so the base is
 # the ONE place the common environment lives (DRY), and the one thing a user
-# replaces to bring their own: point isolation_base_containerfile (config) or
-# `ctxloom container build --base-containerfile` at a Containerfile and the same
-# agent layers build on top of it instead.
+# replaces to bring their own: set isolation_base to devcontainer (`ctxloom
+# container scaffold` seeds one from this file) or to an image ref, and the
+# same agent layers build on top of it instead.
 #
 # node:22-slim is the default: Debian (apt — the engine layers' install contract)
 # with a current node runtime, which the claude layer's npm install needs anyway.

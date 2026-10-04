@@ -40,7 +40,7 @@ var resolveSelfExe = selfLinuxExe
 // baseImageTagFor derives the local tag the shared base stage builds to from
 // the base Containerfile's CONTENT; the agent stages FROM that build's
 // ownership tag (buildBaseImage) via --build-arg BASE_IMAGE. Content-keyed on purpose: concurrent SESSIONS with different
-// isolation_base_containerfile configs build DIFFERENT tags, so one session's
+// isolation_base choices build DIFFERENT tags, so one session's
 // agent stage can never FROM a base another session just tagged (a fixed
 // :latest tag was exactly that cross-contamination), while identical content
 // shares one tag — and the runtime's layer cache — as before. A content change

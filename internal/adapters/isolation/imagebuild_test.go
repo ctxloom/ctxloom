@@ -115,7 +115,7 @@ func TestEnsureImage_UserImageIsNeverBuilt(t *testing.T) {
 // TestBuildSources_NonComposableHasNoRecipe pins the NON-COMPOSABLE shape (no
 // engineInstall — an unknown/unmapped backend, e.g. engineContainerSpecFor's
 // `default` arm): there is no local-build recipe at all, so buildSources
-// yields nothing regardless of the base-Containerfile/devcontainer options —
+// yields nothing regardless of the resolved base —
 // UNLESS an explicit base-image override is given, which still wins outright
 // (the caller asserts the client already lives there; no spec lookup is
 // needed to overlay onto it).
@@ -851,11 +851,11 @@ func TestEnsureImage_UserBaseBuildFail_RefusesInBothModes(t *testing.T) {
 		script := filepath.Join(dir, "fake-docker")
 		writeAbsentBuildFailScript(t, script) // absent image → enter the build loop; builds fail
 		return Container{
-			runtime:           fakeRuntime{name: "docker", binary: script, available: true},
-			image:             "ctxloom-agent-userbase-test:latest",
-			baseChoice:        "acme/declared-base:1",
-			engine:            "claude-code",
-			engineSpec:        engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")},
+			runtime:    fakeRuntime{name: "docker", binary: script, available: true},
+			image:      "ctxloom-agent-userbase-test:latest",
+			baseChoice: "acme/declared-base:1",
+			engine:     "claude-code",
+			engineSpec: engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")},
 		}
 	}
 

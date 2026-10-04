@@ -179,7 +179,7 @@ RUN mkdir -p "${GOMODCACHE}" "${GOCACHE}" && chmod -R 0777 /go
 # serena — the code-intelligence MCP server (find_symbol,
 # find_referencing_symbols, the symbol-edit tools). It is here as well as in
 # container/base/Containerfile because THIS repo never uses that base: an
-# auto-detected devcontainer wins in resolveDevBase's candidate order, so an
+# unset isolation_base adopts the detected devcontainer (resolveBase), so an
 # agent on `runtime: container-rootless` here builds from this file. A
 # container-bound agent without serena loses those tools SILENTLY — it does not
 # know they are missing and falls back to grep.

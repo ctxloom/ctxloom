@@ -81,11 +81,11 @@ const (
 // TestArch_Config_EveryPersistedFieldReachesConfigDoc fails if one does not.
 // The mark lives on the declaration so there is no second list to forget.
 type Config struct {
-	version  int            // config schema version (integer; distinct from app version)
-	lm       LMConfig       //
-	editor   EditorConfig   //
-	settings SettingsConfig //
-	sync     SyncConfig     //
+	schemaVersion int            // config format generation (integer; distinct from app version)
+	lm            LMConfig       //
+	editor        EditorConfig   //
+	settings      SettingsConfig //
+	sync          SyncConfig     //
 	// agents is the LOCAL-ONLY engine↔profile binding map, and the ONE source
 	// of the agent entity. Keyed by agent name. It is NEVER a bundle item kind
 	// and NEVER remote — there is no Bundle.Agents and no remote path. Read it
@@ -357,7 +357,7 @@ func (d configDoc) yamlMap() (map[string]any, error) {
 // half from here, so this is the one place that ownership is decided.
 func (c *Config) toDoc() configDoc {
 	return configDoc{
-		Version:                      c.version,
+		SchemaVersion:                c.schemaVersion,
 		LM:                           cloneLMConfig(c.lm),
 		Editor:                       cloneEditor(c.editor),
 		Settings:                     cloneSettings(c.settings),
@@ -387,7 +387,7 @@ func (c *Config) toDoc() configDoc {
 // decodes into a cfg that already carries appPaths/appDir/appRoot/source from
 // bootstrap) rely on exactly that.
 func (c *Config) fromDoc(doc configDoc) {
-	c.version = doc.Version
+	c.schemaVersion = doc.SchemaVersion
 	c.lm = doc.LM
 	c.editor = doc.Editor
 	c.settings = doc.Settings

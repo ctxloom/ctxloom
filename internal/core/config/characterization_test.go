@@ -60,14 +60,14 @@ func characterizationCases() []characterizationCase {
 		{"explicit_false_and_stale_version", func() *Config {
 			no := false
 			return NewFixture(Fixture{
-				Version: 1,
-				Sync:    SyncConfig{AutoSync: &no},
-				UI:      UIConfig{Surround: &no},
+				SchemaVersion: 1,
+				Sync:          SyncConfig{AutoSync: &no},
+				UI:            UIConfig{Surround: &no},
 			})
 		}},
 		{"default_overlay", func() *Config {
 			c := NewFixture(Fixture{
-				Version: CurrentConfigVersion,
+				SchemaVersion: CurrentConfigVersion,
 				LM: LMConfig{
 					Configs:  map[string]LLMConfig{"shipped": {Type: "claude-code", Role: "primary"}, "mine": {Type: "codex"}},
 					Defaults: RoleDefaults{Primary: "shipped"},

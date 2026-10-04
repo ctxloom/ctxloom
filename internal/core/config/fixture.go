@@ -25,7 +25,7 @@ import (
 // policy the Get* accessors do — see TestToFixture_NeverAliasesConfigContainers
 // for the reflective gate that keeps a newly added field honest.
 type Fixture struct {
-	Version                      int
+	SchemaVersion                int
 	LM                           LMConfig
 	Editor                       EditorConfig
 	Settings                     SettingsConfig
@@ -76,7 +76,7 @@ type Fixture struct {
 func (c *Config) ToFixture() Fixture {
 	d := c.toDoc()
 	return Fixture{
-		Version:                      d.Version,
+		SchemaVersion:                d.SchemaVersion,
 		LM:                           d.LM,
 		Editor:                       d.Editor,
 		Settings:                     d.Settings,
@@ -125,7 +125,7 @@ func (c *Config) ToFixture() Fixture {
 // If you do not already know you need this, you almost certainly do not.
 func NewFixture(f Fixture) *Config {
 	return &Config{
-		version:                      f.Version,
+		schemaVersion:                f.SchemaVersion,
 		lm:                           cloneLMConfig(f.LM),
 		editor:                       cloneEditor(f.Editor),
 		settings:                     cloneSettings(f.Settings),

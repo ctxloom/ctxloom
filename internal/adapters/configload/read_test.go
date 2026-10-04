@@ -168,19 +168,18 @@ llm:
 	assert.NotContains(t, control, "ctxloom_mock_response", "key must not be lowercased")
 }
 
-func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {
+func TestLoad_CurrentConfigReadsItsVersion(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	current := "version: 6\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
+	current := "schema_version: 6\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
 	cfgPath := paths.ConfigPath(appDir)
 	testsupport.WriteFile(t, fs, cfgPath, []byte(current), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
-	assert.Nil(t, cfg.ToFixture().PendingUpgrade, "a current-version config must not record a pending upgrade")
-	assert.Equal(t, config.CurrentConfigVersion, cfg.ToFixture().Version)
+	assert.Equal(t, config.CurrentConfigVersion, cfg.ToFixture().SchemaVersion)
 }
 
 func TestLoad_NoConfigFile(t *testing.T) {
@@ -202,17 +201,16 @@ func TestLoadConfigLayer_AbsentAndUnparsable(t *testing.T) {
 	t.Run("absent file is nil values and no error", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		b := config.NewBuilder(fs, true, "/", config.SourceProject)
-		values, pending, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/nonexistent/config.yaml", fs)
+		values, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/nonexistent/config.yaml", fs)
 		assert.NoError(t, err)
 		assert.Nil(t, values)
-		assert.Nil(t, pending)
 	})
 
 	t.Run("present unparsable file is refused by name", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		testsupport.WriteFile(t, fs, "/config.yaml", []byte("invalid: ["), 0644)
 		b := config.NewBuilder(fs, true, "/", config.SourceProject)
-		values, _, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/config.yaml", fs)
+		values, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/config.yaml", fs)
 		require.ErrorIs(t, err, ErrUnparsableLayer)
 		assert.Contains(t, err.Error(), "/config.yaml")
 		assert.Nil(t, values)

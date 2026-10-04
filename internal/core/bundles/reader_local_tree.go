@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
@@ -229,7 +228,7 @@ func (r *localFSReader) treeProvenance() (content.Provenance, error) {
 
 // persistEnvelopeUpgrade is --write-upgrades (schemaver.WriteUpgrades) for a
 // project tree's envelope: an envelope ParseBundle migrated in memory is
-// written back, the old bytes kept beside it, and the user told.
+// written back with no backup (git holds the old bytes), and the user told.
 //
 // A SIGNED tree is never rewritten. Its manifest covers the envelope's exact
 // bytes, and nothing re-signs implicitly, so writing the migration would turn
@@ -256,11 +255,11 @@ func (r *localFSReader) persistEnvelopeUpgrade(ctx context.Context, tree content
 			path, schemaver.Key, res.From, res.To, resignToPersist)
 		return nil
 	}
-	if err := schemaver.WriteBack(r.fsys, path, res, nil); err != nil {
+	if err := schemaver.WriteBack(r.fsys, path, res, schemaver.NoBackup); err != nil {
 		return err
 	}
-	r.cfg.rep.Warnf("upgraded %s to %s %d (the previous file is kept as %s%s)",
-		path, schemaver.Key, res.To, path, schemaver.BackupSuffix)
+	r.cfg.rep.Warnf("upgraded %s to %s %d (no backup is kept: the tree is version-controlled project content)",
+		path, schemaver.Key, res.To)
 	return nil
 }
 
@@ -270,14 +269,8 @@ func (r *localFSReader) persistEnvelopeUpgrade(ctx context.Context, tree content
 //
 // It is the write a SIGNER makes before hashing the tree: signing is the
 // moment a signed tree's envelope may change, so it is where an older one is
-// persisted. No backup is kept beside it, unlike schemaver.WriteBack, because
-// a file left in the tree would be covered by the manifest about to be built
-// and shipped as part of the bundle.
+// persisted, with no backup like every bundle-tree write-back.
 func UpgradeEnvelopeAt(fsys afero.Fs, path string) (schemaver.Result, error) {
-	info, err := fsys.Stat(path)
-	if err != nil {
-		return schemaver.Result{}, fmt.Errorf("bundles: upgrading %s: %w", path, err)
-	}
 	raw, err := afero.ReadFile(fsys, path)
 	if err != nil {
 		return schemaver.Result{}, fmt.Errorf("bundles: upgrading %s: %w", path, err)
@@ -286,7 +279,7 @@ func UpgradeEnvelopeAt(fsys afero.Fs, path string) (schemaver.Result, error) {
 	if err != nil || len(res.Applied) == 0 {
 		return res, err
 	}
-	if err := safefs.WriteFile(fsys, path, res.Data, info.Mode().Perm()); err != nil {
+	if err := schemaver.WriteBack(fsys, path, res, schemaver.NoBackup); err != nil {
 		return schemaver.Result{}, fmt.Errorf("bundles: upgrading %s: %w", path, err)
 	}
 	return res, nil

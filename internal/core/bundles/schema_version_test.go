@@ -118,11 +118,12 @@ func TestProjectReader_WriteUpgradesPersistsAnUnsignedEnvelope(t *testing.T) {
 	keys := envelopeKeys(t, after)
 	assert.Equal(t, envelopeKind.Current(), keys[schemaver.Key])
 	assert.Equal(t, "2.0.0", keys["version"])
-	backup, err := afero.ReadFile(mem, envelope+schemaver.BackupSuffix)
+	assert.NotEqual(t, before, after)
+	backup, err := afero.Exists(mem, envelope+schemaver.BackupSuffix)
 	require.NoError(t, err)
-	assert.Equal(t, before, backup)
+	assert.False(t, backup, "a project bundle tree is version-controlled: git holds the prior bytes, no .bak is left in it")
 
-	loadProjectTree(t, mem, "plain") // the upgraded tree, backup beside it, still reads
+	loadProjectTree(t, mem, "plain") // the upgraded tree still reads
 }
 
 func TestProjectReader_WriteUpgradesSkipsASignedTree(t *testing.T) {

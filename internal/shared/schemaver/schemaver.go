@@ -8,6 +8,13 @@
 // any version a file's AUTHOR declares (a bundle's semver `version`): it is the
 // one number migrations key off.
 //
+// Every shape change to a persisted format — a rename, a removal, a change of
+// meaning — bumps the generation with a Step, even a step that edits nothing.
+// An older binary does not know the new shape: unbumped, it reads a renamed
+// key as a missing one and silently falls back to the default instead of
+// refusing a file newer than it understands (ErrNewer). The bump is what makes
+// it refuse.
+//
 // schemaver owns the version gate and nothing else. The parse, the steps and
 // the encode are internal/shared/upgrade's; a Kind's steps are ordinary
 // upgrade.Upgraders. Context-dependent normalization (anything that needs more
@@ -274,28 +281,40 @@ func (k Kind) Stamp(root *yaml.Node) {
 // the pre-upgrade bytes.
 const BackupSuffix = ".bak"
 
-// WriteBack persists an upgraded document: the current file is copied to
-// path+BackupSuffix, then r.Data atomically replaces it, both keeping the
-// file's permission bits. With print non-nil it writes r.Data to print instead
-// and touches nothing on disk.
-func WriteBack(fs afero.Fs, path string, r Result, print io.Writer) error {
-	if print != nil {
-		_, err := print.Write(r.Data)
-		return err
-	}
+// Backup is the caller's choice, per file kind, of whether WriteBack keeps the
+// pre-upgrade bytes beside the file.
+type Backup bool
+
+const (
+	// KeepBackup copies the file to path+BackupSuffix first. For a file
+	// nothing else versions (a config), the backup is the only way back.
+	KeepBackup Backup = true
+	// NoBackup leaves nothing beside the file. For version-controlled project
+	// content (a bundle tree, the lockfile) git holds the prior bytes, and a
+	// .bak would be one more file in a committed tree — inside a bundle, one a
+	// later signing would ship.
+	NoBackup Backup = false
+)
+
+// WriteBack persists an upgraded document: with KeepBackup the current file
+// is first copied to path+BackupSuffix, then r.Data atomically replaces it,
+// both keeping the file's permission bits.
+func WriteBack(fs afero.Fs, path string, r Result, backup Backup) error {
 	info, err := fs.Stat(path)
 	if err != nil {
 		return fmt.Errorf("write back %s: %w", path, err)
 	}
-	old, err := afero.ReadFile(fs, path)
-	if err != nil {
-		return fmt.Errorf("write back %s: %w", path, err)
-	}
 	perm := info.Mode().Perm()
-	// An empty original is a legitimate generation-0 file; its backup is empty
-	// too.
-	if err := safefs.WriteFile(fs, path+BackupSuffix, old, perm, safefs.AllowEmpty()); err != nil {
-		return fmt.Errorf("write back %s: back up: %w", path, err)
+	if backup == KeepBackup {
+		old, err := afero.ReadFile(fs, path)
+		if err != nil {
+			return fmt.Errorf("write back %s: %w", path, err)
+		}
+		// An empty original is a legitimate generation-0 file; its backup is
+		// empty too.
+		if err := safefs.WriteFile(fs, path+BackupSuffix, old, perm, safefs.AllowEmpty()); err != nil {
+			return fmt.Errorf("write back %s: back up: %w", path, err)
+		}
 	}
 	if err := safefs.WriteFile(fs, path, r.Data, perm); err != nil {
 		return fmt.Errorf("write back %s: %w", path, err)
@@ -321,7 +340,7 @@ var writeUpgrades atomic.Bool
 func BindWriteUpgrades(fs *pflag.FlagSet) {
 	writeUpgrades.Store(false)
 	fs.Var(writeUpgradesValue{}, WriteUpgradesFlag,
-		"Persist in-memory upgrades of older-format files (the old file is kept as <file>"+BackupSuffix+")")
+		"Persist in-memory upgrades of older-format files (a config's old file is kept as <file>"+BackupSuffix+"; version-controlled project content keeps none, git holds it)")
 	fs.Lookup(WriteUpgradesFlag).NoOptDefVal = "true"
 }
 

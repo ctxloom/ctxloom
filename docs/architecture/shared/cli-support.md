@@ -151,7 +151,8 @@ The one implementation of a file kind's format generation: an integer under `sch
 | `Result` | `{Data, From, To, Applied}`; empty `Applied` means nothing to write back. |
 | `VersionError` | `{Kind, Found, Current, Oldest, Err}`, `Err` being or wrapping `ErrNewer`, `ErrTooOld` or `ErrUnreadable`. |
 | `Kind.Stamp` | Sets `Key` to `Current` on a root mapping — in place, or as the first key. For writers. |
-| `WriteBack` | Copies the file to `path+BackupSuffix`, then atomically replaces it with `Result.Data`, keeping its mode; with a non-nil writer, prints instead and touches nothing. |
+| `WriteBack` | Atomically replaces the file with `Result.Data`, keeping its mode; with `KeepBackup` it first copies the file to `path+BackupSuffix`. |
+| `Backup` | `KeepBackup` / `NoBackup` — the caller's per-kind choice of whether `WriteBack` keeps the old bytes. |
 | `BindWriteUpgrades` / `WriteUpgrades` | Register `--write-upgrades` on a binary's root persistent flags, and read the process-wide switch it sets. |
 
 The load-site recipe is: `Kind.Upgrade` → decode `Result.Data` → if `len(Result.Applied) > 0 && WriteUpgrades()`, `WriteBack` to the path the caller resolved and say so. `rules.Load` and `cmd/ltk`'s `loadConfig` are the reference wiring.
@@ -217,4 +218,6 @@ The load-site recipe is: `Kind.Upgrade` → decode `Result.Data` → if `len(Res
 - The legacy rename runs **before** the version read; read first, a renamed-only file would look keyless.
 - An empty or comment-only document is generation 0. A present but non-integer version, a non-mapping document, more than one document, both spellings of the key at once, and (when a rewrite is needed) a duplicate key are `ErrUnreadable` — never generation 0, which would replay every step over a probably-corrupt file.
 - A step runs because the declared generation says it must, so unlike a `Pipeline` stage it need not be idempotent, and a step that edits nothing still advances the version.
+- **Every shape change to a persisted format bumps `schema_version` with a step** — a rename, a removal, or a change of meaning, not only additions that need migrating. An older binary does not know a renamed key: unbumped, it reads the file as missing that key and silently falls back to the default instead of refusing a file newer than it understands. The bump is what turns that misread into `ErrNewer`. A step that edits nothing is still the right step for a meaning change.
+- The backup is chosen **per kind**: a file nothing else versions (a config) keeps `KeepBackup`, the only way back; version-controlled project content (a bundle tree, the lockfile) takes `NoBackup`, because git already holds the prior bytes, and a `.bak` left in a bundle tree is a file a later signing would cover and ship.
 - `BindWriteUpgrades` **resets** the switch: a command tree is bound once per invocation, so a tree built after one that set it starts off. The switch is atomic because load sites may run on goroutines the flag parse never sees.

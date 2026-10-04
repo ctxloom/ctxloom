@@ -130,6 +130,15 @@ type CredentialSource struct {
 	Stores []string
 }
 
+// Carrier names what carries the credential, for a human: its variables,
+// else its stores; "" for none.
+func (s CredentialSource) Carrier() string {
+	if len(s.EnvVars) > 0 {
+		return strings.Join(s.EnvVars, ", ")
+	}
+	return strings.Join(s.Stores, ", ")
+}
+
 // Source is where c's credential comes from, for engine eng.
 func (c Credentials) Source(eng Name) CredentialSource {
 	src := CredentialSource{}

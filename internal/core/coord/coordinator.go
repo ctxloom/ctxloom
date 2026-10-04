@@ -99,6 +99,11 @@ type Options struct {
 	// time.AfterFunc. An Option rather than a field set after New, because
 	// New itself re-arms the timers of the holds it adopts.
 	AfterFunc func(d time.Duration, f func()) (stop func() bool)
+	// LookupEnv reads this process's environment (os.LookupEnv's shape). Nil
+	// = os.LookupEnv. Adoption re-resolves a refused credential's carriers
+	// through it, to tell a re-authenticated environment from the refused one
+	// (engine.EnvFingerprint); the value is digested, never kept.
+	LookupEnv func(string) (string, bool)
 	// ConcurrencyCap overrides the number of concurrently EXECUTING child
 	// turns the coordinator admits (Coordinator.slots' cap). <= 0 keeps the package
 	// default (agentConcurrencyCap, children.go). This is a RESOURCE
@@ -354,6 +359,8 @@ type Coordinator struct {
 	// seam).
 	afterFunc func(d time.Duration, f func()) (stop func() bool)
 	holdStep  func(step string)
+	// lookupEnv is Options.LookupEnv, resolved.
+	lookupEnv func(string) (string, bool)
 	// onAskPublished, when set, is called by controlAsk between RECORDING the
 	// ask open and PUBLISHING it — the record-before-publish test seam. It
 	// fires on that side of the publish deliberately: a hook fired after it
@@ -561,6 +568,7 @@ func New(opts Options) (*Coordinator, error) {
 		byHarp:             make(map[string]*childRt),
 		holds:              make(map[string]*holdLocal),
 		afterFunc:          t.afterFunc,
+		lookupEnv:          t.lookupEnv,
 		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*RunChannel),
@@ -612,6 +620,7 @@ func (c *Coordinator) abortNew(err error) error {
 type tunables struct {
 	now                func() time.Time
 	afterFunc          func(d time.Duration, f func()) (stop func() bool)
+	lookupEnv          func(string) (string, bool)
 	concurrencyCap     int
 	depthCap           int
 	endedRunTail       int
@@ -629,6 +638,7 @@ func resolveTunables(opts Options) tunables {
 	t := tunables{
 		now:                opts.Clock,
 		afterFunc:          opts.AfterFunc,
+		lookupEnv:          opts.LookupEnv,
 		concurrencyCap:     opts.ConcurrencyCap,
 		depthCap:           opts.Depth,
 		endedRunTail:       opts.EndedRunTail,
@@ -638,6 +648,9 @@ func resolveTunables(opts Options) tunables {
 	}
 	if t.now == nil {
 		t.now = time.Now
+	}
+	if t.lookupEnv == nil {
+		t.lookupEnv = os.LookupEnv
 	}
 	if t.afterFunc == nil {
 		t.afterFunc = func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }

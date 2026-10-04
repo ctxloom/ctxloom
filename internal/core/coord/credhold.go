@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -29,6 +30,13 @@ import (
 //
 // A limit still spent fails the next turn and parks again. Holds are this
 // coordinator's, shared by its children only.
+//
+// A REFUSED credential (FailureCredentialRejected) takes the same hold with
+// NO deadline: nothing changes on its own, so only the human releases it — or
+// a restart of the session from an environment whose credential digests
+// differently (adoptHolds, holdCauseReauth). A refusal outranks a limit: one
+// joining a timed hold upgrades it, and a limit joining a refused one changes
+// nothing.
 //
 // An OVERLOADED turn (the engine's server at capacity) takes the same
 // machinery with the run's own key (holdKey): capacity is not the
@@ -70,20 +78,16 @@ const (
 // heldFailures are the turn failures a run parks itself on and its
 // credential's hold releases. The runner parks only on these (HoldsFailure):
 // a self-park on any other kind would be a pause nothing releases.
-var heldFailures = []agent.FailureKind{agent.FailureRateLimited, agent.FailureOverloaded}
-
-// holdFailures are the failures a hold can be journaled for: the held
-// failures, and a refused credential, whose hold has no deadline.
-var holdFailures = append(slices.Clone(heldFailures), agent.FailureCredentialRejected)
+var heldFailures = []agent.FailureKind{agent.FailureCredentialRejected, agent.FailureRateLimited, agent.FailureOverloaded}
 
 // failureKindOf is the failure a hold's journaled kind names; false for a
 // pause's kind, or one this build does not know.
 func failureKindOf(kind string) (agent.FailureKind, bool) {
-	i := slices.IndexFunc(holdFailures, func(k agent.FailureKind) bool { return string(k) == kind })
+	i := slices.IndexFunc(heldFailures, func(k agent.FailureKind) bool { return string(k) == kind })
 	if i < 0 {
 		return "", false
 	}
-	return holdFailures[i], true
+	return heldFailures[i], true
 }
 
 // HoldsFailure reports whether a turn that failed with kind parks its run
@@ -116,9 +120,13 @@ const (
 	overloadBackoff = time.Minute
 )
 
-// holdDeadline is when a hold for failure f, folded at now, releases itself.
+// holdDeadline is when a hold for failure f, folded at now, releases itself:
+// never (zero) for a refused credential.
 func holdDeadline(now time.Time, f agent.TurnFailure) time.Time {
-	if f.Kind == agent.FailureOverloaded {
+	switch f.Kind {
+	case agent.FailureCredentialRejected:
+		return time.Time{}
+	case agent.FailureOverloaded:
 		return now.Add(overloadBackoff)
 	}
 	return backoffDeadline(now, f.ResetsAt)
@@ -154,7 +162,7 @@ type CredentialHold struct {
 // ErrCredentialHeld refuses an agent's resume of a run parked on a hold (its
 // credential's limit, or its own overload backoff): an agent that resumed it
 // early would only meet the same refusal, and re-raise the human's notice.
-var ErrCredentialHeld = errors.New("coord: the run is parked on a hold (its credential's rate limit, or its own overload backoff); only the human, or the hold's own backoff, releases it")
+var ErrCredentialHeld = errors.New("coord: the run is parked on a hold (its credential's refusal or rate limit, or its own overload backoff); only the human, or the hold's own backoff, releases it")
 
 // ErrHumanPaused refuses an agent's resume of a run the HUMAN paused: the
 // human opened that pause, and only the human ends it.
@@ -298,7 +306,7 @@ func pauseKey(harp string) string { return "pause:" + harp }
 func (c *Coordinator) recordLaunch(runID string, l launch.Launch) {
 	at := c.now()
 	if err := c.runs.Exec(func() ([]Fact, error) {
-		return []Fact{factAt(factRunLaunched, at, runLaunched{RunID: runID, Engine: l.Engine, Source: l.Cell.Credential})}, nil
+		return []Fact{factAt(factRunLaunched, at, runLaunched{RunID: runID, Engine: l.Engine, Source: l.Cell.Credential, Fingerprint: l.Cell.CredentialFingerprint})}, nil
 	}); err != nil {
 		c.rep.Warnf("coordinator: could not journal %s's launch; a restart will not know its credential: %v", runID, err)
 	}
@@ -326,6 +334,9 @@ func turnFailureOf(value map[string]any) *agent.TurnFailure {
 // turnFold is what folding one turned-away turn into its hold decided.
 type turnFold struct {
 	opened, moved bool
+	// upgraded: a refusal joined a timed hold, which now has no deadline and
+	// needs the human — told as if it had just opened.
+	upgraded      bool
 	parkedNothing bool // a new hold had nothing to park, so none was opened
 	until         time.Time
 	siblings      []heldRun
@@ -337,6 +348,7 @@ type failedTurn struct {
 	own        heldRun
 	eng        engine.Name
 	src        engine.CredentialSource
+	fp         string // src's digest at the failing run's launch
 	key        string
 	scope      holdScope
 	candidates []heldRun // every other attached run with the same key
@@ -361,10 +373,12 @@ func (c *Coordinator) onTurnFailed(role, runID string, f agent.TurnFailure) {
 	case err != nil:
 		c.rep.Warnf("coordinator: could not journal %s's turn failure into its hold: %v", t.own.harp, err)
 	case d.opened:
-		c.raiseHoldFinding(t.eng, f.Kind, t.key, t.own.harp, d.until, true)
-		c.goTracked(func() { c.parkSiblings(t.key, local, d.siblings) })
+		c.raiseHoldFinding(t, d.until, true)
+		c.goTracked(func() { c.parkSiblings(t.key, f.Kind, local, d.siblings) })
+	case d.upgraded:
+		c.raiseHoldFinding(t, time.Time{}, true)
 	case d.parkedNothing:
-		c.raiseHoldFinding(t.eng, f.Kind, t.key, t.own.harp, time.Time{}, false)
+		c.raiseHoldFinding(t, time.Time{}, false)
 	}
 }
 
@@ -388,7 +402,7 @@ func (c *Coordinator) failedTurnOf(role, runID string, f agent.TurnFailure) (fai
 	c.mu.Unlock()
 	c.runs.View(func() {
 		l, _ := c.holdsF.launchOf(runID)
-		t.eng, t.src = l.Engine, l.Source
+		t.eng, t.src, t.fp = l.Engine, l.Source, l.Fingerprint
 		t.key, t.scope = holdKey(f.Kind, t.src, runID), holdScopeOf(f.Kind, t.src)
 		for _, r := range attached {
 			if s, _ := c.holdsF.launchOf(r.runID); holdKey(f.Kind, s.Source, r.runID) == t.key {
@@ -472,7 +486,7 @@ func (c *Coordinator) openHold(t failedTurn, now time.Time, id string, ownPark b
 		return d, nil
 	}
 	d.opened, d.until = true, holdDeadline(now, t.f)
-	facts := []Fact{factAt(factHoldOpened, now, holdOpened{ID: id, Key: t.key, Scope: t.scope, Kind: string(t.f.Kind), Engine: t.eng, Source: t.src, Until: d.until})}
+	facts := []Fact{factAt(factHoldOpened, now, holdOpened{ID: id, Key: t.key, Scope: t.scope, Kind: string(t.f.Kind), Engine: t.eng, Source: t.src, Until: d.until, Fingerprint: t.fp})}
 	if ownPark {
 		facts = append(facts, factAt(factHoldParked, now, holdParked{Key: t.key, RunID: t.own.runID, Harp: t.own.harp, Cause: "turn"}))
 	}
@@ -485,11 +499,17 @@ func (c *Coordinator) openHold(t failedTurn, now time.Time, id string, ownPark b
 // joinHold folds t into rec, the hold in force under its key. A deadline only
 // ever moves out — an earlier reset never shortens a wait another run's limit
 // set — and a hold with NO deadline is not given one, or relabelled, by a
-// later failure.
+// later failure. A refusal joining a timed hold UPGRADES it: no deadline, so
+// its timer is disarmed (moved, to zero), and only the human releases it.
 func (c *Coordinator) joinHold(t failedTurn, now time.Time, rec *holdRecord, ownPark bool) (turnFold, []Fact) {
 	var d turnFold
 	var facts []Fact
-	if !rec.Until.IsZero() {
+	switch {
+	case rec.Until.IsZero():
+	case t.f.Kind == agent.FailureCredentialRejected:
+		d.moved, d.upgraded = true, true
+		facts = append(facts, factAt(factHoldExtended, now, holdExtended{Key: t.key, Kind: string(t.f.Kind)}))
+	default:
 		d.until = rec.Until
 		if dl := holdDeadline(now, t.f); dl.After(rec.Until) {
 			d.until, d.moved = dl, true
@@ -625,12 +645,21 @@ func (c *Coordinator) ackOwed(key string, r heldRun) {
 	}
 }
 
-// raiseHoldFinding tells the root human what the hold is and when it ends.
+// raiseHoldFinding tells the root human what t's hold is and when it ends.
 // parked is false for a failure that parked nothing (the run's own pause held
 // it, and no other run shares its key): no hold is in force. An overload that
 // parked nothing has nothing to tell: no other run was ever at stake.
-func (c *Coordinator) raiseHoldFinding(eng engine.Name, kind agent.FailureKind, key, harp string, until time.Time, parked bool) {
-	who := cmp.Or(string(eng), "the engine")
+func (c *Coordinator) raiseHoldFinding(t failedTurn, until time.Time, parked bool) {
+	who, kind, key, harp := cmp.Or(string(t.eng), "the engine"), t.f.Kind, t.key, t.own.harp
+	if kind == agent.FailureCredentialRejected {
+		parkedWhat := "the runs sharing it are parked until it is replaced"
+		if !parked {
+			parkedWhat = "no other run shares it, so nothing else is parked"
+		}
+		c.rep.Warnf("coordinator: %s: %s refused the credential %s's turn ran on (%s); %s — %s",
+			refusedLead, who, harp, cmp.Or(t.src.Carrier(), key), parkedWhat, RefusedCredentialRemedy(t.src, c.rootHarp))
+		return
+	}
 	if kind == agent.FailureOverloaded {
 		if parked {
 			c.rep.Warnf("coordinator: %s was overloaded on %s's turn; that run alone backs off until %s and resumes on its own",
@@ -649,12 +678,16 @@ func (c *Coordinator) raiseHoldFinding(eng engine.Name, kind agent.FailureKind, 
 // parkSiblings pauses each sibling the journal parked, then marks the hold's
 // parking done. One that cannot be paused (ended, or its runner gone) leaves
 // the hold.
-func (c *Coordinator) parkSiblings(key string, local *holdLocal, siblings []heldRun) {
+func (c *Coordinator) parkSiblings(key string, kind agent.FailureKind, local *holdLocal, siblings []heldRun) {
 	defer close(local.parked)
+	reason := "the credential it shares hit its rate limit"
+	if kind == agent.FailureCredentialRejected {
+		reason = "the credential it shares was refused"
+	}
 	for _, r := range siblings {
 		c.step(holdStepParkSibling)
 		ctx, cancel := context.WithTimeout(c.baseCtx, DefaultRequestTimeout)
-		_, err := c.holdControl(ctx, r, "pause", "the credential it shares hit its rate limit")
+		_, err := c.holdControl(ctx, r, "pause", reason)
 		cancel()
 		if err != nil {
 			c.dropFromHold(key, local.id, r)
@@ -881,12 +914,18 @@ func (c *Coordinator) readoptHold(runID, harp, credHash string) {
 // A hold whose deadline passed while the coordinator was down is released at
 // once — journaled now; its runs' owed resumes go out as their runners
 // re-Hello (readoptHold), since none can be reached yet. A hold with no
-// deadline gets no timer. The human is told again of each hold still in force.
+// deadline gets no timer. A refused credential's hold is released the same
+// way when this process's environment carries a different credential
+// (adoptRefusedHold). The human is told again of each hold still in force.
 func (c *Coordinator) adoptHolds() {
 	var holds []holdRecord
 	c.runs.View(func() { holds = c.holdsF.inForce() })
 	now := c.now()
 	for _, h := range holds {
+		if h.Kind == string(agent.FailureCredentialRejected) {
+			c.adoptRefusedHold(h)
+			continue
+		}
 		switch {
 		case h.Until.IsZero():
 		case !h.Until.After(now):
@@ -910,4 +949,45 @@ func (c *Coordinator) adoptHolds() {
 				h.Kind, h.Key, until)
 		}
 	}
+}
+
+// refusedLead leads every finding and notice for a refused credential.
+const refusedLead = "CREDENTIAL REFUSED"
+
+// adoptRefusedHold settles a refused credential's hold at adoption. The
+// credential is re-resolved from this process's environment — the one the
+// human restarted the session from — by the carriers the hold names, and
+// compared by digest with the refused one's: a different credential releases
+// the hold (holdCauseReauth), and its runs resume as their runners re-Hello,
+// or relaunch fresh on the new credential. The same one, or none at all
+// (unset, or a store read in place, which has no digest), cannot have fixed
+// it: the hold stays, and the human is told again.
+func (c *Coordinator) adoptRefusedHold(h holdRecord) {
+	who := cmp.Or(string(h.Engine), "the engine")
+	now := engine.EnvFingerprint(h.Source.EnvVars, c.lookupEnv)
+	if h.Fingerprint != "" && now != "" && now != h.Fingerprint {
+		if _, released := c.releaseKey(h.Key, h.ID, holdCauseReauth, "", always); released {
+			c.rep.Warnf("coordinator: %s's credential (%s) was re-authenticated since it was refused; its hold is released, and the runs it parked resume",
+				who, h.Source.Carrier())
+		}
+		return
+	}
+	c.rep.Warnf("coordinator: %s: %s's credential (%s) is still the refused one after a restart; its runs stay parked — %s",
+		refusedLead, who, cmp.Or(h.Source.Carrier(), h.Key), RefusedCredentialRemedy(h.Source, c.rootHarp))
+}
+
+// RefusedCredentialRemedy is what the human does about a refused credential
+// carried as src, in the session whose root harp is session. A captured
+// variable is read once, at launch, so only a new process sees a fresh one: a
+// fresh export, then a restart of the session from that shell. A store read
+// in place reaches the running session: a sign-in, then the human's resume.
+func RefusedCredentialRemedy(src engine.CredentialSource, session string) string {
+	switch {
+	case len(src.EnvVars) > 0:
+		return fmt.Sprintf("export a fresh %s, then restart this session from that shell: ctxloom run --session %s",
+			strings.Join(src.EnvVars, " / "), cmp.Or(session, "<session>"))
+	case len(src.Stores) > 0:
+		return fmt.Sprintf("sign in again (%s), then resume one of the parked runs", strings.Join(src.Stores, ", "))
+	}
+	return "re-authenticate the engine, then resume one of the parked runs"
 }

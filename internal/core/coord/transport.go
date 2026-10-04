@@ -42,14 +42,35 @@ func (c *Coordinator) BindTransport(t Transport) error {
 		return ErrDraining
 	}
 	c.transportMu.Lock()
-	defer c.transportMu.Unlock()
 	if c.closed.Load() {
+		c.transportMu.Unlock()
 		return ErrClosed
 	}
+	var due []func()
 	if c.transport == nil {
 		c.transport = t
+		due, c.untilServing = c.untilServing, nil
+	}
+	c.transportMu.Unlock()
+	for _, f := range due {
+		f()
 	}
 	return nil
+}
+
+// whenServing runs f once the coordinator serves: now if a transport is
+// bound, else at the first BindTransport. What adoption decides before the
+// adapter serves — a relaunch, which needs listeners its runner can dial —
+// waits here.
+func (c *Coordinator) whenServing(f func()) {
+	c.transportMu.Lock()
+	if c.transport == nil {
+		c.untilServing = append(c.untilServing, f)
+		c.transportMu.Unlock()
+		return
+	}
+	c.transportMu.Unlock()
+	f()
 }
 
 // Serving reports whether a transport is bound.

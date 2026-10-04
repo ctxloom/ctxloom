@@ -431,6 +431,9 @@ type Coordinator struct {
 	// big lock.
 	transportMu sync.Mutex
 	transport   Transport
+	// untilServing is what whenServing deferred to the first BindTransport.
+	// Guarded by transportMu.
+	untilServing []func()
 
 	// admissionClosed is the application-layer DRAIN flag (task
 	// definite-phoniness): BeginDrain sets it once, and every admission

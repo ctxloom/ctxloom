@@ -881,6 +881,30 @@ func (c *Coordinator) relaunchReleased(harp string) {
 	c.goTracked(func() { c.resumeChild(harp, rec.RunID, attached, 0) })
 }
 
+// relaunchEndedMembers is an adoption release's half for members whose run
+// had already ended (members maps harp to live run, "" for one that ended):
+// each is relaunched if mail waits for it, as settleRelease does, once the
+// coordinator serves. A live member's resume is owed instead, delivered as
+// its runner re-Hellos.
+func (c *Coordinator) relaunchEndedMembers(members map[string]string) {
+	var ended []string
+	for _, harp := range slices.Sorted(maps.Keys(members)) {
+		if members[harp] == "" {
+			ended = append(ended, harp)
+		}
+	}
+	if len(ended) == 0 {
+		return
+	}
+	// Adoption runs before the coordinator serves: a relaunch then would
+	// find no listener for its runner to dial.
+	c.whenServing(func() {
+		for _, harp := range ended {
+			c.relaunchReleased(harp)
+		}
+	})
+}
+
 // readoptHold is readopt's half for holds: a re-adopted run whose journal
 // says it is held gets its pause re-sent, and one owed a released hold's
 // resume gets that — each once its runner has registered (readopt runs
@@ -930,7 +954,8 @@ func (c *Coordinator) adoptHolds() {
 		switch {
 		case h.Until.IsZero():
 		case !h.Until.After(now):
-			c.releaseKey(h.Key, h.ID, "backoff", "", always)
+			members, _ := c.releaseKey(h.Key, h.ID, "backoff", "", always)
+			c.relaunchEndedMembers(members)
 			continue
 		default:
 			parked := make(chan struct{})
@@ -967,7 +992,8 @@ func (c *Coordinator) adoptRefusedHold(h holdRecord) {
 	who := cmp.Or(string(h.Engine), "the engine")
 	now := engine.EnvFingerprint(h.Source.EnvVars, c.lookupEnv)
 	if h.Fingerprint != "" && now != "" && now != h.Fingerprint {
-		if _, released := c.releaseKey(h.Key, h.ID, holdCauseReauth, "", always); released {
+		if members, released := c.releaseKey(h.Key, h.ID, holdCauseReauth, "", always); released {
+			c.relaunchEndedMembers(members)
 			c.rep.Warnf("coordinator: %s's credential (%s) was re-authenticated since it was refused; its hold is released, and the runs it parked resume",
 				who, h.Source.Carrier())
 		}

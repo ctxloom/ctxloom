@@ -639,3 +639,49 @@ func lastExecEnv(sp *fakeSpawner, i int) map[string]string {
 	}
 	return sc.Execs[len(sc.Execs)-1].Env
 }
+
+// TestHoldRestart_AnAdoptionReleaseRelaunchesAnEndedMemberWithMail: a held
+// member whose run ended before the restart (its runner lost) keeps its harp
+// held, and its mail waits. When the restarted coordinator releases the hold
+// at adoption — its deadline passed while it was down, or the credential was
+// re-authenticated — that harp is relaunched with its waiting mail.
+func TestHoldRestart_AnAdoptionReleaseRelaunchesAnEndedMemberWithMail(t *testing.T) {
+	for name, tc := range map[string]struct {
+		hit   string
+		cause string
+		down  time.Duration
+		env   map[string]string
+	}{
+		"its backoff expired while down": {hit: limitHit, cause: "backoff", down: time.Hour},
+		"the credential was re-authenticated": {hit: credRefused, cause: holdCauseReauth,
+			env: map[string]string{tokenVar: freshToken}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			deferred := make(chan struct{}, 8)
+			f, clk := newRateFixture(t, func(c *Coordinator) {
+				inner := c.holdStep
+				c.holdStep = func(s string) {
+					inner(s)
+					if s == holdStepRelaunchHeld {
+						deferred <- struct{}{}
+					}
+				}
+			})
+			f.send(t, f.worker, tc.hit+" do the work")
+			f.awaitHold(t, f.worker, f.sibling)
+			f.awaitParks(t, f.worker, f.sibling)
+			f.send(t, f.sibling, "held work")
+			sibling := f.runOf(t, f.sibling)
+			f.sp.killEngine(1)
+			within(t, deferred, "the held harp's leftover mail relaunched it before the restart")
+			require.True(t, f.c.runEnded(sibling), "premise: the member's run ended while held")
+			require.Equal(t, 3, f.sp.chatCount())
+
+			f.opts.LookupEnv = envOf(tc.env)
+			f.restart(t, clk, tc.down, nil)
+			assert.Empty(t, f.c.CredentialHolds(), "the adoption released the hold")
+			assertReleased(t, f.c, tc.cause)
+			awaitChatText(t, f.sp, 3, "held work")
+		})
+	}
+}

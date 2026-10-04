@@ -17,6 +17,9 @@ type DirLinker interface {
 	// Nothing at link is an error satisfying fs.ErrNotExist; anything else
 	// there is false.
 	LinksTo(link, target string) (bool, error)
+	// UnlinkDir removes the link LinkDir made at link, and never anything
+	// inside the directory it names.
+	UnlinkDir(link string) error
 	// LinksResolveInContainers reports whether a link LinkDir made still
 	// resolves when link's tree and target's tree are bind-mounted side by
 	// side into a Linux container.

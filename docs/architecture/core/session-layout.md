@@ -175,9 +175,12 @@ environment, and a host runner start that still carries it is refused
 - **Close cleans every finished agent in the tree.** A finished agent's home and scratch
   are pure cost; an agent whose run has not ended (an adopted run whose runner never came
   back) may still have an engine using its home, so it is left for the sweep.
-- **No migration.** Sessions created under an earlier layout are not converted; a session
-  home whose history dir is a real directory is refused (`isolation.ErrHistoryNotLinked`)
-  rather than adopted.
+- **A real history dir in the home is adopted, never refused.** A host run that finds a
+  real directory where the link belongs (a container run's history on Windows, or a home
+  that predates native history) moves its contents into `native/` and links the home
+  (`isolation.adoptHistory`); where both hold a file the home's wins, because it started as
+  native's copy and only grew. Only a link somewhere else, which is not the session's
+  history, is refused (`isolation.ErrHistoryNotLinked`).
 
 ## Live evidence
 
@@ -197,9 +200,13 @@ the probe registry (`probeP14` in `tests/acceptance/capability_probe_registry.go
   project, and so a different slug, on either runtime.
 - **Windows.** The history link is a directory junction (`platform.DirLinker`), which
   needs no privilege but names its target absolutely, so it does not resolve inside a
-  container. A host run links as everywhere else; a container run keeps its history in the
-  mounted session home instead (`nativeHomeFor`), where it is deleted when the session
-  closes, and says so once at launch.
+  container. A host run links as everywhere else; a container run keeps its history as a
+  real directory in the mounted session home instead (`isolation.historyInHome`), and says
+  so once at launch. Switching runtime migrates the history, never refusing: a container run
+  removes the junction (`platform.DirLinker.UnlinkDir`) and starts from a copy of
+  `native/`'s history (`isolation.restoreNativeHistory`); the next host run adopts the
+  home's history back into `native/` and links again. What a container run adds is deleted
+  with the home if the session closes before a host run adopts it.
 - **A missing output dir.** Readers treat a missing directory as "nothing written yet". A
   session whose record has no output dir is reported (`sessions.ErrNoOutputDir`); a
   container run of one is refused.

@@ -40,6 +40,12 @@ type InstanceHomeRequest struct {
 	// (launch.NativeHome); "" when it keeps none here, and then nothing is
 	// linked.
 	NativeHome string
+	// HistoryInHome is that the engine runs where a link into NativeHome does
+	// not resolve (a container, on a host whose links name absolute paths:
+	// platform.DirLinker.LinksResolveInContainers), so the home keeps its
+	// history as a real directory, started from NativeHome's
+	// (restoreNativeHistory) instead of linked to it.
+	HistoryInHome bool
 }
 
 // InstanceHomeReport is what one PrepareInstanceHome call decided and wrote.
@@ -104,7 +110,11 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 		return rep, fmt.Errorf("instance home for %s: restrict %s to its owner: %w", req.Engine, req.InstanceHome, err)
 	}
 	if req.NativeHome != "" && f.Home.TranscriptStoreRel != "" {
-		if err := linkNativeHistory(req.InstanceHome, req.NativeHome, f.Home.TranscriptStoreRel); err != nil {
+		place := linkNativeHistory
+		if req.HistoryInHome {
+			place = restoreNativeHistory
+		}
+		if err := place(req.InstanceHome, req.NativeHome, f.Home.TranscriptStoreRel); err != nil {
 			return rep, fmt.Errorf("instance home for %s: %w", req.Engine, err)
 		}
 	}
@@ -144,29 +154,31 @@ func writeInstanceConfig(req InstanceHomeRequest, writer engine.InstanceConfigWr
 }
 
 // ErrHistoryNotLinked is the refusal of a session home whose history dir is
-// not the link into native/: a real directory there (the session home
-// predates native history, or the engine replaced the link) or a link
-// somewhere else. History written through it would die with the home, and
-// adopting or moving it is migration this does not do.
+// neither the link into native/ nor a real directory to adopt: a link
+// somewhere else, or something that is not a directory. It is not the
+// session's history, so it is neither replaced nor moved.
 var ErrHistoryNotLinked = errors.New("the session home's history dir is not the link into the session's native history")
 
 // linkNativeHistory makes <instanceHome>/<rel> the platform's directory link
 // (platform.DirLinker) to <nativeHome>/<rel>, creating the target. An
-// existing correct link is left alone; anything else is ErrHistoryNotLinked.
+// existing correct link is left alone; a real directory there (a container
+// run's history on a host whose links do not resolve in a container, or a
+// home that predates native history) is adopted first (adoptHistory);
+// anything else is ErrHistoryNotLinked.
 func linkNativeHistory(instanceHome, nativeHome, rel string) error {
 	target := filepath.Join(nativeHome, filepath.FromSlash(rel))
 	if err := os.MkdirAll(target, owneronly.DirMode); err != nil {
 		return fmt.Errorf("native history %s: %w", target, err)
 	}
 	link := filepath.Join(instanceHome, filepath.FromSlash(rel))
-	ok, err := hostOS.LinksTo(link, target)
-	switch {
-	case err == nil && ok:
-		return nil
-	case err == nil:
-		return fmt.Errorf("%w: %s (start a new session; history written there would be deleted with the home)", ErrHistoryNotLinked, link)
-	case !errors.Is(err, fs.ErrNotExist):
-		return fmt.Errorf("native history link %s: %w", link, err)
+	linked, err := historyLinked(link, target)
+	if err != nil || linked {
+		return err
+	}
+	if isRealDir(link) {
+		if err := adoptHistory(link, target); err != nil {
+			return fmt.Errorf("native history: move %s into %s: %w", link, target, err)
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(link), owneronly.DirMode); err != nil {
 		return fmt.Errorf("native history link %s: %w", link, err)
@@ -175,6 +187,22 @@ func linkNativeHistory(instanceHome, nativeHome, rel string) error {
 		return fmt.Errorf("native history link %s: %w", link, err)
 	}
 	return nil
+}
+
+// historyLinked reports whether link is the history link to target. Nothing
+// at link, or a real directory, is false; anything else is
+// ErrHistoryNotLinked.
+func historyLinked(link, target string) (bool, error) {
+	ok, err := hostOS.LinksTo(link, target)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("native history link %s: %w", link, err)
+	case !ok && !isRealDir(link):
+		return false, fmt.Errorf("%w: %s", ErrHistoryNotLinked, link)
+	}
+	return ok, nil
 }
 
 // lockFileMode and lockDirMode are the modes this instance-home lock's

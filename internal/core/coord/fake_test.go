@@ -306,26 +306,36 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 	}
 	creds := s.credentialOf(plan.AgentName)
 	l.Cell.Credential, l.Cell.CredentialFingerprint = creds.Source("mock"), creds.Fingerprint()
-	if s.secretsDir != "" && s.secretAgents[plan.AgentName] && len(creds.Env) > 0 {
-		file := filepath.Join(s.secretsDir, start.Identity.Harp+".env")
-		b, err := sessions.EncodeSecrets(creds.Env)
-		if err != nil {
-			return Resolved{}, err
-		}
-		if err := os.WriteFile(file, b, 0o600); err != nil {
-			return Resolved{}, err
-		}
-		l.Cell.SecretFiles = make(map[string]string, len(creds.Env))
-		for v := range creds.Env {
-			l.Cell.SecretFiles[v] = file
-		}
-		l.Cell.SecretsFile = file
+	if err := s.secretsCell(&l.Cell, plan.AgentName, start.Identity.Harp, creds); err != nil {
+		return Resolved{}, err
 	}
 	plan.Launch = l
 	s.mu.Lock()
 	s.launches = append(s.launches, l)
 	s.mu.Unlock()
 	return Resolved{Launch: l}, nil
+}
+
+// secretsCell gives agentName's cell a real secrets file holding creds, named
+// as a container's is, when secretsDir and secretAgents ask for one.
+func (s *fakeSpawner) secretsCell(cell *launch.Cell, agentName, harp string, creds engine.Credentials) error {
+	if s.secretsDir == "" || !s.secretAgents[agentName] || len(creds.Env) == 0 {
+		return nil
+	}
+	file := filepath.Join(s.secretsDir, harp+".env")
+	b, err := sessions.EncodeSecrets(creds.Env)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(file, b, 0o600); err != nil {
+		return err
+	}
+	cell.SecretFiles = make(map[string]string, len(creds.Env))
+	for v := range creds.Env {
+		cell.SecretFiles[v] = file
+	}
+	cell.SecretsFile = file
+	return nil
 }
 
 // credentialOf is agentName's credentials: credentialFor's answer, none

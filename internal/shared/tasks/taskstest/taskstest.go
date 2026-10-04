@@ -48,6 +48,10 @@ var EnvKeys = []string{
 	// sessions.EnvSigCheckWaived: the session carrier a waived launch puts on
 	// its engine, scrubbed for the same reason.
 	"CTXLOOM_SESSION_DISABLE_SIG_CHECK",
+	// sessions.EnvSessionOwner: the marker the session owner's launch puts on
+	// its engine, scrubbed so a test run from inside a real session is never
+	// mistaken for that session's owner.
+	"CTXLOOM_SESSION_OWNER",
 	// Read by cmd/validate to override the build stamp. Ambient in any shell
 	// that exported it, and an unisolated test would then validate against the
 	// HOST's stamp instead of its own fixture's.

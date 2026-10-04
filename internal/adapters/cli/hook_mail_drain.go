@@ -58,8 +58,19 @@ delivered what each of them announced.`,
 // reason mail was not (fully) delivered is NAMED on the diagnostic channel
 // instead, as one line, because the alternative is this project's
 // characteristic bug: exit 0, and zero bytes written, with nothing said.
+//
+// It drains only for the session OWNER's engine, the one the launch marks
+// with sessions.EnvSessionOwner (sessionOwnerEnv). Any other engine that
+// fires this hook — a delegated child loading a trusted repository's own
+// settings file, which names it — carries its own harp, and claiming that
+// spool would race the runner that delivers the child's mail: such an
+// engine is handed no harp, so it claims nothing and says nothing.
 func runHookMailDrain(cmd *cobra.Command, args []string) error {
-	if err := drainMail(cmd, os.Getenv(agent.SessionHarpEnv)); err != nil {
+	harp := ""
+	if sessionOwnerEnv() {
+		harp = os.Getenv(agent.SessionHarpEnv)
+	}
+	if err := drainMail(cmd, harp); err != nil {
 		clidiag.Warn(mailDrainProg, "%v", err)
 	}
 	return nil
@@ -80,8 +91,9 @@ func drainMail(cmd *cobra.Command, harp string) error {
 	// reported by some engines as a failed hook.
 	raw, _ := io.ReadAll(cmd.InOrStdin())
 	if harp == "" {
-		// A plain engine session ctxloom did not launch: no harp, no spool,
-		// nothing truthful to say. Silence is the contract, not a shortcut.
+		// A plain engine session ctxloom did not launch, or an engine that is
+		// not the session owner: no spool this hook may read, nothing
+		// truthful to say. Silence is the contract, not a shortcut.
 		return nil
 	}
 	mapper := spool.NewHomeMapper()

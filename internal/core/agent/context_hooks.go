@@ -173,7 +173,11 @@ const MailDrainTimeout = 5
 //
 // No arguments, for the reason NewNextStepHook gives: the installed command
 // outlives the session that wrote it, so the owner's harp is resolved from
-// the environment at fire time.
+// the environment at fire time — and only under the session-owner marker
+// (sessions.EnvSessionOwner) the owner's launch alone carries. Once written
+// into a repository's own settings file the hook fires in every engine that
+// loads it, a delegated child's included; the marker, not this declaration,
+// is what keeps the child from claiming the spool its runner reads.
 func NewMailDrainHook() wire.Hook {
 	return wire.Hook{
 		Command: CtxloomCommand(),

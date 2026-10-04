@@ -14,6 +14,10 @@ import (
 
 // Steps for init.feature's one fresh-project scenario: the interview's
 // questions answered over a real pty (driveFreshInitInterview).
+//
+// A pty session never passes through w.env's run history, so the @doc
+// sidecar (steps_doc_capture.go) sees nothing these steps do unless each one
+// hands over what it observed through w.docStepMaterialized.
 func registerFreshInitSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^claude-code is the only engine installed, and nothing reaches the network$`, func(c context.Context) error {
 		return installFreshInitEngineStub(worldFrom(c))
@@ -23,6 +27,7 @@ func registerFreshInitSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		out, err := driveFreshInitInterview(w)
 		w.initInterview = out
+		w.docStepMaterialized = "$ ctxloom init --skip-launch --no-pull   # at a terminal\n" + strings.TrimSpace(out)
 		return err
 	})
 
@@ -31,6 +36,7 @@ func registerFreshInitSteps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(w.initInterview, want) {
 			return fmt.Errorf("init's terminal output does not say %q:\n%s", want, w.initInterview)
 		}
+		w.docStepMaterialized = "init's terminal output:\n" + j000400Excerpt(w.initInterview, want, 1)
 		return nil
 	})
 
@@ -39,6 +45,7 @@ func registerFreshInitSteps(ctx *godog.ScenarioContext) {
 		if ran, err := os.ReadFile(freshInitStubRan(w)); err == nil {
 			return fmt.Errorf("the engine stub was executed (argv: %q) — the interview was supposed to launch nothing", strings.TrimSpace(string(ran)))
 		}
+		w.docStepMaterialized = fmt.Sprintf("%s: absent — the claude stub first on init's PATH was never executed", freshInitStubRan(w))
 		return nil
 	})
 
@@ -73,6 +80,7 @@ func registerFreshInitSteps(ctx *godog.ScenarioContext) {
 		if len(agent.Permissions) > 1 || got != want {
 			return fmt.Errorf("default agent %q has permissions %v, want one engine block with mode %q:\n%s", cfg.DefaultAgent, agent.Permissions, want, body)
 		}
+		w.docStepMaterialized = fmt.Sprintf(".ctxloom/config.yaml → default_agent %q, permissions mode %q", cfg.DefaultAgent, got)
 		return nil
 	})
 }

@@ -91,31 +91,18 @@ pre-commit:
 
     gitleaks:
       # Secret scan of the STAGED changes: what is about to be committed, not
-      # the working tree and not history. Rules and allowlists are
-      # .gitleaks.toml; the binary comes from `just gitleaks-install`, at the
-      # version .devcontainer/tool-versions.env pins.
-      #
-      # A MISSING BINARY FAILS THE COMMIT, for the reason archlint's does: a
-      # scan that passes by not running reports "no secrets" having looked at
-      # nothing.
+      # the working tree and not history. `just secrets-scan-staged` holds the
+      # invocation; rules and allowlists are .gitleaks.toml; the binary comes
+      # from `just gitleaks-install`, at the version
+      # .devcontainer/tool-versions.env pins. A missing binary fails the
+      # commit, for the reason archlint's does.
       #
       # On a finding: if it is a real credential, unstage it and rotate it —
       # a secret that reached any commit is burned even if the commit never
       # leaves this machine. If it is a deliberate test fixture, end its line
       # with a `gitleaks:allow` comment; a whole class of false positive goes
       # in .gitleaks.toml with the reason it is not a secret.
-      run: |
-        set -euo pipefail
-        if ! command -v gitleaks >/dev/null 2>&1; then
-          echo "gitleaks is not on PATH — run 'just gitleaks-install'." >&2
-          echo "The secret scan cannot pass by not running." >&2
-          exit 1
-        fi
-        if ! gitleaks git --pre-commit --staged --redact --verbose --no-banner --config .gitleaks.toml; then
-          echo "gitleaks found a secret in the staged changes (redacted above)." >&2
-          echo "A real credential: unstage it and rotate it. A test fixture: end its line with 'gitleaks:allow'." >&2
-          exit 1
-        fi
+      run: just secrets-scan-staged
 
     loadout-signatures:
       # Companion loadouts are signed content: each cmd/<tool>/loadout.yaml has

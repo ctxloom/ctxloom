@@ -1259,6 +1259,24 @@ gitleaks-install:
     set +a
     go install github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}
 
+# Scan the STAGED changes for secrets — lefthook's pre-commit `gitleaks`
+# command. Rules and allowlists are .gitleaks.toml; output is redacted. A
+# missing binary fails rather than skipping: a scan that passes by not running
+# reports "no secrets" having looked at nothing.
+secrets-scan-staged:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v gitleaks >/dev/null 2>&1; then
+        echo "gitleaks is not on PATH — run 'just gitleaks-install'." >&2
+        echo "The secret scan cannot pass by not running." >&2
+        exit 1
+    fi
+    if ! gitleaks git --pre-commit --staged --redact --verbose --no-banner --config .gitleaks.toml; then
+        echo "gitleaks found a secret in the staged changes (redacted above)." >&2
+        echo "A real credential: unstage it and rotate it. A test fixture: end its line with 'gitleaks:allow'." >&2
+        exit 1
+    fi
+
 # Install gremlins
 test-mutation-install:
     go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0

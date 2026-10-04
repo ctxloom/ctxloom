@@ -48,7 +48,7 @@ Hooks are managed by [lefthook](https://github.com/evilmartians/lefthook): `left
 | `just build` | Also builds `bin/archlint`, which the architectural pre-commit hook runs |
 | `just gitleaks-install` | Installs [gitleaks](https://github.com/gitleaks/gitleaks) at the version pinned in `.devcontainer/tool-versions.env`, for the pre-commit secret scan |
 
-The secret scan checks staged changes only, against `.gitleaks.toml` (gitleaks' default rules plus allowlists for known false positives). On a finding: a real credential must be unstaged and rotated; a deliberate test fixture gets a trailing `gitleaks:allow` comment on its line.
+The pre-commit secret scan (`just secrets-scan-staged`, which you can also run by hand) checks staged changes only, against `.gitleaks.toml` (gitleaks' default rules plus allowlists for known false positives). On a finding: a real credential must be unstaged and rotated; a deliberate test fixture gets a trailing `gitleaks:allow` comment on its line.
 
 ## Documentation Pipeline
 

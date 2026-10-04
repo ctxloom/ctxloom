@@ -65,7 +65,7 @@ func waitForSlotWaiter(t *testing.T, s *semaphore.Weighted) {
 // the parked acquire land. Nothing here waits and hopes.
 func TestRunChild_TerminateWhileParkedOnCap_DoesNotStrandTheSlot(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinatorCap(t, sp, nil, 1) // exactly one slot in the whole coordinator
 
 	// A peer occupies the only slot, so the spawn below cannot get one.
@@ -115,7 +115,7 @@ func publishRt(c *Coordinator, rt *childRt) *childRt {
 // contract that the landed slot is released HERE and not by the caller.
 func TestAcquireRunSlot_Outcomes(t *testing.T) {
 	t.Run("landed", func(t *testing.T) {
-		sp := newFakeSpawner(nil, nil)
+		sp := newFakeSpawner(t, nil, nil)
 		c := newTestCoordinatorCap(t, sp, nil, 1)
 		rt := publishRt(c, &childRt{harp: "child-a", runID: "run-a"})
 
@@ -129,7 +129,7 @@ func TestAcquireRunSlot_Outcomes(t *testing.T) {
 	})
 
 	t.Run("cancelled by the run terminal mid-wait", func(t *testing.T) {
-		sp := newFakeSpawner(nil, nil)
+		sp := newFakeSpawner(t, nil, nil)
 		c := newTestCoordinatorCap(t, sp, nil, 1)
 		rt := publishRt(c, &childRt{harp: "child-a", runID: "run-a"})
 
@@ -160,7 +160,7 @@ func TestAcquireRunSlot_Outcomes(t *testing.T) {
 	})
 
 	t.Run("acquire fails", func(t *testing.T) {
-		sp := newFakeSpawner(nil, nil)
+		sp := newFakeSpawner(t, nil, nil)
 		c := newTestCoordinatorCap(t, sp, nil, 1)
 		rt := publishRt(c, &childRt{harp: "child-a", runID: "run-a"})
 		require.True(t, c.slots.TryAcquire(1))
@@ -193,7 +193,7 @@ func TestAcquireRunSlot_Outcomes(t *testing.T) {
 	// a peer frees, and launch an engine for a run that has already ended.
 	// Forced here by running the terminal's two effects first, in its order.
 	t.Run("run already terminated before the claim", func(t *testing.T) {
-		sp := newFakeSpawner(nil, nil)
+		sp := newFakeSpawner(t, nil, nil)
 		c := newTestCoordinatorCap(t, sp, nil, 1)
 		rt := publishRt(c, &childRt{harp: "child-a", runID: "run-a"})
 		require.True(t, c.slots.TryAcquire(1), "a peer holds the only slot, so a claim would park")
@@ -222,7 +222,7 @@ func TestAcquireRunSlot_Outcomes(t *testing.T) {
 	})
 
 	t.Run("already accounted for", func(t *testing.T) {
-		sp := newFakeSpawner(nil, nil)
+		sp := newFakeSpawner(t, nil, nil)
 		c := newTestCoordinatorCap(t, sp, nil, 2)
 		rt := publishRt(c, &childRt{harp: "child-a", runID: "run-a", slot: slotHeld})
 

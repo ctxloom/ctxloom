@@ -57,8 +57,8 @@ func rootsHome(t *testing.T) {
 // same time — the second is not refused, and neither waits for the other.
 func TestRoots_TwoFreshRunsInOneProjectAreIndependentTrees(t *testing.T) {
 	rootsHome(t)
-	a := newRoot(t, "tree-a-harp", "", newFakeSpawner(nil, nil))
-	b := newRoot(t, "tree-b-harp", "", newFakeSpawner(nil, nil))
+	a := newRoot(t, "tree-a-harp", "", newFakeSpawner(t, nil, nil))
+	b := newRoot(t, "tree-b-harp", "", newFakeSpawner(t, nil, nil))
 
 	assert.NotEqual(t, a.StateDir(), b.StateDir(), "each tree owns a root dir of its own")
 	assert.Equal(t, filepath.Dir(a.StateDir()), filepath.Dir(b.StateDir()), "both roots live under the one project")
@@ -82,7 +82,7 @@ func TestRoots_ResumeAdoptsTheNamedRootAndAFreshRunLeavesItAlone(t *testing.T) {
 	resetStrictness(t)
 	rootsHome(t)
 	gate := make(chan struct{}) // never closed: the run is mid-turn when its owner dies
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 
 	first := newRoot(t, ownerIdentity().Harp, "", sp)
 	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -116,9 +116,9 @@ func TestRoots_ResumeAdoptsTheNamedRootAndAFreshRunLeavesItAlone(t *testing.T) {
 // whose owner still runs is refused by name and builds nothing.
 func TestRoots_ASecondClaimOnOneRootIsRefused(t *testing.T) {
 	rootsHome(t)
-	live := newRoot(t, "live-owner-harp", "", newFakeSpawner(nil, nil))
+	live := newRoot(t, "live-owner-harp", "", newFakeSpawner(t, nil, nil))
 
-	c, err := New(Options{ProjectDir: t.TempDir(), ProjectID: rootsProjectID, Spawner: newFakeSpawner(nil, nil),
+	c, err := New(Options{ProjectDir: t.TempDir(), ProjectID: rootsProjectID, Spawner: newFakeSpawner(t, nil, nil),
 		OwnerHarp: "resumer-harp", RootHarp: "live-owner-harp", Reporter: termSink()})
 	assert.Nil(t, c)
 	require.ErrorIs(t, err, ErrStateOwned)
@@ -134,7 +134,7 @@ func TestRoots_ASecondClaimOnOneRootIsRefused(t *testing.T) {
 // longer lists.
 func TestRoots_CloseRemovesASettledEphemeralRoot(t *testing.T) {
 	rootsHome(t)
-	c := newEphemeralRoot(t, "one-shot-harp", newFakeSpawner(nil, nil))
+	c := newEphemeralRoot(t, "one-shot-harp", newFakeSpawner(t, nil, nil))
 	dir := c.StateDir()
 	require.DirExists(t, dir)
 
@@ -154,12 +154,7 @@ func TestRoots_CloseRemovesASettledEphemeralRoot(t *testing.T) {
 func TestRoots_ACleanSessionExitKeepsItsRootForAResume(t *testing.T) {
 	resetStrictness(t)
 	rootsHome(t)
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
-	t.Cleanup(func() {
-		for i := 0; i < sp.spawnCount(); i++ {
-			sp.killEngine(i)
-		}
-	})
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 
 	first := newRoot(t, ownerIdentity().Harp, "", sp)
 	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -182,7 +177,7 @@ func TestRoots_CloseKeepsARootWithALiveRun(t *testing.T) {
 	resetStrictness(t)
 	rootsHome(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 
 	first := newRoot(t, ownerIdentity().Harp, "", sp)
 	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -209,7 +204,7 @@ func TestRoots_CloseKeepsARootWithALiveRun(t *testing.T) {
 func TestRoots_CloseLeavesAnExplicitStateDir(t *testing.T) {
 	teeHome(t)
 	dir := t.TempDir()
-	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp, Reporter: termSink()})
+	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp, Reporter: termSink()})
 	require.NoError(t, err)
 	c.Close()
 	assert.FileExists(t, filepath.Join(dir, "runs.jsonl"))

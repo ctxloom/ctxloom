@@ -17,7 +17,7 @@ import (
 // with (an agent reads this string to decide whether its message landed).
 func TestPeerSend_RoutingAndDispositions(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	// A depth>0 identity with no run of its own has no parent to resolve.

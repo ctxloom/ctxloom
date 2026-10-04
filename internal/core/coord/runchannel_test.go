@@ -74,8 +74,8 @@ func spawnResearcher(t *testing.T, c *Coordinator) *RunOutcome {
 	return out
 }
 
-func researcherSpawner() *fakeSpawner {
-	return newFakeSpawner(map[string]fakeAgent{
+func researcherSpawner(t testing.TB) *fakeSpawner {
+	return newFakeSpawner(t, map[string]fakeAgent{
 		"researcher": {perm: "bypass", profiles: []string{"p1"}},
 	}, nil)
 }
@@ -85,7 +85,7 @@ func researcherSpawner() *fakeSpawner {
 // carried on the typed Kind field (coordination.proto field 7).
 func TestRunChannel_ChildSendReachesParent(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	h := childHome(t, c, out.RunID)
 
@@ -114,7 +114,7 @@ func TestRunChannel_RequestIdempotency(t *testing.T) {
 	// local spool write). A host app makes the double execution directly
 	// countable.
 	var calls atomic.Int32
-	c := newTestCoordinatorWithHost(t, researcherSpawner(), &recordingHostApp{fn: func(context.Context, Identity, HostRequest) (HostResult, error) {
+	c := newTestCoordinatorWithHost(t, researcherSpawner(t), &recordingHostApp{fn: func(context.Context, Identity, HostRequest) (HostResult, error) {
 		calls.Add(1)
 		return HostResult{Body: json.RawMessage(`{"n":1}`)}, nil
 	}})
@@ -141,7 +141,7 @@ func TestRunChannel_RequestIdempotency(t *testing.T) {
 // caller's own child and refuses a foreign run id.
 func TestRunChannel_StopRunLineage(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	// The stop below must find a RUNNING child, not one whose StartRun is
 	// still in flight — a stop that lands mid-launch ends the run as a
@@ -188,7 +188,7 @@ func TestRunChannel_StopRunLineage(t *testing.T) {
 // the harp as agent_id and the latest report summary.
 func TestRunChannel_RosterProjection(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	owner := ownerHome(t, c)
 	child := childHome(t, c, out.RunID)
@@ -215,7 +215,7 @@ func TestRunChannel_RosterProjection(t *testing.T) {
 // monotonic, and content-addressed (unchanged sha ≠ new revision).
 func TestRunChannel_ReportDurability(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	child := childHome(t, c, out.RunID)
 
@@ -253,7 +253,7 @@ func TestRunChannel_ReportDurability(t *testing.T) {
 // credential does not own is rejected.
 func TestRunChannel_ForeignRunIDRejected(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 
@@ -322,7 +322,7 @@ func TestAgentSend_UnmarshalableStructuredIsRefused(t *testing.T) {
 // must be cancellable from either surface.
 func TestServeStopRun_CancelsLaunch(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	owner := ownerHome(t, c)
 
@@ -349,7 +349,7 @@ func TestServeStopRun_CancelsLaunch(t *testing.T) {
 // carry on.
 func TestServeStopRun_CancelsLaunch_EvenWhenAlreadyEnded(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	owner := ownerHome(t, c)
 
@@ -383,7 +383,7 @@ func TestServeStopRun_CancelsLaunch_EvenWhenAlreadyEnded(t *testing.T) {
 // its outcome. With a run_id the verb is untouched (TestRunChannel_StopRunLineage).
 func TestRunChannel_StopRunOmittedRunId_SweepsTheCallersChildren(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	c.drainBound = 300 * time.Millisecond
 	first := spawnResearcher(t, c)
 	second := spawnResearcher(t, c)
@@ -421,7 +421,7 @@ func TestRunChannel_StopRunOmittedRunId_SweepsTheCallersChildren(t *testing.T) {
 // cannot be reached by an accidental omission.
 func TestRunChannel_StopRunOmittedRunIdAndReason_IsRefused(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	owner := ownerHome(t, c)
 
@@ -451,7 +451,7 @@ func TestRunChannel_LateTurnEventsFromAnEndedRunDoNotMoveTheResumedRun(t *testin
 	resetStrictness(t)
 	gate := make(chan struct{})
 	var spawned atomic.Int32
-	sp := startRunSpawner(func() *scriptedChat {
+	sp := startRunSpawner(t, func() *scriptedChat {
 		if spawned.Add(1) == 1 {
 			return &scriptedChat{} // run 1: its turn completes on its own
 		}

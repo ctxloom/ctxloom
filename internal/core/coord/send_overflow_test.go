@@ -138,7 +138,7 @@ func TestInlineHead_NeverSplitsARune(t *testing.T) {
 }
 
 func TestBoundBody_AtCapStoresNothing(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	body := strings.Repeat("x", MaxInlineBodyBytes)
 	got, gotStructured, err := c.boundBody("holder", body, nil)
 	assert.NoError(t, err)
@@ -150,7 +150,7 @@ func TestBoundBody_AtCapStoresNothing(t *testing.T) {
 // The structured companion counts toward the cap: body + structured exactly
 // at it is delivered whole, one byte past it overflows.
 func TestBoundBody_StructuredCountsTowardTheCap(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	structured := json.RawMessage(`{"decision":"accept"}`)
 	body := strings.Repeat("x", MaxInlineBodyBytes-len(structured))
 	got, gotStructured, err := c.boundBody("holder", body, structured)
@@ -170,7 +170,7 @@ func TestBoundBody_StructuredCountsTowardTheCap(t *testing.T) {
 
 // A small body cannot smuggle a large structured companion past the cap.
 func TestBoundBody_LargeStructuredOverflows(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	got, gotStructured, err := c.boundBody("holder", "short", bigStructured())
 	if !assert.NoError(t, err) {
 		return
@@ -179,7 +179,7 @@ func TestBoundBody_LargeStructuredOverflows(t *testing.T) {
 }
 
 func TestBoundBody_RefusesPastTheArtifactCeiling(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	_, _, err := c.boundBody("holder", strings.Repeat("x", ArtifactUploadSizeCap+1), nil)
 	assert.ErrorIs(t, err, ErrBodyTooLarge)
 }
@@ -189,7 +189,7 @@ func TestBoundBody_RefusesPastTheArtifactCeiling(t *testing.T) {
 // A manifest already filed under an overflow id is NEVER replaced by different
 // content: the write fails loudly and the earlier manifest stands.
 func TestBoundBody_NeverOverwritesAnExistingArtifact(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	full := overLong()
 	sum := sha256.Sum256([]byte(full))
 	id := overflowArtifactID(hex.EncodeToString(sum[:]))
@@ -208,7 +208,7 @@ func TestBoundBody_NeverOverwritesAnExistingArtifact(t *testing.T) {
 // The same content twice is ONE artifact: the second send reuses the stored
 // blob (never re-published over it) and the journaled manifest, unchanged.
 func TestBoundBody_SameContentReusesTheArtifact(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	full := overLong()
 	first, _, err := c.boundBody("holder", full, nil)
 	if !assert.NoError(t, err) {
@@ -245,7 +245,7 @@ func TestBoundBody_SameContentReusesTheArtifact(t *testing.T) {
 // other's.
 func TestSendOverflow_SameBodyToTwoChildren(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	var kids []Identity
 	for range 2 {
@@ -289,7 +289,7 @@ func TestSendOverflow_SameBodyToTwoChildren(t *testing.T) {
 // so an observation that depends on winning that window fails every time.
 func TestSendOverflow_DeliveredMessageIsStillObservable(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "", "")
 	require.NoError(t, err)
@@ -377,7 +377,7 @@ func TestSendOverflow_OwnerToChild(t *testing.T) {
 	for name, structured := range companions {
 		t.Run(name, func(t *testing.T) {
 			resetStrictness(t)
-			sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+			sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 			c := newTestCoordinator(t, sp, nil)
 			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "", "")
 			if !assert.NoError(t, err) {
@@ -398,7 +398,7 @@ func TestSendOverflow_OwnerToChild(t *testing.T) {
 func childAndOwnerInbox(t *testing.T) (*Coordinator, Identity) {
 	t.Helper()
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "work", "", "")
 	require.NoError(t, err)

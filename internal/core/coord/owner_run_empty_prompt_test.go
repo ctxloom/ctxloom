@@ -26,7 +26,7 @@ import (
 // TestStartOwnedRun_RejectsEmptyOneshotPrompt is the load-bearing assertion.
 func TestStartOwnedRun_RejectsEmptyOneshotPrompt(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -59,7 +59,7 @@ func TestStartOwnedRun_RejectsEmptyOneshotPrompt(t *testing.T) {
 // failure.
 func TestStartOwnedRun_AllowsEmptyStructuredPrompt(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -89,7 +89,7 @@ func TestStartOwnedRun_AllowsEmptyStructuredPrompt(t *testing.T) {
 // first turn) from one that has literally nothing.
 func TestStartRunPayloadErr_Discriminates(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	child := &childRt{harp: "payload-child", agentName: "worker"}

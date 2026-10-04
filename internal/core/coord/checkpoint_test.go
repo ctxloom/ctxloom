@@ -122,7 +122,7 @@ func TestOpenStoreFromOffset_StaleOffsetFallsBackToFullReplay(t *testing.T) {
 // live fold held at that instant.
 func TestWriteItemsSnapshot_RoundTrips(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")

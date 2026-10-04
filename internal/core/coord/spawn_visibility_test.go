@@ -43,7 +43,7 @@ import (
 // roster, which is exactly the surface the operator checked and found empty.
 func TestAgentRun_RegistersTheRunBeforeProbingTheEngineVersion(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	sp.versionProbeEntered = make(chan string, 1)
 	sp.versionProbeGate = make(chan struct{})
 	c := newTestCoordinator(t, sp, nil)
@@ -105,7 +105,7 @@ func TestAgentRun_RegistersTheRunBeforeProbingTheEngineVersion(t *testing.T) {
 // the assertion covers the whole span, not just its tail.
 func TestAgentRun_JournalsAcceptanceBeforeTheUntraceableSpan(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	sp.resolveEntered = make(chan string, 1)
 	sp.resolveGate = make(chan struct{})
 	c := newTestCoordinator(t, sp, nil)
@@ -150,7 +150,7 @@ func TestAgentRun_JournalsAcceptanceBeforeTheUntraceableSpan(t *testing.T) {
 // long anything took.
 func TestAgentRun_ASpawnStillPreparingSaysSoOutLoud(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	sp.resolveEntered = make(chan string, 1)
 	sp.resolveGate = make(chan struct{})
 	c := newTestCoordinator(t, sp, nil)
@@ -199,7 +199,7 @@ func TestAgentRun_ASpawnStillPreparingSaysSoOutLoud(t *testing.T) {
 // would be missed.
 func TestAgentRun_APromptSpawnNeverReportsItselfStuck(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	// A mutex-guarded sink, not captureWarnings' bare bytes.Buffer: the
@@ -251,7 +251,7 @@ func (s *signallingSink) Write(p []byte) (int, error) {
 // by scraping text.
 func TestAgentRun_ASpawnStillPreparingLeavesAStructuredRecord(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	sp.resolveEntered = make(chan string, 1)
 	sp.resolveGate = make(chan struct{})
 	c := newTestCoordinator(t, sp, nil)

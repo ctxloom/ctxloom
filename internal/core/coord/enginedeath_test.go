@@ -37,7 +37,7 @@ const engineDeathTail = "acp: connection closed (engine stderr tail: SyntaxError
 func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	resetStrictness(t)
 	qe := newQuiescentEngine()
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	sp.nextBackend = func() engine.Instance { return qe }
 	c := newTestCoordinator(t, sp, nil)
 
@@ -142,7 +142,7 @@ func TestRunnerLoss_StderrTailReachesParentMailbox(t *testing.T) {
 	resetStrictness(t)
 	const containerTail = "FATAL: node: bad option: --nonsense (container entrypoint died)"
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	sp.engineStderrTail = func() string { return containerTail }
 	c := newTestCoordinator(t, sp, nil)
 
@@ -227,9 +227,9 @@ type deadRunnerSpawner struct {
 	waited chan struct{}
 }
 
-func newDeadRunnerSpawner(exitErr error) *deadRunnerSpawner {
+func newDeadRunnerSpawner(t testing.TB, exitErr error) *deadRunnerSpawner {
 	return &deadRunnerSpawner{
-		fakeSpawner: newFakeSpawner(map[string]fakeAgent{
+		fakeSpawner: newFakeSpawner(t, map[string]fakeAgent{
 			"worker": {perm: "bypass", runtime: launch.RuntimeRootless},
 		}, nil),
 		exitErr: exitErr,
@@ -258,7 +258,7 @@ func (s *deadRunnerSpawner) Start(_ context.Context, _ launch.Launch, _ sessions
 func assertDeadRunnerIsReportedPromptly(t *testing.T, exitErr error, wantReason string) {
 	t.Helper()
 	resetStrictness(t)
-	sp := newDeadRunnerSpawner(exitErr)
+	sp := newDeadRunnerSpawner(t, exitErr)
 	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),

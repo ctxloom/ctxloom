@@ -27,7 +27,7 @@ import (
 // under test needs one session, so the credential is minted directly.
 func TestRequestRunner_RoundTrip(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
 	require.NoError(t, err)
 	credHash := hashToken(token)
@@ -78,7 +78,7 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 // hanging when no runner has registered for the credential yet.
 func TestRequestRunner_NoConnectedRunner(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -93,7 +93,7 @@ func TestRequestRunner_NoConnectedRunner(t *testing.T) {
 func TestAwaitRunner_WakesOnRegistration(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 

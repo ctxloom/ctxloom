@@ -17,7 +17,7 @@ import (
 // then waited out the whole default request budget for an answer that could
 // never arrive. A dead session must refuse the registration outright.
 func TestRequestRunner_FailsFastOnASessionThatAlreadyFailedItsPending(t *testing.T) {
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 
 	rs := newRunnerSession("cred-hash-dead", "run-dead", c.now(), func() {})
 	c.mu.Lock()
@@ -45,7 +45,7 @@ func TestRequestRunner_FailsFastOnASessionThatAlreadyFailedItsPending(t *testing
 // not cost the ordinary case — a waiter already in the map when the session
 // dies still gets its UNAVAILABLE answer.
 func TestFailPending_ResolvesWaitersRegisteredBeforeIt(t *testing.T) {
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 
 	rs := newRunnerSession("cred-hash-live", "run-live", c.now(), func() {})
 	c.mu.Lock()

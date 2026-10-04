@@ -21,7 +21,7 @@ func setSeam[F any](t *testing.T, seam *F, f F) {
 // first, so a root a live process owns is refused by name and left whole.
 func TestRemoveRoot_RefusesARootALiveProcessHolds(t *testing.T) {
 	rootsHome(t)
-	live := newRoot(t, "live-owner-harp", "", newFakeSpawner(nil, nil))
+	live := newRoot(t, "live-owner-harp", "", newFakeSpawner(t, nil, nil))
 
 	err := RemoveRoot(rootsProjectID, "", "live-owner-harp")
 
@@ -61,7 +61,7 @@ func TestRoots_AClaimRacingARemovalBeforeItLocksStillStands(t *testing.T) {
 		}
 	})
 
-	c := newRoot(t, "resumer-harp", "resumed-harp", newFakeSpawner(nil, nil))
+	c := newRoot(t, "resumer-harp", "resumed-harp", newFakeSpawner(t, nil, nil))
 
 	require.True(t, fired)
 	assert.Equal(t, dir, c.StateDir())
@@ -95,7 +95,7 @@ func TestRoots_AClaimPollingWhileARemovalHoldsTheLockStillStands(t *testing.T) {
 	done := make(chan claim, 1)
 	setSeam(t, &whileRemovingRoot, func(string) {
 		go func() {
-			c, err := New(Options{ProjectDir: t.TempDir(), ProjectID: rootsProjectID, Spawner: newFakeSpawner(nil, nil),
+			c, err := New(Options{ProjectDir: t.TempDir(), ProjectID: rootsProjectID, Spawner: newFakeSpawner(t, nil, nil),
 				OwnerHarp: "resumer-harp", RootHarp: "resumed-harp", Reporter: termSink()})
 			done <- claim{c, err}
 		}()

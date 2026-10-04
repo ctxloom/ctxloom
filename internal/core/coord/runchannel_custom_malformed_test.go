@@ -21,7 +21,7 @@ import (
 func TestHandleCustomEvent_MalformedEventsAreReported(t *testing.T) {
 	custom := func(t *testing.T, name string, value map[string]any) (string, *Coordinator, string) {
 		t.Helper()
-		sp := newFakeSpawner(nil, nil)
+		sp := newFakeSpawner(t, nil, nil)
 		c := newTestCoordinator(t, sp, nil)
 		role := "child-malformed"
 		ch := &RunChannel{

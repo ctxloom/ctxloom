@@ -23,7 +23,7 @@ import (
 // in the SAME kind-name/names-only shape Ladder already established.
 func TestEnqueueRun_JournalsPermissionAndMCPServerNames(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{
+	sp := newFakeSpawner(t, map[string]fakeAgent{
 		"worker": {
 			perm:     "bypass",
 			profiles: []string{"p1"},
@@ -62,7 +62,7 @@ func TestEnqueueRun_JournalsPermissionAndMCPServerNames(t *testing.T) {
 // JOURNAL side of the same guarantee.
 func TestEnqueueRun_ChildMCPServers_JournalDisjointPerAgent(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{
+	sp := newFakeSpawner(t, map[string]fakeAgent{
 		"workerA": {
 			perm:       "bypass",
 			profiles:   []string{"p-a"},
@@ -104,7 +104,7 @@ func TestEnqueueRun_ChildMCPServers_JournalDisjointPerAgent(t *testing.T) {
 // NOTHING about what privileges it actually got.
 func TestListRuns_SurfacesPermissionAndMCPServerNames(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{
+	sp := newFakeSpawner(t, map[string]fakeAgent{
 		"worker": {
 			perm:     "plan",
 			profiles: []string{"p1"},
@@ -191,7 +191,7 @@ func TestRunsFold_EntryCarryingARetiredLadderKey_LoadsWithoutError(t *testing.T)
 func TestEnqueueRun_JournalCarriesNamesOnly_NeverCommandOrArgs(t *testing.T) {
 	resetStrictness(t)
 	const plantedSecret = "sk-do-not-leak-this-9f8e7d"
-	sp := newFakeSpawner(map[string]fakeAgent{
+	sp := newFakeSpawner(t, map[string]fakeAgent{
 		"worker": {
 			perm:     "bypass",
 			profiles: []string{"p1"},

@@ -16,7 +16,7 @@ import (
 // rather than count itself into a join already in progress.
 func TestRunnerChannel_RefusedOnceTheCoordinatorSeals(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
 	require.NoError(t, err)
 

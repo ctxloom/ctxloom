@@ -42,7 +42,7 @@ func spawnTree(t *testing.T, holdGrandchild bool) tree {
 	release := func() { once.Do(func() { close(gate) }) }
 	var mu sync.Mutex
 	engines := 0
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, func() *scriptedChat {
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, func() *scriptedChat {
 		mu.Lock()
 		defer mu.Unlock()
 		engines++

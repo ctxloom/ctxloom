@@ -29,7 +29,7 @@ const queuedTruthWait = 20 * time.Second
 // attempted. It merely FAILED, which is a different disposition entirely.
 func TestAgentRun_QueuedDispositionIsTruthful(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	sp.launchErr = errors.New("engine binary is missing")
 	c := newTestCoordinator(t, sp, nil)
 

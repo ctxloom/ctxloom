@@ -14,7 +14,7 @@ import (
 // refused naming the roles it may launch, and nothing is resolved for it.
 func TestAgentRun_MayDelegateRestrictsTheCaller(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{
+	sp := newFakeSpawner(t, map[string]fakeAgent{
 		"lead":   {perm: "bypass", mayDelegate: []string{"finder"}},
 		"finder": {perm: "plan"},
 		"coder":  {perm: "acceptEdits"},
@@ -40,7 +40,7 @@ func TestAgentRun_MayDelegateRestrictsTheCaller(t *testing.T) {
 // Unset may_delegate permits any role.
 func TestAgentRun_NoMayDelegatePermitsAny(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"lead": {perm: "bypass"}, "coder": {perm: "acceptEdits"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"lead": {perm: "bypass"}, "coder": {perm: "acceptEdits"}}, nil)
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 	lead, err := c.AgentRun(context.Background(), ownerIdentity(), "lead", "coordinate", "", "")
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func startRootRun(ctx context.Context, t *testing.T, c *Coordinator, harp, label
 // role outside it, before anything is resolved.
 func TestAgentRun_MayDelegateRestrictsTheRoot(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"finder": {perm: "plan"}, "coder": {perm: "acceptEdits"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"finder": {perm: "plan"}, "coder": {perm: "acceptEdits"}}, nil)
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -96,7 +96,7 @@ func TestAgentRun_MayDelegateRestrictsTheRoot(t *testing.T) {
 // A root binding with no may_delegate delegates freely.
 func TestAgentRun_RootWithoutMayDelegatePermitsAny(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"coder": {perm: "acceptEdits"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"coder": {perm: "acceptEdits"}}, nil)
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -109,7 +109,7 @@ func TestAgentRun_RootWithoutMayDelegatePermitsAny(t *testing.T) {
 // The roster shows an owner run's posture by its engine's display name,
 // which its launch carries.
 func TestStartOwnedRun_RosterShowsThePosture(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

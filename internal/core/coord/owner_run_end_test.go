@@ -33,7 +33,7 @@ func TestTerminateRun_OwnerRunIsNotAChildOfItself(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resetStrictness(t)
-			sp := newFakeSpawner(nil, nil)
+			sp := newFakeSpawner(t, nil, nil)
 			c := newTestCoordinator(t, sp, nil)
 			ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 			defer cancel()
@@ -78,7 +78,7 @@ func TestTerminateRun_OwnerRunIsNotAChildOfItself(t *testing.T) {
 // reading it right after the call settles the question without a timing window.
 func TestRelaunchForLeftoverMail_TopLevelRunArmsNoRelaunch(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()

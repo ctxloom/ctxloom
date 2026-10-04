@@ -21,7 +21,7 @@ const retiredContainerAxis launch.RuntimeAxis = "container"
 // launches.
 func TestAgentRun_RefusesAnUnknownRuntimeAxis(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"boxed": {perm: "bypass", runtime: retiredContainerAxis}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"boxed": {perm: "bypass", runtime: retiredContainerAxis}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	_, err := c.AgentRun(context.Background(), ownerIdentity(), "boxed", "go", "", "")
@@ -33,7 +33,7 @@ func TestAgentRun_RefusesAnUnknownRuntimeAxis(t *testing.T) {
 // the owner run and the resume path reach without AgentRun.
 func TestReachURL_RefusesAnUnknownRuntimeAxis(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 
 	_, err := c.ReachURL(retiredContainerAxis)
 	require.ErrorIs(t, err, launch.ErrUnknownRuntimeAxis)
@@ -48,7 +48,7 @@ func TestReachURL_RefusesAnUnknownRuntimeAxis(t *testing.T) {
 // serving — the value is misspelled, nothing is down.
 func TestStartOwnedRun_RefusesAnUnknownRuntimeAxisWithoutTheServingHint(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	const ownerHarp = "owner-harp-axis"
@@ -69,7 +69,7 @@ func TestStartOwnedRun_RefusesAnUnknownRuntimeAxisWithoutTheServingHint(t *testi
 // the delegated path.
 func TestAgentRun_UnknownRuntimeAxisCarriesNoServingHint(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"boxed": {perm: "bypass", runtime: retiredContainerAxis}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"boxed": {perm: "bypass", runtime: retiredContainerAxis}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	_, err := c.AgentRun(context.Background(), ownerIdentity(), "boxed", "go", "", "")
 	require.ErrorIs(t, err, launch.ErrUnknownRuntimeAxis)

@@ -29,7 +29,7 @@ func TestSpawnReachURL_RefusesInEveryMode(t *testing.T) {
 		c, err := New(Options{
 			ProjectDir: t.TempDir(),
 			StateDir:   t.TempDir(),
-			Spawner:    newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil),
+			Spawner:    newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil),
 			OwnerHarp:  "owner-harp",
 		})
 		require.NoError(t, err)

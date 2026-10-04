@@ -60,7 +60,7 @@ func spawnedIdentity(t *testing.T, c *Coordinator) Identity {
 // first '/', which is how a containerized child died at standup.
 func TestChildIdentity_CarriesTheProjectIDNotTheDirectory(t *testing.T) {
 	resetStrictness(t)
-	c := newProjectCoordinator(t, researcherSpawner(), testProjectID)
+	c := newProjectCoordinator(t, researcherSpawner(t), testProjectID)
 
 	env := sessions.HookEnv(spawnedIdentity(t, c))
 	got := env[sessions.EnvProjectID]
@@ -75,7 +75,7 @@ func TestChildIdentity_CarriesTheProjectIDNotTheDirectory(t *testing.T) {
 // never the directory in its place.
 func TestChildIdentity_UnresolvedProjectExportsNoID(t *testing.T) {
 	resetStrictness(t)
-	c := newProjectCoordinator(t, researcherSpawner(), "")
+	c := newProjectCoordinator(t, researcherSpawner(t), "")
 
 	env := sessions.HookEnv(spawnedIdentity(t, c))
 	assert.Empty(t, env[sessions.EnvProjectID])
@@ -84,7 +84,7 @@ func TestChildIdentity_UnresolvedProjectExportsNoID(t *testing.T) {
 // TestIdentify_OwnerCredentialCarriesTheProjectID: the session-owner
 // credential identifies under the project id, like every child's.
 func TestIdentify_OwnerCredentialCarriesTheProjectID(t *testing.T) {
-	c := newProjectCoordinator(t, newFakeSpawner(nil, nil), testProjectID)
+	c := newProjectCoordinator(t, newFakeSpawner(t, nil, nil), testProjectID)
 	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
 	require.NoError(t, err)
 

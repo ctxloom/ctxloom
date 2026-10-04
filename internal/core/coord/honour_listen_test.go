@@ -47,7 +47,7 @@ func TestRunChild_HonoursTheCellsListenBeforeTheRunnerStarts(t *testing.T) {
 	teeHome(t)
 	// TEST-NET-1: never an address of this host, so the listen must fail.
 	sp := &listenSpawner{
-		fakeSpawner: newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless}}, nil),
+		fakeSpawner: newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless}}, nil),
 		listen:      present.Listen{Addr: "192.0.2.1"},
 	}
 	var mu sync.Mutex

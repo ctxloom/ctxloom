@@ -32,7 +32,7 @@ import (
 // lifts it.
 func TestLaunchGate_StopSurvivesTheTerminalAndAReap(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -77,7 +77,7 @@ func TestLaunchGate_StopSurvivesTheTerminalAndAReap(t *testing.T) {
 // number of distinct children a coordinator ever spawns — the same bound every
 // other per-harp map in the package carries.
 func TestLaunchGate_OneStatePerHarpNotPerRun(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	for range 5 {

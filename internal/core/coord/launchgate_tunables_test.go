@@ -126,7 +126,7 @@ func TestNew_AppliesLaunchTunablesFromEnv(t *testing.T) {
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),
-		Spawner:    newFakeSpawner(nil, nil),
+		Spawner:    newFakeSpawner(t, nil, nil),
 		OwnerHarp:  ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
@@ -147,7 +147,7 @@ func TestNew_InitialisesLaunchGateMap(t *testing.T) {
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),
-		Spawner:    newFakeSpawner(nil, nil),
+		Spawner:    newFakeSpawner(t, nil, nil),
 		OwnerHarp:  ownerIdentity().Harp,
 	})
 	require.NoError(t, err)

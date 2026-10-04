@@ -72,7 +72,7 @@ func TestHost_DispatchesToTheComposedHostAppUnderTheCallersIdentity(t *testing.T
 	app := &recordingHostApp{fn: func(_ context.Context, caller Identity, req HostRequest) (HostResult, error) {
 		return HostResult{Body: json.RawMessage(`{"tool":"` + req.Tool + `","project":"` + caller.ProjectDir + `"}`)}, nil
 	}}
-	c := newTestCoordinatorWithHost(t, newFakeSpawner(nil, nil), app)
+	c := newTestCoordinatorWithHost(t, newFakeSpawner(t, nil, nil), app)
 
 	caller := Identity{Harp: "child-harp-1", RunID: "run-1", Depth: 1, Project: c.projectID, ProjectDir: c.projectDir}
 	res, err := c.Host(context.Background(), caller, HostRequest{Tool: "list_sessions", Args: json.RawMessage(`{"limit":1}`)})
@@ -88,7 +88,7 @@ func TestHost_DispatchesToTheComposedHostAppUnderTheCallersIdentity(t *testing.T
 // TestHost_WithoutAHostApp_IsUnimplemented: a coordinator composed without
 // an application service refuses every relayed tool, loudly.
 func TestHost_WithoutAHostApp_IsUnimplemented(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	_, err := c.Host(context.Background(), ownerIdentity(), HostRequest{Tool: "list_sessions"})
 	require.ErrorIs(t, err, ErrNoHostApp)
 }
@@ -100,7 +100,7 @@ func TestHost_WithoutAHostApp_IsUnimplemented(t *testing.T) {
 func TestHost_ARelayedFrameReachesTheHostAppUnderTheChildsIdentity(t *testing.T) {
 	resetStrictness(t)
 	app := &recordingHostApp{}
-	c := newTestCoordinatorWithHost(t, researcherSpawner(), app)
+	c := newTestCoordinatorWithHost(t, researcherSpawner(t), app)
 	out := spawnResearcher(t, c)
 	h := childHome(t, c, out.RunID)
 
@@ -132,7 +132,7 @@ func TestHost_AnOversizedAnswerIsRefusedUnderTheFrameCap(t *testing.T) {
 		}
 		return HostResult{Body: json.RawMessage(`{"blob":"` + string(big) + `"}`)}, nil
 	}}
-	c := newTestCoordinatorWithHost(t, newFakeSpawner(nil, nil), app)
+	c := newTestCoordinatorWithHost(t, newFakeSpawner(t, nil, nil), app)
 	reply := c.serveAgentRequest(ownerIdentity(), AgentRequest{Kind: HostRequest{Tool: "list_sessions"}})
 	assert.ErrorIs(t, reply.Err, ErrHostAnswerTooLarge)
 }

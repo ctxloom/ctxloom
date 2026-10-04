@@ -47,7 +47,7 @@ func simulateAttachThenDie(c *Coordinator, harp string, cap int) (authorised int
 // consuming mail must exhaust the budget just like one that never came up.
 func TestRelaunchBudget_BoundsAttachThenDie(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	authorised, backedOff := simulateAttachThenDie(c, "spin-harp", 200)
@@ -65,7 +65,7 @@ func TestRelaunchBudget_BoundsAttachThenDie(t *testing.T) {
 // turn per relaunch is never throttled by this bound.
 func TestRelaunchBudget_ResetByMailConsumption(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	const harp = "progress-harp"
@@ -90,7 +90,7 @@ func TestRelaunchBudget_ResetByMailConsumption(t *testing.T) {
 // start for BOTH counters, not just the launch-failure one.
 func TestRelaunchBudget_ResetByExplicitDelivery(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	const harp = "asked-again-harp"

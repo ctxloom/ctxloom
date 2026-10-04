@@ -42,7 +42,7 @@ func dialConsumer(t *testing.T, coordURL, token string) (agentcoordpb.ConsumerSe
 // projection). The first frame is always the roster snapshot.
 func TestConsumerService_WatchRuns_SnapshotThenLiveDeltaText(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	consumerToken := c.consumerCreds.token()
@@ -308,7 +308,7 @@ func TestSendTerminal_NeverBlocksWhenChannelIsWedged(t *testing.T) {
 // roster projection plane-2 ListRuns exposes, reachable without a stream.
 func TestConsumerService_ListRuns(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
@@ -331,7 +331,7 @@ func TestConsumerService_ListRuns(t *testing.T) {
 // tally of failures cannot be mistaken for a tally of deliveries.
 func TestConsumerService_SpoolStats_ReportsLiveCounters(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, startRunSpawner(nil), nil)
+	c := newTestCoordinator(t, startRunSpawner(t, nil), nil)
 	// Five distinct values so a field crossed with any other is caught.
 	c.spoolDeliveryCount.Delivered.Add(11)
 	c.spoolDeliveryCount.Consumed.Add(12)
@@ -355,7 +355,7 @@ func TestConsumerService_SpoolStats_ReportsLiveCounters(t *testing.T) {
 // same authenticated surface as the roster — no bearer, no numbers.
 func TestConsumerService_SpoolStats_RequiresCredential(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, startRunSpawner(nil), nil)
+	c := newTestCoordinator(t, startRunSpawner(t, nil), nil)
 	client, _ := dialConsumer(t, c.LoopbackURL(), "not-a-credential")
 	_, err := client.SpoolStats(context.Background(), &agentcoordpb.SpoolStatsRequest{})
 	require.Error(t, err)
@@ -368,7 +368,7 @@ func TestConsumerService_SpoolStats_RequiresCredential(t *testing.T) {
 // verb, on RunnerChannel/RunChannel.
 func TestConsumer_CredentialRejectedOnCoordinatorService(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	token := c.consumerCreds.token()
 	require.NotEmpty(t, token)
 
@@ -404,7 +404,7 @@ func TestConsumer_CredentialRejectedOnCoordinatorService(t *testing.T) {
 // read-only credential.
 func TestConsumer_CredentialPersistedInEndpointFile(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 
 	raw, err := os.ReadFile(filepath.Join(c.stateDir, "endpoint.json"))
 	require.NoError(t, err)

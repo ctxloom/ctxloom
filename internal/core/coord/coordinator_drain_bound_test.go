@@ -71,7 +71,7 @@ func spawnGatedChild(t *testing.T, sp *fakeSpawner, c *Coordinator) string {
 // TestDrainBound_IsDrainProcessBound pins (d): a coordinator's drain bound is
 // drainProcessBound, read by name — never a second number.
 func TestDrainBound_IsDrainProcessBound(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	assert.Equal(t, drainProcessBound, c.drainBound)
@@ -84,7 +84,7 @@ func TestDrainBound_IsDrainProcessBound(t *testing.T) {
 func TestBeginDrain_NeverYieldingChildIsForcedAtTheBoundAndNamed(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{}) // never closed: the turn never yields
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = 300 * time.Millisecond
@@ -126,7 +126,7 @@ func TestBeginDrain_NeverYieldingChildIsForcedAtTheBoundAndNamed(t *testing.T) {
 func TestBeginDrain_InFlightTurnEndsAtItsBoundaryNotBefore(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute // far past the test: a drain that waits for it fails
@@ -156,7 +156,7 @@ func TestBeginDrain_InFlightTurnEndsAtItsBoundaryNotBefore(t *testing.T) {
 // without touching the bound.
 func TestBeginDrain_IdleChildEndsImmediately(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
 
@@ -179,7 +179,7 @@ func TestBeginDrain_IdleChildEndsImmediately(t *testing.T) {
 func TestBeginDrain_QueuedChildEndsImmediately(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1)
 	c.drainBound = 300 * time.Millisecond
@@ -209,7 +209,7 @@ func TestBeginDrain_QueuedChildEndsImmediately(t *testing.T) {
 func TestBeginDrain_ChildDyingDuringDrainIsNotRelaunched(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
@@ -252,7 +252,7 @@ func TestBeginDrain_ChildDyingDuringDrainIsNotRelaunched(t *testing.T) {
 func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
@@ -305,7 +305,7 @@ func TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime(t *te
 	resetStrictness(t)
 	gate := make(chan struct{})
 	spawned := 0
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat {
 			spawned++
 			if spawned == 1 {
@@ -346,7 +346,7 @@ func TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime(t *te
 // promising a resume that will not happen.
 func TestBeginDrain_SendToEndedChildDoesNotResumeIt(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	harp := spawnOneChild(t, c)
@@ -376,7 +376,7 @@ func TestBeginDrain_SendToEndedChildDoesNotResumeIt(t *testing.T) {
 // drain itself watched end, not ones already dead on arrival.
 func TestBeginDrain_RunEndedBeforeDrainBeganIsNotInTheOutcome(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	harp := spawnOneChild(t, c)
@@ -395,7 +395,7 @@ func TestBeginDrain_RunEndedBeforeDrainBeganIsNotInTheOutcome(t *testing.T) {
 // TestBeginDrain_IsIdempotentAndReturnsTheSameDrain: a second BeginDrain does
 // not start a second bounded wait; it returns the drain already in progress.
 func TestBeginDrain_IsIdempotentAndReturnsTheSameDrain(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	first := c.BeginDrain()

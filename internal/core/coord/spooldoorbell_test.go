@@ -48,7 +48,7 @@ func waitRef(t *testing.T, got <-chan spool.Ref) spool.Ref {
 func TestSpoolDoorbell_RunnerToCoordinatorRoundTrip(t *testing.T) {
 	for _, dir := range spool.Dirs() {
 		t.Run(dir.String(), func(t *testing.T) {
-			c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+			c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 			h := dialHome(t, c, doorbellHarp)
 
 			got := make(chan spool.Ref, 1)
@@ -77,7 +77,7 @@ func TestSpoolDoorbell_RunnerToCoordinatorRoundTrip(t *testing.T) {
 func TestSpoolDoorbell_CoordinatorToRunnerRoundTrip(t *testing.T) {
 	for _, dir := range spool.Dirs() {
 		t.Run(dir.String(), func(t *testing.T) {
-			c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+			c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 			h := dialHome(t, c, doorbellHarp)
 
 			got := make(chan spool.Ref, 1)
@@ -112,7 +112,7 @@ func TestSpoolDoorbell_CoordinatorToRunnerRoundTrip(t *testing.T) {
 // the fault — and never hands anything to the consumer, because the
 // consumer's whole job is to resolve the ref into a filesystem path.
 func TestSpoolDoorbell_RefusedRefIsCountedAndNamed(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	_ = dialHome(t, c, doorbellHarp) // the child's channel is what the doorbell arrives on
 
 	fired := make(chan spool.Ref, 1)
@@ -153,7 +153,7 @@ func TestSpoolDoorbell_RefusedRefIsCountedAndNamed(t *testing.T) {
 // refusing — the sweep is the delivery floor, and a doorbell only bounds
 // latency (see TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep).
 func TestSpoolDoorbell_ForgedHarpIsRefused(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	_ = dialHome(t, c, doorbellHarp) // the child's channel is what the doorbell arrives on
 
 	got := make(chan spool.Ref, 1)
@@ -201,7 +201,7 @@ func TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	const cadence = 150 * time.Millisecond
-	sp := cutoverSpawner(cadence)
+	sp := cutoverSpawner(t, cadence)
 	c := newCutoverCoordinator(t, sp, cadence)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
@@ -261,7 +261,7 @@ func TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep(t *testing.T) {
 func TestSpoolDoorbell_CutoverChildReturnsWithItsRunChannelAttached(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	sp.attachWaiting = make(chan struct{}, 1)
 	c := newCutoverCoordinator(t, sp, 0)
 
@@ -297,7 +297,7 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 	ref := spool.Ref{Harp: doorbellHarp, Dir: spool.DirIn, Name: doorbellName}
 
 	t.Run("coordinator: no live run channel", func(t *testing.T) {
-		c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+		c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 
 		require.NoError(t, c.ringSpool(doorbellHarp, ref),
 			"a runner that is not attached is an ordinary state, not a caller error")
@@ -305,7 +305,7 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 	})
 
 	t.Run("coordinator: saturated send pump", func(t *testing.T) {
-		c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+		c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 
 		// A registered channel whose outbound queue is FULL and whose pump is
 		// not draining — a child too busy to read, which is precisely the
@@ -336,7 +336,7 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 	})
 
 	t.Run("runner: no stream", func(t *testing.T) {
-		c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+		c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 		h := dialHome(t, c, doorbellHarp)
 		h.Close(0, "")
 
@@ -357,7 +357,7 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 // failing where the stack still names who did it, rather than travelling and
 // being refused at a peer.
 func TestSpoolDoorbell_InvalidRefNeverReachesTheWire(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	h := dialHome(t, c, doorbellHarp)
 
 	bad := []spool.Ref{

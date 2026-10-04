@@ -98,7 +98,7 @@ func firstIndexOfKind(msgs []Message, kind string) int {
 func TestFinalReport_EndsTheRunAtItsTurnBoundary(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -133,7 +133,7 @@ func TestFinalReport_EndsTheRunAtItsTurnBoundary(t *testing.T) {
 // nothing to cut short. It ends now.
 func TestFinalReport_EndsAChildThatIsBetweenTurns(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -154,7 +154,7 @@ func TestFinalReport_EndsAChildThatIsBetweenTurns(t *testing.T) {
 // working agent mid-task.
 func TestProgressReport_DoesNotEndTheRun(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -189,7 +189,7 @@ func TestProgressReport_DoesNotEndTheRun(t *testing.T) {
 func TestFinalReport_ParentGetsTheReportBeforeTheExitNotice(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -226,7 +226,7 @@ func TestFinalReport_ParentGetsTheReportBeforeTheExitNotice(t *testing.T) {
 // run in the journal.
 func TestFinalReport_SessionStaysResumableAfterTheRunEnds(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -258,7 +258,7 @@ func TestFinalReport_SessionStaysResumableAfterTheRunEnds(t *testing.T) {
 func TestFinalReport_OneShotChildIsEndedByItsFinal(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := oneShotSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -285,7 +285,7 @@ func TestFinalReport_OneShotChildIsEndedByItsFinal(t *testing.T) {
 // is nothing to end.
 func TestFinalReport_OwnerRunIsNeverEndedByItsOwnReport(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
@@ -338,7 +338,7 @@ func exitMarked(c *Coordinator, runID string) bool {
 func TestFinalReport_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainRequestHook = func(runID string) {
 		close(gate)
@@ -399,7 +399,7 @@ func TestFinalReport_MidTurnIsNotMetByAChildStillLaunching(t *testing.T) {
 	resetStrictness(t)
 	launchGate, turnGate := make(chan struct{}), make(chan struct{})
 	t.Cleanup(func() { close(turnGate) })
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: turnGate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: turnGate} })
 	sp.startGate = launchGate
 	c := newTestCoordinator(t, sp, nil)
 
@@ -426,7 +426,7 @@ func TestFinalReport_MidTurnIsNotMetByAChildStillLaunching(t *testing.T) {
 func TestFinalReport_FiledWhileStillLaunchingEndsAtTheFirstBoundary(t *testing.T) {
 	resetStrictness(t)
 	launchGate, turnGate := make(chan struct{}), make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: turnGate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: turnGate} })
 	sp.startGate = launchGate
 	c := newTestCoordinator(t, sp, nil)
 
@@ -468,7 +468,7 @@ func TestFinalReport_FiledWhileStillLaunchingEndsAtTheFirstBoundary(t *testing.T
 // FINAL still ends it.
 func TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")

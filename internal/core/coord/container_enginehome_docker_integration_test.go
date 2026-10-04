@@ -159,7 +159,7 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 	home := l.Cell.Paths.Paths().SessionHome
 	require.NotEqual(t, home.Host, home.Engine, "the engine home must be relocated for this test to mean anything: %+v", home)
 
-	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "enginehome-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: entry.HarpName})
+	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "enginehome-itest", Spawner: coord.NewFakeSpawner(t, nil, nil), OwnerHarp: entry.HarpName})
 	require.NoError(t, err)
 	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)

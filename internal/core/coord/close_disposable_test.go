@@ -32,12 +32,7 @@ func seedMembers(t *testing.T, harp string) string {
 func TestClose_DeletesEveryTreeAgentsHomeAndScratch(t *testing.T) {
 	resetStrictness(t)
 	rootsHome(t)
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
-	t.Cleanup(func() {
-		for i := 0; i < sp.spawnCount(); i++ {
-			sp.killEngine(i)
-		}
-	})
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	c := newRoot(t, ownerIdentity().Harp, "", sp)
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
@@ -62,7 +57,7 @@ func TestClose_LeavesTheMembersOfARunThatHasNotEnded(t *testing.T) {
 	resetStrictness(t)
 	rootsHome(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	first := newRoot(t, ownerIdentity().Harp, "", sp)
 	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)

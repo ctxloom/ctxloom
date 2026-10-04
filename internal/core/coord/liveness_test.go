@@ -91,7 +91,7 @@ func spawnOneChild(t *testing.T, c *Coordinator) string {
 
 func TestLivenessSnapshot_FiresOnStuckChildAndNotOnHealthyOne(t *testing.T) {
 	livenessTestHome(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	stuckHarp := spawnOneChild(t, c)
@@ -127,7 +127,7 @@ func TestLivenessSnapshot_FiresOnStuckChildAndNotOnHealthyOne(t *testing.T) {
 func TestLivenessSnapshot_PendingApprovalSuppressesTheVerdict(t *testing.T) {
 	livenessTestHome(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
@@ -174,7 +174,7 @@ func TestLivenessSnapshot_PendingApprovalSuppressesTheVerdict(t *testing.T) {
 // watching genuinely silent agents.
 func TestLivenessTargets_ResolveTheCanonicalTranscriptPath(t *testing.T) {
 	livenessTestHome(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	harp := spawnOneChild(t, c)
 
@@ -191,7 +191,7 @@ func TestLivenessTargets_ResolveTheCanonicalTranscriptPath(t *testing.T) {
 // A connected runner beating recently is positive evidence of life.
 func TestRunnerHeartbeatProbe_LiveRunnerIsAlive(t *testing.T) {
 	livenessTestHome(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	harp := spawnOneChild(t, c)
 

@@ -21,7 +21,7 @@ import (
 // of the process's life, permanently, once per racing frame.
 func TestOnTurnStarted_AfterTheRunsTerminal_DoesNotLeakAnExecutionSlot(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinatorCap(t, sp, nil, 2)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -57,7 +57,7 @@ func TestOnTurnStarted_AfterTheRunsTerminal_DoesNotLeakAnExecutionSlot(t *testin
 // ended.
 func TestOnTurnIdle_AfterTheRunsTerminal_DoesNotBridgeAgain(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")

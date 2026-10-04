@@ -33,7 +33,7 @@ func containerNameFromRoster(t *testing.T, c *Coordinator, runID string) string 
 // (AgentIdentity.ContainerName via listRunsSnapshot in consumer.go) — the
 // human-usable `docker logs -f`/`docker attach` handle on a containerized run.
 func TestStartOwnedRun_SurfacesContainerNameOnRoster(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -61,7 +61,7 @@ func TestStartOwnedRun_SurfacesContainerNameOnRoster(t *testing.T) {
 // shape isolation.RunnerHandle.Name always takes) must show an empty
 // ContainerName on the roster — never fabricated.
 func TestStartOwnedRun_ContainerNameEmptyForHostRun(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

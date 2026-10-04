@@ -14,7 +14,7 @@ that needs a human, the directory nobody should hand-edit. And as on
 security boundary, so it stops the accidental path, not a determined one.
 
 ```yaml
-version: 1
+schema_version: 1
 
 defaults:
   shell: bash               # fallback dialect when nothing else determines one
@@ -38,6 +38,17 @@ A deny rule must carry a `message` or a `suggest` — either alone is enough
 (`suggest` renders as "Use instead: …"). Without one the model is told `deny`
 with no reason and no alternative, so it simply retries; a rule that cannot say
 why is a load error. `allow` and `mode: disable` rules are exempt.
+
+## Format version
+
+`schema_version` declares the rules file's format generation: an integer that
+changes only when the file format does, independent of ltk's own release
+version. ltk reads an older or unversioned file (including the earlier
+`version:` spelling) by migrating it in memory, and leaves the file alone. Pass
+`--write-upgrades` to any ltk command — `ltk check --write-upgrades --command true`
+will do — to persist the migration to the rules file it resolved, keeping the
+original as `<file>.bak`. A file declaring a newer generation than this ltk
+reads is refused with both numbers named: upgrade ltk.
 
 ## Fail-open, with one exception
 

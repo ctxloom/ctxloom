@@ -36,7 +36,7 @@ import (
 // surfaces to a user under that gate.
 func TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFile(t, fs, "/proj/.ctxloom/config.yaml", []byte("version: 6\nagent_turn_cap: 3\n"), 0644)
+	testsupport.WriteFile(t, fs, "/proj/.ctxloom/config.yaml", []byte("schema_version: 6\nagent_turn_cap: 3\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored(t *testing.T) {
 // and its replacement; config.ParseConfig (the init path, which returns decode
 // errors outright) surfaces the sentinel itself.
 func TestLoad_RetiredLLMEnvKeyRefusedNotIgnored(t *testing.T) {
-	const doc = "version: 6\nllm:\n  configs:\n    big:\n      type: claude-code\n      env:\n        ANTHROPIC_API_KEY: sk-secret\n"
+	const doc = "schema_version: 6\nllm:\n  configs:\n    big:\n      type: claude-code\n      env:\n        ANTHROPIC_API_KEY: sk-secret\n"
 
 	t.Run("Load records a fatal-class warning naming the key, the label and the replacement", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
@@ -94,7 +94,7 @@ func TestLoad_RetiredLLMEnvKeyRefusedNotIgnored(t *testing.T) {
 	})
 
 	t.Run("the mock's control channel is not the retired key", func(t *testing.T) {
-		const mockDoc = "version: 6\nllm:\n  configs:\n    m:\n      type: mock\n      mock_control:\n        CTXLOOM_MOCK_RESPONSE: canned\n"
+		const mockDoc = "schema_version: 6\nllm:\n  configs:\n    m:\n      type: mock\n      mock_control:\n        CTXLOOM_MOCK_RESPONSE: canned\n"
 		cfg, err := config.ParseConfig([]byte(mockDoc))
 		require.NoError(t, err)
 		entry, ok := cfg.GetLLMEntry("m")
@@ -112,7 +112,7 @@ func TestLoad_WithOptions(t *testing.T) {
 
 	// A valid config file already in the new (default-agent) shape.
 	configContent := `
-version: 6
+schema_version: 6
 llm:
   configs:
     claude-code: { type: claude-code }
@@ -168,19 +168,18 @@ llm:
 	assert.NotContains(t, control, "ctxloom_mock_response", "key must not be lowercased")
 }
 
-func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {
+func TestLoad_CurrentConfigReadsItsVersion(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	current := "version: 6\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
+	current := "schema_version: 6\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
 	cfgPath := paths.ConfigPath(appDir)
 	testsupport.WriteFile(t, fs, cfgPath, []byte(current), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
-	assert.Nil(t, cfg.ToFixture().PendingUpgrade, "a current-version config must not record a pending upgrade")
-	assert.Equal(t, config.CurrentConfigVersion, cfg.ToFixture().Version)
+	assert.Equal(t, config.CurrentConfigVersion, cfg.ToFixture().SchemaVersion)
 }
 
 func TestLoad_NoConfigFile(t *testing.T) {
@@ -202,17 +201,16 @@ func TestLoadConfigLayer_AbsentAndUnparsable(t *testing.T) {
 	t.Run("absent file is nil values and no error", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		b := config.NewBuilder(fs, true, "/", config.SourceProject)
-		values, pending, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/nonexistent/config.yaml", fs)
+		values, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/nonexistent/config.yaml", fs)
 		assert.NoError(t, err)
 		assert.Nil(t, values)
-		assert.Nil(t, pending)
 	})
 
 	t.Run("present unparsable file is refused by name", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		testsupport.WriteFile(t, fs, "/config.yaml", []byte("invalid: ["), 0644)
 		b := config.NewBuilder(fs, true, "/", config.SourceProject)
-		values, _, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/config.yaml", fs)
+		values, err := src.loadConfigLayer(b, layerscope.LayerProject, "/", "", "/config.yaml", fs)
 		require.ErrorIs(t, err, ErrUnparsableLayer)
 		assert.Contains(t, err.Error(), "/config.yaml")
 		assert.Nil(t, values)

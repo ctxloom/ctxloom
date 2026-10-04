@@ -28,6 +28,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
@@ -549,6 +550,9 @@ func init() {
 	rootCmd.PersistentFlags().StringArray(confload.ConfigSetFlagName, nil,
 		"override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)")
 
+	// Without it, a config layer read in an older format is migrated in
+	// memory only and its file is never changed.
+	schemaver.BindWriteUpgrades(rootCmd.PersistentFlags())
 }
 
 // composeEngines composes the shipped engines once per process and installs

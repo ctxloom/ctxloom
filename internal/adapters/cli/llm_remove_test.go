@@ -11,7 +11,7 @@ import (
 )
 
 func TestRunLLMRemove_BareReportsAndDestroysNothing(t *testing.T) {
-	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n")
+	agentProject(t, "schema_version: 6\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n")
 	llmRemoveYes = false
 	cmd, out := textCmd()
 	require.NoError(t, runLLMRemove(cmd, []string{"big"}))
@@ -28,7 +28,7 @@ func TestRunLLMRemove_BareReportsAndDestroysNothing(t *testing.T) {
 // TestRunLLMRemove_YesRemovesAndReports pins the apply side, paired with the
 // bare-path test above so a regression in either direction is caught.
 func TestRunLLMRemove_YesRemovesAndReports(t *testing.T) {
-	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n")
+	agentProject(t, "schema_version: 6\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n")
 	llmRemoveYes = true
 	t.Cleanup(func() { llmRemoveYes = false })
 	cmd, out := textCmd()
@@ -47,7 +47,7 @@ func TestRunLLMRemove_YesRemovesAndReports(t *testing.T) {
 // that was never really there would be worse than the not-found error.
 // Mirrors the same guard `signer trust`/fragment/agent remove all share.
 func TestRunLLMRemove_UnknownLabelErrors_EvenBare(t *testing.T) {
-	agentProject(t, "version: 6\n")
+	agentProject(t, "schema_version: 6\n")
 	llmRemoveYes = false
 	cmd, _ := textCmd()
 	err := runLLMRemove(cmd, []string{"nope"})
@@ -60,7 +60,7 @@ func TestRunLLMRemove_UnknownLabelErrors_EvenBare(t *testing.T) {
 // fallback merely fills the READ view, IsLLMUserAuthored sees through it)
 // is refused, never falsely reported as removed.
 func TestRunLLMRemove_BareBackendNameIsNotRemovable(t *testing.T) {
-	agentProject(t, "version: 6\n")
+	agentProject(t, "schema_version: 6\n")
 	llmRemoveYes = true
 	t.Cleanup(func() { llmRemoveYes = false })
 	cmd, _ := textCmd()

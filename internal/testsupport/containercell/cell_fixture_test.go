@@ -64,7 +64,7 @@ func writeCellFixture(t *testing.T, root string) string {
 
 	mustWrite(t, filepath.Join(project, ".ctxloom", "profiles", "default.yaml"),
 		"fragments:\n  - cell#fragments/cell-marker\nskills:\n  - cell#skills/reviewer\n", 0o644)
-	mustWrite(t, filepath.Join(project, ".ctxloom", "config.yaml"), fmt.Sprintf("version: %d\n", config.CurrentConfigVersion), 0o644)
+	mustWrite(t, filepath.Join(project, ".ctxloom", "config.yaml"), fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion), 0o644)
 	// The approvals store as `ctxloom init` leaves it: absent is not empty,
 	// and an absent store withholds everything.
 	approvals := paths.ApprovalsPath(filepath.Join(project, paths.AppDirName))

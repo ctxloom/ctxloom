@@ -1,6 +1,6 @@
 # llm-tool-killer default rules — edit freely and commit alongside your project.
 # Rule model: https://ctxloom.dev/ltk/rules/
-version: 1
+schema_version: 1
 
 defaults:
   on_parse_error: allow

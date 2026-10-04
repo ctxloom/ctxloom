@@ -30,7 +30,7 @@ immediate, reflexive repeat is ignored, and only a deliberate one (after the
 pause) goes through. It's an escape hatch, not a control.
 
 ```yaml
-version: 1
+schema_version: 1
 
 defaults:
   on_parse_error: allow

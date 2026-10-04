@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,7 +40,7 @@ func TestParseBundle_RejectsUnknownKeyInsideAnItem(t *testing.T) {
 	assert.Contains(t, err.Error(), "mcp.<name>", "the error must say WHERE the key would have been legal, not just name a Go type")
 }
 
-// ORDERING GUARD. bundleUpgrades runs over the raw document BEFORE the strict
+// ORDERING GUARD. envelopeKind runs over the raw document BEFORE the strict
 // decode, so a bundle still carrying a legacy key is migrated rather than
 // refused. Reverse the two and every bundle written before the prompts ->
 // commands rename hard-fails on load instead of upgrading — strictness would
@@ -53,7 +54,7 @@ func TestParseBundle_LegacyPromptsKeyIsMigratedBeforeStrictDecodeRefusesIt(t *te
 
 	b, err := ParseBundle(legacy)
 
-	require.NoError(t, err, "a legacy `prompts:` bundle must still load — the upgrade pipeline runs before strictness")
+	require.NoError(t, err, "a legacy `prompts:` bundle must still load — the format migration runs before strictness")
 	require.Contains(t, b.Commands, "review", "the migrated item must actually be present, not merely not-an-error")
 	assert.Equal(t, "review this", b.Commands["review"].Content)
 	assert.Empty(t, b.Fragments, "nothing else may be invented by the migration")
@@ -136,7 +137,7 @@ hooks:
 func TestBundleKeySites_AreDerivedFromTheStructs(t *testing.T) {
 	sites := bundleKeySites()
 
-	root := sites["bundles.Bundle"]
+	root := sites[reflect.TypeOf(envelopeDocument{}).String()]
 	assert.Equal(t, "the top level of the bundle", root.where)
 	for _, key := range []string{"version", "fragments", "commands", "skills", "mcp", "profiles", "hooks"} {
 		assert.Contains(t, root.keys, key, "declaresNothing's vocabulary must be spellable at the top level")

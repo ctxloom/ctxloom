@@ -128,6 +128,7 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/exectoken",
 			"internal/shared/textblocks",
 			"internal/shared/owneronly",
+			"internal/shared/schemaver",
 		},
 		Allowed: map[string]string{
 			// core/profiles — the remote edge was planned; the others were
@@ -143,7 +144,7 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/adapters/remote":             "slice 5: readers become adapters behind bundles.Reader",
 			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
 			"internal/core/bundles -> internal/shared/admission":            "slice 5: admission is decided by composite.Trust, not by the bundle package",
-			"internal/core/bundles -> internal/shared/upgrade":              "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
+			"internal/core/bundles -> internal/shared/upgrade":              "the envelope's schema-upgrade steps (upgrade.Upgrader), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
 
 			// core/config
 			"internal/core/config -> internal/shared/admission": "slice 5: admission is decided by composite.Trust",
@@ -152,6 +153,10 @@ var LayeringRules = []LayeringRule{
 			// lockwait and safefs edges reach the toolbox, which is excepted, so they
 			// are not violations.
 			"internal/core/agent -> internal/shared/ledger": "slice 12: shared/ledger is deleted",
+
+			// core/sessions — the sidecar's schemaver.Kind spells its steps
+			// as upgrade.Upgraders.
+			"internal/core/sessions -> internal/shared/upgrade": "a schemaver.Kind's Steps are []upgrade.Upgrader, so a core package that versions a file names that type; leaves if upgrade joins the toolbox or schemaver stops exposing the type (urban-borough)",
 		},
 	},
 	{
@@ -251,7 +256,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/engines":                   "slice 11b: engines.Build() is called by the composition root, cmd/*",
 			"internal/adapters/cli -> internal/adapters/isolation":        "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
 			"internal/adapters/cli -> internal/adapters/mcp":              "the session host composes the coordinator's hosting helper and the host relay (mcp.HostCoordinatorForSession); the session endpoint lives in runner/interaction",
-			"internal/adapters/cli -> internal/adapters/memory":           "slice 14a: memory.NewCompactor(entry, source, llm) is called by operations.Compact",
+			"internal/adapters/cli -> internal/adapters/memory":           "slice 14a: the compactor (memory.NewCompactor) is called by operations.Compact",
 			"internal/adapters/cli -> internal/adapters/remote":           "measured: `bundle push` drives remote.PublishManager, `deps list` reads the lockfile, the item listing parses references and `remote discover` normalises URLs directly; they belong behind operations and no slice names them",
 			"internal/adapters/cli -> internal/adapters/signing":          "measured: init and `signer trust` spell signing.NamespacePublish, the trust namespace they write into; leaves when the namespace is a value operations hands back",
 			"internal/adapters/cli -> internal/adapters/signing/agentkey": "measured: the signing frontends (review, sign, bundle push) hold the *agentkey.Discoverer operations.SignerDiscoverer composes and render agentkey's own candidate listing and hardware-key posture over operations.ResolveLocalSigner; a rendering vocabulary, not an orchestration",
@@ -267,7 +272,7 @@ var LayeringRules = []LayeringRule{
 			// layer; it holds ports, not adapters)
 			"internal/adapters/operations -> internal/adapters/content/attest":          "slice 5: attest.VerifyBundle is behind the trust ports composite.Trust holds",
 			"internal/adapters/operations -> internal/adapters/isolation":               "slice 7: launch.Cells is the port; isolation is injected at cmd/*",
-			"internal/adapters/operations -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm); the compactor is injected",
+			"internal/adapters/operations -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor; the compactor is injected",
 			"internal/adapters/operations -> internal/adapters/remote":                  "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/operations/managedhooks": "sanctioned: a package's own subpackage — the managed hook set operations assembles and reports",
 			"internal/adapters/operations/managedhooks -> internal/adapters/remote":     "slice 5: the profile gate's bundle refs are parsed through the pull-walk's ref grammar (remote.ParseReference); behind composite.Transport / bundles.Reader with the operations edge above",

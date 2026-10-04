@@ -209,7 +209,7 @@ var liveAgents = map[string]liveAgent{
 		vendorCredEnvs: []string{claude.OAuthTokenEnv, claude.APIKeyEnv},
 		credDir:        ".claude",
 		engine:         "claude-code",
-		config: fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
+		config: fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
     claude:
       type: claude-code

@@ -86,8 +86,11 @@ func treeItemMeta(body ItemBody, description string) content.ItemMeta {
 // bundle.yaml: b with every ITEM map cleared, so the tree has exactly one
 // answer for each item — its file. Clearing rather than copying the metadata
 // fields means a field added to Bundle travels without a list to update.
+//
+// It stamps the current format generation (envelopeKind), first, because
+// every envelope a writer emits is written in today's format.
 func TreeEnvelope(b *Bundle) ([]byte, error) {
-	env := *b
+	env := envelopeDocument{SchemaVersion: envelopeKind.Current(), Bundle: *b}
 	env.Fragments = nil
 	env.Commands = nil
 	env.MCP = nil

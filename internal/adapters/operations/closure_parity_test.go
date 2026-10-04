@@ -64,7 +64,7 @@ func newShippedProfileProject(t *testing.T) *shippedProfileProject {
 	require.NoError(t, os.WriteFile(filepath.Join(paths.ProfilesPath(p.appDir), "dev.yaml"),
 		[]byte("bundles:\n  - "+p.kitRef+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(p.appDir),
-		[]byte("version: 6\ndefault_agent: default\nagents:\n  default:\n    profiles: [dev]\n"), 0o644))
+		[]byte("schema_version: 6\ndefault_agent: default\nagents:\n  default:\n    profiles: [dev]\n"), 0o644))
 
 	p.kitKey = string(lockKeyOf(t, p.kitRef))
 	p.containKey = string(lockKeyOf(t, p.containRef))

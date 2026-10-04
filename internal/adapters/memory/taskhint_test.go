@@ -2,6 +2,7 @@ package memory
 
 import (
 	"fmt"
+	"github.com/spf13/afero"
 	"strings"
 	"testing"
 
@@ -28,7 +29,7 @@ func preTaskHintPrompt(c *Compactor) string {
 // unconditionally (drop the `if hint != ""` guard, or emit an empty section) —
 // turns this red on the byte comparison.
 func TestDistillPrompt_EmptyTaskHintIsByteIdentical(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{EssenceMaxChars: 7331}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{EssenceMaxChars: 7331}}
 	require.Empty(t, c.config.TaskHint, "this test is vacuous unless the hint is genuinely unset")
 
 	got, err := c.distillPrompt()
@@ -47,7 +48,7 @@ func TestDistillPrompt_EmptyTaskHintIsByteIdentical(t *testing.T) {
 // MUTATION — change distillPrompt's guard from strings.TrimSpace(...) != "" to
 // c.config.TaskHint != "" — turns this red.
 func TestDistillPrompt_WhitespaceOnlyTaskHintIsAlsoInert(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{EssenceMaxChars: 7331, TaskHint: "  \n\t "}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{EssenceMaxChars: 7331, TaskHint: "  \n\t "}}
 
 	got, err := c.distillPrompt()
 	require.NoError(t, err)
@@ -63,7 +64,7 @@ func TestDistillPrompt_WhitespaceOnlyTaskHintIsAlsoInert(t *testing.T) {
 // than the hint) — turns this red.
 func TestDistillPrompt_TaskHintIsAppendedVerbatimAfterTheNoHintPrompt(t *testing.T) {
 	const hint = "Merge feat/next-step-capture and close the taskloom entry."
-	c := &Compactor{config: CompactionConfig{EssenceMaxChars: 7331, TaskHint: hint}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{EssenceMaxChars: 7331, TaskHint: hint}}
 
 	got, err := c.distillPrompt()
 	require.NoError(t, err)

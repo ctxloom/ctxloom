@@ -1,12 +1,12 @@
 # internal/core/bundles
 
-`internal/core/bundles` is the bundle data model, the on-disk resolver for bundle items, and the definition of "the bytes of this item". A bundle is one YAML document (`<name>.yaml` or `<name>/bundle.yaml`) carrying named fragments, commands, skills, MCP servers, hooks and profiles; the `Loader` finds bundles across search dirs or an in-memory seed, parses them through a schema-upgrade pipeline, and runs every resolved item's exact exposed bytes through an injected per-item trust gate before returning it. The `ContentPayload` family here is the single canonical preimage that trust grants and publisher countersignatures bind to (`internal/adapters/signing/payload.go:16` names these functions as the authority).
+`internal/core/bundles` is the bundle data model, the on-disk resolver for bundle items, and the definition of "the bytes of this item". A bundle is one YAML document (`<name>.yaml` or `<name>/bundle.yaml`) carrying named fragments, commands, skills, MCP servers, hooks and profiles; the `Loader` finds bundles across search dirs or an in-memory seed, parses them through the envelope's format-version gate (`schema_version`, migrated in memory), and runs every resolved item's exact exposed bytes through an injected per-item trust gate before returning it. The `ContentPayload` family here is the single canonical preimage that trust grants and publisher countersignatures bind to (`internal/adapters/signing/payload.go:16` names these functions as the authority).
 
 The contract it owns: an item's content hash is `sha256` over a preimage this package builds, and no fragment, command or skill leaves this package without passing the gate on exactly those bytes.
 
 ## Responsibilities
 
-- The bundle schema and its parse path, including the load-time schema upgrade pipeline (`ParseBundle`, `bundleUpgrades`).
+- The bundle schema and its parse path, including the envelope's format-version gate (`ParseBundle`, `envelopeKind`).
 - Bundle discovery and listing across search dirs plus a seeded in-memory map (`Loader.Find`, `LoadFile`, `List`).
 - Resolution of fragments, commands and skills to gated, ready-to-assemble values (`LoadedContent`, `LoadedSkill`).
 - The content preimages and the one hash chokepoint (`ContentPayload` per item kind, `hashContent`/`HashPayload`).
@@ -49,7 +49,7 @@ flowchart TD
     CACHE -.->|"not a search dir; authored YAML here raises a migration finding"| CONTENT
 
     LOADER["Loader — loader.go:48<br/>Find / LoadFile / List"] --> PARSE["ParseBundle — bundles.go:724"]
-    PARSE --> UPG["bundleUpgrades.Run<br/>upgrade.go:14 — prompts: → commands:"]
+    PARSE --> UPG["envelopeKind.Upgrade<br/>schema_version gate; generation 0 → 1: prompts: → commands:, llm: → exports:"]
     UPG --> LEG["detectLegacySkillsKey — bundles.go:781"]
     LEG --> BUNDLE["*Bundle — bundles.go:28"]
 
@@ -113,7 +113,7 @@ flowchart TD
 | `SkillSignatureVerifier` / `NoopSkillSignatureVerifier` / `PublisherSkillSignatureVerifier` | `skill_archive.go:642` / `:652` / `:674` | The install-time signature seam; an accept-everything implementation; and the real one, verifying a detached signature over `manifest.Serialize()` against a `trust.TrustRoot` |
 | `Source` / `Store` | `store.go:19` / `:28` | The read port (`Load`, `LoadFile`) embedded in the read+write port (`+ Save`, `Delete`) |
 | `fsStore` / `MemStore` | `store.go:38` / `:131` | The filesystem adapter, embedding `*Loader` so reads and writes share one `afero.Fs`; and an in-memory adapter with one call site (`store_test.go:44`) |
-| `commandsKeyUpgrade` | `upgrade.go:26` | The single bundle schema upgrader: legacy `prompts:` → `commands:` |
+| `envelopeKind` / `retiredKeysStep` | `upgrade.go` | The envelope's `schemaver.Kind` (no legacy key: `version` is the author's semver) and its generation 0 → 1 step, which applies `commandsKeyUpgrade` (`prompts:` → `commands:`) and `exportsKeyUpgrade` (item `llm:` → `exports:`) |
 | `bundleWarner` | `warn.go:18` | Once-per-key dedup (`mu`, `seen`, `out`) behind the package-global `unresolvedBundleWarner` |
 
 ## Key functions
@@ -122,8 +122,8 @@ flowchart TD
 
 | Signature | file:line | Contract |
 |---|---|---|
-| `ParseBundle(data []byte) (*Bundle, error)` | `bundles.go:724` | Runs `bundleUpgrades`, then the legacy-skills guard, then unmarshals and initializes the content maps. An empty, whitespace-only, comment-only or `null` document yields a zero-value bundle and a nil error |
-| `bundleUpgrades` (var) | `upgrade.go:14` | The ordered, oldest-first pipeline run on every load so a renamed key is normalized instead of dropped |
+| `ParseBundle(raw []byte) (*Bundle, error)` | `bundles.go` | Runs `envelopeKind.Upgrade` on the raw bytes (refusing a newer `schema_version` with a `*schemaver.VersionError`), then the legacy-skills guard, then strictly decodes (`decodeEnvelope`) and initializes the content maps. A document declaring no version and no items is refused as empty |
+| `UpgradeEnvelopeAt(fsys, path)` | `reader_local_tree.go` | Rewrites an older envelope in the current format, with no backup in the tree; the write `bundle sign` makes before hashing |
 | `detectLegacySkillsKey(data)` | `bundles.go:781` | AST walk that rejects a legacy command-shaped `content:` under `skills:`, so the reused key cannot be silently misread |
 | `renameMapKey(root, old, new) bool` | `upgrade.go:42` | In-place key rename preserving position; when the new key already exists the legacy pair is dropped |
 | `ValidateBundleName(name) error` | `bundles.go:862` | Rejects empty, NUL, `..` traversal and absolute names; the chokepoint `Find` applies |
@@ -241,7 +241,7 @@ flowchart TD
 10. **Trust-ref shape is `<source>#<kindDir>/<name>`,** where source is `contentSourceRef()` (`bundles.go:127`) and the kind dirs are the literals `fragments`, `prompts` (for command items, a deliberate legacy spelling) and `skills` (`loader_content.go:266`, `:384`, `loader_skills.go:94`); the declared authority for those strings is `trust.ItemKind.Dir()` (`internal/core/trust/trust.go:131`), which this package does not import. Hook and MCP refs are built by `internal/core/config` using `HookEntry.ID()` (`bundles.go:221`).
 11. **`Bundle.signer` cannot be forged from a file.** It is unexported and `yaml:"-"`; the only writer is `StampSigner` (`bundles.go:115`), called by load paths that have already verified a publish signature against the trust root, or with the synthetic `builtin:ctxloom` for compiled-in bundles. Empty means unsigned, which is legal and takes the review path.
 12. **A bundle's profile definitions are never gated here.** There is no `trust.ItemKind` for profiles; a bundle profile's constituent fragments and commands gate at content assembly and its MCP/hooks gate at the exec choke (`bundles.go:60`).
-13. **Every load runs the bundle schema upgrade pipeline.** `ParseBundle` (`bundles.go:724`) applies `bundleUpgrades` (`upgrade.go:14`) to the raw YAML before unmarshalling, so a legacy `prompts:` key is renamed rather than dropped; upgraders must be idempotent. Readers that unmarshal bundle YAML without `ParseBundle` skip this.
+13. **Every load runs the envelope's format-version gate.** `ParseBundle` applies `envelopeKind.Upgrade` to the raw YAML before the strict decode: an envelope with no `schema_version` is generation 0 and gets the retired-key renames in memory; a newer one is refused. Signature checks run over the raw bytes before `ParseBundle`, so the migration never touches a signed preimage. The file changes only through a writer (`TreeEnvelope` stamps the current generation), `bundle sign` (`UpgradeEnvelopeAt`), or `--write-upgrades` on an unsigned project tree (`persistEnvelopeUpgrade`; a signed tree is skipped with "re-sign to persist"). Readers that unmarshal bundle YAML without `ParseBundle` skip this.
 14. **Skills are directories, addressed relative to their bundle.** `skillContent` derives the package dir as `filepath.Dir(bundle.Path)` and resolves the entry through `ResolveSkillDir` (`skill.go:299`), which confines to `entry.Path` or `skills/<name>` via `safeSkillRelJoin` (`skill.go:314`).
 15. **A skill's signed identity is its manifest, not its archive.** `SkillManifest.Serialize()` (`skill.go:112`) over the path/sha256/mode triples is the signature preimage on both the signing side (`operations/skills.go:459`) and the verifying side (`skill_archive.go:702`). `BundleSkill.Files` — the *authored* manifest — is written only by `ctxloom skill sync` (`internal/adapters/cli/skill_cmd.go:204`) and is meaningful only after that has run. **That does not mean an unsynced skill is ungated**: since `8d9da20c`, `BundleSkill.EffectiveManifest` (`bundles.go:541`) derives a manifest from the real tree when `Files` is absent, so the trust preimage is content-bound either way. Manifest-less is a legitimate shape — `ctxloom skill create` emits exactly it and `skill sync` is a documented later step.
 16. **Skill install is: detect format, extract to a staging dir, then swap.** `ImportSkillArchive` (`skill_archive.go:570`) and `InstallSkillPackage` (`skill_archive.go:750`) both `RemoveAll` the destination and then `Rename` staging into place. Extraction rejects absolute paths, `..`, symlink and device entries, entries escaping the destination through pre-existing symlinks, and enforces the entry-count and total-byte caps; every written mode is normalized to `0755` or `0644` (`skill_archive.go:547`). `VerifyExtractedManifest` (`skill_archive.go:610`) is the post-extraction integrity check.

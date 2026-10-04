@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -114,8 +112,8 @@ func OutputDirOf(dir string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	var e Entry
-	if yaml.Unmarshal(data, &e) != nil || e.OutputDir == "" {
+	e, err := decodeSidecar(data)
+	if err != nil || e.OutputDir == "" {
 		return "", false
 	}
 	return e.OutputDir, true

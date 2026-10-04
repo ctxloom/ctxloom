@@ -7,7 +7,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -22,6 +24,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
@@ -1351,14 +1355,18 @@ func (b *Bundle) ProfileNames() []string {
 }
 
 // ParseBundle parses raw YAML into a Bundle.
-func ParseBundle(data []byte) (*Bundle, error) {
-	// Migrate older on-disk/remote bundle schemas (e.g. the legacy `prompts:`
-	// key → `commands:`) in memory before unmarshal, so old bundles load
-	// instead of silently dropping renamed keys. No-op for already-current
-	// bundles.
-	if upgraded, applied := bundleUpgrades.Run(data); len(applied) > 0 {
-		data = upgraded
+//
+// The envelope's format generation (schemaver.Key) is read off the RAW bytes
+// and an older one is migrated in memory (envelopeKind) before anything else
+// looks at the document; a newer one is refused. Callers that verify a
+// signature do so over the raw bytes BEFORE calling this, so the migration
+// never touches a signed preimage.
+func ParseBundle(raw []byte) (*Bundle, error) {
+	upgraded, err := envelopeKind.Upgrade(raw)
+	if err != nil {
+		return nil, err
 	}
+	data := upgraded.Data
 
 	// `skills:` is reserved for a future, different item-kind (Agent Skills,
 	// SKILL.md packages) that never carries an inline `content:` field. Detect
@@ -1377,14 +1385,15 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	// message, nothing happened). strictDecodeError names the key, where it
 	// sat, and what it probably meant; the FILE comes from the caller's wrap.
 	//
-	// This runs AFTER bundleUpgrades above, and the order is load-bearing: an
-	// older bundle's legacy `prompts:` key is migrated to `commands:` first,
-	// so strictness refuses only keys that are wrong TODAY and never keys a
-	// past schema generation made legal.
-	var bundle Bundle
-	if err := yamlx.DecodeStrict(data, &bundle); err != nil {
+	// This runs AFTER the envelopeKind upgrade above, and the order is
+	// load-bearing: an older bundle's legacy `prompts:` key is migrated to
+	// `commands:` first, so strictness refuses only keys that are wrong TODAY
+	// and never keys a past schema generation made legal.
+	doc, err := decodeEnvelope(raw, upgraded)
+	if err != nil {
 		return nil, strictDecodeError(err)
 	}
+	bundle := doc.Bundle
 
 	// A link id on exactly one item is the other side's typo, and left alone
 	// it would deliver that item beside the tool it lacks. Refused here, at
@@ -1424,10 +1433,55 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	if bundle.declaresNothing() {
 		return nil, fmt.Errorf("bundle is empty: %d bytes parsed to a document declaring no version "+
 			"and no items (fragments, commands, skills, mcp, profiles or hooks) — an empty, truncated, "+
-			"comment-only or `null` file parses as valid YAML but is not a bundle", len(data))
+			"comment-only or `null` file parses as valid YAML but is not a bundle", len(raw))
 	}
 
 	return &bundle, nil
+}
+
+// envelopeDocument is a bundle document as the strict decode and TreeEnvelope
+// see it: the Bundle plus the format generation (schemaver.Key), which Bundle
+// does not carry because ParseBundle consumes it — a parsed Bundle is always
+// current.
+type envelopeDocument struct {
+	SchemaVersion int `yaml:"schema_version"`
+	Bundle        `yaml:",inline"`
+}
+
+// decodeEnvelope strictly decodes an envelope that envelopeKind upgraded.
+//
+// When the migration edited nothing but the stamp, the RAW bytes are decoded,
+// so a refused key is reported on the line the author's file holds it: the
+// migrated document is re-encoded with the stamp added, which moves every
+// line. That is the common case — every envelope written before
+// schemaver.Key existed is generation 0, and most spell no retired key.
+func decodeEnvelope(raw []byte, upgraded schemaver.Result) (envelopeDocument, error) {
+	src := upgraded.Data
+	if len(upgraded.Applied) > 0 && !stepsEdit(raw, upgraded.From) {
+		src = raw
+	}
+	var doc envelopeDocument
+	err := yamlx.DecodeStrict(src, &doc)
+	return doc, err
+}
+
+// stepsEdit reports whether envelopeKind's steps from generation from edit
+// raw's tree, by replaying them on a throwaway parse.
+func stepsEdit(raw []byte, from int) bool {
+	doc, err := upgrade.DecodeSingle(raw)
+	if errors.Is(err, io.EOF) {
+		return false
+	}
+	if err != nil {
+		return true
+	}
+	edited := false
+	for _, step := range envelopeKind.Steps[from-envelopeKind.Oldest:] {
+		if step.Apply(doc.Content[0]) {
+			edited = true
+		}
+	}
+	return edited
 }
 
 // initMaps replaces every nil content map with an empty one, so a consumer

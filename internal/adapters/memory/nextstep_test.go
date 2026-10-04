@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,13 +29,13 @@ func TestWriteNextStep_StoresTheTextWhereReadNextStepFindsIt(t *testing.T) {
 	out := recordOutputDir(t, testHarp)
 	const want = "Next I will run the acceptance suite and merge the branch."
 
-	require.NoError(t, WriteNextStep(testHarp, want))
+	require.NoError(t, WriteNextStep(afero.NewOsFs(), testHarp, want))
 
 	onDisk, err := os.ReadFile(filepath.Join(out, paths.NextStepFileName))
 	require.NoError(t, err, "the next step must exist as a file, not merely be reported written")
 	assert.Equal(t, want, string(onDisk), "the stored bytes must be the text handed in")
 
-	got, ok := ReadNextStep(testHarp)
+	got, ok := ReadNextStep(afero.NewOsFs(), testHarp)
 	assert.True(t, ok, "a written next step must read back as present")
 	assert.Equal(t, want, got)
 }
@@ -48,7 +49,7 @@ func TestWriteNextStep_StoresTheTextWhereReadNextStepFindsIt(t *testing.T) {
 func TestReadNextStep_MissingFileIsNotAnError(t *testing.T) {
 	testsupport.Isolate(t)
 
-	got, ok := ReadNextStep(testHarp)
+	got, ok := ReadNextStep(afero.NewOsFs(), testHarp)
 	assert.False(t, ok, "a harp that has never finished a turn has no next step")
 	assert.Empty(t, got)
 }
@@ -66,13 +67,13 @@ func TestWriteNextStep_EmptyIsRefusedAndLeavesThePreviousCaptureStanding(t *test
 	testsupport.Isolate(t)
 	recordOutputDir(t, testHarp)
 	const first = "Run the gates, then report."
-	require.NoError(t, WriteNextStep(testHarp, first))
+	require.NoError(t, WriteNextStep(afero.NewOsFs(), testHarp, first))
 
 	for _, empty := range []string{"", "   ", "\n\t\n"} {
-		err := WriteNextStep(testHarp, empty)
+		err := WriteNextStep(afero.NewOsFs(), testHarp, empty)
 		require.ErrorIs(t, err, ErrEmptyNextStep, "an empty next step must be refused, not silently written")
 
-		got, ok := ReadNextStep(testHarp)
+		got, ok := ReadNextStep(afero.NewOsFs(), testHarp)
 		assert.True(t, ok, "the refused write must leave the earlier capture in place")
 		assert.Equal(t, first, got, "a turn with nothing to say must not erase the turn that had something")
 	}
@@ -90,7 +91,7 @@ func TestWriteNextStep_BoundsWhatItStores(t *testing.T) {
 	runaway := strings.Repeat("pasted an entire file into the reply. ", 4000)
 	require.Greater(t, len(runaway), MaxNextStepBytes*4, "the fixture must actually exceed the bound")
 
-	require.NoError(t, WriteNextStep(testHarp, runaway))
+	require.NoError(t, WriteNextStep(afero.NewOsFs(), testHarp, runaway))
 
 	onDisk, err := os.ReadFile(filepath.Join(out, paths.NextStepFileName))
 	require.NoError(t, err)
@@ -98,7 +99,7 @@ func TestWriteNextStep_BoundsWhatItStores(t *testing.T) {
 		"a runaway final message must not create an unbounded file")
 	assert.NotEmpty(t, onDisk, "bounding must cut the text, not discard it")
 
-	got, ok := ReadNextStep(testHarp)
+	got, ok := ReadNextStep(afero.NewOsFs(), testHarp)
 	require.True(t, ok)
 	assert.LessOrEqual(t, len(got), MaxNextStepBytes, "the bound must hold on the way out too")
 }
@@ -113,7 +114,7 @@ func TestReadNextStep_BoundsAnOversizedFileWrittenByAnyoneElse(t *testing.T) {
 	out := recordOutputDir(t, testHarp)
 	require.NoError(t, os.WriteFile(filepath.Join(out, paths.NextStepFileName), []byte(strings.Repeat("x", MaxNextStepBytes*3)), 0o644))
 
-	got, ok := ReadNextStep(testHarp)
+	got, ok := ReadNextStep(afero.NewOsFs(), testHarp)
 	require.True(t, ok)
 	assert.LessOrEqual(t, len(got), MaxNextStepBytes,
 		"a reader that trusted the file's size would be bounded only while it was the only writer")
@@ -126,6 +127,6 @@ func TestReadNextStep_BoundsAnOversizedFileWrittenByAnyoneElse(t *testing.T) {
 // this red.
 func TestWriteNextStep_RefusesAHarpThatEscapesTheSessionsRoot(t *testing.T) {
 	testsupport.Isolate(t)
-	assert.Error(t, WriteNextStep("../../escaped", "anything"),
+	assert.Error(t, WriteNextStep(afero.NewOsFs(), "../../escaped", "anything"),
 		"a harp name is one path component; one that escapes must be refused")
 }

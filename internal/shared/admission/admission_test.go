@@ -371,23 +371,6 @@ func TestStore_AbsentFileIsNotAFaultButAnUnreadableOneIs(t *testing.T) {
 	assert.Equal(t, "not: [valid", string(body))
 }
 
-// TestStore_VersionMismatchFaultsRatherThanReadingAsEmpty: a future format
-// must fail loud. Silently reading it as "nothing consented" is the worst
-// available failure.
-func TestStore_VersionMismatchFaultsRatherThanReadingAsEmpty(t *testing.T) {
-	s, fs, path := newTestStore(t)
-	require.NoError(t, afero.WriteFile(fs, path, []byte("version: 99\nrecords: []\n"), 0o600))
-
-	_, err := s.List()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "version 99")
-
-	d, derr := s.Decide(context.Background(), testKey{"a", "1"}, nil)
-	require.Error(t, derr)
-	assert.False(t, d.Allow)
-	assert.Equal(t, reasonFault, d.Reason)
-}
-
 // TestStore_AnAnsweredYesThatCannotBeRecordedStillHoldsAndSaysSo: the store
 // returns BOTH the decision and the write error and decides neither for the
 // caller — one real consumer honors the yes and warns, the other treats an

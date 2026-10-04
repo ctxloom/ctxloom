@@ -25,7 +25,7 @@ import (
 // probe that builds a binding. A builder that stops emitting it goes RED here
 // rather than going green on the host.
 func TestProbeConfigYAML_EveryProbeCarriesTheRuntimeAxisOntoTheBinding(t *testing.T) {
-	a := liveAgent{config: fmt.Sprintf("version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
+	a := liveAgent{config: fmt.Sprintf("schema_version: %d\nllm:\n  configs:\n    claude:\n      type: claude-code\n      model: claude-haiku-4-5-20251001\n", config.CurrentConfigVersion)}
 
 	// UNTAGGED builders only. P2's and P3's live in //go:build acceptance files,
 	// so they are covered by the sibling test in

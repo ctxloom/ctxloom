@@ -43,7 +43,7 @@ func TestDelegationIdleTimeout_Invalid_IsRefusedAtLoad(t *testing.T) {
 // TestDelegationIdleTimeout_SurvivesSaveRoundTrip pins the key through the
 // documented API: written, marshalled, parsed back, read via the accessor.
 func TestDelegationIdleTimeout_SurvivesSaveRoundTrip(t *testing.T) {
-	cfg := NewFixture(Fixture{Version: CurrentConfigVersion, Delegation: DelegationConfig{IdleTimeout: "2h"}})
+	cfg := NewFixture(Fixture{SchemaVersion: CurrentConfigVersion, Delegation: DelegationConfig{IdleTimeout: "2h"}})
 	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
 	reloaded, err := ParseConfig(data)

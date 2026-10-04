@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"github.com/spf13/afero"
 	"io"
 	"os"
 	"path/filepath"
@@ -37,7 +38,7 @@ func progressFixture(t *testing.T, progress io.Writer) *Compactor {
 		},
 	}
 	recordOutputDir(t, "compactor-under-test")
-	c, err := NewCompactor(CompactionConfig{
+	c, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: &mockBackend{history: mockHistory},
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),

@@ -438,6 +438,14 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+      # gen-living-docs runs the acceptance suite, so this job needs what the
+      # acceptance job does: the runner's docker daemon resolves bind-mount
+      # sources against the runner's filesystem, and the tests create what they
+      # mount under /tmp. Sharing it at the SAME path is what makes those
+      # sources exist for the daemon; without it the shared-filesystem probe
+      # correctly reports that nothing can be mounted.
+      volumes:
+        - /tmp:/tmp
     env:
       JUST_JUSTFILE: justfile.container
 

@@ -16,7 +16,7 @@ import (
 // env_host: false and its env names round-trip through the config, and the
 // written entry and the declared view both carry them.
 func TestSetAgent_PersistsEnvHostAndEnv(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion))
 	entry, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name: "coder", LLM: ptr("claude-code"), EnvHost: ptr(false), Env: ptr([]string{"GITHUB_TOKEN"}),
 	})

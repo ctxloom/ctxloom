@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/spf13/afero"
 	"io"
 	"os"
 
@@ -56,7 +57,7 @@ func runStampPlan(cmd *cobra.Command, args []string) error {
 	if !memory.IsPlanFile(path) {
 		return nil
 	}
-	if err := memory.StampPlanFile(path, harp); err != nil {
+	if err := memory.StampPlanFile(afero.NewOsFs(), path, harp); err != nil {
 		clidiag.Warn("ctxloom", "stamp-plan: %v", err)
 	}
 	return nil

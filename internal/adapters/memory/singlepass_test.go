@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/spf13/afero"
 	"io"
 	"os"
 	"path/filepath"
@@ -199,7 +200,7 @@ func TestDistillPrompt_PromptDirOverridesTheEmbeddedPrompt(t *testing.T) {
 	variant := "VARIANT PROMPT UNDER EVALUATION"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "session-distill.md"), []byte(variant), 0o644))
 
-	c := &Compactor{config: CompactionConfig{PromptDir: dir, EssenceMaxChars: 4242}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{PromptDir: dir, EssenceMaxChars: 4242}}
 	got, err := c.distillPrompt()
 	require.NoError(t, err)
 
@@ -213,7 +214,7 @@ func TestDistillPrompt_PromptDirOverridesTheEmbeddedPrompt(t *testing.T) {
 // prompt would report a measurement attributed to the variant under test while
 // actually measuring the built-in one — a wrong number that looks right.
 func TestDistillPrompt_MissingPromptFailsLoudly(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{PromptDir: t.TempDir(), EssenceMaxChars: 1000}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{PromptDir: t.TempDir(), EssenceMaxChars: 1000}}
 
 	_, err := c.distillPrompt()
 
@@ -252,7 +253,7 @@ func TestCompact_DistillsInExactlyOneLLMCall(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
@@ -303,7 +304,7 @@ func TestCompact_OversizedTranscriptStillOneCallAndReportsReduction(t *testing.T
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
@@ -337,7 +338,7 @@ func TestRecoverFinding_PromptDirOverridesTheEmbeddedPrompt(t *testing.T) {
 			return 0, nil
 		},
 	}
-	c := &Compactor{config: CompactionConfig{PromptDir: dir, Run: runnerOver(mock)}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{PromptDir: dir, Run: runnerOver(mock)}}
 
 	_, err := c.recoverFinding(context.Background(), ResultRepair{ToolName: "Bash", Body: "out"})
 	require.NoError(t, err)
@@ -357,7 +358,7 @@ func TestRecoverFinding_MissingPromptFailsLoudly(t *testing.T) {
 			return 0, nil
 		},
 	}
-	c := &Compactor{config: CompactionConfig{PromptDir: t.TempDir(), Run: runnerOver(mock)}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{PromptDir: t.TempDir(), Run: runnerOver(mock)}}
 
 	_, err := c.recoverFinding(context.Background(), ResultRepair{ToolName: "Bash", Body: "out"})
 

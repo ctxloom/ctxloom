@@ -44,7 +44,9 @@ flowchart TD
   STR["internal/shared/strictness<br/>findings → clidiag.WarnRemedy"] --> CD
   CONF["internal/shared/confload<br/>unknown / empty config keys"] --> CD
 
-  LOAD["configload · bundles · profiles · schemaver"] -->|"Pipeline.Run at load"| UP
+  LOAD["unversioned loaders"] -->|"Pipeline.Run at load"| UP
+  SV["internal/shared/schemaver<br/>version gate · WriteBack · --write-upgrades"] -->|"DecodeSingle · Encode · Version"| UP
+  KINDS["versioned file kinds"] -->|"Kind.Upgrade at load"| SV
   PROBE["internal/adapters/companions<br/>execs '&lt;bin&gt; version --format json'<br/>and '&lt;bin&gt; loadout --format json'"]
   PROBE -->|"cliversion.Probe"| CV
   PROBE -->|"loadout.Subcommand / FormatFlag / FormatJSON"| CL
@@ -121,16 +123,38 @@ Locates, enumerates, and reads `*.plan.md` session-plan documents in each sessio
 
 ## `internal/shared/upgrade` — the in-memory YAML schema-upgrade primitive
 
-Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators over the root mapping, re-encodes only if some stage reported a change, and returns the new bytes plus the names of the stages that fired — **without ever writing to disk**. Loaders build a `Pipeline` and call `Run` on raw file bytes at load time (`configload.(*Sources).upgradePipeline`, the bundle and profile loaders, `schemaver.Kind.Migrate`); `Pending` carries the result to a caller that prompts before persisting. The generic mapping-node helpers live in `internal/shared/yamlx`, not here.
+Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators over the root mapping, re-encodes only if some stage reported a change, and returns the new bytes plus the names of the stages that fired — **without ever writing to disk**. A loader that is not yet versioned builds a `Pipeline` and calls `Run` on raw file bytes at load time; a versioned file kind goes through `schemaver` instead, which drives the same parse, steps and encode behind its version gate. `Pending` carries a result to a caller that prompts before persisting. The generic mapping-node helpers live in `internal/shared/yamlx`, not here.
 
 | Symbol | Purpose |
 |---|---|
 | `Upgrader` | The one-schema-step contract: `Name() string` for the log/prompt, `Apply(root *yaml.Node) (changed bool)` for the mutation. No error channel. |
 | `Pipeline` | An ordered `[]Upgrader`. It is not itself an `Upgrader`; pipelines do not nest. |
-| `Pipeline.Run` | The byte driver: parse exactly one document (`singleDocument`) → require a mapping root → refuse a document with a duplicate key (`hasDuplicateKey`) → run stages collecting names → re-encode if any fired. Returns `(out []byte, applied []string)` and no error. |
+| `Pipeline.Run` | The byte driver: parse exactly one document (`DecodeSingle`) → require a mapping root → refuse a document with a duplicate key (`HasDuplicateKey`) → run stages collecting names → re-encode (`Encode`) if any fired. Returns `(out []byte, applied []string)` and no error. |
+| `DecodeSingle` | Parses a stream that must hold exactly one document: `io.EOF` for an empty or comment-only stream, `ErrMultiDocument` for a second document, the yaml error for malformed input. |
+| `Encode` | Serializes a document node the way every upgrade writes one back (two-space indent). |
+| `HasDuplicateKey` | Reports a mapping anywhere in the tree that repeats a key — which a `yaml.Node` decode accepts but every struct decode refuses. |
 | `Pending` | `{Path string; Data []byte; Applied []string}` — records that a load upgraded an older document in memory; `Data` is "ready to persist verbatim". |
 | `Version` | Reads a top-level int schema version as `(version int, ok bool)`: a missing key is `(0, true)`, the pre-versioning generation; a present but non-integer value is `(0, false)`. |
 | `SetVersion` | Builds a scalar with `Tag = "!!int"` and sets it via `yamlx.MapSet`. The tag override is essential: without it the version round-trips as a quoted string and `Version` stops reading it as an integer. |
+
+## `internal/shared/schemaver` — persisted-format versioning
+
+The one implementation of a file kind's format generation: an integer under `schema_version`, independent of any binary's release version and of any version a file's author declares. A kind is migrated **in memory** on every load; the file on disk changes only under `--write-upgrades`.
+
+| Symbol | Purpose |
+|---|---|
+| `Key` | `schema_version`, the top-level key every versioned kind declares. |
+| `Kind` | `{Name, LegacyKey, Oldest, Steps}`. `Steps[i]` migrates generation `Oldest+i` to `Oldest+i+1`; `LegacyKey` is a per-kind opt-in older spelling of `Key`. |
+| `Kind.Current` | `Oldest + len(Steps)` — derived, so a version bump without its step cannot be written. |
+| `IntroduceKey` | The no-op first step of a kind that was unversioned before it declared `Key` (`Oldest: 0`): a keyless file means what generation 1 means. |
+| `Kind.Upgrade` | Raw bytes → `Result`: legacy rename, version read, refusal, steps from the declared generation, stamp. A current document comes back as the input slice. |
+| `Result` | `{Data, From, To, Applied}`; empty `Applied` means nothing to write back. |
+| `VersionError` | `{Kind, Found, Current, Oldest, Err}`, `Err` being or wrapping `ErrNewer`, `ErrTooOld` or `ErrUnreadable`. |
+| `Kind.Stamp` | Sets `Key` to `Current` on a root mapping — in place, or as the first key. For writers. |
+| `WriteBack` | Copies the file to `path+BackupSuffix`, then atomically replaces it with `Result.Data`, keeping its mode; with a non-nil writer, prints instead and touches nothing. |
+| `BindWriteUpgrades` / `WriteUpgrades` | Register `--write-upgrades` on a binary's root persistent flags, and read the process-wide switch it sets. |
+
+The load-site recipe is: `Kind.Upgrade` → decode `Result.Data` → if `len(Result.Applied) > 0 && WriteUpgrades()`, `WriteBack` to the path the caller resolved and say so. `rules.Load` and `cmd/ltk`'s `loadConfig` are the reference wiring.
 
 ## Invariants and contracts
 
@@ -181,8 +205,16 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 ### upgrade
 
 - Stages run **oldest-first** and stage *N* may depend on stage *N-1* having already fired. Order is the contract, and `Pipeline` is an ordered slice for that reason.
-- `Upgrader.Apply` must be **idempotent**: given a document already at or past its target form it must leave the node untouched and return `false`. Nothing verifies this. `Run` trusts the bool absolutely — it is the sole input to the "did anything happen" decision and to every caller's persist/prompt decision. A stage that mutates and returns `false` has its migration silently discarded; a stage that returns `true` without mutating causes a re-prompt every load.
+- A `Pipeline` stage's `Upgrader.Apply` must be **idempotent**: given a document already at or past its target form it must leave the node untouched and return `false`. Nothing verifies this. `Run` trusts the bool absolutely — it is the sole input to the "did anything happen" decision and to every caller's persist/prompt decision. A stage that mutates and returns `false` has its migration silently discarded; a stage that returns `true` without mutating causes a re-prompt every load.
 - `Apply` has **no error channel**: a stage that cannot migrate a document safely can only skip it or overwrite it.
 - `Run` never writes to disk. Persisting is the caller's, gated on user consent via `Pending` — that separation is the package's central design rule.
 - `Run` returns the caller's bytes **verbatim** with `applied == nil` on: unparseable YAML (deliberate — callers re-parse and report), a stream with more than one document, a non-mapping root, a duplicate key anywhere in the tree, no stage firing, and an encode or close failure. Refusing multi-document streams and duplicate keys is what stops a re-encode from silently deleting later documents or keeping whichever duplicate the `yamlx` helpers reached first.
 - Callers must gate on `Version`'s `ok`: treating an unreadable version as generation 0 would replay every migration over a probably-corrupt file and stamp the current version on it.
+
+### schemaver
+
+- The version is read from the **raw bytes**, before the caller's strict decode or schema validation, so a newer file is refused as newer rather than for carrying keys this binary does not know.
+- The legacy rename runs **before** the version read; read first, a renamed-only file would look keyless.
+- An empty or comment-only document is generation 0. A present but non-integer version, a non-mapping document, more than one document, both spellings of the key at once, and (when a rewrite is needed) a duplicate key are `ErrUnreadable` — never generation 0, which would replay every step over a probably-corrupt file.
+- A step runs because the declared generation says it must, so unlike a `Pipeline` stage it need not be idempotent, and a step that edits nothing still advances the version.
+- `BindWriteUpgrades` **resets** the switch: a command tree is bound once per invocation, so a tree built after one that set it starts off. The switch is atomic because load sites may run on goroutines the flag parse never sees.

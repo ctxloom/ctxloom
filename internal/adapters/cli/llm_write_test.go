@@ -17,7 +17,7 @@ import (
 )
 
 func TestCheckLLMExistence_EachVerbRefusesTheOthersCase(t *testing.T) {
-	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n")
+	agentProject(t, "schema_version: 6\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n")
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 
@@ -43,7 +43,7 @@ func TestCheckLLMExistence_EachVerbRefusesTheOthersCase(t *testing.T) {
 // `llm edit claude-code` is the sanctioned way to turn a built-in into an
 // explicit config entry.
 func TestCheckLLMExistence_BareBackendNameCountsAsExisting(t *testing.T) {
-	agentProject(t, "version: 6\n")
+	agentProject(t, "schema_version: 6\n")
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 

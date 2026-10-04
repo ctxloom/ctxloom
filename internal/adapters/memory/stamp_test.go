@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +35,7 @@ func readFile(t *testing.T, path string) string {
 
 func TestStampPlanFile_NoFrontmatter_PrependsBlock(t *testing.T) {
 	path := writePlanFile(t, "current_plan.md", "# Plan\n\nbody here\n")
-	if err := StampPlanFile(path, "swift-amber-falcon"); err != nil {
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
 		t.Fatalf("StampPlanFile: %v", err)
 	}
 	got := readFile(t, path)
@@ -49,7 +50,7 @@ func TestStampPlanFile_NoFrontmatter_PrependsBlock(t *testing.T) {
 func TestStampPlanFile_ExistingFrontmatter_NoSessions_AppendsKey(t *testing.T) {
 	src := "---\ntitle: Some Plan\nauthor: ctxloom\n---\n\n# body\n"
 	path := writePlanFile(t, "p.md", src)
-	if err := StampPlanFile(path, "quiet-silver-meadow"); err != nil {
+	if err := StampPlanFile(afero.NewOsFs(), path, "quiet-silver-meadow"); err != nil {
 		t.Fatalf("StampPlanFile: %v", err)
 	}
 	got := readFile(t, path)
@@ -68,7 +69,7 @@ func TestStampPlanFile_ExistingFrontmatter_NoSessions_AppendsKey(t *testing.T) {
 func TestStampPlanFile_ExistingSessions_AppendsHarp(t *testing.T) {
 	src := "---\nsessions:\n  - bold-crimson-thunder\n---\n\nbody\n"
 	path := writePlanFile(t, "p.md", src)
-	if err := StampPlanFile(path, "swift-amber-falcon"); err != nil {
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
 		t.Fatalf("StampPlanFile: %v", err)
 	}
 	got := readFile(t, path)
@@ -84,7 +85,7 @@ func TestStampPlanFile_HarpAlreadyPresent_NoOp(t *testing.T) {
 	src := "---\nsessions:\n  - swift-amber-falcon\n  - quiet-silver-meadow\n---\nbody\n"
 	path := writePlanFile(t, "p.md", src)
 	infoBefore, _ := os.Stat(path)
-	if err := StampPlanFile(path, "swift-amber-falcon"); err != nil {
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
 		t.Fatalf("StampPlanFile: %v", err)
 	}
 	got := readFile(t, path)
@@ -107,7 +108,7 @@ func TestStampPlanFile_HarpAlreadyPresent_NoOp(t *testing.T) {
 func TestStampPlanFile_UnterminatedFrontmatter_LeavesFileUntouchedButErrors(t *testing.T) {
 	src := "---\nthis-is-not-yaml-and-no-close\n# body\n"
 	path := writePlanFile(t, "p.md", src)
-	if err := StampPlanFile(path, "swift-amber-falcon"); err == nil {
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err == nil {
 		t.Fatal("unterminated frontmatter must be reported as a failure to stamp, not a silent no-op")
 	}
 	if got := readFile(t, path); got != src {
@@ -122,7 +123,7 @@ func TestStampPlanFile_UnterminatedFrontmatter_LeavesFileUntouchedButErrors(t *t
 func TestStampPlanFile_MalformedYAMLInTerminatedBlock_LeavesFileUntouchedButErrors(t *testing.T) {
 	src := "---\n[this is not a mapping\n---\n# body\n"
 	path := writePlanFile(t, "p.md", src)
-	if err := StampPlanFile(path, "swift-amber-falcon"); err == nil {
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err == nil {
 		t.Fatal("malformed YAML frontmatter must be reported as a failure to stamp, not a silent no-op")
 	}
 	if got := readFile(t, path); got != src {
@@ -135,7 +136,7 @@ func TestStampPlanFile_EmptyFrontmatter_Stamped(t *testing.T) {
 	// recognized and stamped, not misclassified as unterminated.
 	src := "---\n---\n# body\n"
 	path := writePlanFile(t, "p.md", src)
-	if err := StampPlanFile(path, "swift-amber-falcon"); err != nil {
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
 		t.Fatalf("StampPlanFile: %v", err)
 	}
 	got := readFile(t, path)
@@ -150,7 +151,7 @@ func TestStampPlanFile_EmptyFrontmatter_Stamped(t *testing.T) {
 func TestStampPlanFile_EmptyFrontmatterNoBody_Stamped(t *testing.T) {
 	src := "---\n---\n"
 	path := writePlanFile(t, "p.md", src)
-	if err := StampPlanFile(path, "swift-amber-falcon"); err != nil {
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
 		t.Fatalf("StampPlanFile: %v", err)
 	}
 	got := readFile(t, path)
@@ -161,13 +162,13 @@ func TestStampPlanFile_EmptyFrontmatterNoBody_Stamped(t *testing.T) {
 
 func TestStampPlanFile_EmptyHarp_Errors(t *testing.T) {
 	path := writePlanFile(t, "p.md", "body\n")
-	if err := StampPlanFile(path, ""); err == nil {
+	if err := StampPlanFile(afero.NewOsFs(), path, ""); err == nil {
 		t.Error("empty harpName should error")
 	}
 }
 
 func TestStampPlanFile_MissingFile_Errors(t *testing.T) {
-	if err := StampPlanFile("/no/such/file.md", "swift-amber-falcon"); err == nil {
+	if err := StampPlanFile(afero.NewOsFs(), "/no/such/file.md", "swift-amber-falcon"); err == nil {
 		t.Error("missing file should error")
 	}
 }
@@ -175,7 +176,7 @@ func TestStampPlanFile_MissingFile_Errors(t *testing.T) {
 func TestStampPlanFile_RoundTripPreservesArbitraryFields(t *testing.T) {
 	src := "---\nstatus: draft\nowner:\n  name: ada\nsessions:\n  - bold-crimson-thunder\n---\n\nbody\n"
 	path := writePlanFile(t, "p.md", src)
-	if err := StampPlanFile(path, "swift-amber-falcon"); err != nil {
+	if err := StampPlanFile(afero.NewOsFs(), path, "swift-amber-falcon"); err != nil {
 		t.Fatalf("StampPlanFile: %v", err)
 	}
 	got := readFile(t, path)
@@ -250,7 +251,7 @@ func TestStampPlanFile_PreservesFileMode(t *testing.T) {
 			t.Fatalf("fixture did not take mode %v, got %v", mode, st.Mode().Perm())
 		}
 
-		if err := StampPlanFile(path, "some-harp"); err != nil {
+		if err := StampPlanFile(afero.NewOsFs(), path, "some-harp"); err != nil {
 			t.Fatalf("stamp: %v", err)
 		}
 		if !strings.Contains(readFile(t, path), "some-harp") {
@@ -266,7 +267,7 @@ func TestStampPlanFile_PreservesFileMode(t *testing.T) {
 
 		// Second stamp: the update path (frontmatter now exists) must preserve
 		// the mode too, not just the prepend path.
-		if err := StampPlanFile(path, "other-harp"); err != nil {
+		if err := StampPlanFile(afero.NewOsFs(), path, "other-harp"); err != nil {
 			t.Fatalf("re-stamp: %v", err)
 		}
 		again, err := os.Stat(path)
@@ -300,8 +301,8 @@ func TestStampPlanFile_WritesTheSessionsListPlansReadsBack(t *testing.T) {
 	_, noSessions := plans.ParseFrontmatter(readFile(t, path))
 	require.Empty(t, noSessions, "the fixture must start with no sessions list")
 
-	require.NoError(t, StampPlanFile(path, "vital-deaf-stunt"))
-	require.NoError(t, StampPlanFile(path, "lively-harp-two"))
+	require.NoError(t, StampPlanFile(afero.NewOsFs(), path, "vital-deaf-stunt"))
+	require.NoError(t, StampPlanFile(afero.NewOsFs(), path, "lively-harp-two"))
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -339,7 +340,7 @@ func TestStampPlanFile_TrailingLiteralBlockScalar_SurvivesByteForByte(t *testing
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			path := writePlanFile(t, "plan.md", tc.initial)
-			require.NoError(t, StampPlanFile(path, "wave81"))
+			require.NoError(t, StampPlanFile(afero.NewOsFs(), path, "wave81"))
 			assert.Equal(t, tc.want, readFile(t, path))
 		})
 	}

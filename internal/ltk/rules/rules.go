@@ -25,6 +25,14 @@ const (
 	ActionDeny  Action = "deny"
 )
 
+// MaxConfirmWindowSeconds is the longest confirm-by-repeat window a config may
+// resolve to, per-rule or by default. It is a load-time refusal, not a clamp:
+// a config asking for more is rejected so the author learns their window was
+// never honoured. The cap is what bounds the override store's known
+// read-modify-write race (see state.Store): a spent or over-admitted override
+// can outlive its consumption by at most this long.
+const MaxConfirmWindowSeconds = 30
+
 // Config is the top-level YAML document.
 type Config struct {
 	Version  int      `yaml:"version"`
@@ -813,7 +821,10 @@ func validateRuleBase(r *RuleBase, list string, index int, seen map[string]bool,
 // time-boxed escape hatch `mode: confirm` is for — so it is rejected rather than
 // left to mislead. A delay_seconds in turn must fit inside that window: positive
 // and strictly less than it (the repeat is honored only in the band
-// [delay, window] after the first denial). Non-confirm rules are unaffected.
+// [delay, window] after the first denial). The window itself may not exceed
+// MaxConfirmWindowSeconds. Only the EFFECTIVE window is checked, so an oversized
+// default that every confirm rule overrides is never an override window and is
+// not refused. Non-confirm rules are unaffected.
 func validateConfirm(r *RuleBase, d Defaults) error {
 	if r.mode() != ModeConfirm {
 		return nil
@@ -821,6 +832,9 @@ func validateConfirm(r *RuleBase, d Defaults) error {
 	repeatable, window, delay := r.confirmPolicy(d)
 	if !repeatable {
 		return ErrConfirmNeedsWindow
+	}
+	if window > MaxConfirmWindowSeconds {
+		return fmt.Errorf("%w of %d seconds: %d", ErrConfirmWindowTooLong, MaxConfirmWindowSeconds, window)
 	}
 	if delay > 0 && delay >= window {
 		return fmt.Errorf("%w: %d >= %d", ErrDelayNotBelowWindow, delay, window)

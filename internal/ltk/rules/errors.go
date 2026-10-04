@@ -27,6 +27,7 @@ var (
 	ErrDenyUnexplained       = errors.New(`a deny rule needs a message (or a suggest) — without one the agent is told "deny" with no reason and no alternative`)
 	ErrConfirmNeedsWindow    = errors.New("mode confirm needs a window; set window_seconds or defaults.repeat_window_seconds")
 	ErrDelayNotBelowWindow   = errors.New("delay_seconds must be less than the confirm window")
+	ErrConfirmWindowTooLong  = errors.New("confirm window exceeds the maximum")
 	ErrRemovedField          = errors.New("removed")
 )
 

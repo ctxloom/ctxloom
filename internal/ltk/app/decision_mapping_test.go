@@ -21,7 +21,7 @@ path_rules:
     message: "not that file"
     suggest: "edit the template instead"
     mode: confirm
-    window_seconds: 45
+    window_seconds: 25
     delay_seconds: 6
 rules:
   - id: command-rule
@@ -30,7 +30,7 @@ rules:
     message: "not that command"
     suggest: "use just"
     mode: confirm
-    window_seconds: 45
+    window_seconds: 25
     delay_seconds: 6
 `
 
@@ -50,8 +50,8 @@ func wantMapped(t *testing.T, got engine.Response, wantReason, wantSuggest strin
 	if !got.Confirmable {
 		t.Errorf("Confirmable = false, want true")
 	}
-	if got.ConfirmWindowSeconds != 45 {
-		t.Errorf("ConfirmWindowSeconds = %d, want 45", got.ConfirmWindowSeconds)
+	if got.ConfirmWindowSeconds != 25 {
+		t.Errorf("ConfirmWindowSeconds = %d, want 25", got.ConfirmWindowSeconds)
 	}
 	if got.ConfirmDelaySeconds != 6 {
 		t.Errorf("ConfirmDelaySeconds = %d, want 6", got.ConfirmDelaySeconds)

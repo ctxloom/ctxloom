@@ -91,7 +91,7 @@ func TestValidateRuleAcceptsTheWellFormedShapes(t *testing.T) {
 		"version: 1\npath_rules:\n  - id: x\n    match: { path: [VERSION] }\n    message: m\n",
 		"version: 1\npath_rules:\n  - id: x\n    match: { path: [\"@submodules\"] }\n    message: m\n",
 		"version: 1\nrules:\n  - id: x\n    mode: disable\n    match: { command: [go] }\n",
-		"version: 1\ndefaults: { repeat_window_seconds: 60 }\nrules:\n  - id: x\n    mode: confirm\n    match: { command: [go] }\n    message: m\n",
+		"version: 1\ndefaults: { repeat_window_seconds: 30 }\nrules:\n  - id: x\n    mode: confirm\n    match: { command: [go] }\n    message: m\n",
 		"version: 1\nrules:\n  - id: x\n    match: { command: [go], shells: [bash, zsh] }\n    message: m\n",
 		"version: 1\nrules:\n  - id: x\n    match: { command: [go] }\n    suggest: use just test\n",
 	}

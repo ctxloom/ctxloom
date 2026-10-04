@@ -213,6 +213,12 @@ type Product struct {
 	ValidateValue func(path []string, value any) error
 	ScopeAllows   func(source OverrideSource, path []string) (ok bool, why string)
 	MergeFunc     MergeFunc
+	// UpgradeFile, when set, is handed each PRESENT file layer's path and raw
+	// bytes before they are decoded, and what it returns is decoded instead:
+	// the seam for a product's persisted-format version gate, which must see a
+	// file on its own, before the merge erases which layer said what. An error
+	// stops the load. Nil decodes the file as read.
+	UpgradeFile func(path string, data []byte) ([]byte, error)
 }
 
 // MergeLayers merges FILE layers (home, project) through p's own MergeFunc if
@@ -268,22 +274,14 @@ type Overrides struct {
 func (p Product) Load(src Sources, o Overrides) (map[string]any, error) {
 	var layers []map[string]any
 
-	homeValues, homePresent, err := readYAMLFile(src.HomePath)
-	if err != nil {
-		return nil, err
-	}
-	p.warnIfKeyless(src.HomePath, homeValues, homePresent)
-	if homeValues != nil {
-		layers = append(layers, homeValues)
-	}
-
-	projectValues, projectPresent, err := readYAMLFile(src.ProjectPath)
-	if err != nil {
-		return nil, err
-	}
-	p.warnIfKeyless(src.ProjectPath, projectValues, projectPresent)
-	if projectValues != nil {
-		layers = append(layers, projectValues)
+	for _, path := range []string{src.HomePath, src.ProjectPath} {
+		values, err := p.readLayer(path)
+		if err != nil {
+			return nil, err
+		}
+		if values != nil {
+			layers = append(layers, values)
+		}
 	}
 
 	base, err := p.MergeLayers(layers...)
@@ -314,31 +312,56 @@ func (p Product) warnIfKeyless(path string, values map[string]any, present bool)
 		"this layer contributes nothing", path)
 }
 
+// readLayer reads one file layer through readYAMLFile, warns when it is
+// keyless, and then — when the product has an UpgradeFile hook — decodes the
+// hook's output in its place. Keylessness is judged on the file AS WRITTEN: a
+// hook may add keys of its own (a version stamp), and those configure nothing.
+func (p Product) readLayer(path string) (map[string]any, error) {
+	values, data, present, err := readYAMLFile(path)
+	if err != nil {
+		return nil, err
+	}
+	p.warnIfKeyless(path, values, present)
+	if !present || p.UpgradeFile == nil {
+		return values, nil
+	}
+	upgraded, err := p.UpgradeFile(path, data)
+	if err != nil {
+		return nil, fmt.Errorf("confload: %s: %w", path, err)
+	}
+	values = nil
+	if err := yaml.Unmarshal(upgraded, &values); err != nil {
+		return nil, fmt.Errorf("confload: parse %s after upgrade: %w", path, err)
+	}
+	return values, nil
+}
+
 // readYAMLFile decodes path into a presence-tracked map[string]any via
 // yaml.Unmarshal — never viper (see the package doc). A missing file is not
-// an error (config files are optional); it returns (nil, false, nil), which
-// Load treats as "this layer contributes nothing".
+// an error (config files are optional); it returns nothing and present
+// false, which Load treats as "this layer contributes nothing". data is the
+// file's raw bytes, for a Product's UpgradeFile hook.
 //
 // present distinguishes "there is a file here" from "there is not", which the
 // returned map alone cannot: an empty, whitespace-only, comment-only, `---`-only
 // or `null` document all decode to a nil map with a nil error, exactly like an
 // absent file. See warnIfKeyless for why that distinction has to survive the
 // return.
-func readYAMLFile(path string) (values map[string]any, present bool, err error) {
+func readYAMLFile(path string) (values map[string]any, data []byte, present bool, err error) {
 	if path == "" {
-		return nil, false, nil
+		return nil, nil, false, nil
 	}
-	data, err := os.ReadFile(path)
+	data, err = os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, false, nil
+			return nil, nil, false, nil
 		}
-		return nil, false, fmt.Errorf("confload: read %s: %w", path, err)
+		return nil, nil, false, fmt.Errorf("confload: read %s: %w", path, err)
 	}
 	if err := yaml.Unmarshal(data, &values); err != nil {
-		return nil, true, fmt.Errorf("confload: parse %s: %w", path, err)
+		return nil, data, true, fmt.Errorf("confload: parse %s: %w", path, err)
 	}
-	return values, true, nil
+	return values, data, true, nil
 }
 
 // MergeFunc is koanf's own WithMergeFunc shape (github.com/knadh/koanf/v2):

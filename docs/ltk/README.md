@@ -293,7 +293,7 @@ The set `ltk` ships with — and writes on `manage install` — is documented ru
 rule, with the rationale for each, in [docs/DEFAULTS.md](docs/DEFAULTS.md).
 
 ```yaml
-version: 1
+schema_version: 1
 
 defaults:
   on_parse_error: allow   # if a command can't be parsed at all: allow (fail-open) | deny
@@ -352,6 +352,17 @@ path_rules:
 `manage install` registers the hook for the editing tools as well as the shell
 tools (matcher `Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit`), so path
 rules fire out of the box. Details in [the rules reference](https://ctxloom.dev/ltk/rules/#matching-file-edits-matchpath).
+
+### Format version
+
+`schema_version` declares the rules file's format generation: an integer that
+changes only when the file format does, independent of ltk's own release
+version. ltk reads an older or unversioned file (including the earlier
+`version:` spelling) by migrating it in memory, and leaves the file alone. Pass
+`--write-upgrades` to any ltk command — `ltk check --write-upgrades --command true`
+will do — to persist the migration to the rules file it resolved, keeping the
+original as `<file>.bak`. A file declaring a newer generation than this ltk
+reads is refused with both numbers named: upgrade ltk.
 
 ### This repo runs its own rules
 

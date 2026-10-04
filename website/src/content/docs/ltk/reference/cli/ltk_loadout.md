@@ -35,6 +35,12 @@ ltk loadout [flags]
   -h, --help            help for loadout
 ```
 
+### Options inherited from parent commands
+
+```
+      --write-upgrades   Persist in-memory upgrades of older-format files (the old file is kept as <file>.bak)
+```
+
 ### SEE ALSO
 
 * [ltk](/ltk/reference/cli/ltk/)	 - Gate an LLM agent's shell commands and file edits via a pre-tool hook

@@ -1,15 +1,13 @@
-// Package upgrade is ctxloom's on-disk schema upgrade layer. ctxloom never
-// silently rewrites a user/state file: instead it upgrades an older on-disk
-// representation to the current one *in memory* on load, and an interactive
-// caller may then prompt the user before persisting (see Pending).
+// Package upgrade is ctxloom's on-disk schema upgrade engine: an older
+// on-disk representation is upgraded to the current one *in memory* on load,
+// and persisting the result is a separate, explicit act of the caller.
 //
-// An Upgrader is one schema step; a Pipeline is an ordered chain of them. Each
-// on-disk format's loader builds a Pipeline from its own Upgraders and runs it
-// over the raw file bytes — config layers in internal/adapters/configload,
-// bundles, profiles, and the versioned kinds behind schemaver.Kind.Migrate.
-// The layer is YAML-document oriented — Pipeline.Run parses once and re-encodes
-// once — and version-aware via the Version/SetVersion helpers, so an Upgrader
-// can gate on (and bump) a top-level integer schema version.
+// An Upgrader is one schema step; a Pipeline is an ordered chain of them run
+// over raw file bytes. The layer is YAML-document oriented — parse once,
+// re-encode once — and version-aware via the Version/SetVersion helpers.
+// Versioned file kinds do not drive a Pipeline themselves: they declare their
+// steps on a schemaver.Kind, which owns the version gate and calls into this
+// package for the parse, the steps and the encode.
 package upgrade
 
 import (
@@ -37,14 +35,6 @@ type Upgrader interface {
 }
 
 // Pipeline applies an ordered sequence of Upgraders front-to-back.
-//
-// Pipeline used to also implement Upgrader itself (Name/Apply) so
-// pipelines could compose and nest. No production Pipeline literal ever
-// nested another Pipeline (config, sessions, bundles, and profiles each build
-// one flat list of concrete Upgraders — config.go even explicitly flattens
-// rather than nesting), and the capability was reachable only via a test that
-// existed solely to exercise it. Deleted both methods; if a real nesting need
-// shows up later, reintroducing them is one small commit.
 type Pipeline []Upgrader
 
 // Run is the byte driver: it parses data into a YAML document, applies the
@@ -55,15 +45,15 @@ type Pipeline []Upgrader
 // applied lists the names of the stages that fired, in order, for the caller's
 // rewrite prompt.
 func (p Pipeline) Run(data []byte) (out []byte, applied []string) {
-	doc, ok := singleDocument(data)
-	if !ok {
+	doc, err := DecodeSingle(data)
+	if err != nil {
 		return data, nil
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return data, nil
 	}
 	root := doc.Content[0]
-	if hasDuplicateKey(root) {
+	if HasDuplicateKey(root) {
 		return data, nil
 	}
 
@@ -75,39 +65,54 @@ func (p Pipeline) Run(data []byte) (out []byte, applied []string) {
 	if len(applied) == 0 {
 		return data, nil
 	}
-
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(&doc); err != nil {
+	encoded, err := Encode(&doc)
+	if err != nil {
 		return data, nil
 	}
-	if err := enc.Close(); err != nil {
-		return data, nil
-	}
-	return buf.Bytes(), applied
+	return encoded, applied
 }
 
-// singleDocument parses data as a YAML stream carrying EXACTLY ONE document and
-// returns that document's node. A stream carrying a second document is refused
-// (ok == false), because Run re-encodes the node it parsed: a decode that keeps
-// only the first document would emit a single-document file, silently deleting
-// every later one from bytes the caller then persists verbatim. The pipeline
-// upgrades a document in place or does nothing at all — it never narrows a
-// stream.
-func singleDocument(data []byte) (doc yaml.Node, ok bool) {
+// ErrMultiDocument reports a YAML stream carrying more than one document.
+var ErrMultiDocument = errors.New("more than one YAML document")
+
+// DecodeSingle parses data as a YAML stream carrying EXACTLY ONE document and
+// returns that document's node. An empty or comment-only stream returns
+// io.EOF (yaml.v3 keeps no node for it); a stream carrying a second document
+// returns ErrMultiDocument, because a caller that re-encodes the node it
+// parsed would otherwise emit a single-document file, silently deleting every
+// later one. An upgrade rewrites a document in place or not at all — it never
+// narrows a stream.
+func DecodeSingle(data []byte) (doc yaml.Node, err error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&doc); err != nil {
-		return doc, false
+		return doc, err
 	}
 	var next yaml.Node
 	if err := dec.Decode(&next); !errors.Is(err, io.EOF) {
-		return doc, false
+		if err == nil {
+			err = ErrMultiDocument
+		}
+		return doc, err
 	}
-	return doc, true
+	return doc, nil
 }
 
-// hasDuplicateKey reports whether any mapping in the subtree rooted at n names
+// Encode serializes a document node the way every upgrade writes one back:
+// two-space indentation.
+func Encode(doc *yaml.Node) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return nil, err
+	}
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// HasDuplicateKey reports whether any mapping in the subtree rooted at n names
 // the same key twice. Such a document is malformed — every struct/map decode in
 // the codebase refuses it — but a yaml.Node decode accepts it, and yamlx's
 // MapValue, MapSet and MapDelete all act on the FIRST match. An upgrade run over it
@@ -115,7 +120,7 @@ func singleDocument(data []byte) (doc yaml.Node, ok bool) {
 // legacy key, producing a document that no longer has a duplicate and so parses
 // cleanly, carrying whichever value the helpers happened to reach. Refusing to
 // upgrade it keeps the loud parse error the caller would otherwise have got.
-func hasDuplicateKey(n *yaml.Node) bool {
+func HasDuplicateKey(n *yaml.Node) bool {
 	if n.Kind == yaml.MappingNode {
 		seen := make(map[string]struct{}, len(n.Content)/2)
 		for i := 0; i+1 < len(n.Content); i += 2 {
@@ -126,7 +131,7 @@ func hasDuplicateKey(n *yaml.Node) bool {
 		}
 	}
 	for _, child := range n.Content {
-		if hasDuplicateKey(child) {
+		if HasDuplicateKey(child) {
 			return true
 		}
 	}

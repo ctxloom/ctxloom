@@ -11,8 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -106,14 +106,14 @@ func Assemble(cfg *config.Config, profileNames []string) *Hooks {
 	if cfg == nil {
 		return newHooks()
 	}
-	return AssembleFor(cfg, cfg.ResolveProfileSet(profileNames), engine.Interactive)
+	return AssembleFor(cfg, cfg.ResolveProfileSet(profileNames), sessions.MailByHook)
 }
 
 // AssembleFor is Assemble over an already resolved
 // profile set — the one assembly resolved, so its faults are reported once —
-// for a session of the given mode. Assemble's at-rest writers serve the
-// sessions a human drives, so they assemble for engine.Interactive.
-func AssembleFor(cfg *config.Config, set []profiles.ResolvedProfile, mode engine.Mode) *Hooks {
+// for a session whose spool mail reads. Assemble's at-rest writers serve the
+// sessions a human drives, so they assemble for sessions.MailByHook.
+func AssembleFor(cfg *config.Config, set []profiles.ResolvedProfile, mail sessions.MailReader) *Hooks {
 	hooks := newHooks()
 	if cfg == nil {
 		return hooks
@@ -138,7 +138,7 @@ func AssembleFor(cfg *config.Config, set []profiles.ResolvedProfile, mode engine
 		}))
 	}
 	// Bundle-shipped hooks + (optional) the context-injection hook.
-	appendManagedDynamicHooks(hooks, cfg, set, mode)
+	appendManagedDynamicHooks(hooks, cfg, set, mail)
 	return hooks
 }
 
@@ -150,7 +150,7 @@ func AssembleFor(cfg *config.Config, set []profiles.ResolvedProfile, mode engine
 // The bundle set arrives FLAT — builtins, companion loadouts, and each selected
 // profile's bundles in one slice — so it is attributed per hook off the marker
 // config.extractHooksFromBundle stamped (bundleSource), not from this call site.
-func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.ResolvedProfile, mode engine.Mode) {
+func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.ResolvedProfile, mail sessions.MailReader) {
 	if m == nil || cfg == nil {
 		return
 	}
@@ -184,10 +184,11 @@ func appendManagedDynamicHooks(m *Hooks, cfg *config.Config, set []profiles.Reso
 	// session owner's only spool reader, so it belongs to ctxloom rather than
 	// to any bundle. Ungated — a session with no mail is handed nothing, so
 	// the only thing to configure would be whether the owner may receive.
-	// The OWNER's only: a structured run is handed its mail by its runner AS
-	// its turn, consumed once the turn has started, so a second reader there
-	// would claim the same file during that turn and deliver it twice.
-	if mode == engine.Interactive {
+	// The OWNER's only: every other run — an interactive delegated child
+	// included — is handed its mail by its runner AS its turn, consumed once
+	// the turn has started, so a second reader there would claim the same
+	// file during that turn and deliver it twice.
+	if mail == sessions.MailByHook {
 		m.mergeUnified(
 			wire.UnifiedHooks{TurnStart: []wire.Hook{agent.NewMailDrainHook()}},
 			fixedSource(Source{Origin: OriginContext}))

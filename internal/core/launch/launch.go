@@ -101,9 +101,9 @@ type Selection struct {
 	Profiles  []string
 	Fragments []string
 	Tags      []string
-	// Mode is the launch's mode: what ctxloom's own managed hooks are
-	// assembled for (a structured run is handed its mail as turns).
-	Mode engine.Mode
+	// Mail is who reads the session's spool (mailReaderOf): ctxloom's own
+	// managed hooks declare the turn-start mail reader only for MailByHook.
+	Mail sessions.MailReader
 }
 
 // EndpointMinter mints the session's MCP endpoint: loopback URL and bearer.

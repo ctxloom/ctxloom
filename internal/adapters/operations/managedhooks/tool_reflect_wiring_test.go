@@ -6,7 +6,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
@@ -18,7 +18,7 @@ func reflectHooksFor(t *testing.T, setting int) []string {
 		Settings: config.SettingsConfig{ToolReflectBytes: setting},
 	})
 	m := newHooks()
-	appendManagedDynamicHooks(m, cfg, nil, engine.Interactive)
+	appendManagedDynamicHooks(m, cfg, nil, sessions.MailByHook)
 
 	var cmds []string
 	for _, h := range m.For(bundles.HookEventPostTool) {

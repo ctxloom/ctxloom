@@ -119,6 +119,21 @@ const (
 	OriginOneShot Origin = "oneshot"
 )
 
+// MailReader is who reads a run's in/ spool. The zero value is the session
+// owner's, because every at-rest hook writer serves the session a human
+// drives.
+type MailReader int
+
+const (
+	// MailByHook is the session OWNER's: a human's interactive session, which
+	// no runner hands mail to, reads it through its turn-start hook
+	// (`ctxloom hook mail-drain`), the only reader of its in/.
+	MailByHook MailReader = iota
+	// MailByRunner is every other run's: its runner hands it its mail as
+	// turns, so a turn-start reader there would claim the same files twice.
+	MailByRunner
+)
+
 // Origin is the origin this seed mints (originOf).
 func (s Seed) Origin() Origin { return originOf(s.OneShot, s.Depth) }
 

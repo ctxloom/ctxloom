@@ -798,12 +798,13 @@ func (st *runState) withShutdownSignals() context.CancelFunc {
 func (st *runState) runStartupTasks() {
 	// Auto-sync remote dependencies on startup if enabled (graceful failure),
 	// so the run doesn't hard-fail on missing parent profiles or bundles that
-	// sync would have fetched. In a TTY, confirm with the user before
-	// installing anything new. The sync ANNOUNCES itself: it is the one
+	// sync would have fetched. The user's auto-sync setting is the answer to
+	// whether to install; the summary afterwards says what arrived, and
+	// `run --dry-run` previews without syncing. The sync ANNOUNCES itself: it is the one
 	// startup task with a network side, and a dry run's suppression of it is
 	// observable only because a real start says so.
 	syncCfg := st.cfg.GetSyncConfig()
-	if syncCfg.ShouldAutoSync() && !runDryRun && confirmSyncInstall(st.ctx, st.cfg) {
+	if syncCfg.ShouldAutoSync() && !runDryRun {
 		fmt.Fprintf(os.Stderr, "ctxloom: syncing remote bundles and profiles from config...\n")
 		syncCtx, syncCancel := context.WithTimeout(st.ctx, 60*time.Second)
 		result, syncErr := operations.SyncOnStartup(syncCtx, App())
@@ -1564,7 +1565,7 @@ func init() {
 	runCmd.Flags().BoolVar(&runPlainTerminal, "plain-terminal", false, "Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session")
 	runCmd.Flags().BoolVar(&runNoStartupFindings, "no-startup-findings", false, "Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
-	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")
+	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Apply pending profile schema rewrites (without it they are reported, not written)")
 
 	// Deterministic resume (two modes; see resumeFullContext/resumeDistillEnv):
 	// bare --session folds the harp's full recorded transcript into this run's
@@ -1588,30 +1589,23 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("command", completePromptNames)
 }
 
-// confirmUpgrade offers to persist a profile schema upgrade that loading
-// applied in memory, only with consent: with -y it commits; outside an
-// interactive terminal it leaves the file untouched and the upgrade simply stays
-// in memory for this run (the next interactive run prompts again).
+// confirmUpgrade persists a profile schema upgrade that loading applied in
+// memory, with --yes; without it, it REPORTS the pending rewrite, naming the
+// flag that applies it, and the upgrade stays in memory for this run. It
+// asks nothing: --yes means apply, and its absence means report.
 func confirmUpgrade(path string, applied []string, commit func() error) {
 	if runAssumeYes {
 		commitUpgrade(path, commit)
 		return
 	}
-	if !isInteractiveTerminal() {
-		return // in-memory only — never a silent rewrite
-	}
-
-	fmt.Fprintf(os.Stderr, "ctxloom: %s is an older schema (%s).\n", path, strings.Join(applied, ", "))
-	if yes, err := promptYesNo("Rewrite it to the current format? [y/N] "); err == nil && yes {
-		commitUpgrade(path, commit)
-	}
+	fmt.Fprintf(os.Stderr, "ctxloom: %s is an older schema (%s); re-run with --yes to rewrite it to the current format.\n", path, strings.Join(applied, ", "))
 }
 
 // confirmProfileUpgrades offers to persist any older-schema rewrites that loading
 // the configured profiles applied in memory (e.g. bare bundle refs qualified with
 // their remote). It resolves each of the default agent's composed profiles through
 // one loader — which loads parents too — so every pending rewrite is surfaced,
-// then prompts per file via the shared confirmUpgrade path. No pending means every
+// then reports or applies each file via the shared confirmUpgrade path. No pending means every
 // profile was current (profiles.defaults was retired — see DefaultAgentProfiles).
 func confirmProfileUpgrades(cfg *config.Config) {
 	loader := cfg.GetProfileLoader()
@@ -1629,31 +1623,4 @@ func commitUpgrade(path string, commit func() error) {
 	if err := commit(); err != nil {
 		clidiag.Warn("ctxloom", "could not rewrite %s: %v", path, err)
 	}
-}
-
-// confirmSyncInstall returns true if startup sync should proceed.
-// In an interactive terminal with pending installs, it lists them and asks
-// for y/N confirmation. Non-interactive contexts (CI, piped) and --yes
-// auto-confirm so they don't hang. On any check error, it falls through to
-// the existing graceful-failure path in SyncOnStartup.
-func confirmSyncInstall(ctx context.Context, cfg *config.Config) bool {
-	if runAssumeYes || !isInteractiveTerminal() {
-		return true
-	}
-
-	check, err := operations.CheckMissingDependencies(ctx, cfg, operations.CheckMissingDependenciesRequest{})
-	if err != nil || check == nil || check.Count == 0 {
-		return true
-	}
-
-	fmt.Fprintf(os.Stderr, "ctxloom will install %d missing dependenc%s:\n", check.Count, plural(check.Count, "y", "ies"))
-	for _, dep := range check.Missing {
-		fmt.Fprintf(os.Stderr, "  - %s (%s, from profile %q)\n", dep.Reference, dep.Type, dep.Profile)
-	}
-	yes, err := promptYesNo("Proceed? [y/N] ")
-	if err != nil || !yes {
-		fmt.Fprintln(os.Stderr, "ctxloom: skipping sync")
-		return false
-	}
-	return true
 }

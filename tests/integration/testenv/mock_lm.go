@@ -100,10 +100,8 @@ func (m *MockLM) WriteConfig() error {
 	// Pinned to ctxloomconfig.CurrentConfigVersion rather than a hardcoded
 	// number so this fixture can never itself fall behind the schema again:
 	// a stale version here would make loading apply an in-memory upgrade,
-	// which on a real pty (both stdin and stdout a tty) fires the
-	// interactive "rewrite to the current format?" confirmUpgrade prompt
-	// (internal/adapters/cli/run.go) — exactly what forced the F2 pty tests to carry
-	// -y.
+	// which every run then reports as a pending rewrite
+	// (internal/adapters/cli/run.go's confirmUpgrade).
 	upgrade.SetVersion(root, "version", ctxloomconfig.CurrentConfigVersion)
 
 	llm := yamlx.EnsureMap(root, "llm")

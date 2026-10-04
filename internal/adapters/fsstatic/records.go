@@ -32,6 +32,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
 // Records is the ownership record: one record per TARGET FILE, naming for each
@@ -78,9 +79,12 @@ func (e *NotOursError) Error() string {
 // Unwrap makes errors.Is(err, ErrNotOurs) true.
 func (e *NotOursError) Unwrap() error { return ErrNotOurs }
 
+// claimsKind versions a claims record. LegacyKey: the record spelled its
+// format generation `claims` before schemaver.
+var claimsKind = schemaver.Kind{Name: "claims record", LegacyKey: "claims", Oldest: 2}
+
 const (
-	claimsSuffix  = ".claims.yaml"
-	claimsVersion = 2
+	claimsSuffix = ".claims.yaml"
 	// ctxloomOwner is the executable basename that proves an unclaimed entry
 	// is ctxloom's own (confpatch.OwnedBy).
 	ctxloomOwner = "ctxloom"
@@ -114,14 +118,14 @@ func (c *Records) Prepare(context.Context) error {
 
 // claimsRecord is one target's record on disk.
 type claimsRecord struct {
-	Version    int                     `yaml:"claims"`
-	Target     string                  `yaml:"target"`
-	Created    bool                    `yaml:"created"`
-	Containers []string                `yaml:"containers,omitempty"`
-	Found      []string                `yaml:"found,omitempty"`
-	Seq        uint64                  `yaml:"seq"`
-	Paths      map[string][]claimEntry `yaml:"paths"`
-	Pending    *pendingWrite           `yaml:"pending,omitempty"`
+	SchemaVersion int                     `yaml:"schema_version"`
+	Target        string                  `yaml:"target"`
+	Created       bool                    `yaml:"created"`
+	Containers    []string                `yaml:"containers,omitempty"`
+	Found         []string                `yaml:"found,omitempty"`
+	Seq           uint64                  `yaml:"seq"`
+	Paths         map[string][]claimEntry `yaml:"paths"`
+	Pending       *pendingWrite           `yaml:"pending,omitempty"`
 }
 
 // claimEntry is one writer's claim at one place. Seq orders claims of one
@@ -160,19 +164,30 @@ func (c *Records) path(target string) string {
 func (c *Records) load(target string) (claimsRecord, []byte, error) {
 	data, err := afero.ReadFile(c.fs, c.path(target))
 	if os.IsNotExist(err) {
-		return claimsRecord{Version: claimsVersion, Target: target}, nil, nil
+		return claimsRecord{SchemaVersion: claimsKind.Current(), Target: target}, nil, nil
 	}
 	if err != nil {
 		return claimsRecord{}, nil, err
 	}
-	var rec claimsRecord
-	if err := yamlv3.Unmarshal(data, &rec); err != nil {
-		return claimsRecord{}, nil, fmt.Errorf("fsstatic: read claims record %s: %w", c.path(target), err)
-	}
-	if rec.Version != claimsVersion {
-		return claimsRecord{}, nil, fmt.Errorf("fsstatic: claims record %s is version %d; this ctxloom reads version %d", c.path(target), rec.Version, claimsVersion)
+	rec, err := decodeClaims(c.path(target), data)
+	if err != nil {
+		return claimsRecord{}, nil, err
 	}
 	return rec, data, nil
+}
+
+// decodeClaims reads one record's bytes at the current generation, migrating
+// an older spelling in memory only: the next seal writes it stamped.
+func decodeClaims(path string, data []byte) (claimsRecord, error) {
+	r, err := claimsKind.Upgrade(data)
+	if err != nil {
+		return claimsRecord{}, fmt.Errorf("fsstatic: claims record %s: %w", path, err)
+	}
+	var rec claimsRecord
+	if err := yamlv3.Unmarshal(r.Data, &rec); err != nil {
+		return claimsRecord{}, fmt.Errorf("fsstatic: read claims record %s: %w", path, err)
+	}
+	return rec, nil
 }
 
 // rank orders writer kinds: a session's value is effective over the
@@ -478,7 +493,7 @@ func (t *targetOps) seal(before []byte, existed bool, after []byte, keep bool) e
 		}
 		return nil
 	}
-	rec.Version, rec.Target = claimsVersion, t.target
+	rec.SchemaVersion, rec.Target = claimsKind.Current(), t.target
 	data, err := yamlv3.Marshal(rec)
 	if err != nil {
 		return err
@@ -1330,13 +1345,14 @@ func (c *Records) each(visit func(claimsRecord)) error {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), claimsSuffix) {
 			continue
 		}
-		data, err := afero.ReadFile(c.fs, filepath.Join(c.dir, e.Name()))
+		path := filepath.Join(c.dir, e.Name())
+		data, err := afero.ReadFile(c.fs, path)
 		if err != nil {
 			return err
 		}
-		var rec claimsRecord
-		if err := yamlv3.Unmarshal(data, &rec); err != nil {
-			return fmt.Errorf("fsstatic: read claims record %s: %w", e.Name(), err)
+		rec, err := decodeClaims(path, data)
+		if err != nil {
+			return err
 		}
 		visit(rec)
 	}

@@ -34,6 +34,8 @@ func (junctionHost) LinksTo(link, target string) (bool, error) {
 
 func (junctionHost) UnlinkDir(link string) error { return os.Remove(link) }
 
+func (junctionHost) LinkTarget(link string) (string, error) { return os.Readlink(link) }
+
 func (junctionHost) LinksResolveInContainers() bool { return false }
 
 // withHostOS stands h in for the platform for one test.
@@ -155,4 +157,40 @@ func TestNativeHistory_ContainerThenHostMovesHomeHistoryIntoNative(t *testing.T)
 	assert.Equal(t, "old\ngrown\n", readHistory(t, native, "-proj/s.jsonl"))
 	assert.Equal(t, "container\n", readHistory(t, native, "-proj/new.jsonl"))
 	assert.Equal(t, "native only\n", readHistory(t, native, "-other/o.jsonl"))
+}
+
+// A renamed session's junction still names the native/ it had under its old
+// name. The next host run links it to the native/ it has now, and the history
+// that moved with the session is reachable again.
+func TestNativeHistory_HostRunAfterARenameRelinksToTheMovedNative(t *testing.T) {
+	withHostOS(t, junctionHost{platform.Current()})
+	home := fakeHostHome(t, tokenFixture)
+	placeOn(t, homeSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession), t.TempDir(), hostRelocator{})
+	writeHistory(t, claudeHome(home, harpA), "-proj/s.jsonl", "kept\n")
+	require.NoError(t, os.Rename(sessionDir(home, harpA), sessionDir(home, harpB)))
+
+	placeOn(t, homeSpec(t, claudeEngine(t), home, harpB, agents.HomeModeSession), t.TempDir(), hostRelocator{})
+
+	ok, err := hostOS.LinksTo(history(claudeHome(home, harpB)), history(nativeOf(home, harpB)))
+	require.NoError(t, err)
+	assert.True(t, ok, "relinked to the session's native/ under its new name")
+	assert.Equal(t, "kept\n", readHistory(t, claudeHome(home, harpB), "-proj/s.jsonl"))
+}
+
+// A junction into ANOTHER live session's native/ is not this session's old
+// path: refused, never relinked.
+func TestNativeHistory_AJunctionIntoAnotherSessionsNativeIsRefused(t *testing.T) {
+	withHostOS(t, junctionHost{platform.Current()})
+	root := t.TempDir()
+	at := func(harp string, elem ...string) string {
+		return filepath.Join(append([]string{root, harp}, elem...)...)
+	}
+	other := at(harpA, paths.NativeDirName, claude.HomeLeaf, claude.TranscriptsDirName)
+	require.NoError(t, os.MkdirAll(other, 0o700))
+	instance := at(harpB, paths.SessionEngineHomesDirName, claude.HomeLeaf)
+	require.NoError(t, os.MkdirAll(instance, 0o700))
+	require.NoError(t, os.Symlink(other, filepath.Join(instance, claude.TranscriptsDirName)))
+
+	err := linkNativeHistory(instance, at(harpB, paths.NativeDirName, claude.HomeLeaf), claude.TranscriptsDirName)
+	assert.ErrorIs(t, err, ErrHistoryNotLinked)
 }

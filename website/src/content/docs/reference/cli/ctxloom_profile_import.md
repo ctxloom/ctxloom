@@ -13,7 +13,8 @@ Import a profile from a local file
 
 ### Synopsis
 
-Import a profile YAML file into .ctxloom/profiles.
+Import a profile YAML file into the project bundle (or, with --in-bundle,
+another local bundle) as the profile named by the file's basename.
 
 Use --force to overwrite an existing profile.
 
@@ -28,7 +29,8 @@ ctxloom profile import <path> [flags]
 ### Options
 
 ```
-  -f, --force   Overwrite existing profile
+  -f, --force              Overwrite existing profile
+      --in-bundle string   Local bundle to import into (default: the project bundle)
 ```
 
 ### Options inherited from parent commands

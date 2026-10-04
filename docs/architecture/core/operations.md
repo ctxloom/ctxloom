@@ -80,7 +80,7 @@ flowchart TD
 | Function | file:line | Contract |
 |---|---|---|
 | `InitializeProject` | `init.go:58` | Creates `.ctxloom/`, writes `config.yaml` and `remotes.yaml`, scaffolds the seed profile. Callers: `cli/init.go`, `cli/manage.go`, `cli/config.go`. |
-| `scaffoldSeedProfile` | `init.go:102` | Write-if-absent seed profile at `.ctxloom/profiles/default.yaml` (`:104-105`). |
+| `scaffoldSeedProfile` | `init.go` | Write-if-absent project bundle, and its `default` profile item from the embedded seed. |
 | `BuildInitialConfig` | `init.go:130` | Renders a fresh project's `config.yaml` with the chosen engine's LLM registry and default agent. Also used by `config/fixture.go`. |
 | `engineRegistry` / `fallbackRegistry` / `roleLabel` | `init.go:170,196,205` | Selects the engine's primary/fast registry entries, else a single self-contained `{type: engine}` entry. |
 | `PurgeExtractedBundles` | `legacy_cleanup.go:29` | One-shot removal of pre-PR1 extracted bundle YAML, then prunes empty dirs. Callers: `config/config.go`, `mcp/mcp_server.go`. |

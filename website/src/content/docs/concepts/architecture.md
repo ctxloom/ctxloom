@@ -464,7 +464,7 @@ flowchart TB
         subgraph StorageCommitted["committed"]
             direction TB
             sbundles[".ctxloom/content/bundles/"]
-            sprofiles[".ctxloom/profiles/"]
+            sprofiles[".ctxloom/content/bundles/v2/project/profiles/"]
         end
         subgraph StorageCache["cache/ (gitignored)"]
             direction TB

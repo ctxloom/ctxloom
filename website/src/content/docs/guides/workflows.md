@@ -256,13 +256,13 @@ Use different `.ctxloom/` configurations in different project directories:
 ~/projects/
 ├── go-api/
 │   └── .ctxloom/
-│       └── profiles/default.yaml  # Go-focused
+│       └── content/bundles/v2/project/profiles/default.yaml  # Go-focused
 ├── python-ml/
 │   └── .ctxloom/
-│       └── profiles/default.yaml  # Python/ML-focused
+│       └── content/bundles/v2/project/profiles/default.yaml  # Python/ML-focused
 └── react-app/
     └── .ctxloom/
-        └── profiles/default.yaml  # Frontend-focused
+        └── content/bundles/v2/project/profiles/default.yaml  # Frontend-focused
 ```
 
 ## Security Review Workflow

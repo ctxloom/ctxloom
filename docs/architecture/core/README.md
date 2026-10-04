@@ -116,8 +116,8 @@ These hold across every page; each is restated with its citations on the page th
    | `.ctxloom/config.yaml` | `Config.saveLocked` (`internal/core/config/config_save.go:118`, via `Manager.Update` / `Config.Save`), `schemaver.WriteBack` under `--write-upgrades` (`configload`'s `persistUpgrade`), and the initial creation by `operations.InitializeProject` (`internal/adapters/operations/init.go:76`) |
    | `.ctxloom/remotes.yaml` | `Registry.save` (`internal/adapters/remote/registry.go:105`) and the initial creation by `operations.InitializeProject` (`internal/adapters/operations/init.go:84`) |
    | `.ctxloom/lock.yaml` | `LockfileManager.write` (`internal/adapters/remote/lockfile.go`) — reached only from `Save`; `Load` never writes except through `schemaver.WriteBack` under `--write-upgrades`. Callers: `Puller.updateLockfile`/`RecordRetraction` inside `internal/adapters/remote`, and `internal/adapters/operations/lockfile.go:147` through the `LockfileStore` port. **`Save` refuses destructive writes** since `fd0d87d6`: empty-over-populated (`ErrLockfileWouldErase`, opt out with `remote.AllowEmpty()`) and any write over a corrupt file (`ErrLockfileUnreadable`, no override) |
-   | `.ctxloom/profiles/*.yaml` | `profiles.Loader.Save` / `.Delete` / `.CommitUpgrade` (`internal/core/profiles/profiles.go:612,679,400`) |
-   | `content/bundles/**` | `bundles.fsStore.Save` / `.Delete` (`internal/core/bundles/store.go:57,119`) |
+   | `content/bundles/**/profiles/*.yaml` (a local bundle's profile items) | `profiles.Loader.Save` / `.Delete`, `operations.SetProfileContent` (`profile edit`), `operations.scaffoldSeedProfile` (init), and `bundles.migrateProfileItems` when an envelope's migration is persisted (`--write-upgrades`, pre-sign) |
+   | `content/bundles/**` (everything else) | `bundles.fsStore.Save` / `.Delete` (`internal/core/bundles/store.go:57,119`) |
    | countersignatures | `countersign.Store.write`, reached only from `operations.SetItemTrust` / `SetBlacklist` (`internal/adapters/operations/trust.go:554,667`) |
 
 4. **The trust gate keys on `Ref.CanonicalURL() + "|" + Ref.Key()`** — built by

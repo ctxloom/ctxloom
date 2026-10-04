@@ -112,7 +112,8 @@ agents:
       claude-code:            # the engine's own keys, in a block named for it
         mode: acceptEdits
 
-# Profiles are files, one per profile, under .ctxloom/profiles/<name>.yaml.
+# Profiles are the project bundle's items, one per file, under
+# .ctxloom/content/bundles/v2/project/profiles/<name>.yaml.
 # config.yaml has no profiles: key.
 
 # The engine-neutral permission defaults for agents run IN THIS DIRECTORY.
@@ -282,7 +283,7 @@ hooks fire in every session that composes it; `ctxloom manage hooks list` shows
 the merged order and where each hook came from.
 
 ```yaml
-# .ctxloom/profiles/developer.yaml
+# .ctxloom/content/bundles/v2/project/profiles/developer.yaml
 hooks:
   unified:
     session_start:

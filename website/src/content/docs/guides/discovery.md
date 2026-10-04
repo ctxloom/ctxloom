@@ -162,7 +162,7 @@ inherits it (as above), then `ctxloom run -p go-dev`.
 ### Reference in Profiles
 
 ```yaml
-# .ctxloom/profiles/my-profile.yaml
+# .ctxloom/content/bundles/v2/project/profiles/my-profile.yaml
 description: My Go development profile
 parents:
   - https://github.com/alice/ctxloom-golang@bundles/dev-bundle#profiles/go-developer

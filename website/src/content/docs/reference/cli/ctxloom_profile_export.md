@@ -13,7 +13,7 @@ Export a profile to a directory
 
 ### Synopsis
 
-Export a profile from .ctxloom/profiles to an arbitrary directory.
+Export a local bundle's profile to an arbitrary directory.
 
 Useful for publishing profiles to a shared repository like ctxloom-default.
 

@@ -229,7 +229,7 @@ If hooks timeout, increase the timeout in settings or optimize your context asse
 Hooks work seamlessly with profiles:
 
 ```yaml
-# .ctxloom/profiles/default.yaml
+# .ctxloom/content/bundles/v2/project/profiles/default.yaml
 description: My default development context
 bundles:
   - go-development

@@ -168,7 +168,8 @@ absolute paths.
 
 Serena was evaluated for the same job and is deliberately UNLINKED for the same
 underlying reason. The rationale lives next to the decision, in the `serena`
-comments in the profiles under `.ctxloom/profiles/` — that is the authority,
+comments in the profiles of the project bundle
+(`.ctxloom/content/bundles/v2/project/profiles/`) — that is the authority,
 not this page.
 
 ### Why a delegated child has none

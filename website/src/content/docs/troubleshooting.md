@@ -215,8 +215,8 @@ ctxloom profile list
 
 **Check profile location:**
 ```bash
-ls .ctxloom/profiles/
-ls ~/.ctxloom/profiles/
+ls .ctxloom/content/bundles/v2/project/profiles/
+ls ~/.ctxloom/content/bundles/v2/project/profiles/
 ```
 
 ### Circular Inheritance

@@ -30,6 +30,7 @@ ctxloom profile create <name> [flags]
 ```
   -b, --bundle strings       Bundle URL(s) to include
   -d, --description string   Description of the profile
+      --in-bundle string     Local bundle to create the profile in (default: the project bundle)
       --llm string           Preferred LLM config label/backend to launch (overridable by run -l)
       --parent strings       Parent profile(s) to inherit from: a local name or <bundle>#profiles/<name> (bundle = canonical URL, remote/bundle alias, or local bundle name)
 ```

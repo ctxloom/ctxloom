@@ -26,8 +26,9 @@ ctxloom init
 ctxloom init --home
 ```
 
-`init` scaffolds a local default profile (`.ctxloom/profiles/default.yaml`,
-inheriting the ctxloom-default baseline) and wires the trusted `ctxloom-default`
+`init` scaffolds the project bundle with a local default profile
+(`.ctxloom/content/bundles/v2/project/profiles/default.yaml`, inheriting the
+ctxloom-default baseline) and wires the trusted `ctxloom-default`
 remote, then runs `ctxloom deps pull` to install what that profile depends on.
 Run interactively, it walks you through one merged interview: pick an AI
 engine, optionally add a personal remote, then launch your AI for an

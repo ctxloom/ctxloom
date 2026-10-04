@@ -59,25 +59,26 @@ MCP `assemble_context`):
 
 | Spelling | Meaning |
 |----------|---------|
-| `developer` | Local profile `.ctxloom/profiles/developer.yaml` |
-| `personal/go-developer` | Local profile in a subdirectory (`profiles/personal/go-developer.yaml`) |
-| `tools#profiles/probe` | Profile shipped by the **local** bundle `tools` |
+| `developer` | The project bundle's profile `developer` — the same as `ctxloom:local@bundles/project#profiles/developer` |
+| `tools#profiles/probe` | Profile of the **local** bundle `tools` (`ctxloom:local@bundles/tools#profiles/probe`) |
 | `<alias>/<bundle>#profiles/<name>` | Profile shipped by a bundle from the configured remote `<alias>` |
 | `<bundle-uri>#profiles/<name>` | Same, fully qualified (`<canonical-url>@bundles/<bundle>#profiles/<name>` is accepted input) |
 | any of the above `@<sha>` | Version pins are accepted and ignored for identity (the lockfile pins the bundle) |
 
 Resolution rules:
 
-1. **A selector-less name is always local.** Two-segment names like
-   `personal/go-developer` are subdirectory paths, never remote aliases.
-   Nothing ever expands a bare parent or `-p` name against a remote — this is
-   deliberate, so adding a remote can never change the meaning of an existing
-   local name.
+1. **A selector-less name is the project bundle's profile.** Every profile is
+   a bundle's profile item, and a project's own profiles are the items of its
+   project bundle — the local bundle named `project`
+   (`.ctxloom/content/bundles/v2/project/profiles/<name>.yaml`); home uses the
+   same rule under `~/.ctxloom`. A profile name is a single path segment.
+   Nothing ever expands a bare parent or `-p` name against a remote — so adding
+   a remote can never change the meaning of an existing name.
 2. **A `#profiles/` ref resolves through the bundle-profile seed**: alias
    spellings resolve through the remote registry to the same canonical
    identity as the URL spelling, a `ctxloom+git://` URI; local bundle names
    canonicalize to `ctxloom+local:<bundle>`. A seed miss reports "bundle profile has no lockfile entry
-   — run 'ctxloom deps pull'".
+   — run 'ctxloom deps pull'"; a miss on a local profile is a plain not-found.
 
 ## Bundle references
 
@@ -88,8 +89,8 @@ Accepted in `-b/--bundle`, a profile's `bundles:`/`bundle_items:` lists:
 | `<bundle-uri>` | Bundle of any source class, fully qualified |
 | `<canonical-url>@bundles/<name>` | Remote bundle, fully qualified (accepted input) |
 | `ctxloom:local@bundles/<name>` | Local bundle, fully qualified (accepted input) |
-| `<name>` | Bare ref: expands against the profile's own remote on load, or the default remote at `profile create` |
-| `<alias>/<name>` | Bundle from the configured remote `<alias>` (canonicalized on profile load) |
+| `<name>` | Local bundle `<name>` |
+| `<alias>/<name>` | Bundle from the configured remote `<alias>` (canonicalized when written; in memory on load for a local bundle's profile) |
 
 Bundle refs may carry an item selector (`-b bundle#fragments/tdd` cherry-picks
 one fragment) and a `@<version>` constraint (semver range, tag, SHA, or
@@ -116,15 +117,19 @@ has no equivalent of).
 
 ## Where each spelling is normalized
 
-- **Profile parents are stored as typed** — no write-time expansion; they
-  resolve at read time through the rules above.
-- **Bundle refs are canonicalized**: at `profile create`/`modify` (bare refs
-  expand against the default remote) and on profile load (bare and alias refs
-  canonicalize against the profile's remote / the registry, with a consented
-  on-disk rewrite). That rewrite writes the `<canonical-url>@bundles/<name>`
-  input spelling into the profile; a ref already written as a `<bundle-uri>`
-  is left as it is. Either way the bundle's identity is its `<bundle-uri>`.
+- **`profile create`/`modify` store refs canonically**: an `<alias>/…` bundle
+  or parent resolves through the registry, and every ref naming its source by
+  URL is written as its `<bundle-uri>`. Bare names stay local and are written
+  as typed.
+- **A profile item is versioned by its bundle's envelope**: one whose bundle
+  declares a `schema_version` older than the profile-ref step has its
+  `<canonical-url>@bundles/<name>` refs read as their `<bundle-uri>`, in
+  memory; `--write-upgrades` (or signing the bundle) persists that, item files
+  included. Either way the bundle's identity is its `<bundle-uri>`.
+- **A local bundle's profiles resolve `<alias>/…` refs on load**, in memory —
+  an alias table is this machine's, so a remote bundle's profiles are never
+  read against it.
 - **The retired top-level profile grammar** (`<url>@profiles/<name>`) is
-  migrated on load to the bundle-shipped successor when exactly one installed
+  migrated in memory on load to the bundle-shipped successor when exactly one installed
   bundle from that repo ships the profile; otherwise it is left verbatim and
   the resolver warns.

@@ -122,7 +122,7 @@ fragments:
 Variables are defined in profiles:
 
 ```yaml
-# .ctxloom/profiles/my-project.yaml
+# .ctxloom/content/bundles/v2/project/profiles/my-project.yaml
 variables:
   PROJECT_NAME: "my-api"
   LANGUAGE: "Go"

@@ -30,7 +30,7 @@ Template data comes entirely from the resolved profile's `variables:` map — th
 ### In Profiles
 
 ```yaml
-# .ctxloom/profiles/developer.yaml
+# .ctxloom/content/bundles/v2/project/profiles/developer.yaml
 variables:
   PROJECT_NAME: "my-app"
   LANGUAGE: "Go"

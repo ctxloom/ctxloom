@@ -19,7 +19,7 @@ session composes, so it is registered by default and there is no flag to turn
 on. To withhold it, exclude it from the profiles a session composes:
 
 ```yaml
-# .ctxloom/profiles/<name>.yaml
+# .ctxloom/content/bundles/v2/project/profiles/<name>.yaml
 exclude_mcp:
   - ctxloom
 ```

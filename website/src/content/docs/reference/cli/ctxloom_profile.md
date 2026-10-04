@@ -15,8 +15,11 @@ Manage profiles (named fragment collections)
 
 Manage profiles - named collections of context fragments, bundles, and configuration.
 
-Profiles are stored as YAML files in .ctxloom/profiles/<name>.yaml and allow you to
-quickly switch between different sets of context without specifying them individually.
+A profile is an item of a bundle. A project's own profiles live in its
+project bundle, so a bare profile name is that bundle's profile; a profile of
+any other bundle is addressed as <bundle>#profiles/<name>. The write commands
+(create, update, edit, remove, import) write into the project bundle unless
+the name addresses another LOCAL bundle (create and import take --in-bundle).
 
 ```
 ctxloom profile [flags]

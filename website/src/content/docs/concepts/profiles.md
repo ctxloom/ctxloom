@@ -8,7 +8,10 @@ A **profile** bundles that whole selection (bundles, tags, variables) under one 
 
 ## Profile Structure
 
-Profiles are stored in `.ctxloom/profiles/` as YAML files:
+A profile is an item of a bundle. A project's own profiles are the items of its
+**project bundle** — the local bundle named `project` — one YAML file per
+profile under `.ctxloom/content/bundles/v2/project/profiles/`, and a bare
+profile name (`-p dev`) is the project bundle's profile of that name:
 
 ```yaml
 description: "Profile description"
@@ -337,15 +340,22 @@ content: |
 
 See [Templating](/guides/templating) for full variable documentation.
 
-## Profiles are files
+## Profiles are bundle items
 
-Every local profile is a file under `.ctxloom/profiles/`. `config.yaml` has no
-`profiles:` block: a config that still carries one is reported with the move to
-make (each definition to `.ctxloom/profiles/<name>.yaml`, its body unchanged).
+Every local profile is an item of a local bundle — the project bundle unless
+you address another one (`<bundle>#profiles/<name>`, or `profile create
+--in-bundle <bundle>`). `config.yaml` has no `profiles:` block: a config that
+still carries one is reported with the move to make (write each definition to
+`<name>.yaml`, its body unchanged, and `ctxloom profile import` it).
 
-Every profile file is validated against the profile schema when it loads. A
-profile that does not match (an unknown key, a value of the wrong type) is a
-fatal finding naming the file and each offending key and value at its location
-in the document, and the run is refused. Pass `--degraded` or set
-`CTXLOOM_DEGRADED=1` to downgrade it to a warning and launch with the profile
-as it was read.
+The standalone `.ctxloom/profiles/` directory is retired. A project that still
+has one does not load: ctxloom names the exact move into the project bundle
+and moves nothing itself. Writing a profile into a SIGNED local bundle warns
+that the write stales its signature; re-sign it with `ctxloom bundle sign`.
+
+Every profile item is validated against the profile schema when its bundle
+loads. A profile that does not match (an unknown key, a value of the wrong
+type) stops its bundle loading, with an error naming the file and each
+offending key and value at its location in the document, and the run is
+refused. Pass `--degraded` or set `CTXLOOM_DEGRADED=1` to launch without that
+bundle instead.

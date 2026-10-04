@@ -61,7 +61,8 @@ It was a second implementation of something profiles already do, with exactly
 one consumer and no writer anywhere. A config carrying `hooks:` now reports it
 as an unknown key and ignores it.
 
-**Move each hook to a profile** — `.ctxloom/profiles/<name>.yaml`, under the same
+**Move each hook to a profile** — a profile of your project bundle
+(`.ctxloom/content/bundles/v2/project/profiles/<name>.yaml`), under the same
 `hooks:` key, spelled identically. Note the trust consequence: a profile's
 directly-declared hooks pass the executable trust gate, which the config block's
 did not.
@@ -233,7 +234,37 @@ the file and the remedy: delete `.ctxloom/lock.yaml` and run
 the refusal lists holds, re-apply them after the pull; a lockfile with no holds
 rebuilds at the same pinned commits.
 
-## 12. Everything else marked breaking
+## 12. Your profiles live in the project bundle
+
+A profile is an item of a bundle, and a project's own profiles are the items of
+its **project bundle**: the local bundle named `project`, at
+`.ctxloom/content/bundles/v2/project/`. A bare profile name (`-p dev`, an
+agent's `profiles: [dev]`) is that bundle's profile, so names you already use
+keep working. Home follows the same rule under `~/.ctxloom`.
+
+**A `.ctxloom/profiles/` directory now refuses to load**, naming the exact
+manual move: the files into `content/bundles/v2/project/profiles/`, a
+`bundle.yaml` when the project bundle has none, and the old directory removed.
+ctxloom moves nothing itself. A `.yml` profile is renamed `.yaml`, and a profile
+in a subdirectory takes a single-segment name: a profile name is one path
+segment now, like every bundle item's.
+
+What else follows from profiles being bundle items:
+
+- `ctxloom profile create/modify/remove/edit/import` write into the project
+  bundle; `create` and `import` take `--in-bundle <local bundle>` for another
+  local bundle, and a remote bundle's profiles are refused. Writing into a
+  signed local bundle warns that the write stales its signature.
+- Every profile is decoded strictly: a profile item carrying a key the schema
+  does not declare stops its bundle loading.
+- Every local bundle's profiles are dependency roots: a remote bundle referenced
+  only from one of them is locked.
+- A profile's own hooks key the trust gate by its bundle's real read.
+- Bundle envelopes are now `schema_version: 2`: profile refs are stored in the
+  canonical `ctxloom+git://` spelling, and an older bundle's profile refs are
+  read that way.
+
+## 13. Everything else marked breaking
 
 Grouped by what you would have to change.
 

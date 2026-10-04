@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -700,7 +702,7 @@ func TestEngineHost_AHeldTurnFailureParksItselfAndSaysWhen(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := &fakeEngineHome{}
-			sc := &scriptedChat{Failed: func(p string) *agent.TurnFailure {
+			sc := &scriptedChat{Failed: func(_ engine.Exec, p string) *agent.TurnFailure {
 				if p == "after the failure" {
 					return nil
 				}
@@ -757,7 +759,7 @@ func TestEngineHost_AFailureNoHoldReleasesDoesNotPark(t *testing.T) {
 	const unheld = agent.FailureKind("not_a_held_kind")
 	require.False(t, coord.HoldsFailure(unheld))
 	home := &fakeEngineHome{}
-	sc := &scriptedChat{Failed: func(string) *agent.TurnFailure { return &agent.TurnFailure{Kind: unheld} }}
+	sc := &scriptedChat{Failed: func(engine.Exec, string) *agent.TurnFailure { return &agent.TurnFailure{Kind: unheld} }}
 	eh := NewEngineHost(context.Background(), &report.Collector{}, "claude-code", "run-1")
 	eh.BindRunner(testRunner{eh: eh, inst: sc})
 	t.Cleanup(eh.Close)
@@ -809,4 +811,72 @@ func TestFailurePreamble_CredentialRefusedSaysAHumanMustReauthenticate(t *testin
 	assert.Contains(t, got, "resend")
 	assert.Contains(t, got, "human")
 	assert.NotContains(t, got, "on its own")
+}
+
+// writeSecrets writes vals to file as the run's secrets file.
+func writeSecrets(t *testing.T, file string, vals map[string]string) {
+	t.Helper()
+	b, err := sessions.EncodeSecrets(vals)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(file, b, 0o600))
+}
+
+// TestEngineHost_EachTurnRereadsItsSecretsFile: every turn's engine process
+// gets the secret values its secrets file holds AT THAT TURN, not at launch —
+// what lets a re-adopted container pick up the credential a restarted
+// coordinator wrote. A file that cannot be read fails that turn loudly
+// (ErrSecretUnreadable, in the turn's report and a warning, never a value),
+// without running the engine; the run lives, and the next turn reads again.
+func TestEngineHost_EachTurnRereadsItsSecretsFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "run.env")
+	writeSecrets(t, file, map[string]string{"TOKEN": "sk-first-value", "OTHER": "kept"})
+	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", "bypass")
+	l.Identity.RunID, l.Identity.Depth, l.Prompt = "run-1", 1, "CTX\n\ndo the thing"
+	l.Cell.SecretFiles = map[string]string{"TOKEN": file}
+
+	sc := &scriptedChat{}
+	rep := &report.Collector{}
+	eh := NewEngineHost(context.Background(), rep, "claude-code", "run-1")
+	eh.BindRunner(testRunner{eh: eh, inst: sc})
+	t.Cleanup(eh.Close)
+	home := &fakeEngineHome{}
+	eh.BindHome(home)
+	resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{RunId: "run-1", Launch: coordgrpc.EncodeLaunch(l)}}})
+	require.Equal(t, int32(0), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+	require.Eventually(t, func() bool { return home.spoolSweepCount() > 0 }, 5*time.Second, 10*time.Millisecond)
+
+	turn := func(text string) {
+		t.Helper()
+		boundary := make(chan turnOutcome, 1)
+		require.NoError(t, eh.enqueueTurn(context.Background(), turnTag{done: boundary}, text))
+		testsupport.Within(t, 5*time.Second, func() turnOutcome { return <-boundary }, "the turn never reached its boundary")
+	}
+	execs := func() []engine.Exec {
+		sc.Mu.Lock()
+		defer sc.Mu.Unlock()
+		return append([]engine.Exec(nil), sc.Execs...)
+	}
+	require.Len(t, execs(), 1)
+	assert.Equal(t, "sk-first-value", execs()[0].Env["TOKEN"])
+	assert.NotContains(t, execs()[0].Env, "OTHER", "only the variables the cell names")
+
+	writeSecrets(t, file, map[string]string{"TOKEN": "sk-second-value"})
+	turn("second turn")
+	require.Len(t, execs(), 2)
+	assert.Equal(t, "sk-second-value", execs()[1].Env["TOKEN"], "the next turn reads the file again")
+
+	require.NoError(t, os.Remove(file))
+	turn("third turn")
+	assert.Len(t, execs(), 2, "a turn whose secrets cannot be read never reaches the engine")
+	reports := home.turnReportsSeen()
+	last := reports[len(reports)-1].Text
+	assert.Contains(t, last, ErrSecretUnreadable.Error(), "the turn fails loudly, typed")
+	assert.Contains(t, last, "TOKEN")
+	assert.NotContains(t, last, "sk-second-value")
+	assert.NotEmpty(t, rep.All(), "and is warned")
+
+	writeSecrets(t, file, map[string]string{"TOKEN": "sk-third-value"})
+	turn("fourth turn")
+	require.Len(t, execs(), 3, "the run lived through the failed turn")
+	assert.Equal(t, "sk-third-value", execs()[2].Env["TOKEN"])
 }

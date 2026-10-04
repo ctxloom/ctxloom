@@ -89,6 +89,15 @@ no turn, its first included, until the release. Lock order: `holdMu` (which
 serializes hold transitions and their timers) before `mu`; neither is ever taken inside
 an `Exec` decide.
 
+**A re-adopted run gets this process's credential.** `adopt` hands every run whose launch
+journaled a secrets file (`run.launched`'s `secrets_file`, a container's) the credential its
+carriers resolve to in the restarted process's environment: `Options.RefreshSecrets`
+(`isolation.RefreshSecrets`) takes over the dead owner's secrets dir — its lock keeps a
+later prepare from sweeping the dir the container still mounts — and rewrites the file in
+place, and the launch is re-journaled under the new fingerprint. The runner re-reads the file
+at the start of every turn (`turnExec`), so the next turn runs on it. The dir is released when
+the run ends.
+
 **Fold concurrency is sound.** `execLocked` holds the write lock across
 decide→append→fsync→apply and `View` takes the read lock, so folds are single-writer
 by construction and no fold field needs its own lock, including under concurrent

@@ -168,13 +168,16 @@ type holdResumed struct {
 // restarted coordinator's environment carries a different credential.
 const holdCauseReauth = "reauth"
 
-// runLaunched is factRunLaunched's payload. Fingerprint is the launch's
-// credential digest (launch.Cell.CredentialFingerprint), never its value.
+// runLaunched is factRunLaunched's payload. Fingerprint is the digest of the
+// credential the run carries (launch.Cell.CredentialFingerprint, or the one a
+// restart rewrote into its secrets file), never its value; SecretsFile is
+// where its runner reads that credential at every turn (launch.Cell.SecretsFile).
 type runLaunched struct {
 	RunID       string                  `json:"run_id"`
 	Engine      engine.Name             `json:"engine"`
 	Source      engine.CredentialSource `json:"source"`
 	Fingerprint string                  `json:"fingerprint,omitempty"`
+	SecretsFile string                  `json:"secrets_file,omitempty"`
 }
 
 // Terminal causes recorded on factRunEnded.

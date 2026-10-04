@@ -306,7 +306,8 @@ func pauseKey(harp string) string { return "pause:" + harp }
 func (c *Coordinator) recordLaunch(runID string, l launch.Launch) {
 	at := c.now()
 	if err := c.runs.Exec(func() ([]Fact, error) {
-		return []Fact{factAt(factRunLaunched, at, runLaunched{RunID: runID, Engine: l.Engine, Source: l.Cell.Credential, Fingerprint: l.Cell.CredentialFingerprint})}, nil
+		return []Fact{factAt(factRunLaunched, at, runLaunched{RunID: runID, Engine: l.Engine, Source: l.Cell.Credential,
+			Fingerprint: l.Cell.CredentialFingerprint, SecretsFile: l.Cell.SecretsFile})}, nil
 	}); err != nil {
 		c.rep.Warnf("coordinator: could not journal %s's launch; a restart will not know its credential: %v", runID, err)
 	}
@@ -990,4 +991,57 @@ func RefusedCredentialRemedy(src engine.CredentialSource, session string) string
 		return fmt.Sprintf("sign in again (%s), then resume one of the parked runs", strings.Join(src.Stores, ", "))
 	}
 	return "re-authenticate the engine, then resume one of the parked runs"
+}
+
+// refreshRunSecrets, at adoption, gives runID — a run whose runner may
+// re-Hello (a container's) — the credential this process's environment
+// carries: its secrets file, which the runner reads at every turn, is
+// rewritten through Options.RefreshSecrets, and its launch re-journaled under
+// the new fingerprint. A run with no secrets file (a host run, which ends
+// with its session) is untouched. A carrier this environment does not set
+// leaves the file as it is: the run keeps the credential it launched with.
+func (c *Coordinator) refreshRunSecrets(runID string) {
+	if c.refreshSecrets == nil {
+		return
+	}
+	var l runLaunched
+	var ok bool
+	c.runs.View(func() { l, ok = c.holdsF.launchOf(runID) })
+	if !ok || l.SecretsFile == "" || len(l.Source.EnvVars) == 0 {
+		return
+	}
+	vals := make(map[string]string, len(l.Source.EnvVars))
+	for _, v := range l.Source.EnvVars {
+		val, set := c.lookupEnv(v)
+		if !set {
+			c.rep.Warnf("coordinator: %s is not set in this environment, so run %s keeps the credential it was launched with", v, runID)
+			return
+		}
+		vals[v] = val
+	}
+	release, err := c.refreshSecrets(l.SecretsFile, vals)
+	if err != nil {
+		c.rep.Warnf("coordinator: could not give re-adopted run %s this environment's credential; it keeps the one it was launched with: %v", runID, err)
+		return
+	}
+	c.mu.Lock()
+	c.secretReleases[runID] = release
+	c.mu.Unlock()
+	l.Fingerprint = engine.EnvFingerprint(l.Source.EnvVars, c.lookupEnv)
+	at := c.now()
+	if err := c.runs.Exec(func() ([]Fact, error) { return []Fact{factAt(factRunLaunched, at, l)}, nil }); err != nil {
+		c.rep.Warnf("coordinator: could not journal %s's refreshed credential: %v", runID, err)
+	}
+}
+
+// releaseRunSecrets releases the secrets file refreshRunSecrets took over for
+// runID, now its run is over.
+func (c *Coordinator) releaseRunSecrets(runID string) {
+	c.mu.Lock()
+	release := c.secretReleases[runID]
+	delete(c.secretReleases, runID)
+	c.mu.Unlock()
+	if release != nil {
+		release()
+	}
 }

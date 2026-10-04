@@ -1522,6 +1522,7 @@ func (c *Coordinator) endRun(runID, cause, detail string, drainTail bool) {
 	if !won {
 		return
 	}
+	c.releaseRunSecrets(runID)
 	c.sampleExecGauge() // the terminal is also a (possible) StateExecuting exit — see setState's sibling call
 	c.audit("run_terminal", rec.Harp, map[string]string{"run_id": runID, "cause": cause})
 	// Plane-2 request idempotency records are role-scoped and reconnect-

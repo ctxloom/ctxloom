@@ -136,3 +136,51 @@ func TestContainer_SecretFallsBackToTheSessionEphemeralDirWithoutARuntimeDir(t *
 	assert.Equal(t, filepath.Dir(cw.scratchRoot), filepath.Dir(m.Host))
 	assert.FileExists(t, filepath.Join(m.Host, secretsFileName))
 }
+
+// A container environment names its secrets file's host path — what a
+// restarted coordinator rewrites for the re-adopted run.
+func TestContainer_SecretsFileNamesTheMountedFile(t *testing.T) {
+	testsupport.Isolate(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	env, _, spec := preparedSecretCell(t)
+	assert.Equal(t, filepath.Join(secretMount(t, spec).Host, secretsFileName), env.SecretsFile())
+}
+
+// TestRefreshSecrets_ARestartRewritesADeadOwnersSecretInPlace: the
+// coordinator that launched a container died (its lock went, its dir and the
+// container's mount of it stayed). The restarted one takes the dir over —
+// rewriting the credential in the SAME file, keeping every other entry, still
+// owner-only — and while it holds the dir no prepare sweeps it. Its release
+// removes the dir.
+func TestRefreshSecrets_ARestartRewritesADeadOwnersSecretInPlace(t *testing.T) {
+	testsupport.Isolate(t)
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	env, _, spec := preparedSecretCell(t)
+	dir := secretMount(t, spec).Host
+	file := env.SecretsFile()
+	cw := env.(*containerEnvironment).cw
+	require.NoError(t, cw.secrets.put(map[string]string{sessions.EnvCoordCred: "c0ffee"}))
+	_, err := RefreshSecrets(file, map[string]string{secretVar: "sk-fresh"})
+	require.ErrorIs(t, err, ErrSecretsOwned, "a live owner's secrets are never taken over")
+	require.NoError(t, cw.secrets.scratch.lock.Close(), "the owner dies: its lock goes, its dir stays")
+
+	release, err := RefreshSecrets(file, map[string]string{secretVar: "sk-fresh"})
+	require.NoError(t, err)
+	b, err := os.ReadFile(file)
+	require.NoError(t, err)
+	got, err := sessions.DecodeSecrets(b)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{secretVar: "sk-fresh", sessions.EnvCoordCred: "c0ffee"}, got)
+	fi, err := os.Stat(file)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
+
+	preparedSecretCell(t)
+	assert.DirExists(t, dir, "a taken-over dir is live again: no prepare sweeps it")
+	release()
+	assert.NoDirExists(t, dir, "the release removes it")
+
+	_, err = RefreshSecrets(file, map[string]string{secretVar: "x"})
+	assert.Error(t, err, "a dir already gone cannot be refreshed")
+}

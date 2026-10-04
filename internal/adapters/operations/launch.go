@@ -342,6 +342,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		Listen:                env.Listen(),
 		Credential:            creds.Source(req.Engine.Root().Name),
 		CredentialFingerprint: creds.Fingerprint(),
+		SecretsFile:           env.SecretsFile(),
 		Cleanup:               env.Cleanup,
 		Handle:                env,
 	}, nil

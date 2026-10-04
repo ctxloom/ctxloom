@@ -104,6 +104,13 @@ type Options struct {
 	// through it, to tell a re-authenticated environment from the refused one
 	// (engine.EnvFingerprint); the value is digested, never kept.
 	LookupEnv func(string) (string, bool)
+	// RefreshSecrets takes over a re-adopted run's secrets file (the host
+	// path launch.Cell.SecretsFile named), left by the process that launched
+	// it, and rewrites vals into it — the credential re-resolved from THIS
+	// process's environment — returning the release to call once the run is
+	// over. Composed at the root (isolation.RefreshSecrets); nil refreshes
+	// nothing, and a re-adopted run keeps the credential it launched with.
+	RefreshSecrets func(file string, vals map[string]string) (release func(), err error)
 	// ConcurrencyCap overrides the number of concurrently EXECUTING child
 	// turns the coordinator admits (Coordinator.slots' cap). <= 0 keeps the package
 	// default (agentConcurrencyCap, children.go). This is a RESOURCE
@@ -361,6 +368,10 @@ type Coordinator struct {
 	holdStep  func(step string)
 	// lookupEnv is Options.LookupEnv, resolved.
 	lookupEnv func(string) (string, bool)
+	// refreshSecrets is Options.RefreshSecrets; secretReleases are the
+	// releases of the secrets files it took over, by run id, guarded by mu.
+	refreshSecrets func(file string, vals map[string]string) (release func(), err error)
+	secretReleases map[string]func()
 	// onAskPublished, when set, is called by controlAsk between RECORDING the
 	// ask open and PUBLISHING it — the record-before-publish test seam. It
 	// fires on that side of the publish deliberately: a hook fired after it
@@ -569,6 +580,8 @@ func New(opts Options) (*Coordinator, error) {
 		holds:              make(map[string]*holdLocal),
 		afterFunc:          t.afterFunc,
 		lookupEnv:          t.lookupEnv,
+		refreshSecrets:     opts.RefreshSecrets,
+		secretReleases:     make(map[string]func()),
 		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*RunChannel),
@@ -836,6 +849,7 @@ func (c *Coordinator) adopt() {
 	})
 	for _, p := range stale {
 		runID, credHash := p.runID, p.credHash
+		c.refreshRunSecrets(runID)
 		fired := make(chan struct{})
 		var once sync.Once
 		fire := func() {

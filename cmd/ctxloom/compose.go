@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -59,6 +60,10 @@ func compose(sink report.Sink) cli.Composition {
 				if opts.Spawner == nil {
 					opts.Spawner = spawn.New(sink, app, opts.ProjectDir, nil)
 				}
+				// A restart hands each re-adopted container this
+				// environment's credential through the secrets file its
+				// runner reads every turn.
+				opts.RefreshSecrets = isolation.RefreshSecrets
 				c, err = coord.New(opts)
 			})
 			return c, err

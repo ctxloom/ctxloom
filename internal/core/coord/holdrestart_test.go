@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -12,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 )
@@ -537,4 +540,102 @@ func TestHoldRestart_TheSameRefusedCredentialKeepsItsHold(t *testing.T) {
 			assert.Zero(t, f.findingsWith(refusedToken), "never the value")
 		})
 	}
+}
+
+// secretsRefresher is Options.RefreshSecrets over the fixture's plain files:
+// it records each file it was asked to rewrite and lays vals into it.
+type secretsRefresher struct {
+	mu       sync.Mutex
+	files    []string
+	released int
+}
+
+func (r *secretsRefresher) refresh(file string, vals map[string]string) (func(), error) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	merged, err := sessions.DecodeSecrets(b)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(merged, vals)
+	if b, err = sessions.EncodeSecrets(merged); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(file, b, 0o600); err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.files = append(r.files, filepath.Base(file))
+	return func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.released++
+	}, nil
+}
+
+// TestHoldRestart_ARestartRewritesAReadoptedRunsSecretsSoItsNextTurnUsesTheFreshCredential:
+// worker and sibling run container-shaped — each runner reads its credential
+// from a secrets file at every turn — while stranger runs host-shaped, with
+// none. The refused credential parks worker and sibling. The human exports a
+// fresh credential and restarts: the restarted coordinator rewrites each
+// re-adopted run's secrets file with it (never the host-shaped one's) and
+// re-journals its launch under the new fingerprint, so the hold releases and
+// the very next refused-marker turn runs on the fresh credential — no new
+// refusal, no new hold, no relaunch.
+func TestHoldRestart_ARestartRewritesAReadoptedRunsSecretsSoItsNextTurnUsesTheFreshCredential(t *testing.T) {
+	secrets := t.TempDir()
+	clk := fakeclock.New()
+	f := newHoldFixtureOpts(t, rateFailure, func(o *Options) {
+		o.Clock, o.AfterFunc = clk.Now, clk.AfterFunc
+		sp := o.Spawner.(*fakeSpawner)
+		sp.secretsDir, sp.secretAgents = secrets, map[string]bool{"worker": true, "sibling": true}
+	}, nil)
+	f.send(t, f.worker, credRefused+" do the work")
+	f.awaitHold(t, f.worker, f.sibling)
+	f.awaitParks(t, f.worker, f.sibling)
+	assert.Equal(t, refusedToken, lastExecEnv(f.sp, 0)[tokenVar], "premise: the worker's turn read its secrets file")
+
+	refresher := &secretsRefresher{}
+	f.opts.RefreshSecrets = refresher.refresh
+	f.opts.LookupEnv = envOf(map[string]string{tokenVar: freshToken})
+	reasserted := make(chan struct{}, 8)
+	f.restart(t, clk, 0, stepSignal(holdStepReasserted, reasserted))
+	refresher.mu.Lock()
+	assert.ElementsMatch(t, []string{f.worker + ".env", f.sibling + ".env"}, refresher.files,
+		"each re-adopted container-shaped run's secrets are rewritten; the host-shaped one is not touched")
+	refresher.mu.Unlock()
+	fresh := engine.Credentials{Env: map[string]string{tokenVar: freshToken}}.Fingerprint()
+	f.c.runs.View(func() {
+		l, ok := f.c.holdsF.launchOf(currentRunID(f.c, f.worker))
+		require.True(t, ok)
+		assert.Equal(t, fresh, l.Fingerprint, "the launch is re-journaled under the credential it now carries")
+	})
+	assert.Empty(t, f.c.CredentialHolds())
+	assertReleased(t, f.c, holdCauseReauth)
+
+	f.redial(t)
+	within(t, reasserted, "the worker's owed resume was never delivered")
+	within(t, reasserted, "the sibling's owed resume was never delivered")
+	assert.Equal(t, sortedCopy([]string{f.sibling, f.worker}), resumedHarps(t, f.c))
+	f.send(t, f.worker, credRefused+" again, after the re-auth")
+	awaitChatText(t, f.sp, 0, "again, after the re-auth")
+	require.Eventually(t, func() bool { return f.state(f.worker) == StateIdle }, conformanceWait, 10*time.Millisecond)
+	assert.Equal(t, freshToken, lastExecEnv(f.sp, 0)[tokenVar], "the re-adopted runner's next turn read the fresh credential")
+	assert.Empty(t, f.c.CredentialHolds(), "no new refusal")
+	assert.Len(t, journaled[holdOpened](t, f.c, factHoldOpened), 1, "no new hold opened")
+	assert.Equal(t, 3, f.sp.chatCount(), "nothing was relaunched")
+}
+
+// lastExecEnv is the env the i-th child's latest turn started its engine with.
+func lastExecEnv(sp *fakeSpawner, i int) map[string]string {
+	sc := sp.chat(i)
+	sc.Mu.Lock()
+	defer sc.Mu.Unlock()
+	if len(sc.Execs) == 0 {
+		return nil
+	}
+	return sc.Execs[len(sc.Execs)-1].Env
 }

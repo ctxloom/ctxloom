@@ -170,8 +170,11 @@ credential again from the environment you restarted it from: if it changed, the 
 the held children resume; if it is the same refused credential, or none is set, the hold stays
 and you are told again what to do. The comparison uses a one-way fingerprint of the credential,
 never the credential itself. A relaunched host child launches with the new credential. A
-re-adopted container child still carries the credential it was launched with, so its next turn
-is refused again: stop it (`agent_stop`) and message it to relaunch it on the new one.
+re-adopted container child is handed it too: the restart rewrites the private secrets file the
+child reads its credential from, and the child reads that file again at the start of every
+turn, so its next turn runs on the new credential without a relaunch. If that file cannot be
+read at the start of a turn, that turn fails with an error saying so, and the next one tries
+again.
 
 ## Every session is its own tree
 

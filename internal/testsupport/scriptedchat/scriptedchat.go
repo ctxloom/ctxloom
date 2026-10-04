@@ -56,10 +56,12 @@ type Chat struct {
 	// Denied event and the turn's completion carries them all — a turn the
 	// engine's posture blocked.
 	Denials []agent.PermissionDenial
-	// Failed, when set, decides per prompt whether the engine turns the turn
-	// away: a non-nil failure relays the turn's words, a Failed event and a
-	// completion, and nothing else — a turn on a spent limit.
-	Failed func(prompt string) *agent.TurnFailure
+	// Failed, when set, decides per turn — from the exec its process starts
+	// from (the credential it carries) and its prompt — whether the engine
+	// turns the turn away: a non-nil failure relays the turn's words, a
+	// Failed event and a completion, and nothing else — a turn on a spent
+	// limit, or a refused credential.
+	Failed func(ex engine.Exec, prompt string) *agent.TurnFailure
 	// GotEnv / GotRunnerEnv are what the fake spawner's Start was handed for
 	// this engine: the ENGINE's ambient env and the RUNNER's per-spawn env
 	// (the coordinator reach-back trio rides the latter only).
@@ -178,7 +180,7 @@ func (s *Chat) take(ex engine.Exec, in engine.Turn) turnPlan {
 	s.Keys = append(s.Keys, in.Resume)
 	plan := turnPlan{gate: s.Gate, session: s.SessionGate, answer: s.Answer, first: s.turns == 0, denials: s.Denials}
 	if s.Failed != nil {
-		plan.failure = s.Failed(in.Prompt)
+		plan.failure = s.Failed(ex, in.Prompt)
 	}
 	s.turns++
 	plan.fail = s.FailAfterTurns > 0 && s.turns > s.FailAfterTurns

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -67,7 +69,13 @@ type fakeSpawner struct {
 	// launch it resolves (launch.Cell.Credential), as the cells adapter does
 	// from the credentials it resolved.
 	credentialFor func(agentName string) engine.Credentials
-	kills         []func()
+	// secretsDir and secretAgents, when set, give each named agent's run a
+	// real secrets file under secretsDir holding its credential, named on
+	// its cell as a container's is (Placement.SecretFiles, Cell.SecretsFile):
+	// its runner reads the file at every turn.
+	secretsDir   string
+	secretAgents map[string]bool
+	kills        []func()
 	// released[i] closes when the i-th engine's Kill fired — the seam a
 	// production child's container teardown hangs off. A test that must
 	// prove a stop RELEASED the child watches this rather than inferring it
@@ -298,6 +306,21 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 	}
 	creds := s.credentialOf(plan.AgentName)
 	l.Cell.Credential, l.Cell.CredentialFingerprint = creds.Source("mock"), creds.Fingerprint()
+	if s.secretsDir != "" && s.secretAgents[plan.AgentName] && len(creds.Env) > 0 {
+		file := filepath.Join(s.secretsDir, start.Identity.Harp+".env")
+		b, err := sessions.EncodeSecrets(creds.Env)
+		if err != nil {
+			return Resolved{}, err
+		}
+		if err := os.WriteFile(file, b, 0o600); err != nil {
+			return Resolved{}, err
+		}
+		l.Cell.SecretFiles = make(map[string]string, len(creds.Env))
+		for v := range creds.Env {
+			l.Cell.SecretFiles[v] = file
+		}
+		l.Cell.SecretsFile = file
+	}
 	plan.Launch = l
 	s.mu.Lock()
 	s.launches = append(s.launches, l)

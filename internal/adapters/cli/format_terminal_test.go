@@ -27,20 +27,20 @@ func unsetFormatCmd(t *testing.T) (*cobra.Command, *bytes.Buffer) {
 	return cmd, buf
 }
 
-// TestWantsStructuredOutput_FollowsTheTerminalWhenNothingWasAsked covers both
+// TestWantsNonTextOutput_FollowsTheTerminalWhenNothingWasAsked covers both
 // arms. A human at a terminal who asked for nothing gets text, so nothing
 // machine-only is stamped and no prompt is withheld from them; the same
 // invocation piped is a script, and gets the structured treatment.
-func TestWantsStructuredOutput_FollowsTheTerminalWhenNothingWasAsked(t *testing.T) {
+func TestWantsNonTextOutput_FollowsTheTerminalWhenNothingWasAsked(t *testing.T) {
 	t.Run("terminal", func(t *testing.T) {
 		t.Cleanup(cliemit.OverrideTerminal(true))
 		cmd, _ := unsetFormatCmd(t)
-		assert.False(t, wantsStructuredOutput(cmd), "a human at a terminal who asked for nothing is not a script")
+		assert.False(t, wantsNonTextOutput(cmd), "a human at a terminal who asked for nothing is not a script")
 	})
 	t.Run("not a terminal", func(t *testing.T) {
 		t.Cleanup(cliemit.OverrideTerminal(false))
 		cmd, _ := unsetFormatCmd(t)
-		assert.True(t, wantsStructuredOutput(cmd), "a piped invocation derives json, which a script parses")
+		assert.True(t, wantsNonTextOutput(cmd), "a piped invocation derives json, which a script parses")
 	})
 }
 

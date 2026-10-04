@@ -84,7 +84,7 @@ func TestClose_LeavesTheMembersOfARunThatHasNotEnded(t *testing.T) {
 func TestClose_MovesAHomesRealHistoryIntoNativeFirst(t *testing.T) {
 	resetStrictness(t)
 	rootsHome(t)
-	c := newRoot(t, ownerIdentity().Harp, "", startRunSpawner(func() *scriptedChat { return &scriptedChat{} }))
+	c := newRoot(t, ownerIdentity().Harp, "", startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} }))
 	dir, err := paths.HarpDir(ownerIdentity().Harp)
 	require.NoError(t, err)
 	native := filepath.Join(dir, paths.NativeDirName, "claude", "projects")

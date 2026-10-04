@@ -240,16 +240,8 @@ func (c Config) ParsedTagSchema() (*tagschema.Schema, error) {
 var configKind = schemaver.Kind{
 	Name:   "taskloom config",
 	Oldest: 0,
-	Steps:  []upgrade.Upgrader{introduceSchemaVersion{}},
+	Steps:  []upgrade.Upgrader{schemaver.IntroduceKey},
 }
-
-// introduceSchemaVersion is generation 1, the first to declare
-// schemaver.Key. It edits nothing: a taskloom config with no version means
-// exactly what a generation-1 file means.
-type introduceSchemaVersion struct{}
-
-func (introduceSchemaVersion) Name() string                    { return "introduce " + schemaver.Key }
-func (introduceSchemaVersion) Apply(*yaml.Node) (changed bool) { return false }
 
 // upgradeFile is taskloom's confload.Product.UpgradeFile: it brings one
 // config file to configKind.Current() in memory, and under --write-upgrades
@@ -260,7 +252,7 @@ func upgradeFile(path string, data []byte) ([]byte, error) {
 		return nil, err
 	}
 	if len(r.Applied) > 0 && schemaver.WriteUpgrades() {
-		if err := schemaver.WriteBack(afero.NewOsFs(), path, r, nil); err != nil {
+		if err := schemaver.WriteBack(afero.NewOsFs(), path, r, schemaver.KeepBackup); err != nil {
 			return nil, err
 		}
 		clidiag.Warn("taskloom", "upgraded %s to %s %d (the previous file is kept as %s%s)",

@@ -72,9 +72,12 @@ func runPlanWatch(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = w.Close() }()
 
-	format := outputFormatOf(cmd)
-	if format != "" && format != formatJSON && format != formatText {
-		return unknownFormatError(format)
+	format, err := streamFormat(cmd)
+	if err != nil {
+		return err
+	}
+	if format != formatJSON && format != formatText {
+		return unknownFormatError(string(format))
 	}
 
 	ctx, stop := signal.NotifyContext(cmd.Context(), shutdownSignals...)

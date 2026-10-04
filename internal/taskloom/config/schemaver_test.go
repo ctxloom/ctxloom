@@ -123,3 +123,14 @@ func TestSchemaVersion_WriteBackOnlyWithTheFlag(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoFileExists(t, path+schemaver.BackupSuffix, "a current file is not written back")
 }
+
+// A config that is not YAML is its parse failure, not a version fault.
+func TestSchemaVersion_MalformedConfigIsAParseFailureNotAVersionFault(t *testing.T) {
+	home := taskstest.Isolate(t)
+	writeConfig(t, home, "homing: [unterminated\n")
+
+	_, err := Load(t.TempDir(), nil)
+	require.Error(t, err)
+	var ve *schemaver.VersionError
+	assert.NotErrorAs(t, err, &ve)
+}

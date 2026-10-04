@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,11 +13,11 @@ import (
 // endpoint.json is a seam with a writer here and a reader in
 // internal/adapters/coordgrpc/discover — the D1 consumer discovery path a separate CLI
 // invocation (the TUI, `ctxloom session transcript watch`) uses to find a live
-// coordinator. The two halves are in different packages by necessity: coord
-// imports internal/adapters/operations, which imports discover, so discover can never
-// import coord. That makes this the one contract in the package with no
-// call-graph link at all, and a silent mismatch here reads as "no coordinator
-// is running" — this project's signature failure mode.
+// coordinator. The two halves are in different packages by necessity: this
+// package's own tests import discover, so discover can never import coord.
+// That makes this the one contract in the package with no call-graph link at
+// all, and a silent mismatch here reads as "no coordinator is running" — this
+// project's signature failure mode.
 //
 // So it is pinned end to end: a real Serve() writes the file, and the real
 // discovery reader has to find it and hand back a URL that dials.
@@ -71,4 +72,34 @@ func TestEndpointFile_NotYetMintedIsSkippedSilently(t *testing.T) {
 	endpoints, skipped := discover.List()
 	assert.Empty(t, endpoints)
 	assert.Empty(t, skipped, "a coordinator that has not Served yet is not a fault")
+}
+
+// A coordinator that has exited leaves endpoint.json behind on purpose (a
+// relaunch re-binds its ports), but nothing answers on that port and its
+// consumer credential is dead. discover reads the root's owner lock, which
+// the kernel releases with the process, so the exited coordinator is no
+// longer discoverable.
+func TestEndpointFile_ExitedCoordinatorIsNotDiscovered(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	teeHome(t)
+	c, err := New(Options{
+		ProjectDir: t.TempDir(),
+		ProjectID:  "endpoint-exited-test",
+		Spawner:    newFakeSpawner(t, nil, nil),
+		OwnerHarp:  ownerIdentity().Harp,
+	})
+	require.NoError(t, err)
+	require.NoError(t, runnerHooks.Serve(c))
+	endpoints, _ := discover.List()
+	require.Len(t, endpoints, 1, "precondition: the served coordinator is discoverable")
+
+	c.Close()
+	require.FileExists(t, filepath.Join(c.StateDir(), discover.FileName),
+		"precondition: the endpoint file outlives its coordinator")
+
+	endpoints, skipped := discover.List()
+	assert.Empty(t, endpoints, "an exited coordinator's endpoint must not be handed back")
+	assert.Empty(t, skipped, "an exited coordinator is the ordinary case, not a fault")
 }

@@ -191,12 +191,6 @@ func (s *Sources) loadConfigLayer(b *config.Builder, layer layerscope.Layer, app
 
 	r, refused := configKind.Upgrade(data)
 	if refused != nil {
-		// A file that is not YAML has no version to judge: it is unparsable,
-		// not refused.
-		var probe map[string]any
-		if perr := yaml.Unmarshal(data, &probe); perr != nil {
-			return nil, fmt.Errorf("%w: %s: %v", ErrUnparsableLayer, configPath, perr)
-		}
 		refuseConfigVersion(configPath, refused)
 		r = schemaver.Result{Data: data}
 	}
@@ -256,7 +250,7 @@ func persistUpgrade(fs afero.Fs, configPath string, r schemaver.Result) error {
 	if !schemaver.WriteUpgrades() {
 		return nil
 	}
-	if err := schemaver.WriteBack(fs, configPath, r, nil); err != nil {
+	if err := schemaver.WriteBack(fs, configPath, r, schemaver.KeepBackup); err != nil {
 		return err
 	}
 	clidiag.Warn("ctxloom", "upgraded %s to %s %d (%s; the previous file is kept as %s%s)",

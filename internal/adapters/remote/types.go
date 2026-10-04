@@ -201,17 +201,16 @@ type LockEntry struct {
 	RetractedReason string `yaml:"retracted_reason,omitempty" json:"retracted_reason,omitempty"`
 
 	// RetractionCheckedAt is when Retracted/RetractedReason were last
-	// established by an ACTUAL manifest read (Puller.resolveRetraction's
-	// "Fresh" branch) — never bumped by a fallback that reused a previously
-	// recorded verdict because the remote could not be reached. This is what
-	// lets a later fallback (see RetractionStaleAfter) know how old the
-	// verdict it is honoring actually is. Zero on an entry written before this
-	// field existed, OR on an entry that has never had a manifest
-	// successfully read for it — both read as UNKNOWN AGE, which
-	// resolveRetraction always warns about when it falls back to them; zero is
-	// deliberately not treated as "just checked" (that would silently read as
-	// fresher than it is) nor as "definitely stale" (a fresh check with no
-	// prior fallback has nothing to be stale relative to).
+	// established by a check that actually ran: an answered manifest read
+	// (Puller.resolveRetraction's "Fresh" branch), or a first check with no
+	// recorded verdict to fall back to — never bumped by a fallback that
+	// reused a previously recorded verdict. This is what lets a later
+	// fallback (see RetractionStaleAfter) know how old the verdict it is
+	// honoring actually is. Zero only on an entry written before this field
+	// existed, which reads as UNKNOWN AGE and is warned about whenever
+	// resolveRetraction falls back to it; zero is deliberately not treated as
+	// "just checked" (that would silently read as fresher than it is) nor as
+	// "definitely stale".
 	RetractionCheckedAt time.Time `yaml:"retraction_checked_at,omitempty" json:"retraction_checked_at,omitempty"`
 
 	// SignedVersion is the release version a trusted publisher signed for the

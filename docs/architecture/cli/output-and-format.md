@@ -24,8 +24,8 @@ flowchart TD
     FLAG -.-> CE
     RUNE --> POST["rootPersistentPostRunE → checkFormatWasHonored"]
 
-    OF["outputFormatOf(cmd) — raw flag string, also marks formatWasHonored"]
-    WSO["wantsStructuredOutput(cmd) — a decision AROUND rendering; does not mark"]
+    OF["streamFormat(cmd) — cliemit.Resolve, also marks formatWasHonored"]
+    WNT["wantsNonTextOutput(cmd) — a decision AROUND rendering; does not mark"]
 
     subgraph streaming["streaming commands — own text/json-only switch"]
         SW["session watch"]
@@ -33,7 +33,7 @@ flowchart TD
         RO["renderOwnedRunEvents (run's event stream)"]
         UFE["unknownFormatError(format)"]
         SW & PW & RO --> UFE
-        SW & PW & RO --> OF
+        SW & PW --> OF
     end
 
     LEDGER[["format_debt.go — formatDebtAllowlist<br/>the static ledger of commands that cannot yet honour a machine format"]]
@@ -49,15 +49,16 @@ flowchart TD
   cross-binary `cliemit` filter (shared with `cmd/taskloom` and `cmd/ltk`) so
   the emit/resolve pair is defined once. Calling it at all is the invocation's
   proof that the command read the resolved format, whichever branch it took.
-- `outputFormatOf` reads the raw inherited flag value, unparsed, and is the
-  streaming commands' half of the same proof.
-- `wantsStructuredOutput` is the predicate for a decision made *around*
-  rendering — stamping a field only a machine reads, or withholding a prompt
-  from a caller that cannot answer one. It must never narrow to "exactly
-  json": the structured formats share one contract, and a value stamped for
-  one of them and zero-valued for the others is a wrong answer, not a missing
-  one. It deliberately does not mark the guard — the proof is `emit` rendering.
-- `reviewWantsListing` folds `--format` into `review`'s *decision* (listing vs
+- `streamFormat` resolves the flag through the same `cliemit.Resolve` as
+  `emit`, and is the streaming commands' half of the same proof.
+- `wantsNonTextOutput` is the one predicate for a decision made *around*
+  rendering — stamping a field the human view does not show, or withholding a
+  prompt from a caller that did not ask for the human view. Every format but
+  text counts, markdown included: a value stamped for one format and
+  zero-valued for another is a wrong answer, not a missing one. It
+  deliberately does not mark the guard — the proof is `emit` rendering.
+- `reviewWantsListing` folds an explicit `--format` (through
+  `wantsNonTextOutput`) into `review`'s *decision* (listing vs
   interactive walk), not just its rendering: an invocation that asked for a
   machine format must not be prompted through an approval session and only
   afterwards fail the guard, having already written countersignatures.

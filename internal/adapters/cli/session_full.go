@@ -116,7 +116,7 @@ func emitSessionRows(cmd *cobra.Command, views []operations.SessionView, full bo
 	if err != nil {
 		return err
 	}
-	// The runtime guard (format.go) only sees emit()/outputFormatOf;
+	// The runtime guard (format.go) only sees emit()/streamFormat;
 	// both branches below are the direct clifmt.Render/renderSessionFullText
 	// bypass, a hand-rolled duplicate of emit()'s own format branch, so this
 	// marks the guard on their behalf.

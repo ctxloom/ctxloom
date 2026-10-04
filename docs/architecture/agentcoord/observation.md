@@ -46,12 +46,15 @@ current `RunRecord`, and applies two filters.
 | --- | --- | --- |
 | `run_id` | `rec.RunID` |  |
 | `agent.agent_id` | `e.Harp` |  |
-| `agent.role` | `rec.Agent` | the other five `AgentIdentity` fields are never set |
+| `agent.role` | `rec.Agent` |  |
+| `agent.container_name` | `rec.ContainerName` | container runtime only; no other `AgentIdentity` field is set |
 | `phase` | `e.State` | real vocabulary: `queued`, `executing`, `idle`, `ended` |
 | `latest_summary` | `reportsF.latestSummary(harp)` | first line, 200 bytes |
 | `parent_run_id` | `rec.ParentRunID` | the field descendant scoping would need |
 | `permission_mode` | `rec.Permission` | fixed at enqueue |
 | `mcp_servers` | `rec.MCPServers` | **names only** — the roster consumer's black-box view onto privilege scoping |
+| `hold` | `runHolds()[rec.RunID]` | absent when nothing parks the run |
+| `cause`, `detail` | `e.Cause`, `e.Detail` | the current run's terminal cause and detail, so an `ended` child says why; empty while live |
 
 Filters honoured: `include_terminal` (ended entries are skipped unless set) and `role`.
 Harps with no current run are skipped silently, which is correct because the reap never

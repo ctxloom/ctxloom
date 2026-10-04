@@ -8,6 +8,13 @@
 // any version a file's AUTHOR declares (a bundle's semver `version`): it is the
 // one number migrations key off.
 //
+// Every shape change to a persisted format — a rename, a removal, a change of
+// meaning — bumps the generation with a Step, even a step that edits nothing.
+// An older binary does not know the new shape: unbumped, it reads a renamed
+// key as a missing one and silently falls back to the default instead of
+// refusing a file newer than it understands (ErrNewer). The bump is what makes
+// it refuse.
+//
 // schemaver owns the version gate and nothing else. The parse, the steps and
 // the encode are internal/shared/upgrade's; a Kind's steps are ordinary
 // upgrade.Upgraders. Context-dependent normalization (anything that needs more
@@ -91,10 +98,12 @@ var (
 	ErrTooOld     = errors.New("older than the oldest format this binary can migrate")
 	ErrUnreadable = errors.New("format version cannot be read")
 
-	errNotMapping = errors.New("the document is not a mapping")
 	errNotInteger = errors.New(Key + " is not an integer")
 	errBothKeys   = errors.New("both " + Key + " and its legacy spelling are present")
-	errDuplicate  = errors.New("a mapping repeats a key")
+
+	// errMalformed marks a document that is not a well-formed YAML mapping.
+	// It never leaves Upgrade, which passes such a document through.
+	errMalformed = errors.New("not a well-formed YAML mapping")
 )
 
 // VersionError is a refused document. Err is (or wraps) ErrNewer, ErrTooOld
@@ -132,16 +141,23 @@ func (k Kind) unreadable(cause error) *VersionError {
 //
 //  1. rename LegacyKey to Key, when the kind opts in;
 //  2. read the generation — an empty or comment-only document is generation
-//     0; a non-integer version, a non-mapping document or more than one
-//     document is ErrUnreadable; above Current is ErrNewer, below Oldest is
-//     ErrTooOld;
+//     0; a non-integer version or more than one document is ErrUnreadable;
+//     above Current is ErrNewer, below Oldest is ErrTooOld;
 //  3. run the steps from that generation up;
 //  4. stamp Current, when anything changed.
 //
 // A document already current passes through untouched: Result.Data is the
-// input slice and Applied is empty.
+// input slice and Applied is empty. So does one that is not a well-formed
+// YAML mapping — a syntax error, a non-mapping root, a repeated key — with
+// From and To zero: it has no generation to judge, and refusing it here would
+// report a file that does not parse as a version fault, pointing at the wrong
+// thing. The kind's own decode, which follows, reports it as the parse failure
+// it is.
 func (k Kind) Upgrade(data []byte) (Result, error) {
 	doc, commentOnly, err := k.parse(data)
+	if errors.Is(err, errMalformed) {
+		return Result{Data: data}, nil
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -166,18 +182,30 @@ func (k Kind) Upgrade(data []byte) (Result, error) {
 
 // parse returns data's single document with a mapping root. An empty,
 // comment-only or null document comes back as an empty mapping; commentOnly
-// reports that yaml.v3 kept no node for it at all.
+// reports that yaml.v3 kept no node for it at all. A document that is not a
+// well-formed mapping is errMalformed.
+//
+// More than one document is ErrUnreadable even when a later one is what fails
+// to parse: the first parsed, so which document declares the generation is
+// the fault, and a caller's single-document decode would read the first and
+// never see the rest.
 func (k Kind) parse(data []byte) (doc yaml.Node, commentOnly bool, err error) {
 	doc, err = upgrade.DecodeSingle(data)
 	commentOnly = errors.Is(err, io.EOF)
+	firstParsed := doc.Kind == yaml.DocumentNode
 	switch {
 	case commentOnly || (err == nil && isNullDocument(&doc)):
 		empty := yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
 		return empty, commentOnly, nil
-	case err != nil:
+	case err != nil && firstParsed:
 		return doc, false, k.unreadable(err)
-	case doc.Content[0].Kind != yaml.MappingNode:
-		return doc, false, k.unreadable(errNotMapping)
+	case err != nil,
+		doc.Content[0].Kind != yaml.MappingNode,
+		// A repeated key is refused by every struct/map decode, but a node
+		// decode accepts it and the node helpers act on the FIRST match: a
+		// migration would silently keep one entry and drop the other.
+		upgrade.HasDuplicateKey(doc.Content[0]):
+		return doc, false, errMalformed
 	}
 	return doc, false, nil
 }
@@ -209,9 +237,6 @@ func (k Kind) gate(root *yaml.Node) (found int, applied []string, err error) {
 // encode stamps and serializes a changed document.
 func (k Kind) encode(doc *yaml.Node, data []byte, commentOnly bool) ([]byte, error) {
 	root := doc.Content[0]
-	if upgrade.HasDuplicateKey(root) {
-		return nil, k.unreadable(errDuplicate)
-	}
 	k.Stamp(root)
 	out, err := upgrade.Encode(doc)
 	if err != nil {
@@ -274,28 +299,40 @@ func (k Kind) Stamp(root *yaml.Node) {
 // the pre-upgrade bytes.
 const BackupSuffix = ".bak"
 
-// WriteBack persists an upgraded document: the current file is copied to
-// path+BackupSuffix, then r.Data atomically replaces it, both keeping the
-// file's permission bits. With print non-nil it writes r.Data to print instead
-// and touches nothing on disk.
-func WriteBack(fs afero.Fs, path string, r Result, print io.Writer) error {
-	if print != nil {
-		_, err := print.Write(r.Data)
-		return err
-	}
+// Backup is the caller's choice, per file kind, of whether WriteBack keeps the
+// pre-upgrade bytes beside the file.
+type Backup bool
+
+const (
+	// KeepBackup copies the file to path+BackupSuffix first. For a file
+	// nothing else versions (a config), the backup is the only way back.
+	KeepBackup Backup = true
+	// NoBackup leaves nothing beside the file. For version-controlled project
+	// content (a bundle tree, the lockfile) git holds the prior bytes, and a
+	// .bak would be one more file in a committed tree — inside a bundle, one a
+	// later signing would ship.
+	NoBackup Backup = false
+)
+
+// WriteBack persists an upgraded document: with KeepBackup the current file
+// is first copied to path+BackupSuffix, then r.Data atomically replaces it,
+// both keeping the file's permission bits.
+func WriteBack(fs afero.Fs, path string, r Result, backup Backup) error {
 	info, err := fs.Stat(path)
 	if err != nil {
 		return fmt.Errorf("write back %s: %w", path, err)
 	}
-	old, err := afero.ReadFile(fs, path)
-	if err != nil {
-		return fmt.Errorf("write back %s: %w", path, err)
-	}
 	perm := info.Mode().Perm()
-	// An empty original is a legitimate generation-0 file; its backup is empty
-	// too.
-	if err := safefs.WriteFile(fs, path+BackupSuffix, old, perm, safefs.AllowEmpty()); err != nil {
-		return fmt.Errorf("write back %s: back up: %w", path, err)
+	if backup == KeepBackup {
+		old, err := afero.ReadFile(fs, path)
+		if err != nil {
+			return fmt.Errorf("write back %s: %w", path, err)
+		}
+		// An empty original is a legitimate generation-0 file; its backup is
+		// empty too.
+		if err := safefs.WriteFile(fs, path+BackupSuffix, old, perm, safefs.AllowEmpty()); err != nil {
+			return fmt.Errorf("write back %s: back up: %w", path, err)
+		}
 	}
 	if err := safefs.WriteFile(fs, path, r.Data, perm); err != nil {
 		return fmt.Errorf("write back %s: %w", path, err)
@@ -321,7 +358,7 @@ var writeUpgrades atomic.Bool
 func BindWriteUpgrades(fs *pflag.FlagSet) {
 	writeUpgrades.Store(false)
 	fs.Var(writeUpgradesValue{}, WriteUpgradesFlag,
-		"Persist in-memory upgrades of older-format files (the old file is kept as <file>"+BackupSuffix+")")
+		"Persist in-memory upgrades of older-format files (a config's old file is kept as <file>"+BackupSuffix+"; version-controlled project content keeps none, git holds it)")
 	fs.Lookup(WriteUpgradesFlag).NoOptDefVal = "true"
 }
 

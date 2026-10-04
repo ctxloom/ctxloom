@@ -463,11 +463,11 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 	mockHistory := &mockSessionHistory{
 		currentSession: &agent.Session{
 			ID: "sidechain-session",
-			Entries: []agent.SessionEntry{
+			Entries: aboveDistillFloor([]agent.SessionEntry{
 				{Type: agent.EntryTypeUser, Content: "MAIN_THREAD_ASK"},
 				{Type: agent.EntryTypeAssistant, Content: "SIDECHAIN_INTERIOR", Sidechain: true},
 				{Type: agent.EntryTypeAssistant, Content: "MAIN_THREAD_ANSWER"},
-			},
+			}),
 		},
 	}
 	mockBe := &mockBackend{history: mockHistory}
@@ -516,11 +516,11 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 	mockHistory := &mockSessionHistory{
 		currentSession: &agent.Session{
 			ID: "thinking-session",
-			Entries: []agent.SessionEntry{
+			Entries: aboveDistillFloor([]agent.SessionEntry{
 				{Type: agent.EntryTypeUser, Content: "MAIN_THREAD_ASK"},
 				{Type: agent.EntryTypeThinking, Content: "SCRATCH_REASONING_TEXT"},
 				{Type: agent.EntryTypeAssistant, Content: "MAIN_THREAD_ANSWER"},
-			},
+			}),
 		},
 	}
 	mockBe := &mockBackend{history: mockHistory}
@@ -754,7 +754,7 @@ func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 	mockBe := &mockBackend{history: &mockSessionHistory{
 		currentSession: &agent.Session{
 			ID:      "sysprompt-session",
-			Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "hello"}},
+			Entries: aboveDistillFloor([]agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "hello"}}),
 		},
 	}}
 
@@ -855,10 +855,10 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 	mockBe := &mockBackend{history: &mockSessionHistory{
 		currentSession: &agent.Session{
 			ID: "fail-session",
-			Entries: []agent.SessionEntry{
+			Entries: aboveDistillFloor([]agent.SessionEntry{
 				{Type: agent.EntryTypeUser, Content: "hello"},
 				{Type: agent.EntryTypeAssistant, Content: "world"},
-			},
+			}),
 		},
 	}}
 	mockClient := &scriptedDistiller{
@@ -1279,8 +1279,8 @@ func TestDeriveSummary(t *testing.T) {
 	}
 }
 
-// TestCompact_EntriesThatRenderToNothing_ShortCircuit covers the state
-// isEmptySession's entry count cannot see: entries are present, but the text
+// TestCompact_EntriesThatRenderToNothing_ShortCircuit covers the state an
+// entry count cannot see: entries are present, but the text
 // handed to distillation is empty. A session whose only main-thread entries
 // are `thinking` reaches exactly that, because appendEntryText suppresses
 // thinking by policy unless IncludeThinking is set.
@@ -1294,7 +1294,9 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 
 	thinkingOnly := []agent.SessionEntry{
 		{Type: agent.EntryTypeThinking, Content: "let me consider the options"},
-		{Type: agent.EntryTypeThinking, Content: "still considering"},
+		// Long enough that, rendered, it clears minDistillTokens: the
+		// IncludeThinking half below must reach the LLM.
+		{Type: agent.EntryTypeThinking, Content: strings.Repeat("still considering the options and their trade-offs. ", 40)},
 	}
 
 	// Fixture hostility check: these entries must be non-empty AND must render
@@ -1483,10 +1485,10 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 	mockBe := &mockBackend{history: &mockSessionHistory{
 		currentSession: &agent.Session{
 			ID: resolvedID,
-			Entries: []agent.SessionEntry{
+			Entries: aboveDistillFloor([]agent.SessionEntry{
 				{Type: agent.EntryTypeUser, Content: "where did the essence go"},
 				{Type: agent.EntryTypeAssistant, Content: "written under one key, read under another"},
-			},
+			}),
 		},
 	}}
 	const body = "Distilled: the write key and the read key must agree."
@@ -1580,4 +1582,57 @@ func runnerOver(client *scriptedDistiller) Runner {
 		}
 		return stdout.String(), nil
 	}
+}
+
+// TestCompact_BelowDistillFloor_DumpsVerbatimWithoutLLM pins the floor
+// between "empty" and "worth an LLM call". The fixture is the shape of a real
+// session whose essence ended up being the model's refusal: two turns of an
+// exact-phrase echo, a transcript smaller than any summary of it. Handed that,
+// the model declined, and the decline was saved as the essence. Below the
+// floor no LLM is called, and the transcript itself is the essence.
+func TestCompact_BelowDistillFloor_DumpsVerbatimWithoutLLM(t *testing.T) {
+	testsupport.Isolate(t)
+
+	const phrase = "ROYAL_PRIOR_STRUCTURED_TURN_ONE"
+	tiny := []agent.SessionEntry{
+		{Type: agent.EntryTypeUser, Content: "Say the exact phrase: " + phrase + " and nothing else."},
+		{Type: agent.EntryTypeAssistant, Content: phrase},
+	}
+	mockBe := &mockBackend{history: &mockSessionHistory{
+		currentSession: &agent.Session{ID: "below-floor-session", Entries: tiny},
+	}}
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
+			t.Fatalf("an LLM subprocess was spawned to distil a below-floor transcript; prompt was %q", prompt)
+			return 0, nil
+		},
+	}
+
+	recordOutputDir(t, "compactor-under-test")
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
+		BackendOverride: mockBe,
+		Run:             runnerOver(mockClient),
+		OutputDir:       t.TempDir(),
+		HarpName:        "compactor-under-test",
+	})
+	require.NoError(t, err)
+
+	result, err := compactor.Compact(context.Background())
+	require.NoError(t, err, "too little to distil is not a failure")
+	require.Positive(t, result.TotalTokensIn, "fixture precondition: the transcript is not empty")
+	require.Less(t, result.TotalTokensIn, minDistillTokens, "fixture precondition: the transcript is below the floor")
+	data, err := os.ReadFile(result.DistilledPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Say the exact phrase: "+phrase,
+		"the essence of a below-floor session is its transcript, verbatim")
+	assert.NotContains(t, string(data), emptySessionPlaceholder,
+		"a session that said something is not empty")
+}
+
+// aboveDistillFloor appends an ordinary assistant turn long enough that the
+// rendered transcript clears minDistillTokens, so a fixture that is about
+// what the distiller receives actually reaches the distiller.
+func aboveDistillFloor(entries []agent.SessionEntry) []agent.SessionEntry {
+	filler := strings.Repeat("The session worked through the design and settled its open questions. ", 40)
+	return append(entries, agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: filler})
 }

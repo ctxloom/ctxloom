@@ -194,7 +194,10 @@ func (s *Sources) loadConfigLayer(b *config.Builder, layer layerscope.Layer, app
 		refuseConfigVersion(configPath, refused)
 		r = schemaver.Result{Data: data}
 	}
-	r = s.normalize(b, r)
+	r, err := s.normalize(b, r)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", configPath, err)
+	}
 	if refused == nil {
 		if err := persistUpgrade(fs, configPath, r); err != nil {
 			return nil, err
@@ -220,18 +223,21 @@ func (s *Sources) loadConfigLayer(b *config.Builder, layer layerscope.Layer, app
 // canonicalizer is composed. It is not a schema step — what it rewrites
 // depends on the remotes registry, not on the document's generation — but
 // what it changes is persisted with the migration under --write-upgrades.
-func (s *Sources) normalize(b *config.Builder, r schemaver.Result) schemaver.Result {
+func (s *Sources) normalize(b *config.Builder, r schemaver.Result) (schemaver.Result, error) {
 	if s.canonicalize == nil {
-		return r
+		return r, nil
 	}
 	shell := b.Shell()
 	pipeline := upgrade.Pipeline{profileRefCanonicalizeUpgrade{canonical: func(ref string) string { return s.canonicalize(shell, ref) }}}
-	out, applied := pipeline.Run(r.Data)
+	out, applied, err := pipeline.Run(r.Data)
+	if err != nil {
+		return schemaver.Result{}, err
+	}
 	if len(applied) == 0 {
-		return r
+		return r, nil
 	}
 	r.Data, r.Applied = out, append(r.Applied, applied...)
-	return r
+	return r, nil
 }
 
 // persistUpgrade writes a changed layer back when this invocation asked for

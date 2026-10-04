@@ -910,8 +910,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		if entry, _ := operations.GetSession(harp); entry != nil {
 			// Prefer the canonical transcript: once captured,
 			// that's the file Compact actually distilled from, so staleness must
-			// compare against it, not the legacy engine file (see
-			// memory.transcriptSize's matching preference).
+			// compare against it, not the legacy engine file.
 			transcriptPath = entry.TranscriptPath
 			if entry.CanonicalTranscriptPath != "" {
 				transcriptPath = entry.CanonicalTranscriptPath

@@ -416,7 +416,7 @@ func (c *Coordinator) sendRunnerControl(ctx context.Context, rec *RunRecord, ver
 		return RunnerResponse{}, fmt.Errorf("%s %s: %w", verb, harp, err)
 	}
 	if resp.Err != nil {
-		return RunnerResponse{}, fmt.Errorf("%s %s refused: %s", verb, harp, resp.Err.Error())
+		return RunnerResponse{}, fmt.Errorf("%s %s refused: %w", verb, harp, resp.Err)
 	}
 	return resp, nil
 }

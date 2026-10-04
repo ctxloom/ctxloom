@@ -270,27 +270,30 @@ func TestBatchHoldsEveryPathsLockInSortedOrder(t *testing.T) {
 }
 
 // On the OS fs, where a temp file cannot be created in a missing directory.
-func TestBatchCreatesAMissingParentAndAPrivateFile(t *testing.T) {
+// That the file is owner-only is pinned in batch_unix_test.go: Windows never
+// reports 0600.
+func TestBatchCreatesAMissingParent(t *testing.T) {
 	fs := afero.NewOsFs()
 	path := filepath.Join(t.TempDir(), "deep", "er", "f")
 	b := NewBatch(fs, noLock)
 	b.Edit(path, appendText("x"))
 	_, err := b.Commit()
 	require.NoError(t, err)
-	info, err := fs.Stat(path)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "a file the batch creates is owner-only")
+	assert.Equal(t, "x", get(t, fs, path))
 }
 
 func TestBatchKeepsAnExistingFilesMode(t *testing.T) {
 	fs := newCountingFs()
-	put(t, fs, "/p/t", "x")
-	require.NoError(t, fs.Chmod("/p/t", 0o644))
+	// A native path: MemMapFs.Chmod does not normalise the name it is given,
+	// so on Windows "/p/t" misses the entry the write stored as "\\p\\t".
+	path := filepath.FromSlash("/p/t")
+	put(t, fs, path, "x")
+	require.NoError(t, fs.Chmod(path, 0o644))
 	b := NewBatch(fs, noLock)
-	b.Edit("/p/t", appendText("y"))
+	b.Edit(path, appendText("y"))
 	_, err := b.Commit()
 	require.NoError(t, err)
-	info, err := fs.Stat("/p/t")
+	info, err := fs.Stat(path)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o644), info.Mode().Perm())
 }
@@ -304,7 +307,7 @@ func TestBatchDurableSyncsTheDirectory(t *testing.T) {
 	b.Edit("/p/t", appendText("x"))
 	_, err := b.Commit()
 	require.NoError(t, err)
-	assert.Contains(t, synced, "/p")
+	assert.Contains(t, synced, filepath.FromSlash("/p"), "the directory synced is filepath.Dir of the target")
 
 	synced = nil
 	b = NewBatch(fs, noLock)
@@ -372,7 +375,7 @@ func TestBatchDurableSyncsTheDirectoryOfARemoval(t *testing.T) {
 	b.Edit("/p/t", func([]byte, bool) ([]byte, bool, error) { return nil, false, nil })
 	_, err := b.Commit()
 	require.NoError(t, err)
-	assert.Equal(t, []string{"/p"}, synced)
+	assert.Equal(t, []string{filepath.FromSlash("/p")}, synced)
 }
 
 // Existence is content: an EMPTY file removed, or created, is a change even

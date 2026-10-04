@@ -146,3 +146,26 @@ func TestShippedProfiles_ValidateAgainstTheSchema(t *testing.T) {
 	}
 	require.NotZero(t, checked)
 }
+
+// TestLoad_UnknownKey_SuggestsTheNearKey: an unknown key's finding names the
+// key the author most likely meant, wherever the misspelled key sits — at the
+// top level, or inside a fragments entry that only matches one branch of a
+// oneOf. Naming the offending key alone leaves the reader to diff it against
+// the schema by eye.
+func TestLoad_UnknownKey_SuggestsTheNearKey(t *testing.T) {
+	cases := map[string]struct{ body, typo, meant string }{
+		"top level":       {body: "select_tagz: [go]\nbundles: [real]\n", typo: "select_tagz", meant: "select_tags"},
+		"fragments entry": {body: "fragments:\n  - name: pri\n    priorty: 3\n", typo: "priorty", meant: "priority"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.yaml"), []byte(tc.body), 0o644))
+			var found report.Collector
+			_, _ = NewLoader([]string{dir}, WithReporter(&found)).Load("bad")
+			said := strings.Join(found.All().Fatal().Texts(), "\n")
+			assert.Contains(t, said, tc.typo, "the finding names the unknown key")
+			assert.Contains(t, said, "`"+tc.meant+"`", "the finding names the key the author meant")
+		})
+	}
+}

@@ -152,8 +152,9 @@ func TestClaudeLifecycle_MergeManaged_Statusline(t *testing.T) {
 	deliverSettings := func(t *testing.T, manage bool) string {
 		t.Helper()
 		fs := afero.NewMemMapFs()
-		require.NoError(t, atRest(t, fs, "/proj").Install(composite.Package{Statusline: manage}))
-		data, err := afero.ReadFile(fs, filepath.Join("/proj", ".claude", "settings.json"))
+		root := t.TempDir()
+		require.NoError(t, atRest(t, fs, root).Install(composite.Package{Statusline: manage}))
+		data, err := afero.ReadFile(fs, filepath.Join(root, ".claude", "settings.json"))
 		if os.IsNotExist(err) {
 			return ""
 		}

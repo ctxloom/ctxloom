@@ -2,10 +2,9 @@
 // nothing models, which key did the author probably mean?
 //
 // It exists so the answer is the same everywhere. ctxloom refuses an unknown
-// key in more than one place — the config schema's additionalProperties
-// violations (internal/core/config) and the strict YAML decode of a bundle
-// (internal/core/bundles) — and "did you mean" is only useful if it is calibrated
-// identically at each of them. A second, slightly different edit-distance
+// key on more than one surface — schema additionalProperties violations and the
+// strict YAML decode of a bundle among them — and "did you mean" is only useful
+// if it is calibrated identically at each of them. A second, slightly different edit-distance
 // budget in a second package is how one surface starts suggesting `ui` for
 // `sync` while the other stays quiet.
 package keymatch

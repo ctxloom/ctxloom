@@ -204,7 +204,7 @@ After this change, that symmetry is gone. **The reader now correctly parses
 a quoted principal containing whitespace, which the writer still refuses to
 produce.** A hand-authored or third-party-tooling-authored allowed_signers
 file containing `"alice smith@x.com" ssh-ed25519 ...` parses correctly and
-grants trust to `alice smith@x.com`; `ctxloom signer add "alice
+grants trust to `alice smith@x.com`; `ctxloom signer trust "alice
 smith@x.com"` (or an equivalent call to `FormatEntry`) refuses to write that
 same principal. This is intentional and was a deliberate decision at the
 time this asymmetry was introduced, not an oversight: the reader's job is to
@@ -221,7 +221,7 @@ principal's name. `classifyLine` detects a leading BOM and reports a parse
 error for that line instead — the line contributes no entry — rather than
 either stripping the BOM (which would make this package match a principal
 real `ssh-keygen` does not) or leaving it in place (which would grant trust
-under an identity nobody can type or revoke, since `signer remove` compares
+under an identity nobody can type or revoke, since `signer untrust` compares
 principals literally). **VERIFIED** as consistent with real `ssh-keygen`'s
 observed principal-matching behavior on a BOM-prefixed line.
 

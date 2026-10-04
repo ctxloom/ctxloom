@@ -142,7 +142,7 @@ func TestTrustRoot_SuppressedEmbeddedPrincipal_NoLongerTrusted(t *testing.T) {
 	before := cfg.trustStore().TrustedForNamespace(key, signing.NamespacePublish, now)
 	assert.True(t, before.Trusted, "the embedded release key starts out trusted for publish")
 
-	// Write the SAME suppression record `signer remove <embedded-principal>
+	// Write the SAME suppression record `signer untrust <embedded-principal>
 	// --project` would (operations.RemoveSigner) directly to the project
 	// distrusted_signers file, to isolate the trust-root-side read from the
 	// CLI/operations write path (that round trip is proven separately in

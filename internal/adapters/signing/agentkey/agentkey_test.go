@@ -442,8 +442,8 @@ func TestExpandHome(t *testing.T) {
 
 	got, err := expandHome(home, "~")
 	require.NoError(t, err)
-	if got != home {
-		t.Errorf("expandHome(%q) = %q, want %q (no trailing separator)", "~", got, home)
+	if want := filepath.FromSlash(home); got != want {
+		t.Errorf("expandHome(%q) = %q, want %q (no trailing separator)", "~", got, want)
 	}
 	got, err = expandHome(home, "~/.ssh/id_ed25519")
 	require.NoError(t, err)

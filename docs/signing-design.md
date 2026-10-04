@@ -219,9 +219,9 @@ degrades to a silent unsigned publish.
 Countersigning happens inside `ctxloom review`, which is unchanged as the single
 review porcelain. Approving an item signs its bytes instead of writing a hash row.
 
-Signer management is CLI-only: `ctxloom signer add|list|show|remove`, over a
+Signer management is CLI-only: `ctxloom signer trust|list|show|remove`, over a
 store in the `ssh-keygen` `allowed_signers` format, verbatim. It is **never
-exposed over MCP**. Handing an agent a `signer add` tool would give it precisely
+exposed over MCP**. Handing an agent a `signer trust` tool would give it precisely
 the capability this design exists to deny it.
 
 Adding a signer is the most dangerous command in the feature and it says so,
@@ -331,7 +331,7 @@ provisioning earns its keep. The org places `allowed_signers` at
 provisions the laptop. A key delivered that way is as trustworthy as the machine
 image itself, which is the strongest practical option available. It requires an
 org that has such a channel, so it is useless for individuals and for open source.
-The fallback is an explicit `ctxloom signer add` with an out-of-band check against
+The fallback is an explicit `ctxloom signer trust` with an out-of-band check against
 a fingerprint the org publishes.
 
 **The personal root has no bootstrap problem.** It is the developer's own key,
@@ -443,7 +443,7 @@ content — it never decides whether it is admitted, which happens at exec (see
 Every Acme developer who trusts those keys gets verified, pre-approved content
 with zero review prompts, zero secrets on their machine, and no key of their own.
 The key bootstrap is the one genuinely hard step, and it is the table above: MDM
-for the fleet, or `signer add` with an out-of-band fingerprint check.
+for the fleet, or `signer trust` with an out-of-band fingerprint check.
 
 ## What it costs
 

@@ -242,7 +242,7 @@ func (u *upgradeRound) refuse(p PinnedRef, cur remote.LockEntry, refusal error) 
 
 // upgradedEntry is the lock entry p lands as.
 func upgradedEntry(p PinnedRef, cur remote.LockEntry, has, moved bool, verified remote.Verified) remote.LockEntry {
-	entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
+	entry := pinnedEntry(p)
 	// The floor moves only with the content it was read from: an unmoved pin
 	// keeps what its last verified pin recorded, a moved one records what
 	// verifyAdvance just established.
@@ -250,6 +250,7 @@ func upgradedEntry(p PinnedRef, cur remote.LockEntry, has, moved bool, verified 
 		entry.SignedVersion, entry.Publisher = verified.LockFields()
 	} else {
 		entry.SignedVersion, entry.Publisher = cur.SignedVersion, cur.Publisher
+		keepFetchedAt(&entry, cur)
 	}
 	// A full re-resolve is NOT a fresh retraction check — only
 	// sync's installed-ref re-check (checkInstalledRetraction) or the next

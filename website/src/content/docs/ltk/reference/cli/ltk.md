@@ -32,8 +32,9 @@ retry the right way. See https://ctxloom.dev/ltk/rules/ for the full rule model.
 ### Options
 
 ```
-      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
-  -h, --help            help for ltk
+      --format string    Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help             help for ltk
+      --write-upgrades   Persist in-memory upgrades of older-format files (the old file is kept as <file>.bak)
 ```
 
 ### SEE ALSO

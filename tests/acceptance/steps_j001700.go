@@ -8,7 +8,7 @@
 // already-installed developer, and ctxloom's own go:embed'd publisher key:
 // though it might look irrevocable and invisible, the key is
 // visible, and locally revocable — it is surfaced by `signer
-// list`/`show` (tagged embedded/not-removable) and `signer remove` aimed at
+// list`/`show` (tagged embedded/not-removable) and `signer untrust` aimed at
 // it persists a real local suppression the trust root honors, though the
 // compiled-in bytes themselves still only change via a new binary (see the
 // feature file's own comments for the full rationale).
@@ -69,7 +69,7 @@ type j001700State struct {
 	// their own and nothing else runs in it between their sync and the Then.
 
 	embeddedShowBefore   string // `signer show <embedded principal>` output BEFORE the removal attempt
-	embeddedRemoveOutput string // `signer remove <embedded principal> --project` output
+	embeddedRemoveOutput string // `signer untrust <embedded principal> --project` output
 	embeddedShowAfter    string // `signer show <embedded principal>` output AFTER the removal attempt
 
 	// The format each of the three calls above actually resolved to — off a
@@ -145,7 +145,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 
 		// Carol trusts the company key in the PROJECT store, so it is
 		// committed to the team's own git history and Bob inherits it on
-		// clone — he never runs `signer add` himself, exactly as a teammate
+		// clone — he never runs `signer trust` himself, exactly as a teammate
 		// would inherit a lead's trust decision in reality.
 		if err := w.env.TrustSigner(signer, "trent@example.com", true); err != nil {
 			return fmt.Errorf("trust company signer: %w", err)
@@ -361,13 +361,13 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		w.docStepMaterialized = "$ ctxloom signer untrust " + j001700EmbeddedPrincipal + " --project\n" + j001700.embeddedRemoveOutput
 		if !j001700.embeddedRemoveOutputFormat.Structured() {
 			if strings.Contains(j001700.embeddedRemoveOutput, "no entry for") {
-				return fmt.Errorf("'signer remove' must no longer report a bare \"no entry for\" for the embedded principal — it has a real local-suppression effect now; output:\n%s", j001700.embeddedRemoveOutput)
+				return fmt.Errorf("'signer untrust' must no longer report a bare \"no entry for\" for the embedded principal — it has a real local-suppression effect now; output:\n%s", j001700.embeddedRemoveOutput)
 			}
 			if !strings.Contains(j001700.embeddedRemoveOutput, "cannot be deleted") {
-				return fmt.Errorf("expected 'signer remove' to say the embedded key cannot be deleted; output:\n%s", j001700.embeddedRemoveOutput)
+				return fmt.Errorf("expected 'signer untrust' to say the embedded key cannot be deleted; output:\n%s", j001700.embeddedRemoveOutput)
 			}
 			if !strings.Contains(j001700.embeddedRemoveOutput, "DISTRUSTED") {
-				return fmt.Errorf("expected 'signer remove' to report the embedded key is now DISTRUSTED locally; output:\n%s", j001700.embeddedRemoveOutput)
+				return fmt.Errorf("expected 'signer untrust' to report the embedded key is now DISTRUSTED locally; output:\n%s", j001700.embeddedRemoveOutput)
 			}
 			return nil
 		}

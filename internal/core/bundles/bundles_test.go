@@ -445,6 +445,15 @@ func mcpTrustHash(t *testing.T, m BundleMCP) string {
 	return HashPayload(payload)
 }
 
+// hookTrustHash is the hash the trust path computes for a hook: HashPayload
+// over its ContentPayload.
+func hookTrustHash(t *testing.T, h BundleHook) string {
+	t.Helper()
+	payload, err := h.ContentPayload()
+	require.NoError(t, err)
+	return HashPayload(payload)
+}
+
 func TestBundleMCP_TrustHash(t *testing.T) {
 	base := BundleMCP{
 		Command:      "postgres-mcp",
@@ -542,20 +551,6 @@ func TestBundleMCP_ContentPayload_IsHashPreimage(t *testing.T) {
 	// pins the exact byte layout and its field ORDER (JSONEq below is
 	// order-insensitive and would not catch a misplaced version carrier).
 	assert.JSONEq(t, `{"preimage":"ctxloom-exec/2","command":"postgres-mcp","args":["--host","db"],"env":{"PGUSER":"admin"},"url":"","headers":null,"installation":"npm i -g postgres-mcp"}`, string(payload))
-}
-
-func TestBundleHook_ContentPayload_IsHashPreimage(t *testing.T) {
-	hook := BundleHook{
-		Matcher:         "Bash",
-		Type:            "command",
-		Command:         "echo hi",
-		Prompt:          "",
-		PreToolFallback: true,
-	}
-
-	payload, err := hook.ContentPayload()
-	require.NoError(t, err)
-	assert.Equal(t, hashContent(payload), hook.ComputeContentHash())
 }
 
 // skillFileSpec is one file of a staged skill package.
@@ -1801,7 +1796,7 @@ func TestLoader_ResolveFragmentAsk(t *testing.T) {
 	assert.Equal(t, "nope", resolve("nope"))
 }
 
-func TestBundleHook_ComputeContentHash(t *testing.T) {
+func TestBundleHook_TrustHash(t *testing.T) {
 	base := BundleHook{
 		Matcher:         "Bash",
 		Command:         "echo hi",
@@ -1811,15 +1806,15 @@ func TestBundleHook_ComputeContentHash(t *testing.T) {
 		Async:           true,
 		PreToolFallback: true,
 	}
-	baseHash := base.ComputeContentHash()
+	baseHash := hookTrustHash(t, base)
 	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, baseHash)
-	assert.Equal(t, baseHash, base.ComputeContentHash(), "deterministic across calls")
+	assert.Equal(t, baseHash, hookTrustHash(t, base), "deterministic across calls")
 
 	// Operational knobs (Timeout/Async) are excluded from the executable hash.
 	knobs := base
 	knobs.Timeout = 99
 	knobs.Async = false
-	assert.Equal(t, baseHash, knobs.ComputeContentHash(), "Timeout/Async must not change the hash")
+	assert.Equal(t, baseHash, hookTrustHash(t, knobs), "Timeout/Async must not change the hash")
 
 	// Each executable-surface field is part of the hash.
 	for name, mut := range map[string]func(*BundleHook){
@@ -1831,7 +1826,7 @@ func TestBundleHook_ComputeContentHash(t *testing.T) {
 	} {
 		changed := base
 		mut(&changed)
-		assert.NotEqualf(t, baseHash, changed.ComputeContentHash(), "%s must be part of the hash", name)
+		assert.NotEqualf(t, baseHash, hookTrustHash(t, changed), "%s must be part of the hash", name)
 	}
 }
 

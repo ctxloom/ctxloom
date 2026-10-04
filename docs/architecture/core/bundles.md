@@ -176,7 +176,7 @@ flowchart TD
 | `BundleSkill.ContentPayload(fsys, bundleDir, skillName) ([]byte, error)` | `bundles.go:570` | Canonical JSON `{preimage: "ctxloom-exec/1", manifest: EffectiveManifest()}`. **Takes a filesystem** since `8d9da20c`: a manifest-less skill's manifest is derived from the real tree rather than being empty, so the preimage is content-bound in both shapes |
 | `BundleMCP.ContentPayload() ([]byte, error)` | `bundles.go` | Canonical JSON of `mcpContentPayload` (the field set, in byte order); the classified non-executable fields are excluded |
 | `BundleHook.ContentPayload() ([]byte, error)` | `bundles.go:632` | Canonical JSON `{preimage, matcher, type, command, prompt, pre_tool_fallback}`, where `command` is `BundleHook.Line()` — `Command` itself in shell form, the single-quoted argv in exec form (`Args`), so shell hooks keep byte-identical preimages; `Timeout` and `Async` are excluded because they are not executable content |
-| `Compute*ContentHash` / `EffectiveContentHash` | `bundles.go` | `hashContent` over the corresponding payload; `BundleHook.ComputeContentHash` falls back to a per-hook digest on the unreachable marshal error |
+| `Compute*ContentHash` / `EffectiveContentHash` | `bundles.go` | `hashContent` over the corresponding payload. A hook or MCP server has no hash method: its trust hash is `HashPayload(ContentPayload())` |
 | `BundleSkill.ToManifest()` | `bundles.go:480` | `Files` map to the sorted slice the preimage encodes |
 | `BundleHooks.Entries()` / `EntryByID(id)` | `bundles.go:228` / `:241` | All hooks in the canonical `hookEventOrder` (`bundles.go:184`), and the reverse lookup from `<event>/<index>`; malformed or out-of-range ids fail closed |
 

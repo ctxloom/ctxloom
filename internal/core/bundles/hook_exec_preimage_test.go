@@ -31,8 +31,8 @@ func TestBundleHook_ExecArgsAreBoundByTheirLine(t *testing.T) {
 	exec := BundleHook{Command: "ctxloom", Args: []string{"hook", "session-bind"}, Type: "command"}
 	other := BundleHook{Command: "ctxloom", Args: []string{"hook", "stamp-plan"}, Type: "command"}
 	shell := BundleHook{Command: `'ctxloom' 'hook' 'session-bind'`, Type: "command"}
-	assert.NotEqual(t, exec.ComputeContentHash(), other.ComputeContentHash(), "the arguments are part of what runs")
-	assert.Equal(t, shell.ComputeContentHash(), exec.ComputeContentHash(), "one argv, one preimage")
+	assert.NotEqual(t, hookTrustHash(t, exec), hookTrustHash(t, other), "the arguments are part of what runs")
+	assert.Equal(t, hookTrustHash(t, shell), hookTrustHash(t, exec), "one argv, one preimage")
 }
 
 // TestParseBundle_ReadsExecFormHookArgs: a bundle declares an exec-form hook

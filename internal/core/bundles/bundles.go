@@ -1269,8 +1269,8 @@ type hookContentPayload struct {
 // wherever it is wired. encoding/json provides the determinism (stable field
 // order).
 //
-// This is the SINGLE preimage builder for a hook: ComputeContentHash below
-// hashes exactly this function's output, and a countersignature covers exactly
+// This is the SINGLE preimage builder for a hook: its trust hash is HashPayload
+// over exactly this function's output, and a countersignature covers exactly
 // it too. Mirrors BundleMCP.ContentPayload — same "already-shipped
 // canonicalization, not a new one" contract, and the same versioned first field
 // (signing.ExecPreimageContract, spec §3.3.2).
@@ -1292,21 +1292,6 @@ func (h *BundleHook) ContentPayload() ([]byte, error) {
 // are bound with no change to the payload's field set or contract version.
 func (h *BundleHook) Line() string {
 	return wire.Hook{Command: h.Command, Args: h.Args}.Line()
-}
-
-// ComputeContentHash hashes a canonical encoding of the hook's executable
-// surface. This is the hash a bundle-hook trust grant binds to (trust rework,
-// TR5); a hook has no distilled form, so there is one hash.
-func (h *BundleHook) ComputeContentHash() string {
-	data, err := h.ContentPayload()
-	if err != nil {
-		// Unreachable (only strings + a bool). Fail closed rather than panic,
-		// and to a digest DISTINCT per hook/failure, not a shared constant: one
-		// constant standing in for many different items is exactly the defect
-		// a content hash exists to prevent.
-		return hashContent(fmt.Appendf(nil, "ctxloom:hook-content-hash-error:%s:%s:%v", h.Matcher, h.Line(), err))
-	}
-	return hashContent(data)
 }
 
 // HasMCP returns true if bundle includes any MCP servers.

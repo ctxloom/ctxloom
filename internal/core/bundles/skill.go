@@ -90,10 +90,9 @@ func (m SkillManifest) Serialize() []byte {
 // TestSkillManifestEntry_HoldsOnlyStringsSoMarshalCannotFail).
 //
 // It is factored out so it can be exercised directly, and it is DISTINCT per
-// manifest rather than a shared constant, for the same reason
-// BundleHook.ComputeContentHash's fallback is distinct per hook: these
-// bytes are a signature PREIMAGE, so one constant standing in for many
-// different manifests would make a single signature verify against all of them.
+// manifest rather than a shared constant: these bytes are a signature
+// PREIMAGE, so one constant standing in for many different manifests would
+// make a single signature verify against all of them.
 func skillManifestSerializeFallback(m SkillManifest, err error) []byte {
 	identity := make([]string, 0, len(m))
 	for _, e := range m.sorted() {

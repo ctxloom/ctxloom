@@ -18,6 +18,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/logboot"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -56,6 +57,7 @@ retry the right way. See https://ctxloom.dev/ltk/rules/ for the full rule model.
 	}
 	root.PersistentFlags().String("format", string(clifmt.FormatText),
 		"Output format: json, yaml, toml, text, or markdown")
+	schemaver.BindWriteUpgrades(root.PersistentFlags())
 	root.AddCommand(newEvaluateCmd(), newCheckCmd(), newManageCmd(), newVersionCmd(), newLoadoutCmd())
 	registerDocsCmd(root)
 	return root

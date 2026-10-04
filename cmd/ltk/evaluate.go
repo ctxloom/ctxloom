@@ -110,7 +110,7 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 			"%s is misconfigured: unknown --shell %q (known: %s); denying everything it guards until the hook command is fixed",
 			progName, forceShell, knownShells()))
 	}
-	cfg, resolved, err := loadConfig(cfgPath)
+	cfg, resolved, err := loadConfig(cfgPath, os.Stderr)
 	if err != nil {
 		// A rules file was named (--config) or found by the search, but could not
 		// be read or parsed. Erroring out here would fail OPEN — exit 1 disables

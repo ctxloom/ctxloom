@@ -366,6 +366,8 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role, parent string
 				// delegation privilege-scoping guarantee.
 				PermissionMode: rec.Permission,
 				MCPServers:     rec.MCPServers,
+				Cause:          e.Cause,
+				Detail:         e.Detail,
 				Hold:           holds[rec.RunID],
 			})
 		}

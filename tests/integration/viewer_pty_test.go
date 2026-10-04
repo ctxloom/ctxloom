@@ -24,14 +24,10 @@ import (
 // termui.Controller/tui.Overlay directly rather than through `ctxloom run`.
 //
 // Gotcha for anyone extending this file: SetupMockLM writes config.yaml at
-// ctxloomconfig.CurrentConfigVersion, so loading it never triggers the
-// interactive "rewrite to the current schema?" confirmation. A config
-// version behind CurrentConfigVersion WOULD trigger it the moment BOTH
-// stdin and stdout are a real tty (internal/adapters/cli/run.go's confirmUpgrade /
-// isInteractiveTerminal) — which a pty always is — hanging every RunPTY
-// invocation below on an unanswered prompt. If MockLM ever falls behind the
-// schema again, pass -y (runAssumeYes) to auto-commit the upgrade rather
-// than reintroducing the hang.
+// ctxloomconfig.CurrentConfigVersion, so loading it applies no in-memory
+// schema upgrade. A config behind it would make every run report the pending
+// rewrite on stderr (internal/adapters/cli/run.go's confirmUpgrade) unless
+// -y (runAssumeYes) applies it.
 //
 // Ordering: a mock turn ends the instant it has written its reply, and the
 // viewer cannot engage once the session has closed (Controller.Close makes

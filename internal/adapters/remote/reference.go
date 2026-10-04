@@ -30,8 +30,9 @@ import (
 //   - "https://github.com/owner/repo@bundles/name"
 //   - "https://git.example.com/group/repo@fragments/security"
 //
-// SSH URL:
+// SSH (scp-like, any user):
 //   - "git@github.com:owner/repo@bundles/name"
+//   - "forge@gitlab.example.com:group/repo@bundles/name"
 //   - "git@git.example.com:group/subgroup/repo@prompts/review"
 //
 // File URL (local repositories):
@@ -78,16 +79,18 @@ func ParseReference(ref string) (*Reference, error) {
 	if strings.HasPrefix(ref, "https://") || strings.HasPrefix(ref, "http://") {
 		return parseHTTPSReference(ref)
 	}
-	if strings.HasPrefix(ref, "git@") {
-		return parseSSHReference(ref)
-	}
 	if strings.HasPrefix(ref, "file://") {
 		return parseFileReference(ref)
 	}
+	// scp-like, any user. Tested after every "://" form: a scheme URL may
+	// carry userinfo and is not scp.
+	if refuri.IsSCPForm(ref) {
+		return parseSSHReference(ref)
+	}
 
 	// No recognized scheme: the short "repo/path" form has been eliminated.
-	// References must be scheme-qualified — a canonical URL (https://, git@,
-	// file://) or a local ref (ctxloom:local@...).
+	// References must be scheme-qualified — a canonical URL (https://,
+	// user@host:path, file://) or a local ref (ctxloom:local@...).
 	return nil, fmt.Errorf("unsupported reference %q: use a canonical URL "+
 		"(e.g. https://github.com/owner/repo@bundles/name) or ctxloom:local@bundles/name "+
 		"— the short \"repo/path\" form is no longer accepted", ref)
@@ -98,7 +101,7 @@ func ParseReference(ref string) (*Reference, error) {
 // expansion happens, used wherever refs are consumed (cascade, sync collection,
 // profile resolution).
 //
-//   - A scheme-qualified canonical ref (https://, git@, file://) or an explicit
+//   - A scheme-qualified canonical ref (https://, user@host:path, file://) or an explicit
 //     ctxloom:local ref is already self-contained and is returned unchanged.
 //   - Anything else is a short same-repo ref ("demo", "lang/go", "demo@v1") and
 //     is expanded against sourceURL: the containing item's source. sourceURL is
@@ -268,41 +271,43 @@ func parseHTTPSReference(ref string) (*Reference, error) {
 	}, nil
 }
 
-// parseSSHReference parses SSH URLs like:
+// parseSSHReference parses git's scp-like references, for ANY ssh user:
 //   - git@github.com:owner/repo@bundles/name (latest)
-//   - git@github.com:owner/repo@bundles/name@v1.2.3 (pinned)
+//   - forge@gitlab.example.com:group/repo@bundles/name@v1.2.3 (pinned)
 //
-// Format: git@<host>:<path>@<type>/<path>@<content_version>
+// Format: <user>@<host>:<path>@<type>/<path>[@<content_version>]
+//
+// The repository half is parsed by refuri's grammar and rendered by its
+// transport renderer (CloneArg), never re-assembled here: the scp user is
+// transport — it selects the user's ssh key — and survives into the clone,
+// while the repository identity (ParseRepoIdentity) drops it by construction.
 func parseSSHReference(ref string) (*Reference, error) {
-	// SSH format: git@host:path@type/name[@contentVersion]
-	// Find the @ that separates the item path (not the git@ prefix)
-
-	// Skip "git@" prefix
-	afterGit := ref[4:]
-
-	// Find colon that separates host from path
-	hostPart, pathPart, found := strings.Cut(afterGit, ":")
-	if !found {
+	// The item tail is introduced by the first "@" after the host's ":";
+	// the "@" before the ":" is the scp user's.
+	user, rest, _ := strings.Cut(ref, "@")
+	host, pathPart, found := strings.Cut(rest, ":")
+	if !found || host == "" {
 		return nil, fmt.Errorf("invalid SSH URL format: %s", ref)
 	}
-
-	// Find @ that separates repo from item path
 	repoPath, remainder, found := strings.Cut(pathPart, "@") // remainder: type/path[@contentVersion]
 	if !found {
 		return nil, fmt.Errorf("SSH URL reference missing item path: %s (expected @<type>/<path>)", ref)
 	}
+	if repoPath == "" {
+		return nil, fmt.Errorf("invalid SSH URL format: %s", ref)
+	}
+	repo, err := ParseRepoURL(ref[:len(user)+1+len(host)+1+len(repoPath)])
+	if err != nil {
+		return nil, fmt.Errorf("invalid SSH URL reference %s: %w", ref, err)
+	}
 
-	// Reconstruct SSH URL without type/path
-	repoURL := fmt.Sprintf("git@%s:%s", hostPart, repoPath)
-
-	// Parse the remainder: type/path[@contentVersion]
 	itemType, itemPath, contentVersion, err := parseTypePathVersion(remainder)
 	if err != nil {
 		return nil, fmt.Errorf("invalid SSH URL reference %s: %w", ref, err)
 	}
 
 	return &Reference{
-		URL:            repoURL,
+		URL:            repo.CloneArg(),
 		ItemType:       itemType,
 		Path:           itemPath,
 		ContentVersion: contentVersion,
@@ -764,10 +769,10 @@ func ExtractRepoName(repoURL string) string {
 	switch {
 	case strings.HasPrefix(repoURL, "https://"), strings.HasPrefix(repoURL, "http://"):
 		return lastURLPathComponent(repoURL)
-	case strings.HasPrefix(repoURL, "git@"):
-		return sshRepoName(repoURL)
 	case strings.HasPrefix(repoURL, "file://"):
 		return lastURLPathComponent(repoURL)
+	case refuri.IsSCPForm(repoURL):
+		return sshRepoName(repoURL)
 	}
 	return sanitizePath(repoURL)
 }
@@ -786,9 +791,9 @@ func lastURLPathComponent(repoURL string) string {
 	return sanitizePath(repoURL)
 }
 
-// sshRepoName returns the repo name from a git@host:owner/repo URL.
+// sshRepoName returns the repo name from a user@host:owner/repo URL.
 func sshRepoName(repoURL string) string {
-	re := regexp.MustCompile(`^git@[^:]+:(.+)$`)
+	re := regexp.MustCompile(`^[^@]*@[^:]+:(.+)$`)
 	if matches := re.FindStringSubmatch(repoURL); len(matches) == 2 {
 		parts := strings.Split(matches[1], "/")
 		if len(parts) > 0 {

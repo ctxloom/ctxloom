@@ -90,9 +90,8 @@ did before.
 
 **The ingest rule lives in one place** (`ingest.add`): two arriving
 fragments are the same content — and the second is dropped — when they name
-the SAME item (`identityKey`: `trust.Ref.Key`, source-agnostic, so a
-project bundle that shadows a builtin and the builtin's own injection
-collapse to one) AND their bytes are identical ignoring surrounding
+the SAME item (`identityKey`: `trust.BundleRef.Identity`, source-qualified
+and version-less, so two sources' items of one name stay two) AND their bytes are identical ignoring surrounding
 whitespace. The first occurrence is kept; nothing reorders.
 
 ## Per-engine exports are opaque blocks

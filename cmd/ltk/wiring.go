@@ -111,7 +111,7 @@ func loadConfig(path string, diag io.Writer) (*rules.Config, string, error) {
 		return nil, path, err
 	}
 	if len(r.Applied) > 0 && schemaver.WriteUpgrades() {
-		if err := schemaver.WriteBack(afero.NewOsFs(), path, r, nil); err != nil {
+		if err := schemaver.WriteBack(afero.NewOsFs(), path, r, schemaver.KeepBackup); err != nil {
 			return nil, path, err
 		}
 		fmt.Fprintf(diag, "%s: upgraded %s to %s %d (the previous file is kept as %s%s)\n",

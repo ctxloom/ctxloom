@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -114,6 +115,34 @@ func TestSurfaceCurrencies_ReportsAMaterializedFileTheCompositionMovedAwayFrom(t
 	got, ok = currencyFor(surfaces, "claude-code")
 	require.True(t, ok)
 	assert.Equal(t, string(agent.StatusStale), got.Status, "the file holds last week's copy")
+}
+
+// TestMaterialize_RedeliversASectionTheUserRemoved: materialize is the
+// explicit delivery command, so a user who deleted ctxloom's section from
+// CLAUDE.md gets it back on the next materialize, with their own text kept,
+// and the check reports the file delivered again.
+func TestMaterialize_RedeliversASectionTheUserRemoved(t *testing.T) {
+	const mine = "# my own notes\n"
+	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
+	contextPath := filepath.Join(workDir, "CLAUDE.md")
+	require.NoError(t, os.WriteFile(contextPath, []byte(mine), 0o644))
+	materializeInto(t, cfg, "claude-code", workDir)
+
+	// The user deletes the section and goes on editing their own text, so
+	// the file is neither what ctxloom wrote nor what it found.
+	const edited = mine + "\nmore of mine\n"
+	require.NoError(t, os.WriteFile(contextPath, []byte(edited), 0o644))
+	materializeInto(t, cfg, "claude-code", workDir)
+
+	got, err := os.ReadFile(contextPath)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(string(got), edited), "the user's own text is kept; got %q", got)
+	assert.Contains(t, string(got), "SECURITY-RULES", "the managed section is back")
+	surfaces, errs := surfaceCurrencies(context.Background(), engines.Registry(), cfg, afero.NewOsFs(), workDir)
+	assert.Empty(t, errs)
+	cur, ok := currencyFor(surfaces, "claude-code")
+	require.True(t, ok)
+	assert.Equal(t, string(agent.StatusDelivered), cur.Status, "detail was %q", cur.Detail)
 }
 
 // TestContextFileCurrency_ReadsOnlyWhatTheRecordOwns: a context file the

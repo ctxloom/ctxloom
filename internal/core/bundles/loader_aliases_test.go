@@ -25,8 +25,7 @@ func TestLoader_SeededCanonical_ResolvesAndLists(t *testing.T) {
 	require.NoError(t, err)
 	assert.Same(t, b, got, "the canonical ref resolves to the seeded bundle")
 
-	infos, err := loader.List()
-	require.NoError(t, err)
+	infos := loader.List()
 	var names []string
 	for _, bi := range infos {
 		names = append(names, bi.Name)

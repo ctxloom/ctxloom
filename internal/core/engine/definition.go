@@ -56,6 +56,24 @@ type Definition struct {
 	// Version is how to ask the engine's binary for its version. The zero
 	// value means the engine has no binary to ask (a double).
 	Version VersionCommand
+	// DelegatedChildren is whether delegated children (agent_run) may run on this
+	// engine — PROVIDED once the engine has been reviewed onto the runner's
+	// StartRun path, ABSENT with the reason otherwise — and, when provided,
+	// whether a one-shot child resumes by native key. Validate refuses it
+	// undecided, so a new engine is reviewed onto delegation explicitly.
+	DelegatedChildren Declared[DelegatedChildren]
+}
+
+// DelegatedChildren is how delegated children run on an engine that admits
+// them.
+// It is the port's one declared capability flag: admission is a REVIEW
+// verdict (the engine's per-backend delta from StartRun was checked empty),
+// not a property any method could demonstrate.
+type DelegatedChildren struct {
+	// ResumesByKey: a one-shot child is torn down at each turn boundary and
+	// resumed by its native session key. Instance.Resume is real exactly
+	// when this is true, and refuses with ErrUnsupported otherwise.
+	ResumesByKey bool
 }
 
 // VersionCommand is the argv an engine's binary answers its version to and
@@ -209,7 +227,7 @@ func (d Base) Delegate(items Items) Delegation {
 }
 
 // Validate is the non-kind coherence check the constructor runs once: Name
-// set and lowercase, a decided Distribution, Modes non-empty, a CLI grammar
+// set and lowercase, a decided Distribution and DelegatedChildren, Modes non-empty, a CLI grammar
 // per Mode, every declared approach named with at least one root, and a
 // dynamic approach only on an engine that declares MCP (the endpoint is
 // named through the MCP file). Kinds need no check: the type did it.
@@ -234,6 +252,9 @@ func (d Base) validateHeader() error {
 	}
 	if !d.Distribution.Decided() {
 		return fmt.Errorf("%w: %s declares Distribution %s; an undeclared policy must not default-ship", ErrDefinition, d.Name, d.Distribution)
+	}
+	if !d.DelegatedChildren.Decided() {
+		return fmt.Errorf("%w: %s leaves DelegatedChildren undecided; provide it or declare it absent with the reason", ErrDefinition, d.Name)
 	}
 	if d.Dynamic != nil && d.MCP == nil {
 		return fmt.Errorf("%w: %s: a dynamic approach needs an MCP approach to name the endpoint", ErrDefinition, d.Name)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // Switches over ItemType used to fall through to `return nil, nil` / `return
@@ -50,8 +51,8 @@ func TestItemType_IsTheSameVocabularyAsOperations(t *testing.T) {
 	assert.Equal(t, "fragment", string(ItemTypeFragment), "the value rides in refs and in operations' kind check")
 	assert.Equal(t, "command", string(ItemTypeCommand))
 
-	assert.Equal(t, "fragments/", itemRefPrefix(ItemTypeFragment))
-	assert.Equal(t, "commands/", itemRefPrefix(ItemTypeCommand))
+	assert.Equal(t, "fragments/x", trust.FormatSelector(itemKindOf(ItemTypeFragment), "x"))
+	assert.Equal(t, "commands/x", trust.FormatSelector(itemKindOf(ItemTypeCommand), "x"))
 
 	// Round-trip through the operations boundary: what the CLI names and what
 	// the core validates are the same value, so no conversion can lose anything.

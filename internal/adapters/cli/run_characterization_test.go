@@ -511,3 +511,34 @@ func TestRunCharacterization_DryRunRefusesAMissingBundleLikeARun(t *testing.T) {
 	assert.Contains(t, res.all(), "does-not-exist")
 	assert.Contains(t, res.all(), "=== LLM ===", "the preview is rendered")
 }
+
+// TestConfirmUpgrade_ReportsWithoutYesAndRewritesWithIt pins armored-willow's
+// decision for the schema rewrite: no question is asked. Without --yes the
+// pending rewrite is REPORTED, naming the flag that applies it, and the file
+// is never touched; --yes applies it.
+func TestConfirmUpgrade_ReportsWithoutYesAndRewritesWithIt(t *testing.T) {
+	saved := runAssumeYes
+	t.Cleanup(func() { runAssumeYes = saved })
+
+	commits := 0
+	commit := func() error { commits++; return nil }
+
+	runAssumeYes = false
+	out := captureStderr(t, func() { confirmUpgrade("profiles/dev.yaml", []string{"v1->v2"}, commit) })
+	assert.Zero(t, commits, "without --yes the file is never rewritten")
+	assert.Contains(t, out, "profiles/dev.yaml", "the pending rewrite is reported")
+	assert.Contains(t, out, "--yes", "the report names the flag that applies it")
+
+	runAssumeYes = true
+	captureStderr(t, func() { confirmUpgrade("profiles/dev.yaml", []string{"v1->v2"}, commit) })
+	assert.Equal(t, 1, commits, "--yes applies the rewrite")
+}
+
+// TestRunYesFlag_MeansApply: run's --yes means "apply", never "assume yes
+// for a prompt" — there is no prompt left for it to answer.
+func TestRunYesFlag_MeansApply(t *testing.T) {
+	f := runCmd.Flags().Lookup("yes")
+	require.NotNil(t, f)
+	assert.NotContains(t, strings.ToLower(f.Usage), "assume yes")
+	assert.NotContains(t, strings.ToLower(f.Usage), "prompt")
+}

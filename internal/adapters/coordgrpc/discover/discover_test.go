@@ -20,11 +20,15 @@ func endpointPath(home, projectKey, rootHarp string) string {
 	return filepath.Join(home, ".ctxloom", "coord", projectKey, rootHarp, "endpoint.json")
 }
 
+// writeEndpointAt writes a root's endpoint.json as its LIVE coordinator
+// would: holding the root's owner lock until the test ends
+// (releaseOwnerLock kills that writer).
 func writeEndpointAt(t *testing.T, path, body string, at time.Time) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
 	require.NoError(t, os.Chtimes(path, at, at))
+	holdOwnerLock(t, path)
 }
 
 func writeEndpoint(t *testing.T, home, projectKey, body string, at time.Time) {

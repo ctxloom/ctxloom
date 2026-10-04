@@ -164,7 +164,7 @@ type ContentInfo struct {
 }
 
 // ListAllFragments returns info about all fragments across all bundles.
-func (c Catalog) ListAllFragments() ([]ContentInfo, error) {
+func (c Catalog) ListAllFragments() []ContentInfo {
 	var infos []ContentInfo
 	seen := collections.NewSet[string]()
 
@@ -194,7 +194,7 @@ func (c Catalog) ListAllFragments() ([]ContentInfo, error) {
 		}
 	}
 
-	return infos, nil
+	return infos
 }
 
 // ListAllCommands returns info about all commands across all bundles. Unlike
@@ -205,7 +205,7 @@ func (c Catalog) ListAllFragments() ([]ContentInfo, error) {
 // fabricated placeholder. This is a genuine, permanent shape difference
 // between the two item kinds, not drift to reconcile.
 // reprise:accept-drift
-func (c Catalog) ListAllCommands() ([]ContentInfo, error) {
+func (c Catalog) ListAllCommands() []ContentInfo {
 	seen := collections.NewSet[string]()
 	var infos []ContentInfo
 	for _, read := range c.Reads() {
@@ -232,7 +232,7 @@ func (c Catalog) ListAllCommands() ([]ContentInfo, error) {
 		}
 	}
 
-	return infos, nil
+	return infos
 }
 
 // ReadFragment reports every fragment this reader holds under name, with the
@@ -576,11 +576,8 @@ func (c Catalog) searchCommand(name string) ([]*ItemRead, error) {
 }
 
 // ByTags returns fragments matching any of the given tags.
-func (c Catalog) ByTags(tags []string) ([]ContentInfo, error) {
-	all, err := c.ListAllFragments()
-	if err != nil {
-		return nil, err
-	}
+func (c Catalog) ByTags(tags []string) []ContentInfo {
+	all := c.ListAllFragments()
 
 	tagSet := collections.NewSetFrom(tags...)
 
@@ -591,7 +588,7 @@ func (c Catalog) ByTags(tags []string) ([]ContentInfo, error) {
 		}
 	}
 
-	return matched, nil
+	return matched
 }
 
 // ExpandedRef is one fragment produced by expanding a profile bundle reference.
@@ -653,6 +650,19 @@ func (l *Loader) ExpandBundleRefs(refs []string) []ExpandedRef {
 	return out
 }
 
+// expandedFragmentName mints an ExpandedRef.Name from a canonical bundle ref
+// and a "<kind>/<name>" selector. The name is the one trust.ParseSelector
+// returns — normalised — never the selector text it was handed: a profile's
+// selector and a bundle-authored fragment name are both outside input, and
+// this Name is what every downstream surface prints and keys on.
+func expandedFragmentName(canonical, sel string) (string, error) {
+	kind, name, err := trust.ParseSelector(sel)
+	if err != nil {
+		return "", err
+	}
+	return canonical + "#" + kind.Dir() + "/" + name, nil
+}
+
 // expandBundleRef returns the canonical fragment refs for a single ref.
 // See ExpandBundleRefs for the supported syntax.
 func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
@@ -682,23 +692,39 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 		}
 	}
 	if sep != -1 {
-		bundleName := ref[:sep]
-		rest := ref[sep+1:]
-		if !strings.HasPrefix(rest, "fragments/") {
-			// Targeted at commands, mcp, or unknown — not a fragment ref.
-			return nil
-		}
-		// The bundle part may pin a content version ("bundle@<commit>"); keep it
-		// (the read path resolves the cherry-pick at that commit) while the
-		// emitted Name stays the version-agnostic canonical identity.
-		canonical, version, err := splitBundleVersion(bundleName)
-		if err != nil {
-			l.Catalog().warnUnresolvedBundle(bundleName, err)
-			return nil
-		}
-		return []ExpandedRef{{Name: canonical + "#" + rest, Version: version}}
+		return l.expandTargetedRef(ref, sep)
 	}
+	return l.expandWholeBundle(ref)
+}
 
+// expandTargetedRef expands a ref that selects one item, whose selector starts
+// at sep; anything but a fragment selector expands to nothing.
+func (l *Loader) expandTargetedRef(ref string, sep int) []ExpandedRef {
+	bundleName := ref[:sep]
+	rest := ref[sep+1:]
+	if !strings.HasPrefix(rest, "fragments/") {
+		// Targeted at commands, mcp, or unknown — not a fragment ref.
+		return nil
+	}
+	// The bundle part may pin a content version ("bundle@<commit>"); keep it
+	// (the read path resolves the cherry-pick at that commit) while the
+	// emitted Name stays the version-agnostic canonical identity.
+	canonical, version, err := splitBundleVersion(bundleName)
+	if err != nil {
+		l.Catalog().warnUnresolvedBundle(bundleName, err)
+		return nil
+	}
+	name, err := expandedFragmentName(canonical, rest)
+	if err != nil {
+		l.Catalog().warnUnresolvedBundle(ref, err)
+		return nil
+	}
+	return []ExpandedRef{{Name: name, Version: version}}
+}
+
+// expandWholeBundle expands a ref naming a whole bundle into every fragment it
+// holds.
+func (l *Loader) expandWholeBundle(ref string) []ExpandedRef {
 	// Whole-bundle ref: enumerate every fragment in the bundle. A pinned
 	// "@<commit>" enumerates that historical version (its fragment set may
 	// differ from the default) and stamps every item with the commit so each
@@ -723,7 +749,12 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 	}
 	out := make([]ExpandedRef, 0, len(read.Bundle.Fragments))
 	for fragName := range read.Bundle.Fragments {
-		out = append(out, ExpandedRef{Name: canonical + remote.FragmentSelector + fragName, Version: version})
+		name, err := expandedFragmentName(canonical, trust.KindFragment.Dir()+"/"+fragName)
+		if err != nil {
+			l.Catalog().warnUnresolvedBundle(ref, err)
+			continue
+		}
+		out = append(out, ExpandedRef{Name: name, Version: version})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

@@ -64,22 +64,17 @@ func bundleLoader(cfg *config.Config) *bundles.Loader {
 }
 
 // ListFragments returns all fragments matching the criteria.
-func ListFragments(ctx context.Context, cfg *config.Config, req ListFragmentsRequest) (*ListFragmentsResult, error) {
+func ListFragments(ctx context.Context, cfg *config.Config, req ListFragmentsRequest) *ListFragmentsResult {
 	loader := req.Loader
 	if loader == nil {
 		loader = bundleLoader(cfg)
 	}
 
 	var infos []bundles.ContentInfo
-	var err error
-
 	if len(req.Tags) > 0 {
-		infos, err = loader.ListByTags(req.Tags)
+		infos = loader.ListByTags(req.Tags)
 	} else {
-		infos, err = loader.ListAllFragments()
-	}
-	if err != nil {
-		return nil, err
+		infos = loader.ListAllFragments()
 	}
 
 	// Filter by query if provided
@@ -113,7 +108,7 @@ func ListFragments(ctx context.Context, cfg *config.Config, req ListFragmentsReq
 		})
 	}
 
-	return result, nil
+	return result
 }
 
 // GetFragmentRequest contains parameters for getting a fragment.

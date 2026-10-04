@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -29,13 +28,12 @@ func testSignerKeyLine(t *testing.T) string {
 	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey())))
 }
 
-// TestRunSignerTrust_YesFlagSkipsPromptAndWrites drives the full CLI-layer
-// `signer trust` path (confirmation → operations.AddSigner) with --yes so no
-// TTY is needed, then verifies the entry actually landed via
+// TestRunSignerTrust_YesFlagWrites drives the full CLI-layer `signer trust`
+// path (--yes → operations.AddSigner), then verifies the entry actually landed via
 // operations.ShowSigner — the same round trip operations/signer_test.go
 // already proves cryptographically; this test is about the CLI wiring
-// (flag plumbing, confirmation gate, output).
-func TestRunSignerTrust_YesFlagSkipsPromptAndWrites(t *testing.T) {
+// (flag plumbing, the --yes gate, output).
+func TestRunSignerTrust_YesFlagWrites(t *testing.T) {
 	_, cfg := setupSignTestDir(t)
 	line := testSignerKeyLine(t)
 
@@ -50,25 +48,28 @@ func TestRunSignerTrust_YesFlagSkipsPromptAndWrites(t *testing.T) {
 	assert.Equal(t, []string{signing.NamespacePublish}, found[0].Entry.Namespaces)
 }
 
-func TestRunSignerTrust_NonInteractiveProceedsWithoutYesFlag(t *testing.T) {
+// TestRunSignerTrust_WithoutYesShowsTheKeyAndTrustsNothing: there is no
+// confirmation prompt. Without --yes the command DISCLOSES what trusting
+// would mean — the fingerprint to verify and the consequence — then fails
+// naming --yes, and writes nothing; it never assumes an answer, on a terminal
+// or off one.
+func TestRunSignerTrust_WithoutYesShowsTheKeyAndTrustsNothing(t *testing.T) {
 	_, cfg := setupSignTestDir(t)
-	// project=false below writes to the USER store (~/.ctxloom/allowed_signers)
-	// — redirect HOME to a throwaway dir so this test can NEVER touch the
-	// real developer's home directory, regardless of who runs it or where.
 	t.Setenv("HOME", t.TempDir())
 	line := testSignerKeyLine(t)
+	key := testSignerKeyInfo(t, line)
 
 	cmd, _ := testCmd()
-	// isInteractiveTerminal() is false in the test process (no TTY), so this
-	// must proceed even without --yes — the confirmation is TTY-gated the
-	// same way the trust-review menus are.
+	var errBuf bytes.Buffer
+	cmd.SetErr(&errBuf)
 	err := runSignerTrust(cmd, cfg, "ci@example.com", line, []string{"approve"}, "", false, false)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, errSignerTrustNeedsYes)
+	assert.Contains(t, err.Error(), "--yes", "the failure names the flag that applies it")
+	assert.Contains(t, promptLines(errBuf.String()), fmt.Sprintf("%s  (%s)", key.Fingerprint, key.PublicKey.Type()))
 
 	found, err := operations.ShowSigner(cfg, "ci@example.com", nil)
 	require.NoError(t, err)
-	require.Len(t, found, 1)
-	assert.Equal(t, []string{signing.NamespaceApprove}, found[0].Entry.Namespaces)
+	assert.Empty(t, found, "without --yes nothing is trusted")
 }
 
 func TestRunSignerTrust_ProjectFlagWritesProjectStore(t *testing.T) {
@@ -253,26 +254,14 @@ func TestSignerConsequenceText_NamesConcreteConsequence(t *testing.T) {
 	assert.Contains(t, approve, "delegating your review decisions")
 }
 
-// --- the trust-consequence prompt -----------------------------------------
-
-// feedPromptStdin points the CLI's shared stdin reader (prompt.go's stdinReader,
-// the one primitive every interactive prompt funnels through) at a canned
-// answer for the duration of one test, restoring the real one afterwards. It
-// is the existing seam — no production code changes to make prompts readable —
-// and the reason these tests must not run in parallel with each other.
-func feedPromptStdin(t *testing.T, answer string) {
-	t.Helper()
-	saved := stdinReader
-	stdinReader = bufio.NewReader(strings.NewReader(answer))
-	t.Cleanup(func() { stdinReader = saved })
-}
+// --- the trust-consequence disclosure ------------------------------------
 
 // testSignerKeyInfo builds a real parsed SignerKeyInfo (real ssh key, real
 // SHA256 fingerprint) so the prompt assertions below are about bytes the
 // command actually renders, not a hand-written placeholder.
-func testSignerKeyInfo(t *testing.T) operations.SignerKeyInfo {
+func testSignerKeyInfo(t *testing.T, line string) operations.SignerKeyInfo {
 	t.Helper()
-	pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(testSignerKeyLine(t)))
+	pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
 	require.NoError(t, err)
 	return operations.SignerKeyInfo{PublicKey: pub, Fingerprint: ssh.FingerprintSHA256(pub)}
 }
@@ -321,32 +310,30 @@ func TestSignerPromptPins_AreTheProductionSentences(t *testing.T) {
 		promptLines(signerConsequenceText([]string{signing.NamespaceApprove})))
 }
 
-// TestPromptSignerTrust_ShowsFingerprintRoleAndConsequence pins the prompt.
-// The prompt this renders is the most consequential confirmation in the
-// product — it is the moment a user grants a key the right to reach their
-// agent unreviewed, forever — and until this test nothing asserted it is
-// actually shown: it wrote to os.Stderr directly, and every existing test took
-// either the --yes or the non-interactive path, both of which skip it
-// entirely. Deleting the whole Fprintf would have kept the suite green.
-//
-// It now writes to cmd.ErrOrStderr(), so this asserts the three things a user
-// needs in order to make the decision at all: the FINGERPRINT they are told to
-// verify out of band, the ROLE word naming how broad the grant is, and the
-// CONSEQUENCE sentence naming what it lets through.
-func TestPromptSignerTrust_ShowsFingerprintRoleAndConsequence(t *testing.T) {
-	key := testSignerKeyInfo(t)
+// disclosedSignerTrust runs `signer trust` WITHOUT --yes and returns the
+// block it disclosed on stderr, as parsed lines, and the key it was given.
+func disclosedSignerTrust(t *testing.T, principal string, namespaces []string) ([]string, operations.SignerKeyInfo) {
+	t.Helper()
+	_, cfg := setupSignTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	cmd, _ := testCmd()
+	var errBuf bytes.Buffer
+	cmd.SetErr(&errBuf)
+	line := testSignerKeyLine(t)
+	require.ErrorIs(t, runSignerTrust(cmd, cfg, principal, line, namespaces, "", true, false), errSignerTrustNeedsYes)
+	return promptLines(errBuf.String()), testSignerKeyInfo(t, line)
+}
 
+// TestSignerTrustDisclosure_ShowsFingerprintRoleAndConsequence pins the
+// disclosure. It is the most consequential text in the product — the moment
+// a user grants a key the right to reach their agent unreviewed, forever —
+// so it asserts the three things a user needs in order to decide at all:
+// the FINGERPRINT to verify out of band, the ROLE word naming how broad the
+// grant is, and the CONSEQUENCE sentence naming what it lets through.
+func TestSignerTrustDisclosure_ShowsFingerprintRoleAndConsequence(t *testing.T) {
 	t.Run("a publish grant is named as a PUBLISHER grant", func(t *testing.T) {
-		feedPromptStdin(t, "y\n")
-		cmd, _ := testCmd()
-		var errBuf bytes.Buffer
-		cmd.SetErr(&errBuf)
-
-		assert.True(t, promptSignerTrust(cmd, "context@acme.com", key, []string{signing.NamespacePublish}),
-			`an explicit "y" is a yes`)
-
-		lines := promptLines(errBuf.String())
-		assert.Contains(t, lines, "Trust context@acme.com as a PUBLISHER?",
+		lines, key := disclosedSignerTrust(t, "context@acme.com", nil)
+		assert.Contains(t, lines, "Trust context@acme.com as a PUBLISHER",
 			"the header must name the principal and the role")
 		assert.Contains(t, lines, fmt.Sprintf("%s  (%s)", key.Fingerprint, key.PublicKey.Type()),
 			"the fingerprint the user is told to verify, and its key type, must actually be shown")
@@ -355,21 +342,14 @@ func TestPromptSignerTrust_ShowsFingerprintRoleAndConsequence(t *testing.T) {
 		assert.Contains(t, lines, signerPublishConsequenceLine1,
 			"the publish consequence must be shown, not merely computed — and it must say executables")
 		assert.Contains(t, lines, signerPublishConsequenceLine2,
-			"including the WITHOUT REVIEW clause, which is the whole point of asking")
+			"including the WITHOUT REVIEW clause")
 		assert.NotContains(t, lines, signerApproveConsequenceLine2,
 			"a publish grant must not be described with the narrower review-delegation wording")
 	})
 
 	t.Run("an approve-only grant is named as a REVIEWER grant", func(t *testing.T) {
-		feedPromptStdin(t, "y\n")
-		cmd, _ := testCmd()
-		var errBuf bytes.Buffer
-		cmd.SetErr(&errBuf)
-
-		assert.True(t, promptSignerTrust(cmd, "lead@team.example", key, []string{signing.NamespaceApprove}))
-
-		lines := promptLines(errBuf.String())
-		assert.Contains(t, lines, "Trust lead@team.example as a REVIEWER?")
+		lines, key := disclosedSignerTrust(t, "lead@team.example", []string{"approve"})
+		assert.Contains(t, lines, "Trust lead@team.example as a REVIEWER")
 		assert.Contains(t, lines, fmt.Sprintf("%s  (%s)", key.Fingerprint, key.PublicKey.Type()))
 		assert.Contains(t, lines, signerPromptVerifyLine)
 		assert.Contains(t, lines, signerApproveConsequenceLine1)
@@ -377,39 +357,18 @@ func TestPromptSignerTrust_ShowsFingerprintRoleAndConsequence(t *testing.T) {
 		assert.NotContains(t, lines, signerPublishConsequenceLine2,
 			"a review-delegation grant must not borrow the broader publish consequence")
 	})
-
-	// Nothing but an explicit yes may add a signer: a bare newline, an
-	// unrecognised answer, and a closed stdin all leave the key untrusted.
-	for name, answer := range map[string]string{
-		"an explicit no":       "n\n",
-		"a bare newline":       "\n",
-		"an unrecognised word": "maybe\n",
-		"a closed stdin":       "",
-	} {
-		t.Run(name+" is not consent", func(t *testing.T) {
-			feedPromptStdin(t, answer)
-			cmd, _ := testCmd()
-			var errBuf bytes.Buffer
-			cmd.SetErr(&errBuf)
-
-			assert.False(t, promptSignerTrust(cmd, "context@acme.com", key, []string{signing.NamespacePublish}))
-			assert.Contains(t, promptLines(errBuf.String()),
-				fmt.Sprintf("%s  (%s)", key.Fingerprint, key.PublicKey.Type()),
-				"the prompt is still shown before the answer is read")
-		})
-	}
 }
 
-// TestConfirmSignerTrust_YesFlagAsksNothing keeps the gate promptSignerTrust was
-// split out from pinned: --yes must not render the prompt at all (and must not
-// consume the answer stdin is holding for something else).
-func TestConfirmSignerTrust_YesFlagAsksNothing(t *testing.T) {
+// TestRunSignerTrust_YesTrustsWithoutTheBlock: --yes applies; the block is
+// the preview, so the applying run does not repeat it (its result line
+// carries the fingerprint).
+func TestRunSignerTrust_YesTrustsWithoutTheBlock(t *testing.T) {
+	_, cfg := setupSignTestDir(t)
 	cmd, _ := testCmd()
 	var errBuf bytes.Buffer
 	cmd.SetErr(&errBuf)
-
-	assert.True(t, confirmSignerTrust(cmd, "context@acme.com", testSignerKeyInfo(t), []string{signing.NamespacePublish}, true))
-	assert.Empty(t, errBuf.String(), "--yes skips the confirmation entirely")
+	require.NoError(t, runSignerTrust(cmd, cfg, "context@acme.com", testSignerKeyLine(t), nil, "", true, true))
+	assert.Empty(t, errBuf.String())
 }
 
 // --- printSignerListings --------------------------------------------------
@@ -430,21 +389,20 @@ const (
 	hostilePrincipalEscaped = "evil@example.com^[[1A^[[2K^Mtrusted@acme.com^H"
 )
 
-// TestPromptSignerTrust_PrincipalControlBytesAreEscaped covers the sharpest
-// display path in the product: the "Trust X as a PUBLISHER?" line, where X is
-// supplied by the entity seeking trust. Control bytes reaching the terminal
-// here can rewrite the very line the operator is reading to decide.
-func TestPromptSignerTrust_PrincipalControlBytesAreEscaped(t *testing.T) {
-	key := testSignerKeyInfo(t)
-	feedPromptStdin(t, "n\n")
+// TestSignerTrustDisclosure_PrincipalControlBytesAreEscaped covers the
+// sharpest display path in the product: the "Trust X as a PUBLISHER" line,
+// where X is supplied by the entity seeking trust. Control bytes reaching the
+// terminal here can rewrite the very line the operator is reading to decide.
+func TestSignerTrustDisclosure_PrincipalControlBytesAreEscaped(t *testing.T) {
+	_, cfg := setupSignTestDir(t)
+	t.Setenv("HOME", t.TempDir())
 	cmd, _ := testCmd()
 	var errBuf bytes.Buffer
 	cmd.SetErr(&errBuf)
-
-	promptSignerTrust(cmd, hostilePrincipal, key, []string{signing.NamespacePublish})
+	_ = runSignerTrust(cmd, cfg, hostilePrincipal, testSignerKeyLine(t), nil, "", true, false)
 
 	out := errBuf.String()
-	assert.Contains(t, out, "Trust "+hostilePrincipalEscaped+" as a PUBLISHER?",
+	assert.Contains(t, out, "Trust "+hostilePrincipalEscaped+" as a PUBLISHER",
 		"the principal must render in caret form, on its own line, losing no bytes")
 	assert.NotContains(t, out, "\x1b", "no raw ESC may reach the terminal")
 	assert.NotContains(t, out, "\r", "no raw CR may reach the terminal")

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 )
@@ -309,4 +310,30 @@ func TestSweep_RefusesInvalidHarp(t *testing.T) {
 	hostHome(t)
 	_, err := Sweep(NewHomeMapper(), "../escape", DirIn)
 	require.Error(t, err)
+}
+
+// TestConsume_AnEmptyFileNeverReplacesARoutedRecord pins that every spool
+// transition renames through the empty-overwrite guard: a zero-byte file under
+// a name out/consumed/ already holds must not replace that record, because an
+// empty spool file is a dropped message. The collision is forced by routing
+// one message, then planting an empty file under the same name back in out/.
+func TestConsume_AnEmptyFileNeverReplacesARoutedRecord(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	ref, before := seedOut(t, m, "routed once\n")
+	moved, err := Consume(m, ref, time.Now())
+	require.NoError(t, err)
+
+	livePath, err := m.Resolve(ref)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(livePath, nil, 0o600))
+
+	_, err = Consume(m, ref, time.Now())
+	require.ErrorIs(t, err, safefs.ErrEmptyOverwrite)
+
+	routedPath, err := m.Resolve(moved)
+	require.NoError(t, err)
+	after, err := os.ReadFile(routedPath)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "the routed record is intact")
 }

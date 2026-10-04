@@ -81,3 +81,12 @@ func TestRegistry_DefaultScaffoldIsCurrent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, r.Applied, "the embedded default remotes.yaml must declare %s %d", schemaver.Key, remotesKind.Current())
 }
+
+// A remotes file that is not YAML is its parse failure, not a version fault.
+func TestRegistry_MalformedIsAParseFailureNotAVersionFault(t *testing.T) {
+	fs := seedRemotes(t, "remotes: [unterminated\n")
+	_, err := NewRegistry(remotesTestPath, WithRegistryFS(fs))
+	require.Error(t, err)
+	var ve *schemaver.VersionError
+	assert.NotErrorAs(t, err, &ve)
+}

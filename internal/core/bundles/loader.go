@@ -157,10 +157,10 @@ func (l *Loader) Find(name string) (string, error) { return l.Catalog().Find(nam
 // the resolved set (Catalog), and the loader's part is only to produce that
 // set. A caller that already holds one should ask it directly.
 
-func (l *Loader) ListAllFragments() ([]ContentInfo, error) { return l.Catalog().ListAllFragments() }
-func (l *Loader) ListAllCommands() ([]ContentInfo, error)  { return l.Catalog().ListAllCommands() }
-func (l *Loader) ListAllSkills() ([]SkillInfo, error)      { return l.Catalog().ListAllSkills() }
-func (l *Loader) ListByTags(tags []string) ([]ContentInfo, error) {
+func (l *Loader) ListAllFragments() []ContentInfo     { return l.Catalog().ListAllFragments() }
+func (l *Loader) ListAllCommands() []ContentInfo      { return l.Catalog().ListAllCommands() }
+func (l *Loader) ListAllSkills() ([]SkillInfo, error) { return l.Catalog().ListAllSkills() }
+func (l *Loader) ListByTags(tags []string) []ContentInfo {
 	return l.Catalog().ByTags(tags)
 }
 func (l *Loader) ReadFragment(name string) ([]*ItemRead, error) {
@@ -184,8 +184,8 @@ func (l *Loader) ResolveFragmentAsk(name string) string { return l.Catalog().Res
 // A listing that wants a NARROWER set asks the resolved Catalog for it
 // (Catalog.Scoped(...).Infos()) rather than filtering this result: BundleInfo
 // carries no provenance, so a filter applied out here has nothing to filter on.
-func (l *Loader) List() ([]*BundleInfo, error) {
-	return l.Catalog().Infos(), nil
+func (l *Loader) List() []*BundleInfo {
+	return l.Catalog().Infos()
 }
 
 // BundleInfo holds metadata about a bundle without loading full content.

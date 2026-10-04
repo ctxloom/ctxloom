@@ -164,9 +164,18 @@ func refusedExit() error {
 	return &ExitError{Code: exitCodeRefused}
 }
 
+// The line reportRefusedAdvances closes each refusal with, by its cause.
+const (
+	msgRefusedTamper = "  There is nothing to accept: a signature that does not cover its bytes is a tamper signal, not unsigned content, so it is never offered for review. " +
+		"Ask the publisher to re-sign and publish again, then re-run 'ctxloom deps upgrade'."
+	msgRefusedUnreadable = "  This is not a signature failure: the content could not be read as a bundle, so nothing about its signature was established. " +
+		"If the reason above is a fault in the bundle, the publisher must fix it and publish again; then re-run 'ctxloom deps upgrade'."
+)
+
 // reportRefusedAdvances says, for each pin upgrade declined to move, the three
-// things a human needs and cannot infer: WHICH bundle, that its new content's
-// signature does not verify, and WHICH pin is being kept instead.
+// things a human needs and cannot infer: WHICH bundle, WHY its new content was
+// refused (operations.RefusalCause — only a signature failure is worded as a
+// tamper signal), and WHICH pin is being kept instead.
 //
 // It names no command that cannot help. `ctxloom review` in particular is
 // wrong here by construction — bytes a signature does not cover are never
@@ -174,17 +183,26 @@ func refusedExit() error {
 // answers "Nothing is pending review." and teaches them the message is noise.
 func reportRefusedAdvances(refused []operations.RefusedAdvance) {
 	for _, r := range refused {
-		if r.BelowFloor {
+		if r.Cause == operations.RefusalBelowFloor {
 			fmt.Printf("REFUSED to advance %s: the content at %s is not signed at or above the version this project last pinned (%s).\n",
 				r.Identity, shortSHA(r.ProposedSHA), r.Detail)
 			fmt.Printf("  Keeping the pin %s. Whoever controls the repository can re-serve an older signed release; if going back is what you intend, re-run with --allow-downgrade %s.\n",
 				shortSHA(r.KeptSHA), r.Identity)
 			continue
 		}
-		fmt.Printf("REFUSED to advance %s: the publisher signature on the content at %s does not verify over those bytes (%s).\n",
-			r.Identity, shortSHA(r.ProposedSHA), r.Detail)
+		if r.Cause == operations.RefusalSignature {
+			fmt.Printf("REFUSED to advance %s: the publisher signature on the content at %s does not verify over those bytes (%s).\n",
+				r.Identity, shortSHA(r.ProposedSHA), r.Detail)
+		} else {
+			fmt.Printf("REFUSED to advance %s: the content at %s could not be read as a bundle (%s).\n",
+				r.Identity, shortSHA(r.ProposedSHA), r.Detail)
+		}
 		fmt.Printf("  Keeping the last verified pin %s — your assistant goes on receiving the content at that pin.\n", shortSHA(r.KeptSHA))
-		fmt.Println("  There is nothing to accept: a signature that does not cover its bytes is a tamper signal, not unsigned content, so it is never offered for review. Ask the publisher to re-sign and publish again, then re-run 'ctxloom deps upgrade'.")
+		if r.Cause == operations.RefusalSignature {
+			fmt.Println(msgRefusedTamper)
+		} else {
+			fmt.Println(msgRefusedUnreadable)
+		}
 	}
 }
 

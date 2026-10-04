@@ -275,8 +275,7 @@ func TestListLocalBundleNames_MatchesTheLoadersEnumeration(t *testing.T) {
 	names, err := ListLocalBundleNames(cfg, fs)
 	require.NoError(t, err)
 
-	infos, err := bundles.NewLoader(bundles.NewProjectReader(fs, cfg.GetBundleDirs())).List()
-	require.NoError(t, err)
+	infos := bundles.NewLoader(bundles.NewProjectReader(fs, cfg.GetBundleDirs())).List()
 	var want []string
 	for _, b := range infos {
 		want = append(want, b.Name)

@@ -42,7 +42,7 @@ taskloom manage install [flags]
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
       --homing homing            Task-store location for this invocation: "home" keeps it private under ~/.ctxloom/tasks (today's default behavior); "repo" checks it into .taskloom/tasks.jsonl so it travels with clones. Overrides the homing key in .taskloom/config.yaml and TASKLOOM_CONFIG_HOMING.
       --json                     shorthand for --format json (for jq)
-      --write-upgrades           Persist in-memory upgrades of older-format files (the old file is kept as <file>.bak)
+      --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
 ```
 
 ### SEE ALSO

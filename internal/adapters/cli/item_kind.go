@@ -24,15 +24,6 @@ const (
 	ItemTypeCommand  = operations.ItemKindCommand
 )
 
-// itemRefPrefix returns the selector directory an item kind is WRITTEN under
-// in a reference ("fragments/", "commands/"). It only ever mints; the parse
-// side of the grammar is trust.ParseSelector, reached through
-// bundles.ParseItemAsk. A free function rather than a method because the kind
-// is owned by the operations core.
-func itemRefPrefix(t ItemType) string {
-	return string(t) + "s/"
-}
-
 // itemKindOf is the trust item kind an ItemType addresses. The two
 // vocabularies differ by exactly one word — a command is WRITTEN "#commands/"
 // but STORED under trust.KindPrompt, so existing grants survive the item-kind
@@ -59,11 +50,11 @@ func itemRefTarget(ref string, itemType ItemType) (bundleName, itemName string, 
 		return "", "", err
 	}
 	if !ask.Scoped {
-		return "", "", fmt.Errorf("invalid reference format: expected bundle#%sname (got %q)", itemRefPrefix(itemType), ref)
+		return "", "", fmt.Errorf("invalid reference format: expected bundle#%s (got %q)", trust.FormatSelector(itemKindOf(itemType), "name"), ref)
 	}
 	if want := itemKindOf(itemType); ask.Kind != want {
-		return "", "", fmt.Errorf("%q selects a %s, not a %s (expected bundle#%sname)",
-			ref, ask.Kind.Dir(), itemRefPrefix(itemType), itemRefPrefix(itemType))
+		return "", "", fmt.Errorf("%q selects a %s, not a %s (expected bundle#%s)",
+			ref, trust.FormatSelector(ask.Kind, ""), trust.FormatSelector(itemKindOf(itemType), ""), trust.FormatSelector(itemKindOf(itemType), "name"))
 	}
 	if ask.Bundle == "" {
 		return "", "", fmt.Errorf("invalid reference: missing bundle name in %q", ref)

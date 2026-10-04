@@ -135,11 +135,10 @@ commands:
 func TestListCommands_AllPrompts(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
-	result, err := ListCommands(context.Background(), nil, ListCommandsRequest{
+	result := ListCommands(context.Background(), nil, ListCommandsRequest{
 		Loader: loader,
 	})
 
-	require.NoError(t, err)
 	assert.Equal(t, 4, result.Count) // code-review, refactor, commit, explain
 	assert.Len(t, result.Commands, 4)
 }
@@ -147,12 +146,11 @@ func TestListCommands_AllPrompts(t *testing.T) {
 func TestListCommands_WithQuery(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
-	result, err := ListCommands(context.Background(), nil, ListCommandsRequest{
+	result := ListCommands(context.Background(), nil, ListCommandsRequest{
 		Query:  "code",
 		Loader: loader,
 	})
 
-	require.NoError(t, err)
 	// Should match "code-review" by name
 	assert.GreaterOrEqual(t, result.Count, 1)
 
@@ -169,12 +167,11 @@ func TestListCommands_WithQuery(t *testing.T) {
 func TestListCommands_SortAscending(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
-	result, err := ListCommands(context.Background(), nil, ListCommandsRequest{
+	result := ListCommands(context.Background(), nil, ListCommandsRequest{
 		SortOrder: "asc",
 		Loader:    loader,
 	})
 
-	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(result.Commands), 2)
 
 	// Verify sorted ascending
@@ -186,12 +183,11 @@ func TestListCommands_SortAscending(t *testing.T) {
 func TestListCommands_SortDescending(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
-	result, err := ListCommands(context.Background(), nil, ListCommandsRequest{
+	result := ListCommands(context.Background(), nil, ListCommandsRequest{
 		SortOrder: "desc",
 		Loader:    loader,
 	})
 
-	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(result.Commands), 2)
 
 	// Verify sorted descending

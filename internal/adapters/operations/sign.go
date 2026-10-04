@@ -67,7 +67,7 @@ type SignTarget struct {
 // remote's git tree (only that remote's own publisher can sign it), and a
 // companion loadout is signed where it is built (`just sign-loadouts`), not
 // here. Both are reported as clear, actionable errors rather than silently
-// skipped; a retired spelling (trust.IsRetiredAskSpelling) is refused by name
+// skipped; a retired spelling (trust.IsRetiredAtEntry) is refused by name
 // so a stale instruction fails loud instead of resolving to a local bundle.
 func ResolveSignTarget(ref string) (SignTarget, error) {
 	if ref == "" {
@@ -83,7 +83,7 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 		}
 	}
 
-	if trust.IsRetiredAskSpelling(ref) {
+	if trust.IsRetiredAtEntry(ref) {
 		return SignTarget{}, fmt.Errorf("ctxloom bundle sign: %w: %q — see `ctxloom bundle sign --help`; "+
 			"re-run `ctxloom init` to migrate a project", errs.ErrRetiredRefSpelling, ref)
 	}

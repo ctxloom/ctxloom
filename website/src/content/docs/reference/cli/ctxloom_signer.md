@@ -20,8 +20,8 @@ own embedded trust root.
 Trusting a signer is the single most consequential command in the signing
 feature: everything that key ever publishes (or approves, for an
 approve-namespace key) reaches your agent WITHOUT REVIEW, forever, until you
-untrust it. 'signer trust' names that consequence and shows the fingerprint
-you are supposed to verify out of band before continuing.
+untrust it. 'signer trust' without --yes names that consequence and shows the
+fingerprint you are supposed to verify out of band; re-run with --yes to trust.
 
   ctxloom signer                         List trusted signers
   ctxloom signer show <principal>        Show every trust-root entry for one
@@ -41,7 +41,7 @@ ctxloom signer [flags]
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
-      --write-upgrades           Persist in-memory upgrades of older-format files (the old file is kept as <file>.bak)
+      --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
 ```
 
 ### SEE ALSO

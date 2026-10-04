@@ -201,15 +201,6 @@ func (c *Config) GetDefaultAgent() string { return c.defaultAgent }
 // stamp each entry's Name from its key and sort the result.
 func (c *Config) GetConfiguredAgents() map[string]agents.Agent { return cloneAgentsMap(c.agents) }
 
-// GetPendingUpgrade returns the PROJECT (or home, when no project layer)
-// pending schema upgrade, or nil when the on-disk schema was already
-// current.
-func (c *Config) GetPendingUpgrade() *PendingUpgrade { return c.pendingUpgrade }
-
-// GetHomePendingUpgrade returns the HOME layer's pending schema upgrade
-// (only populated when a project layer also exists), or nil.
-func (c *Config) GetHomePendingUpgrade() *PendingUpgrade { return c.homePendingUpgrade }
-
 // GetLMConfig returns a copy of the whole LLM registry + role-default block.
 func (c *Config) GetLMConfig() LMConfig { return cloneLMConfig(c.lm) }
 

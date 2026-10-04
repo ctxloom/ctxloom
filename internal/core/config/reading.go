@@ -10,16 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
-// PendingUpgrade is a schema upgrade the reader applied in memory to one
-// config layer and has NOT written back: Data is the upgraded document, Path
-// the file it came from. CommitUpgrade / CommitHomeUpgrade persist it after
-// the caller has prompted.
-type PendingUpgrade struct {
-	Path    string
-	Data    []byte
-	Applied []string
-}
-
 // Builder is the reading half's hand-off into the value: adapters/configload
 // learns WHICH directories participate, reads and merges the layers, and
 // records what it saw here; Build hands out the Config. Nothing but the
@@ -66,13 +56,6 @@ func (b *Builder) Warn(k WarningKind, format string, args ...any) {
 // specific than its kind's generic one (see Warning.Remedy).
 func (b *Builder) WarnRemedy(k WarningKind, remedy, format string, args ...any) {
 	b.cfg.warn(k, remedy, format, args...)
-}
-
-// SetPendingUpgrades records the project (or sole) layer's and the home
-// layer's pending schema upgrades; nil means that layer was current.
-func (b *Builder) SetPendingUpgrades(project, home *PendingUpgrade) {
-	b.cfg.pendingUpgrade = project
-	b.cfg.homePendingUpgrade = home
 }
 
 // Decode populates the value from the merged, override-resolved document.

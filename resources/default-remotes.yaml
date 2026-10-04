@@ -8,6 +8,8 @@
 # Source trust (trusting a location, hash-blind) was deleted — trust is a
 # property of the publisher key now, never of the remote.
 
+schema_version: 1
+
 remotes:
   ctxloom-default:
     url: https://github.com/ctxloom/ctxloom-default

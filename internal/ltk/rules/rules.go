@@ -14,6 +14,8 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
@@ -35,7 +37,6 @@ const MaxConfirmWindowSeconds = 30
 
 // Config is the top-level YAML document.
 type Config struct {
-	Version  int      `yaml:"version"`
 	Defaults Defaults `yaml:"defaults"`
 	// Rules are command rules, matched against every parsed shell command.
 	Rules []CommandRule `yaml:"rules"`
@@ -693,17 +694,43 @@ func isShortCluster(tok string, shell ir.Shell) bool {
 	return true
 }
 
-// Parse decodes and validates a config from YAML bytes. Unknown fields are
-// rejected so that typos in a rule file surface as errors instead of being
-// silently ignored.
+// configKind versions the rules file. Its format generation is consumed by
+// schemaver before the strict decode, which is why Config carries no version
+// field. LegacyKey: ltk configs spelled their version `version` before
+// schemaver existed. ltk has no older format, so its first generation is
+// schemaver.IntroduceKey.
+var configKind = schemaver.Kind{
+	Name:      "ltk config",
+	LegacyKey: "version",
+	Oldest:    0,
+	Steps:     []upgrade.Upgrader{schemaver.IntroduceKey},
+}
+
+// Parse decodes and validates a config from YAML bytes, migrating an older
+// format in memory first. Unknown fields are rejected so that typos in a rule
+// file surface as errors instead of being silently ignored.
 func Parse(data []byte) (*Config, error) {
+	r, err := configKind.Upgrade(data)
+	if err != nil {
+		return nil, err
+	}
+	return parseCurrent(r.Data)
+}
+
+// parseCurrent decodes a document already at configKind.Current().
+func parseCurrent(data []byte) (*Config, error) {
 	if err := checkRemovedForms(data); err != nil {
 		return nil, err
 	}
-	var cfg Config
-	if err := yamlx.DecodeStrict(data, &cfg); err != nil {
+	// The strict decode must accept schemaver.Key without Config carrying it.
+	var doc struct {
+		Config        `yaml:",inline"`
+		SchemaVersion int `yaml:"schema_version"`
+	}
+	if err := yamlx.DecodeStrict(data, &doc); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	cfg := doc.Config
 	if err := cfg.normalizeAndValidate(); err != nil {
 		return nil, err
 	}
@@ -722,13 +749,23 @@ func Empty() *Config {
 	return &cfg
 }
 
-// Load reads and parses a config file.
-func Load(pathname string) (*Config, error) {
+// Load reads and parses a config file. The Result reports any in-memory
+// migration; persisting it (schemaver.WriteBack) is the caller's decision,
+// because only the caller knows whether this invocation asked for it.
+func Load(pathname string) (*Config, schemaver.Result, error) {
 	data, err := os.ReadFile(pathname)
 	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+		return nil, schemaver.Result{}, fmt.Errorf("read config: %w", err)
 	}
-	return Parse(data)
+	r, err := configKind.Upgrade(data)
+	if err != nil {
+		return nil, schemaver.Result{}, err
+	}
+	cfg, err := parseCurrent(r.Data)
+	if err != nil {
+		return nil, schemaver.Result{}, err
+	}
+	return cfg, r, nil
 }
 
 func (c *Config) normalizeAndValidate() error {

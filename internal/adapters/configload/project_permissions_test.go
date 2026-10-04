@@ -27,7 +27,7 @@ import (
 // project config that declares the key is read back through the accessor the
 // resolution chain consults.
 func TestProjectPermissions_HonoredFromProjectLayer(t *testing.T) {
-	cfg := writeLayers(t, "", "version: 6\npermissions:\n  sandbox: full\n")
+	cfg := writeLayers(t, "", "schema_version: 6\npermissions:\n  sandbox: full\n")
 
 	assert.Equal(t, "full", cfg.GetPermissions().Sandbox,
 		"a project config's declared permission default must be honored")
@@ -46,8 +46,8 @@ func TestProjectPermissions_HonoredFromProjectLayer(t *testing.T) {
 // the rule entirely) makes home's grant stick and turns this red.
 func TestProjectPermissions_HomeLayerIsIgnored(t *testing.T) {
 	cfg := writeLayers(t,
-		"version: 6\npermissions:\n  sandbox: full\n",
-		"version: 6\n",
+		"schema_version: 6\npermissions:\n  sandbox: full\n",
+		"schema_version: 6\n",
 	)
 
 	assert.True(t, cfg.GetPermissions().IsZero(),
@@ -73,7 +73,7 @@ func TestProjectPermissions_EnvCannotGrantIt(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("version: 6\n"), 0644)
+	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("schema_version: 6\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir),
 		WithOverrides(confload.Overrides{Env: map[string]any{"PERMISSIONS": "bypass"}}))

@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"testing"
@@ -103,7 +104,7 @@ func TestStampPlanFile_IsReadableByPlansParser(t *testing.T) {
 			path := filepath.Join(dir, "thing.plan.md")
 			require.NoError(t, os.WriteFile(path, []byte(tc.initial), 0o644))
 
-			require.NoError(t, StampPlanFile(path, "wave81"))
+			require.NoError(t, StampPlanFile(afero.NewOsFs(), path, "wave81"))
 
 			data, err := os.ReadFile(path)
 			require.NoError(t, err)
@@ -174,7 +175,7 @@ func TestStampPlanFile_UnterminatedFrontmatterAgreesWithReader(t *testing.T) {
 
 			// Fixture check: the writer must genuinely reject this document, or
 			// the reader has nothing to agree with.
-			err := StampPlanFile(path, "wave81")
+			err := StampPlanFile(afero.NewOsFs(), path, "wave81")
 			require.Error(t, err, "the writer is expected to refuse an unterminated block")
 			require.ErrorContains(t, err, "no closing")
 

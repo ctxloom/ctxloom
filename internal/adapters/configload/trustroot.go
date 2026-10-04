@@ -101,7 +101,7 @@ func (c *signerFiles) trustStore() *allowedsigners.Store {
 // bytes never change — nothing here edits
 // embedded_signers.allowed_signers or the binary — this filters the STORE
 // value each time a generation's root is built, so a suppression
-// (`signer remove <embedded-principal>`) takes effect from the next generation
+// (`signer untrust <embedded-principal>`) takes effect from the next generation
 // (config.Owner.Reload) with nothing to invalidate.
 func (c *signerFiles) embeddedSignersTrusted() *allowedsigners.Store {
 	store := EmbeddedSigners()
@@ -147,7 +147,7 @@ func filterSuppressedPrincipals(store *allowedsigners.Store, suppressed map[stri
 // paths.DistrustedSignersPath), one principal per line, blank/`#`-comment
 // lines skipped. This is the SAME two-location shape as allowed_signers, so a
 // team can commit a project-wide distrust decision exactly like they commit a
-// project-wide trust decision (`signer remove <embedded-principal>
+// project-wide trust decision (`signer untrust <embedded-principal>
 // --project`).
 //
 // Never fails: a missing file simply contributes nothing. This reporting form

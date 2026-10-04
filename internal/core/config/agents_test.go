@@ -67,7 +67,7 @@ func TestConfig_LegacySubagentsKey_WarnsNeverErrors(t *testing.T) {
 	// contribute anything.
 	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeAppConfig(t, appDir, `version: 5
+	writeAppConfig(t, appDir, `schema_version: 6
 subagents:
   dev:
     llm: claude-code

@@ -54,12 +54,10 @@ func TestAssembleRejectsInvalidRuleSet(t *testing.T) {
 
 // The shipped, embedded sample must be exactly what the doc assembles to.
 //
-// THIS TEST IS THE DRIFT GATE. The -check flag exists to enforce the same
-// invariant from a hook, but nothing invokes it: the justfile runs the no-arg
-// form, lefthook.yml has no extract-defaults entry, and no CI workflow
-// mentions it. So if this test does not run, or skips itself, the invariant is
-// unguarded — which is why it resolves the doc from a compiled-in source path
-// and fails rather than skipping when it cannot find one.
+// The -check flag enforces the same invariant from `just gen-docs-check`; this
+// test enforces it wherever the test suite runs. It resolves the doc from a
+// compiled-in source path and fails rather than skipping when it cannot find
+// one, because a drift gate that can skip itself is not a gate.
 func TestEmbeddedSampleMatchesDoc(t *testing.T) {
 	md := readModuleFile(t, source)
 	want, err := assemble(md, minDefaultRules)

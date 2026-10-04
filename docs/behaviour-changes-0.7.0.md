@@ -41,13 +41,19 @@ install. **Upgrade the client first.**
 Nothing lets a bundle declare a minimum client version today, which is why this
 is silent rather than refused.
 
-## 2. A config older than the current schema is refused, not repaired
+## 2. A config outside the format generations this ctxloom reads is refused
 
-Version-gated upgraders are gone. A `config.yaml` declaring a version below the
-current one — or declaring none, which is the pre-versioning generation — now
-fails with a migration finding naming the file, the version it declares, and
-`ctxloom init` as the remedy. The pending-upgrade consent path remains as an
-empty frame for future versions.
+Each `config.yaml` layer declares its format generation as `schema_version`.
+A layer declaring a generation below the oldest this ctxloom migrates — or
+declaring none — fails with a migration finding naming the file, the version
+it declares, and `ctxloom init` as the remedy. A layer declaring a generation
+NEWER than this ctxloom knows fails the same way, naming both numbers, with
+upgrading ctxloom as the remedy. The `version` key is read as the legacy
+spelling of `schema_version`.
+
+An older layer is migrated in memory and its file is left alone; `ctxloom run`
+no longer offers to rewrite it. Pass `--write-upgrades` to any command to
+persist the migration (the previous file is kept beside it as `<file>.bak`).
 
 ## 3. The config-level `hooks:` block is gone
 

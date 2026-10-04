@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/spf13/afero"
 	"io"
 	"os"
 	"path/filepath"
@@ -22,7 +23,7 @@ import (
 )
 
 func TestCompactor_SessionToText(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}
 
 	session := &agent.Session{
 		ID: "test-session",
@@ -77,17 +78,17 @@ func TestCompactor_SessionToText_ThinkingExcludedByDefault(t *testing.T) {
 		},
 	}
 
-	suppressed, _ := (&Compactor{config: CompactionConfig{}}).sessionToText(session)
+	suppressed, _ := (&Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}).sessionToText(session)
 	assert.Contains(t, suppressed, "ASK")
 	assert.Contains(t, suppressed, "CONCLUSION")
 	assert.NotContains(t, suppressed, "SCRATCH_REASONING_TEXT", "thinking content must not reach distillation by default")
 
-	included, _ := (&Compactor{config: CompactionConfig{IncludeThinking: true}}).sessionToText(session)
+	included, _ := (&Compactor{fs: afero.NewOsFs(), config: CompactionConfig{IncludeThinking: true}}).sessionToText(session)
 	assert.Contains(t, included, "SCRATCH_REASONING_TEXT", "IncludeThinking:true must preserve the escape hatch")
 }
 
 func TestCompactor_SessionToText_TruncatesLargeContent(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}
 
 	// Large tool input and output (> 500 chars)
 	largeContent := make([]byte, 600)
@@ -109,7 +110,7 @@ func TestCompactor_SessionToText_TruncatesLargeContent(t *testing.T) {
 }
 
 func TestCompactor_SessionToText_ErrorFlag(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}
 
 	session := &agent.Session{
 		Entries: []agent.SessionEntry{
@@ -128,7 +129,7 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 	const harp = "round-trip-harp"
 	out := recordOutputDir(t, harp)
 
-	c := &Compactor{config: CompactionConfig{OutputDir: tmpDir}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{OutputDir: tmpDir}}
 	path, err := c.saveDistilled("round-trip", "## Summary\nDistilled body.", distilledMeta{
 		HarpName:   harp,
 		EntryCount: 12,
@@ -143,7 +144,7 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 	// the other half of the same write.
 	assert.Equal(t, filepath.Join(out, paths.EssenceFileName), path, "the essence is written in the session's output dir")
 
-	loaded, err := LoadDistilledSession(tmpDir, "round-trip")
+	loaded, err := LoadDistilledSession(afero.NewOsFs(), tmpDir, "round-trip")
 	require.NoError(t, err)
 	assert.Equal(t, "round-trip", loaded.SessionID)
 	assert.Equal(t, 300, loaded.TokensOut)
@@ -165,7 +166,7 @@ func TestLoadDistilledSession(t *testing.T) {
 		"# Session summary\n\nDistilled content here\n"
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "abc123.md"), []byte(frontmatter), 0644))
 
-	loaded, err := LoadDistilledSession(tmpDir, "abc123")
+	loaded, err := LoadDistilledSession(afero.NewOsFs(), tmpDir, "abc123")
 	require.NoError(t, err)
 
 	assert.Equal(t, "abc123", loaded.SessionID)
@@ -175,7 +176,7 @@ func TestLoadDistilledSession(t *testing.T) {
 func TestLoadDistilledSession_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	_, err := LoadDistilledSession(tmpDir, "nonexistent")
+	_, err := LoadDistilledSession(afero.NewOsFs(), tmpDir, "nonexistent")
 	assert.Error(t, err)
 }
 
@@ -186,7 +187,7 @@ func TestListDistilledSessions(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "def456.md"), []byte("---\nsession_id: def456\n---\n\n# x\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "other.txt"), []byte("ignored"), 0644))
 
-	sessions, err := ListDistilledSessions(tmpDir)
+	sessions, err := ListDistilledSessions(afero.NewOsFs(), tmpDir)
 	require.NoError(t, err)
 
 	assert.Len(t, sessions, 2)
@@ -197,7 +198,7 @@ func TestListDistilledSessions(t *testing.T) {
 func TestListDistilledSessions_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	sessions, err := ListDistilledSessions(tmpDir)
+	sessions, err := ListDistilledSessions(afero.NewOsFs(), tmpDir)
 	require.NoError(t, err)
 	assert.Empty(t, sessions)
 }
@@ -214,6 +215,7 @@ func TestCompactor_RunDistill_WithMockClient(t *testing.T) {
 	}
 
 	c := &Compactor{
+		fs: afero.NewOsFs(),
 		config: CompactionConfig{
 			Run:       runnerOver(mockClient),
 			OutputDir: tmpDir,
@@ -237,6 +239,7 @@ func TestCompactor_RunDistill_ClientError(t *testing.T) {
 	}
 
 	c := &Compactor{
+		fs: afero.NewOsFs(),
 		config: CompactionConfig{
 			Run: runnerOver(mockClient),
 		},
@@ -257,6 +260,7 @@ func TestCompactor_RunDistill_NonZeroExit(t *testing.T) {
 	}
 
 	c := &Compactor{
+		fs: afero.NewOsFs(),
 		config: CompactionConfig{
 			Run: runnerOver(mockClient),
 		},
@@ -278,6 +282,7 @@ func TestCompactor_RunDistill_EmptyOutputIsAFailure(t *testing.T) {
 	}
 
 	c := &Compactor{
+		fs:     afero.NewOsFs(),
 		config: CompactionConfig{Run: runnerOver(mockClient)},
 	}
 
@@ -290,7 +295,7 @@ func TestCompactor_RunDistill_EmptyOutputIsAFailure(t *testing.T) {
 // other route, it must never replace an existing essence. Distillation exists
 // to preserve context; silently zeroing it is the worst possible outcome.
 func TestCompactor_SaveDistilled_RefusesEmptyBody(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{OutputDir: t.TempDir()}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{OutputDir: t.TempDir()}}
 
 	_, err := c.saveDistilled("some-session", "   \n\n  ", distilledMeta{})
 	require.Error(t, err, "an empty distilled body must not be written over a good essence")
@@ -351,7 +356,7 @@ func TestNewCompactor_WithBackendOverride(t *testing.T) {
 	mockHistory := &mockSessionHistory{}
 	mockBe := &mockBackend{history: mockHistory}
 
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		WorkDir:         "/test",
 	})
@@ -363,7 +368,7 @@ func TestNewCompactor_WithBackendOverride(t *testing.T) {
 func TestNewCompactor_SetsDefaults(t *testing.T) {
 	mockBe := &mockBackend{history: &mockSessionHistory{}}
 
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 	})
 	require.NoError(t, err)
@@ -377,7 +382,7 @@ func TestNewCompactor_SetsDefaults(t *testing.T) {
 func TestCompact_NoHistorySupport(t *testing.T) {
 	mockBe := &mockBackend{history: nil}
 
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 	})
 	require.NoError(t, err)
@@ -393,7 +398,7 @@ func TestCompact_NoSession(t *testing.T) {
 	mockHistory := &mockSessionHistory{currentSession: nil}
 	mockBe := &mockBackend{history: mockHistory}
 
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 	})
 	require.NoError(t, err)
@@ -430,7 +435,7 @@ func TestCompact_EmptySession(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
@@ -480,7 +485,7 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
@@ -533,7 +538,7 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
@@ -579,7 +584,7 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
@@ -617,7 +622,7 @@ func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       outDir,
@@ -657,7 +662,7 @@ func TestCompact_WithMockClient(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
@@ -711,7 +716,7 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
@@ -763,7 +768,7 @@ func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
@@ -812,7 +817,7 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 		},
 	}
 
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
@@ -824,7 +829,7 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 
 	assert.NotContains(t, sawLLMInput, planBody, "plan files are not fed to the summary LLM")
 
-	loaded, err := LoadDistilledSession(tmpDir, "plan-survival")
+	loaded, err := LoadDistilledSession(afero.NewOsFs(), tmpDir, "plan-survival")
 	require.NoError(t, err)
 	assert.Contains(t, loaded.Body, "## Preserved plans")
 	assert.Contains(t, loaded.Body, planBody, "the plan file is re-attached verbatim")
@@ -863,7 +868,7 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 	}
 
 	recordOutputDir(t, "fail-harp")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
@@ -919,6 +924,7 @@ func TestCompactor_LoadSessionToCompact_PreloadedSessionBypassesSource(t *testin
 		},
 	}
 	c := &Compactor{
+		fs:     afero.NewOsFs(),
 		config: CompactionConfig{PreloadedSession: preloaded},
 		source: refusingSessionSource{t: t},
 	}
@@ -953,7 +959,7 @@ func TestCompact_BySessionID(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
@@ -1010,7 +1016,7 @@ func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
 		},
 	}
 
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
@@ -1048,7 +1054,7 @@ func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
@@ -1097,7 +1103,7 @@ func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 		},
 	}
 
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
@@ -1135,7 +1141,7 @@ func TestCompact_ExplicitSessionIDStaleHardErrors(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
@@ -1295,7 +1301,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	// to nothing. If either half stops holding, this test is no longer about
 	// the defect it names.
 	require.NotEmpty(t, thinkingOnly)
-	probe, _ := (&Compactor{}).sessionToText(&agent.Session{Entries: thinkingOnly})
+	probe, _ := (&Compactor{fs: afero.NewOsFs()}).sessionToText(&agent.Session{Entries: thinkingOnly})
 	require.Empty(t, strings.TrimSpace(probe),
 		"fixture is not hostile: these entries render to non-empty text")
 
@@ -1310,7 +1316,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
@@ -1337,7 +1343,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 		},
 	}
 	recordOutputDir(t, "compactor-under-test")
-	inclusive, err := NewCompactor(CompactionConfig{
+	inclusive, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(includeClient),
 		OutputDir:       t.TempDir(),
@@ -1369,7 +1375,7 @@ func TestSaveDistilled_NoHarpRefusesRatherThanGuessingALocation(t *testing.T) {
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 
-	c := &Compactor{config: CompactionConfig{}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}
 	require.Empty(t, c.config.OutputDir, "this pin exercises the no-OutputDir path")
 
 	path, err := c.saveDistilled("anchored", "## Summary\nbody.", distilledMeta{})
@@ -1409,7 +1415,7 @@ func TestUpdateSessionIndex_WarnsWhenTheIndexCannotBeRead(t *testing.T) {
 	require.Error(t, ferr, "the fixture sidecar must be unreadable, or this pin proves nothing")
 
 	var sink bytes.Buffer
-	c := &Compactor{config: CompactionConfig{Progress: &sink}}
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{Progress: &sink}}
 	// An empty summary skips the fingerprint arm, so the lookup failure is
 	// the only thing that can put anything in the sink.
 	c.updateSessionIndex("lively-index-harp", "sess-1", "", 0)
@@ -1440,6 +1446,7 @@ func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
 	}
 
 	c := &Compactor{
+		fs:     afero.NewOsFs(),
 		config: CompactionConfig{Run: runnerOver(mockClient)},
 	}
 	out, err := c.runDistill(context.Background(), "instructions", "transcript")
@@ -1491,7 +1498,7 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 	}
 
 	recordOutputDir(t, "compactor-under-test")
-	compactor, err := NewCompactor(CompactionConfig{
+	compactor, err := NewCompactor(afero.NewOsFs(), CompactionConfig{
 		BackendOverride: mockBe,
 		Run:             runnerOver(mockClient),
 		OutputDir:       outputDir,
@@ -1505,8 +1512,8 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 
 	// The assertion that matters: reading back by the REPORTED key finds the
 	// essence, and finds the real body rather than an empty file.
-	loaded, err := LoadDistilledSession(outputDir, result.SessionID)
-	require.NoError(t, err, "LoadDistilledSession(outputDir, result.SessionID) must find what Compact just wrote")
+	loaded, err := LoadDistilledSession(afero.NewOsFs(), outputDir, result.SessionID)
+	require.NoError(t, err, "LoadDistilledSession(afero.NewOsFs(), outputDir, result.SessionID) must find what Compact just wrote")
 	assert.Contains(t, loaded.Body, body, "the essence read back must carry the distilled content, not be empty")
 }
 
@@ -1524,6 +1531,7 @@ func TestCompactor_RunDistill_EnvelopesContentAsSessionLog(t *testing.T) {
 		},
 	}
 	c := &Compactor{
+		fs:     afero.NewOsFs(),
 		config: CompactionConfig{Run: runnerOver(mockClient)},
 	}
 

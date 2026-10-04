@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
 // authorKit writes an authored directory-form bundle "kit" with envelope as
@@ -154,14 +155,18 @@ func TestSignBundleFile_StampsTheRepoVersionIntoBundleYAML(t *testing.T) {
 
 func TestSignBundleFile_WithoutAVersionFileKeepsTheHandSetVersion(t *testing.T) {
 	cfg, _ := versionedProject(t, config.SourceProject, "")
-	dir := authorKit(t, cfg, "version: 1.0.0\n", "KEEPER\n")
+	// Current format, so the only rewrite left to rule out is the version's
+	// (an older format's envelope is persisted: see
+	// TestSignBundleFile_PersistsTheEnvelopeUpgradeBeforeHashing).
+	envelope := schemaver.Key + ": 1\nversion: 1.0.0\n"
+	dir := authorKit(t, cfg, envelope, "KEEPER\n")
 
 	res, err := SignBundleFile(cfg, SignBundleRequest{Target: SignTarget{BundleName: "kit"}, Signer: testSigner(t)})
 	require.NoError(t, err)
 	assert.Nil(t, res.VersionStamp)
 	raw, err := os.ReadFile(filepath.Join(dir, bundles.DirectoryFormManifest))
 	require.NoError(t, err)
-	assert.Equal(t, "version: 1.0.0\n", string(raw), "bundle.yaml is not rewritten")
+	assert.Equal(t, envelope, string(raw), "bundle.yaml is not rewritten")
 	assert.Equal(t, "1.0.0", signedKitManifest(t, dir).Release().Version.String())
 }
 

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"github.com/spf13/afero"
 	"io"
 	"os"
 
@@ -86,7 +87,7 @@ func captureNextStep(cmd *cobra.Command) error {
 	}
 	// WriteNextStep refuses an empty write, so the previous turn's capture
 	// stands rather than being erased by a turn that had nothing to say.
-	return memory.WriteNextStep(harp, text)
+	return memory.WriteNextStep(afero.NewOsFs(), harp, text)
 }
 
 func init() {

@@ -165,6 +165,7 @@ type CompactionResult struct {
 
 // Compactor handles session log compaction.
 type Compactor struct {
+	fs     afero.Fs
 	config CompactionConfig
 	source Source
 }
@@ -202,10 +203,10 @@ func (s memoryHistorySource) CurrentSession(_ context.Context) (*agent.Session, 
 // SOURCE is the caller's to resolve and inject (CompactionConfig.Source); this
 // constructor only adapts the BackendOverride test seam when no Source was
 // given, so the compactor itself opens no session index and picks no engine.
-func NewCompactor(config CompactionConfig) (*Compactor, error) {
+func NewCompactor(fsys afero.Fs, config CompactionConfig) (*Compactor, error) {
 	applyCompactionDefaults(&config)
 	clampCompactionBounds(&config)
-	return &Compactor{config: config, source: resolveSource(config)}, nil
+	return &Compactor{fs: fsys, config: config, source: resolveSource(config)}, nil
 }
 
 // resolveSource picks the transcript source: the injected one, else the
@@ -451,7 +452,7 @@ func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 	if harpName != "" {
 		if out, err := harpOutputDir(harpName); err == nil {
 			essencePath := filepath.Join(out, paths.EssenceFileName)
-			if st, err := os.Stat(essencePath); err == nil && st.Size() > 0 {
+			if st, err := c.fs.Stat(essencePath); err == nil && st.Size() > 0 {
 				return essencePath, true
 			}
 		}
@@ -460,7 +461,7 @@ func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	if st, err := os.Stat(rotationPath); err == nil && st.Size() > 0 {
+	if st, err := c.fs.Stat(rotationPath); err == nil && st.Size() > 0 {
 		return rotationPath, true
 	}
 	return "", false
@@ -1185,7 +1186,7 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(rotationPath), 0o755); err != nil {
+	if err := c.fs.MkdirAll(filepath.Dir(rotationPath), 0o755); err != nil {
 		return "", err
 	}
 
@@ -1206,11 +1207,11 @@ func (c *Compactor) saveEssence(harpName, rotationPath string, docBytes []byte) 
 	if err != nil {
 		return "", fmt.Errorf("resolve output dir for %s: %w", harpName, err)
 	}
-	if err := os.MkdirAll(out, 0o755); err != nil {
+	if err := c.fs.MkdirAll(out, 0o755); err != nil {
 		return "", fmt.Errorf("create output dir %s: %w", out, err)
 	}
 	essencePath := filepath.Join(out, paths.EssenceFileName)
-	if err := safefs.WriteFile(afero.NewOsFs(), essencePath, docBytes, 0o644); err != nil {
+	if err := safefs.WriteFile(c.fs, essencePath, docBytes, 0o644); err != nil {
 		return "", fmt.Errorf("write essence %s: %w", essencePath, err)
 	}
 	// NB: the active task store already lives at <harpDir>/tasks.md (see
@@ -1221,7 +1222,7 @@ func (c *Compactor) saveEssence(harpName, rotationPath string, docBytes []byte) 
 	//
 	// This rotation's own copy, so a later /clear does not erase the record of
 	// what THIS session was about when essence.md is overwritten.
-	if err := safefs.WriteFile(afero.NewOsFs(), rotationPath, docBytes, 0o644); err != nil {
+	if err := safefs.WriteFile(c.fs, rotationPath, docBytes, 0o644); err != nil {
 		c.warnf("write rotation essence %s: %v", rotationPath, err)
 	}
 	return essencePath, nil
@@ -1247,9 +1248,9 @@ type DistilledSession struct {
 }
 
 // LoadDistilledSession reads <sessionsDir>/<sessionID>.md.
-func LoadDistilledSession(sessionsDir, sessionID string) (*DistilledSession, error) {
+func LoadDistilledSession(fsys afero.Fs, sessionsDir, sessionID string) (*DistilledSession, error) {
 	path := filepath.Join(sessionsDir, sessionID+".md")
-	data, err := os.ReadFile(path)
+	data, err := afero.ReadFile(fsys, path)
 	if err != nil {
 		return nil, err
 	}
@@ -1283,8 +1284,8 @@ func parseDistilledMarkdown(data []byte) (*DistilledSession, error) {
 
 // ListDistilledSessions returns the IDs of every distilled .md file
 // directly under sessionsDir.
-func ListDistilledSessions(sessionsDir string) ([]string, error) {
-	entries, err := os.ReadDir(sessionsDir)
+func ListDistilledSessions(fsys afero.Fs, sessionsDir string) ([]string, error) {
+	entries, err := afero.ReadDir(fsys, sessionsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

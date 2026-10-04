@@ -71,7 +71,7 @@ func p6SpoolHomeConfigYAML() string {
 	// An agent image now carries exactly ONE engine (frosted-pony, 2026-08-25),
 	// so there is nothing to pin: the image is a function of the engine the run
 	// asks for. Re-adding the pin would be inert at best.
-	return fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `# P6 (capability probe p6-steer-echo): a known, empty home config. The mail
+	return fmt.Sprintf("schema_version: %d\n", config.CurrentConfigVersion) + `# P6 (capability probe p6-steer-echo): a known, empty home config. The mail
 # plane is the file spool unconditionally; there is nothing to switch on.
 `
 }

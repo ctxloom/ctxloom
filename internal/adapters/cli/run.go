@@ -729,10 +729,10 @@ func validatePermissionFlag(known []string, flag string) error {
 	return fmt.Errorf("unknown --permissions %q; valid: %s", flag, strings.Join(known, "|"))
 }
 
-// loadConfig loads this run's configuration and settles every upgrade offer it
-// raises. Both halves belong together: a config that loaded is not yet a
-// config that can be trusted to launch from, and the warnings it downgraded
-// are what arms the startup gate.
+// loadConfig loads this run's configuration, surfaces the warnings it
+// downgraded (they are what arms the startup gate) and settles the profile
+// upgrade offers. A config layer the load migrated in memory is never offered
+// for rewrite here: persisting it is --write-upgrades' job.
 func (st *runState) loadConfig() error {
 	cfg, err := GetConfig()
 	if err != nil {
@@ -743,17 +743,8 @@ func (st *runState) loadConfig() error {
 	// warnings — surface them so a degraded config.yaml never silently
 	// launches an empty-context session.
 	config.ReportWarnings(strictness.Sink("ctxloom"), cfg.GetWarnings())
-	// If loading upgraded an older config schema in memory, offer to persist
-	// it (interactive + consented only; never a silent rewrite).
-	confirmConfigUpgrade(cfg.GetPendingUpgrade(), cfg.CommitUpgrade)
-	// The HOME layer gets the same offer when a project config also exists.
-	// Without this, a stale ~/.ctxloom/config.yaml was upgraded
-	// in memory on every load forever and never converged. The prompt names
-	// the path, so consenting to rewrite HOME is an informed choice rather
-	// than a surprise side effect of a project-scoped run.
-	confirmConfigUpgrade(cfg.GetHomePendingUpgrade(), cfg.CommitHomeUpgrade)
-	// Profiles can carry an older schema too (e.g. bare bundle refs); offer to
-	// persist those rewrites the same way.
+	// Profiles can carry an older schema (e.g. bare bundle refs); offer to
+	// persist those rewrites.
 	confirmProfileUpgrades(cfg)
 	return nil
 }
@@ -1597,17 +1588,10 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("command", completePromptNames)
 }
 
-// confirmSyncInstall returns true if startup sync should proceed.
-// In an interactive terminal with pending installs, it lists them and asks
-// for y/N confirmation. Non-interactive contexts (CI, piped) and --yes
-// auto-confirm so they don't hang. On any check error, it falls through to
-// the existing graceful-failure path in SyncOnStartup.
-// confirmUpgrade offers to persist a schema upgrade that loading applied in
-// memory (config or session index). This is the only place ctxloom rewrites such
-// a file on startup, and only with consent: with -y it commits; outside an
+// confirmUpgrade offers to persist a profile schema upgrade that loading
+// applied in memory, only with consent: with -y it commits; outside an
 // interactive terminal it leaves the file untouched and the upgrade simply stays
-// in memory for this run (the next interactive run prompts again). A nil pending
-// means the file was already current.
+// in memory for this run (the next interactive run prompts again).
 func confirmUpgrade(path string, applied []string, commit func() error) {
 	if runAssumeYes {
 		commitUpgrade(path, commit)
@@ -1621,15 +1605,6 @@ func confirmUpgrade(path string, applied []string, commit func() error) {
 	if yes, err := promptYesNo("Rewrite it to the current format? [y/N] "); err == nil && yes {
 		commitUpgrade(path, commit)
 	}
-}
-
-// confirmConfigUpgrade offers to persist one config layer's pending
-// in-memory schema upgrade; nil means that layer is current.
-func confirmConfigUpgrade(p *config.PendingUpgrade, commit func() error) {
-	if p == nil {
-		return
-	}
-	confirmUpgrade(p.Path, p.Applied, commit)
 }
 
 // confirmProfileUpgrades offers to persist any older-schema rewrites that loading
@@ -1656,6 +1631,11 @@ func commitUpgrade(path string, commit func() error) {
 	}
 }
 
+// confirmSyncInstall returns true if startup sync should proceed.
+// In an interactive terminal with pending installs, it lists them and asks
+// for y/N confirmation. Non-interactive contexts (CI, piped) and --yes
+// auto-confirm so they don't hang. On any check error, it falls through to
+// the existing graceful-failure path in SyncOnStartup.
 func confirmSyncInstall(ctx context.Context, cfg *config.Config) bool {
 	if runAssumeYes || !isInteractiveTerminal() {
 		return true

@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 )
 
 // THE RECORD OF WHAT UPGRADE WOULD NOT DO.
@@ -65,12 +66,13 @@ import (
 // preferred over the alternative, which is a record that survives rounds that
 // disagree with it.
 
-// refusalStoreVersion is the only on-disk version this build understands. A
-// future format change is reported rather than read as an empty store: this
-// record's entire purpose is to keep a fact from evaporating, so misreading it
-// as "nothing was refused" would reproduce exactly the silence it exists to
-// prevent.
-const refusalStoreVersion = 1
+// refusalKind versions the refusal store. A newer format is reported
+// (schemaver.ErrNewer) rather than read as an empty store: this record's
+// entire purpose is to keep a fact from evaporating, so misreading it as
+// "nothing was refused" would reproduce exactly the silence it exists to
+// prevent. LegacyKey: the file spelled its format generation `version` before
+// schemaver.
+var refusalKind = schemaver.Kind{Name: "refused-advances record", LegacyKey: "version", Oldest: 1}
 
 // ErrRefusalKeyFormRetired reports a refusal store holding a record whose
 // Identity is not a bundle identity — written before refusals were keyed the
@@ -101,8 +103,8 @@ type RefusalRecord struct {
 
 // refusalDoc is the on-disk shape.
 type refusalDoc struct {
-	Version  int             `yaml:"version"`
-	Refusals []RefusalRecord `yaml:"refusals"`
+	SchemaVersion int             `yaml:"schema_version"`
+	Refusals      []RefusalRecord `yaml:"refusals"`
 }
 
 // refusalStorePath locates the record for cfg, or reports why it cannot.
@@ -155,7 +157,7 @@ func saveRefusedAdvances(cfg *config.Config, refused []RefusedAdvance) error {
 		})
 	}
 	sort.SliceStable(recs, func(i, j int) bool { return recs[i].Identity < recs[j].Identity })
-	data, err := yaml.Marshal(refusalDoc{Version: refusalStoreVersion, Refusals: recs})
+	data, err := yaml.Marshal(refusalDoc{SchemaVersion: refusalKind.Current(), Refusals: recs})
 	if err != nil {
 		return fmt.Errorf("marshal refusal records: %w", err)
 	}
@@ -216,8 +218,9 @@ func LiveRefusedAdvances(cfg *config.Config) ([]RefusalRecord, error) {
 	return live, nil
 }
 
-// readRefusalDoc reads and version-checks the refusal store at path. An absent
-// store is (nil, nil): no round has refused anything yet.
+// readRefusalDoc reads and version-checks the refusal store at path, migrating
+// an older spelling in memory only. An absent store is (nil, nil): no round has
+// refused anything yet.
 func readRefusalDoc(fsys afero.Fs, path string) (*refusalDoc, error) {
 	data, err := afero.ReadFile(fsys, path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -226,12 +229,13 @@ func readRefusalDoc(fsys afero.Fs, path string) (*refusalDoc, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
-	var d refusalDoc
-	if uerr := yaml.Unmarshal(data, &d); uerr != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, uerr)
+	r, err := refusalKind.Upgrade(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	if d.Version != refusalStoreVersion {
-		return nil, fmt.Errorf("%s declares version %d, this build understands %d", path, d.Version, refusalStoreVersion)
+	var d refusalDoc
+	if uerr := yaml.Unmarshal(r.Data, &d); uerr != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, uerr)
 	}
 	return &d, nil
 }

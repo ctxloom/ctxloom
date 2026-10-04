@@ -1,200 +1,343 @@
-// Package schemaver is the single spelling of ctxloom's on-disk schema
-// version across every file kind (config, bundles, profiles, the session
-// index, ...). Every kind declares its version under the same key, migrates
-// through the same upgrade.Pipeline machinery, and reads its declared version
-// through the same three-way convention. Before this package each kind
-// answered "what version is this file" its own way, and the two existing
-// answers disagreed on what a missing key means (see Declared below) — that
-// divergence is the bug this package exists to close, one call site at a
-// time as each kind is migrated onto it.
+// Package schemaver is the one implementation of persisted-format versioning:
+// every versioned file kind declares its format generation as an integer under
+// Key, reads older generations by migrating them in memory, refuses a
+// generation newer than the binary understands, and persists a migration only
+// when asked to (see WriteBack and the --write-upgrades switch).
 //
-// schemaver builds on internal/shared/upgrade (the Pipeline/Upgrader engine)
-// rather than replacing it: Kind is a thin, named wrapper around a Pipeline
-// plus the version it targets, and RenameUpgrade is one more Upgrader a
-// kind's own Pipeline includes explicitly, in the position its doc comment
-// requires. This package does not wire itself into any existing file kind;
-// that is later, per-kind work.
+// The format generation is independent of any binary's release version, and of
+// any version a file's AUTHOR declares (a bundle's semver `version`): it is the
+// one number migrations key off.
+//
+// schemaver owns the version gate and nothing else. The parse, the steps and
+// the encode are internal/shared/upgrade's; a Kind's steps are ordinary
+// upgrade.Upgraders. Context-dependent normalization (anything that needs more
+// than the document's own bytes to decide) is not a schema step and stays with
+// the caller.
 package schemaver
 
 import (
-	"bytes"
 	"errors"
+	"fmt"
 	"io"
+	"strconv"
+	"strings"
+	"sync/atomic"
 
+	"github.com/spf13/afero"
+	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
-// Key is the only schema-version spelling ctxloom writes going forward.
+// Key is the top-level key every versioned file kind declares its format
+// generation under.
 const Key = "schema_version"
 
-// LegacyKey is the pre-rename spelling. ctxloom still READS it — via
-// RenameUpgrade — so an old on-disk file migrates instead of being refused
-// for merely spelling its version the old way.
-const LegacyKey = "version"
-
-// Declared reports the schema version a raw document declares, preferring Key
-// and falling back to LegacyKey when Key is absent.
+// Kind is one versioned file kind.
 //
-// This follows upgrade.Version's convention, not config.declaredConfigVersion's
-// — the two disagree on what a MISSING key means, and only one of them can be
-// schemaver's answer:
-//
-//   - upgrade.Version reports a missing key as (0, true): a document with no
-//     version key at all is the genuine pre-versioning generation, and every
-//     migration should run over it.
-//   - config.declaredConfigVersion reports a missing key as (0, false): "this
-//     file does not say it is current", collapsing "never versioned" and
-//     "versioned but unreadable" into one fact because that config's caller
-//     only ever asked one question ("is this current or not") and had no use
-//     for the distinction.
-//
-// schemaver keeps upgrade.Version's three-way distinction, because collapsing
-// it is exactly the mistake upgrade.Version's own doc comment warns against:
-// a document whose version key is PRESENT but unreadable (`schema_version:
-// banana`, a float, a nested mapping) is not a pre-versioning document — it
-// is probably corrupt — and treating it as generation 0 would re-run every
-// migration over it and stamp the current version on the way out, replacing
-// the parse error the caller would otherwise have surfaced with a clean load
-// of rewritten bytes.
-//
-//   - neither Key nor LegacyKey present:            (0, true)  — generation 0
-//   - Key (or, absent that, LegacyKey) present and
-//     a plain integer scalar:                       (version, true)
-//   - Key (or LegacyKey) present but not a plain
-//     integer scalar:                                (0, false) — unreadable
-//
-// A document that fails to parse as a single YAML mapping (malformed,
-// multi-document, or otherwise not a !!map at the top level) is reported as
-// present-but-unreadable, (0, false): schemaver cannot tell "no version key"
-// from "no readable document" in that case, and unreadable is the safer of
-// the two to report, for the same reason given above.
-func Declared(data []byte) (version int, ok bool) {
-	root, valid := documentRoot(data)
-	if !valid {
-		return 0, false
-	}
-	if yamlx.MapValue(root, Key) != nil {
-		return upgrade.Version(root, Key)
-	}
-	if yamlx.MapValue(root, LegacyKey) != nil {
-		return upgrade.Version(root, LegacyKey)
-	}
-	return 0, true
-}
-
-// documentRoot parses data as a single YAML document and returns its root
-// mapping node. ok is false for anything Declared cannot safely read a
-// version out of: malformed YAML, an empty document, more than one document
-// in the stream, or a top-level node that is not a mapping.
-//
-// The multi-document check mirrors upgrade.singleDocument: a plain
-// yaml.Unmarshal into a yaml.Node silently decodes only the FIRST document of
-// a stream and reports no error, which would make Declared answer from a
-// document the file's second half might disagree with.
-func documentRoot(data []byte) (root *yaml.Node, ok bool) {
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	var doc yaml.Node
-	if err := dec.Decode(&doc); err != nil {
-		return nil, false
-	}
-	var next yaml.Node
-	if err := dec.Decode(&next); !errors.Is(err, io.EOF) {
-		return nil, false
-	}
-	if len(doc.Content) != 1 {
-		return nil, false
-	}
-	root = doc.Content[0]
-	if root.Kind != yaml.MappingNode {
-		return nil, false
-	}
-	return root, true
-}
-
-// renameToSchemaVersion is the RenameUpgrade Upgrader. See RenameUpgrade for
-// its contract.
-type renameToSchemaVersion struct{}
-
-// Name identifies the upgrade in logs and the rewrite prompt.
-func (renameToSchemaVersion) Name() string { return "rename version to schema_version" }
-
-// Apply moves LegacyKey to Key. It is idempotent (a document with no
-// LegacyKey is untouched) and never clobbers: a document carrying BOTH keys
-// is left completely untouched and reported unchanged, because there is no
-// safe way to guess which of two present values is authoritative.
-func (renameToSchemaVersion) Apply(root *yaml.Node) (changed bool) {
-	legacy := yamlx.MapValue(root, LegacyKey)
-	if legacy == nil {
-		return false
-	}
-	if yamlx.MapValue(root, Key) != nil {
-		// Both keys present. Not ours to resolve — leave the document alone.
-		return false
-	}
-	yamlx.MapDelete(root, LegacyKey)
-	yamlx.MapSet(root, Key, legacy)
-	return true
-}
-
-// RenameUpgrade returns the Upgrader that moves the legacy `version:` key to
-// `schema_version:`, unconditionally and without touching the value. It is
-// deliberately NOT version-gated: a rename has no version to gate on until
-// after it runs.
-//
-// Ordering invariant — this is the whole point of this function existing
-// separately from any version-gated step: RenameUpgrade MUST run before any
-// Upgrader that inspects Key via upgrade.Version/Declared. Every file kind's
-// own Pipeline is responsible for placing it first. If a version check runs
-// before the rename, a document that is otherwise fully current but still
-// spells its version `version:` reads as having NO declared version — Key is
-// absent — and a caller whose refusal path treats "no declared version" as
-// "too old to load" tells the user to back up and re-init over what is
-// really just an unrenamed key, not a stale schema.
-func RenameUpgrade() upgrade.Upgrader { return renameToSchemaVersion{} }
-
-// Kind is one versioned file kind (config, a bundle, a profile, the session
-// index, ...): a name for logs, the schema version current code writes, and
-// the ordered Upgrader pipeline that brings an older document up to it.
-// Upgrades may be empty — that is the expected steady state for a kind with
-// no migrations registered yet, not a special case, and Migrate must work
-// correctly over it.
+// Current is DERIVED (Oldest + len(Steps)) rather than declared, so a version
+// bump without the step that migrates to it cannot be written.
 type Kind struct {
-	Name     string
-	Current  int
-	Upgrades upgrade.Pipeline
+	// Name identifies the kind in messages, e.g. "ltk config".
+	Name string
+	// LegacyKey, when set, is an older spelling of Key that Upgrade renames to
+	// Key BEFORE reading the version. It is per-kind opt-in because the same
+	// spelling can mean something else elsewhere: a bundle's `version` is its
+	// author's semver, never a format generation.
+	LegacyKey string
+	// Oldest is the lowest generation still migratable; below it Upgrade
+	// refuses with ErrTooOld.
+	Oldest int
+	// Steps[i] migrates generation Oldest+i to Oldest+i+1. A step runs because
+	// the document's generation says it must, not because it detects work to
+	// do, so — unlike a Pipeline stage — it need not be idempotent, and one
+	// that edits nothing (a marker generation) still advances the version.
+	Steps []upgrade.Upgrader
 }
 
-// Migrate runs k.Upgrades over data and returns whatever upgrade.Pipeline.Run
-// returns: the re-encoded bytes and the names of the stages that fired, or
-// the original bytes verbatim and a nil/empty applied when nothing fired or
-// the input could not be safely re-encoded (malformed, non-mapping,
-// multi-document, or duplicate-key — see Pipeline.Run).
+// IntroduceKey is generation 1 of a kind that was unversioned before it
+// declared Key: Oldest 0, IntroduceKey as the first step. It edits nothing,
+// because a file with no version at all means exactly what a generation-1 file
+// means; Upgrade's stamp is the whole migration.
+var IntroduceKey upgrade.Upgrader = introduceKey{}
+
+type introduceKey struct{}
+
+func (introduceKey) Name() string                    { return "introduce " + Key }
+func (introduceKey) Apply(*yaml.Node) (changed bool) { return false }
+
+// Current is the generation this binary reads and writes.
+func (k Kind) Current() int { return k.Oldest + len(k.Steps) }
+
+// Result is a document brought to the current generation in memory.
+type Result struct {
+	// Data is the document at To. When nothing changed it IS the input slice.
+	Data []byte
+	// From is the generation the input declared; To is the one Data declares.
+	From, To int
+	// Applied names every change made, in order: the legacy-key rename, then
+	// each step run. Empty means Data is the input, byte for byte, and there
+	// is nothing to write back.
+	Applied []string
+}
+
+// Version failures. Each reaches the caller wrapped in a *VersionError naming
+// the kind and the numbers; test with errors.Is/As, never by message text.
+var (
+	ErrNewer      = errors.New("written by a newer format than this binary reads; upgrade the binary")
+	ErrTooOld     = errors.New("older than the oldest format this binary can migrate")
+	ErrUnreadable = errors.New("format version cannot be read")
+
+	errNotMapping = errors.New("the document is not a mapping")
+	errNotInteger = errors.New(Key + " is not an integer")
+	errBothKeys   = errors.New("both " + Key + " and its legacy spelling are present")
+	errDuplicate  = errors.New("a mapping repeats a key")
+)
+
+// VersionError is a refused document. Err is (or wraps) ErrNewer, ErrTooOld
+// or ErrUnreadable.
+type VersionError struct {
+	Kind                   string
+	Found, Current, Oldest int
+	Err                    error
+}
+
+func (e *VersionError) Error() string {
+	switch {
+	case errors.Is(e.Err, ErrNewer):
+		return fmt.Sprintf("%s: %s %d: %v (this binary reads up to %d)", e.Kind, Key, e.Found, e.Err, e.Current)
+	case errors.Is(e.Err, ErrTooOld):
+		return fmt.Sprintf("%s: %s %d: %v (the oldest is %d)", e.Kind, Key, e.Found, e.Err, e.Oldest)
+	default:
+		return fmt.Sprintf("%s: %v", e.Kind, e.Err)
+	}
+}
+
+func (e *VersionError) Unwrap() error { return e.Err }
+
+func (k Kind) refuse(found int, err error) *VersionError {
+	return &VersionError{Kind: k.Name, Found: found, Current: k.Current(), Oldest: k.Oldest, Err: err}
+}
+
+func (k Kind) unreadable(cause error) *VersionError {
+	return k.refuse(0, fmt.Errorf("%w: %w", ErrUnreadable, cause))
+}
+
+// Upgrade brings data to k.Current() in memory. It reads the RAW bytes, so it
+// runs before any strict decode or schema validation the caller applies to
+// the result:
 //
-// Migrate does not add RenameUpgrade on k's behalf. That is deliberate: which
-// Upgraders run, and in what order, is k.Upgrades' own declared pipeline, and
-// RenameUpgrade's ordering invariant (see its doc comment) is something each
-// kind's Upgrades must satisfy for itself by listing RenameUpgrade first, the
-// same way it lists every other Upgrader. Migrate hiding that would take a
-// policy decision — "the rename always runs" — that belongs to each file
-// kind's own on-disk format, not to this shared plumbing.
-func (k Kind) Migrate(data []byte) (out []byte, applied []string) {
-	// RenameUpgrade runs FIRST, always, and is not the caller's to remember.
-	// The rename must precede every version-gated stage, or a document still
-	// spelling its version LegacyKey reads as undeclared and a version check
-	// refuses a file that is actually current.
-	//
-	// It is prepended here rather than left to each kind's own Upgrades list
-	// because a kind with NO migrations registered is the expected steady
-	// state, not an edge case. Leaving the rename to the caller makes it
-	// absent exactly where nothing else would catch its absence: an empty
-	// pipeline would pass a legacy-keyed document through untouched and
-	// report success.
-	//
-	// A document already at Key is unaffected: RenameUpgrade reports no
-	// change, so Run returns the original bytes verbatim without
-	// reserializing.
-	return append(upgrade.Pipeline{RenameUpgrade()}, k.Upgrades...).Run(data)
+//  1. rename LegacyKey to Key, when the kind opts in;
+//  2. read the generation — an empty or comment-only document is generation
+//     0; a non-integer version, a non-mapping document or more than one
+//     document is ErrUnreadable; above Current is ErrNewer, below Oldest is
+//     ErrTooOld;
+//  3. run the steps from that generation up;
+//  4. stamp Current, when anything changed.
+//
+// A document already current passes through untouched: Result.Data is the
+// input slice and Applied is empty.
+func (k Kind) Upgrade(data []byte) (Result, error) {
+	doc, commentOnly, err := k.parse(data)
+	if err != nil {
+		return Result{}, err
+	}
+	root := doc.Content[0]
+	found, applied, err := k.gate(root)
+	if err != nil {
+		return Result{}, err
+	}
+	for _, step := range k.Steps[found-k.Oldest:] {
+		step.Apply(root)
+		applied = append(applied, step.Name())
+	}
+	if len(applied) == 0 {
+		return Result{Data: data, From: found, To: found}, nil
+	}
+	out, err := k.encode(&doc, data, commentOnly)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Data: out, From: found, To: k.Current(), Applied: applied}, nil
+}
+
+// parse returns data's single document with a mapping root. An empty,
+// comment-only or null document comes back as an empty mapping; commentOnly
+// reports that yaml.v3 kept no node for it at all.
+func (k Kind) parse(data []byte) (doc yaml.Node, commentOnly bool, err error) {
+	doc, err = upgrade.DecodeSingle(data)
+	commentOnly = errors.Is(err, io.EOF)
+	switch {
+	case commentOnly || (err == nil && isNullDocument(&doc)):
+		empty := yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
+		return empty, commentOnly, nil
+	case err != nil:
+		return doc, false, k.unreadable(err)
+	case doc.Content[0].Kind != yaml.MappingNode:
+		return doc, false, k.unreadable(errNotMapping)
+	}
+	return doc, false, nil
+}
+
+// gate renames the legacy key, then reads and checks the declared
+// generation. applied carries the rename when one happened.
+func (k Kind) gate(root *yaml.Node) (found int, applied []string, err error) {
+	if k.LegacyKey != "" {
+		renamed, err := renameKey(root, k.LegacyKey)
+		if err != nil {
+			return 0, nil, k.unreadable(err)
+		}
+		if renamed {
+			applied = append(applied, renameStepName(k.LegacyKey))
+		}
+	}
+	found, ok := upgrade.Version(root, Key)
+	switch {
+	case !ok:
+		return 0, nil, k.unreadable(errNotInteger)
+	case found > k.Current():
+		return 0, nil, k.refuse(found, ErrNewer)
+	case found < k.Oldest:
+		return 0, nil, k.refuse(found, ErrTooOld)
+	}
+	return found, applied, nil
+}
+
+// encode stamps and serializes a changed document.
+func (k Kind) encode(doc *yaml.Node, data []byte, commentOnly bool) ([]byte, error) {
+	root := doc.Content[0]
+	if upgrade.HasDuplicateKey(root) {
+		return nil, k.unreadable(errDuplicate)
+	}
+	k.Stamp(root)
+	out, err := upgrade.Encode(doc)
+	if err != nil {
+		return nil, k.unreadable(err)
+	}
+	if commentOnly && len(strings.TrimSpace(string(data))) > 0 {
+		// yaml.v3 keeps no node for a comment-only stream, so the comments —
+		// the file's whole content — are carried over as bytes.
+		out = append([]byte(strings.TrimRight(string(data), "\n")+"\n"), out...)
+	}
+	return out, nil
+}
+
+// isNullDocument reports a document whose only content is null (`---`, `~`):
+// as empty as an empty file.
+func isNullDocument(doc *yaml.Node) bool {
+	return len(doc.Content) == 1 && doc.Content[0].Kind == yaml.ScalarNode && doc.Content[0].Tag == "!!null"
+}
+
+// renameKey renames legacy to Key in place, keeping its position and
+// comments. Both spellings present is refused: there is no safe way to pick.
+func renameKey(root *yaml.Node, legacy string) (renamed bool, err error) {
+	if yamlx.MapValue(root, legacy) == nil {
+		return false, nil
+	}
+	if yamlx.MapValue(root, Key) != nil {
+		return false, errBothKeys
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == legacy {
+			root.Content[i].Value = Key
+			break
+		}
+	}
+	return true, nil
+}
+
+func renameStepName(legacy string) string { return "rename " + legacy + " to " + Key }
+
+// Stamp sets Key to k.Current() on a root mapping: in place when present,
+// otherwise as the FIRST key, taking over the document's leading comment so a
+// file header stays at the top. Writers stamp what they write.
+func (k Kind) Stamp(root *yaml.Node) {
+	if v := yamlx.MapValue(root, Key); v != nil {
+		// Edited, not replaced, so a comment on the line survives.
+		*v = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(k.Current()),
+			HeadComment: v.HeadComment, LineComment: v.LineComment, FootComment: v.FootComment}
+		return
+	}
+	key := yamlx.ScalarNode(Key)
+	value := yamlx.ScalarNode(strconv.Itoa(k.Current()))
+	value.Tag = "!!int"
+	if len(root.Content) > 0 {
+		key.HeadComment, root.Content[0].HeadComment = root.Content[0].HeadComment, ""
+	}
+	root.Content = append([]*yaml.Node{key, value}, root.Content...)
+}
+
+// BackupSuffix is appended to a file's path for the copy WriteBack keeps of
+// the pre-upgrade bytes.
+const BackupSuffix = ".bak"
+
+// WriteBack persists an upgraded document: the current file is copied to
+// path+BackupSuffix, then r.Data atomically replaces it, both keeping the
+// file's permission bits. With print non-nil it writes r.Data to print instead
+// and touches nothing on disk.
+func WriteBack(fs afero.Fs, path string, r Result, print io.Writer) error {
+	if print != nil {
+		_, err := print.Write(r.Data)
+		return err
+	}
+	info, err := fs.Stat(path)
+	if err != nil {
+		return fmt.Errorf("write back %s: %w", path, err)
+	}
+	old, err := afero.ReadFile(fs, path)
+	if err != nil {
+		return fmt.Errorf("write back %s: %w", path, err)
+	}
+	perm := info.Mode().Perm()
+	// An empty original is a legitimate generation-0 file; its backup is empty
+	// too.
+	if err := safefs.WriteFile(fs, path+BackupSuffix, old, perm, safefs.AllowEmpty()); err != nil {
+		return fmt.Errorf("write back %s: back up: %w", path, err)
+	}
+	if err := safefs.WriteFile(fs, path, r.Data, perm); err != nil {
+		return fmt.Errorf("write back %s: %w", path, err)
+	}
+	return nil
+}
+
+// WriteUpgradesFlag is the persistent flag every binary that loads versioned
+// files carries: with it, a load that migrated a file persists the migration
+// (WriteBack); without it the file on disk is never changed.
+const WriteUpgradesFlag = "write-upgrades"
+
+// writeUpgrades is process-wide because load sites sit layers below any
+// command — in loaders with no cobra.Command to ask — and the answer is one
+// per invocation. Atomic because those loads may run on goroutines the flag
+// parse never sees.
+var writeUpgrades atomic.Bool
+
+// BindWriteUpgrades registers WriteUpgradesFlag on fs, writing straight into
+// the process-wide switch WriteUpgrades reads. Binding RESETS the switch: a
+// command tree is bound once per invocation, so a tree built after one that
+// set it (tests drive a root repeatedly in one process) starts off.
+func BindWriteUpgrades(fs *pflag.FlagSet) {
+	writeUpgrades.Store(false)
+	fs.Var(writeUpgradesValue{}, WriteUpgradesFlag,
+		"Persist in-memory upgrades of older-format files (the old file is kept as <file>"+BackupSuffix+")")
+	fs.Lookup(WriteUpgradesFlag).NoOptDefVal = "true"
+}
+
+// WriteUpgrades reports whether this invocation asked for migrations to be
+// written back.
+func WriteUpgrades() bool { return writeUpgrades.Load() }
+
+type writeUpgradesValue struct{}
+
+func (writeUpgradesValue) String() string { return strconv.FormatBool(writeUpgrades.Load()) }
+func (writeUpgradesValue) Type() string   { return "bool" }
+func (writeUpgradesValue) Set(s string) error {
+	on, err := strconv.ParseBool(s)
+	if err != nil {
+		return err
+	}
+	writeUpgrades.Store(on)
+	return nil
 }

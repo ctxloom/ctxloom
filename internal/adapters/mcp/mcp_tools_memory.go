@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/spf13/afero"
 	"io"
 	"io/fs"
 	"os"
@@ -234,14 +235,14 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		// anything reads one from.
 		// The TurnEnd-captured next step; absent on a harp that has not
 		// finished a turn, and absent costs nothing (see distillPrompt).
-		taskHint, _ := memory.ReadNextStep(harp)
+		taskHint, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
 		distiller := operations.OneShot(s.facts, s.hostsFor(), s.cfg).Label(s.cfg.FastLabel()).Model(model).WorkDir(workDir).Lazy()
 		defer distiller.End()
 		source, serr := operations.DistillSource(s.facts.Engines, backend, workDir)
 		if serr != nil {
 			return nil, fmt.Errorf("resolve transcript source: %w", serr)
 		}
-		compactor, cerr := memory.NewCompactor(memory.CompactionConfig{
+		compactor, cerr := memory.NewCompactor(afero.NewOsFs(), memory.CompactionConfig{
 			Run:             distiller.Turn,
 			Backend:         backend,
 			Source:          source,
@@ -922,8 +923,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		if entry, _ := operations.GetSession(harp); entry != nil {
 			// Prefer the canonical transcript: once captured,
 			// that's the file Compact actually distilled from, so staleness must
-			// compare against it, not the legacy engine file (see
-			// memory.transcriptSize's matching preference).
+			// compare against it, not the legacy engine file.
 			transcriptPath = entry.TranscriptPath
 			if entry.CanonicalTranscriptPath != "" {
 				transcriptPath = entry.CanonicalTranscriptPath
@@ -1022,7 +1022,7 @@ func sessionHarpForID(id string) string {
 // on disk plus the transcript byte size stamped into its frontmatter (the
 // staleness fingerprint), or (nil, 0) when none is cached.
 func loadCachedDistilledSession(sessionsDir, sessionID string) (*loadSessionResult, int) {
-	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
+	distilled, err := memory.LoadDistilledSession(afero.NewOsFs(), sessionsDir, sessionID)
 	if err != nil {
 		return nil, 0
 	}
@@ -1102,11 +1102,13 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 	// degrades to a usable "couldn't distill" message rather than a tool error.
 	makeCompactor := s.compactorFactory
 	if makeCompactor == nil {
-		makeCompactor = memory.NewCompactor
+		makeCompactor = func(c memory.CompactionConfig) (*memory.Compactor, error) {
+			return memory.NewCompactor(afero.NewOsFs(), c)
+		}
 	}
 	// The TurnEnd-captured next step; absent on a harp that has not finished
 	// a turn, and absent costs nothing (see distillPrompt).
-	taskHint, _ := memory.ReadNextStep(harp)
+	taskHint, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
 	distiller := operations.OneShot(s.facts, s.hostsFor(), s.cfg).Label(s.cfg.FastLabel()).Model(model).WorkDir(workDir).Lazy()
 	defer distiller.End()
 	source, serr := operations.DistillSource(s.facts.Engines, backendName, workDir)
@@ -1138,7 +1140,7 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 	// caller's id made a successful distillation report "couldn't read it back"
 	// for every session whose vendor id differs from its harp — the essence was
 	// on disk the whole time, under a name this lookup never asked for.
-	distilled, err := memory.LoadDistilledSession(sessionsDir, compactResult.SessionID)
+	distilled, err := memory.LoadDistilledSession(afero.NewOsFs(), sessionsDir, compactResult.SessionID)
 	if err != nil {
 		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distilled session %s but couldn't read it back: %v", compactResult.SessionID, err)}, nil
 	}

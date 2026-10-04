@@ -1,9 +1,8 @@
 package remote
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"path/filepath"
-	"strings"
+	"strconv"
 	"testing"
 	"time"
 
@@ -12,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -83,78 +84,9 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 	}
 }
 
-func TestLockfileManager_LoadSelfHealsLegacyCtxloomVersion(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	manager := NewLockfileManager("/test", WithLockfileFS(fs))
-	path := manager.Path()
-
-	legacy := "version: 2\n" +
-		"bundles:\n" +
-		"  ctxloom+git://github.com/alice/ctxloom//bundles/go-tools:\n" +
-		"    sha: abc1234\n" +
-		"    url: https://github.com/alice/ctxloom\n" +
-		"    ctxloom_version: v1\n"
-	testsupport.WriteFileString(t, fs, path, legacy, 0o644)
-
-	loaded, err := manager.Load()
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	entry, ok := loaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/go-tools")
-	if !ok {
-		t.Fatal("entry not found after self-heal")
-	}
-	if entry.SHA != "abc1234" {
-		t.Errorf("SHA = %q, want %q (real fields must survive)", entry.SHA, "abc1234")
-	}
-
-	// The cleaned form is written back to disk up front.
-	onDisk, err := afero.ReadFile(fs, path)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	if strings.Contains(string(onDisk), "ctxloom_version") {
-		t.Errorf("legacy ctxloom_version not stripped from disk:\n%s", onDisk)
-	}
-}
-
-// TestLockfileManager_LoadDoesNotRewriteOnAMereMention pins that the load-time
-// self-heal must fire on the retired ctxloom_version KEY,
-// not on the characters appearing anywhere in the document.
-//
-// A read that writes is already a strong thing to do; triggering it off a raw
-// substring meant a repository URL, a bundle path or a retraction reason that
-// merely mentions the words rewrote the whole file through the struct —
-// discarding comments and any key the struct does not model.
-func TestLockfileManager_LoadDoesNotRewriteOnAMereMention(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	manager := NewLockfileManager("/test", WithLockfileFS(fs))
-	path := manager.Path()
-
-	// "ctxloom_version" appears twice — in a bundle key and in free text — but
-	// never as an entry field.
-	original := "# hand-maintained; do not reformat\n" +
-		"version: 2\n" +
-		"bundles:\n" +
-		"  ctxloom+git://github.com/alice/repo//bundles/docs/ctxloom_version:\n" +
-		"    sha: abc1234\n" +
-		"    url: https://github.com/alice/repo\n" +
-		"    retracted_reason: the ctxloom_version field was dropped\n"
-	testsupport.WriteFileString(t, fs, path, original, 0644)
-
-	loaded, err := manager.Load()
-	require.NoError(t, err)
-	_, ok := loaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/repo//bundles/docs/ctxloom_version")
-	require.True(t, ok, "the entry must still load")
-
-	onDisk, err := afero.ReadFile(fs, path)
-	require.NoError(t, err)
-	assert.Equal(t, original, string(onDisk), "a read that finds no legacy field must not write")
-}
-
 // TestLockfileManager_SaveStampsTheCurrentVersion: Save writes
 // LockfileVersion whatever the caller constructed, because Load refuses any
-// older version (ErrLockKeyFormRetired) — a Save that left "version: 0" on
+// older version (ErrLockKeyFormRetired) — a Save that left a zero version on
 // disk would write a lockfile the next Load cannot read.
 func TestLockfileManager_SaveStampsTheCurrentVersion(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -166,7 +98,7 @@ func TestLockfileManager_SaveStampsTheCurrentVersion(t *testing.T) {
 
 	onDisk, err := afero.ReadFile(fs, manager.Path())
 	require.NoError(t, err)
-	assert.Contains(t, string(onDisk), "version: 2")
+	assert.Contains(t, string(onDisk), schemaver.Key+": "+strconv.Itoa(LockfileVersion))
 
 	reloaded, err := manager.Load()
 	require.NoError(t, err)

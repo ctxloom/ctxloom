@@ -229,14 +229,15 @@ type LockEntry struct {
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.
 // Only bundles are locked (top-level profile distribution was retired).
 type Lockfile struct {
-	Version  int                           `yaml:"version" json:"version"`
+	Version  int                           `yaml:"schema_version" json:"version"`
 	LockedAt time.Time                     `yaml:"locked_at" json:"locked_at"`
 	Bundles  map[trust.BundleKey]LockEntry `yaml:"bundles,omitempty" json:"bundles,omitempty"`
 }
 
 // LockfileVersion is the lockfile format this build writes and the only one it
 // reads: entries keyed by bundle identity (Reference.LockKey). Load refuses
-// anything older — see ErrLockKeyFormRetired.
+// anything older — see ErrLockKeyFormRetired — and anything newer
+// (schemaver.ErrNewer).
 const LockfileVersion = 2
 
 // ManifestEntry represents an item in the optional manifest.yaml index.

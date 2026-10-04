@@ -15,7 +15,8 @@ what `ctxloom bundle sign --all` signs — unlike `.ctxloom/cache/`, which is
 gitignored and holds only regenerable, remote-pulled artifacts.
 
 ```yaml
-version: "1.0.0"                    # Bundle version (not enforced by the parser; `ctxloom bundle create` defaults it to 1.0.0)
+schema_version: 1                   # Format generation, written by ctxloom; absent = the oldest format, migrated on load
+version: "1.0.0"                    # YOUR release version (`ctxloom bundle create` defaults it to 1.0.0); never touched by a format migration
 tags: [golang, development]         # Bundle-level tags
 author: "ctxloom"                       # Author name
 description: "Bundle description"   # Description

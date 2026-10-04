@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
@@ -14,8 +15,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
@@ -53,10 +56,10 @@ func resolveConfigLayerPaths(appPath string, source config.ConfigSource) (projec
 // lists replace, an explicit zero beats inheritance), resolves overrides
 // (env then flags) against the result, and decodes into the builder once.
 //
-// Each layer is upgraded, schema-validated and warned about INDEPENDENTLY
-// before merging — never the merged result — so an unknown key or a stale
-// schema generation is diagnosed with its own file's path, and a key valid
-// in one layer but not the other still fails loudly.
+// Each layer is version-gated, schema-validated and warned about
+// INDEPENDENTLY before merging — never the merged result — so an unknown key
+// or an unreadable format generation is diagnosed with its own file's path,
+// and a key valid in one layer but not the other still fails loudly.
 //
 // Overrides resolve against the merged files however many exist, INCLUDING
 // none: a fresh project with only env/CLI values set still gets them.
@@ -67,18 +70,17 @@ func (s *Sources) loadLayeredConfig(_ context.Context, b *config.Builder, homeCo
 		homeAppPath = filepath.Dir(homeConfigPath)
 	}
 
-	homeValues, homePending, err := s.loadHomeLayer(b, appPath, homeAppPath, homeConfigPath, fs)
+	homeValues, err := s.loadHomeLayer(b, appPath, homeAppPath, homeConfigPath, fs)
 	if err != nil {
 		return err
 	}
 	layers := appendLayer(nil, homeValues)
 
-	projectValues, projectPending, err := s.loadConfigLayer(b, projectLayerScope(homeConfigPath, source), appPath, homeAppPath, projectConfigPath, fs)
+	projectValues, err := s.loadConfigLayer(b, projectLayerScope(homeConfigPath, source), appPath, homeAppPath, projectConfigPath, fs)
 	if err != nil {
 		return err
 	}
 	layers = appendLayer(layers, projectValues)
-	b.SetPendingUpgrades(projectPending, homePending)
 
 	if len(layers) == 0 && s.noOverrides() {
 		// Neither layer exists and nothing overrides: the builder's zero
@@ -89,9 +91,9 @@ func (s *Sources) loadLayeredConfig(_ context.Context, b *config.Builder, homeCo
 }
 
 // loadHomeLayer is the home layer, when there is a home config to read.
-func (s *Sources) loadHomeLayer(b *config.Builder, appPath, homeAppPath, homeConfigPath string, fs afero.Fs) (map[string]any, *config.PendingUpgrade, error) {
+func (s *Sources) loadHomeLayer(b *config.Builder, appPath, homeAppPath, homeConfigPath string, fs afero.Fs) (map[string]any, error) {
 	if homeConfigPath == "" {
-		return nil, nil, nil
+		return nil, nil
 	}
 	return s.loadConfigLayer(b, layerscope.LayerHome, appPath, homeAppPath, homeConfigPath, fs)
 }
@@ -169,75 +171,102 @@ func (s *Sources) decodeMergedLayers(b *config.Builder, layers []map[string]any)
 	return nil
 }
 
-// loadConfigLayer reads and processes ONE config.yaml layer: in-memory
-// upgrade, schema version check, schema validation, layer-scope and
-// engineless-agent drops — each recorded against this file's own path.
-// An absent file is nil values and no error. A present file that cannot be
-// parsed is ErrUnparsableLayer, naming the file. pending is this layer's own
-// in-memory upgrade, nil when the file is current.
-func (s *Sources) loadConfigLayer(b *config.Builder, layer layerscope.Layer, appPath, homeAppPath, configPath string, fs afero.Fs) (values map[string]any, pending *config.PendingUpgrade, err error) {
+// loadConfigLayer reads and processes ONE config.yaml layer: the version
+// gate on its raw bytes, the in-memory normalization, schema validation,
+// layer-scope and engineless-agent drops — each recorded against this file's
+// own path. An absent file is nil values and no error. A present file that
+// cannot be parsed is ErrUnparsableLayer, naming the file. Under
+// --write-upgrades a layer the gate or the normalization changed is written
+// back.
+func (s *Sources) loadConfigLayer(b *config.Builder, layer layerscope.Layer, appPath, homeAppPath, configPath string, fs afero.Fs) (map[string]any, error) {
 	data, readErr := afero.ReadFile(fs, configPath)
 	if readErr != nil {
 		if os.IsNotExist(readErr) {
-			return nil, nil, nil
+			return nil, nil
 		}
 		b.Warn(config.WarnKindRead, "failed to read config at %s: %v", configPath, readErr)
 		zap.L().Warn("config_read_warning", zap.String("path", configPath), zap.Error(readErr))
-		return nil, nil, nil
+		return nil, nil
 	}
 
-	data, pending = upgradeLayer(s.upgradePipeline(b), data, configPath)
-	// The refusal comes before any judgement of the document: a file that is
-	// not YAML has no version to be below the floor and no keys to validate.
-	var raw map[string]any
-	if perr := yaml.Unmarshal(data, &raw); perr != nil {
-		return nil, nil, fmt.Errorf("%w: %s: %v", ErrUnparsableLayer, configPath, perr)
+	r, refused := configKind.Upgrade(data)
+	if refused != nil {
+		// A file that is not YAML has no version to judge: it is unparsable,
+		// not refused.
+		var probe map[string]any
+		if perr := yaml.Unmarshal(data, &probe); perr != nil {
+			return nil, fmt.Errorf("%w: %s: %v", ErrUnparsableLayer, configPath, perr)
+		}
+		refuseConfigVersion(configPath, refused)
+		r = schemaver.Result{Data: data}
 	}
-	refuseStaleConfigVersion(data, configPath)
-	s.warnInvalidLayer(b, data, configPath)
+	r = s.normalize(b, r)
+	if refused == nil {
+		if err := persistUpgrade(fs, configPath, r); err != nil {
+			return nil, err
+		}
+	}
+	var raw map[string]any
+	if perr := yaml.Unmarshal(r.Data, &raw); perr != nil {
+		return nil, fmt.Errorf("%w: %s: %v", ErrUnparsableLayer, configPath, perr)
+	}
+	if refused == nil {
+		// A refused layer's keys belong to a generation this schema does not
+		// describe; judging them would bury the one finding that matters.
+		s.warnInvalidLayer(b, r.Data, configPath)
+	}
 	warnLayerDrops(b, layer, raw, appPath, homeAppPath, configPath)
 
 	zap.L().Debug("config_loaded", zap.String("path", configPath))
-	return raw, pending, nil
+	return raw, nil
 }
 
-// upgradePipeline is the in-memory upgrade every layer runs through: the
-// profile-ref canonicalization, when a canonicalizer is composed.
-func (s *Sources) upgradePipeline(b *config.Builder) upgrade.Pipeline {
-	pipeline := upgrade.Pipeline{}
-	if s.canonicalize != nil {
-		shell := b.Shell()
-		pipeline = append(pipeline, profileRefCanonicalizeUpgrade{canonical: func(ref string) string { return s.canonicalize(shell, ref) }})
+// normalize runs the context-dependent normalization over a layer already
+// past the version gate: the profile-ref canonicalization, when a
+// canonicalizer is composed. It is not a schema step — what it rewrites
+// depends on the remotes registry, not on the document's generation — but
+// what it changes is persisted with the migration under --write-upgrades.
+func (s *Sources) normalize(b *config.Builder, r schemaver.Result) schemaver.Result {
+	if s.canonicalize == nil {
+		return r
 	}
-	return pipeline
-}
-
-// upgradeLayer runs the pipeline over a layer's bytes, returning the bytes
-// to judge and, when any upgrade applied, the pending upgrade to record.
-func upgradeLayer(pipeline upgrade.Pipeline, data []byte, configPath string) ([]byte, *config.PendingUpgrade) {
-	upgraded, applied := pipeline.Run(data)
+	shell := b.Shell()
+	pipeline := upgrade.Pipeline{profileRefCanonicalizeUpgrade{canonical: func(ref string) string { return s.canonicalize(shell, ref) }}}
+	out, applied := pipeline.Run(r.Data)
 	if len(applied) == 0 {
-		return data, nil
+		return r
 	}
-	zap.L().Info("config_upgrade_pending", zap.String("path", configPath), zap.Strings("applied", applied))
-	return upgraded, &config.PendingUpgrade{Path: configPath, Data: upgraded, Applied: applied}
+	r.Data, r.Applied = out, append(r.Applied, applied...)
+	return r
 }
 
-// refuseStaleConfigVersion records the migration refusal for a layer whose
-// schema version is below this build's.
-func refuseStaleConfigVersion(data []byte, configPath string) {
-	v, declared := declaredConfigVersion(data)
-	if v >= config.CurrentConfigVersion {
-		return
+// persistUpgrade writes a changed layer back when this invocation asked for
+// it (--write-upgrades); otherwise the change lives in memory only.
+func persistUpgrade(fs afero.Fs, configPath string, r schemaver.Result) error {
+	if len(r.Applied) == 0 {
+		return nil
 	}
-	spelled := "no `version` key, i.e. the pre-versioning generation"
-	if declared {
-		spelled = fmt.Sprintf("`version: %d`", v)
+	zap.L().Info("config_upgraded_in_memory", zap.String("path", configPath), zap.Strings("applied", r.Applied))
+	if !schemaver.WriteUpgrades() {
+		return nil
 	}
-	strictness.FailOnce(report.KindMigration,
-		fmt.Sprintf("back up %s, then re-run `ctxloom init` to scaffold a current one and re-apply your settings", configPath),
-		"%s carries %s but this ctxloom requires config schema version %d, and in-place upgrades have been removed — an old config is no longer rewritten on load",
-		configPath, spelled, config.CurrentConfigVersion)
+	if err := schemaver.WriteBack(fs, configPath, r, nil); err != nil {
+		return err
+	}
+	clidiag.Warn("ctxloom", "upgraded %s to %s %d (%s; the previous file is kept as %s%s)",
+		configPath, schemaver.Key, r.To, strings.Join(r.Applied, ", "), configPath, schemaver.BackupSuffix)
+	return nil
+}
+
+// refuseConfigVersion records the migration refusal for a layer whose format
+// generation this binary cannot read: older than it migrates, newer than it
+// knows, or unreadable.
+func refuseConfigVersion(configPath string, refused error) {
+	remedy := fmt.Sprintf("back up %s, then re-run `ctxloom init` to scaffold a current one and re-apply your settings", configPath)
+	if errors.Is(refused, schemaver.ErrNewer) {
+		remedy = fmt.Sprintf("upgrade ctxloom: %s was written by a newer one", configPath)
+	}
+	strictness.FailOnce(report.KindMigration, remedy, "%s: %v", configPath, refused)
 }
 
 // warnInvalidLayer warns, per classified cause, about a layer the schema

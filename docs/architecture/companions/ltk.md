@@ -259,7 +259,7 @@ further hooks.json-shaped engine would share.
 | `runEvaluate` / `emitDecision` | Reads stdin → `evaluate` → writes the two streams. A failed stdout write is an error (the host never saw the decision); a failed stderr write is ignored, because promoting it would turn a lost diagnostic into a non-zero exit the host reads as allow |
 | `evaluate` | The whole decision path: engine → shell → config → submodules → payload → ungated-tool check → `app.Decide` → confirm-by-repeat → encode. Its fail-closed branches each say why |
 | `failClosed` | Encodes a reason as a well-formed deny with **exit 0** — a broken ltk installation never surfaces as an error exit on the hook path |
-| `loadConfig` / `configSearch` / `configSearchDirs` | Explicit `--config`, else the nearest `configSearch` name walking cwd + ancestors, else a built-in allow-all config. The walk stops at a `.git` **directory**, so a gitfile (worktree, submodule) keeps searching upward. `configSearch` begins with `defaultConfigPath`, the file `manage install` writes |
+| `loadConfig` / `configSearch` / `configSearchDirs` | Explicit `--config`, else the nearest `configSearch` name walking cwd + ancestors, else a built-in allow-all config. The walk stops at a `.git` **directory**, so a gitfile (worktree, submodule) keeps searching upward. `configSearch` begins with `defaultConfigPath`, the file `manage install` writes. Under `--write-upgrades` a migrated file is persisted to the resolved path with `schemaver.WriteBack` |
 | `newDecider` / `expandSubmodules` | The shared `evaluate`/`check` wiring; submodule expansion reports every failure, and the callers deny (`evaluate`) or error (`check`) rather than let an `@submodules` rule guard nothing |
 | `statePath` / `confirmByRepeat` | Anchors `state.json` beside the **resolved** config, and drives `state.ConfirmByRepeat` |
 | `checkResult` / `runCheck` | Discrete `{decision, message, suggestion}` fields, so a GUI never re-splits `Response.Message()`; `check` fails **loud**, unlike the hook path |
@@ -335,8 +335,11 @@ flowchart LR
   LOAD --> EXP --> APP["app.New(cfg, shells)"]
 ```
 
-- `rules.Parse` runs `checkRemovedForms`, then a strict decode (`yamlx.DecodeStrict`, which
-  tolerates an empty document), then `normalizeAndValidate`. An **empty document is a valid
+- `rules.Parse` first runs the rules file's `schemaver.Kind` (`configKind`) over the raw bytes:
+  the legacy `version` key is renamed to `schema_version`, a keyless file is generation 0 and is
+  migrated in memory, and a file newer than the binary is refused before anything else reads it.
+  Then `checkRemovedForms`, then a strict decode (`yamlx.DecodeStrict`) through a wrapper that
+  accepts `schema_version` — `Config` itself carries no version — then `normalizeAndValidate`. An **empty document is a valid
   zero-rule config**, and `cmd/ltk` ships `empty.ltk.yaml`.
 - `normalizeAndValidate` defaults `on_parse_error` to allow, then validates each rule's shared
   fields in `validateRuleBase`: id present and unique, valid action and mode, a coherent confirm
@@ -348,9 +351,9 @@ flowchart LR
   because rules are inherited downward but submodule paths must not be. It distinguishes "no
   submodules" (`nil, nil`) from "could not find out" (an error).
 - `extract-defaults`' `assemble` refuses an assembled rule set below `minDefaultRules`. Its
-  `-check` flag (fail on doc/binary drift) has no invoker: `just defaults` runs the generating
-  form, and no hook runs the check. `TestEmbeddedSampleMatchesDoc` enforces the same invariant,
-  but only when the test suite runs.
+  `-check` flag (fail on doc/binary drift) runs inside `just gen-docs-check`; `just defaults`
+  runs the generating form. `TestEmbeddedSampleMatchesDoc` enforces the same invariant wherever
+  the test suite runs.
 
 ---
 

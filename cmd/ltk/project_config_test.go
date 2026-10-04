@@ -37,7 +37,7 @@ func projectConfigPath(t *testing.T) string {
 // since nothing else evaluates the shipped config against real commands.
 func TestProjectRulesRedirectBareToolInvocations(t *testing.T) {
 	cfgPath := projectConfigPath(t)
-	cfg, err := rules.Load(cfgPath)
+	cfg, _, err := rules.Load(cfgPath)
 	if err != nil {
 		t.Fatalf("load %s: %v", cfgPath, err)
 	}
@@ -123,7 +123,7 @@ func TestProjectRulesRedirectBareToolInvocations(t *testing.T) {
 // redirect is a dead end.
 func TestProjectRulesAllowTheirOwnJustTargets(t *testing.T) {
 	cfgPath := projectConfigPath(t)
-	cfg, err := rules.Load(cfgPath)
+	cfg, _, err := rules.Load(cfgPath)
 	if err != nil {
 		t.Fatalf("load %s: %v", cfgPath, err)
 	}

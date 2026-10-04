@@ -2,6 +2,7 @@ package confload
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -795,4 +796,76 @@ func TestResolvePath_NoSchemaFallsStraightToCaseFour(t *testing.T) {
 	assert.Equal(t, "mycoder", level["AGENT"],
 		"the override is still applied, in the token's own (un-lowercased) case")
 	assert.Contains(t, buf.String(), "does not match any known config key")
+}
+
+// errHookRefused is the refusal the failing UpgradeFile hook below returns.
+var errHookRefused = errors.New("hook refused the file")
+
+// TestLoad_UpgradeFileSeesEachFilesRawBytesAndFeedsTheMerge pins the per-file
+// hook's contract: it runs once per PRESENT file, with that file's path and
+// raw bytes, and what it returns — not what was on disk — is what merges.
+func TestLoad_UpgradeFileSeesEachFilesRawBytesAndFeedsTheMerge(t *testing.T) {
+	dir := t.TempDir()
+	homePath := filepath.Join(dir, "home.yaml")
+	projectPath := filepath.Join(dir, "project.yaml")
+	const homeBody, projectBody = "# home\nstore: home-store\n", "runtime: project-runtime\n"
+	writeFile(t, homePath, homeBody)
+	writeFile(t, projectPath, projectBody)
+
+	seen := map[string]string{}
+	p := testProduct()
+	p.UpgradeFile = func(path string, data []byte) ([]byte, error) {
+		seen[path] = string(data)
+		return append([]byte("upgraded_from: "+filepath.Base(path)+"\n"), data...), nil
+	}
+
+	result, err := p.Load(Sources{HomePath: homePath, ProjectPath: filepath.Join(dir, "absent.yaml")}, Overrides{})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{homePath: homeBody}, seen, "an absent file is never handed to the hook")
+	assert.Equal(t, "home.yaml", result["upgraded_from"])
+
+	clear(seen)
+	result, err = p.Load(Sources{HomePath: homePath, ProjectPath: projectPath}, Overrides{})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{homePath: homeBody, projectPath: projectBody}, seen)
+	assert.Equal(t, "project.yaml", result["upgraded_from"], "the hook's output merges with ordinary precedence")
+	assert.Equal(t, "home-store", result["store"])
+	assert.Equal(t, "project-runtime", result["runtime"])
+}
+
+// TestLoad_UpgradeFileRefusalStopsTheLoad: a refused file fails the whole
+// load, the cause stays matchable, and the message names the file.
+func TestLoad_UpgradeFileRefusalStopsTheLoad(t *testing.T) {
+	dir := t.TempDir()
+	projectPath := filepath.Join(dir, "project.yaml")
+	writeFile(t, projectPath, "store: x\n")
+
+	p := testProduct()
+	p.UpgradeFile = func(string, []byte) ([]byte, error) { return nil, errHookRefused }
+
+	_, err := p.Load(Sources{ProjectPath: projectPath}, Overrides{})
+	require.ErrorIs(t, err, errHookRefused)
+	assert.Contains(t, err.Error(), projectPath)
+}
+
+// TestLoad_KeylessWarningIsJudgedBeforeUpgradeFile: a hook that stamps a
+// version onto an entirely commented-out file must not silence the warning
+// that the file configures nothing.
+func TestLoad_KeylessWarningIsJudgedBeforeUpgradeFile(t *testing.T) {
+	dir := t.TempDir()
+	projectPath := filepath.Join(dir, "project.yaml")
+	writeFile(t, projectPath, "# store: everything\n")
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	p := testProduct()
+	p.UpgradeFile = func(_ string, data []byte) ([]byte, error) {
+		return append(data, []byte("stamped: 1\n")...), nil
+	}
+	result, err := p.Load(Sources{ProjectPath: projectPath}, Overrides{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result["stamped"])
+	assert.Contains(t, buf.String(), projectPath, "a keyless file is still reported after the hook adds a key")
 }

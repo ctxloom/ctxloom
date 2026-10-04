@@ -1107,18 +1107,22 @@ func doctorCheckLocalTierState(cfg *config.Config, homeDir string) DoctorCheck {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn,
 			Detail: "no .ctxloom marker directory found; nothing to check"}
 	}
-	fsys := afero.NewOsFs()
-	if cfg != nil && cfg.FS() != nil {
-		fsys = cfg.FS()
-	}
-
-	missing, present := localTierPaths(fsys, appDir, homeDir)
+	missing, present := localTierPaths(configFS(cfg), appDir, homeDir)
 	return DoctorCheck{Marker: marker, Status: localTierStatus(missing), Detail: localTierDetail(missing, present)}
 }
 
 // localTierPaths sorts the local-tier layout rows into the must-exist paths
 // that are absent (with what their loss costs) and the if-used paths that
 // are present. A row whose existence cannot be read is skipped.
+// configFS is cfg's injected filesystem, or the OS filesystem when cfg carries
+// none (or did not load) — the non-nil counterpart of cfgFS.
+func configFS(cfg *config.Config) afero.Fs {
+	if fsys := cfgFS(cfg); fsys != nil {
+		return fsys
+	}
+	return afero.NewOsFs()
+}
+
 func localTierPaths(fsys afero.Fs, appDir, homeDir string) (missing, present []string) {
 	for _, entry := range paths.Layout() {
 		if entry.Tier != paths.TierLocal {
@@ -1431,7 +1435,7 @@ func doctorCheckGitignorePosture(cfg *config.Config, cfgErr error) DoctorCheck {
 		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no .ctxloom marker directory found; nothing to check"}
 	}
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
-	lines, err := gitignore.SupersededBlanketLines(gitignorePath)
+	lines, err := gitignore.SupersededBlanketLines(configFS(cfg), gitignorePath)
 	if err != nil {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "could not read .gitignore: " + err.Error()}
 	}

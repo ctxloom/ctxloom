@@ -206,7 +206,6 @@ func (a *assembly) deliver(item Item[Fragment], identity string) {
 		if kept != item.Ref {
 			a.findings = append(a.findings, Finding{Kind: FindingDuplicate, Ref: item.Ref,
 				Message: fmt.Sprintf("%q and %q both name the item %s and carry identical content, so it was assembled once, from the first: "+
-					"item identity ignores the source, so two sources publishing the same bytes under one name collapse to one copy — "+
 					"both references are valid, and nothing was lost", kept, item.Ref, identityKey(identity))})
 		}
 		return
@@ -426,16 +425,16 @@ func digest(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// identityKey reduces an item ref to the source-agnostic identity the
-// context dedupes on — trust.Ref.Key(), "<bundle>#<kind>/<name>" — so a
-// project bundle that shadows a builtin of the same name and the builtin's
-// own injection dedupe to ONE occurrence even though they carry two trust
-// identities. A ref outside the canonical grammar is used verbatim: it can
-// then only match another occurrence spelled the same way, never a
-// different one.
+// identityKey reduces an item ref to the identity the context dedupes on:
+// the source-qualified, version-less trust.BundleRef.Identity. Two sources
+// publishing an item of one name are two items, even with identical bytes —
+// a project bundle sharing a companion's leaf name overrides nothing — while
+// two spellings of ONE item (with and without a version) are one. A ref
+// outside the canonical grammar is used verbatim: it can then only match
+// another occurrence spelled the same way, never a different one.
 func identityKey(ref string) string {
 	if br, err := trust.ParseBundleRef(ref); err == nil {
-		return trust.RefFromBundleRef(br).Key()
+		return br.Identity()
 	}
 	return ref
 }
@@ -444,7 +443,7 @@ func identityKey(ref string) string {
 // through add, whichever route brought it, and it alone decides whether an
 // arriving fragment is new content or a second copy of content already
 // ingested. Two fragments are the same content — and the second is dropped
-// — when they name the SAME item (source-agnostic) AND their bytes are
+// — when they name the SAME item (source-qualified) AND their bytes are
 // identical ignoring surrounding whitespace. The FIRST occurrence is kept;
 // nothing here reorders.
 type ingest struct {

@@ -52,7 +52,7 @@ func TestBundleShow_StructuredFormatsNeverTakeTheInteractiveWalk(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, stderr, bundleShowTrustReviewHeader, "control: text -i on a terminal offers the walk")
 
-	for _, format := range []string{"json", "yaml", "toml"} {
+	for _, format := range []string{"json", "yaml", "toml", "markdown"} {
 		t.Run(format, func(t *testing.T) {
 			stdout, stderr, err := execRootCmdBoth(t, "bundle", "show", "demo", "-i", "--format", format)
 			require.NoError(t, err)

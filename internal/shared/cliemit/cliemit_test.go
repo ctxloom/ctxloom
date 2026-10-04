@@ -25,15 +25,31 @@ func newCmd(withJSON bool) (*cobra.Command, *bytes.Buffer) {
 	return c, &buf
 }
 
-// withTTY overrides isInteractiveTerminal for the duration of one test,
-// restoring the original (production) implementation on cleanup — the same
-// seam technique internal/adapters/cli's terminal predicates use, since a test
-// binary's own stdout is never a real terminal.
+// withTTY presents either terminal arm for the duration of one test, through
+// the same OverrideTerminal seam other packages use.
 func withTTY(t *testing.T, interactive bool) {
 	t.Helper()
-	orig := isInteractiveTerminal
-	isInteractiveTerminal = func() bool { return interactive }
-	t.Cleanup(func() { isInteractiveTerminal = orig })
+	t.Cleanup(OverrideTerminal(interactive))
+}
+
+// TestOverrideTerminal_RestoreReinstatesTheRealCheck: a seam whose restore
+// leaked the override would pin every later test in the process to one arm.
+func TestOverrideTerminal_RestoreReinstatesTheRealCheck(t *testing.T) {
+	c, _ := newCmd(false)
+	before, err := Resolve(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, interactive := range []bool{true, false} {
+		OverrideTerminal(interactive)()
+		got, err := Resolve(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != before {
+			t.Fatalf("after restoring an override to %v, Resolve gave %q; the real check gave %q", interactive, got, before)
+		}
+	}
 }
 
 func TestEmit_TextRunsClosure(t *testing.T) {

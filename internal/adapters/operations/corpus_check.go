@@ -7,6 +7,8 @@ import (
 	"path"
 	"sort"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -39,9 +41,8 @@ func (b CorpusBundle) String() string {
 	return b.Remote + ":" + b.Path
 }
 
-// CorpusViolation is one published bundle that will NOT parse under the
-// bundle schema this build enforces. It carries the parse error, not just the
-// name: a gate that reports "3 bundles failed" without saying what is wrong
+// CorpusViolation is one published bundle that this build's bundle reader
+// will NOT accept. It carries the reader's error, not just the name: a gate that reports "3 bundles failed" without saying what is wrong
 // with them is a gate someone disables instead of fixing.
 type CorpusViolation struct {
 	Bundle CorpusBundle `json:"bundle"`
@@ -49,8 +50,8 @@ type CorpusViolation struct {
 }
 
 // CorpusGap is a piece of the corpus that could not be READ, as distinct from
-// one that read fine and failed to parse. Path is empty when the whole remote
-// was unreachable and set when a single bundle's bytes could not be fetched.
+// one that was fetched and refused by the reader. Path is empty when the whole remote
+// was unreachable and set when a single bundle's tree could not be fetched.
 //
 // The two outcomes are kept apart because they license opposite conclusions. A
 // violation is a fact about the content; a gap is the absence of a fact, and
@@ -78,10 +79,10 @@ type CorpusReport struct {
 	RemotesConfigured int `json:"remotes_configured"`
 	// RemotesRead is how many of them yielded a bundle listing.
 	RemotesRead int `json:"remotes_read"`
-	// Parsed is how many bundles were read AND parsed successfully. It is the
-	// evidence that the check did any work at all.
+	// Parsed is how many bundles the reader accepted whole — envelope and
+	// every item. It is the evidence that the check did any work at all.
 	Parsed int `json:"parsed"`
-	// Violations are the bundles that read fine and would not parse.
+	// Violations are the bundles that were fetched and the reader refused.
 	Violations []CorpusViolation `json:"violations"`
 	// Gaps are the remotes and bundles that could not be read.
 	Gaps []CorpusGap `json:"gaps"`
@@ -125,19 +126,22 @@ func (r CorpusReport) Verdict() CorpusVerdict {
 // reads the local clone and touches no forge API.
 type FetcherOpener func(repoURL string) (remote.Fetcher, error)
 
-// BundleParser is the schema rule a corpus is checked AGAINST. Production
-// passes parseBundleBytes, wrapping bundles.ParseBundle, so the gate always
-// enforces exactly what this build enforces at load time — a schema tightening
-// changes the gate's verdict with no edit here, which is the whole point.
-type BundleParser func(data []byte) error
+// BundleParser is the schema rule a corpus is checked AGAINST, applied to one
+// published bundle's whole tree. Production passes readBundleTree, wrapping
+// bundles.ReadTree — the reader a remote load goes through — so the gate always
+// enforces exactly what this build enforces at load time: a schema tightening
+// in the envelope OR in any item changes the gate's verdict with no edit here,
+// which is the whole point.
+type BundleParser func(ctx context.Context, tree content.Bundle) error
 
 // corpusBundlesDir is the repo-relative directory a published corpus lives in:
 // the root that CONTAINS every layout, walked recursively, so a corpus is
 // checked whole no matter which layout its bundles were published in.
 var corpusBundlesDir = remote.RepoItemRoot(remote.ItemTypeBundle)
 
-// CheckCorpus reads every bundle published by each remote and parses it,
-// returning what would not parse and what could not be read.
+// CheckCorpus reads every bundle published by each remote, whole, at the
+// commit its default branch resolves to, returning what the reader refused and
+// what could not be read.
 //
 // It never aborts on the first failure: the deliverable is the COMPLETE list of
 // offending bundles, because a gate that names one of three sends its reader
@@ -152,8 +156,13 @@ func CheckCorpus(ctx context.Context, remotes []CorpusRemote, open FetcherOpener
 }
 
 // checkOneRemote folds a single remote's bundles into report. Every failure
-// short of a parse failure lands in Gaps, so an unreadable remote can never be
-// mistaken for a clean one.
+// to look lands in Gaps, so an unreadable remote can never be mistaken for a
+// clean one.
+//
+// The remote's tip is pinned to a commit before anything is listed. An
+// unpinned read lets the listing that decides which bundles exist and the reads
+// that produce their bytes see different trees, and remotetree.FetchFiles
+// refuses anything short of a full SHA for exactly that reason.
 func checkOneRemote(ctx context.Context, rem CorpusRemote, open FetcherOpener, parse BundleParser, report *CorpusReport) {
 	fetcher, err := open(rem.URL)
 	if err != nil {
@@ -165,29 +174,65 @@ func checkOneRemote(ctx context.Context, rem CorpusRemote, open FetcherOpener, p
 		report.Gaps = append(report.Gaps, CorpusGap{Remote: rem.Name, URL: rem.URL, Err: fmt.Errorf("parse repo URL %s: %w", rem.URL, err)})
 		return
 	}
+	sha, err := resolveTip(ctx, fetcher, owner, repo)
+	if err != nil {
+		report.Gaps = append(report.Gaps, CorpusGap{Remote: rem.Name, URL: rem.URL, Err: err})
+		return
+	}
 
-	bundlePaths, err := listCorpusBundles(ctx, fetcher, owner, repo)
+	bundlePaths, err := listCorpusBundles(ctx, fetcher, owner, repo, sha)
 	if err != nil {
 		report.Gaps = append(report.Gaps, CorpusGap{Remote: rem.Name, URL: rem.URL, Err: err})
 		return
 	}
 	report.RemotesRead++
 
+	src := remotetree.Spec{Owner: owner, Repo: repo, SHA: sha, RepoURL: rem.URL}
 	for _, p := range bundlePaths {
-		data, ferr := fetcher.FetchFile(ctx, owner, repo, p, "")
-		if ferr != nil {
-			report.Gaps = append(report.Gaps, CorpusGap{Remote: rem.Name, URL: rem.URL, Path: p, Err: ferr})
-			continue
-		}
-		if perr := parse(data); perr != nil {
-			report.Violations = append(report.Violations, CorpusViolation{
-				Bundle: CorpusBundle{Remote: rem.Name, URL: rem.URL, Path: p},
-				Err:    perr,
-			})
-			continue
-		}
-		report.Parsed++
+		checkOneBundle(ctx, fetcher, src, CorpusBundle{Remote: rem.Name, URL: rem.URL, Path: p}, parse, report)
 	}
+}
+
+// checkOneBundle fetches one published bundle's tree and hands it to parse,
+// through the same remotetree.FetchFiles and remotetree.OpenFetchedBundle a
+// remote load uses, so the gate and a load refuse the same trees.
+//
+// A fetch the forge could not answer is a gap. A fetch refused because of what
+// the tree IS — an entry that is not a plain name, a tree past its budget — is
+// a violation: the publisher's content is the cause, and a load refuses it too.
+func checkOneBundle(ctx context.Context, fetcher remote.Fetcher, src remotetree.Spec, bundle CorpusBundle, parse BundleParser, report *CorpusReport) {
+	dir := path.Dir(bundle.Path)
+	src.Root = dir
+	files, err := remotetree.FetchFiles(ctx, fetcher, src)
+	if err != nil && !errors.Is(err, content.ErrBadPath) && !errors.Is(err, remotetree.ErrTooLarge) {
+		report.Gaps = append(report.Gaps, CorpusGap{Remote: bundle.Remote, URL: bundle.URL, Path: bundle.Path, Err: err})
+		return
+	}
+	if err == nil {
+		var tree content.Bundle
+		if tree, err = remotetree.OpenFetchedBundle(ctx, path.Base(dir), files, src.RepoURL); err == nil {
+			err = parse(ctx, tree)
+		}
+	}
+	if err != nil {
+		report.Violations = append(report.Violations, CorpusViolation{Bundle: bundle, Err: err})
+		return
+	}
+	report.Parsed++
+}
+
+// resolveTip pins a remote's default-branch tip — what an unpinned read of it
+// means — to a commit SHA.
+func resolveTip(ctx context.Context, fetcher remote.Fetcher, owner, repo string) (string, error) {
+	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
+	if err != nil {
+		return "", fmt.Errorf("resolve the default branch of %s/%s: %w", owner, repo, err)
+	}
+	sha, err := fetcher.ResolveRef(ctx, owner, repo, branch)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s of %s/%s to a commit: %w", branch, owner, repo, err)
+	}
+	return sha, nil
 }
 
 // listCorpusBundles walks the repo's published bundles directory and returns
@@ -205,11 +250,11 @@ func checkOneRemote(ctx context.Context, rem CorpusRemote, open FetcherOpener, p
 // may legitimately publish no bundles, and calling that unreadable would fire
 // the gate on a healthy corpus. The check's own "nothing was parsed" guard is
 // what stops that leniency from becoming a silent pass.
-func listCorpusBundles(ctx context.Context, fetcher remote.Fetcher, owner, repo string) ([]string, error) {
+func listCorpusBundles(ctx context.Context, fetcher remote.Fetcher, owner, repo, sha string) ([]string, error) {
 	var found []string
 	var walk func(dir string) error
 	walk = func(dir string) error {
-		entries, err := fetcher.ListDir(ctx, owner, repo, dir, "")
+		entries, err := fetcher.ListDir(ctx, owner, repo, dir, sha)
 		if err != nil {
 			if errors.Is(err, errs.ErrRemoteContentNotFound) {
 				return nil
@@ -262,10 +307,10 @@ func sortCorpusFindings(report *CorpusReport) {
 	})
 }
 
-// parseBundleBytes adapts bundles.ParseBundle to BundleParser: the gate cares
-// only whether the current schema accepts the bytes.
-func parseBundleBytes(data []byte) error {
-	_, err := bundles.ParseBundle(data)
+// readBundleTree adapts bundles.ReadTree to BundleParser: the gate cares only
+// whether this build's reader accepts the tree.
+func readBundleTree(ctx context.Context, tree content.Bundle) error {
+	_, err := bundles.ReadTree(ctx, tree)
 	return err
 }
 
@@ -290,8 +335,8 @@ func ConfiguredCorpus(cfg *config.Config) ([]CorpusRemote, error) {
 	return corpus, nil
 }
 
-// CheckConfiguredCorpus parses every bundle published by every configured
-// remote, reading the LOCAL clone cache.
+// CheckConfiguredCorpus reads every bundle published by every configured
+// remote, from the LOCAL clone cache.
 //
 // It deliberately does not fetch: with a warm cache the whole check is offline,
 // and a cache miss surfaces as a gap (undetermined) rather than as either a
@@ -304,5 +349,5 @@ func CheckConfiguredCorpus(ctx context.Context, cfg *config.Config) (CorpusRepor
 	factory := NewCachedFetcherFactory(cfg)
 	auth := remote.LoadAuth(ProjectAppDir(cfg))
 	open := func(repoURL string) (remote.Fetcher, error) { return factory(repoURL, auth) }
-	return CheckCorpus(ctx, corpus, open, parseBundleBytes), nil
+	return CheckCorpus(ctx, corpus, open, readBundleTree), nil
 }

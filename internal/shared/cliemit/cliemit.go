@@ -101,12 +101,26 @@ func EmitVersion(cmd *cobra.Command, emitFn func(cmd *cobra.Command, data any, t
 // selection does not.
 //
 // A var rather than a plain func so tests can present either side of the
-// human/machine split without a real terminal — see internal/adapters/cli's
-// isInteractiveTerminal for the same seam technique and its rationale: a test
+// human/machine split without a real terminal (OverrideTerminal): a test
 // binary's stdout is never a terminal, so every unmocked test is permanently
 // on the machine side.
 var isInteractiveTerminal = func() bool {
 	return term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+// OverrideTerminal makes Resolve see stdout as a terminal (interactive) or not,
+// until the returned restore runs. It is the TEST seam for every package whose
+// behaviour turns on Resolve: without it, a caller outside this package can
+// only ever exercise the machine arm. Use it as
+// t.Cleanup(cliemit.OverrideTerminal(true)) in a test that does not run in
+// parallel — the check is process-wide.
+//
+// It takes no testing.TB so this package, which every binary links, does not
+// import "testing".
+func OverrideTerminal(interactive bool) (restore func()) {
+	orig := isInteractiveTerminal
+	isInteractiveTerminal = func() bool { return interactive }
+	return func() { isInteractiveTerminal = orig }
 }
 
 // Resolve reads the inherited global --format value and parses it via clifmt.

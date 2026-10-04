@@ -480,6 +480,10 @@ type UnaddressableReporter interface {
 	Unaddressable(ref string, v Verdict)
 }
 
+// remedyUngoverned is the fix Decide's nil-authorizer finding names: the fault
+// is in ctxloom's wiring, so there is nothing for the user to change locally.
+const remedyUngoverned = "report this as a ctxloom bug: a delivery surface was built without its trust gate"
+
 // Decide is the ONE way an item addressed by a ref STRING reaches a Authorizer.
 //
 // Every exposure choke funnels through it — the delivery pipeline, the builtin
@@ -490,10 +494,12 @@ type UnaddressableReporter interface {
 // could forget the last of those.
 //
 // A NIL authorizer withholds, and says so (ReasonUngoverned): nobody supplied
-// a gate, and that is a defect in the caller, never a policy. There is no
-// admit-everything authorizer in production to spell "deliberately ungated"
-// instead, so every surface that reaches here is decided by a real gate or
-// withheld.
+// a gate, and that is a defect in the caller, never a policy. It is reported
+// as a fail-loudly trust finding, not a warning: a warning would let a
+// surface wired without its gate ship while withholding everything it
+// decides. There is no admit-everything authorizer in production to spell
+// "deliberately ungated" instead, so every surface that reaches here is
+// decided by a real gate or withheld.
 //
 // An UNPARSEABLE ref withholds. An item nothing can address is an item the
 // decision function was never able to key on, and exposing it would be exposing
@@ -512,7 +518,7 @@ type UnaddressableReporter interface {
 func Decide(rep report.Reporter, authorizer Authorizer, read BundleRead, ref string, payload []byte, form ContentForm) Verdict {
 	if authorizer == nil {
 		v := Verdict{Reason: ReasonUngoverned}
-		rep.Warnf("withheld %s: %s", ref, v.Reason.Explain(v.Detail))
+		rep.FailOncef(report.KindTrust, remedyUngoverned, "withheld %s: %s", ref, v.Reason.Explain(v.Detail))
 		return v
 	}
 	br, err := trust.ParseBundleRef(ref)

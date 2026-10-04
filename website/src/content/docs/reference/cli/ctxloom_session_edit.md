@@ -46,7 +46,7 @@ ctxloom session edit <harp-name> [flags]
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
-      --write-upgrades           Persist in-memory upgrades of older-format files (the old file is kept as <file>.bak)
+      --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
 ```
 
 ### SEE ALSO

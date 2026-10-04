@@ -44,3 +44,13 @@ func TestWithLock_RefusalNeverRunsFn(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotRegularFile)
 	assert.False(t, ran)
 }
+
+// Held refuses a FIFO at the lock path rather than hanging on it: a
+// read-only open of a FIFO blocks until a writer appears, and a liveness
+// probe that hangs is worse than one that errs.
+func TestHeld_RefusesFIFOLockPath(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "x.lock")
+	require.NoError(t, syscall.Mkfifo(lockPath, 0o600))
+	_, err := Held(lockPath)
+	require.ErrorIs(t, err, ErrNotRegularFile)
+}

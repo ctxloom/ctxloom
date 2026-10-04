@@ -38,7 +38,7 @@ ltk loadout [flags]
 ### Options inherited from parent commands
 
 ```
-      --write-upgrades   Persist in-memory upgrades of older-format files (the old file is kept as <file>.bak)
+      --write-upgrades   Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
 ```
 
 ### SEE ALSO

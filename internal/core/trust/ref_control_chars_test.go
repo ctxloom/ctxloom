@@ -58,3 +58,17 @@ func TestRefCanonicalURL_StripsControlCharacters(t *testing.T) {
 	assert.Equal(t, refuri.LocalSource, local.CanonicalURL())
 
 }
+
+// ParseSelector is the parse that turns a raw "<kind>/<name>" into a typed
+// item, so it returns the NORMALISED name: a caller holding the parsed value
+// has no reason to reach back for the raw text, and the raw text is where a
+// control byte would ride through to a terminal or a ref string.
+func TestParseSelector_ReturnsTheNormalisedName(t *testing.T) {
+	const raw = "ev\x1b[2Jil"
+	kind, name, err := ParseSelector(KindFragment.Dir() + "/" + raw)
+	if err != nil {
+		t.Fatalf("ParseSelector: %v", err)
+	}
+	assert.Equal(t, KindFragment, kind)
+	assert.Equal(t, refuri.NormalizeRef(raw), name, "the parsed name is the normalised one")
+}

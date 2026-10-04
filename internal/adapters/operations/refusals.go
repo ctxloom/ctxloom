@@ -96,6 +96,9 @@ type RefusalRecord struct {
 	ProposedSHA string `yaml:"proposed_sha"`
 	// Detail is the verification failure in the verifier's own words.
 	Detail string `yaml:"detail"`
+	// Cause is why the advance was refused; it decides how the advisory
+	// words the record.
+	Cause RefusalCause `yaml:"cause"`
 	// RefusedAt is when the round that refused it ran, so the advisory can be
 	// read as an as-of statement rather than a claim about right now.
 	RefusedAt time.Time `yaml:"refused_at"`
@@ -153,6 +156,7 @@ func saveRefusedAdvances(cfg *config.Config, refused []RefusedAdvance) error {
 			KeptSHA:     r.KeptSHA,
 			ProposedSHA: r.ProposedSHA,
 			Detail:      r.Detail,
+			Cause:       r.Cause,
 			RefusedAt:   now,
 		})
 	}

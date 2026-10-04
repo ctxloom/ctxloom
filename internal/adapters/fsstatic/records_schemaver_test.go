@@ -80,3 +80,16 @@ func TestClaimsRecord_WriterStampsSchemaVersion(t *testing.T) {
 	_, legacy := m["claims"]
 	assert.False(t, legacy, "the legacy spelling is not written")
 }
+
+// A record that is not YAML is the record's parse failure, not a version
+// fault: schemaver has no generation to judge in it.
+func TestClaimsRecord_MalformedIsAParseFailureNotAVersionFault(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, fs, claimsRecordPath(), "target: [unterminated\n", 0o600)
+	c := newRecords(t, fs)
+
+	_, err := c.Paths(fs, versionedTarget)
+	require.Error(t, err)
+	var ve *schemaver.VersionError
+	assert.NotErrorAs(t, err, &ve)
+}

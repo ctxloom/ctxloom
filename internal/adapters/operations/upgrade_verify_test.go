@@ -48,6 +48,14 @@ func demoTreeFiles(t *testing.T, signer ssh.Signer, fragBody string) map[string]
 // signature.
 func demoTreeFilesAt(t *testing.T, signer ssh.Signer, fragBody, version string) map[string]string {
 	t.Helper()
+	return demoTreeFilesEnvelope(t, signer, fragBody, "version: "+version+"\n")
+}
+
+// demoTreeFilesEnvelope is demoTreeFilesAt with the bundle.yaml bytes given
+// whole, so a fixture can sign an envelope the reader then refuses on
+// structure rather than on signature.
+func demoTreeFilesEnvelope(t *testing.T, signer ssh.Signer, fragBody, envelope string) map[string]string {
+	t.Helper()
 	fsys := afero.NewMemMapFs()
 	const root = "/stage"
 	st, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
@@ -56,7 +64,7 @@ func demoTreeFilesAt(t *testing.T, signer ssh.Signer, fragBody, version string) 
 		trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "keeper"},
 		signing.FormRaw,
 		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: fragBody}}))
-	require.NoError(t, st.PutRootFile(context.Background(), "demo", bundles.DirectoryFormManifest, []byte("version: "+version+"\n")))
+	require.NoError(t, st.PutRootFile(context.Background(), "demo", bundles.DirectoryFormManifest, []byte(envelope)))
 	tree, err := st.Open(context.Background(), "demo")
 	require.NoError(t, err)
 	if signer != nil {
@@ -168,6 +176,7 @@ func TestUpgrade_RefusesAdvanceOntoUnverifiableSignature(t *testing.T) {
 	assert.Equal(t, verified, res.Refused[0].KeptSHA)
 	assert.Equal(t, edited, res.Refused[0].ProposedSHA)
 	assert.Contains(t, res.Refused[0].Detail, bundles.ErrTreeBundleWithheld.Error())
+	assert.Equal(t, RefusalSignature, res.Refused[0].Cause, "a signature that does not cover its bytes is the tamper case")
 
 	// The payload assertion: the lockfile still holds the last verified pin,
 	// whole. Nothing half-wrote.
@@ -228,4 +237,30 @@ func TestUpgrade_UnsignedContentStillAdvances(t *testing.T) {
 
 	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	assert.Equal(t, c2, e1.SHA)
+}
+
+// A refusal is not a tamper signal just because the read failed. The publisher
+// SIGNED this tree properly — the signature verifies — but its bundle.yaml
+// still declares items inline beside the item files (a half-migrated bundle),
+// which the reader refuses on structure. The advance is still refused (that
+// decision is unchanged); what changes is that it is not reported as a
+// signature that fails to cover its bytes.
+func TestUpgrade_AStructurallyInvalidTreeIsRefusedAsUnreadableNotTampered(t *testing.T) {
+	baseDir, src, _, signer, verified := signedBundleRepo(t, "name: demo\n")
+	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
+	ctx := context.Background()
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
+	require.NoError(t, err)
+
+	halfMigrated := commitTree(t, src, demoTreeFilesEnvelope(t, signer, "revised\n",
+		"version: 1.0.0\nfragments:\n  inline-one:\n    content: hi\n"), false)
+	require.NotEqual(t, verified, halfMigrated)
+
+	res, err := UpgradeDependencies(ctx, cfg, nil)
+	require.NoError(t, err)
+	require.Len(t, res.Refused, 1, "a tree that cannot be read is still refused")
+	assert.Equal(t, verified, res.Refused[0].KeptSHA)
+	assert.Equal(t, RefusalUnreadable, res.Refused[0].Cause,
+		"a structural read failure must not be reported as a publisher-signature tamper")
+	assert.NotContains(t, res.Refused[0].Detail, bundles.ErrTreeBundleWithheld.Error())
 }

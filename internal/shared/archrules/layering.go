@@ -128,6 +128,7 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/exectoken",
 			"internal/shared/textblocks",
 			"internal/shared/owneronly",
+			"internal/shared/schemaver",
 		},
 		Allowed: map[string]string{
 			// core/profiles — the remote edge was planned; the others were
@@ -152,6 +153,10 @@ var LayeringRules = []LayeringRule{
 			// lockwait and safefs edges reach the toolbox, which is excepted, so they
 			// are not violations.
 			"internal/core/agent -> internal/shared/ledger": "slice 12: shared/ledger is deleted",
+
+			// core/sessions — the sidecar's schemaver.Kind spells its steps
+			// as upgrade.Upgraders.
+			"internal/core/sessions -> internal/shared/upgrade": "a schemaver.Kind's Steps are []upgrade.Upgrader, so a core package that versions a file names that type; leaves if upgrade joins the toolbox or schemaver stops exposing the type (urban-borough)",
 		},
 	},
 	{

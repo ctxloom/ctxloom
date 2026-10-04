@@ -17,6 +17,40 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
+// TestWorktree_AMemberWithoutAUsableHarpIsRefused: a worktree's checkout and
+// scratch live under its session's members, so a member whose state names no
+// harp — or one that is not a safe path segment — has nowhere to put them and
+// is refused before anything is checked out. There is no OS-temp-dir home.
+func TestWorktree_AMemberWithoutAUsableHarpIsRefused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		state SessionState
+		want  error
+	}{
+		"no harp":     {SessionState{}, errNoSessionHarp},
+		"unsafe harp": {SessionState{Harp: "../escape"}, errUnsafeSessionHarp},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &git.Fake{CommonDirValue: t.TempDir()}
+			w := NewWorktree(f)
+			w.state = tc.state
+			ws, err := w.prepareWorkspace(context.Background(), "/proj", "member-a")
+			require.ErrorIs(t, err, tc.want)
+			assert.Nil(t, ws)
+			assert.Empty(t, f.Calls, "nothing is checked out for a member with no session to hold it")
+		})
+	}
+}
+
+// TestHostSecretsDiskParent_RefusesWithoutAUsableHarp: a host run's on-disk
+// secrets parent is its session's scratch dir; with no usable harp there is
+// none, and the answer is the refusal, not a shared directory instead.
+func TestHostSecretsDiskParent_RefusesWithoutAUsableHarp(t *testing.T) {
+	_, err := hostSecretsDiskParent(SessionState{})
+	require.ErrorIs(t, err, errNoSessionHarp)
+	_, err = hostSecretsDiskParent(SessionState{Harp: ".."})
+	require.ErrorIs(t, err, errUnsafeSessionHarp)
+}
+
 // TestWorktree_PrepareCreatesWorktree: in a repo, PrepareWorkspace adds a detached
 // worktree under the OS temp dir (NOT inside the repo) and exposes it as Dir(),
 // with the env for what it provisioned.

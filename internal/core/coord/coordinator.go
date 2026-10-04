@@ -814,11 +814,12 @@ func (c *Coordinator) waitTracked() {
 
 // adopt reconciles state read from disk with the fresh process: queued mail
 // is preserved as-is (drainable); every non-ended run gets ONE runner-loss
-// grace window in which its runner — a container's foreground process, or a
-// host runner that is its own session leader — may dial back naming the run
+// grace window in which its runner may dial back naming the run
 // (RunnerHello.active_run_ids), whereupon readopt gives it its attachment
 // and its cell owner back; a run whose runner never returns ends as runner
-// loss. Live-child engine-stream continuity is Wave C.
+// loss. Only a container's runner can return: a host runner is signalled to
+// end with the process that started it (isolation's isolateRunner), so its
+// run ends here and its harp relaunches as a fresh run. Live-child engine-stream continuity is Wave C.
 func (c *Coordinator) adopt() {
 	type pending struct {
 		runID    string

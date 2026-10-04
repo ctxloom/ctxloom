@@ -59,7 +59,7 @@ on a marshal failure — loud, and correct for own-struct payloads).
 | `rosterFold` | per-harp coordinator-visible state, latest attempt wins | `touch` silently no-ops for a superseded run — that guard is the point |
 | `itemsFold` | plane-1 counting projection: `counts`, `chars`, `maxSeq` keyed by **run_id** | never stores delta text, only sizes |
 | `reportsFold` | latest summary / checkpoint / per-artifact revision / per-harp seq watermark | see [artifacts.md](artifacts.md) |
-| `holdsFold` | holds in force by key (kind, scope, credential source, deadline, member harps), the run and harp each parks, resumes still owed, each run's journaled launch identity (`run.launched`) | the **sole** record of holds — rate-limit, overload and initiator pauses (`holds.go`, `credhold.go`) |
+| `holdsFold` | holds in force by key (kind, scope, credential source, deadline, member harps), the run and harp each parks, resumes still owed, each run's journaled launch identity (`run.launched`) | the **sole** record of holds — refused-credential, rate-limit, overload and initiator pauses (`holds.go`, `credhold.go`) |
 
 `runsFold.byHarp` and `rosterFold.current` are the same harp→run_id index maintained
 twice from one journal, with two reap policies (`runsFold` never prunes `byHarp`;
@@ -75,7 +75,10 @@ one, and neither warns.
 keeps only what no journal can carry — each hold's release timer and park barrier
 (`holdLocal`). So a restarted coordinator (`adoptHolds`) re-arms every hold still in
 force, releases at once one whose deadline passed while it was down, arms nothing for a
-hold with no deadline (a pause), and — once each re-adopted run's runner re-Hellos
+hold with no deadline (a pause, a refused credential), releases a refused credential's hold
+whose carriers now resolve to a different credential digest (`adoptRefusedHold`, cause
+`reauth`), and — once each re-adopted run's runner re-Hellos (only a container's can: a
+host runner ends with the process that started it, and its harp relaunches)
 (`readoptHold`) — re-sends a held run's pause or a released run's owed resume. Both are
 idempotent at the runner, whose pause gate is process memory that outlives a redial. A
 member whose run ends stays in the hold by **harp**: no relaunch path resumes a held

@@ -693,9 +693,10 @@ func (f *fakeEngineHome) SetWake(w engine.Wake) func() {
 func TestEngineHost_AHeldTurnFailureParksItselfAndSaysWhen(t *testing.T) {
 	resets := time.Date(2026, 10, 1, 17, 30, 0, 0, time.UTC)
 	for name, failure := range map[string]*agent.TurnFailure{
-		"with a reset time": {Kind: agent.FailureRateLimited, ResetsAt: resets},
-		"without one":       {Kind: agent.FailureRateLimited},
-		"overloaded":        {Kind: agent.FailureOverloaded},
+		"with a reset time":  {Kind: agent.FailureRateLimited, ResetsAt: resets},
+		"without one":        {Kind: agent.FailureRateLimited},
+		"overloaded":         {Kind: agent.FailureOverloaded},
+		"credential refused": {Kind: agent.FailureCredentialRejected},
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := &fakeEngineHome{}
@@ -796,4 +797,16 @@ func TestFailurePreamble_OverloadedSaysThisRunAloneWaits(t *testing.T) {
 	assert.Contains(t, got, "resend")
 	assert.Contains(t, got, "on its own")
 	assert.NotContains(t, got, "credential")
+}
+
+// TestFailurePreamble_CredentialRefusedSaysAHumanMustReauthenticate: a
+// refused turn's report says the work was NOT done and must be resent, that
+// every run on the credential is parked, and that nothing but the human's
+// re-authentication ends it — it does not resume on its own.
+func TestFailurePreamble_CredentialRefusedSaysAHumanMustReauthenticate(t *testing.T) {
+	got := failurePreamble(&agent.TurnFailure{Kind: agent.FailureCredentialRejected})
+	assert.True(t, strings.HasPrefix(got, "CREDENTIAL REFUSED:"), got)
+	assert.Contains(t, got, "resend")
+	assert.Contains(t, got, "human")
+	assert.NotContains(t, got, "on its own")
 }

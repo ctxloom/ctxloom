@@ -633,6 +633,12 @@ func (c *Controller) NoteBar(text string, d time.Duration) {
 	})
 }
 
+// Ring rings the bell once for an event that needs the human (a refused
+// credential's hold opening), only while the bar shows, and reports whether it
+// rang. It is not folded into the approval bell's interval: its caller rings
+// once per event, and an approval's bell must not swallow it.
+func (c *Controller) Ring() bool { return c.sur.Ring() }
+
 // approvalBellInterval rate-limits the arrival bell: a burst of requests
 // rings once, not once per request.
 const approvalBellInterval = 10 * time.Second

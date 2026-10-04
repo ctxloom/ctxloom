@@ -425,6 +425,29 @@ func TestController_SuppressedBellDoesNotSpendTheInterval(t *testing.T) {
 	assert.Contains(t, h.tty.String(), "\a")
 }
 
+// TestController_RingRingsOnceWhileTheBarShows: Ring is one bell for an
+// event that needs the human, rung only while the bar shows (a modal or an
+// overlay on screen is its own signal) and never folded into the approval
+// bell's interval — the caller rings once per event, and an approval bell a
+// moment earlier must not swallow it.
+func TestController_RingRingsOnceWhileTheBarShows(t *testing.T) {
+	clk := fakeclock.New()
+	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
+	_ = h.drainTranslated(t)
+	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	bells := func() int { return strings.Count(h.tty.String(), "\a") }
+
+	h.c.SetApprovals(1, clk.Now(), true)
+	require.Equal(t, 1, bells())
+	assert.True(t, h.c.Ring(), "an approval bell a moment earlier does not swallow it")
+	assert.Equal(t, 2, bells())
+
+	h.c.sur.Suspend()
+	assert.False(t, h.c.Ring(), "no bell while the bar is suspended")
+	assert.Equal(t, 2, bells())
+}
+
 func TestController_RosterPollFeedsBar(t *testing.T) {
 	h := newCtlHarness(t, func(o *Options) {
 		o.RosterInterval = 5 * time.Millisecond

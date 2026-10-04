@@ -213,7 +213,7 @@ flowchart TD
 | Signature | file:line | Contract |
 |---|---|---|
 | `NewLockfileManager(baseDir, opts...)` | `internal/adapters/remote/lockfile.go:44` | Manager over `<baseDir>/lock.yaml`; `WithLockfileFS` (`:36`) is the afero test seam. |
-| `LockfileManager.Load() (*Lockfile, error)` | `internal/adapters/remote/lockfile.go:66` | Read + parse + initialise maps + self-heal. A missing or empty file yields an empty lockfile with no error; the self-heal path **writes during a read**. |
+| `LockfileManager.Load() (*Lockfile, error)` | `LockfileManager.Load` | Read + version gate (`lockfileKind`, through `upgradeLockfile`) + parse + initialise maps. A missing file yields an empty lockfile with no error; a present but empty one, a retired form and a newer `schema_version` are refused. **Reading never writes** — an older spelling is migrated in memory and persisted only by the next `Save` or under `--write-upgrades`. |
 | `LockfileManager.Save(*Lockfile, ...SaveOption) error` | `internal/adapters/remote/lockfile.go:152` | **Reads back what is on disk and can refuse.** Two refusals: `ErrLockfileWouldErase` (`:107`) when an empty lockfile would replace a populated one, naming how many entries it protected; and `ErrLockfileUnreadable` (`:114`) on **any** write over an unparseable lockfile, naming the recovery. Otherwise stamps `LockedAt = now().UTC()` and calls `write`. Added by `fd0d87d6` (T1); the signature is variadic so no call site churned. |
 | `remote.AllowEmpty() SaveOption` | `internal/adapters/remote/lockfile.go:126` | The opt-in for a caller that emptied the lockfile **deliberately**. Relaxes only the first refusal. The unreadable refusal has **no** override on purpose: holds and retractions that cannot be read cannot be carried forward, so every write over a corrupt file destroys unaccountable state. |
 | `LockfileManager.write(*Lockfile) error` | `internal/adapters/remote/lockfile.go:111` | Marshal, `MkdirAll`, `safefs.WriteFile` — the only code path that touches `lock.yaml` bytes. |
@@ -269,10 +269,11 @@ flowchart TD
    (`internal/adapters/remote/lockfile.go:133,140,149`) silently ignore any `ItemType` other than
    `ItemTypeBundle`. Top-level profile distribution was retired.
 3. **`LockfileManager.write` is the only code path that writes `lock.yaml` bytes**,
-   always via `safefs.WriteFile`. It is reached from `Save` and from the load-time
-   self-heal inside `Load` (`:66`) — so a `Load` can write.
+   always via `safefs.WriteFile`, and `Save` is its only caller; `Load` writes only
+   through `schemaver.WriteBack`, and only under `--write-upgrades`.
    **`Save` is now a guard, not just a writer** (`fd0d87d6`). It reads the current file
-   back and refuses an empty-over-populated write and any write over a corrupt one.
+   back and refuses an empty-over-populated write, any write over a corrupt one, and
+   any write over a lockfile declaring a newer `schema_version`.
    This was the review's highest data-loss finding: `deps upgrade` could erase every
    dependency pin and print "Everything is up to date." with exit 0, because any
    config-load error produced an empty closure and the save was unconditional. It was
@@ -288,8 +289,7 @@ flowchart TD
    `LockfileStore` port (`internal/adapters/remote/lockfile_store.go:8`); no other package writes
    the file.
 4. **`Save` owns the `LockedAt` timestamp.** Every save stamps `LockedAt = time.Now().UTC()`
-   (`internal/adapters/remote/lockfile.go:104`); `write` never modifies it, so the load-time
-   self-heal preserves the previous timestamp.
+   (`LockfileManager.Save`); `write` never modifies it.
 5. **The identity digest is a git commit SHA, not a content hash.** This package computes
    no digest of bundle bytes. `Resolution.SHA` (`internal/adapters/remote/version_constraint.go:213`)
    is the commit a selector resolved to; it changes only when the constraint is

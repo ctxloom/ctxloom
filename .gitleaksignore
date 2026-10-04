@@ -1,0 +1,37 @@
+# Fingerprints of historical gitleaks findings that are test fixtures, not
+# secrets, for `just secrets-scan-history` (lefthook pre-push). Each is
+# commit:path:rule:line, so it suppresses exactly one finding in one past
+# commit and never anything new. Every entry was read and verified as a
+# fixture: content-hash digests in a golden file at its former path, planted
+# fake tokens and their marker strings, and a truncated OPENSSH header used as
+# a redaction needle.
+#
+# Only history goes here. A fixture in the current tree is annotated where it
+# lives (`gitleaks:allow`); a class of false positive is a rule in
+# .gitleaks.toml.
+02f9d36a58c9a355a64f7a1d99139dbd297d03c7:internal/operations/llm_write_test.go:generic-api-key:107
+1893f67d70df3b4d4c8ea143af8a5c982ee4103f:internal/content/testdata/golden/treewalk.txt:generic-api-key:17
+1893f67d70df3b4d4c8ea143af8a5c982ee4103f:internal/content/testdata/golden/treewalk.txt:generic-api-key:19
+1893f67d70df3b4d4c8ea143af8a5c982ee4103f:internal/content/testdata/golden/treewalk.txt:generic-api-key:22
+1893f67d70df3b4d4c8ea143af8a5c982ee4103f:internal/content/testdata/golden/treewalk.txt:generic-api-key:25
+1893f67d70df3b4d4c8ea143af8a5c982ee4103f:internal/content/testdata/golden/treewalk.txt:generic-api-key:28
+1893f67d70df3b4d4c8ea143af8a5c982ee4103f:internal/content/testdata/golden/treewalk.txt:generic-api-key:31
+1893f67d70df3b4d4c8ea143af8a5c982ee4103f:internal/content/testdata/golden/treewalk.txt:generic-api-key:34
+1893f67d70df3b4d4c8ea143af8a5c982ee4103f:internal/content/testdata/golden/treewalk.txt:generic-api-key:38
+1893f67d70df3b4d4c8ea143af8a5c982ee4103f:internal/content/testdata/golden/treewalk.txt:generic-api-key:41
+1893f67d70df3b4d4c8ea143af8a5c982ee4103f:internal/content/testdata/golden/treewalk.txt:generic-api-key:44
+1893f67d70df3b4d4c8ea143af8a5c982ee4103f:internal/content/testdata/golden/treewalk.txt:generic-api-key:52
+4a9d3b69917398a7e2b54906f97becd173d4cc44:tests/mutation/survivor_baseline_test.go:generic-api-key:85
+55782b053e7c9967f45b0541ad05ea99e21899a9:internal/shared/procsec/procsec_linux_test.go:generic-api-key:36
+68fd8b20c0089622fbf29af84cfa063185c5725a:tests/acceptance/steps_j6_delegation.go:generic-api-key:216
+99fee4e0fdc4abc1d07e946c37ad92faa205677f:internal/transcript/testdata/fixtures/MANIFEST.json:generic-api-key:6
+99fee4e0fdc4abc1d07e946c37ad92faa205677f:internal/transcript/testdata/fixtures/codex.transcript.acp.jsonl:generic-api-key:2
+a4eeda8c86634b5d9da1f8bc8bfbf6c2ab6f0962:internal/lm/isolation/auth_test.go:generic-api-key:101
+b53d0659a4d0b557c2b5db1f7f0f3708ca58541a:internal/signing/agentkey/redact_test.go:private-key:19
+cfeb53e37fb2982c6f20429099bb414db788c6fe:tests/acceptance/steps_j002100_delegation.go:generic-api-key:331
+d0873aa9300201219eea4b1e47c652409374c451:internal/lm/isolation/profile_test.go:generic-api-key:73
+f47b3fa68214b9d12c5c9c4e5399a5572e70b5e2:internal/lm/isolation/profile_test.go:generic-api-key:68
+fe328e5a571fa057638e7d9d2163a7a8535fd731:internal/content/testdata/golden/treewalk.txt:generic-api-key:41
+fe328e5a571fa057638e7d9d2163a7a8535fd731:internal/content/testdata/golden/treewalk.txt:generic-api-key:44
+fe60c91205ccf44ade2924f2dc216fec27f9f0bc:internal/lm/isolation/auth_test.go:generic-api-key:504
+fe60c91205ccf44ade2924f2dc216fec27f9f0bc:internal/lm/isolation/auth_test.go:generic-api-key:505

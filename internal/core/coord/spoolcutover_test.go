@@ -29,7 +29,7 @@ import (
 func TestSpoolCutover_MailRidesTheSpoolWithNothingAsked(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),

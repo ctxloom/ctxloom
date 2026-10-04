@@ -42,6 +42,11 @@ type Environment interface {
 	// Describe is for DISPLAY only (the preview and the banner); no caller
 	// branches on it.
 	Describe() Description
+	// SecretsFile is the host path of the run's secrets file, as its runner
+	// reads it at every turn — "" when no file exists before the runner
+	// starts. A restarted coordinator rewrites it for a run it re-adopts
+	// (RefreshSecrets).
+	SecretsFile() string
 	// Cleanup releases the environment. Safe to call once, after the run.
 	Cleanup() error
 }
@@ -230,6 +235,7 @@ type previewEnvironment struct {
 func (e previewEnvironment) Placement() launch.Placement { return e.placement }
 func (e previewEnvironment) Listen() present.Listen      { return e.listen }
 func (e previewEnvironment) Describe() Description       { return e.desc }
+func (previewEnvironment) SecretsFile() string           { return "" }
 func (previewEnvironment) Cleanup() error                { return nil }
 
 func (previewEnvironment) Start(context.Context, RunnerRequest) (*RunnerHandle, error) {

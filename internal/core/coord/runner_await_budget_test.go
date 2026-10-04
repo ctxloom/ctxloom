@@ -53,7 +53,7 @@ func TestRunnerAwaitTimeout_ProductionDefaultIsGenerous(t *testing.T) {
 // against awaitRunner so the test runs in milliseconds instead of minutes.
 func TestIssueStartRun_ToleratesSlowRunnerDialHomeWithinBudget(t *testing.T) {
 	resetStrictness(t)
-	sp := newSilentRunnerSpawner()
+	sp := newSilentRunnerSpawner(t)
 	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:         t.TempDir(),
@@ -97,7 +97,7 @@ func TestIssueStartRun_ToleratesSlowRunnerDialHomeWithinBudget(t *testing.T) {
 // regardless of ctx wouldn't be proving the budget does anything).
 func TestIssueStartRun_TooTightBudgetFailsTheSameSlowDialHome(t *testing.T) {
 	resetStrictness(t)
-	sp := newSilentRunnerSpawner()
+	sp := newSilentRunnerSpawner(t)
 	teeHome(t)
 	c, err := New(Options{
 		ProjectDir:         t.TempDir(),
@@ -138,9 +138,9 @@ type silentRunnerSpawner struct {
 	envs []map[string]string
 }
 
-func newSilentRunnerSpawner() *silentRunnerSpawner {
+func newSilentRunnerSpawner(t testing.TB) *silentRunnerSpawner {
 	return &silentRunnerSpawner{
-		fakeSpawner: newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless}}, nil),
+		fakeSpawner: newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless}}, nil),
 	}
 }
 

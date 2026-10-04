@@ -22,7 +22,7 @@ import (
 func TestAgentRun_AbortedSpawnReleasesTheHarp(t *testing.T) {
 	t.Run("no reachable endpoint", func(t *testing.T) {
 		resetStrictness(t)
-		sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+		sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 		// NOT served: ReachURL has no listener to advertise, so
 		// spawnReachURL refuses (strictness is non-degraded) — the abort
 		// AFTER AssignSession has already committed the harp.
@@ -42,7 +42,7 @@ func TestAgentRun_AbortedSpawnReleasesTheHarp(t *testing.T) {
 
 	t.Run("the enqueue journal fails", func(t *testing.T) {
 		resetStrictness(t)
-		sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+		sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 		c := newTestCoordinator(t, sp, nil)
 		// Closing the coordinator leaves the advertised loop URL resolvable
 		// (spawnReachURL still succeeds) but fails the run journal, which is

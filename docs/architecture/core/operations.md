@@ -226,7 +226,7 @@ flowchart LR
 | `SetStatusline` | `manage.go:165` | One `Manager.Update` transaction. |
 | `ListMCPServers` / `GetMCPServer` / `AddMCPServer` / `RemoveMCPServer` / `SetMCPAutoRegister` | `mcp_servers.go:43,159,208,305,406` | MCP registry CRUD over `config.Manager`. Add and Remove are check-and-write inside one `Manager.Update` transaction; removing nothing is a loud error. |
 | `CollectTooling` | `tooling.go` | Collects every admitted companion's typed `init.tooling` declaration, **trust-gated**, for container image assembly. |
-| `ScaffoldContainerBase` | `tooling.go:105` | Materializes the embedded base Containerfile and wires the config key. |
+| `ScaffoldDevcontainer` | `tooling.go` | Writes `.devcontainer/` (devcontainer.json + a Dockerfile seeded from the embedded base); `*DevcontainerExistsError` when the project already has one. |
 
 ## Profiles and agents
 

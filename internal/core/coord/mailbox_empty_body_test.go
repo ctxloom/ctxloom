@@ -24,7 +24,7 @@ import (
 // These tests assert the PAYLOAD (what is queued / what the recipient can
 // receive), never an exit code.
 func TestQueueMail_RefusesAnEmptyBody(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	role := ownerIdentity().Harp
@@ -49,7 +49,7 @@ func TestQueueMail_RefusesAnEmptyBody(t *testing.T) {
 // breaking the one legitimate body-less shape: a message whose payload IS its
 // structured companion (a reply may carry only the structure).
 func TestQueueMail_StructuredOnlyMessageIsStillAllowed(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	role := ownerIdentity().Harp
@@ -64,7 +64,7 @@ func TestQueueMail_StructuredOnlyMessageIsStillAllowed(t *testing.T) {
 // TestAgentSend_RefusesAnEmptyBody is the operator-visible half: the send verb
 // behind the agent_send MCP tool must not answer "sent" for nothing.
 func TestAgentSend_RefusesAnEmptyBody(t *testing.T) {
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "hello", "", "")
@@ -81,7 +81,7 @@ func TestAgentSend_RefusesAnEmptyBody(t *testing.T) {
 // follow-up turn wakes the engine with nothing to do, and its own prompt source
 // (the host's stdin/composed context) is the thing that actually failed.
 func TestSendOwnedRunTurn_RefusesAnEmptyTurn(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

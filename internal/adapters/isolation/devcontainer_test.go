@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // writeDevcontainer writes appRoot/.devcontainer/devcontainer.json.
@@ -71,7 +73,7 @@ func TestResolveDevcontainerBase_Absent(t *testing.T) {
 
 // TestResolveDevcontainerBase_Image pins the "image:" shape: a synthetic FROM
 // base (a BASE, not a finished agent image — engine fragments still layer on
-// top, unlike the --base-image overlay escape hatch).
+// top, unlike the --overlay-image overlay escape hatch).
 func TestResolveDevcontainerBase_Image(t *testing.T) {
 	root := t.TempDir()
 	writeDevcontainer(t, root, `{"image": "mcr.microsoft.com/devcontainers/go:1"}`)
@@ -223,24 +225,59 @@ func TestResolveDevcontainerBase_FeaturesWarnedNotFatal(t *testing.T) {
 	assert.Equal(t, "FROM debian:13\n", string(stage.containerfile))
 }
 
-// TestResolveDevBase_OptOut pins the opt-out gate: NoDevcontainerBase or an
-// empty appRoot means "no auto-detect", never an error — even over a present
-// devcontainer.json that would otherwise error.
-func TestResolveDevBase_OptOut(t *testing.T) {
-	root := t.TempDir()
-	writeDevcontainer(t, root, `{ malformed`)
+// TestResolveBase pins the isolation_base mapping: each choice resolves to
+// exactly ONE base stage, an explicit choice is never substituted, and the
+// unset choice adopts a detected devcontainer.
+func TestResolveBase(t *testing.T) {
+	withDev := t.TempDir()
+	writeDevcontainer(t, withDev, `{"image": "debian:13"}`)
+	without := t.TempDir()
+	malformed := t.TempDir()
+	writeDevcontainer(t, malformed, `{ malformed`)
 
-	stage, err := resolveDevBase(root, true, "")
-	require.NoError(t, err)
-	assert.Nil(t, stage)
-
-	stage, err = resolveDevBase("", false, "")
-	require.NoError(t, err)
-	assert.Nil(t, stage)
-
-	// Without the opt-out, the same malformed file DOES error.
-	_, err = resolveDevBase(root, false, "")
-	require.Error(t, err)
+	t.Run("ctxloom ignores a present devcontainer", func(t *testing.T) {
+		stage, err := resolveBase(config.IsolationBaseCtxloom, withDev, "")
+		require.NoError(t, err)
+		assert.Equal(t, defaultBaseStage().containerfile, stage.containerfile)
+		assert.Empty(t, stage.kind, "ctxloom's own base is not a declaration that refuses substitution")
+	})
+	t.Run("devcontainer adopts the project devcontainer", func(t *testing.T) {
+		stage, err := resolveBase(config.IsolationBaseDevcontainer, withDev, "")
+		require.NoError(t, err)
+		assert.Equal(t, "FROM debian:13\n", string(stage.containerfile))
+		assert.Equal(t, baseStageKindDevcontainer, stage.kind)
+	})
+	t.Run("devcontainer with none present is a typed error", func(t *testing.T) {
+		_, err := resolveBase(config.IsolationBaseDevcontainer, without, "")
+		require.ErrorIs(t, err, ErrNoDevcontainer)
+		_, err = resolveBase(config.IsolationBaseDevcontainer, "", "")
+		require.ErrorIs(t, err, ErrNoDevcontainer, "no project root means nothing to find")
+	})
+	t.Run("an image ref is a declared base", func(t *testing.T) {
+		stage, err := resolveBase("ghcr.io/acme/dev:1.2", withDev, "")
+		require.NoError(t, err)
+		assert.Equal(t, "FROM ghcr.io/acme/dev:1.2\n", string(stage.containerfile))
+		assert.Equal(t, baseStageKindUser, stage.kind, "a configured image that fails to build is refused, not substituted")
+	})
+	t.Run("unset adopts a detected devcontainer", func(t *testing.T) {
+		stage, err := resolveBase("", withDev, "")
+		require.NoError(t, err)
+		assert.Equal(t, baseStageKindDevcontainer, stage.kind)
+	})
+	t.Run("unset without a devcontainer, or without a root, is ctxloom's own", func(t *testing.T) {
+		for _, root := range []string{without, ""} {
+			stage, err := resolveBase("", root, "")
+			require.NoError(t, err)
+			assert.Equal(t, defaultBaseStage().containerfile, stage.containerfile)
+		}
+	})
+	t.Run("a detection failure still returns a buildable stage with the error", func(t *testing.T) {
+		for _, choice := range []string{"", config.IsolationBaseDevcontainer} {
+			stage, err := resolveBase(choice, malformed, "")
+			require.Error(t, err, choice)
+			require.NotNil(t, stage, "callers that downgrade the error keep a stage to key identity on")
+		}
+	})
 }
 
 // TestStripJSONC_Characterization exercises every arm of the two JSONC

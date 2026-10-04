@@ -104,7 +104,7 @@ func TestReportsFold_ArtifactRevisionNeverGoesBackwards(t *testing.T) {
 // order each time, which reads as churn and makes two listings impossible to
 // diff. Ordered by artifact id — a stable, caller-independent key.
 func TestArtifacts_ReturnsAStableOrder(t *testing.T) {
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 
 	ids := []string{"zeta", "mu", "alpha", "omega", "beta", "kappa", "delta", "sigma"}
 	for _, id := range ids {

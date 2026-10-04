@@ -25,7 +25,7 @@ import (
 // typed sentinel (a stated, actionable reason) after.
 func TestBeginDrain_AgentRunRefusesNewWorkOnceDraining(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{
+	sp := newFakeSpawner(t, map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}},
 	}, nil)
 	c := newTestCoordinator(t, sp, nil)
@@ -49,7 +49,7 @@ func TestBeginDrain_AgentRunRefusesNewWorkOnceDraining(t *testing.T) {
 // coordinator must not spawn a runner process only to then find nowhere to
 // send it.
 func TestBeginDrain_StartOwnedRunRefusesNewWorkOnceDraining(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -91,7 +91,7 @@ func TestBeginDrain_RunnerChannelHelloRefusesFreshRunnerButAdmitsReconnect(t *te
 	// the Hello site's two halves.
 	gate := make(chan struct{})
 	defer close(gate)
-	sp := newFakeSpawner(map[string]fakeAgent{
+	sp := newFakeSpawner(t, map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}},
 	}, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
@@ -131,7 +131,7 @@ func TestBeginDrain_ServeRefusesToStartFreshOnceDraining(t *testing.T) {
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),
-		Spawner:    newFakeSpawner(nil, nil),
+		Spawner:    newFakeSpawner(t, nil, nil),
 		OwnerHarp:  ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestBeginDrain_ServeRefusesToStartFreshOnceDraining(t *testing.T) {
 // keep observing the same "already serving" no-op, not a new failure mode
 // introduced by draining.
 func TestBeginDrain_ServeStaysIdempotentOnceAlreadyServing(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil) // Serve()'d once already
 
 	c.BeginDrain()

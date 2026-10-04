@@ -24,9 +24,9 @@ var assets embed.FS
 // locally-built agent image): the distro plus the coding-agent tool layer (git,
 // ripgrep, curl, certs, unzip, jq). The generated composed agent Containerfile
 // (isolation.composeAgentContainerfile) layers engine specifics onto it via
-// ARG BASE_IMAGE; a user-provided base Containerfile, or an auto-detected
-// project devcontainer, replaces this one (isolation_base_containerfile /
-// `container build --base-containerfile`, or .devcontainer/devcontainer.json).
+// ARG BASE_IMAGE; the project devcontainer or a configured image ref replaces
+// this one (isolation_base / `container build --base`), and `container
+// scaffold` seeds a devcontainer Dockerfile from it.
 func Base() []byte { return asset("base/Containerfile") }
 
 // Entrypoint is the agent-image entrypoint script: the runtime PUID/PGID

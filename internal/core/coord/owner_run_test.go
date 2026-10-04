@@ -102,7 +102,7 @@ func collectFinalDeltas(events <-chan Event, runID string, wait time.Duration) s
 // RunnerChannel, and the engine's answer text reaches the host over the
 // in-process WatchRuns event stream — no client.Chat, no proto change.
 func TestStartOwnedRun_ParentLessOwnerRunYieldsPayload(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -149,7 +149,7 @@ func TestStartOwnedRun_ParentLessOwnerRunYieldsPayload(t *testing.T) {
 // session a LEAF at the built-in cap — rides the Launch (the journaled
 // enqueue fact, TestStartOwnedRun_ReusesTheOwnersIdentity), not the env.
 func TestStartOwnedRun_RunnerEnvIsTheTrioAlone(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -182,7 +182,7 @@ func TestStartOwnedRun_RunnerEnvIsTheTrioAlone(t *testing.T) {
 // self-report bridge must NOT fire (a bridge to the owner's own mailbox would
 // re-deliver the run's output as its own next turn — an infinite self-loop).
 func TestStartOwnedRun_OwnerHarpRoleNoCollision(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -284,7 +284,7 @@ func (r *ownerRebindRecorder) calls() int {
 // refusals binds, with rebind as the run's OwnerRun.Rebind.
 func startOwnerRunRefusing(t *testing.T, refusals int, rebind func(context.Context, launch.Launch) (launch.Launch, error)) (*Coordinator, *RunOutcome, error) {
 	t.Helper()
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 	const ownerHarp = "owner-harp"

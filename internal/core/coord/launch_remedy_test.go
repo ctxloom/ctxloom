@@ -56,7 +56,7 @@ func childLaunchNotice(t *testing.T, c *Coordinator, harp string) Message {
 func TestFailChild_LaunchNoticeCarriesTheRemedy(t *testing.T) {
 	resetStrictness(t)
 	sp := &remedyLaunchSpawner{
-		fakeSpawner: newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless}}, nil),
+		fakeSpawner: newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless}}, nil),
 		err:         fmt.Errorf("prepare cell: %w", report.Errorf(launchRemedyFix, "%w", errLaunchRemedyCause)),
 	}
 	c := newTestCoordinator(t, sp, nil)
@@ -93,7 +93,7 @@ func TestLaunchFailureDetail(t *testing.T) {
 // text.
 func TestIssueStartRun_RefusalNoticeCarriesTheRemedy(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	sp.refuseStartRun = fmt.Errorf("execute: %w", report.Errorf(launchRemedyFix, "%w", errLaunchRemedyCause))
 	c := newTestCoordinator(t, sp, nil)
 

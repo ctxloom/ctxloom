@@ -140,12 +140,16 @@ yourself, so the choice is visibly yours.
 
 ## The host runtime is not a boundary between agents
 
-Every agent on `runtime: host` runs as you. A runner carries its coordinator credential in its
-process environment, and that credential is the agent's identity to the coordinator. Any
-process running as the same user can read another process's environment, so one host-runtime
-agent can read another's credential and act as that agent. A worktree does nothing about this;
-it separates checkouts, not processes. Containers do, because the runtime enforces the
-separation rather than asking each engine to respect it.
+Every agent on `runtime: host` runs as you, and processes running as the same user are not a
+boundary between each other. A runner's coordinator credential is the agent's identity to the
+coordinator. It is kept out of every process's environment, in the run's owner-only secrets
+file — but that file lives for the whole run, because relaunching a runner or re-adopting a run
+after a restart needs it again, and owner-only means readable by every process running as you:
+the same processes that could read an environment variable, or ptrace the runner and read the
+credential from its memory. So one host-runtime agent can read another's credential and act as
+that agent. A worktree does nothing about this; it separates checkouts, not processes.
+Containers are the boundary: a process inside one sees only its own run's secrets, mounted
+read-only, and the runtime enforces that rather than asking each engine to respect it.
 
 ## Delegating into a dirty tree
 
@@ -233,5 +237,5 @@ implies.
 - [A prompt is executable code](/security/prompts-are-code/) — why what an agent reads matters
   as much as where it can write.
 - [`ctxloom container`](/reference/cli/ctxloom_container/) — building and checking agent
-  images; [`ctxloom container build`](/reference/cli/ctxloom_container_build/) for base-image
-  and override options.
+  images; [`ctxloom container build`](/reference/cli/ctxloom_container_build/) for base,
+  overlay-image and override options.

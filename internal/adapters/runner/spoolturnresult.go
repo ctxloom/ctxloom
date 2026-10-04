@@ -126,6 +126,11 @@ func failurePreamble(f *agent.TurnFailure) string {
 			"The run is parked with every run sharing its credential, and resumes on its own " + when +
 			"; anything sent to it meanwhile waits and runs then."
 	}
+	if f.Kind == agent.FailureCredentialRejected {
+		return "CREDENTIAL REFUSED: this run's engine refused its credential, so the turn did no work and its prompt was NOT done — resend it. " +
+			"The run is parked with every run sharing that credential until the human re-authenticates; " +
+			"anything sent to it meanwhile waits and runs then."
+	}
 	if f.Kind == agent.FailureOverloaded {
 		return "OVERLOADED: this run's engine was at capacity, so the turn did no work and its prompt was NOT done — resend it. " +
 			"This run alone is parked for a short backoff and resumes on its own; anything sent to it meanwhile waits and runs then."

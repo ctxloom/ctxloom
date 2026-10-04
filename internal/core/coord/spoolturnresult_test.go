@@ -78,7 +78,7 @@ func ownerResultsFrom(t *testing.T, harp string) []Message {
 func TestSpoolTurnResult_CorrelatesToTheMessageThatStartedTheTurn(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 	// Drain the briefing turn's own report so the assertion below is about the
@@ -115,7 +115,7 @@ func TestSpoolTurnResult_CorrelatesToTheMessageThatStartedTheTurn(t *testing.T) 
 func TestSpoolTurnResult_ExactlyOnceFileXorBridge(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChildIdle(t, c, sp, "one turn only")
 
@@ -157,7 +157,7 @@ func TestSpoolTurnResult_ExactlyOnceFileXorBridge(t *testing.T) {
 func TestSpoolTurnResult_SelfReportSuppressesIt(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	_, home := awaitCutoverChildIdle(t, c, sp, "first task")
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait), "the briefing turn reports normally")
@@ -184,7 +184,7 @@ func TestSpoolTurnResult_SelfReportSuppressesIt(t *testing.T) {
 func TestSpoolTurnResult_RateLimitedTurnSaysParked(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
@@ -208,7 +208,7 @@ func TestSpoolTurnResult_RateLimitedTurnSaysParked(t *testing.T) {
 func TestSpoolTurnResult_BlockedTurnSaysBlocked(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
@@ -244,7 +244,7 @@ func TestSpoolTurnResult_BlockedTurnSaysBlocked(t *testing.T) {
 func TestSpoolTurnResult_EmptyTurnIsReportedAsAnError(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
@@ -272,7 +272,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	teeHome(t)
 	stateDir := t.TempDir()
 
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	teeHome(t)
 	first, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
@@ -294,7 +294,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	require.NoError(t, err)
 
 	teeHome(t)
-	second, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
+	second, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, runnerHooks.Serve(second))
 	t.Cleanup(second.Close)

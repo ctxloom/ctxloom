@@ -91,19 +91,12 @@ type Container struct {
 	// instanceHome is the fixed in-container root a RELOCATED engine home is
 	// mounted under (defaultContainerInstanceHome; WithInstanceHome overrides).
 	instanceHome string
-	// baseContainerfile is the user-provided base Containerfile a local build
-	// layers the agent stage onto (config isolation_base_containerfile;
-	// "" = the embedded default base). Beats devcontainer auto-detection
-	// (locked decision 8).
-	baseContainerfile string
-	// appRoot is the project root devcontainer auto-detection resolves
-	// .devcontainer/devcontainer.json (or .devcontainer.json) against; ""
-	// disables auto-detection (same effect as noDevcontainerBase — the zero
-	// Container built by NewContainerFor never auto-detects).
+	// baseChoice is isolation_base verbatim — resolveBase interprets it.
+	baseChoice string
+	// appRoot is the project root the devcontainer is resolved against; ""
+	// means there is none to find (the zero Container built by
+	// NewContainerFor never adopts one).
 	appRoot string
-	// noDevcontainerBase opts out of devcontainer auto-detection (config
-	// isolation_devcontainer_base: false).
-	noDevcontainerBase bool
 	// devcontainerService names the docker-compose service to use as the base
 	// when the detected devcontainer.json declares dockerComposeFile (config
 	// isolation_devcontainer_service).
@@ -171,62 +164,55 @@ func (c Container) WithInstanceHome(root string) Container {
 // containerFor builds the backend's container policy with the user's image
 // configuration: an image override (config isolation_images) is run AS-IS —
 // never locally built or overlaid (the user owns it) — so an absent override
-// degrades with a warning instead of triggering the on-the-fly build; a base
-// Containerfile (config isolation_base_containerfile), or an auto-detected
-// project devcontainer, makes the on-the-fly build layer the agent stage onto
-// that base instead of the embedded default. A COMPOSABLE backend's image
+// degrades with a warning instead of triggering the on-the-fly build;
+// otherwise the on-the-fly build layers the agent stage onto the base
+// resolveBase chooses for isolation_base. A COMPOSABLE backend's image
 // resolves to the shared content-keyed composed tag (composedIdentity) —
-// devcontainer detection here is BEST-EFFORT (errors only affect the TAG
-// NAME, never abort construction); a real detection failure surfaces loudly
-// later, when ensureImage actually needs to build.
+// base resolution here is BEST-EFFORT (errors only affect the TAG NAME, never
+// abort construction); a real resolution failure surfaces loudly later, when
+// ensureImage actually needs to build.
 func containerFor(rt Runtime, backend string, img ImageConfig) Container {
 	c := NewContainerFor(rt, backend)
-	c.baseContainerfile = img.BaseContainerfile
+	c.baseChoice = img.Base
 	c.appRoot = img.AppRoot
-	c.noDevcontainerBase = img.NoDevcontainerBase
 	c.devcontainerService = img.DevcontainerService
 	if img.Image != "" {
 		c.image = img.Image
 		c.engineSpec.engineInstall = nil
 		return c
 	}
-	devBase, _ := resolveDevBase(c.appRoot, c.noDevcontainerBase, c.devcontainerService)
-	if id, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engine); ok {
+	base, _ := resolveBase(c.baseChoice, c.appRoot, c.devcontainerService)
+	if id, ok := composedIdentity(c.engineSpec, base, c.engine); ok {
 		c.image = id.ref
 	}
 	return c
 }
 
-// containerBuildSources resolves this container's local-build sources,
-// including the auto-detected devcontainer base when enabled. A non-nil err
-// means devcontainer DETECTION failed (malformed JSON, an unresolvable
-// dockerComposeFile) — sources is still populated from every OTHER source
-// (an explicit base Containerfile, or the embedded default), so a caller that
-// downgrades the error to a fatal-unless-degraded finding and continues (see
-// runEnsureImage) gets a still-usable degrade chain; Diagnose instead folds it
-// into an advisory guidance line.
-func (c Container) containerBuildSources(baseOverride string) (sources []buildSource, devBase *baseStage, err error) {
-	devBase, err = resolveDevBase(c.appRoot, c.noDevcontainerBase, c.devcontainerService)
+// containerBuildSources resolves this container's base (resolveBase) and the
+// local-build sources on it. A non-nil err means the devcontainer could not
+// be resolved — base is then the embedded default, so a caller that records
+// the error as a finding (runEnsureImage) still has sources and an identity;
+// Diagnose instead folds it into an advisory guidance line.
+func (c Container) containerBuildSources(baseOverride string) (sources []buildSource, base *baseStage, err error) {
+	base, err = resolveBase(c.baseChoice, c.appRoot, c.devcontainerService)
 	sources = buildSources(c.engineSpec, buildSourcesOptions{
-		baseOverride:      baseOverride,
-		baseContainerfile: c.baseContainerfile,
-		devBase:           devBase,
-		engine:            c.engine,
+		baseOverride: baseOverride,
+		base:         base,
+		engine:       c.engine,
 	})
-	return sources, devBase, err
+	return sources, base, err
 }
 
-// identityFor resolves this container's build identity for the given
-// resolved devcontainer base: composedIdentity's engine-aware provenance and
-// slot for a COMPOSABLE spec, else the legacy hostProvenanceDigest with no
-// slot. The tag is always c.image, the one containerFor resolved and every
-// presence check reads.
-func (c Container) identityFor(devBase *baseStage) agentImageID {
-	if id, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engine); ok {
+// identityFor resolves this container's build identity on the given
+// resolved base: composedIdentity's engine-aware provenance and slot for a
+// COMPOSABLE spec, else hostProvenanceDigest with no slot. The tag is always
+// c.image, the one containerFor resolved and every presence check reads.
+func (c Container) identityFor(base *baseStage) agentImageID {
+	if id, ok := composedIdentity(c.engineSpec, base, c.engine); ok {
 		id.ref = c.image
 		return id
 	}
-	return agentImageID{ref: c.image, provenance: hostProvenanceDigest(c.baseContainerfile)}
+	return agentImageID{ref: c.image, provenance: hostProvenanceDigest()}
 }
 
 // Name identifies the policy: the injected base names it — "container" for the

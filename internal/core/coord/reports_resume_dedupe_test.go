@@ -26,7 +26,7 @@ import (
 // the same harp each file a report at seq 1, and the SECOND must land.
 func TestReportDedupe_SurvivesResume(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -69,7 +69,7 @@ func TestReportDedupe_SurvivesResume(t *testing.T) {
 // must still be deduped, not doubled.
 func TestReportDedupe_StillDropsRedeliveryWithinARun(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -98,7 +98,7 @@ func TestReportDedupe_StillDropsRedeliveryWithinARun(t *testing.T) {
 // ANOTHER harp is refused rather than filed under a shared key.
 func TestReportDedupe_IsPerHarp(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	a, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "a", "", "")

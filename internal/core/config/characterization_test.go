@@ -60,10 +60,9 @@ func characterizationCases() []characterizationCase {
 		{"explicit_false_and_stale_version", func() *Config {
 			no := false
 			return NewFixture(Fixture{
-				Version:                   1,
-				Sync:                      SyncConfig{AutoSync: &no},
-				IsolationDevcontainerBase: &no,
-				UI:                        UIConfig{Surround: &no},
+				Version: 1,
+				Sync:    SyncConfig{AutoSync: &no},
+				UI:      UIConfig{Surround: &no},
 			})
 		}},
 		{"default_overlay", func() *Config {
@@ -164,8 +163,7 @@ editor:
     args:
         - -n
     command: vi
-isolation_base_containerfile: Containerfile.base
-isolation_devcontainer_base: true
+isolation_base: devcontainer
 isolation_devcontainer_service: app
 isolation_engines:
     - claude-code
@@ -213,8 +211,7 @@ editor:
     args:
         - -n
     command: vi
-isolation_base_containerfile: Containerfile.base
-isolation_devcontainer_base: true
+isolation_base: devcontainer
 isolation_devcontainer_service: app
 isolation_engines:
     - claude-code
@@ -254,7 +251,7 @@ config:
     essence_max_chars: 4096
 default_agent: worker
 dirty_tree_handler: commit
-isolation_base_containerfile: Containerfile.base
+isolation_base: devcontainer
 llm:
     configs:
         fast:
@@ -293,8 +290,7 @@ editor:
     args:
         - -n
     command: vi
-isolation_base_containerfile: Containerfile.base
-isolation_devcontainer_base: true
+isolation_base: devcontainer
 isolation_devcontainer_service: app
 isolation_engines:
     - claude-code
@@ -326,15 +322,13 @@ ui:
 version: 6
 workspace: worktree
 `,
-	"explicit_false_and_stale_version/MarshalYAML": `isolation_devcontainer_base: false
-sync:
+	"explicit_false_and_stale_version/MarshalYAML": `sync:
     auto_sync: false
 ui:
     surround: false
 version: 6
 `,
-	"explicit_false_and_stale_version/authored": `isolation_devcontainer_base: false
-sync:
+	"explicit_false_and_stale_version/authored": `sync:
     auto_sync: false
 ui:
     surround: false
@@ -346,8 +340,7 @@ ui:
     surround: false
 version: 6
 `,
-	"explicit_false_and_stale_version/saveLocked-home": `isolation_devcontainer_base: false
-sync:
+	"explicit_false_and_stale_version/saveLocked-home": `sync:
     auto_sync: false
 ui:
     surround: false

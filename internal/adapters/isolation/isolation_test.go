@@ -495,55 +495,38 @@ func TestNonePrepareWorkspace_CannotFail(t *testing.T) {
 	assert.Equal(t, "/proj", ws.Dir())
 }
 
-// TestImageConfigZeroValue_DisablesDevcontainerDetectionSilently REFUTES
-// a finding that called ImageConfig's zero value "self-contradictory"
-// (NoDevcontainerBase false says auto-detect ON while AppRoot "" forces it OFF)
-// and asked for a diagnostic. Both halves are wrong:
-//
-//   - It is not a contradiction but a DOCUMENTED equivalence, stated at both
-//     sites — ImageConfig.AppRoot's own field doc ('"" disables auto-detection
-//     (same effect as NoDevcontainerBase)') and resolveDevBase's ("an empty
-//     appRoot ... means 'no auto-detect', never an error").
-//   - There is nothing to diagnose. An empty AppRoot means no project root is
-//     known, so there is no directory to resolve .devcontainer/devcontainer.json
-//     AGAINST; detection is impossible rather than skipped. The zero value
-//     arises for callers that legitimately never learned a root, and warning on
-//     every one of them would be noise on a path that has no alternative.
-//     Where a config-load failure IS the cause, the CLI already names the gap
-//     (containerCheckConfigGap in cli/container_cmd.go).
-//
-// Pinning the silence, so re-introducing the requested diagnostic goes red.
-func TestImageConfigZeroValue_DisablesDevcontainerDetectionSilently(t *testing.T) {
+// TestImageConfigZeroValue_ResolvesCtxloomBaseSilently pins that an unknown
+// project root (ImageConfig's zero value) resolves ctxloom's own base with no
+// error and no warning: there is no directory to find a devcontainer AGAINST,
+// so detection is impossible rather than skipped, and the callers that
+// legitimately never learned a root would otherwise warn on every run. Where a
+// config-load failure IS the cause, the CLI already names the gap
+// (containerCheckConfigGap in cli/container_cmd.go).
+func TestImageConfigZeroValue_ResolvesCtxloomBaseSilently(t *testing.T) {
 	buf := captureWarnings(t)
 
-	stage, err := resolveDevBase("", ImageConfig{}.NoDevcontainerBase, "")
+	stage, err := resolveBase(ImageConfig{}.Base, ImageConfig{}.AppRoot, "")
 	require.NoError(t, err, "an unknown project root is never an error")
-	assert.Nil(t, stage, "and never resolves a base")
-
-	optedOut, err := resolveDevBase("/some/root", true, "")
-	require.NoError(t, err)
-	assert.Nil(t, optedOut)
-	assert.Empty(t, buf.String(),
-		"an empty AppRoot is the documented equivalent of the explicit opt-out — no root means nothing to detect against, so there is nothing to report")
+	assert.Equal(t, defaultBaseStage().containerfile, stage.containerfile)
+	assert.Empty(t, buf.String(), "no root means nothing to detect against, so there is nothing to report")
 }
 
-// TestImageOverrideAndBaseImageAreOppositeConcepts PARTIALLY refutes
+// TestImageOverrideAndOverlayImageAreOppositeConcepts PARTIALLY refutes
 // a finding that claimed ImageConfig and ImageBuildOptions "duplicate 6 of the
 // same concepts under different names". Five are genuinely the same and share
-// their names exactly (BaseContainerfile, AppRoot, NoDevcontainerBase,
-// DevcontainerService, Engines). The sixth pairing the row implies —
-// ImageConfig.Image against ImageBuildOptions.BaseImage — is not a rename of
+// their names exactly (Base, AppRoot, DevcontainerService, Engines). The sixth pairing the row implies —
+// ImageConfig.Image against ImageBuildOptions.OverlayImage — is not a rename of
 // one concept but two OPPOSITE ones, which is why they were never unified:
 //
 //   - ImageConfig.Image is a prebuilt override, run AS-IS and NEVER built: it
 //     suppresses the local recipe entirely (engineInstall is cleared) so an
 //     absent override degrades rather than triggering a build.
-//   - ImageBuildOptions.BaseImage is a base to BUILD ONTO: it produces an
+//   - ImageBuildOptions.OverlayImage is a base to BUILD ONTO: it produces an
 //     overlay build source that layers ctxloom on top.
 //
 // A shared type that merged them would let a user's run-as-is image be built
 // onto, or a build base be launched unbuilt. Pinning the divergence.
-func TestImageOverrideAndBaseImageAreOppositeConcepts(t *testing.T) {
+func TestImageOverrideAndOverlayImageAreOppositeConcepts(t *testing.T) {
 	rt := fakeRuntime{name: "docker", binary: "false", available: true}
 
 	c := containerFor(rt, "mock", ImageConfig{Image: "my-registry/my-mock:v2"})
@@ -552,7 +535,7 @@ func TestImageOverrideAndBaseImageAreOppositeConcepts(t *testing.T) {
 	assert.Empty(t, sources, "an isolation_images override has NO build recipe — the user owns its lifecycle")
 
 	overlay := buildSources(engineContainerSpecFor("mock"), buildSourcesOptions{baseOverride: "my-registry/my-mock:v2"})
-	require.Len(t, overlay, 1, "the same string as a BaseImage is a base to build onto, not an image to run")
+	require.Len(t, overlay, 1, "the same string as a OverlayImage is a base to build onto, not an image to run")
 	assert.Contains(t, string(overlay[0].containerfile), "FROM my-registry/my-mock:v2\n")
 	assert.Contains(t, string(overlay[0].containerfile), "COPY ctxloom /usr/local/bin/ctxloom\n",
 		"a build base gets ctxloom layered onto it; a run-as-is override never would")

@@ -126,8 +126,7 @@ workspace: none               # session workspace axis: none|worktree
 runtime: host                 # agent runtime axis: host|container-rootless|container-rootful (home config only)
 
 # Container-image overrides for containerized agents
-isolation_base_containerfile: .ctxloom/base.Containerfile   # your base stage
-isolation_devcontainer_base: true      # auto-detect .devcontainer/devcontainer.json as the base (default true; home config only)
+isolation_base: devcontainer           # agent image base: ctxloom | devcontainer | <image ref> (unset: the devcontainer when present)
 isolation_devcontainer_service: app    # compose service to use as the base, if devcontainer.json declares dockerComposeFile (home config only)
 isolation_engines: [claude-code]      # trim the composed engine set (default: every known engine; home config only)
 isolation_images:             # fully user-provided images, run as-is (home config only)
@@ -258,8 +257,7 @@ one you would hand a stranger a shell in.
 ## Agents and Isolation
 
 The `agents:`, `workspace:`, `runtime:`, `isolation_images:`,
-`isolation_base_containerfile:`, `isolation_devcontainer_base:`,
-`isolation_devcontainer_service:`, and `isolation_engines:` keys configure
+`isolation_base:`, `isolation_devcontainer_service:`, and `isolation_engines:` keys configure
 local agent bindings and where they execute. See
 [Agents & Isolation](/concepts/agents/) for the model, and prefer
 `ctxloom agent create` / `ctxloom agent edit` over hand-editing the `agents:` key.

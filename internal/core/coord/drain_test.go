@@ -27,7 +27,7 @@ import (
 func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -143,7 +143,7 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 // was not).
 func TestDrainTracked_SkipsARunThatEndedBeforeTheDrainBegan(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	harp := spawnOneChild(t, c)
@@ -171,7 +171,7 @@ func TestDrainTracked_SkipsARunThatEndedBeforeTheDrainBegan(t *testing.T) {
 // which panics.
 func TestDrainTracked_SkipsARosterHarpWhoseCurrentRunIsNil(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	const ghost = "ghost-harp"
@@ -202,7 +202,7 @@ func announceHeldChild(t *testing.T) (c *Coordinator, sp *fakeSpawner, harp, run
 	turnGate := make(chan struct{})
 	sessionGate := make(chan struct{})
 	spawned := 0
-	sp = newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp = newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat {
 			spawned++
 			if spawned == 1 {

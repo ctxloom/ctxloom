@@ -118,6 +118,10 @@ type holdOpened struct {
 	By     string    `json:"by,omitempty"`
 	Reason string    `json:"reason,omitempty"`
 	Until  time.Time `json:"until,omitzero"`
+	// Fingerprint is the refused credential's digest (the failing run's
+	// launch), "" when none was captured: a restart releases the hold when
+	// its environment's credential digests differently (holdCauseReauth).
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 // holdParked is factHoldParked's payload; Cause is "turn" (its own turn met
@@ -145,8 +149,8 @@ type holdDropped struct {
 }
 
 // holdReleased is factHoldReleased's payload; Cause is "backoff" (its own
-// deadline), "human" or "agent" (that initiator's resume; By names it), or
-// "empty" (its last member dropped out).
+// deadline), "human" or "agent" (that initiator's resume; By names it),
+// "empty" (its last member dropped out), or holdCauseReauth.
 type holdReleased struct {
 	Key   string `json:"key"`
 	Cause string `json:"cause"`
@@ -160,11 +164,20 @@ type holdResumed struct {
 	Harp  string `json:"harp"`
 }
 
-// runLaunched is factRunLaunched's payload.
+// holdCauseReauth releases a refused credential's hold at adoption: the
+// restarted coordinator's environment carries a different credential.
+const holdCauseReauth = "reauth"
+
+// runLaunched is factRunLaunched's payload. Fingerprint is the digest of the
+// credential the run carries (launch.Cell.CredentialFingerprint, or the one a
+// restart rewrote into its secrets file), never its value; SecretsFile is
+// where its runner reads that credential at every turn (launch.Cell.SecretsFile).
 type runLaunched struct {
-	RunID  string                  `json:"run_id"`
-	Engine engine.Name             `json:"engine"`
-	Source engine.CredentialSource `json:"source"`
+	RunID       string                  `json:"run_id"`
+	Engine      engine.Name             `json:"engine"`
+	Source      engine.CredentialSource `json:"source"`
+	Fingerprint string                  `json:"fingerprint,omitempty"`
+	SecretsFile string                  `json:"secrets_file,omitempty"`
 }
 
 // Terminal causes recorded on factRunEnded.

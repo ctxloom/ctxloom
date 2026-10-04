@@ -161,8 +161,8 @@ Build orchestration: `Container.ensureImage` (single-flight per `(runtime, tag)`
 implicit pull** — an absent image is either built from a known source or the
 policy degrades (`Container.imagePresent`).
 
-Devcontainer resolution (`resolveDevBase`) strips JSONC and handles image /
-build / compose forms. Declared devcontainer **features are warned about, not
+Base resolution (`resolveBase`) maps `isolation_base` to ONE base stage;
+devcontainer resolution strips JSONC and handles image / build / compose forms. Declared devcontainer **features are warned about, not
 honored** (`warnDevcontainerFeatures`).
 
 ### Run mechanics
@@ -369,9 +369,10 @@ file holding it, never the value. `Container.bind` makes an owner-only secret
 dir (`newOwnedScratch`, prefix `secretScratchPrefix`) under
 `$XDG_RUNTIME_DIR`, a tmpfs, or under the session's `scratch/` dir where there
 is none (`secretParent`), and binds it read-only at `secretsTarget` inside the
-shared-filesystem probe; `Container.environment` writes one 0600 file per
-variable (`materializeSecrets`); the runner reads each into the engine's env
-alone (`runner.redeemSecrets`, refusing with `ErrSecretUnreadable`).
+shared-filesystem probe; `Container.environment` writes every variable into
+the run's one owner-only dotenv secrets file (`materializeSecrets`,
+`secretsFile`); the runner reads each into the engine's env alone
+(`runner.redeemSecrets`, refusing with `ErrSecretUnreadable`).
 `containerWorkspace.Cleanup` removes the dir, and a crashed run's dir is
 reaped by the next owned secret scratch under the same parent, its owner's
 lock having died with it. `Unset` rides (`launch.Placement.Unset`, the wire's
@@ -399,6 +400,18 @@ removed; every other run's instance has it deleted, so no agent's instance
 ever holds it. `TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed` scans a
 run's output, the ctxloom home, the project and the run's temp dir for a
 sentinel.
+
+**On the host, same-user processes are not a boundary.** A host run's
+secrets file holds its coordinator credential (`stageCoordCred`) and lives
+for the WHOLE run, not one start: it is made at the first runner start that
+needs it and removed only by `hostEnvironment.Cleanup`, because a relaunched
+runner and a re-adopted run read it again. Owner-only means readable by
+every process running as the same user — the same processes that could read
+that credential from an environment variable, or ptrace the runner and read
+it from memory. Keeping it out of the environment narrows who is handed it;
+it does not keep it from another host-runtime agent. Containers are the
+boundary: a process in one sees only its own run's secrets, mounted
+read-only, and no other run's file or process.
 
 A container adds no auth question of its own: `engine.ContainerSpec` says how
 the image is built, and its run authenticates exactly as a host run does.
@@ -645,7 +658,7 @@ image another is between building and running.
 | `Isolated` | `isolation.go` | `p.Name() != "none"`; gates per-member config writes |
 | `StarterForWorkspace` / `FactoryForWorkspace` / `WorkspaceEnv` | `isolation.go` | Binding adapters for `internal/adapters/operations` |
 | `EngineStarter` / `RunnerHandle` | `isolation.go` | Launch closure; `{Name, Kill func(), Wait, StderrTail}` |
-| `ImageConfig` | `isolation.go` | `Image`, `BaseContainerfile`, `AppRoot`, `NoDevcontainerBase`, `DevcontainerService`, `Engines` |
+| `ImageConfig` | `isolation.go` | Alias of `launch.ImageConfig`: the image override, the `isolation_base` choice, and the devcontainer inputs |
 | `None` / `Container` / `Worktree` | `none.go` / `container.go` / `worktree.go` | The three policy types (four policy identities, six requestable postures) |
 | `PrepareClaudeHome` | `auth.go` | The exported one-way copy-in seam, for per-session instance homes outside a `Policy` |
 | `Runtime` / `Docker` / `Podman` / `Host` | `runtime.go` | Pluggable launcher substrate |
@@ -698,7 +711,7 @@ image another is between building and running.
 - ~~**`composeAgentContainerfile(nil)` renders a complete, buildable, gate-passing image with zero engine layers.**~~ CLOSED 2026-08-25 by the one-image-per-engine split: `composableBuildSources` raises a fatal `KindIsolation` finding when the engine has no known install recipe, rather than building a green, empty image.
 - **The staleness gate fails open**: `combineProvenance` returns `""` on unresolvable provenance and `imageStale("")` returns `false`, so any present image runs as-is with no diagnostic.
 - **A stale image that cannot rebuild because `resolveSelfExe` failed launches with no warning and no finding**, while the parallel "rebuild failed" path raises a fatal `KindIsolation` for the identical outcome. `selfLinuxExe` errors unconditionally off Linux, so this is the **default path on macOS and Windows** dev hosts.
-- **`overlayContainerfile` emits its client-validation `RUN` only when `validate != ""`**, and the default profile's `validate` is `""` — so `container build <unprofiled> --base-image X` tags an image never checked to contain any engine.
+- **`overlayContainerfile` emits its client-validation `RUN` only when `validate != ""`**, and the default profile's `validate` is `""` — so `container build <unprofiled> --overlay-image X` tags an image never checked to contain any engine.
 - **`sessionStateMounts` skips the transcript mount silently when `transcriptStoreRel == ""`**; a missing harp or project id degrades behind `clidiag.WarnOnce` — *once per process*, so in a fan-out only the first member's data loss is announced.
 
 **Claims that overstate the boundary**
@@ -717,7 +730,6 @@ image another is between building and running.
 - **`gitDirMounts` mounts the git common dir read-write** (only the `worktrees/` registry is masked). A member can therefore rewrite main's refs/objects/index, hooks and config.
 - **`TraceProbe`'s doc claims the loosened seccomp profile is structurally unreachable from a normal run**, but the gate is a plain `os.Getenv` (`traceProbeFromEnv`) — any parent exporting `CTXLOOM_ISOLATION_PROBE_TRACE_DIR` makes every container run in that process ptrace-permitted and strace-wrapped.
 - **`worktreeWorkspace.Env()` advertises `HomeVar` target directories that nothing creates** if `prepareHomeVarDirs` failed; isolation then depends on each engine choosing to `mkdir -p` rather than falling back to its global home.
-- **`ImageConfig`'s doc claims "zero value = devcontainer auto-detect ON"** but `resolveDevBase` turns detection *off* when `AppRoot == ""`.
 
 **Signal quality**
 

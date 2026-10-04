@@ -158,21 +158,20 @@ Use it to keep a long unattended run from wrecking your home directory. Do not u
 ```bash
 ctxloom container check          # can containerized agents launch here?
 ctxloom container build          # build/refresh the image for the default backend
-ctxloom container scaffold       # materialize an editable base Containerfile
+ctxloom container scaffold       # write a project devcontainer seeded from the default base
 ```
 
 Images build in two stages: a shared **base** and a **composed agent stage** — one independently-cacheable install layer per engine (each via its own official installer), layered onto the base and content-keyed so identical (base, engine set) builds share one tag. ctxloom builds the image automatically when it's absent, whether launched via `run` or a delegated `agent_run` spawn.
 
-You control the base, in this order (first one present wins):
+`isolation_base` (or `--base` on `container build`) picks the base, one of three:
 
-1. `--base-image` overlays ctxloom onto an image that already ships the client CLI (skips the install entirely; single-engine).
-2. `isolation_base_containerfile` / `--base-containerfile` builds the base from your own Containerfile.
-3. **Your project's own `.devcontainer/devcontainer.json`** (or `.devcontainer.json`) is auto-detected as the base — "an isolated agent should run in the environment you develop in". Set `isolation_devcontainer_base: false` (or pass `--no-devcontainer-base` to `container build`) to opt out. `image:` and `build:` shapes are supported; `dockerComposeFile` needs `isolation_devcontainer_service` (or the devcontainer.json's own `service` key) to pick one service, since a multi-service compose project doesn't map to one agent container. Declared `features` are **not** honored (ctxloom does not depend on the devcontainer CLI) — a loud warning names what's skipped, and the build still proceeds from `image`/`build`.
-4. The embedded default base (distro plus the coding-agent tool layer — git, ripgrep, curl, certs, jq).
+- `ctxloom` — the embedded default base (distro plus the coding-agent tool layer — git, ripgrep, curl, certs, jq).
+- `devcontainer` — **your project's own `.devcontainer/devcontainer.json`** (or `.devcontainer.json`): "an isolated agent should run in the environment you develop in". `image:` and `build:` shapes are supported; `dockerComposeFile` needs `isolation_devcontainer_service` (or the devcontainer.json's own `service` key) to pick one service, since a multi-service compose project doesn't map to one agent container. Declared `features` are **not** honored (ctxloom does not depend on the devcontainer CLI) — a loud warning names what's skipped, and the build still proceeds from `image`/`build`.
+- an image ref — that image, with the engine layered on top.
 
-An explicit base always beats auto-detection, and a devcontainer or user base that turns out unbuildable is a **fatal finding**, never a silent fallback to the default — the whole point is running in the environment you actually develop in, not a quietly different one.
+Left unset, the project's devcontainer is used when one exists, and ctxloom's own base otherwise. A chosen base that turns out unbuildable is a **fatal finding**, never a silent fallback to another — the whole point is running in the environment you chose, not a quietly different one. Separately, `--overlay-image` on `container build` overlays ctxloom onto an image that already ships the client CLI (skips the install entirely).
 
-`isolation_engines` selects which engine fragments compose into the image (default: every engine with a known official installer — "one instance can run any engine"); trim it to shrink the image. `ctxloom container scaffold` still writes an editable copy of the embedded default base and wires it into `isolation_base_containerfile` when you want to hand-edit the base itself. When a project devcontainer is detected it refuses: the configured base would outrank the devcontainer and replace its toolchain with the default one. Pass `--force` to do it anyway, or turn detection off with `isolation_devcontainer_base: false`.
+`isolation_engines` selects which engine fragments compose into the image (default: every engine with a known official installer — "one instance can run any engine"); trim it to shrink the image. To hand-edit the base, edit the project devcontainer's Dockerfile; `ctxloom container scaffold` writes one (seeded from the embedded default base) for a project that has none, and refuses when the project already has a devcontainer.
 
 `isolation_images` in config names fully user-provided images that run as-is and are never built. An override must honor the **identity contract**: it runs the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install `ctxloom-entrypoint` as its `ENTRYPOINT`) and bakes no `USER` — otherwise the container would start with the image's own identity and root-own the files it writes into your mounted project. A violating image is a fatal startup finding; `--degraded` launches it anyway with the image's own identity.
 
@@ -180,7 +179,7 @@ An explicit base always beats auto-detection, and a devcontainer or user base th
 
 ### Tooling declarations
 
-Companions (ltk, taskloom and the like) declare the tools their content needs inside the agent image, as a typed `tooling` entry in their loadout. `ctxloom container tooling` collects the declarations from **admitted** companions and emits them with instructions for your AI: propose the base-Containerfile additions as a diff, get your explicit approval per change, then rebuild. A rejected companion's declaration is withheld, and nothing is applied automatically on pull or sync.
+Companions (ltk, taskloom and the like) declare the tools their content needs inside the agent image, as a typed `tooling` entry in their loadout. `ctxloom container tooling` collects the declarations from **admitted** companions and emits them with instructions for your AI: propose the additions to the base as a diff, get your explicit approval per change, then rebuild. A rejected companion's declaration is withheld, and nothing is applied automatically on pull or sync.
 
 ## Agents vs profiles
 

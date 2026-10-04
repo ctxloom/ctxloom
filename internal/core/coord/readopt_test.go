@@ -55,12 +55,7 @@ func newTestCoordinatorOver(t *testing.T, stateDir string, sp Spawner) *Coordina
 func TestReadopt_ARestartedCoordinatorReadoptsALiveRunner(t *testing.T) {
 	resetStrictness(t)
 	stateDir := t.TempDir()
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
-	t.Cleanup(func() {
-		for i := 0; i < sp.spawnCount(); i++ {
-			sp.killEngine(i)
-		}
-	})
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 
 	first := newTestCoordinatorOver(t, stateDir, sp)
 	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -99,7 +94,7 @@ func TestReadopt_ARestartedCoordinatorReadoptsALiveRunner(t *testing.T) {
 func TestReadopt_ARunnerThatNeverReturns_IsRunnerLoss(t *testing.T) {
 	resetStrictness(t)
 	stateDir := t.TempDir()
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 
 	first := newTestCoordinatorOver(t, stateDir, sp)
 	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -125,12 +120,7 @@ func TestReadopt_ARunnerThatNeverReturns_IsRunnerLoss(t *testing.T) {
 func TestReadopt_ARestartSlowerThanTheGraceStillReadoptsTheRunner(t *testing.T) {
 	resetStrictness(t)
 	stateDir := t.TempDir()
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
-	t.Cleanup(func() {
-		for i := 0; i < sp.spawnCount(); i++ {
-			sp.killEngine(i)
-		}
-	})
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 
 	first := newTestCoordinatorOver(t, stateDir, sp)
 	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -170,7 +160,7 @@ func TestReadopt_ShutdownDrainDoesNotWaitOnAnAdoptedRunWithNoRunner(t *testing.T
 	resetStrictness(t)
 	stateDir := t.TempDir()
 	gate := make(chan struct{}) // never closed: the turn is in flight when the coordinator dies
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 
 	first := newTestCoordinatorOver(t, stateDir, sp)
 	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")

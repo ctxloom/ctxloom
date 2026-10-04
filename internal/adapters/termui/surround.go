@@ -244,13 +244,27 @@ func (s *surround) SetApprovals(n int, oldest time.Time, ring bool) (rang bool) 
 	s.approvals = n
 	s.oldest = oldest
 	s.hasApprovals = true
-	rang = ring && s.active && !s.suspended && !s.restored
-	if rang {
-		_, _ = s.w.Write([]byte{'\a'})
-	}
+	rang = ring && s.ringLocked()
 	s.mu.Unlock()
 	s.RequestPaint()
 	return rang
+}
+
+// Ring writes one BEL under the shared tty lock, on SetApprovals' terms (only
+// while the bar shows), and reports whether it rang.
+func (s *surround) Ring() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ringLocked()
+}
+
+// ringLocked writes one BEL if the bar is showing. Caller holds s.mu.
+func (s *surround) ringLocked() bool {
+	if !s.active || s.suspended || s.restored {
+		return false
+	}
+	_, _ = s.w.Write([]byte{'\a'})
+	return true
 }
 
 // RequestPaint repaints now if the engine is idle, else marks the bar dirty

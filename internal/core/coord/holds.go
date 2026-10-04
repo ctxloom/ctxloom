@@ -21,6 +21,8 @@ type holdRecord struct {
 	Since  time.Time
 	// Until is the self-release deadline; zero is none.
 	Until time.Time
+	// Fingerprint is the refused credential's digest (holdOpened).
+	Fingerprint string
 	// Members are the harps the hold covers, each with the run it parked — ""
 	// once that run ended. A harp stays held after its run ends: its
 	// relaunch waits for the release (launchgate.go, relaunchForLeftoverMail).
@@ -84,7 +86,7 @@ func (f *holdsFold) applyOpened(p holdOpened, at time.Time) {
 	}
 	f.byKey[p.Key] = &holdRecord{
 		ID: p.ID, Key: p.Key, Scope: p.Scope, Kind: p.Kind, Engine: p.Engine, Source: p.Source,
-		By: p.By, Since: at, Until: p.Until, Members: make(map[string]string),
+		By: p.By, Since: at, Until: p.Until, Fingerprint: p.Fingerprint, Members: make(map[string]string),
 	}
 }
 

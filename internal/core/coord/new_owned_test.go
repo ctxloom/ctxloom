@@ -41,7 +41,7 @@ func TestNew_RefusesARootAnotherLiveOwnerHolds(t *testing.T) {
 	require.NoError(t, err)
 
 	// A complete Options: the claim is the ONLY thing that can refuse here.
-	c, err := New(Options{ProjectDir: t.TempDir(), ProjectID: key, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp, RootHarp: root})
+	c, err := New(Options{ProjectDir: t.TempDir(), ProjectID: key, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp, RootHarp: root})
 	assert.Nil(t, c)
 	require.ErrorIs(t, err, ErrStateOwned)
 	assert.Contains(t, err.Error(), strconv.Itoa(owner.PID), "the refusal names the owner's pid so the operator can find the session")

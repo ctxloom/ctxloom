@@ -29,7 +29,7 @@ import (
 //     engine declares an installer fragment; see composeAgentContainerfile,
 //     buildSources, composedIdentity).
 //   - validate: the in-image command that proves the client is runnable (the
-//     `<client> --version` build gate), used by the single-engine `--base-image`
+//     `<client> --version` build gate), used by the single-engine `--overlay-image`
 //     overlay escape hatch (overlayContainerfile) — composition uses
 //     engineInstall's OWN embedded validate step instead.
 //   - declared: the engine declared a container story. The default spec

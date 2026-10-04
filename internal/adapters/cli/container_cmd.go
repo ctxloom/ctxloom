@@ -28,9 +28,8 @@ var containerCmd = groupNode(&cobra.Command{
 })
 
 var (
-	containerBuildBaseImage           string
-	containerBuildBaseContainerfile   string
-	containerBuildNoDevcontainerBase  bool
+	containerBuildOverlayImage        string
+	containerBuildBase                string
 	containerBuildDevcontainerService string
 	containerBuildEngines             []string
 	containerBuildRuntime             string
@@ -50,17 +49,17 @@ rebuilt image never needs a ctxloom release. The client validates the build
 from inside the image (its --version gate), and the install fetches the MOST
 RECENT client — never pinned.
 
-The base stage is yours to replace: --base-containerfile (or config
-isolation_base_containerfile) builds the base from your own Containerfile —
-your tools, your certs, your mirrors — and the same agent stage layers on top.
-Alternatively --base-image skips the client install entirely and overlays
+The base is one of three, chosen by --base (or config isolation_base):
+'ctxloom' (the embedded default base), 'devcontainer' (the project's own
+.devcontainer/devcontainer.json or .devcontainer.json — "an isolated agent
+should run in the environment the human develops in"), or an image ref to
+build on. Unset, the project's devcontainer is used when one exists, else
+ctxloom's own. The same agent stage layers on top of whichever is chosen, and
+a chosen base that fails to build is refused, never silently substituted.
+Alternatively --overlay-image skips the client install entirely and overlays
 ctxloom onto an image that ALREADY ships the client CLI.
 
-Absent an explicit base, the project's own .devcontainer/devcontainer.json (or
-.devcontainer.json) is auto-detected and used as the base instead of the
-embedded default — "an isolated agent should run in the environment the human
-develops in". --no-devcontainer-base (or config isolation_devcontainer_base:
-false) opts out. A devcontainer.json declaring "features" is NOT honored
+A devcontainer.json declaring "features" is NOT honored
 (pre1 does not depend on the devcontainer CLI) — a loud warning names what is
 skipped. A devcontainer.json declaring dockerComposeFile needs an explicit
 service pick (--devcontainer-service, or config isolation_devcontainer_service)
@@ -76,7 +75,7 @@ By default the build runs with --pull --no-cache so a rebuild picks up the most
 recent client; --keep-cache reuses layers for a fast local iteration. Runs of
 ` + "`ctxloom run`" + ` (and delegated ` + "`agent_run`" + ` children) also build this image
 automatically when it is absent (honoring the same base/engine resolution); this command is the
-explicit path (refresh, custom base). To run a fully user-provided image
+explicit path (refresh, a one-off base). To run a fully user-provided image
 instead, set isolation_images in config — those are run as-is and never built.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runContainerBuild,
@@ -102,12 +101,11 @@ func runContainerBuild(cmd *cobra.Command, args []string) error {
 		cfg = nil
 	}
 	opts := containerBuildOptions(containerBuildFlagValues{
-		BaseImage:           containerBuildBaseImage,
-		BaseContainerfile:   containerBuildBaseContainerfile,
+		OverlayImage:        containerBuildOverlayImage,
+		Base:                containerBuildBase,
 		Runtime:             containerBuildRuntime,
 		DevcontainerService: containerBuildDevcontainerService,
 		Engines:             containerBuildEngines,
-		NoDevcontainerBase:  containerBuildNoDevcontainerBase,
 		KeepCache:           containerBuildKeepCache,
 	}, cfg, backend, cmd.ErrOrStderr())
 	opts.Output = os.Stdout
@@ -136,12 +134,11 @@ func runContainerBuild(cmd *cobra.Command, args []string) error {
 // containerBuildOptions, so the flag-over-config precedence is resolvable —
 // and testable — without a cobra command or a container runtime.
 type containerBuildFlagValues struct {
-	BaseImage           string
-	BaseContainerfile   string
+	OverlayImage        string
+	Base                string
 	Runtime             string
 	DevcontainerService string
 	Engines             []string
-	NoDevcontainerBase  bool
 	KeepCache           bool
 }
 
@@ -152,10 +149,10 @@ type containerBuildFlagValues struct {
 //
 // Two invariants live here:
 //
-//   - BaseImage and BaseContainerfile are mutually exclusive
-//     (isolation.BuildAgentImage rejects the pair outright), so a config base
-//     Containerfile is inherited only when NEITHER flag chose a base. An
-//     explicit --base-image must never be turned into a hard failure by a
+//   - OverlayImage and Base are mutually exclusive (isolation.BuildAgentImage
+//     rejects the pair outright), so a config isolation_base is inherited only
+//     when NEITHER flag chose a base. An
+//     explicit --overlay-image must never be turned into a hard failure by a
 //     project default the user did not name on this command line.
 //   - a config isolation_images entry for this backend is run AS-IS and never
 //     built (isolation.containerFor), so whatever this command builds is not
@@ -163,27 +160,23 @@ type containerBuildFlagValues struct {
 //     image nothing will run is otherwise indistinguishable from success.
 func containerBuildOptions(flags containerBuildFlagValues, cfg *config.Config, backend string, warn io.Writer) isolation.ImageBuildOptions {
 	opts := isolation.ImageBuildOptions{
-		BaseImage:         flags.BaseImage,
-		BaseContainerfile: flags.BaseContainerfile,
-		Runtime:           flags.Runtime,
-		KeepCache:         flags.KeepCache,
+		OverlayImage: flags.OverlayImage,
+		Base:         flags.Base,
+		Runtime:      flags.Runtime,
+		KeepCache:    flags.KeepCache,
 	}
 	if cfg != nil {
 		img := launch.ImageConfigFor(cfg, engine.Name(backend))
-		if opts.BaseImage == "" && opts.BaseContainerfile == "" {
-			opts.BaseContainerfile = img.BaseContainerfile
+		if opts.OverlayImage == "" && opts.Base == "" {
+			opts.Base = img.Base
 		}
 		opts.AppRoot = img.AppRoot
-		opts.NoDevcontainerBase = img.NoDevcontainerBase
 		opts.DevcontainerService = img.DevcontainerService
 		opts.Engines = img.Engines
 		if img.Image != "" {
 			clidiag.Fwarn(warn, "ctxloom", "config isolation_images pins %s for backend %s: that image is run AS-IS and never built, so a %s agent will NOT use the image this build produces (unset isolation_images for %s to run what you build)",
 				img.Image, backend, backend, backend)
 		}
-	}
-	if flags.NoDevcontainerBase {
-		opts.NoDevcontainerBase = true
 	}
 	if flags.DevcontainerService != "" {
 		opts.DevcontainerService = flags.DevcontainerService
@@ -195,17 +188,17 @@ func containerBuildOptions(flags containerBuildFlagValues, cfg *config.Config, b
 }
 
 // toolingPrompt is the instruction preamble `container tooling list`
-// emits above the collected bundle declarations: locate/scaffold the base
-// Containerfile, propose a diff, get EXPLICIT per-change user approval,
-// rebuild. A markdown resource, not Go — the procedure is data.
+// emits above the collected bundle declarations; its text is
+// resources/prompts/tooling.md. A markdown resource, not Go — the procedure is data.
 var toolingPrompt = resources.MustGetPromptText("tooling")
 
 // toolingCmdLong documents `ctxloom container tooling`.
 const toolingCmdLong = `Collect every admitted companion's typed 'tooling' declaration — the
 tools its content needs inside the agent container image — and emit them with
-instructions for the LLM: scaffold/locate the editable base Containerfile
-('ctxloom container scaffold'), propose the additions as a diff, get the
-user's explicit approval per change, then rebuild ('ctxloom container build').
+instructions for the LLM: fold the additions into the agent image's base
+(the project devcontainer's Dockerfile; 'ctxloom container scaffold' writes one
+when the project has none) as a diff, get the user's explicit approval per
+change, then rebuild ('ctxloom container build').
 
 Collection is TRUST-GATED: a rejected companion's declaration is withheld
 like any other gated content, and nothing is ever applied automatically on
@@ -215,7 +208,7 @@ pull/sync — the edit is the LLM's, gated by the user.`
 // agent-image tooling instructions plus every admitted companion's typed
 // tooling declaration (bundles.InitLoadout.Tooling): the LLM runs this, reads
 // the declarations, and folds them — with
-// the user's explicit approval — into the scaffolded base Containerfile.
+// the user's explicit approval — into the agent image's base.
 // Read-only: collection goes through the trust gate and nothing is written
 // here.
 func runToolingListCmd(cmd *cobra.Command, args []string) error {
@@ -273,32 +266,18 @@ func renderTooling(out io.Writer, entries []operations.ToolingDeclaration) error
 }
 
 // containerScaffoldCmd is the write half the tooling flow calls (with the
-// user's permission): materialize the embedded default base Containerfile as
-// an editable local file and wire it into config, so the default auto-build
-// and explicit builds pick it up from then on.
-var (
-	containerScaffoldPath  string
-	containerScaffoldForce bool
-)
-
+// user's permission): give a project with no devcontainer one, seeded from the
+// embedded default base, so its agent image's base becomes editable.
 var containerScaffoldCmd = &cobra.Command{
 	Use:   "scaffold",
-	Short: "Materialize the editable base Containerfile and wire it into config",
-	Long: `Write the embedded default base Containerfile to an editable local file
-(default: .ctxloom/base.Containerfile) and set 'isolation_base_containerfile'
-so every locally-built agent image — the default auto-build included — layers
-on it.
+	Short: "Write a project devcontainer seeded from ctxloom's default base",
+	Long: `Write .devcontainer/devcontainer.json and a .devcontainer/Dockerfile seeded
+from ctxloom's embedded default base, so the agent image's base is a file you
+can edit — and the environment your editor's devcontainer support opens too.
 
-Without a project devcontainer the file is content-identical to what the
-default build was already using, so nothing changes until you edit it. WITH
-one (.devcontainer/devcontainer.json or .devcontainer.json) the agent image
-builds from the devcontainer, and a configured base outranks it: scaffolding
-would replace the devcontainer's toolchain with the built-in default base. That
-is refused unless --force, or unless devcontainer detection is off
-(isolation_devcontainer_base: false).
-
-Idempotent and WIP-safe: an already-configured base is returned as-is, and an
-existing file at the target is adopted, never overwritten (--force overwrites).`,
+With isolation_base unset (or 'devcontainer'), every locally-built agent image
+builds on it from then on. Refused when the project already has a devcontainer
+(.devcontainer/ or .devcontainer.json): edit that one instead.`,
 	Args: cobra.NoArgs,
 	RunE: runContainerScaffold,
 }
@@ -308,13 +287,16 @@ func runContainerScaffold(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	path, err := operations.ScaffoldContainerBase(cmd.Context(), App(), cfg, containerScaffoldPath, containerScaffoldForce)
+	dir, err := operations.ScaffoldDevcontainer(cfg)
 	if err != nil {
 		return err
 	}
 	w := errwriter.New(cmd.OutOrStdout())
-	w.Printf("Base Containerfile: %s\n", path)
-	w.Println("Edit it (the engine's agent stage layers on top), then run `ctxloom container build`.")
+	w.Printf("Devcontainer: %s\n", dir)
+	w.Println("Edit its Dockerfile (the engine's agent stage layers on top), then run `ctxloom container build`.")
+	if base := cfg.IsolationBase(); base != "" && base != config.IsolationBaseDevcontainer {
+		clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "isolation_base is %q, so agent images do NOT build on this devcontainer; unset it (or set isolation_base: devcontainer) to use it", base)
+	}
 	return w.Err()
 }
 
@@ -425,24 +407,18 @@ func renderContainerCheck(out io.Writer, backend string, d isolation.Diagnosis) 
 }
 
 func init() {
-	containerBuildCmd.Flags().StringVar(&containerBuildBaseImage, "base-image", "",
+	containerBuildCmd.Flags().StringVar(&containerBuildOverlayImage, "overlay-image", "",
 		"overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources")
-	containerBuildCmd.Flags().StringVar(&containerBuildBaseContainerfile, "base-containerfile", "",
-		"build the shared base stage from this Containerfile (your environment; the engine's agent stage layers on top) instead of an auto-detected devcontainer / the embedded default")
-	containerBuildCmd.Flags().BoolVar(&containerBuildNoDevcontainerBase, "no-devcontainer-base", false,
-		"do not auto-detect the project's .devcontainer/devcontainer.json as the base image")
+	containerBuildCmd.Flags().StringVar(&containerBuildBase, "base", "",
+		"the base the engine's agent stage layers onto: ctxloom | devcontainer | <image ref> (overrides config isolation_base)")
 	containerBuildCmd.Flags().StringVar(&containerBuildDevcontainerService, "devcontainer-service", "",
-		"docker-compose service to use as the base when the detected devcontainer.json declares dockerComposeFile")
+		"docker-compose service to use as the base when the project devcontainer.json declares dockerComposeFile")
 	containerBuildCmd.Flags().StringSliceVar(&containerBuildEngines, "engines", nil,
 		"engines to build an agent image for, one image each (any engine that declares a container installer); empty = the configured backend")
 	containerBuildCmd.Flags().StringVar(&containerBuildRuntime, "runtime", "",
 		"container runtime to build with (docker|podman); auto-detected when empty")
 	containerBuildCmd.Flags().BoolVar(&containerBuildKeepCache, "keep-cache", false,
 		"reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)")
-	containerScaffoldCmd.Flags().StringVar(&containerScaffoldPath, "path", "",
-		"project-root-relative path for the base Containerfile (default .ctxloom/base.Containerfile)")
-	containerScaffoldCmd.Flags().BoolVar(&containerScaffoldForce, "force", false,
-		"overwrite an existing file / re-point an already-configured base / replace a detected devcontainer base")
 	containerCmd.AddCommand(containerBuildCmd)
 	containerCmd.AddCommand(containerCheckCmd)
 	containerCmd.AddCommand(containerScaffoldCmd)

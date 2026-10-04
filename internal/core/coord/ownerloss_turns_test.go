@@ -36,13 +36,8 @@ func closed(ch <-chan struct{}) bool {
 func TestOwnerLoss_AnOrphanedTurnRunsToItsEnd_ThenTheRunnerWaits(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	sp.ownerLossWindow = orphanWindow
-	t.Cleanup(func() {
-		for i := 0; i < sp.spawnCount(); i++ {
-			sp.killEngine(i)
-		}
-	})
 	c := newTestCoordinatorOver(t, t.TempDir(), sp)
 	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "a long task", "", "")
 	require.NoError(t, err)
@@ -71,13 +66,8 @@ func TestOwnerLoss_AReadoptionMidTurnKeepsTheTurn(t *testing.T) {
 	resetStrictness(t)
 	stateDir := t.TempDir()
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	sp.ownerLossWindow = orphanWindow
-	t.Cleanup(func() {
-		for i := 0; i < sp.spawnCount(); i++ {
-			sp.killEngine(i)
-		}
-	})
 	first := newTestCoordinatorOver(t, stateDir, sp)
 	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "a long task", "", "")
 	require.NoError(t, err)
@@ -103,12 +93,7 @@ func TestOwnerLoss_AReadoptionMidTurnKeepsTheTurn(t *testing.T) {
 func TestOwnerLoss_NoNewTurnWhileTheOwnerIsAway(t *testing.T) {
 	resetStrictness(t)
 	stateDir := t.TempDir()
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
-	t.Cleanup(func() {
-		for i := 0; i < sp.spawnCount(); i++ {
-			sp.killEngine(i)
-		}
-	})
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	first := newTestCoordinatorOver(t, stateDir, sp)
 	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)

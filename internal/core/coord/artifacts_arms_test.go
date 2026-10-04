@@ -28,7 +28,7 @@ import (
 
 func TestUploadArtifact_RejectsAnOversizedChunk(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])
@@ -43,7 +43,7 @@ func TestUploadArtifact_RejectsAnOversizedChunk(t *testing.T) {
 
 func TestUploadArtifact_RejectsADeclaredSizeOverTheCap(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])
@@ -65,7 +65,7 @@ func TestUploadArtifact_RejectsADeclaredSizeOverTheCap(t *testing.T) {
 
 func TestUploadArtifact_RejectsAChunkBeforeTheHeader(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])
@@ -81,7 +81,7 @@ func TestUploadArtifact_RejectsAChunkBeforeTheHeader(t *testing.T) {
 
 func TestDownloadArtifact_RequiresBothIdentifiers(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])
@@ -103,7 +103,7 @@ func TestDownloadArtifact_RequiresBothIdentifiers(t *testing.T) {
 
 func TestDownloadArtifact_UnknownArtifactIsNotFound(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])
@@ -117,7 +117,7 @@ func TestDownloadArtifact_UnknownArtifactIsNotFound(t *testing.T) {
 // so this is the only thing exercising the seek.
 func TestDownloadArtifact_OffsetStreamsTheTail(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	child := childHome(t, c, out.RunID)
 

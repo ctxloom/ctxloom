@@ -3,34 +3,30 @@
 // language runtimes, build helpers) declares them in the typed `init.tooling`
 // field of its loadout (bundles.InitLoadout); `ctxloom tooling` collects those
 // texts THROUGH THE TRUST GATE and emits them with instructions for the LLM to
-// fold — with explicit per-change user permission — into the local base
-// Containerfile that every locally-built agent image (default auto-build
-// included) layers on. Nothing here runs on pull/sync: collection and the
-// scaffold are explicit commands, and the edit itself is the LLM's, gated by
-// the user.
+// fold — with explicit per-change user permission — into the agent image's
+// base: the project devcontainer's Dockerfile, which an unset isolation_base
+// builds every locally-built agent image on. Nothing here runs on pull/sync:
+// collection and the scaffold are explicit commands, and the edit itself is
+// the LLM's, gated by the user.
 
 package operations
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // ToolingDeclaration is one companion's collected tooling declaration.
 type ToolingDeclaration struct {
 	// Source is the companion's ref the text came from, so the user can
-	// trace every proposed Containerfile change to its companion.
+	// trace every proposed base-image change to its companion.
 	Source  string `json:"source"`
 	Content string `json:"content"`
 }
@@ -38,7 +34,7 @@ type ToolingDeclaration struct {
 // CollectTooling gathers every admitted companion's typed `init.tooling`
 // declaration. SECURITY: collection goes through the TRUST-GATED pipeline —
 // a companion the human rejected is withheld exactly like any other gated
-// content (loadout-supplied text driving Containerfile edits is a
+// content (loadout-supplied text driving Dockerfile edits is a
 // code-execution vector), and the withholding is surfaced content-free.
 // Fault-tolerant: a nil config or any load failure returns nil, never errors.
 // pipe is a test seam; nil uses the gated exposure pipeline.
@@ -64,196 +60,62 @@ func CollectTooling(cfg *config.Config, pipe *bundles.Pipeline) []ToolingDeclara
 	return out
 }
 
-// DefaultContainerBasePath is where ScaffoldContainerBase materializes the
-// editable base Containerfile, relative to the project root (inside the app
-// dir: it is project configuration, versioned with the rest of .ctxloom).
-var DefaultContainerBasePath = filepath.Join(paths.AppDirName, "base.Containerfile")
+// devcontainerDirName is the directory ScaffoldDevcontainer writes under the
+// project root — the devcontainer spec's canonical location, and one of the
+// two isolation.FindDevcontainerJSON looks in.
+const devcontainerDirName = ".devcontainer"
 
-// DevcontainerBaseError refuses a scaffold that would demote the project's
-// devcontainer: the agent image builds FROM the detected devcontainer, and
-// isolation_base_containerfile outranks that detection, so wiring the built-in
-// default base would silently swap the project's toolchain for it.
-type DevcontainerBaseError struct {
-	// Path is the detected devcontainer.json.
+// devcontainerJSON is the scaffolded devcontainer.json: build the Dockerfile
+// beside it. Nothing else — the human's editor fills in the rest.
+const devcontainerJSON = `{
+  "build": {
+    "dockerfile": "Dockerfile"
+  }
+}
+`
+
+// DevcontainerExistsError refuses a scaffold over a project that already has
+// a devcontainer: it is the human's environment, and the agent image already
+// builds from it.
+type DevcontainerExistsError struct {
+	// Path is the existing .devcontainer/ directory or devcontainer.json.
 	Path string
 }
 
-func (e *DevcontainerBaseError) Error() string {
-	return fmt.Sprintf("this project's agent image builds from its devcontainer (%s); scaffolding a base Containerfile would replace that with ctxloom's built-in default base. Re-run with --force to do that deliberately, or opt out of the devcontainer base first (isolation_devcontainer_base: false)", e.Path)
+func (e *DevcontainerExistsError) Error() string {
+	return fmt.Sprintf("this project already has a devcontainer (%s); edit it rather than scaffolding a new one — the agent image builds from it unless isolation_base says otherwise", e.Path)
 }
 
-// ScaffoldContainerBase makes the base Containerfile EDITABLE: it materializes
-// the embedded default base to relPath (project-root-relative;
-// "" = DefaultContainerBasePath), wires `isolation_base_containerfile` in
-// config inside one Update transaction, and returns the path — so the
-// default auto-build and `container build` pick the file up from then on.
-// Idempotent and WIP-safe:
-//
-//   - config already points at a base Containerfile → returned as-is, nothing
-//     written (the user already owns one);
-//   - the target file already exists → ADOPTED (config wired to it), its
-//     content never overwritten unless force;
-//   - a detected devcontainer (with devcontainer-base detection on) →
-//     refused with *DevcontainerBaseError unless force: the configured base
-//     outranks the devcontainer, so wiring one would demote it;
-//   - otherwise the embedded default base is written, so edits start from
-//     exactly what the default build was using.
-//
-// The already-configured guard reads cfg (an advisory pre-transaction check,
-// same shape as SetAgent's shadow-agent warning): the config write below is
-// an unconditional field set, not a read-check-then-write, so no lost-update
-// window exists for it to close.
-func ScaffoldContainerBase(ctx context.Context, app *App, cfg *config.Config, relPath string, force bool) (string, error) {
+// ScaffoldDevcontainer writes the project devcontainer — .devcontainer/
+// holding a devcontainer.json that builds the Dockerfile beside it, seeded
+// from the embedded default base — and returns the directory. It refuses with
+// *DevcontainerExistsError when the project already has a .devcontainer/
+// (anything at that path, so nothing of the human's is overwritten) or a
+// devcontainer.json at either canonical path. It writes no config: an unset
+// isolation_base (or isolation_base: devcontainer) adopts what it wrote.
+func ScaffoldDevcontainer(cfg *config.Config) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("config is required")
 	}
-	if app == nil {
-		return "", fmt.Errorf("app is required")
-	}
 	fs := getFS(cfg.FS())
-	if existing := cfg.IsolationBaseContainerfilePath(); existing != "" && !force {
-		return materializeConfiguredBase(fs, existing)
-	}
-	if err := refuseDevcontainerDemotion(cfg, force); err != nil {
-		return "", err
-	}
-	relPath, abs, err := containerBaseTarget(cfg, relPath)
-	if err != nil {
-		return "", err
-	}
-	if err := writeBaseUnlessPresent(fs, abs, force); err != nil {
-		return "", err
-	}
-
-	if _, err := app.Update(ctx, func(d *config.Draft) error {
-		d.IsolationBaseContainerfile = relPath
-		return nil
-	}); err != nil {
-		return "", fmt.Errorf("wire isolation_base_containerfile: %w", err)
-	}
-	return abs, nil
-}
-
-// refuseDevcontainerDemotion returns a *DevcontainerBaseError when the project
-// builds its agent image from a detected devcontainer — detection on and a
-// devcontainer.json present, decided by the same isolation.FindDevcontainerJSON
-// the image build uses — unless force.
-func refuseDevcontainerDemotion(cfg *config.Config, force bool) error {
-	if force || !cfg.IsolationDevcontainerBaseEnabled() {
-		return nil
-	}
-	if dc := isolation.FindDevcontainerJSON(cfg.GetAppRoot()); dc != "" {
-		return &DevcontainerBaseError{Path: dc}
-	}
-	return nil
-}
-
-// materializeConfiguredBase returns the already-configured base Containerfile
-// path, writing the default base there first when it is configured but not
-// actually on disk (deleted, never created, a typo'd path) — rather than
-// silently reporting success with nothing written.
-func materializeConfiguredBase(fs afero.Fs, existing string) (string, error) {
-	if _, err := fs.Stat(existing); err == nil {
-		return existing, nil
+	root := cfg.GetAppRoot()
+	dir := filepath.Join(root, devcontainerDirName)
+	if _, err := lstatIfPossible(fs, dir); err == nil { // a planted symlink counts as present
+		return "", &DevcontainerExistsError{Path: dir}
 	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("stat configured base Containerfile: %w", err)
+		return "", fmt.Errorf("stat %s: %w", dir, err)
 	}
-	if err := writeBaseContainerfile(fs, existing); err != nil {
-		return "", err
+	if existing := isolation.FindDevcontainerJSON(root); existing != "" {
+		return "", &DevcontainerExistsError{Path: existing}
 	}
-	return existing, nil
-}
-
-// containerBaseTarget resolves the scaffold's project-relative path (the
-// default when empty) and its contained absolute form.
-//
-// relPath is documented as project-root-relative, and the CLI exposes it as a
-// bare --path flag — untrusted user input. A "../"-laden relPath (or an
-// absolute relPath naming anywhere on disk) must not be allowed to write
-// outside the project. Contain it the same way safeRepoPath contains
-// escalation-query paths: join/clean, reject if the result escapes the root,
-// and re-check after symlink resolution for the case where the target
-// already exists.
-func containerBaseTarget(cfg *config.Config, relPath string) (rel, abs string, err error) {
-	if relPath == "" {
-		relPath = DefaultContainerBasePath
+	if err := fs.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create %s: %w", dir, err)
 	}
-	abs = relPath
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(cfg.GetAppRoot(), relPath)
+	if err := safefs.WriteFile(fs, filepath.Join(dir, "Dockerfile"), container.Base(), 0o644); err != nil {
+		return "", fmt.Errorf("write devcontainer Dockerfile: %w", err)
 	}
-	abs, err = containedPath(cfg.GetAppRoot(), abs)
-	if err != nil {
-		return "", "", fmt.Errorf("base Containerfile path: %w", err)
+	if err := safefs.WriteFile(fs, filepath.Join(dir, "devcontainer.json"), []byte(devcontainerJSON), 0o644); err != nil {
+		return "", fmt.Errorf("write devcontainer.json: %w", err)
 	}
-	return relPath, abs, nil
-}
-
-// writeBaseUnlessPresent writes the default base at abs when nothing is
-// there yet, or unconditionally under force.
-func writeBaseUnlessPresent(fs afero.Fs, abs string, force bool) error {
-	exists := false
-	if _, err := fs.Stat(abs); err == nil {
-		exists = true
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("stat base Containerfile: %w", err)
-	}
-	if exists && !force {
-		return nil
-	}
-	return writeBaseContainerfile(fs, abs)
-}
-
-// writeBaseContainerfile writes the embedded default base to path, creating
-// its directory. No AllowEmpty: container.Base() is a fixed embedded
-// template, never empty.
-func writeBaseContainerfile(fs afero.Fs, path string) error {
-	if merr := fs.MkdirAll(filepath.Dir(path), 0o755); merr != nil {
-		return fmt.Errorf("create base Containerfile directory: %w", merr)
-	}
-	if werr := safefs.WriteFile(fs, path, container.Base(), 0o644); werr != nil {
-		return fmt.Errorf("write base Containerfile: %w", werr)
-	}
-	return nil
-}
-
-// containedPath validates that target is contained within root, rejecting a
-// syntactic escape ("../../x") that survives filepath.Clean and, separately,
-// an already-absolute target that simply names a path outside root. Mirrors
-// safeRepoPath's (task_triggers_query.go) symlink-aware re-check: a
-// not-yet-created target is fine — callers are about to create it — but a
-// symlink already planted inside root that points outside it is still
-// rejected. Returns the resolved absolute path on success.
-func containedPath(root, target string) (string, error) {
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return "", err
-	}
-	absTarget, err := filepath.Abs(target)
-	if err != nil {
-		return "", err
-	}
-	if !withinDir(absRoot, absTarget) {
-		return "", fmt.Errorf("path %q escapes the project root %q", target, absRoot)
-	}
-	resolved, err := filepath.EvalSymlinks(absTarget)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			// A genuine resolution failure (permissions, a symlink loop) never
-			// answered the containment question — do not let it through as if
-			// it had been checked.
-			return "", err
-		}
-		// Doesn't exist yet — not an escape, just nothing to resolve; the
-		// syntactic Join+Clean check above already covers this case.
-		return absTarget, nil
-	}
-	resolvedAbs, err := filepath.Abs(resolved)
-	if err != nil {
-		return "", err
-	}
-	if !withinDir(absRoot, resolvedAbs) {
-		return "", fmt.Errorf("path %q escapes the project root %q via a symlink", target, absRoot)
-	}
-	return resolvedAbs, nil
+	return dir, nil
 }

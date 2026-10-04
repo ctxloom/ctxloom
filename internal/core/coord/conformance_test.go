@@ -39,7 +39,7 @@ func ownerIdentity() Identity { return Identity{Harp: "coordinator-harp", Depth:
 // the credential present ONLY in env, never surfaced elsewhere.
 func TestAgentRun_HonorsAgentIntent(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{
+	sp := newFakeSpawner(t, map[string]fakeAgent{
 		"researcher": {perm: "bypass", profiles: []string{"p1"}},
 	}, nil)
 	c := newTestCoordinator(t, sp, nil)
@@ -73,7 +73,7 @@ func TestAgentRun_HonorsAgentIntent(t *testing.T) {
 // TestAgentRun_UnknownAgentIsHardError pins run --agent parity.
 func TestAgentRun_UnknownAgentIsHardError(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 	_, err := c.AgentRun(context.Background(), ownerIdentity(), "ghost", "boo", "", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `agent "ghost" not found`)
@@ -94,7 +94,7 @@ func TestAgentRun_ChildTakesItsPosture(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resetStrictness(t)
-			sp := newFakeSpawner(map[string]fakeAgent{"loose": {perm: tc.perm, profiles: []string{"p1"}}}, nil)
+			sp := newFakeSpawner(t, map[string]fakeAgent{"loose": {perm: tc.perm, profiles: []string{"p1"}}}, nil)
 			c := newTestCoordinator(t, sp, nil)
 			_, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "", "")
 			require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestAgentRun_ChildTakesItsPosture(t *testing.T) {
 // posture under --degraded, never widened.
 func TestAgentRun_D3DegradedDropsAMisspellingToPlan(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"loose": {perm: "plann", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"loose": {perm: "plann", profiles: []string{"p1"}}}, nil)
 	sp.degraded = true
 	c := newTestCoordinator(t, sp, nil)
 
@@ -127,7 +127,7 @@ func TestAgentRun_D3DegradedDropsAMisspellingToPlan(t *testing.T) {
 func TestAgentRun_QueuePastCap(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
@@ -163,7 +163,7 @@ func TestAgentRun_QueuePastCap(t *testing.T) {
 // caller would be refused — see TestAgentRun_DepthAtCapRefused.
 func TestAgentRun_GrandchildAllowed(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 	// A caller the coordinator launched: its ceiling is on record, so the
 	// grandchild can be capped at it.
@@ -194,7 +194,7 @@ func TestAgentRun_GrandchildAllowed(t *testing.T) {
 // so this test does not collapse into TestAgentRun_DepthAtCapRefused.
 func TestAgentRun_GreatGrandchildRefused(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 	grandchildCaller := Identity{Harp: "some-grandchild", RunID: "run-grandchild", Depth: 2}
 	_, err := c.AgentRun(context.Background(), grandchildCaller, "worker", "go deeper still", "", "")
@@ -211,7 +211,7 @@ func TestAgentRun_GreatGrandchildRefused(t *testing.T) {
 // delegate further.
 func TestAgentRun_DepthAtCapRefused(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil) // built-in default depth cap (1)
 	childCaller := Identity{Harp: "some-child", RunID: "run-child", Depth: 1}
 	_, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper", "", "")
@@ -229,7 +229,7 @@ func TestAgentRun_DepthAtCapRefused(t *testing.T) {
 func TestAgentSend_MidTurnQueuesForBoundary_FIFO(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
@@ -263,7 +263,7 @@ func TestAgentSend_MidTurnQueuesForBoundary_FIFO(t *testing.T) {
 // TestAgentSend_UnknownRecipient pins the coordinator-side routing errors.
 func TestAgentSend_UnknownRecipient(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 
 	_, err := c.AgentSend(ownerIdentity(), "nonexistent-harp", KindMessage, "hello", nil, "")
 	require.Error(t, err)
@@ -279,7 +279,7 @@ func TestAgentSend_UnknownRecipient(t *testing.T) {
 // mailbox.
 func TestChildSend_ParentOnly(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "report back", "", "")
@@ -304,7 +304,7 @@ func TestChildSend_ParentOnly(t *testing.T) {
 // the resume it caused. When terminateRun has returned, the terminal is whole.
 func TestAgentSend_ResumesEndedChild(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -362,7 +362,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	resetStrictness(t)
 	gates := []chan struct{}{make(chan struct{}), make(chan struct{})}
 	var spawned int
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	sp.nextChat = func() *scriptedChat {
 		e := &scriptedChat{Gate: gates[spawned%len(gates)]}
 		spawned++
@@ -407,7 +407,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 func TestAgentStop_FreesSlot(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
@@ -459,7 +459,7 @@ func TestAgentStop_FreesSlot(t *testing.T) {
 // failed to launch.
 func TestAgentStop_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	sp.bindHold = make(chan struct{})
 	sp.bindEntered = make(chan struct{}, 1)
 	c := newTestCoordinator(t, sp, nil)
@@ -511,7 +511,7 @@ func TestAgentStop_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
 func TestInject_DeliveryModes(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
@@ -554,7 +554,7 @@ func TestInject_DeliveryModes(t *testing.T) {
 func TestInject_MirrorDigestTruncatesLongText(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
@@ -589,7 +589,7 @@ func TestInject_MirrorDigestTruncatesLongText(t *testing.T) {
 // coordinator.go:551).
 func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -622,7 +622,7 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 // the same way, for the same reason.
 func TestInject_ResumesEndedChild(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -654,7 +654,7 @@ func TestInject_ResumesEndedChild(t *testing.T) {
 func TestInject_ReachesTheChildWithUserSenderIdentity(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 

@@ -633,6 +633,25 @@ func (c *Controller) NoteBar(text string, d time.Duration) {
 	})
 }
 
+// Ring rings the bell once for an event that needs the human (a refused
+// credential's hold opening) and reports whether it rang: with the bar, only
+// while it shows; with no bar (Options.Surround false), always, between engine
+// output. It is not folded into the approval bell's interval: its caller rings
+// once per event, and an approval's bell must not swallow it.
+func (c *Controller) Ring() bool {
+	if c.opts.Surround {
+		return c.sur.Ring()
+	}
+	c.gate.Inject([]byte{'\a'})
+	return true
+}
+
+// Announce writes text to the terminal as a line of its own, between engine
+// output: what a note on the bar says, for a terminal with no bar.
+func (c *Controller) Announce(text string) {
+	c.gate.Inject([]byte("\r\n" + text + "\r\n"))
+}
+
 // approvalBellInterval rate-limits the arrival bell: a burst of requests
 // rings once, not once per request.
 const approvalBellInterval = 10 * time.Second

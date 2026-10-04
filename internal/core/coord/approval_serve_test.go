@@ -29,7 +29,7 @@ func askNow(c *Coordinator, out *RunOutcome, ask engine.PermissionAsk) AgentRequ
 // who is asking (agent, lineage), and the human's answer is the run's reply.
 func TestApprovalRequest_ParksAtTheRootAndAnswersTheRun(t *testing.T) {
 	resetStrictness(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChildIdle(t, c, sp, "task")
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
@@ -78,7 +78,7 @@ func TestApprovalRequest_ParksAtTheRootAndAnswersTheRun(t *testing.T) {
 // rather than holding the human's attention until its timeout.
 func TestApprovalRequest_RunEndWithdrawsIt(t *testing.T) {
 	resetStrictness(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
@@ -114,7 +114,7 @@ func TestApprovalRequest_RunEndWithdrawsIt(t *testing.T) {
 // and the human's late answer is refused.
 func TestApprovalRequest_TurnEndDropsIt(t *testing.T) {
 	resetStrictness(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChildIdle(t, c, sp, "task")
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
@@ -161,7 +161,7 @@ func TestApprovalRequest_TurnEndDropsIt(t *testing.T) {
 // parks its own.
 func TestApprovalRequest_AskFromAnEndedRunNeverParks(t *testing.T) {
 	resetStrictness(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
@@ -258,7 +258,7 @@ func grantFor(t *testing.T, c *Coordinator, out *RunOutcome, rule string) Grant 
 // RevokeRefusedByTheRunKeepsTheGrant.)
 func TestApprovals_RevokeReachesTheLiveRun(t *testing.T) {
 	resetStrictness(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 	g := grantFor(t, c, out, "Bash(ls:*)")
@@ -271,7 +271,7 @@ func TestApprovals_RevokeReachesTheLiveRun(t *testing.T) {
 // nobody to push to; the revoke is the journal's alone.
 func TestApprovals_RevokeOnAnEndedRunIsJournaledOnly(t *testing.T) {
 	resetStrictness(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 	g := grantFor(t, c, out, "Bash(ls:*)")
@@ -299,7 +299,7 @@ func mockEngines(t *testing.T) engine.Registry {
 // the rule covers, as the child's own engine judges it.
 func TestApprovals_AGrantResolvesTheChildsCoveredRequest(t *testing.T) {
 	resetStrictness(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
@@ -357,7 +357,7 @@ func TestApprovals_AGrantCarriesIntoTheHarpsResumedRun(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			resetStrictness(t)
-			sp := cutoverSpawner(0)
+			sp := cutoverSpawner(t, 0)
 			c := newCutoverCoordinator(t, sp, 0)
 			out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 			g := grantFor(t, c, out, "Bash")
@@ -411,7 +411,7 @@ func TestApprovals_AGrantCarriesIntoTheHarpsResumedRun(t *testing.T) {
 // so a set that does reach one is refused — which is how the push shows.)
 func TestApprovals_ARunOnAnotherEngineIsPushedNoGrants(t *testing.T) {
 	resetStrictness(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 	require.NoError(t, c.pushGrants(out.Harp, "claude", []string{"Read"}), "another engine's rules are not pushed")

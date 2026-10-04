@@ -72,14 +72,14 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 	d.Image = c.image
 	d.ImagePresent = c.imagePresent(ctx)
 
-	sources, devBase, devErr := c.containerBuildSources("")
-	if devErr != nil {
+	sources, base, baseErr := c.containerBuildSources("")
+	if baseErr != nil {
 		d.Guidance = append(d.Guidance,
-			fmt.Sprintf("project devcontainer auto-detection failed (%v); a containerized run builds without it (or set isolation_devcontainer_service, or opt out with isolation_devcontainer_base: false)", devErr))
+			fmt.Sprintf("the project devcontainer could not be resolved as the agent image base (%v); a containerized run refuses to build without it — %s", baseErr, devcontainerDetectRemedy))
 	}
 
 	if d.ImagePresent {
-		diagnoseStaleness(ctx, c, backend, sources, devBase, &d)
+		diagnoseStaleness(ctx, c, backend, sources, base, &d)
 		diagnoseProbe(ctx, rt, c.image, diagnoseProbeRoots(), &d)
 	} else {
 		diagnoseAdvisory(ctx, rt, &d)
@@ -93,23 +93,23 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 // diagnosis. Staleness is meaningful only for a locally-buildable image whose
 // EXPECTED provenance can actually be computed; a user-owned isolation_images
 // override is run as-is and never inspected, and an unresolvable host binary
-// or unreadable base Containerfile leaves nothing to compare against.
+// or unreadable base Dockerfile leaves nothing to compare against.
 //
 // ImageStale is a plain bool, so all three outcomes — stale, verified current,
 // and NOT CHECKED — collapse onto two values, and both not-checked cases read
 // as "false". Neither can be silent about it: the guidance names which case
 // produced the false, so "not stale" is never mistaken for "verified up to
 // date". Diagnose reports; it never builds.
-func diagnoseStaleness(ctx context.Context, c Container, backend string, sources []buildSource, devBase *baseStage, d *Diagnosis) {
+func diagnoseStaleness(ctx context.Context, c Container, backend string, sources []buildSource, base *baseStage, d *Diagnosis) {
 	if len(sources) == 0 {
 		d.Guidance = append(d.Guidance,
 			fmt.Sprintf("agent image %s is a user-owned override (isolation_images): ctxloom runs it as-is and never inspects or rebuilds it, so its staleness is NOT CHECKED here", c.image))
 		return
 	}
-	wantProvenance := c.identityFor(devBase).provenance
+	wantProvenance := c.identityFor(base).provenance
 	if wantProvenance == "" {
 		d.Guidance = append(d.Guidance,
-			fmt.Sprintf("agent image %s: staleness could not be checked — the expected provenance is unresolvable on this host (the running ctxloom/companion binaries or the base Containerfile could not be read), so a containerized run cannot tell whether this image matches", c.image))
+			fmt.Sprintf("agent image %s: staleness could not be checked — the expected provenance is unresolvable on this host (the running ctxloom/companion binaries or the base Dockerfile could not be read), so a containerized run cannot tell whether this image matches", c.image))
 		return
 	}
 	if imageStale(c.imageLabels(ctx), wantProvenance) {

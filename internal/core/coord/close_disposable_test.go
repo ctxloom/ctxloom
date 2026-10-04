@@ -32,12 +32,7 @@ func seedMembers(t *testing.T, harp string) string {
 func TestClose_DeletesEveryTreeAgentsHomeAndScratch(t *testing.T) {
 	resetStrictness(t)
 	rootsHome(t)
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
-	t.Cleanup(func() {
-		for i := 0; i < sp.spawnCount(); i++ {
-			sp.killEngine(i)
-		}
-	})
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} })
 	c := newRoot(t, ownerIdentity().Harp, "", sp)
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
@@ -62,7 +57,7 @@ func TestClose_LeavesTheMembersOfARunThatHasNotEnded(t *testing.T) {
 	resetStrictness(t)
 	rootsHome(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	first := newRoot(t, ownerIdentity().Harp, "", sp)
 	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
@@ -81,4 +76,26 @@ func TestClose_LeavesTheMembersOfARunThatHasNotEnded(t *testing.T) {
 
 	assert.FileExists(t, filepath.Join(child, paths.SessionEngineHomesDirName, "f"))
 	assert.FileExists(t, filepath.Join(child, paths.ScratchDirName, "f"))
+}
+
+// A run whose engine kept its history as a real dir in its home (a container
+// run on a host whose links do not resolve in a container) has it moved into
+// native/ before Close deletes the home.
+func TestClose_MovesAHomesRealHistoryIntoNativeFirst(t *testing.T) {
+	resetStrictness(t)
+	rootsHome(t)
+	c := newRoot(t, ownerIdentity().Harp, "", startRunSpawner(t, func() *scriptedChat { return &scriptedChat{} }))
+	dir, err := paths.HarpDir(ownerIdentity().Harp)
+	require.NoError(t, err)
+	native := filepath.Join(dir, paths.NativeDirName, "claude", "projects")
+	require.NoError(t, os.MkdirAll(native, 0o700))
+	written := filepath.Join(dir, paths.SessionEngineHomesDirName, "claude", "projects", "-p", "s.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(written), 0o700))
+	require.NoError(t, os.WriteFile(written, []byte("container\n"), 0o600))
+
+	awaitDrain(t, c.BeginDrain())
+	c.Close()
+
+	assert.NoDirExists(t, filepath.Join(dir, paths.SessionEngineHomesDirName))
+	assert.FileExists(t, filepath.Join(native, "-p", "s.jsonl"), "the history outlives the home")
 }

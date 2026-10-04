@@ -15,7 +15,7 @@ import (
 // place every sender funnels through.
 func TestQueueMail_RefusesAnUndrainableRecipient(t *testing.T) {
 	home := teeHome(t)
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 
 	id, err := c.queueMail("child-a", "", KindUserInjected, "a digest nobody can ever read")
 	assert.Error(t, err, "a message with no recipient must be refused, not queued")

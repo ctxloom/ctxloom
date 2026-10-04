@@ -54,7 +54,7 @@ func TestStopChildren_StopsEveryLiveChildWithinTheBoundAndNamesEach(t *testing.T
 	resetStrictness(t)
 	gate := make(chan struct{}) // never closed: the running child never yields
 	var launches int
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat {
 			launches++
 			if launches == 1 {
@@ -112,7 +112,7 @@ func TestStopChildren_StopsEveryLiveChildWithinTheBoundAndNamesEach(t *testing.T
 // shutdown drain: admission is not closed).
 func TestStopChildren_OnlyTheCallersOwnChildren(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 	c.drainBound = time.Minute
 
@@ -147,7 +147,7 @@ func TestStopChildren_OnlyTheCallersOwnChildren(t *testing.T) {
 func TestStopChildren_SweptChildStaysResumableButIsNotAutoRelaunched(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = 200 * time.Millisecond
@@ -184,7 +184,7 @@ func TestStopChildren_SweptChildStaysResumableButIsNotAutoRelaunched(t *testing.
 // missing, and nothing is stopped.
 func TestStopChildren_EmptyReasonRefused(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	harp := spawnOneChild(t, c)
 	require.Eventually(t, func() bool { return rosterState(c, harp) == StateIdle }, conformanceWait, 5*time.Millisecond)
@@ -202,7 +202,7 @@ func TestStopChildren_EmptyReasonRefused(t *testing.T) {
 // sweep settles at once with an empty outcome.
 func TestStopChildren_NoLiveChildrenIsEmptyNotAnError(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
 
@@ -223,7 +223,7 @@ func TestStopChildren_NoLiveChildrenIsEmptyNotAnError(t *testing.T) {
 func TestStopChildren_ChildDyingDuringSweepIsNotRelaunched(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
@@ -273,7 +273,7 @@ func TestStopChildren_ChildDyingDuringSweepIsNotRelaunched(t *testing.T) {
 func TestStopChildren_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
 	c.drainRequestHook = func(runID string) {
@@ -308,7 +308,7 @@ func TestStopChildren_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
 // interleaving, forced. The terminal must be the stop, carrying its reason.
 func TestStopChildren_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	sp.bindHold = make(chan struct{})
 	sp.bindEntered = make(chan struct{}, 1)
 	c := newTestCoordinator(t, sp, nil)
@@ -358,7 +358,7 @@ func TestStopChildren_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
 func TestStopChildren_BoundaryTerminalDoesNotDrainItsOwnChannel(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "plan"}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	harp := spawnGatedChild(t, sp, c)

@@ -25,7 +25,7 @@ func TestAgentRun_WorkspaceOverrideThreadsToSpawnPlan(t *testing.T) {
 	newWorker := func(t *testing.T) (*fakeSpawner, *Coordinator) {
 		t.Helper()
 		resetStrictness(t)
-		sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+		sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 		return sp, newTestCoordinator(t, sp, nil)
 	}
 
@@ -56,7 +56,7 @@ func TestAgentRun_DirtyTreeHandlerOverrideThreadsToSpawnPlan(t *testing.T) {
 	newWorker := func(t *testing.T) (*fakeSpawner, *Coordinator) {
 		t.Helper()
 		resetStrictness(t)
-		sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+		sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 		return sp, newTestCoordinator(t, sp, nil)
 	}
 

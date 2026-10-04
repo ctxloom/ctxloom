@@ -113,7 +113,7 @@ func statusCode(err error) codes.Code {
 // fresh path — bytes and hash match exactly.
 func TestArtifactTransfer_UploadDownloadRoundTrip(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	child := childHome(t, c, out.RunID)
 
@@ -144,7 +144,7 @@ func TestArtifactTransfer_UploadDownloadRoundTrip(t *testing.T) {
 // download sides.
 func TestArtifactTransfer_ChunkingAcrossBoundary(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	child := childHome(t, c, out.RunID)
 
@@ -174,7 +174,7 @@ func TestArtifactTransfer_ChunkingAcrossBoundary(t *testing.T) {
 // disk regardless of how many times it lands.
 func TestArtifactTransfer_ReuploadIdempotent(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	child := childHome(t, c, out.RunID)
 
@@ -200,7 +200,7 @@ func TestArtifactTransfer_ReuploadIdempotent(t *testing.T) {
 // silently lands in the store under the wrong name.
 func TestArtifactTransfer_UploadHashMismatch_Rejected(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])
@@ -223,7 +223,7 @@ func TestArtifactTransfer_UploadHashMismatch_Rejected(t *testing.T) {
 // the concrete "flipped chunk byte" shape the acceptance names.
 func TestArtifactTransfer_UploadFlippedChunkByte_Rejected(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])
@@ -245,7 +245,7 @@ func TestArtifactTransfer_UploadFlippedChunkByte_Rejected(t *testing.T) {
 // dest_path.
 func TestArtifactTransfer_DownloadCorruptedStore_Caught(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	child := childHome(t, c, out.RunID)
 
@@ -277,7 +277,7 @@ func TestArtifactTransfer_DownloadCorruptedStore_Caught(t *testing.T) {
 // to be a different run, even one that exists.
 func TestArtifactTransfer_UploadOwnershipDenied(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	victim := spawnResearcher(t, c)
 	attacker := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, attacker.RunID)
@@ -294,7 +294,7 @@ func TestArtifactTransfer_UploadOwnershipDenied(t *testing.T) {
 // its child's artifact; an unrelated SIBLING child may not.
 func TestArtifactTransfer_DownloadLineage(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	producer := spawnResearcher(t, c)
 	sibling := spawnResearcher(t, c)
 	producerHome := childHome(t, c, producer.RunID)
@@ -327,7 +327,7 @@ func TestArtifactTransfer_DownloadLineage(t *testing.T) {
 // enforces, extended to ArtifactTransferService.
 func TestArtifactTransfer_ConsumerReadOnly(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	child := childHome(t, c, out.RunID)
 
@@ -368,7 +368,7 @@ func sha256Sum(b []byte) []byte {
 // minimum, so a 0-byte artifact uploaded, journaled, and returned a success
 // receipt carrying a content-addressed id.
 func TestUploadArtifact_RefusesAZeroByteArtifact(t *testing.T) {
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	home := childHome(t, c, out.RunID)
 
@@ -389,7 +389,7 @@ func TestUploadArtifact_RefusesAZeroByteArtifact(t *testing.T) {
 // artifactstore.go's writeAtomic doc), so the cross-check has to be on size.
 func TestUploadArtifact_RejectsSizeMismatch(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])
@@ -426,7 +426,7 @@ func TestUploadArtifact_RejectsSizeMismatch(t *testing.T) {
 // still refuse to place an empty file at the destination and report success.
 func TestDownloadArtifact_RefusesAZeroByteStoredBlob(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	producer := childHome(t, c, out.RunID)
 

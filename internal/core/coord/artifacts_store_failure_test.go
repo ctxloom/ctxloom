@@ -29,7 +29,7 @@ import (
 // it; only the pipe-close artifact yields.
 func TestArtifactUpload_StoreFailureReportsTheStoreError(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])
@@ -56,7 +56,7 @@ func TestArtifactUpload_StoreFailureReportsTheStoreError(t *testing.T) {
 // scoped to the artifact and cannot swallow a real client fault.
 func TestArtifactUpload_ChunkShapeErrorStillWins(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])

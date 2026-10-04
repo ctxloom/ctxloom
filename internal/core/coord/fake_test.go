@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -66,8 +68,14 @@ type fakeSpawner struct {
 	// credentialFor, when set, names each agent's credential source on the
 	// launch it resolves (launch.Cell.Credential), as the cells adapter does
 	// from the credentials it resolved.
-	credentialFor func(agentName string) engine.CredentialSource
-	kills         []func()
+	credentialFor func(agentName string) engine.Credentials
+	// secretsDir and secretAgents, when set, give each named agent's run a
+	// real secrets file under secretsDir holding its credential, named on
+	// its cell as a container's is (Placement.SecretFiles, Cell.SecretsFile):
+	// its runner reads the file at every turn.
+	secretsDir   string
+	secretAgents map[string]bool
+	kills        []func()
 	// released[i] closes when the i-th engine's Kill fired — the seam a
 	// production child's container teardown hangs off. A test that must
 	// prove a stop RELEASED the child watches this rather than inferring it
@@ -179,8 +187,26 @@ type fakeAgent struct {
 	oneshot bool
 }
 
-func newFakeSpawner(agents map[string]fakeAgent, next func() *scriptedChat) *fakeSpawner {
-	return &fakeSpawner{nextChat: next, agents: agents}
+// newFakeSpawner builds the fake for t, and ends every runner half it starts
+// when t ends. A runner half is detached from the coordinator on purpose (a
+// restarted coordinator re-adopts it), so nothing else ends it: one left
+// running redials an absent coordinator for the whole owner-loss window and
+// warns through clidiag's PROCESS-WIDE sink — into whatever unsynchronised
+// buffer a later test installed there.
+func newFakeSpawner(t testing.TB, agents map[string]fakeAgent, next func() *scriptedChat) *fakeSpawner {
+	s := &fakeSpawner{nextChat: next, agents: agents}
+	t.Cleanup(s.killAll)
+	return s
+}
+
+// killAll kills every runner half this fake started (see newFakeSpawner).
+func (s *fakeSpawner) killAll() {
+	s.mu.Lock()
+	kills := slices.Clone(s.kills)
+	s.mu.Unlock()
+	for _, kill := range kills {
+		kill()
+	}
 }
 
 func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan, error) {
@@ -296,7 +322,11 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 		Prompt:     start.Prompt,
 		Resume:     sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey},
 	}
-	l.Cell.Credential = s.credentialOf(plan.AgentName)
+	creds := s.credentialOf(plan.AgentName)
+	l.Cell.Credential, l.Cell.CredentialFingerprint = creds.Source("mock"), creds.Fingerprint()
+	if err := s.secretsCell(&l.Cell, plan.AgentName, start.Identity.Harp, creds); err != nil {
+		return Resolved{}, err
+	}
 	plan.Launch = l
 	s.mu.Lock()
 	s.launches = append(s.launches, l)
@@ -304,11 +334,33 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 	return Resolved{Launch: l}, nil
 }
 
-// credentialOf is agentName's credential source: credentialFor's answer, the
-// zero source without one.
-func (s *fakeSpawner) credentialOf(agentName string) engine.CredentialSource {
+// secretsCell gives agentName's cell a real secrets file holding creds, named
+// as a container's is, when secretsDir and secretAgents ask for one.
+func (s *fakeSpawner) secretsCell(cell *launch.Cell, agentName, harp string, creds engine.Credentials) error {
+	if s.secretsDir == "" || !s.secretAgents[agentName] || len(creds.Env) == 0 {
+		return nil
+	}
+	file := filepath.Join(s.secretsDir, harp+".env")
+	b, err := sessions.EncodeSecrets(creds.Env)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(file, b, 0o600); err != nil {
+		return err
+	}
+	cell.SecretFiles = make(map[string]string, len(creds.Env))
+	for v := range creds.Env {
+		cell.SecretFiles[v] = file
+	}
+	cell.SecretsFile = file
+	return nil
+}
+
+// credentialOf is agentName's credentials: credentialFor's answer, none
+// without one.
+func (s *fakeSpawner) credentialOf(agentName string) engine.Credentials {
 	if s.credentialFor == nil {
-		return engine.CredentialSource{}
+		return engine.Credentials{}
 	}
 	return s.credentialFor(agentName)
 }
@@ -393,15 +445,18 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 	}
 	host.BindHome(home)
 	released := make(chan struct{})
-	var releaseOnce sync.Once
+	var killOnce sync.Once
+	// Once: a test's own killEngine and the end-of-test killAll both reach it.
 	kill := func() {
-		cancel()
-		// The runner's own teardown order: the engine host is joined before
-		// the Home crashes, so no turn goroutine of the host reaches the
-		// Home's spool after the Home is gone.
-		host.Close()
-		home.Crash()
-		releaseOnce.Do(func() { close(released) })
+		killOnce.Do(func() {
+			cancel()
+			// The runner's own teardown order: the engine host is joined
+			// before the Home crashes, so no turn goroutine of the host
+			// reaches the Home's spool after the Home is gone.
+			host.Close()
+			home.Crash()
+			close(released)
+		})
 	}
 	s.mu.Lock()
 	s.kills = append(s.kills, kill)
@@ -767,7 +822,7 @@ func newTestCoordinatorAt(t *testing.T, stateDir string) *Coordinator {
 	c, err := New(Options{
 		ProjectDir: stateDir,
 		StateDir:   stateDir,
-		Spawner:    newFakeSpawner(nil, nil),
+		Spawner:    newFakeSpawner(t, nil, nil),
 		Clock:      nil,
 		OwnerHarp:  ownerIdentity().Harp,
 		Reporter:   termSink(),

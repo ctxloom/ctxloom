@@ -84,7 +84,7 @@ func controlRunAsync(t *testing.T, home TestHome, verb any) <-chan *agentcoordpb
 func TestControlRun_ChildSteersItsOwnGrandchild(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c, err := New(Options{
 		ProjectDir:         t.TempDir(),
 		StateDir:           t.TempDir(),
@@ -153,7 +153,7 @@ func TestControlRun_ChildSteersItsOwnGrandchild(t *testing.T) {
 func TestControlRun_SteerFromTheOwnerReachesTheChild(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 	owner := ownerHome(t, c)
@@ -195,7 +195,7 @@ func TestControlRun_AskReturnsItsIDAtOnceAndTheAnswerArrivesAsMail(t *testing.T)
 		t.Run(tc.name, func(t *testing.T) {
 			resetStrictness(t)
 			teeHome(t)
-			sp := cutoverSpawner(0)
+			sp := cutoverSpawner(t, 0)
 			c := newCutoverCoordinator(t, sp, 0)
 			out, childH := awaitCutoverChildIdle(t, c, sp, "first task")
 			owner := ownerHome(t, c)
@@ -249,7 +249,7 @@ func TestControlRun_AskReturnsItsIDAtOnceAndTheAnswerArrivesAsMail(t *testing.T)
 func TestControlRun_PauseHoldsTurnsAndResumeReleases(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 	owner := ownerHome(t, c)
@@ -286,7 +286,7 @@ func TestControlRun_PauseHoldsTurnsAndResumeReleases(t *testing.T) {
 func TestControlRun_RefusesWhatIsNotTheCallersChild(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	a, aHome := awaitCutoverChild(t, c, sp, "first task")
 	b, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "second task", "", "")
@@ -319,7 +319,7 @@ func TestControlRun_RefusesWhatIsNotTheCallersChild(t *testing.T) {
 func TestControlRun_ArgumentEdge(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 	owner := ownerHome(t, c)

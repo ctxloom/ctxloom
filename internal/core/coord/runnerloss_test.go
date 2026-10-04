@@ -62,7 +62,7 @@ func waitForChildEnv(t *testing.T, c *Coordinator, runID string) map[string]stri
 func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
@@ -116,7 +116,7 @@ func TestRunnerLoss_HeartbeatTimeout(t *testing.T) {
 	var clockMu chanClock
 	clockMu.set(now)
 	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
+	sp := newFakeSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, clockMu.now)
 

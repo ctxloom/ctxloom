@@ -23,17 +23,17 @@ rebuilt image never needs a ctxloom release. The client validates the build
 from inside the image (its --version gate), and the install fetches the MOST
 RECENT client — never pinned.
 
-The base stage is yours to replace: --base-containerfile (or config
-isolation_base_containerfile) builds the base from your own Containerfile —
-your tools, your certs, your mirrors — and the same agent stage layers on top.
-Alternatively --base-image skips the client install entirely and overlays
+The base is one of three, chosen by --base (or config isolation_base):
+'ctxloom' (the embedded default base), 'devcontainer' (the project's own
+.devcontainer/devcontainer.json or .devcontainer.json — "an isolated agent
+should run in the environment the human develops in"), or an image ref to
+build on. Unset, the project's devcontainer is used when one exists, else
+ctxloom's own. The same agent stage layers on top of whichever is chosen, and
+a chosen base that fails to build is refused, never silently substituted.
+Alternatively --overlay-image skips the client install entirely and overlays
 ctxloom onto an image that ALREADY ships the client CLI.
 
-Absent an explicit base, the project's own .devcontainer/devcontainer.json (or
-.devcontainer.json) is auto-detected and used as the base instead of the
-embedded default — "an isolated agent should run in the environment the human
-develops in". --no-devcontainer-base (or config isolation_devcontainer_base:
-false) opts out. A devcontainer.json declaring "features" is NOT honored
+A devcontainer.json declaring "features" is NOT honored
 (pre1 does not depend on the devcontainer CLI) — a loud warning names what is
 skipped. A devcontainer.json declaring dockerComposeFile needs an explicit
 service pick (--devcontainer-service, or config isolation_devcontainer_service)
@@ -49,7 +49,7 @@ By default the build runs with --pull --no-cache so a rebuild picks up the most
 recent client; --keep-cache reuses layers for a fast local iteration. Runs of
 `ctxloom run` (and delegated `agent_run` children) also build this image
 automatically when it is absent (honoring the same base/engine resolution); this command is the
-explicit path (refresh, custom base). To run a fully user-provided image
+explicit path (refresh, a one-off base). To run a fully user-provided image
 instead, set isolation_images in config — those are run as-is and never built.
 
 ```
@@ -59,12 +59,11 @@ ctxloom container build [backend] [flags]
 ### Options
 
 ```
-      --base-containerfile string     build the shared base stage from this Containerfile (your environment; the engine's agent stage layers on top) instead of an auto-detected devcontainer / the embedded default
-      --base-image string             overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources
-      --devcontainer-service string   docker-compose service to use as the base when the detected devcontainer.json declares dockerComposeFile
+      --base string                   the base the engine's agent stage layers onto: ctxloom | devcontainer | <image ref> (overrides config isolation_base)
+      --devcontainer-service string   docker-compose service to use as the base when the project devcontainer.json declares dockerComposeFile
       --engines strings               engines to build an agent image for, one image each (any engine that declares a container installer); empty = the configured backend
       --keep-cache                    reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)
-      --no-devcontainer-base          do not auto-detect the project's .devcontainer/devcontainer.json as the base image
+      --overlay-image string          overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources
       --runtime string                container runtime to build with (docker|podman); auto-detected when empty
 ```
 

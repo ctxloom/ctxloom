@@ -259,23 +259,21 @@ func TestContainer_WithImageRunsAsIs(t *testing.T) {
 // knows: the user sets a config key, the run succeeds, and the setting was
 // never carried into the policy that was supposed to honour it.
 //
-// Image takes a different route from the other five and is checked separately:
+// Image takes a different route from the others and is checked separately:
 // an override runs AS-IS (the user owns that image), so it also clears the
 // local-build recipe rather than being layered onto a base.
 func TestContainerFor_PropagatesEveryImageConfigField(t *testing.T) {
 	rt := fakeRuntime{name: "docker", available: true}
 
 	img := ImageConfig{
-		BaseContainerfile:   "/base/Containerfile",
+		Base:                "acme/dev:1",
 		AppRoot:             "/some/project",
-		NoDevcontainerBase:  true,
 		DevcontainerService: "devservice",
 		Engines:             []string{"claude-code", "mock"},
 	}
 	c := containerFor(rt, "claude-code", img)
-	assert.Equal(t, img.BaseContainerfile, c.baseContainerfile)
+	assert.Equal(t, img.Base, c.baseChoice)
 	assert.Equal(t, img.AppRoot, c.appRoot)
-	assert.Equal(t, img.NoDevcontainerBase, c.noDevcontainerBase)
 	assert.Equal(t, img.DevcontainerService, c.devcontainerService)
 	assert.Equal(t, "claude-code", c.engine, "the container carries ITS engine — one image per engine, so there is no set to select")
 
@@ -285,7 +283,7 @@ func TestContainerFor_PropagatesEveryImageConfigField(t *testing.T) {
 		"an image the user owns is run as-is, never layered onto by a local build")
 
 	assert.Equal(t,
-		[]string{"Image", "BaseContainerfile", "AppRoot", "NoDevcontainerBase", "DevcontainerService", "Engines"},
+		[]string{"Image", "Base", "AppRoot", "DevcontainerService", "Engines"},
 		imageConfigFieldNames(),
 		"ImageConfig grew or lost a field: propagate it in containerFor and assert it above")
 }
@@ -352,7 +350,7 @@ func TestCheckRunAsIsIdentity_LocallyBuiltSkips(t *testing.T) {
 // container's own tag.
 func TestIdentityFor_ComposableCarriesSlot(t *testing.T) {
 	c := containerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "claude-code", ImageConfig{})
-	id := c.identityFor(nil)
+	id := c.identityFor(defaultBaseStage())
 	assert.Equal(t, c.image, id.ref)
 	assert.NotEmpty(t, id.slot)
 	assert.True(t, strings.HasSuffix(c.image, id.slot), "the slot is the content key the tag ends in: %s vs %s", c.image, id.slot)

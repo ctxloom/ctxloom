@@ -49,7 +49,7 @@ func startedChild(t *testing.T, c *Coordinator) *RunOutcome {
 // child.
 func TestFinalReport_IsWrittenIntoTheOutputDir(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, startRunSpawner(nil), nil)
+	c := newTestCoordinator(t, startRunSpawner(t, nil), nil)
 	out := withOutputDir(t, c)
 	child := startedChild(t, c)
 
@@ -71,7 +71,7 @@ func TestFinalReport_IsWrittenIntoTheOutputDir(t *testing.T) {
 // Only FINAL is the deliverable: a progress report writes nothing.
 func TestProgressReport_WritesNothingToTheOutputDir(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, startRunSpawner(nil), nil)
+	c := newTestCoordinator(t, startRunSpawner(t, nil), nil)
 	out := withOutputDir(t, c)
 	child := startedChild(t, c)
 
@@ -85,7 +85,7 @@ func TestProgressReport_WritesNothingToTheOutputDir(t *testing.T) {
 // A name that would leave the folder is reduced to its base.
 func TestFinalReport_KeepsEveryArtifactWhenNamesCollide(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, startRunSpawner(nil), nil)
+	c := newTestCoordinator(t, startRunSpawner(t, nil), nil)
 	out := withOutputDir(t, c)
 	child := startedChild(t, c)
 

@@ -94,7 +94,7 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 			t.Errorf("removing the cross-boundary fixture %s: %v", fixture, err)
 		}
 	})
-	sp := coord.NewFakeSpawner(map[string]coord.FakeAgent{"worker": coord.BypassAgent()}, nil)
+	sp := coord.NewFakeSpawner(t, map[string]coord.FakeAgent{"worker": coord.BypassAgent()}, nil)
 	c := coord.NewTestCoordinator(t, sp, nil)
 	// AFTER the constructor, which gives every coordinator test a private
 	// HOME of its own and would otherwise replace this one with it.

@@ -16,7 +16,7 @@ func heldChild(t *testing.T) (*Coordinator, *fakeSpawner, *RunOutcome) {
 	t.Helper()
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := cutoverSpawner(0)
+	sp := cutoverSpawner(t, 0)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{Gate: gate} }
 	c := newCutoverCoordinator(t, sp, 0)
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "a long task", "", "")

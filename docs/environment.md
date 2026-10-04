@@ -56,7 +56,7 @@ Each is read once, at coordinator startup. An unset or empty value falls back to
 
 | Variable | Values | Default | Purpose |
 |----------|--------|---------|---------|
-| `CTXLOOM_RUNNER_OWNER_LOSS_WINDOW` | Go duration (e.g. `5m`) | `2m` | How long a delegated child's runner WAITS on an unreachable coordinator before it exits on its own (a container child's exit is what lets `--rm` remove its container). Only waiting counts — idle between turns, or blocked on the coordinator: a turn making progress runs to its end, however long, and the wait starts there. The runner keeps redialling throughout, and starts no new turn until its coordinator is back; a restarted coordinator re-adopts it whenever it returns inside the window. Raise it if restarts can be slow; lower it to reclaim orphaned containers sooner. |
+| `CTXLOOM_RUNNER_OWNER_LOSS_WINDOW` | Go duration (e.g. `5m`) | `2m` | How long a delegated child's runner WAITS on an unreachable coordinator before it exits on its own (a container child's exit is what lets `--rm` remove its container). Only waiting counts — idle between turns, or blocked on the coordinator: a turn making progress runs to its end, however long, and the wait starts there. The runner keeps redialling throughout, and starts no new turn until its coordinator is back; a restarted coordinator re-adopts a container child's runner whenever it returns inside the window. A host child's runner ends with the `ctxloom run` process that started it, so a restart relaunches that child rather than re-adopting it. Raise it if restarts can be slow; lower it to reclaim orphaned containers sooner. |
 
 Set it where you run ctxloom; it is forwarded onto each runner, container runners included, and read once when the runner starts. Unset or empty keeps the default silently; a set-but-invalid value (unparseable, zero, or negative) keeps the default LOUDLY — the runner warns, naming the variable — because a zero window would end a runner the instant its coordinator blinked.
 
@@ -95,7 +95,7 @@ ctxloom exports these into the LLM subprocess and the MCP server it launches. Yo
 |----------|---------|
 | `CTXLOOM_SESSION_HARP` | The active session (harp) name. Scopes session resolution, task logs, and HUD output to this session. |
 | `CTXLOOM_PROJECT_ID` | Project identifier that scopes the task store. When unset, the task store degrades rather than blocking. |
-| `CTXLOOM_SESSION_OWNER` | Set to `1` on the session owner's engine only (a human's interactive session, never a delegated child or a one-shot). The turn-start mail-drain hook delivers mail only under it. Every ctxloom process removes it at start, so it is never inherited. |
+| `CTXLOOM_SESSION_OWNER` | Set to `1` on the session owner's engine only (a human's interactive session, never a delegated child or a one-shot). The turn-start mail-drain hook delivers mail only under it. Every ctxloom process removes it at start, so ctxloom never passes it on. It is an environment variable, not a credential: a tool started by hand inside the owner's shell inherits it and is treated as the owner. That is accepted — processes running as the same user on the host are not a boundary. |
 | `CTXLOOM_RESUMED_FROM` | When resuming, the harp name the session was resumed from. |
 | `CTXLOOM_RESUMED_PARTS` | When resuming, the number of context parts carried over. |
 

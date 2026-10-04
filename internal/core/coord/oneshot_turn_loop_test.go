@@ -16,8 +16,8 @@ import (
 // resume-capable agent resolved to ResumeModeOneShot, backed by a scriptedChat
 // that live-confirms the loadSession capability (resumable) so the turn loop
 // actually tears the engine down at each boundary.
-func oneShotSpawner(mk func() *scriptedChat) *fakeSpawner {
-	sp := newFakeSpawner(map[string]fakeAgent{
+func oneShotSpawner(t testing.TB, mk func() *scriptedChat) *fakeSpawner {
+	sp := newFakeSpawner(t, map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"},
 			backend: "claude-code", oneshot: true},
 	}, nil)
@@ -55,7 +55,7 @@ func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 	c, err := New(Options{
 		ProjectDir:   t.TempDir(),
 		StateDir:     t.TempDir(),
-		Spawner:      newFakeSpawner(nil, nil),
+		Spawner:      newFakeSpawner(t, nil, nil),
 		EndedRunTail: 2, // keep the newest 2 ended runs (beyond the current one)
 		OwnerHarp:    ownerIdentity().Harp,
 	})
@@ -108,7 +108,7 @@ func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 // grow one record per resume.
 func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(
+	sp := newFakeSpawner(t,
 		map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
 		func() *scriptedChat { return &scriptedChat{EndAfterTurns: 1} }, // its run ends after each turn
 	)
@@ -153,7 +153,7 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 	// A resume-capable, live-confirmed engine but a PERSISTENT plan: the
 	// runner's park decision reads the launch identity's OneShot, so the
 	// boundary must NOT end the engine process.
-	sp := newFakeSpawner(map[string]fakeAgent{
+	sp := newFakeSpawner(t, map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"},
 			backend: "claude-code"}, // oneshot:false
 	}, nil)

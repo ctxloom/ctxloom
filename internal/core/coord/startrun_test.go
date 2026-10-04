@@ -19,8 +19,8 @@ import (
 
 // startRunSpawner builds a fakeSpawner with one migrated agent named
 // "worker".
-func startRunSpawner(mk func() *scriptedChat) *fakeSpawner {
-	sp := newFakeSpawner(map[string]fakeAgent{
+func startRunSpawner(t testing.TB, mk func() *scriptedChat) *fakeSpawner {
+	sp := newFakeSpawner(t, map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}},
 	}, nil)
 	sp.nextChat = mk
@@ -34,7 +34,7 @@ func startRunSpawner(mk func() *scriptedChat) *fakeSpawner {
 // handle), and the roster reaches idle at the turn boundary.
 func TestStartRun_EchoRoundTrip(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -153,7 +153,7 @@ func TestStartRun_BackendParity(t *testing.T) {
 	for _, backend := range []string{"claude-code", "mock"} {
 		t.Run(backend, func(t *testing.T) {
 			resetStrictness(t)
-			sp := newFakeSpawner(map[string]fakeAgent{
+			sp := newFakeSpawner(t, map[string]fakeAgent{
 				"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}, backend: backend},
 			}, nil)
 			c := newTestCoordinator(t, sp, nil)
@@ -190,7 +190,7 @@ func TestStartRun_BackendParity(t *testing.T) {
 // consumption fact advances the durable mailbox cursor.
 func TestStartRun_SendToIdleChildStartsTurn(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "", "")
@@ -226,7 +226,7 @@ func TestStartRun_SendToIdleChildStartsTurn(t *testing.T) {
 func TestStartRun_KillMidRunSynthesizesLossAndQueueAdvances(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	sp := startRunSpawner(t, func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -266,7 +266,7 @@ func TestStartRun_KillMidRunSynthesizesLossAndQueueAdvances(t *testing.T) {
 // copy of the key (the ended run's) is caught.
 func TestStartRun_ResumeReadsTheSessionEntry(t *testing.T) {
 	resetStrictness(t)
-	sp := startRunSpawner(nil)
+	sp := startRunSpawner(t, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")

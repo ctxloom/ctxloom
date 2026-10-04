@@ -449,16 +449,15 @@ func resolveDirtyTree(cfg *config.Config, src Source) (DirtyTreeHandler, error) 
 
 // ImageConfigFor is the user's container-image configuration for the
 // engine's isolated runs, read off the generation: the per-engine prebuilt
-// image override, the base Containerfile local builds layer the agent stage
-// onto, the project root devcontainer auto-detection resolves against with
-// its opt-out and service pick, and the composable engine set. Resolve reads
+// image override, the isolation_base choice local builds layer the agent
+// stage onto, the project root and compose service the devcontainer resolves
+// against, and the composable engine set. Resolve reads
 // it for the cell; the container commands read it to build ahead of a run.
 func ImageConfigFor(cfg *config.Config, eng engine.Name) ImageConfig {
 	return ImageConfig{
 		Image:               cfg.IsolationImageFor(string(eng)),
-		BaseContainerfile:   cfg.IsolationBaseContainerfilePath(),
+		Base:                cfg.IsolationBase(),
 		AppRoot:             cfg.GetAppRoot(),
-		NoDevcontainerBase:  !cfg.IsolationDevcontainerBaseEnabled(),
 		DevcontainerService: cfg.GetIsolationDevcontainerService(),
 		Engines:             cfg.GetIsolationEngines(),
 	}

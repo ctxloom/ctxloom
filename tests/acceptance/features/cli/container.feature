@@ -227,73 +227,66 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output contains "totally-bogus-engine"
       And the output contains "claude-code"
 
-  Rule: Scaffold hands you the base stage, and never overwrites your edits
+  Rule: Scaffold gives a project a devcontainer, and never touches an existing one
 
-    `container scaffold` materializes the embedded default base Containerfile
-    as an editable local file and wires `isolation_base_containerfile` so every
-    locally-built image — the on-the-fly build included — layers on it. It is
-    content-identical to what the default build already used, so nothing about
-    the resulting image changes until you edit it.
+    `container scaffold` writes .devcontainer/ — a devcontainer.json building
+    the Dockerfile beside it, seeded from ctxloom's embedded default base — so
+    the agent image's base becomes a file you edit. It writes no config: an
+    unset isolation_base already adopts a project devcontainer.
 
-    It is idempotent and WIP-SAFE, which is the claim worth pinning: a file
-    already at the target is ADOPTED, never clobbered. `--force` is the
-    explicit opt-in to overwriting.
+    A project that already has a devcontainer is refused outright: that is the
+    environment the human develops in, and the agent image already builds on
+    it. There is no --force, because there is nothing a scaffold could add that
+    editing the existing one would not.
 
-    Scenario: Scaffolding writes the base Containerfile and wires it into config
+    Scenario: Scaffolding writes a devcontainer seeded from the default base
       Given an initialized ctxloom project
       When Alice takes ownership of the base image stage:
         """
         ctxloom container scaffold
         """
       Then the command succeeds
-      And the file ".ctxloom/base.Containerfile" contains "FROM"
-      And the file ".ctxloom/config.yaml" contains "isolation_base_containerfile"
+      And the file ".devcontainer/Dockerfile" contains "FROM"
+      And the file ".devcontainer/devcontainer.json" contains "Dockerfile"
+      And the file ".ctxloom/config.yaml" does not contain "isolation_base"
 
-    # THE DESTROYER'S TWO SIDES, in one fixture. The adopting run must leave
-    # the user's bytes exactly where they were — asserted by the marker
-    # SURVIVING and by the embedded default's "FROM" being ABSENT, because a
-    # clobber that happened to keep the file non-empty would satisfy a
-    # file-exists check. Only then does --force get to prove it really does
-    # replace the content it was asked to replace.
-    Scenario: An existing base Containerfile is adopted, and only --force replaces it
+    # THE DESTROYER: the refusal must leave the human's bytes exactly where
+    # they were — asserted by the marker SURVIVING and by the embedded
+    # default's "FROM" being ABSENT, because a clobber that kept the file
+    # non-empty would satisfy a file-exists check.
+    Scenario: An existing devcontainer is refused and left untouched
       Given an initialized ctxloom project
-      And the project already has the file ".ctxloom/base.Containerfile":
+      And the project already has the file ".devcontainer/Dockerfile":
         """
-        MY-OWN-BASE-EDITS: hand-written, must survive a scaffold.
+        MY-OWN-DEVCONTAINER: hand-written, must survive a scaffold.
         """
-      When Alice scaffolds over work she already did:
+      When Alice scaffolds over the environment she already has:
         """
         ctxloom container scaffold
         """
-      Then the command succeeds
-      And the file ".ctxloom/base.Containerfile" contains "MY-OWN-BASE-EDITS"
-      And the file ".ctxloom/base.Containerfile" does not contain "FROM"
-      And the file ".ctxloom/config.yaml" contains "isolation_base_containerfile"
-      When Alice deliberately discards them:
-        """
-        ctxloom container scaffold --force
-        """
-      Then the command succeeds
-      And the file ".ctxloom/base.Containerfile" contains "FROM"
-      And the file ".ctxloom/base.Containerfile" does not contain "MY-OWN-BASE-EDITS"
+      Then the command fails
+      And the output contains "already has a devcontainer"
+      And the file ".devcontainer/Dockerfile" contains "MY-OWN-DEVCONTAINER"
+      And the file ".devcontainer/Dockerfile" does not contain "FROM"
+      And the file ".devcontainer/devcontainer.json" does not exist
 
-    # --path is a bare flag carrying untrusted user input into a filesystem
-    # write. The positive control is the first scenario in this Rule, which
-    # proves the same fixture DOES produce `.ctxloom/base.Containerfile` — so
-    # its absence here means the write was refused, not that scaffolding never
-    # writes anything. Nothing may be wired into config either: a refusal that
-    # still recorded the path would point every later build at a file that was
-    # never created.
-    Scenario: A path escaping the project root is refused and nothing is written
+    # The spec's other canonical spelling. The positive control is the first
+    # scenario in this Rule, which proves the same fixture DOES produce
+    # .devcontainer/devcontainer.json — so its absence here means the write
+    # was refused, not that scaffolding never writes anything.
+    Scenario: A root .devcontainer.json is a devcontainer too
       Given an initialized ctxloom project
-      When Alice asks for the base file outside the project:
+      And the project already has the file ".devcontainer.json":
         """
-        ctxloom container scaffold --path ../escaped.Containerfile
+        {"image": "mcr.microsoft.com/devcontainers/base:ubuntu"}
+        """
+      When Alice scaffolds a second devcontainer beside it:
+        """
+        ctxloom container scaffold
         """
       Then the command fails
-      And the output contains "escapes the project root"
-      And the file ".ctxloom/base.Containerfile" does not exist
-      And the file ".ctxloom/config.yaml" does not contain "isolation_base_containerfile"
+      And the output contains ".devcontainer.json"
+      And the file ".devcontainer/devcontainer.json" does not exist
 
   Rule: Tooling collection is trust-gated, and never applies anything itself
 

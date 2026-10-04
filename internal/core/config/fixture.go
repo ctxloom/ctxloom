@@ -44,8 +44,7 @@ type Fixture struct {
 	Permissions                  agents.NeutralPermissions
 	Delegation                   DelegationConfig
 	IsolationImages              map[string]string
-	IsolationBaseContainerfile   string
-	IsolationDevcontainerBase    *bool
+	IsolationBase                string
 	IsolationDevcontainerService string
 	IsolationEngines             []string
 	OutputDir                    string
@@ -98,8 +97,7 @@ func (c *Config) ToFixture() Fixture {
 		Permissions:                  d.Permissions,
 		Delegation:                   d.Delegation,
 		IsolationImages:              d.IsolationImages,
-		IsolationBaseContainerfile:   d.IsolationBaseContainerfile,
-		IsolationDevcontainerBase:    d.IsolationDevcontainerBase,
+		IsolationBase:                d.IsolationBase,
 		IsolationDevcontainerService: d.IsolationDevcontainerService,
 		IsolationEngines:             d.IsolationEngines,
 		OutputDir:                    d.OutputDir,
@@ -150,8 +148,7 @@ func NewFixture(f Fixture) *Config {
 		permissions:                  f.Permissions.Clone(),
 		delegation:                   f.Delegation,
 		isolationImages:              maps.Clone(f.IsolationImages),
-		isolationBaseContainerfile:   f.IsolationBaseContainerfile,
-		isolationDevcontainerBase:    cloneBoolPtr(f.IsolationDevcontainerBase),
+		isolationBase:                f.IsolationBase,
 		isolationDevcontainerService: f.IsolationDevcontainerService,
 		isolationEngines:             slices.Clone(f.IsolationEngines),
 		outputDir:                    f.OutputDir,

@@ -78,6 +78,21 @@ func (OS) LinksTo(link, target string) (bool, error) {
 	return strings.EqualFold(filepath.Clean(got), filepath.Clean(abs)), nil
 }
 
+// UnlinkDir removes the junction at link. A junction is a directory carrying
+// a reparse point, and RemoveDirectory (os.Remove's directory arm) deletes
+// that directory itself without following it, so the target's contents stay.
+func (OS) UnlinkDir(link string) error { return os.Remove(link) }
+
+// LinkTarget is the absolute path the junction at link names: os.Readlink
+// strips the substitute name's NT prefix (ntPathPrefix).
+func (OS) LinkTarget(link string) (string, error) {
+	got, err := os.Readlink(link)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(got), nil
+}
+
 // LinksResolveInContainers is false: a junction names an absolute Windows
 // path, which means nothing inside a Linux container.
 func (OS) LinksResolveInContainers() bool { return false }

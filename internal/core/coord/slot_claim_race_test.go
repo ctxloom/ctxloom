@@ -28,7 +28,7 @@ import (
 // child count, so c.slots.Acquire never actually blocks and this window
 // is never exercised; TurnCap here is 1 specifically to force it to.
 func TestSlotClaim_ReleaseDuringBlockingAcquire_DoesNotLeakOrInflate(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinatorCap(t, sp, nil, 1) // exactly one slot total
 
 	rt := &childRt{harp: "child-a", runID: "run-a"}

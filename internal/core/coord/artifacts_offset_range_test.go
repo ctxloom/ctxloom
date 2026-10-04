@@ -28,7 +28,7 @@ import (
 // pass against the defect if the stream were ever made to close differently.
 func TestDownloadArtifact_OffsetPastEndIsRefused(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
+	c := newTestCoordinator(t, researcherSpawner(t), nil)
 	out := spawnResearcher(t, c)
 	child := childHome(t, c, out.RunID)
 

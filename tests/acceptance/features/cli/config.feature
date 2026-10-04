@@ -11,8 +11,7 @@ Feature: config — the project's one configuration document, read and scaffolde
   one document, one place, addressable in whole or by section.
 
   THE DOCUMENT IS SHARED, WHICH IS WHY THE SECTION VIEW MATTERS. `agent set`,
-  `manage install`, `container scaffold` and the init interview all
-  write into the same file, and `config show <section>` is how a person reads
+  `manage install` and the init interview all write into the same file, and `config show <section>` is how a person reads
   back what another command just wrote. A section view that silently rendered
   the whole document would look right and answer the wrong question, so every
   scenario here pins the narrowing by what must be ABSENT as well as present.

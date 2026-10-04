@@ -25,7 +25,7 @@ import (
 // ordered to fire before the coordinator Close so the journal is still
 // open to accept the write).
 func TestRevokeSessionOwner_TokenStopsIdentifying(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	const harp = "owner-to-revoke"
@@ -56,7 +56,7 @@ func TestRevokeSessionOwner_TokenStopsIdentifying(t *testing.T) {
 // coordinator never minted (or already revoked) must not error or panic —
 // the CLI teardown path calls this unconditionally on the way out.
 func TestRevokeSessionOwner_UnknownTokenIsANoOp(t *testing.T) {
-	sp := newFakeSpawner(nil, nil)
+	sp := newFakeSpawner(t, nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	assert.NotPanics(t, func() { c.RevokeSessionOwner("not-a-real-token") })
@@ -74,7 +74,7 @@ func TestRevokeSessionOwner_RevocationSurvivesAdoption(t *testing.T) {
 	projectDir := t.TempDir()
 
 	teeHome(t)
-	first, err := New(Options{ProjectDir: projectDir, StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
+	first, err := New(Options{ProjectDir: projectDir, StateDir: stateDir, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 
 	revoked, err := first.RegisterSessionOwner("owner-gone")
@@ -86,7 +86,7 @@ func TestRevokeSessionOwner_RevocationSurvivesAdoption(t *testing.T) {
 
 	// A fresh process adopting the same project's journals.
 	teeHome(t)
-	second, err := New(Options{ProjectDir: projectDir, StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
+	second, err := New(Options{ProjectDir: projectDir, StateDir: stateDir, Spawner: newFakeSpawner(t, nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
 	t.Cleanup(second.Close)
 

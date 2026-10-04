@@ -425,6 +425,60 @@ func TestController_SuppressedBellDoesNotSpendTheInterval(t *testing.T) {
 	assert.Contains(t, h.tty.String(), "\a")
 }
 
+// TestController_RingRingsOnceWhileTheBarShows: Ring is one bell for an
+// event that needs the human, rung only while the bar shows (a modal or an
+// overlay on screen is its own signal) and never folded into the approval
+// bell's interval — the caller rings once per event, and an approval bell a
+// moment earlier must not swallow it.
+func TestController_RingRingsOnceWhileTheBarShows(t *testing.T) {
+	clk := fakeclock.New()
+	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
+	_ = h.drainTranslated(t)
+	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	bells := func() int { return strings.Count(h.tty.String(), "\a") }
+
+	h.c.SetApprovals(1, clk.Now(), true)
+	require.Equal(t, 1, bells())
+	assert.True(t, h.c.Ring(), "an approval bell a moment earlier does not swallow it")
+	assert.Equal(t, 2, bells())
+
+	h.c.sur.Suspend()
+	assert.False(t, h.c.Ring(), "no bell while the bar is suspended")
+	assert.Equal(t, 2, bells())
+}
+
+// TestController_WithoutABarAnnounceAndRingReachTheTerminal: with the bar
+// off (ui.surround: false) nothing paints a note, so Announce writes its line
+// to the terminal itself, on a line of its own between engine output, and Ring
+// still rings — once per call.
+func TestController_WithoutABarAnnounceAndRingReachTheTerminal(t *testing.T) {
+	h := newCtlHarness(t, func(o *Options) { o.Surround = false })
+	_, _ = h.c.Stdout().Write([]byte("engine says hi"))
+	h.c.Announce("CREDENTIAL REFUSED: claude (TOKEN): 2 parked")
+	assert.Contains(t, h.tty.String(), "engine says hi\r\nCREDENTIAL REFUSED: claude (TOKEN): 2 parked\r\n")
+	assert.True(t, h.c.Ring(), "the bell rings with no bar to show")
+	assert.Equal(t, 1, strings.Count(h.tty.String(), "\a"))
+}
+
+// TestOutputGate_InjectWaitsBehindAHold: a line injected while an overlay
+// holds the engine's output is held with it and replayed in order, never
+// written over the overlay.
+func TestOutputGate_InjectWaitsBehindAHold(t *testing.T) {
+	var mu sync.Mutex
+	dst := &lockedBuffer{}
+	g := newOutputGate(&mu, dst, nil, nil)
+	g.Hold(1 << 10)
+	_, _ = g.Write([]byte("held engine bytes"))
+	g.Inject([]byte("\r\nNOTICE\r\n"))
+	assert.Empty(t, dst.String(), "nothing reaches the overlay's screen")
+	_, err := g.Release(holdReplay, restore{})
+	require.NoError(t, err)
+	assert.Equal(t, "held engine bytes\r\nNOTICE\r\n", dst.String())
+	g.Inject([]byte("open"))
+	assert.Equal(t, "held engine bytes\r\nNOTICE\r\nopen", dst.String())
+}
+
 func TestController_RosterPollFeedsBar(t *testing.T) {
 	h := newCtlHarness(t, func(o *Options) {
 		o.RosterInterval = 5 * time.Millisecond

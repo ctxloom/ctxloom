@@ -68,15 +68,17 @@ func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore
 	if !ok {
 		return l
 	}
-	native := nativeHomeFor(s, inContainer)
-	if inContainer && native == "" {
+	native, _ := launch.NativeHome(s.sessionDir, s.eng, s.home)
+	inHome := historyInHome(inContainer)
+	if inHome {
 		clidiag.WarnOnce("ctxloom", "%s", historyInHomeNotice)
 	}
-	if !prepareSessionHome(s.eng, dir, native, cwd, l.trust, s.creds.Mode) {
+	req := InstanceHomeRequest{InstanceHome: dir, NativeHome: native, HistoryInHome: inHome, WorkDir: cwd, Trust: l.trust, Auth: s.creds.Mode}
+	if !prepareSessionHome(s.eng, req) {
 		return l
 	}
 	placeHome(&l, s.eng, dir)
-	l.nativeHome = native
+	l.nativeHome = nativeHomeFor(s, inContainer)
 	return l
 }
 
@@ -92,14 +94,23 @@ func previewLayout(s Spec, stores []sharedStore, inContainer bool) layout {
 	return l
 }
 
-// nativeHomeFor is where the run keeps the engine's native history
-// (launch.NativeHome), or "" for none. A container run on a host whose
-// directory links do not resolve inside a container
-// (platform.DirLinker.LinksResolveInContainers: Windows' junctions name
-// absolute host paths) keeps none: its history stays in the mounted session
-// home, and so is deleted with the home (historyInHomeNotice).
+// historyInHome reports that the run keeps the engine's history as a real
+// directory in the mounted session home rather than linked into native/: a
+// container run on a host whose directory links do not resolve inside a
+// container (platform.DirLinker.LinksResolveInContainers: Windows' junctions
+// name absolute host paths). The home starts from native/'s history
+// (InstanceHomeRequest.HistoryInHome), and what the run adds moves into
+// native/ when a host run next adopts it or Close or clean deletes the home
+// (sessions.KeepHomeHistory), whichever comes first.
+func historyInHome(inContainer bool) bool {
+	return inContainer && !hostOS.LinksResolveInContainers()
+}
+
+// nativeHomeFor is the native history dir the run mounts and links
+// (launch.NativeHome), or "" for none — none when it keeps its history in
+// the home (historyInHome).
 func nativeHomeFor(s Spec, inContainer bool) string {
-	if inContainer && !hostOS.LinksResolveInContainers() {
+	if historyInHome(inContainer) {
 		return ""
 	}
 	native, _ := launch.NativeHome(s.sessionDir, s.eng, s.home)
@@ -137,8 +148,8 @@ func repoTrust(eng engine.Engine, cwd string) engine.WorkspaceTrust {
 }
 
 // historyInHomeNotice is the once-per-process announcement that a container
-// run keeps its conversation history in the session home (nativeHomeFor).
-var historyInHomeNotice = fmt.Sprintf("native history: %s directory links do not resolve inside a container, so a container run keeps its conversation history in the session home, which is deleted when the session closes", platform.Name)
+// run keeps its conversation history in the session home (historyInHome).
+var historyInHomeNotice = fmt.Sprintf("native history: %s directory links do not resolve inside a container, so a container run keeps its conversation history in the session home, starting from the session's own; it moves back into the session's native history at the next host run or when its home is deleted", platform.Name)
 
 // sessionHomeRemedy is the fix-it on an unpreparable session home. It names
 // no --degraded: the finding is non-degradable, because the only fallback
@@ -154,10 +165,12 @@ const sessionHomeRemedy = "fix what kept the session home from being prepared (t
 //
 // An unpreparable home is NON-DEGRADABLE: falling back to the real home
 // would hand the engine what only the binding may select.
-func prepareSessionHome(eng engine.Engine, dir, native, cwd string, trust engine.WorkspaceTrust, mode engine.AuthMode) bool {
+func prepareSessionHome(eng engine.Engine, req InstanceHomeRequest) bool {
 	name := string(eng.Root().Name)
+	dir := req.InstanceHome
+	req.Engine = name
 	if home := eng.Home(); home.Relocates() {
-		if _, err := PrepareInstanceHome(InstanceHomeRequest{Engine: name, InstanceHome: dir, NativeHome: native, WorkDir: cwd, Trust: trust, Auth: mode}); err != nil {
+		if _, err := PrepareInstanceHome(req); err != nil {
 			strictness.FailAlways(report.KindIsolation, sessionHomeRemedy,
 				"session home for %s: %v — refusing to point %s at an unprepared %s, and refusing to substitute the SHARED host config home for the per-session one this agent asked for",
 				name, err, home.Vars[0].Name, dir)

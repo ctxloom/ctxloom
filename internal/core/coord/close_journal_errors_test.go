@@ -43,7 +43,7 @@ func TestCoordinatorClose_SurfacesJournalCloseFailures(t *testing.T) {
 	restore := clidiag.SetSink(sink)
 	defer restore()
 
-	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	c := newTestCoordinator(t, newFakeSpawner(t, nil, nil), nil)
 
 	// Break two of the three journals' handles.
 	assert.NoError(t, c.runs.f.Close())

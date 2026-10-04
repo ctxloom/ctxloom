@@ -232,8 +232,8 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"isolation_images:\n  mock: registry.example.com/my-mock:v2\n  claude-code: my-claude:latest\n",
 		},
 		{
-			"user base containerfile for local agent-image builds",
-			"isolation_base_containerfile: container/base.Containerfile\n",
+			"agent-image base choice for local builds",
+			"isolation_base: devcontainer\n",
 		},
 		{
 			"terminal-ui section (viewer prefix key + surround toggle)",

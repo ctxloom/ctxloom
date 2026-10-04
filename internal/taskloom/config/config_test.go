@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/priority"
@@ -289,6 +290,11 @@ func TestSchema_TopLevelAdditionalPropertiesFalse(t *testing.T) {
 		assert.Truef(t, ok, "Config field %q has no matching taskloom-config-schema property", name)
 	}
 	for name := range doc.Properties {
+		if name == schemaver.Key {
+			// The format generation is consumed per file by configKind
+			// before decode; Config deliberately carries no field for it.
+			continue
+		}
 		found := false
 		for i := 0; i < rt.NumField(); i++ {
 			tag := rt.Field(i).Tag.Get("yaml")

@@ -113,7 +113,7 @@ directory in its place.
 | Class | Run cleanup | Coordinator Close | `clean` (reclaim) | `clean --include-persist` | `session sweep` purge |
 |---|---|---|---|---|---|
 | `scratch/`, secret dirs | delete | delete (owner and every ended child) | delete | delete | — |
-| `home/<leaf>` | keep | delete (owner and every ended child), after moving a real history dir into `native/` | delete | delete | — |
+| `home/<leaf>` | keep | delete (owner and every ended child) | delete | delete | — |
 | `work/` checkouts | removed when clean, kept with work (existing triage) | — | triaged | triaged | triaged |
 | `spool/`, `package/`, `diagnostics.log`, `context-metrics.jsonl` | keep | keep | keep | delete (distilled only) | keep |
 | `native/`, `transcripts/` | keep | keep | keep | delete (distilled only) | delete (distilled, or an internal one-shot) |
@@ -121,7 +121,9 @@ directory in its place.
 | coordinator root | keep | delete only if ephemeral and settled | — | — | removed with the session |
 | output dir | keep | keep | never | never | never |
 
-Close's rule lives in `Coordinator.removeDisposableMembers`; the reaper's in
+Every deletion of `home/<leaf>` (Close, `clean`, `clean --include-persist`) first moves a
+history dir the home holds as a real directory into `native/` (`sessions.KeepHomeHistory`),
+and leaves the home when that fails. Close's rule lives in `Coordinator.removeDisposableMembers`; the reaper's in
 `sessions.ReapPolicy.Members`; the purge populations in `operations.PurgeSession`, of which
 the sweep requests only the transcript population. The output dir is reachable by exactly
 one destroyer, the explicit `ctxloom session artifacts purge` (`outputEssenceItems`).
@@ -179,8 +181,8 @@ environment, and a host runner start that still carries it is refused
   Sessions created under an earlier layout are not otherwise converted. On every platform,
   a host run that finds a real directory where the history link belongs (a container run's
   history on Windows, or a home that predates native history) moves its contents into
-  `native/` and links the home (`sessions.AdoptHistory`); Close does the same before it
-  deletes a home (`sessions.KeepHomeHistory`). Where both hold a file the home's wins,
+  `native/` and links the home (`sessions.AdoptHistory`); Close and `clean` do the same
+  before they delete a home (`sessions.KeepHomeHistory`). Where both hold a file the home's wins,
   because it started as native's copy and only grew. Only a link somewhere else, which is
   not the session's history, is refused (`isolation.ErrHistoryNotLinked`).
 
@@ -207,8 +209,8 @@ the probe registry (`probeP14` in `tests/acceptance/capability_probe_registry.go
   so once at launch. Switching runtime migrates the history, never refusing: a container run
   removes the junction (`platform.DirLinker.UnlinkDir`) and starts from a copy of
   `native/`'s history (`isolation.restoreNativeHistory`); the next host run adopts the
-  home's history back into `native/` and links again. What a container run adds moves into `native/` at the next host run, or when Close
-  deletes the home (`sessions.KeepHomeHistory`), whichever comes first. A junction keeps
+  home's history back into `native/` and links again. What a container run adds moves into `native/` at the next host run, or when Close or
+  `clean` deletes the home (`sessions.KeepHomeHistory`), whichever comes first. A junction keeps
   naming the session dir it was made under, so after `session edit --name` it points at the
   old name; the next host run recognises that as the session's own pre-rename link (the old
   session dir is gone and the shape matches, `isolation.renamedSessionLink`) and relinks

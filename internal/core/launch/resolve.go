@@ -184,6 +184,7 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 	sessionSigCheck(passthrough, deps.Snapshot.Trust)
 	env := sessions.HookEnv(src.Identity)
 	maps.Copy(env, passthrough)
+	markOwner(env, src.Identity, src.Mode)
 	cell, err := deps.Cells.Prepare(ctx, CellRequest{
 		Axes:        axes,
 		Engine:      eng,
@@ -215,6 +216,20 @@ func sessionSigCheck(env map[string]string, tr composite.Trust) {
 		return
 	}
 	delete(env, sessions.EnvSigCheckWaived)
+}
+
+// markOwner sets the session-owner marker (sessions.EnvSessionOwner) on env
+// for the session owner's engine — a human's session
+// (sessions.OriginSession) driven interactively, the one recipient no runner
+// delivers mail to — and removes it for every other run, whatever the
+// caller's passthrough said, so no caller can hand a child the owner's
+// mail-drain.
+func markOwner(env map[string]string, id sessions.Identity, mode engine.Mode) {
+	if id.Origin() == sessions.OriginSession && mode == engine.Interactive {
+		env[sessions.EnvSessionOwner] = sessions.SessionOwnerOn
+		return
+	}
+	delete(env, sessions.EnvSessionOwner)
 }
 
 // deliverLaunch fills l's delivery over its prepared cell: Exports, Route

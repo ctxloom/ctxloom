@@ -23,7 +23,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // lockFileMode and lockDirMode are the modes this registry's advisory-lock
@@ -44,9 +46,14 @@ type Entry struct {
 	LastSeenAt time.Time `yaml:"last_seen_at,omitempty"`
 }
 
+// registryKind versions the project registry. The index was unversioned
+// before it declared schemaver.Key, so a keyless index is generation 0.
+var registryKind = schemaver.Kind{Name: "project registry", Oldest: 0, Steps: []upgrade.Upgrader{schemaver.IntroduceKey}}
+
 // registry is the on-disk form of the project registry.
 type registry struct {
-	Projects []Entry `yaml:"projects"`
+	SchemaVersion int     `yaml:"schema_version"`
+	Projects      []Entry `yaml:"projects"`
 }
 
 // Manager owns load/save of a single registry file with a cooperative lock,
@@ -94,13 +101,20 @@ func (m *Manager) loadLocked() (*registry, error) {
 	if len(data) == 0 {
 		return &reg, nil
 	}
-	if err := yaml.Unmarshal(data, &reg); err != nil {
+	// Reading never writes: an older index is migrated here in memory and
+	// reaches disk with the next save.
+	r, err := registryKind.Upgrade(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", m.path, err)
+	}
+	if err := yaml.Unmarshal(r.Data, &reg); err != nil {
 		return nil, fmt.Errorf("parse registry: %w", err)
 	}
 	return &reg, nil
 }
 
 func (m *Manager) saveLocked(reg *registry) error {
+	reg.SchemaVersion = registryKind.Current()
 	data, err := yaml.Marshal(reg)
 	if err != nil {
 		return fmt.Errorf("marshal registry: %w", err)

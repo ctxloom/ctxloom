@@ -20,7 +20,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session edit <harp> --name <new>
     ctxloom session remove <harp> [--yes]
     ctxloom session compact <harp>
-    ctxloom session adopt <harp> [--apply]
+    ctxloom session adopt <harp> [--yes]
     ctxloom session search <word>...
     ctxloom session transcript              (bare: lists)
     ctxloom session transcript list [<harp>]
@@ -129,15 +129,15 @@ Feature: session — the record of what your assistant did, and the tools to pru
     same claude project directory as the harp's current transcript for
     files like that, and reports which ones belong in this harp's lineage.
 
-    Without --apply this only reports; nothing on disk or in the session
-    index changes. --apply seeds the harp's Rotations through the session
+    Without --yes this only reports; nothing on disk or in the session
+    index changes. --yes seeds the harp's Rotations through the session
     store.
 
     # Tabled by format: `session adopt` is wired to emit(), so off a terminal
     # (which this harness always is) the no-flag row now gets the JSON
     # sessionAdoptResult, not renderSessionAdopt's "would adopt" verb-tensed
     # summary line. "would adopt" is prose the text renderer builds from the
-    # candidate's verdict ("adopt") plus the dry-run/--apply state; the JSON
+    # candidate's verdict ("adopt") plus the dry-run/--yes state; the JSON
     # row asserts that same underlying verdict directly instead.
     Scenario Outline: A dry run reports the orphan and changes nothing
       Given an initialized ctxloom project
@@ -154,11 +154,11 @@ Feature: session — the record of what your assistant did, and the tools to pru
         | --format json | orphan-one        | adopt              |
         | --format text | orphan-one        | would adopt        |
 
-    Scenario: --apply seeds the lineage through the store
+    Scenario: --yes seeds the lineage through the store
       Given an initialized ctxloom project
       And a recorded session "amber-swift-owl" with a claude vendor transcript spanning "2026-04-10T00:00:00Z" to "2026-04-10T01:00:00Z"
       And an orphaned claude vendor transcript "orphan-one" for "amber-swift-owl" spanning "2026-04-05T00:00:00Z" to "2026-04-05T01:00:00Z"
-      When I run "ctxloom session adopt amber-swift-owl --apply"
+      When I run "ctxloom session adopt amber-swift-owl --yes"
       Then the command succeeds
       And the output contains "orphan-one"
 

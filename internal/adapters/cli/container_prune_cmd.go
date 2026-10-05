@@ -14,16 +14,16 @@ import (
 )
 
 var (
-	containerPruneApply   bool
+	containerPruneYes   bool
 	containerPruneMinAge  time.Duration
 	containerPruneRuntime string
 )
 
 var containerPruneCmd = &cobra.Command{
 	Use:   "prune",
-	Short: "Remove superseded ctxloom agent images (a dry run unless --apply)",
+	Short: "Remove superseded ctxloom agent images (a dry run unless --yes)",
 	Long: `Find the agent images ctxloom built that nothing uses any more, and — with
---apply — remove them. Without --apply this only prints the plan.
+--yes — remove them. Without --yes this only prints the plan.
 
 Every ctxloom commit (and every change to the admitted companion set) builds
 a new agent image tag, and the old ones are never overwritten, so they pile
@@ -61,7 +61,7 @@ func runContainerPrune(cmd *cobra.Command, _ []string) error {
 	// this gate is what turns it into exit 3.
 	gates := newPhaseGates(os.Stderr, App().Strictness)
 	rep, err := containerPrune(cmd.Context(), App(), operations.ContainerPruneRequest{
-		Apply:   containerPruneApply,
+		Apply:   containerPruneYes,
 		MinAge:  containerPruneMinAge,
 		Runtime: containerPruneRuntime,
 	})
@@ -166,8 +166,8 @@ func pruneTally(sec operations.ContainerPruneRuntime, applied bool) string {
 		if counts[operations.PruneRemove] == 0 {
 			return "nothing to remove"
 		}
-		return fmt.Sprintf("%d to remove, %s reclaimable — dry run; pass --apply to remove",
-			counts[operations.PruneRemove], operations.FormatImageBytes(sec.Bytes))
+		return fmt.Sprintf("%d to remove, %s reclaimable — dry run; pass --%s to remove",
+			counts[operations.PruneRemove], operations.FormatImageBytes(sec.Bytes), yesFlagName)
 	}
 	tally := fmt.Sprintf("%d removed, %s reclaimed", counts[operations.PruneRemoved], operations.FormatImageBytes(sec.Bytes))
 	if n := counts[operations.PruneFailed]; n > 0 {
@@ -177,7 +177,7 @@ func pruneTally(sec operations.ContainerPruneRuntime, applied bool) string {
 }
 
 func init() {
-	containerPruneCmd.Flags().BoolVar(&containerPruneApply, "apply", false,
+	containerPruneCmd.Flags().BoolVarP(&containerPruneYes, yesFlagName, "y", false,
 		"remove the superseded images (default: print the plan and remove nothing)")
 	containerPruneCmd.Flags().DurationVar(&containerPruneMinAge, "min-age", operations.DefaultImagePruneMinAge,
 		"keep any image younger than this")

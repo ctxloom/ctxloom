@@ -58,7 +58,7 @@ type ContainerPruneRuntime struct {
 	// reported, never touched.
 	Unowned []string `json:"unowned,omitempty"`
 	// Bytes is the unique-layer total planned for removal (dry run) or
-	// actually removed (--apply).
+	// actually removed (--yes).
 	Bytes int64 `json:"bytes"`
 	// Error is set when the runtime could not be planned at all.
 	Error string `json:"error,omitempty"`
@@ -90,12 +90,16 @@ func (r ContainerPruneReport) Failed() bool {
 	return false
 }
 
+// containerPruneApplyCommand is the command that removes what a dry run
+// planned, as the superseded-images check names it.
+const containerPruneApplyCommand = "ctxloom container prune --yes"
+
 // ContainerPrune plans — and with Apply, performs — the removal of superseded
 // ctxloom agent images on every runtime present (isolation.PlanImagePrune has
 // the keep rules). No runtime at all is a non-degradable ClassIsolation
 // finding: the command was asked to act on a container runtime and cannot.
 //
-// --apply refuses to run on a config that did not load: the current-identity
+// --yes refuses to run on a config that did not load: the current-identity
 // rule reads the configured agents, and removing images against an empty
 // config would drop that protection silently.
 func ContainerPrune(ctx context.Context, app *App, req ContainerPruneRequest) (ContainerPruneReport, error) {
@@ -108,7 +112,7 @@ func ContainerPrune(ctx context.Context, app *App, req ContainerPruneRequest) (C
 	}
 	cfg, cfgErr := app.Config(ctx)
 	if cfgErr != nil && req.Apply {
-		return rep, fmt.Errorf("refusing to prune: the config did not load (%w), so this project's current agent images cannot be protected — fix the config, or run without --apply to see the plan", cfgErr)
+		return rep, fmt.Errorf("refusing to prune: the config did not load (%w), so this project's current agent images cannot be protected — fix the config, or run without --yes to see the plan", cfgErr)
 	}
 	runtimes := pruneRuntimes(pruneAvailableRuntimes(), req.Runtime)
 	if len(runtimes) == 0 {
@@ -245,7 +249,7 @@ func doctorCheckSupersededImages(ctx context.Context, runtimes []isolation.Runti
 		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no superseded agent images"}
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf(
-		"%d superseded agent image(s) (%s), %s reclaimable — run `ctxloom container prune --apply`",
+		"%d superseded agent image(s) (%s), %s reclaimable — run `"+containerPruneApplyCommand+"`",
 		total, strings.Join(found, ", "), FormatImageBytes(bytes))}
 }
 

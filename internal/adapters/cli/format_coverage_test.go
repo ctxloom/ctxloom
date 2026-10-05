@@ -386,7 +386,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// calls emit() and carried formatDebt:true on that basis.
 	"session remove":  {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered directly by session_remove_test.go"},
 	"session compact": {skip: "not confirmed wired; needs an existing session fixture; not exercised here; T19 audit confirmed NOT wired: runSessionCompact never calls emit()", formatDebt: true},
-	"session adopt":   {skip: "wired to emit(), but needs a seeded harp bound to a real vendor transcript directory (and mutates the index under --apply); covered directly by session_adopt_test.go"},
+	"session adopt":   {skip: "wired to emit(), but needs a seeded harp bound to a real vendor transcript directory (and mutates the index under --yes); covered directly by session_adopt_test.go"},
 	// Every destroyer under `session` is wired to emit(), but each needs a
 	// seeded harp directory and is destructive under --yes. They are covered
 	// directly, on BOTH sides (report leaves it, --yes removes it), by

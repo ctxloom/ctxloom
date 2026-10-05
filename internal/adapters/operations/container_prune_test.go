@@ -70,7 +70,7 @@ func TestImagePruneOptions_LiveIsTheConfiguredIdentity(t *testing.T) {
 	assert.Contains(t, opts.Live, want)
 	assert.Equal(t, time.Hour, opts.MinAge)
 	assert.Empty(t, imagePruneOptions(app.Engines(), nil, isolation.Host{}, time.Hour, time.Unix(0, 0)).Live,
-		"no config, no live refs — and --apply refuses in that state")
+		"no config, no live refs — and --yes refuses in that state")
 }
 
 func TestContainerPruneReport_Failed(t *testing.T) {
@@ -123,7 +123,7 @@ func TestDoctorCheckSupersededImages(t *testing.T) {
 	assert.Equal(t, DoctorWarn, found.Status)
 	assert.Contains(t, found.Detail, "2 docker")
 	assert.Contains(t, found.Detail, "2.5 GB")
-	assert.Contains(t, found.Detail, "ctxloom container prune --apply")
+	assert.Contains(t, found.Detail, containerPruneApplyCommand)
 	assert.NotContains(t, found.Detail, "podman")
 
 	failing := doctorCheckSupersededImages(context.Background(), both, func(context.Context, isolation.Runtime) (isolation.ImagePrunePlan, error) {

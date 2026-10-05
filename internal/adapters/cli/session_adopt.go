@@ -20,10 +20,10 @@ import (
 // that motivated this command was originally done by hand-editing
 // the record; this is the command that does it through the store instead.
 //
-// SAME report-then-apply shape as the session purge family: without --apply
+// SAME report-then-apply shape as the session purge family: without --yes
 // this only reports, and the report says outright that nothing was applied.
 
-var sessionAdoptApply bool
+var sessionAdoptYes bool
 
 var sessionAdoptCmd = &cobra.Command{
 	Use:   "adopt <harp-name>",
@@ -42,8 +42,8 @@ in the harp's existing lineage is ADOPTED; one whose span overlaps an
 existing segment (a concurrent, unrelated session) is SKIPPED, never
 adopted.
 
-Without --apply this only reports; nothing on disk or in the session index
-changes. --apply appends every adopted candidate to the harp's Rotations
+Without --yes this only reports; nothing on disk or in the session index
+changes. --yes appends every adopted candidate to the harp's Rotations
 through the session store, oldest first — never a hand edit of the record —
 and prints the next step (compact or recover) to actually materialize the
 recovered history; it does not run that step itself.
@@ -55,7 +55,7 @@ name rather than silently scanning nothing.`,
 }
 
 func init() {
-	sessionAdoptCmd.Flags().BoolVar(&sessionAdoptApply, "apply", false,
+	sessionAdoptCmd.Flags().BoolVarP(&sessionAdoptYes, yesFlagName, "y", false,
 		"apply the plan this invocation printed (default: report only)")
 	sessionCmd.AddCommand(sessionAdoptCmd)
 }
@@ -106,7 +106,7 @@ func countAdoptVerdictRows(rows []sessionAdoptRow) int {
 }
 
 // sessionAdoptResult is `session adopt`'s payload for both dry-run and
-// --apply — the SAME shape either way, so a caller diffing the two sees
+// --yes — the SAME shape either way, so a caller diffing the two sees
 // exactly what changed (Applied flips, Adopted counts up) rather than two
 // differently-shaped responses.
 type sessionAdoptResult struct {
@@ -132,7 +132,7 @@ func runSessionAdopt(cmd *cobra.Command, args []string) error {
 	wouldAdopt := countAdoptVerdictRows(rows)
 
 	applied := 0
-	if sessionAdoptApply {
+	if sessionAdoptYes {
 		n, aerr := operations.ApplyAdopt(harp, scan.Candidates)
 		if aerr != nil {
 			return aerr
@@ -144,7 +144,7 @@ func runSessionAdopt(cmd *cobra.Command, args []string) error {
 		Harp:       harp,
 		Backend:    scan.Backend,
 		ScanDir:    scan.ScanDir,
-		Applied:    sessionAdoptApply,
+		Applied:    sessionAdoptYes,
 		Adopted:    applied,
 		Candidates: rows,
 	}
@@ -154,7 +154,7 @@ func runSessionAdopt(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if !sessionAdoptApply {
+	if !sessionAdoptYes {
 		return reportAdoptPlanOnly(cmd, harp, wouldAdopt)
 	}
 	return reportAdoptNextStep(cmd, harp, applied)
@@ -192,11 +192,11 @@ func renderSessionAdopt(w io.Writer, res sessionAdoptResult, wouldAdopt int) err
 // table a caller might only skim.
 func reportAdoptPlanOnly(cmd *cobra.Command, harp string, wouldAdopt int) error {
 	w := errwriter.New(cmd.ErrOrStderr())
-	w.Printf("ctxloom adopted nothing — this was a report, not an adoption. %d candidate(s) would be adopted. To apply exactly this plan:\n  ctxloom session adopt %s --apply\n", wouldAdopt, harp)
+	w.Printf("ctxloom adopted nothing — this was a report, not an adoption. %d candidate(s) would be adopted. To apply exactly this plan:\n  ctxloom session adopt %s --%s\n", wouldAdopt, harp, yesFlagName)
 	return w.Err()
 }
 
-// reportAdoptNextStep is the LOUD part of a successful --apply: seeding
+// reportAdoptNextStep is the LOUD part of a successful --yes: seeding
 // Rotations changes the index, not the canonical transcript a session reader
 // actually loads — this command deliberately never compacts or refreshes
 // that on its own (a caller may want to review the lineage first), so it

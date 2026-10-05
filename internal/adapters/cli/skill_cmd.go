@@ -292,7 +292,7 @@ func skillExistsInBundle(ctx context.Context, cfg *config.Config, bundle, name s
 	return false
 }
 
-var skillExportOut string
+var skillExportOutput string
 var skillExportSign bool
 
 var skillExportCmd = &cobra.Command{
@@ -325,7 +325,7 @@ func runSkillExport(cmd *cobra.Command, args []string) error {
 	req := operations.ExportSkillRequest{
 		Bundle:  bundleName,
 		Name:    skillName,
-		OutPath: skillExportOut,
+		OutPath: skillExportOutput,
 		Sign:    skillExportSign,
 	}
 	if skillExportSign {
@@ -434,7 +434,7 @@ func init() {
 	skillListCmd.Flags().StringVarP(&skillListBundle, "bundle", "b", "", "Filter by bundle name")
 	skillCreateCmd.Flags().StringVarP(&skillCreateDescription, "description", "d", "", "SKILL.md frontmatter description (default: a TODO placeholder)")
 	skillRemoveCmd.Flags().BoolVarP(&skillRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
-	skillExportCmd.Flags().StringVarP(&skillExportOut, "out", "o", "", "Output .zip path (default: <name>.zip)")
+	skillExportCmd.Flags().StringVarP(&skillExportOutput, outputFlagName, "o", "", "Output .zip path (default: <name>.zip)")
 	skillExportCmd.Flags().BoolVar(&skillExportSign, "sign", false, "sign the exported manifest (writes a detached .sig sibling)")
 	skillImportCmd.Flags().StringVar(&skillImportBundle, "bundle", "", "target bundle to import into (required)")
 	skillImportCmd.Flags().StringVar(&skillImportSig, "sig", "", "path to a detached signature covering the archive's manifest")

@@ -114,7 +114,7 @@ func TestScanAdoptCandidates_OrdersByInternalTimestampNeverMtime(t *testing.T) {
 
 // TestScanAdoptCandidates_SkipsOverlappingSpan pins that a candidate whose
 // span overlaps an existing lineage segment (a concurrent, unrelated
-// session) is reported skipped and is NEVER adopted, even on --apply.
+// session) is reported skipped and is NEVER adopted, even on --yes.
 func TestScanAdoptCandidates_SkipsOverlappingSpan(t *testing.T) {
 	mgr := newAdoptManager(t)
 	dir := t.TempDir()

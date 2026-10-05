@@ -50,7 +50,7 @@ const pruneDryRunGolden = `docker
   KEEP    ctxloom-agent-mock:v0.7.0-a68169e-cce3-b236  younger than 24h0m0s
   KEEP    ctxloom-agent-mock:v0.7.0-d00d00d-cce3-b236  used by a container
   SKIP    ctxloom-agent-base:latest  unowned (no ctxloom label)
-  1 to remove, 42.1 MB reclaimable — dry run; pass --apply to remove
+  1 to remove, 42.1 MB reclaimable — dry run; pass --yes to remove
 podman
   nothing to remove
 `
@@ -101,8 +101,8 @@ func stubContainerPrune(t *testing.T, fn func(context.Context, *operations.App, 
 		return fn(ctx, app, req)
 	}
 	reset := func() {
-		containerPruneApply, containerPruneMinAge, containerPruneRuntime = false, operations.DefaultImagePruneMinAge, ""
-		for _, name := range []string{"apply", "min-age", "runtime"} {
+		containerPruneYes, containerPruneMinAge, containerPruneRuntime = false, operations.DefaultImagePruneMinAge, ""
+		for _, name := range []string{yesFlagName, "min-age", "runtime"} {
 			containerPruneCmd.Flags().Lookup(name).Changed = false
 		}
 	}
@@ -124,7 +124,7 @@ func TestContainerPrune_ExitCodes(t *testing.T) {
 	}{
 		{name: "dry-run plan with work to do", report: pruneDryRunReport(), wantCode: 0},
 		{name: "nothing to do", report: operations.ContainerPruneReport{Runtimes: []operations.ContainerPruneRuntime{{Runtime: "docker"}}}, wantCode: 0},
-		{name: "a removal failed", args: []string{"--apply"}, wantCode: 1, report: operations.ContainerPruneReport{Applied: true, Runtimes: []operations.ContainerPruneRuntime{{
+		{name: "a removal failed", args: []string{"--yes"}, wantCode: 1, report: operations.ContainerPruneReport{Applied: true, Runtimes: []operations.ContainerPruneRuntime{{
 			Runtime: "docker", Images: []operations.ContainerPruneImage{{Ref: "a:1", Action: operations.PruneFailed, Error: "boom"}},
 		}}}},
 		{name: "a runtime could not be planned", wantCode: 1, report: operations.ContainerPruneReport{Runtimes: []operations.ContainerPruneRuntime{{Runtime: "docker", Error: "images: boom"}}}},
@@ -159,11 +159,11 @@ func TestContainerPrune_DryRunUnlessApply(t *testing.T) {
 	got := stubContainerPrune(t, empty)
 	_, err := runRoot(t, "container", "prune")
 	require.NoError(t, err)
-	assert.False(t, got.Apply, "no --apply must never remove")
+	assert.False(t, got.Apply, "no --yes must never remove")
 	assert.Equal(t, operations.DefaultImagePruneMinAge, got.MinAge)
 
 	got = stubContainerPrune(t, empty)
-	_, err = runRoot(t, "container", "prune", "--apply", "--min-age", "2h", "--runtime", "podman")
+	_, err = runRoot(t, "container", "prune", "--yes", "--min-age", "2h", "--runtime", "podman")
 	require.NoError(t, err)
 	assert.Equal(t, operations.ContainerPruneRequest{Apply: true, MinAge: 2 * time.Hour, Runtime: "podman"}, *got)
 }

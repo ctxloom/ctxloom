@@ -377,7 +377,7 @@ Feature: container — the images isolated agents run in, and the questions you 
   Rule: Prune plans before it removes, and says so when there is nothing to prune with
 
     `container prune` sweeps the superseded agent images ctxloom built — a dry
-    run unless `--apply`. What is specifiable without a container runtime is
+    run unless `--yes`. What is specifiable without a container runtime is
     its two refusals: a `--runtime` that names no runtime ctxloom knows, and a
     machine with no runtime at all. The second is its own documented exit
     status (3), distinct from "a removal failed" (1): a caller scripting prune

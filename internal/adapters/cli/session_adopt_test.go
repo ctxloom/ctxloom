@@ -15,13 +15,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// resetSessionAdoptFlags restores sessionAdoptApply, for the reason every
+// resetSessionAdoptFlags restores sessionAdoptYes, for the reason every
 // other flag-reset helper in this package documents: pflag never un-sets a
-// flag a prior test's invocation set, so a leftover --apply would turn a
+// flag a prior test's invocation set, so a leftover --yes would turn a
 // later report-only test into an apply.
 func resetSessionAdoptFlags(t *testing.T) {
 	t.Helper()
-	sessionAdoptApply = false
+	sessionAdoptYes = false
 }
 
 // writeAdoptVendorFile writes a minimal claude-code-shaped vendor transcript
@@ -67,7 +67,7 @@ func seedClaudeHarpWithVendorDir(t *testing.T, projectDir string) (mgr *sessions
 
 // sidecarBytes reads the harp's raw sidecar — used to prove a dry run leaves
 // it byte-for-byte untouched, the payload-level check a mutation that wired
-// --apply's write through on a report-only run would fail (a mutation that
+// --yes's write through on a report-only run would fail (a mutation that
 // merely dropped a LOG LINE would not).
 func sidecarBytes(t *testing.T, harp string) []byte {
 	t.Helper()
@@ -100,10 +100,10 @@ func TestSessionAdopt_DryRunWritesNothing(t *testing.T) {
 	assert.Contains(t, stdout, "id-orphan")
 	assert.Contains(t, stdout, "would adopt")
 	assert.Contains(t, stderr, "adopted nothing — this was a report")
-	assert.Contains(t, stderr, "ctxloom session adopt "+harp+" --apply")
+	assert.Contains(t, stderr, "ctxloom session adopt "+harp+" --"+yesFlagName)
 }
 
-// TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload is the --apply
+// TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload is the --yes
 // mutation kill: the new Rotation must be a REAL persisted write a fresh
 // Manager (opened over the same path, no shared in-memory state) can see —
 // not just a mutation this process happens to still hold.
@@ -114,7 +114,7 @@ func TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload(t *testing.T) {
 		time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 5, 1, 0, 0, 0, time.UTC))
 	t.Cleanup(func() { resetSessionAdoptFlags(t) })
 
-	stdout, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--apply", "--format", "text")
+	stdout, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "adopted")
 	assert.Contains(t, stderr, "adopted 1 rotation")

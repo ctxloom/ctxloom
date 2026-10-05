@@ -30,7 +30,7 @@ type AdoptVerdict string
 
 const (
 	// AdoptVerdictAdopt means the candidate's timestamp span slots cleanly
-	// into a gap in the harp's existing lineage and --apply would append it.
+	// into a gap in the harp's existing lineage and --yes would append it.
 	AdoptVerdictAdopt AdoptVerdict = "adopt"
 	// AdoptVerdictSkip means the candidate is not part of this harp's
 	// lineage (already known, bound elsewhere, unreadable, or its span
@@ -69,13 +69,13 @@ type AdoptCandidate struct {
 	Reason string
 
 	// RotatedAt/RotatedAtSource are populated for an Adopt verdict only:
-	// the value --apply would write to the new Rotation record, and which
+	// the value --yes would write to the new Rotation record, and which
 	// of the two rules produced it (AdoptRotatedAtSuccessorFirstRecord when
 	// a later lineage member's first-record timestamp was determinable,
 	// AdoptRotatedAtOwnLastRecord otherwise — the candidate's own
 	// last-record timestamp, when it is the newest thing in the lineage
 	// ScanAdoptCandidates could see). Shown in the dry-run table too, not
-	// just written on --apply: the report reads as the exact plan --apply
+	// just written on --yes: the report reads as the exact plan --yes
 	// would execute, never something a caller has to take on faith.
 	RotatedAt       time.Time
 	RotatedAtSource string
@@ -185,7 +185,7 @@ func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 	// ran later — mtime ordering silently swaps a background session ahead
 	// of the one that followed it). This is both the presentation order and
 	// the order candidates are judged/adopted in, so the array position IS
-	// the oldest-first order --apply appends in.
+	// the oldest-first order --yes appends in.
 	sort.SliceStable(spanned, func(i, j int) bool { return spanned[i].SpanEnd.Before(spanned[j].SpanEnd) })
 
 	// PASS 1 — verdicts. Processed in the same oldest-first order, checking

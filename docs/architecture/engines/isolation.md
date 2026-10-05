@@ -630,7 +630,7 @@ never errors by design), and `ReapOrphanedWorktrees` sweeps orphaned ephemeral
 worktrees at startup, leaking rather than destroying anything WIP-bearing.
 
 Superseded agent images are reaped only on request (`ctxloom container prune`,
-dry run unless `--apply`). Ownership is proved by the labels a build stamps
+dry run unless `--yes`). Ownership is proved by the labels a build stamps
 (`imageStamp`, via `Runtime.buildArgs`), never by an image's name: every build
 also applies a per-build ownership tag (`ownershipTagFor`) that no rebuild
 reuses or moves, stamps it as `ctxloom.tag`, and `ownedImage` owns an image

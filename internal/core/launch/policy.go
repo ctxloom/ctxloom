@@ -86,13 +86,18 @@ func resolvePolicy(rep report.Reporter, src Source, d permissionDecls, eng engin
 	if p.Sandbox, err = resolveSandbox(rungs, name, runtime, model, hasModel); err != nil {
 		return engine.PermissionPolicy{}, err
 	}
+	p.Network = resolveNetwork(rungs)
+	return p, nil
+}
+
+// resolveNetwork is the first declared network, else none.
+func resolveNetwork(rungs []neutralRung) bool {
 	for _, r := range rungs {
 		if r.fields.Network != nil {
-			p.Network = *r.fields.Network
-			break
+			return *r.fields.Network
 		}
 	}
-	return p, nil
+	return false
 }
 
 // declarations are the engine's own documents, nearest first: the

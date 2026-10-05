@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strconv"
 	"testing"
@@ -13,32 +14,32 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 )
 
-// reapFakeRuntime is a Runtime stub for ReapOrphanedContainers: Enumerate
+// reapFakeRuntime is a Runtime stub for FindOrphanedContainers: Enumerate
 // returns a fixed candidate list (no `docker ps` involved) and everything
-// else falls back to fakeRuntime — this is exactly the "fake Runtime, no
-// docker" seam the reaper is designed around.
+// else falls back to fakeRuntime — the "fake Runtime, no docker" seam the
+// finder is designed around. err, when set, is Enumerate's failure.
 type reapFakeRuntime struct {
 	fakeRuntime
 	infos []ContainerInfo
+	err   error
 }
 
 func (r reapFakeRuntime) Enumerate(context.Context, string) ([]ContainerInfo, error) {
-	return r.infos, nil
+	return r.infos, r.err
 }
 
-// RemoveArgs mirrors ociRuntime.RemoveArgs' real `rm -f <name>` — fakeRuntime's
-// own default is a noop nil, which would make TestReapOrphanedContainers_
-// DeadOwnerIsReaped's removal-argv assertion vacuous.
+// RemoveArgs mirrors ociRuntime.RemoveArgs' real `rm -f <name>`, so a finder
+// that DID try to remove would be seen doing it through probeExec rather
+// than issuing an empty argv.
 func (reapFakeRuntime) RemoveArgs(name string) []string { return []string{"rm", "-f", name} }
 
 // stubReapProbeExec replaces the package's probeExec seam with one that
 // records every call (binary + args, as one joined slice) and reports
-// success, restoring the original on cleanup. ReapOrphanedContainers'
-// removal step calls probeExec directly (not through the fake Runtime), so
-// this is the only way to observe — or prevent a false pass by NOT
-// observing — a remove attempt. Named distinctly from sharedfs_test.go's own
-// stubProbeExec (a different signature, scoped to the shared-fs marker
-// probe) to avoid colliding in this shared test package.
+// success, restoring the original on cleanup. Any removal this package makes
+// goes out through probeExec, so an empty record is the proof that
+// FindOrphanedContainers touched nothing. Named distinctly from
+// sharedfs_test.go's own stubProbeExec (a different signature, scoped to the
+// shared-fs marker probe) to avoid colliding in this shared test package.
 func stubReapProbeExec(t *testing.T) *[][]string {
 	t.Helper()
 	orig := probeExec
@@ -67,69 +68,69 @@ func labeledInfo(name string, pid int, createdAt string) ContainerInfo {
 	}
 }
 
-// TestReapOrphanedContainers_ForeignPIDNamespaceIsNeverJudged: under
+func dockerWith(infos ...ContainerInfo) reapFakeRuntime {
+	return reapFakeRuntime{
+		fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true},
+		infos:       infos,
+	}
+}
+
+// TestFindOrphanedContainers_ForeignPIDNamespaceIsNeverJudged: under
 // docker-outside-of-docker several ctxloom processes in different pid
 // namespaces share one daemon, and a pid read in ANOTHER namespace names
 // nothing here — a dead-looking pid there may be a live owner. A container
-// whose owner-pidns is not ours, or absent, is left alone, even when its pid
-// is dead in this namespace.
-func TestReapOrphanedContainers_ForeignPIDNamespaceIsNeverJudged(t *testing.T) {
+// whose owner-pidns is not ours, or absent, is never reported orphaned, even
+// when its pid is dead in this namespace.
+func TestFindOrphanedContainers_ForeignPIDNamespaceIsNeverJudged(t *testing.T) {
 	foreign := labeledInfo("ctxloom-iso-agent-foreign", deadPid, oldEnough())
 	foreign.Labels[labelOwnerPIDNS] = "pid:[4026532999]"
 	absent := labeledInfo("ctxloom-iso-agent-absent", deadPid, oldEnough())
 	delete(absent.Labels, labelOwnerPIDNS)
 	for _, info := range []ContainerInfo{foreign, absent} {
 		calls := stubReapProbeExec(t)
-		rt := reapFakeRuntime{
-			fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true},
-			infos:       []ContainerInfo{info},
-		}
-		assert.Equal(t, ContainerReapResult{Skipped: 1}, ReapOrphanedContainers(context.Background(), rt), info.Name)
-		assert.Empty(t, *calls, "%s must never be removed", info.Name)
+		found, err := FindOrphanedContainers(context.Background(), dockerWith(info))
+		require.NoError(t, err)
+		assert.Empty(t, found, info.Name)
+		assert.Empty(t, *calls, "%s must never be touched", info.Name)
 		c := classifyContainer(time.Now(), info)
 		assert.Equal(t, pidalive.State(0), c.OwnerState, "%s: its pid is never probed here", info.Name)
 	}
 }
 
-// TestReapOrphanedContainers_DeadOwnerIsReaped is the positive case: a
-// ctxloom-iso- container, past the grace window, whose owner-pid label names
-// a CONFIRMED dead process is reaped — and the removal actually goes out
-// through rt.Binary()/rt.RemoveArgs via probeExec, not just tallied.
-func TestReapOrphanedContainers_DeadOwnerIsReaped(t *testing.T) {
+// TestFindOrphanedContainers_DeadOwnerIsReportedNotRemoved is the positive
+// case: a ctxloom-iso- container, past the grace window, whose owner-pid
+// label names a CONFIRMED dead process is reported as orphaned — and nothing
+// is removed. The finder only answers the question; whoever acts on the
+// answer owns that decision.
+func TestFindOrphanedContainers_DeadOwnerIsReportedNotRemoved(t *testing.T) {
 	calls := stubReapProbeExec(t)
-	rt := reapFakeRuntime{
-		fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true},
-		infos:       []ContainerInfo{labeledInfo("ctxloom-iso-agent-abc", deadPid, oldEnough())},
-	}
 
-	result := ReapOrphanedContainers(context.Background(), rt)
+	found, err := FindOrphanedContainers(context.Background(), dockerWith(labeledInfo("ctxloom-iso-agent-abc", deadPid, oldEnough())))
 
-	assert.Equal(t, ContainerReapResult{Reaped: 1}, result)
-	require.Len(t, *calls, 1, "the dead owner's container must actually be removed, not just tallied")
-	assert.Equal(t, []string{"docker", "rm", "-f", "ctxloom-iso-agent-abc"}, (*calls)[0])
+	require.NoError(t, err)
+	require.Len(t, found, 1)
+	assert.Equal(t, "ctxloom-iso-agent-abc", found[0].Name)
+	assert.Equal(t, deadPid, found[0].OwnerPID)
+	assert.Equal(t, ContainerOrphaned, found[0].Verdict)
+	assert.Empty(t, *calls, "finding an orphan must never remove it")
 }
 
-// TestReapOrphanedContainers_LiveOwnerIsNotReaped: an otherwise-identical
-// candidate whose owner-pid names THIS live test process must be left alone
-// — no tally as reaped, and critically no removal call at all.
-func TestReapOrphanedContainers_LiveOwnerIsNotReaped(t *testing.T) {
+// TestFindOrphanedContainers_LiveOwnerIsNotReported: an otherwise-identical
+// candidate whose owner-pid names THIS live test process is not an orphan.
+func TestFindOrphanedContainers_LiveOwnerIsNotReported(t *testing.T) {
 	calls := stubReapProbeExec(t)
-	rt := reapFakeRuntime{
-		fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true},
-		infos:       []ContainerInfo{labeledInfo("ctxloom-iso-agent-abc", os.Getpid(), oldEnough())},
-	}
 
-	result := ReapOrphanedContainers(context.Background(), rt)
+	found, err := FindOrphanedContainers(context.Background(), dockerWith(labeledInfo("ctxloom-iso-agent-abc", os.Getpid(), oldEnough())))
 
-	assert.Equal(t, ContainerReapResult{Skipped: 1}, result)
-	assert.Empty(t, *calls, "a live owner's container must never be removed")
+	require.NoError(t, err)
+	assert.Empty(t, found)
+	assert.Empty(t, *calls)
 }
 
-// TestReapOrphanedContainers_AbsentOrUnparsableLabelIsNotReaped covers both
-// "no owner-pid label at all" and "owner-pid present but garbage" — CLAUDE.md's
-// rule that ambiguity must never authorise a delete, so neither reads as "no
-// owner, safe to reap".
-func TestReapOrphanedContainers_AbsentOrUnparsableLabelIsNotReaped(t *testing.T) {
+// TestFindOrphanedContainers_AbsentOrUnparsableLabelIsNotReported covers both
+// "no owner-pid label at all" and "owner-pid present but garbage" — ambiguity
+// must never read as "no owner, an orphan".
+func TestFindOrphanedContainers_AbsentOrUnparsableLabelIsNotReported(t *testing.T) {
 	cases := []struct {
 		name   string
 		labels map[string]string
@@ -157,65 +158,68 @@ func TestReapOrphanedContainers_AbsentOrUnparsableLabelIsNotReaped(t *testing.T)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := stubReapProbeExec(t)
-			rt := reapFakeRuntime{
-				fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true},
-				infos:       []ContainerInfo{{Name: "ctxloom-iso-agent-abc", Labels: tc.labels}},
-			}
 
-			result := ReapOrphanedContainers(context.Background(), rt)
+			found, err := FindOrphanedContainers(context.Background(), dockerWith(ContainerInfo{Name: "ctxloom-iso-agent-abc", Labels: tc.labels}))
 
-			assert.Equal(t, ContainerReapResult{Skipped: 1}, result)
+			require.NoError(t, err)
+			assert.Empty(t, found)
 			assert.Empty(t, *calls)
 		})
 	}
 }
 
-// TestReapOrphanedContainers_InsideGraceWindowIsNotReaped: a confirmed-dead
-// owner and a perfectly valid label pair is still spared when created-at says
-// the container is younger than containerReapGraceWindow — it may not be
-// fully labelled/settled yet.
-func TestReapOrphanedContainers_InsideGraceWindowIsNotReaped(t *testing.T) {
-	calls := stubReapProbeExec(t)
+// TestFindOrphanedContainers_InsideGraceWindowIsNotReported: a confirmed-dead
+// owner and a perfectly valid label pair is still not reported when
+// created-at says the container is younger than containerReapGraceWindow —
+// it may not be fully labelled/settled yet.
+func TestFindOrphanedContainers_InsideGraceWindowIsNotReported(t *testing.T) {
 	justCreated := time.Now().Add(-1 * time.Second).UTC().Format(time.RFC3339)
-	rt := reapFakeRuntime{
-		fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true},
-		infos:       []ContainerInfo{labeledInfo("ctxloom-iso-agent-abc", deadPid, justCreated)},
-	}
 
-	result := ReapOrphanedContainers(context.Background(), rt)
+	found, err := FindOrphanedContainers(context.Background(), dockerWith(labeledInfo("ctxloom-iso-agent-abc", deadPid, justCreated)))
 
-	assert.Equal(t, ContainerReapResult{Skipped: 1}, result)
-	assert.Empty(t, *calls)
+	require.NoError(t, err)
+	assert.Empty(t, found)
 }
 
-// TestReapOrphanedContainers_NonPrefixNameIsNeverConsidered: a container that
-// does not carry the ctxloom-iso- prefix is skipped regardless of how
-// perfectly it satisfies every other rule (dead owner, past the grace
-// window, valid labels) — the name check is a hard boundary, not a tiebreak.
-func TestReapOrphanedContainers_NonPrefixNameIsNeverConsidered(t *testing.T) {
-	calls := stubReapProbeExec(t)
-	rt := reapFakeRuntime{
-		fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true},
-		infos:       []ContainerInfo{labeledInfo("some-unrelated-container", deadPid, oldEnough())},
-	}
+// TestFindOrphanedContainers_NonPrefixNameIsNeverConsidered: a container that
+// does not carry the ctxloom-iso- prefix is never reported, however perfectly
+// it satisfies every other rule (dead owner, past the grace window, valid
+// labels) — the name check is a hard boundary, not a tiebreak.
+func TestFindOrphanedContainers_NonPrefixNameIsNeverConsidered(t *testing.T) {
+	found, err := FindOrphanedContainers(context.Background(), dockerWith(labeledInfo("some-unrelated-container", deadPid, oldEnough())))
 
-	result := ReapOrphanedContainers(context.Background(), rt)
-
-	assert.Equal(t, ContainerReapResult{Skipped: 1}, result)
-	assert.Empty(t, *calls, "a non-ctxloom-iso- container must never be touched, even with a dead-owner label")
+	require.NoError(t, err)
+	assert.Empty(t, found)
 }
 
-// TestReapOrphanedContainers_NilRuntimeIsANoop matches ReapOrphanedWorktrees'
-// own fault tolerance: a caller with no available runtime gets a zero-value
-// result, not a panic.
-func TestReapOrphanedContainers_NilRuntimeIsANoop(t *testing.T) {
-	assert.Equal(t, ContainerReapResult{}, ReapOrphanedContainers(context.Background(), nil))
+// TestFindOrphanedContainers_EnumerateFailureIsAnError: a runtime that cannot
+// list its containers has not shown there are none, so the failure reaches
+// the caller instead of reading as an all-clear.
+func TestFindOrphanedContainers_EnumerateFailureIsAnError(t *testing.T) {
+	rt := dockerWith()
+	rt.err = errReapEnumerateFixture
+
+	found, err := FindOrphanedContainers(context.Background(), rt)
+
+	require.ErrorIs(t, err, errReapEnumerateFixture)
+	assert.Empty(t, found)
+}
+
+// errReapEnumerateFixture is the Enumerate failure the fake runtime reports.
+var errReapEnumerateFixture = errors.New("daemon unreachable")
+
+// TestFindOrphanedContainers_NilRuntimeFindsNothing: a caller with no
+// available runtime gets no candidates and no error, not a panic.
+func TestFindOrphanedContainers_NilRuntimeFindsNothing(t *testing.T) {
+	found, err := FindOrphanedContainers(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Empty(t, found)
 }
 
 // TestOwnerLabelArgs_StampsThisProcessAndARecentTimestamp pins ownerLabelArgs'
 // contract directly: the pid label names THIS process (the one about to own
 // the container) and the timestamp label parses as RFC3339 and is fresh —
-// the two facts ReapOrphanedContainers' safety rules depend on actually
+// the two facts classifyContainer's safety rules depend on actually
 // being true at `run` time, not just at read time.
 func TestOwnerLabelArgs_StampsThisProcessAndARecentTimestamp(t *testing.T) {
 	before := time.Now()

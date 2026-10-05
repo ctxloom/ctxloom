@@ -8,13 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 )
 
 // labelOwnerPID is the container label key stamping the pid of the ctxloom
 // process that started the container (ownerLabelArgs, read at `docker/podman
-// run` time) — the identity ReapOrphanedContainers checks via pidalive.Probe
+// run` time) — the identity classifyContainer checks via pidalive.Probe
 // to decide whether a still-RUNNING container has been orphaned.
 const labelOwnerPID = "ctxloom.owner-pid"
 
@@ -23,22 +22,22 @@ const labelOwnerPID = "ctxloom.owner-pid"
 // within its namespace: under docker-outside-of-docker, ctxloom processes in
 // different pid namespaces share one daemon, and one of them probing another's
 // pid in its OWN namespace would read a live owner as dead and kill its
-// runner. So the reaper judges only containers stamped with its own namespace.
+// runner. So only containers stamped with its own namespace are judged.
 const labelOwnerPIDNS = "ctxloom.owner-pidns"
 
 // labelCreatedAt is the container label key stamping the RFC3339 UTC launch
 // time (ownerLabelArgs) — containerReapGraceWindow reads this so a container
-// that has not been running long enough to trust is never reaped.
+// that has not been running long enough to trust is never judged an orphan.
 const labelCreatedAt = "ctxloom.created-at"
 
 // containerReapGraceWindow is how long a container must have been running
-// before ReapOrphanedContainers will even consider its owner-liveness
+// before FindOrphanedContainers will even consider its owner-liveness
 // verdict. A container just past `docker run` can be visible to `ps` (and
 // therefore to Enumerate) before its owning ctxloom process has finished the
 // rest of its own startup — a probe run in that instant would see a pid
 // whose parent shell/exec chain has not fully settled. The grace window is
-// generous next to that startup cost and cheap to pay: this sweep runs only
-// when a human asks for it (`ctxloom doctor`), never on a hot path.
+// generous next to that startup cost and cheap to pay: nothing on a hot path
+// asks.
 const containerReapGraceWindow = 60 * time.Second
 
 // ownerLabelArgs renders the `--label` flags every Docker/Podman RunArgs
@@ -80,25 +79,23 @@ func ownerLabelArgs() []string {
 // this is the runtime's init, not ours.
 func initArgs() []string { return []string{"--init"} }
 
-// ContainerReapVerdict is one candidate's outcome, mirroring WorktreeVerdict's
-// vocabulary (see worktree_reap.go) for the container sweep.
+// ContainerReapVerdict is classifyContainer's judgement of one candidate,
+// mirroring WorktreeVerdict's vocabulary (see worktree_reap.go).
 type ContainerReapVerdict string
 
 const (
-	// ContainerReaped: the container's owner was confirmed dead and it was
-	// removed.
-	ContainerReaped ContainerReapVerdict = "reaped"
-	// ContainerSkipped: left running — no ctxloom-iso- name prefix, no/
-	// unparsable owner-pid or created-at label, an owner-pidns other than
-	// this process's own (or none), still inside the grace
-	// window, the owner is alive or its liveness could not be confirmed, or
-	// the remove itself failed. Every one of these is "never touched, on
-	// doubt" — see classifyContainer's doc.
+	// ContainerOrphaned: the container's owner is confirmed dead.
+	ContainerOrphaned ContainerReapVerdict = "orphaned"
+	// ContainerSkipped: not judged an orphan — no ctxloom-iso- name prefix,
+	// no/unparsable owner-pid or created-at label, an owner-pidns other than
+	// this process's own (or none), still inside the grace window, or the
+	// owner is alive or its liveness could not be confirmed. Every one of
+	// these is "not an orphan, on doubt" — see classifyContainer's doc.
 	ContainerSkipped ContainerReapVerdict = "skipped"
 )
 
-// ContainerCandidate is one container Enumerate reported and what the reaper
-// decided about it.
+// ContainerCandidate is one container Enumerate reported and what
+// classifyContainer decided about it.
 type ContainerCandidate struct {
 	Name       string
 	OwnerPID   int
@@ -107,68 +104,37 @@ type ContainerCandidate struct {
 	Reason     string
 }
 
-// ContainerReapResult tallies one ReapOrphanedContainers sweep, for a
-// one-line boot-transcript summary — report only when something was actually
-// removed, so the all-clear path stays silent (mirrors WorktreeReapResult).
-type ContainerReapResult struct {
-	Reaped  int
-	Skipped int
-}
-
-// ReapOrphanedContainers sweeps every RUNNING ctxloom-iso-* container rt can
-// see (via Enumerate) and force-removes the ones whose owning ctxloom process
-// is CONFIRMED dead.
+// FindOrphanedContainers lists every RUNNING ctxloom-iso-* container rt can
+// see (via Enumerate) whose owning ctxloom process is CONFIRMED dead, and
+// touches none of them.
 //
-// It is a MANUAL backstop, reachable only from `ctxloom doctor`: an owner
-// that dies without tearing its runner down (SIGKILL, an OOM kill, a closed
-// terminal) leaves the runner to notice on its own — it exits once it has
-// waited its owner-loss window on the absent coordinator (runner.Home.OwnerLost),
-// and --rm removes the exited container. What that leaves for this sweep is a
-// runner WEDGED past its own exit: a container still RUNNING whose owner is
-// dead. Nothing runs it at startup, because a host run must touch no
-// container runtime at all.
+// A dead owner does not by itself make a container garbage: a runner whose
+// coordinator died waits out its owner-loss window (runner.Home.OwnerLost)
+// for a restarted coordinator to re-adopt it, and exits on its own — --rm
+// then removes the container — when none does. Within that window a healthy
+// runner and a wedged one look identical here; one still listed after it is
+// wedged. That is why this only answers the question and leaves acting on it
+// to its caller.
 //
-// Every candidate is skipped rather than reaped on ANY doubt — the same
-// conservatism ReapOrphanedWorktrees applies, and for the same reason: a
-// destructive, irreversible decision must never be authorised by ambiguity.
-// See classifyContainer for the exact rules. Best-effort throughout: an
-// Enumerate or per-container remove failure warns and moves on, never
-// aborting the sweep or the caller's own startup.
-func ReapOrphanedContainers(ctx context.Context, rt Runtime) ContainerReapResult {
-	var result ContainerReapResult
+// Every candidate is classified by classifyContainer, which says "not an
+// orphan" on ANY doubt. An Enumerate failure is returned: a runtime that
+// could not list its containers has not shown it holds none.
+func FindOrphanedContainers(ctx context.Context, rt Runtime) ([]ContainerCandidate, error) {
 	if rt == nil {
-		return result
+		return nil, nil
 	}
-
 	infos, err := rt.Enumerate(ctx, containerNamePrefix)
 	if err != nil {
-		// The sweep is best-effort by contract (see doc above): warn and
-		// report nothing rather than propagate.
-		clidiag.Warn("ctxloom", "container reap (%s): %v", rt.Name(), err)
-		return result
+		return nil, fmt.Errorf("list %s containers: %w", rt.Name(), err)
 	}
-
 	now := time.Now()
+	var out []ContainerCandidate
 	for _, info := range infos {
-		c := classifyContainer(now, info)
-		if c.Verdict != ContainerReaped {
-			result.Skipped++
-			continue
+		if c := classifyContainer(now, info); c.Verdict == ContainerOrphaned {
+			out = append(out, c)
 		}
-
-		// classifyContainer only ever proposes ContainerReaped for a
-		// confirmed-dead owner past the grace window with a matching name —
-		// the actual removal (and its own failure mode) happens here, kept
-		// separate so classification stays a pure decision a unit test can
-		// exercise without invoking probeExec/RemoveArgs at all.
-		if out, rerr := probeExec(ctx, rt.Binary(), rt.RemoveArgs(info.Name)); rt.removeOutcome([]byte(out), rerr) == removeFailed {
-			clidiag.Warn("ctxloom", "container reap: %s owner %d is dead but rm -f failed (leaving it in place): %v", info.Name, c.OwnerPID, rerr)
-			result.Skipped++
-			continue
-		}
-		result.Reaped++
 	}
-	return result
+	return out, nil
 }
 
 // ownerPIDOf reads the owner pid a container's labels carry. why is non-empty
@@ -190,7 +156,7 @@ func ownerPIDOf(labels map[string]string) (pid int, why string) {
 	return pid, ""
 }
 
-// classifyContainer decides whether one ContainerInfo is reapable, applying
+// classifyContainer decides whether one ContainerInfo is an orphan, applying
 // every safety rule in one place and touching nothing:
 //
 //   - its name must carry the containerNamePrefix ("ctxloom-iso-") this
@@ -198,7 +164,7 @@ func ownerPIDOf(labels map[string]string) (pid int, why string) {
 //     considered, regardless of what labels it happens to carry;
 //   - it must carry a present, parsable, positive owner-pid label — absent
 //     or unparsable is treated exactly like "cannot prove the owner dead",
-//     never as "no owner, safe to reap";
+//     never as "no owner, an orphan";
 //   - it must carry an owner-pidns label equal to this process's own pid
 //     namespace — a pid from another namespace names nothing here;
 //   - it must carry a present, parsable created-at label at least
@@ -245,9 +211,9 @@ func classifyContainer(now time.Time, info ContainerInfo) ContainerCandidate {
 	}
 
 	// MaybeAlive (not a bare == Alive check) treats an unconfirmable probe
-	// the same as a live owner — see pidalive.State.MaybeAlive's doc: reaping
-	// is destructive and irreversible, so an unsure verdict must skip exactly
-	// like a confirmed-live owner, never fall through toward removal.
+	// the same as a live owner — see pidalive.State.MaybeAlive's doc: removing
+	// an orphan is destructive and irreversible, so an unsure verdict must
+	// skip exactly like a confirmed-live owner, never read as an orphan.
 	c.OwnerState = pidalive.Probe(pid)
 	if c.OwnerState.MaybeAlive() {
 		c.Verdict = ContainerSkipped
@@ -259,7 +225,7 @@ func classifyContainer(now time.Time, info ContainerInfo) ContainerCandidate {
 		return c
 	}
 
-	c.Verdict = ContainerReaped
+	c.Verdict = ContainerOrphaned
 	c.Reason = fmt.Sprintf("owner process %d is confirmed dead", pid)
 	return c
 }

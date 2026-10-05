@@ -125,8 +125,8 @@ Feature: The archaeologist — what did we decide in March?
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | outcome  | detail                                            |
-      |               | succeeds | reports "distilled" as "false"                    |
-      | --format json | succeeds | reports "distilled" as "false"                    |
+      |               | succeeds | reports "compacted" as "false"                    |
+      | --format json | succeeds | reports "compacted" as "false"                    |
       | --format text | fails    | contains "session compact brisk-copper-moth"      |
 
   # THE PAYOFF. Everything upstream — the tee, the readers, the canonical

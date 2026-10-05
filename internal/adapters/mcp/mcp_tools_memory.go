@@ -68,7 +68,7 @@ type sessionSummary struct {
 	Backend      string `json:"backend"`
 	Title        string `json:"title"`
 	LastActivity string `json:"last_activity"`
-	Distilled    bool   `json:"distilled"`
+	Compacted    bool   `json:"compacted"`
 }
 
 type listSessionsResult struct {
@@ -278,7 +278,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 // activity-sorted by operations.ListSessionsForProject / ListAllSessions —
 // same ordering and formatting as `ctxloom session list`.
 //
-// distill_missing compacts title-less/stale rows first. Unlike the CLI, the
+// compact_missing compacts title-less/stale rows first. Unlike the CLI, the
 // long-lived MCP server must NOT chdir, so it calls compactEntry in place:
 // canonical-transcript and preloaded-transcript sessions compact
 // cwd-independently; a legacy session that needs the cwd-bound engine reader
@@ -300,7 +300,7 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 		return nil, nil, fmt.Errorf("list sessions: %w", err)
 	}
 
-	if in.DistillMissing {
+	if in.CompactMissing {
 		s.compactMissingForList(ctx, entries)
 		// Re-read so freshly-written summaries render in the returned rows.
 		if refreshed, rerr := loadEntries(); rerr == nil {
@@ -316,7 +316,7 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 			Backend:      v.Engine,
 			Title:        v.Summary,
 			LastActivity: v.LastActivity.Local().Format("2006-01-02 15:04:05"),
-			Distilled:    v.Distilled,
+			Compacted:    v.Compacted,
 		})
 	}
 	return nil, &listSessionsResult{Sessions: rows}, nil

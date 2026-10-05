@@ -275,7 +275,7 @@ var relayBudgets = map[string]time.Duration{
 	"load_session":         DistillBudget,
 	"recover_session":      DistillBudget,
 	"get_previous_session": DistillBudget,
-	// list_sessions is a fast index read by default, but distill_missing=true
+	// list_sessions is a fast index read by default, but compact_missing=true
 	// compacts every title-less/stale row inline — the same minutes-long LLM
 	// work the other compaction tools do, so it needs the same backstop.
 	"list_sessions": DistillBudget,

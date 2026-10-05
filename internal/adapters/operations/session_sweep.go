@@ -72,7 +72,7 @@ type SessionFacts struct {
 	LockReason string              `json:"lock_reason,omitempty"`
 	OwnerPID   int                 `json:"owner_pid,omitempty"`
 	Kept       bool                `json:"kept,omitempty"`
-	Distilled  bool                `json:"distilled"`
+	Compacted  bool                `json:"compacted"`
 	// Worktrees is the scratch worktrees' classification, taken only for a
 	// provably-dead session; WorktreeErr is set when it could not be taken.
 	Worktrees   []isolation.WorktreeCandidate `json:"-"`
@@ -262,7 +262,7 @@ func purgeRow(f SessionFacts, req SweepRequest) SweepRow {
 	switch {
 	case f.Mail > 0:
 		return newSweepRow(f, SweepSpare, SweepLeft, fmt.Sprintf("%d undelivered message(s) wait in its spool, so it is spared from purge", f.Mail))
-	case !f.Distilled && f.Origin != sessions.OriginOneShot:
+	case !f.Compacted && f.Origin != sessions.OriginOneShot:
 		r := newSweepRow(f, SweepSpare, SweepLeft, "it was never compacted, so its transcript is its only record and it is never purged")
 		r.Command = fmt.Sprintf("ctxloom session compact %s", f.Harp)
 		return r
@@ -351,8 +351,8 @@ func classifySession(ctx context.Context, g git.Git, l sessions.Layout, store se
 	if _, err := os.Lstat(l.KeepMarker(name)); err == nil {
 		f.Kept = true
 	}
-	f.Distilled = sessions.Distilled(f.Dir)
-	f.Reclaimable, f.ReclaimBytes, f.ReclaimSymlink = measureReclaim(l, name, reclaimMembers(req, f.Distilled))
+	f.Compacted = sessions.Distilled(f.Dir)
+	f.Reclaimable, f.ReclaimBytes, f.ReclaimSymlink = measureReclaim(l, name, reclaimMembers(req, f.Compacted))
 
 	if probe.Verdict == sessionlock.Dead {
 		wts, err := isolation.ClassifyHarpWorktrees(ctx, g, name, probe)

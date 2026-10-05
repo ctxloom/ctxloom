@@ -73,7 +73,7 @@ func TestWithCompactBudget(t *testing.T) {
 	})
 }
 
-// THE HOST MUST NOT RUN list_sessions{distill_missing:true} UNBOUNDED.
+// THE HOST MUST NOT RUN list_sessions{compact_missing:true} UNBOUNDED.
 //
 // On the host-relay path the handler runs on the coordinator's deadline-less
 // base context: the caller's budget bounds only how long it WAITS, never the
@@ -88,7 +88,7 @@ func TestCompactMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 	require.NoError(t, err)
 
 	proj := t.TempDir()
-	// A harp with no essence on disk is exactly what distill_missing targets.
+	// A harp with no essence on disk is exactly what compact_missing targets.
 	e, err := mgr.AssignHarp(proj, "claude-code")
 	require.NoError(t, err)
 	_, err = mgr.RecordOutputDir(e.HarpName, t.TempDir())
@@ -116,19 +116,19 @@ func TestCompactMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 	s.compactMissingForList(context.Background(), entries)
 
 	require.True(t, gotDeadline,
-		"distill_missing spends LLM time; it must not inherit an unbounded host context")
+		"compact_missing spends LLM time; it must not inherit an unbounded host context")
 	assert.InDelta(t, mcpschema.DistillBudget.Seconds(), budget.Seconds(), 60,
 		"the bound must be the relay's DistillBudget")
 }
 
 // THE SECOND sessionEssenceInfo CALL IS THE POINT, NOT WASTE.
 //
-// With distill_missing=true, list_sessions probes each entry's essence twice:
+// With compact_missing=true, list_sessions probes each entry's essence twice:
 // once in compactMissingForList to decide whether the entry needs compacting,
 // and again when building the returned rows. Those two probes read DIFFERENT
 // states — before and after the compaction — and the entry list is re-read
 // between them for the same reason. Caching the first probe's answer and
-// reusing it would report a session that was just compacted as Distilled:false
+// reusing it would report a session that was just compacted as Compacted:false
 // and Title:"", i.e. list_sessions would deny having done the work it was
 // asked to do.
 func TestHandleListSessions_CompactMissingReportsThePostCompactState(t *testing.T) {
@@ -157,12 +157,12 @@ func TestHandleListSessions_CompactMissingReportsThePostCompactState(t *testing.
 	defer func() { compactEntryFn = prev }()
 
 	s := &ctxServer{facts: testLaunchFacts(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
-	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{AllProjects: true, DistillMissing: true})
+	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{AllProjects: true, CompactMissing: true})
 	require.NoError(t, err)
 	require.Len(t, out.Sessions, 1)
 	require.Equal(t, e.HarpName, out.Sessions[0].Harp)
 
-	assert.True(t, out.Sessions[0].Distilled,
+	assert.True(t, out.Sessions[0].Compacted,
 		"a session compacted by this very call must be reported compacted; a cached pre-compaction probe would say false")
 	assert.Equal(t, "compacted just now", out.Sessions[0].Title,
 		"the re-read exists so freshly-written summaries reach the returned rows")

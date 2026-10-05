@@ -28,8 +28,8 @@ type SessionView struct {
 	LastActivity time.Time `json:"last_activity"`
 	// Purged says `session purge` destroyed this session's transcript.
 	Purged bool `json:"purged,omitempty"`
-	// Distilled says an essence exists; EssencePath is where.
-	Distilled   bool   `json:"distilled"`
+	// Compacted says an essence exists; EssencePath is where.
+	Compacted   bool   `json:"compacted"`
 	EssencePath string `json:"essence_path,omitempty"`
 	// Stale says the essence predates the live transcript; StaleKnown says
 	// whether that could be determined at all (sessions.Entry.SourceStale).
@@ -50,7 +50,7 @@ func ViewSession(e sessions.Entry) SessionView {
 		LastActivity:  e.LastActivity,
 		Purged:        e.PurgedAt != nil,
 	}
-	v.EssencePath, v.Distilled = SessionEssenceInfo(e.HarpName, &e)
+	v.EssencePath, v.Compacted = SessionEssenceInfo(e.HarpName, &e)
 	v.Stale, v.StaleKnown = e.SourceStale()
 	return v
 }

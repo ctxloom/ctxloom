@@ -166,7 +166,7 @@ List harp-named sessions with their title, backend, last-activity time, and whet
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `all_projects` | boolean | No | List sessions from every project instead of only the current working directory's project (mirrors session list --all) |
-| `distill_missing` | boolean | No | Compact sessions whose essence is missing or stale before listing, so every row carries a title. Runs the compactor out of band; canonical-transcript sessions compact, legacy-only sessions are skipped. |
+| `compact_missing` | boolean | No | Compact sessions whose essence is missing or stale before listing, so every row carries a title. Runs the compactor out of band; canonical-transcript sessions compact, legacy-only sessions are skipped. |
 
 ### load_session
 

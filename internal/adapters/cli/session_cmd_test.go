@@ -442,3 +442,25 @@ func TestUncompactedSessionError_DistinguishesPendingFromUncompacted(t *testing.
 	assert.Contains(t, bound.Error(), "ctxloom session compact amber-swift-owl",
 		"a bound-but-uncompacted harp must name the command that fixes it")
 }
+
+// sessionCompactedKey is the JSON key session output uses for "an essence
+// exists". It is the session feature's word: content distillation keeps
+// "distilled" for its own items, so a session key spelled that way would read
+// as the other feature.
+const sessionCompactedKey = "compacted"
+
+// TestSessionJSON_SaysCompacted pins the key on both session surfaces that
+// report whether an essence exists: `session show` and `session artifacts list`.
+func TestSessionJSON_SaysCompacted(t *testing.T) {
+	for name, v := range map[string]any{
+		"session show":           sessionEssence{Harp: "h", Compacted: true},
+		"session artifacts list": sessionArtifactRow{Harp: "h", Compacted: true},
+	} {
+		raw, err := json.Marshal(v)
+		require.NoError(t, err, name)
+		var doc map[string]any
+		require.NoError(t, json.Unmarshal(raw, &doc), name)
+		assert.Equal(t, true, doc[sessionCompactedKey], "%s must report %q", name, sessionCompactedKey)
+		assert.NotContains(t, doc, "distilled", "%s must not use the content feature's key", name)
+	}
+}

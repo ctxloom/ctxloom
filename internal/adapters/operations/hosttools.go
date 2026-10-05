@@ -38,7 +38,7 @@ type GetPreviousSessionInput struct {
 // ListSessionsInput is the argument shape of list_sessions.
 type ListSessionsInput struct {
 	AllProjects    bool `json:"all_projects,omitempty" jsonschema:"List sessions from every project instead of only the current working directory's project (mirrors session list --all)"`
-	DistillMissing bool `json:"distill_missing,omitempty" jsonschema:"Compact sessions whose essence is missing or stale before listing, so every row carries a title. Runs the compactor out of band; canonical-transcript sessions compact, legacy-only sessions are skipped."`
+	CompactMissing bool `json:"compact_missing,omitempty" jsonschema:"Compact sessions whose essence is missing or stale before listing, so every row carries a title. Runs the compactor out of band; canonical-transcript sessions compact, legacy-only sessions are skipped."`
 }
 
 // ContextStatusInput is the argument shape of context_status.

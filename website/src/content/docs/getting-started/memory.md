@@ -35,7 +35,7 @@ ctxloom compacts out of band instead. It reads the transcript from disk, in a se
 
 Compaction is **on-demand**. Nothing compacts a session automatically when it ends; a session stays title-less until something asks for its essence. These ask for one:
 
-- `recover_session`, `load_session`, `get_previous_session`, `compact_session` and `list_sessions` with `distill_missing`, over MCP.
+- `recover_session`, `load_session`, `get_previous_session`, `compact_session` and `list_sessions` with `compact_missing`, over MCP.
 - `ctxloom run --session <harp> --compact`, which compacts the named session first if it has no essence yet.
 - `ctxloom session list --compact`, which compacts every listed session whose essence is missing or stale.
 - `ctxloom session compact <harp>`, which gives a session an essence ahead of need, or replaces a stale one.
@@ -125,7 +125,7 @@ ctxloom run --llm claude-fast --session <harp> --compact "review what was done"
 | `recover_session` | Recover the current session's context after `/clear` (identity-first: the active harp's bound session, falling back to the most-recently-touched transcript only if that binding is missing) |
 | `load_session` | Compact and load a session by backend session ID or harp name (harp wins) |
 | `get_previous_session` | Get the session *before* this one for this project, for inspecting earlier work. Not the post-`/clear` path, since `/clear` doesn't change which session is current |
-| `list_sessions` | List recent sessions; `distill_missing` compacts the ones without an essence first |
+| `list_sessions` | List recent sessions; `compact_missing` compacts the ones without an essence first |
 | `compact_session` | Compact a session's transcript on disk for a later session to pick up. It frees no context in the live conversation |
 
 See the [MCP tools reference](/reference/mcp-tools/) for every parameter.

@@ -45,7 +45,7 @@ var sessionArtifactsListAll bool
 // type, matching cli.SessionRow's convention (see session_row.go).
 type sessionArtifactRow struct {
 	Harp      string `json:"harp"           label:"Harp"      col:"HARP"`
-	Distilled bool   `json:"distilled"      label:"Distilled" col:"COMPACTED"`
+	Compacted bool   `json:"compacted"      label:"Compacted" col:"COMPACTED"`
 	Bytes     int64  `json:"bytes"          label:"Bytes"     col:"BYTES"`
 	Path      string `json:"path,omitempty" label:"Path"      col:"PATH"`
 }
@@ -98,7 +98,7 @@ func runSessionArtifactsList(cmd *cobra.Command, args []string) error {
 func newSessionArtifactRow(harp string) sessionArtifactRow {
 	row := sessionArtifactRow{Harp: harp}
 	if path, size, ok := statHarpFile(afero.NewOsFs(), harp, essencePath); ok {
-		row.Distilled = true
+		row.Compacted = true
 		row.Bytes = size
 		row.Path = path
 	}

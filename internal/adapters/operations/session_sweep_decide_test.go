@@ -34,7 +34,7 @@ func sdDead() SessionFacts {
 		LastActive:   sdNow.Add(-120 * 24 * time.Hour),
 		Lock:         sessionlock.Dead,
 		LockReason:   "its lock file exists and nothing holds it",
-		Distilled:    true,
+		Compacted:    true,
 		Reclaimable:  true,
 		ReclaimBytes: 10,
 		Purgeable:    true,
@@ -129,7 +129,7 @@ func TestDecideSweep(t *testing.T) {
 		},
 		{
 			name:  "8 a human's uncompacted session is never purged, and is told how to compact",
-			facts: func() SessionFacts { f := sdDead(); f.Distilled = false; return f },
+			facts: func() SessionFacts { f := sdDead(); f.Compacted = false; return f },
 			want:  []SweepAction{SweepReclaim, SweepSpare},
 			check: func(t *testing.T, rows []SweepRow) {
 				assert.Equal(t, "ctxloom session compact aged-quiet-heron", rows[1].Command)
@@ -137,7 +137,7 @@ func TestDecideSweep(t *testing.T) {
 		},
 		{
 			name:  "9 an internal one-shot is purged without a compact",
-			facts: func() SessionFacts { f := sdDead(); f.Distilled = false; f.Origin = sessions.OriginOneShot; return f },
+			facts: func() SessionFacts { f := sdDead(); f.Compacted = false; f.Origin = sessions.OriginOneShot; return f },
 			want:  []SweepAction{SweepReclaim, SweepPurge},
 		},
 		{

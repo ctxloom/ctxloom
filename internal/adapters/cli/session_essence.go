@@ -25,7 +25,7 @@ import (
 // READ is a different fact and is reported rather than passed off as
 // never-compacted.
 func readSessionEssence(fsys afero.Fs, v operations.SessionView) (string, bool) {
-	if !v.Distilled {
+	if !v.Compacted {
 		return "", false
 	}
 	data, err := afero.ReadFile(fsys, v.EssencePath)

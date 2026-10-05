@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -97,4 +98,14 @@ func TestHandleListSessions_DefaultScopeIsTheCallersProject(t *testing.T) {
 	for _, row := range out.Sessions {
 		assert.NotEqual(t, harpB, row.Harp, "cwd scope must exclude other projects")
 	}
+}
+
+// TestSessionSummary_SaysCompacted pins list_sessions' per-row key.
+func TestSessionSummary_SaysCompacted(t *testing.T) {
+	raw, err := json.Marshal(sessionSummary{Harp: "h", Compacted: true})
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(raw, &doc))
+	assert.Equal(t, true, doc["compacted"])
+	assert.NotContains(t, doc, "distilled")
 }

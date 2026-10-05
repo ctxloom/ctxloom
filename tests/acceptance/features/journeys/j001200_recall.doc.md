@@ -87,7 +87,7 @@ ESSENCE, not the raw conversation — confirmed by `mcp_tools.feature`'s own
 "Load a prior session's essence over MCP" scenario, which names it that way in
 its title. That is the deliberate design, not a gap: on-demand compaction
 (`load_session`, `recover_session`, `get_previous_session`,
-`list_sessions(distill_missing)`) is the surface the project has committed to
+`list_sessions(compact_missing)`) is the surface the project has committed to
 keeping (task `close-ducky` removes only the automatic *post-session* compact
 pass; this on-demand path is explicitly unaffected).
 

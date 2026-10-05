@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,7 +50,7 @@ func TestViewSession_CarriesTheRecordAndTheDerivedFacts(t *testing.T) {
 	assert.True(t, v.EndedAt.Equal(ended))
 	assert.True(t, v.LastActivity.Equal(ended))
 	assert.True(t, v.Purged)
-	assert.True(t, v.Distilled)
+	assert.True(t, v.Compacted)
 	assert.Equal(t, essence, v.EssencePath)
 	assert.False(t, v.StaleKnown, "no transcript to compare the essence against")
 }
@@ -61,7 +62,7 @@ func TestViewSession_UncompactedHasNoEssence(t *testing.T) {
 
 	v := ViewSession(sessions.Entry{HarpName: "never-compacted-harp"})
 
-	assert.False(t, v.Distilled)
+	assert.False(t, v.Compacted)
 	assert.Empty(t, v.EssencePath)
 	assert.False(t, v.Purged)
 	assert.Nil(t, v.EndedAt)
@@ -79,4 +80,28 @@ func TestViewSessions_KeepsTheListingsOrder(t *testing.T) {
 	assert.Equal(t, "b-harp", views[0].Harp)
 	assert.Equal(t, "a-harp", views[1].Harp)
 	assert.NotNil(t, ViewSessions(nil), "an empty listing is an empty slice, not nil")
+}
+
+// TestSessionJSON_SaysCompacted pins the "an essence exists" key on the
+// operations session projections the CLI and MCP serialise.
+func TestSessionJSON_SaysCompacted(t *testing.T) {
+	const key = "compacted"
+	for name, v := range map[string]any{
+		"SessionView":  SessionView{Compacted: true},
+		"SessionFacts": SessionFacts{Compacted: true},
+	} {
+		raw, err := json.Marshal(v)
+		require.NoError(t, err, name)
+		var doc map[string]any
+		require.NoError(t, json.Unmarshal(raw, &doc), name)
+		assert.Equal(t, true, doc[key], "%s must report %q", name, key)
+		assert.NotContains(t, doc, "distilled", name)
+	}
+}
+
+// TestListSessionsInput_TakesCompactMissing pins list_sessions' input key.
+func TestListSessionsInput_TakesCompactMissing(t *testing.T) {
+	var in ListSessionsInput
+	require.NoError(t, json.Unmarshal([]byte(`{"compact_missing": true}`), &in))
+	assert.True(t, in.CompactMissing, "compact_missing must set the flag")
 }

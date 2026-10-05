@@ -100,7 +100,7 @@ func sessionAppDir() string {
 // without branching on an exit code.
 type sessionEssence struct {
 	Harp      string `json:"harp"`
-	Distilled bool   `json:"distilled"`
+	Compacted bool   `json:"compacted"`
 	Essence   string `json:"essence"`
 	// EssencePath is the absolute path to the essence file when compacted, "" (and
 	// omitted) otherwise — so a client can open the real file rather than rebuild
@@ -126,7 +126,7 @@ func runSessionShow(cmd *cobra.Command, args []string) error {
 	}
 	view := operations.ViewSession(*entry)
 	essence, compacted := readSessionEssence(afero.NewOsFs(), view)
-	return emit(cmd, sessionEssence{Harp: harp, Distilled: compacted, Essence: essence, EssencePath: view.EssencePath}, func() error {
+	return emit(cmd, sessionEssence{Harp: harp, Compacted: compacted, Essence: essence, EssencePath: view.EssencePath}, func() error {
 		if !compacted {
 			return uncompactedSessionError(harp, view.NativeSession)
 		}

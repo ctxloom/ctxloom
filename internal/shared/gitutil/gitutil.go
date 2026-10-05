@@ -23,12 +23,16 @@
 // that git and go-git disagree about is not a mutation anyone can review.
 //
 // ENVIRONMENT SANITIZATION. Both layers depend on this package for one thing
-// in common: RepoLocationEnvVars and SanitizedEnviron are the single home of
-// the environment variables that override WHICH repository git operates on.
-// internal/adapters/git and internal/adapters/remote build every git child process's environment
-// from SanitizedEnviron so that cmd.Dir is the only thing selecting a
-// repository. That list lives here, in the layer that spawns nothing, so there
-// is exactly one of it.
+// in common: IsRepoLocationEnvVar and SanitizedEnviron are the single home of
+// the environment variables that override WHICH repository git operates on, or
+// its config. internal/adapters/git and internal/adapters/remote build every git
+// child process's environment from SanitizedEnviron so that cmd.Dir is the only
+// thing selecting a repository. The set is not kept by hand: it is git's own
+// answer to `git rev-parse --local-env-vars`, asked once per process. That probe
+// is the one subprocess this package runs, and it reads no repository — it lives
+// here, rather than in the layer that executes git, because
+// internal/adapters/remote needs the same set and adapters do not import each
+// other.
 package gitutil
 
 import (
@@ -41,35 +45,19 @@ import (
 	"github.com/go-git/go-git/v5"
 )
 
-// RepoLocationEnvVars are environment variables that override WHICH
-// repository git operates on, ignoring an exec.Cmd's Dir entirely: GIT_DIR/
-// GIT_WORK_TREE point git at a different worktree outright; GIT_INDEX_FILE/
-// GIT_COMMON_DIR/GIT_OBJECT_DIRECTORY redirect pieces of it. If any of these
-// leak from ctxloom's own process environment into a git child process,
-// every operation could silently target the wrong repository.
-var RepoLocationEnvVars = []string{
-	"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
-}
-
-// SanitizedEnviron returns os.Environ() with RepoLocationEnvVars stripped —
-// removed outright, not set to empty (git treats GIT_DIR="" as still
-// present) — so cmd.Dir is the only thing that can select which repository a
-// git child process operates on. Shared by internal/adapters/git (the exec.Cmd-based
-// git.Git implementation) and internal/adapters/remote (clone/fetch over the network)
-// so the one list of dangerous env vars lives in one place.
+// SanitizedEnviron returns os.Environ() without the variables
+// IsRepoLocationEnvVar names — removed outright, not set to empty (git treats
+// GIT_DIR="" as still present) — so cmd.Dir and the repository's own config are
+// the only things selecting which repository a git child process operates on
+// and how it is configured. Shared by internal/adapters/git (the exec.Cmd-based
+// git.Git implementation) and internal/adapters/remote (clone/fetch over the
+// network).
 func SanitizedEnviron() []string {
 	env := os.Environ()
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
 		key, _, _ := strings.Cut(kv, "=")
-		blocked := false
-		for _, bad := range RepoLocationEnvVars {
-			if key == bad {
-				blocked = true
-				break
-			}
-		}
-		if !blocked {
+		if !IsRepoLocationEnvVar(key) {
 			out = append(out, kv)
 		}
 	}

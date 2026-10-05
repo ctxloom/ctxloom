@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -165,7 +164,8 @@ const gitCeilingEnv = "GIT_CEILING_DIRECTORIES"
 //   - an inherited GIT_DIR. `git bisect run` and every git hook export it to
 //     their children, so a suite run under either inherits the REAL repo's
 //     gitdir; `git init` then re-initialises that repository instead of the
-//     fixture's directory. HermeticGitEnv strips it and its siblings.
+//     fixture's directory. HermeticGitEnv strips it and its siblings, along
+//     with the config overrides `git -c` exports to its children.
 //   - an empty or relative dir, which runs git in the test binary's working
 //     directory: the package directory, inside the real checkout. Refused
 //     with ErrGitDirNotAbsolute, returned by Run/Output/Start.
@@ -186,15 +186,15 @@ func GitCmd(dir string, env []string, args ...string) *exec.Cmd {
 }
 
 // HermeticGitEnv returns base without the variables that retarget which
-// repository git operates on (gitutil.RepoLocationEnvVars, the one list of
-// them), and with repository discovery fenced at os.TempDir(). For a harness
+// repository git operates on or override its config (gitutil.IsRepoLocationEnvVar
+// names them), and with repository discovery fenced at os.TempDir(). For a harness
 // that builds its own full environment rather than inheriting the ambient one,
 // it is applied to that environment instead.
 func HermeticGitEnv(base []string) []string {
 	out := make([]string, 0, len(base)+1)
 	for _, kv := range base {
 		key, _, _ := strings.Cut(kv, "=")
-		if key == gitCeilingEnv || slices.Contains(gitutil.RepoLocationEnvVars, key) {
+		if key == gitCeilingEnv || gitutil.IsRepoLocationEnvVar(key) {
 			continue
 		}
 		out = append(out, kv)

@@ -1,8 +1,11 @@
 package gitutil
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -12,15 +15,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
-// The package doc now makes two claims a reader will act on. Both are pinned
-// here, because a doc nobody can verify is worth less than no doc: it is
-// believed and then quietly stops being true.
+// The package doc makes claims a reader will act on. They are pinned here,
+// because a doc nobody can verify is worth less than no doc: it is believed
+// and then quietly stops being true.
 
 // CLAIM: SanitizedEnviron REMOVES the repository-location variables outright,
 // rather than blanking them — git treats GIT_DIR="" as still present, so an
-// emptied variable is not a removed one.
+// emptied variable is not a removed one. That includes the numbered config
+// override pairs git does not list by name.
 func TestSanitizedEnviron_RemovesRatherThanBlanks(t *testing.T) {
-	for _, name := range RepoLocationEnvVars {
+	stripped := append(slices.Clone(repoLocationEnvVars()), "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0")
+	for _, name := range stripped {
 		t.Setenv(name, "/somewhere/else")
 	}
 	t.Setenv("CTXLOOM_GITUTIL_PIN_KEEP", "kept")
@@ -33,7 +38,7 @@ func TestSanitizedEnviron_RemovesRatherThanBlanks(t *testing.T) {
 
 	// Assert by MEMBERSHIP on a parsed map, never by matching the dump: the
 	// process environment on a developer machine carries live credentials.
-	for _, name := range RepoLocationEnvVars {
+	for _, name := range stripped {
 		if _, present := got[name]; present {
 			t.Errorf("%s survived sanitization (blanking is not removal: git reads GIT_DIR=\"\" as set)", name)
 		}
@@ -42,32 +47,67 @@ func TestSanitizedEnviron_RemovesRatherThanBlanks(t *testing.T) {
 		"sanitization must strip the location variables and nothing else")
 }
 
-// CLAIM: the list is the single home of these variables, and it is the list
-// that matters — every variable git honours to redirect WHICH repository it
-// operates on. Losing an entry silently re-opens the hole, so the membership
-// is pinned rather than just the count.
-func TestRepoLocationEnvVars_Membership(t *testing.T) {
-	want := []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"}
-	assert.ElementsMatch(t, want, RepoLocationEnvVars)
+// CLAIM: the set is git's own answer, not a list kept here. Asserted as a
+// floor rather than an exact match, because it follows the installed git: the
+// floor is the variables whose absence from the set is a known hole.
+func TestRepoLocationEnvVars_ComeFromGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	probed, err := probeLocalEnvVars()
+	require.NoError(t, err)
+	assert.Subset(t, probed, []string{
+		"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+		"GIT_CONFIG_PARAMETERS", configCountEnv, "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_SHALLOW_FILE",
+	})
+	assert.Equal(t, probed, repoLocationEnvVars(), "the sanitiser does not use git's answer")
 }
 
-// CLAIM: this is the layer that spawns nothing. If a write operation or a
-// subprocess ever lands here, the boundary the package doc describes has
+// CLAIM: when git cannot be asked, the sanitiser still strips — it falls back to
+// a known set rather than passing every variable through.
+func TestResolveLocalEnvVars_FallsBackWhenGitCannotAnswer(t *testing.T) {
+	errNoGit := errors.New("no git")
+	for name, probe := range map[string]func() ([]string, error){
+		"error": func() ([]string, error) { return nil, errNoGit },
+		"empty": func() ([]string, error) { return nil, nil },
+	} {
+		assert.Equal(t, fallbackLocalEnvVars, resolveLocalEnvVars(probe), name)
+	}
+	assert.Contains(t, fallbackLocalEnvVars, configCountEnv,
+		"without the counter in the fallback, the numbered override pairs pass through")
+}
+
+// CLAIM: this layer reads repositories in process. Its one subprocess is the
+// repository-independent probe in localenv.go; if any other subprocess or a
+// write operation lands here, the boundary the package doc describes has
 // stopped being true and the doc is now actively misleading.
-func TestGitutil_SpawnsNoSubprocesses(t *testing.T) {
+func TestGitutil_SpawnsOnlyTheLocalEnvProbe(t *testing.T) {
 	// Resolved from this test's COMPILED-IN source path, not the cwd: a scan
 	// rooted at "." finds nothing the moment anything moves the working
 	// directory, and a gate that finds nothing passes.
 	dir, err := sourcedir.Dir()
 	require.NoError(t, err, "could not locate this package's source directory")
-	src, err := os.ReadFile(filepath.Join(dir, "gitutil.go"))
+	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	require.NoError(t, err)
-	require.NotEmpty(t, src, "the scan found an empty file; it is not scanning what it thinks")
-	body := string(src)
-	for _, forbidden := range []string{`"os/exec"`, "exec.Command"} {
-		if strings.Contains(body, forbidden) {
-			t.Errorf("gitutil.go references %s: this layer answers in process; "+
-				"anything that must run the git binary belongs in internal/adapters/git", forbidden)
+	probes := 0
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		require.NoError(t, err)
+		body := string(src)
+		if filepath.Base(f) == "localenv.go" {
+			probes = strings.Count(body, "exec.Command(")
+			assert.Contains(t, body, `exec.Command("git", "rev-parse", "--local-env-vars")`)
+			continue
+		}
+		for _, forbidden := range []string{`"os/exec"`, "exec.Command"} {
+			if strings.Contains(body, forbidden) {
+				t.Errorf("%s references %s: this layer answers in process; "+
+					"anything that must run the git binary belongs in internal/adapters/git", filepath.Base(f), forbidden)
+			}
 		}
 	}
+	assert.Equal(t, 1, probes, "localenv.go must spawn exactly the one probe; the scan is not looking at it otherwise")
 }

@@ -61,13 +61,12 @@ func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.Bundle
 	}
 
 	// Removed-upstream bundles via the Resolver's history walk over the installed
-	// clones. Best-effort: a failure here must not break listing what's present.
+	// clones, kept to the ones this project depends on. Best-effort: a failure
+	// here must not break listing what's present. An unreadable lockfile is
+	// warned by bundleListDeletedResolver, which reads it first.
 	deleted, _ := bundleListDeletedResolver(cfg).ListDeleted(ctx, remote.ItemTypeBundle)
-	for _, ref := range deleted {
-		key, err := ref.LockKey()
-		if err != nil {
-			continue
-		}
+	lock, _ := remote.NewLockfileManager(ProjectAppDir(cfg), remote.WithLockfileFS(afero.NewOsFs())).Load()
+	for _, key := range deletedDependencies(deleted, lock) {
 		name := string(key)
 		if seen[name] {
 			continue
@@ -80,6 +79,28 @@ func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.Bundle
 
 	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
 	return infos, nil
+}
+
+// deletedDependencies keeps the removed-upstream references this project
+// depends on: those with a lockfile entry. A remote's history also holds every
+// bundle it ever dropped, most of which this project never installed, and a
+// listing of what is INSTALLED must not report those as having vanished. A nil
+// lockfile names no dependency, so it keeps nothing.
+func deletedDependencies(deleted []*remote.Reference, lock *remote.Lockfile) []trust.BundleKey {
+	if lock == nil {
+		return nil
+	}
+	var keys []trust.BundleKey
+	for _, ref := range deleted {
+		key, err := ref.LockKey()
+		if err != nil {
+			continue
+		}
+		if _, ok := lock.Bundles[key]; ok {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 // stampLockState copies the per-entry lockfile state a LISTING must show — held

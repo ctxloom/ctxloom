@@ -37,7 +37,7 @@ LOCAL-ONLY — nothing rebuilds them, so clean never takes them, and neither
 does --yes. lock.yaml survives too: it is rebuildable but committed, so
 deleting it would dirty your tree rather than free anything.
 
-Every session also leaves a directory under ~/.ctxloom/sessions/<harp>/,
+Every session also leaves a directory under ~/.ctxloom/sessions/<session-name>/,
 and clean reaps its DISPOSABLE members by age — the ones whose loss costs
 nothing because the next run rebuilds them: the engine's per-session home
 home/ (settings, scaffolding and the credential copied in for the run), the
@@ -54,10 +54,10 @@ The persistent machine members — transcripts/, native/ engine history, the
 mail spool/, the launch package/ store and the session's logs — are no age's
 to take. Pass --include-persist to reap them too, from the same aged
 sessions — except a session that was never compacted, whose transcript is
-its only record: it keeps them until 'ctxloom session compact <harp>'.
+its only record: it keeps them until 'ctxloom session compact <session-name>'.
 The session's identity (its session.yaml and keep marker) is never taken:
 the directory stays, and the session still lists and resolves. Nor is its
-output dir — essence, next step, plans — which lives outside
+output dir — summary, next step, plans — which lives outside
 ~/.ctxloom/sessions/ and which clean never touches.
 
 To exempt one session from every sweep, place an empty file named 'keep'
@@ -75,7 +75,7 @@ once, will NEVER reclaim it. That is deliberate, not a gap: nothing but the
 lock can tell such a session apart from one still running, and a bulk sweep
 is the wrong place to gamble a live session's scratch on a guess. Clearing
 one is a per-session decision a human makes by naming it:
-'ctxloom session transcript purge <harp> --even-if-live' (and the artifacts
+'ctxloom session transcript purge <session-name> --even-if-live' (and the artifacts
 counterpart) destroy the machine-written bulk of the one session you name.
 
 Without --yes this only reports; nothing on disk changes.

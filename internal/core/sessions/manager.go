@@ -924,7 +924,7 @@ func (m *Manager) renameSource(oldName, newName string) (cur *Entry, newDir stri
 		return nil, "", err
 	}
 	if cur == nil {
-		return nil, "", fmt.Errorf("harp not found: %q", oldName)
+		return nil, "", fmt.Errorf("session not found: %q", oldName)
 	}
 	newDir = filepath.Join(m.root, newName)
 	if _, err := os.Lstat(newDir); err == nil {
@@ -978,7 +978,7 @@ func (m *Manager) Forget(harpName string) error {
 	}
 	if err := os.Remove(sidecar); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("harp not found: %q", harpName)
+			return fmt.Errorf("session not found: %q", harpName)
 		}
 		return err
 	}

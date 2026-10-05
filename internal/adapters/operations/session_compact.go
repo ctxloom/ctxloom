@@ -123,7 +123,7 @@ func compactable(entry *sessions.Entry) error {
 	if entry.SessionID != "" || entry.CanonicalTranscriptPath != "" {
 		return nil
 	}
-	return fmt.Errorf("harp %q has no session_id bound and no captured transcript; nothing to compact", entry.HarpName)
+	return fmt.Errorf("session %q has no session_id bound and no captured transcript; nothing to compact", entry.HarpName)
 }
 
 // CompactionSource builds the transcript source the compactor reads for a

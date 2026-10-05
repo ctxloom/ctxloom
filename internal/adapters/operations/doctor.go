@@ -1659,7 +1659,7 @@ func doctorCheckHarpDurability() DoctorCheck {
 	entries, err := os.ReadDir(sessionsRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no harp directories yet"}
+			return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no session directories yet"}
 		}
 		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "cannot read sessions dir: " + err.Error()}
 	}
@@ -1682,11 +1682,11 @@ func doctorCheckHarpDurability() DoctorCheck {
 	}
 	if len(flagged) == 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorOK,
-			Detail: "no authored files sit in a harp directory's unclassified top level"}
+			Detail: "no authored files sit in a session directory's unclassified top level"}
 	}
 	list := doctorNamedList(flagged, doctorHarpDurabilityMaxNamed)
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf(
-		"%d authored file(s) sit in a harp directory's unclassified top level, which holds machine state only: %s — move each to its session's output dir (output_dir in the session's %s), where a human reads it and a containerized run keeps it",
+		"%d authored file(s) sit in a session directory's unclassified top level, which holds machine state only: %s — move each to its session's output dir (output_dir in the session's %s), where a human reads it and a containerized run keeps it",
 		len(flagged), list, paths.SessionSidecarFileName)}
 }
 
@@ -1751,7 +1751,7 @@ func doctorCheckSecretsStorage(getenv func(string) string) DoctorCheck {
 	if dir, ok := platform.Current().PrivateTmpfs(getenv); ok {
 		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "run secrets are written to the per-user tmpfs " + dir}
 	}
-	where := filepath.Join("~", paths.AppDirName, paths.SessionsDir, "<harp>", paths.ScratchDirName)
+	where := filepath.Join("~", paths.AppDirName, paths.SessionsDir, "<session-name>", paths.ScratchDirName)
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: isolation.SecretsOnDiskNotice(where)}
 }
 

@@ -41,7 +41,7 @@ func newSessionFullRow(fsys afero.Fs, v operations.SessionView) SessionFullRow {
 		if data, err := afero.ReadFile(fsys, row.EssencePath); err == nil {
 			essence = string(data)
 		} else {
-			clidiag.Warn("ctxloom", "essence for %s exists at %s but could not be read: %v", v.Harp, row.EssencePath, err)
+			clidiag.Warn("ctxloom", "summary for %s exists at %s but could not be read: %v", v.Harp, row.EssencePath, err)
 		}
 	}
 	return SessionFullRow{SessionRow: row, Essence: essence}
@@ -73,7 +73,7 @@ func renderSessionFullText(w io.Writer, rows []SessionFullRow) error {
 			ew.Printf("End: %s\n", r.End.String())
 		}
 		if r.EssencePath != "" {
-			ew.Printf("Essence: %s\n", r.EssencePath)
+			ew.Printf("Summary: %s\n", r.EssencePath)
 		}
 		ew.Println()
 		if r.Essence != "" {

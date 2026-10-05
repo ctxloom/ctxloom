@@ -24,25 +24,25 @@ var sessionQueryFull bool
 // top-level `ctxloom search` (verb-spine reorg §5).
 var sessionSearchCmd = &cobra.Command{
 	Use:   "search <word>...",
-	Short: "Search sessions by harp, summary, and compacted essence content (default: current project; --all for everything)",
-	Long: `Searches session metadata (harp name, summary, start/end) and, for
-sessions that have already been compacted, the essence body itself. Every
+	Short: "Search sessions by name, one-line summary, and compacted summary content (default: current project; --all for everything)",
+	Long: `Searches session metadata (session name, one-line summary, start/end) and, for
+sessions that have already been compacted, the summary body itself. Every
 given word must match, case-insensitively, somewhere in a session's
-metadata or essence for that session to be included (an AND across words,
+metadata or summary for that session to be included (an AND across words,
 not an OR).
 
-The search itself runs CLI-side: the essence body is read off disk, scanned,
+The search itself runs CLI-side: the summary body is read off disk, scanned,
 and discarded per session — it is never handed to a model and never
-returned in a result row (the same lightweight harp/summary/start/end shape
-` + "`session list`" + ` renders). Fetch a matched session's full essence with
-` + "`session show <harp>`" + `.`,
+returned in a result row (the same lightweight name/summary/start/end shape
+` + "`session list`" + ` renders). Fetch a matched session's full summary with
+` + "`session show <session-name>`" + `.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runSessionQuery,
 }
 
 func init() {
 	sessionSearchCmd.Flags().BoolVar(&sessionQueryAll, "all", false, "Search sessions from every project (default: filter to cwd)")
-	sessionSearchCmd.Flags().BoolVar(&sessionQueryFull, "full", false, "Include each matched session's complete compacted essence body (text output pages through $PAGER on a terminal)")
+	sessionSearchCmd.Flags().BoolVar(&sessionQueryFull, "full", false, "Include each matched session's complete compacted summary body (text output pages through $PAGER on a terminal)")
 	sessionCmd.AddCommand(sessionSearchCmd)
 }
 

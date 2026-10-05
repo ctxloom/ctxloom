@@ -122,7 +122,7 @@ func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 		return nil, err
 	}
 	if entry == nil {
-		return nil, fmt.Errorf("harp not found: %q", harp)
+		return nil, fmt.Errorf("session not found: %q", harp)
 	}
 	// TODO(slice 11b): adopt scans the engine's own transcript store through
 	// Engine.Transcripts(); until the readers are the engine's, only claude's
@@ -131,7 +131,7 @@ func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 		return nil, fmt.Errorf("session adopt: backend %q not supported yet", entry.Backend)
 	}
 	if entry.TranscriptPath == "" {
-		return nil, fmt.Errorf("session adopt: harp %q has no transcript_path bound; nothing to scan", harp)
+		return nil, fmt.Errorf("session adopt: session %q has no transcript_path bound; nothing to scan", harp)
 	}
 	scanDir := filepath.Dir(entry.TranscriptPath)
 
@@ -160,9 +160,9 @@ func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 			return nil, ferr
 		}
 		if found != nil {
-			reason := "already in this harp's lineage"
+			reason := "already in this session's lineage"
 			if found.HarpName != harp {
-				reason = fmt.Sprintf("bound to another harp %q", found.HarpName)
+				reason = fmt.Sprintf("bound to another session %q", found.HarpName)
 			}
 			unspanned = append(unspanned, AdoptCandidate{SessionID: sessionID, TranscriptPath: path, Verdict: AdoptVerdictSkip, Reason: reason})
 			continue

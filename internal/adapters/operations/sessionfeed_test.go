@@ -599,7 +599,7 @@ func TestWatchSessionFeed_ErrorSurface(t *testing.T) {
 
 	_, err := WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: "no-such-harp"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "harp not found")
+	assert.ErrorIs(t, err, sessions.ErrNotFound)
 
 	bare := seedFeedHarp(t, home, false) // no live tap, no transcript, no session id
 	_, err = WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: bare})

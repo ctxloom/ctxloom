@@ -66,17 +66,17 @@ func addEvenIfLiveFlag(cmd *cobra.Command, target *bool) {
 // --- session transcript purge -----------------------------------------------
 
 var sessionTranscriptPurgeCmd = &cobra.Command{
-	Use:   "purge <harp-name>",
-	Short: "Destroy a finished session's recorded conversation, keeping its essence",
-	Long: `Destroys the machine-written bulk under a harp's directory —
+	Use:   "purge <session-name>",
+	Short: "Destroy a finished session's recorded conversation, keeping its summary",
+	Long: `Destroys the machine-written bulk under a session's directory —
 everything under transcripts/ (the canonical transcript.jsonl and its
 rotation segments) and native/ (the engine's own history) — and nothing
-else. The compacted essence, the index entry and every authored file stay.
+else. The compacted summary, the index entry and every authored file stay.
 
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
 
-A session that was never compacted is REFUSED: with no essence, the
+A session that was never compacted is REFUSED: with no summary, the
 transcript is the only record of what happened. Pass --uncompacted to
 destroy it anyway.
 
@@ -100,11 +100,11 @@ func runSessionTranscriptPurge(cmd *cobra.Command, args []string) error {
 // --- session artifacts purge ------------------------------------------------
 
 var sessionArtifactsPurgeCmd = &cobra.Command{
-	Use:   "purge <harp-name>",
-	Short: "Destroy a finished session's derived essence, keeping its transcript",
+	Use:   "purge <session-name>",
+	Short: "Destroy a finished session's derived summary, keeping its transcript",
 	Long: `Destroys what compaction produced — essence.md — and nothing else. The
 transcript stays, which is what makes this reversible: while the transcript
-is on disk the essence can be produced again with 'ctxloom session compact'.
+is on disk the summary can be produced again with 'ctxloom session compact'.
 
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
@@ -127,10 +127,10 @@ func runSessionArtifactsPurge(cmd *cobra.Command, args []string) error {
 // --- session purge (the sweep) ----------------------------------------------
 
 var sessionPurgeCmd = &cobra.Command{
-	Use:   "purge <harp-name>",
+	Use:   "purge <session-name>",
 	Short: "Empty a finished session: its transcript, its artifacts and its scratch worktrees",
 	Long: `Sweeps all three of a session's destroyable populations at once —
-the recorded conversation, the derived essence, and the scratch git
+the recorded conversation, the derived summary, and the scratch git
 worktrees the session left in its work/ directory. Authored files are
 never destroyed; they are named in the report instead.
 
@@ -142,7 +142,7 @@ The index entry SURVIVES. Purge empties a session, it does not unlist it —
 
 A session that was never compacted is refused, because sweeping it would
 destroy the only record of what happened. The refusal names the leaf that
-can do it deliberately: 'ctxloom session transcript purge <harp>
+can do it deliberately: 'ctxloom session transcript purge <session-name>
 --uncompacted'.
 
 A session whose lock does not prove its owner dead is refused: a running
@@ -159,7 +159,7 @@ func init() {
 	sessionTranscriptPurgeCmd.Flags().BoolVarP(&sessionTranscriptPurgeYes, "yes", "y", false,
 		"apply the plan this invocation printed (default: report only)")
 	sessionTranscriptPurgeCmd.Flags().BoolVar(&sessionTranscriptPurgeUncompacted, "uncompacted", false,
-		"permit destroying the transcript of a session that has no essence")
+		"permit destroying the transcript of a session that has no summary")
 	addEvenIfLiveFlag(sessionTranscriptPurgeCmd, &sessionTranscriptPurgeEvenIfLive)
 	sessionTranscriptCmd.AddCommand(sessionTranscriptPurgeCmd)
 
@@ -363,7 +363,7 @@ func renderSessionPurgePlan(w io.Writer, res *operations.PurgeSessionResult) err
 	}
 	if len(rows) == 0 {
 		ew2 := errwriter.New(w)
-		ew2.Println("(nothing found in this harp's directory)")
+		ew2.Println("(nothing found in this session's directory)")
 		return ew2.Err()
 	}
 	return clifmt.Render(w, rows, clifmt.FormatText)

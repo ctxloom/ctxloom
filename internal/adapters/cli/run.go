@@ -184,7 +184,7 @@ func shellOutCompact(ctx context.Context, harpName string) error {
 // resumes, so it is meaningless on its own.
 func validateResumeFlags(session string, compact bool) error {
 	if compact && session == "" {
-		return fmt.Errorf("--compact requires --session <harp>")
+		return fmt.Errorf("--compact requires --session <session-name>")
 	}
 	return nil
 }
@@ -237,7 +237,7 @@ func resumeCompactEnv(harp string, essenceFn func(string) ([]byte, error), stale
 		// Unbounded context.Background(): this runs before the session's
 		// terminal is handed to the user, so there is no shell to unblock yet.
 		if dErr := compactFn(context.Background(), harp); dErr != nil {
-			clidiag.Warn("ctxloom", "could not compact %s for resume essence: %v", harp, dErr)
+			clidiag.Warn("ctxloom", "could not compact %s for resume summary: %v", harp, dErr)
 		}
 	}
 	return map[string]string{
@@ -265,7 +265,7 @@ func compactedResumePreview(harp string, staleFn func(string) bool) (essence, no
 	case essence == "":
 		note = fmt.Sprintf("%s is not compacted yet; the launch compacts it on demand before the session starts", harp)
 	case staleFn(harp):
-		note = fmt.Sprintf("%s's essence is stale; the launch re-compacts it before the session starts, so the session will see a newer one than this", harp)
+		note = fmt.Sprintf("%s's summary is stale; the launch re-compacts it before the session starts, so the session will see a newer one than this", harp)
 	}
 	return essence, note
 }
@@ -309,7 +309,7 @@ func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 	}, harpID, status, "")
 	if err != nil {
 		strictness.Fail(report.KindTask,
-			"check the task harp id (taskloom list), or drop --seed-task to launch without seeding",
+			"check the task id (taskloom list), or drop --seed-task to launch without seeding",
 			"seed task %s: %v", harpID, err)
 		return
 	}
@@ -347,7 +347,7 @@ Verbosity levels (-v can be repeated):
 
 Use --session <name> to resume a prior session by the name 'ctxloom session list' shows:
 its full recorded transcript is folded into this run's assembled context.
-Add --compact to resume via the session's compacted essence instead
+Add --compact to resume via the session's compacted summary instead
 (compacting on demand first if one doesn't exist yet).
 
 Exit status: when the engine ran and exited, ctxloom run exits with the
@@ -1085,7 +1085,7 @@ func printListOr(items []string, none string) {
 
 // printResumedEssence prints the compacted resume's essence and its note.
 func printResumedEssence(payload dryRunJSON) {
-	fmt.Printf("\n=== Resumed Essence (%s, delivered at session start) ===\n", runResumeSession)
+	fmt.Printf("\n=== Resumed Summary (%s, delivered at session start) ===\n", runResumeSession)
 	if payload.ResumedEssence != "" {
 		fmt.Println(payload.ResumedEssence)
 	}
@@ -1107,7 +1107,7 @@ func printResumedEssence(payload dryRunJSON) {
 func (st *runState) resumeEnv() map[string]string {
 	switch {
 	case runResumeSession != "" && runResumeCompact:
-		fmt.Fprintf(os.Stderr, "ctxloom: resuming compacted essence from %s\n", runResumeSession)
+		fmt.Fprintf(os.Stderr, "ctxloom: resuming compacted summary from %s\n", runResumeSession)
 		return resumeCompactEnv(runResumeSession, operations.ReadHarpEssence, resumeEssenceStale, shellOutCompact)
 	case runResumeSession != "":
 		fmt.Fprintf(os.Stderr, "ctxloom: resuming full transcript from %s\n", runResumeSession)
@@ -1583,12 +1583,12 @@ func init() {
 	// bare --session folds the harp's full recorded transcript into this run's
 	// assembled context; --session --compact resumes via its compacted essence
 	// instead, compacting on demand first if one doesn't exist yet.
-	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named session (see `ctxloom session list`): folds its full recorded transcript into this run's assembled context. Combine with --compact to resume via its compacted essence instead.")
-	runCmd.Flags().BoolVar(&runResumeCompact, "compact", false, "With --session, resume via the session's compacted essence instead of its full transcript (compacts on demand first if not yet compacted)")
+	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named session (see `ctxloom session list`): folds its full recorded transcript into this run's assembled context. Combine with --compact to resume via its compacted summary instead.")
+	runCmd.Flags().BoolVar(&runResumeCompact, "compact", false, "With --session, resume via the session's compacted summary instead of its full transcript (compacts on demand first if not yet compacted)")
 
 	// Internal: used by `ctxloom tasks run` to seed one browsed task into the
 	// new session's store. Hidden — not part of the public run surface.
-	runCmd.Flags().StringVar(&runSeedTask, "seed-task", "", "Move the named task (harp id) from the resume source store into this session, marked for active work")
+	runCmd.Flags().StringVar(&runSeedTask, "seed-task", "", "Move the named task (task id) from the resume source store into this session, marked for active work")
 	runCmd.Flags().StringVar(&runSeedStatus, "seed-status", "", "Status to set on the seeded task (default: \"In Progress\")")
 	_ = runCmd.Flags().MarkHidden("seed-task")
 	_ = runCmd.Flags().MarkHidden("seed-status")

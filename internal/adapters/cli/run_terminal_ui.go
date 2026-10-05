@@ -183,7 +183,7 @@ func surroundRows(held []coord.RosterEntry) []termui.RosterEntry {
 func diagnosticsLogPath(harp string) (string, error) {
 	p, err := paths.HarpDiagnosticsLogPath(harp)
 	if err != nil {
-		return "", fmt.Errorf("could not resolve a session dir for harp %q: %w", harp, err)
+		return "", fmt.Errorf("could not resolve a session dir for session %q: %w", harp, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return "", fmt.Errorf("could not create %s: %w", filepath.Dir(p), err)
@@ -217,7 +217,7 @@ func redirectDiagnosticsForTUI(harp string, announce io.Writer) func() {
 		return noop
 	}
 	if harp == "" {
-		return decline("this session has no harp, so there is no per-session log to divert them to")
+		return decline("this session has no session name, so there is no per-session log to divert them to")
 	}
 	path, err := diagnosticsLogPath(harp)
 	if err != nil {

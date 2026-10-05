@@ -474,7 +474,7 @@ func commitRebuild(fsys afero.Fs, rf *rebuildFile, e sessions.Entry, wm *transcr
 		// case (see appendRotationSegment's per-rotation stderr diagnostics
 		// for which files were actually missing).
 		if len(e.Rotations) > 0 {
-			return true, fmt.Errorf("rebuild canonical transcript for %s: %d rotation(s) recorded in this harp's lineage, but no bytes could be recovered from any of them or from the live transcript — every vendor file in the lineage is gone or produced nothing (see stderr for which)", e.HarpName, len(e.Rotations))
+			return true, fmt.Errorf("rebuild canonical transcript for %s: %d rotation(s) recorded in this session's lineage, but no bytes could be recovered from any of them or from the live transcript — every vendor file in the lineage is gone or produced nothing (see stderr for which)", e.HarpName, len(e.Rotations))
 		}
 		return false, nil
 	}

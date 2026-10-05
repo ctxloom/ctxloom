@@ -28,7 +28,7 @@ var sessionTranscriptCmd = groupNodeDefault(&cobra.Command{
 	Use:   "transcript",
 	Short: "The recorded conversation behind a session: list it, watch it, destroy it",
 	Long: `A session's transcript is ctxloom's own canonical, engine-agnostic record
-of what was said, at ~/.ctxloom/sessions/<harp>/transcripts/transcript.jsonl.
+of what was said, at ~/.ctxloom/sessions/<session-name>/transcripts/transcript.jsonl.
 
   list      which sessions have one, and how large it is (the bare form)
   watch     stream one as structured turns, live or from the store
@@ -54,14 +54,14 @@ type sessionTranscriptReport struct {
 }
 
 var sessionTranscriptListCmd = &cobra.Command{
-	Use:   "list [<harp-name>]",
+	Use:   "list [<session-name>]",
 	Short: "List which sessions have a captured transcript, and how large each one is",
 	Long: `Names every recorded session and whether ctxloom captured its transcript,
 with the size on disk. A session whose transcript was never captured is
 listed too, saying so — omitting it would make "nothing was captured"
 indistinguishable from "there are no sessions".
 
-Naming a harp restricts the listing to that one session.`,
+Naming a session restricts the listing to that one session.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSessionTranscriptList,
 }

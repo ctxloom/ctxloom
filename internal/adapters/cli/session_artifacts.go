@@ -24,17 +24,17 @@ import (
 
 var sessionArtifactsCmd = groupNodeDefault(&cobra.Command{
 	Use:   "artifacts",
-	Short: "What a session produced — its compacted essence: list it, destroy it",
+	Short: "What a session produced — its compacted summary: list it, destroy it",
 	Long: `A session's artifacts are what ctxloom derived from it: essence.md in
-the session's output dir (<Documents>/ctxloom/<project>/<harp>/ unless the
+the session's output dir (<Documents>/ctxloom/<project>/<session-name>/ unless the
 output_dir config key says otherwise). No sweep or clean ever removes it;
 purge here is the one command that does.
 
   list    which sessions have been compacted, and how large the result is
-  purge   destroy the essence, reporting first
+  purge   destroy the summary, reporting first
 
 Artifacts are recoverable in a way a transcript is not: while the transcript
-is still on disk, 'ctxloom session compact' produces the essence again.`,
+is still on disk, 'ctxloom session compact' produces the summary again.`,
 }, "list")
 
 // sessionArtifactsListAll widens the listing past the current project, the
@@ -56,14 +56,14 @@ type sessionArtifactReport struct {
 }
 
 var sessionArtifactsListCmd = &cobra.Command{
-	Use:   "list [<harp-name>]",
-	Short: "List which sessions have been compacted, and how large each essence is",
+	Use:   "list [<session-name>]",
+	Short: "List which sessions have been compacted, and how large each summary is",
 	Long: `Names every recorded session and whether it has been compacted yet, with
-the essence's size on disk. An uncompacted session is listed saying so —
+the summary's size on disk. An uncompacted session is listed saying so —
 omitting it would make "nothing has been compacted" indistinguishable from
 "there are no sessions".
 
-Naming a harp restricts the listing to that one session.`,
+Naming a session restricts the listing to that one session.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSessionArtifactsList,
 }

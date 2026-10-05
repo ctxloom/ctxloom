@@ -21,7 +21,7 @@ import (
 var sessionCmd = groupNodeDefault(&cobra.Command{
 	Use:   "session",
 	Short: "Browse and manage your recorded sessions",
-	Long: `Read and manage the harp-keyed sessions under ~/.ctxloom/sessions:
+	Long: `Read and manage the named sessions under ~/.ctxloom/sessions:
 one directory per session, each carrying its own record. Use to list/show/edit/remove
 sessions without launching the LLM. Sessions appear here automatically
 once ` + "`ctxloom run`" + ` has been used to launch a backend.`,
@@ -109,8 +109,8 @@ type sessionEssence struct {
 }
 
 var sessionShowCmd = &cobra.Command{
-	Use:   "show <harp-name>",
-	Short: "Print the compacted essence of a harp-named session",
+	Use:   "show <session-name>",
+	Short: "Print the compacted summary of a named session",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSessionShow,
 }
@@ -143,9 +143,9 @@ func runSessionShow(cmd *cobra.Command, args []string) error {
 // on hover without branching on an exit code.
 func uncompactedSessionError(harp, sessionID string) error {
 	if sessionID == "" {
-		return fmt.Errorf("harp %q is pending (no backend session ID bound yet)", harp)
+		return fmt.Errorf("session %q is pending (no backend session ID bound yet)", harp)
 	}
-	return fmt.Errorf("no essence for %q (run `ctxloom session compact %s` to compact this session first)", harp, harp)
+	return fmt.Errorf("no summary for %q (run `ctxloom session compact %s` to compact this session first)", harp, harp)
 }
 
 // sessionRemoveCmd is the canonical spine's `remove` for the session noun,
@@ -163,12 +163,12 @@ func uncompactedSessionError(harp, sessionID string) error {
 var sessionRemoveYes bool
 
 var sessionRemoveCmd = &cobra.Command{
-	Use:   "remove <harp-name>",
-	Short: "Remove a session entirely: its index entry, its transcript and its essence",
+	Use:   "remove <session-name>",
+	Short: "Remove a session entirely: its index entry, its transcript and its summary",
 	Long: `Removes all three of a session's own artifacts — the index entry, the
-recorded transcript, and the compacted essence.
+recorded transcript, and the compacted summary.
 
-Authored files in the harp directory are never destroyed; they are named in
+Authored files in the session directory are never destroyed; they are named in
 the report and left where they are, so removing a session cannot take work
 nobody filed with it.
 
@@ -177,7 +177,7 @@ changes, on a TTY or not.
 
 A session that was never compacted is refused, because removing it would
 destroy the only record of what happened. To do it deliberately, destroy the
-transcript first with 'ctxloom session transcript purge <harp> --uncompacted
+transcript first with 'ctxloom session transcript purge <session-name> --uncompacted
 --yes', then remove.
 
 To empty a session but keep it listed, use 'ctxloom session purge'.`,
@@ -264,11 +264,11 @@ func renderSessionRemove(w io.Writer, out sessionRemoveResult) error {
 }
 
 var sessionCompactCmd = &cobra.Command{
-	Use:   "compact <harp-name>",
-	Short: "Compact a session by harp name. Compaction is on-demand: nothing compacts a session automatically when it ends.",
-	Long: `Looks up the harp's bound session_id in its session record,
+	Use:   "compact <session-name>",
+	Short: "Compact a named session. Compaction is on-demand: nothing compacts a session automatically when it ends.",
+	Long: `Looks up the session's bound session_id in its session record,
 runs the compactor on that backend session, and writes a fresh essence.md
-under the harp directory. Errors if the harp has no session_id bound
+under the session directory. Errors if the session has no session_id bound
 (the SessionStart bind hook records it for sessions launched via ctxloom run).`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSessionCompact,
@@ -281,10 +281,10 @@ var sessionCompactPromptDir string
 
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
-	sessionListCmd.Flags().BoolVar(&sessionListCompact, "compact", false, "Compact sessions whose essence is missing or stale before listing, so every row shows a title")
+	sessionListCmd.Flags().BoolVar(&sessionListCompact, "compact", false, "Compact sessions whose summary is missing or stale before listing, so every row shows a title")
 	sessionRemoveCmd.Flags().BoolVarP(&sessionRemoveYes, "yes", "y", false,
 		"apply the plan this invocation printed (default: report only)")
-	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete compacted essence body (text output pages through $PAGER on a terminal)")
+	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete compacted summary body (text output pages through $PAGER on a terminal)")
 	sessionCompactCmd.Flags().StringVar(&sessionCompactPromptDir, "prompt-dir", "",
 		"Load compaction prompts from this directory instead of the built-in ones (expects <dir>/session-compact.md and <dir>/result-finding.md; a missing prompt is an error, not a fallback)")
 	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionRemoveCmd, sessionCompactCmd, sessionApprovalsCmd)

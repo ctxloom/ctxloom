@@ -7,7 +7,7 @@ import (
 
 // ErrNotFound is every adapter's refusal of a harp the store does not hold;
 // callers match it with errors.Is.
-var ErrNotFound = errors.New("sessions: harp not found")
+var ErrNotFound = errors.New("sessions: session not found")
 
 // Store is the storage port for the harp-keyed session store (ADR 0026).
 // *Manager is the filesystem adapter (session directories and their sidecars

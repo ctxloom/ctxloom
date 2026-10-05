@@ -30,7 +30,7 @@ func readSessionEssence(fsys afero.Fs, v operations.SessionView) (string, bool) 
 	}
 	data, err := afero.ReadFile(fsys, v.EssencePath)
 	if err != nil {
-		clidiag.Warn("ctxloom", "essence for %s exists at %s but could not be read: %v", v.Harp, v.EssencePath, err)
+		clidiag.Warn("ctxloom", "summary for %s exists at %s but could not be read: %v", v.Harp, v.EssencePath, err)
 		return "", false
 	}
 	return string(data), true

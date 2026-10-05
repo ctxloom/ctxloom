@@ -178,7 +178,7 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 		return nil, err
 	}
 	if entry == nil {
-		return nil, fmt.Errorf("harp not in index: %q", harp)
+		return nil, fmt.Errorf("session not in index: %q", harp)
 	}
 
 	harpDir, err := paths.HarpDir(harp)
@@ -238,7 +238,7 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 				res.Destroy = append(res.Destroy, it)
 			} else {
 				it.Action = "keep"
-				it.Reason = "derived essence: not this destroyer's population (see `ctxloom session artifacts purge`)"
+				it.Reason = "derived summary: not this destroyer's population (see `ctxloom session artifacts purge`)"
 				res.Keep = append(res.Keep, it)
 			}
 		case PurgeClassAuthored:

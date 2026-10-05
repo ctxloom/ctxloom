@@ -39,18 +39,18 @@ type sessionEditResult struct {
 }
 
 var sessionEditCmd = &cobra.Command{
-	Use:   "edit <harp-name>",
-	Short: "Assign a recorded session's fields (today: --name, which renames the harp)",
+	Use:   "edit <session-name>",
+	Short: "Assign a recorded session's fields (today: --name, which renames the session)",
 	Long: `Assigns fields on a session's index entry. Only the flags you pass are
 applied; everything else keeps its current value.
 
-  --name <new-harp>   rename the harp. The backend transcript is unaffected —
+  --name <new-name>   rename the session. The backend transcript is unaffected —
                       the entry keeps its bound session id, its transcript
-                      path and its essence; only the name it answers to moves.
+                      path and its summary; only the name it answers to moves.
 
 Unlike every other 'edit' in ctxloom, the bare form does NOT open an editor.
 A session is a record of something that happened: its index entry is written
-by ctxloom itself, and its essence is derived — 'ctxloom session compact'
+by ctxloom itself, and its summary is derived — 'ctxloom session compact'
 rewrites that file whole. There is no authored document here for an editor to
 round-trip, so the bare form refuses rather than accept edits a later
 compaction would discard.`,
@@ -60,15 +60,15 @@ compaction would discard.`,
 
 func init() {
 	sessionEditCmd.Flags().StringVar(&sessionEditName, "name", "",
-		"Rename the harp to this name. The backend transcript is unaffected.")
+		"Rename the session to this name. The backend transcript is unaffected.")
 }
 
 func runSessionEdit(cmd *cobra.Command, args []string) error {
 	harp := args[0]
 	if !cmd.Flags().Changed("name") {
 		return fmt.Errorf("ctxloom session edit %s: nothing to assign, and a session has no editable document to open — "+
-			"its index entry is machine-written and its essence is derived (`ctxloom session compact` rewrites it whole). "+
-			"Name a field: --name <new-harp>", harp)
+			"its index entry is machine-written and its summary is derived (`ctxloom session compact` rewrites it whole). "+
+			"Name a field: --name <new-name>", harp)
 	}
 
 	entry, err := operations.GetSession(harp)

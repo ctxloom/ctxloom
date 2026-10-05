@@ -19,27 +19,27 @@ import (
 const watchBoundaryRule = "──────────────────────────────────────────"
 
 var sessionWatchCmd = &cobra.Command{
-	Use:   "watch <harp-name>",
+	Use:   "watch <session-name>",
 	Short: "Stream a session's transcript as structured turns (messages, not raw bytes)",
-	Long: `Tail a harp's session as a structured turn stream: each new entry arrives
+	Long: `Tail a session as a structured turn stream: each new entry arrives
 as it appears, with a boundary marking where a response completes. This is
 ctxloom's per-session observation contract — the stream structured frontends
 (the VSCode companion, the terminal viewer) consume.
 
 One feed, two sources behind it (--source, default auto):
 
-  live   the harp is a delegation child whose orchestrator currently holds
+  live   the session is a delegation child whose orchestrator currently holds
          its event stream — the watch taps it over the orchestrator's agent
          bus socket for zero-lag events. Only such CHILDREN are tappable
          (an orchestrator does not drive its own serving session's engine).
          Recorded transcript entries replay first as scrollback, then live
          events follow; the watch ENDS when the child's engine exits.
   store  the transcript tail: the backend session is re-read on a short poll
-         (~250ms) and diffed. Works for any harp with a transcript
+         (~250ms) and diffed. Works for any session with a transcript
          association, live or not, and runs until interrupted.
 
 auto prefers the live tap and falls back to the store tail; forcing --source
-live errors when no orchestrator holds the harp.
+live errors when no orchestrator holds the session.
 
 With --format json the stream is NDJSON: one event per line, carrying
 exactly one of
@@ -63,10 +63,10 @@ untruncated. Text mode pretty-prints each turn, draws a rule at each response
 boundary, prefixes subagent-interior entries with "↳", and stays silent on
 heartbeats.
 
-Ctrl-C ends the stream cleanly. A harp with a hook-bound session id is tailed
-through the owning backend; a harp with no bound session whose transcript
+Ctrl-C ends the stream cleanly. A session with a hook-bound session id is tailed
+through the owning backend; a session with no bound backend session whose transcript
 lives in its own session dir (a containerized run's native/ history) is
-tailed by file location. Errors if the harp has neither and no live tap holds
+tailed by file location. Errors if the session has neither and no live tap holds
 it.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSessionWatch,

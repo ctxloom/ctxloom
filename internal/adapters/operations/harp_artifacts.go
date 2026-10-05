@@ -36,7 +36,7 @@ func HarpTopLevelArtifacts(harpDir string) ([]string, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("read harp dir %q: %w", harpDir, err)
+		return nil, fmt.Errorf("read session dir %q: %w", harpDir, err)
 	}
 	var out []string
 	for _, e := range entries {

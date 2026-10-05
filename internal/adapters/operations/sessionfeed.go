@@ -99,7 +99,7 @@ func WatchSessionFeed(ctx context.Context, reg engine.Registry, req SessionFeedR
 		return nil, err
 	}
 	if entry == nil {
-		return nil, fmt.Errorf("harp not found: %q", req.Harp)
+		return nil, fmt.Errorf("%w: %q", sessions.ErrNotFound, req.Harp)
 	}
 	backend := entry.Backend
 	if backend == "" {
@@ -467,7 +467,7 @@ func feedScrollback(entry *sessions.Entry) []agent.SessionEntry {
 // or container ran the session.
 func watchStoreFeed(ctx context.Context, entry *sessions.Entry) (*SessionFeed, error) {
 	if entry.CanonicalTranscriptPath == "" {
-		return nil, fmt.Errorf("harp %q has no captured transcript; nothing to watch yet (ctxloom captures a session's transcript as its turns are recorded)", entry.HarpName)
+		return nil, fmt.Errorf("session %q has no captured transcript; nothing to watch yet (ctxloom captures a session's transcript as its turns are recorded)", entry.HarpName)
 	}
 	watchEvents, errs := transcript.WatchCanonicalTranscript(ctx, entry.CanonicalTranscriptPath, entry.HarpName, 0)
 

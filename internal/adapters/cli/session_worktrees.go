@@ -67,7 +67,7 @@ var sessionWorktreesCmd = groupNodeDefault(&cobra.Command{
 	Use:   "worktrees",
 	Short: "The scratch git checkouts a session left behind: list them, remove the safe ones",
 	Long: `Every "ctxloom-wt-*" checkout ctxloom itself created under
-~/.ctxloom/sessions/<harp>/work/ — leftovers from a per-agent worktree
+~/.ctxloom/sessions/<session-name>/work/ — leftovers from a per-agent worktree
 whose owning process crashed before it could clean up after itself.
 
   list    what is there, and what would happen to each one (the bare form)
@@ -79,20 +79,20 @@ reports on those, and only ever suggests the commands to remove them by hand.`,
 }, "list")
 
 var sessionWorktreesListCmd = &cobra.Command{
-	Use:   "list [<harp-name>]",
+	Use:   "list [<session-name>]",
 	Short: "List ctxloom-owned scratch worktrees and the verdict each one would get",
 	Long: `Lists every ctxloom-owned scratch worktree and, for each, the verdict
 isolation.ReapOrphanedWorktrees' safety rules would reach: reapable
 (orphaned and clean), spared (orphaned but carrying real or unknowable
 work), or skipped (owner alive, or its liveness can't be proven).
 
-Read-only. Naming a harp restricts the listing to that one session.`,
+Read-only. Naming a session restricts the listing to that one session.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSessionWorktreesList,
 }
 
 var sessionWorktreesPurgeCmd = &cobra.Command{
-	Use:   "purge <harp-name>",
+	Use:   "purge <session-name>",
 	Short: "Remove a session's scratch worktrees that this run can prove are safe",
 	Long: `Removes the scratch worktrees that are BOTH orphaned (their owning process
 is confirmed dead) and clean (no uncommitted work, no gitignored content).
@@ -216,7 +216,7 @@ func verifyHarpDirExists(fsys afero.Fs, harp string) error {
 		if os.IsNotExist(statErr) {
 			return errNoSession(harp)
 		}
-		return fmt.Errorf("stat harp %q: %w", harp, statErr)
+		return fmt.Errorf("stat session %q: %w", harp, statErr)
 	}
 	return nil
 }

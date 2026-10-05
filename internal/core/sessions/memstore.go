@@ -189,7 +189,7 @@ func (m *MemStore) BindSession(harpName, sessionID, transcriptPath string) error
 		}
 		return nil
 	}
-	return fmt.Errorf("harp not found in index: %q", harpName)
+	return fmt.Errorf("session not found in index: %q", harpName)
 }
 
 // BindEngine matches *Manager.BindEngine.
@@ -249,7 +249,7 @@ func (m *MemStore) AppendRotations(harpName string, rotations []Rotation) error 
 		})
 		return nil
 	}
-	return fmt.Errorf("harp not found: %q", harpName)
+	return fmt.Errorf("session not found: %q", harpName)
 }
 
 // MarkEnded stamps EndedAt on the named entry. Idempotent.
@@ -264,7 +264,7 @@ func (m *MemStore) MarkEnded(harpName string, at time.Time) error {
 		m.sessions[i].EndedAt = &t
 		return nil
 	}
-	return fmt.Errorf("harp not found: %q", harpName)
+	return fmt.Errorf("session not found: %q", harpName)
 }
 
 // MarkPurged stamps PurgedAt on the named entry. Idempotent. Mirrors
@@ -282,7 +282,7 @@ func (m *MemStore) MarkPurged(harpName string, at time.Time) error {
 		m.sessions[i].PurgedAt = &t
 		return nil
 	}
-	return fmt.Errorf("harp not found: %q", harpName)
+	return fmt.Errorf("session not found: %q", harpName)
 }
 
 // StampMint records what the mint knew on the named entry, matching
@@ -296,7 +296,7 @@ func (m *MemStore) StampMint(harpName string, s MintStamp) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("harp not found: %q", harpName)
+	return fmt.Errorf("session not found: %q", harpName)
 }
 
 // RecordEngineVersion stamps EngineVersion on the named entry, matching
@@ -316,7 +316,7 @@ func (m *MemStore) RecordEngineVersion(harpName, version string) error {
 		m.sessions[i].EngineVersion = version
 		return nil
 	}
-	return fmt.Errorf("harp not found: %q", harpName)
+	return fmt.Errorf("session not found: %q", harpName)
 }
 
 // Rename changes a harp name, erroring if oldName is absent, newName is taken,
@@ -340,7 +340,7 @@ func (m *MemStore) Rename(oldName, newName string) error {
 		}
 	}
 	if targetIdx < 0 {
-		return fmt.Errorf("harp not found: %q", oldName)
+		return fmt.Errorf("session not found: %q", oldName)
 	}
 	m.sessions[targetIdx].HarpName = newName
 	if out := m.sessions[targetIdx].OutputDir; out != "" {
@@ -360,5 +360,5 @@ func (m *MemStore) Forget(harpName string) error {
 		m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
 		return nil
 	}
-	return fmt.Errorf("harp not found: %q", harpName)
+	return fmt.Errorf("session not found: %q", harpName)
 }

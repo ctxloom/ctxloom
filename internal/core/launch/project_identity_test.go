@@ -3,6 +3,7 @@ package launch_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -50,4 +51,26 @@ func TestResolve_ProjectIdentity_FailureDegrades(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
 	assert.Empty(t, l.Identity.Project)
+}
+
+// TestResolve_CredentialRefusal_ComesAfterContentAndBeforeTheIdentity: a run
+// that cannot authenticate is refused before its project identity is
+// established — but after selection and assembly, so what is missing about
+// the launch itself is still reported as that, not as a credential.
+func TestResolve_CredentialRefusal_ComesAfterContentAndBeforeTheIdentity(t *testing.T) {
+	env := launchtest.Deps(t)
+	noCredential := fmt.Errorf("no token: %w", engine.ErrNoCredential)
+	env.Deps.CheckCredential = func(string, engine.AuthMode) error { return noCredential }
+	minted := 0
+	env.Deps.ProjectIdentity = func() (string, error) { minted++; return "id", nil }
+	id := env.Identity
+	id.Project = ""
+
+	_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: id, Agent: "nobody", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
+	require.ErrorIs(t, err, launch.ErrNoAgent, "what to launch is judged first")
+	assert.NotErrorIs(t, err, engine.ErrNoCredential)
+
+	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: id, Agent: "setup", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
+	require.ErrorIs(t, err, engine.ErrNoCredential)
+	assert.Zero(t, minted, "a run that cannot authenticate establishes nothing")
 }

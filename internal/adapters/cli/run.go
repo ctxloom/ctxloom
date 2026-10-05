@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -474,9 +473,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	st.runStartupTasks()
 	st.resolveProject()
-	if err := st.credentialRefusal(); err != nil {
-		return err
-	}
 
 	// Dry run mode - show the resolved launch and the prompt, then stop
 	// before anything stateful or interactive happens: the same resolver,
@@ -578,33 +574,6 @@ func (st *runState) establishProjectIdentity() (string, error) {
 	return pid, err
 }
 
-// credentialRefusal refuses a real launch whose engine cannot authenticate
-// in the mode this session runs in (the configured `auth:`, as
-// launch.RunAuth gives the human's own session) — before anything starts or
-// is written, with the engine's own fix (operations.CheckRunCredential):
-// the token's wording is the one init and auth show. A preview is left to its
-// findings gate. A bare launch or --agent naming no binding is left to the
-// resolver, whose refusal and fix come first.
-func (st *runState) credentialRefusal() error {
-	if runDryRun {
-		return nil
-	}
-	explicitAssembly := runProfile != "" || len(runFragments) > 0 || len(runTags) > 0
-	name := runAgent
-	if name == "" && !explicitAssembly {
-		name = st.cfg.GetDefaultAgent()
-	}
-	binding, bound := st.cfg.Agent(name)
-	if !bound && (name != "" || !explicitAssembly) {
-		return nil
-	}
-	backend, _ := operations.ResolveBackend(App().Engines(), st.cfg, cmp.Or(runLLM, binding.LLM))
-	if err := operations.CheckRunCredential(App().Engines(), backend, st.cfg.SessionAuth()); err != nil {
-		return refusal{err}
-	}
-	return nil
-}
-
 // validateLoaded checks what the loaded config says about this invocation.
 // An invalid ui.prefix_key is a broken-config finding like any other:
 // recorded with the config load so the startup gate aborts on it before
@@ -686,6 +655,9 @@ func (st *runState) resolveLaunch() error {
 		return err
 	}
 	deps.ProjectIdentity = st.establishProjectIdentity
+	deps.CheckCredential = func(backend string, mode engine.AuthMode) error {
+		return operations.CheckRunCredential(App().Engines(), backend, mode)
+	}
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
 	if err != nil {
 		return err
@@ -940,6 +912,11 @@ func (st *runState) refused(err error) error {
 		if ferr := st.gateStartup(); ferr != nil {
 			return ferr
 		}
+	}
+	// A credential the human has not supplied is a refusal, not a failure:
+	// its fix is theirs to apply (the engine's own wording).
+	if errors.Is(err, engine.ErrNoCredential) {
+		return refusal{err}
 	}
 	return err
 }

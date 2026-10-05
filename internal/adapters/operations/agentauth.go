@@ -93,8 +93,9 @@ func AgentTokenMissing(reg engine.Registry, backend string, lookup func(string) 
 // CheckRunCredential is resolveRunAuth's refusal for a run of backend in
 // mode, without building anything: nil when the credential that run will
 // authenticate with is there, else the engine's own refusal and fix — a token
-// not exported, a login not on this host, a mode the engine lacks. A caller
-// asks before launching, so a run that cannot authenticate never starts.
+// not exported, a mode the engine lacks. It is what a real run hands
+// launch.Deps.CheckCredential, so a run that cannot authenticate is refused
+// before anything is established for it.
 func CheckRunCredential(reg engine.Registry, backend string, mode engine.AuthMode) error {
 	_, err := resolveRunAuth(reg, runAuth{Backend: backend, Mode: mode})
 	return err

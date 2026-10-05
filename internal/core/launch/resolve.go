@@ -69,6 +69,11 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 
+	if deps.CheckCredential != nil {
+		if err := deps.CheckCredential(string(def.Name), RunAuth(src.Identity, cfg.SessionAuth())); err != nil {
+			return Launch{}, err
+		}
+	}
 	src.Identity.Project = admittedProject(deps, src.Identity.Project)
 	passthrough, cell, err := prepareCell(ctx, deps, src, eng, axes, dirty, sel, label)
 	if err != nil {

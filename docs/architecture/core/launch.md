@@ -24,7 +24,7 @@ flowchart LR
   classDef port fill:#ffd,stroke:#a80
   RUN["cli run: the flags → Source"]:::src
   INIT["cli init: the auth probe and the discovery session — two Sources, two identities"]:::src
-  ONE["internal one-shots (a distill, a triage, the CLI distiller): Source{Internal}"]:::src
+  ONE["internal one-shots (a compaction, a triage, the CLI distiller): Source{Internal}"]:::src
   SPAWN["coord prodSpawner.StartEngine: Source{Identity: child, Agent, Workspace, DirtyTree, Resume}"]:::src
   START["operations.StartRun: MintIdentity → Resolve"]:::core
   RES["launch.Resolve — the one constructor"]:::core
@@ -103,7 +103,7 @@ downstream re-decides it.
   (`operations.PreparedCell`, read back by `operations.TransportOf`) until
   the runner is the one process every cell starts (13).
 - **`Source.Internal`, `Source.Model`, `Source.Fragments/Tags`, `Source.Env`.**
-  No shipped binding names a distill or a triage, so an internal one-shot is
+  No shipped binding names a compaction or a triage, so an internal one-shot is
   an explicit arm (no binding, no profiles; the label names the engine); a
   binding for each retires it. The model override, the explicit-assembly
   arm's fragments and tags, and the caller's engine passthrough are the
@@ -117,8 +117,8 @@ resolved internal one-shot session: ONE minted harp and ONE Launch, driven a
 turn at a time (each turn is the Launch encoded with that turn's prompt over
 the cell's transport, its answer recorded on the session's own transcript).
 `LazyOneShot` starts the session on the first turn, so a compaction served
-from its cache mints nothing. The distiller (`session compact`, the MCP
-compactor, `bundle distill`), the trigger triage and init's auth probe are
+from its cache mints nothing. The session compactor (`session compact`, the MCP
+compactor), the bundle distiller (`bundle distill`), the trigger triage and init's auth probe are
 one-shots; they receive the managed surfaces the generation composes for
 their label (the default profiles' MCP servers, hooks, commands and skills,
 gated by the generation's executable trust gate) — the surfaces a

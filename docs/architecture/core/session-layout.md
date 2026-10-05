@@ -115,8 +115,8 @@ directory in its place.
 | `scratch/`, secret dirs | delete | delete (owner and every ended child) | delete | delete | — |
 | `home/<leaf>` | keep | delete (owner and every ended child) | delete | delete | — |
 | `work/` checkouts | removed when clean, kept with work (existing triage) | — | triaged | triaged | triaged |
-| `spool/`, `package/`, `diagnostics.log`, `context-metrics.jsonl` | keep | keep | keep | delete (distilled only) | keep |
-| `native/`, `transcripts/` | keep | keep | keep | delete (distilled only) | delete (distilled, or an internal one-shot) |
+| `spool/`, `package/`, `diagnostics.log`, `context-metrics.jsonl` | keep | keep | keep | delete (compacted only) | keep |
+| `native/`, `transcripts/` | keep | keep | keep | delete (compacted only) | delete (compacted, or an internal one-shot) |
 | `session.yaml`, `keep` | keep | keep | keep | keep | keep |
 | coordinator root | keep | delete only if ephemeral and settled | — | — | removed with the session |
 | output dir | keep | keep | never | never | never |

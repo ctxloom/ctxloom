@@ -40,8 +40,8 @@ The project tree holds no session state.
 - `OutputDirIn(harp, getenv)` prefers `EnvOutputDir` — a containerized run serves exactly one
   session and mounts its output dir there — and otherwise falls back to `OutputDir`.
 - `OutputDirOf(dir)` reads the same field from a session dir already in hand.
-- `Distilled(dir)` asks the DISK whether that output dir holds an essence. It is what every
-  destroyer of transcripts consults first: an undistilled session's transcript is its only record.
+- `Compacted(dir)` asks the DISK whether that output dir holds an essence. It is what every
+  destroyer of transcripts consults first: an uncompacted session's transcript is its only record.
 
 ### Transcripts
 
@@ -110,8 +110,8 @@ hook subprocesses.
 - **Liveness comes from the lock (`Locks`), never the sidecar.** Only a provably dead owner
   passes, and the lock is held across the removal so a resume waits instead of racing it.
 - **The keep marker exempts a session entirely**, checked before the lock is probed.
-- **The persistent scope takes persistent members from a DISTILLED session only.** An
-  undistilled one keeps them and is reaped as under the default scope.
+- **The persistent scope takes persistent members from a COMPACTED session only.** An
+  uncompacted one keeps them and is reaped as under the default scope.
 - **No symlink is ever followed.**
 - A zero `Cutoff` is refused (`ErrNoAgeBound`): the one function that deletes must not be
   callable with no age bound stated.

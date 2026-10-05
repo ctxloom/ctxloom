@@ -38,7 +38,7 @@ type Source struct {
 	// findings — appended to the package's context after the assembly, in
 	// order (composite.Package.WithLead).
 	Extra []composite.Fragment
-	// Internal marks an internal one-shot (a distill, a triage, the setup
+	// Internal marks an internal one-shot (a compaction, a triage, the setup
 	// probe): no binding and no profiles are selected — the prompt is the
 	// whole instruction and Label names the engine. It is still a real
 	// session: a harp, an endpoint, the managed surfaces. It exists because

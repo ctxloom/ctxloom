@@ -67,7 +67,7 @@ func (f *CanonicalFallbackSource) harpForSessionID(sessionID string) string {
 // for any canonical-backed session (CanonicalHistory.ListSessions sets
 // meta.ID = harp — the sessionID field never surfaces to a user at all), so
 // `memory show <that value>` must resolve it — the direct harp lookup
-// session/distill already do successfully via the index, unlike the reverse
+// `session compact` already does successfully via the index, unlike the reverse
 // sessionID->harp lookup below, which only ever matches a genuine
 // backend-native id. A harp and a backend-native session id never collide in
 // practice (harps are ctxloom's own three-word names; native ids are

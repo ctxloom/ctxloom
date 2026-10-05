@@ -1,9 +1,10 @@
 # Sessions, memory, and plan watching
 
 A **session** is one engine run, named by a harp (`swift-amber-falcon`), bound to
-a transcript and optionally to a distilled **essence**. `ctxloom session *`
-browses, edits, removes, distills, purges, adopts and watches them, and lists
-their transcripts, artifacts and worktrees. The memory MCP tools
+a transcript and optionally to a compacted **essence**. `ctxloom session *`
+browses, edits, removes, compacts, purges, adopts and watches them, lists
+their transcripts, artifacts and worktrees, and lists the plan approvals a live
+coordinator is holding. The memory MCP tools
 (`compact_session`, `list_sessions`, `load_session`, `recover_session`,
 `get_previous_session`) are the agent-facing surface over the same store; they
 live in `internal/adapters/mcp` (`mcp_tools_memory.go`), served both on the
@@ -16,13 +17,14 @@ one read model, `operations.SessionView`.
 ```mermaid
 flowchart TD
     subgraph human["human-facing (cobra, internal/adapters/cli)"]
-        SL["session list"] --> LSE["loadSessionEntries"] --> DMS["compactMissingOrStale (--distill-missing)"]
+        SL["session list"] --> LSE["loadSessionEntries"] --> DMS["compactMissingOrStale (--compact)"]
         SL --> ESR["emitSessionRows (session_full.go)"]
         SQ["session search &lt;word&gt;..."] --> SMQ["sessionMatchesQuery → sessionMetadataHaystack / allWordsMatch"]
         SQ --> ESR
         SS["session show &lt;harp&gt;"] --> RSE["readSessionEssence (session_essence.go)"]
         SD["session compact &lt;harp&gt;"] --> RSD["runSessionCompact"]
         SW["session watch &lt;harp&gt;"] --> RSW["runSessionWatch → watchFeedSource → streamWatchEvents"]
+        SA["session approvals"] --> RSA["runSessionApprovals → operations.QueryPendingApprovals"]
         SE["session edit / remove / purge / adopt"]
         SX["session transcript · artifacts · worktrees list/purge"]
         PW["plan watch (hidden)"] --> RPW["runPlanWatch → watch.Stream"]
@@ -31,7 +33,7 @@ flowchart TD
 
     subgraph agentfacing["agent-facing (MCP tools, internal/adapters/mcp)"]
         H["handleCompactSession · handleListSessions · handleLoadSession<br/>handleRecoverSession · handleGetPreviousSession"]
-        H --> LOD["loadOrCompactSession — the session-id-keyed cache-or-distill choke"]
+        H --> LOD["loadOrCompactSession — the session-id-keyed cache-or-compact choke"]
         H --> PBH["previousSessionByHarp — the harp-keyed choke"]
         LOD --> SF["singleflightLoad / singleflightCompact"]
         PBH --> SF
@@ -79,10 +81,10 @@ burst of filesystem events one plan write produces into one logical change.
 
 ## Invariants
 
-- **Cache-or-distill goes through one choke per keying.** `loadOrCompactSession`
+- **Cache-or-compact goes through one choke per keying.** `loadOrCompactSession`
   for session-id-keyed lookups, `previousSessionByHarp` for harp-keyed. Both
   route through the singleflight group `HostApp` owns, so concurrent identical
-  distills collapse to one LLM call; the group is shared across per-call
+  compactions collapse to one LLM call; the group is shared across per-call
   `ctxServer`s deliberately.
 - **The relayed handlers must use `s.self`, not process env.** On the
   host-relay path a handler runs inside the session-owning process under the

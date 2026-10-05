@@ -173,7 +173,7 @@ this package.
 `RootHome`), `Presence` (`PresenceMustExist` / `PresenceIfUsed`), `Entry` and
 `Layout()` classify every path this tree's own writers produce, each appearing
 exactly once per root — a `RootProject` row and a `RootHome` row may share
-`Rel` text (`.ctxloom/sessions` names both the project's distilled-history row
+`Rel` text (`.ctxloom/sessions` names both the project's compacted-history row
 and the home sessions store; they are two different physical paths, told apart
 by `Root`). `Root` decides which of the two roots `Entry.Rel` joins onto
 (`Entry.ResolveRoot`); `Presence` decides whether a `TierLocal` row's absence
@@ -237,7 +237,7 @@ whole derivation here removed the need for that copy entirely.
    `MountedMembers` what the isolation adapter mounts. `sessions.Layout` derives every
    session-dir path from it, and the ONE reaper (`sessions.Reap`) removes members by the
    table's `Lifetime` axis alone — `sessions.ReapPolicy.Members` is the Ephemeral rows,
-   plus the top-level machine rows of a distilled session under a human's `--include-persist` — judging age by the one
+   plus the top-level machine rows of a compacted session under a human's `--include-persist` — judging age by the one
    clock (`sessions.ActivityTime`: the newest mtime under the session dir, the dir's own
    mtime and every symlink's excluded). `TestArch_ReaperMemberNamesAreTableRows` keeps
    every member constant the reap, purge and clean code names a row of the table.

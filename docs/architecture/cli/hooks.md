@@ -104,7 +104,7 @@ Runs at SessionStart. Two jobs: `emitHarpMarker` writes the index-independent
 harp self-id marker into the transcript via additional context, and
 `bindSessionFromPayload` decodes the engine's SessionStart payload and calls
 `operations.BindSession` so the harp and the engine's own session id are
-linked. Without that binding a later distill cannot find the transcript.
+linked. Without that binding a later compaction cannot find the transcript.
 
 ## The turn-lifecycle hooks
 

@@ -52,11 +52,11 @@ const (
 	defaultTriageChunkSize = 10
 
 	// triageConcurrency bounds how many chunk calls run in parallel, mirroring
-	// internal/adapters/memory/compactor.go's distillConcurrency — each chunk spawns
+	// memory's compactConcurrency — each chunk spawns
 	// its own LLM plugin subprocess, so this caps concurrent subprocesses
 	// (and provider rate pressure) instead of firing every chunk at once.
-	// Task triage genuinely IS a batch of independent items; session
-	// distillation is not, and no longer chunks.
+	// Task triage genuinely IS a batch of independent items; a session
+	// compaction is one call over one transcript and does not chunk.
 	triageConcurrency = 4
 )
 

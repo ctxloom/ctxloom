@@ -260,18 +260,7 @@ func ListTasks(tc TaskContext, opts ListOptions) (*TaskListResult, error) {
 	// check-triggers command), or with includeDone.
 	var hiddenCompleted, hiddenDeferred int
 	if !includeDone && len(statuses) == 0 {
-		active := make([]tasks.Task, 0, len(list))
-		for _, t := range list {
-			switch {
-			case t.Checked:
-				hiddenCompleted++
-			case t.Status == tasks.StatusDeferred:
-				hiddenDeferred++
-			default:
-				active = append(active, t)
-			}
-		}
-		list = active
+		list, hiddenCompleted, hiddenDeferred = activeOnly(list)
 	}
 	var omittedByLimit int
 	if limit > 0 && len(list) > limit {
@@ -282,6 +271,23 @@ func ListTasks(tc TaskContext, opts ListOptions) (*TaskListResult, error) {
 		HiddenCompleted: hiddenCompleted, HiddenDeferred: hiddenDeferred, OmittedByLimit: omittedByLimit,
 		ProjectNewlyMinted: proj.New}
 	return out, nil
+}
+
+// activeOnly is ListTasks' default view: list without its completed and
+// Deferred tasks, and how many of each it hid.
+func activeOnly(list []tasks.Task) (active []tasks.Task, hiddenCompleted, hiddenDeferred int) {
+	active = make([]tasks.Task, 0, len(list))
+	for _, t := range list {
+		switch {
+		case t.Checked:
+			hiddenCompleted++
+		case t.Status == tasks.StatusDeferred:
+			hiddenDeferred++
+		default:
+			active = append(active, t)
+		}
+	}
+	return active, hiddenCompleted, hiddenDeferred
 }
 
 // AddTask appends a task to the project log, stamping the session as origin.

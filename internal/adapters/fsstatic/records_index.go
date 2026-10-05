@@ -124,26 +124,42 @@ func (c *Records) claimants(want func(prefix string) bool, onePerWriter bool) (m
 	}
 	out := map[string][]claimant{}
 	for _, e := range entries {
-		name := e.Name()
-		cut := len(name) - targetDigestLen
-		if e.IsDir() || strings.HasPrefix(name, ".") || cut <= 0 || !want(name[:cut]) {
+		prefix, ok := markerPrefix(e)
+		if _, seen := out[prefix]; !ok || !want(prefix) || (seen && onePerWriter) {
 			continue
 		}
-		if _, seen := out[name[:cut]]; seen && onePerWriter {
-			continue
-		}
-		var m claimant
-		path := filepath.Join(c.claimantsPath(), name)
-		data, err := afero.ReadFile(c.fs, path)
+		m, err := c.readClaimant(e.Name())
 		if err != nil {
 			return nil, err
 		}
-		if err := yaml.Unmarshal(data, &m); err != nil {
-			return nil, fmt.Errorf("fsstatic: claimant marker %s: %w", path, err)
-		}
-		out[name[:cut]] = append(out[name[:cut]], m)
+		out[prefix] = append(out[prefix], m)
 	}
 	return out, nil
+}
+
+// markerPrefix is the writer prefix of a marker's name; ok is false for
+// anything in the index that is not a marker (the completion mark, a write's
+// temp file).
+func markerPrefix(e os.FileInfo) (string, bool) {
+	name := e.Name()
+	cut := len(name) - targetDigestLen
+	if e.IsDir() || strings.HasPrefix(name, ".") || cut <= 0 {
+		return "", false
+	}
+	return name[:cut], true
+}
+
+func (c *Records) readClaimant(name string) (claimant, error) {
+	var m claimant
+	path := filepath.Join(c.claimantsPath(), name)
+	data, err := afero.ReadFile(c.fs, path)
+	if err != nil {
+		return m, err
+	}
+	if err := yaml.Unmarshal(data, &m); err != nil {
+		return m, fmt.Errorf("fsstatic: claimant marker %s: %w", path, err)
+	}
+	return m, nil
 }
 
 // ensureIndexed indexes a store whose records predate the index: every

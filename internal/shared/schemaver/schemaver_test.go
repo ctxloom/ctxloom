@@ -478,9 +478,9 @@ func TestDecode_MigratesThenDecodesTheTree(t *testing.T) {
 func TestDecode_RefusesAsUpgradeDoes(t *testing.T) {
 	var w widget
 	_, err := withSteps.Decode(doc(4, ""), &w)
-	requireVersionError(t, err, ErrNewer)
+	assert.Equal(t, 4, requireVersionError(t, err, ErrNewer).Found)
 	_, err = withSteps.Decode(doc(0, ""), &w)
-	requireVersionError(t, err, ErrTooOld)
+	assert.Equal(t, 0, requireVersionError(t, err, ErrTooOld).Found)
 }
 
 // A document that is not a well-formed mapping is the decode's own failure,

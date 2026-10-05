@@ -49,13 +49,13 @@ func TestManageNamespace_HasExpectedSubcommands(t *testing.T) {
 	}
 }
 
-// TestMcpNamespace_IsReadAndBundleEditOnly pins the shape the MCP noun has now
+// TestMcpNamespace_IsReadAndBundleWriteOnly pins the shape the MCP noun has now
 // that every MCP server lives in a bundle: the servers a session registers are
-// READ here (list/show), and the only write is `edit`, which edits the bundle
-// that ships the server. There is no create/remove — composing or withholding a
+// READ here (list/show), and the only writes are `edit` and `set`, which write
+// the bundle that ships the server. There is no create/remove — composing or withholding a
 // bundle is what adds or removes a server — and no register/unregister, because
 // ctxloom's own server ships in the builtin ctxloom bundle like any other.
-func TestMcpNamespace_IsReadAndBundleEditOnly(t *testing.T) {
+func TestMcpNamespace_IsReadAndBundleWriteOnly(t *testing.T) {
 	mcp := findSub(rootCmd, "mcp")
 	require.NotNil(t, mcp)
 
@@ -64,7 +64,7 @@ func TestMcpNamespace_IsReadAndBundleEditOnly(t *testing.T) {
 
 	servers := findSub(mcp, "server")
 	require.NotNil(t, servers, "the registered-server spine lives under mcp server")
-	assert.ElementsMatch(t, []string{"list", "show", "edit"}, subNames(servers))
+	assert.ElementsMatch(t, []string{"list", "show", "edit", "set"}, subNames(servers))
 }
 
 func TestManageHooks_HasInstallUninstallCheckList(t *testing.T) {

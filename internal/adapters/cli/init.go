@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -66,8 +67,8 @@ Before the interview, init checks for the token every agent authenticates with
 on a terminal init runs the engine's own 'claude setup-token' attached to your
 terminal, reading nothing it prints, then shows the line to add to your shell
 profile and stops: export the token and re-run 'ctxloom init'. Off a terminal
-(or with --non-interactive) it stops naming those steps. Either way the
-project is already set up. ctxloom never captures or stores the token.
+(or with --non-interactive) it warns, naming those steps, and exits 0: the
+project is already set up, and only the setup interview was not launched. ctxloom never captures or stores the token.
 --skip-launch runs no engine, and so neither of these.
 
 The working outcome of init is a functioning ctxloom CLI/TUI.
@@ -144,9 +145,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	alreadyExists := ctxloomDirExists(afero.NewOsFs(), appDir)
+	alreadyExists := initializedProjectExists(afero.NewOsFs(), appDir)
 	if alreadyExists {
-		fmt.Printf("ctxloom directory already exists: %s\n", appDir)
+		fmt.Printf(initAlreadyExistsFormat, appDir)
 	}
 
 	interactive := isInteractiveTerminal() && !initNonInteractive
@@ -248,6 +249,22 @@ func resolveAppDir(home bool) (string, error) {
 		return "", fmt.Errorf("failed to get current directory: %w", err)
 	}
 	return filepath.Join(pwd, config.AppDirName), nil
+}
+
+// initAlreadyExistsFormat is init's notice for a project it is re-running
+// over; it takes the project's .ctxloom path.
+const initAlreadyExistsFormat = "ctxloom directory already exists: %s\n"
+
+// initializedProjectExists reports whether appDir is an initialized project:
+// a .ctxloom carrying its config file. A .ctxloom without one is what an
+// abandoned or partial setup leaves (a marker, a state dir), and init
+// scaffolds it like a fresh project rather than treating it as one to keep.
+func initializedProjectExists(fsys afero.Fs, appDir string) bool {
+	if !ctxloomDirExists(fsys, appDir) {
+		return false
+	}
+	_, err := fsys.Stat(paths.ConfigPath(appDir))
+	return err == nil
 }
 
 // ctxloomDirExists reports whether appDir already exists as a directory.
@@ -775,6 +792,11 @@ var initLaunchDeps = func(ctx context.Context) (launch.Deps, error) { return App
 // subprocess. Defaults to the real function.
 var launchEngineWithPromptFn = launchEngineWithPrompt
 
+// initLaunchSkippedNoTokenFormat is init's warning when setup succeeded but the
+// setup interview could not launch for want of an agent token; it takes the
+// token refusal.
+const initLaunchSkippedNoTokenFormat = "the project is set up, but the setup interview was not launched: %v — once the token is exported, re-run `ctxloom init` to launch it"
+
 // launchDiscovery runs no engine at all under --skip-launch. Otherwise it
 // first makes sure the agent token is exported (ensureAgentToken: the
 // engine's own setup flow on a terminal, a typed refusal off one), and only
@@ -792,6 +814,14 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 		return nil
 	}
 	if err := ensureAgentToken(cmd.Context(), App().Engines(), engine, interactive, os.LookupEnv, cmd.OutOrStdout()); err != nil {
+		// Off a terminal the project is already set up; only the interview's
+		// launch is skipped for want of a token. That is a success with a
+		// warning naming the token's fix, not a failure.
+		if errors.Is(err, ErrAgentTokenNotExported) {
+			fix, _ := clifmt.RemedyOf(err)
+			clidiag.WarnRemedy("ctxloom", fix, initLaunchSkippedNoTokenFormat, err)
+			return nil
+		}
 		return err
 	}
 	if !interactive {

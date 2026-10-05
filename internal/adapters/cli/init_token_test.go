@@ -13,11 +13,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -148,7 +150,8 @@ func TestEnsureAgentToken_NoTerminalNoToken_TypedRefusal(t *testing.T) {
 	remedy := remedyOf(t, err)
 	assert.Contains(t, remedy, "claude setup-token")
 	assert.Contains(t, remedy, claude.OAuthTokenEnv)
-	assert.Contains(t, remedy, "re-run `ctxloom init`")
+	assert.Equal(t, remedyOf(t, operations.AgentTokenMissing(engines.Registry(), tokenGateEngine, envOf(nil))), remedy,
+		"init's fix is the engine's own wording, the one `ctxloom auth` and `ctxloom run` show")
 }
 
 // claude not installed: a typed refusal naming the binary, and nothing run.
@@ -229,13 +232,15 @@ func TestLaunchDiscovery_TokenGate(t *testing.T) {
 		assert.Len(t, f.ran, 1)
 	})
 
-	t.Run("no token off a terminal: the typed refusal", func(t *testing.T) {
+	t.Run("no token off a terminal: setup stands, the launch is skipped with a warning", func(t *testing.T) {
 		t.Setenv(claude.OAuthTokenEnv, "")
 		f := &tokenGateFake{binary: "/fake/bin/claude"}
 		installTokenGateFake(t, f, nil)
-		err := launchDiscovery(newCmd(), tokenGateEngine, t.TempDir()+"/.ctxloom", false)
-		require.ErrorIs(t, err, ErrAgentTokenNotExported)
+		var warned bytes.Buffer
+		t.Cleanup(clidiag.SetSink(&warned))
+		require.NoError(t, launchDiscovery(newCmd(), tokenGateEngine, t.TempDir()+"/.ctxloom", false))
 		assert.Empty(t, f.ran)
+		assert.Contains(t, warned.String(), ErrAgentTokenNotExported.Error(), "the skipped launch is warned")
 	})
 
 	t.Run("--skip-launch: no engine runs, setup-token included", func(t *testing.T) {

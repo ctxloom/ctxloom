@@ -48,8 +48,8 @@ Before the interview, init checks for the token every agent authenticates with
 on a terminal init runs the engine's own 'claude setup-token' attached to your
 terminal, reading nothing it prints, then shows the line to add to your shell
 profile and stops: export the token and re-run 'ctxloom init'. Off a terminal
-(or with --non-interactive) it stops naming those steps. Either way the
-project is already set up. ctxloom never captures or stores the token.
+(or with --non-interactive) it warns, naming those steps, and exits 0: the
+project is already set up, and only the setup interview was not launched. ctxloom never captures or stores the token.
 --skip-launch runs no engine, and so neither of these.
 
 The working outcome of init is a functioning ctxloom CLI/TUI.

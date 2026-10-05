@@ -54,7 +54,7 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 			}
 			return w.Err()
 		}
-		return renderBundleList(out, bundleInfos, emptyListingHint(cfg))
+		return renderBundleList(out, labelBundleInfos(bundleInfos, refLabeler(cmd.Context(), cfg)), emptyListingHint(cfg))
 	})
 }
 

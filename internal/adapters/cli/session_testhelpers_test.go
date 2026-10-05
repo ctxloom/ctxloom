@@ -26,12 +26,12 @@ import (
 
 // execRootCmd runs the real cobra command tree exactly as a shell invocation
 // would (rootCmd.SetArgs + Execute), capturing stdout into a fresh buffer and
-// restoring rootCmd's IO/args afterward. --format is reset on both sides
-// (resetRootFormat), so a test sees the default only when it passes no
-// --format, and never inherits one a neighbour passed.
+// restoring rootCmd's IO/args afterward. Flags are reset on both sides
+// (resetFlags), so a test sees a default only when it does not pass that
+// flag, and never inherits one a neighbour passed.
 func execRootCmd(t *testing.T, args ...string) (stdout string, err error) {
 	t.Helper()
-	resetRootFormat(t)
+	resetFlags(t, rootCmd)
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -40,7 +40,7 @@ func execRootCmd(t *testing.T, args ...string) (stdout string, err error) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
-		resetRootFormat(t)
+		resetFlags(t, rootCmd)
 	})
 	err = rootCmd.Execute()
 	return out.String(), err
@@ -52,7 +52,7 @@ func execRootCmd(t *testing.T, args ...string) (stdout string, err error) {
 // command that reported from one that silently did nothing.
 func execRootCmdBoth(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
-	resetRootFormat(t)
+	resetFlags(t, rootCmd)
 	var out, errBuf bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&errBuf)
@@ -61,7 +61,7 @@ func execRootCmdBoth(t *testing.T, args ...string) (stdout, stderr string, err e
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
-		resetRootFormat(t)
+		resetFlags(t, rootCmd)
 	})
 	// Through rootCommand(), as every dispatching path goes: executing the
 	// bare tree first lets cobra graft its own help command before the

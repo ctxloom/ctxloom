@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -53,6 +54,28 @@ import (
 // inverse mapping — 1 for "found something", 2 for "trouble" — is deliberately
 // NOT followed: its 1 would collide with ctxloom's generic error.
 const exitCodeRefused = 2
+
+// exitCodeError is the exit code for an ordinary ctxloom error: something
+// failed, and the message says what.
+const exitCodeError = 1
+
+// refusal marks an error as a refusal (exitCodeRefused) rather than a failure:
+// ctxloom declined to do what was asked because a precondition the human
+// supplies is missing, and the error names it with its fix. Unlike ExitError
+// it is reported: the message and fix are the point.
+type refusal struct{ error }
+
+func (r refusal) Unwrap() error { return r.error }
+
+// errorExitCode is the status a reported ctxloom error exits with: the
+// refusal status for a refusal, exitCodeError for everything else.
+func errorExitCode(err error) int {
+	var r refusal
+	if errors.As(err, &r) {
+		return exitCodeRefused
+	}
+	return exitCodeError
+}
 
 // exitCodeFatalFindings is the exit code for a strict-mode startup abort:
 // distinct from 1 (ordinary command errors) and from the wrapped LLM's own

@@ -55,6 +55,21 @@ type Deps struct {
 	SessionClaims SessionClaims
 	InlineMax     int
 	Host          HostFacts
+	// ProjectIdentity establishes the project's stable identity when the
+	// source carries none, and is called only once the launch is ADMITTED —
+	// past selection, assembly, the engine, the axes and the policy, just
+	// before the cell that carries the id is prepared. Establishing an
+	// identity writes a marker into the project, so a refused launch must
+	// never reach it. A failure is reported and the launch runs without one.
+	// Nil establishes nothing (a preview, which only looks an identity up).
+	ProjectIdentity func() (string, error)
+	// CheckCredential refuses a launch whose engine (backend) cannot
+	// authenticate in mode, with the engine's own refusal and fix. It runs at
+	// the same point as ProjectIdentity, first: past content and policy, so a
+	// missing profile is still reported as one, and before anything is
+	// established for a run that could not authenticate. Nil skips it (a
+	// preview, whose findings gate reports the same refusal).
+	CheckCredential func(backend string, mode engine.AuthMode) error
 	// Reporter receives the diagnostics opening a launch raises (the delivery
 	// preference the engine cannot honour, the packages a writer skips); the
 	// composition chooses the sink. Nil discards.

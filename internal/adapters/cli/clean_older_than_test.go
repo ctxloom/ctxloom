@@ -21,22 +21,12 @@ import (
 // and with which bytes. The JSON payload is read only for the shape of the
 // report, never as proof that anything happened.
 
-// resetCleanFlags restores `clean`'s package-level cobra flag vars, for the
-// same reason resetSessionWorktreesFlags exists: pflag only calls Set() on
-// flags present in a given argv, so a value one test left on survives into a
-// later invocation that never mentions the flag.
-func resetCleanFlags() {
-	cleanYes = false
-	cleanOlderThan = ""
-	cleanIncludePersist = false
-}
-
 // cotProject isolates HOME, roots the project at a fresh temp dir, and
 // invalidates the ambient config so `clean` resolves both its cache and its
 // config there rather than in this repository.
 func cotProject(t *testing.T) string {
 	t.Helper()
-	t.Cleanup(resetCleanFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	testsupport.Isolate(t)
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.AppDirName), 0o755))

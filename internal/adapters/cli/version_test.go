@@ -17,7 +17,7 @@ import (
 // runVersionCmd executes `ctxloom version` with the given --format and
 // returns everything it wrote. --format is an explicit argument rather than
 // an omitted flag because an omitted one resolves from whether stdout is a
-// terminal (cliemit.Resolve); it is put back with resetRootFormat afterward.
+// terminal (cliemit.Resolve); it is put back with resetFlags afterward.
 func runVersionCmd(t *testing.T, format string) string {
 	t.Helper()
 	var out bytes.Buffer
@@ -28,7 +28,7 @@ func runVersionCmd(t *testing.T, format string) string {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
-		resetRootFormat(t)
+		resetFlags(t, rootCmd)
 	})
 	require.NoError(t, rootCmd.Execute())
 	return out.String()
@@ -68,7 +68,7 @@ func TestVersion_UnknownFormatIsRejectedByTheSharedVocabulary(t *testing.T) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
-		resetRootFormat(t)
+		resetFlags(t, rootCmd)
 	})
 
 	err := rootCmd.Execute()

@@ -99,9 +99,10 @@ Feature: init — the setup interview, and what it does to a project that alread
     and exports. ctxloom instructs; it never captures or stores the token. On
     a terminal with none exported, init runs that flow on the human's own
     terminal and prints the line to export it. Off a terminal there is nobody
-    to run it for, so init stops and names the steps. It stops AFTER the
-    project is set up: once the token is exported, re-running init finishes
-    the job.
+    to run it for, so init warns and names the steps — in the engine's own
+    wording, the one `ctxloom auth` and `ctxloom run` show — and exits 0: the
+    project IS set up, and only the setup interview's launch was skipped.
+    Once the token is exported, re-running init launches it.
 
     Scenario: Off a terminal with no token exported, init names how to create and export it
       Given an initialized ctxloom project
@@ -110,7 +111,7 @@ Feature: init — the setup interview, and what it does to a project that alread
         """
         ctxloom init
         """
-      Then the command fails
+      Then the command succeeds
       And the output contains "claude setup-token"
       And the output contains "export CLAUDE_CODE_OAUTH_TOKEN"
       And the output contains "re-run `ctxloom init`"

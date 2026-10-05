@@ -362,7 +362,7 @@ func diffNameOnly(ctx context.Context, dir, a, b string) ([]string, error) {
 // there is no repository to be "in" — and, per the package doc, cmd.Dir is the
 // only thing that selects one.
 func (execGit) Clone(ctx context.Context, url, dir, branch string) error {
-	args := []string{"clone", "--single-branch"}
+	args := []string{"clone", "--single-branch", "--depth", "1"}
 	if branch != "" {
 		args = append(args, "--branch", branch)
 	}

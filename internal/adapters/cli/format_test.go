@@ -293,7 +293,7 @@ func TestFormatDebtCommands_AreTrackedAndRefuseNonTextLoudly(t *testing.T) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
-		resetRootFormat(t)
+		resetFlags(t, rootCmd)
 	})
 
 	err := rootCmd.Execute()

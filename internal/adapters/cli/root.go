@@ -504,7 +504,7 @@ func run(comp Composition, args []string, stdout io.Writer) int {
 	// --format value that will not parse falls back to text in there, so
 	// the ORIGINAL failure is always what gets reported.
 	_ = cliemit.EmitError(os.Stderr, rootCmd, err)
-	return 1
+	return errorExitCode(err)
 }
 
 // exitCodeFor reports the exit code an error carries in its own right, and

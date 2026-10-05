@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -141,7 +142,7 @@ func TestRefusedCredentialRemedy(t *testing.T) {
 
 	store := engine.Credentials{Stores: []engine.SharedStore{{HomeRel: ".claude"}}}.Source("claude")
 	got = RefusedCredentialRemedy(store, "brave-harp")
-	assert.Contains(t, got, "sign in again (~/.claude)")
-	assert.Contains(t, got, "resume")
-	assert.NotContains(t, got, "--session", "a store refresh reaches a running session")
+	assert.Equal(t, fmt.Sprintf(refusedStoreRemedyFormat, "~/.claude", "brave-harp"), got,
+		"a refused login names the in-place sign-in AND the agent token every run already needs — never only a sign-in where init and auth say to export the token")
+	assert.Contains(t, got, "auth: "+string(engine.AuthToken))
 }

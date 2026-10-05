@@ -118,7 +118,8 @@ func stubLocalDefaultProfile(t *testing.T, root string) {
 // with the given args, in root, returning its stdout and any RunE error.
 // doctorCmd's OWN FlagSet (currently just --deps) is added by reference, so
 // --deps here binds the SAME doctorDepsOnlyFlag var doctorCmd.RunE reads;
-// t.Cleanup resets it so one test's --deps never bleeds into the next.
+// t.Cleanup resets it (resetFlags) so one test's --deps never bleeds into
+// the next.
 //
 // SSH_AUTH_SOCK is forced empty: doctorCmd.RunE wires DOCTOR-CHECK-SIGNKEY-k1
 // to the REAL agentkey.NewDiscoverer(), which dials the host's actual
@@ -184,12 +185,12 @@ func isolateGitHostState(t *testing.T, sshAuthSock, home string) {
 // reimplementation) with the given args, in root, returning its stdout and
 // any RunE error. doctorCmd's OWN FlagSet (currently just --deps) is added
 // by reference, so --deps here binds the SAME doctorDepsOnlyFlag var
-// doctorCmd.RunE reads; t.Cleanup resets it so one test's --deps never
-// bleeds into the next.
+// doctorCmd.RunE reads; t.Cleanup resets it (resetFlags) so one test's
+// --deps never bleeds into the next.
 func execDoctor(t *testing.T, root string, args ...string) (string, error) {
 	t.Helper()
 	chdir(t, root)
-	t.Cleanup(func() { doctorDepsOnlyFlag = false })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	buf := &bytes.Buffer{}
 	c := &cobra.Command{Use: "doctor", RunE: doctorCmd.RunE, SilenceErrors: true, SilenceUsage: true}
 	c.Flags().AddFlagSet(doctorCmd.Flags())

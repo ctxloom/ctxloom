@@ -24,7 +24,7 @@ func TestRenderProfileList_HighlightsDefaults(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	assert.NoError(t, renderProfileList(&buf, list))
+	assert.NoError(t, renderProfileList(&buf, list, func(s string) string { return s }))
 	out := buf.String()
 
 	assert.Contains(t, out, "Profiles (2):")
@@ -41,7 +41,7 @@ func TestRenderProfileList_EmptySectionsSuppressed(t *testing.T) {
 	list := []operations.ProfileEntry{{Name: "minimal"}}
 
 	var buf bytes.Buffer
-	assert.NoError(t, renderProfileList(&buf, list))
+	assert.NoError(t, renderProfileList(&buf, list, func(s string) string { return s }))
 	out := buf.String()
 
 	assert.Contains(t, out, "  minimal\n")

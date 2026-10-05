@@ -15,15 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// resetSessionAdoptFlags restores sessionAdoptYes, for the reason every
-// other flag-reset helper in this package documents: pflag never un-sets a
-// flag a prior test's invocation set, so a leftover --yes would turn a
-// later report-only test into an apply.
-func resetSessionAdoptFlags(t *testing.T) {
-	t.Helper()
-	sessionAdoptYes = false
-}
-
 // writeAdoptVendorFile writes a minimal claude-code-shaped vendor transcript
 // at dir/<sessionID>.jsonl carrying two lines timestamped start and end —
 // the file's internal record span `session adopt` reads. This end-to-end
@@ -87,7 +78,7 @@ func TestSessionAdopt_DryRunWritesNothing(t *testing.T) {
 	_, harp, vendorDir := seedClaudeHarpWithVendorDir(t, dir)
 	writeAdoptVendorFile(t, vendorDir, "id-orphan",
 		time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 5, 1, 0, 0, 0, time.UTC))
-	t.Cleanup(func() { resetSessionAdoptFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	before := sidecarBytes(t, harp)
 
@@ -112,7 +103,7 @@ func TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload(t *testing.T) {
 	_, harp, vendorDir := seedClaudeHarpWithVendorDir(t, dir)
 	orphanPath := writeAdoptVendorFile(t, vendorDir, "id-orphan",
 		time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 5, 1, 0, 0, 0, time.UTC))
-	t.Cleanup(func() { resetSessionAdoptFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--yes", "--format", "text")
 	require.NoError(t, err)
@@ -144,7 +135,7 @@ func TestSessionAdopt_UnsupportedBackendFails(t *testing.T) {
 	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(entry.HarpName, "id-1", filepath.Join(t.TempDir(), "id-1.jsonl")))
-	t.Cleanup(func() { resetSessionAdoptFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, _, err = execRootCmdBoth(t, "session", "adopt", entry.HarpName)
 	require.Error(t, err)
@@ -155,7 +146,7 @@ func TestSessionAdopt_UnsupportedBackendFails(t *testing.T) {
 // TestSessionAdopt_UnknownHarpFails pins the plain not-found error.
 func TestSessionAdopt_UnknownHarpFails(t *testing.T) {
 	testsupport.ProjectDir(t)
-	t.Cleanup(func() { resetSessionAdoptFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, _, err := execRootCmdBoth(t, "session", "adopt", "no-such-harp")
 	require.Error(t, err)
@@ -171,7 +162,7 @@ func TestSessionAdopt_JSONShapesCandidatesWithVerdictAndReason(t *testing.T) {
 	// Overlaps the live binding's span (2026-04-10T00:00 to 01:00).
 	writeAdoptVendorFile(t, vendorDir, "id-concurrent",
 		time.Date(2026, 4, 10, 0, 30, 0, 0, time.UTC), time.Date(2026, 4, 10, 2, 0, 0, 0, time.UTC))
-	t.Cleanup(func() { resetSessionAdoptFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "adopt", harp, "--format", "json")
 	require.NoError(t, err)

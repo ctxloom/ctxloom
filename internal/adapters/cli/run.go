@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -458,15 +459,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err := st.loadConfig(); err != nil {
 		return err
 	}
-	// An invalid ui.prefix_key is a broken-config finding like any other:
-	// recorded with the config load so the startup gate aborts on it before
-	// launch (a viewer on a key the user didn't configure is a wrong-context
-	// session's cousin).
-	validateTerminalUIConfig(st.cfg)
-	if runLLM != "" {
-		if _, err := validateExplicitLLM(st.cfg, runLLM); err != nil {
-			return err
-		}
+	if err := st.validateLoaded(); err != nil {
+		return err
 	}
 	if err := st.resolvePrompt(); err != nil {
 		return err
@@ -531,10 +525,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 	return st.drive()
 }
 
-// resolveProject resolves the project root the launch is asked for and the
-// project's stable identity the session serves. The identity is
-// fault-tolerant: a failure warns and the session carries none; the task
-// store degrades rather than blocking.
+// resolveProject resolves the project root the launch is asked for and, for a
+// preview, the identity the project already has. A real run's identity is
+// established later, once its launch is admitted (establishProjectIdentity).
+// The identity is fault-tolerant: a failure warns and the session carries
+// none; the task store degrades rather than blocking.
 //
 // taskStoreWorkDir redirects a linked git worktree with no .ctxloom of its
 // own to its primary checkout FIRST: the session identity workDir itself
@@ -551,19 +546,44 @@ func (st *runState) resolveProject() {
 	if projectroot.RootFromFallback() {
 		clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", st.workDir)
 	}
-	resolve := taskops.ResolveProjectIdentity
-	if runDryRun {
-		resolve = lookupProjectIdentity
+	// A real run establishes the identity only once its launch is admitted
+	// (launch.Deps.ProjectIdentity, wired by resolveLaunch): establishing it
+	// writes the project marker, which a refused launch must not leave
+	// behind. A preview only looks the existing identity up.
+	if !runDryRun {
+		return
 	}
-	pid, warning, err := resolve(taskStoreWorkDir(st.workDir))
+	pid, _, err := lookupProjectIdentity(taskStoreWorkDir(st.workDir))
 	if err != nil {
 		clidiag.Warn("ctxloom", "project identity unresolved: %v", err)
 		return
 	}
 	st.projectID = pid
+}
+
+// establishProjectIdentity is a real run's launch.Deps.ProjectIdentity: the
+// task store's mint-or-heal for the launch's project, its notice (a moved or
+// copied project) warned as it is raised.
+func (st *runState) establishProjectIdentity() (string, error) {
+	pid, warning, err := taskops.ResolveProjectIdentity(taskStoreWorkDir(st.workDir))
 	if warning != "" {
 		clidiag.Warn("ctxloom", "%s", warning)
 	}
+	return pid, err
+}
+
+// validateLoaded checks what the loaded config says about this invocation.
+// An invalid ui.prefix_key is a broken-config finding like any other:
+// recorded with the config load so the startup gate aborts on it before
+// launch (a viewer on a key the user didn't configure is a wrong-context
+// session's cousin). An explicit --llm must name a usable label.
+func (st *runState) validateLoaded() error {
+	validateTerminalUIConfig(st.cfg)
+	if runLLM == "" {
+		return nil
+	}
+	_, err := validateExplicitLLM(st.cfg, runLLM)
+	return err
 }
 
 // lookupProjectIdentity is a dry run's answer to "which project is this":
@@ -632,10 +652,15 @@ func (st *runState) resolveLaunch() error {
 	if err != nil {
 		return err
 	}
+	deps.ProjectIdentity = st.establishProjectIdentity
+	deps.CheckCredential = func(backend string, mode engine.AuthMode) error {
+		return operations.CheckRunCredential(App().Engines(), backend, mode)
+	}
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
 	if err != nil {
 		return err
 	}
+	st.projectID = l.Identity.Project
 	// The startup findings are composed HERE, after the cell was prepared:
 	// a degraded-to-host finding is the case they exist for.
 	l, err = launch.WithLead(st.ctx, deps.ForSession(l.Identity.Harp), l, st.startupFindings()...)
@@ -886,6 +911,11 @@ func (st *runState) refused(err error) error {
 			return ferr
 		}
 	}
+	// A credential the human has not supplied is a refusal, not a failure:
+	// its fix is theirs to apply (the engine's own wording).
+	if errors.Is(err, engine.ErrNoCredential) {
+		return refusal{err}
+	}
 	return err
 }
 
@@ -992,10 +1022,13 @@ func (st *runState) printDryRun(l launch.Launch, payload dryRunJSON) error {
 		printSignatureCheck(os.Stdout, payload.SignatureCheck, payload.SessionSignatureCheck, payload.EditedSignedTrees)
 		fmt.Println("=== LLM ===")
 		fmt.Printf("%s (%s)\n", l.Label.Label, l.Engine)
+		// One labelling over both lists, so a short name is judged across
+		// everything the preview names.
+		shown := refLabeler(st.ctx, st.cfg)(append(slices.Clone(payload.Profiles), payload.Fragments...))
 		fmt.Println("\n=== Profiles ===")
-		printListOr(payload.Profiles, "(no profiles)")
+		printListOr(shown[:len(payload.Profiles)], "(no profiles)")
 		fmt.Println("\n=== Fragments Loaded ===")
-		printListOr(payload.Fragments, "(no fragments)")
+		printListOr(shown[len(payload.Profiles):], "(no fragments)")
 		printDeliveryRoutes(os.Stdout, payload.Delivery)
 		printEngineHome(os.Stdout, payload.EngineHome)
 		fmt.Printf("\n=== Assembled Context (~%d tokens) ===\n", payload.Tokens)

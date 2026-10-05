@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // The init token gate's outcomes. Each is returned wrapped under a remedy
@@ -77,9 +78,9 @@ func ensureAgentToken(ctx context.Context, reg engine.Registry, eng string, inte
 	if !ok {
 		return nil
 	}
-	_, err := a.Credentials(engine.AuthToken, shell)
-	if !errors.Is(err, engine.ErrNoCredential) {
-		return err
+	err := operations.AgentTokenMissing(reg, eng, shell)
+	if err == nil {
+		return nil
 	}
 	setup, ok := a.(engine.TokenSetup)
 	if !ok {
@@ -90,7 +91,10 @@ func ensureAgentToken(ctx context.Context, reg engine.Registry, eng string, inte
 	steps := fmt.Sprintf("run `%s`, add `export %s=…` with the token it shows you to %s, then re-run `ctxloom init`",
 		cmdline, setup.TokenEnv(), shellProfile(shellPath).file)
 	if !interactive {
-		return report.Errorf(steps, "%s: %w (%s)", eng, ErrAgentTokenNotExported, setup.TokenEnv())
+		// The engine's own fix, verbatim: the wording `ctxloom auth` and
+		// `ctxloom run` show for the same missing token.
+		fix, _ := clifmt.RemedyOf(err)
+		return report.Errorf(fix, "%s: %w (%s)", eng, ErrAgentTokenNotExported, setup.TokenEnv())
 	}
 	bin, rerr := resolveTokenSetupBinary(reg, eng)
 	if rerr != nil {

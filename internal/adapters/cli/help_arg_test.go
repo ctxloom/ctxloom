@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
-	"github.com/spf13/cobra"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -142,9 +141,7 @@ func TestHelpArgShortcut_BehaviourForEveryNameTakingCommand(t *testing.T) {
 			t.Cleanup(func() {
 				cmd.SetOut(nil)
 				cmd.SetContext(context.Background())
-				for k := range tc.flags {
-					resetFlag(t, cmd, k)
-				}
+				resetFlags(t, rootCmd)
 			})
 
 			require.NoError(t, cmd.RunE(cmd, []string{"help"}),
@@ -169,22 +166,6 @@ func TestHelpArgShortcut_BehaviourForEveryNameTakingCommand(t *testing.T) {
 			}
 		})
 	}
-}
-
-// resetFlag restores a flag the row set. Set(k, "") does NOT do this for a
-// slice flag: once changed, pflag's slice Set APPENDS, and an empty value
-// appends nothing, so the row's value would leak into every later test that
-// runs the same command.
-func resetFlag(t *testing.T, cmd *cobra.Command, name string) {
-	t.Helper()
-	f := cmd.Flags().Lookup(name)
-	require.NotNil(t, f, "flag --%s", name)
-	if sv, ok := f.Value.(interface{ Replace([]string) error }); ok {
-		require.NoError(t, sv.Replace(nil))
-	} else {
-		require.NoError(t, f.Value.Set(f.DefValue))
-	}
-	f.Changed = false
 }
 
 func profileHelpExists(t *testing.T) bool {

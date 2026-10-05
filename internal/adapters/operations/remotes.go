@@ -162,19 +162,25 @@ func resolveLocalRepoURL(raw string) (string, error) {
 	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(abs)}).String(), nil
 }
 
-// AddRemote registers a new remote source.
-func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*AddRemoteResult, error) {
+// checkAddRequest refuses an incomplete add and resolves a local-path URL in
+// place (resolveLocalRepoURL).
+func checkAddRequest(req *AddRemoteRequest) error {
 	if req.Name == "" {
-		return nil, fmt.Errorf("name is required")
+		return fmt.Errorf("name is required")
 	}
 	if req.URL == "" {
-		return nil, fmt.Errorf("url is required")
+		return fmt.Errorf("url is required")
 	}
 	resolved, err := resolveLocalRepoURL(req.URL)
-	if err != nil {
+	req.URL = resolved
+	return err
+}
+
+// AddRemote registers a new remote source.
+func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*AddRemoteResult, error) {
+	if err := checkAddRequest(&req); err != nil {
 		return nil, err
 	}
-	req.URL = resolved
 
 	registry := req.Registry
 	if registry == nil {
@@ -296,6 +302,23 @@ type EditRemoteResult struct {
 	DefaultPointerUpdated bool `json:"default_pointer_updated,omitempty"`
 }
 
+// checkEditRequest refuses an edit that names no remote or asks for nothing,
+// and resolves a local-path URL in place (resolveLocalRepoURL).
+func checkEditRequest(req *EditRemoteRequest) error {
+	if req.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if req.NewName == nil && req.URL == nil && req.Forge == nil {
+		return fmt.Errorf("nothing to edit: pass at least one of --name, --url or --forge")
+	}
+	if req.URL == nil {
+		return nil
+	}
+	resolved, err := resolveLocalRepoURL(*req.URL)
+	req.URL = &resolved
+	return err
+}
+
 // EditRemote changes a registered remote's name, URL or forge binding.
 //
 // A remote is an address and carries no authority (see remote.Remote's own
@@ -304,18 +327,8 @@ type EditRemoteResult struct {
 // dependencies are unaffected too — each lockfile entry records its own URL
 // rather than pointing back at a remote by name.
 func EditRemote(_ context.Context, cfg *config.Config, req EditRemoteRequest) (*EditRemoteResult, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if req.NewName == nil && req.URL == nil && req.Forge == nil {
-		return nil, fmt.Errorf("nothing to edit: pass at least one of --name, --url or --forge")
-	}
-	if req.URL != nil {
-		resolved, err := resolveLocalRepoURL(*req.URL)
-		if err != nil {
-			return nil, err
-		}
-		req.URL = &resolved
+	if err := checkEditRequest(&req); err != nil {
+		return nil, err
 	}
 
 	registry := req.Registry

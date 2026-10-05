@@ -269,9 +269,16 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	if cache == nil {
 		cache = NewRepoCache(cfg)
 	}
+	//
+	// A validation probe that ERRORED and a failed clone are one cause (the
+	// address could not be read), so the clone's failure replaces the probe's
+	// rather than repeating it. The warning is the caller's to render.
 	if msg := ensureClone(ctx, cache, rem); msg != "" {
-		result.Warning = appendWarning(result.Warning, msg)
-		clidiag.Warn("ctxloom", "%s", msg)
+		if validErr != nil {
+			result.Warning = msg
+		} else {
+			result.Warning = appendWarning(result.Warning, msg)
+		}
 	}
 
 	return result, nil

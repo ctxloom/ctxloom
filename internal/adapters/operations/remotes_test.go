@@ -3,6 +3,7 @@ package operations
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1216,4 +1217,30 @@ func TestSearchSingleRemote_FallbackToDirectory(t *testing.T) {
 	require.NoError(t, err)
 	// May have results depending on how the mock and search matching works
 	assert.NotNil(t, results)
+}
+
+// TestAddRemote_UnreachableWarnsOnce: an unreachable address fails both the
+// validation probe and the eager clone, for one cause. The result carries that
+// cause once, and AddRemote prints nothing itself — each caller renders
+// result.Warning, so printing here as well showed every user the same failure
+// two or three times.
+func TestAddRemote_UnreachableWarnsOnce(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	unreachable := errors.New("could not resolve host")
+	fetcher := remote.NewMockFetcher()
+	fetcher.ValidateErr = unreachable
+	var printed bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&printed))
+
+	result, err := AddRemote(context.Background(), nil, AddRemoteRequest{
+		Name:     "alice",
+		URL:      "https://github.com/alice/ctxloom",
+		Registry: registry,
+		Fetcher:  fetcher,
+		Cache:    &fakeCloner{err: unreachable},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(result.Warning, unreachable.Error()), result.Warning)
+	assert.Empty(t, printed.String(), "the caller renders the warning; AddRemote does not")
 }

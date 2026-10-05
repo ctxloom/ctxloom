@@ -507,9 +507,13 @@ func addPersonalRemotes(cmd *cobra.Command, appDir string, repos []string, forge
 		return
 	}
 	for _, req := range personalRemoteRequests(repos, forge) {
-		if _, addErr := operations.AddRemote(cmd.Context(), cfg, req); addErr != nil {
+		res, addErr := operations.AddRemote(cmd.Context(), cfg, req)
+		if addErr != nil {
 			clidiag.Warn("ctxloom", "failed to add remote %q (%s): %v", req.Name, req.URL, addErr)
 		} else {
+			if res.Warning != "" {
+				clidiag.Warn("ctxloom", "%s", res.Warning)
+			}
 			fmt.Printf("Added remote %q: %s (content takes the review path — 'ctxloom review')\n", req.Name, req.URL)
 		}
 	}

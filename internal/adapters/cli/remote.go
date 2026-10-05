@@ -19,8 +19,9 @@ var remoteCmd = groupNodeDefault(&cobra.Command{
 	Long: `Register the Git repositories (GitHub or generic git) this project draws shared
 bundles from, and browse what they publish.
 
-A remote is an ADDRESS. Registering one is local bookkeeping over
-.ctxloom/remotes.yaml — no fetch, no credential, nothing installed.
+A remote is an ADDRESS. Registering one records it in .ctxloom/remotes.yaml
+and clones it into the cache, so a wrong URL or missing access shows up now
+rather than on first use. Nothing is installed and nothing is trusted.
 
 Registry:
   ctxloom remote list                    List configured remotes

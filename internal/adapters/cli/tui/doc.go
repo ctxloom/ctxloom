@@ -21,5 +21,5 @@
 // answered. termui summons it as the full-screen modal (OverlayStart.Summoned)
 // or the human opens it from the roster view; either way its keymap is the
 // modal's fourth focus lock (see approvalsModel), and every child-supplied
-// string it shows passes sanitizeForDisplay.
+// string it shows passes displaysafe.Text.
 package tui

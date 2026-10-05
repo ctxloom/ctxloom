@@ -17,15 +17,15 @@ import (
 )
 
 // hostileDisplay is one publisher-authored value carrying every family of
-// terminal control the termsafe seam defuses: a CSI erase-line, an OSC
+// terminal control the publisher render seam defuses: a CSI erase-line, an OSC
 // window-title set terminated by BEL, a carriage return, a backspace, NUL, and
 // the single-rune C1 CSI (U+009B) that needs no ESC at all.
 const hostileDisplay = "pub\x1b[2K\x1b]0;owned\x07\r\x08\x00\u009bx"
 
-// hostileDisplayMark is the caret form of hostileDisplay's leading CSI. Its
+// hostileDisplayMark is the marker form of hostileDisplay's leading CSI. Its
 // presence proves the value reached the output ESCAPED rather than dropped —
 // a renderer that silently omitted the field would otherwise pass.
-const hostileDisplayMark = "pub^[[2K"
+const hostileDisplayMark = "pub⟨ESC⟩[2K"
 
 // assertTerminalInert fails on any rune a terminal would act on: C0 other
 // than newline and tab, DEL, the C1 block, and bytes that are not UTF-8.

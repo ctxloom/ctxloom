@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 var browseRecursive bool
@@ -65,7 +64,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 		// A partial browse lists what it reached; the warnings name what it
 		// did not, so the listing is never read as the whole remote.
 		for _, w := range result.Warnings {
-			clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "%s", termsafe.Field(w))
+			clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "%s", inertField(w))
 		}
 		if result.Count == 0 {
 			fmt.Fprintf(out, "No bundles found in %s\n", remoteName)
@@ -85,7 +84,7 @@ func renderRemoteBrowse(out io.Writer, itemType string, result *operations.Brows
 	fmt.Fprintf(out, "%s in %s (%s):\n\n", title, result.Remote, result.URL)
 
 	for _, item := range result.Items {
-		fmt.Fprintf(out, "  %s\n", termsafe.Field(item.PullRef))
+		fmt.Fprintf(out, "  %s\n", inertField(item.PullRef))
 	}
 
 	fmt.Fprintln(out)

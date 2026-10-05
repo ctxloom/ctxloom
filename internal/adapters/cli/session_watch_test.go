@@ -354,14 +354,29 @@ func TestRunSessionWatch_UnknownSource(t *testing.T) {
 // test, the same level of realism the retired agentbus test used for its
 // fake TapHub-backed bus server (see internal/adapters/operations/sessionfeed_test.go
 // for the twin of this helper; duplicated rather than shared because the two
-// live in different packages and this is the only test in this package that
-// needs it).
+// live in different packages).
 type fakeConsumerServer struct {
 	agentcoordpb.UnimplementedConsumerServiceServer
 	mu    sync.Mutex
 	runs  []*agentcoordpb.ListRunsResult_RunInfo
 	subs  map[chan *agentcoordpb.AgentEvent]struct{}
 	stats *agentcoordpb.SpoolStatsResult // nil answers all-zero, like a fresh coordinator
+	// approvals answers PendingApprovals (nil: an empty queue) unless
+	// approvalsErr is set, which answers instead.
+	approvals    *agentcoordpb.PendingApprovalsResult
+	approvalsErr error
+}
+
+func (f *fakeConsumerServer) PendingApprovals(context.Context, *agentcoordpb.PendingApprovalsRequest) (*agentcoordpb.PendingApprovalsResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.approvalsErr != nil {
+		return nil, f.approvalsErr
+	}
+	if f.approvals == nil {
+		return &agentcoordpb.PendingApprovalsResult{}, nil
+	}
+	return f.approvals, nil
 }
 
 func newFakeConsumerServer() *fakeConsumerServer {
@@ -450,9 +465,16 @@ func startFakeCoordinator(t *testing.T, home string, f *fakeConsumerServer) {
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(srv.Stop)
 
+	writeLiveEndpoint(t, home, ln.Addr().(*net.TCPAddr).Port)
+}
+
+// writeLiveEndpoint records a coordinator on port as discovery finds a live
+// one: its endpoint.json, and its root's owner lock held.
+func writeLiveEndpoint(t *testing.T, home string, port int) {
+	t.Helper()
 	dir := filepath.Join(home, ".ctxloom", "coord", "proj", "root-harp")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
-	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q}`, ln.Addr().(*net.TCPAddr).Port, fakeConsumerCred)
+	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q,"project_dir":%q}`, port, fakeConsumerCred, fakeProjectDir)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte(body), 0o600))
 	// A live coordinator holds its root's owner lock; discovery lists only those.
 	lock := flock.New(filepath.Join(dir, paths.CoordOwnerLockFileName), flock.SetPermissions(0o600))
@@ -461,6 +483,9 @@ func startFakeCoordinator(t *testing.T, home string, f *fakeConsumerServer) {
 	require.True(t, held)
 	t.Cleanup(func() { _ = lock.Close() })
 }
+
+// fakeProjectDir is the project every writeLiveEndpoint coordinator serves.
+const fakeProjectDir = "/work/proj"
 
 // fakeConsumerCred is the consumer credential every startFakeCoordinator
 // endpoint.json advertises and its interceptor demands back.

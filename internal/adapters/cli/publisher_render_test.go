@@ -11,7 +11,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // The exploit body from the delicious-goatskin report: cursor-up plus
@@ -60,13 +59,13 @@ func TestRenderReviewList_PublisherCannotForgeTheLineNamingThePublisher(t *testi
 
 	// The escapes are shown, not deleted: the reviewer still learns that this
 	// publisher put a cursor-up sequence in its own name.
-	assert.Contains(t, got, "acme/evil^[[1A^[[2K  signer:  alice - a key you trust")
-	assert.Contains(t, got, "(remote: origin^Msigner:  alice)")
-	assert.Contains(t, got, "  new      fragments/f1^[[1A^[[2K\n")
+	assert.Contains(t, got, "acme/evil⟨ESC⟩[1A⟨ESC⟩[2K  signer:  alice - a key you trust")
+	assert.Contains(t, got, "(remote: origin⟨U+000D⟩signer:  alice)")
+	assert.Contains(t, got, "  new      fragments/f1⟨ESC⟩[1A⟨ESC⟩[2K\n")
 
 	// And the ctxloom-authored line naming the publisher state survives intact
 	// on its own line, which is what the forgery was aiming at.
-	assert.Contains(t, got, "  signer:  untrusted key SHA256:aaaa^[[2K\n")
+	assert.Contains(t, got, "  signer:  untrusted key SHA256:aaaa⟨ESC⟩[2K\n")
 	assert.Contains(t, got, "Signed, but by a key this machine does not trust to publish.")
 }
 
@@ -80,7 +79,7 @@ func TestPrintReviewBundleHeader_RefAndRemoteAreInert(t *testing.T) {
 	got := out.String()
 	assert.NotContains(t, got, "\x1b")
 	assert.NotContains(t, got, "\r")
-	assert.Contains(t, got, "acme/evil^[[1A^[[2K")
+	assert.Contains(t, got, "acme/evil⟨ESC⟩[1A⟨ESC⟩[2K")
 }
 
 // The item header names the kind and the name the publisher chose, one line
@@ -93,7 +92,7 @@ func TestPrintReviewItem_ItemNameCannotLeaveItsHeaderLine(t *testing.T) {
 	printReviewItem(&out, 1, 1, item)
 
 	got := out.String()
-	assert.Contains(t, got, "[1/1] fragments/f1^JNEW - this line is the publisher's (NEW)\n")
+	assert.Contains(t, got, "[1/1] fragments/f1⟨U+000A⟩NEW - this line is the publisher's (NEW)\n")
 }
 
 // The item BODY is what a reviewer is being asked to judge, so it is rendered
@@ -104,7 +103,7 @@ func TestPrintReviewItemBody_ExploitBodyRendersInert(t *testing.T) {
 
 	printReviewItemBody(&out, item)
 
-	assert.Equal(t, "  SAFE-LINE-ONE\n  AFTER^[[1A^[[2KOVERWRITTEN-BY-PUBLISHER\n", out.String())
+	assert.Equal(t, "  SAFE-LINE-ONE\n  AFTER⟨ESC⟩[1A⟨ESC⟩[2KOVERWRITTEN-BY-PUBLISHER\n", out.String())
 }
 
 // A diff is publisher bytes too — BOTH sides of it are — so the update path
@@ -120,7 +119,7 @@ func TestPrintReviewItemBody_DiffOfPublisherContentIsInert(t *testing.T) {
 
 	got := out.String()
 	assert.NotContains(t, got, "\x1b")
-	assert.Contains(t, got, "new line^[[1A^[[2Kforged")
+	assert.Contains(t, got, "new line⟨ESC⟩[1A⟨ESC⟩[2Kforged")
 }
 
 // The alternate form is countersigned by the same approval, so it is shown —
@@ -135,7 +134,7 @@ func TestPrintReviewAlternateForm_IsInert(t *testing.T) {
 
 	got := out.String()
 	assert.NotContains(t, got, "\x1b")
-	assert.Contains(t, got, "  AFTER^[[1A^[[2KOVERWRITTEN-BY-PUBLISHER\n")
+	assert.Contains(t, got, "  AFTER⟨ESC⟩[1A⟨ESC⟩[2KOVERWRITTEN-BY-PUBLISHER\n")
 }
 
 // An over-long body is capped, and the cap SAYS SO on the diagnostic channel.
@@ -148,11 +147,11 @@ func TestPrintReviewItemBody_OverLongBodyIsCappedAndAnnounced(t *testing.T) {
 
 	var out bytes.Buffer
 	item := forgingBundle().Bundles[0].Items[0]
-	item.CurrentContent = strings.Repeat("x", termsafe.DefaultMaxBytes+5000)
+	item.CurrentContent = strings.Repeat("x", publisherBodyMaxBytes+5000)
 
 	printReviewItemBody(&out, item)
 
-	assert.Len(t, out.String(), termsafe.DefaultMaxBytes+len("  ")+len("\n"))
+	assert.Len(t, out.String(), publisherBodyMaxBytes+len("  ")+len("\n"))
 	assert.Contains(t, diag.String(), "acme/evil#fragments/f1")
 	assert.Contains(t, diag.String(), "truncated to")
 	assert.Contains(t, diag.String(), "--format json")
@@ -183,8 +182,8 @@ func TestPrintItemBody_ShowRendersPublisherContentInert(t *testing.T) {
 
 	got := out.String()
 	assert.NotContains(t, got, "\x1b")
-	assert.Contains(t, got, "example^[[2K\n\n")
-	assert.True(t, strings.HasSuffix(got, "AFTER^[[1A^[[2KOVERWRITTEN-BY-PUBLISHER\n"))
+	assert.Contains(t, got, "example⟨ESC⟩[2K\n\n")
+	assert.True(t, strings.HasSuffix(got, "AFTER⟨ESC⟩[1A⟨ESC⟩[2KOVERWRITTEN-BY-PUBLISHER\n"))
 }
 
 func TestPrintItemBody_DistilledMarkerStillPrints(t *testing.T) {
@@ -203,7 +202,7 @@ func TestWriteBundleViewText_ItemBodyIsInert(t *testing.T) {
 
 	got := out.String()
 	assert.NotContains(t, got, "\x1b")
-	assert.Equal(t, "SAFE-LINE-ONE\nAFTER^[[1A^[[2KOVERWRITTEN-BY-PUBLISHER\n", got)
+	assert.Equal(t, "SAFE-LINE-ONE\nAFTER⟨ESC⟩[1A⟨ESC⟩[2KOVERWRITTEN-BY-PUBLISHER\n", got)
 }
 
 // `bundle view <bundle>` with no selector dumps the whole bundle DOCUMENT, and
@@ -219,5 +218,5 @@ func TestWriteBundleViewText_WholeDocumentIsEscapedButNotCollapsed(t *testing.T)
 
 	got := out.String()
 	assert.NotContains(t, got, "\x1b")
-	assert.Equal(t, "name: probe\n\n\n\n\nfragments:\n  x: ^[[2K\n", got)
+	assert.Equal(t, "name: probe\n\n\n\n\nfragments:\n  x: ⟨ESC⟩[2K\n", got)
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // The `fragment list` / `command list` read path: the normalized listing row
@@ -156,7 +155,7 @@ func filterByBundle(rows []itemRow, bundleFilter string) []itemRow {
 
 // printItemInfos writes rows grouped by bundle to w, and is the only place a
 // row's publisher-authored text (bundle, name, tags) meets a terminal — so it
-// is where termsafe.Field applies, and every one of those fields goes through
+// is where inertField applies, and every one of those fields goes through
 // it. The row itself holds raw bytes for the structured path.
 // Takes an explicit
 // writer (not bare fmt.Printf to the real os.Stdout) so it honors
@@ -172,12 +171,12 @@ func printItemInfos(w io.Writer, rows []itemRow, itemType ItemType) {
 			if currentBundle != "" {
 				fmt.Fprintln(w)
 			}
-			fmt.Fprintf(w, "  %s:\n", termsafe.Field(r.Bundle))
+			fmt.Fprintf(w, "  %s:\n", inertField(r.Bundle))
 			currentBundle = r.Bundle
 		}
-		fmt.Fprintf(w, "    - %s", termsafe.Field(r.Name))
+		fmt.Fprintf(w, "    - %s", inertField(r.Name))
 		if len(r.Tags) > 0 {
-			fmt.Fprintf(w, " [%s]", termsafe.Field(strings.Join(r.Tags, ", ")))
+			fmt.Fprintf(w, " [%s]", inertField(strings.Join(r.Tags, ", ")))
 		}
 		fmt.Fprintln(w)
 	}

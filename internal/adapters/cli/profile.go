@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // Bare `ctxloom profile` lists the profiles: the collection is the one
@@ -291,22 +290,22 @@ type profileDetailJSON struct {
 // profileShowCmd's RunE.
 //
 // A profile can ship inside a pulled bundle, so every value but Path (the
-// local file) is publisher-authored and goes through termsafe.Field.
+// local file) is publisher-authored and goes through inertField.
 func renderProfileShow(out io.Writer, p *operations.GetProfileResult, isDefault bool) error {
 	w := errwriter.New(out)
-	w.Printf("Profile: %s\n", termsafe.Field(p.Name))
+	w.Printf("Profile: %s\n", inertField(p.Name))
 	w.Printf("Path: %s\n", p.Path)
 	if p.Bundle != "" {
-		w.Printf("Bundle: %s\n", termsafe.Field(p.Bundle))
+		w.Printf("Bundle: %s\n", inertField(p.Bundle))
 	}
 	if isDefault {
 		w.Println("Default: yes")
 	}
 	if p.Description != "" {
-		w.Printf("Description: %s\n", termsafe.Field(p.Description))
+		w.Printf("Description: %s\n", inertField(p.Description))
 	}
 	if p.LLM != "" {
-		w.Printf("LLM: %s\n", termsafe.Field(p.LLM))
+		w.Printf("LLM: %s\n", inertField(p.LLM))
 	}
 	writeBulletList(w, "Parents", p.Parents)
 	writeBulletList(w, "Bundles", p.Bundles)
@@ -314,7 +313,7 @@ func renderProfileShow(out io.Writer, p *operations.GetProfileResult, isDefault 
 	if len(p.Variables) > 0 {
 		w.Println("Variables:")
 		for k, v := range p.Variables {
-			w.Printf("  %s: %s\n", termsafe.Field(k), termsafe.Field(v))
+			w.Printf("  %s: %s\n", inertField(k), inertField(v))
 		}
 	}
 	writeBulletList(w, "Excluded fragments", p.ExcludeFragments)
@@ -328,7 +327,7 @@ func writeBulletList(w *errwriter.Writer, heading string, items []string) {
 	}
 	w.Printf("%s:\n", heading)
 	for _, item := range items {
-		w.Printf("  - %s\n", termsafe.Field(item))
+		w.Printf("  - %s\n", inertField(item))
 	}
 }
 

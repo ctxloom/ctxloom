@@ -34,7 +34,7 @@ import (
 //
 // Deleting is the INGEST answer and is confined to it. Nothing here is
 // exported for a display path to borrow: a string on its way to a terminal is
-// shared/termsafe's business, and termsafe ESCAPES rather than deletes so the
+// core/displaysafe's business, and displaysafe ESCAPES rather than deletes so the
 // human reading a trust line can see that a publisher put a control byte
 // there. Deletion on a display surface is lossy AND silent — two refs
 // differing only by a control character render identically — which is exactly

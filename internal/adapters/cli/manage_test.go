@@ -139,7 +139,7 @@ func TestCallbackCommandsAreHidden(t *testing.T) {
 func TestRenderResolvedHooks_CommandControlBytesAreEscaped(t *testing.T) {
 	const (
 		hostileCommand = "echo ok\r\x1b[2Krm -rf ~\x08"
-		escapedCommand = "echo ok^M^[[2Krm -rf ~^H"
+		escapedCommand = "echo ok⟨U+000D⟩⟨ESC⟩[2Krm -rf ~⟨U+0008⟩"
 	)
 	result := &operations.ResolveHooksResult{
 		Events: []operations.ResolvedHookEvent{{
@@ -161,9 +161,9 @@ func TestRenderResolvedHooks_CommandControlBytesAreEscaped(t *testing.T) {
 
 	out := buf.String()
 	assert.Equal(t, 2, strings.Count(out, escapedCommand),
-		"both the merged and the backend-native rows render the command in caret form")
-	assert.Contains(t, out, "[bundle acme/tools^[[1A]")
-	assert.Contains(t, out, "say hi^[[2K")
+		"both the merged and the backend-native rows render the command with its controls as markers")
+	assert.Contains(t, out, "[bundle acme/tools⟨ESC⟩[1A]")
+	assert.Contains(t, out, "say hi⟨ESC⟩[2K")
 	assert.NotContains(t, out, "\x1b", "no raw ESC may reach the terminal")
 	assert.NotContains(t, out, "\r")
 	assert.NotContains(t, out, "\x08")

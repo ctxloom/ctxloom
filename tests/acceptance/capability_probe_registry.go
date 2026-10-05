@@ -227,6 +227,18 @@ var (
 		Shape: "APPROVAL-DELIVERY failure",
 		Where: "a file the gated tool call writes, absent until the approval is answered",
 	}
+	channelHookProcess = probeChannel{
+		Shape: "HOOK-INTERRUPT failure",
+		Where: "the blocked PermissionRequest hook's own process, read from /proc after the interrupted engine exits",
+	}
+	channelInitMCPServers = probeChannel{
+		Shape: "CONNECTOR failure",
+		Where: "the init frame's mcp_servers — the servers claude connected before the model said anything",
+	}
+	channelSettingsSources = probeChannel{
+		Shape: "SETTINGS-SOURCES failure",
+		Where: "markers only the config home's user-settings hooks write, and output only one source's permission rule lets a command print",
+	}
 	channelRepoHookMarker = probeChannel{
 		Shape: "REPO-HOOK failure",
 		Where: "marker files outside the repo that only the repo's COMMITTED .claude/settings.json hooks write",
@@ -266,6 +278,9 @@ const (
 	probeP12 = "p12-permission-hook-no-host"
 	probeP13 = "p13-untrusted-repo-hooks"
 	probeP14 = "p14-native-history"
+	probeP15 = "p15-hook-interrupt"
+	probeP16 = "p16-strict-mcp-connectors"
+	probeP17 = "p17-inline-settings"
 	// The two rungs deliberately NOT built. Present as deferred rows so rows
 	// 9 and 10 of the inventory are visibly un-probed rather than invisibly so.
 	probePCmd   = "p10-command-invocation"
@@ -381,10 +396,8 @@ var probeRegistry = []probeSpec{
 			//     which is part of why the false reason was never revisited.
 			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "none", Status: probeLiveVerified,
 				Reason: "measured 2026-09-23 on fix/container-engine-home-path: 1 scenario / 3 steps green in 19s, nonce harp \"mean-deaf-lurch\", call log carrying the whole round trip — start / initialize / notifications/initialized / tools/list / tools/call / tool_call. The runner is the container's foreground process and delivers claude's engine-home surfaces (--mcp-config, --append-system-prompt-file, settings.json) at the container side of the engine-home mount (runner.Execute via present.Mapped.EngineSide); the product-cell half is pinned without a vendor engine by TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath. The fixture lives INSIDE the workspace, which a container cell bind-mounts at the same absolute path, and mcpProbeAssert's demand for a tools/call in the fixture server's OWN log is what keeps the cell honest."},
-			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Status: probeWired,
-				ExpectedFailure:     channelMCPToolResult.Shape,
-				ExpectedFailureNote: "measured 2026-08-26, the same shape the container/none row had that day (server started in-container, handshake and tools/list completed, get_nonce never called); that row has since been measured green and this one has not been re-run. It DID prove the evidence path: probeCellRunDir resolved the per-agent checkout from `git worktree list --porcelain` and read the call log out of it, which works here because the server's writes leave the checkout dirty and the WIP-safe teardown spares it.",
-				Reason:              "LANDED WITH the container/none row, never after it, for the reason that kept them paired while both were deferred: P6 measured what skipping a mixed corner costs — its host/worktree cell failed where both-off and both-on passed, because the axes resolve the credential by DIFFERENT mechanisms (a container bind-mounts it, a worktree seeds it via credentialSeedSpecs). This row carries one thing its partner does not: the engine runs a per-agent CHECKOUT, so the fixture arrives only because it is committed, and its call log is written there rather than in the project. probeCellRunDir resolves that checkout from `git worktree list --porcelain` AFTER the run; reading the project copy instead would report that the server never ran."},
+			{Engine: "claude-code", Runtime: "container-rootless", Workspace: "worktree", Status: probeLiveVerified,
+				Reason: "measured 2026-10-05 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 35s, nonce harp \"loose-overt-unit\" echoed back, and the fixture server's call log in the per-agent checkout carrying the whole round trip — initialize / notifications/initialized / tools/list / tools/call / tool_call. The engine runs a per-agent CHECKOUT here, so the fixture arrives only because it is committed, and its call log is written there rather than in the project; probeCellRunDir resolves that checkout from `git worktree list --porcelain` AFTER the run, which works because the server's writes leave the checkout dirty and the WIP-safe teardown spares it. Reading the project copy instead would report that the server never ran."},
 		},
 	},
 	{
@@ -458,6 +471,8 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 12s. The hook fired on Bash and printed nothing; the gated call's tool_result is an error and the file is absent — claude -p refuses a call no hook decided, which is the approval route's fail-closed guarantee. MUTATION-CONFIRMED hermetically (TestP12_Silent): an arm that accepted an unrefused call reds."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12AllowPromptsNone), Status: probeLiveVerified,
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 9.5s. With --permission-prompts none on the argv the PermissionRequest hook is STILL consulted first: it fired on Bash, the gated call's tool_result is stamped after the hook's post-sleep marker, and the hook's allow ran the call (the file exists). none denies only what no hook decided."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12AllowToolUseIDAbsent), Status: probeLiveVerified,
+				Reason: "conformance cell V1, measured 2026-10-05 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. The PermissionRequest hook still fires under -p with no permission host — it ran on Bash and its allow ran the call, stamped after its post-sleep marker — and its captured input carries no tool_use_id key, so the route's correlation through the preceding PreToolUse still rests on a true premise. Judge MUTATION-CONFIRMED hermetically (TestP12_ToolUseIDAbsent)."},
 		},
 	},
 	// P13 measures ctxloom's repo trust: the VENDOR half — claude's own trust
@@ -499,6 +514,53 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-03 on claude 2.1.286 (haiku): 1 scenario / 4 steps green in 22s. In a rootless container the host-side session engine home held claude/projects/<slug>/<uuid>.jsonl after one turn; the slug was the project's HOST absolute path, because the container mounts the project at the same path. Re-measured 2026-10-03 on the native-history layout: 1 scenario / 4 steps green in 45s, the conversation .jsonl landed in the host's native/claude/projects/<slug>/ through the home's relative link and the native/ mount. Judge MUTATION-CONFIRMED hermetically (TestP14_ContainerWrites)."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: p14SymlinkedProjects, Status: probeLiveVerified,
 				Reason: "measured 2026-10-03 on claude 2.1.286 (haiku): 1 scenario / 4 steps green in 16s. With <cfg>/projects the relative link ../../native/claude/projects, claude wrote its conversation .jsonl into the link's target and left the link in place with its target text unchanged. Judge MUTATION-CONFIRMED hermetically (TestP14_SymlinkReplacedIsRed, TestP14_SymlinkRetargetedIsRed)."},
+		},
+	},
+	// P15 measures the vendor half of an interrupted turn (conformance I1):
+	// claude, interrupted the way the driver does it while a PermissionRequest
+	// hook blocks, exits and takes the hook with it (probe_p15_hook_interrupt.go).
+	{
+		Name:         probeP15,
+		Title:        "hook interrupt: SIGINT to claude -p while its PermissionRequest hook blocks ends claude within the driver's grace and kills the hook",
+		Capabilities: []int{7, 12},
+		Channel:      channelHookProcess,
+		Feature:      "probes/capability_hook_interrupt.feature",
+		Paid:         true,
+		Cells: []probeCell{
+			hostCell("claude-code", probeLiveVerified,
+				"conformance cell I1, measured 2026-10-05 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With claude blocked on its PermissionRequest hook, SIGINT to claude alone made it exit 580ms later, well inside the driver's grace, with exit status 0 and a result frame of subtype error_during_execution; the hook's own process and its sleeping child were both gone from /proc and the hook never answered. So an interrupted turn takes its approval hook with it, and claude reports the turn on its way out."),
+		},
+	},
+	// P16 measures whether --strict-mcp-config, the flag an untrusted
+	// repository's child is launched with, keeps the account's claude.ai
+	// connectors out (conformance T1; probe_p16_strict_mcp_connectors.go).
+	{
+		Name:         probeP16,
+		Title:        "strict MCP connectors: claude -p with --strict-mcp-config loads none of the claude.ai connectors the same session loads without it",
+		Capabilities: []int{8, 21},
+		Channel:      channelInitMCPServers,
+		Feature:      "probes/capability_strict_mcp_connectors.feature",
+		Paid:         true,
+		Cells: []probeCell{
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Status: probeWired,
+				ExpectedFailure:     shapeConnectorsAbsent,
+				ExpectedFailureNote: "measured 2026-10-05 on claude 2.1.286 (haiku) in token mode, the only credential a live cell may use: the control turn's init frame listed no claude.ai connector, so the strict arm had nothing to suppress (it listed no server at all). This matches the design's note that a token-mode session cannot fetch claude.ai connectors. The control did list a stray project server from an .mcp.json in an ancestor of the cell's temp directory, and --strict-mcp-config removed it. Turning this cell green needs a login-mode credential in the throwaway config home.",
+				Reason:              "conformance cell T1."},
+		},
+	},
+	// P17 measures that the per-turn posture, an inline JSON --settings,
+	// applies alongside the session home's user settings rather than
+	// replacing them (conformance S1; probe_p17_inline_settings.go).
+	{
+		Name:         probeP17,
+		Title:        "inline settings: an inline-JSON --settings and the config home's user settings both apply to one claude -p turn — each source's allow rule and the home's hooks",
+		Capabilities: []int{6, 7},
+		Channel:      channelSettingsSources,
+		Feature:      "probes/capability_inline_settings.feature",
+		Paid:         true,
+		Cells: []probeCell{
+			hostCell("claude-code", probeLiveVerified,
+				"conformance cell S1, measured 2026-10-05 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. Under --setting-sources user with an inline-JSON --settings carrying defaultMode and one allow rule, the config home's settings.json still applied in full: its SessionStart and PreToolUse hooks both wrote their markers, and the echo only its own allow rule permits ran beside the echo only the inline rule permits. The two sources merge; the inline document replaces neither the home's hooks nor its rules."),
 		},
 	},
 	{

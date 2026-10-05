@@ -107,7 +107,7 @@ func runBundleView(cmd *cobra.Command, args []string) error {
 }
 
 // writeBundleViewText writes `bundle view`'s --format text rendering: the same
-// information, rendered inert for a terminal by the shared termsafe seam.
+// information, rendered inert for a terminal by the publisher render seam (publisherBody).
 //
 // Blank-line collapsing is applied to an ITEM body and not to the whole-bundle
 // dump. An item body is content surrounded by ctxloom's own framing, and

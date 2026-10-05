@@ -100,14 +100,8 @@ func stubContainerPrune(t *testing.T, fn func(context.Context, *operations.App, 
 		got = req
 		return fn(ctx, app, req)
 	}
-	reset := func() {
-		containerPruneApply, containerPruneMinAge, containerPruneRuntime = false, operations.DefaultImagePruneMinAge, ""
-		for _, name := range []string{"apply", "min-age", "runtime"} {
-			containerPruneCmd.Flags().Lookup(name).Changed = false
-		}
-	}
-	reset()
-	t.Cleanup(func() { containerPrune = orig; reset() })
+	resetFlags(t, rootCmd)
+	t.Cleanup(func() { containerPrune = orig; resetFlags(t, rootCmd) })
 	return &got
 }
 

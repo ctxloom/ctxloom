@@ -36,14 +36,14 @@ func TestRemoteDefaultClear_WritesThroughTheCommandsWriter(t *testing.T) {
 	// The asserted line is the TEXT rendering. Off a terminal an unset
 	// --format resolves to JSON, exactly as a piped invocation would, so the
 	// test asks for text the way a caller must. --format is the root's
-	// persistent flag, shared by every command, hence the reset.
+	// persistent flag, shared by every command, hence the reset, which also
+	// clears --clear's bound remoteDefaultClear.
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	remoteDefaultClear = true
 	t.Cleanup(func() {
 		cmd.SetOut(nil)
-		remoteDefaultClear = false
-		resetRootFormat(t)
+		resetFlags(t, rootCmd)
 	})
 	require.NoError(t, cmd.Flags().Set("format", formatText))
 

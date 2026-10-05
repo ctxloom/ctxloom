@@ -10,18 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
-
-// resetSessionTranscriptFlags restores the package-level flag vars behind
-// `session transcript`, for the reason session_worktrees_test.go documents:
-// pflag never un-sets a flag a prior invocation set, so a --all left on leaks
-// into a later run that never mentions it.
-func resetSessionTranscriptFlags() {
-	sessionTranscriptListAll = false
-	clidiag.SetStructured(false)
-}
 
 type transcriptListPayload struct {
 	Transcripts []struct {
@@ -44,7 +34,7 @@ func TestSessionTranscript_BareFormLists(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	seedTranscript(t, harp)
-	t.Cleanup(resetSessionTranscriptFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "transcript", "--format", "json")
 	require.NoError(t, err)
@@ -62,7 +52,7 @@ func TestSessionTranscriptList_ReportsRealBytes(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	path := seedTranscript(t, harp)
-	t.Cleanup(resetSessionTranscriptFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
@@ -84,7 +74,7 @@ func TestSessionTranscriptList_ReportsRealBytes(t *testing.T) {
 func TestSessionTranscriptList_UncapturedSessionIsStillNamed(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
-	t.Cleanup(resetSessionTranscriptFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "transcript", "list", "--format", "json")
 	require.NoError(t, err)
@@ -104,7 +94,7 @@ func TestSessionTranscriptList_PositionalHarpRestricts(t *testing.T) {
 	seedTranscript(t, first)
 	_, second := seedEndedSession(t, dir, "claude-code")
 	seedTranscript(t, second)
-	t.Cleanup(resetSessionTranscriptFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "transcript", "list", second, "--format", "json")
 	require.NoError(t, err)
@@ -118,7 +108,7 @@ func TestSessionTranscriptList_PositionalHarpRestricts(t *testing.T) {
 // naming a harp nothing knows is an error, not an empty success.
 func TestSessionTranscriptList_UnknownHarpFails(t *testing.T) {
 	testsupport.ProjectDir(t)
-	t.Cleanup(resetSessionTranscriptFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "transcript", "list", "no-such-harp")
 	require.Error(t, err)
@@ -148,7 +138,7 @@ func TestSessionWatch_MovedUnderTranscript(t *testing.T) {
 func TestSessionTranscriptList_PreRenameFileIsNotCaptured(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
-	t.Cleanup(resetSessionTranscriptFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	transcripts, err := paths.HarpTranscriptsDir(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(transcripts, 0o755))

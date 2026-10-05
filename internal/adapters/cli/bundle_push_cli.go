@@ -88,9 +88,6 @@ func pushBundleCfg(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.
 		Message:        message,
 		CreatePR:       createPR,
 		PublishManager: mgr,
-		// The human who confirms a remote nothing has been published to
-		// before — nil unless there is a terminal, which is what makes an
-		// agent or CI invocation refuse instead of prompt.
 	}
 	if err := resolvePushSignature(cmd, cfg, discoverer, bundleName, bundle.Path, sign, noSign); err != nil {
 		return err

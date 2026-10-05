@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -148,7 +149,8 @@ func TestEnsureAgentToken_NoTerminalNoToken_TypedRefusal(t *testing.T) {
 	remedy := remedyOf(t, err)
 	assert.Contains(t, remedy, "claude setup-token")
 	assert.Contains(t, remedy, claude.OAuthTokenEnv)
-	assert.Contains(t, remedy, "re-run `ctxloom init`")
+	assert.Equal(t, remedyOf(t, operations.AgentTokenMissing(engines.Registry(), tokenGateEngine, envOf(nil))), remedy,
+		"init's fix is the engine's own wording, the one `ctxloom auth` and `ctxloom run` show")
 }
 
 // claude not installed: a typed refusal naming the binary, and nothing run.

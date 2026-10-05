@@ -793,6 +793,11 @@ var initLaunchDeps = func(ctx context.Context) (launch.Deps, error) { return App
 // subprocess. Defaults to the real function.
 var launchEngineWithPromptFn = launchEngineWithPrompt
 
+// initLaunchSkippedNoTokenFormat is init's warning when setup succeeded but the
+// setup interview could not launch for want of an agent token; it takes the
+// token refusal.
+const initLaunchSkippedNoTokenFormat = "the project is set up, but the setup interview was not launched: %v — once the token is exported, re-run `ctxloom init` to launch it"
+
 // launchDiscovery runs no engine at all under --skip-launch. Otherwise it
 // first makes sure the agent token is exported (ensureAgentToken: the
 // engine's own setup flow on a terminal, a typed refusal off one), and only
@@ -810,6 +815,14 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 		return nil
 	}
 	if err := ensureAgentToken(cmd.Context(), App().Engines(), engine, interactive, os.LookupEnv, cmd.OutOrStdout()); err != nil {
+		// Off a terminal the project is already set up; only the interview's
+		// launch is skipped for want of a token. That is a success with a
+		// warning naming the token's fix, not a failure.
+		if errors.Is(err, ErrAgentTokenNotExported) {
+			fix, _ := clifmt.RemedyOf(err)
+			clidiag.WarnRemedy("ctxloom", fix, initLaunchSkippedNoTokenFormat, err)
+			return nil
+		}
 		return err
 	}
 	if !interactive {

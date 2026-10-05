@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"errors"
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -67,3 +68,24 @@ func previewRunAuth(reg engine.Registry, in runAuth) (engine.Credentials, error)
 
 // redactedCredential stands in for a credential value in a preview.
 const redactedCredential = "<redacted>"
+
+// AgentTokenMissing is the engine's own refusal when the token every agent
+// it runs authenticates with is not exported in lookup's environment, and nil
+// otherwise — including for an engine that declares no auth, or an unknown
+// one. init, auth and run all ask this one question, and the refusal carries
+// the engine's fix (report.Remediable), so a human reads the same wording
+// wherever they meet it.
+func AgentTokenMissing(reg engine.Registry, backend string, lookup func(string) (string, bool)) error {
+	kind, ok := reg.Lookup(engine.Name(backend))
+	if !ok {
+		return nil
+	}
+	a, ok := kind.Home().Auth.Get()
+	if !ok {
+		return nil
+	}
+	if _, err := a.Credentials(engine.AuthToken, lookup); errors.Is(err, engine.ErrNoCredential) {
+		return err
+	}
+	return nil
+}

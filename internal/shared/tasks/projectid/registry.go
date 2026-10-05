@@ -80,7 +80,7 @@ func Open(override string) (*Manager, error) {
 	return &Manager{path: path}, nil
 }
 
-// Load reads the registry from disk. Returns an empty registry if the file
+// load reads the registry from disk. Returns an empty registry if the file
 // doesn't exist (first-run case).
 func (m *Manager) load() (*registry, error) {
 	m.mu.Lock()

@@ -9,10 +9,10 @@ classDiagram
     class Manager {
         -path string
         -mu sync.Mutex
-        +Path() string
-        +Load() Registry
-        -loadLocked() Registry
-        -saveLocked(*Registry) error
+        -load() registry
+        -loadLocked() registry
+        -saveLocked(*registry) error
+        -mutate(fn) error
         +ResolveByPath(dir) Entry
         +EntriesAtPath(dir) Entry~list~
         +ResolveByID(id) Entry
@@ -20,10 +20,11 @@ classDiagram
         +Adopt(id, dir) Entry
         +Repoint(id, newPath) error
         +Resolve(dir) Resolution
+        +Lookup(dir) string
         -moveOrFork(*Entry, dir) Resolution
         -mintInto(dir, Action) Resolution
     }
-    class Registry {
+    class registry {
         +Projects Entry~list~
     }
     class Entry {
@@ -47,8 +48,8 @@ classDiagram
         +WriteMarker(dir, id) error
     }
 
-    Manager --> Registry : loads/saves YAML under an advisory lock
-    Registry "1" *-- "n" Entry
+    Manager --> registry : loads/saves YAML under an advisory lock
+    registry "1" *-- "n" Entry
     Manager ..> Resolution : returns
     Resolution --> Action
     Manager ..> MarkerFuncs : Resolve / oldTreeGone / mintInto
@@ -67,7 +68,7 @@ Resolution order in `Resolve` (`internal/shared/tasks/projectid/resolve.go:39`):
 | Symbol | file:line | Purpose |
 |---|---|---|
 | `Entry` | `internal/shared/tasks/projectid/registry.go:28` | One registry row: `{ProjectID, Path, CreatedAt, LastSeenAt}`, all YAML-tagged (this is the on-disk schema). `ProjectID`/`Path` are read constantly; both timestamps are written and never read by any code. |
-| `Registry` | `internal/shared/tasks/projectid/registry.go:36` | The YAML document root: `{Projects []Entry}`. Exported but named by no caller outside the package. |
+| `registry` | `internal/shared/tasks/projectid/registry.go` | The YAML document root: `{Projects []Entry}`. |
 | `Manager` | `internal/shared/tasks/projectid/registry.go:43` | Owns load/save of one registry file under `mu` + a cooperative file lock. Fields: `path`, `mu`. |
 | `Action` | `internal/shared/tasks/projectid/resolve.go:10` | String enum for what `Resolve` decided. |
 | `ActionNormal` = `normal` | `internal/shared/tasks/projectid/resolve.go:15` | Registry already knew this path (fast path). |
@@ -82,10 +83,10 @@ Resolution order in `Resolve` (`internal/shared/tasks/projectid/resolve.go:39`):
 |---|---|---|
 | `ReadMarker` | `internal/shared/tasks/projectid/marker.go:18` | Reads and trims the in-tree marker. Returns `("", nil)` when absent or blank, the raw error when unreadable, and a wrapped error naming the dir when the content fails `paths.ValidateProjectID`. The marker is third-party-writable (it can be committed), so a crafted value must never become identity. |
 | `WriteMarker` | `internal/shared/tasks/projectid/marker.go:43` | `MkdirAll(.ctxloom)` then atomically writes `id + "\n"`. Atomicity is deliberate: a torn marker could later be trimmed and validated into a *different* identity. Applies no validation to `id` — the writer is more permissive than the reader. |
-| `Open` | `internal/shared/tasks/projectid/registry.go:50` | Returns a `Manager` for the home registry, or for an override path (the seam that makes the package testable); creates the parent dir. |
-| `(*Manager).Path` | `internal/shared/tasks/projectid/registry.go:66` | Returns `m.path`. Zero call sites anywhere, including tests. |
-| `(*Manager).Load` | `internal/shared/tasks/projectid/registry.go:70` | `mu`-guarded `loadLocked`. No caller outside this file. |
-| `(*Manager).loadLocked` | `internal/shared/tasks/projectid/registry.go:76` | Reads and unmarshals the YAML; a missing file or zero bytes yields an empty `Registry` (the first-run and truncated-file paths). |
+| `Open` | `internal/shared/tasks/projectid/registry.go:50` | Returns a `Manager` for the home registry, or for an override path (the seam that makes the package testable). Opening creates nothing: a lookup reads a missing registry as empty, and the first mutation lays out its directory. |
+| `(*Manager).load` | `internal/shared/tasks/projectid/registry.go` | `mu`-guarded `loadLocked`. |
+| `(*Manager).mutate` | `internal/shared/tasks/projectid/registry.go` | The one path every mutating method takes: `mu`, then the file lock, then load–change–save. It is the first writer, so it lays out the registry's directory. |
+| `(*Manager).loadLocked` | `internal/shared/tasks/projectid/registry.go:76` | Reads and unmarshals the YAML; a missing file or zero bytes yields an empty `registry` (the first-run and truncated-file paths). |
 | `(*Manager).saveLocked` | `internal/shared/tasks/projectid/registry.go:94` | Marshals and atomically writes the whole registry. |
 | `(*Manager).ResolveByPath` | `internal/shared/tasks/projectid/registry.go:104` | First entry whose `cleanPath` matches. Returns `(nil, nil)` for "not found" — a deliberate tri-state every caller handles. |
 | `(*Manager).EntriesAtPath` | `internal/shared/tasks/projectid/registry.go:127` | **Every** entry at a path, not just the first — the accessor that exists because a path *can* be registered under two ids. |
@@ -96,6 +97,7 @@ Resolution order in `Resolve` (`internal/shared/tasks/projectid/resolve.go:39`):
 | `cleanPath` | `internal/shared/tasks/projectid/registry.go:265` | Canonicalises via `EvalSymlinks`, falling back to lexical `filepath.Clean` on error. The comparison key for every path lookup. |
 | `generateUniqueID` | `internal/shared/tasks/projectid/registry.go:279` | `harp.UniqueFrom(used, harp.GenerateName)` — project-ids come from the harp generator; a collision with a session harp is harmless. |
 | `Resolve` | `internal/shared/tasks/projectid/resolve.go:39` | The decision procedure: registry-by-path → marker → resolve-by-id → adopt / heal / `moveOrFork` → mint. |
+| `(*Manager).Lookup` | `internal/shared/tasks/projectid/resolve.go` | `Resolve` for a READ: the identity a directory already has, by the same steps, with nothing written. Where `Resolve` would mint or fork it returns `""` — no project yet; the first write through `Resolve` establishes one. |
 | `moveOrFork` | `internal/shared/tasks/projectid/resolve.go:82` | Probes the old tree; `Repoint`s on a proven move, mints a fork otherwise. Distinguishes "probe said copy" from "probe failed" in the warning text. |
 | `mintInto` | `internal/shared/tasks/projectid/resolve.go:109` | `Mint` then `WriteMarker` — names the "an id is not established until the marker is written" invariant. Not atomic across the two steps. |
 | `oldTreeGone` | `internal/shared/tasks/projectid/resolve.go:124` | True when the old path is absent, is not a directory, or its marker is missing or names a different id. An error return means *inconclusive*, and the caller forks on inconclusive (the safe direction). |

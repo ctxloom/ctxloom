@@ -2,7 +2,9 @@ package content
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -93,6 +95,27 @@ func (s *TreeStore) Put(ctx context.Context, ref trust.Ref, f signing.Form, surf
 	}
 	if written == 0 {
 		return fmt.Errorf("%w: %s carries no %q form to write", ErrNoSuchForm, ref.Key(), f)
+	}
+	return s.removeDroppedSidecar(t, ref, f, forms, components)
+}
+
+// removeDroppedSidecar deletes the item's metadata sidecar when the new
+// encoding no longer carries one (every metadata field cleared). A Put
+// replaces the item, and a sidecar left behind would be read back as the
+// metadata the caller just cleared.
+func (s *TreeStore) removeDroppedSidecar(t SurfaceType, ref trust.Ref, f signing.Form, forms []signing.Form, components []Component) error {
+	metaPath, ok := t.Meta().PathFor(t.Dir(), ref.Name)
+	if !ok || formOf(metaPath, forms) != f {
+		return nil
+	}
+	for _, c := range components {
+		if c.Path == metaPath {
+			return nil
+		}
+	}
+	target := filepath.Join(s.osPath(ref.Bundle), filepath.FromSlash(metaPath))
+	if err := s.fsys.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("content: removing the emptied sidecar %q: %w", target, err)
 	}
 	return nil
 }

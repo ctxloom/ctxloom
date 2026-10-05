@@ -587,7 +587,7 @@ func doctorCheckAgents(ctx context.Context, reg engine.Registry, cfg *config.Con
 	configuredAgents := cfg.GetConfiguredAgents()
 	if len(configuredAgents) == 0 {
 		return DoctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: DoctorWarn,
-			Detail: "no agents configured (run `/ctxloom-init` phase 5, or `ctxloom agent set <name> ...`)"}
+			Detail: "no agents configured " + doctorNoAgentsRemedy}
 	}
 	names := make([]string, 0, len(configuredAgents))
 	for name := range configuredAgents {
@@ -832,6 +832,14 @@ func doctorProjectDir(cfg *config.Config) string {
 	return filepath.Dir(appDir)
 }
 
+// The one next command each setup check names. `init` is the command that
+// makes a project; `agent create` is the command that binds an engine to
+// profiles once there is one.
+const (
+	doctorSetupMarkerRemedy = "(run `ctxloom init`)"
+	doctorNoAgentsRemedy    = "(run `ctxloom agent create <name> --profiles <profile>`)"
+)
+
 // doctorCheckSetupMarker verifies a PROJECT .ctxloom marker directory was
 // resolved, is on disk, carries its config file (paths.ConfigPath), and that config was read
 // without a hard error or load-time warning — the ground-floor precondition
@@ -843,7 +851,7 @@ func doctorProjectDir(cfg *config.Config) string {
 // never re-globs the filesystem for .ctxloom.
 func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-MARKER-e5"
-	const remedy = "(run `ctxloom manage install` or `ctxloom init`)"
+	const remedy = doctorSetupMarkerRemedy
 	if cfgErr != nil {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}

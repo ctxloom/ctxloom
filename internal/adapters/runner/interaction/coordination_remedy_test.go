@@ -16,7 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
-const agentRunRemedy = "add the agent with `ctxloom agent set worker`"
+const agentRunRemedy = "create it with `ctxloom agent create worker --profiles <profile>`"
 
 // refusedOverTheWire is the agent-side copy of the coordinator's reply
 // refusing with err.

@@ -116,6 +116,7 @@ func TestDoctorCheckSetupMarker_WrongState_HomeFallbackIsNotAProjectMarker(t *te
 	check := doctorCheckSetupMarker(cfg, nil)
 	assert.Equal(t, DoctorWarn, check.Status, "the home fallback is not a project marker: %s", check.Detail)
 	assert.Contains(t, check.Detail, homeApp)
+	assert.Contains(t, check.Detail, doctorSetupMarkerRemedy, "a missing project names the ONE command that makes one")
 }
 
 func TestDoctorCheckSetupMarker_WrongState_MarkerDirAbsentOnDisk(t *testing.T) {
@@ -369,6 +370,7 @@ func TestDoctorCheckAgents_WrongState_EmptyRoster(t *testing.T) {
 	check := doctorCheckAgents(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorWarn, check.Status, "an empty roster is an incomplete setup postcondition, not a neutral fact")
 	assert.Contains(t, check.Detail, "no agents configured")
+	assert.Contains(t, check.Detail, doctorNoAgentsRemedy, "the remedy names a command the CLI has")
 }
 
 func TestDoctorCheckAgents_WrongState_UnresolvableProfile(t *testing.T) {

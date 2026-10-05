@@ -1156,7 +1156,7 @@ func Layout() []Entry {
 			Rel: filepath.Join(AppDirName, SessionsDir), Tier: TierLocal,
 			Lost: "this machine's distilled session records",
 		},
-		{Rel: filepath.Join(AppDirName, StateDir), Tier: TierLocal, Lost: "local-only checkout state, e.g. the dirty-tree-commit acknowledgement — see DirtyTreeCommitAckPath"},
+		{Rel: filepath.Join(AppDirName, StateDir), Tier: TierLocal, Lost: "local-only checkout state, e.g. your answer to whether ctxloom may commit uncommitted work so a delegated agent can see it"},
 		// No row is per-SESSION: a session's members (HarpMembers) live under
 		// the home-rooted sessions store below, and a row cannot name a harp
 		// that does not exist yet anyway. TestArch_LayoutHasNoHarpKeyedRows

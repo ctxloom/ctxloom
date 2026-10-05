@@ -151,6 +151,10 @@ func (s *spawner) spawnGeneration(ctx context.Context) (*config.Snapshot, error)
 	return s.app.Snapshot(ctx)
 }
 
+// createAgentFix is the one next command an agent_run on an undeclared name
+// is told to run: a command the CLI has, so the model can act on it.
+const createAgentFix = "create it with `ctxloom agent create <name> --profiles <profile>`"
+
 func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPlan, error) {
 	snap, err := s.spawnGeneration(ctx)
 	if err != nil {
@@ -159,7 +163,7 @@ func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPl
 	cfg := snap.Config
 	binding, ok := cfg.Agent(agentName)
 	if !ok {
-		return nil, fmt.Errorf("agent_run: %w: %q (declare it with `ctxloom agent set %s`)", launch.ErrNoAgent, agentName, agentName)
+		return nil, report.Errorf(createAgentFix, "agent_run: %w: %q", launch.ErrNoAgent, agentName)
 	}
 	// The binding's DECLARED engine, for the roster and the reach-back
 	// endpoint: the label it names, else the project primary. The launch

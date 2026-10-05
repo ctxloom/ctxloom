@@ -316,6 +316,32 @@ func selectSource(cfg *config.Config, src Source) (selection, error) {
 	}
 }
 
+// The one next command a missing-agent refusal names. Each is a command the
+// CLI has; which one applies is missingAgentError's decision.
+const (
+	noProjectAgentFix     = "run `ctxloom init` here to set up a project and its default agent"
+	chooseDefaultAgentFix = "choose one with `ctxloom agent default <name>` (`ctxloom agent list` names them)"
+	createAgentFix        = "create it with `ctxloom agent create <name> --profiles <profile>` (`ctxloom profile list` names the profiles)"
+)
+
+// missingAgentError refuses a launch whose agent does not resolve. A bare
+// launch (name empty) has no name to quote, and its cause is usually that
+// there is no project at all — the home fallback carries no agents until
+// `init` scaffolds one.
+func missingAgentError(cfg *config.Config, name string) error {
+	if name != "" {
+		return report.Errorf(createAgentFix, "%w: %q", ErrNoAgent, name)
+	}
+	switch {
+	case cfg.Source() == config.SourceHome:
+		return report.Errorf(noProjectAgentFix, "%w: no project here, so no default agent", ErrNoAgent)
+	case len(cfg.GetConfiguredAgents()) > 0:
+		return report.Errorf(chooseDefaultAgentFix, "%w: no default agent is set", ErrNoAgent)
+	default:
+		return report.Errorf(createAgentFix, "%w: no agents are configured", ErrNoAgent)
+	}
+}
+
 // bindingSelection reads one agent binding. A bare launch whose default
 // agent is missing is refused with the remedy; under --degraded it launches
 // context-free at the project defaults.
@@ -325,7 +351,7 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		if degraded && name == cfg.GetDefaultAgent() {
 			return selection{}, nil
 		}
-		return selection{}, fmt.Errorf("%w: %q (declare it with `ctxloom agent set %s`, or `ctxloom agent default <name>` for a bare launch)", ErrNoAgent, name, name)
+		return selection{}, missingAgentError(cfg, name)
 	}
 	home, err := agents.ParseHomeMode(strings.TrimSpace(binding.HomeMode))
 	if err != nil && !degraded {

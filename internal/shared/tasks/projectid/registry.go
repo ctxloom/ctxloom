@@ -65,7 +65,9 @@ type Manager struct {
 }
 
 // Open returns a Manager for the home-rooted registry at
-// ~/.ctxloom/projects/index.yaml unless override is non-empty.
+// ~/.ctxloom/projects/index.yaml unless override is non-empty. Opening creates
+// nothing: lookups read a missing registry as empty, and the first mutation
+// lays out its directory (mutate).
 func Open(override string) (*Manager, error) {
 	path := override
 	if path == "" {
@@ -74,9 +76,6 @@ func Open(override string) (*Manager, error) {
 			return nil, fmt.Errorf("home dir: %w", err)
 		}
 		path = p
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("mkdir projects dir: %w", err)
 	}
 	return &Manager{path: path}, nil
 }

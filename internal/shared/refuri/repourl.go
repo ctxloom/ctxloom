@@ -224,18 +224,8 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 		return RepoURL{kind: SourceKindCompanion, form: formSentinel, raw: raw}, nil
 	}
 
-	// A leading "/" is a filesystem path. Every arm below would trim it and
-	// read the rest as a host or as GitHub shorthand, turning a local bare
-	// repository into a network URL — one that is fetched, trust-keyed and
-	// may well exist under someone else's control.
-	if strings.HasPrefix(raw, "/") {
-		return RepoURL{}, fmt.Errorf("%w: write %q", ErrSchemelessPath, fileRemedy(raw))
-	}
-	if isRelativePath(raw) {
-		return RepoURL{}, fmt.Errorf("%w: %q is relative; write a file:// URL naming its absolute path", ErrSchemelessPath, raw)
-	}
-	if isHomePath(raw) {
-		return RepoURL{}, fmt.Errorf("%w: %q is home-relative; write a file:// URL naming its absolute path", ErrSchemelessPath, raw)
+	if err := refusePathSpelling(raw); err != nil {
+		return RepoURL{}, err
 	}
 
 	r := RepoURL{kind: SourceKindRemote, raw: raw}
@@ -271,6 +261,23 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 		r.form, r.host = formBareHost, strings.Trim(raw, "/")
 		return r, nil
 	}
+}
+
+// refusePathSpelling refuses raw when it is spelled as a filesystem path:
+// absolute, relative, or home-relative. Every arm of ParseRepoURL would trim
+// a leading "/" or read "." or "~" as a host or a GitHub owner, turning a
+// local repository into a network URL — one that is fetched, trust-keyed and
+// may well exist under someone else's control.
+func refusePathSpelling(raw string) error {
+	switch {
+	case strings.HasPrefix(raw, "/"):
+		return fmt.Errorf("%w: write %q", ErrSchemelessPath, fileRemedy(raw))
+	case isRelativePath(raw):
+		return fmt.Errorf("%w: %q is relative; write a file:// URL naming its absolute path", ErrSchemelessPath, raw)
+	case isHomePath(raw):
+		return fmt.Errorf("%w: %q is home-relative; write a file:// URL naming its absolute path", ErrSchemelessPath, raw)
+	}
+	return nil
 }
 
 // parseURLForm fills r from a scheme URL. An unparseable or degenerate one

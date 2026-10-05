@@ -561,7 +561,7 @@ func TestReadCompanionDecisions_NoLoadoutIsNotWithheld(t *testing.T) {
 func TestDoctorCheckSetupAuthPing_AlwaysInfoAndNamesTheGap(t *testing.T) {
 	check := doctorCheckSetupAuthPing()
 	assert.Equal(t, DoctorInfo, check.Status)
-	assert.Contains(t, check.Detail, "no auth-ping surface")
+	assert.Equal(t, doctorAuthPingDetail, check.Detail, "the gap is stated in the user's terms, with the command that answers part of it")
 }
 
 // --- DOCTOR-CHECK-LOCAL-STATE-p6 ---

@@ -653,7 +653,7 @@ func doctorCheckCapabilityLoss(ctx context.Context, reg engine.Registry, cfg *co
 // ctxloom-doctor skill (or a human) rather than faking a currency verdict.
 func doctorCheckVersion() DoctorCheck {
 	return DoctorCheck{Marker: "DOCTOR-CHECK-VERSION-c3", Status: DoctorInfo,
-		Detail: fmt.Sprintf("running %s; comparing against the newest remote tag is best-effort/skill-guided (no --check-version yet)", version.Version)}
+		Detail: fmt.Sprintf("running %s; doctor does not check whether a newer release exists", version.Version)}
 }
 
 // doctorCheckHooksTrust cross-references doctorConfiguredEngines (every
@@ -1081,8 +1081,13 @@ func companionBinOf(key trust.BundleKey) string {
 // silently missing.
 func doctorCheckSetupAuthPing() DoctorCheck {
 	return DoctorCheck{Marker: "DOCTOR-CHECK-SETUP-AUTHPING-j0", Status: DoctorInfo,
-		Detail: "no auth-ping surface exists in this build yet (deferred; verify by launching the engine's own CLI)"}
+		Detail: doctorAuthPingDetail}
 }
+
+// doctorAuthPingDetail states the gap the auth-ping placeholder keeps
+// visible, in the user's terms: doctor proves a credential is exported, not
+// that the engine accepts it.
+const doctorAuthPingDetail = "doctor does not test whether your engine accepts its credential; `ctxloom auth` shows whether one is exported, and launching the engine's own CLI shows whether it is accepted"
 
 // doctorCheckIngestionLimit states, rather than tests, the one boundary this
 // command cannot see past: delivered → ingested (FLOWS-UNIFIED Appendix A.2,

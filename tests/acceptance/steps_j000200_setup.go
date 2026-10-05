@@ -108,12 +108,12 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		// stderr by its canonical ref — the very string asserted here — so
 		// the combined stream would name a bundle the profile never composed.
 		out := w.env.LastStdout()
-		// A pulled remote bundle canonicalizes to its full seeded URL
-		// (file:///.../remote.git@bundles/src), not the short "<remote>/<bundle>"
-		// form used to ADD it — check for each source's canonical ref rather
-		// than the short form.
+		// A remote bundle a profile composes is shown in the canonical ctxloom
+		// URI spelling (ctxloom+file://<bare repo>//bundles/src), not the short
+		// "<remote>/<bundle>" form used to ADD it — check for each source's
+		// canonical ref rather than the short form.
 		for _, name := range []string{"personal", "company"} {
-			ref := w.remoteBare[name] + "@bundles/src"
+			ref := w.remoteBare[name] + "//bundles/src"
 			if !strings.Contains(out, ref) {
 				return fmt.Errorf("profile default does not yet compose %q; profile show stdout:\n%s", ref, out)
 			}

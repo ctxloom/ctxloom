@@ -73,5 +73,5 @@ Feature: Fault tolerance
     When I run "ctxloom deps pull"
     Then the command fails
     And the output contains "Failed: 1"
-    And the output contains "@bundles/demo"
+    And the output contains "//bundles/demo"
     And the output contains "does not appear to be a git repository"

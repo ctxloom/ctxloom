@@ -173,7 +173,7 @@ both hits and failures per URL. Consumers: `upgrade.go`, `depgraph.go`.
 | `ListSkills` / `GetSkill` / `CreateSkill` / `SyncSkill` / `ExportSkill` / `ImportSkill` | `skills.go:57,132,218,317,413,538` | Agent Skill package CRUD and interchange. `CreateSkill` validates before registering and rolls back with `RemoveAll` on all three failure paths. `SyncSkill` recomputes the per-file manifest (path/sha/mode) in `bundle.yaml` — that manifest is the skill's trust preimage. |
 | `ListFragments` / `GetFragment` | `fragments.go:46,112` | Fragment listing and reading; `GetFragment` goes through the **trust-gated** exposure loader and can return `ErrFragmentWithheld`. |
 | `ListCommands` / `GetCommand` | `commands.go:47,111` | Command listing and reading; `GetCommand` strips the leading heading and resolves an optional `@<commit>` pin through a different loader method (`getPromptVersioned`, `commands.go:166`). |
-| `ListBundles` / `listBundleInfos` | `bundles.go:319`, `bundle_list_remote.go:31` | Merges present bundles with markers for bundles removed upstream. |
+| `ListBundles` / `listBundleInfos` | `bundles.go:319`, `bundle_list_remote.go:31` | Merges locally-authored and installed remote bundles. |
 | `bundleLoader` / `bundleStore` | `fragments.go:41`, `bundles.go:344` | The two package-wide seams. `bundleLoader` is **ungated** — authoring paths use it deliberately; exposure paths must use `exposureLoader` instead (see [trust.md](./trust.md)). |
 
 ## Context assembly — `context.go`

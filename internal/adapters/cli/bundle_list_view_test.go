@@ -51,7 +51,7 @@ func TestBundleListRow_JSONShape(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		"name", "ref", "path", "version", "description", "tags",
 		"fragment_count", "command_count", "mcp_count", "profile_count",
-		"deleted", "held", "retracted", "retracted_reason",
+		"held", "retracted", "retracted_reason",
 		"signed", "signer",
 	}, keysOf(got))
 
@@ -65,7 +65,6 @@ func TestBundleListRow_JSONShape(t *testing.T) {
 	assert.EqualValues(t, 2, got["command_count"])
 	assert.EqualValues(t, 1, got["mcp_count"])
 	assert.EqualValues(t, 1, got["profile_count"])
-	assert.Equal(t, false, got["deleted"])
 	assert.Equal(t, true, got["held"])
 	assert.Equal(t, true, got["retracted"])
 	assert.Equal(t, "superseded by v2", got["retracted_reason"])
@@ -88,21 +87,11 @@ func TestBundleListRow_UnsignedMinimalEntry(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		"name", "ref", "path",
 		"fragment_count", "command_count", "mcp_count", "profile_count",
-		"deleted", "held", "retracted", "signed",
+		"held", "retracted", "signed",
 	}, keysOf(got))
 	assert.EqualValues(t, 0, got["fragment_count"])
 	assert.Equal(t, false, got["held"])
 	assert.Equal(t, false, got["signed"])
-}
-
-// TestBundleListRow_DeletedUpstreamEntry: a removed-upstream entry carries
-// only its name and the deleted flag (there is no content left to describe),
-// and the listing must say so rather than render it as an empty live bundle.
-func TestBundleListRow_DeletedUpstreamEntry(t *testing.T) {
-	row := newBundleListRow(&bundles.BundleInfo{Name: "gone", Deleted: true})
-	assert.True(t, row.Deleted)
-	assert.Equal(t, "gone", row.Name)
-	assert.False(t, row.Signed)
 }
 
 // TestBundleListRows_PreservesOrderAndNeverNil: the listing is a JSON array

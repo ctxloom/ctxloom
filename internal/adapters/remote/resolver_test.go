@@ -14,7 +14,6 @@ import (
 type stubVCS struct {
 	data           []byte
 	items          []string
-	deletedItems   []string
 	err            error
 	lastPath       string
 	lastRev        string
@@ -40,10 +39,6 @@ func (s *stubVCS) ReadFileAt(_ context.Context, path, rev string) ([]byte, error
 
 func (s *stubVCS) ListItems(_ context.Context, _ ItemType) ([]string, error) {
 	return s.items, s.err
-}
-
-func (s *stubVCS) ListDeletedItems(_ context.Context, _ ItemType) ([]string, error) {
-	return s.deletedItems, s.err
 }
 
 var (

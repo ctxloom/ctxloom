@@ -105,36 +105,6 @@ func (r *Resolver) List(ctx context.Context, kind ItemType) ([]*Reference, error
 	return refs, errors.Join(errs...)
 }
 
-// DeletedItemLister is the OPTIONAL listing capability for surfacing items
-// removed upstream — present at a past revision, gone now. A RefFetcher whose
-// backend can walk history (the remote git clone) implements it; a fetcher
-// without history does not. Resolver.ListDeleted probes for
-// it by type assertion, exactly like Versioned extends VCS.
-type DeletedItemLister interface {
-	ListDeletedItems(ctx context.Context, kind ItemType) ([]*Reference, error)
-}
-
-// ListDeleted enumerates items removed upstream across every scheme that can
-// report them (those whose fetcher implements DeletedItemLister). Schemes
-// without history are skipped. Like List, it is fault-tolerant and joins
-// per-source errors. It is the deleted-item counterpart to List.
-func (r *Resolver) ListDeleted(ctx context.Context, kind ItemType) ([]*Reference, error) {
-	var refs []*Reference
-	var failures []error
-	for _, f := range r.fetchers {
-		lister, ok := f.(DeletedItemLister)
-		if !ok {
-			continue
-		}
-		got, err := lister.ListDeletedItems(ctx, kind)
-		if err != nil {
-			failures = append(failures, err)
-		}
-		refs = append(refs, got...)
-	}
-	return refs, errors.Join(failures...)
-}
-
 // RemoteRefFetcher is the RefFetcher for canonical URL-sourced references
 // (https://, git@, file://). It opens a VCS bound to the referenced repository
 // and reads the item at the pinned revision. It holds no git knowledge itself —
@@ -226,41 +196,5 @@ func (f *RemoteRefFetcher) ListItems(ctx context.Context, kind ItemType) ([]*Ref
 	return refs, errors.Join(failures...)
 }
 
-// ListDeletedItems returns references for items removed upstream across the
-// configured sources, using each source's Versioned history capability. A source
-// whose clone is absent or whose backend has no history is skipped silently —
-// ListItems already surfaced the not-materialized case, so this does not warn
-// again. Per-source history-walk failures are joined into the error.
-func (f *RemoteRefFetcher) ListDeletedItems(ctx context.Context, kind ItemType) ([]*Reference, error) {
-	if f.sources == nil {
-		return nil, nil
-	}
-	var refs []*Reference
-	var failures []error
-	for _, url := range f.sources() {
-		vcs, err := f.openVCS(url)
-		if err != nil {
-			continue
-		}
-		versioned, ok := vcs.(Versioned)
-		if !ok {
-			continue
-		}
-		paths, err := versioned.ListDeletedItems(ctx, kind)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("list deleted %s: %w", url, err))
-			continue
-		}
-		for _, p := range paths {
-			refs = append(refs, &Reference{URL: url, ItemType: kind, Path: p})
-		}
-	}
-	return refs, errors.Join(failures...)
-}
-
-// Ensure RemoteRefFetcher satisfies the per-scheme interface at compile time,
-// plus the optional deleted-item capability.
-var (
-	_ RefFetcher        = (*RemoteRefFetcher)(nil)
-	_ DeletedItemLister = (*RemoteRefFetcher)(nil)
-)
+// Ensure RemoteRefFetcher satisfies the per-scheme interface at compile time.
+var _ RefFetcher = (*RemoteRefFetcher)(nil)

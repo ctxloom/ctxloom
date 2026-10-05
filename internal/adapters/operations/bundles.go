@@ -505,9 +505,8 @@ func pinnedRemoteBundleRefusal(cfg *config.Config, name string) error {
 }
 
 // ListBundles returns a summary of every bundle to display (ADR 0019: the read
-// path lives here, not in the CLI): locally-authored bundles, remote bundles
-// named canonically via the Resolver/VCS seam, and bundles removed upstream
-// (flagged Deleted). See listBundleInfos for how the three sources are merged
+// path lives here, not in the CLI): locally-authored bundles and remote bundles
+// named canonically. See listBundleInfos for how the two sources are merged
 // without double-listing.
 //
 // ctx is threaded rather than manufactured: the removed-upstream pass walks git

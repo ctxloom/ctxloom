@@ -36,9 +36,7 @@ type VCS interface {
 	// .ctxloom/content/<kind>/ at the source's CURRENT state, with the
 	// .ctxloom/content/<kind>/ prefix stripped (so "lang/go/testing", not
 	// ".ctxloom/content/bundles/lang/go/testing").
-	// A source with no such directory returns an empty list, not an error. Listing
-	// past revisions — and surfacing items DELETED since — is the optional
-	// Versioned capability (ListDeletedItems), not part of the minimal surface.
+	// A source with no such directory returns an empty list, not an error.
 	ListItems(ctx context.Context, kind ItemType) ([]string, error)
 }
 
@@ -57,13 +55,6 @@ type VCS interface {
 type Versioned interface {
 	// ReadFileAt reads path as of rev (concrete or symbolic).
 	ReadFileAt(ctx context.Context, path, rev string) ([]byte, error)
-	// ListDeletedItems returns item paths under ctxloom/<kind>/ that existed at
-	// some past revision but are gone at the current state — content removed
-	// upstream. Same path shape as VCS.ListItems (relative). A
-	// backend with no history of the kind returns an empty list. This is the
-	// history counterpart to ListItems: ListItems sees what IS, ListDeletedItems
-	// sees what WAS-but-isn't.
-	ListDeletedItems(ctx context.Context, kind ItemType) ([]string, error)
 }
 
 // readItemAt reads path from vcs at version, routing the read by capability:
@@ -163,24 +154,6 @@ func (v *gitForgeVCS) ListItems(ctx context.Context, kind ItemType) ([]string, e
 	}
 	sort.Strings(items)
 	return items, nil
-}
-
-// itemHistorySource is the optional history capability a forge Fetcher backend
-// may provide: the local-clone GitCloneFetcher walks go-git history, while the
-// forge-API fetcher cannot. gitForgeVCS probes for it by type assertion.
-type itemHistorySource interface {
-	ListDeletedItems(ctx context.Context, kind ItemType) ([]string, error)
-}
-
-// ListDeletedItems surfaces items removed upstream when the underlying fetcher
-// can walk history (the local clone); otherwise it returns nothing, since a
-// backend without history cannot know what was deleted.
-func (v *gitForgeVCS) ListDeletedItems(ctx context.Context, kind ItemType) ([]string, error) {
-	hist, ok := v.fetcher.(itemHistorySource)
-	if !ok {
-		return nil, nil
-	}
-	return hist.ListDeletedItems(ctx, kind)
 }
 
 var (

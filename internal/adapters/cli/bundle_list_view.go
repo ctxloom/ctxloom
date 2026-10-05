@@ -28,9 +28,8 @@ type bundleListRow struct {
 	CommandCount  int      `json:"command_count"`
 	MCPCount      int      `json:"mcp_count"`
 	ProfileCount  int      `json:"profile_count"`
-	// Deleted/Held/Retracted mirror the like-named bundles.BundleInfo flags;
-	// see those for what each state means and why the listing carries it.
-	Deleted         bool   `json:"deleted"`
+	// Held/Retracted mirror the like-named bundles.BundleInfo flags; see
+	// those for what each state means and why the listing carries it.
 	Held            bool   `json:"held"`
 	Retracted       bool   `json:"retracted"`
 	RetractedReason string `json:"retracted_reason,omitempty"`
@@ -53,7 +52,6 @@ func newBundleListRow(info *bundles.BundleInfo) bundleListRow {
 		CommandCount:    info.CommandCount,
 		MCPCount:        info.MCPCount,
 		ProfileCount:    info.ProfileCount,
-		Deleted:         info.Deleted,
 		Held:            info.Held,
 		Retracted:       info.Retracted,
 		RetractedReason: info.RetractedReason,

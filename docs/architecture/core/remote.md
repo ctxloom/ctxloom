@@ -118,9 +118,9 @@ flowchart TD
 | `PublishManager` / `Publisher` / `PublishOptions` | `internal/adapters/remote/publish.go:44,18,108` | Forge write orchestrator, the write port, and its request DTO. |
 | `SelectorKind` / `Resolution` | `internal/adapters/remote/version_constraint.go:22,213` | Selector classification (`sha`, `tag`, `version`, `branch` — persisted in `lock.yaml`, so a wire contract) and the `{SHA, Version, Kind}` outcome. |
 | `RepoVersions` (interface) / `fetcherRepoVersions` | `internal/adapters/remote/version_constraint.go:127,166` | The version-space seam and its `Fetcher` adapter. |
-| `VCS` / `Versioned` (interfaces) | `internal/adapters/remote/vcs.go:33,60` | Current-state reads; optional revision capability (`ReadFileAt`, `ResolveRevision`, `ListDeletedItems`). |
+| `VCS` / `Versioned` (interfaces) | `internal/adapters/remote/vcs.go:33,60` | Current-state reads; optional revision capability (`ReadFileAt`, `ResolveRevision`). |
 | `gitForgeVCS` / `fsVCS` / `localGitVCS` | `internal/adapters/remote/vcs.go:103,192,260` | VCS backends over a `Fetcher`, over an afero tree, and over an enclosing git worktree. |
-| `Resolver` / `RefFetcher` / `DeletedItemLister` | `internal/adapters/remote/resolver.go:65,33,115` | Scheme dispatch over per-scheme fetchers; the deleted-item capability probe. |
+| `Resolver` / `RefFetcher` | `internal/adapters/remote/resolver.go:65,33` | Scheme dispatch over per-scheme fetchers. |
 | `SearchQuery` / `TagQuery` | `internal/adapters/remote/types.go:235,244` | Parsed manifest search filter. |
 
 ## Key functions
@@ -169,7 +169,6 @@ flowchart TD
 | `Registry.GetOrCreateByURL(...)` | `internal/adapters/remote/registry.go:201` | Find-or-auto-register a remote by URL; called on every pull (`pull.go:294`). |
 | `Registry.ResolveItemRemote(...)` | `internal/adapters/remote/registry.go:304` | Longest-prefix match of a local name to a short remote name. |
 | `Registry.SetForge / Forges / GetDefault / SetDefault` | `internal/adapters/remote/registry.go:251,428,389,397` | Forge binding and default-remote accessors. |
-| `Resolver.ListDeleted(...)` | `internal/adapters/remote/resolver.go:123` | Fan out over fetchers implementing `DeletedItemLister`; the one production path through the resolver stack. |
 | `readItemAt(ctx, vcs, path, version)` | `internal/adapters/remote/vcs.go:83` | Single home of version routing: empty version → `VCS.ReadFile`; non-empty → `Versioned.ReadFileAt`, erroring if the backend has no history rather than serving HEAD. |
 
 ### Fetch
@@ -184,7 +183,6 @@ flowchart TD
 | `GitCloneFetcher.ResolveRef` | `internal/adapters/remote/git_clone_fetcher.go:175` | `refs/remotes/origin/<ref>` → `refs/tags/<ref>` → bare hash. |
 | `GitCloneFetcher.ResolveTag` | `internal/adapters/remote/git_clone_fetcher.go:196` | Tag namespace only, dereferencing annotated tags — prevents a branch shadowing a same-named tag. |
 | `GitCloneFetcher.treeAtRef` | `internal/adapters/remote/git_clone_fetcher.go:293` | ref → commit tree; **an empty ref means the default-branch tip**. |
-| `GitCloneFetcher.ListDeletedItems` | `internal/adapters/remote/git_clone_fetcher.go:112` | History walk minus the HEAD item set; exposed via `Versioned` (`vcs.go:178`). |
 | `NewGitHubFetcher(token, opts...)` | `internal/adapters/remote/github.go:53` | Builds the REST client with `tokenTransport` (`github.go:132`, keeps the token out of argv) and an unauthenticated fallback client for 401 retry. |
 | `GitHubFetcher.FetchFile/ListDir/ResolveRef` | `internal/adapters/remote/github.go:176,212,246` | REST reads; ref resolution is commit → branch → tag (`:254`). |
 | `GitHubFetcher.ValidateRepo/GetDefaultBranch` | `internal/adapters/remote/github.go:404,422` | Does `.ctxloom/content/` exist; repo metadata default branch. |
@@ -417,8 +415,7 @@ exists in the package.
 - `Reference.EffectiveContentVersion` is documented as falling back when no version is
   specified; it returns the field unchanged (`internal/adapters/remote/reference.go:657`).
 - `Resolver`'s own doc states the read/list seam "does not yet replace any existing read
-  path"; only `Resolver.ListDeleted` has a production caller
-  (`internal/adapters/remote/resolver.go:62-64,123`).
+  path"; nothing in production calls it (`internal/adapters/remote/resolver.go`).
 - `TagQuery` carries one `Negated` flag for a whole tag list, so it cannot represent the
   per-term negation its grammar doc advertises (`internal/adapters/remote/types.go:244`,
   `internal/adapters/remote/search.go:72`).

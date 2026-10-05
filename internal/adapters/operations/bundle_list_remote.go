@@ -11,23 +11,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// listBundleInfos returns every bundle a `bundle list` should show, from the two
-// standard sources presented through one interface, plus removed-upstream
-// markers:
-//
-//   - PRESENT bundles come from the the config bundle loader — the codebase's standard
-//     local+remote bundle reader. It fs-walks content/bundles (locally-authored
-//     bundles from `bundle create`) AND seeds every lockfile bundle, read
-//     canonically from its git clone (remote bundles are not extracted to disk —
-//     see remote.writePulledContent). Local bundles list by name, remote bundles
-//     by canonical ref; the two sources don't overlap, so nothing is double-listed.
-//   - DELETED bundles — present in an installed remote's history but gone at HEAD
-//     — come from the Resolver/VCS history walk and are flagged Deleted so the
-//     user sees a dependency has vanished upstream.
+// listBundleInfos returns every bundle a `bundle list` should show, from the
+// config bundle loader — the codebase's standard local+remote bundle reader. It
+// fs-walks content/bundles (locally-authored bundles from `bundle create`) AND
+// seeds every lockfile bundle, read canonically from its git clone (remote
+// bundles are not extracted to disk — see remote.writePulledContent). Local
+// bundles list by name, remote bundles by canonical ref; the two sources don't
+// overlap, so nothing is double-listed. A dependency that vanished upstream is
+// reported by `deps check` and `deps pull`, not here.
 //
 // The listing's contract: `bundle list` lists what is INSTALLED — local
 // content under .ctxloom/content/bundles, the remotes pinned in the lockfile,
@@ -39,7 +33,7 @@ import (
 // by its ref (`bundle show ctxloom:companion@ctxloom`).
 //
 // Fault-tolerant per CLAUDE.md: the seeded loader already degrades a bad
-// lockfile/remote to a warning, and the deleted-item walk is best-effort.
+// lockfile/remote to a warning.
 func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.BundleInfo, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
@@ -55,52 +49,10 @@ func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.Bundle
 		infos = append(infos, info)
 	}
 
-	seen := make(map[string]bool, len(infos))
-	for _, info := range infos {
-		seen[info.Name] = true
-	}
-
-	// Removed-upstream bundles via the Resolver's history walk over the installed
-	// clones, kept to the ones this project depends on. Best-effort: a failure
-	// here must not break listing what's present. An unreadable lockfile is
-	// warned by bundleListDeletedResolver, which reads it first.
-	deleted, _ := bundleListDeletedResolver(cfg).ListDeleted(ctx, remote.ItemTypeBundle)
-	lock, _ := remote.NewLockfileManager(ProjectAppDir(cfg), remote.WithLockfileFS(afero.NewOsFs())).Load()
-	for _, key := range deletedDependencies(deleted, lock) {
-		name := string(key)
-		if seen[name] {
-			continue
-		}
-		seen[name] = true
-		infos = append(infos, &bundles.BundleInfo{Name: name, Deleted: true})
-	}
-
 	stampLockState(cfg, infos)
 
 	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
 	return infos, nil
-}
-
-// deletedDependencies keeps the removed-upstream references this project
-// depends on: those with a lockfile entry. A remote's history also holds every
-// bundle it ever dropped, most of which this project never installed, and a
-// listing of what is INSTALLED must not report those as having vanished. A nil
-// lockfile names no dependency, so it keeps nothing.
-func deletedDependencies(deleted []*remote.Reference, lock *remote.Lockfile) []trust.BundleKey {
-	if lock == nil {
-		return nil
-	}
-	var keys []trust.BundleKey
-	for _, ref := range deleted {
-		key, err := ref.LockKey()
-		if err != nil {
-			continue
-		}
-		if _, ok := lock.Bundles[key]; ok {
-			keys = append(keys, key)
-		}
-	}
-	return keys
 }
 
 // stampLockState copies the per-entry lockfile state a LISTING must show — held
@@ -140,40 +92,3 @@ func stampLockState(cfg *config.Config, infos []*bundles.BundleInfo) {
 	}
 }
 
-// bundleListDeletedResolver builds a Resolver whose remote fetcher walks the
-// already-downloaded clones of the lockfile's installed remotes (never fetching)
-// so ListDeleted can surface items removed upstream. It carries only the remote
-// fetcher — present-bundle listing is the the config bundle loader's job.
-func bundleListDeletedResolver(cfg *config.Config) *remote.Resolver {
-	baseDir := ProjectAppDir(cfg)
-
-	var urls []string
-	lock, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(afero.NewOsFs())).Load()
-	if err != nil {
-		// An UNREADABLE lockfile is not an empty one. Every remote source this
-		// resolver walks comes from here, so swallowing the error leaves it with
-		// nothing to walk and `bundle list` quietly stops flagging bundles that
-		// vanished upstream — the listing looks complete and healthy. Degrading
-		// to a partial listing is right (CLAUDE.md: listing what IS present must
-		// survive a bad lockfile); doing it silently is not.
-		clidiag.Warn("ctxloom",
-			"cannot read %s: %v — bundles removed upstream will not be flagged in this listing",
-			paths.LockPath(baseDir), err)
-	} else {
-		seen := map[string]bool{}
-		for _, entry := range lock.Bundles {
-			if entry.URL == "" || seen[entry.URL] {
-				continue
-			}
-			seen[entry.URL] = true
-			urls = append(urls, entry.URL)
-		}
-	}
-	sort.Strings(urls)
-
-	remoteFetcher := remote.NewRemoteRefFetcher(
-		remote.ClonedRepoVCSFactory(NewRepoCache(cfg)),
-		remote.WithRemoteSources(urls),
-	)
-	return remote.NewResolver(remoteFetcher)
-}

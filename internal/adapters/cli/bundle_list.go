@@ -113,11 +113,6 @@ func bundleContentParts(info *bundles.BundleInfo) []string {
 // rule needs the whole set and this function sees one row.
 func renderBundleListEntry(w *errwriter.Writer, info *bundles.BundleInfo, label string) {
 	w.Printf("  %s", inertField(label))
-	if info.Deleted {
-		// Removed upstream: no version/metadata to show — just flag it.
-		w.Println(" (deleted upstream)")
-		return
-	}
 	if info.Version != "" {
 		w.Printf(" (v%s)", inertField(info.Version))
 	}

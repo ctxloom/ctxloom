@@ -207,11 +207,6 @@ type BundleInfo struct {
 	CommandCount  int
 	MCPCount      int
 	ProfileCount  int
-	// Deleted marks a bundle that existed in an installed remote's history but
-	// is gone from that repo at the current revision — removed upstream. Such an
-	// entry carries only Name (the canonical ref); metadata is unavailable since
-	// the content no longer exists to read.
-	Deleted bool
 
 	// Held marks a lockfile entry frozen at its recorded SHA (LockEntry.Pinned,
 	// toggled by `ctxloom deps hold`/`unhold`): `deps upgrade` leaves it put

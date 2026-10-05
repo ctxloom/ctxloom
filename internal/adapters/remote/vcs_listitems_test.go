@@ -165,26 +165,6 @@ func TestRemoteRefFetcher_ListItems_NotMaterializedWarns(t *testing.T) {
 	assert.Contains(t, err.Error(), absent)
 }
 
-func TestResolver_ListDeleted_RemoteScheme(t *testing.T) {
-	url := "https://github.com/alice/ctxloom"
-	// stubVCS implements Versioned, so the remote fetcher can surface deletions.
-	deletedVCS := &stubVCS{deletedItems: []string{"old-bundle"}}
-
-	resolver := NewResolver(
-		NewRemoteRefFetcher(
-			func(string) (VCS, error) { return deletedVCS, nil },
-			WithRemoteSources([]string{url}),
-		),
-		// A fetcher with no DeletedItemLister capability is skipped.
-		&stubRefFetcher{handles: func(*Reference) bool { return false }},
-	)
-
-	refs, err := resolver.ListDeleted(context.Background(), ItemTypeBundle)
-	require.NoError(t, err)
-	require.Len(t, refs, 1)
-	assert.Equal(t, "ctxloom+git://github.com/alice/ctxloom//bundles/old-bundle", refs[0].CanonicalString())
-}
-
 func TestResolver_List_FansOutAcrossSchemes(t *testing.T) {
 	url := "https://github.com/alice/ctxloom"
 	mf := NewMockFetcher().

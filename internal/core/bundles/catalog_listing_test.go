@@ -151,14 +151,13 @@ func TestListingNames_LeavesAnUncontestedNameBare(t *testing.T) {
 	assert.NoError(t, err, "an uncontested row's label must still resolve")
 }
 
-// TestListingNames_LeavesARowWithNoURIBare covers the lockfile-only row
-// (deleted upstream): it shares a name with a real bundle but has no canonical
-// URI to be told apart BY, so an empty parenthetical would be noise claiming to
-// be a handle.
+// TestListingNames_LeavesARowWithNoURIBare covers a row with no canonical
+// URI: it shares a name with a real bundle but has nothing to be told apart
+// BY, so an empty parenthetical would be noise claiming to be a handle.
 func TestListingNames_LeavesARowWithNoURIBare(t *testing.T) {
 	infos := []*BundleInfo{
 		{Name: "isolation", Ref: "ctxloom+local:isolation"},
-		{Name: "isolation", Deleted: true},
+		{Name: "isolation"},
 	}
 	labels := listingNamesFor(t, infos)
 	assert.Equal(t, "isolation (ctxloom+local:isolation)", labels[0])

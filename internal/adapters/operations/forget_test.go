@@ -40,7 +40,7 @@ func forgetSolidRef() trust.Ref {
 // production decision function over fx's stores.
 func solidState(t *testing.T, fx *trustFixture) trust.State {
 	t.Helper()
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref:     forgetSolidRef(),
 		Payload: fragmentBytes(solidRawBody),
 		Form:    rawForm,
@@ -169,7 +169,7 @@ func TestForgetItemDecision_LeavesEveryOtherDecisionStanding(t *testing.T) {
 	require.NoError(t, err)
 
 	greet := trust.Ref{RepoURL: trustRepo, Bundle: "toolkit", Kind: trust.KindPrompt, Name: "greet"}
-	got, err := EffectiveTrust(nil, EffectiveTrustRequest{Ref: greet, Payload: commandBytes("greet body"), Form: rawForm, Records: fx.records()})
+	got, err := EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: greet, Payload: commandBytes("greet body"), Form: rawForm, Records: fx.records()})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Allow, got.Decision, "the untouched neighbour's approval must survive")
 }

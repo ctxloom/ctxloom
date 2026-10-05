@@ -51,7 +51,7 @@ func TestZeroRef_HasNoAddressAndIsInert(t *testing.T) {
 		"an empty kind offering a form would let a content rejection — or an approval — key off '|#/'")
 
 	// 2. The decision function withholds it.
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref:        zero,
 		Posture:    postureCtxOf(zero),
 		Provenance: postureProvOf(zero),

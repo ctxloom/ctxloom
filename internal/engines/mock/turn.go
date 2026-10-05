@@ -154,17 +154,8 @@ func sendTurnEvents(send func(agent.ChatEvent) error, calls turnCalls, prompt, a
 	if f := turnFailureIn(prompt); f != nil {
 		return sendTurnFailure(send, f)
 	}
-	if strings.Contains(prompt, "TOOLS") {
-		for _, ev := range toolsTurn(prompt) {
-			if err := send(ev); err != nil {
-				return err
-			}
-		}
-	}
-	if plan, ok := planIn(prompt); ok && calls.mode == modePlan {
-		if err := calls.plan(plan); err != nil {
-			return err
-		}
+	if err := sendMarkedCalls(send, calls, prompt); err != nil {
+		return err
 	}
 	meta := &agent.TurnMeta{StopReason: "end_turn"}
 	denials, err := markedDenials(send, calls.ask, prompt)
@@ -176,6 +167,22 @@ func sendTurnEvents(send func(agent.ChatEvent) error, calls turnCalls, prompt, a
 		return err
 	}
 	return send(agent.ChatEvent{Complete: meta})
+}
+
+// sendMarkedCalls relays the calls a prompt's markers make before any is
+// asked about: a TOOLS turn's entries, then a plan-posture mock:plan call.
+func sendMarkedCalls(send func(agent.ChatEvent) error, calls turnCalls, prompt string) error {
+	if strings.Contains(prompt, "TOOLS") {
+		for _, ev := range toolsTurn(prompt) {
+			if err := send(ev); err != nil {
+				return err
+			}
+		}
+	}
+	if plan, ok := planIn(prompt); ok && calls.mode == modePlan {
+		return calls.plan(plan)
+	}
+	return nil
 }
 
 // turnFailureIn is the failure a prompt's marker asks the turn to end on: a

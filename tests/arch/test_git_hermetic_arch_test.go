@@ -127,36 +127,36 @@ func rawGitExecs(f *ast.File) []gitExecSite {
 			fn = fd.Name.Name
 		}
 		ast.Inspect(decl, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			if id, ok := sel.X.(*ast.Ident); !ok || id.Name != name {
-				return true
-			}
-			prog := -1
-			switch sel.Sel.Name {
-			case "Command":
-				prog = 0
-			case "CommandContext":
-				prog = 1
-			}
-			if prog < 0 || len(call.Args) <= prog {
-				return true
-			}
-			if lit, ok := call.Args[prog].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-				if v, _ := strconv.Unquote(lit.Value); v == "git" {
-					out = append(out, gitExecSite{pos: call.Pos(), fn: fn})
-				}
+			if call, ok := n.(*ast.CallExpr); ok && execsGit(call, name) {
+				out = append(out, gitExecSite{pos: call.Pos(), fn: fn})
 			}
 			return true
 		})
 	}
 	return out
+}
+
+// execsGit reports whether call is exec.Command / exec.CommandContext, under the
+// os/exec import name execName, with the literal "git" as its program.
+func execsGit(call *ast.CallExpr, execName string) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	if id, ok := sel.X.(*ast.Ident); !ok || id.Name != execName {
+		return false
+	}
+	prog := map[string]int{"Command": 0, "CommandContext": 1}
+	i, ok := prog[sel.Sel.Name]
+	if !ok || len(call.Args) <= i {
+		return false
+	}
+	lit, ok := call.Args[i].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return false
+	}
+	v, _ := strconv.Unquote(lit.Value)
+	return v == "git"
 }
 
 // unhermeticEnvOverrides returns every `v.Env = X` in f where v holds a GitCmd

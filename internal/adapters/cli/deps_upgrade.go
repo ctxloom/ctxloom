@@ -89,7 +89,7 @@ func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error
 
 	fmt.Println("Resolving latest commits for pinned dependencies...")
 
-	res, err := operations.UpgradeDependencies(cmd.Context(), cfg, depsUpgradeAllowDowngrade)
+	res, err := upgradeDependencies(cmd.Context(), cfg, depsUpgradeAllowDowngrade)
 	if err != nil {
 		return err
 	}

@@ -85,7 +85,7 @@ func runRemoteCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	result, err := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
+	result, err := addRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
 		Name:  args[0],
 		URL:   args[1],
 		Forge: remoteAddForge,
@@ -239,7 +239,7 @@ func runRemoteDefault(cmd *cobra.Command, args []string) error {
 
 	// Clear the default.
 	if remoteDefaultClear {
-		if _, err := operations.SetDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: ""}); err != nil {
+		if _, err := setDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: ""}); err != nil {
 			return err
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), "Cleared default remote.")
@@ -254,7 +254,7 @@ func runRemoteDefault(cmd *cobra.Command, args []string) error {
 
 	// Set a new default.
 	name := args[0]
-	if _, err := operations.SetDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: name}); err != nil {
+	if _, err := setDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: name}); err != nil {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Set default remote to: %s\n", name)
@@ -364,3 +364,16 @@ func init() {
 		"Clear the default remote")
 
 }
+
+// The operations behind the `remote` and `deps` verbs, held in package vars so
+// a test can drive each verb's rendering without a network or a registered
+// remote. Production never reassigns them.
+var (
+	addRemote            = operations.AddRemote
+	setDefaultRemote     = operations.SetDefaultRemote
+	browseRemote         = operations.BrowseRemote
+	syncDependencies     = operations.SyncDependencies
+	reconcileInstalledOp = operations.ReconcileInstalled
+	checkDependencies    = operations.CheckDependencies
+	upgradeDependencies  = operations.UpgradeDependencies
+)

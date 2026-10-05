@@ -16,7 +16,7 @@ import (
 // not do. Failures are reported and never fatal — reconciliation is a SECOND
 // guarantee layered on a pull that has already succeeded.
 func reconcileInstalled(ctx context.Context, cfg *config.Config, out io.Writer) {
-	res, err := operations.ReconcileInstalled(ctx, cfg)
+	res, err := reconcileInstalledOp(ctx, cfg)
 	if err != nil {
 		clidiag.Warn("ctxloom", "reconcile: read the lockfile: %v", err)
 		return

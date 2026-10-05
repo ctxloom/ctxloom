@@ -43,7 +43,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 	// item types (a leftover from when profiles were browsable
 	// separately); this inlines that to the single call it always was.
 	const itemType = "bundle"
-	result, err := operations.BrowseRemote(cmd.Context(), cfg, operations.BrowseRemoteRequest{
+	result, err := browseRemote(cmd.Context(), cfg, operations.BrowseRemoteRequest{
 		Remote:    remoteName,
 		ItemType:  itemType,
 		Recursive: browseRecursive,

@@ -50,7 +50,7 @@ func runDepsCheck(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		ref = args[0]
 	}
-	res, err := operations.CheckDependencies(cmd.Context(), App(), operations.CheckDependenciesRequest{Ref: ref})
+	res, err := checkDependencies(cmd.Context(), App(), operations.CheckDependenciesRequest{Ref: ref})
 	if ref != "" {
 		// A single reference's clone is refreshed before anything else is
 		// attempted, so its failure is reported first — ahead of the status
@@ -189,3 +189,5 @@ func reportMissingDefaults(out io.Writer, missing []string, err error) {
 func init() {
 	depsCmd.AddCommand(depsCheckCmd)
 }
+
+func uncheckedReasonName(operations.UncheckedReason) string { return "" }

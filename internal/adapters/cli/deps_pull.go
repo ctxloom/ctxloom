@@ -64,7 +64,7 @@ func runDepsPull(cmd *cobra.Command, _ []string) error {
 
 	fmt.Fprintln(cmd.OutOrStdout(), "Pulling dependencies...")
 
-	result, err := operations.SyncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
+	result, err := syncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
 		Force:          depsPullForce,
 		Lock:           depsPullLock,
 		ApplyHooks:     true,

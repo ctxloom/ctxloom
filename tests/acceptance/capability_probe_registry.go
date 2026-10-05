@@ -227,6 +227,10 @@ var (
 		Shape: "APPROVAL-DELIVERY failure",
 		Where: "a file the gated tool call writes, absent until the approval is answered",
 	}
+	channelHookProcess = probeChannel{
+		Shape: "HOOK-INTERRUPT failure",
+		Where: "the blocked PermissionRequest hook's own process, read from /proc after the interrupted engine exits",
+	}
 	channelRepoHookMarker = probeChannel{
 		Shape: "REPO-HOOK failure",
 		Where: "marker files outside the repo that only the repo's COMMITTED .claude/settings.json hooks write",
@@ -266,6 +270,7 @@ const (
 	probeP12 = "p12-permission-hook-no-host"
 	probeP13 = "p13-untrusted-repo-hooks"
 	probeP14 = "p14-native-history"
+	probeP15 = "p15-hook-interrupt"
 	// The two rungs deliberately NOT built. Present as deferred rows so rows
 	// 9 and 10 of the inventory are visibly un-probed rather than invisibly so.
 	probePCmd   = "p10-command-invocation"
@@ -505,6 +510,20 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-03 on claude 2.1.286 (haiku): 1 scenario / 4 steps green in 22s. In a rootless container the host-side session engine home held claude/projects/<slug>/<uuid>.jsonl after one turn; the slug was the project's HOST absolute path, because the container mounts the project at the same path. Re-measured 2026-10-03 on the native-history layout: 1 scenario / 4 steps green in 45s, the conversation .jsonl landed in the host's native/claude/projects/<slug>/ through the home's relative link and the native/ mount. Judge MUTATION-CONFIRMED hermetically (TestP14_ContainerWrites)."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: p14SymlinkedProjects, Status: probeLiveVerified,
 				Reason: "measured 2026-10-03 on claude 2.1.286 (haiku): 1 scenario / 4 steps green in 16s. With <cfg>/projects the relative link ../../native/claude/projects, claude wrote its conversation .jsonl into the link's target and left the link in place with its target text unchanged. Judge MUTATION-CONFIRMED hermetically (TestP14_SymlinkReplacedIsRed, TestP14_SymlinkRetargetedIsRed)."},
+		},
+	},
+	// P15 measures the vendor half of an interrupted turn (conformance I1):
+	// claude, interrupted the way the driver does it while a PermissionRequest
+	// hook blocks, exits and takes the hook with it (probe_p15_hook_interrupt.go).
+	{
+		Name:         probeP15,
+		Title:        "hook interrupt: SIGINT to claude -p while its PermissionRequest hook blocks ends claude within the driver's grace and kills the hook",
+		Capabilities: []int{7, 12},
+		Channel:      channelHookProcess,
+		Feature:      "probes/capability_hook_interrupt.feature",
+		Paid:         true,
+		Cells: []probeCell{
+			hostCell("claude-code", probeWired, "conformance cell I1."),
 		},
 	},
 	{

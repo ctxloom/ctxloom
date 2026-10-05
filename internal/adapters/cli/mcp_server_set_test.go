@@ -150,16 +150,17 @@ func TestMCPServerSet_EmitsTheResult(t *testing.T) {
 	assert.Equal(t, "fresh", res.Name)
 }
 
-// The text line says whether the entry was made or changed.
+// The text line says whether the entry was made or changed. --format text is
+// explicit because a test's stdout is not a terminal, which picks json.
 func TestMCPServerSet_TextSaysCreatedOrSet(t *testing.T) {
 	cfg := setupEditProject(t)
 	seedRemoteMCP(t, cfg)
 
-	out, err := execMCPServerSet(t, "demo#mcp/fresh", "--command", "bin")
+	out, err := execMCPServerSet(t, "demo#mcp/fresh", "--command", "bin", "--format", "text")
 	require.NoError(t, err)
 	assert.Equal(t, "Created MCP server \"fresh\" in bundle \"demo\"\n", out)
 
-	out, err = execMCPServerSet(t, "demo#mcp/srv", "--notes", "n")
+	out, err = execMCPServerSet(t, "demo#mcp/srv", "--notes", "n", "--format", "text")
 	require.NoError(t, err)
 	assert.Equal(t, "Set MCP server \"srv\" in bundle \"demo\"\n", out)
 }

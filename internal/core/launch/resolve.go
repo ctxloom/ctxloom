@@ -69,6 +69,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 
+	src.Identity.Project = admittedProject(deps, src.Identity.Project)
 	passthrough, cell, err := prepareCell(ctx, deps, src, eng, axes, dirty, sel, label)
 	if err != nil {
 		return Launch{}, err
@@ -92,6 +93,22 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 	return l, nil
+}
+
+// admittedProject is the project id an admitted launch carries: the one the
+// source already had, else the one deps.ProjectIdentity establishes now. A
+// failure to establish it is reported, never fatal — the session runs
+// without an identity, and the task store degrades rather than blocking.
+func admittedProject(deps Deps, have string) string {
+	if have != "" || deps.ProjectIdentity == nil {
+		return have
+	}
+	id, err := deps.ProjectIdentity()
+	if err != nil {
+		report.To(deps.Reporter).Warnf("project identity unresolved: %v", err)
+		return ""
+	}
+	return id
 }
 
 // requireApprovalRoute refuses a structured run that plans first with no

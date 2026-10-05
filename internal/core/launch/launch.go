@@ -55,6 +55,14 @@ type Deps struct {
 	SessionClaims SessionClaims
 	InlineMax     int
 	Host          HostFacts
+	// ProjectIdentity establishes the project's stable identity when the
+	// source carries none, and is called only once the launch is ADMITTED —
+	// past selection, assembly, the engine, the axes and the policy, just
+	// before the cell that carries the id is prepared. Establishing an
+	// identity writes a marker into the project, so a refused launch must
+	// never reach it. A failure is reported and the launch runs without one.
+	// Nil establishes nothing (a preview, which only looks an identity up).
+	ProjectIdentity func() (string, error)
 	// Reporter receives the diagnostics opening a launch raises (the delivery
 	// preference the engine cannot honour, the packages a writer skips); the
 	// composition chooses the sink. Nil discards.

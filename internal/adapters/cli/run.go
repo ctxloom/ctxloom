@@ -533,10 +533,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 	return st.drive()
 }
 
-// resolveProject resolves the project root the launch is asked for and the
-// project's stable identity the session serves. The identity is
-// fault-tolerant: a failure warns and the session carries none; the task
-// store degrades rather than blocking.
+// resolveProject resolves the project root the launch is asked for and, for a
+// preview, the identity the project already has. A real run's identity is
+// established later, once its launch is admitted (establishProjectIdentity).
+// The identity is fault-tolerant: a failure warns and the session carries
+// none; the task store degrades rather than blocking.
 //
 // taskStoreWorkDir redirects a linked git worktree with no .ctxloom of its
 // own to its primary checkout FIRST: the session identity workDir itself
@@ -553,19 +554,30 @@ func (st *runState) resolveProject() {
 	if projectroot.RootFromFallback() {
 		clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", st.workDir)
 	}
-	resolve := taskops.ResolveProjectIdentity
-	if runDryRun {
-		resolve = lookupProjectIdentity
+	// A real run establishes the identity only once its launch is admitted
+	// (launch.Deps.ProjectIdentity, wired by resolveLaunch): establishing it
+	// writes the project marker, which a refused launch must not leave
+	// behind. A preview only looks the existing identity up.
+	if !runDryRun {
+		return
 	}
-	pid, warning, err := resolve(taskStoreWorkDir(st.workDir))
+	pid, _, err := lookupProjectIdentity(taskStoreWorkDir(st.workDir))
 	if err != nil {
 		clidiag.Warn("ctxloom", "project identity unresolved: %v", err)
 		return
 	}
 	st.projectID = pid
+}
+
+// establishProjectIdentity is a real run's launch.Deps.ProjectIdentity: the
+// task store's mint-or-heal for the launch's project, its notice (a moved or
+// copied project) warned as it is raised.
+func (st *runState) establishProjectIdentity() (string, error) {
+	pid, warning, err := taskops.ResolveProjectIdentity(taskStoreWorkDir(st.workDir))
 	if warning != "" {
 		clidiag.Warn("ctxloom", "%s", warning)
 	}
+	return pid, err
 }
 
 // lookupProjectIdentity is a dry run's answer to "which project is this":
@@ -634,10 +646,12 @@ func (st *runState) resolveLaunch() error {
 	if err != nil {
 		return err
 	}
+	deps.ProjectIdentity = st.establishProjectIdentity
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
 	if err != nil {
 		return err
 	}
+	st.projectID = l.Identity.Project
 	// The startup findings are composed HERE, after the cell was prepared:
 	// a degraded-to-host finding is the case they exist for.
 	l, err = launch.WithLead(st.ctx, deps.ForSession(l.Identity.Harp), l, st.startupFindings()...)

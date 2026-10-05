@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"path"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
@@ -17,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // ProjectAppDir returns the project's .ctxloom directory for lockfile and
@@ -130,6 +135,33 @@ func rollbackAdd(registry *remote.Registry, name string) {
 	}
 }
 
+// resolveLocalRepoURL turns a remote URL spelled as a filesystem path —
+// absolute, or relative to the working directory — into the file:// URL of
+// the repository there, and passes every other spelling through untouched.
+//
+// It lives at the argv ingest because the repo-URL grammar has no working
+// directory: refuri.ParseRepoURL refuses a path spelling outright
+// (refuri.ErrSchemelessPath) so that no layer can guess it into a network
+// host. A path naming no repository — bare or working tree — is refused with
+// that same sentinel rather than registered: there is nothing local for it to
+// mean.
+//
+// The URL is built with net/url, not concatenated: git percent-decodes a
+// file:// URL, so a raw path holding '%' would name a different directory.
+func resolveLocalRepoURL(raw string) (string, error) {
+	if _, err := refuri.ParseRepoURL(raw); !errors.Is(err, refuri.ErrSchemelessPath) {
+		return raw, nil
+	}
+	abs, err := filepath.Abs(strings.TrimSpace(raw))
+	if err != nil {
+		return "", fmt.Errorf("%w: cannot resolve %q: %v", refuri.ErrSchemelessPath, raw, err)
+	}
+	if _, err := git.PlainOpen(abs); err != nil {
+		return "", fmt.Errorf("%w: %q resolves to %s, which holds no git repository (%v); name one, or write its file:// URL", refuri.ErrSchemelessPath, raw, abs, err)
+	}
+	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(abs)}).String(), nil
+}
+
 // AddRemote registers a new remote source.
 func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*AddRemoteResult, error) {
 	if req.Name == "" {
@@ -138,6 +170,11 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	if req.URL == "" {
 		return nil, fmt.Errorf("url is required")
 	}
+	resolved, err := resolveLocalRepoURL(req.URL)
+	if err != nil {
+		return nil, err
+	}
+	req.URL = resolved
 
 	registry := req.Registry
 	if registry == nil {
@@ -272,6 +309,13 @@ func EditRemote(_ context.Context, cfg *config.Config, req EditRemoteRequest) (*
 	}
 	if req.NewName == nil && req.URL == nil && req.Forge == nil {
 		return nil, fmt.Errorf("nothing to edit: pass at least one of --name, --url or --forge")
+	}
+	if req.URL != nil {
+		resolved, err := resolveLocalRepoURL(*req.URL)
+		if err != nil {
+			return nil, err
+		}
+		req.URL = &resolved
 	}
 
 	registry := req.Registry

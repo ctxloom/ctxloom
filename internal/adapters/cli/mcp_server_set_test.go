@@ -138,9 +138,30 @@ func TestMCPServerSet_EmitsTheResult(t *testing.T) {
 	require.NoError(t, err)
 	var res operations.SetBundleMCPResult
 	require.NoError(t, json.Unmarshal([]byte(out), &res))
+	assert.Equal(t, operations.SetBundleMCPStatusUpdated, res.Status)
 	assert.Equal(t, "demo", res.Bundle)
 	assert.Equal(t, "srv", res.Name)
 	assert.NotEmpty(t, res.Path)
+
+	out, err = execMCPServerSet(t, "demo#mcp/fresh", "--command", "bin", "--format", "json")
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal([]byte(out), &res))
+	assert.Equal(t, operations.SetBundleMCPStatusCreated, res.Status)
+	assert.Equal(t, "fresh", res.Name)
+}
+
+// The text line says whether the entry was made or changed.
+func TestMCPServerSet_TextSaysCreatedOrSet(t *testing.T) {
+	cfg := setupEditProject(t)
+	seedRemoteMCP(t, cfg)
+
+	out, err := execMCPServerSet(t, "demo#mcp/fresh", "--command", "bin")
+	require.NoError(t, err)
+	assert.Equal(t, "Created MCP server \"fresh\" in bundle \"demo\"\n", out)
+
+	out, err = execMCPServerSet(t, "demo#mcp/srv", "--notes", "n")
+	require.NoError(t, err)
+	assert.Equal(t, "Set MCP server \"srv\" in bundle \"demo\"\n", out)
 }
 
 // The editor buffer is the whole entry, served_by included.

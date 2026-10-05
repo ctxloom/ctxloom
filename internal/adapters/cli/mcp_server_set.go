@@ -107,8 +107,12 @@ func runMCPServerSet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	verb := "Set"
+	if res.Status == operations.SetBundleMCPStatusCreated {
+		verb = "Created"
+	}
 	return emit(cmd, res, func() error {
-		_, err := fmt.Fprintf(cmd.OutOrStdout(), "Set MCP server %q in bundle %q\n", name, bundleName)
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s MCP server %q in bundle %q\n", verb, name, bundleName)
 		return err
 	})
 }

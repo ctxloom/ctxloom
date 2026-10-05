@@ -690,6 +690,7 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 
 // TestApplyHooks_RegenerateContextWithTags tests regenerateContext with profile tags.
 func TestApplyHooks_RegenerateContextWithTags(t *testing.T) {
+	ownRecordsDir(t)
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
 	bundlesDir := authoredV1(appDir)
@@ -852,6 +853,7 @@ fragments:
 }
 
 func TestApplyHooks_RegenerateContextSubstitutesVariables(t *testing.T) {
+	ownRecordsDir(t)
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
 	bundlesDir := authoredV1(appDir)
@@ -907,6 +909,7 @@ fragments:
 // dedup is process-global, so reusing another test's exact message would
 // make this test's outcome depend on run order.
 func TestApplyHooks_RegenerateContextUndefinedVariableWarns(t *testing.T) {
+	ownRecordsDir(t)
 	freshWarnOnce(t)
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
@@ -957,6 +960,7 @@ fragments:
 // undefined-variable warning must name the offending one, not the clean one,
 // so a mustache mistake surfaced on session start is directly actionable.
 func TestApplyHooks_RegenerateContextUndefinedVariableWarningNamesFragment(t *testing.T) {
+	ownRecordsDir(t)
 	freshWarnOnce(t)
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
@@ -1012,6 +1016,7 @@ fragments:
 
 // TestApplyHooks_RegenerateContextWithFragments tests regenerateContext with direct fragments.
 func TestApplyHooks_RegenerateContextWithFragments(t *testing.T) {
+	ownRecordsDir(t)
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
 	bundlesDir := authoredV1(appDir)
@@ -1059,6 +1064,7 @@ fragments:
 //
 // This allows users to keep working even if their config has reference errors.
 func TestApplyHooks_RegenerateContextUnresolvedProfile(t *testing.T) {
+	ownRecordsDir(t)
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
 	bundlesDir := authoredV1(appDir)
@@ -1113,6 +1119,7 @@ fragments:
 //   - Fragment renamed but profile not updated
 //   - Typo in fragment reference
 func TestApplyHooks_RegenerateContextMissingFragment(t *testing.T) {
+	ownRecordsDir(t)
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
 	bundlesDir := authoredV1(appDir)

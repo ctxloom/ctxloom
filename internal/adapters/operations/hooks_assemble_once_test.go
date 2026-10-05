@@ -22,6 +22,7 @@ import (
 // reports a default profile that does not resolve (a KindRef finding), so the
 // count of those findings is the count of resolutions.
 func TestApplyHooks_ResolvesTheDefaultProfilesOnce(t *testing.T) {
+	ownRecordsDir(t)
 	resetStrictness(t)
 	tmpDir := t.TempDir()
 	writeBundleFixture(t, tmpDir)

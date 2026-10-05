@@ -16,6 +16,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
+// ownRecordsDir gives a test that delivers on the real filesystem its own
+// ownership record store: the package's tests otherwise share one sandbox
+// HOME, and every delivery adds records to the store all later ones open.
+func ownRecordsDir(t *testing.T) {
+	t.Helper()
+	t.Cleanup(paths.SetHomeRecordsDirForTesting(t.TempDir()))
+}
+
 // Installing hooks reads the ownership records of the files it delivers,
 // never every record in the home store: the store holds one for every file
 // ctxloom ever delivered, in every project, and a delivery that decoded them

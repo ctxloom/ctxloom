@@ -91,6 +91,7 @@ func fixtureConfig(root string) *config.Config {
 // must regenerate a context file containing every fragment and inject a
 // SessionStart hook pointing at the resulting hash.
 func TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook(t *testing.T) {
+	ownRecordsDir(t)
 	tmpDir := t.TempDir()
 	writeBundleFixture(t, tmpDir)
 

@@ -75,6 +75,7 @@ func TestApplyHooks_UnreadableApprovalsStore_IsNotReportedAsApplied(t *testing.T
 // fine must still apply and still write a non-empty context. Without it the
 // test above is satisfiable by an ApplyHooks that fails on everything.
 func TestApplyHooks_ReadableApprovalsStore_StillApplies(t *testing.T) {
+	ownRecordsDir(t)
 	resetStrictness(t)
 	tmpDir := t.TempDir()
 	writeBundleFixture(t, tmpDir)

@@ -21,7 +21,7 @@ func runGitInit(t *testing.T, dir string) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
-	cmd := exec.Command("git", "init", "-q", dir)
+	cmd := taskstest.GitCmd(filepath.Dir(dir), nil, "init", "-q", dir)
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "git init: %s", out)
 }

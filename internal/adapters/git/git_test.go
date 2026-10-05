@@ -324,8 +324,7 @@ func TestExecGit_ListTracked(t *testing.T) {
 	// Track a .mcp.json; leave an untracked .claude/settings.json on disk.
 	require.NoError(t, writeFile(filepath.Join(repo, ".mcp.json"), "{}"))
 	require.NoError(t, writeFile(filepath.Join(repo, ".claude", "settings.json"), "{}"))
-	addCmd := exec.CommandContext(ctx, "git", "add", ".mcp.json")
-	addCmd.Dir = repo
+	addCmd := taskstest.GitCmd(repo, nil, "add", ".mcp.json")
 	require.NoError(t, addCmd.Run())
 
 	tracked, err := g.ListTracked(ctx, repo, ".mcp.json", ".claude/")
@@ -431,11 +430,7 @@ func TestExecGit_MergedBranches(t *testing.T) {
 	repo := initRepo(t) // branch "main", one commit
 
 	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = repo
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=ctxloom", "GIT_AUTHOR_EMAIL=ctxloom@example.com",
-			"GIT_COMMITTER_NAME=ctxloom", "GIT_COMMITTER_EMAIL=ctxloom@example.com")
+		cmd := taskstest.GitCmd(repo, []string{"GIT_AUTHOR_NAME=ctxloom", "GIT_AUTHOR_EMAIL=ctxloom@example.com", "GIT_COMMITTER_NAME=ctxloom", "GIT_COMMITTER_EMAIL=ctxloom@example.com"}, args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
@@ -480,7 +475,7 @@ func TestExecGit_CommitAll_StagesAndVerifies(t *testing.T) {
 	require.NoError(t, writeFile(filepath.Join(repo, "README.md"), "changed"))            // tracked mod
 	require.NoError(t, writeFile(filepath.Join(repo, "new/untracked.go"), "package new")) // untracked
 
-	preOut, err := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "HEAD").Output()
+	preOut, err := taskstest.GitCmd(repo, nil, "rev-parse", "HEAD").Output()
 	require.NoError(t, err)
 	preSHA := strings.TrimSpace(string(preOut))
 
@@ -709,7 +704,7 @@ func TestExecGit_ListUntracked(t *testing.T) {
 	require.NoError(t, writeFile(filepath.Join(repo, "fresh.go"), "package fresh"))
 	require.NoError(t, writeFile(filepath.Join(repo, "ignored-by-gitignore.log"), "noise"))
 	require.NoError(t, writeFile(filepath.Join(repo, ".gitignore"), "*.log\n"))
-	excludeCmd := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "--git-path", "info/exclude")
+	excludeCmd := taskstest.GitCmd(repo, nil, "rev-parse", "--git-path", "info/exclude")
 	out, err := excludeCmd.Output()
 	require.NoError(t, err)
 	excludePath := filepath.Join(repo, strings.TrimSpace(string(out)))

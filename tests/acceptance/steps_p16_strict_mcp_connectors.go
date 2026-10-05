@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+
 	"github.com/cucumber/godog"
 )
 
@@ -70,7 +72,7 @@ func registerP16StrictMCPConnectorsSteps(ctx *godog.ScenarioContext) {
 					return err
 				}
 			}
-			if out, err := exec.Command("git", "init", "-q", p.repo).CombinedOutput(); err != nil {
+			if out, err := taskstest.GitCmd(filepath.Dir(p.repo), nil, "init", "-q", p.repo).CombinedOutput(); err != nil {
 				return fmt.Errorf("%s: git init %s: %w: %s", p16Family, p.repo, err, out)
 			}
 			return nil

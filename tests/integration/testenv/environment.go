@@ -625,7 +625,7 @@ func (e *TestEnvironment) InitGitRepo() error {
 }
 
 // GitConfigLocal sets a repository-local git config value in the project
-// checkout, through this environment's own isolated environment (gitEnv —
+// checkout, through this environment's own isolated environment (gitCmd —
 // HOME/XDG rooted at e.HomeDir and every testsupport.EnvKeys variable
 // scrubbed), so no caller has to hand-roll HOME redirection to make git read
 // the fake home instead of the developer's.
@@ -748,17 +748,12 @@ func (e *TestEnvironment) isolatedEnv() []string {
 	return env
 }
 
-// gitEnv returns environment variables for git commands: the isolated
-// environment, made hermetic for git by taskstest.HermeticGitEnv.
-func (e *TestEnvironment) gitEnv() []string {
-	return taskstest.HermeticGitEnv(e.isolatedEnv())
-}
-
 // gitCmd is every TestEnvironment git invocation: taskstest.GitCmd's process,
-// in the project checkout, under gitEnv.
+// in the project checkout, under the isolated environment made hermetic for
+// git by taskstest.HermeticGitEnv.
 func (e *TestEnvironment) gitCmd(args ...string) *exec.Cmd {
 	cmd := taskstest.GitCmd(e.ProjectDir, nil, args...)
-	cmd.Env = e.gitEnv()
+	cmd.Env = taskstest.HermeticGitEnv(e.isolatedEnv())
 	return cmd
 }
 

@@ -76,7 +76,7 @@ func runSessionEdit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if entry == nil {
-		return fmt.Errorf("harp not found: %q", harp)
+		return errNoSession(harp)
 	}
 	if err := operations.RenameSession(harp, sessionEditName); err != nil {
 		return err

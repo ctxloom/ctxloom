@@ -223,7 +223,7 @@ func runBundleRemove(cmd *cobra.Command, args []string) error {
 	// supplies the counts of what removing it would take with it.
 	bundle, err := operations.GetBundle(cfg, name)
 	if err != nil {
-		return fmt.Errorf("bundle not found: %s", name)
+		return errNoBundle(name)
 	}
 
 	applyCmd := fmt.Sprintf("ctxloom bundle remove %s --yes", name)

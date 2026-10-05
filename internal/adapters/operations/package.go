@@ -187,7 +187,7 @@ func resolveProfiles(cfg *config.Config, names []string, fromDefaults bool, load
 					"skipping default profile %s: %v", name, err)
 				continue
 			}
-			return nil, fmt.Errorf("failed to resolve profile %s: profile %s: %w", name, name, err)
+			return nil, fmt.Errorf("profile %s: %w", name, err)
 		}
 		if resolved.LLM != "" {
 			if effectiveLLM == "" {

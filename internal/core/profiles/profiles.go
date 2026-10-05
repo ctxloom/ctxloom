@@ -503,6 +503,37 @@ func (l *Loader) List() []*Profile {
 	return profiles
 }
 
+// The fix a missed project-profile name carries. A bare name means the
+// project's own profile, but the name a user types is often one they saw in a
+// listing for a profile another bundle ships — which is addressed by its ref.
+const (
+	didYouMeanProfileFix = "did you mean %s? Another bundle's profile is named by its full ref"
+	listProfilesFix      = "`ctxloom profile list` names every profile you can use"
+)
+
+// localMissFix names the one installed profile whose name matches the missed
+// project-profile ref, or the listing when there is no single such profile.
+func (l *Loader) localMissFix(ref string) string {
+	leaf := ref
+	if i := strings.LastIndex(ref, refuri.ProfileSelector); i >= 0 {
+		leaf = ref[i+len(refuri.ProfileSelector):]
+	}
+	var match string
+	for key := range l.seeded {
+		if !strings.HasSuffix(key, refuri.ProfileSelector+leaf) {
+			continue
+		}
+		if match != "" {
+			return listProfilesFix
+		}
+		match = key
+	}
+	if match == "" {
+		return listProfilesFix
+	}
+	return fmt.Sprintf(didYouMeanProfileFix, match)
+}
+
 // Load loads a profile by name: a selector-less name is the project bundle's
 // profile of that name, and any "<bundle>#profiles/<name>" ref — local or
 // remote, short, aliased or version-pinned — resolves through the seed under
@@ -526,7 +557,7 @@ func (l *Loader) Load(name string) (*Profile, error) {
 		// spelling may name an installed bundle not yet pulled, so its miss
 		// says how to install it.
 		if ref != name || explicitlyLocal(ref) {
-			return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
+			return nil, report.Errorf(l.localMissFix(ref), "%w: %s", errs.ErrProfileNotFound, name)
 		}
 		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom deps pull')", errs.ErrProfileNotFound, name)
 	}

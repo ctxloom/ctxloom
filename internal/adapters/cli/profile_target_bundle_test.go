@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // resetProfileWriteFlags clears create's and import's flag variables: they are
@@ -30,7 +33,11 @@ func TestProfileCreate_BundleFlagNamesTheTargetLocalBundle(t *testing.T) {
 	resetProfileWriteFlags()
 
 	require.NoError(t, runCLI(t, "profile", "show", "tools#profiles/probe").err, "the profile is the target bundle's")
-	require.Error(t, runCLI(t, "profile", "show", "probe").err, "and not the project bundle's")
+	miss := runCLI(t, "profile", "show", "probe").err
+	require.ErrorIs(t, miss, errs.ErrProfileNotFound, "and not the project bundle's")
+	fix, ok := clifmt.RemedyOf(miss)
+	require.True(t, ok, "the miss names its fix: %v", miss)
+	require.Contains(t, fix, "tools#profiles/probe", "the fix names the one installed profile of that name")
 }
 
 // `profile import <file> --bundle <b>` imports into local bundle b.

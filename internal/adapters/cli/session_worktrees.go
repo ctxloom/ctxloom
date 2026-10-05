@@ -214,7 +214,7 @@ func verifyHarpDirExists(fsys afero.Fs, harp string) error {
 	}
 	if _, statErr := fsys.Stat(dir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return fmt.Errorf("harp not found: %q", harp)
+			return errNoSession(harp)
 		}
 		return fmt.Errorf("stat harp %q: %w", harp, statErr)
 	}

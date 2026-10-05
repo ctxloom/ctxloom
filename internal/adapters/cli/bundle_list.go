@@ -179,7 +179,7 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 		if shown, herr := helpFallback(cmd, name); shown {
 			return herr
 		}
-		return fmt.Errorf("bundle not found: %s", name)
+		return errNoBundle(name)
 	}
 
 	// Route through emit() so `bundle show --format json` yields the structured

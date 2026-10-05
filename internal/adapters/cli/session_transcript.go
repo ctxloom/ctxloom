@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/spf13/afero"
@@ -133,7 +132,7 @@ func sessionEntriesForHarpArg(args []string, all bool) ([]sessions.Entry, error)
 			return nil, err
 		}
 		if entry == nil {
-			return nil, fmt.Errorf("harp not found: %q", args[0])
+			return nil, errNoSession(args[0])
 		}
 		return []sessions.Entry{*entry}, nil
 	}

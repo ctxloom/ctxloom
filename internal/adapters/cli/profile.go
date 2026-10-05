@@ -217,7 +217,7 @@ func runProfileRemove(cmd *cobra.Command, args []string) error {
 			if shown, herr := helpFallback(cmd, name); shown {
 				return herr
 			}
-			return fmt.Errorf("profile %q not found", name)
+			return err
 		}
 		var detail []string
 		if n := len(res.Bundles); n > 0 {
@@ -266,7 +266,7 @@ func runProfileShow(cmd *cobra.Command, args []string) error {
 		if shown, herr := helpFallback(cmd, name); shown {
 			return herr
 		}
-		return fmt.Errorf("profile %q not found", name)
+		return err
 	}
 	// "Default" now means membership in the default AGENT's composed profiles
 	// (profiles.defaults was retired — see Config.DefaultAgentProfiles).

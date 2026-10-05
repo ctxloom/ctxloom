@@ -122,7 +122,7 @@ func runSessionShow(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if entry == nil {
-		return fmt.Errorf("harp not found: %q", harp)
+		return errNoSession(harp)
 	}
 	view := operations.ViewSession(*entry)
 	essence, distilled := readSessionEssence(afero.NewOsFs(), view)
@@ -310,7 +310,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if entry == nil {
-		return fmt.Errorf("harp not found: %q", harpName)
+		return errNoSession(harpName)
 	}
 
 	enterSessionProjectDir(entry.ProjectDir, harpName)

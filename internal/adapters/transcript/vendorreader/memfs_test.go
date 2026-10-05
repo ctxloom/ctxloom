@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,7 +20,7 @@ func TestOpenAndReadJSONLLines_ReadsThroughTheGivenFs(t *testing.T) {
 	require.ErrorIs(t, statErr, fs.ErrNotExist, "the path must be absent from disk")
 
 	mem := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(mem, path, []byte("{\"a\":1}\n{\"b\":2}\n"), 0o644))
+	testsupport.WriteFile(t, mem, path, []byte("{\"a\":1}\n{\"b\":2}\n"), 0o644)
 
 	lines, err := OpenAndReadJSONLLines(mem, "claude", path)
 	require.NoError(t, err)

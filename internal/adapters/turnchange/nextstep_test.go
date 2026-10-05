@@ -13,6 +13,7 @@ import (
 
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // assistantTextLine is an assistant message carrying TEXT rather than a tool
@@ -131,7 +132,7 @@ func TestReadTranscript_ReadsThroughTheGivenFs(t *testing.T) {
 	_, statErr := os.Stat(src)
 	require.ErrorIs(t, statErr, fs.ErrNotExist, "the transcript must be absent from disk")
 	mem := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(mem, src, raw, 0o644))
+	testsupport.WriteFile(t, mem, src, raw, 0o644)
 
 	evs, err := ReadTranscript(context.Background(), mem, claudereader.Adapter{}, src)
 	require.NoError(t, err)

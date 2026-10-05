@@ -29,7 +29,7 @@ const memVendorRoot = "/operations-memfs-only"
 func seedMem(t *testing.T, mem afero.Fs, p string, raw []byte) string {
 	t.Helper()
 	requireAbsentFromDisk(t, p)
-	require.NoError(t, afero.WriteFile(mem, p, raw, 0o644))
+	testsupport.WriteFile(t, mem, p, raw, 0o644)
 	return p
 }
 
@@ -128,14 +128,14 @@ func TestRefreshVendorTranscript_ResumesFromAWatermarkInTheGivenFs(t *testing.T)
 	// the given fs reproduces the full conversion.
 	grown := fixtureLines(t, 0)
 	junked := append(bytes.Repeat([]byte("#"), int(wm.Vendor.Start)), grown[wm.Vendor.Start:]...)
-	require.NoError(t, afero.WriteFile(mem, src, junked, 0o644))
+	testsupport.WriteFile(t, mem, src, junked, 0o644)
 	converted, err = RefreshVendorTranscript(context.Background(), mem, engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	resumed := withoutRecordTimes(memCanonical(t, mem, harp))
 
 	fresh := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fresh, src, grown, 0o644))
+	testsupport.WriteFile(t, fresh, src, grown, 0o644)
 	converted, err = ConvertVendorTranscript(context.Background(), fresh, engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)

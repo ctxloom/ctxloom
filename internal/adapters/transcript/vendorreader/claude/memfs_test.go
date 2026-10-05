@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // eventSink is an in-memory transcript.Recorder: the conversion under test
@@ -35,7 +36,7 @@ func TestConvertFrom_ReadsTheSourceThroughTheGivenFs(t *testing.T) {
 	raw, err := os.ReadFile(fixturePath(t, "transcript-fixture.jsonl"))
 	require.NoError(t, err)
 	mem := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(mem, src, raw, 0o644))
+	testsupport.WriteFile(t, mem, src, raw, 0o644)
 
 	full := &eventSink{}
 	require.NoError(t, Adapter{}.Convert(context.Background(), mem, full, src))

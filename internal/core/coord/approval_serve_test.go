@@ -87,7 +87,7 @@ func TestApprovalRequest_RunEndWithdrawsIt(t *testing.T) {
 
 	replied := make(chan AgentReply, 1)
 	go func() {
-		replied <- c.serveAgentRequest(childOf(out), askNow(c, out, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{}`)}))
+		replied <- c.serveAgentRequest(childOf(out), askNow(c, out, engine.PermissionAsk{Tool: "Bash", Input: json.RawMessage(`{}`)}))
 	}()
 	awaitEvent(t, events, QueueAdded)
 
@@ -170,8 +170,8 @@ func TestApprovalRequest_AskFromAnEndedRunNeverParks(t *testing.T) {
 
 	// Both asked during the run's FIRST turn (turn 0): the run's end forgets
 	// its turn count, so only the run's own end can refuse them.
-	late := AgentRequest{Kind: ApprovalRequest{Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}}}
-	later := AgentRequest{Kind: ApprovalRequest{Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Read"}}}
+	late := AgentRequest{Kind: ApprovalRequest{Ask: engine.PermissionAsk{Tool: "Bash"}}}
+	later := AgentRequest{Kind: ApprovalRequest{Ask: engine.PermissionAsk{Tool: "Read"}}}
 	_, err := c.Stop(ctx, ownerIdentity(), StopRequest{Harp: out.Harp, Reason: "enough"})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return c.runEnded(out.RunID) }, conformanceWait, 10*time.Millisecond)
@@ -223,7 +223,7 @@ func TestApprovalRequest_AskFromAnEndedRunNeverParks(t *testing.T) {
 	next := &RunOutcome{Harp: out.Harp, RunID: resumed}
 	done := make(chan AgentReply, 1)
 	go func() {
-		done <- c.serveAgentRequest(childOf(next), askNow(c, next, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Edit"}))
+		done <- c.serveAgentRequest(childOf(next), askNow(c, next, engine.PermissionAsk{Tool: "Edit"}))
 	}()
 	id := awaitEvent(t, events, QueueAdded).ID
 	pending := c.Approvals().Pending()
@@ -241,7 +241,7 @@ func grantFor(t *testing.T, c *Coordinator, out *RunOutcome, rule string) Grant 
 	events := c.Approvals().Subscribe(ctx)
 	done := make(chan AgentReply, 1)
 	go func() {
-		done <- c.serveAgentRequest(childOf(out), askNow(c, out, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}))
+		done <- c.serveAgentRequest(childOf(out), askNow(c, out, engine.PermissionAsk{Tool: "Bash"}))
 	}()
 	id := awaitEvent(t, events, QueueAdded).ID
 	require.NoError(t, c.Approvals().Answer(id, ApprovalDecision{Allow: true, SessionRules: []string{rule}}))
@@ -308,7 +308,7 @@ func TestApprovals_AGrantResolvesTheChildsCoveredRequest(t *testing.T) {
 	ask := func() <-chan AgentReply {
 		done := make(chan AgentReply, 1)
 		go func() {
-			done <- c.serveAgentRequest(childOf(out), askNow(c, out, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: []byte(`{"command":"ls"}`)}))
+			done <- c.serveAgentRequest(childOf(out), askNow(c, out, engine.PermissionAsk{Tool: "Bash", Input: []byte(`{"command":"ls"}`)}))
 		}()
 		return done
 	}
@@ -332,7 +332,7 @@ func TestApprovals_AGrantResolvesTheChildsCoveredRequest(t *testing.T) {
 // TestCoordinator_AnEngineItCannotFindCoversNothing: a request whose engine
 // is missing from the registry is left to the human.
 func TestCoordinator_AnEngineItCannotFindCoversNothing(t *testing.T) {
-	bash := PendingApproval{Kind: ApprovalTool, Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}, engine: mock.Name}
+	bash := PendingApproval{Kind: ApprovalTool, Ask: engine.PermissionAsk{Tool: "Bash"}, engine: mock.Name}
 	assert.True(t, (&Coordinator{engines: mockEngines(t)}).covers(bash, "Bash"))
 	assert.False(t, (&Coordinator{engines: mockEngines(t)}).covers(bash, "Write"), "the engine's codec judges the rule")
 	assert.False(t, (&Coordinator{}).covers(bash, "Bash"), "no engines composed")
@@ -385,7 +385,7 @@ func TestApprovals_AGrantCarriesIntoTheHarpsResumedRun(t *testing.T) {
 			events := c.Approvals().Subscribe(ctx)
 			done := make(chan AgentReply, 1)
 			go func() {
-				done <- c.serveAgentRequest(childOf(next), askNow(c, next, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}))
+				done <- c.serveAgentRequest(childOf(next), askNow(c, next, engine.PermissionAsk{Tool: "Bash"}))
 			}()
 			if tc.revoke {
 				id := awaitEvent(t, events, QueueAdded).ID

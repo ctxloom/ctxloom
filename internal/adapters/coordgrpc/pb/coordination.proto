@@ -1056,8 +1056,8 @@ message CoordinatorResponse {
   reserved 90;
 }
 
-// A run's engine asks the root human for a decision: a tool call its rules
-// left open, a question, or a plan. The coordinator parks it in its approval
+// A run's engine asks the root human for a decision on a tool call its rules
+// left open. The coordinator parks it in its approval
 // queue (coord.ApprovalQueue) and answers with ApprovalDecision when the human
 // decides, the timeout elapses (deny), or the run ends (deny). Nothing on any
 // wire ANSWERS a request: the decision is made in the root's process.
@@ -1065,8 +1065,10 @@ message ApprovalRequest {
   enum ApprovalKind {
     APPROVAL_KIND_UNSPECIFIED = 0;
     APPROVAL_KIND_TOOL = 1;
-    APPROVAL_KIND_QUESTION = 2;
-    APPROVAL_KIND_PLAN = 3;
+    // A model's questions and plans are not approvals: the child ends its
+    // turn holding them and its parent answers between turns.
+    reserved 2, 3;
+    reserved "APPROVAL_KIND_QUESTION", "APPROVAL_KIND_PLAN";
   }
   ApprovalKind kind = 1;
   string tool = 2;
@@ -1074,10 +1076,10 @@ message ApprovalRequest {
   string tool_use_id = 4;
   repeated string suggestions = 5;    // engine-native session rules on offer
   string suggests_set_mode = 6;       // a posture in the asker's engine's vocabulary, or empty
-  PlanProposal plan = 7;
-  repeated Question questions = 8;
-  // 9 was the ceiling an allow could set; transitions replace it.
-  reserved 9;
+  // 7 and 8 carried a plan and questions; neither is an approval. 9 was the
+  // ceiling an allow could set; transitions replace it.
+  reserved 7, 8, 9;
+  reserved "plan", "questions";
   google.protobuf.Duration timeout = 10;  // unset = the default; capped
   repeated PostureTransition transitions = 11;  // the postures an allow may set, exactly one the default
 }
@@ -1090,37 +1092,16 @@ message PostureTransition {
   bool default = 3;    // the one the engine continues at when nobody chooses
 }
 
-message PlanProposal {
-  string markdown = 1;
-  string path = 2;
-}
-
-message Question {
-  string header = 1;
-  string text = 2;
-  repeated QuestionOption options = 3;
-  bool multi_select = 4;
-}
-
-message QuestionOption {
-  string label = 1;
-  string description = 2;
-}
-
-message QuestionAnswer {
-  string question = 1;          // the question text verbatim
-  repeated string labels = 2;   // chosen option labels verbatim
-  string other = 3;             // free text
-}
-
 // The decision on one ApprovalRequest. decider names who decided (human,
 // timeout, cancelled, refused, ...), in the agent.Decider vocabulary.
 message ApprovalDecision {
   bool allow = 1;
   repeated string session_rules = 2;  // allow-for-session: session scope only
   string set_mode = 3;                // one of the request's transitions, or empty
-  repeated QuestionAnswer answers = 4;
-  string message = 5;                 // deny note or plan feedback
+  // 4 answered questions, which are not approvals.
+  reserved 4;
+  reserved "answers";
+  string message = 5;                 // a deny's note
   string decider = 6;
 }
 

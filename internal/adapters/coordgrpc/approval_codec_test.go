@@ -21,17 +21,11 @@ import (
 func fullApprovalRequest() coord.ApprovalRequest {
 	return coord.ApprovalRequest{
 		Ask: engine.PermissionAsk{
-			Kind:            engine.AskQuestion,
-			Tool:            "AskUserQuestion",
-			Input:           json.RawMessage(`{"questions":[{"question":"which?"}]}`),
+			Tool:            "Bash",
+			Input:           json.RawMessage(`{"command":"ls"}`),
 			ToolUseID:       "toolu_9",
 			Suggestions:     []string{"Bash(ls:*)"},
 			SuggestsSetMode: engine.Provide("acceptEdits"),
-			Plan:            &engine.PlanProposal{Markdown: "# p", Path: "/p.md"},
-			Questions: []engine.Question{{
-				Header: "Pick", Text: "which?", MultiSelect: true,
-				Options: []engine.QuestionOption{{Label: "a", Description: "first"}, {Label: "b"}},
-			}},
 		},
 		Transitions: []engine.PostureTransition{
 			{Posture: "default", Label: "default"},
@@ -46,7 +40,7 @@ func fullApprovalRequest() coord.ApprovalRequest {
 func TestApprovalRequest_RoundTrips(t *testing.T) {
 	want := fullApprovalRequest()
 	wire := ApprovalRequestToWire(want)
-	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_QUESTION, wire.GetKind())
+	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, wire.GetKind())
 	require.Len(t, wire.GetTransitions(), 2)
 	assert.False(t, wire.GetTransitions()[0].GetDefault(), "the default is a flag, not the first offer")
 	assert.True(t, wire.GetTransitions()[1].GetDefault())
@@ -56,14 +50,10 @@ func TestApprovalRequest_RoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 
-	for _, kind := range []engine.AskKind{engine.AskTool, engine.AskQuestion, engine.AskPlan} {
-		req := coord.ApprovalRequest{Ask: engine.PermissionAsk{Kind: kind}}
-		back, err := ApprovalRequestFromWire(ApprovalRequestToWire(req))
-		require.NoError(t, err)
-		assert.Equal(t, kind, back.Ask.Kind)
-		_, set := back.Ask.SuggestsSetMode.Get()
-		assert.False(t, set, "no suggestion on the wire decodes as none")
-	}
+	back, err := ApprovalRequestFromWire(ApprovalRequestToWire(coord.ApprovalRequest{}))
+	require.NoError(t, err)
+	_, set := back.Ask.SuggestsSetMode.Get()
+	assert.False(t, set, "no suggestion on the wire decodes as none")
 }
 
 // TestApprovalRequestFromWire_Refuses: a request the coordinator cannot
@@ -77,6 +67,8 @@ func TestApprovalRequestFromWire_Refuses(t *testing.T) {
 	}{
 		{"unspecified-kind", func(r *agentcoordpb.ApprovalRequest) { r.Kind = agentcoordpb.ApprovalRequest_APPROVAL_KIND_UNSPECIFIED }, "kind"},
 		{"unknown-kind", func(r *agentcoordpb.ApprovalRequest) { r.Kind = 99 }, "kind"},
+		{"retired-question-kind", func(r *agentcoordpb.ApprovalRequest) { r.Kind = 2 }, "kind"},
+		{"retired-plan-kind", func(r *agentcoordpb.ApprovalRequest) { r.Kind = 3 }, "kind"},
 		{"input-not-json", func(r *agentcoordpb.ApprovalRequest) { r.Input = []byte("{nope") }, "input"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -96,7 +88,6 @@ func TestApprovalDecision_RoundTrips(t *testing.T) {
 		Allow:        true,
 		SessionRules: []string{"Bash(ls:*)"},
 		SetMode:      engine.Provide("acceptEdits"),
-		Answers:      []engine.QuestionAnswer{{Question: "which?", Labels: []string{"a", "b"}, Other: "and c"}},
 		Message:      "go",
 		Decider:      agent.DeciderHuman,
 	}

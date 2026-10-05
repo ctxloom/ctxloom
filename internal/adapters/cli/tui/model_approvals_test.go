@@ -138,7 +138,7 @@ func toolReq(id, harp, tool, input string, left time.Duration) coord.PendingAppr
 	return coord.PendingApproval{
 		ID: coord.ApprovalID(id), Kind: coord.ApprovalTool,
 		From: coord.Identity{Harp: harp}, Agent: "coder", Lineage: []string{"root", harp},
-		Ask:         engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: json.RawMessage(input)},
+		Ask:         engine.PermissionAsk{Tool: tool, Input: json.RawMessage(input)},
 		Transitions: offer("default", "default", "acceptEdits"), Since: apprBase, Deadline: apprBase.Add(left),
 	}
 }
@@ -381,95 +381,6 @@ func TestApprovals_ScopePickerOffersOnlyTheEnginesTransitions(t *testing.T) {
 	h.keys("tab", "enter")
 	require.Len(t, h.q.calls(), 1)
 	assert.Equal(t, coord.ApprovalDecision{Allow: true, SessionRules: []string{"Bash(git status:*)"}}, h.q.calls()[0].d)
-}
-
-func planReq(id, harp string, transitions ...engine.PostureTransition) coord.PendingApproval {
-	return coord.PendingApproval{
-		ID: coord.ApprovalID(id), Kind: coord.ApprovalPlan, From: coord.Identity{Harp: harp}, Agent: "planner",
-		Ask:         engine.PermissionAsk{Kind: engine.AskPlan, Tool: "ExitPlanMode", Plan: &engine.PlanProposal{Markdown: "# Plan\n- step one\n- step two", Path: "/tmp/plan.md"}},
-		Transitions: transitions, Since: apprBase, Deadline: apprBase.Add(10 * time.Minute),
-	}
-}
-
-// TestApprovals_PlanRejectRequiresFeedback is T13's second case.
-func TestApprovals_PlanRejectRequiresFeedback(t *testing.T) {
-	h := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", offer("default", "default", "acceptEdits")...)))
-	assert.Contains(t, h.screen(), "step one", "the plan is shown")
-	h.keys("right", "right", "enter")
-	h.keys("tab", "enter")
-	assert.Empty(t, h.q.calls(), "Reject with no feedback is refused")
-	assert.Contains(t, h.screen(), "feedback is required")
-	h.send(tea.PasteMsg{Content: "   "})
-	h.keys("enter")
-	assert.Empty(t, h.q.calls(), "blank feedback is no feedback")
-	for _, r := range "split step two" {
-		h.send(keyMsg(string(r)))
-	}
-	h.keys("enter")
-	require.Len(t, h.q.calls(), 1)
-	assert.Equal(t, coord.ApprovalDecision{Message: "split step two"}, h.q.calls()[0].d)
-}
-
-// TestApprovals_PlanApproveOffersTheEnginesTransitions: the posture picker
-// lists exactly the engine's transitions by their display names, starts on
-// the engine's explicit default wherever it sits, and a move puts focus
-// back on Back; none leaves nothing to approve into. The decision carries
-// the engine's token, never the label shown.
-func TestApprovals_PlanApproveOffersTheEnginesTransitions(t *testing.T) {
-	none := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron")))
-	none.keys("right", "enter")
-	assert.Contains(t, none.screen(), "offers no posture to continue in")
-
-	unmoved := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", offer("acceptEdits", "default", "acceptEdits")...)))
-	unmoved.keys("right", "enter")
-	assert.Contains(t, unmoved.screen(), "Shown DEFAULT")
-	assert.Contains(t, unmoved.screen(), "Shown ACCEPTEDITS", "each posture is shown by the engine's display name")
-	unmoved.keys("tab", "enter")
-	require.Len(t, unmoved.q.calls(), 1)
-	assert.Equal(t, coord.ApprovalDecision{Allow: true, SetMode: engine.Provide("acceptEdits")}, unmoved.q.calls()[0].d,
-		"approving without choosing continues at the engine's default, not the first offer")
-
-	h := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", offer("acceptEdits", "default", "acceptEdits")...)))
-	h.keys("right", "enter", "tab", "up")
-	assert.Contains(t, h.screen(), "[ Back ]", "choosing another posture put focus back on Back")
-	h.keys("tab", "enter")
-	require.Len(t, h.q.calls(), 1)
-	assert.Equal(t, coord.ApprovalDecision{Allow: true, SetMode: engine.Provide("default")}, h.q.calls()[0].d)
-}
-
-func questionReq(id, harp string) coord.PendingApproval {
-	return coord.PendingApproval{
-		ID: coord.ApprovalID(id), Kind: coord.ApprovalQuestion, From: coord.Identity{Harp: harp},
-		Ask: engine.PermissionAsk{Kind: engine.AskQuestion, Tool: "AskUserQuestion", Questions: []engine.Question{
-			{Header: "DB", Text: "Which \x1b[31mdatabase\x1b[0m?", Options: []engine.QuestionOption{{Label: "postgres"}, {Label: "sqlite"}}},
-			{Text: "Which extras?", MultiSelect: true, Options: []engine.QuestionOption{{Label: "auth"}, {Label: "cache"}}},
-		}},
-		Since: apprBase, Deadline: apprBase.Add(10 * time.Minute),
-	}
-}
-
-// TestApprovals_QuestionSubmitIsRefusedUntilComplete is T13's third case,
-// and pins that the answer carries the engine's text verbatim — what was
-// sanitized is only what was shown.
-func TestApprovals_QuestionSubmitIsRefusedUntilComplete(t *testing.T) {
-	h := newApprHarness(t, newFakeQueue(questionReq("q", "wiry-otter")))
-	h.keys("right", "enter")
-	assert.Contains(t, h.screen(), "Which ⟨ESC⟩[31mdatabase⟨ESC⟩[0m?")
-	h.keys("down", "space") // q0: sqlite
-	h.keys("tab", "enter")
-	assert.Empty(t, h.q.calls(), "one question unanswered: Submit is refused")
-	assert.Contains(t, h.screen(), "answer every question first")
-	h.keys("down", "down", "down", "space") // q1: cache
-	h.keys("down")
-	for _, r := range "logs" {
-		h.send(keyMsg(string(r)))
-	}
-	h.keys("tab", "enter")
-	require.Len(t, h.q.calls(), 1)
-	assert.Equal(t, coord.ApprovalDecision{Allow: true, Answers: []engine.QuestionAnswer{
-		{Question: "Which \x1b[31mdatabase\x1b[0m?", Labels: []string{"sqlite"}},
-		{Question: "Which extras?", Labels: []string{"cache"}, Other: "logs"},
-	}}, h.q.calls()[0].d)
 }
 
 // TestApprovals_DenyTakesANoteAndAPasteNeverDecides: the note field takes

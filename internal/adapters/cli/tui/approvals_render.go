@@ -139,14 +139,8 @@ func (a approvalsModel) rowLine(r apprRow, w int) string {
 	return padCell(line, w)
 }
 
-// kindLabel names what is asked: the tool, or the kind.
+// kindLabel names what is asked: the tool.
 func kindLabel(p coord.PendingApproval) string {
-	switch p.Kind {
-	case coord.ApprovalQuestion:
-		return "Question"
-	case coord.ApprovalPlan:
-		return "Plan"
-	}
 	return sanitizeForDisplay(p.Ask.Tool)
 }
 
@@ -218,12 +212,6 @@ func requestLines(p coord.PendingApproval, left string, w int) []string {
 		out = append(out, "lineage "+lin)
 	}
 	out = append(out, left+" left", "")
-	switch p.Kind {
-	case coord.ApprovalQuestion:
-		return append(out, questionPreview(p.Ask)...)
-	case coord.ApprovalPlan:
-		return append(out, planDetail(p.Ask, w)...)
-	}
 	return append(out, toolDetail(p.Ask)...)
 }
 
@@ -339,55 +327,11 @@ func styleDiffLine(l string) string {
 	return l
 }
 
-// questionPreview shows the questions read-only; Answer… opens them.
-func questionPreview(ask engine.PermissionAsk) []string {
-	out := []string{"asks " + strconv.Itoa(len(ask.Questions)) + " question(s):"}
-	for _, q := range ask.Questions {
-		out = append(out, questionHead(q))
-		for _, o := range q.Options {
-			out = append(out, "    "+optionText(o))
-		}
-	}
-	return out
-}
-
-func questionHead(q engine.Question) string {
-	head := "  " + sanitizeForDisplay(q.Text)
-	if q.Header != "" {
-		head = "  [" + sanitizeForDisplay(q.Header) + "] " + sanitizeForDisplay(q.Text)
-	}
-	if q.MultiSelect {
-		head += " (choose any)"
-	}
-	return head
-}
-
-func optionText(o engine.QuestionOption) string {
-	t := sanitizeForDisplay(o.Label)
-	if o.Description != "" {
-		t += " — " + sanitizeForDisplay(o.Description)
-	}
-	return t
-}
-
-func planDetail(ask engine.PermissionAsk, w int) []string {
-	if ask.Plan == nil {
-		return []string{"presents a plan (empty)"}
-	}
-	out := []string{"presents a plan · " + sanitizeForDisplay(ask.Plan.Path), ""}
-	return append(out, styleMarkdownLines(ask.Plan.Markdown, w)...)
-}
-
 // subRenderers draw each sub-view's body.
 var subRenderers = map[subKind]func(s *subState, w int) []string{
 	subScope: scopeLines,
 	subDeny: func(s *subState, _ int) []string {
 		return textLines("Deny "+sanitizeForDisplay(s.harp)+"'s request", "note (optional, sent to the model)", s.text)
-	},
-	subAnswer:  answerLines,
-	subApprove: approveLines,
-	subReject: func(s *subState, _ int) []string {
-		return textLines("Reject "+sanitizeForDisplay(s.harp)+"'s plan", "feedback (required: the model revises the plan from it)", s.text)
 	},
 	subDenyAll: denyAllLines,
 	subGrants:  grantsLines,
@@ -429,44 +373,6 @@ func scopeLabel(o scopeOption) string {
 		return sanitizeForDisplay(o.rule)
 	}
 	return "mode " + sanitizeForDisplay(o.label) + " for the rest of this run"
-}
-
-func answerLines(s *subState, _ int) []string {
-	out := []string{"Answer " + sanitizeForDisplay(s.harp) + "'s question(s) — space chooses, type in Other", ""}
-	cur, _ := s.entry()
-	for qi, q := range s.p.Ask.Questions {
-		out = append(out, questionHead(q))
-		for oi, o := range q.Options {
-			on := answerEntry{q: qi, opt: oi} == cur
-			out = append(out, "  "+cursorMark(on)+choiceMark(q.MultiSelect, s.picks[qi][oi])+" "+optionText(o))
-		}
-		on := answerEntry{q: qi, other: true} == cur
-		out = append(out, "  "+cursorMark(on)+"Other: "+sanitizeForDisplay(s.others[qi])+"_")
-	}
-	return out
-}
-
-func choiceMark(multi, on bool) string {
-	switch {
-	case multi && on:
-		return "[x]"
-	case multi:
-		return "[ ]"
-	case on:
-		return "(•)"
-	}
-	return "( )"
-}
-
-func approveLines(s *subState, _ int) []string {
-	out := []string{"Approve " + sanitizeForDisplay(s.harp) + "'s plan — then continue in:", ""}
-	if len(s.postures) == 0 {
-		out = append(out, "this agent's engine offers no posture to continue in")
-	}
-	for i, m := range s.postures {
-		out = append(out, cursorMark(i == s.cursor)+sanitizeForDisplay(m.Label))
-	}
-	return append(out, "", "note (optional):", "> "+sanitizeForDisplay(s.text)+"_")
 }
 
 func denyAllLines(s *subState, _ int) []string {

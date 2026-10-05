@@ -9,17 +9,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
-var askKindToWire = map[engine.AskKind]agentcoordpb.ApprovalRequest_ApprovalKind{
-	engine.AskTool:     agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL,
-	engine.AskQuestion: agentcoordpb.ApprovalRequest_APPROVAL_KIND_QUESTION,
-	engine.AskPlan:     agentcoordpb.ApprovalRequest_APPROVAL_KIND_PLAN,
-}
-
 // ApprovalRequestToWire encodes a run's request for the root human.
 func ApprovalRequestToWire(r coord.ApprovalRequest) *agentcoordpb.ApprovalRequest {
 	ask := r.Ask
 	out := &agentcoordpb.ApprovalRequest{
-		Kind:            askKindToWire[ask.Kind],
+		Kind:            agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL,
 		Tool:            ask.Tool,
 		Input:           ask.Input,
 		ToolUseId:       ask.ToolUseID,
@@ -28,26 +22,15 @@ func ApprovalRequestToWire(r coord.ApprovalRequest) *agentcoordpb.ApprovalReques
 		Transitions:     transitionsToWire(r.Transitions),
 		Timeout:         durationToWire(r.Timeout),
 	}
-	if ask.Plan != nil {
-		out.Plan = &agentcoordpb.PlanProposal{Markdown: ask.Plan.Markdown, Path: ask.Plan.Path}
-	}
-	for _, q := range ask.Questions {
-		wq := &agentcoordpb.Question{Header: q.Header, Text: q.Text, MultiSelect: q.MultiSelect}
-		for _, o := range q.Options {
-			wq.Options = append(wq.Options, &agentcoordpb.QuestionOption{Label: o.Label, Description: o.Description})
-		}
-		out.Questions = append(out.Questions, wq)
-	}
 	return out
 }
 
 // ApprovalRequestFromWire decodes a run's request. A request the coordinator
-// could not present as asked — no kind, or input it cannot read — is
+// could not present as asked — not a tool call, or input it cannot read — is
 // refused rather than defaulted.
 func ApprovalRequestFromWire(w *agentcoordpb.ApprovalRequest) (coord.ApprovalRequest, error) {
 	var out coord.ApprovalRequest
-	kind, ok := askKindFromWire(w.GetKind())
-	if !ok {
+	if w.GetKind() != agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL {
 		return out, fmt.Errorf("approval: kind %s is not a request this coordinator presents", w.GetKind())
 	}
 	if in := w.GetInput(); len(in) > 0 && !json.Valid(in) {
@@ -55,7 +38,6 @@ func ApprovalRequestFromWire(w *agentcoordpb.ApprovalRequest) (coord.ApprovalReq
 	}
 	out = coord.ApprovalRequest{
 		Ask: engine.PermissionAsk{
-			Kind:            kind,
 			Tool:            w.GetTool(),
 			Input:           w.GetInput(),
 			ToolUseID:       w.GetToolUseId(),
@@ -65,26 +47,7 @@ func ApprovalRequestFromWire(w *agentcoordpb.ApprovalRequest) (coord.ApprovalReq
 		Transitions: transitionsFromWire(w.GetTransitions()),
 		Timeout:     durationFromWire(w.GetTimeout()),
 	}
-	if p := w.GetPlan(); p != nil {
-		out.Ask.Plan = &engine.PlanProposal{Markdown: p.GetMarkdown(), Path: p.GetPath()}
-	}
-	for _, q := range w.GetQuestions() {
-		eq := engine.Question{Header: q.GetHeader(), Text: q.GetText(), MultiSelect: q.GetMultiSelect()}
-		for _, o := range q.GetOptions() {
-			eq.Options = append(eq.Options, engine.QuestionOption{Label: o.GetLabel(), Description: o.GetDescription()})
-		}
-		out.Ask.Questions = append(out.Ask.Questions, eq)
-	}
 	return out, nil
-}
-
-func askKindFromWire(k agentcoordpb.ApprovalRequest_ApprovalKind) (engine.AskKind, bool) {
-	for kind, wire := range askKindToWire {
-		if wire == k {
-			return kind, true
-		}
-	}
-	return 0, false
 }
 
 // ApprovalDecisionToWire encodes the decision on a request; the decider
@@ -101,9 +64,6 @@ func ApprovalDecisionToWire(d coord.ApprovalDecision) (*agentcoordpb.ApprovalDec
 		Message:      d.Message,
 		Decider:      string(decider),
 	}
-	for _, a := range d.Answers {
-		out.Answers = append(out.Answers, &agentcoordpb.QuestionAnswer{Question: a.Question, Labels: a.Labels, Other: a.Other})
-	}
 	return out, nil
 }
 
@@ -117,9 +77,6 @@ func ApprovalDecisionFromWire(w *agentcoordpb.ApprovalDecision) (coord.ApprovalD
 	out.SessionRules = w.GetSessionRules()
 	out.SetMode = modeFromWire(w.GetSetMode())
 	out.Message = w.GetMessage()
-	for _, a := range w.GetAnswers() {
-		out.Answers = append(out.Answers, engine.QuestionAnswer{Question: a.GetQuestion(), Labels: a.GetLabels(), Other: a.GetOther()})
-	}
 	return out, nil
 }
 

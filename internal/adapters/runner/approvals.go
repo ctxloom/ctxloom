@@ -467,7 +467,7 @@ func askTheRoot(home engineHome, spec approvalSpec, bound time.Duration) func(co
 		if err != nil {
 			return engine.PermissionAnswer{}, fmt.Errorf("%w: %v", errNoDecision, err)
 		}
-		return engine.PermissionAnswer{Allow: d.Allow, SessionRules: d.SessionRules, SetMode: d.SetMode, Answers: d.Answers, Message: d.Message}, nil
+		return engine.PermissionAnswer{Allow: d.Allow, SessionRules: d.SessionRules, SetMode: d.SetMode, Message: d.Message}, nil
 	}
 }
 

@@ -218,9 +218,8 @@ func TestMockAsk_AnExecFormHookRunsWithNoShell(t *testing.T) {
 func TestMockApprovalCodec_Covers(t *testing.T) {
 	codec, ok := mock.New().Approvals().Get()
 	require.True(t, ok)
-	bash := engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}
+	bash := engine.PermissionAsk{Tool: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}
 	assert.True(t, codec.Covers("Bash", bash))
 	assert.False(t, codec.Covers("Write", bash))
 	assert.False(t, codec.Covers("", bash))
-	assert.False(t, codec.Covers("Bash", engine.PermissionAsk{Kind: engine.AskPlan, Tool: "Bash"}))
 }

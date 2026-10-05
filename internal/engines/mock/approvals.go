@@ -54,7 +54,7 @@ func (approvalCodec) DecodeAsk(_ string, payload []byte) (engine.PermissionAsk, 
 	if err != nil {
 		return engine.PermissionAsk{}, err
 	}
-	ask := engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: in}
+	ask := engine.PermissionAsk{Tool: tool, Input: in}
 	if c.SuggestsSetMode != "" {
 		ask.SuggestsSetMode = engine.Provide(c.SuggestsSetMode)
 	}
@@ -102,7 +102,7 @@ func (approvalCodec) RepoSurfaces() []string { return []string{settingsRel, hook
 // Covers reports whether rule allows ask's call: a mock rule is a tool name,
 // covering every call of that tool.
 func (approvalCodec) Covers(rule string, ask engine.PermissionAsk) bool {
-	return ask.Kind == engine.AskTool && rule != "" && rule == ask.Tool
+	return rule != "" && rule == ask.Tool
 }
 
 // ValidateRule accepts any one-line, non-blank rule: the mock has no rule

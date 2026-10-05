@@ -73,6 +73,9 @@ func TestParseRepoURL_RefusesAHomeRelativePath(t *testing.T) {
 			t.Errorf("ParseRepoURL(%q) = %q, %v; want ErrSchemelessPath", in, got.Normalized(), err)
 			continue
 		}
+		if !strings.Contains(err.Error(), homeRemedy) {
+			t.Errorf("ParseRepoURL(%q) error %q does not name the remedy %q", in, err, homeRemedy)
+		}
 		if _, err := CanonicalRepoURL(in); !errors.Is(err, ErrSyntax) {
 			t.Errorf("CanonicalRepoURL(%q) err = %v; want ErrSyntax", in, err)
 		}
@@ -86,8 +89,8 @@ func TestParseRepoURL_RefusesAHomeRelativePath(t *testing.T) {
 func TestParseRepoURL_RefusesABareWord(t *testing.T) {
 	for _, in := range []string{"bundles", "localhost", "my-repo", "  x  "} {
 		got, err := ParseRepoURL(in)
-		if !errors.Is(err, ErrBareWord) {
-			t.Errorf("ParseRepoURL(%q) = %q, %v; want ErrBareWord", in, got.Normalized(), err)
+		if !errors.Is(err, ErrSyntax) {
+			t.Errorf("ParseRepoURL(%q) = %q, %v; want ErrSyntax", in, got.Normalized(), err)
 			continue
 		}
 		if _, err := CanonicalRepoURL(in); !errors.Is(err, ErrSyntax) {

@@ -209,7 +209,7 @@ func repoURLCases() []repoURLCase {
 // TestRepoURL_UnguessableSpellingsRenderNothing: a repository spelled as a
 // filesystem path (absolute, relative or home-relative) is refused by the
 // grammar (refuri.ErrSchemelessPath), and so is a bare word with no dot and no
-// slash (refuri.ErrBareWord), so no renderer guesses either into a network URL
+// slash (refuri.ErrSyntax), so no renderer guesses either into a network URL
 // to fetch or a cache directory to clone into. Resolving a path is the argv
 // ingest's job (operations.resolveLocalRepoURL).
 func TestRepoURL_UnguessableSpellingsRenderNothing(t *testing.T) {
@@ -218,7 +218,7 @@ func TestRepoURL_UnguessableSpellingsRenderNothing(t *testing.T) {
 		".": refuri.ErrSchemelessPath, "..": refuri.ErrSchemelessPath,
 		"./bundles.git": refuri.ErrSchemelessPath, "../bundles": refuri.ErrSchemelessPath,
 		"/srv/bundles.git": refuri.ErrSchemelessPath, "~/bundles": refuri.ErrSchemelessPath,
-		"owner": refuri.ErrBareWord,
+		"owner": refuri.ErrSyntax,
 	} {
 		t.Run(in, func(t *testing.T) {
 			_, err := ParseRepoURL(in)

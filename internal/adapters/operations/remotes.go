@@ -140,9 +140,8 @@ func rollbackAdd(registry *remote.Registry, name string) {
 // the repository there. A home-relative spelling (a quoted "~" the shell never
 // expanded) is refused with the grammar's own error: this layer is not handed
 // the home directory, and resolving "~" against the working directory would
-// name a different path. A bare word is refused (refuri.ErrBareWord) here, at
-// the ingest, so its sentinel reaches the caller. Every other spelling passes
-// through untouched.
+// name a different path. Every other spelling passes through untouched; one
+// naming no repository is refused by the registry (refuri.ErrSyntax).
 //
 // It lives at the argv ingest because the repo-URL grammar has no working
 // directory: refuri.ParseRepoURL refuses a path spelling outright
@@ -155,9 +154,6 @@ func rollbackAdd(registry *remote.Registry, name string) {
 // file:// URL, so a raw path holding '%' would name a different directory.
 func resolveLocalRepoURL(raw string) (string, error) {
 	_, err := refuri.ParseRepoURL(raw)
-	if errors.Is(err, refuri.ErrBareWord) {
-		return "", err
-	}
 	if !errors.Is(err, refuri.ErrSchemelessPath) {
 		return raw, nil
 	}

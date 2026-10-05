@@ -15,16 +15,21 @@ import (
 // an ingest that does.
 var ErrSchemelessPath = errors.New("a local repository path needs the file:// scheme")
 
-// ErrBareWord refuses a repository URL that is a single word with no dot and
-// no slash. It names no repository path, and as a host it is reachable only
-// through whatever local name resolution happens to answer for it — reading
-// it as one is a guess at a host the user never named.
-var ErrBareWord = errors.New("a bare word names no repository: write owner/repo or a URL")
+// bareWordRemedy is ErrSyntax's detail for a repository URL that is a single
+// word with no dot and no slash. It names no repository path, and as a host it
+// is reachable only through whatever local name resolution answers for it —
+// reading it as one is a guess at a host the user never named.
+const bareWordRemedy = "a bare word names no repository: write owner/repo or a URL"
 
 // fileRemedy is the spelling a scheme-less absolute path should have been
 // written in. It is built with net/url, not concatenated: git percent-decodes
 // a file:// URL, so a raw path holding '%' would name a different directory.
 func fileRemedy(path string) string { return (&url.URL{Scheme: "file", Path: path}).String() }
+
+// homeRemedy is the refusal's instruction for a home-relative spelling. It is
+// generic because no layer that parses a repository URL is handed the home
+// directory to spell the expansion out.
+const homeRemedy = "write the absolute path instead of ~"
 
 // isHomePath reports whether raw is spelled relative to a home directory —
 // "~", "~/x" or "~user/x". Its first segment carries no dot, so the shorthand
@@ -197,7 +202,7 @@ func IsSCPForm(raw string) bool {
 // ParseRepoURL parses a repository URL into the one representation every
 // consumer renders from. It errors on empty input and on a scheme-less
 // filesystem path (ErrSchemelessPath; an absolute one is told its file://
-// spelling), and on a bare word with no dot and no slash (ErrBareWord); every other
+// spelling), and on a bare word with no dot and no slash (ErrSyntax); every other
 // string is classified into some form, because the callers it replaces were
 // all total functions over strings arriving from argv, remotes.yaml and
 // lockfiles.
@@ -249,7 +254,7 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 		return parsePathForm(r, raw), nil
 
 	case !strings.Contains(raw, "."):
-		return RepoURL{}, fmt.Errorf("%w: %q", ErrBareWord, raw)
+		return RepoURL{}, fmt.Errorf("%w: %s: %q", ErrSyntax, bareWordRemedy, raw)
 
 	default:
 		// A bare host has no path, so a trailing ".git" here is part of the
@@ -275,7 +280,7 @@ func refusePathSpelling(raw string) error {
 	case isRelativePath(raw):
 		return fmt.Errorf("%w: %q is relative; write a file:// URL naming its absolute path", ErrSchemelessPath, raw)
 	case isHomePath(raw):
-		return fmt.Errorf("%w: %q is home-relative; write a file:// URL naming its absolute path", ErrSchemelessPath, raw)
+		return fmt.Errorf("%w: %q is home-relative: %s", ErrSchemelessPath, raw, homeRemedy)
 	}
 	return nil
 }

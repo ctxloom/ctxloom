@@ -550,7 +550,7 @@ func TestAddRemote_InvalidURLFormat(t *testing.T) {
 		Fetcher:  fetcher,
 	})
 
-	require.ErrorIs(t, err, refuri.ErrBareWord, "a URL naming no repository is refused as such")
+	require.ErrorIs(t, err, refuri.ErrSyntax, "a URL naming no repository is refused as such")
 	_, gerr := registry.Get("test")
 	assert.Error(t, gerr, "nothing was registered")
 }

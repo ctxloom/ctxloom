@@ -25,8 +25,8 @@ URL formats:
                                      there and stored as its file:// URL;
                                      refused if no repository is there
 
-A quoted "~/bundles.git" is refused: leave the ~ unquoted for the shell to
-expand, or write the file:// URL. A bare word with no dot and no slash
+A quoted "~/bundles.git" is refused: write the absolute path instead of ~
+(or leave the ~ unquoted for the shell to expand). A bare word with no dot and no slash
 ("bundles") is refused: write owner/repo or a URL.
 
 Forge selection:

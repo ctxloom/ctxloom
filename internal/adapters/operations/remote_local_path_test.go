@@ -138,7 +138,7 @@ func TestAddRemote_RefusesAHomeRelativePath(t *testing.T) {
 func TestAddRemote_RefusesABareWord(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	cache, err := addLocal(t, registry, "bundles")
-	require.ErrorIs(t, err, refuri.ErrBareWord)
+	require.ErrorIs(t, err, refuri.ErrSyntax)
 	assert.False(t, registry.Has("local"))
 	assert.Empty(t, cache.urls)
 }

@@ -19,7 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/logboot"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
-	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // Version is set at build time via ldflags (package main), e.g.
@@ -32,6 +31,11 @@ var Version = "dev"
 // newRootCmd assembles the ltk command tree. It is a factory rather than an
 // inline root so the documentation generator can walk exactly the tree the
 // binary runs (`just gen-docs`; see docs_gen.go).
+// formatFlagUsage is --format's help. Its default is derived, not fixed —
+// cliemit.Resolve answers text on a terminal and json off one — so the flag is
+// registered with an empty default and the usage says what an unset flag does.
+const formatFlagUsage = "Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)"
+
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   progName,
@@ -55,8 +59,7 @@ retry the right way. See https://ctxloom.dev/ltk/rules/ for the full rule model.
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.PersistentFlags().String("format", string(clifmt.FormatText),
-		"Output format: json, yaml, toml, text, or markdown")
+	root.PersistentFlags().String("format", "", formatFlagUsage)
 	schemaver.BindWriteUpgrades(root.PersistentFlags())
 	root.AddCommand(newEvaluateCmd(), newCheckCmd(), newManageCmd(), newVersionCmd(), newLoadoutCmd())
 	registerDocsCmd(root)

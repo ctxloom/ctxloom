@@ -16,10 +16,10 @@ import (
 )
 
 // TestFindAppDirCtxloomRoot covers the CTXLOOM_ROOT override branch of
-// findAppDir: a valid root is authoritative and its .ctxloom is materialized,
-// while an invalid root is ignored and creates nothing under the bad path.
+// findAppDir: a valid root is authoritative, an invalid root is ignored, and
+// neither creates anything.
 func TestFindAppDirCtxloomRoot(t *testing.T) {
-	t.Run("creates_ctxloom_under_valid_root", func(t *testing.T) {
+	t.Run("resolves_under_valid_root_without_creating_it", func(t *testing.T) {
 		testsupport.Isolate(t)
 		root := "/work/proj"
 		t.Setenv(projectroot.EnvVar, root)
@@ -38,8 +38,8 @@ func TestFindAppDirCtxloomRoot(t *testing.T) {
 			"a named root resolves as a project dir, not the home fallback")
 
 		exists, _ := afero.DirExists(fs, want)
-		assert.True(t, exists,
-			"findAppDir must create $CTXLOOM_ROOT/.ctxloom when absent")
+		assert.False(t, exists,
+			"resolving config is a read: $CTXLOOM_ROOT/.ctxloom is created by whatever first writes there, never by findAppDir")
 	})
 
 	t.Run("invalid_root_falls_through_and_creates_nothing", func(t *testing.T) {
@@ -95,4 +95,29 @@ func TestFindAppDirBareTempDirDoesNotEscapeToSharedTempRoot(t *testing.T) {
 	assert.True(t, inProjectDir || inHomeDir,
 		"findAppDir resolved to %q, which is neither under the fresh project dir %q "+
 			"nor the fresh isolated HOME %q -- it escaped the test's sandbox", path, dir, home)
+}
+
+// A config load is a read: in an empty HOME with no project above cwd it
+// resolves the home fallback but leaves no trace there. Whatever first WRITES
+// under ~/.ctxloom creates it.
+func TestLoad_EmptyHomeNonRepoCwd_CreatesNothing(t *testing.T) {
+	home := testsupport.Isolate(t)
+	testsupport.ChangeDir(t, t.TempDir())
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	homeApp := filepath.Join(home, config.AppDirName)
+	assert.Equal(t, homeApp, cfg.GetAppPaths()[0], "the home fallback is still the resolved app dir")
+	_, statErr := os.Stat(homeApp)
+	assert.True(t, os.IsNotExist(statErr), "config load created %s (stat err: %v)", homeApp, statErr)
+}
+
+func TestLastResortAppDir_CreatesNothing(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := lastResortAppDir(fs, "/work/cwd")
+	assert.Equal(t, filepath.Join("/work/cwd", config.AppDirName), path)
+	exists, _ := afero.DirExists(fs, path)
+	assert.False(t, exists, "lastResortAppDir resolves a path; it must not create it")
 }

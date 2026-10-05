@@ -25,15 +25,15 @@ import (
 )
 
 // compactEntryFn is operations.CompactEntry behind a package var so a
-// caller's wiring — notably the context bound a long-running distillation is
+// caller's wiring — notably the context bound a long-running compaction is
 // handed — can be observed in a test (mcp_tools_memory_budget_test.go).
 // Production never reassigns it; operations must not inherit this
 // observation-only test seam, so it lives beside its sole caller
-// (distillMissingForList) rather than moving with CompactEntry itself.
+// (compactMissingForList) rather than moving with CompactEntry itself.
 var compactEntryFn = operations.CompactEntry
 
 // reductionPct formats the in→out token reduction as a percentage, guarding
-// the in==0 case (a zero-input distill) that would otherwise divide by zero
+// the in==0 case (a zero-input compact) that would otherwise divide by zero
 // and render as "NaN%" or "+Inf%".
 func reductionPct(in, out int) string {
 	if in <= 0 {
@@ -60,7 +60,7 @@ type compactSessionResult struct {
 }
 
 // sessionSummary is one row of list_sessions: the harp name to pass to
-// load_session, its backend, the distilled title (empty when never distilled),
+// load_session, its backend, the compacted title (empty when never compacted),
 // the last-activity timestamp (local, second granularity — same format the CLI
 // listing uses), and whether an essence exists on disk.
 type sessionSummary struct {
@@ -101,7 +101,7 @@ const (
 	recoverNothingToRecoverMsg = "Nothing to recover for this session (%s): its transcript lineage holds no session other than the current one, whose content is already in context. Pass session_id, or use load_session with harp_name, to target another session deliberately."
 )
 
-// withDistillBudget bounds ctx to the relay's distill budget when it carries
+// withCompactBudget bounds ctx to the relay's compact budget when it carries
 // no deadline of its own, and returns it unchanged when it does.
 //
 // On the host-relay path a handler runs on the COORDINATOR's base context,
@@ -112,7 +112,7 @@ const (
 // never outlive its caller's patience by design; this is where the host side
 // of that contract is applied. A caller that already carries a deadline keeps
 // it: re-bounding would EXTEND someone who asked for less.
-func withDistillBudget(ctx context.Context) (context.Context, context.CancelFunc) {
+func withCompactBudget(ctx context.Context) (context.Context, context.CancelFunc) {
 	if _, has := ctx.Deadline(); has {
 		return ctx, func() {}
 	}
@@ -120,15 +120,15 @@ func withDistillBudget(ctx context.Context) (context.Context, context.CancelFunc
 }
 
 // compactionTargetHarp resolves the harp whose session a compact_session call
-// is asking to distill.
+// is asking to compact.
 //
 // That harp is the attribution key for the entire call — most consequentially
-// the path the distilled essence is WRITTEN to. Deriving it from the caller's
+// the path the compacted essence is WRITTEN to. Deriving it from the caller's
 // own identity while the caller named a different session files one session's
-// distilled memory under another session's name, behind a success envelope
+// compacted memory under another session's name, behind a success envelope
 // that echoes back the id that was asked for: nothing errors, the content is
 // correct, and it is correct in the wrong place, so a later resume of the
-// named session loads context that was never distilled for it.
+// named session loads context that was never compacted for it.
 //
 // session_id is whatever the caller has to hand: the harp itself, or the
 // backend-native id its index entry binds (the production shape — resolved by
@@ -139,7 +139,7 @@ func withDistillBudget(ctx context.Context) (context.Context, context.CancelFunc
 //
 // A named session the index does not know is REFUSED rather than quietly
 // re-pointed at the caller: there is no harp to file the result under, and
-// paying for a distillation in order to write it somewhere wrong is precisely
+// paying for a compaction in order to write it somewhere wrong is precisely
 // the failure this resolution exists to prevent.
 func (s *ctxServer) compactionTargetHarp(sessionID string) (string, error) {
 	if sessionID == "" {
@@ -157,7 +157,7 @@ func (s *ctxServer) compactionTargetHarp(sessionID string) (string, error) {
 		return "", fmt.Errorf("resolve session id %q to its harp: %w", sessionID, err)
 	}
 	if owner == "" {
-		return "", fmt.Errorf("session %q is not in the session index, so there is no session to attribute a distillation to; pass a harp name or a bound session id (list_sessions reports both), or omit session_id to compact this session", sessionID)
+		return "", fmt.Errorf("session %q is not in the session index, so there is no session to attribute a compaction to; pass a harp name or a bound session id (list_sessions reports both), or omit session_id to compact this session", sessionID)
 	}
 	return owner, nil
 }
@@ -175,7 +175,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}
 
-	ctx, cancel := withDistillBudget(ctx)
+	ctx, cancel := withCompactBudget(ctx)
 	defer cancel()
 
 	// The harp of the session NAMED BY session_id — the attribution key for
@@ -280,7 +280,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 //
 // distill_missing compacts title-less/stale rows first. Unlike the CLI, the
 // long-lived MCP server must NOT chdir, so it calls compactEntry in place:
-// canonical-transcript and preloaded-transcript sessions distill
+// canonical-transcript and preloaded-transcript sessions compact
 // cwd-independently; a legacy session that needs the cwd-bound engine reader
 // is skipped with a warning rather than corrupting the server's cwd.
 func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolRequest, in listSessionsInput) (*mcp.CallToolResult, *listSessionsResult, error) {
@@ -301,7 +301,7 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 	}
 
 	if in.DistillMissing {
-		s.distillMissingForList(ctx, entries)
+		s.compactMissingForList(ctx, entries)
 		// Re-read so freshly-written summaries render in the returned rows.
 		if refreshed, rerr := loadEntries(); rerr == nil {
 			entries = refreshed
@@ -322,22 +322,22 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 	return nil, &listSessionsResult{Sessions: rows}, nil
 }
 
-// distillMissingForList compacts every entry whose essence is missing or stale,
+// compactMissingForList compacts every entry whose essence is missing or stale,
 // in place (no chdir — see handleListSessions). A row the staleness gate
 // selects is resolved through operations.ResolveAndHeal first, as every
-// distillation path is; a row it skips pays nothing for a heal. Per-entry
-// failures are warned and skipped: a session that can't be distilled here
+// compaction path is; a row it skips pays nothing for a heal. Per-entry
+// failures are warned and skipped: a session that can't be compacted here
 // (e.g. a legacy session whose engine reader needs the cwd we deliberately
 // don't change) must not fail the whole listing.
-func (s *ctxServer) distillMissingForList(ctx context.Context, entries []sessions.Entry) {
-	ctx, cancel := withDistillBudget(ctx)
+func (s *ctxServer) compactMissingForList(ctx context.Context, entries []sessions.Entry) {
+	ctx, cancel := withCompactBudget(ctx)
 	defer cancel()
 	for i := range entries {
 		e := &entries[i]
-		_, distilled := operations.SessionEssenceInfo(e.HarpName, e)
+		_, compacted := operations.SessionEssenceInfo(e.HarpName, e)
 		stale, known := e.SourceStale()
 		knownStale := known && stale
-		if distilled && !knownStale {
+		if compacted && !knownStale {
 			continue // fresh essence already present
 		}
 		src, herr := operations.ResolveAndHeal(ctx, afero.NewOsFs(), s.facts.Engines, e.HarpName)
@@ -352,7 +352,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 			src.Entry = e
 		}
 		if _, err := compactEntryFn(ctx, s.facts, src.Entry, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Progress: io.Discard}); err != nil {
-			clidiag.Warn("ctxloom", "list_sessions: could not distill %s: %v", e.HarpName, err)
+			clidiag.Warn("ctxloom", "list_sessions: could not compact %s: %v", e.HarpName, err)
 		}
 	}
 }
@@ -361,7 +361,7 @@ func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolReques
 	if in.HarpName != "" {
 		// Harp-native path: read essence.md from the harp's output dir
 		// directly. No backend-history detour, no SessionID binding step.
-		// If the file is missing the user can run `ctxloom session distill`
+		// If the file is missing the user can run `ctxloom session compact`
 		// or just compact again.
 		return s.loadHarpEssence(in.HarpName)
 	}
@@ -392,20 +392,20 @@ func (s *ctxServer) loadHarpEssence(harpName string) (*mcp.CallToolResult, *load
 	essencePath := filepath.Join(out, paths.EssenceFileName)
 	data, err := os.ReadFile(essencePath)
 	if err != nil {
-		// Only an ABSENT essence means "never distilled". Every other read
+		// Only an ABSENT essence means "never compacted". Every other read
 		// fault (permissions, a directory in its place, an I/O error) names a
-		// file that exists and cannot be read, for which re-distilling is the
+		// file that exists and cannot be read, for which re-compacting is the
 		// wrong remedy: the compaction would spend an LLM budget writing to
 		// the same unreadable path and the caller would loop.
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, &loadSessionResult{
 				Loaded:  false,
-				Message: fmt.Sprintf("No distilled essence for %s yet. Run `ctxloom session distill %s` or compact_session to generate one.", harpName, harpName),
+				Message: fmt.Sprintf("No compacted essence for %s yet. Run `ctxloom session compact %s` or compact_session to generate one.", harpName, harpName),
 			}, nil
 		}
 		return nil, &loadSessionResult{
 			Loaded:  false,
-			Message: fmt.Sprintf("The distilled essence for %s exists but could not be read (%s): %v. Re-distilling will not help until that path is readable.", harpName, essencePath, err),
+			Message: fmt.Sprintf("The compacted essence for %s exists but could not be read (%s): %v. Re-compacting will not help until that path is readable.", harpName, essencePath, err),
 		}, nil
 	}
 	return nil, &loadSessionResult{
@@ -444,7 +444,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 
 	// The target is a PREDECESSOR transcript, complete and no longer growing.
 	// An explicitly passed session_id may still name a live one, so staleness
-	// keeps erring toward re-distilling when a transcript's size cannot be
+	// keeps erring toward re-compacting when a transcript's size cannot be
 	// determined: a cached essence from an earlier /clear covers only an
 	// earlier slice.
 	return s.loadOrCompactSession(ctx, targetSessionID, backendName, in.Model, policyLive)
@@ -508,7 +508,7 @@ type recoverResolution struct {
 	OwnerHarp func(string) string
 }
 
-// target resolves which session recover_session distills, or "" when there is
+// target resolves which session recover_session compacts, or "" when there is
 // nothing honest to return — in which case the caller REFUSES rather than
 // substituting something.
 //
@@ -639,22 +639,22 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 // transcript and whose essence lives at <output dir>/essence.md
 // (NOT the legacy sessionID-keyed <sessionsDir>/<id>.md the backend path reads
 // via LoadCompactedSession). It mirrors loadOrCompactSession's cache-then-
-// distill shape, keyed by harp instead of session id:
+// compact shape, keyed by harp instead of session id:
 //
 //   - fresh essence on disk (source transcript hasn't grown past it) -> reuse
-//   - missing or stale essence                                        -> distill
+//   - missing or stale essence                                        -> compact
 //
-// Distillation goes through compactEntry, which resolves the canonical
+// Compaction goes through compactEntry, which resolves the canonical
 // transcript by HarpName and writes essence under the harp dir — fixing the
 // old bug where a canonical session's essence was written to a sessionID-keyed
 // path under the project workdir. get_previous_session keeps an
 // indeterminate cache (a finished session rarely changes), the same bias the
-// backend path applies with redistillWhenUnknown=false.
+// backend path applies with RecompactWhenUnknown=false.
 //
 // model is the caller's per-call override, forwarded to compactEntry ("" keeps
 // the distiller's own model). Honoring it ONLY on the backend path meant an
 // explicit override was silently ignored whenever the previous session was
-// canonical/ACP — the caller got a distill from a model it did not ask for,
+// canonical/ACP — the caller got a compact from a model it did not ask for,
 // with no indication.
 func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model string) (*mcp.CallToolResult, *loadSessionResult, error) {
 	entry, err := operations.GetSession(harp)
@@ -669,18 +669,18 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 	}
 
 	// Bound the work so a wedged LLM subprocess can't hold the singleflight
-	// entry open forever (see withDistillBudget).
-	ctx, cancel := withDistillBudget(ctx)
+	// entry open forever (see withCompactBudget).
+	ctx, cancel := withCompactBudget(ctx)
 	defer cancel()
 	// The model is part of the key, exactly as the backend path keys on it
 	// (sessionID\x00backend\x00model): two concurrent calls asking for
-	// DIFFERENT models must not collapse into one distill and hand both callers
+	// DIFFERENT models must not collapse into one compact and hand both callers
 	// a result from whichever model happened to win.
-	res, err := s.singleflightDistill(harp+"\x00canonical\x00"+model, func() (*loadSessionResult, error) {
+	res, err := s.singleflightLoad(harp+"\x00canonical\x00"+model, func() (*loadSessionResult, error) {
 		// Heal before checking the cache (eager-trash unification): a harp
 		// that has been /clear'd has a canonical transcript frozen at
 		// whatever moment a live /recover last ran, and this path used to
-		// never heal it, so `get_previous_session`-by-harp distilled a
+		// never heal it, so `get_previous_session`-by-harp compacted a
 		// prefix and reported success. The startTime resolved above may now
 		// be stale post-heal (a fresh conversion can change
 		// CanonicalTranscriptPath), so use the ResolvedSource's entry, not
@@ -701,7 +701,7 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 		// (just-healed) source, mirroring the archived bias load_session and
 		// get_previous_session apply elsewhere — a finished session rarely
 		// changes, so an INDETERMINATE staleness result is trusted rather
-		// than spent on a redistill.
+		// than spent on a re-compact.
 		if data, rerr := operations.ReadHarpEssence(harp); rerr == nil {
 			current, known := operations.EssenceCurrent(src, data)
 			if current || !known {
@@ -718,14 +718,14 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 		if _, derr := operations.DistillEntry(ctx, s.facts, src, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Model: model, Progress: io.Discard}); derr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
-				Message: fmt.Sprintf("Couldn't distill previous session %s: %v", harp, derr),
+				Message: fmt.Sprintf("Couldn't compact previous session %s: %v", harp, derr),
 			}, nil
 		}
 		data, rerr := operations.ReadHarpEssence(harp)
 		if rerr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
-				Message: fmt.Sprintf("Distilled %s but couldn't read its essence back: %v", harp, rerr),
+				Message: fmt.Sprintf("Compacted %s but couldn't read its essence back: %v", harp, rerr),
 			}, nil
 		}
 		return &loadSessionResult{
@@ -778,9 +778,9 @@ func previousSessionFromMtime(activeSessionID string, metas []agent.SessionMeta)
 // fact, which is why they travel together rather than as two loose booleans at a
 // call site — the second bool argument is where "which flag was which" bugs live.
 type sessionLoadPolicy struct {
-	// RedistillWhenUnknown re-distills when transcript staleness cannot be
+	// RecompactWhenUnknown re-compacts when transcript staleness cannot be
 	// determined, rather than trusting the cached essence.
-	RedistillWhenUnknown bool
+	RecompactWhenUnknown bool
 	// LiveTranscript re-converts a vendor transcript that has ALREADY been
 	// converted, instead of accepting the existing canonical file as current.
 	LiveTranscript bool
@@ -789,7 +789,7 @@ type sessionLoadPolicy struct {
 // policyLive loads the session the caller is sitting in — recover_session, after
 // a /clear. It is the only policy that pays to re-read a vendor transcript it has
 // already read, because it is the only one whose source can have grown since.
-var policyLive = sessionLoadPolicy{RedistillWhenUnknown: true, LiveTranscript: true}
+var policyLive = sessionLoadPolicy{RecompactWhenUnknown: true, LiveTranscript: true}
 
 // policyArchived loads a session that is over — load_session and
 // get_previous_session. A finished session's transcript cannot change, so the
@@ -798,15 +798,15 @@ var policyLive = sessionLoadPolicy{RedistillWhenUnknown: true, LiveTranscript: t
 var policyArchived = sessionLoadPolicy{}
 
 // loadOrCompactSession is the shared body for load_session, recover_session,
-// and get_previous_session. It reuses the cached distilled essence when it is
-// still current and otherwise re-distills on demand, then loads what was just
+// and get_previous_session. It reuses the cached compacted essence when it is
+// still current and otherwise re-compacts on demand, then loads what was just
 // written. Staleness is decided by the source transcript's byte size: the size
-// stamped at distill time (essence frontmatter) versus the live transcript file.
+// stamped at compact time (essence frontmatter) versus the live transcript file.
 //
 //   - cache is current (size unchanged)  -> return the cache
-//   - cache is stale (size changed)      -> re-distill from the full transcript
-//   - staleness can't be determined      -> policy.RedistillWhenUnknown decides:
-//     recover_session re-distills (the live session may have grown past the
+//   - cache is stale (size changed)      -> re-compact from the full transcript
+//   - staleness can't be determined      -> policy.RecompactWhenUnknown decides:
+//     recover_session re-compacts (the live session may have grown past the
 //     cache); load_session / get_previous_session keep the cache (a finished
 //     session rarely changes, so spending an LLM call on it isn't worth it).
 //
@@ -891,7 +891,7 @@ func (s *ctxServer) loadOrCompactSession(ctx context.Context, sessionID, backend
 
 	// Resolve the harp that owns this session so its plan files
 	// (~/.ctxloom/sessions/<harp>/) are read for the RIGHT session — not the
-	// active one — when distilling a previous or cross-agent session, and so the
+	// active one — when compacting a previous or cross-agent session, and so the
 	// staleness check stats the harp's bound transcript. It is also what says
 	// WHERE this session's essence is filed: under its harp's lineage.
 	harp := sessionHarpForID(sessionID)
@@ -907,7 +907,7 @@ func (s *ctxServer) loadOrCompactSession(ctx context.Context, sessionID, backend
 		}
 	}
 	if harp == "" {
-		return nil, nil, fmt.Errorf("session %s belongs to no harp, so there is nowhere to file its distilled essence: run `ctxloom session adopt` to bring an orphaned vendor transcript into a harp's lineage first", sessionID)
+		return nil, nil, fmt.Errorf("session %s belongs to no harp, so there is nowhere to file its compacted essence: run `ctxloom session adopt` to bring an orphaned vendor transcript into a harp's lineage first", sessionID)
 	}
 	// A rotation's essence is a readable output: it is filed under the
 	// session's output dir, beside the current one.
@@ -920,7 +920,7 @@ func (s *ctxServer) loadOrCompactSession(ctx context.Context, sessionID, backend
 	{
 		if entry, _ := operations.GetSession(harp); entry != nil {
 			// Prefer the canonical transcript: once captured,
-			// that's the file Compact actually distilled from, so staleness must
+			// that's the file Compact actually compacted from, so staleness must
 			// compare against it, not the legacy engine file.
 			transcriptPath = entry.TranscriptPath
 			if entry.CanonicalTranscriptPath != "" {
@@ -935,11 +935,11 @@ func (s *ctxServer) loadOrCompactSession(ctx context.Context, sessionID, backend
 	// now refuses to save an oversized body at all), but an essence written by
 	// an older binary, or by some other writer, could still be sitting on
 	// disk; treating it as unusable and falling through to a fresh
-	// (now-bounded) distill is the fail-loud backstop for recover_session
+	// (now-bounded) compact is the fail-loud backstop for recover_session
 	// specifically — a cache hit is exactly the path that would otherwise
 	// hand back stale, oversized content with no compaction pipeline in the
 	// loop at all to catch it.
-	if cached, stampedEntries := loadCachedDistilledSession(sessionsDir, sessionID); cached != nil {
+	if cached, stampedEntries := loadCachedCompactedSession(sessionsDir, sessionID); cached != nil {
 		stale, known := sessions.TranscriptStale(transcriptPath, stampedEntries)
 		withinBound := len(cached.Content) <= memory.MaxEssenceChars
 		// A live refresh that FAILED forfeits the cache hit. The size the
@@ -948,16 +948,16 @@ func (s *ctxServer) loadOrCompactSession(ctx context.Context, sessionID, backend
 		// hasn't moved" describes the stale copy, not the session — and
 		// answering was_cached=true off it is a recovery that silently covers
 		// only whatever slice the last successful refresh captured.
-		if withinBound && !refreshFailed && ((known && !stale) || (!known && !policy.RedistillWhenUnknown)) {
+		if withinBound && !refreshFailed && ((known && !stale) || (!known && !policy.RecompactWhenUnknown)) {
 			return nil, cached, nil
 		}
-		// stale, oversized, unrefreshable, or indeterminate with a re-distill
+		// stale, oversized, unrefreshable, or indeterminate with a re-compact
 		// bias: fall through.
 	}
 
 	// workDir (resolved above) feeds CompactionConfig for compatibility; the
 	// gRPC transcript read is self-situated and ignores it.
-	result, err := s.distillSession(ctx, sessionID, backendName, model, workDir, sessionsDir, harp)
+	result, err := s.compactSession(ctx, sessionID, backendName, model, workDir, sessionsDir, harp)
 	return nil, result, err
 }
 
@@ -1000,7 +1000,7 @@ func noCaptureMessage(sessionID, harp string, readErr, convertErr error) string 
 // refresh above was skipped, so a still-growing session was served from a
 // canonical transcript nobody re-read. And transcriptPath below stayed empty,
 // which makes TranscriptStale report "can't tell" — under policyArchived's
-// RedistillWhenUnknown=false that is a permanent cache hit, so an archived
+// RecompactWhenUnknown=false that is a permanent cache hit, so an archived
 // session's essence could never be detected as out of date at all.
 func sessionHarpForID(id string) string {
 	if id == "" {
@@ -1016,38 +1016,38 @@ func sessionHarpForID(id string) string {
 	return harp
 }
 
-// loadCachedDistilledSession returns a result from an already-distilled session
+// loadCachedCompactedSession returns a result from an already-compacted session
 // on disk plus the transcript byte size stamped into its frontmatter (the
 // staleness fingerprint), or (nil, 0) when none is cached.
-func loadCachedDistilledSession(sessionsDir, sessionID string) (*loadSessionResult, int) {
-	distilled, err := memory.LoadCompactedSession(afero.NewOsFs(), sessionsDir, sessionID)
+func loadCachedCompactedSession(sessionsDir, sessionID string) (*loadSessionResult, int) {
+	compacted, err := memory.LoadCompactedSession(afero.NewOsFs(), sessionsDir, sessionID)
 	if err != nil {
 		return nil, 0
 	}
 	return &loadSessionResult{
 		Loaded:    true,
-		SessionID: distilled.SessionID,
-		Content:   distilled.Body,
+		SessionID: compacted.SessionID,
+		Content:   compacted.Body,
 		WasCached: true,
-		Tokens:    distilled.TokensOut,
-		CreatedAt: distilled.CompactedAt.Format("2006-01-02 15:04:05"),
-	}, distilled.SourceEntries
+		Tokens:    compacted.TokensOut,
+		CreatedAt: compacted.CompactedAt.Format("2006-01-02 15:04:05"),
+	}, compacted.SourceEntries
 }
 
-// singleflightDistill runs fn unless an identical distillation is already in
+// singleflightLoad runs fn unless an identical compaction is already in
 // flight, in which case it waits for that one and shares its result. Two things
 // make the dedupe load-bearing rather than an optimization: the host's handler
 // runs on the coordinator's base context, so a caller whose budget expires does
-// NOT stop the distillation it started; and the natural reflex to a failed
-// recover is an immediate retry. Without this, that retry re-distills every
+// NOT stop the compaction it started; and the natural reflex to a failed
+// recover is an immediate retry. Without this, that retry re-compacts every
 // chunk through the LLM a second time, concurrently with the first.
 //
 // A nil group (bare stdio server) runs fn directly — undeduped, but correct.
-func (s *ctxServer) singleflightDistill(key string, fn func() (*loadSessionResult, error)) (*loadSessionResult, error) {
-	if s.distill == nil {
+func (s *ctxServer) singleflightLoad(key string, fn func() (*loadSessionResult, error)) (*loadSessionResult, error) {
+	if s.compact == nil {
 		return fn()
 	}
-	v, err, _ := s.distill.Do(key, func() (any, error) { return fn() })
+	v, err, _ := s.compact.Do(key, func() (any, error) { return fn() })
 	if err != nil {
 		return nil, err
 	}
@@ -1055,17 +1055,17 @@ func (s *ctxServer) singleflightDistill(key string, fn func() (*loadSessionResul
 	return res, nil
 }
 
-// singleflightCompact is singleflightDistill's compact_session-shaped twin —
-// same dedupe mechanism, different result type. It shares s.distill (the
+// singleflightCompact is singleflightLoad's compact_session-shaped twin —
+// same dedupe mechanism, different result type. It shares s.compact (the
 // same underlying group) rather than owning a second one; each call site's
 // key is prefixed distinctly (see handleCompactSession's "\x00compact\x00"
-// versus distillSession's "\x00"+backendName+"\x00") so the two never
+// versus compactSession's "\x00"+backendName+"\x00") so the two never
 // collide on the same key by accident.
 func (s *ctxServer) singleflightCompact(key string, fn func() (*compactSessionResult, error)) (*compactSessionResult, error) {
-	if s.distill == nil {
+	if s.compact == nil {
 		return fn()
 	}
-	v, err, _ := s.distill.Do(key, func() (any, error) { return fn() })
+	v, err, _ := s.compact.Do(key, func() (any, error) { return fn() })
 	if err != nil {
 		return nil, err
 	}
@@ -1073,28 +1073,28 @@ func (s *ctxServer) singleflightCompact(key string, fn func() (*compactSessionRe
 	return res, nil
 }
 
-// distillSession compacts a session and returns the freshly-distilled result.
+// compactSession compacts a session and returns the freshly-compacted result.
 // harp keys the session's plan files; pass "" to fall back to the active harp.
 //
 // Progress is deliberately NOT written to stderr here: on the host-relay path
 // this runs inside the session-owning process, whose stderr is the terminal the
 // harness is drawing its TUI on.
-func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir, harp string) (*loadSessionResult, error) {
+func (s *ctxServer) compactSession(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir, harp string) (*loadSessionResult, error) {
 	// Bound the work to the same budget the relay grants the caller, so one
 	// wedged LLM subprocess cannot hold the singleflight entry open forever
 	// and queue every later recover of this session behind it (see
-	// withDistillBudget).
-	ctx, cancel := withDistillBudget(ctx)
+	// withCompactBudget).
+	ctx, cancel := withCompactBudget(ctx)
 	defer cancel()
-	return s.singleflightDistill(sessionID+"\x00"+backendName+"\x00"+model, func() (*loadSessionResult, error) {
-		return s.distillSessionOnce(ctx, sessionID, backendName, model, workDir, sessionsDir, harp)
+	return s.singleflightLoad(sessionID+"\x00"+backendName+"\x00"+model, func() (*loadSessionResult, error) {
+		return s.compactSessionOnce(ctx, sessionID, backendName, model, workDir, sessionsDir, harp)
 	})
 }
 
-// distillSessionOnce is the distillation proper, behind singleflightDistill.
-func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir, harp string) (*loadSessionResult, error) {
-	// Recovery must never block the agent (CLAUDE.md): a compactor/distill failure
-	// degrades to a usable "couldn't distill" message rather than a tool error.
+// compactSessionOnce is the compaction proper, behind singleflightLoad.
+func (s *ctxServer) compactSessionOnce(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir, harp string) (*loadSessionResult, error) {
+	// Recovery must never block the agent (CLAUDE.md): a compactor/compact failure
+	// degrades to a usable "couldn't compact" message rather than a tool error.
 	makeCompactor := s.compactorFactory
 	if makeCompactor == nil {
 		makeCompactor = func(c memory.CompactionConfig) (*memory.Compactor, error) {
@@ -1121,29 +1121,29 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 		TaskHint:        taskHint,
 	})
 	if err != nil {
-		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't start distillation for session %s: %v", sessionID, err)}, nil
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't start compaction for session %s: %v", sessionID, err)}, nil
 	}
 
 	compactResult, err := compactor.Compact(ctx)
 	if err != nil {
-		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distillation failed for session %s: %v", sessionID, err)}, nil
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Compaction failed for session %s: %v", sessionID, err)}, nil
 	}
 
 	// Read back under the key Compact actually WROTE, not the one the caller
 	// passed: Compact resolves the session to its harp (result.SessionID =
 	// session.ID) and saveCompacted keys the mirror off that. Reading by the
-	// caller's id made a successful distillation report "couldn't read it back"
+	// caller's id made a successful compaction report "couldn't read it back"
 	// for every session whose vendor id differs from its harp — the essence was
 	// on disk the whole time, under a name this lookup never asked for.
-	distilled, err := memory.LoadCompactedSession(afero.NewOsFs(), sessionsDir, compactResult.SessionID)
+	compacted, err := memory.LoadCompactedSession(afero.NewOsFs(), sessionsDir, compactResult.SessionID)
 	if err != nil {
-		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distilled session %s but couldn't read it back: %v", compactResult.SessionID, err)}, nil
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Compacted session %s but couldn't read it back: %v", compactResult.SessionID, err)}, nil
 	}
 
 	return &loadSessionResult{
 		Loaded:    true,
 		SessionID: compactResult.SessionID,
-		Content:   distilled.Body,
+		Content:   compacted.Body,
 		WasCached: false,
 		Duration:  compactResult.Duration.String(),
 		TokensIn:  compactResult.TotalTokensIn,

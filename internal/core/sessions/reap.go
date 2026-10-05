@@ -31,7 +31,7 @@ type ReapPolicy struct {
 	// paths.Ephemeral, the default; paths.Persist is a human's
 	// --include-persist and TAKES the persistent machine members — the
 	// transcripts and native history with the spool, the package store and
-	// the logs — from a DISTILLED session only. An undistilled one
+	// the logs — from a COMPACTED session only. An uncompacted one
 	// (Distilled) keeps them, because its transcript is its only record; it
 	// is reaped as under the default scope and the report says why.
 	Scope paths.Lifetime
@@ -267,7 +267,7 @@ func ReapSession(ctx context.Context, l Layout, locks Locks, name string, p Reap
 	if !screenAgedUnkept(l, name, p, &c) {
 		return c, true
 	}
-	members, m, proceed := narrowUndistilled(l, name, p, &c, members, m)
+	members, m, proceed := narrowUncompacted(l, name, p, &c, members, m)
 	if !proceed {
 		return c, true
 	}
@@ -302,16 +302,16 @@ func screenAgedUnkept(l Layout, name string, p ReapPolicy, c *ReapCandidate) boo
 	return true
 }
 
-// narrowUndistilled narrows a persist-scope reap of an undistilled session
-// to the default scope's members. An undistilled session's transcript is its
+// narrowUncompacted narrows a persist-scope reap of an uncompacted session
+// to the default scope's members. An uncompacted session's transcript is its
 // only record, so a wider scope never frees less, and the spare is reported
 // whatever the verdict. proceed is false (spared) when nothing is left to
 // take.
-func narrowUndistilled(l Layout, name string, p ReapPolicy, c *ReapCandidate, members []paths.HarpMember, m memberMeasure) ([]paths.HarpMember, memberMeasure, bool) {
+func narrowUncompacted(l Layout, name string, p ReapPolicy, c *ReapCandidate, members []paths.HarpMember, m memberMeasure) ([]paths.HarpMember, memberMeasure, bool) {
 	if p.scope() != paths.Persist || Distilled(c.Dir) {
 		return members, m, true
 	}
-	c.Reason = fmt.Sprintf("its persistent members are spared: it was never distilled, so its transcript is its only record — run `ctxloom session distill %s` first", name)
+	c.Reason = fmt.Sprintf("its persistent members are spared: it was never compacted, so its transcript is its only record — run `ctxloom session compact %s` first", name)
 	members = ReapPolicy{}.Members()
 	m = measureMembers(l, name, members)
 	c.Bytes = m.bytes

@@ -23,7 +23,7 @@ func sdReq() SweepRequest {
 	}
 }
 
-// sdDead is an ended human session, distilled, older than both cutoffs,
+// sdDead is an ended human session, compacted, older than both cutoffs,
 // holding reclaimable and purgeable data and nothing that spares it: the
 // fact set every row below perturbs one field of.
 func sdDead() SessionFacts {
@@ -122,21 +122,21 @@ func TestDecideSweep(t *testing.T) {
 			want:  []SweepAction{SweepReclaim},
 		},
 		{
-			name:  "7 distilled and aged past the purge cutoff: reclaim, then purge",
+			name:  "7 compacted and aged past the purge cutoff: reclaim, then purge",
 			facts: sdDead,
 			want:  []SweepAction{SweepReclaim, SweepPurge},
 			check: func(t *testing.T, rows []SweepRow) { assert.Equal(t, SweepPlanned, rows[1].Verdict) },
 		},
 		{
-			name:  "8 a human's undistilled session is never purged, and is told how to distill",
+			name:  "8 a human's uncompacted session is never purged, and is told how to compact",
 			facts: func() SessionFacts { f := sdDead(); f.Distilled = false; return f },
 			want:  []SweepAction{SweepReclaim, SweepSpare},
 			check: func(t *testing.T, rows []SweepRow) {
-				assert.Equal(t, "ctxloom session distill aged-quiet-heron", rows[1].Command)
+				assert.Equal(t, "ctxloom session compact aged-quiet-heron", rows[1].Command)
 			},
 		},
 		{
-			name:  "9 an internal one-shot is purged without a distill",
+			name:  "9 an internal one-shot is purged without a compact",
 			facts: func() SessionFacts { f := sdDead(); f.Distilled = false; f.Origin = sessions.OriginOneShot; return f },
 			want:  []SweepAction{SweepReclaim, SweepPurge},
 		},

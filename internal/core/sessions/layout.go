@@ -91,7 +91,7 @@ func (l Layout) KeepMarker(harp string) string {
 // output dir holds one. Without one the transcript is the session's ONLY
 // record, which is what every destroyer of transcripts asks before taking
 // one. A session with no recorded output dir has nowhere an essence could be,
-// so it is undistilled.
+// so it is uncompacted.
 //
 // It asks the disk, never a recorded flag: a flag set before the essence
 // was written, or left behind after it was removed, would pass the one

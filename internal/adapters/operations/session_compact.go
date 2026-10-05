@@ -16,29 +16,29 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
-// The distillation/compaction cluster the session commands share with the MCP
+// The compaction/compaction cluster the session commands share with the MCP
 // memory tools: running the compactor for one entry, and resolving a
 // transcript source for a backend. CompactEntry is the
-// single funnel every distill path goes through.
+// single funnel every compact path goes through.
 
-// DistillOptions carries what varies per distill invocation, as a struct
+// DistillOptions carries what varies per compact invocation, as a struct
 // rather than three more positional parameters: model and progress were
 // already in flight and a third string argument beside them is where call
 // sites start transposing them.
 type DistillOptions struct {
-	// Hosts yields the coordinator the distilling one-shot runs on.
+	// Hosts yields the coordinator the compacting one-shot runs on.
 	Hosts RunHosts
 	// Model overrides, for THIS call, the model of the label the distiller
 	// runs on (DistillerOneShot); "" keeps that label's own. It exists so a
-	// caller-supplied model override reaches the canonical/harp distill path
+	// caller-supplied model override reaches the canonical/harp compact path
 	// too, not just the backend one.
 	Model string
-	// Progress receives human-readable distillation progress, or nil where the
+	// Progress receives human-readable compaction progress, or nil where the
 	// caller has no safe sink for it (see memory.CompactionConfig.Progress).
 	Progress io.Writer
-	// PromptDir loads the distillation prompts from disk instead of the
+	// PromptDir loads the compaction prompts from disk instead of the
 	// embedded copies, for prompt evaluation. Empty uses the embedded prompt; a
-	// prompt missing from the directory fails the distill rather than silently
+	// prompt missing from the directory fails the compact rather than silently
 	// falling back.
 	PromptDir string
 }
@@ -53,11 +53,11 @@ type DistillOptions struct {
 // SessionStart hook (see sessionBindCmd). A container-runtime harp's bind hook
 // runs INSIDE the container, though, and the host session index is not mounted
 // in — so its session_id never gets bound host-side. The unbound case is
-// distillable's to settle: ctxloom's canonical capture is read by HarpName,
+// compactable's to settle: ctxloom's canonical capture is read by HarpName,
 // and a harp with neither a bound id nor a capture has genuinely nothing to
-// distill.
+// compact.
 // opts carries the per-invocation knobs; its zero value is the ordinary
-// config-driven distill.
+// config-driven compact.
 //
 // mcp's compactEntryFn is CompactEntry behind a package var so a caller's
 // wiring can be observed in a test; that test seam stays in mcp and is not
@@ -70,7 +70,7 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	}
 
 	sessionID := entry.SessionID
-	if err := distillable(entry); err != nil {
+	if err := compactable(entry); err != nil {
 		return nil, err
 	}
 
@@ -109,26 +109,26 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	}
 	result, err := compactor.Compact(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("distillation failed: %w", err)
+		return nil, fmt.Errorf("compaction failed: %w", err)
 	}
 	return result, nil
 }
 
-// distillable reports whether the compactor has anything to resolve for
+// compactable reports whether the compactor has anything to resolve for
 // entry: a bound session id, or ctxloom's canonical capture (read by
 // HarpName). A recorded vendor transcript path alone is not readable: no
 // shipped engine keeps a reader for its own store, so canonical capture is
 // the only source.
-func distillable(entry *sessions.Entry) error {
+func compactable(entry *sessions.Entry) error {
 	if entry.SessionID != "" || entry.CanonicalTranscriptPath != "" {
 		return nil
 	}
-	return fmt.Errorf("harp %q has no session_id bound and no captured transcript; nothing to distill", entry.HarpName)
+	return fmt.Errorf("harp %q has no session_id bound and no captured transcript; nothing to compact", entry.HarpName)
 }
 
 // DistillSource builds the transcript source the compactor reads for a
-// distill: ctxloom's own canonical capture, scoped to workDir, read raw (no
-// read-side content policy — a distill reads the transcript's own bytes).
+// compact: ctxloom's own canonical capture, scoped to workDir, read raw (no
+// read-side content policy — a compact reads the transcript's own bytes).
 // Callers that build a memory.CompactionConfig directly (the MCP memory
 // tools) use it so they need not know how a canonical source is assembled.
 func DistillSource(workDir string) (memory.Source, error) {
@@ -157,7 +157,7 @@ func ResolveSessionSource(reg engine.Registry, cfg *config.Config, backendName, 
 	}
 	// The content policy is applied HERE, at the one place a read source is
 	// built, so every consumer that resolves a source through this function —
-	// `session distill`, and the load/recover/get_previous MCP tools — sees
+	// `session compact`, and the load/recover/get_previous MCP tools — sees
 	// the same filtered view without each having to remember to wrap. The
 	// wrap is on the READ side on purpose: what is on disk stays total, so
 	// changing the policy changes what every existing transcript yields, with

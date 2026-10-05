@@ -9,7 +9,7 @@ import (
 // SessionView is the ONE read model the session listing and show render
 // from: what the store records for a session (sessions.Entry) joined with
 // the derived facts every renderer used to compute for itself — whether
-// the session is distilled and where its essence is, whether that essence
+// the session is compacted and where its essence is, whether that essence
 // is stale against the transcript, whether a purge destroyed the transcript,
 // and the one clock the listing is ordered by. Built by ViewSession, once
 // per entry; the CLI's rows and the MCP session menu project from it and

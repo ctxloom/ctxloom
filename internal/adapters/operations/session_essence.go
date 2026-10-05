@@ -8,14 +8,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
-// A session's distilled essence lives in one of two places, BOTH in the
+// A session's compacted essence lives in one of two places, BOTH in the
 // session's output dir, and is resolved by ONE lookup order: the current
 // <output>/essence.md first, then that session's own per-rotation
 // <output>/segments/<sessionID>.md. SessionEssenceInfo answers "where is it /
 // is there one" without opening the file, for listings that need that per row.
 // Callers are `session show`, `session list`, `session query`, --full, and the
 // memory MCP tools, so the order living in exactly one place is what stops a
-// session reading as distilled in one command and pending in another.
+// session reading as compacted in one command and pending in another.
 
 // essenceOutputDir is the output dir a session's essence is read from: the
 // entry's recorded one when the caller holds the entry, else as this process
@@ -38,11 +38,11 @@ func ReadHarpEssence(harpName string) ([]byte, error) {
 }
 
 // SessionEssenceInfo resolves a session's essence file path and whether it
-// exists (i.e. the session is distilled), WITHOUT reading the file — so the
-// listing can report essence_path/distilled cheaply for every row. It mirrors
+// exists (i.e. the session is compacted), WITHOUT reading the file — so the
+// listing can report essence_path/compacted cheaply for every row. It mirrors
 // saveCompacted's own write order: the current essence first, then this
 // rotation's own copy under segments/, which is what still answers for a
-// session whose harp has since been distilled again.
+// session whose harp has since been compacted again.
 //
 // The existence check is inlined here rather than shared with the
 // near-identical check in internal/adapters/isolation: that one excludes only

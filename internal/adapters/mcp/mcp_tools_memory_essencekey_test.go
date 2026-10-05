@@ -26,13 +26,13 @@ import (
 // fixtureEntries is the one conversation every fixture in this file speaks:
 // canonicalRecords writes it to disk and fixedCompactor hands it to Compact.
 // It is ONE list because production has one source — the session Compact
-// distills IS the canonical transcript — and Compact stamps the essence with
+// compacts IS the canonical transcript — and Compact stamps the essence with
 // that session's entry count, which the cache check compares against the
 // canonical file. Two copies that disagree make every cached essence look stale.
 //
 // The last turn is long enough that the rendered transcript clears the
-// compactor's distillation floor; below it Compact saves the transcript
-// verbatim and the canned distilled body never comes back.
+// compactor's compaction floor; below it Compact saves the transcript
+// verbatim and the canned compacted body never comes back.
 var fixtureEntries = []agent.SessionEntry{
 	{Type: agent.EntryTypeUser, Content: "where did the essence go"},
 	{Type: agent.EntryTypeAssistant, Content: "written under one key, read under another"},
@@ -56,7 +56,7 @@ func canonicalRecords(harp, sessionID string) []byte {
 }
 
 // fixedSource reports one session, whatever is asked of it: the compactor only
-// needs a session to distill, and this test is about what happens to the RESULT.
+// needs a session to compact, and this test is about what happens to the RESULT.
 type fixedSource struct{ session *agent.Session }
 
 func (f *fixedSource) GetSession(context.Context, string) (*agent.Session, error) {
@@ -67,13 +67,13 @@ func (f *fixedSource) CurrentSession(context.Context) (*agent.Session, error) {
 	return f.session, nil
 }
 
-// fixedCompactor returns a compactorFactory that distills the given session id
+// fixedCompactor returns a compactorFactory that compacts the given session id
 // to the given body without an LLM, while otherwise honouring the caller's own
 // config (harp, output dir) so the essence lands exactly where production puts
 // it and the staleness stamp is computed from the real transcript.
 func fixedCompactor(sessionID, body string) func(memory.CompactionConfig) (*memory.Compactor, error) {
 	return func(cfg memory.CompactionConfig) (*memory.Compactor, error) {
-		// The fixture clears the compactor's distillation floor
+		// The fixture clears the compactor's compaction floor
 		// (memory.minCompactTokens) and is the SAME list canonicalRecords
 		// writes, so the essence's entry-count stamp matches the canonical
 		// transcript and the cache can hit.
@@ -92,21 +92,21 @@ func fixedCompactor(sessionID, body string) func(memory.CompactionConfig) (*memo
 	}
 }
 
-// TestLoadOrDistillSession_DistillsOnceThenServesTheCache pins the end-to-end
+// TestLoadOrCompactSession_CompactsOnceThenServesTheCache pins the end-to-end
 // property recover_session's cost depends on: an essence written by one call
 // must be FOUND by the next call addressing the same session the same way.
 //
 // The write key and the read key are chosen in different places — Compactor
 // keys the essence off the session it resolved, the caller looks it up by the id
-// it passed — and when those drifted apart, every /recover re-distilled an
+// it passed — and when those drifted apart, every /recover re-compacted an
 // essence already on disk (one measured incident spent 143,878 input tokens
 // doing it) while reporting nothing wrong. Neither half's own unit test sees
-// that: it appears only when a real distillation is followed by a real lookup.
+// that: it appears only when a real compaction is followed by a real lookup.
 //
 // The session is addressed throughout by a vendor UUID that looks nothing like
 // its harp, because a harp-keyed id makes the two keys coincide by accident and
 // the test would then pass no matter which one either side used.
-func TestLoadOrDistillSession_DistillsOnceThenServesTheCache(t *testing.T) {
+func TestLoadOrCompactSession_CompactsOnceThenServesTheCache(t *testing.T) {
 	testsupport.Isolate(t)
 
 	mgr, err := sessions.Open(nil)
@@ -128,7 +128,7 @@ func TestLoadOrDistillSession_DistillsOnceThenServesTheCache(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(canonPath), 0o755))
 	require.NoError(t, os.WriteFile(canonPath, canonicalRecords(harp, vendorSessionID), 0o644))
 
-	const body = "Distilled: the write key and the read key must agree."
+	const body = "Compacted: the write key and the read key must agree."
 	appDir := filepath.Join(projectDir, ".ctxloom")
 	s := &ctxServer{
 		facts:            testLaunchFacts(),
@@ -140,33 +140,33 @@ func TestLoadOrDistillSession_DistillsOnceThenServesTheCache(t *testing.T) {
 	_, first, err := s.loadOrCompactSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
 	require.NoError(t, err, "recovery must never block the agent")
 	require.NotNil(t, first)
-	require.True(t, first.Loaded, "the first call must distill and load: %s", first.Message)
-	assert.False(t, first.WasCached, "nothing was on disk yet, so this must be a fresh distillation")
+	require.True(t, first.Loaded, "the first call must compact and load: %s", first.Message)
+	assert.False(t, first.WasCached, "nothing was on disk yet, so this must be a fresh compaction")
 	assert.Contains(t, first.Content, body)
 
 	// The assertion that matters: the same request again must find what the
 	// first one wrote. A miss here is invisible in production — it just quietly
-	// pays for the same distillation a second time.
+	// pays for the same compaction a second time.
 	_, second, err := s.loadOrCompactSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
 	require.NoError(t, err)
 	require.NotNil(t, second)
 	require.True(t, second.Loaded, "the second call must load: %s", second.Message)
 	assert.True(t, second.WasCached,
-		"the essence written by the first call must be found by the second; a miss silently re-distills")
+		"the essence written by the first call must be found by the second; a miss silently re-compacts")
 	assert.Contains(t, second.Content, body, "and it must be the SAME essence, not a re-derived one")
 }
 
-// TestDistillSessionOnce_ReadsBackUnderTheKeyCompactWrote closes the gap that
-// let the read-back key go untested: distillSessionOnce built its compactor
+// TestCompactSessionOnce_ReadsBackUnderTheKeyCompactWrote closes the gap that
+// let the read-back key go untested: compactSessionOnce built its compactor
 // inline, so nothing could drive it without a live LLM, and a mutation swapping
 // the read key survived the whole package.
 //
-// The failure it pins is this project's characteristic shape — the distillation
+// The failure it pins is this project's characteristic shape — the compaction
 // succeeds, the essence is on disk, and the caller is told "couldn't read it
 // back" because it looked under a key nobody wrote. Compact resolves its own
 // session and keys the essence off that; the caller must read back with the key
 // Compact REPORTS, never the one it happened to pass in.
-func TestDistillSessionOnce_ReadsBackUnderTheKeyCompactWrote(t *testing.T) {
+func TestCompactSessionOnce_ReadsBackUnderTheKeyCompactWrote(t *testing.T) {
 	testsupport.Isolate(t)
 
 	projectDir := t.TempDir()
@@ -182,7 +182,7 @@ func TestDistillSessionOnce_ReadsBackUnderTheKeyCompactWrote(t *testing.T) {
 	// differs from the id the caller passes below.
 	const callerID = "12b623a9-b883-4ded-a058-73aba1d1c53c"
 	const resolvedID = "shut-hoary-yahoo"
-	const body = "Distilled: read back under the key that was written."
+	const body = "Compacted: read back under the key that was written."
 
 	s := &ctxServer{
 		facts:            testLaunchFacts(),
@@ -191,11 +191,11 @@ func TestDistillSessionOnce_ReadsBackUnderTheKeyCompactWrote(t *testing.T) {
 		compactorFactory: fixedCompactor(resolvedID, body),
 	}
 
-	out, err := s.distillSessionOnce(context.Background(), callerID, "claude-code", "", projectDir, sessionsDir, harp)
+	out, err := s.compactSessionOnce(context.Background(), callerID, "claude-code", "", projectDir, sessionsDir, harp)
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.True(t, out.Loaded,
-		"the essence was written under %q; reading back under the caller's %q reports a successful distillation as unreadable", resolvedID, callerID)
-	assert.Contains(t, out.Content, body, "the distilled body must come back, not an empty result")
-	assert.False(t, out.WasCached, "this asserts the freshly-distilled path, not a cache hit")
+		"the essence was written under %q; reading back under the caller's %q reports a successful compaction as unreadable", resolvedID, callerID)
+	assert.Contains(t, out.Content, body, "the compacted body must come back, not an empty result")
+	assert.False(t, out.WasCached, "this asserts the freshly-compacted path, not a cache hit")
 }

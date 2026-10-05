@@ -45,7 +45,7 @@ func TestOutputDir_ASessionThatRecordedNoneIsTheSentinel(t *testing.T) {
 }
 
 // Distilled asks the recorded output dir, never the session dir.
-func TestDistilled_IsAnEssenceInTheRecordedOutputDir(t *testing.T) {
+func TestCompacted_IsAnEssenceInTheRecordedOutputDir(t *testing.T) {
 	testsupport.Isolate(t)
 	m, err := Open(nil)
 	require.NoError(t, err)

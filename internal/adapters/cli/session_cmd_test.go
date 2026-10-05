@@ -265,7 +265,7 @@ func (errReader) Read([]byte) (int, error) {
 	return 0, assert.AnError
 }
 
-// distillMissingOrStale's per-entry chdir used to only ever go
+// compactMissingOrStale's per-entry chdir used to only ever go
 // FORWARD (into e.ProjectDir when non-empty) and never restore origWd for an
 // entry with no ProjectDir of its own — so an entry with an empty ProjectDir
 // silently ran configload.Load() from whatever directory the PREVIOUS entry in
@@ -326,20 +326,20 @@ func seedRotationEssence(t *testing.T, harp, sessionID, body string) string {
 // implement it: sessionEssenceInfo (path/exists, used by `session list`,
 // `session query` and the memory MCP tools) and readSessionEssence (bytes,
 // used by `session show` and `--full`). They must agree on whether a session
-// is distilled AND on which of the two candidate files wins, or the same
-// session reads as distilled in one command and pending in another.
+// is compacted AND on which of the two candidate files wins, or the same
+// session reads as compacted in one command and pending in another.
 func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
 	t.Run("current_essence_wins_over_the_rotation_copy", func(t *testing.T) {
 		harp := "plump-loose-sash"
-		harpPath := seedDistilledEssence(t, harp, "harp-dir body\n")
+		harpPath := seedCompactedEssence(t, harp, "harp-dir body\n")
 		seedRotationEssence(t, harp, "sess-1", "rotation body\n")
 		e := sessions.Entry{HarpName: harp, SessionID: "sess-1"}
 
-		gotPath, distilled := operations.SessionEssenceInfo(harp, &e)
+		gotPath, compacted := operations.SessionEssenceInfo(harp, &e)
 		body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
 
-		assert.True(t, distilled)
-		assert.True(t, found, "both entry points must agree the session is distilled")
+		assert.True(t, compacted)
+		assert.True(t, found, "both entry points must agree the session is compacted")
 		assert.Equal(t, harpPath, gotPath, "the harp's CURRENT essence wins")
 		assert.Equal(t, "harp-dir body\n", body, "the bytes must come from the SAME file the path resolver picked")
 	})
@@ -349,22 +349,22 @@ func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
 		rotationPath := seedRotationEssence(t, harp, "sess-2", "rotation body\n")
 		e := sessions.Entry{HarpName: harp, SessionID: "sess-2"}
 
-		gotPath, distilled := operations.SessionEssenceInfo(harp, &e)
+		gotPath, compacted := operations.SessionEssenceInfo(harp, &e)
 		body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
 
-		assert.True(t, distilled)
+		assert.True(t, compacted)
 		assert.True(t, found, "both entry points must fall back to this rotation's own essence")
 		assert.Equal(t, rotationPath, gotPath)
 		assert.Equal(t, "rotation body\n", body)
 	})
 
-	t.Run("neither_present_is_not_distilled", func(t *testing.T) {
-		e := sessions.Entry{HarpName: "never-distilled-harp", SessionID: "sess-3"}
+	t.Run("neither_present_is_not_compacted", func(t *testing.T) {
+		e := sessions.Entry{HarpName: "never-compacted-harp", SessionID: "sess-3"}
 
-		gotPath, distilled := operations.SessionEssenceInfo("never-distilled-harp", &e)
+		gotPath, compacted := operations.SessionEssenceInfo("never-compacted-harp", &e)
 		body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
 
-		assert.False(t, distilled)
+		assert.False(t, compacted)
 		assert.False(t, found)
 		assert.Empty(t, gotPath)
 		assert.Empty(t, body)
@@ -375,7 +375,7 @@ func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
 // resolutions actually diverged: sessionEssenceInfo only STATS the candidate,
 // so `session list` prints an essence_path, while readSessionEssence's
 // os.ReadFile fails and `session show` answers "no essence for X (run
-// `ctxloom session distill X`)". Distilling again cannot fix a permission
+// `ctxloom session compact X`)". Compacting again cannot fix a permission
 // problem, so the user is sent to do the one thing that will not help — and
 // nothing anywhere says the file was found but could not be read. The two
 // entry points may disagree about the BYTES (one of them never opens the
@@ -385,7 +385,7 @@ func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
 		t.Skip("running as root: mode 0o000 does not deny a read, so the unreadable fixture cannot be built")
 	}
 	harp := "plump-loose-sash"
-	essencePath := seedDistilledEssence(t, harp, "## Summary\n\nunreadable\n")
+	essencePath := seedCompactedEssence(t, harp, "## Summary\n\nunreadable\n")
 	require.NoError(t, os.Chmod(essencePath, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(essencePath, 0o644) })
 	e := sessions.Entry{HarpName: harp}
@@ -394,15 +394,15 @@ func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
 	restore := clidiag.SetSink(&diag)
 	t.Cleanup(restore)
 
-	gotPath, distilled := operations.SessionEssenceInfo(harp, &e)
+	gotPath, compacted := operations.SessionEssenceInfo(harp, &e)
 	body, found := readSessionEssence(afero.NewOsFs(), operations.ViewSession(e))
 
-	assert.True(t, distilled, "the listing side sees the file and reports its path")
+	assert.True(t, compacted, "the listing side sees the file and reports its path")
 	assert.Equal(t, essencePath, gotPath)
 	assert.False(t, found, "the reading side genuinely has no bytes to show")
 	assert.Empty(t, body)
 	assert.Contains(t, diag.String(), essencePath,
-		"an essence that EXISTS but cannot be read must be reported, not silently reported as never-distilled")
+		"an essence that EXISTS but cannot be read must be reported, not silently reported as never-compacted")
 }
 
 // --- Phase 2: direct tests for the extracted `session` RunE bodies ----------
@@ -427,18 +427,18 @@ func TestSessionList_EmptyIndexRendersEmptyJSONList(t *testing.T) {
 	}
 }
 
-// undistilledSessionError tells the two "nothing to print" cases apart. They
-// are NOT interchangeable: a pending harp has nothing to distill, so telling
-// the user to run `session distill` on it is advice that cannot work.
-func TestUndistilledSessionError_DistinguishesPendingFromUndistilled(t *testing.T) {
-	pending := undistilledSessionError("amber-swift-owl", "")
+// uncompactedSessionError tells the two "nothing to print" cases apart. They
+// are NOT interchangeable: a pending harp has nothing to compact, so telling
+// the user to run `session compact` on it is advice that cannot work.
+func TestUncompactedSessionError_DistinguishesPendingFromUncompacted(t *testing.T) {
+	pending := uncompactedSessionError("amber-swift-owl", "")
 	require.Error(t, pending)
 	assert.Contains(t, pending.Error(), "pending")
-	assert.NotContains(t, pending.Error(), "session distill",
-		"a harp with no backend session bound has nothing to distill; naming the command would be unusable advice")
+	assert.NotContains(t, pending.Error(), "session compact",
+		"a harp with no backend session bound has nothing to compact; naming the command would be unusable advice")
 
-	bound := undistilledSessionError("amber-swift-owl", "sess-123")
+	bound := uncompactedSessionError("amber-swift-owl", "sess-123")
 	require.Error(t, bound)
-	assert.Contains(t, bound.Error(), "ctxloom session distill amber-swift-owl",
+	assert.Contains(t, bound.Error(), "ctxloom session compact amber-swift-owl",
 		"a bound-but-uncompacted harp must name the command that fixes it")
 }

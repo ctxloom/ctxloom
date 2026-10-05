@@ -82,11 +82,11 @@ func TestNewSessionRow_EndedAt(t *testing.T) {
 // TestSessionRow_JSONShape pins the wire shape of the default projection:
 // harp/summary/start, plus end and essence_path once populated (both tagged
 // omitempty) — nothing from the fuller sessions.Entry (session_id,
-// transcript_path, a bare "distilled" bool, etc.) leaks through. essence_path
-// restores backend-contract V4; a bare "distilled" flag is deliberately NOT
+// transcript_path, a bare "compacted" bool, etc.) leaks through. essence_path
+// restores backend-contract V4; a bare "compacted" flag is deliberately NOT
 // part of this shape — a present/absent essence_path already carries that.
 func TestSessionRow_JSONShape(t *testing.T) {
-	t.Run("undistilled session omits essence_path", func(t *testing.T) {
+	t.Run("uncompacted session omits essence_path", func(t *testing.T) {
 		row := newSessionRow(operations.ViewSession(sessions.Entry{
 			HarpName:  "swift-amber-falcon",
 			Summary:   "Designed the picker",
@@ -105,7 +105,7 @@ func TestSessionRow_JSONShape(t *testing.T) {
 		assert.Equal(t, "Designed the picker", got["summary"])
 	})
 
-	t.Run("distilled session carries essence_path", func(t *testing.T) {
+	t.Run("compacted session carries essence_path", func(t *testing.T) {
 		testsupport.Isolate(t)
 		harp := "plump-loose-sash"
 		dir, err := paths.HarpDir(harp)

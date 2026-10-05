@@ -45,7 +45,7 @@ adopted.
 Without --apply this only reports; nothing on disk or in the session index
 changes. --apply appends every adopted candidate to the harp's Rotations
 through the session store, oldest first — never a hand edit of the record —
-and prints the next step (distill or recover) to actually materialize the
+and prints the next step (compact or recover) to actually materialize the
 recovered history; it does not run that step itself.
 
 Only claude-code harps are supported today; every other backend refuses by
@@ -198,7 +198,7 @@ func reportAdoptPlanOnly(cmd *cobra.Command, harp string, wouldAdopt int) error 
 
 // reportAdoptNextStep is the LOUD part of a successful --apply: seeding
 // Rotations changes the index, not the canonical transcript a session reader
-// actually loads — this command deliberately never distills or refreshes
+// actually loads — this command deliberately never compacts or refreshes
 // that on its own (a caller may want to review the lineage first), so it
 // names the next step outright rather than leaving a caller to assume
 // adoption alone made the recovered history readable.
@@ -208,7 +208,7 @@ func reportAdoptNextStep(cmd *cobra.Command, harp string, adopted int) error {
 		w.Printf("ctxloom adopted nothing for %s: every candidate was already known or overlapped the existing lineage.\n", harp)
 		return w.Err()
 	}
-	w.Printf("ctxloom adopted %d rotation(s) into %s's lineage. Nothing else changed yet — run `ctxloom session distill %s` next (or, from inside that session, /recover) to rebuild its canonical transcript from the full lineage.\n",
+	w.Printf("ctxloom adopted %d rotation(s) into %s's lineage. Nothing else changed yet — run `ctxloom session compact %s` next (or, from inside that session, /recover) to rebuild its canonical transcript from the full lineage.\n",
 		adopted, harp, harp)
 	return w.Err()
 }

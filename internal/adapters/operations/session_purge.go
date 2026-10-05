@@ -71,7 +71,7 @@ const (
 	// PurgePopulationTranscript is the machine-written bulk: everything under
 	// transcripts/ and native/ (classifyPurgeFile).
 	PurgePopulationTranscript PurgePopulation = "transcript"
-	// PurgePopulationArtifacts is the derived essence — what distillation
+	// PurgePopulationArtifacts is the derived essence — what compaction
 	// produced, and what can be produced again only while the transcript
 	// still exists.
 	PurgePopulationArtifacts PurgePopulation = "artifacts"
@@ -140,7 +140,7 @@ var (
 	// for against a session with no essence.md and Undistilled was not also
 	// set. Without an essence the transcript is the session's ONLY record;
 	// this is the extra deliberate flag that permits destroying it.
-	ErrPurgeUndistilled = errors.New("session was never distilled")
+	ErrPurgeUndistilled = errors.New("session was never compacted")
 	// ErrPurgeNoPopulation is returned when a request names no population. A
 	// destroyer that was handed nothing to destroy must say so rather than
 	// walk the directory, keep every file, and report success.
@@ -162,7 +162,7 @@ var (
 // keeps the row instead of silently reconciling it away over its now-missing
 // transcript.
 //
-// "Is this session distilled?" is sessions.Distilled — the disk, never
+// "Is this session compacted?" is sessions.Distilled — the disk, never
 // entry.Summary.
 func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, error) {
 	if len(req.Populations) == 0 {
@@ -213,12 +213,12 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	}
 	items = append(items, outputEssenceItems(entry)...)
 
-	// The undistilled guard protects a real file, so it asks whether there IS
+	// The uncompacted guard protects a real file, so it asks whether there IS
 	// one. Firing on the request alone would refuse forever for a session
 	// whose transcript is already deliberately gone — the caller would have
 	// done exactly what the refusal asked and still be told no.
 	if wantTranscript && !hasEssence && !req.Undistilled && hasClass(items, PurgeClassMachine) {
-		return res, fmt.Errorf("%w: %q — its transcript is the only record of this session; pass --undistilled to destroy it anyway", ErrPurgeUndistilled, harp)
+		return res, fmt.Errorf("%w: %q — its transcript is the only record of this session; pass --uncompacted to destroy it anyway", ErrPurgeUndistilled, harp)
 	}
 
 	for _, it := range items {

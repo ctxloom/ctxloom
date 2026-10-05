@@ -54,12 +54,12 @@ func TestViewSession_CarriesTheRecordAndTheDerivedFacts(t *testing.T) {
 	assert.False(t, v.StaleKnown, "no transcript to compare the essence against")
 }
 
-// TestViewSession_UndistilledHasNoEssence: a session never distilled has no
+// TestViewSession_UncompactedHasNoEssence: a session never compacted has no
 // essence path and is not purged; the view says so rather than guessing.
-func TestViewSession_UndistilledHasNoEssence(t *testing.T) {
+func TestViewSession_UncompactedHasNoEssence(t *testing.T) {
 	testsupport.Isolate(t)
 
-	v := ViewSession(sessions.Entry{HarpName: "never-distilled-harp"})
+	v := ViewSession(sessions.Entry{HarpName: "never-compacted-harp"})
 
 	assert.False(t, v.Distilled)
 	assert.Empty(t, v.EssencePath)

@@ -68,7 +68,7 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.True(t, out.Loaded, "canonical previous session must materialize")
-	assert.True(t, out.WasCached, "fresh essence must be reused, not re-distilled")
+	assert.True(t, out.WasCached, "fresh essence must be reused, not re-compacted")
 	assert.Equal(t, essenceBody, out.Content, "content must come from ~/.ctxloom/sessions/<harp>/essence.md")
 	assert.Empty(t, out.SessionID, "ACP session carries no backend id")
 }

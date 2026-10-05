@@ -32,7 +32,7 @@
 ./internal/adapters/cli/mcp_doccomment_test.go|TestDocComments_NameOnlyConstructorsThatExist t * testing . T|1|11|TestDocComments_NameOnlyConstructorsThatExist|34-76
 ./internal/adapters/cli/remote_discover.go|runRemoteDiscover cmd * cobra . Command , args [ ] string , loadConfig func * config . Config , error , fetcher remote . Fetcher|1|11|runRemoteDiscover|51-134
 ./internal/adapters/cli/run_owned.go|renderOwnedRunEvents ctx context . Context , out io . Writer , format , runID string , events < - chan * agentcoordpb . AgentEvent , turnIdle chan < - string , capture bool|1|26|renderOwnedRunEvents|199-301
-./internal/adapters/cli/session_distill.go|distillMissingOrStale cmd * cobra . Command , entries [ ] sessions . Entry , appDir string|1|11|distillMissingOrStale|26-80
+./internal/adapters/cli/session_compact.go|compactMissingOrStale cmd * cobra . Command , entries [ ] sessions . Entry , appDir string|1|11|compactMissingOrStale|26-80
 ./internal/adapters/cli/tui/model.go| m Model|1|25||429-510
 ./internal/adapters/cli/tui/render_test.go|assertTerminatedEscapes t * testing . T , s string , msg string , args ... any|1|11|assertTerminatedEscapes|202-232
 ./internal/adapters/cli/util_config_write.go||1|11||195-268

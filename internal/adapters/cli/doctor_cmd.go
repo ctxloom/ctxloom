@@ -34,7 +34,7 @@ transcript store refuses rather than guessing at an unvalidated format;
 companion detection + loadout probing (taskloom/ltk/...); every
 paths.TierLocal path (internal/core/paths.Layout) this checkout is missing — the
 local-only state (the dirty-tree-commit acknowledgement, the task-log
-project-id marker, distilled sessions, review's cached diff objects) that a
+project-id marker, compacted sessions, review's cached diff objects) that a
 fresh clone has no way to learn it lacks anywhere else; and, always, a stated
 reminder of the one boundary no check here crosses: ctxloom can confirm it
 WROTE the assembled context onto the engine's own surface, never that the

@@ -64,10 +64,10 @@ const (
 	cotPlan    = "{\"bulk\":true}\n"
 )
 
-// cotSeedSession plants a DISTILLED harp directory in the session layout —
+// cotSeedSession plants a COMPACTED harp directory in the session layout —
 // a scratch/ file, a transcript under transcripts/ and an essence in its
 // recorded output dir — whose owner is provably gone, aged by the given
-// amount. Distilled, because only a distilled session's persistent members are
+// amount. Compacted, because only a compacted session's persistent members are
 // --include-persist's to take.
 func cotSeedSession(t *testing.T, harp string, age time.Duration) string {
 	t.Helper()

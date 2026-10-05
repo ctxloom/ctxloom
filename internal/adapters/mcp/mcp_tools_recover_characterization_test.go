@@ -17,12 +17,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-const recoverBody = "Distilled: the recovered predecessor."
+const recoverBody = "Compacted: the recovered predecessor."
 
 // recoverFixture isolates the session index, assigns a harp in a fresh project,
 // and returns a server speaking as that harp whose distiller answers for
-// distilled — the id the test expects recover to target.
-func recoverFixture(t *testing.T, distilled string) (*ctxServer, string, *sessions.Manager) {
+// compacted — the id the test expects recover to target.
+func recoverFixture(t *testing.T, compacted string) (*ctxServer, string, *sessions.Manager) {
 	t.Helper()
 	testsupport.Isolate(t)
 	mgr, err := sessions.Open(nil)
@@ -36,7 +36,7 @@ func recoverFixture(t *testing.T, distilled string) (*ctxServer, string, *sessio
 		facts:            testLaunchFacts(),
 		self:             coord.Identity{Harp: entry.HarpName, ProjectDir: projectDir},
 		cfg:              config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")}),
-		compactorFactory: fixedCompactor(distilled, recoverBody),
+		compactorFactory: fixedCompactor(compacted, recoverBody),
 	}, entry.HarpName, mgr
 }
 
@@ -116,7 +116,7 @@ func TestHandleRecoverSession_EmptyBackendUsesTheDefault(t *testing.T) {
 }
 
 // An explicit session_id skips resolution entirely — even when it names the
-// current session — and is distilled and loaded.
+// current session — and is compacted and loaded.
 func TestHandleRecoverSession_ExplicitSessionID(t *testing.T) {
 	const id = "4c1d3b8e-0000-4000-8000-0000000000ee"
 	s, harp, mgr := recoverFixture(t, id)

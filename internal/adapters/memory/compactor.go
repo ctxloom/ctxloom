@@ -1014,11 +1014,11 @@ func (c *Compactor) runCompactTurn(ctx context.Context, systemPrompt, content st
 // staleness check, `session list`) consume these fields without
 // parsing the body.
 type compactedMeta struct {
-	SessionID string `yaml:"session_id"`
-	HarpName  string `yaml:"harp_name,omitempty"`
-	// DistilledAt keeps the persisted key it carries: essence front-matter
-	// already on disk is read through this tag.
-	DistilledAt time.Time `yaml:"distilled_at"`
+	// SchemaVersion is essenceKind's generation; the writer stamps the current one.
+	SchemaVersion int       `yaml:"schema_version"`
+	SessionID     string    `yaml:"session_id"`
+	HarpName      string    `yaml:"harp_name,omitempty"`
+	CompactedAt   time.Time `yaml:"compacted_at"`
 	// EntryCount is the number of entries this essence was compacted from, and
 	// doubles as the STALENESS FINGERPRINT: loadOrCompactSession counts the
 	// live transcript's entries and re-compacts once more have arrived;
@@ -1103,7 +1103,8 @@ func (c *Compactor) saveCompacted(sessionID, body string, meta compactedMeta) (s
 	}
 
 	meta.SessionID = sessionID
-	meta.DistilledAt = time.Now().UTC()
+	meta.SchemaVersion = essenceKind.Current()
+	meta.CompactedAt = time.Now().UTC()
 
 	frontmatter, err := yaml.Marshal(meta)
 	if err != nil {
@@ -1191,8 +1192,7 @@ type CompactedSession struct {
 
 // LoadCompactedSession reads <sessionsDir>/<sessionID>.md.
 func LoadCompactedSession(fsys afero.Fs, sessionsDir, sessionID string) (*CompactedSession, error) {
-	path := filepath.Join(sessionsDir, sessionID+".md")
-	data, err := afero.ReadFile(fsys, path)
+	data, err := readEssence(fsys, filepath.Join(sessionsDir, sessionID+".md"))
 	if err != nil {
 		return nil, err
 	}
@@ -1201,23 +1201,18 @@ func LoadCompactedSession(fsys afero.Fs, sessionsDir, sessionID string) (*Compac
 
 // parseCompactedMarkdown extracts front-matter + body from a compacted .md.
 func parseCompactedMarkdown(data []byte) (*CompactedSession, error) {
-	text := string(data)
-	if !strings.HasPrefix(text, "---\n") {
-		return nil, fmt.Errorf("compacted file missing front-matter")
-	}
-	rest := text[len("---\n"):]
-	end := strings.Index(rest, "\n---\n")
-	if end < 0 {
-		return nil, fmt.Errorf("compacted file has unterminated front-matter")
+	fm, after, err := splitEssence(data)
+	if err != nil {
+		return nil, err
 	}
 	var meta compactedMeta
-	if err := yaml.Unmarshal([]byte(rest[:end+1]), &meta); err != nil {
+	if err := yaml.Unmarshal([]byte(fm), &meta); err != nil {
 		return nil, fmt.Errorf("parse front-matter: %w", err)
 	}
-	body := strings.TrimLeft(rest[end+len("\n---\n"):], "\n")
+	body := strings.TrimLeft(after, "\n")
 	return &CompactedSession{
 		SessionID:     meta.SessionID,
-		CompactedAt:   meta.DistilledAt,
+		CompactedAt:   meta.CompactedAt,
 		SourceEntries: meta.EntryCount,
 		TokensOut:     meta.TokensOut,
 		Body:          body,

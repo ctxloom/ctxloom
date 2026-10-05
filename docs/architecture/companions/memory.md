@@ -77,6 +77,7 @@ flowchart TD
 | `CompactionResult` | `compactor.go` | What one `Compact` reports back to its caller |
 | `Compactor` | `compactor.go` | The configured pipeline. It holds **no field for the session index it mutates** — each method that needs the index calls `sessions.Open` itself, so one `Compact` parses the index more than once |
 | `compactedMeta` | `compactor.go` | The YAML frontmatter written at the top of every essence |
+| `essenceKind` / `readEssence` | `essence_schema.go` | The schemaver Kind versioning that frontmatter (never the body): a load migrates an older essence in memory, `--write-upgrades` persists it, a newer one is refused |
 | `CompactedSession` | `compactor.go` | The parsed form of an essence: `compactedMeta` plus `Body` |
 | `PlanBlock` | `plans.go` | One plan file's label and verbatim content, as `RenderPlans` re-attaches it |
 

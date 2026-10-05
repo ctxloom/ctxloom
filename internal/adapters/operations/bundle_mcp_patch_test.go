@@ -191,3 +191,62 @@ func TestSetBundleMCP_RefusesAnEntryTheLoaderWouldRefuse(t *testing.T) {
 	_, err = GetBundleMCP(ctx, cfg, GetBundleMCPRequest{Bundle: "b", Name: "new"})
 	require.ErrorIs(t, err, ErrItemNotFound, "a refused set creates nothing")
 }
+
+// unloadableMCP is each entry shape the loader refuses, with the sentinel
+// wire.MCPServer.Validate names it by.
+var unloadableMCP = []struct {
+	name string
+	in   BundleMCPInput
+	want error
+}{
+	{"no target", BundleMCPInput{Notes: new("n")}, wire.ErrMCPServerNoTarget},
+	{"two targets", BundleMCPInput{Command: new("bin"), URL: new("https://mcp.example.test/v1")}, wire.ErrMCPServerTwoTargets},
+}
+
+// No write path saves an MCP entry the loader would refuse.
+func TestCreateBundle_RefusesAnUnloadableMCPEntry(t *testing.T) {
+	for _, tc := range unloadableMCP {
+		t.Run(tc.name, func(t *testing.T) {
+			_, cfg := setupBundleTestDir(t)
+			_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
+				Name: "bad", MCPServers: map[string]BundleMCPInput{"srv": tc.in},
+			})
+			require.ErrorIs(t, err, tc.want)
+			_, err = GetBundle(cfg, "bad")
+			require.Error(t, err, "a refused create saves no bundle")
+		})
+	}
+}
+
+func TestUpdateBundle_RefusesAnUnloadableMCPEntry(t *testing.T) {
+	for _, tc := range unloadableMCP {
+		for _, path := range []string{"add", "set"} {
+			t.Run(tc.name+"/"+path, func(t *testing.T) {
+				ctx := context.Background()
+				cfg := newItemTestBundle(t)
+				req := UpdateBundleRequest{Name: "b"}
+				if path == "add" {
+					req.AddMCPServers = map[string]BundleMCPInput{"srv": tc.in}
+				} else {
+					req.SetMCPServers = map[string]BundleMCPInput{"srv": tc.in}
+				}
+				_, err := UpdateBundle(ctx, cfg, req)
+				require.ErrorIs(t, err, tc.want)
+				_, err = GetBundleMCP(ctx, cfg, GetBundleMCPRequest{Bundle: "b", Name: "srv"})
+				require.ErrorIs(t, err, ErrItemNotFound, "a refused update saves nothing")
+			})
+		}
+	}
+}
+
+// Set reports whether it made the entry or changed an existing one.
+func TestSetBundleMCP_StatusSaysCreatedOrUpdated(t *testing.T) {
+	ctx := context.Background()
+	cfg := newItemTestBundle(t)
+	res, err := SetBundleMCP(ctx, cfg, SetBundleMCPRequest{Bundle: "b", Name: "srv", MCP: remoteMCPInput()})
+	require.NoError(t, err)
+	assert.Equal(t, SetBundleMCPStatusCreated, res.Status)
+	res, err = SetBundleMCP(ctx, cfg, SetBundleMCPRequest{Bundle: "b", Name: "srv", MCP: BundleMCPInput{Notes: new("n2")}})
+	require.NoError(t, err)
+	assert.Equal(t, SetBundleMCPStatusUpdated, res.Status)
+}

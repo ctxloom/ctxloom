@@ -166,6 +166,19 @@ func (m BundleMCPInput) patch(e bundles.BundleMCP) bundles.BundleMCP {
 	return e
 }
 
+// refuseUnloadableMCP is every write path's check that the bundle carries no
+// MCP entry the loader would refuse (wire.MCPServer.Validate, whose sentinels
+// it returns unchanged). Saving one would leave a bundle that no longer loads.
+// Entries are visited in sorted order so the first offender is stable.
+func refuseUnloadableMCP(b *bundles.Bundle) error {
+	for _, name := range collections.SortedKeys(b.MCP) {
+		if err := b.MCP[name].AsWire().Validate(); err != nil {
+			return fmt.Errorf("mcp %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
 func setIfNamed[T any](dst, v *T) {
 	if v != nil {
 		*dst = *v
@@ -221,6 +234,9 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	applyFragmentInputs(bundle, req.Fragments)
 	applyPromptInputs(bundle, req.Commands)
 	applyMCPInputs(bundle, req.MCPServers)
+	if err := refuseUnloadableMCP(bundle); err != nil {
+		return nil, err
+	}
 
 	distillFragments(ctx, bundle, namesNeedingFragmentDistill(bundle, req.Fragments), req.Distiller)
 	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Commands), req.Distiller)
@@ -387,6 +403,9 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 	promptDistillTargets = append(promptDistillTargets, addPT...)
 	changes = applyMCPEdits(bundle, onlyNewKeys(req.AddMCPServers, bundle.MCP), nil, changes)
 	changes = applyMCPEdits(bundle, req.SetMCPServers, req.RemoveMCPServers, changes)
+	if err := refuseUnloadableMCP(bundle); err != nil {
+		return nil, err
+	}
 
 	if len(changes) == 0 {
 		return &UpdateBundleResult{Status: "no_changes", Name: req.Name, Path: bundle.Path}, nil

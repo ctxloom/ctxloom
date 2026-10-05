@@ -39,7 +39,7 @@ func IsSessionDir(root string, e fs.DirEntry) bool {
 }
 
 // essenceFrontmatter is the slice of essence.md's frontmatter a listing
-// needs. The file is written by internal/adapters/memory (distilledMeta); only the
+// needs. The file is written by internal/adapters/memory (compactedMeta); only the
 // summary is read back here.
 type essenceFrontmatter struct {
 	Summary string `yaml:"summary"`

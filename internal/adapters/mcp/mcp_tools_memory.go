@@ -220,7 +220,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 				TokensOut:  result.TotalTokensOut,
 				Reduction:  reductionPct(result.TotalTokensIn, result.TotalTokensOut),
 				Duration:   result.Duration.String(),
-				OutputPath: result.DistilledPath,
+				OutputPath: result.CompactedPath,
 			}, nil
 		}
 		// No index entry for this harp. A NAMED session cannot land here —
@@ -232,7 +232,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		// itself under that harp's own lineage, which is the only place
 		// anything reads one from.
 		// The TurnEnd-captured next step; absent on a harp that has not
-		// finished a turn, and absent costs nothing (see distillPrompt).
+		// finished a turn, and absent costs nothing (see compactPrompt).
 		taskHint, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
 		distiller := operations.DistillerOneShot(s.facts, s.hostsFor(), s.cfg).Model(model).WorkDir(workDir).Lazy()
 		defer distiller.End()
@@ -263,7 +263,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 			TokensOut:  result.TotalTokensOut,
 			Reduction:  reductionPct(result.TotalTokensIn, result.TotalTokensOut),
 			Duration:   result.Duration.String(),
-			OutputPath: result.DistilledPath,
+			OutputPath: result.CompactedPath,
 		}, nil
 	})
 	if err != nil {
@@ -368,7 +368,7 @@ func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolReques
 	if in.SessionID == "" {
 		return nil, nil, fmt.Errorf("either session_id or harp_name is required")
 	}
-	return s.loadOrDistillSession(ctx, in.SessionID, in.Backend, in.Model, policyArchived)
+	return s.loadOrCompactSession(ctx, in.SessionID, in.Backend, in.Model, policyArchived)
 }
 
 // loadHarpEssence reads the essence.md in harp's output dir and returns it as
@@ -447,7 +447,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 	// keeps erring toward re-distilling when a transcript's size cannot be
 	// determined: a cached essence from an earlier /clear covers only an
 	// earlier slice.
-	return s.loadOrDistillSession(ctx, targetSessionID, backendName, in.Model, policyLive)
+	return s.loadOrCompactSession(ctx, targetSessionID, backendName, in.Model, policyLive)
 }
 
 // resolveRecoverTarget picks the session recover_session should restore when
@@ -631,14 +631,14 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		}, nil
 	}
 
-	return s.loadOrDistillSession(ctx, sessionID, backendName, in.Model, policyArchived)
+	return s.loadOrCompactSession(ctx, sessionID, backendName, in.Model, policyArchived)
 }
 
 // previousSessionByHarp materializes a canonical/ACP previous session — one
 // with no backend SessionID, whose only source is the harp's own captured
 // transcript and whose essence lives at <output dir>/essence.md
 // (NOT the legacy sessionID-keyed <sessionsDir>/<id>.md the backend path reads
-// via LoadDistilledSession). It mirrors loadOrDistillSession's cache-then-
+// via LoadCompactedSession). It mirrors loadOrCompactSession's cache-then-
 // distill shape, keyed by harp instead of session id:
 //
 //   - fresh essence on disk (source transcript hasn't grown past it) -> reuse
@@ -797,7 +797,7 @@ var policyLive = sessionLoadPolicy{RedistillWhenUnknown: true, LiveTranscript: t
 // an LLM call or a full re-conversion on one buys nothing.
 var policyArchived = sessionLoadPolicy{}
 
-// loadOrDistillSession is the shared body for load_session, recover_session,
+// loadOrCompactSession is the shared body for load_session, recover_session,
 // and get_previous_session. It reuses the cached distilled essence when it is
 // still current and otherwise re-distills on demand, then loads what was just
 // written. Staleness is decided by the source transcript's byte size: the size
@@ -815,7 +815,7 @@ var policyArchived = sessionLoadPolicy{}
 // transcript is produced by reading the engine's own store back afterward — and
 // requiring the user to import the vendor transcript by hand first made the tool fail
 // at exactly the moment it was reached for.
-func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, policy sessionLoadPolicy) (*mcp.CallToolResult, *loadSessionResult, error) {
+func (s *ctxServer) loadOrCompactSession(ctx context.Context, sessionID, backendName, model string, policy sessionLoadPolicy) (*mcp.CallToolResult, *loadSessionResult, error) {
 	workDir, err := s.projectDir()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
@@ -1020,7 +1020,7 @@ func sessionHarpForID(id string) string {
 // on disk plus the transcript byte size stamped into its frontmatter (the
 // staleness fingerprint), or (nil, 0) when none is cached.
 func loadCachedDistilledSession(sessionsDir, sessionID string) (*loadSessionResult, int) {
-	distilled, err := memory.LoadDistilledSession(afero.NewOsFs(), sessionsDir, sessionID)
+	distilled, err := memory.LoadCompactedSession(afero.NewOsFs(), sessionsDir, sessionID)
 	if err != nil {
 		return nil, 0
 	}
@@ -1030,7 +1030,7 @@ func loadCachedDistilledSession(sessionsDir, sessionID string) (*loadSessionResu
 		Content:   distilled.Body,
 		WasCached: true,
 		Tokens:    distilled.TokensOut,
-		CreatedAt: distilled.DistilledAt.Format("2006-01-02 15:04:05"),
+		CreatedAt: distilled.CompactedAt.Format("2006-01-02 15:04:05"),
 	}, distilled.SourceEntries
 }
 
@@ -1102,7 +1102,7 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 		}
 	}
 	// The TurnEnd-captured next step; absent on a harp that has not finished
-	// a turn, and absent costs nothing (see distillPrompt).
+	// a turn, and absent costs nothing (see compactPrompt).
 	taskHint, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
 	distiller := operations.DistillerOneShot(s.facts, s.hostsFor(), s.cfg).Model(model).WorkDir(workDir).Lazy()
 	defer distiller.End()
@@ -1131,11 +1131,11 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 
 	// Read back under the key Compact actually WROTE, not the one the caller
 	// passed: Compact resolves the session to its harp (result.SessionID =
-	// session.ID) and saveDistilled keys the mirror off that. Reading by the
+	// session.ID) and saveCompacted keys the mirror off that. Reading by the
 	// caller's id made a successful distillation report "couldn't read it back"
 	// for every session whose vendor id differs from its harp — the essence was
 	// on disk the whole time, under a name this lookup never asked for.
-	distilled, err := memory.LoadDistilledSession(afero.NewOsFs(), sessionsDir, compactResult.SessionID)
+	distilled, err := memory.LoadCompactedSession(afero.NewOsFs(), sessionsDir, compactResult.SessionID)
 	if err != nil {
 		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distilled session %s but couldn't read it back: %v", compactResult.SessionID, err)}, nil
 	}

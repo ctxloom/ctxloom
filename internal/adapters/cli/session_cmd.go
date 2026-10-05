@@ -399,6 +399,6 @@ func reportDistillResult(out io.Writer, harpName string, result *memory.Compacti
 		reduced = ", older content compressed to fit"
 	}
 	w.Printf("distilled %s in %s (%d → %d tokens%s)\nessence: %s\n",
-		harpName, result.Duration, result.TotalTokensIn, result.TotalTokensOut, reduced, result.DistilledPath)
+		harpName, result.Duration, result.TotalTokensIn, result.TotalTokensOut, reduced, result.CompactedPath)
 	return w.Err()
 }

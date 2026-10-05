@@ -31,7 +31,7 @@ flowchart TD
 
     subgraph agentfacing["agent-facing (MCP tools, internal/adapters/mcp)"]
         H["handleCompactSession · handleListSessions · handleLoadSession<br/>handleRecoverSession · handleGetPreviousSession"]
-        H --> LOD["loadOrDistillSession — the session-id-keyed cache-or-distill choke"]
+        H --> LOD["loadOrCompactSession — the session-id-keyed cache-or-distill choke"]
         H --> PBH["previousSessionByHarp — the harp-keyed choke"]
         LOD --> SF["singleflightDistill / singleflightCompact"]
         PBH --> SF
@@ -79,7 +79,7 @@ burst of filesystem events one plan write produces into one logical change.
 
 ## Invariants
 
-- **Cache-or-distill goes through one choke per keying.** `loadOrDistillSession`
+- **Cache-or-distill goes through one choke per keying.** `loadOrCompactSession`
   for session-id-keyed lookups, `previousSessionByHarp` for harp-keyed. Both
   route through the singleflight group `HostApp` owns, so concurrent identical
   distills collapse to one LLM call; the group is shared across per-call

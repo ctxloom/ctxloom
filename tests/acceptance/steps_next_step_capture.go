@@ -46,7 +46,7 @@ func nextStepOf(w *World) *nextStepState {
 // than the file merely being shorter than some other text.
 const longTextTailSentinel = "LONG-TEXT-TAIL-THAT-MUST-NOT-SURVIVE"
 
-// sessionLogOpenLine is the line Compactor.runDistill opens the transcript
+// sessionLogOpenLine is the line Compactor.runCompactTurn opens the transcript
 // payload with. Splitting the recorded prompt at its LAST occurrence
 // separates the INSTRUCTIONS (where a task hint lands) from the session log
 // (which a hint must leave untouched). Last, not first: the instructions

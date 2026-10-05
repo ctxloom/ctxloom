@@ -59,7 +59,7 @@ func WriteNextStep(fsys afero.Fs, harpName, text string) error {
 //
 // A missing file is NOT an error and reports ("", false): a session that has
 // not finished a turn yet has no next step, and that is the ordinary case on
-// the first distill of a fresh harp. Every other failure — an unresolvable
+// the first compaction of a fresh harp. Every other failure — an unresolvable
 // harp, an unreadable file, a file holding only whitespace — reports the same
 // ("", false), because the single question this answers is whether a usable
 // hint is available, and there is no caller that could act on the difference.

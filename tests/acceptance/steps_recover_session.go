@@ -57,7 +57,7 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 	// canonical reverse-lookup path resolves to the session via its HARP, so
 	// the loaded agent.Session.ID becomes the harp, while the caller's
 	// original (UUID) sessionID is what the post-distill read-back
-	// (LoadDistilledSession) still keys on — a legitimate bug, but a
+	// (LoadCompactedSession) still keys on — a legitimate bug, but a
 	// read-path one, out of this task's scope (bounding + fail-loud only;
 	// filed separately, not fixed here).
 	ctx.Step(`^a captured session "([^"]*)" with a large canonical transcript$`, func(c context.Context, harp string) error {

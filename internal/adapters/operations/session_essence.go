@@ -40,7 +40,7 @@ func ReadHarpEssence(harpName string) ([]byte, error) {
 // SessionEssenceInfo resolves a session's essence file path and whether it
 // exists (i.e. the session is distilled), WITHOUT reading the file — so the
 // listing can report essence_path/distilled cheaply for every row. It mirrors
-// saveDistilled's own write order: the current essence first, then this
+// saveCompacted's own write order: the current essence first, then this
 // rotation's own copy under segments/, which is what still answers for a
 // session whose harp has since been distilled again.
 //

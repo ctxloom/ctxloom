@@ -64,7 +64,7 @@
 ./internal/adapters/isolation/traceprobe_test.go|TestRenderRunSpec_TraceProbe t * testing . T|1|11|TestRenderRunSpec_TraceProbe|81-122
 ./internal/adapters/mcp/mcp_doccomment_test.go|TestDocComments_NameOnlyConstructorsThatExist t * testing . T|1|11|TestDocComments_NameOnlyConstructorsThatExist|38-80
 ./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)handleGetPreviousSession ctx context . Context , _ * mcp . CallToolRequest , in getPreviousSessionInput|1|14|handleGetPreviousSession|551-620
-./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)loadOrDistillSession ctx context . Context , sessionID , backendName , model string , policy sessionLoadPolicy|1|28|loadOrDistillSession|803-945
+./internal/adapters/mcp/mcp_tools_memory.go|(s*ctxServer)loadOrCompactSession ctx context . Context , sessionID , backendName , model string , policy sessionLoadPolicy|1|28|loadOrCompactSession|803-945
 ./internal/adapters/memory/stamp_test.go|TestStampPlanFile_PreservesFileMode t * testing . T|1|12|TestStampPlanFile_PreservesFileMode|236-280
 ./internal/adapters/operations/bundle_distill.go|DistillBundleFile ctx context . Context , req DistillBundleFileRequest|1|14|DistillBundleFile|81-143
 ./internal/adapters/operations/bundles.go|PushBundle ctx context . Context , cfg * config . Config , req PushBundleRequest|1|11|PushBundle|702-790

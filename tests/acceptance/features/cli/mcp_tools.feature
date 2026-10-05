@@ -254,8 +254,8 @@ Feature: MCP tools
   # that a second compact_session finds it. None proves that the tools a
   # caller actually reaches for afterwards — load_session, recover_session —
   # read that essence rather than quietly distilling the transcript again.
-  # Both answer through loadOrDistillSession, whose cache lookup is keyed by
-  # a DIFFERENT path (segments/<session_id>.md via memory.LoadDistilledSession)
+  # Both answer through loadOrCompactSession, whose cache lookup is keyed by
+  # a DIFFERENT path (segments/<session_id>.md via memory.LoadCompactedSession)
   # than the one compact_session checks (ReadHarpEssence), so agreement
   # between the two is a property to prove, not a given.
   #

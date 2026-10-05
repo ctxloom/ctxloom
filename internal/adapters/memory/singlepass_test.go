@@ -95,7 +95,7 @@ func TestFitToBudget_NeverExceedsTheBudget(t *testing.T) {
 }
 
 // TestFitToBudget_CutsOnRuneBoundaries: a mid-rune split makes the text invalid
-// UTF-8, which fails proto3 string marshaling and turns the whole distillation
+// UTF-8, which fails proto3 string marshaling and turns the whole compaction
 // into a failure. The reducer must never produce one.
 func TestFitToBudget_CutsOnRuneBoundaries(t *testing.T) {
 	var b strings.Builder
@@ -193,15 +193,15 @@ func TestAssembleBody_PinsArtifactsAndPlansAfterTheBody(t *testing.T) {
 		"artifacts then plans, so the ordering is pinned rather than incidental")
 }
 
-// TestDistillPrompt_PromptDirOverridesTheEmbeddedPrompt: the flag exists so an
+// TestCompactPrompt_PromptDirOverridesTheEmbeddedPrompt: the flag exists so an
 // evaluation harness can A/B a prompt variant without rebuilding.
-func TestDistillPrompt_PromptDirOverridesTheEmbeddedPrompt(t *testing.T) {
+func TestCompactPrompt_PromptDirOverridesTheEmbeddedPrompt(t *testing.T) {
 	dir := t.TempDir()
 	variant := "VARIANT PROMPT UNDER EVALUATION"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "session-distill.md"), []byte(variant), 0o644))
 
 	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{PromptDir: dir, EssenceMaxChars: 4242}}
-	got, err := c.distillPrompt()
+	got, err := c.compactPrompt()
 	require.NoError(t, err)
 
 	assert.Contains(t, got, variant, "the on-disk variant must be what reaches the model")
@@ -210,23 +210,23 @@ func TestDistillPrompt_PromptDirOverridesTheEmbeddedPrompt(t *testing.T) {
 	assert.Contains(t, got, "4242", "the budget is still injected over the variant")
 }
 
-// TestDistillPrompt_MissingPromptFailsLoudly. Falling back to the embedded
+// TestCompactPrompt_MissingPromptFailsLoudly. Falling back to the embedded
 // prompt would report a measurement attributed to the variant under test while
 // actually measuring the built-in one — a wrong number that looks right.
-func TestDistillPrompt_MissingPromptFailsLoudly(t *testing.T) {
+func TestCompactPrompt_MissingPromptFailsLoudly(t *testing.T) {
 	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{PromptDir: t.TempDir(), EssenceMaxChars: 1000}}
 
-	_, err := c.distillPrompt()
+	_, err := c.compactPrompt()
 
 	require.Error(t, err, "a missing prompt must fail, never silently use the embedded one")
 	assert.Contains(t, err.Error(), "session-distill", "the error must name the prompt it wanted")
 }
 
-// TestCompact_DistillsInExactlyOneLLMCall is the whole point of the change: a
+// TestCompact_CompactsInExactlyOneLLMCall is the whole point of the change: a
 // transcript is summarized by ONE call that sees all of it, never by several
 // whose partial summaries are then merged by a pass that cannot check them
 // against the source.
-func TestCompact_DistillsInExactlyOneLLMCall(t *testing.T) {
+func TestCompact_CompactsInExactlyOneLLMCall(t *testing.T) {
 	testsupport.Isolate(t)
 
 	// Comfortably larger than the old 8,000-token chunk size, so under the old
@@ -244,7 +244,7 @@ func TestCompact_DistillsInExactlyOneLLMCall(t *testing.T) {
 	}
 
 	var calls int
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			calls++
 			_, _ = stdout.Write([]byte("---\nsummary: one call\n---\n\n### Open Items\n- none\n"))
@@ -265,11 +265,11 @@ func TestCompact_DistillsInExactlyOneLLMCall(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, calls,
-		"a session must be distilled by exactly one LLM call — more means chunking is back")
+		"a session must be compacted by exactly one LLM call — more means chunking is back")
 	assert.False(t, result.InputReduced,
 		"this fixture fits the budget, so nothing should have been compressed away")
 
-	data, err := os.ReadFile(result.DistilledPath)
+	data, err := os.ReadFile(result.CompactedPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "one call", "the model's output must reach the essence")
 }
@@ -294,7 +294,7 @@ func TestCompact_OversizedTranscriptStillOneCallAndReportsReduction(t *testing.T
 
 	var calls int
 	var sawBytes int
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			calls++
 			sawBytes = len(prompt)
@@ -331,7 +331,7 @@ func TestRecoverFinding_PromptDirOverridesTheEmbeddedPrompt(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "result-finding.md"), []byte(variant), 0o644))
 
 	var seen string
-	mock := &scriptedDistiller{
+	mock := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			seen = prompt
 			_, _ = stdout.Write([]byte("a finding"))
@@ -352,7 +352,7 @@ func TestRecoverFinding_PromptDirOverridesTheEmbeddedPrompt(t *testing.T) {
 // result-finding.md must fail, never silently measure the embedded prompt.
 func TestRecoverFinding_MissingPromptFailsLoudly(t *testing.T) {
 	called := false
-	mock := &scriptedDistiller{
+	mock := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			called = true
 			return 0, nil

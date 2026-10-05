@@ -77,7 +77,7 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	// What this session said it was about to do next, captured by the TurnEnd
 	// hook while it was still live. The bool is discarded because there is
 	// nothing else to do with "no hint": an absent hint IS the empty string,
-	// and distillPrompt appends nothing for it.
+	// and compactPrompt appends nothing for it.
 	taskHint, _ := memory.ReadNextStep(configFS(cfg), entry.HarpName)
 	// The distiller is a real session run as the distiller agent: one harp
 	// for every turn this compaction makes, started on the first turn and ended
@@ -101,7 +101,7 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 		PromptDir:       opts.PromptDir,
 		// What this session said it was about to do next, captured by the
 		// TurnEnd hook while it was still live. Absent on a harp that has not
-		// finished a turn, and absent is free: distillPrompt appends nothing.
+		// finished a turn, and absent is free: compactPrompt appends nothing.
 		TaskHint: taskHint,
 	})
 	if err != nil {
@@ -141,7 +141,7 @@ func DistillSource(workDir string) (memory.Source, error) {
 
 // ResolveSessionSource resolves the backend (defaulting when empty) and a
 // transcript source for it, returning the resolved backend name for display.
-// Shared by loadOrDistillSession's callers (mcp's memory tools). The source
+// Shared by loadOrCompactSession's callers (mcp's memory tools). The source
 // is ctxloom's canonical capture, scoped to workDir; a session-index open
 // failure is the caller's error, since there is no other source to read.
 func ResolveSessionSource(reg engine.Registry, cfg *config.Config, backendName, workDir string) (transcript.Source, string, error) {

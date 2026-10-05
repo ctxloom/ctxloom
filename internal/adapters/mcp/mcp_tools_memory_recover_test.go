@@ -68,7 +68,7 @@ func TestLoadOrDistillSession_ConvertsVendorTranscriptOnDemand(t *testing.T) {
 		compactorFactory: fixedCompactor(vendorSessionID, "Distilled: recovered without a manual backfill."),
 	}
 
-	_, out, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
+	_, out, err := s.loadOrCompactSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.True(t, out.Loaded, "the vendor transcript was there to be converted; recovery must not refuse it")
@@ -124,7 +124,7 @@ func TestLoadOrDistillSession_LiveRefreshesAnAlreadyConvertedTranscript(t *testi
 		compactorFactory: fixedCompactor(vendorSessionID, "Distilled: first look."),
 	}
 
-	_, first, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
+	_, first, err := s.loadOrCompactSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
 	require.NoError(t, err)
 	require.True(t, first.Loaded)
 	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -135,7 +135,7 @@ func TestLoadOrDistillSession_LiveRefreshesAnAlreadyConvertedTranscript(t *testi
 	// The session keeps going while its context is being recovered.
 	require.NoError(t, os.WriteFile(vendorPath, full, 0o644))
 
-	_, second, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
+	_, second, err := s.loadOrCompactSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
 	require.NoError(t, err)
 	require.True(t, second.Loaded)
 	afterSecond, err := os.ReadFile(canonPath)
@@ -195,7 +195,7 @@ func TestLoadOrDistillSession_LiveRefreshesWhenAddressedByHarp(t *testing.T) {
 	}
 
 	// Addressed by HARP throughout — the spelling the gate could not resolve.
-	_, first, err := s.loadOrDistillSession(context.Background(), harp, "claude-code", "", policyLive)
+	_, first, err := s.loadOrCompactSession(context.Background(), harp, "claude-code", "", policyLive)
 	require.NoError(t, err)
 	require.True(t, first.Loaded)
 	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -205,7 +205,7 @@ func TestLoadOrDistillSession_LiveRefreshesWhenAddressedByHarp(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(vendorPath, full, 0o644))
 
-	_, second, err := s.loadOrDistillSession(context.Background(), harp, "claude-code", "", policyLive)
+	_, second, err := s.loadOrCompactSession(context.Background(), harp, "claude-code", "", policyLive)
 	require.NoError(t, err)
 	require.True(t, second.Loaded)
 	afterSecond, err := os.ReadFile(canonPath)
@@ -257,7 +257,7 @@ func TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache(t *testing.T
 		compactorFactory: fixedCompactor(vendorSessionID, "Distilled: first look."),
 	}
 
-	_, first, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
+	_, first, err := s.loadOrCompactSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
 	require.NoError(t, err)
 	require.True(t, first.Loaded)
 	require.Contains(t, first.Content, "first look")
@@ -274,7 +274,7 @@ func TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache(t *testing.T
 
 	s.compactorFactory = fixedCompactor(vendorSessionID, "Distilled: second look.")
 
-	_, second, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
+	_, second, err := s.loadOrCompactSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
 	require.NoError(t, err)
 	require.True(t, second.Loaded)
 	assert.Contains(t, second.Content, "second look",
@@ -384,7 +384,7 @@ func TestLoadOrDistillSession_ArchivedAlsoConvertsOnDemand(t *testing.T) {
 		compactorFactory: fixedCompactor(vendorSessionID, "Distilled: a prior session opened without a manual backfill."),
 	}
 
-	_, out, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", policyArchived)
+	_, out, err := s.loadOrCompactSession(context.Background(), vendorSessionID, "claude-code", "", policyArchived)
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.True(t, out.Loaded, "opening a prior interactive session must convert its transcript, not refuse it")
@@ -426,7 +426,7 @@ func TestLoadOrDistillSession_ArchivedDoesNotRewriteAnExistingTranscript(t *test
 		compactorFactory: fixedCompactor(vendorSessionID, "Distilled: archived."),
 	}
 
-	_, out, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", policyArchived)
+	_, out, err := s.loadOrCompactSession(context.Background(), vendorSessionID, "claude-code", "", policyArchived)
 	require.NoError(t, err)
 	require.True(t, out.Loaded)
 
@@ -466,7 +466,7 @@ func TestLoadOrDistillSession_NoCaptureMessageDoesNotSendTheUserBackToBackfill(t
 	projectDir := t.TempDir()
 	s := &ctxServer{facts: testLaunchFacts(), self: coord.Identity{ProjectDir: projectDir}, cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")})}
 
-	_, out, err := s.loadOrDistillSession(context.Background(), fakeSessionID, "claude-code", "", policyLive)
+	_, out, err := s.loadOrCompactSession(context.Background(), fakeSessionID, "claude-code", "", policyLive)
 	require.NoError(t, err, "recovery must never block the agent (CLAUDE.md) — this degrades to a usable message, not a tool error")
 	require.NotNil(t, out)
 	assert.False(t, out.Loaded)

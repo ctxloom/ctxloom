@@ -53,7 +53,7 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 	// the project config.yaml, which reaches the mock backend for `ctxloom
 	// run` (whose caller resolves the label's map via MockControlFor and forwards it
 	// on RunOptions.Env — internal/adapters/cli/run.go's st.llmEnv/runEnv) but NOT for
-	// this journey's command: internal/adapters/memory/compactor.go's runDistill
+	// this journey's command: internal/adapters/memory/compactor.go's runCompactTurn
 	// builds its own bare pb.RunOptions{} with no Env field at all, so
 	// nothing ever carries the config-declared env to the mock runner
 	// subprocess it spawns. Confirmed by hand: pointing only the
@@ -130,7 +130,7 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 
 // distillableTurns appends an ordinary user/assistant exchange long enough
 // that the seeded transcript clears the distillation floor
-// (memory.minDistillTokens), so a scenario about what the distiller receives
+// (memory.minCompactTokens), so a scenario about what the distiller receives
 // actually reaches the distiller instead of a verbatim dump.
 func distillableTurns(turns ...string) []string {
 	filler := strings.Repeat("We walked through the design and settled its open questions one by one. ", 40)

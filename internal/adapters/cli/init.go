@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -145,9 +146,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	alreadyExists := ctxloomDirExists(afero.NewOsFs(), appDir)
+	alreadyExists := initializedProjectExists(afero.NewOsFs(), appDir)
 	if alreadyExists {
-		fmt.Printf("ctxloom directory already exists: %s\n", appDir)
+		fmt.Printf(initAlreadyExistsFormat, appDir)
 	}
 
 	interactive := isInteractiveTerminal() && !initNonInteractive
@@ -249,6 +250,22 @@ func resolveAppDir(home bool) (string, error) {
 		return "", fmt.Errorf("failed to get current directory: %w", err)
 	}
 	return filepath.Join(pwd, config.AppDirName), nil
+}
+
+// initAlreadyExistsFormat is init's notice for a project it is re-running
+// over; it takes the project's .ctxloom path.
+const initAlreadyExistsFormat = "ctxloom directory already exists: %s\n"
+
+// initializedProjectExists reports whether appDir is an initialized project:
+// a .ctxloom carrying its config file. A .ctxloom without one is what an
+// abandoned or partial setup leaves (a marker, a state dir), and init
+// scaffolds it like a fresh project rather than treating it as one to keep.
+func initializedProjectExists(fsys afero.Fs, appDir string) bool {
+	if !ctxloomDirExists(fsys, appDir) {
+		return false
+	}
+	_, err := fsys.Stat(paths.ConfigPath(appDir))
+	return err == nil
 }
 
 // ctxloomDirExists reports whether appDir already exists as a directory.

@@ -407,7 +407,7 @@ func parseTypePathVersion(s string) (itemType ItemType, itemPath string, content
 		return "", "", "", fmt.Errorf("empty path")
 	}
 	// SECURITY: the item path is later joined under a repo root (BuildFilePath)
-	// and, for filesystem-backed sources, under a directory root (fsVCS) —
+	// and, for filesystem-backed sources, under a directory root —
 	// reject traversal at parse time so no read path has to re-check.
 	if err := validateItemPath(itemPath); err != nil {
 		return "", "", "", err

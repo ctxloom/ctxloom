@@ -73,93 +73,43 @@ func TestInitializeProject_UnknownEngineRefusesAndWritesNothing(t *testing.T) {
 	assert.False(t, cfgExists, "a rejected engine must leave no config.yaml behind")
 }
 
-// TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys proves a
-// request's handler and acknowledgement actually LAND ON DISK — not just that InitializeProject returns success. This is the exact
-// silent-no-op shape this project is known for (exit 0, success message, zero
-// bytes delivered). dirty_tree_handler lands in config.yaml; the commit acknowledgement now lands in
-// paths.DirtyTreeCommitAckPath — a SEPARATE file outside the layered config
-// chain entirely (see config.SetDirtyTreeCommitAck's doc) — so this test
-// reads each answer through its own independent path: raw config.yaml bytes
-// plus config.ParseConfig for the handler, and config.DirtyTreeCommitAcknowledged
-// (a fresh Lookup against the on-disk admission store, not any in-memory
-// state InitializeProject might have retained) for the ack.
-func TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys(t *testing.T) {
-	tests := []struct {
-		name               string
-		dirtyTreeHandler   string
-		dirtyTreeCommitAck bool
-		wantHandlerKeyOnly bool // true: assert the raw "dirty_tree_handler: <value>" line is present
-		wantAcknowledged   bool // true: assert config.DirtyTreeCommitAcknowledged reports true
-	}{
-		{
-			name:             "commit answer writes handler commit and records the ack",
-			dirtyTreeHandler: "commit", dirtyTreeCommitAck: true,
-			wantHandlerKeyOnly: true, wantAcknowledged: true,
-		},
-		{
-			name:             "copy answer writes handler copy and records no ack",
-			dirtyTreeHandler: "copy", dirtyTreeCommitAck: false,
-			wantHandlerKeyOnly: true, wantAcknowledged: false,
-		},
-		{
-			name:             "stale answer writes handler stale and records no ack",
-			dirtyTreeHandler: "stale", dirtyTreeCommitAck: false,
-			wantHandlerKeyOnly: true, wantAcknowledged: false,
-		},
-		{
-			name:             "fail answer writes handler fail and records no ack",
-			dirtyTreeHandler: "fail", dirtyTreeCommitAck: false,
-			wantHandlerKeyOnly: true, wantAcknowledged: false,
-		},
-		{
-			// The question never having run (flag-selected engine,
-			// --non-interactive) must reproduce the pre-interview shape
-			// exactly: neither answer recorded, so an existing project loads
-			// the built-in "commit" default, unacknowledged (still refused).
-			name:             "unanswered (zero values) writes neither key",
-			dirtyTreeHandler: "", dirtyTreeCommitAck: false,
-			wantHandlerKeyOnly: false, wantAcknowledged: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+// TestInitializeProject_DirtyTreeHandlerLandsAndNoAckIsRecorded proves the
+// handler actually LANDS ON DISK — not just that InitializeProject returns
+// success — and that no handler, commit included, records the commit
+// acknowledgement: that consent is a human act outside init. The handler is
+// read back as raw bytes and through config.ParseConfig; the ack through
+// config.DirtyTreeCommitAcknowledged, the accessor the delegate gate consults.
+func TestInitializeProject_DirtyTreeHandlerLandsAndNoAckIsRecorded(t *testing.T) {
+	for _, handler := range []string{"commit", "copy", "stale", "fail", ""} {
+		t.Run("handler="+handler, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
 			appDir := "/proj/.ctxloom"
 
 			res, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{
-				AppDir:             appDir,
-				Engine:             "claude-code",
-				DirtyTreeHandler:   tt.dirtyTreeHandler,
-				DirtyTreeCommitAck: tt.dirtyTreeCommitAck,
-				FS:                 fs,
+				AppDir:           appDir,
+				Engine:           "claude-code",
+				DirtyTreeHandler: handler,
+				FS:               fs,
 			})
 			require.NoError(t, err)
 			require.Equal(t, "initialized", res.Status)
 
-			// Independent read #1: raw bytes off disk, byte-level payload check.
 			cfgData, err := afero.ReadFile(fs, paths.ConfigPath(appDir))
 			require.NoError(t, err, "config.yaml should be written")
 			body := string(cfgData)
-			if tt.wantHandlerKeyOnly {
-				assert.Contains(t, body, "dirty_tree_handler: "+tt.dirtyTreeHandler)
+			if handler != "" {
+				assert.Contains(t, body, "dirty_tree_handler: "+handler)
 			} else {
 				assert.NotContains(t, body, "dirty_tree_handler:")
 			}
-			assert.NotContains(t, body, "dirty_tree_commit_ack", "the ack must never land in config.yaml — it belongs in the state store")
+			assert.NotContains(t, body, "dirty_tree_commit_ack")
 
-			// Independent read #2: parse those same bytes through the config
-			// package's real loader and assert via its typed accessor — the
-			// same GetDirtyTreeHandler the delegate gate itself reads, so this
-			// proves the payload round-trips usably, not just that the
-			// substring happens to appear.
 			cfg, err := config.ParseConfig(cfgData)
 			require.NoError(t, err)
-			assert.Equal(t, tt.dirtyTreeHandler, cfg.GetDirtyTreeHandler())
+			assert.Equal(t, handler, cfg.GetDirtyTreeHandler())
 
-			// Independent read #3: the ack, from its OWN store, via the exact
-			// accessor operations.commitDirtyTree consults.
-			assert.Equal(t, tt.wantAcknowledged, config.DirtyTreeCommitAcknowledged(report.Reporter{}, fs, appDir))
+			assert.False(t, config.DirtyTreeCommitAcknowledged(report.Reporter{}, fs, appDir),
+				"init must never record the commit acknowledgement")
 		})
 	}
 }

@@ -148,7 +148,7 @@ type TagResolver interface {
 // tagLister is the optional Fetcher capability to enumerate a repository's tags.
 // The local-clone fetcher provides it and the cache fetcher forwards it; a
 // backend without it yields no tags, so a semver range simply finds nothing to
-// match. Probed by type assertion, mirroring itemHistorySource / Versioned.
+// match. Probed by type assertion.
 type tagLister interface {
 	ListTags(ctx context.Context, owner, repo string) ([]string, error)
 }

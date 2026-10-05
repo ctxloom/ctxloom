@@ -642,7 +642,7 @@ func TestParseReference_SelectorVersionOrderings(t *testing.T) {
 
 // TestParseReference_RejectsTraversal pins the parse-time path-traversal gate:
 // an item path is later joined under a repo root (BuildFilePath) and, for
-// filesystem-backed sources, under a directory root (fsVCS.ReadFile), so ".."
+// filesystem-backed sources, under a directory root, so ".."
 // segments and absolute paths must be rejected at parse time with a clear
 // error rather than contained ad hoc at each read site.
 func TestParseReference_RejectsTraversal(t *testing.T) {

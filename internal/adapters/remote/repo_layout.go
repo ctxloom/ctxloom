@@ -97,7 +97,7 @@ func ContentItemRoot(_ ItemType) string {
 // results and no error.
 //
 // A listing that RECURSES from RepoItemRoot is already correct and should keep
-// doing that, reducing each name with RepoItemName; this exists for the ones
+// doing that, reducing each name with paths.TrimBundlesLayoutSegment; this exists for the ones
 // that cannot recurse.
 func RepoItemRoots(_ ItemType) []string {
 	roots := make([]string, 0, len(paths.BundleLayouts()))
@@ -105,17 +105,6 @@ func RepoItemRoots(_ ItemType) []string {
 		roots = append(roots, paths.RepoBundlesPrefixFor(l))
 	}
 	return roots
-}
-
-// RepoItemName reduces a RepoItemRoot-relative path to the item's BARE name.
-//
-// A listing names each item by its path relative to the root it walked, so the
-// moment a layout has a segment those names come back layout-qualified
-// ("v2/atelier") and resolve to nothing. Every listing site passes its names
-// through here so that a layout gaining a segment does not silently rename
-// every item in the repo.
-func RepoItemName(_ ItemType, rel string) string {
-	return paths.TrimBundlesLayoutSegment(rel)
 }
 
 // BundleTreeRoots names every repository root at which a bundle's DIRECTORY

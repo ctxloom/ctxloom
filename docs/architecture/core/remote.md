@@ -104,7 +104,7 @@ flowchart TD
 | `AuthConfig` | `internal/adapters/remote/types.go:259` | Forge tokens (GitHub only). |
 | `Registry` | `internal/adapters/remote/registry.go:20` | Persisted remotes + forge bindings + default remote, behind `sync.RWMutex`, over `afero.Fs`. |
 | `ForgeConfig` / `ResolvedForge` | `internal/adapters/remote/forge.go:15,57` | Labelled forge config (`Type` + free-form `Body`) and its resolution to `{Type, BaseURL, APIURL, TokenEnv}`. |
-| `Fetcher` (interface) | `internal/adapters/remote/fetcher.go:9` | Forge port: `Forge`, `FetchFile`, `ListDir`, `ResolveRef`, `SearchRepos`, `ValidateRepo`, `GetDefaultBranch`. Optional capabilities are probed by type assertion: `tagLister`, `fetcherTagResolver` (`version_constraint.go:152,160`), `Versioned` (`vcs.go:60`), `itemHistorySource` (`vcs.go:166`). |
+| `Fetcher` (interface) | `internal/adapters/remote/fetcher.go:9` | Forge port: `Forge`, `FetchFile`, `ListDir`, `ResolveRef`, `SearchRepos`, `ValidateRepo`, `GetDefaultBranch`. Optional capabilities are probed by type assertion: `tagLister`, `fetcherTagResolver` (`version_constraint.go:152,160`). |
 | `cacheFetcher` | `internal/adapters/remote/cached_fetcher_factory.go:34` | The production `Fetcher`: routes all content/ref reads to a local clone; uses the forge API only for `SearchRepos`. |
 | `GitCloneFetcher` | `internal/adapters/remote/git_clone_fetcher.go:21` | `Fetcher` over an already-cloned go-git repository; zero network. |
 | `GitHubFetcher` / `GitHubPublisher` | `internal/adapters/remote/github.go:18,436` | REST read adapter (with a 401→unauthenticated retry) and the write adapter. |
@@ -118,9 +118,6 @@ flowchart TD
 | `PublishManager` / `Publisher` / `PublishOptions` | `internal/adapters/remote/publish.go:44,18,108` | Forge write orchestrator, the write port, and its request DTO. |
 | `SelectorKind` / `Resolution` | `internal/adapters/remote/version_constraint.go:22,213` | Selector classification (`sha`, `tag`, `version`, `branch` — persisted in `lock.yaml`, so a wire contract) and the `{SHA, Version, Kind}` outcome. |
 | `RepoVersions` (interface) / `fetcherRepoVersions` | `internal/adapters/remote/version_constraint.go:127,166` | The version-space seam and its `Fetcher` adapter. |
-| `VCS` / `Versioned` (interfaces) | `internal/adapters/remote/vcs.go:33,60` | Current-state reads; optional revision capability (`ReadFileAt`, `ResolveRevision`). |
-| `gitForgeVCS` / `fsVCS` / `localGitVCS` | `internal/adapters/remote/vcs.go:103,192,260` | VCS backends over a `Fetcher`, over an afero tree, and over an enclosing git worktree. |
-| `Resolver` / `RefFetcher` | `internal/adapters/remote/resolver.go:65,33` | Scheme dispatch over per-scheme fetchers. |
 | `SearchQuery` / `TagQuery` | `internal/adapters/remote/types.go:235,244` | Parsed manifest search filter. |
 
 ## Key functions
@@ -169,7 +166,6 @@ flowchart TD
 | `Registry.GetOrCreateByURL(...)` | `internal/adapters/remote/registry.go:201` | Find-or-auto-register a remote by URL; called on every pull (`pull.go:294`). |
 | `Registry.ResolveItemRemote(...)` | `internal/adapters/remote/registry.go:304` | Longest-prefix match of a local name to a short remote name. |
 | `Registry.SetForge / Forges / GetDefault / SetDefault` | `internal/adapters/remote/registry.go:251,428,389,397` | Forge binding and default-remote accessors. |
-| `readItemAt(ctx, vcs, path, version)` | `internal/adapters/remote/vcs.go:83` | Single home of version routing: empty version → `VCS.ReadFile`; non-empty → `Versioned.ReadFileAt`, erroring if the backend has no history rather than serving HEAD. |
 
 ### Fetch
 
@@ -328,10 +324,9 @@ flowchart TD
     the profile that asked for it.
 13. **Reads are pinned, but the pin is a parameter, not an enforced precondition.** Every
     content read takes an explicit ref/SHA: `FetchRefBytes(…, sha)`
-    (`internal/adapters/remote/fetch_ref.go:13`), `Fetcher.FetchFile(…, ref)`, and
-    `readItemAt` (`internal/adapters/remote/vcs.go:83`). An **empty** ref/SHA is not rejected: it
-    means "default-branch tip" on the clone path (`git_clone_fetcher.go:293`) and
-    "current state" via `VCS.ReadFile` (`vcs.go:83`). Neither `fetchAtLockedSHA`
+    (`internal/adapters/remote/fetch_ref.go:13`) and `Fetcher.FetchFile(…, ref)`. An **empty**
+    ref/SHA is not rejected: it means "default-branch tip" on the clone path
+    (`git_clone_fetcher.go:293`). Neither `fetchAtLockedSHA`
     (`bundle_reader.go:147`) nor `FetchRefBytes` (`fetch_ref.go:13`) validates that the SHA
     is non-empty, so an entry with an empty `SHA` reads the tip rather than failing.
 14. **A pull records a pin and nothing else.** `Puller` writes no content file; the
@@ -376,7 +371,7 @@ flowchart TD
   `CachingBundleReader` and hands each `(bytes, signature)` pair to
   `signing.VerifyPublisher`.
 - `internal/adapters/operations` — owns pull/sync/lock/upgrade/publish command flows, constructs
-  `Puller`, `PublishManager`, `RepoCache`, `Resolver` and `LockfileStore`, and is the only
+  `Puller`, `PublishManager`, `RepoCache` and `LockfileStore`, and is the only
   other writer of `lock.yaml`.
 - `internal/core/bundles`, `internal/core/profiles`, `internal/adapters/operations/managedhooks`, `internal/adapters/cli` —
   consume the reference grammar (`CanonicalBundleRef`, `CanonicalizeShortRef`,
@@ -414,8 +409,6 @@ exists in the package.
   reads it (`internal/adapters/remote/github.go:18`).
 - `Reference.EffectiveContentVersion` is documented as falling back when no version is
   specified; it returns the field unchanged (`internal/adapters/remote/reference.go:657`).
-- `Resolver`'s own doc states the read/list seam "does not yet replace any existing read
-  path"; nothing in production calls it (`internal/adapters/remote/resolver.go`).
 - `TagQuery` carries one `Negated` flag for a whole tag list, so it cannot represent the
   per-term negation its grammar doc advertises (`internal/adapters/remote/types.go:244`,
   `internal/adapters/remote/search.go:72`).

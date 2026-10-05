@@ -58,50 +58,6 @@ func TestBuildFilePath_LiteralPath(t *testing.T) {
 		"a local ref resolves against an already-open content root, so it must NOT re-state it")
 }
 
-// TestRepoItemName_ReturnsBareNames is the listing half.
-//
-// Every listing site walks RepoItemRoot and reduces the walked path with
-// RepoItemName. What that reduction must guarantee is that the name a listing
-// yields is the name a consumer can ASK FOR — never a layout-qualified one. The
-// guarantee is asserted against the live layout segments rather than against
-// literal strings, so it keeps holding as layouts are added or renamed.
-func TestRepoItemName_ReturnsBareNames(t *testing.T) {
-	t.Run("an unsegmented name is returned unchanged", func(t *testing.T) {
-		assert.Equal(t, "lang/go/testing", RepoItemName(ItemTypeBundle, "lang/go/testing"))
-	})
-
-	for _, l := range []paths.BundleLayout{paths.LayoutV2} {
-		t.Run("a name under "+l.String()+" loses its segment", func(t *testing.T) {
-			seg, err := l.Segment()
-			if err != nil {
-				t.Fatalf("segment for %s: %v", l, err)
-			}
-			// Build the listed name exactly as a walk of RepoItemRoot would:
-			// the layout's own prefix, minus the root, plus the item name.
-			listed := "lang/go/testing"
-			if seg != "" {
-				listed = seg + "/" + listed
-			}
-			assert.Equal(t, "lang/go/testing", RepoItemName(ItemTypeBundle, listed),
-				"a listing must yield the name a consumer asks for, not one qualified by the layout it happened to be stored in")
-		})
-	}
-}
-
-// TestRepoItemName_KeepsANameThatMerelyLooksLikeASegment guards the trim's one
-// dangerous edge: an item whose whole name equals a layout segment. Trimming it
-// would reduce a real bundle to the empty name.
-func TestRepoItemName_KeepsANameThatMerelyLooksLikeASegment(t *testing.T) {
-	for _, l := range []paths.BundleLayout{paths.LayoutV2} {
-		seg, err := l.Segment()
-		if err != nil || seg == "" {
-			continue
-		}
-		assert.Equal(t, seg, RepoItemName(ItemTypeBundle, seg),
-			"a bundle NAMED %q is not a layout root and must survive the reduction", seg)
-	}
-}
-
 // TestRepoLayout_PublishFetchAndListingAgree is the property the whole seam
 // exists for, asserted against the accessors rather than against literals — so
 // it still holds after the layout moves, which is exactly when it matters.
@@ -125,6 +81,6 @@ func TestRepoLayout_PublishFetchAndListingAgree(t *testing.T) {
 	// (format v2 carries no extension, since the leaf is the tree's own
 	// directory) — and confirm the bare name comes back.
 	rel := published[len(root)+1:]
-	assert.Equal(t, name, RepoItemName(ItemTypeBundle, rel),
+	assert.Equal(t, name, paths.TrimBundlesLayoutSegment(rel),
 		"a listing of the just-published bundle must yield the name it was published under")
 }

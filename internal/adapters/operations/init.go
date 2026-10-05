@@ -24,20 +24,12 @@ type InitializeProjectRequest struct {
 	AppDir string `json:"app_dir"`
 	Engine string `json:"engine"`
 
-	// DirtyTreeHandler and DirtyTreeCommitAck carry a dirty-tree-handler
-	// choice and its commit acknowledgement through. Both empty/false (the zero values)
-	// reproduce today's behavior exactly: an unset project default resolving
-	// to the built-in "commit" default, unacknowledged, so the commit handler
-	// still refuses a delegated spawn until a human explicitly acknowledges
-	// it. DirtyTreeHandler is written into config.yaml (BuildInitialConfig);
-	// DirtyTreeCommitAck is NOT — it is written to
-	// paths.DirtyTreeCommitAckPath via config.SetDirtyTreeCommitAck, an
-	// admission.Store file outside the layered config chain entirely (see
-	// that function's doc for why: a config key is reachable from three
-	// channels an agent can write, and prior human consent needs a home with
-	// none).
-	DirtyTreeHandler   string `json:"dirty_tree_handler"`
-	DirtyTreeCommitAck bool   `json:"dirty_tree_commit_ack"`
+	// DirtyTreeHandler is written into config.yaml (BuildInitialConfig);
+	// empty writes no key and the built-in "commit" default applies. Init
+	// never records the commit acknowledgement: that consent is only ever a
+	// human act (`ctxloom manage commit trust`, config.SetDirtyTreeCommitAck),
+	// so the commit handler refuses a delegated spawn until it is given.
+	DirtyTreeHandler string `json:"dirty_tree_handler"`
 
 	// HeadlessPermissions is the init interview's answer for the posture the
 	// default seed agent's HEADLESS runs may use, written as that agent's
@@ -98,18 +90,6 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 	// doc: scaffold files are overwritten, the seed profile is not).
 	if err := safefs.WriteFile(fs, paths.ConfigPath(req.AppDir), configData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to create config.yaml: %w", err)
-	}
-
-	// The dirty-tree-commit acknowledgement is written OUTSIDE config.yaml
-	// (paths.DirtyTreeCommitAckPath) — see InitializeProjectRequest's doc.
-	// Only write it when granted: absent is exactly the same "not yet
-	// acknowledged" state as an explicit false record, and skipping the write
-	// keeps a checkout that never touched this question from growing a state
-	// file for no reason.
-	if req.DirtyTreeCommitAck {
-		if err := config.SetDirtyTreeCommitAck(fs, req.AppDir, true); err != nil {
-			return nil, fmt.Errorf("failed to record dirty-tree-commit acknowledgement: %w", err)
-		}
 	}
 
 	if err := writeDefaultRemotes(fs, req.AppDir); err != nil {

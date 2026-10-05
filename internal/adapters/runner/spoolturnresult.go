@@ -54,9 +54,11 @@ import (
 // coordinator's accumulator did). inReplyTo is the id of the delivered
 // message that started the turn, or empty for a turn nothing delivered
 // started — a briefing, or an engine continuing on its own. blocked is every
-// tool call the turn's engine refused; failure is the engine turning the
-// whole turn away, which makes the report an ERROR saying the run is parked.
-func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, failure *agent.TurnFailure) error {
+// tool call the turn's engine refused; plan is the plan the turn ended
+// holding for the parent to approve, carried as data; failure is the engine
+// turning the whole turn away, which makes the report an ERROR saying the
+// run is parked.
+func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, plan *coord.PlanApproval, failure *agent.TurnFailure) error {
 	if h.Depth() == 0 {
 		return nil
 	}
@@ -89,7 +91,7 @@ func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.Permissi
 		// MARKED AUTOMATIC. The correlation above is what makes this necessary:
 		// without the marker this message is indistinguishable from the child
 		// deliberately answering the ask that started the turn.
-		Structured: coord.AutoReportStructured(coord.AutoReport{Blocked: calls}),
+		Structured: coord.AutoReportStructured(coord.AutoReport{Blocked: calls, PlanApproval: plan}),
 	}); err != nil {
 		// LOUD AND COUNTED. A report that could not be written is a turn the
 		// parent will never hear about, and the accumulator that held it has

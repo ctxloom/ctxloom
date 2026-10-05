@@ -170,7 +170,7 @@ func TestSpoolTurnResult_SelfReportSuppressesIt(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 0, resp.GetStatus().GetCode())
-	require.NoError(t, home.ReportTurnResult("whatever the model happened to say", "", nil, nil))
+	require.NoError(t, home.ReportTurnResult("whatever the model happened to say", "", nil, nil, nil))
 
 	require.NotEmpty(t, recvBody(t, c, "in my own words", conformanceWait), "the child's own report must arrive")
 	assert.Empty(t, recvBody(t, c, "whatever the model happened to say", 300*time.Millisecond),
@@ -189,7 +189,7 @@ func TestSpoolTurnResult_RateLimitedTurnSaysParked(t *testing.T) {
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
 
-	require.NoError(t, home.ReportTurnResult("You've hit your limit.", "", nil, &agent.TurnFailure{Kind: agent.FailureRateLimited}))
+	require.NoError(t, home.ReportTurnResult("You've hit your limit.", "", nil, nil, &agent.TurnFailure{Kind: agent.FailureRateLimited}))
 	got := recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "RATE LIMITED") }, conformanceWait)
 	require.Len(t, got, 1, "the parent must hear the turn was turned away")
 	assert.Equal(t, KindError, got[0].Kind, "a turn that did no work is an error, not a result")
@@ -214,7 +214,7 @@ func TestSpoolTurnResult_BlockedTurnSaysBlocked(t *testing.T) {
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
 
 	denial := agent.PermissionDenial{ToolName: "Bash", ToolCallID: "t1", Reason: "needs approval"}
-	require.NoError(t, home.ReportTurnResult("I could not run the migration.", "", []agent.PermissionDenial{denial}, nil))
+	require.NoError(t, home.ReportTurnResult("I could not run the migration.", "", []agent.PermissionDenial{denial}, nil, nil))
 	got := recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "BLOCKED") }, conformanceWait)
 	require.Len(t, got, 1, "the parent must hear the turn was blocked")
 	assert.Equal(t, KindResult, got[0].Kind)
@@ -228,7 +228,7 @@ func TestSpoolTurnResult_BlockedTurnSaysBlocked(t *testing.T) {
 	require.NoError(t, json.Unmarshal(got[0].Structured, &structured))
 	assert.Equal(t, []BlockedCall{{Tool: "Bash", Reason: "needs approval", Decider: "policy"}}, structured.Blocked)
 
-	require.NoError(t, home.ReportTurnResult("  ", "", []agent.PermissionDenial{{ToolName: "Write"}}, nil))
+	require.NoError(t, home.ReportTurnResult("  ", "", []agent.PermissionDenial{{ToolName: "Write"}}, nil, nil))
 	got = recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "BLOCKED on Write") }, conformanceWait)
 	require.Len(t, got, 1, "a blocked turn that said nothing else is still a blocked report")
 	assert.Equal(t, KindResult, got[0].Kind, "not the empty-turn error: the turn has a report — what stopped it")
@@ -249,7 +249,7 @@ func TestSpoolTurnResult_EmptyTurnIsReportedAsAnError(t *testing.T) {
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
 
-	require.NoError(t, home.ReportTurnResult("   \n  ", "", nil, nil))
+	require.NoError(t, home.ReportTurnResult("   \n  ", "", nil, nil, nil))
 
 	got := recvKind(t, c, KindError, conformanceWait)
 	require.NotEmpty(t, got, "an empty turn must reach the PARENT, not just the runner's stderr")

@@ -99,8 +99,10 @@ func TestApprovals_SetGrantsReplacesTheSet(t *testing.T) {
 type postureEngine struct {
 	home     *fakeEngineHome
 	postures chan engine.TurnPosture
-	holding  chan struct{}
-	release  chan struct{}
+	// prompts, when set, receives each turn's prompt as it starts.
+	prompts chan string
+	holding chan struct{}
+	release chan struct{}
 }
 
 func (e *postureEngine) Exec([]present.Presentation) (engine.Exec, error) { return engine.Exec{}, nil }
@@ -109,6 +111,9 @@ func (e *postureEngine) Resume(string) error                              { retu
 
 func (e *postureEngine) Turn(ctx context.Context, _ engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
 	e.postures <- in.Posture
+	if e.prompts != nil {
+		e.prompts <- in.Prompt
+	}
 	send := func(ev agent.ChatEvent) {
 		payload, _ := json.Marshal(ev)
 		out <- engine.Event{Kind: ev.Kind(), Payload: payload}

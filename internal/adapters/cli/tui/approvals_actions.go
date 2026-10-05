@@ -26,7 +26,7 @@ func (a approvalsModel) actions() []apprAction {
 	if !ok || !row.live() {
 		return acts
 	}
-	acts = append(acts, kindActions[row.p.Kind]...)
+	acts = append(acts, toolActions...)
 	return append(acts,
 		apprAction{label: "Deny all from " + displaysafe.Text(row.p.From.Harp, true) + "…", run: openDenyAll},
 		apprAction{label: "Grants…", run: func(a approvalsModel, p coord.PendingApproval) (approvalsModel, tea.Cmd) {
@@ -36,22 +36,12 @@ func (a approvalsModel) actions() []apprAction {
 	)
 }
 
-// kindActions are each kind's own actions, between Later and the per-child
-// ones.
-var kindActions = map[coord.ApprovalKind][]apprAction{
-	coord.ApprovalTool: {
-		{label: "Allow once", run: allowOnce},
-		{label: "Allow for session…", run: opener(subScope)},
-		{label: "Deny…", run: opener(subDeny)},
-	},
-	coord.ApprovalQuestion: {
-		{label: "Answer…", run: opener(subAnswer)},
-		{label: "Decline…", run: opener(subDeny)},
-	},
-	coord.ApprovalPlan: {
-		{label: "Approve…", run: opener(subApprove)},
-		{label: "Reject…", run: opener(subReject)},
-	},
+// toolActions are a tool call's own actions, between Later and the
+// per-child ones.
+var toolActions = []apprAction{
+	{label: "Allow once", run: allowOnce},
+	{label: "Allow for session…", run: opener(subScope)},
+	{label: "Deny…", run: opener(subDeny)},
 }
 
 func allowOnce(a approvalsModel, p coord.PendingApproval) (approvalsModel, tea.Cmd) {
@@ -89,9 +79,6 @@ type subKind int
 const (
 	subScope subKind = iota + 1
 	subDeny
-	subAnswer
-	subApprove
-	subReject
 	subDenyAll
 	subGrants
 	subRevoke
@@ -100,7 +87,7 @@ const (
 // aimed reports that the sub-view acts on one request, so it closes when
 // that request resolves. Deny-all holds its own latched set; grants belong
 // to the child, not to a request.
-func (k subKind) aimed() bool { return k <= subReject }
+func (k subKind) aimed() bool { return k <= subDeny }
 
 // subState is an open sub-view. focus 0 is Back, 1 the primary button.
 type subState struct {
@@ -109,32 +96,19 @@ type subState struct {
 	p      coord.PendingApproval
 	harp   string
 	ids    []coord.ApprovalID // deny-all's latched set
-	text   string             // note / feedback
+	text   string             // a deny's note
 	cursor int
 	focus  int
 
-	scopes   []scopeOption
-	postures []engine.PostureTransition
-	picks    []map[int]bool // per question: the chosen option indexes
-	others   []string       // per question: the Other text
-	grants   []coord.Grant
-	grant    coord.Grant // revoke's target
+	scopes []scopeOption
+	grants []coord.Grant
+	grant  coord.Grant // revoke's target
 }
 
 func newSub(kind subKind, p coord.PendingApproval) *subState {
 	s := &subState{kind: kind, target: p.ID, p: p, harp: p.From.Harp}
-	switch kind {
-	case subScope:
+	if kind == subScope {
 		s.scopes = scopeOptions(p)
-	case subApprove:
-		s.postures = slices.Clone(p.Transitions)
-		s.cursor = max(0, slices.IndexFunc(s.postures, func(t engine.PostureTransition) bool { return t.Default }))
-	case subAnswer:
-		s.picks = make([]map[int]bool, len(p.Ask.Questions))
-		for i := range s.picks {
-			s.picks[i] = map[int]bool{}
-		}
-		s.others = make([]string, len(p.Ask.Questions))
 	}
 	return s
 }
@@ -184,22 +158,7 @@ var subSpecs = map[subKind]subSpec{
 			return len(s.scopes) > 0, "the engine offered no session rule for this call"
 		},
 		confirm: confirmScope},
-	subDeny: {primary: "Deny", text: true, listLen: noList, ready: always, confirm: confirmDeny},
-	subAnswer: {primary: "Submit answers", text: true, listLen: func(s *subState) int { return len(answerEntries(s.p)) },
-		ready: func(s *subState) (bool, string) {
-			return answersComplete(s), "answer every question first"
-		},
-		confirm: confirmAnswers},
-	subApprove: {primary: "Approve", text: true, listLen: func(s *subState) int { return len(s.postures) },
-		ready: func(s *subState) (bool, string) {
-			return len(s.postures) > 0, "this agent's engine offers no posture to continue in"
-		},
-		confirm: confirmApprove},
-	subReject: {primary: "Reject", text: true, listLen: noList,
-		ready: func(s *subState) (bool, string) {
-			return strings.TrimSpace(s.text) != "", "feedback is required: the model revises the plan from it"
-		},
-		confirm: confirmReject},
+	subDeny:    {primary: "Deny", text: true, listLen: noList, ready: always, confirm: confirmDeny},
 	subDenyAll: {primary: "Deny all", listLen: noList, ready: always, confirm: confirmDenyAll},
 	subGrants: {primary: "Revoke…", listLen: func(s *subState) int { return len(s.grants) },
 		ready: func(s *subState) (bool, string) { return len(s.grants) > 0, "no session grants to revoke" },
@@ -233,22 +192,6 @@ func confirmScope(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
 func confirmDeny(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
 	d := coord.ApprovalDecision{Message: strings.TrimSpace(s.text)}
 	return a.decided(), answerCmd(a.src, "denied "+displaysafe.Text(s.harp, true)+"'s request", []coord.ApprovalID{s.target}, d)
-}
-
-func confirmAnswers(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
-	d := coord.ApprovalDecision{Allow: true, Answers: questionAnswers(s)}
-	return a.decided(), answerCmd(a.src, "answered "+displaysafe.Text(s.harp, true), []coord.ApprovalID{s.target}, d)
-}
-
-func confirmApprove(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
-	m := s.postures[s.cursor]
-	d := coord.ApprovalDecision{Allow: true, SetMode: engine.Provide(m.Posture), Message: strings.TrimSpace(s.text)}
-	return a.decided(), answerCmd(a.src, "approved "+displaysafe.Text(s.harp, true)+"'s plan ("+displaysafe.Text(m.Label, true)+")", []coord.ApprovalID{s.target}, d)
-}
-
-func confirmReject(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
-	d := coord.ApprovalDecision{Message: strings.TrimSpace(s.text)}
-	return a.decided(), answerCmd(a.src, "rejected "+displaysafe.Text(s.harp, true)+"'s plan", []coord.ApprovalID{s.target}, d)
 }
 
 // denyAllMessage is what each denied request tells its model.
@@ -335,25 +278,15 @@ func (s *subState) moveCursor(d int) {
 	s.focus = 0
 }
 
-// typeText is typed or pasted text. In the answer view it goes to the Other
-// field under the cursor, and a space on an option toggles it instead.
+// typeText is typed or pasted text, into the sub-view's text field when it
+// has one.
 func (s *subState) typeText(t string) {
-	if s.kind == subAnswer {
-		s.answerText(t)
-		return
-	}
 	if subSpecs[s.kind].text {
 		s.text += t
 	}
 }
 
 func (s *subState) backspace() {
-	if s.kind == subAnswer {
-		if e, ok := s.entry(); ok && e.other {
-			s.others[e.q] = dropLastRune(s.others[e.q])
-		}
-		return
-	}
 	s.text = dropLastRune(s.text)
 }
 
@@ -362,92 +295,4 @@ func dropLastRune(t string) string {
 		return string(r[:len(r)-1])
 	}
 	return t
-}
-
-// answerEntry is one line of the answer view: a question's option, or its
-// Other field.
-type answerEntry struct {
-	q, opt int
-	other  bool
-}
-
-func answerEntries(p coord.PendingApproval) []answerEntry {
-	var out []answerEntry
-	for qi, q := range p.Ask.Questions {
-		for oi := range q.Options {
-			out = append(out, answerEntry{q: qi, opt: oi})
-		}
-		out = append(out, answerEntry{q: qi, other: true})
-	}
-	return out
-}
-
-func (s *subState) entry() (answerEntry, bool) {
-	es := answerEntries(s.p)
-	if s.cursor < 0 || s.cursor >= len(es) {
-		return answerEntry{}, false
-	}
-	return es[s.cursor], true
-}
-
-// answerText types into the Other field under the cursor (which, for a
-// single-choice question, replaces a chosen option), or toggles the option
-// under it on a space.
-func (s *subState) answerText(t string) {
-	e, ok := s.entry()
-	if !ok {
-		return
-	}
-	if e.other {
-		s.others[e.q] += t
-		if !s.p.Ask.Questions[e.q].MultiSelect {
-			s.picks[e.q] = map[int]bool{}
-		}
-		return
-	}
-	if t != " " {
-		return
-	}
-	if s.p.Ask.Questions[e.q].MultiSelect {
-		s.picks[e.q][e.opt] = !s.picks[e.q][e.opt]
-		return
-	}
-	s.picks[e.q] = map[int]bool{e.opt: true}
-	s.others[e.q] = ""
-}
-
-// answersComplete: every question has a chosen option or Other text.
-func answersComplete(s *subState) bool {
-	for qi := range s.p.Ask.Questions {
-		if !hasPick(s.picks[qi]) && strings.TrimSpace(s.others[qi]) == "" {
-			return false
-		}
-	}
-	return true
-}
-
-func hasPick(m map[int]bool) bool {
-	for _, on := range m {
-		if on {
-			return true
-		}
-	}
-	return false
-}
-
-// questionAnswers are the answers as the engine asked: the question text and
-// option labels verbatim (what is shown is sanitized; what is answered is
-// what the engine sent).
-func questionAnswers(s *subState) []engine.QuestionAnswer {
-	out := make([]engine.QuestionAnswer, len(s.p.Ask.Questions))
-	for qi, q := range s.p.Ask.Questions {
-		a := engine.QuestionAnswer{Question: q.Text, Other: strings.TrimSpace(s.others[qi])}
-		for oi, o := range q.Options {
-			if s.picks[qi][oi] {
-				a.Labels = append(a.Labels, o.Label)
-			}
-		}
-		out[qi] = a
-	}
-	return out
 }

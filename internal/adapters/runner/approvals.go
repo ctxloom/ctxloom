@@ -55,12 +55,14 @@ const (
 )
 
 // approvalSpec is what a launch hands the engine host to serve the route:
-// the engine's codec, the postures an approval may move the session to, and
-// the approval timeout. nil when the launch's approver is not the human.
+// the engine's codec, the postures an approval may move the session to, the
+// approval timeout, and whether the run plans first. nil when the launch's
+// approver is not the human.
 type approvalSpec struct {
 	codec       engine.ApprovalCodec
 	transitions []engine.PostureTransition
 	timeout     time.Duration
+	plansFirst  bool
 }
 
 // afterFunc is time.AfterFunc's shape, injected so tests drive the bounds.
@@ -73,9 +75,14 @@ func realAfter(d time.Duration, f func()) func() bool { return time.AfterFunc(d,
 // each call's asks share. An ask is put to the root only when it matches an
 // open call of the ledger; everything resets when the turn ends.
 type approvals struct {
-	codec  engine.ApprovalCodec
-	decide func(ctx context.Context, ask engine.PermissionAsk) (engine.PermissionAnswer, error)
-	after  afterFunc
+	codec engine.ApprovalCodec
+	// transitions are the postures an approval may move the run to;
+	// plansFirst makes the run hold a plan until the parent approves one at
+	// one of them (approvePlan).
+	transitions []engine.PostureTransition
+	plansFirst  bool
+	decide      func(ctx context.Context, ask engine.PermissionAsk) (engine.PermissionAnswer, error)
+	after       afterFunc
 	// armed, when set, is told each time a bounded wait has armed its
 	// timer — the point after which advancing the clock expires it. Tests
 	// only.
@@ -89,6 +96,13 @@ type approvals struct {
 	// is handed these afresh. The StartRun seeds them (seedGrants); the
 	// coordinator's SetGrants replaces them.
 	grants []string
+	// mode is the posture the run was moved to — a mode change the human
+	// allowed, or the posture its plan was approved at — in the engine's
+	// vocabulary; "" while the run is at its declared posture. The engine's
+	// own mode dies with the turn's process, so each later turn starts at it.
+	// It is the run's alone: a relaunch starts at the declared posture, and
+	// a run that plans first plans again.
+	mode string
 }
 
 // approvalTurn is one engine process's ledger. Its context ends with the
@@ -122,7 +136,7 @@ type decision struct {
 
 func newApprovals(spec approvalSpec, decide func(context.Context, engine.PermissionAsk) (engine.PermissionAnswer, error)) *approvals {
 	return &approvals{
-		codec: spec.codec, decide: decide, after: realAfter,
+		codec: spec.codec, transitions: spec.transitions, plansFirst: spec.plansFirst, decide: decide, after: realAfter,
 		changed: make(chan struct{}), turn: newApprovalTurn(),
 	}
 }
@@ -303,12 +317,59 @@ func (a *approvals) settle(turn *approvalTurn, d *decision, ask engine.Permissio
 	d.ans, d.err = ans, err
 	if err == nil && ans.Allow {
 		// Held before the answer is released, so a turn that starts once
-		// the engine has applied it already carries the grant.
+		// the engine has applied it already carries the grant and the mode.
 		a.grantLocked(ans.SessionRules)
+		if m, ok := ans.SetMode.Get(); ok {
+			a.mode = m
+		}
 	}
 	close(d.done)
 	a.broadcastLocked()
 	a.mu.Unlock()
+}
+
+// awaitingPlan reports that the run plans first and is still at its declared
+// posture: its turns end holding a plan for the parent to approve.
+func (a *approvals) awaitingPlan() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.plansFirst && a.mode == ""
+}
+
+// planApproval is the plan a turn ended holding, as its report carries it:
+// the artifact the turn left and the postures the parent may approve it for.
+// nil when the run holds no plan.
+func (a *approvals) planApproval(artifact string) *coord.PlanApproval {
+	if !a.awaitingPlan() {
+		return nil
+	}
+	return &coord.PlanApproval{Artifact: artifact, Postures: slices.Clone(a.transitions)}
+}
+
+// approvePlan moves a run awaiting its plan's approval to posture — the
+// default transition when posture is "" — and reports whether it did. A run
+// that holds no plan, and a posture the engine did not offer, move nothing.
+func (a *approvals) approvePlan(posture string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.plansFirst || a.mode != "" {
+		return false
+	}
+	i := slices.IndexFunc(a.transitions, func(t engine.PostureTransition) bool {
+		return t.Posture == posture || (posture == "" && t.Default)
+	})
+	if i < 0 {
+		return false
+	}
+	a.mode = a.transitions[i].Posture
+	return true
+}
+
+// heldMode is the posture the run was moved to; "" for its declared one.
+func (a *approvals) heldMode() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.mode
 }
 
 // grantLocked adds the rules an allow carried to the run's grants, each
@@ -406,7 +467,7 @@ func askTheRoot(home engineHome, spec approvalSpec, bound time.Duration) func(co
 		if err != nil {
 			return engine.PermissionAnswer{}, fmt.Errorf("%w: %v", errNoDecision, err)
 		}
-		return engine.PermissionAnswer{Allow: d.Allow, SessionRules: d.SessionRules, SetMode: d.SetMode, Answers: d.Answers, Message: d.Message}, nil
+		return engine.PermissionAnswer{Allow: d.Allow, SessionRules: d.SessionRules, SetMode: d.SetMode, Message: d.Message}, nil
 	}
 }
 

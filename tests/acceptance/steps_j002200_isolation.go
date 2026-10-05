@@ -21,11 +21,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 
 	"github.com/cucumber/godog"
 
@@ -372,8 +374,7 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^none of the per-agent worktree config artifacts appear in the project's git status$`, func(c context.Context) error {
 		w := worldFrom(c)
-		cmd := exec.Command("git", "status", "--porcelain")
-		cmd.Dir = w.env.ProjectDir
+		cmd := taskstest.GitCmd(w.env.ProjectDir, nil, "status", "--porcelain")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("git status --porcelain: %w (%s)", err, out)

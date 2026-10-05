@@ -92,7 +92,7 @@ func (approvalCodec) DecodeAsk(event string, payload []byte) (engine.PermissionA
 	if err != nil {
 		return engine.PermissionAsk{}, fmt.Errorf("claude approval tool_input: %w", err)
 	}
-	ask := engine.PermissionAsk{Kind: engine.AskTool, Tool: p.ToolName, Input: input}
+	ask := engine.PermissionAsk{Tool: p.ToolName, Input: input}
 	ask.Suggestions, ask.SuggestsSetMode = decodeSuggestions(p.Suggestions)
 	ask.Suggestions = appendNew(ask.Suggestions, ownRules(ask)...)
 	return ask, nil
@@ -303,7 +303,7 @@ const mcpPrefix = "mcp__"
 // claude's matching of those is its own, and the human is asked instead.
 func (approvalCodec) Covers(rule string, ask engine.PermissionAsk) bool {
 	r, err := parseRule(rule)
-	if err != nil || ask.Kind != engine.AskTool {
+	if err != nil {
 		return false
 	}
 	if r.RuleContent == "" {

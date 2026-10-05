@@ -101,6 +101,7 @@ func recvAnswer(t *testing.T, ch <-chan hookResult) mockAnswer {
 // mockAnswer is the mock codec's hook answer.
 type mockAnswer struct {
 	Allow   bool   `json:"allow"`
+	SetMode string `json:"set_mode"`
 	Message string `json:"message"`
 }
 

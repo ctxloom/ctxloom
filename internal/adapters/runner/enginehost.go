@@ -49,10 +49,14 @@ type engineHome interface {
 	ReportRunExited(exitCode int, harnessSessionID string)
 	// ReportTurnResult writes this turn's own output to the parent as the
 	// automatic turn report; blocked is every tool call the turn's engine
-	// refused, which makes it a BLOCKED report, and failure is the engine
-	// turning the whole turn away on a failure its coordinator holds (nil
-	// when it did not).
-	ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, failure *agent.TurnFailure) error
+	// refused, which makes it a BLOCKED report, plan is the plan the turn
+	// ended holding for the parent to approve (nil when it holds none), and
+	// failure is the engine turning the whole turn away on a failure its
+	// coordinator holds (nil when it did not).
+	ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, plan *coord.PlanApproval, failure *agent.TurnFailure) error
+	// stampPlan publishes the plan the turn left as an artifact and names
+	// it (Home.stampPlan); "" when there is none.
+	stampPlan(ctx context.Context) string
 	// Request runs one plane-2 request to completion (Home.Request) — the
 	// engine host's seam for issuing an agent-initiated request to the
 	// coordinator and awaiting its answer.
@@ -171,7 +175,8 @@ type EngineHost struct {
 	// them (launch.Placement.SecretFiles), re-read at every turn (turnExec).
 	secretFiles map[string]string
 	// posture is every turn's permission posture; each turn adds the
-	// session grants its approval route holds (approvals.heldGrants).
+	// session grants and the posture its approval route holds
+	// (approvals.heldGrants, approvals.heldMode).
 	posture engine.TurnPosture
 	// approvals is the run's approval route (nil when its approver is not
 	// the human): fed each turn's tool calls, ended with each turn.
@@ -550,7 +555,7 @@ func (eh *EngineHost) deliverFirstTurn(home engineHome, prompt string) error {
 		// report this turn produces can quote it (spoolturnresult.go). It is
 		// the id the DELIVERY used — the file's origin id — which is exactly
 		// what the sender registered its waiter under.
-		return eh.enqueueTurn(eh.baseCtx, turnTag{mail: pm.GetMessageId()}, FrameCoordinatorMessage(pm)) == nil
+		return eh.enqueueTurn(eh.baseCtx, turnTag{mail: pm.GetMessageId(), approve: planApprovalIn(pm)}, FrameCoordinatorMessage(pm)) == nil
 	})
 	return nil
 }
@@ -709,9 +714,12 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	appr := eh.approvals
 	eh.mu.Unlock()
 	if appr != nil {
-		// Taken once, here: a SetGrants landing mid-turn reaches the next
-		// turn, never the process already running at this one.
+		// Taken once, here: a SetGrants or an approved posture landing
+		// mid-turn reaches the next turn, never the process already running
+		// at this one. The engine's own mode does not survive its process,
+		// so the posture an allow moved the run to is each turn's own.
 		posture.Grants = appr.heldGrants()
+		posture.Mode = appr.heldMode()
 	}
 
 	eh.beginTurn()
@@ -839,6 +847,12 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	if lastMeta != nil {
 		denials = lastMeta.Denials
 	}
+	var plan *coord.PlanApproval
+	if appr != nil && failure == nil && appr.awaitingPlan() {
+		// The turn ended holding a plan: it is published before the report
+		// that names it, so the parent can fetch what it is asked to approve.
+		plan = appr.planApproval(home.stampPlan(ctx))
+	}
 	for _, d := range denials {
 		eh.rep.Warnf("engine host: this turn is BLOCKED — the engine refused %s (%s): %s", d.ToolName, d.Decider, orNoReason(d.Reason))
 	}
@@ -855,7 +869,7 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 		eh.installPause()
 		eh.rep.Warnf("engine host: the engine turned this turn away (%s); the run is parked until its credential's hold releases it", failure.Kind)
 	}
-	if rerr := home.ReportTurnResult(final, tag.mail, denials, failure); rerr != nil {
+	if rerr := home.ReportTurnResult(final, tag.mail, denials, plan, failure); rerr != nil {
 		eh.rep.Warnf("engine host: this turn's report was not written: %v", rerr)
 	}
 	if tag.done != nil {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -31,9 +32,7 @@ const (
 	//
 	// These commands do not have the no-config property in the strict sense:
 	// they reach GetConfig() before they can know whether the shortcut
-	// applies, and config resolution has a side effect (findAppDir creates
-	// ~/.ctxloom when it falls back to the home layer). What the user actually
-	// relied on survives — `ctxloom bundle show help` in a directory with no
+	// applies. What the user actually relied on survives — `ctxloom bundle show help` in a directory with no
 	// ctxloom config still prints help and exits 0 — because a config-less
 	// load succeeds with an empty config rather than erroring. That is what
 	// the assertions below check: help still renders with no config present.
@@ -115,8 +114,16 @@ func TestHelpArgShortcut_BehaviourForEveryNameTakingCommand(t *testing.T) {
 			if tc.seed != nil {
 				tc.seed(t)
 			}
-			home, err := os.UserHomeDir()
-			require.NoError(t, err)
+			// Config is opened before the shortcut can apply; counting opens
+			// is how the test sees that "help" was looked up as a name before
+			// it was read as a request for help.
+			opens := 0
+			prevOpen := theComposition.OpenConfig
+			theComposition.OpenConfig = func(ctx context.Context, src config.Sources, opts ...config.Option) (*config.Owner, error) {
+				opens++
+				return prevOpen(ctx, src, opts...)
+			}
+			t.Cleanup(func() { theComposition.OpenConfig = prevOpen })
 
 			// Find() rather than rootCmd.Execute(): Execute() lazily
 			// materialises cobra's built-in `help` command onto the root,
@@ -156,14 +163,8 @@ func TestHelpArgShortcut_BehaviourForEveryNameTakingCommand(t *testing.T) {
 					"`ctxloom %s help` must actually create the resource — reporting success and writing nothing is the exact defect the old guard caused here", name)
 			}
 
-			// Config is loaded before the shortcut can apply, and
-			// config.findAppDir CREATES ~/.ctxloom when it falls back to the
-			// home layer — so its presence afterwards is proof the command
-			// resolved config first, i.e. that "help" was looked up as a name
-			// before it was read as a request for help.
 			if tc.seed == nil && tc.behaviour == helpAsFallback {
-				_, statErr := os.Stat(filepath.Join(home, ".ctxloom"))
-				assert.NoError(t, statErr,
+				assert.Positive(t, opens,
 					"`ctxloom %s help` must look the name up before reading it as a help request", name)
 			}
 		})

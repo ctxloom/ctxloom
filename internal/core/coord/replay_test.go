@@ -176,7 +176,7 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 // counts by kind, delta volume (chars, counted not materialized), and the
 // (run, seq) dedupe watermark all survive a restart.
 func TestReplayEquivalence_Items(t *testing.T) {
-	kinds := []string{"run_started", "message_started", "message_delta", "message_completed", "tool_call_started", "tool_call_args_delta", "tool_call_completed", "status_changed", "run_completed"}
+	kinds := []string{"run_started", "message_started", "message_delta", "message_completed", "tool_call_started", "tool_call_args_delta", "tool_call_completed", "run_completed"}
 	for seed := int64(0); seed < 16; seed++ {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
 			dir := t.TempDir()

@@ -137,6 +137,9 @@ func (m permissionModel) Label(posture string) string {
 	return ""
 }
 
+// PlansFirst: the plan mode plans before it acts.
+func (permissionModel) PlansFirst(doc map[string]any) bool { return doc["mode"] == "plan" }
+
 // Transitions: a plan continues at default; a bypass session moves nowhere.
 func (m permissionModel) Transitions(doc map[string]any) []engine.PostureTransition {
 	if doc["mode"] == "bypass" {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -82,6 +83,10 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
+	// The config read never creates the app dir, so this may be its first write.
+	if err := fs.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
 	if err := safefs.WriteFile(fs, configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}

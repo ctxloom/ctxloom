@@ -85,11 +85,15 @@ func TestRemoteUpgrade_WordsARefusalByItsCause(t *testing.T) {
 			KeptSHA: "1111111111111111", ProposedSHA: "2222222222222222", Detail: "the verifier's words", Cause: cause}
 	}
 
-	tamper := captureStdout(t, func() { reportRefusedAdvances(os.Stdout, []operations.RefusedAdvance{refused(operations.RefusalSignature)}) })
+	tamper := captureStdout(t, func() {
+		reportRefusedAdvances(os.Stdout, []operations.RefusedAdvance{refused(operations.RefusalSignature)})
+	})
 	assert.Contains(t, tamper, msgRefusedTamper)
 	assert.NotContains(t, tamper, msgRefusedUnreadable)
 
-	unreadable := captureStdout(t, func() { reportRefusedAdvances(os.Stdout, []operations.RefusedAdvance{refused(operations.RefusalUnreadable)}) })
+	unreadable := captureStdout(t, func() {
+		reportRefusedAdvances(os.Stdout, []operations.RefusedAdvance{refused(operations.RefusalUnreadable)})
+	})
 	assert.Contains(t, unreadable, msgRefusedUnreadable)
 	assert.NotContains(t, unreadable, msgRefusedTamper, "a structural read failure is not a tamper signal")
 }

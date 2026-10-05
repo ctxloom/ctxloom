@@ -374,9 +374,8 @@ Feature: MCP tools
     And the tool failure message contains "list_sessions"
     And no essence was written under session "host-caller-thistle"
   # The SELF-COMPACTION path: an empty session_id, which compactionTargetHarp
-  # answers with the caller's own harp, and which reaches the fallback branch
-  # of handleCompactSession whenever that harp has no index entry yet (an
-  # ambient backend with no BindSession behind it).
+  # answers with the caller's own harp — the standing owner's, whose own
+  # captured thread is what gets distilled.
   #
   # The distillation runs as the agent named `distiller`, so ITS label's
   # request env is what must reach the engine. The mock honours
@@ -386,18 +385,19 @@ Feature: MCP tools
   # agent names that label — the fast role is a second mock with no canned
   # response — so a canned reply in the essence is proof the distiller agent's
   # env crossed, and an echoed prompt is proof the run fell back to the fast
-  # role or dropped the env. The scenario takes NO position on which session a
-  # self-compaction ought to pick up.
+  # role or dropped the env. The owner loads its config once, at start, so
+  # every config step precedes it.
   Scenario: a self-compaction reaches the LLM with the environment its config declares
     Given an initialized ctxloom project
-    And the session harp is "lone-hushed-quartz"
-    And a captured session "quiet-ember-drift" bound to a backend-native session id
     And the mock LLM responds "SELF-COMPACT-CROSSED-THE-CONFIGURED-ENV"
     And the fast role is a mock label "quiet-fast" with no canned response
     And I run "ctxloom agent create distiller --llm mock --runtime host"
     And the command succeeds
+    And a session owner is standing
+    And the standing session has a captured transcript to distill
     When the agent calls tool "compact_session"
     Then the tool call succeeds
+    And the mock recorded input contains "RECOVER-IDENTITY-ROUND-TRIP"
     And the essence the tool reports writing contains "SELF-COMPACT-CROSSED-THE-CONFIGURED-ENV"
 
   # get_previous_session takes no arguments at all: it resolves the previous

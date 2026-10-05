@@ -141,7 +141,7 @@ func (e *SchemaViolationError) Unwrap() error { return e.Err }
 // (--format, --bundle, --sig, --runtime, --workspace, --version, --hooks,
 // --agents, --mcp, --profiles, --llm, ...), most of which exists for reasons
 // that have nothing to do with config, and several of which happen to share a
-// NAME with a real top-level config key. `ctxloom agent set coder --runtime
+// NAME with a real top-level config key. `ctxloom agent edit coder --runtime
 // container` would have silently overwritten the PROJECT's top-level
 // `runtime`; a structured `--format json` invocation would print a stray
 // warning into what a script expects to be pure JSON (both confirmed by

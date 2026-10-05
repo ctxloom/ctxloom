@@ -99,7 +99,7 @@ func IsContainerRuntime(runtime string) bool {
 }
 
 // WorkspaceNames returns the recognized workspace-axis values; RuntimeNames
-// the runtime-axis values. Single source for writers (agent set validation,
+// the runtime-axis values. Single source for writers (agent create/edit validation,
 // CLI completion) and the schema so they never drift from the axes here.
 func WorkspaceNames() []string {
 	return []string{string(WorkspaceNone), string(WorkspaceWorktree)}

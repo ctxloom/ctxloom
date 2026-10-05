@@ -28,8 +28,8 @@
 // has no equivalent, so opportunistically treating every CHANGED flag's NAME
 // as a candidate config path (a prior revision of this package did exactly
 // that) silently coupled every current and FUTURE flag name to the config
-// schema — confirmed in production: `ctxloom agent set coder --runtime
-// container` clobbered the project's top-level `runtime` key, and
+// schema — confirmed in production: an agent write's own `--runtime
+// container` flag clobbered the project's top-level `runtime` key, and
 // `--format json` on a structured-output command printed a warning line
 // into what a script expected to be pure JSON, because `--format` and
 // `--bundle` happened to resolve as "unrecognized config key, setting it

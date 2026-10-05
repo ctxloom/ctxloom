@@ -66,7 +66,7 @@ func TestResolveResumeMode(t *testing.T) {
 }
 
 // writeSpawnerConfig (re)writes appDir/config.yaml, exactly like a live
-// `ctxloom agent set` (or hand edit) would between two agent_run calls.
+// `ctxloom agent edit` (or hand edit) would between two agent_run calls.
 func writeSpawnerConfig(t *testing.T, appDir, body string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(appDir, 0o755))

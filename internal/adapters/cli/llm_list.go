@@ -11,7 +11,7 @@ import (
 )
 
 // llmEntry is one row of `llm list --format json`: an LLM config label (the
-// value `-l`/`--llm` and `agent set --engine` accept), whether it is the
+// value `-l`/`--llm` and `agent create`/`agent edit --llm` accept), whether it is the
 // configured default (the primary label), and whether the label is one the
 // user AUTHORED.
 //

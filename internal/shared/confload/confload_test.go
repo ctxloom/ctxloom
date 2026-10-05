@@ -311,10 +311,10 @@ func TestConfigSetFlag_OverridesConfigKey(t *testing.T) {
 
 // TestConfigSetFlag_DoesNotCollideWithCommandFlags is THE REGRESSION GUARD for the
 // break acceptance testing caught: a command's OWN flags (--runtime on
-// `agent set`/`container_cmd`, --workspace on `run`/`acp`/`map`, --version on
+// `agent create`/`agent edit`/`container_cmd`, --workspace on `run`/`acp`/`map`, --version on
 // `bundle`, --hooks on `manage`, ...) happen to share a NAME with a real
 // top-level config key. Before --config-set existed, ReadOverrides scanned every
-// CHANGED flag on the invoked command by name, so e.g. `ctxloom agent set
+// CHANGED flag on the invoked command by name, so e.g. `ctxloom agent edit
 // coder --runtime container` silently overwrote the PROJECT's top-level
 // `runtime`. Now ReadOverrides looks at NOTHING but --config-set, so these flags
 // being present and changed on the SAME FlagSet must have zero effect on the
@@ -323,7 +323,7 @@ func TestConfigSetFlag_OverridesConfigKey(t *testing.T) {
 // where a scalar assignment would otherwise have produced a type-invalid
 // config).
 func TestConfigSetFlag_DoesNotCollideWithCommandFlags(t *testing.T) {
-	fs := pflag.NewFlagSet("agent set", pflag.ContinueOnError)
+	fs := pflag.NewFlagSet("agent edit", pflag.ContinueOnError)
 	fs.StringArray(ConfigSetFlagName, nil, "")
 	fs.String("runtime", "", "")
 	fs.String("workspace", "", "")

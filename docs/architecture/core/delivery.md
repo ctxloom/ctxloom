@@ -16,7 +16,7 @@ flowchart TB
     classDef store fill:#ffd,stroke:#a80
 
     PKG["composite.Package (decoded)"]:::decide
-    PREF["delivery.Preference — the binding's Roots (agent set --root, validated by operations.ResolveAgentRoots) + accepted losses"]:::decide
+    PREF["delivery.Preference — the binding's Roots (agent create/edit --root, validated by operations.ResolveAgentRoots) + accepted losses"]:::decide
     ROUTE["delivery.Route(items, engine root, pref, cell roots) → Plan{Static routes, Dynamic refs, Losses} | ErrUncarried | Unrootable"]:::decide
     LO["delivery.Loadout — launch.Launch.Loadout(pkg): the ONE builder the runner and the local launcher share; delivery.InputsFor(lo) projects it into every kind's typed inputs once"]:::consume
     TGT["delivery.Target{Root (absolute), Ownership, Writer} — Validate refuses the zero value and a relative root; launch.Launch.Target(records) for a session, operations.ProjectTarget for a materialize"]:::decide

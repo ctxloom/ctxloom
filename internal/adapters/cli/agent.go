@@ -311,10 +311,9 @@ isolated from your own and thrown away with the session. It wins on every
 invocation path this binding resolves through — a bare run under
 default_agent, run --agent, a delegated child, a oneshot fan member alike.`
 
-// agentCreateCmd and agentEditCmd are the write half, split off the retired
-// upsert `agent set` (verb-spine reorg §5): the spine has `create` (fails if
-// the name is taken) and `edit` (fails if it is not), and blind
-// create-or-update is not a third verb. Both are LOCAL agents under the
+// agentCreateCmd and agentEditCmd are the write half (verb-spine reorg §5):
+// `create` fails if the name is taken and `edit` fails if it is not, and
+// blind create-or-update is not a verb. Both are LOCAL agents under the
 // `agents:` config key. Generic by design — whatever name/engine/profiles are
 // passed is what gets stored; no role/lens names are baked in.
 var agentCreateCmd = &cobra.Command{

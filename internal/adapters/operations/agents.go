@@ -304,7 +304,7 @@ func validateAgentRuntime(name string, req SetAgentRequest) error {
 
 // validateAgentApproaches validates the surface preferences and root
 // selections against the engine this write RESULTS IN, not the one recorded
-// before it. `agent set x --engine <e> --surface context=system-prompt` for an
+// before it. `agent edit x --llm <e> --surface context=system-prompt` for an
 // engine without that approach must be refused as one act: checking against
 // the OLD engine would accept a pair the new engine cannot honour, and the
 // binding would be written already broken.

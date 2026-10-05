@@ -24,9 +24,9 @@ import (
 // SetAgent silently destroys fields the caller did not set.
 // ---------------------------------------------------------------------------
 
-// TestSetAgent_OmittedFieldsSurvive is the CORRECTED contract for `agent set`
+// TestSetAgent_OmittedFieldsSurvive is the CORRECTED contract for `agent edit`
 // on an EXISTING binding: a request that carries only the field the user
-// actually named must leave every other field alone: `ctxloom agent set dev
+// actually named must leave every other field alone: `ctxloom agent edit dev
 // --runtime container` must not touch the engine, the profiles or the
 // permission posture.
 func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {

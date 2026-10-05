@@ -194,7 +194,7 @@ func TestSetAgent_AcceptsBackendNamesAndConfigLabels(t *testing.T) {
 }
 
 // TestSetAgent_PersistsRuntime proves the runtime axis written by
-// `agent set --runtime` survives the SAVE round-trip (Marshal serializes it
+// `agent edit --runtime` survives the SAVE round-trip (Marshal serializes it
 // faithfully) — read back via readAgentFromDisk (ParseConfig, no layering),
 // not a full the config read: agents.*.runtime is ScopeMachine
 // (internal/core/config/layerscope), so a committed PROJECT file — every clone's
@@ -268,7 +268,7 @@ func TestSetAgent_RejectsUnknownRuntime(t *testing.T) {
 }
 
 // TestSetAgent_PersistsPermissions proves the permission posture written by
-// `agent set --permissions` survives the config round-trip — a per-agent posture
+// `agent edit --permissions` survives the config round-trip — a per-agent posture
 // is the "configurable by agent" knob the run resolver consults. An unknown value
 // is stored as written (advisory warn only; it resolves to the default posture).
 func TestSetAgent_PersistsPermissions(t *testing.T) {
@@ -309,7 +309,7 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 }
 
 // TestSetAgent_PersistsDriving proves the driving axis written by
-// `agent set --driving` survives the config round-trip. LIKE Runtime and
+// `agent edit --driving` survives the config round-trip. LIKE Runtime and
 // UNLIKE Permissions above, an unknown value is REJECTED outright — SetAgent
 // errors and nothing is persisted (agents.ValidateDriving's doc: a typo here
 // changes execution semantics, so it never gets the advisory-warn treatment).
@@ -343,7 +343,7 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 }
 
 // TestSetAgent_PersistsHomeMode proves the engine-home policy written by
-// `agent set --engine-home` survives the config round-trip. UNLIKE
+// `agent edit --engine-home` survives the config round-trip. UNLIKE
 // Permissions and LIKE Runtime/Driving/Surfaces, an unknown value is REJECTED
 // outright — SetAgent errors and nothing is persisted, naming the two valid
 // values.

@@ -305,7 +305,7 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 
 	// A newly-created profile is no longer auto-promoted to a config default
 	// (profiles.defaults was retired): compose it into an agent to make it the
-	// default context (`ctxloom agent set` / `ctxloom agent default`).
+	// default context (`ctxloom agent create` or `ctxloom agent edit`, then `ctxloom agent default`).
 	return &CreateProfileResult{
 		Status:  "created",
 		Profile: req.Name,

@@ -406,8 +406,8 @@ func TestDiscoverySessionPrompt_CarriesCompanionSetupGuidance(t *testing.T) {
 		"the companion's setup_guidance must reach the launched prompt's bytes")
 }
 
-// An interactive init asks neither advanced question. It takes the
-// recommended dirty-tree handler and headless posture and says, one line
+// An interactive init asks neither advanced question. It takes the commit
+// dirty-tree handler and the accept-edits headless posture and says, one line
 // each, what it chose and how to change it. It never grants the commit
 // acknowledgement: that consent is a human act (`ctxloom manage commit
 // trust`), so the first delegation from a dirty tree stops and names it.
@@ -416,5 +416,7 @@ func TestTakeInterviewDefaults_ChoosesTheRecommendationsAndSaysSo(t *testing.T) 
 	handler, posture := takeInterviewDefaults(&buf)
 	assert.Equal(t, string(launch.DirtyTreeHandlerCommit), handler)
 	assert.Equal(t, initDefaultHeadlessPosture, posture)
+	assert.Equal(t, "acceptEdits", posture, "the owner ruled init starts with the accept-edits posture")
+	assert.Contains(t, initDefaultHeadlessLine, posture, "the line names the default it chose")
 	assert.Equal(t, initDefaultDirtyTreeLine+"\n"+initDefaultHeadlessLine+"\n", buf.String())
 }

@@ -139,8 +139,11 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 }
 
 // initDefaultHeadlessPosture is the seed agent's headless posture an
-// interactive init writes: read-only.
-const initDefaultHeadlessPosture = "plan"
+// interactive init writes: claude's acceptEdits, which lets file edits through
+// without asking. A headless run has no one to answer a prompt, so anything
+// else the posture would ask about is denied. Interactive init only offers
+// real engines, and claude is the one whose vocabulary carries this mode.
+const initDefaultHeadlessPosture = "acceptEdits"
 
 // initDefaultDirtyTreeLine and initDefaultHeadlessLine are what an interactive
 // init prints for the two answers it takes without asking: what it chose and
@@ -149,12 +152,13 @@ const (
 	initDefaultDirtyTreeLine = "Delegation from a dirty tree: ctxloom commits your uncommitted work for the child only " +
 		"after you run `ctxloom manage commit trust`; until then such a delegation stops and says so. " +
 		"Choose copy, stale or fail instead with dirty_tree_handler in `ctxloom config edit`."
-	initDefaultHeadlessLine = "Headless runs (one-shot and delegated) use the read-only plan posture. " +
+	initDefaultHeadlessLine = "Headless runs (one-shot and delegated) use the " + initDefaultHeadlessPosture +
+		" posture: file edits go through, anything else that would ask is denied. " +
 		"Change it: ctxloom agent edit default --permissions <posture>"
 )
 
 // takeInterviewDefaults answers the two advanced questions init no longer
-// asks: the commit dirty-tree handler and the plan headless posture. It does
+// asks: the commit dirty-tree handler and the acceptEdits headless posture. It does
 // not grant the commit acknowledgement. That consent is only ever a human act
 // (config.DirtyTreeCommitAcknowledged), and the delegation that first needs
 // it refuses and names `ctxloom manage commit trust`.

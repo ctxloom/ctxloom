@@ -11,6 +11,7 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
@@ -125,13 +126,13 @@ func (a approvalsModel) rowLine(r apprRow, w int) string {
 	if r.p.ID == a.sel {
 		mark = "▸ "
 	}
-	who := padCell(sanitizeForDisplay(r.p.From.Harp), 16) + " " + padCell(kindLabel(r.p), 12)
+	who := padCell(displaysafe.Text(r.p.From.Harp, true), 16) + " " + padCell(kindLabel(r.p), 12)
 	if !r.live() {
 		return padCell(mark+"  ✗   "+who+" "+r.tomb, w)
 	}
 	line := mark + a.countdown(r.p.Deadline) + "  " + who
 	if r.p.Agent != "" {
-		line += " (" + sanitizeForDisplay(r.p.Agent) + ")"
+		line += " (" + displaysafe.Text(r.p.Agent, true) + ")"
 	}
 	if lin := lineage(r.p); lin != "" {
 		line += "  " + lin
@@ -147,13 +148,13 @@ func kindLabel(p coord.PendingApproval) string {
 	case coord.ApprovalPlan:
 		return "Plan"
 	}
-	return sanitizeForDisplay(p.Ask.Tool)
+	return displaysafe.Text(p.Ask.Tool, true)
 }
 
 func lineage(p coord.PendingApproval) string {
 	parts := make([]string, len(p.Lineage))
 	for i, h := range p.Lineage {
-		parts[i] = sanitizeForDisplay(h)
+		parts[i] = displaysafe.Text(h, true)
 	}
 	return strings.Join(parts, "→")
 }
@@ -190,7 +191,7 @@ func (a approvalsModel) detailLines(w int) []string {
 		return nil
 	}
 	if !row.live() {
-		return []string{sanitizeForDisplay(row.p.From.Harp) + " — " + row.tomb}
+		return []string{displaysafe.Text(row.p.From.Harp, true) + " — " + row.tomb}
 	}
 	return wrapAll(requestLines(row.p, a.countdown(row.p.Deadline), w), w)
 }
@@ -206,12 +207,12 @@ func wrapAll(lines []string, w int) []string {
 
 // requestLines is who asks, then what.
 func requestLines(p coord.PendingApproval, left string, w int) []string {
-	who := sanitizeForDisplay(p.From.Harp)
+	who := displaysafe.Text(p.From.Harp, true)
 	if p.Agent != "" {
-		who += " · agent " + sanitizeForDisplay(p.Agent)
+		who += " · agent " + displaysafe.Text(p.Agent, true)
 	}
 	if p.WorkDir != "" {
-		who += " · " + sanitizeForDisplay(p.WorkDir)
+		who += " · " + displaysafe.Text(p.WorkDir, true)
 	}
 	out := []string{who}
 	if lin := lineage(p); lin != "" {
@@ -236,10 +237,10 @@ func toolDetail(ask engine.PermissionAsk) []string {
 	if f, ok := toolRenderers[ask.Tool]; ok && in != nil {
 		return f(in)
 	}
-	head := "wants to use " + sanitizeForDisplay(ask.Tool) + ":"
+	head := "wants to use " + displaysafe.Text(ask.Tool, true) + ":"
 	if rest, ok := strings.CutPrefix(ask.Tool, "mcp__"); ok {
 		server, tool, _ := strings.Cut(rest, "__")
-		head = "wants to call MCP " + sanitizeForDisplay(server) + "/" + sanitizeForDisplay(tool) + ":"
+		head = "wants to call MCP " + displaysafe.Text(server, true) + "/" + displaysafe.Text(tool, true) + ":"
 	}
 	return append([]string{head}, jsonLines(ask.Input)...)
 }
@@ -255,7 +256,7 @@ var toolRenderers = map[string]func(map[string]json.RawMessage) []string{
 	},
 	"Edit": func(in map[string]json.RawMessage) []string {
 		path := jsonString(in, "file_path")
-		return append([]string{"wants to edit " + sanitizeForDisplay(path) + ":"},
+		return append([]string{"wants to edit " + displaysafe.Text(path, true) + ":"},
 			diffLines(path, jsonString(in, "old_string"), jsonString(in, "new_string"))...)
 	},
 	"MultiEdit": func(in map[string]json.RawMessage) []string {
@@ -265,7 +266,7 @@ var toolRenderers = map[string]func(map[string]json.RawMessage) []string{
 			New string `json:"new_string"`
 		}
 		_ = json.Unmarshal(in["edits"], &edits)
-		out := []string{"wants to make " + strconv.Itoa(len(edits)) + " edit(s) to " + sanitizeForDisplay(path) + ":"}
+		out := []string{"wants to make " + strconv.Itoa(len(edits)) + " edit(s) to " + displaysafe.Text(path, true) + ":"}
 		for _, e := range edits {
 			out = append(out, diffLines(path, e.Old, e.New)...)
 		}
@@ -273,7 +274,7 @@ var toolRenderers = map[string]func(map[string]json.RawMessage) []string{
 	},
 	"Write": func(in map[string]json.RawMessage) []string {
 		content := jsonString(in, "content")
-		out := []string{"wants to write " + sanitizeForDisplay(jsonString(in, "file_path")) +
+		out := []string{"wants to write " + displaysafe.Text(jsonString(in, "file_path"), true) +
 			" (" + strconv.Itoa(len(splitLines(content))) + " lines):"}
 		return append(out, prefixLines("  ", "  ", content)...)
 	},
@@ -288,7 +289,7 @@ func jsonString(in map[string]json.RawMessage, key string) string {
 // prefixLines sanitizes s and puts first before its first line and rest
 // before the others.
 func prefixLines(first, rest, s string) []string {
-	lines := strings.Split(sanitizeForDisplay(s), "\n")
+	lines := strings.Split(displaysafe.Text(s, true), "\n")
 	for i := range lines {
 		if i == 0 {
 			lines[i] = first + lines[i]
@@ -307,7 +308,7 @@ func jsonLines(raw json.RawMessage) []string {
 	if json.Indent(&b, raw, "  ", "  ") == nil {
 		text = "  " + b.String()
 	}
-	return strings.Split(sanitizeForDisplay(text), "\n")
+	return strings.Split(displaysafe.Text(text, true), "\n")
 }
 
 // diffLines is a unified diff of an edit, sanitized line by line and then
@@ -322,7 +323,7 @@ func diffLines(path, before, after string) []string {
 	}
 	var out []string
 	for _, l := range strings.Split(strings.TrimRight(d, "\n"), "\n") {
-		out = append(out, styleDiffLine(sanitizeForDisplay(l)))
+		out = append(out, styleDiffLine(displaysafe.Text(l, true)))
 	}
 	return out
 }
@@ -352,9 +353,9 @@ func questionPreview(ask engine.PermissionAsk) []string {
 }
 
 func questionHead(q engine.Question) string {
-	head := "  " + sanitizeForDisplay(q.Text)
+	head := "  " + displaysafe.Text(q.Text, true)
 	if q.Header != "" {
-		head = "  [" + sanitizeForDisplay(q.Header) + "] " + sanitizeForDisplay(q.Text)
+		head = "  [" + displaysafe.Text(q.Header, true) + "] " + displaysafe.Text(q.Text, true)
 	}
 	if q.MultiSelect {
 		head += " (choose any)"
@@ -363,9 +364,9 @@ func questionHead(q engine.Question) string {
 }
 
 func optionText(o engine.QuestionOption) string {
-	t := sanitizeForDisplay(o.Label)
+	t := displaysafe.Text(o.Label, true)
 	if o.Description != "" {
-		t += " — " + sanitizeForDisplay(o.Description)
+		t += " — " + displaysafe.Text(o.Description, true)
 	}
 	return t
 }
@@ -374,7 +375,7 @@ func planDetail(ask engine.PermissionAsk, w int) []string {
 	if ask.Plan == nil {
 		return []string{"presents a plan (empty)"}
 	}
-	out := []string{"presents a plan · " + sanitizeForDisplay(ask.Plan.Path), ""}
+	out := []string{"presents a plan · " + displaysafe.Text(ask.Plan.Path, true), ""}
 	return append(out, styleMarkdownLines(ask.Plan.Markdown, w)...)
 }
 
@@ -382,17 +383,17 @@ func planDetail(ask engine.PermissionAsk, w int) []string {
 var subRenderers = map[subKind]func(s *subState, w int) []string{
 	subScope: scopeLines,
 	subDeny: func(s *subState, _ int) []string {
-		return textLines("Deny "+sanitizeForDisplay(s.harp)+"'s request", "note (optional, sent to the model)", s.text)
+		return textLines("Deny "+displaysafe.Text(s.harp, true)+"'s request", "note (optional, sent to the model)", s.text)
 	},
 	subAnswer:  answerLines,
 	subApprove: approveLines,
 	subReject: func(s *subState, _ int) []string {
-		return textLines("Reject "+sanitizeForDisplay(s.harp)+"'s plan", "feedback (required: the model revises the plan from it)", s.text)
+		return textLines("Reject "+displaysafe.Text(s.harp, true)+"'s plan", "feedback (required: the model revises the plan from it)", s.text)
 	},
 	subDenyAll: denyAllLines,
 	subGrants:  grantsLines,
 	subRevoke: func(s *subState, _ int) []string {
-		return []string{"Revoke " + sanitizeForDisplay(s.grant.Rule) + " from " + sanitizeForDisplay(s.harp) + "?",
+		return []string{"Revoke " + displaysafe.Text(s.grant.Rule, true) + " from " + displaysafe.Text(s.harp, true) + "?",
 			"It stops applying from the child's next turn; a call already allowed in this turn is not undone."}
 	},
 }
@@ -400,7 +401,7 @@ var subRenderers = map[subKind]func(s *subState, w int) []string{
 // textLines is a sub-view with one text field. What was typed is child-free
 // but may hold a paste, so it is sanitized for display too.
 func textLines(title, label, text string) []string {
-	return []string{title, "", label + ":", "> " + sanitizeForDisplay(text) + "_"}
+	return []string{title, "", label + ":", "> " + displaysafe.Text(text, true) + "_"}
 }
 
 func cursorMark(on bool) string {
@@ -411,7 +412,7 @@ func cursorMark(on bool) string {
 }
 
 func scopeLines(s *subState, _ int) []string {
-	out := []string{"Allow for session — " + sanitizeForDisplay(s.harp), ""}
+	out := []string{"Allow for session — " + displaysafe.Text(s.harp, true), ""}
 	if len(s.scopes) == 0 {
 		return append(out, "The engine offered no session rule for this call.")
 	}
@@ -421,18 +422,18 @@ func scopeLines(s *subState, _ int) []string {
 	}
 	return append(out, "",
 		"grants: "+scopeLabel(s.scopes[s.cursor]),
-		"for "+sanitizeForDisplay(s.harp)+"'s run; revocable in Grants; never saved to a settings file")
+		"for "+displaysafe.Text(s.harp, true)+"'s run; revocable in Grants; never saved to a settings file")
 }
 
 func scopeLabel(o scopeOption) string {
 	if o.rule != "" {
-		return sanitizeForDisplay(o.rule)
+		return displaysafe.Text(o.rule, true)
 	}
-	return "mode " + sanitizeForDisplay(o.label) + " for the rest of this run"
+	return "mode " + displaysafe.Text(o.label, true) + " for the rest of this run"
 }
 
 func answerLines(s *subState, _ int) []string {
-	out := []string{"Answer " + sanitizeForDisplay(s.harp) + "'s question(s) — space chooses, type in Other", ""}
+	out := []string{"Answer " + displaysafe.Text(s.harp, true) + "'s question(s) — space chooses, type in Other", ""}
 	cur, _ := s.entry()
 	for qi, q := range s.p.Ask.Questions {
 		out = append(out, questionHead(q))
@@ -441,7 +442,7 @@ func answerLines(s *subState, _ int) []string {
 			out = append(out, "  "+cursorMark(on)+choiceMark(q.MultiSelect, s.picks[qi][oi])+" "+optionText(o))
 		}
 		on := answerEntry{q: qi, other: true} == cur
-		out = append(out, "  "+cursorMark(on)+"Other: "+sanitizeForDisplay(s.others[qi])+"_")
+		out = append(out, "  "+cursorMark(on)+"Other: "+displaysafe.Text(s.others[qi], true)+"_")
 	}
 	return out
 }
@@ -459,28 +460,28 @@ func choiceMark(multi, on bool) string {
 }
 
 func approveLines(s *subState, _ int) []string {
-	out := []string{"Approve " + sanitizeForDisplay(s.harp) + "'s plan — then continue in:", ""}
+	out := []string{"Approve " + displaysafe.Text(s.harp, true) + "'s plan — then continue in:", ""}
 	if len(s.postures) == 0 {
 		out = append(out, "this agent's engine offers no posture to continue in")
 	}
 	for i, m := range s.postures {
-		out = append(out, cursorMark(i == s.cursor)+sanitizeForDisplay(m.Label))
+		out = append(out, cursorMark(i == s.cursor)+displaysafe.Text(m.Label, true))
 	}
-	return append(out, "", "note (optional):", "> "+sanitizeForDisplay(s.text)+"_")
+	return append(out, "", "note (optional):", "> "+displaysafe.Text(s.text, true)+"_")
 }
 
 func denyAllLines(s *subState, _ int) []string {
-	return []string{"Deny all " + strconv.Itoa(len(s.ids)) + " pending request(s) from " + sanitizeForDisplay(s.harp) + "?",
+	return []string{"Deny all " + strconv.Itoa(len(s.ids)) + " pending request(s) from " + displaysafe.Text(s.harp, true) + "?",
 		"Each is denied; a request that arrives after this screen opened is not included."}
 }
 
 func grantsLines(s *subState, _ int) []string {
-	out := []string{"Session grants held by " + sanitizeForDisplay(s.harp), ""}
+	out := []string{"Session grants held by " + displaysafe.Text(s.harp, true), ""}
 	if len(s.grants) == 0 {
 		return append(out, "none")
 	}
 	for i, g := range s.grants {
-		out = append(out, cursorMark(i == s.cursor)+sanitizeForDisplay(g.Rule)+"  (since "+g.At.Format("15:04")+")")
+		out = append(out, cursorMark(i == s.cursor)+displaysafe.Text(g.Rule, true)+"  (since "+g.At.Format("15:04")+")")
 	}
 	return out
 }

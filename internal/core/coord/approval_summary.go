@@ -2,10 +2,9 @@ package coord
 
 import (
 	"encoding/json"
-	"strconv"
-	"strings"
-	"unicode"
 	"unicode/utf8"
+
+	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 )
 
 // summaryMaxRunes bounds a Summary: it is one line in a list, not the
@@ -19,9 +18,8 @@ var summaryInputFields = [...]string{"command", "file_path", "url", "pattern"}
 // Summary is the request in one bounded line, rendered where it parks so
 // every viewer shows the same words: a tool request is the tool and what it
 // acts on, a question its first header, a plan its path. Everything in it
-// is the asking child's, so a character that could act on a terminal or
-// hide part of the line (a control, a bidi override, a zero-width, a line
-// separator) is written as its escape, never as itself.
+// is the asking child's, so it is rendered as the approval overlay renders
+// child text (displaysafe.Text), held to one line.
 func (p PendingApproval) Summary() string {
 	var s string
 	switch p.Kind {
@@ -41,7 +39,7 @@ func (p PendingApproval) Summary() string {
 			s += ": " + target
 		}
 	}
-	return truncateRunes(visible(s), summaryMaxRunes)
+	return truncateRunes(displaysafe.Text(s, false), summaryMaxRunes)
 }
 
 // toolTarget is the first non-empty string among summaryInputFields in a
@@ -57,23 +55,6 @@ func toolTarget(input json.RawMessage) string {
 		}
 	}
 	return ""
-}
-
-// visible keeps every graphic rune and writes every other one as its Go
-// escape (\x1b, ‮, \n). unicode.IsGraphic excludes exactly the
-// controls, format characters and line/paragraph separators.
-func visible(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		if unicode.IsGraphic(r) {
-			b.WriteRune(r)
-			continue
-		}
-		q := strconv.QuoteRuneToGraphic(r)
-		b.WriteString(q[1 : len(q)-1])
-	}
-	return b.String()
 }
 
 // truncateRunes cuts s to at most n runes, the last one an ellipsis when

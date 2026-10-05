@@ -5,6 +5,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 )
 
 // Plan styles: light, and only where the structure is unambiguous. A plan is
@@ -23,7 +25,7 @@ func styleMarkdownLines(src string, width int) []string {
 	width = max(width, 8)
 	var out []string
 	inFence := false
-	for _, line := range strings.Split(sanitizeForDisplay(src), "\n") {
+	for _, line := range strings.Split(displaysafe.Text(src, true), "\n") {
 		if isFence(line) {
 			inFence = !inFence
 			out = append(out, wrapStyled(line, width, styleMDFence)...)

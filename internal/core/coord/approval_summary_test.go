@@ -60,6 +60,8 @@ func TestPendingApprovalSummary_HidesNothing(t *testing.T) {
 		assert.True(t, strings.HasPrefix(got, "Bash: ls"), got)
 		assert.True(t, strings.HasSuffix(got, "rm"), got)
 	}
+	assert.Equal(t, "Bash: ls⟨U+000A⟩rm ⟨ESC⟩[2J", toolRequest("Bash", `{"command":"ls\nrm \u001b[2J"}`).Summary(),
+		"the approval overlay's markers, and a line break cannot leave the line")
 	tool := PendingApproval{Kind: ApprovalTool, Ask: engine.PermissionAsk{Tool: "Ba\u202esh"}}
 	assert.NotContains(t, tool.Summary(), "\u202e", "the tool name is the child's too")
 }

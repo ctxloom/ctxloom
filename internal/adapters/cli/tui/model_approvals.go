@@ -4,6 +4,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 )
 
 // armedMsg is termui ending a summoned modal's inert window (Overlay.Armed):
@@ -67,7 +69,7 @@ func (m Model) applyChromeMsg(msg tea.Msg) Model {
 		m.arming, m.armDiscarded = false, int(msg)
 	case noticeMsg:
 		if !m.approvals {
-			m.banner = "⚑ " + sanitizeForDisplay(string(msg)) + " — a to review"
+			m.banner = "⚑ " + displaysafe.Text(string(msg), true) + " — a to review"
 		}
 	}
 	return m

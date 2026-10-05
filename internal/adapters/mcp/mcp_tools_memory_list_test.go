@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -65,7 +66,7 @@ func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 	assert.Equal(t, harpB, out.Sessions[1].Harp)
 	assert.Equal(t, "claude-code", out.Sessions[0].Backend)
 	assert.Equal(t, "worked on A", out.Sessions[0].Title)
-	assert.Empty(t, out.Sessions[1].Title, "B was never distilled → no title")
+	assert.Empty(t, out.Sessions[1].Title, "B was never compacted → no title")
 
 	fmtRe := regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$`)
 	for _, row := range out.Sessions {
@@ -97,4 +98,14 @@ func TestHandleListSessions_DefaultScopeIsTheCallersProject(t *testing.T) {
 	for _, row := range out.Sessions {
 		assert.NotEqual(t, harpB, row.Harp, "cwd scope must exclude other projects")
 	}
+}
+
+// TestSessionSummary_SaysCompacted pins list_sessions' per-row key.
+func TestSessionSummary_SaysCompacted(t *testing.T) {
+	raw, err := json.Marshal(sessionSummary{Harp: "h", Compacted: true})
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(raw, &doc))
+	assert.Equal(t, true, doc["compacted"])
+	assert.NotContains(t, doc, "distilled")
 }

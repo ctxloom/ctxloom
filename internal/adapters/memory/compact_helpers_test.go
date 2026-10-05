@@ -80,7 +80,7 @@ func TestResolveHarpName(t *testing.T) {
 
 	// An explicit SessionID naming a DIFFERENT, real harp than the
 	// caller's own must route output to THAT harp, not the caller's — the
-	// defect was: compact_session with an explicit session_id distilled
+	// defect was: compact_session with an explicit session_id compacted
 	// someone else's session but always wrote the essence, session bind, and
 	// summary into the CALLER's own harp dir/index entry.
 	t.Run("explicit SessionID naming a real, different harp wins over caller's own HarpName", func(t *testing.T) {

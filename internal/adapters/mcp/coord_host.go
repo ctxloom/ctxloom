@@ -88,17 +88,17 @@ func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectD
 }
 
 // HostApp is coord.HostApp over the host-resident tools (cross-session
-// history, distillation, triggers, context status — host session dirs are
+// history, compaction, triggers, context status — host session dirs are
 // not mounted into children). Each call runs on a ctxServer bound to the
 // CALLER's credential-derived identity, exactly like the stdio handlers —
 // never the host process's env.
 type HostApp struct {
 	cfg *config.Config
-	// distill is ONE dedupe group ACROSS the per-call ctxServers: a
-	// distillation already in flight for a session is joined, not
+	// compact is ONE dedupe group ACROSS the per-call ctxServers: a
+	// compaction already in flight for a session is joined, not
 	// duplicated. Owned here because Serve mints a fresh ctxServer per call —
 	// a group hung off that would dedupe nothing.
-	distill *singleflight.Group
+	compact *singleflight.Group
 	// c is the coordinator whose relay this is, bound once it exists
 	// (Bind): the host an internal one-shot a relayed tool starts runs on.
 	c     *coord.Coordinator
@@ -115,7 +115,7 @@ type hostTool func(ctx context.Context, s *ctxServer, args json.RawMessage) (any
 // NewHostApp composes the relayed tool set over cfg, launching and
 // resolving engines by name through f.
 func NewHostApp(cfg *config.Config, f operations.LaunchFacts) *HostApp {
-	return &HostApp{cfg: cfg, facts: f, distill: &singleflight.Group{}, tools: map[string]hostTool{
+	return &HostApp{cfg: cfg, facts: f, compact: &singleflight.Group{}, tools: map[string]hostTool{
 		"compact_session": hostTool(func(ctx context.Context, s *ctxServer, args json.RawMessage) (any, error) {
 			return decodeThen(args, func(in compactSessionInput) (any, error) {
 				_, out, err := s.handleCompactSession(ctx, nil, in)
@@ -168,7 +168,7 @@ func (a *HostApp) Serve(ctx context.Context, caller coord.Identity, req coord.Ho
 	if !ok {
 		return coord.HostResult{}, fmt.Errorf("%w: %q", coord.ErrUnknownHostTool, req.Tool)
 	}
-	s := &ctxServer{cfg: a.cfg, self: caller, distill: a.distill, hosts: a, facts: a.facts}
+	s := &ctxServer{cfg: a.cfg, self: caller, compact: a.compact, hosts: a, facts: a.facts}
 	out, err := tool(ctx, s, req.Args)
 	if err != nil {
 		return coord.HostResult{}, err

@@ -116,13 +116,13 @@ func runCLI(t *testing.T, args ...string) cliResult {
 		llm, agent, workspace, permissions, prompt, profile, savedPrompt string
 		session, seedTask, seedStatus                                    string
 		fragments, tags                                                  []string
-		dryRun, oneShot, plain, distill                                  bool
+		dryRun, oneShot, plain, compact                                  bool
 		verbosity                                                        int
 	}{
 		runLLM, runAgent, runWorkspace, runPermissions, runPrompt, runProfile, runSavedPrompt,
 		runResumeSession, runSeedTask, runSeedStatus,
 		runFragments, runTags,
-		runDryRun, runOneShot, runPlainTerminal, runResumeDistill,
+		runDryRun, runOneShot, runPlainTerminal, runResumeCompact,
 		runVerbosity,
 	}
 	defer func() {
@@ -132,7 +132,7 @@ func runCLI(t *testing.T, args ...string) cliResult {
 		runSeedTask, runSeedStatus = savedFlags.seedTask, savedFlags.seedStatus
 		runFragments, runTags = savedFlags.fragments, savedFlags.tags
 		runDryRun, runOneShot = savedFlags.dryRun, savedFlags.oneShot
-		runPlainTerminal, runResumeDistill = savedFlags.plain, savedFlags.distill
+		runPlainTerminal, runResumeCompact = savedFlags.plain, savedFlags.compact
 		runVerbosity = savedFlags.verbosity
 	}()
 
@@ -196,7 +196,7 @@ func resetFlagState(c *cobra.Command) {
 
 // A --permissions value that is not a known posture is rejected before config
 // is even loaded, so a typo cannot silently resolve to a more permissive
-// default. --distill without --session is rejected in the same window.
+// default. --compact without --session is rejected in the same window.
 func TestRunCharacterization_FlagValidationRejectsBeforeAnyWork(t *testing.T) {
 	runCLIFixture(t)
 
@@ -204,9 +204,9 @@ func TestRunCharacterization_FlagValidationRejectsBeforeAnyWork(t *testing.T) {
 	require.Error(t, res.err, "an unknown --permissions value must be a hard error")
 	assert.NotContains(t, res.all(), "=== LLM ===", "validation must reject before assembly renders anything")
 
-	res = runCLI(t, "run", "--dry-run", "--format", "text", "--distill", "-p", "dev", "hi")
-	require.Error(t, res.err, "--distill without --session must be rejected")
-	assert.Contains(t, res.err.Error(), "--distill requires --session")
+	res = runCLI(t, "run", "--dry-run", "--format", "text", "--compact", "-p", "dev", "hi")
+	require.Error(t, res.err, "--compact without --session must be rejected")
+	assert.Contains(t, res.err.Error(), "--compact requires --session")
 }
 
 // -----------------------------------------------------------------------------

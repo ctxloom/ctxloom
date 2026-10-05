@@ -12,17 +12,17 @@ import (
 // package never composes a launch or names an engine.
 type Runner func(ctx context.Context, prompt string) (string, error)
 
-// Distill executes one distillation turn: systemPrompt as the instruction
-// ahead of payload as the material it works on. The session distillation,
-// the per-result finding repair and the premise author all go through here
-// so the prompt shape stays in one place.
+// RunPrompt executes one LLM turn: systemPrompt as the instruction ahead of
+// payload as the material it works on. Session compaction, the per-result
+// finding repair and the content side's premise author and critique all go
+// through here so the prompt shape stays in one place.
 //
 // payload is the ALREADY-ENVELOPED material — the caller wraps it in whatever
 // element names what it is (<session_log> for a transcript, <fragment> for a
 // fragment body), because only the caller knows what the material is.
-func Distill(ctx context.Context, run Runner, systemPrompt, payload string) (string, error) {
+func RunPrompt(ctx context.Context, run Runner, systemPrompt, payload string) (string, error) {
 	if run == nil {
-		return "", fmt.Errorf("distill: no runner — the caller resolves the distiller's launch and hands its turn here")
+		return "", fmt.Errorf("run prompt: no runner — the caller resolves the distiller's launch and hands its turn here")
 	}
 	out, err := run(ctx, fmt.Sprintf("%s\n\n%s", systemPrompt, payload))
 	if err != nil {

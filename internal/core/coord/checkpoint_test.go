@@ -20,7 +20,7 @@ import (
 // reach the IDENTICAL projection as a fold replayed fully from byte 0 —
 // snapshot-then-tail and full replay are equivalent by construction.
 func TestReplayEquivalence_ItemsSnapshot(t *testing.T) {
-	kinds := []string{"run_started", "message_started", "message_delta", "message_completed", "tool_call_started", "tool_call_args_delta", "tool_call_completed", "status_changed", "run_completed"}
+	kinds := []string{"run_started", "message_started", "message_delta", "message_completed", "tool_call_started", "tool_call_args_delta", "tool_call_completed", "run_completed"}
 	for seed := int64(0); seed < 16; seed++ {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
 			dir := t.TempDir()

@@ -295,9 +295,16 @@ var (
 	ErrNoAgent              = errors.New("launch: the named agent is not found")
 	ErrNoEngine             = errors.New("launch: the label names no composed engine")
 	ErrPermissionUnhonoured = errors.New("launch: the declared permission posture cannot be honoured")
-	ErrContextEmpty         = errors.New("launch: the named profile set assembled to nothing")
-	ErrNoClaimCheck         = errors.New("launch: the package exceeds the inline ceiling and no claim check is composed")
-	ErrBindingRoots         = errors.New("launch: the binding's root selection does not parse")
+	// ErrPlansFirstNeedsHuman is a posture that plans first under an
+	// approver that is not the human: nobody could ever approve its plan.
+	// It is always wrapped in ErrPermissionUnhonoured.
+	ErrPlansFirstNeedsHuman = errors.New("launch: a posture that plans first needs the human as its approver")
+	// ErrPlansFirstNoApprovalRoute is a structured run that plans first
+	// with no session endpoint: its plan's approval has no route to travel.
+	ErrPlansFirstNoApprovalRoute = errors.New("launch: a structured run that plans first needs a session endpoint to carry its plan's approval")
+	ErrContextEmpty              = errors.New("launch: the named profile set assembled to nothing")
+	ErrNoClaimCheck              = errors.New("launch: the package exceeds the inline ceiling and no claim check is composed")
+	ErrBindingRoots              = errors.New("launch: the binding's root selection does not parse")
 )
 
 // Open is the in-process consumer of the carrier — the local launcher's
@@ -336,7 +343,8 @@ func WithLead(ctx context.Context, deps Deps, l Launch, blocks ...composite.Frag
 // package: the ONE builder, so the runner and the local launcher deliver
 // the same value.
 func (l Launch) Loadout(pkg composite.Package) delivery.Loadout {
-	return delivery.Loadout{Plan: l.Plan, Package: pkg, Exports: l.Exports, Index: l.Index, MCP: l.MCP, Identity: l.Identity, WorkDir: l.Cell.Paths.Paths().ProjectRoot.Host}
+	roots := l.Cell.Paths.Paths()
+	return delivery.Loadout{Plan: l.Plan, Package: pkg, Exports: l.Exports, Index: l.Index, MCP: l.MCP, Identity: l.Identity, WorkDir: roots.ProjectRoot.Host, SessionHome: roots.SessionHome.Host}
 }
 
 // Target is where this launch's static items land: the cell's advised

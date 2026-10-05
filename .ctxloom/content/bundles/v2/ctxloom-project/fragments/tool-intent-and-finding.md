@@ -6,7 +6,7 @@ tags:
 # Say what you are looking for, and what you found
 
 Two short statements per tool call. They are not narration — they are the only
-part of a tool interaction that survives distillation.
+part of a tool interaction that survives compaction.
 
 - BEFORE a tool call: what you are trying to learn or change.
 - AFTER the result: what you actually learned — including "nothing" and "not
@@ -14,7 +14,7 @@ part of a tool interaction that survives distillation.
 
 ## Why this is a rule and not a style preference
 
-A session transcript is distilled into an essence that a later session resumes
+A session transcript is compacted into an essence that a later session resumes
 from, and tool RESULTS do not survive that. They are reduced to their shape —
 `[2,431 bytes, 47 lines]` — because a truncated fragment of a grep is neither
 the information nor a summary of it, and the content is re-derivable by asking

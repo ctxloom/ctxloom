@@ -72,7 +72,7 @@ type SessionFacts struct {
 	LockReason string              `json:"lock_reason,omitempty"`
 	OwnerPID   int                 `json:"owner_pid,omitempty"`
 	Kept       bool                `json:"kept,omitempty"`
-	Distilled  bool                `json:"distilled"`
+	Compacted  bool                `json:"compacted"`
 	// Worktrees is the scratch worktrees' classification, taken only for a
 	// provably-dead session; WorktreeErr is set when it could not be taken.
 	Worktrees   []isolation.WorktreeCandidate `json:"-"`
@@ -256,15 +256,15 @@ func purgeInScope(f SessionFacts, req SweepRequest) bool {
 	return req.PurgeCutoff.IsZero() || !f.LastActive.After(req.PurgeCutoff)
 }
 
-// purgeRow decides the purge: spared for waiting mail or an undistilled
+// purgeRow decides the purge: spared for waiting mail or an uncompacted
 // transcript, held when no purge age is stated, else planned.
 func purgeRow(f SessionFacts, req SweepRequest) SweepRow {
 	switch {
 	case f.Mail > 0:
 		return newSweepRow(f, SweepSpare, SweepLeft, fmt.Sprintf("%d undelivered message(s) wait in its spool, so it is spared from purge", f.Mail))
-	case !f.Distilled && f.Origin != sessions.OriginOneShot:
-		r := newSweepRow(f, SweepSpare, SweepLeft, "it was never distilled, so its transcript is its only record and it is never purged")
-		r.Command = fmt.Sprintf("ctxloom session distill %s", f.Harp)
+	case !f.Compacted && f.Origin != sessions.OriginOneShot:
+		r := newSweepRow(f, SweepSpare, SweepLeft, "it was never compacted, so its transcript is its only record and it is never purged")
+		r.Command = fmt.Sprintf("ctxloom session compact %s", f.Harp)
 		return r
 	case req.PurgeCutoff.IsZero():
 		r := newSweepRow(f, SweepPurge, SweepHeld, "no purge age is stated: pass --purge-older-than or set session_purge_age")
@@ -351,8 +351,8 @@ func classifySession(ctx context.Context, g git.Git, l sessions.Layout, store se
 	if _, err := os.Lstat(l.KeepMarker(name)); err == nil {
 		f.Kept = true
 	}
-	f.Distilled = sessions.Distilled(f.Dir)
-	f.Reclaimable, f.ReclaimBytes, f.ReclaimSymlink = measureReclaim(l, name, reclaimMembers(req, f.Distilled))
+	f.Compacted = sessions.Compacted(f.Dir)
+	f.Reclaimable, f.ReclaimBytes, f.ReclaimSymlink = measureReclaim(l, name, reclaimMembers(req, f.Compacted))
 
 	if probe.Verdict == sessionlock.Dead {
 		wts, err := isolation.ClassifyHarpWorktrees(ctx, g, name, probe)
@@ -379,10 +379,10 @@ func sweepScopeIncludes(entry *sessions.Entry, req SweepRequest) bool {
 }
 
 // reclaimMembers is the member set a reclaim measures: the request's, narrowed
-// the way ReapSession narrows it for an undistilled session under a persist
+// the way ReapSession narrows it for an uncompacted session under a persist
 // reclaim scope.
-func reclaimMembers(req SweepRequest, distilled bool) []paths.HarpMember {
-	if req.ReclaimScope == paths.Persist && !distilled {
+func reclaimMembers(req SweepRequest, compacted bool) []paths.HarpMember {
+	if req.ReclaimScope == paths.Persist && !compacted {
 		return sessions.ReapPolicy{}.Members() // ReapSession's own narrowing
 	}
 	return req.reapPolicy(false).Members()
@@ -658,11 +658,11 @@ func applyReclaim(ctx context.Context, g git.Git, l sessions.Layout, req SweepRe
 // applyPurge is PurgeSession over the transcript population. The artifacts
 // population is the session's output dir — the human's, which a sweep never
 // deletes; `ctxloom session artifacts purge` is the explicit way to. Only an
-// internal one-shot is purged undistilled; PurgeSession refuses any other.
+// internal one-shot is purged uncompacted; PurgeSession refuses any other.
 func applyPurge(f SessionFacts, r *SweepRow) {
 	res, err := PurgeSession(r.Harp, PurgeSessionRequest{
 		Populations: []PurgePopulation{PurgePopulationTranscript},
-		Undistilled: f.Origin == sessions.OriginOneShot,
+		Uncompacted: f.Origin == sessions.OriginOneShot,
 		Apply:       true,
 	})
 	switch {
@@ -673,7 +673,7 @@ func applyPurge(f SessionFacts, r *SweepRow) {
 				r.Reason = appendReason(r.Reason, "kept "+k.Rel)
 			}
 		}
-	case errors.Is(err, ErrPurgeNothingToDo), errors.Is(err, ErrPurgeOwnerNotProvenDead), errors.Is(err, ErrPurgeUndistilled):
+	case errors.Is(err, ErrPurgeNothingToDo), errors.Is(err, ErrPurgeOwnerNotProvenDead), errors.Is(err, ErrPurgeUncompacted):
 		r.Verdict, r.Reason = SweepLeft, err.Error()
 	default:
 		r.Verdict, r.Reason = SweepFailed, err.Error()

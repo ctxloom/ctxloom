@@ -9,7 +9,7 @@ This page is generated from `ctxloom session show --help`.
 
 ## ctxloom session show
 
-Print the distilled essence of a harp-named session
+Print the compacted essence of a harp-named session
 
 ```
 ctxloom session show <harp-name> [flags]

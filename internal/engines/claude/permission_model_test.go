@@ -138,3 +138,15 @@ func TestPermissionModel_Sandboxes(t *testing.T) {
 	assert.Equal(t, []engine.Sandbox{engine.SandboxFull}, m.Sandboxes("container-rootless"), "an engine sandbox inside a container is unverified")
 	assert.NotContains(t, m.Sandboxes("host"), engine.SandboxReadOnly)
 }
+
+// A run plans first exactly when its resolved mode is plan: the after_plan
+// beside it names where the plan continues, not whether there is one.
+func TestPermissionModel_PlansFirst(t *testing.T) {
+	m := model(t)
+	assert.True(t, m.PlansFirst(map[string]any{"mode": "plan"}))
+	assert.True(t, m.PlansFirst(map[string]any{"mode": "plan", "after_plan": "acceptEdits"}))
+	for _, mode := range []string{"default", "acceptEdits", "bypass"} {
+		assert.Falsef(t, m.PlansFirst(map[string]any{"mode": mode}), "%s does not plan first", mode)
+	}
+	assert.False(t, m.PlansFirst(nil), "a document naming no mode names no plan")
+}

@@ -28,21 +28,21 @@ func bindHarpForEssence(t *testing.T, projectDir string) (string, string) {
 	return e.HarpName, p
 }
 
-// A READ FAILURE ON AN ESSENCE THAT EXISTS IS NOT "NEVER DISTILLED".
+// A READ FAILURE ON AN ESSENCE THAT EXISTS IS NOT "NEVER COMPACTED".
 //
 // load_session reported every os.ReadFile error — a permissions fault, a
-// directory in the essence's place, any I/O error — as "No distilled essence
+// directory in the essence's place, any I/O error — as "No compacted essence
 // for <harp> yet ... run compact_session to generate one". That advice is
-// actively wrong for a session that HAS been distilled: the compaction reruns,
+// actively wrong for a session that HAS been compacted: the compaction reruns,
 // spends an LLM budget, writes to the same unreadable path, and the caller
 // loops. The message must name the real fault so the caller stops retrying.
-func TestLoadHarpEssence_ReadFailureIsNotReportedAsNeverDistilled(t *testing.T) {
+func TestLoadHarpEssence_ReadFailureIsNotReportedAsNeverCompacted(t *testing.T) {
 	testsupport.Isolate(t)
 	proj := t.TempDir()
 	harp, essencePath := bindHarpForEssence(t, proj)
 
 	// A DIRECTORY where the essence file belongs: os.ReadFile fails with
-	// EISDIR, which is emphatically not "this was never distilled". Chosen
+	// EISDIR, which is emphatically not "this was never compacted". Chosen
 	// over chmod 0000 because it fails for root too.
 	require.NoError(t, os.MkdirAll(essencePath, 0o755))
 
@@ -52,14 +52,14 @@ func TestLoadHarpEssence_ReadFailureIsNotReportedAsNeverDistilled(t *testing.T) 
 	require.NotNil(t, out)
 
 	assert.False(t, out.Loaded, "an unreadable essence is not loaded content")
-	assert.NotContains(t, out.Message, "No distilled essence",
-		"a read FAILURE must not be reported as a never-distilled session; that sends the caller to re-run a compaction that cannot help")
+	assert.NotContains(t, out.Message, "No compacted essence",
+		"a read FAILURE must not be reported as a never-compacted session; that sends the caller to re-run a compaction that cannot help")
 	assert.NotContains(t, out.Message, "compact_session",
-		"re-distilling is the wrong remedy for an essence that exists but cannot be read")
+		"re-compacting is the wrong remedy for an essence that exists but cannot be read")
 	assert.Contains(t, out.Message, harp, "the diagnostic must name the session it is about")
 }
 
-// The genuine never-distilled case must keep its actionable advice: a harp
+// The genuine never-compacted case must keep its actionable advice: a harp
 // with no essence on disk is exactly when "run compact_session" is right.
 // This is the other half of the pair — the fix must discriminate, not just
 // change the message for everyone.
@@ -74,8 +74,8 @@ func TestLoadHarpEssence_MissingEssenceStillAdvisesCompaction(t *testing.T) {
 	require.NotNil(t, out)
 
 	assert.False(t, out.Loaded)
-	assert.Contains(t, out.Message, "No distilled essence",
-		"a genuinely undistilled harp must still say so")
+	assert.Contains(t, out.Message, "No compacted essence",
+		"a genuinely uncompacted harp must still say so")
 	assert.Contains(t, out.Message, "compact_session",
 		"and must still name the remedy that works")
 }

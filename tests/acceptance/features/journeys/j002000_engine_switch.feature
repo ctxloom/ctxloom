@@ -108,7 +108,7 @@ Feature: Engine switch day
   # warns "session <harp> dropped from the index" when it reaps one — so the
   # message announcing the history was deleted satisfied the check for the
   # history surviving. Measured: with operations.isUnrecoverable inverted for
-  # distilled entries the listing returned zero rows and the scenario stayed
+  # compacted entries the listing returned zero rows and the scenario stayed
   # green. It now reads the ROWS out of `session list --all --format json`
   # stdout, and that same mutation turns it red.
   Scenario: History recorded under the old engine survives the move

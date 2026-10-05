@@ -45,7 +45,7 @@ func TestWriteNextStep_StoresTheTextWhereReadNextStepFindsIt(t *testing.T) {
 //
 // MUTATION — make ReadNextStep return (\"\", true) on a read error — turns this
 // red, because a caller would then treat an absent hint as a present one and
-// steer distillation by an empty string.
+// steer compaction by an empty string.
 func TestReadNextStep_MissingFileIsNotAnError(t *testing.T) {
 	testsupport.Isolate(t)
 

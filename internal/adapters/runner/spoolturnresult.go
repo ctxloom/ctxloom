@@ -54,9 +54,11 @@ import (
 // coordinator's accumulator did). inReplyTo is the id of the delivered
 // message that started the turn, or empty for a turn nothing delivered
 // started — a briefing, or an engine continuing on its own. blocked is every
-// tool call the turn's engine refused; failure is the engine turning the
-// whole turn away, which makes the report an ERROR saying the run is parked.
-func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, failure *agent.TurnFailure) error {
+// tool call the turn's engine refused; plan is the plan the turn ended
+// holding for the parent to approve, carried as data; failure is the engine
+// turning the whole turn away, which makes the report an ERROR saying the
+// run is parked.
+func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, plan *coord.PlanApproval, failure *agent.TurnFailure) error {
 	if h.Depth() == 0 {
 		return nil
 	}
@@ -66,6 +68,9 @@ func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.Permissi
 		return nil
 	}
 	body := strings.TrimSpace(text)
+	if cue := planCue(plan); cue != "" {
+		body = strings.TrimSpace(cue + "\n\n" + body)
+	}
 	kind := coord.KindResult
 	calls := blockedCalls(blocked)
 	switch {
@@ -73,7 +78,11 @@ func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.Permissi
 		kind = coord.KindError
 		body = strings.TrimSpace(failurePreamble(failure) + "\n\n" + body)
 	case len(calls) > 0:
-		body = strings.TrimSpace(blockedPreamble(calls) + "\n\n" + body)
+		lead := "\n\n"
+		if planCue(plan) != "" {
+			lead = "\n" // the plan's cue already leads what the turn said
+		}
+		body = strings.TrimSpace(blockedPreamble(calls) + lead + body)
 	case body == "":
 		// An empty body is this project's signature silent no-op, not a
 		// report — so this is not written as an empty result. It is written as
@@ -89,7 +98,7 @@ func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.Permissi
 		// MARKED AUTOMATIC. The correlation above is what makes this necessary:
 		// without the marker this message is indistinguishable from the child
 		// deliberately answering the ask that started the turn.
-		Structured: coord.AutoReportStructured(calls...),
+		Structured: coord.AutoReportStructured(coord.AutoReport{Blocked: calls, PlanApproval: plan}),
 	}); err != nil {
 		// LOUD AND COUNTED. A report that could not be written is a turn the
 		// parent will never hear about, and the accumulator that held it has
@@ -136,6 +145,25 @@ func failurePreamble(f *agent.TurnFailure) string {
 			"This run alone is parked for a short backoff and resumes on its own; anything sent to it meanwhile waits and runs then."
 	}
 	return fmt.Sprintf("TURN FAILED (%s): the turn did no work, and the run is parked until it is resumed.", f.Kind)
+}
+
+// planCue is the lead line of a report whose turn ended holding a plan:
+// where the plan is — its artifact, or this report when no plan file was
+// published — and how the parent approves or revises it. "" when the turn
+// holds no plan.
+func planCue(plan *coord.PlanApproval) string {
+	if plan == nil {
+		return ""
+	}
+	offered := make([]string, len(plan.Postures))
+	for i, p := range plan.Postures {
+		offered[i] = p.Posture
+	}
+	where := "the plan is in this report (no plan file was published)."
+	if plan.Artifact != "" {
+		where = plan.Artifact + " — fetch it with agent_fetch_artifact."
+	}
+	return "PLAN AWAITING APPROVAL: " + where + " To approve, agent_send structured {\"" + approvePlanKey + "\": \"<posture>\"} (offered: " + strings.Join(offered, ", ") + "); to revise, send a normal message."
 }
 
 // blockedPreamble is the report's lead: one "BLOCKED on <tool>" line per

@@ -3,8 +3,6 @@ package coord
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -70,9 +68,8 @@ var askerID = Identity{Harp: "child-harp", RunID: "run-1", Depth: 1}
 
 func toolAsk(tool string) PendingApproval {
 	return PendingApproval{
-		Kind:  ApprovalTool,
 		Agent: "worker",
-		Ask:   engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: json.RawMessage(`{"command":"ls"}`), ToolUseID: "toolu_1"},
+		Ask:   engine.PermissionAsk{Tool: tool, Input: json.RawMessage(`{"command":"ls"}`), ToolUseID: "toolu_1"},
 	}
 }
 
@@ -165,6 +162,23 @@ func TestApprovalQueue_AnswerResolvesTheParkOnce(t *testing.T) {
 	assert.Equal(t, "human", decided["decider"])
 	assert.Equal(t, true, decided["allow"])
 	assert.Equal(t, string(p.ID), decided["id"])
+	var parked map[string]any
+	require.NoError(t, json.Unmarshal(facts[0].Data, &parked))
+	assert.NotContains(t, parked, "kind", "a tool call is the only request: the fact records no kind")
+	assert.Equal(t, "Bash", parked["tool"])
+}
+
+// TestApprovalParked_AnOldLineStillDecodes: journals written before the kind
+// left the fact still carry "kind":"tool"; a reader ignores the key it no
+// longer knows and reads the rest.
+func TestApprovalParked_AnOldLineStillDecodes(t *testing.T) {
+	old := Fact{Kind: factApprovalParked, Data: json.RawMessage(`{"id":"apv-1","harp":"child-harp","kind":"tool","tool":"Bash","input":{"command":"ls"},"deadline":"2026-10-05T12:00:00Z"}`)}
+	var p approvalParked
+	require.NoError(t, old.decode(&p))
+	assert.Equal(t, ApprovalID("apv-1"), p.ID)
+	assert.Equal(t, "child-harp", p.Harp)
+	assert.Equal(t, "Bash", p.Tool)
+	assert.JSONEq(t, `{"command":"ls"}`, string(p.Input))
 }
 
 // TestApprovalQueue_TimeoutDenies: nobody answers, so the request is denied at
@@ -486,49 +500,6 @@ func TestApprovalQueue_DeniedSessionRulesGrantNothing(t *testing.T) {
 	require.NoError(t, q.Answer(id, ApprovalDecision{Allow: false, SessionRules: []string{"Bash(ls:*)"}}))
 	<-done
 	assert.Empty(t, q.Grants(askerID.Harp))
-	assert.Equal(t, []string{factApprovalParked, factApprovalDecided}, factKinds(readFacts(t, path)))
-}
-
-// TestApprovalQueue_ApprovedPlanIsJournaled: approving a plan records the
-// posture it executes under and the plan's digest and path.
-func TestApprovalQueue_ApprovedPlanIsJournaled(t *testing.T) {
-	q, _, path := newTestQueue(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	events := q.Subscribe(ctx)
-	req := PendingApproval{Kind: ApprovalPlan, Ask: engine.PermissionAsk{
-		Kind: engine.AskPlan, Tool: "ExitPlanMode",
-		Plan: &engine.PlanProposal{Markdown: "# plan\n1. do it", Path: "/home/x/.claude/plans/p.md"},
-	}}
-	done := parkAsync(ctx, q, req, time.Minute)
-	id := awaitEvent(t, events, QueueAdded).ID
-	require.NoError(t, q.Answer(id, ApprovalDecision{Allow: true, SetMode: engine.Provide("acceptEdits")}))
-	<-done
-
-	planSum := sha256.Sum256([]byte("# plan\n1. do it"))
-	facts := readFacts(t, path)
-	require.Equal(t, []string{factApprovalParked, factApprovalDecided, factPlanApproved}, factKinds(facts))
-	var plan map[string]any
-	require.NoError(t, json.Unmarshal(facts[2].Data, &plan))
-	assert.Equal(t, "acceptEdits", plan["posture"])
-	assert.Equal(t, "/home/x/.claude/plans/p.md", plan["path"])
-	assert.Equal(t, "sha256:"+hex.EncodeToString(planSum[:]), plan["digest"])
-	assert.Equal(t, string(id), plan["id"])
-}
-
-// TestApprovalQueue_RejectedPlanIsNotApproved: a rejected plan journals its
-// decision and nothing else.
-func TestApprovalQueue_RejectedPlanIsNotApproved(t *testing.T) {
-	q, _, path := newTestQueue(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	events := q.Subscribe(ctx)
-	req := PendingApproval{Kind: ApprovalPlan, Ask: engine.PermissionAsk{Kind: engine.AskPlan, Plan: &engine.PlanProposal{Markdown: "x"}}}
-	done := parkAsync(ctx, q, req, time.Minute)
-	id := awaitEvent(t, events, QueueAdded).ID
-	require.NoError(t, q.Answer(id, ApprovalDecision{Allow: false, Message: "split step 2"}))
-	d := <-done
-	assert.Equal(t, "split step 2", d.Message)
 	assert.Equal(t, []string{factApprovalParked, factApprovalDecided}, factKinds(readFacts(t, path)))
 }
 

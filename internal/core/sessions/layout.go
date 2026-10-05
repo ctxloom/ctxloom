@@ -87,16 +87,16 @@ func (l Layout) KeepMarker(harp string) string {
 	return l.member(harp, paths.SessionKeepMarkerFileName)
 }
 
-// Distilled reports whether the session in dir has an essence: its recorded
+// Compacted reports whether the session in dir has an essence: its recorded
 // output dir holds one. Without one the transcript is the session's ONLY
 // record, which is what every destroyer of transcripts asks before taking
 // one. A session with no recorded output dir has nowhere an essence could be,
-// so it is undistilled.
+// so it is uncompacted.
 //
 // It asks the disk, never a recorded flag: a flag set before the essence
 // was written, or left behind after it was removed, would pass the one
 // session this exists to protect.
-func Distilled(dir string) bool {
+func Compacted(dir string) bool {
 	out, ok := OutputDirOf(dir)
 	if !ok {
 		return false

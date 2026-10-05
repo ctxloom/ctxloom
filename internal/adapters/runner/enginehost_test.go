@@ -75,6 +75,9 @@ type fakeEngineHome struct {
 	// boundary sweep ("sweep") at the instant it happens, outside the lock —
 	// the seam a test uses to see what was already true at that moment.
 	atBoundary func(what string)
+
+	// planArtifact is what stampPlan answers: the plan artifact a turn left.
+	planArtifact string
 }
 
 // observe calls atBoundary, read under the lock and called outside it.
@@ -158,11 +161,17 @@ func (f *fakeEngineHome) SweepSpoolIn() {
 // at a boundary — the text AND the correlation, because the correlation is
 // half of what this report is for and a fake that swallowed it would let the
 // tag plumbing rot with every test still green.
-func (f *fakeEngineHome) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, failure *agent.TurnFailure) error {
+func (f *fakeEngineHome) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial, plan *coord.PlanApproval, failure *agent.TurnFailure) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.turnReports = append(f.turnReports, turnReport{Text: text, InReplyTo: inReplyTo, Blocked: blocked, Failure: failure})
+	f.turnReports = append(f.turnReports, turnReport{Text: text, InReplyTo: inReplyTo, Blocked: blocked, Plan: plan, Failure: failure})
 	return nil
+}
+
+func (f *fakeEngineHome) stampPlan(context.Context) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.planArtifact
 }
 
 // customValue is the value of the last custom event called name; nil when
@@ -190,6 +199,7 @@ type turnReport struct {
 	Text      string
 	InReplyTo string
 	Blocked   []agent.PermissionDenial
+	Plan      *coord.PlanApproval
 	Failure   *agent.TurnFailure
 }
 

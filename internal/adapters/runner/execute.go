@@ -455,6 +455,7 @@ func approvalSpecFor(eng engine.Engine, l launch.Launch) *approvalSpec {
 	spec := &approvalSpec{codec: codec, timeout: l.Permission.ApprovalTimeout}
 	if model, ok := eng.Permissions().Get(); ok {
 		spec.transitions = model.Transitions(l.Permission.Posture.Document)
+		spec.plansFirst = model.PlansFirst(l.Permission.Posture.Document)
 	}
 	return spec
 }

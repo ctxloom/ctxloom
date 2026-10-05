@@ -18,7 +18,7 @@ import (
 // (<output dir>/essence.md) first, legacy
 // <appDir>/sessions/<sessionID>.md second. cli's readSessionEssence (the
 // READING face) and this function must agree on which of the two candidate
-// files wins, or the same session reads as distilled in one command and
+// files wins, or the same session reads as compacted in one command and
 // pending in another — see cli's TestSessionEssenceResolution_SharedLookupOrder
 // for the cross-package half of that contract.
 // seedRotationEssence writes <out>/segments/<id>.md and returns its path.
@@ -39,18 +39,18 @@ func TestSessionEssenceInfo_CurrentEssenceWinsOverTheRotationCopy(t *testing.T) 
 	rotationPath := seedRotationEssence(t, out, "sess-1", "rotation body\n")
 
 	e := sessions.Entry{HarpName: harp, SessionID: "sess-1", OutputDir: out}
-	gotPath, distilled := SessionEssenceInfo(harp, &e)
+	gotPath, compacted := SessionEssenceInfo(harp, &e)
 
-	assert.True(t, distilled)
+	assert.True(t, compacted)
 	assert.Equal(t, harpPath, gotPath,
 		"the CURRENT essence wins: a rotation copy is the record of an older session, not this harp's latest")
 	assert.NotEqual(t, rotationPath, gotPath)
 }
 
 // A harp whose essence.md has not been written yet — or a session whose harp has
-// since been distilled again — is still distilled if THIS rotation left its own
+// since been compacted again — is still compacted if THIS rotation left its own
 // copy under segments/. Without this arm a /clear would make every earlier
-// session in the lineage read as never-distilled.
+// session in the lineage read as never-compacted.
 func TestSessionEssenceInfo_FallsBackToTheRotationEssence(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "swift-amber-falcon"
@@ -58,45 +58,45 @@ func TestSessionEssenceInfo_FallsBackToTheRotationEssence(t *testing.T) {
 	rotationPath := seedRotationEssence(t, out, "sess-2", "rotation body\n")
 
 	e := sessions.Entry{HarpName: harp, SessionID: "sess-2", OutputDir: out}
-	gotPath, distilled := SessionEssenceInfo(harp, &e)
+	gotPath, compacted := SessionEssenceInfo(harp, &e)
 
-	assert.True(t, distilled)
+	assert.True(t, compacted)
 	assert.Equal(t, rotationPath, gotPath)
 }
 
-func TestSessionEssenceInfo_NeitherPresentIsNotDistilled(t *testing.T) {
+func TestSessionEssenceInfo_NeitherPresentIsNotCompacted(t *testing.T) {
 	testsupport.Isolate(t)
-	e := sessions.Entry{HarpName: "never-distilled-harp", SessionID: "sess-3", OutputDir: t.TempDir()}
+	e := sessions.Entry{HarpName: "never-compacted-harp", SessionID: "sess-3", OutputDir: t.TempDir()}
 
-	gotPath, distilled := SessionEssenceInfo("never-distilled-harp", &e)
+	gotPath, compacted := SessionEssenceInfo("never-compacted-harp", &e)
 
-	assert.False(t, distilled)
+	assert.False(t, compacted)
 	assert.Empty(t, gotPath)
 }
 
 // A session with no output dir recorded has nowhere an essence could be.
-func TestSessionEssenceInfo_NoOutputDirIsNotDistilled(t *testing.T) {
+func TestSessionEssenceInfo_NoOutputDirIsNotCompacted(t *testing.T) {
 	testsupport.Isolate(t)
 	e := sessions.Entry{HarpName: "no-output-harp", SessionID: "sess-5"}
-	gotPath, distilled := SessionEssenceInfo("no-output-harp", &e)
-	assert.False(t, distilled)
+	gotPath, compacted := SessionEssenceInfo("no-output-harp", &e)
+	assert.False(t, compacted)
 	assert.Empty(t, gotPath)
 }
 
-// TestSessionEssenceInfo_DirectoryAtEssencePathIsNotDistilled pins the
+// TestSessionEssenceInfo_DirectoryAtEssencePathIsNotCompacted pins the
 // directory-exclusion: a DIRECTORY sitting at a candidate path must not read
-// as a distilled essence. This is the one deliberate divergence from the
+// as a compacted essence. This is the one deliberate divergence from the
 // near-identical check in internal/adapters/isolation (see
 // SessionEssenceInfo's doc) — it must not be lost by future refactoring.
-func TestSessionEssenceInfo_DirectoryAtEssencePathIsNotDistilled(t *testing.T) {
+func TestSessionEssenceInfo_DirectoryAtEssencePathIsNotCompacted(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "dir-at-essence-path"
 	out := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(out, paths.EssenceFileName), 0o755), "a directory, not a file, at the essence path")
 
 	e := sessions.Entry{HarpName: harp, SessionID: "sess-4", OutputDir: out}
-	gotPath, distilled := SessionEssenceInfo(harp, &e)
+	gotPath, compacted := SessionEssenceInfo(harp, &e)
 
-	assert.False(t, distilled, "a directory at the essence path is not a distilled essence")
+	assert.False(t, compacted, "a directory at the essence path is not a compacted essence")
 	assert.Empty(t, gotPath)
 }

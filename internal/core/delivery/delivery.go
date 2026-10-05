@@ -184,6 +184,10 @@ type Loadout struct {
 	MCP      sessions.Endpoint
 	Identity sessions.Identity
 	WorkDir  string
+	// SessionHome is the session's home for the engine as the runner reads
+	// it (present.Paths.SessionHome's host side); "" when the run has none —
+	// a binding on the host's own engine home.
+	SessionHome string
 }
 
 // Dynamic serves the dynamic kinds on the session's ONE MCP endpoint. The

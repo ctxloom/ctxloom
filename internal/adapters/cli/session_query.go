@@ -24,9 +24,9 @@ var sessionQueryFull bool
 // top-level `ctxloom search` (verb-spine reorg §5).
 var sessionSearchCmd = &cobra.Command{
 	Use:   "search <word>...",
-	Short: "Search sessions by harp, summary, and distilled essence content (default: current project; --all for everything)",
+	Short: "Search sessions by harp, summary, and compacted essence content (default: current project; --all for everything)",
 	Long: `Searches session metadata (harp name, summary, start/end) and, for
-sessions that have already been distilled, the essence body itself. Every
+sessions that have already been compacted, the essence body itself. Every
 given word must match, case-insensitively, somewhere in a session's
 metadata or essence for that session to be included (an AND across words,
 not an OR).
@@ -42,7 +42,7 @@ returned in a result row (the same lightweight harp/summary/start/end shape
 
 func init() {
 	sessionSearchCmd.Flags().BoolVar(&sessionQueryAll, "all", false, "Search sessions from every project (default: filter to cwd)")
-	sessionSearchCmd.Flags().BoolVar(&sessionQueryFull, "full", false, "Include each matched session's complete distilled essence body (text output pages through $PAGER on a terminal)")
+	sessionSearchCmd.Flags().BoolVar(&sessionQueryFull, "full", false, "Include each matched session's complete compacted essence body (text output pages through $PAGER on a terminal)")
 	sessionCmd.AddCommand(sessionSearchCmd)
 }
 
@@ -81,9 +81,9 @@ func runSessionQuery(cmd *cobra.Command, args []string) error {
 // sessionMatchesQuery reports whether every word in words is found
 // case-insensitively in the session's metadata (harp name, summary,
 // formatted start/end) OR — only when the metadata search misses — its
-// distilled essence body, read the same way `session show` reads it
+// compacted essence body, read the same way `session show` reads it
 // (readSessionEssence). Metadata is checked first so a session that already
-// matches, or one that was never distilled, never pays the cost of reading
+// matches, or one that was never compacted, never pays the cost of reading
 // an essence file off disk.
 func sessionMatchesQuery(v operations.SessionView, words []string) bool {
 	if allWordsMatch(sessionMetadataHaystack(v), words) {

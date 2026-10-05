@@ -56,7 +56,7 @@ const noSessionIdentityMsg = "no ctxloom session identity for this caller — co
 
 // handleContextStatus reads the caller's own context-occupancy series.
 //
-// Read-only and cheap by construction: one file read, no distillation, no
+// Read-only and cheap by construction: one file read, no compaction, no
 // backend, no subprocess — it is meant to be affordable to an agent that is
 // already short of room, so it must never become the kind of tool you hesitate
 // to call.

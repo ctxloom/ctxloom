@@ -61,7 +61,7 @@ func TestMock_ProvidesAnApprovalCodec(t *testing.T) {
 	require.True(t, ok, "the mock stands in for an engine the human approves for")
 	ask, err := c.DecodeAsk("ask", []byte(`{"tool":"Bash","input":{"b":1,"a":2}}`))
 	require.NoError(t, err)
-	assert.Equal(t, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{"a":2,"b":1}`)}, ask)
+	assert.Equal(t, engine.PermissionAsk{Tool: "Bash", Input: json.RawMessage(`{"a":2,"b":1}`)}, ask)
 	_, err = c.DecodeAsk("ask", []byte(`{"input":{}}`))
 	assert.Error(t, err, "an ask names its tool")
 

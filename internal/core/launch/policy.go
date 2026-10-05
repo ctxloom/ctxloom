@@ -65,7 +65,7 @@ func resolvePolicy(rep report.Reporter, src Source, d permissionDecls, eng engin
 	p := engine.PermissionPolicy{Posture: engine.Posture{Engine: name}}
 	declared := eng.Permissions()
 	model, hasModel := declared.Get()
-	doc, err := resolvePosture(rep, src, d, name, declared)
+	doc, floored, err := resolvePosture(rep, src, d, name, declared)
 	if err != nil {
 		return engine.PermissionPolicy{}, err
 	}
@@ -77,19 +77,41 @@ func resolvePolicy(rep report.Reporter, src Source, d permissionDecls, eng engin
 	if p.Approver, err = resolveApprover(rungs, eng, model, hasModel); err != nil {
 		return engine.PermissionPolicy{}, err
 	}
+	if err := plansFirstNeedsHuman(model, hasModel, p, floored); err != nil {
+		return engine.PermissionPolicy{}, err
+	}
 	if p.ApprovalTimeout, err = resolveTimeout(rungs); err != nil {
 		return engine.PermissionPolicy{}, err
 	}
 	if p.Sandbox, err = resolveSandbox(rungs, name, runtime, model, hasModel); err != nil {
 		return engine.PermissionPolicy{}, err
 	}
+	p.Network = resolveNetwork(rungs)
+	return p, nil
+}
+
+// resolveNetwork is the first declared network, else none.
+func resolveNetwork(rungs []neutralRung) bool {
 	for _, r := range rungs {
 		if r.fields.Network != nil {
-			p.Network = *r.fields.Network
-			break
+			return *r.fields.Network
 		}
 	}
-	return p, nil
+	return false
+}
+
+// plansFirstNeedsHuman refuses a posture that plans first under an approver
+// that is not the human — nobody could ever approve its plan — naming the
+// posture, whether --degraded fell to it, and the approver.
+func plansFirstNeedsHuman(model engine.PermissionModel, hasModel bool, p engine.PermissionPolicy, floored bool) error {
+	if !hasModel || !model.PlansFirst(p.Posture.Document) || p.Approver == engine.ApproverHuman {
+		return nil
+	}
+	posture := "the posture is " + p.Posture.Label
+	if floored {
+		posture = "--degraded fell back to " + p.Posture.Label
+	}
+	return fmt.Errorf("%w: %w: %s, but the approver is %s", ErrPermissionUnhonoured, ErrPlansFirstNeedsHuman, posture, p.Approver)
 }
 
 // declarations are the engine's own documents, nearest first: the
@@ -106,32 +128,48 @@ func (d permissionDecls) declarations(name engine.Name) (decls []engine.Declarat
 	return decls, hasBlock
 }
 
-// resolvePosture has the engine resolve its document. A binding that
-// carries engine blocks but none for this engine is refused — or, under
-// --degraded, runs at the engine's floor, announced. An engine without a
-// permission model takes no declaration at all.
-func resolvePosture(rep report.Reporter, src Source, d permissionDecls, name engine.Name, declared engine.Declared[engine.PermissionModel]) (map[string]any, error) {
+// resolvePosture has the engine resolve its document, and reports whether
+// --degraded dropped it to the engine's floor. A binding that carries engine
+// blocks but none for this engine is refused — or, under --degraded, runs at
+// the engine's floor, announced. An engine without a permission model takes
+// no declaration at all.
+func resolvePosture(rep report.Reporter, src Source, d permissionDecls, name engine.Name, declared engine.Declared[engine.PermissionModel]) (doc map[string]any, floored bool, err error) {
 	decls, hasBlock := d.declarations(name)
 	model, ok := declared.Get()
 	if !ok {
 		if len(decls) > 0 || src.Permission != "" || len(d.binding.Engines) > 0 {
-			return nil, fmt.Errorf("%w: engine %s takes no permission declaration (%s)", ErrPermissionUnhonoured, name, declared.AbsentReason())
+			return nil, false, fmt.Errorf("%w: engine %s takes no permission declaration (%s)", ErrPermissionUnhonoured, name, declared.AbsentReason())
 		}
-		return nil, nil
+		return nil, false, nil
 	}
 	if !hasBlock && len(d.binding.Engines) > 0 {
 		refusal := fmt.Errorf("%w: agent %q declares permissions for %s but none for %s, the engine it resolved to — add permissions.%s", ErrPermissionUnhonoured, d.agent, strings.Join(slices.Sorted(maps.Keys(d.binding.Engines)), ", "), name, name)
 		if !src.Degraded {
-			return nil, refusal
+			return nil, false, refusal
 		}
 		rep.Warnf("--degraded: %v; this run drops to %s's floor", refusal, name)
-		return model.Floor(), nil
+		return model.Floor(), true, nil
 	}
-	doc, err := model.Resolve(engine.PostureRequest{Declared: decls, Mode: src.Permission, Degraded: src.Degraded, Warn: rep.Warnf})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrPermissionUnhonoured, err)
+	return resolveDeclared(rep, src, decls, model)
+}
+
+// resolveDeclared has the engine settle the declarations as declared; only
+// when it cannot, and the launch is --degraded, does it settle them again
+// degraded — the engine's own drop to its floor, announced by the engine.
+func resolveDeclared(rep report.Reporter, src Source, decls []engine.Declaration, model engine.PermissionModel) (map[string]any, bool, error) {
+	req := engine.PostureRequest{Declared: decls, Mode: src.Permission, Warn: rep.Warnf}
+	doc, err := model.Resolve(req)
+	if err == nil {
+		return doc, false, nil
 	}
-	return doc, nil
+	if !src.Degraded {
+		return nil, false, fmt.Errorf("%w: %w", ErrPermissionUnhonoured, err)
+	}
+	req.Degraded = true
+	if doc, err = model.Resolve(req); err != nil {
+		return nil, false, fmt.Errorf("%w: %w", ErrPermissionUnhonoured, err)
+	}
+	return doc, true, nil
 }
 
 // resolveApprover is the first declared approver, else the human. The

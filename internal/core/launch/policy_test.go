@@ -165,6 +165,23 @@ func TestResolvePolicy_ReviewerNeedsTheEngines(t *testing.T) {
 	assert.Equal(t, engine.ApproverReviewer, p.Approver)
 }
 
+// A run that plans first needs a human to approve its plan: with approver
+// none or reviewer nobody ever could, so the launch is refused naming both
+// halves of the conflict. The human approver plans first freely.
+func TestResolvePolicy_PlansFirstNeedsTheHuman(t *testing.T) {
+	for _, approver := range []string{"none", "reviewer"} {
+		block := launchtest.PermissionBlock(fixtureBlock(agents.NeutralPermissions{Approver: approver}, map[string]any{"mode": "plan"}))
+		_, err := resolvePolicy(t, launchtest.Deps(t, launchtest.WithAgent("dev", block), launchtest.FixtureReviewer()), launch.Source{Agent: "dev"})
+		require.ErrorIsf(t, err, launch.ErrPermissionUnhonoured, "approver %s", approver)
+		require.ErrorIsf(t, err, launch.ErrPlansFirstNeedsHuman, "approver %s", approver)
+		require.ErrorContainsf(t, err, approver, "the refusal names the approver")
+	}
+	block := launchtest.PermissionBlock(fixtureBlock(agents.NeutralPermissions{Approver: "human"}, map[string]any{"mode": "plan"}))
+	p, err := resolvePolicy(t, launchtest.Deps(t, launchtest.WithAgent("dev", block)), launch.Source{Agent: "dev"})
+	require.NoError(t, err)
+	assert.Equal(t, engine.ApproverHuman, p.Approver)
+}
+
 // Refusals name the value and the rung it came from.
 func TestResolvePolicy_Refusals(t *testing.T) {
 	for name, tc := range map[string]struct {

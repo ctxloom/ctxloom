@@ -295,6 +295,10 @@ var (
 	ErrNoAgent              = errors.New("launch: the named agent is not found")
 	ErrNoEngine             = errors.New("launch: the label names no composed engine")
 	ErrPermissionUnhonoured = errors.New("launch: the declared permission posture cannot be honoured")
+	// ErrPlansFirstNeedsHuman is a posture that plans first under an
+	// approver that is not the human: nobody could ever approve its plan.
+	// It is always wrapped in ErrPermissionUnhonoured.
+	ErrPlansFirstNeedsHuman = errors.New("launch: a posture that plans first needs the human as its approver")
 	ErrContextEmpty         = errors.New("launch: the named profile set assembled to nothing")
 	ErrNoClaimCheck         = errors.New("launch: the package exceeds the inline ceiling and no claim check is composed")
 	ErrBindingRoots         = errors.New("launch: the binding's root selection does not parse")

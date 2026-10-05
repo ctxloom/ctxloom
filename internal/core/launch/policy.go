@@ -77,6 +77,9 @@ func resolvePolicy(rep report.Reporter, src Source, d permissionDecls, eng engin
 	if p.Approver, err = resolveApprover(rungs, eng, model, hasModel); err != nil {
 		return engine.PermissionPolicy{}, err
 	}
+	if hasModel && model.PlansFirst(doc) && p.Approver != engine.ApproverHuman {
+		return engine.PermissionPolicy{}, fmt.Errorf("%w: %w: the posture is %s, but the approver is %s", ErrPermissionUnhonoured, ErrPlansFirstNeedsHuman, p.Posture.Label, p.Approver)
+	}
 	if p.ApprovalTimeout, err = resolveTimeout(rungs); err != nil {
 		return engine.PermissionPolicy{}, err
 	}

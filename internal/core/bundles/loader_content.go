@@ -163,6 +163,20 @@ type ContentInfo struct {
 	Premise string
 }
 
+// itemTags is an item's listed tags: its bundle's, then its own, each once in
+// first-seen order. An item commonly restates its bundle's tags.
+func itemTags(bundleTags, own []string) []string {
+	var tags []string
+	seen := collections.NewSet[string]()
+	for _, tag := range slices.Concat(bundleTags, own) {
+		if !seen.Has(tag) {
+			seen.Add(tag)
+			tags = append(tags, tag)
+		}
+	}
+	return tags
+}
+
 // ListAllFragments returns info about all fragments across all bundles.
 func (c Catalog) ListAllFragments() []ContentInfo {
 	var infos []ContentInfo
@@ -186,7 +200,7 @@ func (c Catalog) ListAllFragments() []ContentInfo {
 				FileName: name + ".yaml",
 				Path:     bundle.Path,
 				Source:   bundleInfo.DisplayName(),
-				Tags:     slices.Concat(bundle.Tags, frag.Tags),
+				Tags:     itemTags(bundle.Tags, frag.Tags),
 				Bundle:   bundleInfo.DisplayName(),
 				ItemType: "fragment",
 				Premise:  frag.Premise,
@@ -224,7 +238,7 @@ func (c Catalog) ListAllCommands() []ContentInfo {
 				FileName:    name + ".yaml",
 				Path:        bundle.Path,
 				Source:      bundleInfo.DisplayName(),
-				Tags:        slices.Concat(bundle.Tags, prompt.Tags),
+				Tags:        itemTags(bundle.Tags, prompt.Tags),
 				Bundle:      bundleInfo.DisplayName(),
 				ItemType:    "command",
 				Description: prompt.Description,
@@ -329,7 +343,7 @@ func itemRead(read BundleRead, kind trust.ItemKind, name string, body ItemBody, 
 		Bundle:       bundle.Name,
 		Item:         name,
 		Version:      bundle.Version,
-		Tags:         slices.Concat(bundle.Tags, body.Tags),
+		Tags:         itemTags(bundle.Tags, body.Tags),
 		Installation: body.Installation,
 		DistilledBy:  body.DistilledBy,
 		Resolve:      resolve,

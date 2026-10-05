@@ -3,7 +3,6 @@ package bundles
 import (
 	"fmt"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 
@@ -192,7 +191,7 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 		Body:         pkg.Body,
 		Files:        files,
 		Exports:      entry.Exports,
-		Tags:         slices.Concat(bundle.Tags, entry.Tags),
+		Tags:         itemTags(bundle.Tags, entry.Tags),
 		TrustRef:     trustRef,
 		TrustPayload: payload,
 		Signer:       bundle.Signer(),

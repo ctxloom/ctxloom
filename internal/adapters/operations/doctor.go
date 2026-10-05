@@ -413,7 +413,7 @@ func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *age
 	if ok {
 		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: detail}
 	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail}
+	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail, Remedy: doctorSignKeyRemedy}
 }
 
 // SignKeyResolutionDetail runs internal/adapters/signing/agentkey's real resolution
@@ -520,7 +520,7 @@ func doctorCheckGitIdentity(ctx context.Context, gitConfig gitConfigFunc) Doctor
 	if ok {
 		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: detail}
 	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail}
+	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail, Remedy: doctorGitIdentityRemedy}
 }
 
 // GitIdentityDetail runs gitConfig for user.name and user.email and renders
@@ -587,7 +587,7 @@ func doctorCheckAgents(ctx context.Context, reg engine.Registry, cfg *config.Con
 	configuredAgents := cfg.GetConfiguredAgents()
 	if len(configuredAgents) == 0 {
 		return DoctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: DoctorWarn,
-			Detail: "no agents configured " + doctorNoAgentsRemedy}
+			Detail: "no agents configured", Remedy: doctorNoAgentsRemedy}
 	}
 	names := make([]string, 0, len(configuredAgents))
 	for name := range configuredAgents {
@@ -836,8 +836,14 @@ func doctorProjectDir(cfg *config.Config) string {
 // makes a project; `agent create` is the command that binds an engine to
 // profiles once there is one.
 const (
-	doctorSetupMarkerRemedy = "(run `ctxloom init`)"
-	doctorNoAgentsRemedy    = "(run `ctxloom agent create <name> --profiles <profile>`)"
+	doctorSetupMarkerRemedy  = "ctxloom init"
+	doctorNoAgentsRemedy     = "ctxloom agent create <name> --profiles <profile>"
+	doctorConfigEditRemedy   = "ctxloom config edit"
+	doctorSignKeyRemedy      = "ssh-add ~/.ssh/<key>"
+	doctorGitIdentityRemedy  = `git config --global user.name "Your Name"; git config --global user.email you@example.com`
+	doctorReviewRemedy       = "ctxloom review"
+	doctorGitignoreRemedy    = "ctxloom manage gitignore install"
+	doctorHooksInstallRemedy = "ctxloom manage hooks install"
 )
 
 // doctorCheckSetupMarker verifies a PROJECT .ctxloom marker directory was
@@ -858,11 +864,11 @@ func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) DoctorCheck {
 	appDir := doctorAppDir(cfg)
 	if appDir == "" {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn,
-			Detail: "no .ctxloom marker directory found " + remedy}
+			Detail: "no .ctxloom marker directory found", Remedy: remedy}
 	}
 	if cfg.Source() == config.SourceHome {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn,
-			Detail: "no project .ctxloom marker found from the working directory; config resolved to the home fallback " + appDir + " " + remedy}
+			Detail: "no project .ctxloom marker found from the working directory; config resolved to the home fallback " + appDir, Remedy: remedy}
 	}
 	fs := cfg.FS()
 	if fs == nil {
@@ -870,12 +876,12 @@ func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) DoctorCheck {
 	}
 	if info, err := fs.Stat(appDir); err != nil || !info.IsDir() {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn,
-			Detail: "resolved .ctxloom marker directory is not on disk: " + appDir + " " + remedy}
+			Detail: "resolved .ctxloom marker directory is not on disk: " + appDir, Remedy: remedy}
 	}
 	configPath := paths.ConfigPath(appDir)
 	if _, err := fs.Stat(configPath); err != nil {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn,
-			Detail: "marker present, but its config file is absent: " + configPath + " " + remedy}
+			Detail: "marker present, but its config file is absent: " + configPath, Remedy: remedy}
 	}
 	// A config that FAILS SCHEMA VALIDATION still loads: the reader records
 	// every load-time defect as a Warning and keeps going (cfg.GetWarnings,
@@ -884,8 +890,8 @@ func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) DoctorCheck {
 	// line. Doctor's contract (doctor.feature: "why its exit code is not the
 	// verdict") keeps this a DoctorWarn, never an exit-code change.
 	if warnings := cfg.GetWarnings(); len(warnings) > 0 {
-		return DoctorCheck{Marker: marker, Status: DoctorWarn,
-			Detail: fmt.Sprintf("marker present, but config.yaml failed schema validation (%d issue(s) -- see the warning line(s) printed above, or `ctxloom manage config edit`): %s", len(warnings), appDir)}
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: doctorConfigEditRemedy,
+			Detail: fmt.Sprintf("marker present, but config.yaml failed schema validation (%d issue(s) -- see the warning line(s) printed above): %s", len(warnings), appDir)}
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "marker present, config valid: " + appDir}
 }
@@ -1385,7 +1391,13 @@ func classifyContentTrust(marker string, pending *PendingReviewResult) DoctorChe
 			len(unsigned), strings.Join(unsigned, ", ")))
 	}
 
-	return DoctorCheck{Marker: marker, Status: DoctorWarn,
+	// The structured fix is review, and only when no pending item's
+	// signature refutes its bytes: accepting those is never a remedy.
+	remedy := doctorReviewRemedy
+	if len(invalid) > 0 {
+		remedy = ""
+	}
+	return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: remedy,
 		Detail: fmt.Sprintf("%d item(s) are withheld from your assistant pending review — %s",
 			pending.Total, strings.Join(parts, "; "))}
 }
@@ -1503,8 +1515,8 @@ func doctorCheckGitignorePosture(cfg *config.Config, cfgErr error) DoctorCheck {
 	if len(lines) == 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: ".gitignore carries no superseded blanket .ctxloom rule"}
 	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf(
-		".gitignore carries a blanket `%s` rule; .ctxloom/content can never be committed under it (run `ctxloom manage gitignore install` to retire it)",
+	return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: doctorGitignoreRemedy, Detail: fmt.Sprintf(
+		".gitignore carries a blanket `%s` rule; .ctxloom/content can never be committed under it, and the fix retires it",
 		strings.Join(lines, ", "))}
 }
 

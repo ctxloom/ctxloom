@@ -77,12 +77,12 @@ func doctorCheckMCPInvocation(reg engine.Registry, projectDir string) DoctorChec
 	switch {
 	case len(stale) > 0:
 		detail := fmt.Sprintf(
-			"%d materialized MCP entr(y/ies) launch ctxloom as a stdio server, which ctxloom no longer ships — the engine will start and its ctxloom tools will never appear: %s. ctxloom's tools are served by the running session's endpoint; re-run `ctxloom manage hooks install` to rewrite the project's registry without the entry",
+			"%d materialized MCP entr(y/ies) launch ctxloom as a stdio server, which ctxloom no longer ships — the engine will start and its ctxloom tools will never appear: %s. ctxloom's tools are served by the running session's endpoint; the fix rewrites the project's registry without the entry",
 			len(stale), strings.Join(stale, ", "))
 		if len(unreadable) > 0 {
 			detail += "; could not read: " + strings.Join(unreadable, ", ")
 		}
-		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail}
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail, Remedy: doctorHooksInstallRemedy}
 	case len(unreadable) > 0:
 		// "I could not read it" is not "it is fine". A surface that failed to
 		// parse may hold the very entry this check is looking for, and

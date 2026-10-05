@@ -104,6 +104,7 @@ func TestDoctorCheckSetupMarker_WrongState_NoMarkerDir(t *testing.T) {
 	check := doctorCheckSetupMarker(&config.Config{}, nil)
 	assert.Equal(t, DoctorWarn, check.Status, "an empty AppPaths must fail loud, not silently pass")
 	assert.Contains(t, check.Detail, "no .ctxloom marker directory found")
+	assert.Equal(t, doctorSetupMarkerRemedy, check.Remedy)
 }
 
 // The reader falls back to ~/.ctxloom — creating it — when no project marker
@@ -116,7 +117,7 @@ func TestDoctorCheckSetupMarker_WrongState_HomeFallbackIsNotAProjectMarker(t *te
 	check := doctorCheckSetupMarker(cfg, nil)
 	assert.Equal(t, DoctorWarn, check.Status, "the home fallback is not a project marker: %s", check.Detail)
 	assert.Contains(t, check.Detail, homeApp)
-	assert.Contains(t, check.Detail, doctorSetupMarkerRemedy, "a missing project names the ONE command that makes one")
+	assert.Equal(t, doctorSetupMarkerRemedy, check.Remedy, "a missing project names the ONE command that makes one")
 }
 
 func TestDoctorCheckSetupMarker_WrongState_MarkerDirAbsentOnDisk(t *testing.T) {
@@ -124,6 +125,7 @@ func TestDoctorCheckSetupMarker_WrongState_MarkerDirAbsentOnDisk(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}, Source: config.SourceProject})
 	check := doctorCheckSetupMarker(cfg, nil)
 	assert.Equal(t, DoctorWarn, check.Status, "a marker that is not on disk must not pass: %s", check.Detail)
+	assert.Equal(t, doctorSetupMarkerRemedy, check.Remedy)
 }
 
 func TestDoctorCheckSetupMarker_WrongState_NoConfigFile(t *testing.T) {
@@ -133,6 +135,7 @@ func TestDoctorCheckSetupMarker_WrongState_NoConfigFile(t *testing.T) {
 	check := doctorCheckSetupMarker(cfg, nil)
 	assert.Equal(t, DoctorWarn, check.Status, "config valid must not be claimed for a config file that is absent: %s", check.Detail)
 	assert.Contains(t, check.Detail, paths.ConfigPath(appDir))
+	assert.Equal(t, doctorSetupMarkerRemedy, check.Remedy)
 }
 
 func TestDoctorCheckSetupMarker_WrongState_ConfigLoadError(t *testing.T) {
@@ -262,6 +265,7 @@ func TestDoctorCheckSignKey_WrongState_NothingResolvable(t *testing.T) {
 	assert.Contains(t, check.Detail, "ctxloom review", "must lead with approve — a missing key blocks ordinary review, not just publishing")
 	assert.Contains(t, check.Detail, "ctxloom bundle sign", "must also name the publishing feature this gap affects")
 	assert.Contains(t, check.Detail, "ssh-add", "must give an actionable fix")
+	assert.Equal(t, doctorSignKeyRemedy, check.Remedy)
 }
 
 // TestDoctorCheckSignKey_WrongState_Ambiguous observes agentkey's REAL
@@ -340,6 +344,7 @@ func TestDoctorCheckGitIdentity_WrongState_BothUnset(t *testing.T) {
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "user.name")
 	assert.Contains(t, check.Detail, "user.email")
+	assert.Equal(t, doctorGitIdentityRemedy, check.Remedy)
 }
 
 // TestDoctorCheckGitIdentity_WrongState_BlankValueTreatedAsUnset guards
@@ -370,7 +375,7 @@ func TestDoctorCheckAgents_WrongState_EmptyRoster(t *testing.T) {
 	check := doctorCheckAgents(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorWarn, check.Status, "an empty roster is an incomplete setup postcondition, not a neutral fact")
 	assert.Contains(t, check.Detail, "no agents configured")
-	assert.Contains(t, check.Detail, doctorNoAgentsRemedy, "the remedy names a command the CLI has")
+	assert.Equal(t, doctorNoAgentsRemedy, check.Remedy, "the remedy names a command the CLI has")
 }
 
 func TestDoctorCheckAgents_WrongState_UnresolvableProfile(t *testing.T) {
@@ -1001,7 +1006,7 @@ func TestDoctorCheckGitignorePosture_WrongState_BlanketRulePresent(t *testing.T)
 	check := doctorCheckGitignorePosture(cfg, nil)
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, ".ctxloom")
-	assert.Contains(t, check.Detail, "manage gitignore install")
+	assert.Equal(t, doctorGitignoreRemedy, check.Remedy)
 }
 
 // TestDoctorCheckGitignorePosture_ReadOnly proves the check itself never

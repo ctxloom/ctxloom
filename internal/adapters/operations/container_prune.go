@@ -91,7 +91,7 @@ func (r ContainerPruneReport) Failed() bool {
 }
 
 // containerPruneApplyCommand is the command that removes what a dry run
-// planned, as the superseded-images check names it.
+// planned: the superseded-images check's remedy.
 const containerPruneApplyCommand = "ctxloom container prune --yes"
 
 // ContainerPrune plans — and with Apply, performs — the removal of superseded
@@ -248,8 +248,8 @@ func doctorCheckSupersededImages(ctx context.Context, runtimes []isolation.Runti
 	if total == 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no superseded agent images"}
 	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf(
-		"%d superseded agent image(s) (%s), %s reclaimable — run `"+containerPruneApplyCommand+"`",
+	return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: containerPruneApplyCommand, Detail: fmt.Sprintf(
+		"%d superseded agent image(s) (%s), %s reclaimable",
 		total, strings.Join(found, ", "), FormatImageBytes(bytes))}
 }
 

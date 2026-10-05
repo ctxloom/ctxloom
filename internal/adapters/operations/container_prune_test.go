@@ -123,7 +123,7 @@ func TestDoctorCheckSupersededImages(t *testing.T) {
 	assert.Equal(t, DoctorWarn, found.Status)
 	assert.Contains(t, found.Detail, "2 docker")
 	assert.Contains(t, found.Detail, "2.5 GB")
-	assert.Contains(t, found.Detail, containerPruneApplyCommand)
+	assert.Equal(t, containerPruneApplyCommand, found.Remedy)
 	assert.NotContains(t, found.Detail, "podman")
 
 	failing := doctorCheckSupersededImages(context.Background(), both, func(context.Context, isolation.Runtime) (isolation.ImagePrunePlan, error) {

@@ -57,6 +57,7 @@ func TestClassifyContentTrust_KeepsTheThreeCasesApart(t *testing.T) {
 		assert.NotContains(t, got.Detail, "ctxloom review",
 			"nor may this case offer 'accept it yourself': accepting bytes whose own signature refutes them "+
 				"is the one remedy that must never be suggested here")
+		assert.Empty(t, got.Remedy, "and no structured fix may offer it either")
 	})
 
 	t.Run("the fixable cases offer the local remedy, not only the remote one", func(t *testing.T) {
@@ -68,6 +69,7 @@ func TestClassifyContentTrust_KeepsTheThreeCasesApart(t *testing.T) {
 		assert.Contains(t, got.Detail, "ctxloom review",
 			"the remediable cases must say the content can be reviewed and accepted locally; naming only "+
 				"'ask the publisher' leaves the reader waiting on someone else for content they can accept themselves")
+		assert.Equal(t, doctorReviewRemedy, got.Remedy, "the summary's first fix is reviewing the content")
 		assert.Contains(t, got.Detail, "review the content and accept it",
 			"the untrusted-key case must also offer reviewing the content, not only trusting the key")
 		assert.Contains(t, got.Detail, "re-pends if they change",
@@ -101,6 +103,7 @@ func TestClassifyContentTrust_KeepsTheThreeCasesApart(t *testing.T) {
 			ReviewBundle{Ref: "https://x/y@bundles/c", Publisher: bundles.ReasonUnsigned},
 		))
 		require.Equal(t, DoctorWarn, got.Status)
+		assert.Empty(t, got.Remedy, "with tampered content pending, no single fix is safe to name first")
 		for _, want := range []string{"does NOT cover their bytes", "does not trust", "never reviewed"} {
 			assert.Contains(t, got.Detail, want,
 				"every distinct situation must survive into the report; collapsing them is what this check exists to stop")

@@ -42,7 +42,7 @@ func TestDoctorCheckMCPInvocation_WrongState_StaleEntryIsNamed(t *testing.T) {
 			assert.Equal(t, DoctorWarn, check.Status,
 				"a stale entry is a real problem, and warn is this command's fail-loud signal")
 			assert.Contains(t, check.Detail, ".mcp.json", "the report names the file to fix")
-			assert.Contains(t, check.Detail, "manage hooks install", "the report names the explicit project-side rewrite as the fix")
+			assert.Equal(t, doctorHooksInstallRemedy, check.Remedy, "the report names the explicit project-side rewrite as the fix")
 		})
 	}
 }

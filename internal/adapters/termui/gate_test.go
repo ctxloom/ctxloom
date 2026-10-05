@@ -14,7 +14,7 @@ import (
 func TestOutputGate_PassthroughWhenOpen(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, nil, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, nil, nil)
 	_, _ = g.Write([]byte("engine says hi"))
 	assert.Equal(t, "engine says hi", tty.String())
 }
@@ -22,7 +22,7 @@ func TestOutputGate_PassthroughWhenOpen(t *testing.T) {
 func TestOutputGate_HoldDivertsAndReleaseReplays(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, nil, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, nil, nil)
 
 	_, _ = g.Write([]byte("before|"))
 	g.Hold(64)
@@ -55,7 +55,7 @@ var testRestore = restore{replay: []byte("<replay>"), clear: []byte("<clear>"), 
 func TestOutputGate_OverflowNeverReplaysATornTail(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, nil, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, nil, nil)
 
 	g.Hold(8)
 	_, _ = g.Write([]byte("abcde\x1b[31"))
@@ -74,7 +74,7 @@ func TestOutputGate_OverflowNeverReplaysATornTail(t *testing.T) {
 func TestOutputGate_DiscardRedrawWithoutOverflowDropsTheHoldQuietly(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, nil, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, nil, nil)
 
 	g.Hold(64)
 	_, _ = g.Write([]byte("held"))
@@ -87,7 +87,7 @@ func TestOutputGate_DiscardRedrawWithoutOverflowDropsTheHoldQuietly(t *testing.T
 func TestOutputGate_ReplayWritesReplayThenHeldBytes(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, nil, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, nil, nil)
 
 	g.Hold(64)
 	_, _ = g.Write([]byte("held"))
@@ -102,7 +102,7 @@ func TestOutputGate_ReplayWritesReplayThenHeldBytes(t *testing.T) {
 func TestOutputGate_HoldGrowsLazily(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, nil, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, nil, nil)
 	g.Hold(8 << 20)
 	_, _ = g.Write([]byte("tiny"))
 	assert.Less(t, cap(g.hold), 1<<16, "the buffer grows with what is held")
@@ -115,7 +115,7 @@ func TestOutputGate_HoldGrowsLazily(t *testing.T) {
 func TestOutputGate_DiscardAbandonsTheGuardsUnwrittenSequence(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, newVTGuard(nil, nil, nil), nil)
+	g := newOutputGate(realClock{}, &mu, &tty, newVTGuard(nil, nil, nil), nil)
 
 	_, _ = g.Write([]byte("x\x1b[3")) // held back inside the guard, never written
 	g.Hold(64)
@@ -136,7 +136,7 @@ func TestOutputGate_DiscardAbandonsTheGuardsUnwrittenSequence(t *testing.T) {
 func TestOutputGate_ReleaseWhenOpenStillWritesPre(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, nil, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, nil, nil)
 	require.NoError(t, release(g, holdReplay, "<restore>"))
 	assert.Equal(t, "<restore>", tty.String(), "pre must be written even when the gate was never held")
 }
@@ -144,7 +144,7 @@ func TestOutputGate_ReleaseWhenOpenStillWritesPre(t *testing.T) {
 func TestOutputGate_ReleaseWhenOpenWithNoPreWritesNothing(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, nil, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, nil, nil)
 	require.NoError(t, release(g, holdReplay, ""))
 	assert.Empty(t, tty.String(), "releasing an open gate with no pre writes nothing")
 }
@@ -176,7 +176,7 @@ func TestOutputGate_Release_ReturnsWriteErrors(t *testing.T) {
 	var mu sync.Mutex
 	boom := errors.New("boom: tty gone")
 	fw := &failWriter{okCount: 0, err: boom} // every dst.Write from here fails
-	g := newOutputGate(&mu, fw, nil, nil)
+	g := newOutputGate(realClock{}, &mu, fw, nil, nil)
 
 	g.Hold(64)
 	_, _ = g.Write([]byte("held bytes"))
@@ -197,7 +197,7 @@ func TestOutputGate_Release_PartialFailureStillAttemptsEveryWrite(t *testing.T) 
 	// okCount 0: the "pre" restore-sequence write (the very first dst.Write
 	// Release makes) already fails.
 	fw := &failWriter{okCount: 0, err: boom}
-	g := newOutputGate(&mu, fw, nil, nil)
+	g := newOutputGate(realClock{}, &mu, fw, nil, nil)
 
 	g.Hold(8)
 	_, _ = g.Write([]byte("0123456789abcdef")) // overflow: exercises the notice write
@@ -218,7 +218,7 @@ func TestOutputGate_Release_CallsAfterWrite(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
 	calls := 0
-	g := newOutputGate(&mu, &tty, nil, func() { calls++ })
+	g := newOutputGate(realClock{}, &mu, &tty, nil, func() { calls++ })
 
 	g.Hold(64)
 	_, _ = g.Write([]byte("held"))
@@ -238,7 +238,7 @@ func TestOutputGate_FlushGuard_WritesPendingBytes(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
 	guard := newVTGuard(nil, nil, nil)
-	g := newOutputGate(&mu, &tty, guard, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, guard, nil)
 
 	_, _ = g.Write([]byte("x\x1b")) // trailing incomplete escape: held inside the guard
 	assert.Equal(t, "x", tty.String(), "an incomplete escape must not reach the tty yet")
@@ -250,7 +250,7 @@ func TestOutputGate_FlushGuard_WritesPendingBytes(t *testing.T) {
 func TestOutputGate_FlushGuard_NoopWithoutGuard(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, nil, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, nil, nil)
 	require.NoError(t, g.FlushGuard())
 	assert.Empty(t, tty.String())
 }
@@ -259,7 +259,7 @@ func TestOutputGate_FlushGuard_NoopWhenNothingPending(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
 	guard := newVTGuard(nil, nil, nil)
-	g := newOutputGate(&mu, &tty, guard, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, guard, nil)
 	_, _ = g.Write([]byte("plain text"))
 	require.NoError(t, g.FlushGuard())
 	assert.Equal(t, "plain text", tty.String())
@@ -269,7 +269,7 @@ func TestOutputGate_AfterWriteHookRidesPassthroughOnly(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
 	calls := 0
-	g := newOutputGate(&mu, &tty, nil, func() { calls++ })
+	g := newOutputGate(realClock{}, &mu, &tty, nil, func() { calls++ })
 
 	_, _ = g.Write([]byte("a"))
 	assert.Equal(t, 1, calls)
@@ -285,7 +285,7 @@ func TestOutputGate_AfterWriteHookRidesPassthroughOnly(t *testing.T) {
 func TestOutputGate_HoldNeverBlocksTheEngine(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, nil, nil)
+	g := newOutputGate(realClock{}, &mu, &tty, nil, nil)
 	g.Hold(1 << 10)
 	done := make(chan struct{})
 	go func() {

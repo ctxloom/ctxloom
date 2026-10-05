@@ -2,9 +2,11 @@ package bundletree
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
@@ -61,4 +63,15 @@ func TestProjectRead_EachSigningYieldsItsFacts(t *testing.T) {
 // refuses a tree that declares no items.
 func oneFragment() *bundles.Bundle {
 	return &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{"f": {ItemBody: bundles.ItemBody{Content: "x"}}}}
+}
+
+// The trust root PublisherKey returns grants its key exactly the principal
+// asked for, in the publish namespace — the identity a reader then resolves a
+// signature to.
+func TestPublisherKey_TrustsTheKeyAsThePrincipalAsked(t *testing.T) {
+	const principal = "someone@example.test"
+	_, root, pub := PublisherKey(t, principal)
+	got := root.TrustedForNamespace(pub, signing.NamespacePublish, time.Now())
+	assert.True(t, got.Trusted)
+	assert.Equal(t, principal, got.Principal)
 }

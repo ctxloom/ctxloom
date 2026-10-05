@@ -129,10 +129,11 @@ func writeWatermarkFile(fsys afero.Fs, p string, wm *transcriptWatermark) error 
 }
 
 // copyCanonicalPrefix copies the first wm.CanonicalLength bytes of the
-// canonical transcript at dest onto w, feeding them to digest, and verifies
-// they are the bytes the watermark was taken over. Raw bytes, no decoding:
-// this is what a resume pays for the prefix instead of re-converting it.
-func copyCanonicalPrefix(fsys afero.Fs, dest string, wm *transcriptWatermark, w io.Writer, digest hash.Hash) error {
+// canonical transcript at dest onto w and verifies they are the bytes the
+// watermark was taken over. Raw bytes, no decoding: this is what a resume
+// pays for the prefix instead of re-converting it.
+func copyCanonicalPrefix(fsys afero.Fs, dest string, wm *transcriptWatermark, w io.Writer) error {
+	digest := sha256.New()
 	f, err := fsys.Open(dest)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errStaleWatermark, err)
@@ -149,28 +150,47 @@ func copyCanonicalPrefix(fsys afero.Fs, dest string, wm *transcriptWatermark, w 
 	return nil
 }
 
-// resumePoint is where a live conversion starts: the vendor checkpoint, where
-// the canonical lines continue, and the digest of the canonical bytes already
-// in the rebuild (length of them) — the zero vendor checkpoint, Seq 0 and an
-// empty digest for a conversion from the beginning.
+// resumePoint is where a live conversion starts: the vendor checkpoint and
+// where the canonical lines continue — the zero vendor checkpoint and Seq 0
+// for a conversion from the beginning.
 type resumePoint struct {
 	vendor    vendorreader.Checkpoint
 	seq       int
 	sessionID string
-	digest    hash.Hash
-	length    int64
 }
 
-// convertLive converts liveSrc into af's temp file from `from`, returning the
-// watermark taken at the adapter's checkpoint — nil when it offered none,
-// which a non-resumable adapter never does.
-func convertLive(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, af *safefs.AtomicFile, liveSrc string, from resumePoint) (*transcriptWatermark, error) {
-	// transcript.Recorder holds its own append handle, opened by PATH through
-	// fsys — the fs af was opened over — so it is handed af's temp path rather
-	// than af itself (safefs.AtomicFile.TempPath). commitRebuild stats the
-	// temp file's actual size, so bytes Recorder writes here are covered by
-	// the same empty-guard as anything written through af.Write.
-	rec, err := transcript.NewRecorder(fsys, e.HarpName, e.Backend, transcript.WithPath(af.TempPath()),
+// rebuildFile is a canonical rebuild in progress. Every byte reaches the
+// AtomicFile through Write, which also counts and digests it, so the
+// watermark and the nothing-written check read these instead of the temp
+// file.
+type rebuildFile struct {
+	af      *safefs.AtomicFile
+	digest  hash.Hash
+	written int64
+}
+
+func newRebuildFile(fsys afero.Fs, path string) (*rebuildFile, error) {
+	af, err := safefs.NewAtomicFile(fsys, path, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	return &rebuildFile{af: af, digest: sha256.New()}, nil
+}
+
+// Write appends p to the AtomicFile, counting and digesting what it accepted
+// — a short write included, so the digest always matches the file.
+func (f *rebuildFile) Write(p []byte) (int, error) {
+	n, err := f.af.Write(p)
+	f.digest.Write(p[:n])
+	f.written += int64(n)
+	return n, err
+}
+
+// convertLive converts liveSrc onto rf from `from`, returning the watermark
+// taken at the adapter's checkpoint — nil when it offered none, which a
+// non-resumable adapter never does.
+func convertLive(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rf *rebuildFile, liveSrc string, from resumePoint) (*transcriptWatermark, error) {
+	rec, err := transcript.NewRecorder(fsys, e.HarpName, e.Backend, transcript.WithWriter(rf),
 		transcript.WithClock(vendorSourceClock(fsys, liveSrc)), transcript.WithContinuation(from.seq, from.sessionID))
 	if err != nil {
 		return nil, fmt.Errorf("open recorder for %s: %w", e.HarpName, err)
@@ -179,8 +199,8 @@ func convertLive(ctx context.Context, fsys afero.Fs, adapter vendorreader.Vendor
 	var wm *transcriptWatermark
 	if ra, ok := adapter.(vendorreader.ResumableAdapter); ok {
 		err = ra.ConvertFrom(ctx, fsys, tr, liveSrc, from.vendor, func(cp vendorreader.Checkpoint) error {
-			wm, err = takeWatermark(fsys, af.TempPath(), from, tr, cp)
-			return err
+			wm = takeWatermark(rf, tr, cp)
+			return nil
 		})
 	} else {
 		err = adapter.Convert(ctx, fsys, tr, liveSrc)
@@ -196,28 +216,15 @@ func convertLive(ctx context.Context, fsys afero.Fs, adapter vendorreader.Vendor
 }
 
 // takeWatermark is the watermark at checkpoint cp: the canonical bytes
-// written so far (the rebuild's temp file, from.length of which are already
-// in from.digest), and where the canonical lines continue.
-func takeWatermark(fsys afero.Fs, tempPath string, from resumePoint, tr *trackingRecorder, cp vendorreader.Checkpoint) (*transcriptWatermark, error) {
-	f, err := fsys.Open(tempPath)
-	if err != nil {
-		return nil, fmt.Errorf("watermark: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-	if _, err := f.Seek(from.length, io.SeekStart); err != nil {
-		return nil, fmt.Errorf("watermark: %w", err)
-	}
-	n, err := io.Copy(from.digest, f)
-	if err != nil {
-		return nil, fmt.Errorf("watermark: %w", err)
-	}
+// written to the rebuild so far, and where the canonical lines continue.
+func takeWatermark(rf *rebuildFile, tr *trackingRecorder, cp vendorreader.Checkpoint) *transcriptWatermark {
 	return &transcriptWatermark{
-		CanonicalLength: from.length + n,
-		CanonicalSHA256: hex.EncodeToString(from.digest.Sum(nil)),
+		CanonicalLength: rf.written,
+		CanonicalSHA256: hex.EncodeToString(rf.digest.Sum(nil)),
 		NextSeq:         tr.seq,
 		SessionID:       tr.sessionID,
 		Vendor:          cp,
-	}, nil
+	}
 }
 
 // trackingRecorder follows the two things a watermark needs to say about the
@@ -241,4 +248,4 @@ func (r *trackingRecorder) Record(ev agent.ChatEvent) error {
 }
 
 // newResumePoint is a conversion from the beginning.
-func newResumePoint() resumePoint { return resumePoint{digest: sha256.New()} }
+func newResumePoint() resumePoint { return resumePoint{} }

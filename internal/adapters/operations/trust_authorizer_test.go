@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // The rows the decision table keys on the READ for, decided by the production
@@ -321,7 +322,7 @@ func staleLocalRead(t *testing.T, name string) bundles.BundleRead {
 		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: "KEEPER-PAYLOAD"}}))
 	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(name), bundles.DirectoryFormManifest,
 		[]byte("version: 1.0.0\n")))
-	signer, root, _ := seedSigner(t, "author@example.test")
+	signer, root, _ := bundletree.PublisherKey(t, "author@example.test")
 	tree, err := st.Open(context.Background(), content.BundleID(name))
 	require.NoError(t, err)
 	require.NoError(t, attest.SignBundle(context.Background(), st, tree, treeRelease(t, tree), signer))

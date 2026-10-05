@@ -70,3 +70,13 @@ func TestGitCmd_DiscoveryStopsAtTheTempRoot(t *testing.T) {
 	assert.Equal(t, before, readConfig(t, main),
 		"a fixture's git walked up out of the temp root into the enclosing repository")
 }
+
+// CLAIM: a test's git never runs in an implicit directory. An empty dir runs
+// git in the test binary's working directory — the package directory, inside
+// the real checkout — and a relative one resolves against it.
+func TestGitCmd_RefusesAnImplicitDirectory(t *testing.T) {
+	for _, dir := range []string{"", "relative/dir"} {
+		err := GitCmd(dir, nil, "status").Run()
+		assert.ErrorIs(t, err, ErrGitDirNotAbsolute, "dir %q", dir)
+	}
+}

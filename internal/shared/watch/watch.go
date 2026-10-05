@@ -70,11 +70,11 @@ func SkipDir(skip func(dir string) bool) Option {
 // except subtrees a SkipDir option prunes. filter, when non-nil, keeps only
 // events whose path it accepts. root must already exist.
 func New(root string, recursive bool, filter func(path string) bool, opts ...Option) (*Watcher, error) {
-	// New used to os.MkdirAll(root) unconditionally, so a
-	// nonexistent, typo'd, or wrongly-resolved root produced a healthy-
-	// looking watcher on an empty directory that streams zero events
-	// forever, at exit 0 — indistinguishable from a correct-but-quiet watch,
-	// and a read-shaped operation mutating the filesystem as a side effect.
+	// New never creates root: a watcher it made a directory for, from a
+	// nonexistent, typo'd, or wrongly-resolved root, would look healthy and
+	// stream zero events forever, at exit 0 — indistinguishable from a
+	// correct-but-quiet watch, and a read-shaped operation mutating the
+	// filesystem as a side effect.
 	// A caller that genuinely needs the directory to exist (a log file whose
 	// directory may not have been created yet) creates it explicitly at its
 	// own call site, where that intent is local and reviewable.

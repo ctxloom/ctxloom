@@ -287,7 +287,7 @@ func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete compacted essence body (text output pages through $PAGER on a terminal)")
 	sessionCompactCmd.Flags().StringVar(&sessionCompactPromptDir, "prompt-dir", "",
 		"Load compaction prompts from this directory instead of the built-in ones (expects <dir>/session-compact.md and <dir>/result-finding.md; a missing prompt is an error, not a fallback)")
-	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionRemoveCmd, sessionCompactCmd)
+	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionRemoveCmd, sessionCompactCmd, sessionApprovalsCmd)
 	rootCmd.AddCommand(sessionCmd)
 }
 

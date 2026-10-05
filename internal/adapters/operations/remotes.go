@@ -137,7 +137,11 @@ func rollbackAdd(registry *remote.Registry, name string) {
 
 // resolveLocalRepoURL turns a remote URL spelled as a filesystem path —
 // absolute, or relative to the working directory — into the file:// URL of
-// the repository there, and passes every other spelling through untouched.
+// the repository there. A home-relative spelling (a quoted "~" the shell never
+// expanded) is refused with the grammar's own error: this layer is not handed
+// the home directory, and resolving "~" against the working directory would
+// name a different path. Every other spelling passes through untouched; one
+// naming no repository is refused by the registry (refuri.ErrSyntax).
 //
 // It lives at the argv ingest because the repo-URL grammar has no working
 // directory: refuri.ParseRepoURL refuses a path spelling outright
@@ -149,10 +153,15 @@ func rollbackAdd(registry *remote.Registry, name string) {
 // The URL is built with net/url, not concatenated: git percent-decodes a
 // file:// URL, so a raw path holding '%' would name a different directory.
 func resolveLocalRepoURL(raw string) (string, error) {
-	if _, err := refuri.ParseRepoURL(raw); !errors.Is(err, refuri.ErrSchemelessPath) {
+	_, err := refuri.ParseRepoURL(raw)
+	if !errors.Is(err, refuri.ErrSchemelessPath) {
 		return raw, nil
 	}
-	abs, err := filepath.Abs(strings.TrimSpace(raw))
+	path := strings.TrimSpace(raw)
+	if strings.HasPrefix(path, "~") {
+		return "", err
+	}
+	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("%w: cannot resolve %q: %v", refuri.ErrSchemelessPath, raw, err)
 	}
@@ -493,7 +502,7 @@ type RepoEntry struct {
 type DiscoverRemotesResult struct {
 	Repositories []RepoEntry `json:"repositories"`
 	Count        int         `json:"count"`
-	Errors       []string    `json:"errors,omitempty"`
+	Errors       []string    `json:"errors"`
 }
 
 // DiscoverRemotes searches forges for ctxloom repositories.
@@ -558,7 +567,7 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 			// discovered from the same owner used to render identical
 			// AddCommand strings, so following the second suggestion silently
 			// collided with (overwrote) the first remote's registry entry.
-			AddCommand: fmt.Sprintf("ctxloom remote add %s %s/%s", r.Name, r.Owner, r.Name),
+			AddCommand: fmt.Sprintf("ctxloom remote create %s %s/%s", r.Name, r.Owner, r.Name),
 		})
 	}
 
@@ -583,7 +592,7 @@ type BrowseItemEntry struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
 	Path    string `json:"path"`
-	IsDir   bool   `json:"is_dir,omitempty"`
+	IsDir   bool   `json:"is_dir"`
 	PullRef string `json:"pull_ref"`
 }
 
@@ -593,7 +602,7 @@ type BrowseRemoteResult struct {
 	URL      string            `json:"url"`
 	Items    []BrowseItemEntry `json:"items"`
 	Count    int               `json:"count"`
-	Warnings []string          `json:"warnings,omitempty"`
+	Warnings []string          `json:"warnings"`
 }
 
 // BrowseRemote lists items available in a remote repository.
@@ -834,7 +843,7 @@ type repoCloner interface {
 
 // ensureClone clones rem into the local repo cache with full history (so any
 // pinned SHA is readable), returning a human-readable warning string on failure
-// (empty on success). Shared by the eager clone at `remote add` (AddRemote) and
+// (empty on success). Shared by the eager clone at `remote create` (AddRemote) and
 // the all-remotes clone at init (EnsureRemoteClones).
 func ensureClone(ctx context.Context, cache repoCloner, rem *remote.Remote) string {
 	forgeType, _, derr := remote.DetectForge(rem.URL)

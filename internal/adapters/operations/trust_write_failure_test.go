@@ -87,7 +87,7 @@ func TestSetItemTrust_WriteFailureSurfacesError(t *testing.T) {
 	// The item must still resolve pending against the REAL fixture store —
 	// nothing was recorded anywhere a caller could later trust as approved.
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
-	got, everr := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: []byte("always raw fragment body"), Form: rawForm, Records: fx.records()})
+	got, everr := EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: tref, Payload: []byte("always raw fragment body"), Form: rawForm, Records: fx.records()})
 	require.NoError(t, everr)
 	assert.Equal(t, trust.Deny, got.Decision)
 	assert.Equal(t, trust.SourcePending, got.Source)

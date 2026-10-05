@@ -13,14 +13,9 @@ import (
 
 func recvSize(t *testing.T, ch <-chan *agent.WindowSize) *agent.WindowSize {
 	t.Helper()
-	select {
-	case ws, ok := <-ch:
-		require.True(t, ok, "size channel closed unexpectedly")
-		return ws
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for a size event")
-		return nil
-	}
+	ws := await(t, "a size event", ch)
+	require.NotNil(t, ws, "size channel closed unexpectedly")
+	return ws
 }
 
 func TestResizeTranslator_ReservesRows_InitialAndSigwinch(t *testing.T) {
@@ -189,12 +184,14 @@ func TestResizeTranslator_NudgeWigglesEvenAtMinimalHeight(t *testing.T) {
 
 func TestResizeTranslator_NudgeBeforeAnySizeIsNoop(t *testing.T) {
 	src := make(chan *agent.WindowSize)
-	rt := newResizeTranslator(src, 1, nil, realClock{})
+	clk := fakeclock.New()
+	rt := newResizeTranslator(src, 1, nil, clk)
 	rt.Nudge()
+	clk.Advance(nudgeWiggleSeparation) // past any restore half it could have armed
 	select {
 	case ws := <-rt.Out():
 		t.Fatalf("unexpected size event %v before any real size", ws)
-	case <-time.After(50 * time.Millisecond):
+	default:
 	}
 	close(src)
 }
@@ -203,10 +200,5 @@ func TestResizeTranslator_OutClosesWithSource(t *testing.T) {
 	src := make(chan *agent.WindowSize)
 	rt := newResizeTranslator(src, 1, nil, realClock{})
 	close(src) // watchResize closes on ctx done
-	select {
-	case _, ok := <-rt.Out():
-		assert.False(t, ok, "out must close so the client's resize pump ends cleanly")
-	case <-time.After(2 * time.Second):
-		t.Fatal("out did not close after src closed")
-	}
+	assert.Nil(t, await(t, "out's close", rt.Out()), "out must close so the client's resize pump ends cleanly")
 }

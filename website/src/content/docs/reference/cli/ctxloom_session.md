@@ -38,6 +38,7 @@ ctxloom session [flags]
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom session adopt](/reference/cli/ctxloom_session_adopt/)	 - Re-index orphaned vendor transcripts into a harp's rotation lineage
+* [ctxloom session approvals](/reference/cli/ctxloom_session_approvals/)	 - List approvals waiting for the human, from any terminal (read-only)
 * [ctxloom session artifacts](/reference/cli/ctxloom_session_artifacts/)	 - What a session produced — its compacted essence: list it, destroy it
 * [ctxloom session compact](/reference/cli/ctxloom_session_compact/)	 - Compact a session by harp name. Compaction is on-demand: nothing compacts a session automatically when it ends.
 * [ctxloom session edit](/reference/cli/ctxloom_session_edit/)	 - Assign a recorded session's fields (today: --name, which renames the harp)

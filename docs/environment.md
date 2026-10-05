@@ -22,7 +22,7 @@ Resolution precedence (highest wins):
 
 Behavior:
 
-- **Valid directory:** authoritative. ctxloom resolves config at `$CTXLOOM_ROOT/.ctxloom` and **creates** that directory if it does not exist (mirroring the way the home fallback creates `~/.ctxloom`). A missing `config.yaml` inside it is tolerated — defaults fill in so you still land in a working LLM.
+- **Valid directory:** authoritative. ctxloom resolves config at `$CTXLOOM_ROOT/.ctxloom` whether or not that directory exists yet; reading config never creates it (nor the `~/.ctxloom` home fallback) — the first command that writes there does. A missing `config.yaml` inside it is tolerated — defaults fill in so you still land in a working LLM.
 - **Set but invalid** (path missing or not a directory): ctxloom emits `ctxloom: warning: CTXLOOM_ROOT ...` once to stderr and falls through to git-root / cwd as if it were unset. A bad value never blocks startup.
 - **Unset:** no warning; the prior mechanisms apply unchanged.
 

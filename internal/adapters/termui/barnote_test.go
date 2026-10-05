@@ -1,13 +1,11 @@
 package termui
 
 import (
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 	"github.com/ctxloom/ctxloom/internal/testsupport/vtemu"
 )
@@ -23,11 +21,9 @@ func barRow(h *ctlHarness) string {
 // TestController_NoteBarShowsThenClearsOnItsClock: a note is on the bar for
 // exactly its duration, measured on the controller's clock.
 func TestController_NoteBarShowsThenClearsOnItsClock(t *testing.T) {
-	clk := fakeclock.New()
-	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	h := newCtlHarness(t, nil)
+	clk := h.clk
+	h.sized(t, 24, 80)
 
 	h.c.NoteBar("approval resolved (timed out)", 10*time.Second)
 	assert.Contains(t, barRow(h), "approval resolved (timed out)")
@@ -41,11 +37,9 @@ func TestController_NoteBarShowsThenClearsOnItsClock(t *testing.T) {
 // TestController_ANewerNoteOutlivesTheOlderOnesTimer: one note at a time; a
 // replaced note's timer never clears its replacement.
 func TestController_ANewerNoteOutlivesTheOlderOnesTimer(t *testing.T) {
-	clk := fakeclock.New()
-	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	h := newCtlHarness(t, nil)
+	clk := h.clk
+	h.sized(t, 24, 80)
 
 	h.c.NoteBar("first", 5*time.Second)
 	clk.Advance(3 * time.Second)
@@ -75,9 +69,7 @@ func (c *lateTimerClock) AfterFunc(_ time.Duration, f func()) func() bool {
 func TestController_AReplacedNotesLateTimerDoesNotClearItsReplacement(t *testing.T) {
 	clk := &lateTimerClock{Clock: fakeclock.New()}
 	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	h.sized(t, 24, 80)
 
 	h.c.NoteBar("first", time.Second)
 	h.c.NoteBar("second", time.Second)

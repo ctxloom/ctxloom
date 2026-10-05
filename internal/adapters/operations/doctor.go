@@ -174,7 +174,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckLocalTierState(cfg, req.Home),
 			doctorCheckGitignorePosture(cfg, cfgErr),
 			doctorCheckForeignWorktrees(ctx, git.NewExec(), doctorProjectDir(cfg)),
-			doctorCheckOrphanContainers(ctx, runtimes, isolation.ReapOrphanedContainers),
+			doctorCheckOrphanContainers(ctx, runtimes, isolation.FindOrphanedContainers),
 			doctorCheckSupersededImages(ctx, runtimes, func(ctx context.Context, rt isolation.Runtime) (isolation.ImagePrunePlan, error) {
 				return isolation.PlanImagePrune(ctx, rt, imagePruneOptions(reg, cfg, rt, DefaultImagePruneMinAge, time.Now()))
 			}),
@@ -303,34 +303,50 @@ func doctorRuntimes() []isolation.Runtime {
 	return out
 }
 
-// doctorCheckOrphanContainers is the MANUAL backstop for a runner container
-// that outlived its owner. A runner exits on its own once its coordinator has
-// been waited on for its owner-loss window (runner.Home.OwnerLost), and --rm then
-// removes its container, so nothing sweeps at startup; what is left for this
-// row is a runner WEDGED past that — still running, its owner confirmed dead.
-// It reaps those on every runtime present (reap's own rules decide, and skip
-// on any doubt) and warns when it found one, because a wedged runner is a
-// defect worth reporting, not routine tidying.
-func doctorCheckOrphanContainers(ctx context.Context, runtimes []isolation.Runtime, reap func(context.Context, isolation.Runtime) isolation.ContainerReapResult) DoctorCheck {
+// doctorCheckOrphanContainers REPORTS runner containers that outlived their
+// owner; like every check here it changes nothing. A coordinator's own
+// shutdown removes the containers of the runners it holds (Coordinator.Close
+// kills each one), and a runner whose coordinator died exits by itself once
+// its owner-loss window passes (runner.Home.OwnerLost) unless a restarted
+// coordinator re-adopts it first — --rm then removes the container. So a
+// container listed here is either still inside that window or wedged past
+// it; the remedy removes it, and is the operator's call to make.
+func doctorCheckOrphanContainers(ctx context.Context, runtimes []isolation.Runtime, find func(context.Context, isolation.Runtime) ([]isolation.ContainerCandidate, error)) DoctorCheck {
 	const marker = "DOCTOR-CHECK-ORPHAN-CONTAINERS-z2"
 	if len(runtimes) == 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no container runtime on this host; nothing to check"}
 	}
-	var reaped []string
-	var names []string
+	var names, found, failed, remedies []string
 	for _, rt := range runtimes {
 		names = append(names, rt.Name())
-		if r := reap(ctx, rt); r.Reaped > 0 {
-			reaped = append(reaped, fmt.Sprintf("%d %s", r.Reaped, rt.Name()))
+		orphans, err := find(ctx, rt)
+		if err != nil {
+			failed = append(failed, fmt.Sprintf("%s (%v)", rt.Name(), err))
+			continue
 		}
+		if len(orphans) == 0 {
+			continue
+		}
+		var cnames []string
+		for _, o := range orphans {
+			cnames = append(cnames, o.Name)
+			found = append(found, fmt.Sprintf("%s %s (owner pid %d dead)", rt.Name(), o.Name, o.OwnerPID))
+		}
+		remedies = append(remedies, rt.Binary()+" rm -f "+strings.Join(cnames, " "))
 	}
-	if len(reaped) == 0 {
+	var detail []string
+	if len(found) > 0 {
+		detail = append(detail, "runner container(s) whose owner is dead: "+strings.Join(found, ", ")+
+			" — a healthy runner exits on its own once its owner-loss window passes, so one still listed after that is wedged; doctor removes nothing")
+	}
+	if len(failed) > 0 {
+		detail = append(detail, "could not list runner containers on "+strings.Join(failed, ", "))
+	}
+	if len(detail) == 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorOK,
 			Detail: "no runner container outlived its owner (" + strings.Join(names, ", ") + ")"}
 	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn,
-		Detail: "removed runner container(s) whose owner is dead: " + strings.Join(reaped, ", ") +
-			" — a runner exits on its own once its coordinator is gone, so each of these was wedged past that"}
+	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: strings.Join(detail, "; "), Remedy: strings.Join(remedies, "; ")}
 }
 
 // doctorMissingFromPath returns the subset of bins that does not resolve on
@@ -816,37 +832,49 @@ func doctorProjectDir(cfg *config.Config) string {
 	return filepath.Dir(appDir)
 }
 
-// doctorCheckSetupMarker verifies the .ctxloom marker directory the reader
-// already resolved (cfg.AppPaths) is present and the project config was read
-// without a hard error — the ground-floor precondition every other check in
-// this report assumes. Read-only: it inspects the generation's ALREADY-resolved
-// record instead of re-globbing the filesystem for .ctxloom.
+// doctorCheckSetupMarker verifies a PROJECT .ctxloom marker directory was
+// resolved, is on disk, carries its config file (paths.ConfigPath), and that config was read
+// without a hard error or load-time warning — the ground-floor precondition
+// every other check in this report assumes. A resolved AppDir alone proves
+// none of that: with no project marker above cwd the reader falls back to
+// ~/.ctxloom and creates it (findAppDir), so in a fresh repo the directory
+// this check would otherwise vouch for is the empty one this run just made.
+// It inspects only the reader's already-resolved record plus two stats; it
+// never re-globs the filesystem for .ctxloom.
 func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-MARKER-e5"
+	const remedy = "(run `ctxloom manage install` or `ctxloom init`)"
 	if cfgErr != nil {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
 	appDir := doctorAppDir(cfg)
 	if appDir == "" {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn,
-			Detail: "no .ctxloom marker directory found (run `ctxloom manage install` or `ctxloom init`)"}
+			Detail: "no .ctxloom marker directory found " + remedy}
 	}
-	// A config that FAILED SCHEMA VALIDATION still loads -- config.go's
-	// loadConfigFile records the violation as a Warning and keeps going, the
-	// same fault-tolerant shape every load-time defect gets (CLAUDE.md). This
-	// check used to report "config valid" unconditionally the instant the
-	// marker directory existed, in the SAME doctor run that had just printed
-	// "ctxloom: warning: config validation warning ..." to the exact same
-	// terminal -- a health check asserting the opposite of what it had just
-	// printed (task unwatched-discharge, found on `agents.<x>.runtime`
-	// carrying the retired "container" spelling, but the defect is general:
-	// ANY schema violation this config carries was being reported as
-	// "config valid"). cfg.GetWarnings() is EVERY load-time warning
-	// (WarnKindRead/Parse/Validate/UnknownKey/MigrationLossy/LayerScope) --
-	// see internal/core/config/warnings.go's own doc: "EVERY kind declared below
-	// is fatal-class in strict mode". Doctor's own contract (doctor.feature:
-	// "why its exit code is not the verdict") means this stays DoctorWarn,
-	// never a process exit change -- warn IS doctor's fail-loud signal.
+	if cfg.Source() == config.SourceHome {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn,
+			Detail: "no project .ctxloom marker found from the working directory; config resolved to the home fallback " + appDir + " " + remedy}
+	}
+	fs := cfg.FS()
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
+	if info, err := fs.Stat(appDir); err != nil || !info.IsDir() {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn,
+			Detail: "resolved .ctxloom marker directory is not on disk: " + appDir + " " + remedy}
+	}
+	configPath := paths.ConfigPath(appDir)
+	if _, err := fs.Stat(configPath); err != nil {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn,
+			Detail: "marker present, but its config file is absent: " + configPath + " " + remedy}
+	}
+	// A config that FAILS SCHEMA VALIDATION still loads: the reader records
+	// every load-time defect as a Warning and keeps going (cfg.GetWarnings,
+	// every kind fatal-class in strict mode), and has already printed it to
+	// this terminal. Reporting "config valid" here would contradict that
+	// line. Doctor's contract (doctor.feature: "why its exit code is not the
+	// verdict") keeps this a DoctorWarn, never an exit-code change.
 	if warnings := cfg.GetWarnings(); len(warnings) > 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn,
 			Detail: fmt.Sprintf("marker present, but config.yaml failed schema validation (%d issue(s) -- see the warning line(s) printed above, or `ctxloom manage config edit`): %s", len(warnings), appDir)}

@@ -183,7 +183,7 @@ func mapScalarSeq(root *yaml.Node, key string, fn func(string) (string, bool)) (
 // already-canonical URI — or that does not parse is returned verbatim, so it
 // is safe to hand any parent ref here.
 func canonicalStoredRef(ref string) (string, bool) {
-	if !remote.IsCanonicalRef(ref) {
+	if !remote.IsFetchAddressRef(ref) {
 		return ref, false
 	}
 	base, selector := splitBundleSelector(ref)
@@ -198,12 +198,12 @@ func canonicalStoredRef(ref string) (string, bool) {
 // canonicalize rewrites a single bundle ref to canonical URL form, reporting
 // whether it changed. See the type doc for the resolution rules.
 func (u bundleRefCanonicalizeUpgrade) canonicalize(ref string) (string, bool) {
-	// A canonical URL ref is already fully qualified, so never re-resolve it —
+	// A fetch-address ref is already fully qualified, so never re-resolve it —
 	// its scheme colon ("https://") would otherwise be mistaken for the
 	// cherry-pick ':' separator below, splitting the bundle name down to "https"
 	// (the resolver's expandBundleRef hit the same trap; see
 	// internal/core/bundles/loader_content.go). It is re-spelled canonically.
-	if remote.IsCanonicalRef(ref) {
+	if remote.IsFetchAddressRef(ref) {
 		return canonicalStoredRef(ref)
 	}
 

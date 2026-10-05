@@ -53,18 +53,11 @@ type fileRecorder struct {
 	harp   string
 	engine string
 	path   string
+	// writer, when set (WithWriter), receives every line in place of a file
+	// opened at path; the caller owns its lifetime.
+	writer io.Writer
 	now    func() time.Time
 	policy RawPolicy
-
-	// defaultPath is true when path is STILL the default canonical location
-	// (paths.HarpCanonicalTranscriptPath(harp), never overridden by
-	// WithPath) — see ensureFile's ownership-probe lock, which only a
-	// default-path recorder takes. A WithPath-overridden recorder (the
-	// segment and rebuild-temp writers in
-	// operations.convertVendorTranscript) writes to a temp/segment file
-	// nothing else contends for, so taking the lock there would cost a
-	// syscall for no exclusion anybody needs.
-	defaultPath bool
 
 	// open creates/appends the transcript file. A seam, not a strategy: the
 	// only production implementation is openAppendFile(fs), and it exists so a
@@ -128,23 +121,23 @@ func WithClock(now func() time.Time) RecorderOption {
 	}
 }
 
-// WithPath overrides the file a Recorder writes to, which otherwise is always
-// paths.HarpCanonicalTranscriptPath(harp).
+// WithWriter makes a Recorder append its lines to w instead of opening a
+// file: no path is opened, no directory is created, no ownership lock is
+// taken, and Close leaves w open, because w belongs to the caller.
 //
-// It exists for RE-conversion. A Recorder APPENDS (openAppendFile), and a
-// vendor conversion records from the beginning of its source — or, resumed,
-// from a checkpoint whose provisional tail is already in the file — so
-// converting into a harp that already has a canonical transcript would
-// duplicate entries rather than replace them. A caller that must re-convert a still-growing session
-// therefore converts into a temporary sibling and renames it over the real file,
-// which needs somewhere else to write. Live capture never passes this: the harp
-// IS the destination there, and letting a capture path choose its own file would
-// put a session's bytes somewhere nothing reads back.
-func WithPath(p string) RecorderOption {
+// It exists for RE-conversion into a safefs.AtomicFile. A Recorder APPENDS,
+// and a vendor conversion records from the beginning of its source — or,
+// resumed, from a checkpoint whose provisional tail is already in the file —
+// so converting into a harp that already has a canonical transcript would
+// duplicate entries rather than replace them. A re-conversion therefore fills
+// an AtomicFile and commits it over the real file; handing the AtomicFile
+// itself keeps every byte on the fs it was opened over and under its commit
+// guard. Live capture never passes this: the harp IS the destination there.
+// A nil w is ignored.
+func WithWriter(w io.Writer) RecorderOption {
 	return func(r *fileRecorder) {
-		if p != "" {
-			r.path = p
-			r.defaultPath = false
+		if w != nil {
+			r.writer = w
 		}
 	}
 }
@@ -165,7 +158,7 @@ func WithContinuation(seq int, sessionID string) RecorderOption {
 }
 
 // NewRecorder returns a Recorder for harp/engine, targeting
-// paths.HarpCanonicalTranscriptPath(harp) unless WithPath overrides it.
+// paths.HarpCanonicalTranscriptPath(harp) unless WithWriter overrides it.
 //
 // The underlying file is opened LAZILY, on the first successful Record call —
 // NOT eagerly here — and the transcripts/ directory is created at that same
@@ -199,14 +192,13 @@ func NewRecorder(fs afero.Fs, harp, engine string, opts ...RecorderOption) (Reco
 		return nil, fmt.Errorf("transcript: resolve canonical transcript path for harp %q: %w", harp, err)
 	}
 	r := &fileRecorder{
-		fs:          fs,
-		harp:        harp,
-		engine:      engine,
-		path:        p,
-		defaultPath: true,
-		now:         func() time.Time { return time.Now().UTC() },
-		policy:      DefaultRawPolicy,
-		open:        openAppendFile(fs),
+		fs:     fs,
+		harp:   harp,
+		engine: engine,
+		path:   p,
+		now:    func() time.Time { return time.Now().UTC() },
+		policy: DefaultRawPolicy,
+		open:   openAppendFile(fs),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -261,7 +253,7 @@ func (r *fileRecorder) noteFailure(err error) {
 	r.mu.Unlock()
 
 	if first {
-		clidiag.Warn("ctxloom", "transcript capture failed for harp %q (%s): %v — this chat continues, but its canonical transcript is incomplete; further failures are counted, not repeated", r.harp, r.path, err)
+		clidiag.Warn("ctxloom", "transcript capture failed for harp %q (%s): %v — this chat continues, but its canonical transcript is incomplete; further failures are counted, not repeated", r.harp, r.target(), err)
 	}
 }
 
@@ -277,9 +269,11 @@ func openAppendFile(fs afero.Fs) func(path string) (io.WriteCloser, error) {
 // Extracted from record so the write path stays under the project's
 // complexity gate.
 //
-// A DEFAULT-path recorder (no WithPath override — the two structured/ACP
+// A WithWriter recorder opens nothing: its lines go to the caller's writer.
+//
+// Every other recorder writes the canonical path (the two structured/ACP
 // host seams, the engine chat client and
-// internal/core/coord/enginehost.go) also takes a SHARED ownership
+// internal/core/coord/enginehost.go) and takes a SHARED ownership
 // lock on the canonical transcript here, held for the recorder's lifetime
 // and released in Close. This is the other half of the easeful-dial fix:
 // operations.convertVendorTranscript's refresh path takes the matching
@@ -291,20 +285,22 @@ func (r *fileRecorder) ensureFile() error {
 	if r.file != nil {
 		return nil
 	}
-	if r.defaultPath {
-		lockPath := paths.PathFor(r.path)
-		if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
-			return fmt.Errorf("transcript: prepare canonical-transcript ownership lock directory for %s: %w", r.path, err)
-		}
-		fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
-		stop := lockwait.Watch(lockPath)
-		err := fl.RLock()
-		stop()
-		if err != nil {
-			return fmt.Errorf("transcript: acquire canonical-transcript ownership lock for %s: %w", r.path, err)
-		}
-		r.unlock = func() { _ = fl.Unlock() }
+	if r.writer != nil {
+		r.file = callerOwnedWriter{r.writer}
+		return nil
 	}
+	lockPath := paths.PathFor(r.path)
+	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
+		return fmt.Errorf("transcript: prepare canonical-transcript ownership lock directory for %s: %w", r.path, err)
+	}
+	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+	stop := lockwait.Watch(lockPath)
+	err := fl.RLock()
+	stop()
+	if err != nil {
+		return fmt.Errorf("transcript: acquire canonical-transcript ownership lock for %s: %w", r.path, err)
+	}
+	r.unlock = func() { _ = fl.Unlock() }
 	if err := r.fs.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
 		r.releaseLock()
 		return fmt.Errorf("transcript: create transcripts dir: %w", err)
@@ -316,6 +312,20 @@ func (r *fileRecorder) ensureFile() error {
 	}
 	r.file = f
 	return nil
+}
+
+// callerOwnedWriter is a WithWriter destination: Close is a no-op because the
+// caller, not the Recorder, owns the writer's lifetime.
+type callerOwnedWriter struct{ io.Writer }
+
+func (callerOwnedWriter) Close() error { return nil }
+
+// target names where this recorder's lines go, for diagnostics.
+func (r *fileRecorder) target() string {
+	if r.writer != nil {
+		return "the caller-supplied writer"
+	}
+	return r.path
 }
 
 // releaseLock releases the ownership lock ensureFile may have taken, if
@@ -383,7 +393,7 @@ func (r *fileRecorder) record(ev agent.ChatEvent) error {
 		if n > 0 {
 			r.salvagePartialLine()
 		}
-		return fmt.Errorf("transcript: write %s: %w", r.path, werr)
+		return fmt.Errorf("transcript: write %s: %w", r.target(), werr)
 	}
 	r.seq++
 	return nil
@@ -423,7 +433,7 @@ func (r *fileRecorder) Close() error {
 	// to record.
 	if r.failures > 0 && !r.closeWarned {
 		r.closeWarned = true
-		clidiag.Warn("ctxloom", "transcript capture for harp %q lost %d event(s); %s is incomplete or absent", r.harp, r.failures, r.path)
+		clidiag.Warn("ctxloom", "transcript capture for harp %q lost %d event(s); %s is incomplete or absent", r.harp, r.failures, r.target())
 	}
 	r.releaseLock()
 	if r.file == nil {

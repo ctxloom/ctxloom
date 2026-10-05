@@ -8,23 +8,23 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
-// reconcileInstalled is `deps pull`'s rendering over
-// operations.ReconcileInstalled: what the reconcile did and what it could
-// not do. Failures are reported and never fatal — reconciliation is a SECOND
-// guarantee layered on a pull that has already succeeded.
-func reconcileInstalled(ctx context.Context, cfg *config.Config, out io.Writer) {
-	res, err := operations.ReconcileInstalled(ctx, cfg)
+// reconcileInstalled runs `deps pull`'s reconcile and returns its plan for the
+// caller to render, warning about anything it could not apply. Failures are
+// reported and never fatal — reconciliation is a SECOND guarantee layered on a
+// pull that has already succeeded — and a lockfile that could not be read
+// returns nil: nothing was decided, so there is no plan.
+func reconcileInstalled(ctx context.Context, cfg *config.Config) *operations.ReconcilePlan {
+	res, err := reconcileInstalledOp(ctx, cfg)
 	if err != nil {
 		clidiag.Warn("ctxloom", "reconcile: read the lockfile: %v", err)
-		return
+		return nil
 	}
-	renderReconcile(out, res.Plan)
 	for _, w := range res.Warnings {
-		clidiag.Warn("ctxloom", "reconcile: %s", termsafe.Field(w))
+		clidiag.Warn("ctxloom", "reconcile: %s", inertField(w))
 	}
+	return &res.Plan
 }
 
 // renderReconcile says what the reconcile did and what it could not do.
@@ -39,19 +39,19 @@ func renderReconcile(w io.Writer, plan operations.ReconcilePlan) {
 	if len(plan.Gone) > 0 {
 		fmt.Fprintf(w, "\nRemoved %d dependency(ies) no longer published by their remote:\n", len(plan.Gone))
 		for _, ref := range plan.Gone {
-			fmt.Fprintf(w, "  - %s\n", termsafe.Field(string(ref)))
+			fmt.Fprintf(w, "  - %s\n", inertField(string(ref)))
 		}
 		fmt.Fprintln(w, "  Re-adding them upstream and pulling again restores them; nothing authored here was touched.")
 	}
 
 	for _, u := range plan.Unreachable {
-		where := termsafe.Field(u.URL)
+		where := inertField(u.URL)
 		if where == "" {
 			where = "an unidentifiable repository"
 		}
-		fmt.Fprintf(w, "\n%s could not be reached, so its dependencies were left exactly as they are (%s).\n", where, termsafe.Field(u.Reason))
+		fmt.Fprintf(w, "\n%s could not be reached, so its dependencies were left exactly as they are (%s).\n", where, inertField(u.Reason))
 		for _, ref := range u.Refs {
-			fmt.Fprintf(w, "  - kept: %s\n", termsafe.Field(string(ref)))
+			fmt.Fprintf(w, "  - kept: %s\n", inertField(string(ref)))
 		}
 		fmt.Fprintln(w, "  Nothing is removed on the strength of a remote that could not be read.")
 	}

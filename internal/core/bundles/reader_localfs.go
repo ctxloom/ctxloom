@@ -321,7 +321,7 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	// sources of one name is settled where collisions belong — in
 	// Catalog.Resolve, which keeps the project's and SAYS SO. Source
 	// qualification lives only on bundle.sourceRef, the trust key.
-	return NewRead(name, bundle, r.provenance, TrustCtxLocal, facts), nil
+	return newRead(name, bundle, r.provenance, TrustCtxLocal, facts), nil
 }
 
 func (r *localFSReader) trustRoot() trust.TrustRoot { return r.cfg.root }

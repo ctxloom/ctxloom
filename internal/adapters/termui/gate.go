@@ -16,9 +16,10 @@ import (
 // caller-supplied sequence, atomically with the held→open flip so no
 // concurrent engine write can jump the restore.
 type outputGate struct {
-	mu   *sync.Mutex // the shared tty lock (surround paints under the same one)
-	dst  io.Writer
-	held bool
+	clock Clock       // stamps lastWrite; the controller's
+	mu    *sync.Mutex // the shared tty lock (surround paints under the same one)
+	dst   io.Writer
+	held  bool
 
 	// hold is the engine output held while an overlay is up, grown as it
 	// arrives up to holdCap. Past holdCap the whole hold is dropped
@@ -66,8 +67,8 @@ type restore struct {
 
 // newOutputGate wraps dst. mu is the tty lock shared with the surround;
 // guard and afterWrite may be nil.
-func newOutputGate(mu *sync.Mutex, dst io.Writer, guard *vtGuard, afterWrite func()) *outputGate {
-	return &outputGate{mu: mu, dst: dst, guard: guard, afterWrite: afterWrite}
+func newOutputGate(clock Clock, mu *sync.Mutex, dst io.Writer, guard *vtGuard, afterWrite func()) *outputGate {
+	return &outputGate{clock: clock, mu: mu, dst: dst, guard: guard, afterWrite: afterWrite}
 }
 
 // Write implements the engine-output path.
@@ -86,7 +87,7 @@ func (g *outputGate) Write(p []byte) (int, error) {
 	if len(out) > 0 {
 		_, err = g.dst.Write(out)
 	}
-	g.lastWrite.Store(nowNanos())
+	g.lastWrite.Store(g.clock.Now().UnixNano())
 	if g.afterWrite != nil {
 		g.afterWrite()
 	}
@@ -159,7 +160,7 @@ func (g *outputGate) Release(mode holdMode, r restore) (holdMode, error) {
 	if g.afterWrite != nil {
 		g.afterWrite()
 	}
-	g.lastWrite.Store(nowNanos())
+	g.lastWrite.Store(g.clock.Now().UnixNano())
 	return mode, w.err()
 }
 

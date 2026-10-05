@@ -63,6 +63,10 @@ URL formats:
                                      there and stored as its file:// URL;
                                      refused if no repository is there
 
+A quoted "~/bundles.git" is refused: write the absolute path instead of ~
+(or leave the ~ unquoted for the shell to expand). A bare word with no dot and no slash
+("bundles") is refused: write owner/repo or a URL.
+
 Forge selection:
   Without --forge, the forge resolves from the URL host: github.com (and the
   owner/repo shorthand) use the rich GitHub adapter; every other host uses the
@@ -85,7 +89,7 @@ func runRemoteCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	result, err := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
+	result, err := addRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
 		Name:  args[0],
 		URL:   args[1],
 		Forge: remoteAddForge,
@@ -98,8 +102,10 @@ func runRemoteCreate(cmd *cobra.Command, args []string) error {
 		clidiag.Warn("ctxloom", "%s", result.Warning)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Added remote '%s' → %s\n", result.Name, result.URL)
-	return nil
+	return emit(cmd, result, func() error {
+		fmt.Fprintf(cmd.OutOrStdout(), "Added remote '%s' → %s\n", result.Name, result.URL)
+		return nil
+	})
 }
 
 var remoteRemoveYes bool
@@ -237,28 +243,28 @@ func runRemoteDefault(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Clear the default.
-	if remoteDefaultClear {
-		if _, err := operations.SetDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: ""}); err != nil {
-			return err
+	// An empty name clears the default. Without --clear a name is required;
+	// the current default is visible via `ctxloom remote list`.
+	var name string
+	if !remoteDefaultClear {
+		if len(args) == 0 {
+			return fmt.Errorf("remote name required (or use --clear); see the current default in 'ctxloom remote list'")
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Cleared default remote.")
-		return nil
+		name = args[0]
 	}
 
-	// A name is required to set the default; the current default is visible via
-	// `ctxloom remote list`.
-	if len(args) == 0 {
-		return fmt.Errorf("remote name required (or use --clear); see the current default in 'ctxloom remote list'")
-	}
-
-	// Set a new default.
-	name := args[0]
-	if _, err := operations.SetDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: name}); err != nil {
+	result, err := setDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: name})
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Set default remote to: %s\n", name)
-	return nil
+	return emit(cmd, result, func() error {
+		if result.Name == "" {
+			fmt.Fprintln(cmd.OutOrStdout(), "Cleared default remote.")
+			return nil
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Set default remote to: %s\n", result.Name)
+		return nil
+	})
 }
 
 var (
@@ -364,3 +370,16 @@ func init() {
 		"Clear the default remote")
 
 }
+
+// The operations behind the `remote` and `deps` verbs, held in package vars so
+// a test can drive each verb's rendering without a network or a registered
+// remote. Production never reassigns them.
+var (
+	addRemote            = operations.AddRemote
+	setDefaultRemote     = operations.SetDefaultRemote
+	browseRemote         = operations.BrowseRemote
+	syncDependencies     = operations.SyncDependencies
+	reconcileInstalledOp = operations.ReconcileInstalled
+	checkDependencies    = operations.CheckDependencies
+	upgradeDependencies  = operations.UpgradeDependencies
+)

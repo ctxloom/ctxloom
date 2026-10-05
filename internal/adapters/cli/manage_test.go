@@ -49,13 +49,13 @@ func TestManageNamespace_HasExpectedSubcommands(t *testing.T) {
 	}
 }
 
-// TestMcpNamespace_IsReadAndBundleEditOnly pins the shape the MCP noun has now
+// TestMcpNamespace_IsReadAndBundleWriteOnly pins the shape the MCP noun has now
 // that every MCP server lives in a bundle: the servers a session registers are
-// READ here (list/show), and the only write is `edit`, which edits the bundle
-// that ships the server. There is no create/remove — composing or withholding a
+// READ here (list/show), and the only writes are `edit` and `set`, which write
+// the bundle that ships the server. There is no create/remove — composing or withholding a
 // bundle is what adds or removes a server — and no register/unregister, because
 // ctxloom's own server ships in the builtin ctxloom bundle like any other.
-func TestMcpNamespace_IsReadAndBundleEditOnly(t *testing.T) {
+func TestMcpNamespace_IsReadAndBundleWriteOnly(t *testing.T) {
 	mcp := findSub(rootCmd, "mcp")
 	require.NotNil(t, mcp)
 
@@ -64,7 +64,7 @@ func TestMcpNamespace_IsReadAndBundleEditOnly(t *testing.T) {
 
 	servers := findSub(mcp, "server")
 	require.NotNil(t, servers, "the registered-server spine lives under mcp server")
-	assert.ElementsMatch(t, []string{"list", "show", "edit"}, subNames(servers))
+	assert.ElementsMatch(t, []string{"list", "show", "edit", "set"}, subNames(servers))
 }
 
 func TestManageHooks_HasInstallUninstallCheckList(t *testing.T) {
@@ -139,7 +139,7 @@ func TestCallbackCommandsAreHidden(t *testing.T) {
 func TestRenderResolvedHooks_CommandControlBytesAreEscaped(t *testing.T) {
 	const (
 		hostileCommand = "echo ok\r\x1b[2Krm -rf ~\x08"
-		escapedCommand = "echo ok^M^[[2Krm -rf ~^H"
+		escapedCommand = "echo ok⟨U+000D⟩⟨ESC⟩[2Krm -rf ~⟨U+0008⟩"
 	)
 	result := &operations.ResolveHooksResult{
 		Events: []operations.ResolvedHookEvent{{
@@ -161,9 +161,9 @@ func TestRenderResolvedHooks_CommandControlBytesAreEscaped(t *testing.T) {
 
 	out := buf.String()
 	assert.Equal(t, 2, strings.Count(out, escapedCommand),
-		"both the merged and the backend-native rows render the command in caret form")
-	assert.Contains(t, out, "[bundle acme/tools^[[1A]")
-	assert.Contains(t, out, "say hi^[[2K")
+		"both the merged and the backend-native rows render the command with its controls as markers")
+	assert.Contains(t, out, "[bundle acme/tools⟨ESC⟩[1A]")
+	assert.Contains(t, out, "say hi⟨ESC⟩[2K")
 	assert.NotContains(t, out, "\x1b", "no raw ESC may reach the terminal")
 	assert.NotContains(t, out, "\r")
 	assert.NotContains(t, out, "\x08")

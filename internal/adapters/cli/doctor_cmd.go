@@ -8,7 +8,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -55,7 +54,8 @@ hasn't been set up yet. This is the mode init's PRIME and the setup skill's
 phase 1 use, before there's anything else to check.
 
 Diagnostic only: no check outcome ever fails the command, and nothing is
-blocked or changed. A "warn" status IS this command's fail-loud signal — read
+blocked or changed. The container-runtime probe runs podman or docker, which
+may create its own storage directories. A "warn" status IS this command's fail-loud signal — read
 the report, don't grep the exit code. A usage error is still an error (e.g. a
 --format value this build cannot render).`,
 	Args: cobra.NoArgs,
@@ -99,10 +99,10 @@ func renderDoctorReport(out io.Writer, report operations.DoctorReport) error {
 	w.Println("ctxloom doctor")
 	for _, c := range report.Checks {
 		// A detail is ctxloom's sentence with publisher values (bundle refs,
-		// remote errors) spliced in. termsafe.Sanitize and not Field: Field's
+		// remote errors) spliced in. inertBody and not inertField: inertField's
 		// line-sized cap would clip ctxloom's own longer sentences.
-		w.Printf("  %s [%s] %s%s\n", c.Marker, c.Status, termsafe.Sanitize(c.Detail, 0, false).Text,
-			clifmt.FixLine("    ", termsafe.Sanitize(c.Remedy, 0, false).Text))
+		w.Printf("  %s [%s] %s%s\n", c.Marker, c.Status, inertBody(c.Detail, 0, false).Text,
+			clifmt.FixLine("    ", inertBody(c.Remedy, 0, false).Text))
 	}
 	return w.Err()
 }

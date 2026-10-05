@@ -25,7 +25,7 @@ Feature: P12 — with no permission host, claude -p awaits the PermissionRequest
 
   Each cell self-skips LOUDLY when claude is absent, and when no credential is
   EXPORTED: a throwaway config dir cannot use the subscription login.
-  Two paid haiku turns for the pair.
+  One paid haiku turn per cell.
   Scenario Outline: The <decision> answer from a <engine> PermissionRequest hook decides the gated call
     Given the permission-hook probe targets "<engine>" under runtime "<runtime>" and workspace "<workspace>" with the hook answering "<decision>"
     When it asks the engine to touch a file outside its working directory in one turn
@@ -67,3 +67,12 @@ Feature: P12 — with no permission host, claude -p awaits the PermissionRequest
     Examples:
       | engine      | runtime | workspace | decision           |
       | claude-code | host    | none      | allow-prompts-none |
+
+    # ALLOW-TOOL-USE-ID-ABSENT pins the shape of the event itself: the route
+    # correlates a PermissionRequest with its call through the PreToolUse that
+    # precedes it, because PermissionRequest names no tool_use_id. Asserts the
+    # allow arm, and that the hook's input has no tool_use_id key at all.
+    @claude-code @host @ws-none @var-allow-tool-use-id-absent
+    Examples:
+      | engine      | runtime | workspace | decision                 |
+      | claude-code | host    | none      | allow-tool-use-id-absent |

@@ -45,7 +45,7 @@ func SplitItemPath(ref string) (base, itemPath string) {
 // identity — is returned as written.
 func CanonicalSpelling(ref string) string {
 	base, selector := SplitItemPath(ref)
-	if !IsCanonicalRef(base) {
+	if !IsFetchAddressRef(base) {
 		return ref
 	}
 	parsed, err := ParseReference(base)
@@ -271,7 +271,7 @@ const RetiredProfileSelector = "@profiles/"
 // local names — so callers can hand any ref here safely.
 func SplitRetiredProfileRef(ref string) (url, name string, ok bool) {
 	ref = NormalizeRef(ref)
-	if !IsCanonicalRef(ref) || strings.Contains(ref, "#") {
+	if !IsFetchAddressRef(ref) || strings.Contains(ref, "#") {
 		return "", "", false
 	}
 	i := strings.Index(ref, RetiredProfileSelector)
@@ -288,8 +288,11 @@ func SplitRetiredProfileRef(ref string) (url, name string, ok bool) {
 	return url, name, true
 }
 
-// IsCanonicalRef checks if a reference is in canonical URL format.
-func IsCanonicalRef(ref string) bool {
+// IsFetchAddressRef reports whether ref is spelled as a fetch address — an
+// http(s), file or scp-like repository URL a reference can be written over.
+// It does NOT recognise the canonical ctxloom+<scheme>:// spelling: a caller
+// that must accept both asks about each.
+func IsFetchAddressRef(ref string) bool {
 	return strings.HasPrefix(ref, "https://") ||
 		strings.HasPrefix(ref, "http://") ||
 		strings.HasPrefix(ref, "file://") ||

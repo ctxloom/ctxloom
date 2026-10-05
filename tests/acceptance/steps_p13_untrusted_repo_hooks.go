@@ -17,6 +17,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -179,8 +181,7 @@ func p13Fixture(w *World, p *p13State) error {
 		}
 	}
 	git := func(args ...string) error {
-		cmd := exec.Command("git", append([]string{"-C", p.repo,
-			"-c", "user.name=p13", "-c", "user.email=p13@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd := taskstest.GitCmd(p.repo, nil, append([]string{"-c", "user.name=p13", "-c", "user.email=p13@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("%s: git %v: %w: %s", p13Family, args, err, out)
 		}

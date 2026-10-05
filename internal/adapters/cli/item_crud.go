@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // The per-item command bodies behind `fragment|command
@@ -70,7 +69,7 @@ func showItem(cmd *cobra.Command, ref string, itemType ItemType, showDistilled, 
 // name, then its body.
 //
 // The body and the name are both PUBLISHER-AUTHORED, so both go through the
-// shared termsafe seam (delicious-goatskin): a fragment body carrying a
+// publisher render seam (delicious-goatskin): a fragment body carrying a
 // cursor-up plus erase-line pair could otherwise rewrite the name line above
 // it, and this is the path the report confirmed exploitable. ref names the item
 // in the alteration notice, which goes to the diagnostic channel so a
@@ -79,7 +78,7 @@ func printItemBody(w io.Writer, ref, itemName, content string, distilled bool) {
 	if distilled {
 		fmt.Fprintln(w, "# (distilled version)")
 	}
-	fmt.Fprintf(w, "%s\n\n", termsafe.Field(itemName))
+	fmt.Fprintf(w, "%s\n\n", inertField(itemName))
 	_ = publisherBody("", "", true).Render(w, ref, content)
 }
 

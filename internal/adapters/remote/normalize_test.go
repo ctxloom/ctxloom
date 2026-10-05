@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestIsCanonicalRef(t *testing.T) {
+func TestIsFetchAddressRef(t *testing.T) {
 	tests := []struct {
 		input string
 		want  bool
@@ -14,6 +14,8 @@ func TestIsCanonicalRef(t *testing.T) {
 		{"git@github.com:owner/repo@bundles/core", true},
 		{"forge@gitlab.example.com:group/repo@bundles/core", true},
 		{"file:///path/to/repo@bundles/core", true},
+		{"ctxloom+git://github.com/owner/repo//bundles/core", false},
+		{"ctxloom+file:///path/to/repo//bundles/core", false},
 		{"alice/security", false},
 		{"ctxloom-github/core-practices", false},
 		{"", false},
@@ -21,8 +23,8 @@ func TestIsCanonicalRef(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := IsCanonicalRef(tt.input); got != tt.want {
-				t.Errorf("IsCanonicalRef(%q) = %v, want %v", tt.input, got, tt.want)
+			if got := IsFetchAddressRef(tt.input); got != tt.want {
+				t.Errorf("IsFetchAddressRef(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}

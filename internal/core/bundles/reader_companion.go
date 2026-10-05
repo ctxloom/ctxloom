@@ -243,7 +243,7 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 		b.selfSigned = true
 	}
 	facts.stamp(b)
-	read := NewRead(ref, b, ProvenanceCompanion, TrustCtxLocal, facts)
+	read := newRead(ref, b, ProvenanceCompanion, TrustCtxLocal, facts)
 	read.Init = parsed.Init
 	return read, true
 }

@@ -188,7 +188,7 @@ func placeholderPrompts(names []string) map[string]operations.BundleCommandInput
 
 func placeholderMCP(names []string) map[string]operations.BundleMCPInput {
 	return placeholders(names, func(n string) operations.BundleMCPInput {
-		return operations.BundleMCPInput{Command: n}
+		return operations.BundleMCPInput{Command: &n}
 	})
 }
 

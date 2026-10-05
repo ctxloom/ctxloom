@@ -197,7 +197,7 @@ func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
 		b.Path = r.syntheticPath()
 	}
 	facts.stamp(b)
-	return NewRead(r.ref, b, ProvenanceRemote, TrustCtxRemote, facts), nil
+	return newRead(r.ref, b, ProvenanceRemote, TrustCtxRemote, facts), nil
 }
 
 // openTreeBundle opens the tree as a content.Bundle. The store is rooted at the

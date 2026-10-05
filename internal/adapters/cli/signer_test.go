@@ -382,11 +382,11 @@ func TestPrintSignerListings_EmptyReportsNone(t *testing.T) {
 // hostilePrincipal is a signer principal carrying the bytes a terminal would
 // obey: a cursor-up + erase-line pair (rewrites the line above), a carriage
 // return (overwrites the current line from column 0) and a backspace. The
-// escaped form is what the reader must see instead — caret notation, so no
+// escaped form is what the reader must see instead — visible markers, so no
 // byte is lost and the forgery attempt is itself visible.
 const (
 	hostilePrincipal        = "evil@example.com\x1b[1A\x1b[2K\rtrusted@acme.com\x08"
-	hostilePrincipalEscaped = "evil@example.com^[[1A^[[2K^Mtrusted@acme.com^H"
+	hostilePrincipalEscaped = "evil@example.com⟨ESC⟩[1A⟨ESC⟩[2K⟨U+000D⟩trusted@acme.com⟨U+0008⟩"
 )
 
 // TestSignerTrustDisclosure_PrincipalControlBytesAreEscaped covers the
@@ -403,7 +403,7 @@ func TestSignerTrustDisclosure_PrincipalControlBytesAreEscaped(t *testing.T) {
 
 	out := errBuf.String()
 	assert.Contains(t, out, "Trust "+hostilePrincipalEscaped+" as a PUBLISHER",
-		"the principal must render in caret form, on its own line, losing no bytes")
+		"the principal must render with visible markers, on its own line, losing no bytes")
 	assert.NotContains(t, out, "\x1b", "no raw ESC may reach the terminal")
 	assert.NotContains(t, out, "\r", "no raw CR may reach the terminal")
 	assert.NotContains(t, out, "\x08", "no raw backspace may reach the terminal")
@@ -429,8 +429,8 @@ func TestPrintSignerListings_PublisherFieldsAreEscaped(t *testing.T) {
 
 	out := buf.String()
 	assert.Contains(t, out, hostilePrincipalEscaped)
-	assert.Contains(t, out, "ctxloom-publish^[[2K")
-	assert.Contains(t, out, "line 3: bad key^[[1A")
+	assert.Contains(t, out, "ctxloom-publish⟨ESC⟩[2K")
+	assert.Contains(t, out, "line 3: bad key⟨ESC⟩[1A")
 	assert.NotContains(t, out, "\x1b", "no raw ESC may reach the terminal")
 	assert.NotContains(t, out, "\r")
 	assert.NotContains(t, out, "\x08")

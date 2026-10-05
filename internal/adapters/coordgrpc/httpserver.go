@@ -192,6 +192,10 @@ func (s *coordServing) saveEndpointLocked() {
 		ep.LoopbackPort = s.loopback.Addr().(*net.TCPAddr).Port
 	}
 	ep.ConsumerCred = s.c.ConsumerCredential()
+	// The consumer credential's identity is stamped with the one project
+	// this coordinator serves (Coordinator.Identify).
+	owner, _ := s.c.Identify(ep.ConsumerCred)
+	ep.ProjectDir = owner.ProjectDir
 	if err := writeEndpoint(afero.NewOsFs(), s.endpointPath(), ep); err != nil {
 		s.c.Reporter().Warnf("coordinator: persist endpoint: %v", err)
 	}

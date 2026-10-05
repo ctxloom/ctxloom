@@ -25,6 +25,10 @@ URL formats:
                                      there and stored as its file:// URL;
                                      refused if no repository is there
 
+A quoted "~/bundles.git" is refused: write the absolute path instead of ~
+(or leave the ~ unquoted for the shell to expand). A bare word with no dot and no slash
+("bundles") is refused: write owner/repo or a URL.
+
 Forge selection:
   Without --forge, the forge resolves from the URL host: github.com (and the
   owner/repo shorthand) use the rich GitHub adapter; every other host uses the

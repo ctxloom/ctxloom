@@ -148,8 +148,9 @@ func remoteExposure(t *testing.T) bundles.Exposure {
 	const refStr = "ctxloom+git://github.com/acme/repo//bundles/tools#prompts/deploy"
 	br, err := trust.ParseBundleRef(refStr)
 	require.NoError(t, err)
-	read := bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
-		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
+	read := bundletree.RemoteRead(t, "https://github.com/acme/repo@bundles/tools", &bundles.Bundle{
+		Commands: map[string]bundles.BundleCommand{"deploy": {ItemBody: bundles.ItemBody{Content: "echo"}}},
+	}, bundletree.Unsigned)
 	return bundles.Exposure{Read: read, BundleRef: br, Bytes: []byte("echo"), Form: bundles.FormRaw}
 }
 

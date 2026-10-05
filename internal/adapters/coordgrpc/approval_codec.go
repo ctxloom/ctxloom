@@ -155,3 +155,29 @@ func transitionsFromWire(ws []*agentcoordpb.PostureTransition) []engine.PostureT
 	}
 	return out
 }
+
+var approvalKindToWire = map[coord.ApprovalKind]agentcoordpb.ApprovalRequest_ApprovalKind{
+	coord.ApprovalTool:     agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL,
+	coord.ApprovalQuestion: agentcoordpb.ApprovalRequest_APPROVAL_KIND_QUESTION,
+	coord.ApprovalPlan:     agentcoordpb.ApprovalRequest_APPROVAL_KIND_PLAN,
+}
+
+// PendingApprovalsToWire projects the root's queue, in its order, for a
+// viewer in another process: who asked, through which lineage, the request's
+// Summary and its times. It carries no ApprovalID, raw input or workdir, so a
+// reader holds nothing an answer could address (TestNoWirePathAnswersAnApproval).
+func PendingApprovalsToWire(ps []coord.PendingApproval, projectDir string) *agentcoordpb.PendingApprovalsResult {
+	out := &agentcoordpb.PendingApprovalsResult{ProjectDir: projectDir}
+	for _, p := range ps {
+		out.Pending = append(out.Pending, &agentcoordpb.PendingApprovalsResult_Pending{
+			Kind:     approvalKindToWire[p.Kind],
+			Harp:     p.From.Harp,
+			Agent:    p.Agent,
+			Lineage:  p.Lineage,
+			Summary:  p.Summary(),
+			Since:    timeToWire(p.Since),
+			Deadline: timeToWire(p.Deadline),
+		})
+	}
+	return out
+}

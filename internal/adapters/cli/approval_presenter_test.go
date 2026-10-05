@@ -67,6 +67,14 @@ func (s *presenterSource) resolve(id coord.ApprovalID, d agent.Decider) {
 	s.events <- coord.QueueEvent{Kind: coord.QueueResolved, ID: id, Decider: d, Pending: n}
 }
 
+// settle returns once the presenter has finished every event sent before it:
+// it sends a resolution of nothing (no note, the same count), and the send
+// is unbuffered, so it completes only when the presenter's single loop is
+// back at its select.
+func (s *presenterSource) settle() {
+	s.events <- coord.QueueEvent{Kind: coord.QueueResolved, Decider: agent.DeciderPolicy, Pending: len(s.Pending())}
+}
+
 // barCall is one SetApprovals.
 type barCall struct {
 	n       int
@@ -339,19 +347,20 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 	modal := &fakeModal{quit: make(chan struct{})}
 	stdinR, stdinW := io.Pipe()
 	tty := &lockedTTY{}
+	// Buffered before New, as watchResize does: the controller establishes the
+	// region inside New.
 	sizes := make(chan *agent.WindowSize, 1)
+	sizes <- &agent.WindowSize{Rows: 24, Cols: 100}
 	ui := termui.New(termui.Options{
 		Stdin: stdinR, TTY: tty, Resize: sizes, Prefix: 0x1d, Surround: true, Clock: clk,
 		NewOverlay: func(s termui.OverlayStart) termui.Overlay { starts <- s; return modal },
 	})
+	require.Contains(t, tty.String(), "\x1b[1;23r", "surround established by New")
+	require.Equal(t, uint16(23), (<-ui.Resize()).Rows, "the initial size, translated inside New")
 	pumpDone := make(chan struct{})
 	go func() {
 		defer close(pumpDone)
 		_, _ = io.Copy(io.Discard, ui.Stdin())
-	}()
-	go func() {
-		for range ui.Resize() {
-		}
 	}()
 	t.Cleanup(func() {
 		ui.Close()
@@ -359,8 +368,6 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 		close(sizes)
 		<-pumpDone
 	})
-	sizes <- &agent.WindowSize{Rows: 24, Cols: 100}
-	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "\x1b[1;23r") }, 5*time.Second, time.Millisecond, "surround established")
 
 	src := newPresenterSource()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -370,16 +377,28 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 		cancel()
 		<-done
 	})
+	// The presenter summons for what is already pending when it starts, and
+	// again on an arrival: a request parked before its start would be summoned
+	// twice, and the second could take the screen after the modal below is
+	// closed. Its loop being at its select orders the arrival after the start.
+	src.settle()
 	src.add(pending("a", "wiry-otter", clk.Now().Add(-5*time.Second), clk.Now().Add(10*time.Minute)))
-	select {
-	case s := <-starts:
-		assert.Equal(t, termui.OverlayStart{Summoned: true, View: "approvals"}, s)
-	case <-time.After(5 * time.Second):
-		t.Fatal("the modal was never summoned")
-	}
-	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "⚑ 1 · oldest 00:05") }, 5*time.Second, time.Millisecond)
+	// The presenter sets the bar before it starts the Summon that builds the
+	// modal, so the bar is painted once the modal has been asked for.
+	assert.Equal(t, termui.OverlayStart{Summoned: true, View: "approvals"}, <-starts)
+	assert.Contains(t, tty.String(), "⚑ 1 · oldest 00:05")
+	// The human closes the modal before the request times out. The modal's
+	// teardown runs on the controller's overlay goroutine and sends its repaint
+	// nudge after the release is written.
 	modal.Abort()
+	require.Equal(t, uint16(22), (<-ui.Resize()).Rows, "the release's nudge")
+	require.Contains(t, tty.String(), "\x1b[?1049l", "modal released")
 	src.resolve("a", agent.DeciderTimeout)
-	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "approval resolved (timed out)") }, 5*time.Second, time.Millisecond,
-		"nobody decided it: the bar says so; tail %q", func() string { t := tty.String(); return t[max(len(t)-600, 0):] }())
+	src.settle()
+	// The release counts as engine output, so a note asked for right after it
+	// waits out the bar's engine-busy window — on the controller's clock,
+	// which only the test moves. A second is past that window and well inside
+	// timedOutNoteFor; the deferred repaint runs inside Advance.
+	clk.Advance(time.Second)
+	assert.Contains(t, tty.String(), timedOutNote, "nobody decided it: the bar says so")
 }

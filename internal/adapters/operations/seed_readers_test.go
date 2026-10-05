@@ -2,8 +2,6 @@ package operations
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"os"
 	"path"
 	"path/filepath"
@@ -21,8 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -76,7 +72,7 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 		var signer ssh.Signer
 		opts := []bundles.ReaderOption{bundles.WithRepoURL(seedRepoURL(t, ref))}
 		if principal := b.Signer(); principal != "" {
-			s, root := seedSignerAs(t, principal)
+			s, root, _ := bundletree.PublisherKey(t, principal)
 			signer, opts = s, append(opts, bundles.WithTrustRoot(root))
 		}
 		fsys, root, id := stageSeedTree(t, ref, b, signer)
@@ -135,37 +131,11 @@ func seedLoader(t *testing.T, seed map[string]*bundles.Bundle) *bundles.Loader {
 // showing.
 func seedUntrustedSigned(t *testing.T, ref string, b *bundles.Bundle) (*bundles.Loader, string) {
 	t.Helper()
-	signer, _, pub := seedSigner(t, "nobody@example.test")
+	signer, _, pub := bundletree.PublisherKey(t, "nobody@example.test")
 	// No trust root: nothing here trusts the key, which is the state under test.
 	l := bundles.NewLoader(bundles.NewRepoFSReader(seedTree(t, ref, b, signer), ref,
 		bundles.WithRepoURL(seedRepoURL(t, ref))))
 	return l, ssh.FingerprintSHA256(pub)
-}
-
-// seedSigner mints a throwaway key and the trust root that authorizes it to
-// publish as principal, returning the SIGNER — a tree is signed over its own
-// manifest, by attest.SignBundle, once the tree exists, so there is no payload
-// to sign ahead of time.
-func seedSigner(t *testing.T, principal string) (ssh.Signer, trust.TrustRoot, ssh.PublicKey) {
-	t.Helper()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	sshSigner, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-	sshPub, err := ssh.NewPublicKey(pub)
-	require.NoError(t, err)
-	return sshSigner, allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{principal},
-		Namespaces: []string{signing.NamespacePublish},
-		PublicKey:  sshPub,
-	}), sshPub
-}
-
-// seedSignerAs is seedSigner for the callers that do not need the public key.
-func seedSignerAs(t *testing.T, principal string) (ssh.Signer, trust.TrustRoot) {
-	t.Helper()
-	signer, root, _ := seedSigner(t, principal)
-	return signer, root
 }
 
 // seedRepoURL is the publisher repository a seeded ref claims to have come
@@ -213,17 +183,7 @@ func stageSeedTree(t *testing.T, ref string, b *bundles.Bundle, signer ssh.Signe
 	st, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
 	require.NoError(t, err)
 
-	// A tree's envelope declares NO items — they are files beside it — so
-	// `version:` is the whole of what it carries, and ParseBundle refuses one
-	// that declares neither. Document seeds never needed a version because
-	// their items were in the same file. Defaulting it here, on a copy, keeps
-	// that a property of the staging rather than something every seed fixture
-	// has to remember; a seed that sets its own version keeps it.
-	staged := *b
-	if staged.Version == "" {
-		staged.Version = "1.0.0"
-	}
-	bundletree.WriteBundle(t, fsys, root, string(id), &staged, seedSkillOptions(b)...)
+	bundletree.WriteBundle(t, fsys, root, string(id), b, seedSkillOptions(b)...)
 	if signer != nil {
 		tree, err := st.Open(context.Background(), id)
 		require.NoError(t, err)
@@ -337,7 +297,7 @@ func seedSkillOptions(b *bundles.Bundle) []bundletree.Option {
 // nothing would make every assertion resting on it vacuous.
 func seedTampered(t *testing.T, ref, principal string, b *bundles.Bundle) *bundles.Loader {
 	t.Helper()
-	signer, root := seedSignerAs(t, principal)
+	signer, root, _ := bundletree.PublisherKey(t, principal)
 	fsys, treeRoot, id := stageSeedTree(t, ref, b, signer)
 
 	altered := false
@@ -370,7 +330,7 @@ func seedTampered(t *testing.T, ref, principal string, b *bundles.Bundle) *bundl
 // signed by a key this machine DOES trust to publish as principal.
 func seedTrustedSigned(t *testing.T, ref, principal string, b *bundles.Bundle) *bundles.Loader {
 	t.Helper()
-	signer, root := seedSignerAs(t, principal)
+	signer, root, _ := bundletree.PublisherKey(t, principal)
 	return bundles.NewLoader(bundles.NewRepoFSReader(seedTree(t, ref, b, signer), ref,
 		bundles.WithRepoURL(seedRepoURL(t, ref)), bundles.WithTrustRoot(root)))
 }

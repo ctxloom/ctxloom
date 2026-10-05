@@ -2,6 +2,7 @@ package operations
 
 import (
 	"sync"
+	"testing"
 
 	"github.com/spf13/afero"
 
@@ -117,13 +118,13 @@ type EffectiveTrustRequest struct {
 // trusted signer admits it, while a rejection or retraction still answers
 // first — the request path's contract, which the authorizer's unclaimed-read
 // withhold (composite's own test) sits above.
-func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTrustResult, error) {
+func EffectiveTrust(t *testing.T, cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTrustResult, error) {
 	g := &contentGate{cfg: cfg, records: req.Records, retraction: req.Retraction, fs: req.FS}
 	// The BundleRef Decide would have parsed; a Ref that cannot convert has
 	// none, exactly as an unaddressable ref would reach the gate.
 	br, _ := req.Ref.AsBundleRef()
 	v := g.Admit(bundles.Exposure{
-		Read:      readOfFacts(req),
+		Read:      readOfFacts(t, req),
 		BundleRef: br,
 		Bytes:     req.Payload,
 		Form:      bundles.ContentForm(req.Form),
@@ -132,9 +133,14 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	return &res, nil
 }
 
-// readOfFacts is the read a reader would have established for req; an
-// unstated posture or provenance is read as travelled content.
-func readOfFacts(req EffectiveTrustRequest) bundles.BundleRead {
+// readOfFacts is the read a reader establishes for req's facts; an unstated
+// posture or provenance is read as travelled content. Local posture is a
+// project read (or a companion's, for companion provenance); travelled content
+// is a pinned tree, signed by a key trusted to publish as req.Signer when one
+// is named. The stated provenance is then set on the read: a contradictory
+// pair is no reader's output, and that is the case those rows are about.
+func readOfFacts(t *testing.T, req EffectiveTrustRequest) bundles.BundleRead {
+	t.Helper()
 	posture, prov := req.Posture, req.Provenance
 	if posture == bundles.TrustCtxUnset {
 		posture = bundles.TrustCtxRemote
@@ -142,15 +148,21 @@ func readOfFacts(req EffectiveTrustRequest) bundles.BundleRead {
 	if prov == bundles.ProvenanceUnset {
 		prov = bundles.ProvenanceRemote
 	}
-	b := &bundles.Bundle{Name: req.Ref.Bundle}
-	facts := bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}
-	if req.Signer != "" {
-		facts = bundles.SignatureFacts{Signature: bundles.SignatureValid, Signer: bundles.SignerTrusted, Principal: req.Signer}
-		b.StampSigner(req.Signer)
-	}
 	name := req.Ref.Bundle
 	if name == "" {
 		name = "fixture"
 	}
-	return bundles.NewRead(name, b, prov, posture, facts)
+	var read bundles.BundleRead
+	switch {
+	case posture == bundles.TrustCtxLocal && prov == bundles.ProvenanceCompanion:
+		read = companionRead(t, name)
+	case posture == bundles.TrustCtxLocal:
+		read = readOf(t, seedLoader(t, map[string]*bundles.Bundle{name: authorizerBundle()}), name)
+	case req.Signer != "":
+		read = readOf(t, seedTrustedSigned(t, acmeBundle+name, req.Signer, authorizerBundle()), acmeBundle+name)
+	default:
+		read = readOf(t, seedLoader(t, map[string]*bundles.Bundle{acmeBundle + name: authorizerBundle()}), acmeBundle+name)
+	}
+	read.Provenance = prov
+	return read
 }

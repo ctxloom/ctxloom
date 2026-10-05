@@ -297,7 +297,7 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 		// remotes registered" — the doc comment's nil-return case above — so it
 		// fails loud instead of silently vanishing every lockfile-pinned remote
 		// bundle from assembly/hooks/MCP/commands.
-		strictness.FailOnce(report.KindBundle, "check the remotes registry under .ctxloom, or re-run `ctxloom remote add`",
+		strictness.FailOnce(report.KindBundle, "check the remotes registry under .ctxloom, or re-run `ctxloom remote create`",
 			"failed to open the remotes registry; no remote bundles loaded: %v", err)
 		return nil
 	}

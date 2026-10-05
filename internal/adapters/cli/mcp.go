@@ -8,10 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // The MCP noun has NO machine surface: ctxloom's own server is served by
@@ -26,7 +23,7 @@ var mcpCmd = mcpBareMachineRefusal(groupNodeDefault(&cobra.Command{
 every engine.
 
   ctxloom mcp              List the MCP servers this project registers
-  ctxloom mcp server       List, show and edit registered servers
+  ctxloom mcp server       List, show, edit and set registered servers
 
 Every server here comes from a BUNDLE — ctxloom's own included, which its
 own companion loadout declares as SERVED BY THE RUNNING SESSION'S ENDPOINT:
@@ -163,9 +160,9 @@ func printMCPList(w io.Writer, result *operations.ListMCPServersResult) error {
 
 	fmt.Fprintln(w, "MCP Servers:")
 	for _, srv := range result.Servers {
-		fmt.Fprintf(w, "  %s\n", termsafe.Field(srv.Name))
+		fmt.Fprintf(w, "  %s\n", inertField(srv.Name))
 		printMCPServerTarget(w, "    ", srv)
-		fmt.Fprintf(w, "    Bundle: %s\n", termsafe.Field(srv.Source))
+		fmt.Fprintf(w, "    Bundle: %s\n", inertField(srv.Source))
 	}
 	return nil
 }
@@ -178,17 +175,17 @@ const mcpServedBySessionEndpointText = "Served by: the running session's endpoin
 // printMCPServerTarget writes how the server is reached, in the form its
 // declaration takes: the stdio command (and args), the remote URL, or the
 // session-endpoint description. Bundle-authored values go through
-// termsafe.Field; the description is ctxloom's own text.
+// inertField; the description is ctxloom's own text.
 func printMCPServerTarget(w io.Writer, indent string, e operations.MCPServerEntry) {
 	switch {
 	case e.ServedBy == wire.ServedBySessionEndpoint:
 		fmt.Fprintf(w, "%s%s\n", indent, mcpServedBySessionEndpointText)
 	case e.URL != "":
-		fmt.Fprintf(w, "%sURL: %s\n", indent, termsafe.Field(e.URL))
+		fmt.Fprintf(w, "%sURL: %s\n", indent, inertField(e.URL))
 	default:
-		fmt.Fprintf(w, "%sCommand: %s\n", indent, termsafe.Field(e.Command))
+		fmt.Fprintf(w, "%sCommand: %s\n", indent, inertField(e.Command))
 		if len(e.Args) > 0 {
-			fmt.Fprintf(w, "%sArgs: %s\n", indent, termsafe.Field(strings.Join(e.Args, " ")))
+			fmt.Fprintf(w, "%sArgs: %s\n", indent, inertField(strings.Join(e.Args, " ")))
 		}
 	}
 }
@@ -237,17 +234,17 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 
 // printMCPServerEntry is the text rendering of one server: its bundle, how
 // it is reached (printMCPServerTarget), and its env. Every bundle-authored
-// field is the executable surface, so each goes through termsafe.Field. The
+// field is the executable surface, so each goes through inertField. The
 // JSON form of the same entry does not: a structured consumer is owed the
 // raw bytes.
 func printMCPServerEntry(w io.Writer, e operations.MCPServerEntry) {
-	fmt.Fprintf(w, "MCP Server: %s\n", termsafe.Field(e.Name))
-	fmt.Fprintf(w, "Bundle: %s\n", termsafe.Field(e.Source))
+	fmt.Fprintf(w, "MCP Server: %s\n", inertField(e.Name))
+	fmt.Fprintf(w, "Bundle: %s\n", inertField(e.Source))
 	printMCPServerTarget(w, "", e)
 	if len(e.Env) > 0 {
 		fmt.Fprintln(w, "Environment:")
 		for k, v := range e.Env {
-			fmt.Fprintf(w, "  %s=%s\n", termsafe.Field(k), termsafe.Field(v))
+			fmt.Fprintf(w, "  %s=%s\n", inertField(k), inertField(v))
 		}
 	}
 }
@@ -275,28 +272,18 @@ Examples:
 }
 
 // runMCPServerEdit edits a bundle-scoped MCP server named by a
-// `<bundle>#mcp/<name>` ref, judged by bundles.ParseItemAsk — the one selector
-// parser every reader shares.
+// `<bundle>#mcp/<name>` ref (parseBundleMCPRef).
 //
 // A ref that does not select an MCP server is refused by name: an MCP server
 // lives in a bundle and nowhere else, so a ref that names no bundle names
 // nothing this command can edit — and reporting success having changed nothing
 // is the failure mode this refusal exists to prevent.
 func runMCPServerEdit(cmd *cobra.Command, args []string) error {
-	notBundleScoped := func() error {
-		return fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s); every MCP server lives in a bundle, so there is no other store to edit", args[0], trust.FormatSelector(trust.KindMCP, "<name>"))
-	}
-	ask, err := bundles.ParseItemAsk(args[0])
+	bundleName, name, err := parseBundleMCPRef(args[0])
 	if err != nil {
-		return notBundleScoped()
+		return fmt.Errorf("mcp server edit: %w", err)
 	}
-	if !ask.Scoped || ask.Kind != trust.KindMCP {
-		return notBundleScoped()
-	}
-	if ask.Bundle == "" || ask.Item == "" {
-		return fmt.Errorf("mcp server edit: incomplete ref %q (expected <bundle>#%s)", args[0], trust.FormatSelector(trust.KindMCP, "<name>"))
-	}
-	return runBundleMCPEdit(cmd, []string{ask.Bundle, ask.Item})
+	return runBundleMCPEdit(cmd, []string{bundleName, name})
 }
 
 // mcpServerCmd is the MCP-server noun: the canonical spine over the servers
@@ -305,7 +292,7 @@ func runMCPServerEdit(cmd *cobra.Command, args []string) error {
 // reading it touches nothing.
 var mcpServerCmd = groupNodeDefault(&cobra.Command{
 	Use:   "server",
-	Short: "List, show, or edit the MCP servers this project registers",
+	Short: "List, show, edit, or set the MCP servers this project registers",
 }, "list")
 
 func init() {

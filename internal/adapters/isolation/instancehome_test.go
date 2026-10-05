@@ -175,6 +175,42 @@ func TestPrepareInstanceHome_RefusesAnUnkeyableInstance(t *testing.T) {
 	assert.Empty(t, rec.seen(), "nothing is generated into an instance that could not be locked")
 }
 
+// Every way of NOT holding the instance lock refuses, not only an unkeyable
+// home: a lock directory that cannot be created, or a lock that cannot be
+// taken, would otherwise prepare the instance unserialized — the same lost
+// write as above, just reached through a different failure.
+func TestPrepareInstanceHome_RefusesWhenTheLockIsNotHeld(t *testing.T) {
+	cases := map[string]func(t *testing.T, instance string){
+		"lock directory cannot be created": func(t *testing.T, _ string) {
+			blocker := filepath.Join(t.TempDir(), "not-a-dir")
+			require.NoError(t, os.WriteFile(blocker, nil, 0o600))
+			t.Cleanup(paths.SetHomeLocksDirForTesting(filepath.Join(blocker, "locks")))
+		},
+		"lock cannot be taken": func(t *testing.T, instance string) {
+			t.Cleanup(paths.SetHomeLocksDirForTesting(t.TempDir()))
+			lockPath, err := paths.HomePathFor(instance)
+			require.NoError(t, err)
+			// A directory where the lock file belongs: flock cannot open it.
+			require.NoError(t, os.MkdirAll(lockPath, 0o700))
+		},
+	}
+	for name, block := range cases {
+		t.Run(name, func(t *testing.T) {
+			withFakeHome(t)
+			clearAuth(t)
+			t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x")
+			rec := &recordingInstanceConfig{}
+			withInstanceConfigWriter(t, "claude-code", rec)
+			instance := t.TempDir()
+			block(t, instance)
+
+			_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+			require.ErrorIs(t, err, errInstanceHomeUnlocked)
+			assert.Empty(t, rec.seen(), "nothing is generated into an instance that could not be locked")
+		})
+	}
+}
+
 // claude's .claude.json lands in the session home through the engine's own
 // writer, owner-only, carrying the account identity and never the user's own
 // registrations. No credential file lands beside it, however complete the

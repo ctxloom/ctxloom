@@ -34,7 +34,7 @@ func TestItemWrite_PinnedRemoteBundleRefusesNamingThePin(t *testing.T) {
 	ctx := context.Background()
 	writes := map[string]func(ref string) error{
 		"SetBundleMCP": func(ref string) error {
-			_, err := SetBundleMCP(ctx, cfg, SetBundleMCPRequest{Bundle: ref, Name: "srv", MCP: BundleMCPInput{Command: "x"}})
+			_, err := SetBundleMCP(ctx, cfg, SetBundleMCPRequest{Bundle: ref, Name: "srv", MCP: BundleMCPInput{Command: new("x")}})
 			return err
 		},
 		"AddItem": func(ref string) error {

@@ -259,20 +259,3 @@ func (s *Store) Sources() []Source {
 	copy(out, s.sources)
 	return out
 }
-
-// LoadErrors returns only the sources that FAILED. A caller presenting this
-// store as "the trust root" while any of these is non-empty is presenting a
-// root that silently lost a location — the same class of lie ParseErrors
-// exists to prevent one line at a time.
-func (s *Store) LoadErrors() []Source {
-	if s == nil {
-		return nil
-	}
-	var out []Source
-	for _, src := range s.sources {
-		if !src.Loaded {
-			out = append(out, src)
-		}
-	}
-	return out
-}

@@ -56,6 +56,16 @@ func tipWith(raw string) *mockFetcher {
 	return mf
 }
 
+// errTipUnreadable is a tip read that FAILED, as distinct from a tip that is
+// absent: the retraction check could not run.
+var errTipUnreadable = errors.New("tip manifest unreadable")
+
+func unreadableTip() *mockFetcher {
+	mf := newMockFetcher()
+	mf.readErr = errTipUnreadable
+	return mf
+}
+
 func pinnedAt(version string) LockEntry {
 	return LockEntry{SHA: "abc", SignedVersion: version, Publisher: "pub@example.test"}
 }
@@ -71,7 +81,13 @@ func TestCheckRetracted(t *testing.T) {
 		want    RetractionVerdict
 		reason  string
 	}{
-		{name: "no manifest at the tip is unknown", fetcher: newMockFetcher(),
+		// A remote that publishes no manifest has ANSWERED: there is nothing
+		// there to retract with. That is not a check that failed to run.
+		{name: "no manifest at the tip is unpublished, not unknown", fetcher: newMockFetcher(),
+			verify: verifierFor(nil), pinned: pinnedAt("1.0.0"), want: retractionUnpublished},
+		{name: "no manifest is unpublished even with no verifier wired", fetcher: newMockFetcher(),
+			verify: nil, pinned: pinnedAt("1.0.0"), want: retractionUnpublished},
+		{name: "a tip that could not be read is unknown", fetcher: unreadableTip(),
 			verify: verifierFor(nil), pinned: pinnedAt("1.0.0"), want: RetractionUnknown},
 		{name: "no verifier wired is unknown, never clean", fetcher: tipWith("m"),
 			verify: nil, pinned: pinnedAt("1.0.0"), want: RetractionUnknown},

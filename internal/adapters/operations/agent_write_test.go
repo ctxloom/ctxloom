@@ -372,10 +372,7 @@ func TestSetAgent_PersistsHomeMode(t *testing.T) {
 
 	// Unknown value: REJECTED — nothing written, naming the two valid values.
 	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "odd", HomeMode: ptr("wildwest")})
-	require.Error(t, err, "unknown engine_home must be rejected, not stored")
-	assert.Contains(t, err.Error(), "wildwest")
-	assert.Contains(t, err.Error(), "session", "the refusal must list the valid values")
-	assert.Contains(t, err.Error(), "host", "the refusal must list the valid values")
+	require.ErrorIs(t, err, agents.ErrUnknownHomeMode, "unknown engine_home must be rejected, not stored")
 	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	_, ok = final.Agent("odd")

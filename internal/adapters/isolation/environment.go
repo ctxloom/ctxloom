@@ -124,7 +124,7 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	} else if errors.Is(err, engine.ErrHostOnlyStore) {
 		return nil, err
 	}
-	p, ws := prepareChain(ctx, chain, survey, s.axes.Runtime, s.project, s.harp)
+	p, ws := prepareChain(ctx, chain, survey, s.axes.Runtime, s.project, s.state.Harp)
 	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), stores, IsContainerPolicyName(p.Name()))
 	pl, roots, err := p.relocator().relocate(l)
 	if err != nil {
@@ -200,7 +200,7 @@ func Preview(ctx context.Context, s Spec) Environment {
 	if s.axes.WantsWorktree() {
 		w := NewWorktree(nil)
 		w.state = s.state
-		l.cwd = w.previewCwd(s.project, s.harp)
+		l.cwd = w.previewCwd(s.project, s.state.Harp)
 	}
 	survey := surveyRuntimes()
 	p := chainFor(survey, s.axes, s.backend(), s.img)[0]
@@ -214,7 +214,7 @@ func Preview(ctx context.Context, s Spec) Environment {
 	}
 	if c, ok := p.(Container); ok {
 		if err := c.launchGate(ctx, c.inspectImage); err != nil {
-			refuseLostContainer(err, s.harp, s.axes.Runtime, survey)
+			refuseLostContainer(err, s.state.Harp, s.axes.Runtime, survey)
 		}
 	}
 	pl, _, err := p.relocator().relocate(l)

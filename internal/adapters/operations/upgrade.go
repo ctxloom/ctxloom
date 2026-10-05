@@ -233,14 +233,12 @@ func (u *upgradeRound) apply(p PinnedRef) {
 // refuse keeps cur verbatim and records why p's advance was refused.
 func (u *upgradeRound) refuse(p PinnedRef, cur remote.LockEntry, refusal error) {
 	u.newActive.AddEntry(p.Type, p.Identity, cur)
-	cause := refusalCauseOf(refusal)
 	u.result.Refused = append(u.result.Refused, RefusedAdvance{
 		Identity:    string(p.Identity),
 		KeptSHA:     cur.SHA,
 		ProposedSHA: p.Hash,
 		Detail:      refusal.Error(),
-		BelowFloor:  cause == RefusalBelowFloor,
-		Cause:       cause,
+		Cause:       refusalCauseOf(refusal),
 	})
 }
 

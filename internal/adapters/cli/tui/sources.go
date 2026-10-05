@@ -45,6 +45,10 @@ type RosterRow struct {
 	// Hold is the hold parking the child's run (nil when none does). A held
 	// run's State stays idle, so the hold is what tells it apart.
 	Hold *coord.RunHold
+	// Cause and Detail are why an ended child's run ended, and the detail
+	// that came with it: coord.RosterEntry's, empty until the run ends.
+	Cause  string
+	Detail string
 }
 
 // Feed is one open observation feed. Cancel releases the watch (switching

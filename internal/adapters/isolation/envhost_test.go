@@ -16,7 +16,7 @@ import (
 func envHostSpec(t *testing.T, axes launch.Axes, eng engine.Engine, home, project string, h agents.EnvHost) Spec {
 	t.Helper()
 	s, err := NewSpec(axes, eng).Project(project).
-		Session(harpA, sessionDir(home, harpA), SessionState{Harp: harpA}).
+		Session(sessionDir(home, harpA), SessionState{Harp: harpA}).
 		Image(ImageConfig{Image: "img"}).Home(agents.HomeModeHost).EnvHost(h).Build()
 	require.NoError(t, err)
 	return s

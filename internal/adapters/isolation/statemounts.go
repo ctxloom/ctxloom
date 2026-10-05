@@ -30,16 +30,6 @@ type SessionState struct {
 	ProjectID string
 }
 
-// SessionStateFromEnv reads the session identity from a run's env map — the
-// CTXLOOM_SESSION_HARP / CTXLOOM_PROJECT_ID carriers the launch exports into
-// the engine env. Absent keys yield zero fields.
-func SessionStateFromEnv(env map[string]string) SessionState {
-	return SessionState{
-		Harp:      env[sessions.EnvHarp],
-		ProjectID: env[sessions.EnvProjectID],
-	}
-}
-
 // noProjectIDNotice is the durability degrade a run without a project id
 // reports. It is a WarnOnce line: a delegated fan-out (agent_run) puts every
 // member through sessionStateMounts in ONE process, so N identical lines would

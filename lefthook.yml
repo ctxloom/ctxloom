@@ -2,6 +2,11 @@
 # A failing hook is a finding: read its output and fix the cause, then retry
 # the commit — never bypass with --no-verify / LEFTHOOK=0 unless the human
 # driving explicitly says so.
+#
+# Every `run:` is ONE simple command: lefthook hands it to /bin/sh, which is a
+# different shell on each machine that commits (the agent image's dash rejects
+# `set -o pipefail`). A body needing shell syntax is a script under scripts/,
+# invoked with its interpreter. TestLefthookRunBlocksAreSimpleCommands enforces it.
 pre-commit:
   commands:
     reprise:
@@ -63,19 +68,7 @@ pre-commit:
       # binary reaches), and every allowlist-liveness check must inspect
       # exempted packages precisely when nobody touched them — that is what
       # makes an exemption go stale.
-      run: |
-        set -euo pipefail
-        if [ ! -x bin/archlint ]; then
-          echo "bin/archlint is missing — run 'just build-archlint'." >&2
-          echo "The architectural gate cannot pass by not running." >&2
-          exit 1
-        fi
-        if [ -n "$(find internal/shared/archrules internal/shared/archlint cmd/archlint -name '*.go' -newer bin/archlint -print -quit)" ]; then
-          echo "bin/archlint is older than the rules in internal/shared/archrules or the analyzers in internal/shared/archlint — run 'just build-archlint'." >&2
-          echo "A stale linter enforces the rules it was built with, not the ones on disk." >&2
-          exit 1
-        fi
-        scripts/lint-arch-passes.sh
+      run: bash scripts/hook-archlint
 
     lint-pins:
       # Pin-direction gate: no pinned version in the INDEX may be older than
@@ -129,29 +122,7 @@ pre-commit:
       #
       # Verifies the STAGED bytes (`git show :file`), not the working tree:
       # what is being committed is what must verify.
-      run: |
-        set -euo pipefail
-        signers=internal/adapters/configload/embedded_signers.allowed_signers
-        identity=$(grep -v '^#' "$signers" | grep -v '^[[:space:]]*$' | head -1 | awk '{print $1}')
-        for yaml in cmd/*/loadout.yaml; do
-          sig="$yaml.sig"
-          if ! git cat-file -e ":$sig" 2>/dev/null; then
-            echo "$sig is missing from the index — run 'just sign-loadouts' and stage it." >&2
-            echo "A loadout without its signature is withheld, not shipped unsigned." >&2
-            exit 1
-          fi
-          tmpsig=$(mktemp)
-          git show ":$sig" > "$tmpsig"
-          ok=0
-          git show ":$yaml" | ssh-keygen -Y verify -f "$signers" -I "$identity" \
-              -n publish.v1.ctxloom.dev -s "$tmpsig" >/dev/null 2>&1 || ok=1
-          rm -f "$tmpsig"
-          if [ "$ok" -ne 0 ]; then
-            echo "$sig does not cover the staged bytes of $yaml." >&2
-            echo "Run 'just sign-loadouts' and stage both files together." >&2
-            exit 1
-          fi
-        done
+      run: bash scripts/hook-loadout-signatures
 
 pre-push:
   commands:

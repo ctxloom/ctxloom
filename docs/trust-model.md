@@ -118,9 +118,13 @@ signature and signer axes, provenance). First match wins; it is fail-closed:
        pinned `signed_version` → *retracted*; otherwise *clean*;
      - a trusted tip below the pinned `signed_version` → *rollback*: the
        branch was rewound, and it clears nothing;
-     - anything else — unreachable, no manifest, unsigned, untrusted,
-       tampered, or a trusted manifest for another bundle served at this
-       path → *unknown*.
+     - no manifest at the tip at all → *unpublished*: the remote answered
+       and publishes no retraction channel. It clears nothing (deleting a
+       manifest is within reach of whoever controls the repository), keeps
+       the recorded verdict, and is stamped as a check that ran — never a
+       warning;
+     - anything else — unreadable, unsigned, untrusted, tampered, or a
+       trusted manifest for another bundle served at this path → *unknown*.
      No unsigned file decides anything: whoever controls a repository can
      serve any unsigned bytes, so if an unsigned tip could clear a verdict,
      stripping the signature would strip the retraction.
@@ -132,10 +136,12 @@ signature and signer axes, provenance). First match wins; it is fail-closed:
      lifts a retraction already recorded for the same pinned version either:
      a retraction of an exact signed version is permanent, and a tip that no
      longer lists it is an older release served again, not the publisher
-     changing their mind; only moving the pin resets it. A fallback verdict
+     changing their mind; only moving the pin resets it. The check runs on
+     every pull. One that could not run is reported: a fallback verdict
      older than 14 days (`remote.RetractionStaleAfter`), or one with no
      recorded check time at all (unknown age, not implicitly fresh), warns via
-     `clidiag` but is still honored, never discarded: staleness degrades
+     `clidiag` but is still honored, never discarded, and a first check that
+     could not run warns and records no check time: staleness degrades
      toward *more* caution communicated to the operator, never toward more
      exposure.
    - **2c. the version floor.** A pull verifies the fetched tree before it

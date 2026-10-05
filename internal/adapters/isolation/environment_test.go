@@ -56,7 +56,7 @@ func passSharedFS(t *testing.T) {
 func envSpec(t *testing.T, axes launch.Axes, eng engine.Engine, home, project string) Spec {
 	t.Helper()
 	s, err := NewSpec(axes, eng).Project(project).
-		Session(harpA, sessionDir(home, harpA), SessionState{Harp: harpA}).
+		Session(sessionDir(home, harpA), SessionState{Harp: harpA}).
 		Image(ImageConfig{Image: "img"}).Home(agents.HomeModeSession).Build()
 	require.NoError(t, err)
 	return s
@@ -274,33 +274,32 @@ func TestSpecBuilder_FirstErrorWins(t *testing.T) {
 	require.ErrorIs(t, err, ErrSpecIncomplete)
 	assert.Contains(t, err.Error(), "engine", "the first failure is the one reported")
 
-	_, err = NewSpec(hostAxes, mock.New()).Project("relative").Session("", "", SessionState{}).Build()
+	_, err = NewSpec(hostAxes, mock.New()).Project("relative").Session("", SessionState{}).Build()
 	require.ErrorIs(t, err, ErrSpecIncomplete)
 	assert.Contains(t, err.Error(), "project")
 
-	_, err = NewSpec(hostAxes, mock.New()).Project(t.TempDir()).Session(harpA, "rel", SessionState{}).Build()
+	_, err = NewSpec(hostAxes, mock.New()).Project(t.TempDir()).Session("rel", SessionState{}).Build()
 	require.ErrorIs(t, err, ErrSpecIncomplete)
 	assert.Contains(t, err.Error(), "session")
 }
 
-// The session state a Spec carries IS the run's: a state naming no harp, or
-// another run's, is refused — so nothing downstream (the worktree's checkout
-// and scratch, the container's state mounts) can resolve a session member
-// for a harp other than the one the run was minted.
+// The session state a Spec carries IS the run's: a state naming no harp, or a
+// harp that is not a safe path segment, is refused — so nothing downstream
+// (the worktree's checkout and scratch, the container's state mounts) can
+// resolve a session member for no session.
 func TestSpecBuilder_SessionStateCarriesTheRunsHarp(t *testing.T) {
 	for name, state := range map[string]SessionState{
 		"no harp":            {},
-		"another harp":       {Harp: harpB},
 		"no harp, a project": {ProjectID: "p"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := NewSpec(hostAxes, mock.New()).Project(t.TempDir()).Session(harpA, t.TempDir(), state).Build()
+			_, err := NewSpec(hostAxes, mock.New()).Project(t.TempDir()).Session(t.TempDir(), state).Build()
 			require.ErrorIs(t, err, ErrSpecIncomplete)
 		})
 	}
-	_, err := NewSpec(hostAxes, mock.New()).Project(t.TempDir()).Session("..", t.TempDir(), SessionState{Harp: ".."}).Build()
+	_, err := NewSpec(hostAxes, mock.New()).Project(t.TempDir()).Session(t.TempDir(), SessionState{Harp: ".."}).Build()
 	require.ErrorIs(t, err, ErrSpecIncomplete, "a harp that is not a safe path segment names no session member")
-	_, err = NewSpec(hostAxes, mock.New()).Project(t.TempDir()).Session(harpA, t.TempDir(), SessionState{Harp: harpA}).Build()
+	_, err = NewSpec(hostAxes, mock.New()).Project(t.TempDir()).Session(t.TempDir(), SessionState{Harp: harpA}).Build()
 	require.NoError(t, err, "the run's own harp is accepted")
 }
 

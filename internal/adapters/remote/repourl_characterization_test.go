@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // This file is the characterization suite for the repo-URL grammar: one table
@@ -204,10 +206,24 @@ func repoURLCases() []repoURLCase {
 			cacheDir: "/base/github.com/owner/repo", kind: SourceKindRemote},
 		{name: "bare scheme", in: "https://",
 			identity: "https://", transport: "https://", cacheDir: "", kind: SourceKindRemote},
-		{name: "dot", in: ".",
-			identity: "https://.", transport: "https://.", cacheDir: "", kind: SourceKindRemote},
-		{name: "dotdot", in: "..",
-			identity: "https://..", transport: "https://..", cacheDir: "", kind: SourceKindRemote},
+	}
+}
+
+// TestRepoURL_PathSpellingsRenderNothing: a repository spelled as a
+// filesystem path is refused by the grammar (refuri.ErrSchemelessPath), so no
+// renderer turns it into a network URL to fetch or a cache directory to clone
+// into. Resolving it is the argv ingest's job (operations.resolveLocalRepoURL).
+func TestRepoURL_PathSpellingsRenderNothing(t *testing.T) {
+	cache := NewRepoCache("/base", AuthConfig{})
+	for _, in := range []string{".", "..", "./bundles.git", "../bundles", "/srv/bundles.git"} {
+		t.Run(in, func(t *testing.T) {
+			_, err := ParseRepoURL(in)
+			require.ErrorIs(t, err, refuri.ErrSchemelessPath)
+			assert.Empty(t, storedRepoURL(in), "identity")
+			assert.Empty(t, normalizeCloneURL(in), "transport")
+			_, err = cache.RepoDirForURL(in)
+			assert.ErrorIs(t, err, refuri.ErrSchemelessPath, "filesystem")
+		})
 	}
 }
 

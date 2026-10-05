@@ -335,7 +335,7 @@ func (r cellRuntime) Start(ctx context.Context, l launch.Launch, env map[string]
 }
 
 func (s *spawner) ResumeHistory(ctx context.Context, harp string) string {
-	entries, err := operations.RecordedSessionEntries(ctx, s.app.Engines(), harp)
+	entries, err := operations.RecordedSessionEntries(harp)
 	if err != nil {
 		s.rep.Warnf("agent resume %s: no recorded history to prime (%v); resuming with the agent context only", harp, err)
 		return ""

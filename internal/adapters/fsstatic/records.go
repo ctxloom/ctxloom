@@ -213,7 +213,9 @@ func (c deliveredContent) MarshalYAML() (any, error) {
 
 // pendingWrite is written WITH the record, before the target: the target's
 // digest before and after the write, and the state the file was in before
-// it. The next load tells from the target's digest whether the write landed.
+// it. It is dropped once the write is confirmed (targetOps.confirm); a note
+// the next load still finds tells from the target's digest whether its write
+// landed.
 type pendingWrite struct {
 	Before string    `yaml:"before"`
 	After  string    `yaml:"after"`
@@ -384,6 +386,8 @@ type targetOps struct {
 	disk  []byte
 	prior fileState
 	had   []string // the writers the record named before the ops
+	// set by the seal when it notes a write pending, for the confirm
+	noted *claimsRecord
 }
 
 func (s *Staging) touch(target string) *targetOps {
@@ -393,6 +397,7 @@ func (s *Staging) touch(target string) *targetOps {
 		s.targets[target] = t
 		s.b.Edit(target, t.fold)
 		s.b.Seal(target, t.seal)
+		s.b.Confirm(target, t.confirm)
 	}
 	return t
 }
@@ -515,11 +520,13 @@ func (t *targetOps) fold(cur []byte, exists bool) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	t.disk, t.prior, t.had = disk, rec.state(), rec.writers()
-	// A pending note whose write landed is left as it is: it is still true,
-	// and clearing it would be a record write that changes nothing.
-	if p := rec.Pending; p != nil && digest(cur, exists) != p.After {
+	// A note found here was never confirmed. Its write either landed, and the
+	// note goes, or did not, and the write it describes is redone when the
+	// file still stands as it was before. A note that outlived its write
+	// would mistake a user's exact revert for that write being lost.
+	if p := rec.Pending; p != nil {
 		rec.Pending = nil
-		if digest(cur, exists) == p.Before {
+		if now := digest(cur, exists); now != p.After && now == p.Before {
 			// The record landed and the target did not: redo the write the
 			// record describes, from the state the file is still in.
 			t.prior = p.Prior
@@ -579,6 +586,7 @@ func (t *targetOps) writeRecord(before []byte, existed bool, after []byte, keep 
 	changing := digest(before, existed) != digest(after, keep)
 	if changing {
 		rec.Pending = &pendingWrite{Before: digest(before, existed), After: digest(after, keep), Prior: t.prior}
+		t.noted = &rec
 	}
 	if err := t.c.retireSuperseded(t.target); err != nil {
 		return err
@@ -599,6 +607,29 @@ func (t *targetOps) writeRecord(before []byte, existed bool, after []byte, keep 
 		return nil
 	}
 	if err := confpatch.EnsureRecordDir(t.c.fs, t.c.dir); err != nil {
+		return err
+	}
+	return safefs.WriteFile(t.c.fs, path, data, owneronly.FileMode, safefs.Durable())
+}
+
+// confirm drops the note the seal wrote, once the target's write has landed:
+// the record then says only what is claimed, and a record left with no claims
+// goes.
+func (t *targetOps) confirm() error {
+	if t.noted == nil {
+		return nil
+	}
+	rec := *t.noted
+	rec.Pending = nil
+	path := t.c.path(t.target)
+	if len(rec.Paths) == 0 {
+		if err := t.c.fs.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	data, err := yaml.Marshal(rec)
+	if err != nil {
 		return err
 	}
 	return safefs.WriteFile(t.c.fs, path, data, owneronly.FileMode, safefs.Durable())

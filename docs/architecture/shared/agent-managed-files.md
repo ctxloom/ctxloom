@@ -53,7 +53,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 
 **The rule, no per-site judgment:** a file ctxloom exclusively owns inside a foreign engine's directory is locked and ledgered like a shared file.
 
-- `claude.claudeInstanceConfig.WriteInstanceConfig` takes its own `sessions.WithFileLock` around the whole load-modify-write cycle, keyed to the generated file itself — not the caller's `isolation.lockInstanceHome`, which locks a *different* path in a *different* lock namespace (`paths.ProjectPathFor` on the instance-home directory vs. `paths.HomePathFor` on the generated file) and silently no-ops for the harpless worktree fallback.
+- `claude.claudeInstanceConfig.WriteInstanceConfig` takes its own `sessions.WithFileLock` around the whole load-modify-write cycle, keyed to the generated file itself — not the caller's `isolation.lockInstanceHome`, which locks a *different* path (`paths.HomePathFor` on the instance-home directory vs. on the generated file) and serializes only `isolation.PrepareInstanceHome`.
 - `claude.appendFlagDelivery.DeliverContext` now writes its framed `<hash>.sysprompt.md` cache file through `safefs.WriteFileKeepMode`, never a raw `afero.WriteFile`.
 
 **The ratchet:** archlint's `LockDisciplineAnalyzer` and `LedgerDisciplineAnalyzer` (run by `just lint-arch`) are write-discipline-shaped rules — a name-based heuristic over every function in `internal/engines/claude` and this package (`lockDisciplineScopes`), with a reasoned, symbol-keyed allowlist in `archrules` whose stale entries the analyzer reports. They are heuristics, not proofs (see their own doc comments for exactly what they can and cannot see), and each carries a reasoned baseline for the gaps it knows about.

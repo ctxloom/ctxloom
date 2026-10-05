@@ -30,7 +30,7 @@ func TestCredentials_AMissingLoginStoreRefusesOnEveryEnvironment(t *testing.T) {
 		"container": {Workspace: WorkspaceShared, Runtime: RuntimeContainerRootless},
 	} {
 		s, err := NewSpec(axes, claudeEngine(t)).Project(t.TempDir()).
-			Session(harpA, sessionDir(home, harpA), SessionState{Harp: harpA}).Credentials(creds).Build()
+			Session(sessionDir(home, harpA), SessionState{Harp: harpA}).Credentials(creds).Build()
 		require.NoError(t, err)
 		_, err = Prepare(context.Background(), s)
 		require.ErrorIs(t, err, engine.ErrNoCredential, name)
@@ -48,7 +48,7 @@ func TestCredentials_AMissingLoginStoreRefusesOnEveryEnvironment(t *testing.T) {
 func TestPreview_AMissingLoginStoreIsRecordedNotReturned(t *testing.T) {
 	home := fakeHostHome(t, "") // no ~/.claude
 	s, err := NewSpec(launch.Axes{}, claudeEngine(t)).Project(t.TempDir()).
-		Session(harpA, sessionDir(home, harpA), SessionState{Harp: harpA}).
+		Session(sessionDir(home, harpA), SessionState{Harp: harpA}).
 		Credentials(claudeCredentials(t, engine.AuthLogin)).Build()
 	require.NoError(t, err)
 

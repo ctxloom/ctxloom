@@ -1,11 +1,8 @@
 package operations
 
 import (
-	"context"
 	"fmt"
 	"strings"
-
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -26,7 +23,7 @@ import (
 // slice: the three callers all treat an error as "warn and carry on with the
 // context you have" (see cli/run.go's resumeFullContext), and a typo'd or
 // stale --session must never block a launch.
-func RecordedSessionEntries(ctx context.Context, reg engine.Registry, harp string) ([]agent.SessionEntry, error) {
+func RecordedSessionEntries(harp string) ([]agent.SessionEntry, error) {
 	entry, err := GetSession(harp)
 	if err != nil {
 		return nil, fmt.Errorf("look up session %q: %w", harp, err)

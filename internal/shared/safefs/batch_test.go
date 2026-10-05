@@ -392,3 +392,77 @@ func TestBatchExistenceAloneIsAChange(t *testing.T) {
 	_, err = fs.Stat("/p/new")
 	assert.NoError(t, err)
 }
+
+// failingWriteFs fails every rename onto target: the write never lands.
+type failingWriteFs struct {
+	*countingFs
+	target string
+}
+
+var errWriteLost = errors.New("injected: the write did not land")
+
+func (f *failingWriteFs) Rename(o, n string) error {
+	if n == f.target {
+		return errWriteLost
+	}
+	return f.countingFs.Rename(o, n)
+}
+
+func TestBatchConfirmsAPathOnlyOnceItsWriteLanded(t *testing.T) {
+	fs := newCountingFs()
+	b := NewBatch(fs, noLock)
+	var sawWritten string
+	b.Edit("/p/a", appendText("x"))
+	b.Confirm("/p/a", func() error {
+		sawWritten = get(t, fs, "/p/a")
+		return nil
+	})
+	_, err := b.Commit()
+	require.NoError(t, err)
+	assert.Equal(t, "x", sawWritten, "the confirm sees the write already landed")
+}
+
+func TestBatchConfirmsARemoval(t *testing.T) {
+	fs := newCountingFs()
+	put(t, fs, "/p/a", "x")
+	b := NewBatch(fs, noLock)
+	confirmed := false
+	b.Edit("/p/a", func([]byte, bool) ([]byte, bool, error) { return nil, false, nil })
+	b.Confirm("/p/a", func() error {
+		_, err := fs.Stat("/p/a")
+		confirmed = errors.Is(err, os.ErrNotExist)
+		return nil
+	})
+	_, err := b.Commit()
+	require.NoError(t, err)
+	assert.True(t, confirmed, "the confirm runs once the file is gone")
+}
+
+func TestBatchDoesNotConfirmAnUnchangedPath(t *testing.T) {
+	fs := newCountingFs()
+	put(t, fs, "/p/a", "x")
+	b := NewBatch(fs, noLock)
+	b.Edit("/p/a", appendText(""))
+	b.Confirm("/p/a", func() error { t.Fatal("an unchanged path was confirmed"); return nil })
+	_, err := b.Commit()
+	require.NoError(t, err)
+}
+
+func TestBatchDoesNotConfirmAWriteThatFailed(t *testing.T) {
+	fs := &failingWriteFs{countingFs: newCountingFs(), target: "/p/a"}
+	b := NewBatch(fs, noLock)
+	b.Edit("/p/a", appendText("x"))
+	b.Confirm("/p/a", func() error { t.Fatal("a failed write was confirmed"); return nil })
+	_, err := b.Commit()
+	require.ErrorIs(t, err, errWriteLost)
+}
+
+func TestBatchAFailedConfirmFailsTheCommit(t *testing.T) {
+	fs := newCountingFs()
+	b := NewBatch(fs, noLock)
+	errConfirm := errors.New("injected: confirm failed")
+	b.Edit("/p/a", appendText("x"))
+	b.Confirm("/p/a", func() error { return errConfirm })
+	_, err := b.Commit()
+	require.ErrorIs(t, err, errConfirm)
+}

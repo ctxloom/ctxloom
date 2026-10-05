@@ -20,6 +20,10 @@ URL formats:
   https://github.com/alice/ctxloom   Full GitHub URL
   https://git.example.com/corp/ctxloom   Generic git host URL
   git@github.com:alice/ctxloom.git   SSH URL (converted to HTTPS)
+  file:///srv/bundles.git            Local git repository
+  ./bundles.git, /srv/bundles.git    Local path: resolved to the repository
+                                     there and stored as its file:// URL;
+                                     refused if no repository is there
 
 Forge selection:
   Without --forge, the forge resolves from the URL host: github.com (and the

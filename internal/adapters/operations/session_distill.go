@@ -98,7 +98,7 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	distiller := OneShot(f, opts.Hosts, cfg).Label(cfg.FastLabel()).Model(model).WorkDir(entry.ProjectDir).Lazy()
 	defer distiller.End()
 	// The compactor does not build its own source: resolve it here and inject.
-	source, err := distillSource(entry.ProjectDir)
+	source, err := DistillSource(entry.ProjectDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve transcript source for backend %q: %w", backendName, err)
 	}
@@ -139,23 +139,17 @@ func distillable(entry *sessions.Entry) error {
 	return fmt.Errorf("harp %q has no session_id bound and no captured transcript; nothing to distill", entry.HarpName)
 }
 
-// DistillSource resolves the transcript source a compactor reads for a
-// distill, for callers that build a memory.CompactionConfig directly (the MCP
-// memory tools). It is distillSource behind an exported name so those callers
-// need not know how a canonical source is assembled.
-func DistillSource(reg engine.Registry, backend, workDir string) (memory.Source, error) {
-	return distillSource(workDir)
-}
-
-// distillSource builds the transcript source the compactor reads for a
+// DistillSource builds the transcript source the compactor reads for a
 // distill: ctxloom's own canonical capture, scoped to workDir, read raw (no
 // read-side content policy — a distill reads the transcript's own bytes).
-func distillSource(workDir string) (memory.Source, error) {
+// Callers that build a memory.CompactionConfig directly (the MCP memory
+// tools) use it so they need not know how a canonical source is assembled.
+func DistillSource(workDir string) (memory.Source, error) {
 	store, err := sessions.Open(strictness.Sink("ctxloom"))
 	if err != nil {
 		return nil, fmt.Errorf("session index unavailable: %w", err)
 	}
-	return transcript.NewCanonicalFallbackSource(nil, workDir, store), nil
+	return transcript.NewCanonicalFallbackSource(workDir, store), nil
 }
 
 // ResolveSessionSource resolves the backend (defaulting when empty) and a
@@ -182,7 +176,7 @@ func ResolveSessionSource(reg engine.Registry, cfg *config.Config, backendName, 
 	// changing the policy changes what every existing transcript yields, with
 	// no migration. See transcript.FilteredSource.
 	return transcript.NewFilteredSource(
-		transcript.NewCanonicalFallbackSource(nil, workDir, store),
+		transcript.NewCanonicalFallbackSource(workDir, store),
 		policy.Default(),
 	), backendName, nil
 }

@@ -7,15 +7,24 @@ import (
 	"strings"
 )
 
-// errSchemelessPath refuses a repository URL written as a bare absolute
-// filesystem path. Once its leading "/" is trimmed it is indistinguishable from
-// a host-qualified path or GitHub shorthand, so any reading of it is a guess at
-// a network URL the user never named.
-var errSchemelessPath = errors.New("a local repository path needs the file:// scheme")
+// ErrSchemelessPath refuses a repository URL written as a bare filesystem
+// path, absolute or relative. Once its leading "/" is trimmed, or its "." read
+// as a host, it is indistinguishable from a host-qualified path or GitHub
+// shorthand, so any reading of it is a guess at a network URL the user never
+// named. The grammar has no working directory; resolving a path is the job of
+// an ingest that does.
+var ErrSchemelessPath = errors.New("a local repository path needs the file:// scheme")
 
 // fileRemedy is the spelling a scheme-less absolute path should have been
 // written in.
 func fileRemedy(path string) string { return "file://" + path }
+
+// isRelativePath reports whether raw is spelled as a path relative to a
+// working directory: ".", "..", or a leading "./" or "../". A dot anywhere
+// else in the first segment is a hostname or a repository name, not a path.
+func isRelativePath(raw string) bool {
+	return raw == "." || raw == ".." || strings.HasPrefix(raw, "./") || strings.HasPrefix(raw, "../")
+}
 
 // This file is the ONE place the repo-URL grammar lives.
 //
@@ -175,7 +184,8 @@ func IsSCPForm(raw string) bool {
 
 // ParseRepoURL parses a repository URL into the one representation every
 // consumer renders from. It errors on empty input and on a scheme-less
-// absolute path (errSchemelessPath, naming the file:// spelling); every other
+// filesystem path (ErrSchemelessPath; an absolute one is told its file://
+// spelling); every other
 // string is classified into some form, because the callers it replaces were
 // all total functions over strings arriving from argv, remotes.yaml and
 // lockfiles.
@@ -207,7 +217,10 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 	// repository into a network URL — one that is fetched, trust-keyed and
 	// may well exist under someone else's control.
 	if strings.HasPrefix(raw, "/") {
-		return RepoURL{}, fmt.Errorf("%w: write %q", errSchemelessPath, fileRemedy(raw))
+		return RepoURL{}, fmt.Errorf("%w: write %q", ErrSchemelessPath, fileRemedy(raw))
+	}
+	if isRelativePath(raw) {
+		return RepoURL{}, fmt.Errorf("%w: %q is relative; write a file:// URL naming its absolute path", ErrSchemelessPath, raw)
 	}
 
 	r := RepoURL{kind: SourceKindRemote, raw: raw}

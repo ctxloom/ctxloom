@@ -195,7 +195,7 @@ func TestUpdateBundle_IdenticalSetIsNoChanges(t *testing.T) {
 		"review": {Content: "review body", Description: "d", Tags: []string{"beta"}, NoDistill: true},
 	}
 	mcp := map[string]BundleMCPInput{
-		"srv": {Command: "srv-bin", Args: []string{"--flag"}, Env: map[string]string{"K": "V"}},
+		"srv": {Command: new("srv-bin"), Args: &[]string{"--flag"}, Env: &map[string]string{"K": "V"}},
 	}
 
 	// First application really mutates: this both establishes the entries and

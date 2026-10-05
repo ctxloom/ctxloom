@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // seedBundleMCP creates bundle "demo" (if it doesn't already exist) with one
@@ -27,7 +28,7 @@ func seedBundleMCP(t *testing.T, cfg *config.Config, name string) {
 	_, err = operations.SetBundleMCP(context.Background(), cfg, operations.SetBundleMCPRequest{
 		Bundle: "demo",
 		Name:   name,
-		MCP:    operations.BundleMCPInput{Command: "real-mcp-server", Args: []string{"--flag"}},
+		MCP:    operations.BundleMCPInput{Command: new("real-mcp-server"), Args: &[]string{"--flag"}},
 	})
 	require.NoError(t, err)
 }
@@ -51,18 +52,18 @@ func TestRunBundleMCPEdit_EmptiedBufferAborts(t *testing.T) {
 	assert.Equal(t, "real-mcp-server", after.MCP.Command, "the bundle must be UNCHANGED after an aborted edit")
 }
 
-// TestRunBundleMCPEdit_NoCommandAborts is the sibling case of an emptied
-// buffer: valid YAML that simply carries no `command:` (e.g. the user
-// deleted just that line) is just as unusable as an empty buffer and must
-// abort the same way.
-func TestRunBundleMCPEdit_NoCommandAborts(t *testing.T) {
+// TestRunBundleMCPEdit_NoTargetAborts is the sibling case of an emptied
+// buffer: valid YAML that names no target (e.g. the user deleted just the
+// `command:` line) is just as unusable as an empty buffer and must abort,
+// leaving the bundle unchanged.
+func TestRunBundleMCPEdit_NoTargetAborts(t *testing.T) {
 	cfg := setupEditProject(t)
 	seedBundleMCP(t, cfg, "srv")
 	setFakeEditor(t, "args:\n  - --flag\n")
 
 	cmd := &cobra.Command{}
 	err := runBundleMCPEdit(cmd, []string{"demo", "srv"})
-	require.Error(t, err, "a command-less MCP edit must abort")
+	require.ErrorIs(t, err, wire.ErrMCPServerNoTarget, "a target-less MCP edit must abort")
 
 	after, gerr := operations.GetBundleMCP(context.Background(), cfg, operations.GetBundleMCPRequest{Bundle: "demo", Name: "srv"})
 	require.NoError(t, gerr)
@@ -101,4 +102,34 @@ func TestRunBundleMCPEdit_WritesToTheCommandsOutWriter(t *testing.T) {
 
 	assert.Contains(t, out.String(), `Updated MCP server "srv" in bundle "demo"`,
 		"the success line must reach the writer cobra was given")
+}
+
+// A remote server has a url and no command; the editor must save it.
+func TestRunBundleMCPEdit_RemoteServerWithoutACommandSaves(t *testing.T) {
+	cfg := setupEditProject(t)
+	seedBundleMCP(t, cfg, "srv")
+	setFakeEditor(t, "url: https://mcp.example.test/v1\nheaders:\n  Authorization: Bearer ${env:TOKEN}\ntags:\n  - remote\n")
+
+	require.NoError(t, runBundleMCPEdit(&cobra.Command{}, []string{"demo", "srv"}))
+
+	after, err := operations.GetBundleMCP(context.Background(), cfg, operations.GetBundleMCPRequest{Bundle: "demo", Name: "srv"})
+	require.NoError(t, err)
+	assert.Equal(t, "https://mcp.example.test/v1", after.MCP.URL)
+	assert.Equal(t, map[string]string{"Authorization": "Bearer ${env:TOKEN}"}, after.MCP.Headers)
+	assert.Equal(t, []string{"remote"}, after.MCP.Tags)
+	assert.Empty(t, after.MCP.Command, "the buffer is the whole entry: the deleted command is cleared")
+}
+
+// The editor buffer is the whole entry, so a field deleted from it is cleared
+// rather than kept from the stored entry.
+func TestRunBundleMCPEdit_AFieldDeletedInTheEditorIsCleared(t *testing.T) {
+	cfg := setupEditProject(t)
+	seedBundleMCP(t, cfg, "srv")
+	setFakeEditor(t, "command: real-mcp-server\n")
+
+	require.NoError(t, runBundleMCPEdit(&cobra.Command{}, []string{"demo", "srv"}))
+
+	after, err := operations.GetBundleMCP(context.Background(), cfg, operations.GetBundleMCPRequest{Bundle: "demo", Name: "srv"})
+	require.NoError(t, err)
+	assert.Empty(t, after.MCP.Args)
 }

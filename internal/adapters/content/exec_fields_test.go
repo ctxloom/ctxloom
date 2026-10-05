@@ -125,3 +125,39 @@ func TestWriter_HookRoundTripsEveryField(t *testing.T) {
 		t.Errorf("hook sidecar lacks tags:\n%s", meta.Bytes)
 	}
 }
+
+// TestWriter_RePutWithEmptiedMetadataDropsTheSidecar: a re-Put replaces the
+// item. When the new encoding carries no sidecar (every one of our keys
+// cleared), the old sidecar must not survive to be read back as the old tags.
+func TestWriter_RePutWithEmptiedMetadataDropsTheSidecar(t *testing.T) {
+	ctx := context.Background()
+	store := emptyStore(t)
+	ref := trust.Ref{Bundle: "b", Kind: trust.KindMCP, Name: "srv", IsLocal: true}
+	if err := store.Put(ctx, ref, signing.FormRaw, MCP{Name: "srv", Command: "c", Tags: []string{"old"}}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	want := MCP{Name: "srv", Command: "c"}
+	if err := store.Put(ctx, ref, signing.FormRaw, want); err != nil {
+		t.Fatalf("re-Put: %v", err)
+	}
+	bundle, err := store.Open(ctx, "b")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	item, err := bundle.Item(ctx, ref)
+	if err != nil {
+		t.Fatalf("Item: %v", err)
+	}
+	got, err := item.Surface(ctx)
+	if err != nil {
+		t.Fatalf("Surface: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("re-Put kept stale metadata:\n got  %#v\n want %#v", got, want)
+	}
+	for _, c := range mustComponents(t, item) {
+		if IsMetaPath(c.Path) {
+			t.Errorf("stale sidecar %s survived the re-Put", c.Path)
+		}
+	}
+}

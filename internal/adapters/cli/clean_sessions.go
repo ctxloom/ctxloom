@@ -98,7 +98,7 @@ func renderSessionReclaim(out *errwriter.Writer, rep sessions.Report) error {
 		out.Printf("\n  %d sessions were active since the bound and were not considered.\n", rep.Newer)
 	}
 	if !cleanIncludePersist {
-		out.Printf("\n  transcripts, native history and the other persistent members are left alone; --include-persist reclaims them from the same (distilled) sessions.\n")
+		out.Printf("\n  transcripts, native history and the other persistent members are left alone; --include-persist reclaims them from the same (compacted) sessions.\n")
 	}
 	out.Printf("\n")
 	return out.Err()
@@ -163,5 +163,5 @@ func init() {
 	cleanCmd.Flags().StringVar(&cleanOlderThan, "older-than", "",
 		"reap the disposable members of sessions last active before this age (30d, 12w, 720h) or date (2026-01-01), overriding the configured session_reap_age for this invocation")
 	cleanCmd.Flags().BoolVar(&cleanIncludePersist, "include-persist", false,
-		"also reap the persistent machine members — transcripts, native history, spool, package store, logs — from the aged, distilled sessions; never taken without this")
+		"also reap the persistent machine members — transcripts, native history, spool, package store, logs — from the aged, compacted sessions; never taken without this")
 }

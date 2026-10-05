@@ -51,7 +51,7 @@ func readSessionPlans(harp string) []agent.PlanFile {
 	return out
 }
 
-// PlanBlock is a plan document preserved verbatim in the distilled output. The
+// PlanBlock is a plan document preserved verbatim in the compacted output. The
 // distiller re-attaches the full content as a trailing section so the summary
 // LLM never has to paraphrase it. Plans come from the session's .plan.md files
 // (served by the agent server), not from the transcript.
@@ -107,7 +107,7 @@ func planFilesToBlocks(files []agent.PlanFile) []PlanBlock {
 }
 
 // RenderPlans formats the collected blocks as the trailing section of the
-// distilled output. Returns the empty string when no blocks were found.
+// compacted output. Returns the empty string when no blocks were found.
 func RenderPlans(blocks []PlanBlock) string {
 	if len(blocks) == 0 {
 		return ""

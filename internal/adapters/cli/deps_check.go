@@ -23,9 +23,10 @@ plus its bundle path, e.g. https://github.com/alice/ctxloom@bundles/security —
 not a remote name (see "ctxloom remote create --help" for the repository URL
 formats a remote itself may take).
 
-CHECK READS; UPGRADE WRITES. This reports and changes nothing, so it is safe to
-run anywhere and on anything. 'ctxloom deps upgrade' is the verb that advances
-the pins it names.
+CHECK READS; UPGRADE WRITES. This changes nothing in your project or its
+pinned versions; it refreshes ctxloom's clone cache, so it is safe to run
+anywhere and on anything. 'ctxloom deps upgrade' is the verb that advances the
+pins it names.
 
 The check is constraint-aware: an entry is out of date only when a newer commit
 actually satisfies what its manifest asked for. An entry pinned to an exact tag

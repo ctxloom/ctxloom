@@ -16,12 +16,12 @@ one read model, `operations.SessionView`.
 ```mermaid
 flowchart TD
     subgraph human["human-facing (cobra, internal/adapters/cli)"]
-        SL["session list"] --> LSE["loadSessionEntries"] --> DMS["distillMissingOrStale (--distill-missing)"]
+        SL["session list"] --> LSE["loadSessionEntries"] --> DMS["compactMissingOrStale (--distill-missing)"]
         SL --> ESR["emitSessionRows (session_full.go)"]
         SQ["session search &lt;word&gt;..."] --> SMQ["sessionMatchesQuery → sessionMetadataHaystack / allWordsMatch"]
         SQ --> ESR
         SS["session show &lt;harp&gt;"] --> RSE["readSessionEssence (session_essence.go)"]
-        SD["session distill &lt;harp&gt;"] --> RSD["runSessionDistill"]
+        SD["session compact &lt;harp&gt;"] --> RSD["runSessionCompact"]
         SW["session watch &lt;harp&gt;"] --> RSW["runSessionWatch → watchFeedSource → streamWatchEvents"]
         SE["session edit / remove / purge / adopt"]
         SX["session transcript · artifacts · worktrees list/purge"]
@@ -31,9 +31,9 @@ flowchart TD
 
     subgraph agentfacing["agent-facing (MCP tools, internal/adapters/mcp)"]
         H["handleCompactSession · handleListSessions · handleLoadSession<br/>handleRecoverSession · handleGetPreviousSession"]
-        H --> LOD["loadOrDistillSession — the session-id-keyed cache-or-distill choke"]
+        H --> LOD["loadOrCompactSession — the session-id-keyed cache-or-distill choke"]
         H --> PBH["previousSessionByHarp — the harp-keyed choke"]
-        LOD --> SF["singleflightDistill / singleflightCompact"]
+        LOD --> SF["singleflightLoad / singleflightCompact"]
         PBH --> SF
         SF --> COMP[["internal/adapters/memory.Compactor"]]
         ET["evaluate_triggers — handleEvaluateTriggers"] --> OPST[["operations.EvaluateTriggers"]]
@@ -79,7 +79,7 @@ burst of filesystem events one plan write produces into one logical change.
 
 ## Invariants
 
-- **Cache-or-distill goes through one choke per keying.** `loadOrDistillSession`
+- **Cache-or-distill goes through one choke per keying.** `loadOrCompactSession`
   for session-id-keyed lookups, `previousSessionByHarp` for harp-keyed. Both
   route through the singleflight group `HostApp` owns, so concurrent identical
   distills collapse to one LLM call; the group is shared across per-call
@@ -88,7 +88,7 @@ burst of filesystem events one plan write produces into one logical change.
   host-relay path a handler runs inside the session-owning process under the
   *caller's* identity; reading the environment would attribute the call to the
   host session.
-- **`distillSession` never writes progress to stderr**: on the host-relay path
+- **`compactSession` never writes progress to stderr**: on the host-relay path
   it runs inside the session-owning process, whose stderr is the terminal the
   harness is drawing its TUI on.
 - **Listings serialize as `[]`, not `null`.**

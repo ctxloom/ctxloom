@@ -17,7 +17,7 @@ import (
 // It exists because the equivalent claim went untested twice. The content
 // policy is only real if the source consumers actually receive is wrapped in
 // it; delete the wrap in ResolveSessionSource and every reader — `session
-// distill`, load_session, recover_session, get_previous_session — silently
+// compact`, load_session, recover_session, get_previous_session — silently
 // serves unfiltered transcripts, with the policy package still fully green
 // because its own tests only ever prove that Apply works when something calls
 // it. A mutation removing the wrap survived the entire internal/adapters/cli package

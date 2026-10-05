@@ -3,7 +3,7 @@ Feature: The TurnEnd hook captures what the agent was about to do next, and the 
   `ctxloom hook next-step` runs at the end of every turn, invoked by the host
   engine, and stores the turn's closing assistant message under the session's
   harp. Nothing reads that file during the session; it exists for the
-  distiller, which uses it as a task hint (see distill_task_hint.feature) so
+  distiller, which uses it as a task hint (see compact_task_hint.feature) so
   the essence keeps what the resuming session will need.
 
   Like every hook in session_hooks.feature it NEVER fails the turn: it exits

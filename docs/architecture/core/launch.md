@@ -117,7 +117,7 @@ resolved internal one-shot session: ONE minted harp and ONE Launch, driven a
 turn at a time (each turn is the Launch encoded with that turn's prompt over
 the cell's transport, its answer recorded on the session's own transcript).
 `LazyOneShot` starts the session on the first turn, so a compaction served
-from its cache mints nothing. The distiller (`session distill`, the MCP
+from its cache mints nothing. The distiller (`session compact`, the MCP
 compactor, `bundle distill`), the trigger triage and init's auth probe are
 one-shots; they receive the managed surfaces the generation composes for
 their label (the default profiles' MCP servers, hooks, commands and skills,

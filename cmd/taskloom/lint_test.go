@@ -26,8 +26,7 @@ import (
 // exists.
 func addLegacyTags(t *testing.T, tc operations.TaskContext, text string, tags ...string) string {
 	t.Helper()
-	_, logPath, err := operations.ResolveLogPath(tc)
-	require.NoError(t, err)
+	_, logPath := establishedLogPath(t, tc)
 	store, err := tasks.OpenLog(logPath, tc.SessionHarp)
 	require.NoError(t, err)
 	task, err := store.AddWithTags(text, "", "", tags...)

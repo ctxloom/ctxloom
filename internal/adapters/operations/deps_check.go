@@ -11,7 +11,8 @@ import (
 )
 
 // `ctxloom deps check` — the installed closure against its remotes. CHECK
-// READS; UPGRADE WRITES: this reports and changes nothing. The check is
+// READS; UPGRADE WRITES: this changes nothing in the project or its pinned
+// versions, and refreshes ctxloom's clone cache (fetchIntoClone). The check is
 // constraint-aware: an entry is out of date only when a newer commit
 // actually satisfies what its manifest asked for; an entry pinned to an exact
 // tag or SHA is never out of date and is not fetched for. An entry that

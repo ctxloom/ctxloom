@@ -21,7 +21,7 @@ import (
 // canonical capture is the only transcript. These tests pin what every reader
 // does for a harp that has NO canonical capture — bound only by an engine
 // session id, or only by a located vendor transcript path — for each shipped
-// engine: resume and distill refuse, scrollback degrades to live-only, and a
+// engine: resume and compact refuse, scrollback degrades to live-only, and a
 // source resolves sessions only from canonical capture.
 var shippedEngines = []string{"claude-code", "mock"}
 
@@ -78,9 +78,9 @@ func TestRecordedSessionEntries_UnreadableCanonicalCaptureRefuses(t *testing.T) 
 	}
 }
 
-func TestDistillable_VendorPathWithoutCanonicalCaptureRefuses(t *testing.T) {
+func TestCompactable_VendorPathWithoutCanonicalCaptureRefuses(t *testing.T) {
 	testsupport.Isolate(t)
-	require.Error(t, distillable(&sessions.Entry{
+	require.Error(t, compactable(&sessions.Entry{
 		HarpName:       "vexed-scary-gab",
 		TranscriptPath: "/nonexistent/vendor/transcript.jsonl",
 	}))
@@ -122,13 +122,13 @@ func TestSessionSources_ServeOnlyCanonicalCapture(t *testing.T) {
 
 			resolved, _, err := ResolveSessionSource(engines.Registry(), &config.Config{}, eng, home)
 			require.NoError(t, err)
-			distill, err := DistillSource(home)
+			compact, err := CompactionSource(home)
 			require.NoError(t, err)
 
 			for name, src := range map[string]interface {
 				GetSession(context.Context, string) (*agent.Session, error)
 				CurrentSession(context.Context) (*agent.Session, error)
-			}{"resolved": resolved, "distill": distill} {
+			}{"resolved": resolved, "compact": compact} {
 				_, err := src.GetSession(ctx, "engine-native-id")
 				assert.Error(t, err, "%s: an uncaptured session is not found", name)
 				cur, err := src.CurrentSession(ctx)

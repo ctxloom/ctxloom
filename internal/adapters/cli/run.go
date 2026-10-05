@@ -36,6 +36,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
 )
@@ -60,16 +61,16 @@ var (
 	runVerbosity     int
 	runSeedTask      string
 	runSeedStatus    string
-	// runResumeSession/runResumeDistill are the two deterministic-resume flags
+	// runResumeSession/runResumeCompact are the two deterministic-resume flags
 	//   --session <harp>            full resume: the harp's full recorded
 	//                                transcript is folded into THIS run's
 	//                                assembled context (resumeFullContext).
-	//   --session <harp> --distill  distilled resume: the harp's essence
-	//                                (distilling on demand if missing) rides
+	//   --session <harp> --compact  compacted resume: the harp's essence
+	//                                (compacting on demand if missing) rides
 	//                                the CTXLOOM_RESUMED_FROM/PARTS + SessionStart
-	//                                -hook essence path (resumeDistillEnv).
+	//                                -hook essence path (resumeCompactEnv).
 	runResumeSession string
-	runResumeDistill bool
+	runResumeCompact bool
 )
 
 // dryRunJSON is the --format json shape for `run --dry-run`: the resolved
@@ -107,10 +108,10 @@ type dryRunJSON struct {
 	Profiles              []string `json:"profiles"`
 	Fragments             []string `json:"fragments"`
 	Context               string   `json:"context"`
-	// ResumedEssence is what a --session --distill launch delivers through
+	// ResumedEssence is what a --session --compact launch delivers through
 	// its SessionStart hook rather than through Context: the harp's
-	// distilled essence (distilledResumePreview). ResumedEssenceNote says
-	// when the launch would distill first, so what is shown is not final.
+	// compacted essence (compactedResumePreview). ResumedEssenceNote says
+	// when the launch would compact first, so what is shown is not final.
 	ResumedEssence     string `json:"resumed_essence,omitempty"`
 	ResumedEssenceNote string `json:"resumed_essence_note,omitempty"`
 	// Delivery is the plan's static routes: each surface's root, the
@@ -157,33 +158,33 @@ type axesJSON struct {
 // out. Production points it at exec.CommandContext
 var execCommand = exec.CommandContext
 
-// shellOutDistill is the ON-DEMAND distill implementation, reached from
-// resumeDistillEnv when `run --session <harp> --distill` needs an essence that
-// does not exist yet. It runs `ctxloom session distill <harp>` as a child
+// shellOutCompact is the ON-DEMAND compact implementation, reached from
+// resumeCompactEnv when `run --session <harp> --compact` needs an essence that
+// does not exist yet. It runs `ctxloom session compact <harp>` as a child
 // process so this file doesn't need to depend on the compactor or any LLM
 // machinery itself. Stdout/stderr are piped through to the user.
 //
-// Distillation is on-demand only: nothing distills at exit, so a session stays
+// Compaction is on-demand only: nothing compacts at exit, so a session stays
 // title-less until something explicitly asks for one.
 //
 // ctx bounds the child via exec.CommandContext: when ctx is cancelled the
 // stdlib kills the process.
-func shellOutDistill(ctx context.Context, harpName string) error {
+func shellOutCompact(ctx context.Context, harpName string) error {
 	// selfexec.Path survives an in-place upgrade that unlinks the executing
 	// inode; it is shared with the gRPC client, which cannot import cmd.
 	exe := selfexec.Path()
-	c := execCommand(ctx, exe, "session", "distill", harpName)
+	c := execCommand(ctx, exe, "session", "compact", harpName)
 	c.Stdout = os.Stderr
 	c.Stderr = os.Stderr
 	return c.Run()
 }
 
-// validateResumeFlags rejects --distill without --session up front (friction
-// like an unknown --llm/--permissions): --distill only modifies HOW --session
+// validateResumeFlags rejects --compact without --session up front (friction
+// like an unknown --llm/--permissions): --compact only modifies HOW --session
 // resumes, so it is meaningless on its own.
-func validateResumeFlags(session string, distill bool) error {
-	if distill && session == "" {
-		return fmt.Errorf("--distill requires --session <harp>")
+func validateResumeFlags(session string, compact bool) error {
+	if compact && session == "" {
+		return fmt.Errorf("--compact requires --session <harp>")
 	}
 	return nil
 }
@@ -209,34 +210,34 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 	return textblocks.Join(existing, operations.RenderResumedTranscript(harp, entries))
 }
 
-// resumeDistillEnv is the distilled-resume mode's env source: the
+// resumeCompactEnv is the compacted-resume mode's env source: the
 // CTXLOOM_RESUMED_FROM/CTXLOOM_RESUMED_PARTS pair that hook_inject_context.go's
 // resumedEssenceForInjection (SessionStart hook) and mcp_server.go's
 // sessionInstructions already know how to consume. PARTS is "session" so
-// resumePartsIncludeSession's essence gate opens; a distilled resume restores
+// resumePartsIncludeSession's essence gate opens; a compacted resume restores
 // no tasks.
 //
-// essenceFn/staleFn/distillFn are injected (production: operations.
-// ReadHarpEssence/resumeEssenceStale/shellOutDistill — the `session distill`
-// compactor path, session_cmd.go's runSessionDistill/operations.CompactEntry/
-// memory.NewCompactor) so distill-on-demand is unit-testable without
-// shelling out. A distill failure warns rather than blocking launch; the
+// essenceFn/staleFn/compactFn are injected (production: operations.
+// ReadHarpEssence/resumeEssenceStale/shellOutCompact — the `session compact`
+// compactor path, session_cmd.go's runSessionCompact/operations.CompactEntry/
+// memory.NewCompactor) so compact-on-demand is unit-testable without
+// shelling out. A compact failure warns rather than blocking launch; the
 // SessionStart hook's own readHarpEssence call then simply finds nothing and
 // omits the essence block.
 //
-// It distills when the essence is MISSING or STALE: a harp /clear'd since its
-// last distill still has SOME essence, and resuming from it would silently
+// It compacts when the essence is MISSING or STALE: a harp /clear'd since its
+// last compact still has SOME essence, and resuming from it would silently
 // resume from a frozen prefix. staleFn decides staleness; a nil staleFn means
 // "never stale".
-func resumeDistillEnv(harp string, essenceFn func(string) ([]byte, error), staleFn func(string) bool, distillFn func(context.Context, string) error) map[string]string {
+func resumeCompactEnv(harp string, essenceFn func(string) ([]byte, error), staleFn func(string) bool, compactFn func(context.Context, string) error) map[string]string {
 	_, err := essenceFn(harp)
 	missing := err != nil
 	stale := !missing && staleFn != nil && staleFn(harp)
 	if missing || stale {
 		// Unbounded context.Background(): this runs before the session's
 		// terminal is handed to the user, so there is no shell to unblock yet.
-		if dErr := distillFn(context.Background(), harp); dErr != nil {
-			clidiag.Warn("ctxloom", "could not distill %s for resume essence: %v", harp, dErr)
+		if dErr := compactFn(context.Background(), harp); dErr != nil {
+			clidiag.Warn("ctxloom", "could not compact %s for resume essence: %v", harp, dErr)
 		}
 	}
 	return map[string]string{
@@ -245,34 +246,34 @@ func resumeDistillEnv(harp string, essenceFn func(string) ([]byte, error), stale
 	}
 }
 
-// resumedPartsSession is the CTXLOOM_RESUMED_PARTS value a distilled resume
+// resumedPartsSession is the CTXLOOM_RESUMED_PARTS value a compacted resume
 // sets, and the one resumePartsIncludeSession opens the essence gate on.
 const resumedPartsSession = "session"
 
-// distilledResumePreview is what a --distill --dry-run shows of the resume:
+// compactedResumePreview is what a --compact --dry-run shows of the resume:
 // the essence the launch's SessionStart hook would inject
-// (resumedEssenceForInjection, over the env resumeDistillEnv sets), plus a
+// (resumedEssenceForInjection, over the env resumeCompactEnv sets), plus a
 // caveat when the launch would replace it first.
 //
 // It is READ-ONLY, and that is the difference from a real launch: a launch
-// distills a missing or stale essence on demand (resumeDistillEnv) before the
+// compacts a missing or stale essence on demand (resumeCompactEnv) before the
 // engine starts, which writes the essence and the session index. A preview
 // writes nothing, so it names what the launch would do instead of doing it.
-func distilledResumePreview(harp string, staleFn func(string) bool) (essence, note string) {
+func compactedResumePreview(harp string, staleFn func(string) bool) (essence, note string) {
 	essence = resumedEssenceForInjection(1, "startup", harp, resumedPartsSession)
 	switch {
 	case essence == "":
-		note = fmt.Sprintf("%s is not distilled yet; the launch distills it on demand before the session starts", harp)
+		note = fmt.Sprintf("%s is not compacted yet; the launch compacts it on demand before the session starts", harp)
 	case staleFn(harp):
-		note = fmt.Sprintf("%s's essence is stale; the launch re-distills it before the session starts, so the session will see a newer one than this", harp)
+		note = fmt.Sprintf("%s's essence is stale; the launch re-compacts it before the session starts, so the session will see a newer one than this", harp)
 	}
 	return essence, note
 }
 
-// resumeEssenceStale is resumeDistillEnv's production staleFn: whether harp's
+// resumeEssenceStale is resumeCompactEnv's production staleFn: whether harp's
 // essence is out of date relative to its source transcript, via the same
-// predicate `session list --distill`'s sweep gates on (Entry.SourceStale()).
-// An unresolvable harp is not reported stale — resumeDistillEnv's own
+// predicate `session list --compact`'s sweep gates on (Entry.SourceStale()).
+// An unresolvable harp is not reported stale — resumeCompactEnv's own
 // essence-missing check already covers "nothing to compare against".
 func resumeEssenceStale(harp string) bool {
 	entry, err := operations.GetSession(harp)
@@ -346,8 +347,8 @@ Verbosity levels (-v can be repeated):
 
 Use --session <harp> to deterministically resume a prior harp-named session:
 its full recorded transcript is folded into this run's assembled context.
-Add --distill to resume via the session's distilled essence instead
-(distilling on demand first if one doesn't exist yet).
+Add --compact to resume via the session's compacted essence instead
+(compacting on demand first if one doesn't exist yet).
 
 Exit status: when the engine ran and exited, ctxloom run exits with the
 engine's own status — its exit code, or 128+signum when a signal ended it
@@ -363,7 +364,7 @@ Examples:
   ctxloom run -t security "check for vulnerabilities"
   ctxloom run -vv -p developer "debug mode"
   ctxloom run --session swift-amber-falcon
-  ctxloom run --session swift-amber-falcon --distill`,
+  ctxloom run --session swift-amber-falcon --compact`,
 	RunE: runRun,
 }
 
@@ -498,7 +499,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 	// Mark the harp ended on whatever exit path we take — clean return,
 	// ctrl+c, or panic. The end timestamp lets the time-window fallback in
-	// `ctxloom session distill` find this session's transcript even when the
+	// `ctxloom session compact` find this session's transcript even when the
 	// bind middleware never fired.
 	defer st.markSessionEnded()
 
@@ -552,7 +553,11 @@ func (st *runState) resolveProject() {
 	if projectroot.RootFromFallback() {
 		clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", st.workDir)
 	}
-	pid, warning, err := taskops.ResolveProjectIdentity(taskStoreWorkDir(st.workDir))
+	resolve := taskops.ResolveProjectIdentity
+	if runDryRun {
+		resolve = lookupProjectIdentity
+	}
+	pid, warning, err := resolve(taskStoreWorkDir(st.workDir))
 	if err != nil {
 		clidiag.Warn("ctxloom", "project identity unresolved: %v", err)
 		return
@@ -561,6 +566,22 @@ func (st *runState) resolveProject() {
 	if warning != "" {
 		clidiag.Warn("ctxloom", "%s", warning)
 	}
+}
+
+// lookupProjectIdentity is a dry run's answer to "which project is this":
+// the identity the directory already has (projectid.Manager.Lookup), never
+// one minted, forked or re-pointed for a preview. "" is no project yet; the
+// first real run establishes it.
+func lookupProjectIdentity(workDir string) (projectID, warning string, err error) {
+	pm, err := projectid.Open("")
+	if err != nil {
+		return "", "", fmt.Errorf("open project registry: %w", err)
+	}
+	id, err := pm.Lookup(workDir)
+	if err != nil {
+		return "", "", fmt.Errorf("look up project id: %w", err)
+	}
+	return id, "", nil
 }
 
 // source is the launch as this invocation asks for it: the flags, and
@@ -669,11 +690,11 @@ func (st *runState) mayDelegate() []string {
 	return binding.MayDelegate
 }
 
-// resumedTranscript is the --session (full resume — no --distill) lead: the
+// resumedTranscript is the --session (full resume — no --compact) lead: the
 // resumed harp's full recorded transcript trails the assembled context as
-// its own block. --distill takes the essence path instead (resumeEnv).
+// its own block. --compact takes the essence path instead (resumeEnv).
 func (st *runState) resumedTranscript() []composite.Fragment {
-	if runResumeSession == "" || runResumeDistill {
+	if runResumeSession == "" || runResumeCompact {
 		return nil
 	}
 	rendered := resumeFullContext("", runResumeSession, operations.RecordedSessionEntries)
@@ -708,7 +729,7 @@ func (st *runState) validateFlags() error {
 	if err := validatePermissionFlag(operations.PostureNames(App().Engines()), runPermissions); err != nil {
 		return err
 	}
-	return validateResumeFlags(runResumeSession, runResumeDistill)
+	return validateResumeFlags(runResumeSession, runResumeCompact)
 }
 
 // validatePermissionFlag refuses a typed --permissions value that is not a
@@ -929,7 +950,7 @@ func (st *runState) emitDryRun() error {
 	// resume trails the assembled context exactly as the lead the launch
 	// composes (resumedTranscript).
 	context := pkg.Context.Text
-	if runResumeSession != "" && !runResumeDistill {
+	if runResumeSession != "" && !runResumeCompact {
 		context = resumeFullContext(context, runResumeSession, operations.RecordedSessionEntries)
 	}
 	payload := dryRunJSON{
@@ -951,8 +972,8 @@ func (st *runState) emitDryRun() error {
 		Tokens:                tokens.Estimate(context),
 		Prompt:                st.prompt,
 	}
-	if runResumeSession != "" && runResumeDistill {
-		payload.ResumedEssence, payload.ResumedEssenceNote = distilledResumePreview(runResumeSession, resumeEssenceStale)
+	if runResumeSession != "" && runResumeCompact {
+		payload.ResumedEssence, payload.ResumedEssenceNote = compactedResumePreview(runResumeSession, resumeEssenceStale)
 	}
 	payload.Findings = findingsOf(st.gates.mode, st.gates.pending())
 	if err := st.printDryRun(l, payload); err != nil {
@@ -985,7 +1006,7 @@ func (st *runState) printDryRun(l launch.Launch, payload dryRunJSON) error {
 		} else {
 			fmt.Println("(no context)")
 		}
-		if runResumeSession != "" && runResumeDistill {
+		if runResumeSession != "" && runResumeCompact {
 			printResumedEssence(payload)
 		}
 		fmt.Println("\n=== Prompt ===")
@@ -1062,7 +1083,7 @@ func printListOr(items []string, none string) {
 	}
 }
 
-// printResumedEssence prints the distilled resume's essence and its note.
+// printResumedEssence prints the compacted resume's essence and its note.
 func printResumedEssence(payload dryRunJSON) {
 	fmt.Printf("\n=== Resumed Essence (%s, delivered at session start) ===\n", runResumeSession)
 	if payload.ResumedEssence != "" {
@@ -1076,18 +1097,18 @@ func printResumedEssence(payload dryRunJSON) {
 // resumeEnv is the CTXLOOM_RESUMED_FROM/PARTS pair for whichever --session
 // mode this run is in.
 //
-// --session --distill: distilled resume via the harp's essence (distilling on
-// demand first if missing) — see resumeDistillEnv's doc for the full
-// mechanism. Full resume (--session without --distill) carries its transcript
+// --session --compact: compacted resume via the harp's essence (compacting on
+// demand first if missing) — see resumeCompactEnv's doc for the full
+// mechanism. Full resume (--session without --compact) carries its transcript
 // as a trailing context block (resumedTranscript); it still sets CTXLOOM_RESUMED_FROM/
 // PARTS="transcript" so the session instructions surface the "resumed from"
 // note, with a PARTS value the SessionStart hook's essence injection ignores
 // (the content already rode the fragment path — no double-injection).
 func (st *runState) resumeEnv() map[string]string {
 	switch {
-	case runResumeSession != "" && runResumeDistill:
-		fmt.Fprintf(os.Stderr, "ctxloom: resuming distilled essence from %s\n", runResumeSession)
-		return resumeDistillEnv(runResumeSession, operations.ReadHarpEssence, resumeEssenceStale, shellOutDistill)
+	case runResumeSession != "" && runResumeCompact:
+		fmt.Fprintf(os.Stderr, "ctxloom: resuming compacted essence from %s\n", runResumeSession)
+		return resumeCompactEnv(runResumeSession, operations.ReadHarpEssence, resumeEssenceStale, shellOutCompact)
 	case runResumeSession != "":
 		fmt.Fprintf(os.Stderr, "ctxloom: resuming full transcript from %s\n", runResumeSession)
 		return map[string]string{"CTXLOOM_RESUMED_FROM": runResumeSession, "CTXLOOM_RESUMED_PARTS": "transcript"}
@@ -1455,7 +1476,7 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 // guard makes it a PERMANENT NO-OP once any canonical transcript exists for
 // the harp. A session where the user ran /recover mid-flight materializes
 // exactly such a canonical file, so the exit capture would be skipped and
-// everything after that /recover would be invisible to every later distill.
+// everything after that /recover would be invisible to every later compact.
 // ResolveAndHeal refreshes once, unconditionally — a canonical file existing
 // here is not evidence it is complete.
 func convertVendorTranscriptOnExit(harp string) {
@@ -1558,12 +1579,12 @@ func init() {
 	runCmd.Flags().BoolVar(&runNoStartupFindings, "no-startup-findings", false, "Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 
-	// Deterministic resume (two modes; see resumeFullContext/resumeDistillEnv):
+	// Deterministic resume (two modes; see resumeFullContext/resumeCompactEnv):
 	// bare --session folds the harp's full recorded transcript into this run's
-	// assembled context; --session --distill resumes via its distilled essence
-	// instead, distilling on demand first if one doesn't exist yet.
-	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named harp session: folds its full recorded transcript into this run's assembled context. Combine with --distill to resume via its distilled essence instead.")
-	runCmd.Flags().BoolVar(&runResumeDistill, "distill", false, "With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)")
+	// assembled context; --session --compact resumes via its compacted essence
+	// instead, compacting on demand first if one doesn't exist yet.
+	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named harp session: folds its full recorded transcript into this run's assembled context. Combine with --compact to resume via its compacted essence instead.")
+	runCmd.Flags().BoolVar(&runResumeCompact, "compact", false, "With --session, resume via the harp's compacted essence instead of its full transcript (compacts on demand first if not yet compacted)")
 
 	// Internal: used by `ctxloom tasks run` to seed one browsed task into the
 	// new session's store. Hidden — not part of the public run surface.

@@ -53,8 +53,8 @@ either for one invocation:
 The persistent machine members — transcripts/, native/ engine history, the
 mail spool/, the launch package/ store and the session's logs — are no age's
 to take. Pass --include-persist to reap them too, from the same aged
-sessions — except a session that was never distilled, whose transcript is
-its only record: it keeps them until 'ctxloom session distill <harp>'.
+sessions — except a session that was never compacted, whose transcript is
+its only record: it keeps them until 'ctxloom session compact <harp>'.
 The session's identity (its session.yaml and keep marker) is never taken:
 the directory stays, and the session still lists and resolves. Nor is its
 output dir — essence, next step, plans — which lives outside

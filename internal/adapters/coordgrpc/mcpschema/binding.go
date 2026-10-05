@@ -254,31 +254,31 @@ func Routes() map[string]Route {
 	}
 }
 
-// DistillBudget is what a transcript distillation is actually allowed to take.
+// CompactBudget is what a transcript compaction is actually allowed to take.
 // The work is one LLM subprocess over a whole transcript, so it scales with
 // session length, not with round-trip latency: a long session runs to many
 // minutes of entirely healthy work. The
 // generic plane-2 budget is sized for a coordination frame — a round trip —
-// and billing distillation against it failed every large recover mid-flight.
+// and billing compaction against it failed every large recover mid-flight.
 // This is a backstop against a wedged host, not a performance target; it is
-// deliberately far past any honest distillation. It bounds BOTH sides of the
+// deliberately far past any honest compaction. It bounds BOTH sides of the
 // relay: how long the caller waits, and how long the host lets the work run —
 // one number, so the two can't drift into a host that outlives its caller's
 // patience by design.
-const DistillBudget = 30 * time.Minute
+const CompactBudget = 30 * time.Minute
 
 // relayBudgets overrides the caller's default plane-2 request budget for the
 // host-relay tools whose work is measured in minutes. A tool absent here keeps
 // the default, so a genuinely hung request still fails fast.
 var relayBudgets = map[string]time.Duration{
-	"compact_session":      DistillBudget,
-	"load_session":         DistillBudget,
-	"recover_session":      DistillBudget,
-	"get_previous_session": DistillBudget,
-	// list_sessions is a fast index read by default, but distill_missing=true
+	"compact_session":      CompactBudget,
+	"load_session":         CompactBudget,
+	"recover_session":      CompactBudget,
+	"get_previous_session": CompactBudget,
+	// list_sessions is a fast index read by default, but compact_missing=true
 	// compacts every title-less/stale row inline — the same minutes-long LLM
-	// work the other distillation tools do, so it needs the same backstop.
-	"list_sessions": DistillBudget,
+	// work the other compaction tools do, so it needs the same backstop.
+	"list_sessions": CompactBudget,
 }
 
 // RelayBudget returns how long a relayed tool's plane-2 request may take, or

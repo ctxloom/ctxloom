@@ -88,7 +88,7 @@ directory still exists.
 
 - **Machine-written** — transcripts, native history, scratch, diagnostics, in
   the session dir. Purgeable bulk, and the reason anyone runs this at all.
-- **Derived** — the distilled essence, in the session's output dir, and the
+- **Derived** — the compacted essence, in the session's output dir, and the
   session record. Cheap; a sweep never takes it, and only an explicit
   `session purge` empties the essence.
   A purged session stays in the index MARKED purged, because a session that
@@ -133,7 +133,7 @@ the point of writing it as a feature file rather than a paragraph.
 
 ### The lessons skill is a security boundary, not a convenience
 
-A distillable, distributable lessons skill sounds like a small ergonomic
+A compactable, distributable lessons skill sounds like a small ergonomic
 feature and is not. It reads whole session transcripts — the most sensitive
 artifact ctxloom holds — and decides what gets written back into checked-in,
 signed, team-distributed fragments. A hostile one is simultaneously a
@@ -145,7 +145,7 @@ ad-hoc mechanism: a config key naming a file path would bypass trust entirely,
 while a skill rides the same per-item, hash-bound choke as every other skill,
 so a changed lessons skill re-enters review like any other content change.
 
-The consumer half does not exist yet: `session distill` accepts neither
+The consumer half does not exist yet: `session compact` accepts neither
 `--skill` nor `--to-bundle`, so there is nowhere for a trust decision to be
 consulted. The signal it will have to honour is already built —
 `operations.GetSkill` returns `errs.ErrSkillWithheld` out of the gated exposure
@@ -153,12 +153,12 @@ pipeline — and the requirement is that a withheld skill fails loud there rathe
 than falling back to the embedded prompt. That scenario is here.
 
 The degrade is not hypothetical: ctxloom ships it once already, on a different
-command. `cli.loadDistillPrompt` swallows every error from its lookup —
+command. `cli.loadCompactPrompt` swallows every error from its lookup —
 including "this content is withheld pending review" — and silently falls back
 to the embedded prompt, so on `bundle distill` and `fragment distill` a trust
 decision quietly changes which prompt runs and the user is never told. That is
-tracked on its own; it is *not* on `session distill`'s path, which runs
-`runSessionDistill` -> `compactEntry` -> `memory.NewCompactor`.
+tracked on its own; it is *not* on `session compact`'s path, which runs
+`runSessionCompact` -> `compactEntry` -> `memory.NewCompactor`.
 
 And the lessons output must be SIGNED in the same apply, which sounds like
 belt-and-braces until you connect it to J001900: an edited-unsigned bundle is

@@ -18,7 +18,7 @@ import (
 
 // ssSeed plants an aged, provably-ended session of srLayout's shape, as
 // origin, with or without its essence.
-func ssSeed(t *testing.T, harp, origin string, distilled bool) string {
+func ssSeed(t *testing.T, harp, origin string, compacted bool) string {
 	t.Helper()
 	dir := srSeedHarp(t, harp)
 	out := t.TempDir()
@@ -27,7 +27,7 @@ func ssSeed(t *testing.T, harp, origin string, distilled bool) string {
 		sidecar += "origin: " + origin + "\n"
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionSidecarFileName), []byte(sidecar), 0o644))
-	if distilled {
+	if compacted {
 		require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("# essence\n"), 0o644))
 	}
 	srBackdate(t, dir)
@@ -46,12 +46,12 @@ func ssRows(rep SweepReport, harp string) map[SweepAction]SweepRow {
 }
 
 // The purge half end to end: a report changes nothing; an apply purges the
-// distilled human session and the undistilled one-shot, and refuses the
-// undistilled human session with the command that lifts the refusal.
+// compacted human session and the uncompacted one-shot, and refuses the
+// uncompacted human session with the command that lifts the refusal.
 func TestSweepSessions_PurgeRows(t *testing.T) {
 	testsupport.Isolate(t)
-	distilled := ssSeed(t, "done-quiet-heron", "session", true)
-	undistilled := ssSeed(t, "raw-quiet-heron", "session", false)
+	compacted := ssSeed(t, "done-quiet-heron", "session", true)
+	uncompacted := ssSeed(t, "raw-quiet-heron", "session", false)
 	oneshot := ssSeed(t, "shot-quiet-heron", "oneshot", false)
 	transcript := func(dir string) string {
 		return filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName)
@@ -61,7 +61,7 @@ func TestSweepSessions_PurgeRows(t *testing.T) {
 	rep, err := SweepSessions(context.Background(), git.NewExec(), req)
 	require.NoError(t, err)
 	assert.Equal(t, SweepPlanned, ssRows(rep, "done-quiet-heron")[SweepPurge].Verdict)
-	for _, dir := range []string{distilled, undistilled, oneshot} {
+	for _, dir := range []string{compacted, uncompacted, oneshot} {
 		assert.FileExists(t, transcript(dir), "a report changes nothing")
 		srAssertIntact(t, dir, paths.ScratchDirName)
 	}
@@ -71,8 +71,8 @@ func TestSweepSessions_PurgeRows(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, SweepDone, ssRows(rep, "done-quiet-heron")[SweepPurge].Verdict)
-	assert.NoFileExists(t, transcript(distilled))
-	out, ok := sessions.OutputDirOf(distilled)
+	assert.NoFileExists(t, transcript(compacted))
+	out, ok := sessions.OutputDirOf(compacted)
 	require.True(t, ok)
 	assert.FileExists(t, filepath.Join(out, paths.EssenceFileName), "the output dir is the human's: a sweep never deletes it")
 
@@ -80,10 +80,10 @@ func TestSweepSessions_PurgeRows(t *testing.T) {
 	assert.NoFileExists(t, transcript(oneshot))
 
 	spare := ssRows(rep, "raw-quiet-heron")[SweepSpare]
-	assert.Equal(t, "ctxloom session distill raw-quiet-heron", spare.Command)
-	assert.FileExists(t, transcript(undistilled), "a human's undistilled transcript is its only record")
+	assert.Equal(t, "ctxloom session compact raw-quiet-heron", spare.Command)
+	assert.FileExists(t, transcript(uncompacted), "a human's uncompacted transcript is its only record")
 
-	for _, dir := range []string{distilled, undistilled, oneshot} {
+	for _, dir := range []string{compacted, uncompacted, oneshot} {
 		srAssertGone(t, dir, paths.ScratchDirName)
 	}
 }

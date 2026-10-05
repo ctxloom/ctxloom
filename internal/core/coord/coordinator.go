@@ -520,6 +520,11 @@ type Coordinator struct {
 	// idle — the moment a human may resume a run that reads idle. Nil in
 	// production.
 	turnIdleHook func(harp string)
+	// runnerHelloHook, if set (tests only, same package), runs synchronously
+	// at the top of RunnerHello with the dialing runner's credential hash —
+	// the window in which that runner's run channel, dialing unordered
+	// against it, may already be delivering events. Nil in production.
+	runnerHelloHook func(credHash string)
 
 	closeOnce sync.Once
 	// closed is set at the START of Close, before it looks for listeners to

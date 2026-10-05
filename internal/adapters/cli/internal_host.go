@@ -10,8 +10,8 @@ import (
 )
 
 // The coordinator a command's INTERNAL one-shot runs on when the process
-// hosts none for a session of its own: a distill (`bundle distill`,
-// `session distill`), init's auth probe and discovery launch. It is an
+// hosts none for a session of its own: a `bundle distill`, a
+// `session compact`, init's auth probe and discovery launch. It is an
 // EPHEMERAL ROOT: founded for the FIRST one-shot the command starts, under
 // that one-shot's own harp, beside any live session's tree in the project
 // (which it never touches), and every later one-shot in the process rides

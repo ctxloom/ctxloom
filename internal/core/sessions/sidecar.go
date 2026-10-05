@@ -39,7 +39,7 @@ func IsSessionDir(root string, e fs.DirEntry) bool {
 }
 
 // essenceFrontmatter is the slice of essence.md's frontmatter a listing
-// needs. The file is written by internal/adapters/memory (distilledMeta); only the
+// needs. The file is written by internal/adapters/memory (compactedMeta); only the
 // summary is read back here.
 type essenceFrontmatter struct {
 	Summary string `yaml:"summary"`
@@ -49,7 +49,7 @@ type essenceFrontmatter struct {
 // entry's output dir:
 // the frontmatter's summary line and the leading bullets of the body's Open
 // Items section. A missing or malformed essence leaves both empty — a
-// never-distilled session simply has no summary.
+// never-compacted session simply has no summary.
 func fillFromEssence(e *Entry) {
 	if e == nil || e.OutputDir == "" {
 		return

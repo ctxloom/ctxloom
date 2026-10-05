@@ -23,7 +23,7 @@ import (
 
 func TestRenderBundleList_EmptyShowsInstallHint(t *testing.T) {
 	var buf bytes.Buffer
-	assert.NoError(t, renderBundleList(&buf, nil))
+	assert.NoError(t, renderBundleList(&buf, nil, addContentListingHint))
 	out := buf.String()
 	assert.Contains(t, out, "No bundles installed.")
 	// The hint must use the reference-only vocabulary: reference from a
@@ -43,7 +43,7 @@ func TestRenderBundleList_SingleBundleAllFields(t *testing.T) {
 	}}
 
 	var buf bytes.Buffer
-	assert.NoError(t, renderBundleList(&buf, infos))
+	assert.NoError(t, renderBundleList(&buf, infos, addContentListingHint))
 	out := buf.String()
 
 	assert.Contains(t, out, "Installed bundles (1):")
@@ -60,7 +60,7 @@ func TestRenderBundleList_PluralMCPServers(t *testing.T) {
 	// produce "2 MCP server".
 	infos := []*bundles.BundleInfo{{Name: "x", MCPCount: 2}}
 	var buf bytes.Buffer
-	assert.NoError(t, renderBundleList(&buf, infos))
+	assert.NoError(t, renderBundleList(&buf, infos, addContentListingHint))
 	assert.Contains(t, buf.String(), "Contains: 2 MCP servers")
 	assert.NotContains(t, buf.String(), "2 MCP server\n", "must not produce singular form for >1")
 }
@@ -70,7 +70,7 @@ func TestRenderBundleList_OmitsOptionalSections(t *testing.T) {
 	// trailing blank — no Description, no Contains, no Tags.
 	infos := []*bundles.BundleInfo{{Name: "minimal"}}
 	var buf bytes.Buffer
-	assert.NoError(t, renderBundleList(&buf, infos))
+	assert.NoError(t, renderBundleList(&buf, infos, addContentListingHint))
 	out := buf.String()
 
 	assert.Contains(t, out, "  minimal\n")
@@ -84,7 +84,7 @@ func TestRenderBundleList_ZeroCountsSuppressContainsLine(t *testing.T) {
 	// line at all (rather than emitting "Contains: " with no parts).
 	infos := []*bundles.BundleInfo{{Name: "empty", FragmentCount: 0, CommandCount: 0, MCPCount: 0}}
 	var buf bytes.Buffer
-	assert.NoError(t, renderBundleList(&buf, infos))
+	assert.NoError(t, renderBundleList(&buf, infos, addContentListingHint))
 	assert.NotContains(t, buf.String(), "Contains:")
 }
 
@@ -100,7 +100,7 @@ func TestRenderBundleList_SharedNameRendersItsURI(t *testing.T) {
 		{Name: "isolation", Ref: "ctxloom+local:isolation", Version: "2.0.0"},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderBundleList(&buf, infos))
+	require.NoError(t, renderBundleList(&buf, infos, addContentListingHint))
 	out := buf.String()
 
 	assert.Contains(t, out, "  isolation (ctxloom+builtin:isolation) (v1.0.0)")
@@ -118,7 +118,7 @@ func TestRenderBundleList_UniqueNameRendersNoURI(t *testing.T) {
 		{Name: "kit", Ref: "ctxloom+local:kit", Version: "2.0.0"},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderBundleList(&buf, infos))
+	require.NoError(t, renderBundleList(&buf, infos, addContentListingHint))
 	out := buf.String()
 
 	assert.Contains(t, out, "  isolation (v1.0.0)")
@@ -635,7 +635,7 @@ func TestRenderBundleList_HeldBundleNamesTheHold(t *testing.T) {
 	}}
 
 	var buf bytes.Buffer
-	assert.NoError(t, renderBundleList(&buf, infos))
+	assert.NoError(t, renderBundleList(&buf, infos, addContentListingHint))
 	out := buf.String()
 
 	assert.Contains(t, out, "team/deploy-runbook (v1.0.0)")
@@ -655,7 +655,7 @@ func TestRenderBundleList_RetractedBundleNamesTheRetraction(t *testing.T) {
 	}}
 
 	var buf bytes.Buffer
-	assert.NoError(t, renderBundleList(&buf, infos))
+	assert.NoError(t, renderBundleList(&buf, infos, addContentListingHint))
 	out := buf.String()
 
 	assert.Contains(t, out, "retracted")
@@ -668,7 +668,7 @@ func TestRenderBundleList_OrdinaryBundleSaysNeitherHeldNorRetracted(t *testing.T
 	infos := []*bundles.BundleInfo{{Name: "team/deploy-runbook", Version: "1.0.0"}}
 
 	var buf bytes.Buffer
-	assert.NoError(t, renderBundleList(&buf, infos))
+	assert.NoError(t, renderBundleList(&buf, infos, addContentListingHint))
 	out := buf.String()
 
 	assert.NotContains(t, out, "held")

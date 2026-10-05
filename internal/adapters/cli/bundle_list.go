@@ -46,10 +46,14 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
 		if len(bundleDirs) == 0 {
 			w := errwriter.New(out)
-			w.Println("No bundles directory found. Create one with: mkdir -p .ctxloom/content/bundles")
+			if hint := emptyListingHint(cfg); hint == noProjectListingHint {
+				w.Println(hint)
+			} else {
+				w.Println("No bundles directory found. Create one with: mkdir -p .ctxloom/content/bundles")
+			}
 			return w.Err()
 		}
-		return renderBundleList(out, bundleInfos)
+		return renderBundleList(out, bundleInfos, emptyListingHint(cfg))
 	})
 }
 
@@ -58,11 +62,11 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 // `1 MCP server`/`N MCP servers` singular/plural rule, the optional
 // Tags/Contains lines, the empty-list hint) can be unit-tested without
 // touching the loader.
-func renderBundleList(out io.Writer, infos []*bundles.BundleInfo) error {
+func renderBundleList(out io.Writer, infos []*bundles.BundleInfo, emptyHint string) error {
 	w := errwriter.New(out)
 	if len(infos) == 0 {
 		w.Println("No bundles installed.")
-		w.Println("Add remote bundles to a profile (ctxloom profile create/modify), then ctxloom deps pull")
+		w.Println(emptyHint)
 		return w.Err()
 	}
 

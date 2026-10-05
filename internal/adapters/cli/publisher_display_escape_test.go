@@ -57,7 +57,7 @@ func TestPublisherDisplayPaths_ControlBytesAreEscaped(t *testing.T) {
 			require.NoError(t, renderBundleList(&buf, []*bundles.BundleInfo{{
 				Name: h, Version: h, Description: h, Tags: []string{h},
 				Retracted: true, RetractedReason: h,
-			}}))
+			}}, addContentListingHint))
 			return buf.String()
 		}},
 		{"bundle show", func(t *testing.T) string {

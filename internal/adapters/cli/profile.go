@@ -54,7 +54,11 @@ func runProfileList(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
 		if len(list) == 0 {
 			fmt.Fprintln(out, "No profiles defined.")
-			fmt.Fprintln(out, "Use 'ctxloom profile create <name> --include <bundle>...' to create one.")
+			if hint := emptyListingHint(cfg); hint == noProjectListingHint {
+				fmt.Fprintln(out, hint)
+			} else {
+				fmt.Fprintln(out, "Use 'ctxloom profile create <name> --include <bundle>...' to create one.")
+			}
 			return nil
 		}
 		return renderProfileList(out, list)

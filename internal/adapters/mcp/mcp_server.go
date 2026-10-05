@@ -22,20 +22,20 @@ type ctxServer struct {
 	// self is the caller identity every identity-consuming tool uses: from
 	// the credential on the coordinator's surface.
 	self coord.Identity
-	// distill collapses concurrent distillations of the SAME session into one
+	// compact collapses concurrent compactions of the SAME session into one
 	// run. It is SHARED across ctxServer instances (the coordinator builds a
 	// fresh one per relayed call), so it is injected, never owned here. Nil
 	// disables the dedupe — the work still happens, just undeduped.
-	distill *singleflight.Group
-	// compactorFactory builds the compactor distillSessionOnce runs. Nil means
+	compact *singleflight.Group
+	// compactorFactory builds the compactor compactSessionOnce runs. Nil means
 	// the real one, which is every production path; a test substitutes a
-	// mock-backed one. It exists because distillSessionOnce's post-distill
+	// mock-backed one. It exists because compactSessionOnce's post-compaction
 	// behaviour — above all WHICH KEY it reads the fresh essence back under —
 	// was otherwise unreachable without a live LLM, and a mutation swapping that
 	// key survived the entire package unnoticed.
 	compactorFactory func(memory.CompactionConfig) (*memory.Compactor, error)
 	// hosts yields the coordinator an internal one-shot this server starts
-	// (a distill, a triage) runs on: the session's own, on the coordinator's
+	// (a compact, a triage) runs on: the session's own, on the coordinator's
 	// relay (HostApp). Nil refuses the one-shot (operations.ErrNoRunHost).
 	hosts operations.RunHosts
 	// facts is what every launch and by-name engine resolution a handler

@@ -29,7 +29,7 @@ func TestConsumerService_PendingApprovals_ListsAParkedRequestReadOnly(t *testing
 	replied := make(chan error, 1)
 	go func() {
 		_, err := home.Request(ctx, &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_Approval{Approval: &agentcoordpb.ApprovalRequest{
-			Kind: agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, Tool: "Bash", Input: []byte(`{"command":"make"}`),
+			Tool: "Bash", Input: []byte(`{"command":"make"}`),
 			Transitions: []*agentcoordpb.PostureTransition{{Posture: "default", Label: "default", Default: true}}, Timeout: durationpb.New(20 * time.Minute),
 		}}})
 		replied <- err
@@ -42,7 +42,6 @@ func TestConsumerService_PendingApprovals_ListsAParkedRequestReadOnly(t *testing
 	assert.Equal(t, c.projectDir, got.GetProjectDir())
 	require.Len(t, got.GetPending(), 1)
 	p := got.GetPending()[0]
-	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, p.GetKind())
 	assert.Equal(t, out.Harp, p.GetHarp())
 	assert.Equal(t, "worker", p.GetAgent())
 	assert.Equal(t, []string{ownerIdentity().Harp, out.Harp}, p.GetLineage())

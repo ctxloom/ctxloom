@@ -65,7 +65,7 @@ type PremiseCritique struct {
 // CritiquePremise attacks draft, the proposed premise for the fragment name
 // with the given body, against siblings — the premises it could collide with,
 // which the caller supplies WITHOUT this fragment's own entry. One LLM call
-// through the shared distillation path (memory.Distill).
+// through the shared distillation path (memory.RunPrompt).
 func CritiquePremise(ctx context.Context, cfg PremiseAuthorConfig, name, body string, draft *PremiseDraft, siblings []PremiseIndexEntry) (*PremiseCritique, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("critique premise: fragment name is empty")
@@ -84,7 +84,7 @@ func CritiquePremise(ctx context.Context, cfg PremiseAuthorConfig, name, body st
 	if err != nil {
 		return nil, fmt.Errorf("critique premise for %q: %w", name, err)
 	}
-	out, err := memory.Distill(ctx, cfg.Run, prompt, payload)
+	out, err := memory.RunPrompt(ctx, cfg.Run, prompt, payload)
 	if err != nil {
 		return nil, fmt.Errorf("critique premise for %q: %w", name, err)
 	}

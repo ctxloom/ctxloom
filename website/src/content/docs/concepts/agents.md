@@ -38,6 +38,7 @@ An agent names:
   - `sandbox` — what the engine's own commands may touch: `read-only`, `workspace-write` (the working tree only) or `full`. Undeclared, the engine's default applies; a value the engine cannot enforce where the agent runs is refused.
   - `network` — whether sandboxed commands may reach the network.
   - `<engine>:` — that engine's own keys, which it validates at load. For claude-code: `mode` (`default`, `acceptEdits`, `plan`, `bypass`), `after_plan` (the mode an approved plan continues at), and `allow`/`deny`/`ask` rules in claude's syntax (`Tool` or `Tool(content)`, e.g. `Bash(npm test)`, `mcp__server__tool`).
+  - A run in `plan` mode plans before it acts. Each of its turns ends holding the plan, and the turn's report carries it as `plan_approval`: the plan's artifact and the modes it may be approved for. Its parent approves by sending the child a message whose structured companion is `{"approve_plan": "<mode>"}` (an empty mode takes the default, `after_plan`). The next turn then carries the plan out at that mode, and so does every later turn of that run; a relaunch plans again. Plan mode needs `approver: human`: under `none` or `reviewer` nobody could approve the plan, so the launch is refused.
 
   ```yaml
   agents:

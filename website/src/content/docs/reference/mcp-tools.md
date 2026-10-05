@@ -131,7 +131,7 @@ Distil a session's PERSISTED transcript into a summary on disk, for a LATER sess
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `backend` | string | No | Backend to read session from (defaults to the configured default LLM) |
-| `model` | string | No | LLM model to use for distillation (defaults to config or claude-3-haiku) |
+| `model` | string | No | LLM model to use for compaction (defaults to config or claude-3-haiku) |
 | `session_id` | string | No | Session ID to compact (defaults to current session) |
 
 ### context_status
@@ -153,40 +153,40 @@ Evaluate every Deferred task's revive trigger against gathered evidence (git his
 
 ### get_previous_session
 
-Distill and load an EARLIER session's content — the most recent session BEFORE the active one for this working directory, resolved via the session registry (cross-agent aware; falls back to the second-most-recent transcript). For inspecting a prior session. NOT the post-/clear path: /clear keeps the SAME session alive, so to recover context wiped by /clear use recover_session instead.
+Compact and load an EARLIER session's content — the most recent session BEFORE the active one for this working directory, resolved via the session registry (cross-agent aware; falls back to the second-most-recent transcript). For inspecting a prior session. NOT the post-/clear path: /clear keeps the SAME session alive, so to recover context wiped by /clear use recover_session instead.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `model` | string | No | LLM model to use for distillation if needed |
+| `model` | string | No | LLM model to use for compaction if needed |
 
 ### list_sessions
 
-List harp-named sessions with their title, backend, last-activity time, and whether they're distilled — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set distill_missing to compact title-less or stale sessions first so every row shows a title.
+List harp-named sessions with their title, backend, last-activity time, and whether they're compacted — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set compact_missing to compact title-less or stale sessions first so every row shows a title.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `all_projects` | boolean | No | List sessions from every project instead of only the current working directory's project (mirrors session list --all) |
-| `distill_missing` | boolean | No | Distill sessions whose essence is missing or stale before listing, so every row carries a title. Runs the compactor out of band; canonical-transcript sessions distill, legacy-only sessions are skipped. |
+| `compact_missing` | boolean | No | Compact sessions whose essence is missing or stale before listing, so every row carries a title. Runs the compactor out of band; canonical-transcript sessions compact, legacy-only sessions are skipped. |
 
 ### load_session
 
-Distill and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent.
+Compact and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `backend` | string | No | Backend to read session from (defaults to the configured default LLM) |
 | `harp_name` | string | No | Harp-named session reference (e.g. "swift-amber-falcon") naming a directory under ~/.ctxloom/sessions. Resolved to a session_id via that session's record; if both are passed, harp_name wins. |
-| `model` | string | No | LLM model to use for distillation if needed |
+| `model` | string | No | LLM model to use for compaction if needed |
 | `session_id` | string | No | Backend-native session ID (UUID). Either session_id or harp_name is required. |
 
 ### recover_session
 
-Recover context from the current session after /clear. Resolves this session's own transcript by harp identity, falling back to the most recent transcript in this working directory only when that transcript cannot be attributed to a different session, and distills it (no session id needed; pass one to target a specific session).
+Recover context from the current session after /clear. Resolves this session's own transcript by harp identity, falling back to the most recent transcript in this working directory only when that transcript cannot be attributed to a different session, and compacts it (no session id needed; pass one to target a specific session).
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `backend` | string | No | Backend to read session from (defaults to the configured default LLM) |
-| `model` | string | No | LLM model to use for distillation if needed |
+| `model` | string | No | LLM model to use for compaction if needed |
 | `session_id` | string | No | Session ID to recover. If not provided, resolves this session's own transcript by harp identity. |
 
 ### roster

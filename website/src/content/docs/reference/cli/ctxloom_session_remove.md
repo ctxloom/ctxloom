@@ -14,7 +14,7 @@ Remove a session entirely: its index entry, its transcript and its essence
 ### Synopsis
 
 Removes all three of a session's own artifacts — the index entry, the
-recorded transcript, and the distilled essence.
+recorded transcript, and the compacted essence.
 
 Authored files in the harp directory are never destroyed; they are named in
 the report and left where they are, so removing a session cannot take work
@@ -23,9 +23,9 @@ nobody filed with it.
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
 
-A session that was never distilled is refused, because removing it would
+A session that was never compacted is refused, because removing it would
 destroy the only record of what happened. To do it deliberately, destroy the
-transcript first with 'ctxloom session transcript purge <harp> --undistilled
+transcript first with 'ctxloom session transcript purge <harp> --uncompacted
 --yes', then remove.
 
 To empty a session but keep it listed, use 'ctxloom session purge'.

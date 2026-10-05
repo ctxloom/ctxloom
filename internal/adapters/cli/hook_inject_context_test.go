@@ -157,9 +157,9 @@ func TestResumedEssenceForInjection(t *testing.T) {
 	harp := "swift-amber-falcon"
 	essence, err := harpEssencePath(t, harp)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(essence, []byte("  distilled summary  \n"), 0o644))
+	require.NoError(t, os.WriteFile(essence, []byte("  compacted summary  \n"), 0o644))
 
-	assert.Equal(t, "distilled summary",
+	assert.Equal(t, "compacted summary",
 		resumedEssenceForInjection(1, "startup", harp, "session,tasks"), "trimmed essence on startup")
 	assert.Empty(t, resumedEssenceForInjection(1, "clear", harp, "session,tasks"), "no essence on /clear")
 	assert.Empty(t, resumedEssenceForInjection(2, "startup", harp, "session,tasks"), "no essence on later chunk")

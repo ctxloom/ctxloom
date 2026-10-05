@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
@@ -88,8 +87,7 @@ func TestWatch_StreamsTheDocumentedJSONLContract(t *testing.T) {
 	taskstest.ProjectDir(t)
 	tc, err := taskContextSingle()
 	require.NoError(t, err)
-	projectID, logPath, err := operations.ResolveLogPath(tc)
-	require.NoError(t, err)
+	projectID, logPath := establishedLogPath(t, tc)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

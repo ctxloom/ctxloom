@@ -13,9 +13,9 @@ Destroy a finished session's derived essence, keeping its transcript
 
 ### Synopsis
 
-Destroys what distillation produced — essence.md — and nothing else. The
+Destroys what compaction produced — essence.md — and nothing else. The
 transcript stays, which is what makes this reversible: while the transcript
-is on disk the essence can be produced again with 'ctxloom session distill'.
+is on disk the essence can be produced again with 'ctxloom session compact'.
 
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
@@ -48,5 +48,5 @@ ctxloom session artifacts purge <harp-name> [flags]
 
 ### SEE ALSO
 
-* [ctxloom session artifacts](/reference/cli/ctxloom_session_artifacts/)	 - What a session produced — its distilled essence: list it, destroy it
+* [ctxloom session artifacts](/reference/cli/ctxloom_session_artifacts/)	 - What a session produced — its compacted essence: list it, destroy it
 

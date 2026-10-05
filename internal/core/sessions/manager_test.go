@@ -366,7 +366,7 @@ func writeEntryTranscript(t *testing.T, path string, n int) {
 }
 
 func TestTranscriptStale(t *testing.T) {
-	// The fingerprint is the ENTRY COUNT stamped at distill time vs the live
+	// The fingerprint is the ENTRY COUNT stamped at compact time vs the live
 	// file's, so the fixture is a real canonical transcript rather than a blob
 	// of bytes: counting is what is under test.
 	dir := t.TempDir()
@@ -396,13 +396,13 @@ func TestTranscriptStale(t *testing.T) {
 	t.Run("stale when new entries arrived", func(t *testing.T) {
 		stale, known := TranscriptStale(path, 4)
 		assert.True(t, known)
-		assert.True(t, stale, "live transcript carries more entries than the distilled slice → out of date")
+		assert.True(t, stale, "live transcript carries more entries than the compacted slice → out of date")
 	})
 	t.Run("REFORMATTING the same conversation is NOT stale", func(t *testing.T) {
 		// The whole reason this is an entry count and not a byte size: a
 		// converted transcript is REWRITTEN wholesale, so its bytes move
 		// whenever an adapter's field set or formatting changes. That must not
-		// cost a re-distillation when not one word was added.
+		// cost a re-compaction when not one word was added.
 		reformatted := filepath.Join(dir, "reformatted.jsonl")
 		var b strings.Builder
 		b.WriteString(`{"v":1,"harp":"h","engine":"mock","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"session","session":{"model":"m"}}` + "\n")

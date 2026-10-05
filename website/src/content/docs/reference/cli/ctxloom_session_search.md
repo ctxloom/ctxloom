@@ -9,12 +9,12 @@ This page is generated from `ctxloom session search --help`.
 
 ## ctxloom session search
 
-Search sessions by harp, summary, and distilled essence content (default: current project; --all for everything)
+Search sessions by harp, summary, and compacted essence content (default: current project; --all for everything)
 
 ### Synopsis
 
 Searches session metadata (harp name, summary, start/end) and, for
-sessions that have already been distilled, the essence body itself. Every
+sessions that have already been compacted, the essence body itself. Every
 given word must match, case-insensitively, somewhere in a session's
 metadata or essence for that session to be included (an AND across words,
 not an OR).
@@ -33,7 +33,7 @@ ctxloom session search <word>... [flags]
 
 ```
       --all    Search sessions from every project (default: filter to cwd)
-      --full   Include each matched session's complete distilled essence body (text output pages through $PAGER on a terminal)
+      --full   Include each matched session's complete compacted essence body (text output pages through $PAGER on a terminal)
 ```
 
 ### Options inherited from parent commands

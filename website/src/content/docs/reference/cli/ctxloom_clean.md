@@ -40,8 +40,8 @@ either for one invocation:
 The persistent machine members — transcripts/, native/ engine history, the
 mail spool/, the launch package/ store and the session's logs — are no age's
 to take. Pass --include-persist to reap them too, from the same aged
-sessions — except a session that was never distilled, whose transcript is
-its only record: it keeps them until 'ctxloom session distill <harp>'.
+sessions — except a session that was never compacted, whose transcript is
+its only record: it keeps them until 'ctxloom session compact <harp>'.
 The session's identity (its session.yaml and keep marker) is never taken:
 the directory stays, and the session still lists and resolves. Nor is its
 output dir — essence, next step, plans — which lives outside
@@ -87,7 +87,7 @@ ctxloom clean [flags]
 ### Options
 
 ```
-      --include-persist     also reap the persistent machine members — transcripts, native history, spool, package store, logs — from the aged, distilled sessions; never taken without this
+      --include-persist     also reap the persistent machine members — transcripts, native history, spool, package store, logs — from the aged, compacted sessions; never taken without this
       --older-than string   reap the disposable members of sessions last active before this age (30d, 12w, 720h) or date (2026-01-01), overriding the configured session_reap_age for this invocation
       --yes                 apply exactly the plan this reports
 ```

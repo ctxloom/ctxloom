@@ -85,7 +85,6 @@ func runShow(cmd *cobra.Command, args []string) error {
 		return ambiguousTasksError(ambiguous)
 	}
 	if !r.Global {
-		noteProjectNewlyMinted(cmd.ErrOrStderr(), r.ProjectID, r.ProjectNewlyMinted)
 		noteTaskProject(r.ProjectDir, r.ProjectID)
 	}
 	cfg := hideConfigFor(r.TC)

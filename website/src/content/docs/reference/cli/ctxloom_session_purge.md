@@ -24,10 +24,10 @@ index changes, on a TTY or not.
 The index entry SURVIVES. Purge empties a session, it does not unlist it —
 'ctxloom session remove' is what removes a session entirely.
 
-A session that was never distilled is refused, because sweeping it would
+A session that was never compacted is refused, because sweeping it would
 destroy the only record of what happened. The refusal names the leaf that
 can do it deliberately: 'ctxloom session transcript purge <harp>
---undistilled'.
+--uncompacted'.
 
 A session whose lock does not prove its owner dead is refused: a running
 agent may still be writing the transcript this would destroy. A held lock,

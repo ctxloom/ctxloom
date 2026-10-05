@@ -30,7 +30,7 @@ of the turn as this harp's next step, replacing the one stored a turn earlier.
 There is no LLM call and no model output: the last thing the agent said is
 taken verbatim off the transcript the engine already wrote.
 
-Distillation reads what this captures as a task hint. Compressing a transcript
+Compaction reads what this captures as a task hint. Compressing a transcript
 without knowing what the resuming session means to do is the weaker regime —
 the material the next step needs is discarded as readily as anything else — and
 the only moment that intention can be had cheaply is while the agent that holds
@@ -44,7 +44,7 @@ overwrites: whatever the final turn said is what survives the session.`,
 
 // runHookNextStep never reports a nonzero exit. A TurnEnd hook that fails is a
 // hook that can stall the turn it fires on, and a missed next step costs a
-// less-steered distillation later — not a broken session now. Every reason the
+// less-steered compaction later — not a broken session now. Every reason the
 // capture did not happen is NAMED on the diagnostic channel instead, because
 // the alternative is this project's characteristic bug: exit 0, and zero bytes
 // written, with nothing said about which.

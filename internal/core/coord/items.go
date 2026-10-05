@@ -38,7 +38,6 @@ var itemPayloadKinds = map[string]bool{
 	"run_started":          true,
 	"step_started":         true,
 	"step_completed":       true,
-	"status_changed":       true,
 	"run_completed":        true,
 	"message_started":      true,
 	"message_delta":        true,

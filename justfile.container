@@ -33,6 +33,11 @@ import "build/signing.justfile"
 # checkouts. Push sibling changes and bump the pin to pick them up here.
 export GOWORK := "off"
 
+# -trimpath for every go invocation, so container builds share GOCACHE entries
+# with the host and with each other. The host justfile's GOFLAGS export holds
+# the WHY; this root is entered directly by release and CI, so it needs its own.
+export GOFLAGS := if env("GOFLAGS", "") =~ '(^|\s)-trimpath(\s|$)' { env("GOFLAGS", "") } else { trim(env("GOFLAGS", "") + " -trimpath") }
+
 # Per-binary build justfiles, composed here via `mod`. Each lives next to its
 # code, owns that binary's build/compress, and shares the common build logic via
 # `import "build/common.justfile"`. Their recipes are reachable as

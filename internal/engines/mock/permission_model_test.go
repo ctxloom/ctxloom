@@ -39,3 +39,12 @@ func TestMockPermissionModel(t *testing.T) {
 	assert.Empty(t, m.Label("acceptEdits"))
 	assert.Empty(t, m.Transitions(map[string]any{"mode": "bypass"}), "a bypass session moves nowhere")
 }
+
+// The mock plans first exactly in its plan mode.
+func TestMockPermissionModel_PlansFirst(t *testing.T) {
+	m, ok := New().Permissions().Get()
+	require.True(t, ok)
+	assert.True(t, m.PlansFirst(map[string]any{"mode": "plan"}))
+	assert.False(t, m.PlansFirst(map[string]any{"mode": "default"}))
+	assert.False(t, m.PlansFirst(nil))
+}

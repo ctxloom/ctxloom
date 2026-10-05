@@ -15,7 +15,7 @@ import (
 
 // SessionFullRow is the `--full` projection `session list` and `session
 // query` render on request: SessionRow's lean metadata plus the session's
-// complete distilled essence body, which SessionRow itself deliberately
+// complete compacted essence body, which SessionRow itself deliberately
 // omits (see session_row.go). Embedding SessionRow rather than duplicating
 // its fields means clifmt's reflective json/yaml/toml/markdown renderers
 // (which walk reflect.VisibleFields, promoting embedded fields) see exactly
@@ -23,7 +23,7 @@ import (
 type SessionFullRow struct {
 	SessionRow
 	// Essence is the complete essence.md body, "" when the session was never
-	// distilled (EssencePath is "" too in that case — nothing else to check).
+	// compacted (EssencePath is "" too in that case — nothing else to check).
 	Essence string `json:"essence" label:"Essence"`
 }
 
@@ -79,7 +79,7 @@ func renderSessionFullText(w io.Writer, rows []SessionFullRow) error {
 		if r.Essence != "" {
 			ew.Printf("%s\n", r.Essence)
 		} else {
-			ew.Println("(not distilled yet)")
+			ew.Println("(not compacted yet)")
 		}
 	}
 	return ew.Err()

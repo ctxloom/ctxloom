@@ -86,9 +86,14 @@ func MintIdentity(store sessions.Store, seed sessions.Seed, tr composite.Trust, 
 	}
 	// THIS PROCESS OWNS THE SESSION FROM HERE: hold its liveness lock until
 	// EndSession. A failed hold leaves NO lock file, so the harp reads
-	// Indeterminate — never reclaimed — rather than Dead.
-	if herr := sessionlock.Hold(entry.HarpName); herr != nil {
-		clidiag.Warn("ctxloom", "session %s: cannot hold its liveness lock, so its data will never be reaped as crashed: %v", entry.HarpName, herr)
+	// Indeterminate — never reclaimed — rather than Dead. The lock guards the
+	// session's on-disk data; a session minted into the in-memory store (a
+	// `run --dry-run` preview) has none, so it takes no lock and leaves no
+	// file behind.
+	if _, inMemory := store.(*sessions.MemStore); !inMemory {
+		if herr := sessionlock.Hold(entry.HarpName); herr != nil {
+			clidiag.Warn("ctxloom", "session %s: cannot hold its liveness lock, so its data will never be reaped as crashed: %v", entry.HarpName, herr)
+		}
 	}
 	// The originator's own run is depth 0 and never at the cap: its leafness
 	// is its one-shot-ness alone. A child's is the coordinator's verdict.

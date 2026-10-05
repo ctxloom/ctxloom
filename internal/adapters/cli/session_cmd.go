@@ -29,7 +29,7 @@ once ` + "`ctxloom run`" + ` has been used to launch a backend.`,
 
 var (
 	sessionListAll     bool
-	sessionListDistill bool
+	sessionListCompact bool
 	sessionListFull    bool
 )
 
@@ -44,14 +44,14 @@ func runSessionList(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	// appDir is the global ctxloom home (cwd-independent), used by --distill
+	// appDir is the global ctxloom home (cwd-independent), used by --compact
 	// below to detect missing essences.
 	appDir := sessionAppDir()
-	// --distill: compact every row whose essence is missing or stale so the
+	// --compact: compact every row whose essence is missing or stale so the
 	// listing shows a title everywhere. Then re-read the index so the fresh
 	// summaries/sizes render. Without the flag, title-less rows stay as-is.
-	if sessionListDistill {
-		distillMissingOrStale(cmd, entries, appDir)
+	if sessionListCompact {
+		compactMissingOrStale(cmd, entries, appDir)
 		if refreshed, rErr := loadSessionEntries(sessionListAll); rErr == nil {
 			entries = refreshed
 		}
@@ -95,14 +95,14 @@ func sessionAppDir() string {
 }
 
 // sessionEssence is the structured result of `session show`. In json mode a
-// session that isn't distilled yet returns distilled:false with an empty essence
-// (not an error), so a frontend can show a "not distilled yet" hint on hover
+// session that isn't compacted yet returns compacted:false with an empty essence
+// (not an error), so a frontend can show a "not compacted yet" hint on hover
 // without branching on an exit code.
 type sessionEssence struct {
 	Harp      string `json:"harp"`
-	Distilled bool   `json:"distilled"`
+	Compacted bool   `json:"compacted"`
 	Essence   string `json:"essence"`
-	// EssencePath is the absolute path to the essence file when distilled, "" (and
+	// EssencePath is the absolute path to the essence file when compacted, "" (and
 	// omitted) otherwise — so a client can open the real file rather than rebuild
 	// the <output dir>/essence.md path itself.
 	EssencePath string `json:"essence_path,omitempty"`
@@ -110,7 +110,7 @@ type sessionEssence struct {
 
 var sessionShowCmd = &cobra.Command{
 	Use:   "show <harp-name>",
-	Short: "Print the distilled essence of a harp-named session",
+	Short: "Print the compacted essence of a harp-named session",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSessionShow,
 }
@@ -125,27 +125,27 @@ func runSessionShow(cmd *cobra.Command, args []string) error {
 		return errNoSession(harp)
 	}
 	view := operations.ViewSession(*entry)
-	essence, distilled := readSessionEssence(afero.NewOsFs(), view)
-	return emit(cmd, sessionEssence{Harp: harp, Distilled: distilled, Essence: essence, EssencePath: view.EssencePath}, func() error {
-		if !distilled {
-			return undistilledSessionError(harp, view.NativeSession)
+	essence, compacted := readSessionEssence(afero.NewOsFs(), view)
+	return emit(cmd, sessionEssence{Harp: harp, Compacted: compacted, Essence: essence, EssencePath: view.EssencePath}, func() error {
+		if !compacted {
+			return uncompactedSessionError(harp, view.NativeSession)
 		}
 		_, _ = cmd.OutOrStdout().Write([]byte(essence))
 		return nil
 	})
 }
 
-// undistilledSessionError explains why there is nothing to print, telling the
+// uncompactedSessionError explains why there is nothing to print, telling the
 // two cases apart: a harp with no backend session bound yet is PENDING (there
-// is nothing to distill), while a bound one just has not been compacted and
+// is nothing to compact), while a bound one just has not been compacted and
 // names the command that would do it. Text-format only — the structured shape
-// reports distilled:false rather than erroring, so a frontend can show a hint
+// reports compacted:false rather than erroring, so a frontend can show a hint
 // on hover without branching on an exit code.
-func undistilledSessionError(harp, sessionID string) error {
+func uncompactedSessionError(harp, sessionID string) error {
 	if sessionID == "" {
 		return fmt.Errorf("harp %q is pending (no backend session ID bound yet)", harp)
 	}
-	return fmt.Errorf("no essence for %q (run `ctxloom session distill %s` to compact this session first)", harp, harp)
+	return fmt.Errorf("no essence for %q (run `ctxloom session compact %s` to compact this session first)", harp, harp)
 }
 
 // sessionRemoveCmd is the canonical spine's `remove` for the session noun,
@@ -166,7 +166,7 @@ var sessionRemoveCmd = &cobra.Command{
 	Use:   "remove <harp-name>",
 	Short: "Remove a session entirely: its index entry, its transcript and its essence",
 	Long: `Removes all three of a session's own artifacts — the index entry, the
-recorded transcript, and the distilled essence.
+recorded transcript, and the compacted essence.
 
 Authored files in the harp directory are never destroyed; they are named in
 the report and left where they are, so removing a session cannot take work
@@ -175,9 +175,9 @@ nobody filed with it.
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
 
-A session that was never distilled is refused, because removing it would
+A session that was never compacted is refused, because removing it would
 destroy the only record of what happened. To do it deliberately, destroy the
-transcript first with 'ctxloom session transcript purge <harp> --undistilled
+transcript first with 'ctxloom session transcript purge <harp> --uncompacted
 --yes', then remove.
 
 To empty a session but keep it listed, use 'ctxloom session purge'.`,
@@ -263,35 +263,35 @@ func renderSessionRemove(w io.Writer, out sessionRemoveResult) error {
 	return ew.Err()
 }
 
-var sessionDistillCmd = &cobra.Command{
-	Use:   "distill <harp-name>",
-	Short: "Distill a session by harp name. Distillation is on-demand: nothing distills a session automatically when it ends.",
+var sessionCompactCmd = &cobra.Command{
+	Use:   "compact <harp-name>",
+	Short: "Compact a session by harp name. Compaction is on-demand: nothing compacts a session automatically when it ends.",
 	Long: `Looks up the harp's bound session_id in its session record,
 runs the compactor on that backend session, and writes a fresh essence.md
 under the harp directory. Errors if the harp has no session_id bound
 (the SessionStart bind hook records it for sessions launched via ctxloom run).`,
 	Args: cobra.ExactArgs(1),
-	RunE: runSessionDistill,
+	RunE: runSessionCompact,
 }
 
-// sessionDistillPromptDir backs --prompt-dir: it points distillation at prompt
+// sessionCompactPromptDir backs --prompt-dir: it points compaction at prompt
 // files on disk instead of the binary's embedded copies, so a prompt-evaluation
 // harness can A/B variants against the same transcript without a rebuild.
-var sessionDistillPromptDir string
+var sessionCompactPromptDir string
 
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
-	sessionListCmd.Flags().BoolVar(&sessionListDistill, "distill", false, "Distill sessions whose essence is missing or stale before listing, so every row shows a title")
+	sessionListCmd.Flags().BoolVar(&sessionListCompact, "compact", false, "Compact sessions whose essence is missing or stale before listing, so every row shows a title")
 	sessionRemoveCmd.Flags().BoolVarP(&sessionRemoveYes, "yes", "y", false,
 		"apply the plan this invocation printed (default: report only)")
-	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete distilled essence body (text output pages through $PAGER on a terminal)")
-	sessionDistillCmd.Flags().StringVar(&sessionDistillPromptDir, "prompt-dir", "",
-		"Load distillation prompts from this directory instead of the built-in ones (expects <dir>/session-distill.md and <dir>/result-finding.md; a missing prompt is an error, not a fallback)")
-	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionRemoveCmd, sessionDistillCmd, sessionApprovalsCmd)
+	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete compacted essence body (text output pages through $PAGER on a terminal)")
+	sessionCompactCmd.Flags().StringVar(&sessionCompactPromptDir, "prompt-dir", "",
+		"Load compaction prompts from this directory instead of the built-in ones (expects <dir>/session-compact.md and <dir>/result-finding.md; a missing prompt is an error, not a fallback)")
+	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionRemoveCmd, sessionCompactCmd, sessionApprovalsCmd)
 	rootCmd.AddCommand(sessionCmd)
 }
 
-// runSessionDistill is the cobra RunE for `ctxloom session distill <harp>`.
+// runSessionCompact is the cobra RunE for `ctxloom session compact <harp>`.
 // It composes:
 //  1. Look up the harp in the session index.
 //  2. Read its bound session_id (recorded forward by the SessionStart
@@ -303,7 +303,7 @@ func init() {
 // Sessions whose bind step never landed error here with a clear message.
 // Pre-release sessions are unaffected by design; we don't backfill harp
 // names for them.
-func runSessionDistill(cmd *cobra.Command, args []string) error {
+func runSessionCompact(cmd *cobra.Command, args []string) error {
 	harpName := args[0]
 	entry, err := operations.GetSession(harpName)
 	if err != nil {
@@ -326,15 +326,15 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	// Progress notes go to stderr as best-effort status.
 	progress := errwriter.New(cmd.ErrOrStderr())
 	if entry.SessionID != "" {
-		progress.Printf("ctxloom: distilling %s (session_id=%s)...\n", harpName, entry.SessionID)
+		progress.Printf("ctxloom: compacting %s (session_id=%s)...\n", harpName, entry.SessionID)
 	} else {
-		progress.Printf("ctxloom: distilling %s (by transcript path, no session_id bound)...\n", harpName)
+		progress.Printf("ctxloom: compacting %s (by transcript path, no session_id bound)...\n", harpName)
 	}
 
-	// Ruled sub-choice #1 (adopt): `session distill`
-	// now HEALS before distilling — a harp that was `/clear`ed has a
+	// Ruled sub-choice #1 (adopt): `session compact`
+	// now HEALS before compacting — a harp that was `/clear`ed has a
 	// canonical transcript frozen at whatever moment a live /recover last
-	// ran, and this command used to distill that frozen prefix and report
+	// ran, and this command used to compact that frozen prefix and report
 	// success. A one-shot CLI process genuinely cannot tell whether the
 	// session it was pointed at is still growing elsewhere, so it heals
 	// unconditionally every call — slower, and truthful.
@@ -344,9 +344,9 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	}
 	if src.HealErr != nil {
 		// The stored transcript may still be readable; a refresh failure
-		// costs freshness, not the distill — warn and fall through to
-		// distilling whatever is on disk rather than refusing outright.
-		progress.Printf("ctxloom: could not refresh transcript for %s before distilling: %v\n", harpName, src.HealErr)
+		// costs freshness, not the compact — warn and fall through to
+		// compacting whatever is on disk rather than refusing outright.
+		progress.Printf("ctxloom: could not refresh transcript for %s before compacting: %v\n", harpName, src.HealErr)
 	}
 	// Only the fallback direction carries information: when resolve produced no
 	// entry, hand it the one already read above. entry is not read after this
@@ -354,25 +354,25 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	if src.Entry == nil {
 		src.Entry = entry
 	}
-	result, err := operations.DistillEntry(cmd.Context(), App().LaunchFacts(), src, cfg, operations.DistillOptions{
+	result, err := operations.CompactResolved(cmd.Context(), App().LaunchFacts(), src, cfg, operations.CompactOptions{
 		Hosts:     internalRunHosts(),
 		Progress:  progress,
-		PromptDir: sessionDistillPromptDir,
+		PromptDir: sessionCompactPromptDir,
 	})
 	if err != nil {
 		return err
 	}
-	return reportDistillResult(cmd.OutOrStdout(), harpName, result)
+	return reportCompactResult(cmd.OutOrStdout(), harpName, result)
 }
 
 // enterSessionProjectDir situates this one-shot process in the session's
 // recorded project dir before config or the transcript is read. The backend
 // transcript reader is self-situated — it derives the agent's store path (e.g.
 // claude-code's ~/.claude/projects/<mangled-cwd>/) from the ambient cwd, not
-// from the session id. So distilling a harp whose project dir differs from
+// from the session id. So compacting a harp whose project dir differs from
 // where we were launched (being run from a subdir or another project is
 // enough) would look for the transcript under the wrong dir and fail with "no
-// such file". chdir is safe: `session distill` is a short-lived process that
+// such file". chdir is safe: `session compact` is a short-lived process that
 // exits after this call.
 func enterSessionProjectDir(projectDir, harpName string) {
 	if projectDir == "" {
@@ -383,13 +383,13 @@ func enterSessionProjectDir(projectDir, harpName string) {
 	}
 	if cerr := os.Chdir(projectDir); cerr != nil {
 		// Don't hard-fail: the ambient cwd may still resolve (same project),
-		// and a usable "couldn't distill" beats blocking the caller (CLAUDE.md).
+		// and a usable "couldn't compact" beats blocking the caller (CLAUDE.md).
 		clidiag.Warn("ctxloom", "could not enter project dir %q for %s: %v", projectDir, harpName, cerr)
 	}
 }
 
-// reportDistillResult prints the one-line distill summary to out.
-func reportDistillResult(out io.Writer, harpName string, result *memory.CompactionResult) error {
+// reportCompactResult prints the one-line compact summary to out.
+func reportCompactResult(out io.Writer, harpName string, result *memory.CompactionResult) error {
 	w := errwriter.New(out)
 	reduced := ""
 	if result.InputReduced {
@@ -398,7 +398,7 @@ func reportDistillResult(out io.Writer, harpName string, result *memory.Compacti
 		// model saw it, and that is not visible in the numbers.
 		reduced = ", older content compressed to fit"
 	}
-	w.Printf("distilled %s in %s (%d → %d tokens%s)\nessence: %s\n",
-		harpName, result.Duration, result.TotalTokensIn, result.TotalTokensOut, reduced, result.DistilledPath)
+	w.Printf("compacted %s in %s (%d → %d tokens%s)\nessence: %s\n",
+		harpName, result.Duration, result.TotalTokensIn, result.TotalTokensOut, reduced, result.CompactedPath)
 	return w.Err()
 }

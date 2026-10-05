@@ -34,6 +34,16 @@ default: build
 # explicit for the docker `-e` passthroughs.
 export GOWORK := "off"
 
+# -trimpath for EVERY go invocation any recipe makes — build, run, vet, test,
+# install, in linewise and shebang recipes alike, including recipes not yet
+# written. WHY: without it the compiler embeds absolute source paths, so the
+# shared GOCACHE keys each package per CHECKOUT PATH and N worktrees store N
+# copies of everything (see cache-report). One export cannot be forgotten by a
+# new recipe the way a per-call flag can. Appended to, never replacing, any
+# GOFLAGS the caller already set, and not appended twice when a recipe invokes
+# just again. justfile.container carries the same export for container builds.
+export GOFLAGS := if env("GOFLAGS", "") =~ '(^|\s)-trimpath(\s|$)' { env("GOFLAGS", "") } else { trim(env("GOFLAGS", "") + " -trimpath") }
+
 # TOP is the repository root, detected from git.
 #
 # Every recipe that has to name this checkout from OUTSIDE it — the host side of
@@ -948,7 +958,7 @@ test-acceptance-live-container: container-build-acceptance
         -e GOCACHE=/home/ctxloom/.cache/go-build \
         -e GOMODCACHE=/home/ctxloom/go/pkg/mod \
         -e GOPATH=/home/ctxloom/go \
-        -e GOFLAGS=-mod=readonly \
+        -e "GOFLAGS=-mod=readonly $GOFLAGS" \
         -e GOWORK=off \
         -w /workspace \
         {{registry}}/ctxloom-acceptance:latest \
@@ -1505,8 +1515,10 @@ clean-caches:
 # with the trim working exactly as designed, so a large cache is not evidence
 # of anything being broken.
 #
-# Worktrees MULTIPLY it: without -trimpath the compiler embeds absolute source
-# paths, so one package built in N worktrees is N distinct cache entries.
+# Worktrees would MULTIPLY it: without -trimpath the compiler embeds absolute
+# source paths, so one package built in N worktrees is N distinct cache entries.
+# The GOFLAGS export at the top of this justfile is what prevents that, for
+# every recipe; a go command run outside just does not get it.
 #
 # GOMODCACHE is reported but never touched — expensive to refetch, and not the
 # thing that grows.

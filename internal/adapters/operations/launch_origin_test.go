@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -62,4 +63,29 @@ func TestMintIdentity_StampsTheTrustsSignatureCheckPosture(t *testing.T) {
 			assert.Equal(t, tc.want, got.SigCheckDisabled)
 		})
 	}
+}
+
+// The liveness lock guards a session's ON-DISK data from being reaped as
+// crashed. A session minted into the in-memory store (`run --dry-run`'s
+// preview) has none, so it takes no lock: otherwise every preview leaves a
+// <harp>.lock under ~/.ctxloom/sessions that no sweep ever enumerates.
+func TestMintIdentity_InMemoryStoreTakesNoLivenessLock(t *testing.T) {
+	testsupport.Isolate(t)
+
+	// Hostile fixture: the real store's mint DOES write the lock here.
+	real, err := sessions.Open(nil)
+	require.NoError(t, err)
+	rid, err := MintIdentity(real, sessions.Seed{ProjectDir: "/proj"}, compositetest.Trust(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { sessionlock.Release(rid.Harp) })
+	realLock, err := paths.HarpLockPath(rid.Harp)
+	require.NoError(t, err)
+	require.FileExists(t, realLock, "the real store's mint must hold its lock, or this test measures nothing")
+
+	id, err := MintIdentity(sessions.NewMemStore(), sessions.Seed{ProjectDir: "/proj"}, compositetest.Trust(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { sessionlock.Release(id.Harp) })
+	memLock, err := paths.HarpLockPath(id.Harp)
+	require.NoError(t, err)
+	require.NoFileExists(t, memLock, "an in-memory session must leave no liveness lock on disk")
 }

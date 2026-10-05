@@ -32,7 +32,7 @@ flowchart TD
     SEAM --> PATH
   end
 
-  PATH --> RUN["cli.runCmd — self-executable for session distill"]
+  PATH --> RUN["cli.runCmd — self-executable for session compact"]
   PATH --> ISO["isolation host runner (the runner spawn)"]
 
   CC["agent.CtxloomCommand() = agent.CtxloomBinary<br/>(bare name — does NOT read selfexec)"]

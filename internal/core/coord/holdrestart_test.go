@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -50,6 +52,17 @@ func stepSignal(step string, ch chan struct{}) func(string) {
 // asserted between the two is what adoption alone rebuilt.
 func (f *holdFixture) restart(t *testing.T, was *fakeclock.Clock, down time.Duration, steps func(string)) *fakeclock.Clock {
 	t.Helper()
+	return f.restartTuned(t, was, down, func(c *Coordinator) {
+		if steps != nil {
+			c.holdStep = steps
+		}
+	})
+}
+
+// restartTuned is restart with the restarted coordinator adjusted by tune
+// before it serves.
+func (f *holdFixture) restartTuned(t *testing.T, was *fakeclock.Clock, down time.Duration, tune func(*Coordinator)) *fakeclock.Clock {
+	t.Helper()
 	crashCoordinator(f.c)
 	clk := fakeclock.New()
 	clk.Advance(was.Now().Sub(fakeclock.Epoch) + down)
@@ -59,9 +72,7 @@ func (f *holdFixture) restart(t *testing.T, was *fakeclock.Clock, down time.Dura
 	o.Reporter = &findings
 	c, err := New(o)
 	require.NoError(t, err)
-	if steps != nil {
-		c.holdStep = steps
-	}
+	tune(c)
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 	f.c, f.findings = c, &findings
@@ -80,6 +91,19 @@ func (f *holdFixture) redial(t *testing.T) {
 		require.Eventually(t, func() bool { return f.c.runnerConnected(runID) }, conformanceWait, 10*time.Millisecond,
 			"%s's runner never re-Helloed the restarted coordinator", harp)
 	}
+}
+
+// awaitReplayed blocks until the i-th spawn's runner has had every event it
+// emitted handled by f's current coordinator. A runner re-sends whatever the
+// crashed coordinator never acked — a turn boundary among it when the crash
+// fell between the turn's failure folding and its run reading idle — so a
+// re-adopted run's state is its true one only once that replay has landed.
+// A report waits for its own ack, which is cumulative and follows the replay
+// on the same stream.
+func (f *holdFixture) awaitReplayed(t *testing.T, i int) {
+	t.Helper()
+	require.NoError(t, f.sp.engineHome(i).Report(human(t), &agentcoordpb.Summary{Text: "caught up"}, nil),
+		"spawn %d's runner never caught up with the restarted coordinator", i)
 }
 
 // TestHoldRestart_ARateLimitHoldSurvivesAdoption: a coordinator that dies
@@ -303,12 +327,55 @@ func TestHoldRestart_TheIdleReaperSparesHeldAndPausedRunsAfterARestart(t *testin
 	for range 3 {
 		within(t, reasserted, "a held or paused run was never re-asserted")
 	}
+	for i := range 3 {
+		f.awaitReplayed(t, i)
+	}
 	clk.Advance(idle + time.Minute)
 	require.Len(t, f.c.CredentialHolds(), 1, "the hold still stands")
 	f.c.reapIdleRuns()
 	for _, h := range []string{f.worker, f.sibling, f.stranger} {
 		assert.Equal(t, StateIdle, f.state(h), "a held or paused run is never idle-reaped, restart or not")
 	}
+}
+
+// TestHoldRestart_ABoundaryReplayedBeforeItsRunnersHelloStillSettlesTheRun
+// forces the crash after the worker's limited turn folded into its hold but
+// before its run read idle, so its runner still holds that turn boundary
+// unacked; and forces the restarted coordinator to receive the replayed
+// boundary on the run channel before the runner channel's Hello has
+// re-adopted the run. The boundary must still settle the run idle: dropped,
+// the run reads executing until a turn it may never take.
+func TestHoldRestart_ABoundaryReplayedBeforeItsRunnersHelloStillSettlesTheRun(t *testing.T) {
+	var armed atomic.Bool
+	atBoundary, letBoundary := make(chan struct{}), make(chan struct{})
+	var reached, released sync.Once
+	t.Cleanup(func() { released.Do(func() { close(letBoundary) }) }) // the crashed coordinator's boundary stays parked until the end
+	f, clk := newRateFixture(t, func(c *Coordinator) {
+		c.turnIdleHook = func(harp string) {
+			if armed.Load() {
+				reached.Do(func() { close(atBoundary) })
+				<-letBoundary
+			}
+		}
+	})
+	armed.Store(true)
+	f.send(t, f.worker, limitHit+" do the work")
+	within(t, atBoundary, "the worker's limited turn never reached its boundary")
+
+	letHello := make(chan struct{})
+	var helloed sync.Once
+	t.Cleanup(func() { helloed.Do(func() { close(letHello) }) })
+	_ = f.restartTuned(t, clk, 0, func(c *Coordinator) {
+		c.runnerHelloHook = func(string) { <-letHello }
+	})
+	for i := range f.sp.chatCount() {
+		f.sp.engineHome(i).Redial()
+	}
+	awaitItemsDurable(t, f.c, f.sp, f.worker) // the replayed boundary has landed, its runner not yet re-Helloed
+	helloed.Do(func() { close(letHello) })
+	f.redial(t)
+	f.awaitReplayed(t, 0)
+	assert.Equal(t, StateIdle, f.state(f.worker), "a replayed turn boundary settles its run, whichever channel the runner got back first")
 }
 
 // TestHoldRestart_AHumanPauseSurvivesARestart: a human's pause is a hold of

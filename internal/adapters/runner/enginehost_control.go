@@ -44,6 +44,11 @@ type turnTag struct {
 	// Turn frame's caller is waiting on it. Buffered by its maker so the
 	// adapt loop never blocks on a caller that went away.
 	done chan turnOutcome
+	// approve is the plan approval the delivered message carries
+	// (planApprovalIn): the posture it approves the run's plan at, "" for
+	// the default. It is applied as the turn starts (startTurn), so the
+	// turns queued ahead of it run at the posture they were sent under.
+	approve engine.Declared[string]
 }
 
 // enqueueTurn is the ONE funnel for every locally-originated turn — the
@@ -132,6 +137,9 @@ func (eh *EngineHost) startTurn(tag turnTag, text string) error {
 	if eh.ended || eh.stopping {
 		eh.mu.Unlock()
 		return errors.New("engine host: the run has ended; no engine takes a turn")
+	}
+	if posture, ok := tag.approve.Get(); ok && eh.approvals != nil && eh.approvals.approvePlan(posture) {
+		text = planApprovedPrompt
 	}
 	eh.pendingTags = append(eh.pendingTags, tag)
 	next := make(chan struct{})

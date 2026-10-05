@@ -59,7 +59,7 @@ func TestSessionMatchesQuery_MetadataHit(t *testing.T) {
 }
 
 // TestSessionMatchesQuery_EssenceFallback covers the content-search leg: a
-// word absent from harp/summary but present in the distilled essence body
+// word absent from harp/summary but present in the compacted essence body
 // still matches, and a genuinely absent word (checked against both metadata
 // and essence) does not.
 func TestSessionMatchesQuery_EssenceFallback(t *testing.T) {
@@ -78,12 +78,12 @@ func TestSessionMatchesQuery_EssenceFallback(t *testing.T) {
 	assert.False(t, sessionMatchesQuery(e, []string{"nonexistent-word"}), "a word in neither metadata nor essence doesn't match")
 }
 
-// TestSessionMatchesQuery_NotDistilled_NoFallback covers a pending session
+// TestSessionMatchesQuery_NotCompacted_NoFallback covers a pending session
 // (no essence written yet): the content-search leg must degrade to "no
 // match" rather than erroring on a missing file.
-func TestSessionMatchesQuery_NotDistilled_NoFallback(t *testing.T) {
+func TestSessionMatchesQuery_NotCompacted_NoFallback(t *testing.T) {
 	testsupport.Isolate(t)
-	e := operations.ViewSession(sessions.Entry{HarpName: "never-distilled-harp", Summary: "still running"})
+	e := operations.ViewSession(sessions.Entry{HarpName: "never-compacted-harp", Summary: "still running"})
 	assert.False(t, sessionMatchesQuery(e, []string{"backoff"}))
 }
 

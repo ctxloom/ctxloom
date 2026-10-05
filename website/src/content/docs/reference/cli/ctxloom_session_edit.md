@@ -22,10 +22,10 @@ applied; everything else keeps its current value.
 
 Unlike every other 'edit' in ctxloom, the bare form does NOT open an editor.
 A session is a record of something that happened: its index entry is written
-by ctxloom itself, and its essence is derived — 'ctxloom session distill'
+by ctxloom itself, and its essence is derived — 'ctxloom session compact'
 rewrites that file whole. There is no authored document here for an editor to
 round-trip, so the bare form refuses rather than accept edits a later
-distillation would discard.
+compaction would discard.
 
 ```
 ctxloom session edit <harp-name> [flags]

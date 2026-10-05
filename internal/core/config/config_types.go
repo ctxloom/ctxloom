@@ -244,7 +244,7 @@ type SettingsConfig struct {
 	UseDistilled *bool `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
 	Statusline   *bool `mapstructure:"statusline" yaml:"statusline,omitempty"`       // Manage the ctxloom HUD statusline (default true)
 	// ToolReflectBytes is the tool-result size, in bytes, at or above which the
-	// PostToolUse reflect hook fires. Distillation reduces a tool result to its
+	// PostToolUse reflect hook fires. Compaction reduces a tool result to its
 	// SHAPE, so whatever the agent does not say it learned is not recoverable
 	// from the essence. Firing on every call would cost more than the bodies it
 	// replaces; firing only on large results targets where the loss actually

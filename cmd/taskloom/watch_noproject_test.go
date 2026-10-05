@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -20,9 +19,7 @@ import (
 // write that establishes the project, and leaves nothing behind.
 func TestWatch_RefusesWhenThereIsNoProjectYet(t *testing.T) {
 	dir := taskstest.ProjectDir(t)
-	init := exec.Command("git", "init", "-q")
-	init.Dir = dir
-	require.NoError(t, init.Run())
+	taskstest.Git(t, dir, nil, "init", "-q")
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 

@@ -197,3 +197,33 @@ func TestP12_FixtureWire(t *testing.T) {
 		require.Contains(t, script, fmt.Sprintf("sleep %d", int(p12HookDelay/time.Second)))
 	}
 }
+
+// TestP12_ToolUseIDAbsent: the V1 arm is the allow arm plus the contract the
+// approval route's correlation rests on — the hook's input names no
+// tool_use_id.
+func TestP12_ToolUseIDAbsent(t *testing.T) {
+	after := p12TestMarker.Add(30 * time.Millisecond)
+	green := p12TestStream(t, "", false, after, nil)
+
+	t.Run("an allowed call whose hook input carries no id is green", func(t *testing.T) {
+		require.NoError(t, p12Assert(p12TestOutcome(t, p12AllowToolUseIDAbsent, green, true)))
+	})
+	t.Run("a hook input carrying the key is TOOL-USE-ID-PRESENT, even when empty", func(t *testing.T) {
+		for _, id := range []string{p12TestCall, ""} {
+			o := p12TestOutcome(t, p12AllowToolUseIDAbsent, green, true)
+			o.HookInput = []byte(p12Line(t, map[string]string{"hook_event_name": p12HookEvent, "tool_name": p12GatedTool, p12ToolUseIDKey: id}))
+			p12RequireShape(t, p12Assert(o), shapeToolUseIDPresent)
+		}
+	})
+	t.Run("the other arms do not judge the key", func(t *testing.T) {
+		o := p12TestOutcome(t, p12Allow, green, true)
+		o.HookInput = []byte(p12Line(t, map[string]string{"hook_event_name": p12HookEvent, "tool_name": p12GatedTool, p12ToolUseIDKey: p12TestCall}))
+		require.NoError(t, p12Assert(o))
+	})
+	t.Run("it still answers allow and adds no flag", func(t *testing.T) {
+		script, err := p12HookScript("/d", p12AllowToolUseIDAbsent)
+		require.NoError(t, err)
+		assert.Contains(t, script, `"behavior":"allow"`)
+		assert.Empty(t, p12AllowToolUseIDAbsent.argv())
+	})
+}

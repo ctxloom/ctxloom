@@ -99,22 +99,12 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
     # SurfaceFor resolves ApproachHook to noopContextDelivery, so ctxloom never
     # delivers claude's context through a hook and this cell must not assert an
     # echo production never asked for.
-    # @wip — RED, and it is a CAPABILITY FINDING measured 2026-08-26: a
-    # containerized claude run does not produce the stamp. exit 0, the turn
-    # answered normally, no stamp on the bind-mounted workspace.
-    #
-    # CONTROLLED AGAINST THE OBVIOUS HARNESS CAUSE: re-run with the hook command
-    # written as a HOST-ABSOLUTE path (valid in-container under the identity
-    # mapper) instead of the workspace-relative one — it did not fire either, so
-    # the relative path is not the cause. The identical fixture fires reliably on
-    # host/none the same day.
-    #
-    # NOT YET ISOLATED between "ctxloom never wrote the hook into the container"
-    # and "claude never ran one it was given": the carriage scan reads the
-    # project tree and the session root ON THE HOST, and a container's settings
-    # are written where neither looks, so carriage is unobservable here rather
-    # than absent. Isolating it needs a scan inside the container.
-    @claude-code @container-rootless @ws-none @probe-p3-hook-firing @wip
+    # The settings, hooks and command files claude reads live under its engine
+    # home, which the runner writes at the CONTAINER side of that mount
+    # (runner.Execute, pinned by TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath).
+    # A write to the host path instead leaves claude a hookless home: exit 0, a
+    # normal answer, and no stamp — the shape this row exists to catch.
+    @claude-code @container-rootless @ws-none @probe-p3-hook-firing
     Examples:
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | none      |
@@ -122,14 +112,11 @@ Feature: P3 — hooks actually FIRE, proven by the hook's own stamp file
     # The worktree partner. The hook script reaches the per-agent checkout only
     # because the fixture is COMMITTED, and the stamp is written there rather
     # than in the project — probeCellRunDir resolves that checkout after the run.
-    # @wip — RED, and it fails EARLIER than its partner above (2026-08-26):
-    # probeCellRunDir found ZERO per-agent worktrees after the run, so there was
-    # no checkout left to read a stamp from. That is a compound of two things —
-    # the hook did not fire, so the checkout stayed clean, and a clean checkout
-    # is pruned by the WIP-safe teardown before the assertion runs. The refusal
-    # is deliberate: falling back to the project directory would let a cell that
-    # never got its checkout pass on the host fixture's evidence.
-    @claude-code @container-rootless @ws-worktree @probe-p3-hook-firing @wip
+    # A clean checkout is pruned by the WIP-safe teardown, so a hook that never
+    # fires leaves NO checkout to read and the cell refuses rather than falling
+    # back to the project directory, which would let it pass on the host
+    # fixture's evidence.
+    @claude-code @container-rootless @ws-worktree @probe-p3-hook-firing
     Examples:
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | worktree  |

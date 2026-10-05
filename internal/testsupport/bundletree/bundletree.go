@@ -186,12 +186,9 @@ func (tw treeWriter) putHooks(b *bundles.Bundle) error {
 		if h.Order != nil {
 			order = *h.Order
 		}
+		h.Order = &order
 		hookName := fmt.Sprintf("hook-%d", e.Index+1)
-		if err := tw.put(trust.KindHook, e.Event+"/"+hookName, content.Hook{
-			Event: e.Event, Name: hookName, Order: &order,
-			Matcher: h.Matcher, Type: h.Type, Command: h.Command, Args: h.Args, Prompt: h.Prompt,
-			Timeout: h.Timeout, Async: h.Async, PreToolFallback: h.PreToolFallback,
-		}); err != nil {
+		if err := tw.put(trust.KindHook, e.Event+"/"+hookName, bundles.TreeHook(e.Event, hookName, h)); err != nil {
 			return fmt.Errorf("hook %s[%d]: %w", e.Event, e.Index, err)
 		}
 	}

@@ -14,7 +14,7 @@ drives it.
    recorded as findings), `resolvePrompt`.
 2. **Startup tasks** — `runStartupTasks`: the remote-dependency sync (announced
    — it is the one startup task with a network side), the companion report,
-   the orphaned-worktree and orphaned-container reapers. All gated off by
+   the orphaned-worktree reaper. All gated off by
    `--dry-run`, which must be side-effect free.
 3. **Dry run** — `emitDryRun` runs the SAME resolver over stateless ports (an
    in-memory session store, the project root as the cell) and stops; it is

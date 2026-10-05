@@ -1276,33 +1276,43 @@ func withCompanionProbe(t *testing.T, cfg *config.Config, probe bundles.Companio
 
 // --- DOCTOR-CHECK-ORPHAN-CONTAINERS-z2 ------------------------------------
 
-// TestDoctorCheckOrphanContainers_ReapsOnEveryRuntimePresent: doctor is the
-// one place the orphan-container reaper runs. It asks every runtime present,
-// says nothing is wrong when none of them held an orphan, and warns — naming
-// the runtime — when one did, because a runner that outlived its owner was
-// wedged past its own owner-loss exit.
-func TestDoctorCheckOrphanContainers_ReapsOnEveryRuntimePresent(t *testing.T) {
+// TestDoctorCheckOrphanContainers_ReportsOnEveryRuntimePresent: doctor
+// changes nothing, so this check only REPORTS. It asks every runtime present,
+// says nothing is wrong when none held an orphan, and warns — naming the
+// runtime and each container, with the command that removes it — when one
+// did. A runtime that could not be asked is a warning too, never an all-clear.
+func TestDoctorCheckOrphanContainers_ReportsOnEveryRuntimePresent(t *testing.T) {
 	none := doctorCheckOrphanContainers(context.Background(), nil, nil)
 	assert.Equal(t, DoctorInfo, none.Status, none.Detail)
 
 	var asked []string
-	reap := func(reaped map[string]int) func(context.Context, isolation.Runtime) isolation.ContainerReapResult {
-		return func(_ context.Context, rt isolation.Runtime) isolation.ContainerReapResult {
+	find := func(found map[string][]string, failed map[string]error) func(context.Context, isolation.Runtime) ([]isolation.ContainerCandidate, error) {
+		return func(_ context.Context, rt isolation.Runtime) ([]isolation.ContainerCandidate, error) {
 			asked = append(asked, rt.Name())
-			return isolation.ContainerReapResult{Reaped: reaped[rt.Name()]}
+			var out []isolation.ContainerCandidate
+			for _, name := range found[rt.Name()] {
+				out = append(out, isolation.ContainerCandidate{Name: name, OwnerPID: 4242, Verdict: isolation.ContainerOrphaned})
+			}
+			return out, failed[rt.Name()]
 		}
 	}
 	both := []isolation.Runtime{isolation.Docker{}, isolation.Podman{}}
 
-	clean := doctorCheckOrphanContainers(context.Background(), both, reap(nil))
+	clean := doctorCheckOrphanContainers(context.Background(), both, find(nil, nil))
 	assert.Equal(t, DoctorOK, clean.Status, clean.Detail)
-	assert.Equal(t, []string{"docker", "podman"}, asked, "every runtime present is swept")
+	assert.Equal(t, []string{"docker", "podman"}, asked, "every runtime present is asked")
 
 	asked = nil
-	found := doctorCheckOrphanContainers(context.Background(), both, reap(map[string]int{"podman": 2}))
+	found := doctorCheckOrphanContainers(context.Background(), both, find(map[string][]string{"podman": {"ctxloom-iso-a-1", "ctxloom-iso-b-2"}}, nil))
 	assert.Equal(t, DoctorWarn, found.Status)
-	assert.Contains(t, found.Detail, "2 podman")
+	assert.Contains(t, found.Detail, "ctxloom-iso-a-1")
+	assert.Contains(t, found.Detail, "ctxloom-iso-b-2")
 	assert.NotContains(t, found.Detail, "docker", "a runtime that held no orphan is not named as having one")
+	assert.Contains(t, found.Remedy, "podman rm -f ctxloom-iso-a-1 ctxloom-iso-b-2", "the remedy is the removal doctor itself does not make")
+
+	unasked := doctorCheckOrphanContainers(context.Background(), both, find(nil, map[string]error{"docker": errors.New("daemon unreachable")}))
+	assert.Equal(t, DoctorWarn, unasked.Status, "a runtime that could not list its containers has not shown it holds none")
+	assert.Contains(t, unasked.Detail, "docker")
 }
 
 // DOCTOR-CHECK-SECRETS-STORAGE-k1: with a per-user tmpfs the secrets never

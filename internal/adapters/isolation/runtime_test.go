@@ -189,9 +189,9 @@ func TestHost_IsNonContainer(t *testing.T) {
 
 // TestDockerAndPodmanRunArgs_StampOwnerLabels pins the orphan-reap fix at its
 // source: EVERY container this process starts — docker or podman, rootless or
-// not — carries both labels ReapOrphanedContainers reads (labelOwnerPID,
+// not — carries both labels classifyContainer reads (labelOwnerPID,
 // labelCreatedAt), stamped with THIS process's own pid. Without this,
-// ReapOrphanedContainers has no signal to work from at all.
+// classifyContainer has no signal to work from at all.
 func TestDockerAndPodmanRunArgs_StampOwnerLabels(t *testing.T) {
 	pidLabel := fmt.Sprintf("--label %s=%d", labelOwnerPID, os.Getpid())
 	for _, rt := range []Runtime{Docker{rootless: true}, Docker{rootless: false}, Podman{rootless: true}, Podman{rootless: false}} {
@@ -235,9 +235,9 @@ func TestOciRuntimeEnumerate_ParsesPsOutput(t *testing.T) {
 
 // TestOciRuntimeEnumerate_PropagatesRunFailure: a probeExec failure (daemon
 // down, timeout) must surface as an error, not as an empty/successful list —
-// ReapOrphanedContainers treats a nil result identically to "nothing to
-// reap", so silently swallowing a real failure here would look exactly like
-// an all-clear sweep.
+// FindOrphanedContainers treats a nil result identically to "no orphans",
+// so silently swallowing a real failure here would look exactly like an
+// all-clear.
 func TestOciRuntimeEnumerate_PropagatesRunFailure(t *testing.T) {
 	orig := probeExec
 	t.Cleanup(func() { probeExec = orig })

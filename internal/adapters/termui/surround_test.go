@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func newTestSurround(tty *bytes.Buffer, info BarInfo) *surround {
 	var mu sync.Mutex
-	return newSurround(&mu, tty, true, info)
+	return newSurround(fakeclock.New(), &mu, tty, true, info)
 }
 
 func TestSurround_EstablishSetsScrollRegionAndPaints(t *testing.T) {
@@ -182,30 +183,28 @@ func TestSurround_RosterRepaintWhenIdle(t *testing.T) {
 // after an overlay counts as a write, so a bar change right after an overlay
 // closed was lost this way.)
 func TestSurround_ADeferredPaintIsNotLostWhenTheEngineGoesIdle(t *testing.T) {
-	tty := &lockedBuffer{}
+	var tty bytes.Buffer
 	var mu sync.Mutex
-	s := newSurround(&mu, tty, true, BarInfo{Harp: "h"})
-	wrote := nowNanos()
+	clk := fakeclock.New()
+	s := newSurround(clk, &mu, &tty, true, BarInfo{Harp: "h"})
+	wrote := clk.Now().UnixNano()
 	s.lastEngineWrite = func() int64 { return wrote } // just wrote, then never again
 	s.SetSize(24, 80)
-	before := len(tty.String())
+	tty.Reset()
 	s.SetApprovals(0, time.Time{}, false)
 	s.SetNote("approval resolved (timed out)")
-	waitFor(t, "the deferred paint", func() bool {
-		return strings.Contains(tty.String()[before:], "approval resolved (timed out)")
-	})
+	require.NotContains(t, tty.String(), "approval resolved (timed out)", "the engine just wrote: the paint defers")
+
+	clk.Advance(s.engineBusyWindow)
+	assert.Contains(t, tty.String(), "approval resolved (timed out)",
+		"the busy window passing flushes the deferred paint with no further engine write")
 }
 
 func TestSurround_BusyEngineDefersToFlush(t *testing.T) {
 	var tty bytes.Buffer
 	s := newTestSurround(&tty, BarInfo{Harp: "h"})
-	now := int64(1_000_000_000)
-	restore := nowNanos
-	nowNanos = func() int64 { return now }
-	defer func() { nowNanos = restore }()
-
+	now := s.clock.Now().UnixNano()
 	s.lastEngineWrite = func() int64 { return now - 1 } // engine wrote 1ns ago: busy
-	s.engineBusyWindow = time.Hour                      // keep the idle-flush timer out of this test
 	s.SetSize(24, 80)
 	tty.Reset()
 
@@ -290,8 +289,9 @@ func TestSurround_ApprovalsBellRingsOnlyWhenAskedAndVisible(t *testing.T) {
 func TestSurround_ApprovalsPaintsCountAndOldestAge(t *testing.T) {
 	var tty bytes.Buffer
 	s := newTestSurround(&tty, BarInfo{Harp: "h"})
-	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	s.now = func() time.Time { return now }
+	clk := fakeclock.New()
+	s.clock = clk
+	now := clk.Now()
 	s.lastEngineWrite = func() int64 { return 0 } // engine idle forever
 	s.SetSize(24, 80)
 	tty.Reset()
@@ -300,7 +300,7 @@ func TestSurround_ApprovalsPaintsCountAndOldestAge(t *testing.T) {
 	assert.Contains(t, tty.String(), "⚑ 2 · oldest 01:15", "the painted bar carries the count and the oldest age")
 
 	tty.Reset()
-	now = now.Add(time.Second)
+	clk.Advance(time.Second)
 	s.RequestPaint()
 	assert.Contains(t, tty.String(), "⚑ 2 · oldest 01:16", "a repaint re-measures the age")
 

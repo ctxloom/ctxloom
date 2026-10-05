@@ -33,9 +33,10 @@ import (
 //   - every bar repaint begins at a parser-ground boundary.
 
 // ---------------------------------------------------------------------------
-// Harness: the real controller wiring over a scripted child, with the clock
-// frozen so "engine busy" is deterministic and roster repaints ride the
-// gate's chunk flush exactly as in production.
+// Harness: the real controller wiring over a scripted child, on a manual
+// clock: time moves only when the test advances it, so "engine busy" is
+// deterministic, roster repaints ride the gate's chunk flush exactly as in
+// production, and the idle flush fires on the test's own goroutine.
 // ---------------------------------------------------------------------------
 
 // barMarker is a bar-only token: PrefixHint "^]" renders "^] viewer" at the
@@ -43,24 +44,24 @@ import (
 const barMarker = "viewer"
 
 type tearHarness struct {
-	t     *testing.T
-	c     *Controller
-	tty   *lockedBuffer
-	emu   *vtemu.Screen
-	fed   int
-	now   *int64
-	clean func()
+	t   *testing.T
+	c   *Controller
+	tty *lockedBuffer
+	emu *vtemu.Screen
+	fed int
+	clk *fakeclock.Clock
 }
 
 func newTearHarness(t *testing.T, rows, cols int) *tearHarness {
 	t.Helper()
-	now := int64(1_000_000_000_000)
-	restoreNow := nowNanos
-	nowNanos = func() int64 { return now }
-
+	clk := fakeclock.New()
 	pr, pw := io.Pipe()
 	tty := &lockedBuffer{}
+	// The initial size is buffered before New, as watchResize does in
+	// production: the resize translator applies it synchronously, so the
+	// region and bar are on the tty when New returns.
 	src := make(chan *agent.WindowSize, 1)
+	src <- &agent.WindowSize{Rows: uint16(rows), Cols: uint16(cols)}
 	c := New(Options{
 		Stdin:    pr,
 		TTY:      tty,
@@ -75,41 +76,36 @@ func newTearHarness(t *testing.T, rows, cols int) *tearHarness {
 			PrefixHint: "^]",
 		},
 		NewOverlay: func(OverlayStart) Overlay { return newFakeOverlay() },
+		Clock:      clk,
 	})
-	src <- &agent.WindowSize{Rows: uint16(rows), Cols: uint16(cols)}
-	waitFor(t, "surround establish", func() bool {
-		return strings.Contains(tty.String(), fmt.Sprintf("\x1b[1;%dr", rows-1))
-	})
-	h := &tearHarness{t: t, c: c, tty: tty, emu: vtemu.New(rows, cols), now: &now}
-	h.clean = func() {
-		// Close first: it joins the goroutines that read nowNanos, so the
-		// seam is restored only once nothing can still be reading it.
+	require.Contains(t, tty.String(), fmt.Sprintf("\x1b[1;%dr", rows-1), "surround established by New")
+	h := &tearHarness{t: t, c: c, tty: tty, emu: vtemu.New(rows, cols), clk: clk}
+	t.Cleanup(func() {
 		c.Close()
 		_ = pw.Close()
 		close(src)
-		nowNanos = restoreNow
-	}
-	t.Cleanup(h.clean)
+	})
 	h.feed()
 	return h
 }
 
-// child writes one engine chunk; the frozen clock marks the engine busy so a
+// child writes one engine chunk; the unmoved clock marks the engine busy so a
 // pending roster repaint flushes at this chunk's boundary (production path).
 func (h *tearHarness) child(s string) {
 	_, err := h.c.Stdout().Write([]byte(s))
 	require.NoError(h.t, err)
 }
 
-// roster requests a bar repaint; with the clock frozen right after a child
-// write it always defers to the gate's next afterWrite flush.
+// roster requests a bar repaint; with the clock unmoved since a child write
+// it always defers to the gate's next afterWrite flush (or idle's).
 func (h *tearHarness) roster(state string) {
 	h.c.sur.SetRoster([]RosterEntry{{Harp: "sixth-royal-kelp", State: state, LastActivityUnix: 1}})
 }
 
-// idle advances the frozen clock past the busy window so the next repaint
-// request paints immediately (the RequestPaint fast path).
-func (h *tearHarness) idle() { *h.now += int64(time.Second) }
+// idle advances the clock past the busy window: a deferred repaint's idle
+// flush fires here, on the test goroutine, and the next repaint request paints
+// immediately (the RequestPaint fast path).
+func (h *tearHarness) idle() { h.clk.Advance(time.Second) }
 
 // feed replays the tty bytes written since the last call into the emulator.
 func (h *tearHarness) feed() {
@@ -269,30 +265,18 @@ func tail(s string, n int) string {
 // clock, and the flush can never run on a goroutine the test does not control
 // (an unowned timer reading the test's time is the data race this pins).
 func TestSurround_DeferredRepaintFlushesOnTheControllerClock(t *testing.T) {
-	clk := fakeclock.New()
-	tty := &lockedBuffer{}
-	src := make(chan *agent.WindowSize, 1)
-	src <- &agent.WindowSize{Rows: 24, Cols: 120}
-	pr, pw := io.Pipe()
-	c := New(Options{
-		Stdin: pr, TTY: tty, Resize: src, Prefix: testPrefix, Surround: true,
-		Bar:        BarInfo{Harp: "h", PrefixHint: "^]"},
-		NewOverlay: func(OverlayStart) Overlay { return newFakeOverlay() },
-		Clock:      clk,
-	})
-	t.Cleanup(func() { c.Close(); _ = pw.Close(); close(src) })
+	h := newTearHarness(t, 24, 120)
+	const digest = "sixth-royal-kelp→executing"
 
-	const digest = "kid→executing"
-	_, err := c.Stdout().Write([]byte("chld line\r\n")) // engine busy as of clk.Now
-	require.NoError(t, err)
-	armed := clk.Pending()
-	c.sur.SetRoster([]RosterEntry{{Harp: "kid", State: "executing"}})
-	require.Equal(t, armed+1, clk.Pending(),
+	h.child("chld line\r\n") // engine busy as of the clock's now
+	armed := h.clk.Pending()
+	h.roster("executing")
+	require.Equal(t, armed+1, h.clk.Pending(),
 		"the busy-deferred repaint must arm its idle flush on the controller's clock")
-	require.NotContains(t, tty.String(), digest, "a busy engine defers the repaint")
+	require.NotContains(t, h.tty.String(), digest, "a busy engine defers the repaint")
 
-	clk.Advance(time.Second)
-	assert.Contains(t, tty.String(), digest, "advancing the clock past the busy window flushes the deferred repaint")
+	h.idle()
+	assert.Contains(t, h.tty.String(), digest, "advancing the clock past the busy window flushes the deferred repaint")
 }
 
 // TestSurround_StressScriptedChildNoTearNoBleed hammers the wiring with a

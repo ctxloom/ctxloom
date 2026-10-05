@@ -393,5 +393,10 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "\x1b[?1049l") }, 5*time.Second, time.Millisecond, "modal released")
 	src.resolve("a", agent.DeciderTimeout)
 	src.settle()
+	// The release counts as engine output, so a note asked for right after it
+	// waits out the bar's engine-busy window — on the controller's clock,
+	// which only the test moves. A second is past that window and well inside
+	// timedOutNoteFor; the deferred repaint runs inside Advance.
+	clk.Advance(time.Second)
 	assert.Contains(t, tty.String(), timedOutNote, "nobody decided it: the bar says so")
 }

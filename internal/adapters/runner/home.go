@@ -40,6 +40,11 @@ type Home struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// target is the coordinator's grpc target; each RunChannel attempt dials
+	// a conn of its own to it (runChannelAttempt).
+	target string
+	// conn is the long-lived conn the artifact transfers ride. No channel
+	// loop uses it: see runChannelAttempt for why.
 	conn *grpc.ClientConn
 
 	mu     sync.Mutex
@@ -283,6 +288,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		rep:         report.To(cfg.Reporter),
 		ctx:         hctx,
 		cancel:      cancel,
+		target:      target,
 		conn:        conn,
 		ackCh:       make(chan struct{}),
 		redial:      make(chan struct{}),
@@ -402,15 +408,14 @@ func (h *Home) waitTracked() {
 // Redial asks both channel loops to redial NOW rather than at the end of
 // their backoff: the caller knows the endpoint is back (a coordinator
 // restarted on the recorded endpoint; a rebind), and the runner's
-// re-adoption should not cost it the backoff.
+// re-adoption should not cost it the backoff. Both loops dial a fresh conn
+// per attempt, so no grpc reconnect backoff outlives a failed attempt and
+// the kick alone is enough.
 func (h *Home) Redial() {
 	h.mu.Lock()
 	close(h.redial)
 	h.redial = make(chan struct{})
 	h.mu.Unlock()
-	// The run channel's conn keeps its own reconnect backoff; a kick that
-	// left it waiting would redial into a conn that fails fast.
-	h.conn.ResetConnectBackoff()
 }
 
 // redialWake is the pending kick: a channel closed and replaced by Redial,
@@ -648,13 +653,12 @@ func (h *Home) dialLink(within time.Duration) (*RunnerLink, func(), error) {
 // runChannelLoop keeps the RunChannel alive: Hello/HelloAck, reissue of
 // unacked events + outstanding requests, then the receive loop.
 func (h *Home) runChannelLoop() {
-	client := agentcoordpb.NewCoordinatorServiceClient(h.conn)
 	for {
 		if h.ctx.Err() != nil {
 			return
 		}
 		wake := h.redialWake()
-		if err := h.runChannelOnce(client); err != nil && h.ctx.Err() == nil {
+		if err := h.runChannelAttempt(); err != nil && h.ctx.Err() == nil {
 			h.rep.WarnOncef("run channel down (reconnecting): %v", err)
 		}
 		select {
@@ -664,6 +668,23 @@ func (h *Home) runChannelLoop() {
 			return
 		}
 	}
+}
+
+// runChannelAttempt runs one RunChannel attempt on a conn of its own, closed
+// when the attempt ends — as dialLink does for the lifecycle link. A conn
+// kept across attempts carries grpc's reconnect backoff into the next one,
+// and the only way to cut that backoff short, ClientConn.ResetConnectBackoff,
+// iterates the conn's subconn map after releasing the lock that guards it:
+// grpc's balancer goroutine creating a subconn meanwhile is a concurrent map
+// iteration and write, which the race detector reports and the Go runtime
+// may abort the process on.
+func (h *Home) runChannelAttempt() error {
+	conn, err := grpc.NewClient(h.target, coordDialOptions(h.cfg.Token)...)
+	if err != nil {
+		return fmt.Errorf("coord: dial coordinator %s: %w", h.target, err)
+	}
+	defer func() { _ = conn.Close() }()
+	return h.runChannelOnce(agentcoordpb.NewCoordinatorServiceClient(conn))
 }
 
 func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) error {

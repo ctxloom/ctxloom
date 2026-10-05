@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 	"github.com/ctxloom/ctxloom/internal/testsupport/vtemu"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -260,6 +261,38 @@ func tail(s string, n int) string {
 		return s
 	}
 	return s[len(s)-n:]
+}
+
+// TestSurround_DeferredRepaintFlushesOnTheControllerClock: a repaint deferred
+// because the engine just wrote is flushed by a timer on the controller's
+// Clock, not the wall clock — so a test drives that flush by advancing the
+// clock, and the flush can never run on a goroutine the test does not control
+// (an unowned timer reading the test's time is the data race this pins).
+func TestSurround_DeferredRepaintFlushesOnTheControllerClock(t *testing.T) {
+	clk := fakeclock.New()
+	tty := &lockedBuffer{}
+	src := make(chan *agent.WindowSize, 1)
+	src <- &agent.WindowSize{Rows: 24, Cols: 120}
+	pr, pw := io.Pipe()
+	c := New(Options{
+		Stdin: pr, TTY: tty, Resize: src, Prefix: testPrefix, Surround: true,
+		Bar:        BarInfo{Harp: "h", PrefixHint: "^]"},
+		NewOverlay: func(OverlayStart) Overlay { return newFakeOverlay() },
+		Clock:      clk,
+	})
+	t.Cleanup(func() { c.Close(); _ = pw.Close(); close(src) })
+
+	const digest = "kid→executing"
+	_, err := c.Stdout().Write([]byte("chld line\r\n")) // engine busy as of clk.Now
+	require.NoError(t, err)
+	armed := clk.Pending()
+	c.sur.SetRoster([]RosterEntry{{Harp: "kid", State: "executing"}})
+	require.Equal(t, armed+1, clk.Pending(),
+		"the busy-deferred repaint must arm its idle flush on the controller's clock")
+	require.NotContains(t, tty.String(), digest, "a busy engine defers the repaint")
+
+	clk.Advance(time.Second)
+	assert.Contains(t, tty.String(), digest, "advancing the clock past the busy window flushes the deferred repaint")
 }
 
 // TestSurround_StressScriptedChildNoTearNoBleed hammers the wiring with a

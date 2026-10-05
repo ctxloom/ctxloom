@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
+	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
 // captureStdout runs fn with os.Stdout redirected to a pipe and returns what

@@ -110,4 +110,3 @@ func TestFSVCS_ListItems_ReducesLayoutQualifiedNames(t *testing.T) {
 		"the layout segment must not survive into the listed name")
 	require.Contains(t, items, "foo", "an unsegmented bundle still lists")
 }
-

@@ -91,4 +91,3 @@ func stampLockState(cfg *config.Config, infos []*bundles.BundleInfo) {
 		info.RetractedReason = entry.RetractedReason
 	}
 }
-

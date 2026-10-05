@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	containerPruneYes   bool
+	containerPruneYes     bool
 	containerPruneMinAge  time.Duration
 	containerPruneRuntime string
 )

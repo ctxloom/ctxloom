@@ -154,7 +154,7 @@ func seedLocal(seeded map[string]*Bundle) Reader {
 		if b.Name == "" {
 			b.Name = ref
 		}
-		reads = append(reads, NewRead(ref, b, prov, tctx,
+		reads = append(reads, newRead(ref, b, prov, tctx,
 			SignatureFacts{Signature: SignatureNone, Signer: SignerNone}))
 	}
 	return staticReader{reads: reads}

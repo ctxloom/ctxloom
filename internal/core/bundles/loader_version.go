@@ -149,7 +149,7 @@ func versionRead(rep report.Reporter, canonical, commit string, b *Bundle) Bundl
 	if parsed, err := remote.ParseReference(canonical); err == nil && parsed.IsLocal {
 		tctx, prov = TrustCtxLocal, ProvenanceProject
 	}
-	return NewRead(canonical+"@"+commit, b, prov, tctx,
+	return newRead(canonical+"@"+commit, b, prov, tctx,
 		SignatureFacts{Signature: SignatureNone, Signer: SignerNone})
 }
 

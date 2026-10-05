@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // TestExtractHooksFromBundle_PreimageBuildFailure_IsReported pins U049-F17: a
@@ -31,7 +32,7 @@ func TestExtractHooksFromBundle_PreimageBuildFailure_IsReported(t *testing.T) {
 	}}
 
 	mark := strictness.Checkpoint()
-	got := extractHooksFromBundle(ledgerReporter(), bundles.NewRead("fixture", b, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}), mustLocalRef(t, "remote/tools"), recordingGate(nil), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(ledgerReporter(), bundletree.ProjectRead(t, "fixture", b, bundletree.Unsigned), mustLocalRef(t, "remote/tools"), recordingGate(nil), bundles.LinksUnchecked())
 
 	assert.Empty(t, got.PreTool, "fail-closed: a hook whose preimage cannot be built is withheld")
 
@@ -57,7 +58,7 @@ func TestExtractMCPFromBundle_PreimageBuildFailure_IsReported(t *testing.T) {
 	}}
 
 	mark := strictness.Checkpoint()
-	got := extractMCPFromBundle(ledgerReporter(), bundles.NewRead("fixture", b, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}), mustLocalRef(t, "remote/tools"), recordingGate(nil))
+	got := extractMCPFromBundle(ledgerReporter(), bundletree.ProjectRead(t, "fixture", b, bundletree.Unsigned), mustLocalRef(t, "remote/tools"), recordingGate(nil))
 
 	assert.Empty(t, got, "fail-closed: an MCP server whose preimage cannot be built is withheld")
 

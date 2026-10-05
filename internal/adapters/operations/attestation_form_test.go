@@ -158,7 +158,7 @@ func TestEffectiveTrust_ApprovingTextDoesNotApproveAnIdenticalExecutable(t *test
 	assert.False(t, records.Approved(mcpRef, execPayload, bundles.ContentForm(signing.FormRaw)),
 		"approving a fragment must NEVER satisfy an mcp gate over identical bytes")
 
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: mcpRef, Payload: execPayload, Form: string(signing.FormRaw), Records: records,
 		Posture: postureCtxOf(mcpRef), Provenance: postureProvOf(mcpRef),
 	})
@@ -286,7 +286,7 @@ func TestSupersededApproval_DoesNotVerifyButIsStillVisibleAsAPriorApproval(t *te
 	// STALE: the record no longer covers these bytes, so the item is withheld.
 	assert.False(t, records.Approved(ref, payload, bundles.ContentForm(signing.FormRaw)),
 		"a record framed under the superseded contract must not verify")
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: ref, Payload: payload, Form: string(signing.FormRaw), Records: records,
 		Posture: postureCtxOf(ref), Provenance: postureProvOf(ref),
 	})

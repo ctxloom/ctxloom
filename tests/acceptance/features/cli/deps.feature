@@ -139,7 +139,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom deps pull"
       When Alice pulls again with nothing new pinned:
         """
-        ctxloom deps pull
+        ctxloom deps pull --format text
         """
       Then the command succeeds
       And the output contains "Skipped (kept at their locked commit)"
@@ -160,7 +160,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the remote "origin" changes fragment "demo-frag" to "MARKER-SKIPPED-PULL-never-seen"
       When Alice pulls again while upstream has moved on:
         """
-        ctxloom deps pull
+        ctxloom deps pull --format text
         """
       Then the command succeeds
       And the output contains "Skipped (kept at their locked commit)"
@@ -189,7 +189,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the remote "origin" stops publishing bundle "demo"
       When Alice pulls after upstream deleted the bundle:
         """
-        ctxloom deps pull
+        ctxloom deps pull --format text
         """
       Then the command succeeds
       And the output contains "no longer published"
@@ -218,7 +218,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the remote "origin" becomes unreachable
       When Alice pulls while the remote is unreachable:
         """
-        ctxloom deps pull
+        ctxloom deps pull --format text
         """
       Then the output contains "could not be reached"
       And the output does not contain "no longer published"
@@ -261,7 +261,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
         """
       When Alice pulls with part of the closure unreachable:
         """
-        ctxloom deps pull
+        ctxloom deps pull --format text
         """
       Then the output contains "Lock incomplete"
       And the output contains "nonexistent-ctxloom-remote"
@@ -280,7 +280,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the remote "origin" becomes unreachable
       When Alice checks for updates while the remote is unreachable:
         """
-        ctxloom deps check
+        ctxloom deps check --format text
         """
       Then the output does not contain "up to date"
       And the output contains "could not be checked"
@@ -294,7 +294,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the remote "origin" becomes unreachable
       When Alice upgrades while the remote is unreachable:
         """
-        ctxloom deps upgrade
+        ctxloom deps upgrade --format text
         """
       Then the output does not contain "Everything is up to date"
       And the output contains "unreachable"
@@ -325,7 +325,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
 
     Scenario: Check on an empty closure has nothing to check
       Given an initialized ctxloom project
-      When I run "ctxloom deps check"
+      When I run "ctxloom deps check --format text"
       Then the command succeeds
       And the output contains "nothing to check"
 
@@ -338,7 +338,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the remote "origin" advances its bundle
       When Alice advances her pins to the newest commit:
         """
-        ctxloom deps upgrade
+        ctxloom deps upgrade --format text
         """
       Then the command succeeds
       And the output contains "Advanced"
@@ -356,7 +356,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And I run "ctxloom profile modify dev --remove-bundle other/demo"
       When Alice advances her pins to the newest commit:
         """
-        ctxloom deps upgrade
+        ctxloom deps upgrade --format text
         """
       Then the command succeeds
       And the output contains "from the lockfile: nothing this project composes depends on it any more."
@@ -397,7 +397,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And the remote "origin" advances its bundle
       When Alice tries to advance a held pin:
         """
-        ctxloom deps upgrade
+        ctxloom deps upgrade --format text
         """
       Then the command succeeds
       And the output contains "up to date"
@@ -445,7 +445,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
         ctxloom deps unhold origin/demo
         """
       Then the command succeeds
-      When I run "ctxloom deps upgrade"
+      When I run "ctxloom deps upgrade --format text"
       Then the command succeeds
       And the output contains "Advanced"
 

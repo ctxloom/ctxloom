@@ -74,7 +74,7 @@ func TestCountersignRecords_PersonalRejectBeatsProjectApprove(t *testing.T) {
 	assert.True(t, records.Rejected(ref, payload),
 		"a personal rejection in the user store must be found even though the project store approves")
 
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: ref, Payload: payload, Form: string(signing.FormRaw), Records: records,
 		Posture: postureCtxOf(ref), Provenance: postureProvOf(ref),
 	})
@@ -108,7 +108,7 @@ func TestCountersignRecords_ProjectRejectBeatsPersonalApprove(t *testing.T) {
 
 	records := countersign.NewRecords(userStore, projectStore, root, nil)
 
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: ref, Payload: payload, Form: string(signing.FormRaw), Records: records,
 		Posture: postureCtxOf(ref), Provenance: postureProvOf(ref),
 	})
@@ -138,7 +138,7 @@ func TestCountersignRecords_UntrustedKeyCountersigIsNotApproval(t *testing.T) {
 	require.NoError(t, fs.MkdirAll("/project-approvals", 0o755))
 	records := countersign.NewRecords(userStore, countersign.NewStore("/project-approvals", fs), root, nil)
 
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: ref, Payload: payload, Form: string(signing.FormRaw), Records: records,
 		Posture: postureCtxOf(ref), Provenance: postureProvOf(ref),
 	})

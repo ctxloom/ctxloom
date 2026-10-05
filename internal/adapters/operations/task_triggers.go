@@ -74,9 +74,8 @@ type EvaluateTriggersRequest struct {
 	// and cross-references other tasks).
 	RepoDir string
 
-	// LLMLabel is the config label to use for the batch call. Empty resolves
-	// to cfg.FastLabel() — trigger triage is a cheap batch judgment, not a
-	// coding task, so it defaults to the fast role rather than primary.
+	// LLMLabel is the config label to use for the batch call. Empty runs the
+	// batch as the triage agent (triageOneShot).
 	LLMLabel string
 
 	// MaxCommits caps how many commits are gathered per task. <=0 uses
@@ -294,7 +293,7 @@ func (ev *triggerEvaluation) triageMisses(ctx context.Context, f LaunchFacts, cf
 	// escalation round are turns on it.
 	run := req.Run
 	if run == nil {
-		triage, err := OneShot(f, req.Hosts, cfg).Label(triageLabel(req, cfg)).WorkDir(req.RepoDir).Start(ctx)
+		triage, err := triageOneShot(f, req, cfg).Start(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("start triage: %w", err)
 		}
@@ -347,13 +346,12 @@ func (ev *triggerEvaluation) triageMisses(ctx context.Context, f LaunchFacts, cf
 	return fresh, nil
 }
 
-// triageLabel is the model label the triage session runs on: the request's,
-// else the configured fast label.
-func triageLabel(req EvaluateTriggersRequest, cfg *config.Config) string {
-	if req.LLMLabel != "" {
-		return req.LLMLabel
-	}
-	return cfg.FastLabel()
+// triageOneShot is the one-shot the triage session runs on: as the triage
+// agent, or on the request's label when it names one.
+func triageOneShot(f LaunchFacts, req EvaluateTriggersRequest, cfg *config.Config) *OneShotBuilder {
+	b := OneShot(f, req.Hosts, cfg).Label(req.LLMLabel).WorkDir(req.RepoDir)
+	b.role = triageAgent
+	return b
 }
 
 // mergeChunkResults flattens the round-1 chunk results, records the

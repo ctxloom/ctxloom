@@ -13,10 +13,9 @@ import (
 // had already been committed or aborted.
 var ErrAtomicFileDone = errors.New("atomic file already committed or aborted")
 
-// AtomicFile is WriteFile for a writer that produces its bytes incrementally,
-// or hands a path to code that writes by path (see TempPath). NewAtomicFile
-// creates the unique temp file, Write appends to it, Commit installs it
-// exactly as WriteFile does — through the same guard and, with Durable(), the
+// AtomicFile is WriteFile for a writer that produces its bytes incrementally.
+// NewAtomicFile creates the unique temp file, Write appends to it, Commit
+// installs it exactly as WriteFile does — through the same guard and, with Durable(), the
 // same durability decorator — and Abort discards it without touching path.
 //
 // One AtomicFile is used once: a write after Commit or Abort, and a second
@@ -39,14 +38,6 @@ func NewAtomicFile(fs afero.Fs, path string, perm os.FileMode, opts ...Option) (
 		return nil, fmt.Errorf("atomic file %s: create temp file in %s: %w", path, dir, err)
 	}
 	return &AtomicFile{base: base, top: top, path: path, perm: perm, tmp: tmp}, nil
-}
-
-// TempPath is the temp file's path, for a caller that must hand a path to
-// code that writes by path rather than through an io.Writer. Bytes written
-// there are still judged by Commit: the guard stats the temp file itself.
-// Valid only before Commit or Abort.
-func (a *AtomicFile) TempPath() string {
-	return a.tmp.Name()
 }
 
 // Write appends p to the temp file.

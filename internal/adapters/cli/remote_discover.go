@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -40,14 +41,12 @@ func runRemoteDiscoverCmd(cmd *cobra.Command, args []string) error {
 	return runRemoteDiscover(cmd, args, GetConfig, nil)
 }
 
-// runRemoteDiscover searches for discoverable ctxloom repositories and offers
-// to add one interactively. Extracted from discoverCmd's inline RunE so the
-// total-search-failure fix below has a regression test that doesn't need a
-// live cobra dispatch or network access — mirrors runRemoteUpgrade's
-// injected-loadConfig shape (remote_upgrade.go).
-// fetcher is nil in production (operations.DiscoverRemotes falls back to the
-// real GitHub fetcher); tests inject a remote.MockFetcher to force
-// SearchRepos to fail deterministically.
+// runRemoteDiscover searches for discoverable ctxloom repositories, emits the
+// result, and — in text mode on an interactive terminal only — offers to add
+// one. loadConfig and fetcher are injected so the search's failure and result
+// paths are testable without a cobra dispatch or a network; fetcher is nil in
+// production (operations.DiscoverRemotes falls back to the real GitHub
+// fetcher).
 func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*config.Config, error), fetcher remote.Fetcher) error {
 	cfg, err := loadConfig()
 	if err != nil {
@@ -59,7 +58,9 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 		query = strings.Join(args, " ")
 	}
 
-	fmt.Printf("Searching repositories...")
+	// Progress is a diagnostic, never part of the result: stderr.
+	progress := cmd.ErrOrStderr()
+	fmt.Fprint(progress, "Searching repositories...")
 
 	result, err := operations.DiscoverRemotes(cmd.Context(), cfg, operations.DiscoverRemotesRequest{
 		Query:         query,
@@ -72,65 +73,64 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 		// The progress line above is deliberately newline-less so the result
 		// count can be appended to it. Nothing appends on this path, so close
 		// it here — otherwise the error prints as a continuation of it.
-		fmt.Println()
+		fmt.Fprintln(progress)
 		return err
 	}
 
-	fmt.Printf(" found %d\n", result.Count)
+	fmt.Fprintf(progress, " found %d\n", result.Count)
 
-	// Print errors
 	for _, errMsg := range result.Errors {
 		clidiag.Warn("ctxloom", "%s", errMsg)
 	}
 
-	if result.Count == 0 {
-		// A total search failure (every configured source errored — today
-		// that is the sole GitHub fetcher, so any Error here means the WHOLE
-		// search failed) used to print the exact same "No ctxloom
-		// repositories found" a genuinely-empty, successful search prints.
-		// The warnings above already named the failure; the terminal line
-		// must not still claim a clean search.
-		if len(result.Errors) > 0 {
-			return fmt.Errorf("repository search failed (see warning(s) above); no results could be retrieved")
-		}
-		fmt.Println("\nNo ctxloom repositories found.")
-		if query != "" {
-			fmt.Printf("Try a different search term or remove the filter.\n")
-		}
-		return nil
+	// A total search failure (every configured source errored — today that is
+	// the sole GitHub fetcher, so any Error here means the WHOLE search failed)
+	// is not an empty result: there is no result to emit, and an empty one
+	// would claim a clean search.
+	if result.Count == 0 && len(result.Errors) > 0 {
+		return fmt.Errorf("repository search failed (see warning(s) above); no results could be retrieved")
 	}
 
-	// Display results
-	fmt.Println()
-	fmt.Printf("  # │ Forge  │ Repository          │ Stars │ Description\n")
-	fmt.Printf("────┼────────┼─────────────────────┼───────┼─────────────────────────────────────\n")
+	return emit(cmd, result, func() error {
+		out := cmd.OutOrStdout()
+		if result.Count == 0 {
+			fmt.Fprintln(out, "No ctxloom repositories found.")
+			if query != "" {
+				fmt.Fprintln(out, "Try a different search term or remove the filter.")
+			}
+			return nil
+		}
+		renderDiscoveredRepos(out, result.Repositories)
 
-	for i, r := range result.Repositories {
+		// The add-loop is a prompt/answer conversation, so it is only offered
+		// on a terminal — off one it would write a question nobody can answer
+		// into the caller's own output and then quit on the resulting EOF. Say
+		// how to get it rather than skipping silently.
+		if !isInteractiveTerminal() {
+			fmt.Fprintln(out, "Run 'ctxloom remote discover' in a terminal to add one of these interactively,")
+			fmt.Fprintln(out, "or add it directly: ctxloom remote create <name> <url>")
+			return nil
+		}
+		return interactiveAdd(cmd, cfg, result.Repositories)
+	})
+}
+
+// renderDiscoveredRepos is the human table of a non-empty discovery.
+func renderDiscoveredRepos(out io.Writer, repos []operations.RepoEntry) {
+	fmt.Fprintf(out, "  # │ Forge  │ Repository          │ Stars │ Description\n")
+	fmt.Fprintf(out, "────┼────────┼─────────────────────┼───────┼─────────────────────────────────────\n")
+
+	for i, r := range repos {
 		// Honest column widths (35, 19): Ellipsize reserves the ellipsis from
 		// the budget, so the call site carries no magic -3.
 		desc := textutil.Ellipsize(r.Description, 35)
 		repoName := textutil.Ellipsize(fmt.Sprintf("%s/%s", r.Owner, r.Name), 19)
 
-		fmt.Printf("%3d │ %-6s │ %-19s │ %5d │ %s\n",
+		fmt.Fprintf(out, "%3d │ %-6s │ %-19s │ %5d │ %s\n",
 			i+1, "GitHub", repoName, r.Stars, desc)
 	}
 
-	fmt.Println()
-
-	// The add-loop is a prompt/answer conversation, so it is only offered on a
-	// terminal — off one it would write a question nobody can answer into the
-	// caller's own output and then quit on the resulting EOF. Say how to get
-	// it rather than skipping silently.
-	if !isInteractiveTerminal() {
-		fmt.Println("Run 'ctxloom remote discover' in a terminal to add one of these interactively,")
-		fmt.Println("or add it directly: ctxloom remote create <name> <url>")
-		return nil
-	}
-	if err := interactiveAdd(cmd, cfg, result.Repositories); err != nil {
-		return err
-	}
-
-	return nil
+	fmt.Fprintln(out)
 }
 
 // interactiveAdd prompts the user to add a discovered repo as a remote. It

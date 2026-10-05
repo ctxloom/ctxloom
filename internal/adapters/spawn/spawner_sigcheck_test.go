@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // Owner ruling 2026-10-02 (corrected the same day): an agent DELEGATED from a
@@ -66,8 +67,9 @@ func unsignedRemoteExecutable(t *testing.T) bundles.Exposure {
 	br, err := trust.ParseBundleRef("ctxloom+git://github.com/acme/repo//bundles/tools#prompts/deploy")
 	require.NoError(t, err)
 	return bundles.Exposure{
-		Read: bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
-			bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}),
+		Read: bundletree.RemoteRead(t, "https://github.com/acme/repo@bundles/tools", &bundles.Bundle{
+			Commands: map[string]bundles.BundleCommand{"deploy": {ItemBody: bundles.ItemBody{Content: "echo deploy"}}},
+		}, bundletree.Unsigned),
 		BundleRef: br, Bytes: []byte("#!/bin/sh\necho deploy\n"), Form: bundles.FormRaw,
 	}
 }

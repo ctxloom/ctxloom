@@ -38,6 +38,13 @@ func writeLinkedBundleFixture(t *testing.T) *Config {
 		[]byte("bundles:\n  - linked\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "without.yaml"),
 		[]byte("bundles:\n  - linked\nexclude_mcp:\n  - think\n"), 0644))
+	// The skill packages exist before the tree is written: the writer reads
+	// each skill's files from where they sit.
+	require.NoError(t, os.MkdirAll(filepath.Join(bundlesDir, "linked", "skills", "free"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: reason\ndescription: Drives the think server.\n---\n\nUse think.\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "linked", "skills", "free", "SKILL.md"),
+		[]byte("---\nname: free\ndescription: Needs nothing.\n---\n\nBody.\n"), 0644))
 	bundletree.WriteOS(t, bundlesDir, "linked", `version: "1.0"
 mcp:
   think:
@@ -58,11 +65,6 @@ hooks:
   pre_tool:
     - command: free-guard
 `)
-	require.NoError(t, os.MkdirAll(filepath.Join(bundlesDir, "linked", "skills", "free"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
-		[]byte("---\nname: reason\ndescription: Drives the think server.\n---\n\nUse think.\n"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "linked", "skills", "free", "SKILL.md"),
-		[]byte("---\nname: free\ndescription: Needs nothing.\n---\n\nBody.\n"), 0644))
 
 	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"with"}}},
@@ -94,7 +96,6 @@ func commandNames(t *testing.T, cfg *Config, profiles []string) []string {
 // selected profiles — so a profile that vetoes the server withholds the skill
 // and command linked to it, and a profile that grants it delivers them.
 func TestConfig_LinkGrant_FollowsTheRunsGrantedMCPSet(t *testing.T) {
-	t.Skip("unexpressible: a bundle is a tree, and the tree's MCP and hook sidecars carry no tags, so neither can declare ctxloom:link_id — raised with the human (unruly-frostbite) as a tree-format decision")
 	cfg := writeLinkedBundleFixture(t)
 
 	require.Contains(t, cfg.ResolveBundleMCPServers([]string{"with"}), "think")
@@ -122,7 +123,6 @@ func hookCommands(hooks []wire.Hook) []string {
 // exactly when the server it is linked to is granted, and the unlinked hook
 // beside it is never collateral.
 func TestConfig_ResolveBundleHooks_LinkedHookFollowsTheRunsGrantedMCPSet(t *testing.T) {
-	t.Skip("unexpressible: a bundle is a tree, and the tree's MCP and hook sidecars carry no tags, so neither can declare ctxloom:link_id — raised with the human (unruly-frostbite) as a tree-format decision")
 	cfg := writeLinkedBundleFixture(t)
 
 	require.Contains(t, cfg.ResolveBundleMCPServers([]string{"with"}), "think")
@@ -143,14 +143,10 @@ func TestConfig_ResolveBundleHooks_LinkedHookFollowsTheRunsGrantedMCPSet(t *test
 // spelled bundles.LinksUnchecked, out loud.
 func TestExtractHooksFromBundle_NilLinkGrantWithholdsLinkedHooksOnly(t *testing.T) {
 	link := []string{"ctxloom:link_id=think"}
-	b := &bundles.Bundle{
-		MCP: map[string]bundles.BundleMCP{"think": {Command: "think-server", Tags: link}},
-		Hooks: bundles.BundleHooks{
-			SessionStart: []bundles.BundleHook{{Command: "think-warmup", Tags: link}},
-			PreTool:      []bundles.BundleHook{{Command: "free-guard"}},
-		},
-	}
-	read := bundles.NewRead("fixture", b, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
+	read := readWithHooks(t, bundles.BundleHooks{
+		SessionStart: []bundles.BundleHook{{Command: "think-warmup", Tags: link}},
+		PreTool:      []bundles.BundleHook{{Command: "free-guard"}},
+	})
 
 	got := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), admitall.Authorizer(), nil)
 	assert.Empty(t, hookCommands(got.SessionStart))
@@ -166,7 +162,6 @@ func TestExtractHooksFromBundle_NilLinkGrantWithholdsLinkedHooksOnly(t *testing.
 // for the loser's, so the loser's linked command is withheld even though a
 // server called `think` is in the granted set.
 func TestConfig_LinkGrant_RequiresTheOwningBundlesServer(t *testing.T) {
-	t.Skip("unexpressible: a bundle is a tree, and the tree's MCP and hook sidecars carry no tags, so neither can declare ctxloom:link_id — raised with the human (unruly-frostbite) as a tree-format decision")
 	resetStrictness(t)
 	linked := `version: "1.0"
 mcp:

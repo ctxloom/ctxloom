@@ -407,7 +407,7 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+			res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 				Ref:        tt.ref,
 				Posture:    postureCtxOf(tt.ref),
 				Provenance: postureProvOf(tt.ref),
@@ -436,7 +436,7 @@ func TestEffectiveTrust_DefaultRecords_NothingApprovedOrRejected(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
 	provisionApprovals(t, fs, ProjectAppDir(nil))
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref:        trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
 		Posture:    postureCtxOf(trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"}),
 		Provenance: postureProvOf(trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"}),
@@ -538,12 +538,12 @@ func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
 	// The approval must make the unsigned remote executable resolve ALLOW for
 	// the exact approved bytes, and only those bytes.
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"}
-	got, err := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: seededMCPPayload(), Form: rawForm, Records: fx.records()})
+	got, err := EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: tref, Payload: seededMCPPayload(), Form: rawForm, Records: fx.records()})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Allow, got.Decision)
 	assert.Equal(t, trust.SourceAccepted, got.Source)
 
-	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("other"), Form: rawForm, Records: fx.records()})
+	got, _ = EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("other"), Form: rawForm, Records: fx.records()})
 	assert.Equal(t, trust.Deny, got.Decision)
 }
 
@@ -565,7 +565,7 @@ func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
 	// Before review: an unsigned remote skill is pending, exactly like an
 	// unsigned remote command/fragment/mcp (mirrors "unsigned remote item is
 	// NOT trusted (pending)" in TestEffectiveTrust_Cascade).
-	before, err := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: skillPayload, Form: rawForm, Records: fx.records()})
+	before, err := EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: tref, Payload: skillPayload, Form: rawForm, Records: fx.records()})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, before.Decision)
 	assert.Equal(t, trust.SourcePending, before.Source)
@@ -584,7 +584,7 @@ func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
 
 	// After review+accept: the exact approved manifest bytes now resolve
 	// ALLOW.
-	got, err := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: skillPayload, Form: rawForm, Records: fx.records()})
+	got, err := EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: tref, Payload: skillPayload, Form: rawForm, Records: fx.records()})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Allow, got.Decision)
 	assert.Equal(t, trust.SourceAccepted, got.Source)
@@ -592,13 +592,13 @@ func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
 	// A DIFFERENT, never-reviewed skill in the same bundle stays pending —
 	// approving one skill must not launder any other.
 	other := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindSkill, Name: "unreviewed"}
-	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: other, Payload: pbytes("other skill body"), Form: rawForm, Records: fx.records()})
+	got, _ = EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: other, Payload: pbytes("other skill body"), Form: rawForm, Records: fx.records()})
 	assert.Equal(t, trust.Deny, got.Decision)
 	assert.Equal(t, trust.SourcePending, got.Source)
 
 	// A CHANGED manifest for the same ref (e.g. a script edited after review)
 	// also reverts to pending — editing any file re-triggers review.
-	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("tampered manifest"), Form: rawForm, Records: fx.records()})
+	got, _ = EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("tampered manifest"), Form: rawForm, Records: fx.records()})
 	assert.Equal(t, trust.Deny, got.Decision)
 	assert.Equal(t, trust.SourcePending, got.Source)
 }
@@ -627,7 +627,7 @@ func TestSetItemTrust_ApprovesBothForms(t *testing.T) {
 	rawPayload, _ := frag.ContentPayload(false)
 	distilledPayload, _ := frag.ContentPayload(true)
 	for form, payload := range map[string][]byte{rawForm: rawPayload, distilledForm: distilledPayload} {
-		got, _ := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: payload, Form: form, Records: fx.records()})
+		got, _ := EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: tref, Payload: payload, Form: form, Records: fx.records()})
 		if got.Decision != trust.Allow || got.Source != trust.SourceAccepted {
 			t.Errorf("form %s resolve = {%s,%s}, want {allow, accepted}", form, got.Decision, got.Source)
 		}
@@ -649,18 +649,18 @@ func TestSetBlacklist_WritesBothComponents(t *testing.T) {
 	rejectedPayload := fragmentBytes("always raw fragment body")
 
 	// Same bytes → denied via the rejected step, even from a TRUSTED publisher.
-	got, _ := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: rejectedPayload, Form: rawForm, Signer: trustedPublisher, Records: fx.records()})
+	got, _ := EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: tref, Payload: rejectedPayload, Form: rawForm, Signer: trustedPublisher, Records: fx.records()})
 	assert.Equal(t, trust.Deny, got.Decision)
 	assert.Equal(t, trust.SourceRejected, got.Source)
 
 	// Changed bytes → still denied via the sticky ref-level rejection.
-	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("changed"), Form: rawForm, Signer: trustedPublisher, Records: fx.records()})
+	got, _ = EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("changed"), Form: rawForm, Signer: trustedPublisher, Records: fx.records()})
 	assert.Equal(t, trust.Deny, got.Decision)
 	assert.Equal(t, trust.SourceRejected, got.Source)
 
 	// A renamed identical copy (different ref, same content) stays rejected.
 	renamed := trust.Ref{RepoURL: trustRepo, Bundle: "other", Kind: trust.KindFragment, Name: "clone"}
-	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: renamed, Payload: rejectedPayload, Form: rawForm, Signer: trustedPublisher, Records: fx.records()})
+	got, _ = EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: renamed, Payload: rejectedPayload, Form: rawForm, Signer: trustedPublisher, Records: fx.records()})
 	assert.Equal(t, trust.Deny, got.Decision)
 	assert.Equal(t, trust.SourceRejected, got.Source)
 }
@@ -812,7 +812,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 	payload := pbytes("ltk-fragment-body")
 
 	t.Run("unsigned companion content is ALLOWED as companion — installed is the consent act", func(t *testing.T) {
-		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+		res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
 			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records: fakeRecords{},
@@ -824,7 +824,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 	})
 
 	t.Run("a signed companion is allowed at the COMPANION step, above trusted-signer", func(t *testing.T) {
-		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+		res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: trustedPublisher,
 			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records: fakeRecords{},
@@ -838,7 +838,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 	})
 
 	t.Run("REJECTION still reaches companion content, ahead of the exemption", func(t *testing.T) {
-		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+		res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
 			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool {
@@ -852,7 +852,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 	})
 
 	t.Run("a rejection of the companion ref still wins over a trusted signer", func(t *testing.T) {
-		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+		res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: trustedPublisher,
 			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool {
@@ -865,7 +865,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 	})
 
 	t.Run("an unreadable approvals store denies companion content too", func(t *testing.T) {
-		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+		res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
 			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records: unreadableRecords{},
@@ -888,7 +888,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 		// different: a rejection CAN cover companion content, so that gate
 		// stays fail-closed for it.
 		assert.NotEmpty(t, tref.RepoURL, "a companion ref carries the fixed token as its RepoURL")
-		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+		res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
 			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records:    fakeRecords{},
@@ -931,7 +931,7 @@ func TestEffectiveTrust_LocalExemptionSitsBelowRetraction(t *testing.T) {
 	assert.Empty(t, localRef.RepoURL,
 		"a local ref has no remote lockfile entry, so the production retraction store answers false for it — that scoping, not cascade position, is why a local item is never retracted")
 
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref:        localRef,
 		Posture:    postureCtxOf(localRef),
 		Provenance: postureProvOf(localRef),

@@ -478,7 +478,7 @@ func TestExtractMCPFromBundle(t *testing.T) {
 		},
 	}
 
-	result := extractMCPFromBundle(report.Reporter{}, bundles.NewRead("fixture", bundle, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}), mustLocalRef(t, "my-bundle"), admitall.Authorizer())
+	result := extractMCPFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", bundle, bundletree.Unsigned), mustLocalRef(t, "my-bundle"), admitall.Authorizer())
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -1097,48 +1097,6 @@ func TestPrimaryLabelModel(t *testing.T) {
 	})
 }
 
-func TestGetCompactionLLM(t *testing.T) {
-	t.Run("returns the fast role's backend", func(t *testing.T) {
-		cfg := &Config{lm: LMConfig{
-			Configs:  map[string]LLMConfig{"f": {Type: "mock"}},
-			Defaults: RoleDefaults{Fast: "f"},
-		}}
-		assert.Equal(t, "mock", cfg.GetCompactionLLM())
-	})
-
-	t.Run("falls back to the primary role when no fast role", func(t *testing.T) {
-		cfg := &Config{lm: LMConfig{
-			Configs:  map[string]LLMConfig{"p": {Type: "claude-code"}},
-			Defaults: RoleDefaults{Primary: "p"},
-		}}
-		assert.Equal(t, "claude-code", cfg.GetCompactionLLM())
-	})
-
-	t.Run("falls back to the bound default engine", func(t *testing.T) {
-		cfg := &Config{defaultEngine: "fixture-default"}
-		assert.Equal(t, "fixture-default", cfg.GetCompactionLLM())
-	})
-}
-
-func TestGetCompactionModel(t *testing.T) {
-	t.Run("returns the fast role's model", func(t *testing.T) {
-		cfg := &Config{lm: LMConfig{
-			Configs:  map[string]LLMConfig{"f": {Type: "claude-code", Body: map[string]interface{}{"model": "haiku"}}},
-			Defaults: RoleDefaults{Fast: "f"},
-		}}
-		assert.Equal(t, "haiku", cfg.GetCompactionModel())
-	})
-
-	t.Run("empty when the fast label has no model", func(t *testing.T) {
-		// No model named on the fast label → empty, so the backend supplies its own.
-		cfg := &Config{lm: LMConfig{
-			Configs:  map[string]LLMConfig{"f": {Type: "claude-code"}},
-			Defaults: RoleDefaults{Fast: "f"},
-		}}
-		assert.Equal(t, "", cfg.GetCompactionModel())
-	})
-}
-
 // =============================================================================
 // SyncConfig Tests
 // =============================================================================
@@ -1306,8 +1264,9 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "big", loaded.ToFixture().LM.Defaults.Primary)
 	assert.Equal(t, "fast", loaded.ToFixture().LM.Defaults.Fast)
-	assert.Equal(t, "mock", loaded.GetCompactionLLM())
-	assert.Equal(t, "haiku", loaded.GetCompactionModel())
+	fastBackend, fastModel := loaded.ResolveLLM(loaded.FastLabel())
+	assert.Equal(t, "mock", fastBackend)
+	assert.Equal(t, "haiku", fastModel)
 	assert.Equal(t, 4096, loaded.GetEssenceMaxChars())
 	assert.Equal(t, "vim", loaded.ToFixture().Editor.Command)
 	assert.Equal(t, []string{"-p"}, loaded.ToFixture().Editor.Args)

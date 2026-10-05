@@ -85,10 +85,10 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Distillation runs on its own labeled config, independent of the primary
-	// role, so a project can pair (say) a cheap label for distill with a
-	// stronger one for coding. The --llm flag names a config label; otherwise
-	// newLLMDistiller selects the fast role's label.
+	// Distillation runs as its own agent, independent of the primary role,
+	// so a project can pair (say) a cheap engine for distill with a stronger
+	// one for coding. The --llm flag names a config label; otherwise
+	// newLLMDistiller runs as the distiller agent.
 	label, err := distillLabel(cfg)
 	if err != nil {
 		return err
@@ -144,7 +144,7 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 }
 
 // distillLabel is the --llm label, validated, or "" for newLLMDistiller to
-// select the fast role's label.
+// run as the distiller agent.
 func distillLabel(cfg *config.Config) (string, error) {
 	if bundleDistillLLM == "" {
 		return "", nil
@@ -642,5 +642,5 @@ func stripCodeFence(content string) string {
 func registerBundleDistillFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVarP(&bundleDistillForce, "force", "f", false, "Re-distill even if unchanged")
 	cmd.Flags().BoolVarP(&bundleDistillDryRun, "dry-run", "n", false, "Preview what would be distilled")
-	cmd.Flags().StringVarP(&bundleDistillLLM, "llm", "l", "", "llm.configs label to distill with (e.g. claude-fast); overrides the fast role's configured label")
+	cmd.Flags().StringVarP(&bundleDistillLLM, "llm", "l", "", "llm.configs label to distill with (e.g. claude-fast); overrides the distiller agent")
 }

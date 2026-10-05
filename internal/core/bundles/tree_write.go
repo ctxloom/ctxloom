@@ -44,9 +44,31 @@ func TreeMCP(name string, m BundleMCP) content.MCP {
 		Command:      m.Command,
 		Args:         m.Args,
 		Env:          m.Env,
+		URL:          m.URL,
+		Headers:      m.Headers,
 		ServedBy:     m.ServedBy,
+		Tags:         m.Tags,
 		Notes:        m.Notes,
 		Installation: m.Installation,
+	}
+}
+
+// TreeHook is a hook's tree surface: the inverse of finishHooks for one hook
+// of event, identified by name.
+func TreeHook(event, name string, h BundleHook) content.Hook {
+	return content.Hook{
+		Event:           event,
+		Name:            name,
+		Order:           h.Order,
+		Matcher:         h.Matcher,
+		Type:            h.Type,
+		Command:         h.Command,
+		Args:            h.Args,
+		Prompt:          h.Prompt,
+		Timeout:         h.Timeout,
+		Async:           h.Async,
+		PreToolFallback: h.PreToolFallback,
+		Tags:            h.Tags,
 	}
 }
 

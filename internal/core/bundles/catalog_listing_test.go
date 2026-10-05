@@ -92,8 +92,8 @@ func twoBundlesOneDisplayName(t *testing.T) Catalog {
 
 	unsigned := SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
 	return Resolve(context.Background(), nil, staticReader{reads: []BundleRead{
-		NewRead("isolation", localBundle, ProvenanceProject, TrustCtxLocal, unsigned),
-		NewRead("isolation", companionBundle, ProvenanceCompanion, TrustCtxLocal, unsigned),
+		newRead("isolation", localBundle, ProvenanceProject, TrustCtxLocal, unsigned),
+		newRead("isolation", companionBundle, ProvenanceCompanion, TrustCtxLocal, unsigned),
 	}})
 }
 

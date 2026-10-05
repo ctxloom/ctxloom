@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // The rows the decision table keys on the READ for, decided by the production
@@ -208,9 +209,9 @@ func TestAuthorizer_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 		read bundles.BundleRead
 	}{
 		{"local", trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "keeper", IsLocal: true},
-			bundles.NewRead("kit", authorizerBundle(), bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})},
+			readOf(t, seedLoader(t, map[string]*bundles.Bundle{"kit": authorizerBundle()}), "kit")},
 		{"companion", trust.Ref{RepoURL: "ctxloom:companion", Bundle: "ltk", Kind: trust.KindFragment, Name: "keeper", IsCompanion: true},
-			companionLikeRead(t)},
+			companionRead(t, "ltk")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -233,11 +234,19 @@ func TestAuthorizer_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 	}
 }
 
-func companionLikeRead(t *testing.T) bundles.BundleRead {
+// companionRead is the read the companion reader establishes for bin's
+// loadout, carrying authorizerBundle's keeper fragment.
+func companionRead(t *testing.T, bin string) bundles.BundleRead {
 	t.Helper()
-	read := bundles.NewRead("ltk", authorizerBundle(), bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
-	read.Provenance = bundles.ProvenanceCompanion
-	return read
+	reads, err := bundles.NewCompanionReader(func(context.Context) (bundles.CompanionProbe, error) {
+		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{{
+			Bin: bin, Path: "/fake/" + bin,
+			Document: testsupport.RunLoadout("version: 1.0.0\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n"),
+		}}}, nil
+	}).Read(context.Background())
+	require.NoError(t, err)
+	require.Len(t, reads, 1)
+	return reads[0]
 }
 
 // --- companion: an unverifiable signature REPORTS, it does not withhold -----
@@ -313,7 +322,7 @@ func staleLocalRead(t *testing.T, name string) bundles.BundleRead {
 		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: "KEEPER-PAYLOAD"}}))
 	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(name), bundles.DirectoryFormManifest,
 		[]byte("version: 1.0.0\n")))
-	signer, root, _ := seedSigner(t, "author@example.test")
+	signer, root, _ := bundletree.PublisherKey(t, "author@example.test")
 	tree, err := st.Open(context.Background(), content.BundleID(name))
 	require.NoError(t, err)
 	require.NoError(t, attest.SignBundle(context.Background(), st, tree, treeRelease(t, tree), signer))
@@ -358,7 +367,7 @@ func TestAuthorizer_UnclaimedReadWithholds(t *testing.T) {
 func TestEffectiveTrust_UnsetPostureWithholds(t *testing.T) {
 	ref := trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "keeper", IsLocal: true}
 
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: ref, Payload: pbytes("x"), Form: rawForm, Records: fakeRecords{},
 		// Posture and Provenance deliberately left zero.
 	})
@@ -374,7 +383,7 @@ func TestEffectiveTrust_UnsetPostureWithholds(t *testing.T) {
 func TestEffectiveTrust_ContradictoryPostureWithholds(t *testing.T) {
 	ref := trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "keeper", IsLocal: true}
 
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: ref, Payload: pbytes("x"), Form: rawForm, Records: fakeRecords{},
 		Posture: bundles.TrustCtxLocal, Provenance: bundles.ProvenanceRemote,
 	})

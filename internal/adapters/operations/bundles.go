@@ -1024,7 +1024,7 @@ func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath
 		return "", ambiguousRemoteError(all)
 	}
 
-	return "", fmt.Errorf("no remote configured: add one with `ctxloom remote add`")
+	return "", fmt.Errorf("no remote configured: add one with `ctxloom remote create`")
 }
 
 // remoteFromCachePath resolves the remote from a path under one layout's cache

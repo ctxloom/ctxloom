@@ -12,9 +12,23 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/testsupport/admitall"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 func hookOrderP(v int) *int { return &v }
+
+// readWithHooks is a project read the production reader established, carrying
+// exactly hooks. It is for the hook shapes a tree cannot express — a hook that
+// declares no order, an authored position that disagrees with the declared
+// order, a link tag — because a tree gives every hook an order, reads them
+// back in that order, and carries no hook tags; extraction's own handling of
+// those shapes is tested on the hooks themselves, under real read facts.
+func readWithHooks(t *testing.T, hooks bundles.BundleHooks) bundles.BundleRead {
+	t.Helper()
+	read := bundletree.ProjectRead(t, "fixture", &bundles.Bundle{}, bundletree.Unsigned)
+	read.Bundle.Hooks = hooks
+	return read
+}
 
 // TestExtractHooksFromBundle_OrderFieldSequencesWithinAnEvent is what stops
 // BundleHook.Order from being a field nobody reads — the exact failure that got
@@ -33,7 +47,7 @@ func TestExtractHooksFromBundle_OrderFieldSequencesWithinAnEvent(t *testing.T) {
 			Order:   hookOrderP((12 - i) * 100),
 		})
 	}
-	got := extractHooksFromBundle(report.Reporter{}, bundles.NewRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
 
 	require.Len(t, got.PreTool, 12)
 	var cmds []string
@@ -54,7 +68,7 @@ func TestExtractHooksFromBundle_NoDeclaredOrderKeepsAuthoredPosition(t *testing.
 		{Type: "command", Command: "alpha"},
 		{Type: "command", Command: "mike"},
 	}
-	got := extractHooksFromBundle(report.Reporter{}, bundles.NewRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
 
 	var cmds []string
 	for _, h := range got.PreTool {
@@ -74,7 +88,7 @@ func TestExtractHooksFromBundle_DeclaredOrderBeatsUndeclared(t *testing.T) {
 		{Type: "command", Command: "legacy-second"},
 		{Type: "command", Command: "sequenced", Order: hookOrderP(900000)},
 	}
-	got := extractHooksFromBundle(report.Reporter{}, bundles.NewRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, readWithHooks(t, bundles.BundleHooks{PreTool: in}), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
 
 	var cmds []string
 	for _, h := range got.PreTool {
@@ -96,7 +110,7 @@ func TestExtractHooksFromBundle_GateRefsStayAuthoredIndex(t *testing.T) {
 		{Type: "command", Command: "runs-first", Order: hookOrderP(100)},
 	}
 	got := extractHooksFromBundle(report.Reporter{},
-		bundles.NewRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}),
+		readWithHooks(t, bundles.BundleHooks{PreTool: in}),
 		mustLocalRef(t, "remote/tools"), recordingGate(seen), bundles.LinksUnchecked())
 
 	require.Len(t, got.PreTool, 2)
@@ -119,7 +133,7 @@ func TestExtractHooksFromBundle_DenialDoesNotDisturbRemainingOrder(t *testing.T)
 		{Type: "command", Command: "first", Order: hookOrderP(100)},
 	}
 	got := extractHooksFromBundle(report.Reporter{},
-		bundles.NewRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}),
+		bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned),
 		mustLocalRef(t, "remote/tools"), recordingGate(nil, "#hooks/pre_tool/1"), bundles.LinksUnchecked())
 
 	var cmds []string
@@ -140,7 +154,7 @@ func TestExtractHooksFromBundle_DenialDoesNotDisturbRemainingOrder(t *testing.T)
 // against.
 func TestExtractHooksFromBundle_OrderIsConsumedAndNeverSerialized(t *testing.T) {
 	in := []bundles.BundleHook{{Type: "command", Command: "x", Order: hookOrderP(4242)}}
-	got := extractHooksFromBundle(report.Reporter{}, bundles.NewRead("fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone}), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
+	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", &bundles.Bundle{Hooks: bundles.BundleHooks{PreTool: in}}, bundletree.Unsigned), mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
 	require.Len(t, got.PreTool, 1)
 
 	encoded, err := json.Marshal(got.PreTool[0])

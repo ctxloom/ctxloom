@@ -128,24 +128,32 @@ func runSessionShow(cmd *cobra.Command, args []string) error {
 	essence, compacted := readSessionEssence(afero.NewOsFs(), view)
 	return emit(cmd, sessionEssence{Harp: harp, Compacted: compacted, Essence: essence, EssencePath: view.EssencePath}, func() error {
 		if !compacted {
-			return uncompactedSessionError(harp, view.NativeSession)
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), uncompactedSessionHint(harp, view.NativeSession))
+			return err
 		}
 		_, _ = cmd.OutOrStdout().Write([]byte(essence))
 		return nil
 	})
 }
 
-// uncompactedSessionError explains why there is nothing to print, telling the
-// two cases apart: a harp with no backend session bound yet is PENDING (there
-// is nothing to compact), while a bound one just has not been compacted and
-// names the command that would do it. Text-format only — the structured shape
-// reports compacted:false rather than erroring, so a frontend can show a hint
-// on hover without branching on an exit code.
-func uncompactedSessionError(harp, sessionID string) error {
+// The two hints `session show` prints in place of a summary that does not
+// exist yet. Not having one is a state, not a failure, so the command exits 0
+// in every format; the structured shape says compacted:false.
+const (
+	// sessionPendingHint: no backend session is bound, so there is nothing to
+	// compact and no command to name.
+	sessionPendingHint = "session %q is pending: no backend session is bound yet, so there is nothing to summarize"
+	// sessionUncompactedHint: a bound session nobody has compacted yet.
+	sessionUncompactedHint = "%q has no summary yet; run `ctxloom session compact %s` to write one"
+)
+
+// uncompactedSessionHint explains why there is nothing to print, telling the
+// pending case (sessionID empty) from the not-yet-compacted one.
+func uncompactedSessionHint(harp, sessionID string) string {
 	if sessionID == "" {
-		return fmt.Errorf("session %q is pending (no backend session ID bound yet)", harp)
+		return fmt.Sprintf(sessionPendingHint, harp)
 	}
-	return fmt.Errorf("no summary for %q (run `ctxloom session compact %s` to compact this session first)", harp, harp)
+	return fmt.Sprintf(sessionUncompactedHint, harp, harp)
 }
 
 // sessionRemoveCmd is the canonical spine's `remove` for the session noun,

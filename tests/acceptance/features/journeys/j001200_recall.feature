@@ -97,27 +97,15 @@ Feature: The archaeologist — what did we decide in March?
   # BOUNDARY B9, and the product states the gap itself: `session compact`'s own
   # help says "Compaction is on-demand: nothing compacts a session
   # automatically when it ends." So the UNCOMPACTED session is the default case,
-  # not the exception — most of the archive is in this state — and the error a
-  # user hits has to distinguish "this session has no summary yet" from "this
+  # not the exception — most of the archive is in this state — and what a
+  # user sees has to distinguish "this session has no summary yet" from "this
   # session was never recorded", or they will conclude the capture failed and
   # stop trusting the archive.
   #
-  # UNTAGGED 2026-08-05, condition met and confirmed to bite. The command does
-  # name the remedy: "no essence for %q (run `ctxloom session compact %s` to
-  # compact this session first)". Mutation: dropping the parenthetical from
-  # cli.uncompactedSessionError so it reads "(compact this session first)"
-  # turns this red — the row asserts the REMEDY, not merely that an error
-  # happened, which is what keeps a user from concluding the capture failed.
-  #
-  # Tabled by format: `session show` is wired to emit(), and (internal/adapters/cli/
-  # session_cmd.go's runSessionShow / uncompactedSessionError) documents the
-  # divergence outright — the structured shape reports compacted:false rather
-  # than erroring, so a caller can show a hint without branching on an exit
-  # code, while the text renderer is the only one that raises the remedy
-  # error this scenario used to assert unconditionally. So the OUTCOME itself
-  # varies by row, not just the payload: json (and the no-flag default, which
-  # is JSON off a terminal) succeeds and reports compacted:false; an explicit
-  # --format text still fails and still names the remedy.
+  # A session with no summary yet is a state, not a failure: every format
+  # exits 0. The structured shape reports compacted:false; the text one prints
+  # cli.sessionUncompactedHint in place of the summary, naming the command
+  # that writes one, so a user does not conclude the capture failed.
   Scenario Outline: A session nobody ever compacted says so, and says what to do about it
     When I run "ctxloom session show brisk-copper-moth <flags>"
     Then the command <outcome>
@@ -127,7 +115,7 @@ Feature: The archaeologist — what did we decide in March?
       | flags         | outcome  | detail                                            |
       |               | succeeds | reports "compacted" as "false"                    |
       | --format json | succeeds | reports "compacted" as "false"                    |
-      | --format text | fails    | contains "session compact brisk-copper-moth"      |
+      | --format text | succeeds | contains "session compact brisk-copper-moth"      |
 
   # THE PAYOFF. Everything upstream — the tee, the readers, the canonical
   # schema, four vendors' conversion — exists to make this one line work.

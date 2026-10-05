@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"errors"
 	"os"
 	"path/filepath"
@@ -427,20 +428,35 @@ func TestSessionList_EmptyIndexRendersEmptyJSONList(t *testing.T) {
 	}
 }
 
-// uncompactedSessionError tells the two "nothing to print" cases apart. They
-// are NOT interchangeable: a pending harp has nothing to compact, so telling
+// uncompactedSessionHint tells the two "nothing to print" cases apart. They
+// are NOT interchangeable: a pending session has nothing to compact, so telling
 // the user to run `session compact` on it is advice that cannot work.
-func TestUncompactedSessionError_DistinguishesPendingFromUncompacted(t *testing.T) {
-	pending := uncompactedSessionError("amber-swift-owl", "")
-	require.Error(t, pending)
-	assert.Contains(t, pending.Error(), "pending")
-	assert.NotContains(t, pending.Error(), "session compact",
-		"a harp with no backend session bound has nothing to compact; naming the command would be unusable advice")
+func TestUncompactedSessionHint_DistinguishesPendingFromUncompacted(t *testing.T) {
+	assert.Equal(t, fmt.Sprintf(sessionPendingHint, "amber-swift-owl"), uncompactedSessionHint("amber-swift-owl", ""))
+	assert.NotContains(t, uncompactedSessionHint("amber-swift-owl", ""), "session compact",
+		"a session with no backend session bound has nothing to compact; naming the command would be unusable advice")
+	assert.Equal(t, fmt.Sprintf(sessionUncompactedHint, "amber-swift-owl", "amber-swift-owl"),
+		uncompactedSessionHint("amber-swift-owl", "sess-123"))
+	assert.Contains(t, uncompactedSessionHint("amber-swift-owl", "sess-123"), "ctxloom session compact amber-swift-owl",
+		"a bound-but-uncompacted session must name the command that fixes it")
+}
 
-	bound := uncompactedSessionError("amber-swift-owl", "sess-123")
-	require.Error(t, bound)
-	assert.Contains(t, bound.Error(), "ctxloom session compact amber-swift-owl",
-		"a bound-but-uncompacted harp must name the command that fixes it")
+// A session with no summary yet is not an error to show: both renderings exit
+// 0, the structured one reports compacted:false and the text one prints the
+// hint where the summary would be.
+func TestSessionShow_UncompactedExitsZeroInEveryFormat(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	_, harp := seedEndedSession(t, dir, "claude-code")
+
+	out, err := execRootCmd(t, "session", "show", harp, "--format", "text")
+	require.NoError(t, err)
+	assert.Contains(t, out, uncompactedSessionHint(harp, ""))
+
+	out, err = execRootCmd(t, "session", "show", harp, "--format", "json")
+	require.NoError(t, err)
+	var got sessionEssence
+	require.NoError(t, json.Unmarshal([]byte(out), &got), out)
+	assert.False(t, got.Compacted)
 }
 
 // sessionCompactedKey is the JSON key session output uses for "an essence

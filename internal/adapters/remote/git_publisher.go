@@ -36,9 +36,10 @@ import (
 // discovery, agent negotiation and host-key policy.
 //
 // ONE INSTANCE, ONE CLONE, ONE BRANCH. The clone is made lazily on first use
-// and reused for every subsequent call, so a publish that writes a bundle and
-// its detached signature clones once and pushes twice. Call Close to remove
-// the working clone.
+// and reused for every subsequent call. A tree publish is one
+// CreateOrUpdateFiles: every file lands in one commit and one push, or in
+// neither when the remote already holds those bytes. Call Close to remove the
+// working clone.
 type GitPublisher struct {
 	// repoURL is the transport spelling handed to git (RepoURL.CloneArg).
 	repoURL string

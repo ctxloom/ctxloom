@@ -66,8 +66,9 @@ type PullResult struct {
 	// SHA is the commit SHA of the fetched content.
 	SHA string
 
-	// Overwritten indicates if an existing file was replaced. Always false:
-	// remote items are references, never materialized.
+	// Overwritten is true when this pull replaced a lockfile pin the item
+	// already had, false when it recorded the item's first pin — the signal
+	// sync reports as "updated" rather than "installed".
 	Overwritten bool
 
 	// Content holds the fetched bytes for callers that would otherwise
@@ -688,9 +689,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// is the only record; its write failing means the pull failed.
 	// hadExisting reports whether localName already had a lockfile entry
 	// BEFORE this write — i.e. this pull replaced an existing pin rather than
-	// creating a new one. It is the real signal for "updated" vs "installed"
-	// (PullResult.Overwritten used to be hard-coded false, making
-	// operations/sync.go's "updated" status unreachable).
+	// creating a new one: the signal for "updated" vs "installed".
 	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, installSHA, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt, signed)
 	if err != nil {
 		return nil, fmt.Errorf("pulled %s but failed to record its lockfile pin (the only on-disk record of this pull): %w", item.localName, err)

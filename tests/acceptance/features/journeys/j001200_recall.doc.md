@@ -34,7 +34,7 @@ Search works, and it works across all three of the places a session's text
 lives. That is worth stating precisely, because it is the sort of thing that
 looks fine and is half-broken: a session is findable by its harp name (three
 random words nobody remembers), by its one-line index summary, and — the one
-that matters — by the prose of its distilled essence, which is the only place a
+that matters — by the prose of its compacted essence, which is the only place a
 DECISION is ever written down. If search reached the first two and not the
 third, the archive would be keyed by everything except its content, and it
 would still look like a working search.
@@ -82,13 +82,13 @@ after the canonical read is now on the path the guard actually watches).
 ## The assistant's own side of recall
 
 `load_session` is the model reaching for its own memory mid-conversation
-rather than a human running `session show`. It returns the harp's distilled
+rather than a human running `session show`. It returns the harp's compacted
 ESSENCE, not the raw conversation — confirmed by `mcp_tools.feature`'s own
 "Load a prior session's essence over MCP" scenario, which names it that way in
-its title. That is the deliberate design, not a gap: on-demand distillation
+its title. That is the deliberate design, not a gap: on-demand compaction
 (`load_session`, `recover_session`, `get_previous_session`,
 `list_sessions(distill_missing)`) is the surface the project has committed to
-keeping (task `close-ducky` removes only the automatic *post-session* distill
+keeping (task `close-ducky` removes only the automatic *post-session* compact
 pass; this on-demand path is explicitly unaffected).
 
 ## The mistyped harp
@@ -113,20 +113,20 @@ actually touches, which is the difference between a known defect and a felt one.
 
 ## The two resume modes
 
-`--session` and `--session --distill` are supposed to differ in what reaches
+`--session` and `--session --compact` are supposed to differ in what reaches
 the model: the whole conversation versus the conclusion. The scenario asserts
 that as a three-way discrimination — essence present, raw absent — so neither
 "carried everything" nor "carried nothing" can pass.
 
 It still fails on the third branch: neither marker appears, and this one stays
-`@wip`. The distilled path rides `CTXLOOM_RESUMED_FROM/PARTS` and a
+`@wip`. The compacted path rides `CTXLOOM_RESUMED_FROM/PARTS` and a
 SessionStart hook, both applied in `openSession`/`applyResumeEnv` — which
 `--dry-run` never reaches at all (it returns before `openSession` is even
 called). So this is not a rendering gap in an otherwise-complete assembly; the
-distilled-resume mechanism simply never runs under `--dry-run`, on-demand
-distill included. Making it visible is a real design decision (preview the
+compacted-resume mechanism simply never runs under `--dry-run`, on-demand
+compact included. Making it visible is a real design decision (preview the
 essence for display only, vs. folding it into the assembled context the way
-full resume does — which would change what a REAL `--distill` run delivers,
+full resume does — which would change what a REAL `--compact` run delivers,
 redundantly with the hook it already rides), not something this journey
 decides unilaterally. A user who cannot see what a resume brought in has no
 way to tell a working resume from a silent one, which is the same problem J001900
@@ -143,7 +143,7 @@ mode's delivery mechanism was invisible to `--dry-run` by construction. Two of
 those are now fixed (`RecordedSessionEntries` reads ctxloom's own canonical
 transcript; the MCP argument name and marker were corrected to match
 `load_session`'s real, deliberate essence-only behaviour). The third —
-`--distill --dry-run` showing nothing — remains open pending a design decision
+`--compact --dry-run` showing nothing — remains open pending a design decision
 on where the preview lives; see its own scenario comment for the two shapes
 considered and why neither was picked unilaterally.
 

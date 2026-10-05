@@ -11,12 +11,12 @@
 // front of a model?
 //
 // The recall surface exists — `session search`, `session show`,
-// `run --session [--distill]` are all real commands. Their behaviour is what
+// `run --session [--compact]` are all real commands. Their behaviour is what
 // nobody has asserted, and two of the scenarios below are red against real
 // filed defects rather than missing features.
 //
 // WHY THE MARKERS ARE SPLIT THREE WAYS. A session's searchable text lives in
-// three different places (harp name, index summary, distilled essence) and a
+// three different places (harp name, index summary, compacted essence) and a
 // search that only ever matched one of them would look identical to a working
 // one against a fixture where all three say the same thing. So each carries
 // its OWN distinct marker, and each search scenario proves a specific field
@@ -49,9 +49,9 @@ const (
 
 	// j001200Harp is the March session everybody half-remembers.
 	j001200Harp = "amber-quiet-heron"
-	// j001200BareHarp is a session that was captured and NEVER distilled — the
+	// j001200BareHarp is a session that was captured and NEVER compacted — the
 	// B9 case, which is the default rather than the exception, since nothing
-	// distills a session automatically when it ends.
+	// compacts a session automatically when it ends.
 	j001200BareHarp = "brisk-copper-moth"
 )
 
@@ -87,8 +87,8 @@ func j001200AddIndexEntry(w *World, harp, _, transcriptPath string) error {
 // j001200HarpHome returns a harp's directory relative to the isolated HOME.
 func j001200HarpHome(harp string) string { return ".ctxloom/sessions/" + harp }
 
-// j001200WriteEssence writes a harp's distilled essence — the DERIVED artifact
-// `session show` prints and `--distill` resumes through. The frontmatter
+// j001200WriteEssence writes a harp's compacted essence — the DERIVED artifact
+// `session show` prints and `--compact` resumes through. The frontmatter
 // summary is where a session's one-line summary actually lives now (the
 // session store derives Entry.Summary from it), so a summary-only marker
 // belongs HERE, not in the pre-migration index row.
@@ -186,8 +186,8 @@ func j001200SeedTranscripts(w *World, harp string, turns []string) error {
 }
 
 // j001200Setup is the Background: a project, plus the March session as a fully
-// recalled artifact — index entry, canonical transcript, distilled essence —
-// and a second, undistilled session beside it so every search assertion has a
+// recalled artifact — index entry, canonical transcript, compacted essence —
+// and a second, uncompacted session beside it so every search assertion has a
 // wrong answer available to give.
 func j001200Setup(w *World) error {
 	st := j001200Of(w)
@@ -214,7 +214,7 @@ func j001200Setup(w *World) error {
 		return err
 	}
 
-	// The undistilled neighbour: captured, never summarized. This is the
+	// The uncompacted neighbour: captured, never summarized. This is the
 	// DEFAULT state of a session, not an edge case.
 	barePath := filepath.Join(w.env.HomeDir, filepath.FromSlash(j001200HarpHome(j001200BareHarp)+"/transcripts/transcript.jsonl"))
 	if err := j001200AddIndexEntry(w, j001200BareHarp, "unrelated afternoon session", barePath); err != nil {
@@ -258,7 +258,7 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 
 	// --- Search -------------------------------------------------------------
 
-	ctx.Step(`^the search names the March session by a phrase that appears only in its distilled essence$`, func(c context.Context) error {
+	ctx.Step(`^the search names the March session by a phrase that appears only in its compacted essence$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := j001200AssertNames(w, w.env.LastStdout(), "`session search`", j001200Harp); err != nil {
 			return err
@@ -296,17 +296,17 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 		return j001200AssertNames(w, w.env.LastStdout(), "`session show`", j001200EssenceMarker)
 	})
 
-	ctx.Step(`^ctxloom says the session was never distilled and names how to distill it$`, func(c context.Context) error {
+	ctx.Step(`^ctxloom says the session was never compacted and names how to compact it$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if w.env.LastExitCode() == 0 && strings.Contains(w.env.LastOutput(), j001200EssenceMarker) {
-			return fmt.Errorf("`session show` printed a distilled essence for a session that has none — the fixture is wrong")
+			return fmt.Errorf("`session show` printed a compacted essence for a session that has none — the fixture is wrong")
 		}
-		// The product states this gap in its own help text ("Distillation is
-		// on-demand: nothing distills a session automatically when it ends"),
+		// The product states this gap in its own help text ("Compaction is
+		// on-demand: nothing compacts a session automatically when it ends"),
 		// so the error a user hits should point at the same fact and at the
 		// command that fixes it. Anything less leaves them believing the
 		// session was not recorded at all.
-		return j001200AssertNames(w, w.env.LastOutput(), "the not-distilled error", "session distill")
+		return j001200AssertNames(w, w.env.LastOutput(), "the not-compacted error", "session compact")
 	})
 
 	// --- Resume: the payoff -------------------------------------------------
@@ -323,22 +323,22 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^the assembled context carries the distilled essence and not the raw conversation$`, func(c context.Context) error {
+	ctx.Step(`^the assembled context carries the compacted essence and not the raw conversation$`, func(c context.Context) error {
 		w := worldFrom(c)
 		out := w.env.LastOutput()
 		hasEssence := strings.Contains(out, j001200EssenceMarker)
 		hasRaw := strings.Contains(out, j001200TranscriptMarker)
 		switch {
 		case !hasEssence && hasRaw:
-			return fmt.Errorf("--distill resumed via the RAW transcript rather than the essence: the two modes are not "+
-				"distinguishable in what reaches the model, so --distill buys nothing. Output:\n%s", out)
+			return fmt.Errorf("--compact resumed via the RAW transcript rather than the essence: the two modes are not "+
+				"distinguishable in what reaches the model, so --compact buys nothing. Output:\n%s", out)
 		case !hasEssence:
-			return fmt.Errorf("--distill assembled a context carrying neither the essence nor the transcript (exit %d). "+
-				"Note the distilled path rides CTXLOOM_RESUMED_FROM/PARTS and a SessionStart hook rather than the assembled "+
+			return fmt.Errorf("--compact assembled a context carrying neither the essence nor the transcript (exit %d). "+
+				"Note the compacted path rides CTXLOOM_RESUMED_FROM/PARTS and a SessionStart hook rather than the assembled "+
 				"context itself — if that is the intended design, this scenario is the record that a user cannot SEE what "+
 				"was resumed. Output:\n%s", w.env.LastExitCode(), out)
 		case hasRaw:
-			return fmt.Errorf("--distill carried the essence AND the whole raw transcript — the compression it exists to "+
+			return fmt.Errorf("--compact carried the essence AND the whole raw transcript — the compression it exists to "+
 				"provide did not happen. Output:\n%s", out)
 		}
 		return nil
@@ -379,7 +379,7 @@ func registerJ001200Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("the canonical transcript no longer carries its own recorded turns; it holds:\n%s", body)
 		}
 		if _, err := os.Stat(filepath.Join(outputDirFor(w, j001200Harp), paths.EssenceFileName)); err != nil {
-			return fmt.Errorf("the distilled essence is gone after a recall: %w", err)
+			return fmt.Errorf("the compacted essence is gone after a recall: %w", err)
 		}
 		return nil
 	})

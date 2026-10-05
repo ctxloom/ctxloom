@@ -5,7 +5,7 @@ Feature: MCP tools
 
   The session tools share one hazard and it is why their assertions look the
   way they do. Every one of them can answer successfully while delivering
-  nothing: distillation that ran and was discarded, an essence written under a
+  nothing: compaction that ran and was discarded, an essence written under a
   key nobody reads back, a listing of sessions with no titles. So each
   scenario names a marker that exists ONLY in its own fixture's transcript,
   and asserts that marker in the result. An envelope with the right fields is
@@ -86,17 +86,17 @@ Feature: MCP tools
     And the tool result contains "Seeded essence"
 
   # quit-eagle: recover_session once returned a ~381,000-char essence for a
-  # large session — the map/reduce distillation pipeline "succeeded" (every
+  # large session — the map/reduce compaction pipeline "succeeded" (every
   # LLM call exited 0) but never actually compressed enough, and there was no
   # ceiling anywhere to catch it. This drives recover_session through the
   # REAL MCP surface against a synthetic session sized like the original
   # incident (see steps_recover_session.go), with the mock LLM standing in
-  # for a distillation that never actually compresses (its default response
+  # for a compaction that never actually compresses (its default response
   # echoes the prompt it was sent verbatim — exit 0, zero compression). If
   # the bound regressed, this comes back with the oversized text; with the
   # fix, it comes back small — an honest failure — no matter how large the
   # input was.
-  Scenario: recover_session bounds an oversized distillation instead of passing it through
+  Scenario: recover_session bounds an oversized compaction instead of passing it through
     Given an initialized ctxloom project
     And a captured session "big-session-harp" with a large canonical transcript
     And the compaction LLM is a mock that never compresses
@@ -110,7 +110,7 @@ Feature: MCP tools
   # index entry binds, NOT by its harp — and resolving that id goes THROUGH the
   # harp. When that resolution let the harp escape as the session's identity,
   # every downstream key was chosen from it: the essence was written under the
-  # harp while the caller read back under the id it passed. The distillation
+  # harp while the caller read back under the id it passed. The compaction
   # succeeded, the file was on disk, and recover_session still answered
   # "couldn't read it back" — work done, LLM call paid for, result discarded,
   # no error anywhere. One measured incident re-derived 143,878 input tokens
@@ -121,7 +121,7 @@ Feature: MCP tools
   # HARP, so both keys are the same string and agree no matter what. This one
   # uses the production shape, where they differ, and asserts the essence comes
   # back with its real content rather than an apology.
-  Scenario: A distilled session is readable back by the id the caller passed
+  Scenario: A compacted session is readable back by the id the caller passed
     Given an initialized ctxloom project
     And a captured session "steady-vellum-crane" bound to a backend-native session id
     And the compaction LLM is a mock that never compresses
@@ -184,21 +184,21 @@ Feature: MCP tools
     And the tool result contains "brisk-copper-moth"
     And the tool result contains "ruled out the shim"
 
-  # compact_session distills on demand. Its result envelope carries only
+  # compact_session compacts on demand. Its result envelope carries only
   # bookkeeping — chunk count, token counts, a reduction ratio, an output path
   # — and every one of those is reported identically by a compaction that ran
   # against an empty session. So the payload assertion has to follow the
   # output_path the tool reports and read what actually landed there.
   #
   # And then it has to ask WHERE. The handler used to key everything — the
-  # heal, the cache read, the distillation, and the essence's own path — off
+  # heal, the cache read, the compaction, and the essence's own path — off
   # the CALLING session's harp, consulting session_id only in a fallback
   # branch, and even there filing the result under the caller. So a call
   # naming another session returned that id in its result while writing that
-  # session's distilled memory under the MCP server's own harp: right content,
+  # session's compacted memory under the MCP server's own harp: right content,
   # wrong session, no error anywhere. A later load_session for the named
   # session reads essence.md in that session's output dir, finds nothing, and
-  # re-derives the whole distillation — every explicit compact_session call
+  # re-derives the whole compaction — every explicit compact_session call
   # paying for work that is then thrown away — while the caller's own essence
   # is quietly overwritten by a session that is not theirs.
   #
@@ -208,7 +208,7 @@ Feature: MCP tools
   # the caller compacts itself is satisfied by the defect just as well as by
   # the fix, because both harps are the same string.
   #
-  # The distillation is proven END TO END rather than by the essence's content
+  # The compaction is proven END TO END rather than by the essence's content
   # alone, because either half can be faked on its own: RECOVER-IDENTITY-
   # ROUND-TRIP lives only in the seeded transcript, so the distiller RECEIVING
   # it proves the right session's history was read; the mock's canned reply
@@ -220,7 +220,7 @@ Feature: MCP tools
     Given an initialized ctxloom project
     And the session harp is "host-caller-thistle"
     And a captured session "quiet-ember-drift" bound to a backend-native session id
-    And the mock LLM responds "COMPACT-DISTILLED-THE-NAMED-SESSION"
+    And the mock LLM responds "COMPACT-COMPACTED-THE-NAMED-SESSION"
     When the agent calls tool "compact_session" with:
       | session_id | seeded-quiet-ember-drift |
     Then the tool call succeeds
@@ -228,10 +228,10 @@ Feature: MCP tools
     And the essence the tool reports writing is filed under session "quiet-ember-drift"
     And no essence was written under session "host-caller-thistle"
     And the mock recorded input contains "RECOVER-IDENTITY-ROUND-TRIP"
-    And the essence the tool reports writing contains "COMPACT-DISTILLED-THE-NAMED-SESSION"
+    And the essence the tool reports writing contains "COMPACT-COMPACTED-THE-NAMED-SESSION"
 
   # The CACHE hit asks the same identity question of a different line of code.
-  # A cached compact_session returns early, having run no distillation to take
+  # A cached compact_session returns early, having run no compaction to take
   # an identity from, so it composes one itself — and that line used to compose
   # it from the CALLER's harp. An agent asking twice about another session was
   # told, the second time, that it had compacted itself: a well-formed answer
@@ -241,7 +241,7 @@ Feature: MCP tools
     Given an initialized ctxloom project
     And the session harp is "host-caller-thistle"
     And a captured session "quiet-ember-drift" bound to a backend-native session id
-    And the mock LLM responds "COMPACT-DISTILLED-THE-NAMED-SESSION"
+    And the mock LLM responds "COMPACT-COMPACTED-THE-NAMED-SESSION"
     When the agent calls tool "compact_session" with:
       | session_id | seeded-quiet-ember-drift |
     And the agent calls tool "compact_session" with:
@@ -253,7 +253,7 @@ Feature: MCP tools
   # THE READ-BACK. Every scenario above proves what compact_session WRITES and
   # that a second compact_session finds it. None proves that the tools a
   # caller actually reaches for afterwards — load_session, recover_session —
-  # read that essence rather than quietly distilling the transcript again.
+  # read that essence rather than quietly compacting the transcript again.
   # Both answer through loadOrCompactSession, whose cache lookup is keyed by
   # a DIFFERENT path (segments/<session_id>.md via memory.LoadCompactedSession)
   # than the one compact_session checks (ReadHarpEssence), so agreement
@@ -276,31 +276,31 @@ Feature: MCP tools
   # the session it compacts and then loads is quiet-ember-drift, addressed by
   # its backend-native id, so a read-back keyed off the caller's own harp
   # finds nothing and falls through to a regeneration that this catches.
-  Scenario: load_session reads back a compacted essence rather than distilling it again
+  Scenario: load_session reads back a compacted essence rather than compacting it again
     Given an initialized ctxloom project
     And the session harp is "host-caller-thistle"
     And a captured session "quiet-ember-drift" bound to a backend-native session id
-    And the mock LLM responds "FIRST-DISTILLATION-ON-DISK"
+    And the mock LLM responds "FIRST-COMPACTION-ON-DISK"
     When the agent calls tool "compact_session" with:
       | session_id | seeded-quiet-ember-drift |
     Then the tool call succeeds
-    And the essence the tool reports writing contains "FIRST-DISTILLATION-ON-DISK"
-    Given the mock LLM responds "SECOND-DISTILLATION-MUST-NOT-RUN"
+    And the essence the tool reports writing contains "FIRST-COMPACTION-ON-DISK"
+    Given the mock LLM responds "SECOND-COMPACTION-MUST-NOT-RUN"
     And the MCP server is restarted
     When the agent calls tool "load_session" with:
       | session_id | seeded-quiet-ember-drift |
     Then the tool call succeeds
     And the tool result field "loaded" equals "true"
     And the tool result field "was_cached" equals "true"
-    And the tool result contains "FIRST-DISTILLATION-ON-DISK"
-    And the tool result does not contain "SECOND-DISTILLATION-MUST-NOT-RUN"
+    And the tool result contains "FIRST-COMPACTION-ON-DISK"
+    And the tool result does not contain "SECOND-COMPACTION-MUST-NOT-RUN"
     When the agent calls tool "recover_session" with:
       | session_id | seeded-quiet-ember-drift |
     Then the tool call succeeds
     And the tool result field "loaded" equals "true"
     And the tool result field "was_cached" equals "true"
-    And the tool result contains "FIRST-DISTILLATION-ON-DISK"
-    And the tool result does not contain "SECOND-DISTILLATION-MUST-NOT-RUN"
+    And the tool result contains "FIRST-COMPACTION-ON-DISK"
+    And the tool result does not contain "SECOND-COMPACTION-MUST-NOT-RUN"
 
   # THE OTHER LEG of the same resolution, and a genuinely different line of
   # code. session_id is whatever the caller has to hand, and the two forms it
@@ -333,19 +333,19 @@ Feature: MCP tools
     And the session harp is "host-caller-thistle"
     And a captured session "host-caller-thistle" bound to a backend-native session id
     And a captured session "quiet-ember-drift" bound to a backend-native session id
-    And the mock LLM responds "COMPACT-DISTILLED-THE-HARP-NAMED-SESSION"
+    And the mock LLM responds "COMPACT-COMPACTED-THE-HARP-NAMED-SESSION"
     When the agent calls tool "compact_session" with:
       | session_id | quiet-ember-drift |
     Then the tool call succeeds
     And the essence the tool reports writing is filed under session "quiet-ember-drift"
     And no essence was written under session "host-caller-thistle"
     And the mock recorded input contains "RECOVER-IDENTITY-ROUND-TRIP"
-    And the essence the tool reports writing contains "COMPACT-DISTILLED-THE-HARP-NAMED-SESSION"
+    And the essence the tool reports writing contains "COMPACT-COMPACTED-THE-HARP-NAMED-SESSION"
 
   # THE REFUSAL, which is the most user-visible thing about the resolution and
   # was the least covered. A session_id the index cannot resolve used to be
   # quietly re-pointed at the CALLER's own harp: the caller paid for a
-  # distillation of a session it never asked about, filed under a name it never
+  # compaction of a session it never asked about, filed under a name it never
   # named, and was told it succeeded. There is no harp to attribute the result
   # to, so the only honest answer is to refuse before spending anything.
   #
@@ -353,7 +353,7 @@ Feature: MCP tools
   # caller carrying its own reason — an error whose text names the compaction
   # failing downstream is a different bug wearing the same exit code — and
   # nothing may be written: a refusal that still leaves an essence under the
-  # caller's harp has already destroyed that caller's own distilled context,
+  # caller's harp has already destroyed that caller's own compacted context,
   # essence.md being overwritten in place.
   #
   # The caller's own captured session is what makes the second claim bite: a
@@ -375,9 +375,9 @@ Feature: MCP tools
     And no essence was written under session "host-caller-thistle"
   # The SELF-COMPACTION path: an empty session_id, which compactionTargetHarp
   # answers with the caller's own harp — the standing owner's, whose own
-  # captured thread is what gets distilled.
+  # captured thread is what gets compacted.
   #
-  # The distillation runs as the agent named `distiller`, so ITS label's
+  # The compaction runs as the agent named `distiller`, so ITS label's
   # request env is what must reach the engine. The mock honours
   # CTXLOOM_MOCK_RESPONSE only when it arrives through the config'd LLM's
   # request env (tests/integration/testenv writes it to
@@ -394,7 +394,7 @@ Feature: MCP tools
     And I run "ctxloom agent create distiller --llm mock --runtime host"
     And the command succeeds
     And a session owner is standing
-    And the standing session has a captured transcript to distill
+    And the standing session has a captured transcript to compact
     When the agent calls tool "compact_session"
     Then the tool call succeeds
     And the mock recorded input contains "RECOVER-IDENTITY-ROUND-TRIP"
@@ -403,7 +403,7 @@ Feature: MCP tools
   # get_previous_session takes no arguments at all: it resolves the previous
   # session itself. That makes it the easiest of these to satisfy vacuously —
   # "no previous session" is a perfectly good answer shape — so the assertion
-  # is the seeded transcript's marker coming back through a distillation the
+  # is the seeded transcript's marker coming back through a compaction the
   # tool had to perform, the essence having been deliberately left absent.
   Scenario: get_previous_session finds the prior session and returns its content
     Given an initialized ctxloom project

@@ -19,13 +19,13 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session show <harp>
     ctxloom session edit <harp> --name <new>
     ctxloom session remove <harp> [--yes]
-    ctxloom session distill <harp>
+    ctxloom session compact <harp>
     ctxloom session adopt <harp> [--apply]
     ctxloom session search <word>...
     ctxloom session transcript              (bare: lists)
     ctxloom session transcript list [<harp>]
     ctxloom session transcript watch <harp>
-    ctxloom session transcript purge <harp> [--undistilled] [--yes]
+    ctxloom session transcript purge <harp> [--uncompacted] [--yes]
     ctxloom session artifacts               (bare: lists)
     ctxloom session artifacts list [<harp>]
     ctxloom session artifacts purge <harp> [--yes]
@@ -66,7 +66,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
         | --format json |
         | --format text |
 
-    Scenario: Showing a session prints its distilled essence
+    Scenario: Showing a session prints its compacted essence
       Given an initialized ctxloom project
       And a recorded session "amber-swift-owl"
       When I run "ctxloom session show amber-swift-owl"
@@ -103,8 +103,8 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And the output contains "unknown command"
 
     # A session has no authored document. Its index entry is machine-written
-    # and its essence is DERIVED — `session distill` rewrites that file whole —
-    # so an editor round-trip here would offer edits the next distillation
+    # and its essence is DERIVED — `session compact` rewrites that file whole —
+    # so an editor round-trip here would offer edits the next compaction
     # silently discards. The bare form says so outright and names the
     # assignment it does take, rather than exiting 0 having changed nothing.
     Scenario: A bare edit refuses, because there is no document to open
@@ -240,19 +240,19 @@ Feature: session — the record of what your assistant did, and the tools to pru
 
     # With no essence, the transcript is the only record of what happened.
     # The refusal names the flag that permits it deliberately.
-    Scenario: The only record of an undistilled session takes an extra flag
+    Scenario: The only record of an uncompacted session takes an extra flag
       Given an initialized ctxloom project
       And a finished session "brisk-copper-moth" with a transcript and no essence
       When I run "ctxloom session transcript purge brisk-copper-moth --yes"
       Then the command fails
-      And the output contains "never distilled"
-      And the output contains "--undistilled"
+      And the output contains "never compacted"
+      And the output contains "--uncompacted"
       And the home file ".ctxloom/sessions/brisk-copper-moth/transcripts/transcript.jsonl" exists
 
-    Scenario: --undistilled destroys it anyway
+    Scenario: --uncompacted destroys it anyway
       Given an initialized ctxloom project
       And a finished session "brisk-copper-moth" with a transcript and no essence
-      When I run "ctxloom session transcript purge brisk-copper-moth --undistilled --yes"
+      When I run "ctxloom session transcript purge brisk-copper-moth --uncompacted --yes"
       Then the command succeeds
       And the home file ".ctxloom/sessions/brisk-copper-moth/transcripts/transcript.jsonl" does not exist
 
@@ -300,13 +300,13 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the output contains "amber-swift-owl"
 
     # Selection flags live on the leaf that understands them. The sweep has
-    # no --undistilled to give, so it refuses and names the leaf that has one.
-    Scenario: The sweep refuses an undistilled session and names the leaf that can
+    # no --uncompacted to give, so it refuses and names the leaf that has one.
+    Scenario: The sweep refuses an uncompacted session and names the leaf that can
       Given an initialized ctxloom project
       And a finished session "brisk-copper-moth" with a transcript and no essence
       When I run "ctxloom session purge brisk-copper-moth --yes"
       Then the command fails
-      And the output contains "ctxloom session transcript purge brisk-copper-moth --undistilled --yes"
+      And the output contains "ctxloom session transcript purge brisk-copper-moth --uncompacted --yes"
       And the home file ".ctxloom/sessions/brisk-copper-moth/transcripts/transcript.jsonl" exists
 
     # The session lock only ever REFUSES. A free lock proves the owner dead; a
@@ -398,12 +398,12 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session list --all"
       Then the output does not contain "amber-swift-owl"
 
-    Scenario: Deleting a session that was never distilled is refused
+    Scenario: Deleting a session that was never compacted is refused
       Given an initialized ctxloom project
       And a finished session "brisk-copper-moth" with a transcript and no essence
       When I run "ctxloom session remove brisk-copper-moth --yes"
       Then the command fails
-      And the output contains "--undistilled"
+      And the output contains "--uncompacted"
       And the home file ".ctxloom/sessions/brisk-copper-moth/transcripts/transcript.jsonl" exists
       When I run "ctxloom session list --all"
       Then the output contains "brisk-copper-moth"

@@ -93,7 +93,7 @@ flowchart TD
 | `dumpUncompacted` | `compactor.go` | Short-circuits to the transcript itself as the essence (a placeholder when it rendered to nothing); never replaces an existing essence |
 | `fitToBudget` | `compactor.go` | Deterministic recency-graded reduction to `SinglePassInputTokens`; each entry may claim at most half of what remains, so the budget is never exceeded and the head decays geometrically |
 | `splitEntryBlocks` | `compactor.go` | Splits rendered text back into the `## `-headed per-entry blocks `appendEntryText` wrote |
-| `runCompactTurn` | `compactor.go` | The one distillation call, through the package's `Distill`: a run that fails, or exits 0 with no output, is an error rather than an empty essence |
+| `runCompactTurn` | `compactor.go` | The one compaction call, through the package's `RunPrompt`: a run that fails, or exits 0 with no output, is an error rather than an empty essence |
 | `sessionToText` / `renderEntries` / `appendEntryText` | `compactor.go` | Renders entries to markdown. `appendEntryText` has **no `default` case**, so a thinking-only or unrecognized-type entry contributes zero bytes |
 | `parseLLMFrontmatter` | `compactor.go` | Peels the LLM's leading YAML block; returns the original on any parse failure — a correct non-destructive degrade |
 | `deriveSummary` | `compactor.go` | Frontmatter summary, else the first non-heading prose line |

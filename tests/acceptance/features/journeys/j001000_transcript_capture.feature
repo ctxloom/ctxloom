@@ -9,7 +9,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   is the promise on top of that mess: whatever engine ran, its native log
   becomes ONE canonical transcript ctxloom owns — the same on-disk schema
   (transcript.jsonl, one JSONL Record per line) a live structured/ACP session
-  already tees out — so a single downstream reader (distill, resume, the VSCode
+  already tees out — so a single downstream reader (compact, resume, the VSCode
   companion) never special-cases three vendor formats.
 
   AND NOBODY RUNS AN IMPORT. The conversion fires at the two moments it is
@@ -25,7 +25,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   black hole — the structured tee (transcript.Tee/TeeAndClose) never reaches a
   pty, so ctxloom has zero memory of that work. WHAT BREAKS WITHOUT IT: every
   interactive session, and every session that ran before capture existed, is
-  unresumable and undistillable — exactly the interactive-pty gap ADR 0035
+  unresumable and uncompactable — exactly the interactive-pty gap ADR 0035
   accepted and docs/transcript-schema.md's "Capture regimes" now closes.
 
   # WHAT THIS JOURNEY CAN AND CANNOT SEE (honesty, mirroring j002100/j002200's

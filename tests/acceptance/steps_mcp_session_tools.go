@@ -53,13 +53,13 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 	// compact_session's result carries only bookkeeping — chunk count, token
 	// counts, a reduction ratio — every field of which a compaction against an
 	// empty session fills in just as convincingly. The only way to tell a real
-	// distillation from a well-formed report of nothing is to open the file it
+	// compaction from a well-formed report of nothing is to open the file it
 	// claims to have written.
 	//
 	// Reading the path the tool REPORTS, rather than one the scenario computes,
-	// keeps this step to the one claim it can honestly make: the distillation
+	// keeps this step to the one claim it can honestly make: the compaction
 	// ran on the seeded transcript. It says nothing about WHERE the essence
-	// belongs, and a distillation filed under the wrong session satisfies it
+	// belongs, and a compaction filed under the wrong session satisfies it
 	// perfectly — that claim is the location step below.
 	ctx.Step(`^the essence the tool reports writing contains "([^"]*)"$`, func(c context.Context, want string) error {
 		w := worldFrom(c)
@@ -107,7 +107,7 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 		got := filepath.Clean(fmt.Sprintf("%v", path))
 		want := harpEssencePathIn(w, harp)
 		if got != want {
-			return fmt.Errorf("the essence was filed at %s, but the session the caller named reads its essence from %s — the distillation is attributed to a different session and %s will never find it", got, want, harp)
+			return fmt.Errorf("the essence was filed at %s, but the session the caller named reads its essence from %s — the compaction is attributed to a different session and %s will never find it", got, want, harp)
 		}
 		if _, err := os.Stat(got); err != nil {
 			return fmt.Errorf("the tool reported writing %s but nothing is there (%v)", got, err)
@@ -119,13 +119,13 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 	// location assertion above cannot see it: writing to the right place and
 	// ALSO writing to the caller's is still one session's memory landing under
 	// another session's name, and essence.md is overwritten in place — the
-	// caller's own distilled context would be gone with no error.
+	// caller's own compacted context would be gone with no error.
 	ctx.Step(`^no essence was written under session "([^"]*)"$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
 		stray := harpEssencePathIn(w, harp)
 		body, err := os.ReadFile(stray)
 		if err == nil {
-			return fmt.Errorf("an essence was written under %s at %s, which is not the session the caller named — one session's distilled memory filed under another's; essence:\n%s", harp, stray, body)
+			return fmt.Errorf("an essence was written under %s at %s, which is not the session the caller named — one session's compacted memory filed under another's; essence:\n%s", harp, stray, body)
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("could not determine whether %s holds an essence: %v", stray, err)
@@ -134,7 +134,7 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 	})
 
 	// Points llm.defaults.fast at a SECOND mock label that carries no canned
-	// response, so a distillation that falls back to the fast role echoes its
+	// response, so a compaction that falls back to the fast role echoes its
 	// prompt instead of answering with the response the "mock" label's env
 	// declares. Without it the fast role falls back to llm.defaults.primary —
 	// the "mock" label itself — and a run on the fallback is indistinguishable
@@ -145,12 +145,12 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 	})
 
 	// The STANDING owner's own session has a bound, captured transcript long
-	// enough to distill, seeded by MERGING into its live record (the record
+	// enough to compact, seeded by MERGING into its live record (the record
 	// carries the endpoint its runner serves). A bare compact_session targets
 	// the caller's own harp, and the caller the endpoint identifies IS the
 	// owner — whose record a launch mints with no transcript, which is
-	// "nothing to distill" rather than a distillation.
-	ctx.Step(`^the standing session has a captured transcript to distill$`, func(c context.Context) error {
+	// "nothing to compact" rather than a compaction.
+	ctx.Step(`^the standing session has a captured transcript to compact$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if w.owner == nil {
 			return fmt.Errorf("no session owner is standing: put `a session owner is standing` before this step")
@@ -165,7 +165,7 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 		}); err != nil {
 			return err
 		}
-		return j001200SeedTranscripts(w, harp, distillableTurns(
+		return j001200SeedTranscripts(w, harp, compactableTurns(
 			"What does the standing session hold? "+recoverIdentityMarker,
 			"Its own captured thread. "+recoverIdentityMarker,
 		))
@@ -203,7 +203,7 @@ func setQuietFastLabel(projectDir, label string) error {
 }
 
 // harpEssencePathIn is where this scenario's ctxloom reads and writes a harp's
-// distilled essence: essence.md in the output dir the harp's record states.
+// compacted essence: essence.md in the output dir the harp's record states.
 // Read from the record here rather than from a production helper, so the
 // assertion is independent of the resolver it is checking.
 func harpEssencePathIn(w *World, harp string) string {

@@ -26,7 +26,7 @@ Feature: The close-out — the end of a workstream
   # `session sweep`.
   #
   # The lessons leg — four scenarios specifying
-  # `session distill --skill --to-bundle` — is gone; that surface is ruled out.
+  # `session compact --skill --to-bundle` — is gone; that surface is ruled out.
   # See the retired-section note where those scenarios stood.
   #
   # NOTE ON WHAT THE FIXTURES BUILD. A close-out flow is defined almost
@@ -45,7 +45,7 @@ Feature: The close-out — the end of a workstream
   # exit-nonzero, never success); destruction confirms against evidence shown
   # in the same invocation; and the refusal list is hard-coded — no
   # force-remove, no dirty or unmerged or unowned trees, no live session, no
-  # sweeping an undistilled session, no touching vendor stores.
+  # sweeping an uncompacted session, no touching vendor stores.
   #
   # NOTE ON TAGS. Every scenario passes and says what closed it rather than
   # being left silent. A scenario added here as a wish carries @wip and states
@@ -119,7 +119,7 @@ Feature: The close-out — the end of a workstream
   # isolation.ReapOrphanedWorktrees so a caller can show its work before
   # anything is removed.
   Scenario: The scratch worktrees are listed before anything is removed
-    Given a finished session "amber-quiet-heron" whose work is already distilled
+    Given a finished session "amber-quiet-heron" whose work is already compacted
     And session "amber-quiet-heron" left a clean scratch worktree
     And session "amber-quiet-heron" left a scratch worktree holding uncommitted work
     When I run "ctxloom session worktrees"
@@ -147,7 +147,7 @@ Feature: The close-out — the end of a workstream
   # exactly what isolation.ClassifyOrphanedWorktrees just classified, and
   # reports its outcome taxonomy (reaped/spared/skipped).
   Scenario: Purging removes only what it can prove is safe, and says why it left the rest
-    Given a finished session "amber-quiet-heron" whose work is already distilled
+    Given a finished session "amber-quiet-heron" whose work is already compacted
     And session "amber-quiet-heron" left a clean scratch worktree
     And session "amber-quiet-heron" left a scratch worktree holding uncommitted work
     And a session "teal-running-wren" that is still running
@@ -189,7 +189,7 @@ Feature: The close-out — the end of a workstream
   # isolation.findWorkWorktrees only ever scans under
   # ~/.ctxloom/sessions/, so this population is never even candidate-listed.
   Scenario: Her own long-lived worktrees are not this verb's business
-    Given a finished session "amber-quiet-heron" whose work is already distilled
+    Given a finished session "amber-quiet-heron" whose work is already compacted
     And session "amber-quiet-heron" left a clean scratch worktree
     And a long-lived worktree "stale-feature" of her own, outside the sessions root, with unmerged work
     When I run "ctxloom session worktrees purge amber-quiet-heron --yes"
@@ -197,12 +197,12 @@ Feature: The close-out — the end of a workstream
 
   # ---- Step 3: lessons — REMOVED 2026-08-08 ------------------------------
   # Four scenarios lived here specifying
-  #   `ctxloom session distill <harp> --skill <ref> --to-bundle <name>`
+  #   `ctxloom session compact <harp> --skill <ref> --to-bundle <name>`
   # as the lessons-extraction surface. That REQUIREMENT IS WITHDRAWN by human
   # ruling (2026-08-08): `--skill` and `--to-bundle` must not exist on
-  # `session distill`.
+  # `session compact`.
   #
-  # The reason is a scope boundary, not a spelling preference. `session distill`
+  # The reason is a scope boundary, not a spelling preference. `session compact`
   # exists to RECOVER LOCAL STATE — it compresses a session into an essence so
   # that session can be resumed. Its output is local and per-session. Extracting
   # lessons and publishing them into a shared, signed, team-distributed bundle
@@ -233,15 +233,15 @@ Feature: The close-out — the end of a workstream
   # `ctxloom session purge <harp>` reports without destroying: with no `--yes`,
   # nothing on disk or in the session index changes, on a TTY or not.
   Scenario: Purge shows its work before it destroys anything
-    Given a finished session "amber-quiet-heron" whose work is already distilled
-    And a finished session "brisk-copper-moth" that was never distilled
+    Given a finished session "amber-quiet-heron" whose work is already compacted
+    And a finished session "brisk-copper-moth" that was never compacted
     When I run "ctxloom session purge amber-quiet-heron"
     Then the report lists what would be destroyed and what would be kept
     And every byte of every session is still on disk
 
   # WHAT "EMPTY" MEANS, and the one thing it may never take. Emptying a session
   # sweeps every population ctxloom wrote into it — the recorded conversation
-  # AND the essence distilled from it. That is the whole point of the verb, and
+  # AND the essence compacted from it. That is the whole point of the verb, and
   # it sets the deadline this whole flywheel runs against: a lesson still
   # sitting in a session directory when retention reaches it is a lesson lost.
   #
@@ -260,7 +260,7 @@ Feature: The close-out — the end of a workstream
     Given a finished session "amber-quiet-heron" carrying design notes nobody filed
     When I run "ctxloom session purge amber-quiet-heron --yes"
     Then the machine-written bulk of "amber-quiet-heron" is gone
-    And its distilled essence goes with the bulk, and its index entry survives
+    And its compacted essence goes with the bulk, and its index entry survives
     And her unfiled design notes are still there, and were named in the report
 
   # Maximal friction on the irreversible case. Emptying a session nobody ever
@@ -270,14 +270,14 @@ Feature: The close-out — the end of a workstream
   # leaf that can do it deliberately.
   #
   # The refusal has to carry that leaf, not merely say no. Selection flags live
-  # on the population that understands them: `--undistilled` means something
+  # on the population that understands them: `--uncompacted` means something
   # precise about a transcript and nothing at all about an essence or a
   # worktree, so the sweep has none to offer and sends her to the verb that
   # does.
   Scenario: Emptying a session nobody ever summarised refuses, and names the deliberate route
-    Given a finished session "brisk-copper-moth" that was never distilled
+    Given a finished session "brisk-copper-moth" that was never compacted
     When I run "ctxloom session purge brisk-copper-moth --yes"
-    Then ctxloom refuses, naming the session that was never distilled and the leaf that can destroy it
+    Then ctxloom refuses, naming the session that was never compacted and the leaf that can destroy it
     And every byte of every session is still on disk
 
   # THE SWEEP INHERITS THE SAFETY RULES, it does not outrank them. Emptying a
@@ -293,7 +293,7 @@ Feature: The close-out — the end of a workstream
   # the assertion reads the WIP file's own bytes off disk rather than checking
   # that a directory still exists.
   Scenario: Emptying a session spares the uncommitted work living inside it
-    Given a finished session "amber-quiet-heron" whose work is already distilled
+    Given a finished session "amber-quiet-heron" whose work is already compacted
     And session "amber-quiet-heron" left a scratch worktree holding uncommitted work
     When I run "ctxloom session purge amber-quiet-heron --yes"
     Then the uncommitted work is still there, spared in place
@@ -310,8 +310,8 @@ Feature: The close-out — the end of a workstream
   #
   # Closed: `ctxloom session sweep`, reporting without --yes.
   Scenario: The sweep reports every session's fate before it changes anything
-    Given a finished session "amber-quiet-heron" whose work is already distilled
-    And a finished session "brisk-copper-moth" that was never distilled
+    Given a finished session "amber-quiet-heron" whose work is already compacted
+    And a finished session "brisk-copper-moth" that was never compacted
     And every session has been idle for 120 days
     When I run "ctxloom session sweep --purge-older-than 90d"
     Then the sweep report names "amber-quiet-heron" and "brisk-copper-moth"
@@ -321,19 +321,19 @@ Feature: The close-out — the end of a workstream
   # refusal has something real to refuse. A running session and one whose
   # liveness nothing can prove are skipped whole. A scratch worktree holding
   # uncommitted work is spared IN PLACE — read back by its own bytes — while
-  # its clean sibling goes, and its session is spared from purge. A distilled
+  # its clean sibling goes, and its session is spared from purge. A compacted
   # session past the purge age has its transcripts emptied — its output dir
   # (essence, plans) is the human's and a sweep never takes it; a human's session nobody
-  # summarised is not, and the report names the distill that would lift the
+  # summarised is not, and the report names the compact that would lift the
   # refusal. An internal one-shot is nobody's only record of anything, so it
   # is emptied without one.
   #
   # Closed: `ctxloom session sweep --yes`.
   Scenario: The sweep removes only what it can prove is safe, and says why it left the rest
-    Given a finished session "amber-quiet-heron" whose work is already distilled
-    And a finished session "brisk-copper-moth" that was never distilled
-    And an internal one-shot session "gray-oneshot-wisp" that was never distilled
-    And a finished session "olive-dirty-finch" whose work is already distilled
+    Given a finished session "amber-quiet-heron" whose work is already compacted
+    And a finished session "brisk-copper-moth" that was never compacted
+    And an internal one-shot session "gray-oneshot-wisp" that was never compacted
+    And a finished session "olive-dirty-finch" whose work is already compacted
     And session "olive-dirty-finch" left a clean scratch worktree
     And session "olive-dirty-finch" left a scratch worktree holding uncommitted work
     And a session "teal-running-wren" that is still running
@@ -348,5 +348,5 @@ Feature: The close-out — the end of a workstream
     And the report says why each spared worktree was left alone
     And the machine-written bulk of "amber-quiet-heron" is gone
     And the machine-written bulk of "gray-oneshot-wisp" is gone
-    And the sweep kept the transcript of "brisk-copper-moth" and named "ctxloom session distill brisk-copper-moth"
+    And the sweep kept the transcript of "brisk-copper-moth" and named "ctxloom session compact brisk-copper-moth"
     And the sweep kept the transcript of "olive-dirty-finch" and named "ctxloom-wt-wip"

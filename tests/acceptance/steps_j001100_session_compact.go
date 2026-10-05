@@ -1,6 +1,6 @@
 //go:build acceptance
 
-// J001100: plain `ctxloom session distill <harp>` (j001100_session_distill.feature).
+// J001100: plain `ctxloom session compact <harp>` (j001100_session_compact.feature).
 //
 // DO NOT RENUMBER THE NAME ON THE NEXT LINE. It is a DELETED file's original
 // name, and two renumbering sweeps have now rewritten it automatically because
@@ -11,7 +11,7 @@
 // The stale draft this replaces (features-draft/j14_memory.feature) narrated
 // a `ctxloom memory compact/list/show` command group that no longer exists.
 // Its list/show claims are already owned by j001200_recall.feature; the one live
-// claim worth keeping — that distillation genuinely runs the transcript
+// claim worth keeping — that compaction genuinely runs the transcript
 // through an LLM and persists the result — is proven here against the real
 // command instead.
 //
@@ -21,7 +21,7 @@
 // the harp's transcripts/transcript.jsonl. CanonicalFallbackSource.GetSession
 // resolves that id HARP-FIRST and, failing that, reverse-resolves the
 // session_id back to its harp via the index (canonical_source.go) — exactly
-// the path `session distill` walks in production when a container-bound harp
+// the path `session compact` walks in production when a container-bound harp
 // has a transcript but no host-side session_id binding. Reusing it here means
 // this scenario exercises the same resolution machinery j001200 already proves
 // works, rather than a second, parallel fixture shape that could quietly
@@ -43,10 +43,10 @@ const (
 	// j001100TranscriptMarker exists ONLY in this journey's seeded transcript, so
 	// finding it in the mock's recorded prompt proves the REAL transcript
 	// reached the distiller rather than an empty or stale one.
-	j001100TranscriptMarker = "J001100-TRANSCRIPT-REACHED-DISTILLER"
+	j001100TranscriptMarker = "J001100-TRANSCRIPT-REACHED-COMPACTOR"
 )
 
-func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
+func registerJ001100SessionCompactSteps(ctx *godog.ScenarioContext) {
 	// A dedicated Given rather than reusing steps_fixture.go's shared
 	// "the mock LLM responds" step: that step (testenv.MockLM.WriteConfig)
 	// only ever writes CTXLOOM_MOCK_* into llm.configs.mock.mock_control in
@@ -62,7 +62,7 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 	// The config path (llm.configs.<label>.mock_control) is now forwarded correctly
 	// — CompactionConfig.Env -> RunOptions.Env, which was missing entirely —
 	// and that forwarding is pinned directly by
-	// TestRunDistill_ForwardsConfiguredEnvOntoTheRequest in internal/adapters/memory.
+	// TestRunCompact_ForwardsConfiguredEnvOntoTheRequest in internal/adapters/memory.
 	// Routing THIS scenario through the config env as well was attempted and
 	// backed out: the mock never received it, which points at acceptance
 	// config-LAYER resolution (ensureProjectWithEngine writes a project config,
@@ -85,10 +85,10 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^a project whose mock engine is both its primary and its distillation backend$`, func(c context.Context) error {
+	ctx.Step(`^a project whose mock engine is both its primary and its compaction backend$`, func(c context.Context) error {
 		// buildJ000200Config (steps_j000200_common.go) sets llm.defaults.primary AND
 		// llm.defaults.fast to the same label, so the mock is the resolved
-		// distillation backend (config.Config.FastLabel) without any further
+		// compaction backend (config.Config.FastLabel) without any further
 		// setup — matching j001200Setup's own "mock, mock" call.
 		return ensureProjectWithEngine(worldFrom(c), "mock", "mock")
 	})
@@ -99,10 +99,10 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 		if err := j001200AddIndexEntry(w, harp, "seeded acceptance fixture session", transcriptPath); err != nil {
 			return fmt.Errorf("seed index entry for %s: %w", harp, err)
 		}
-		// Padded past the distillation floor: Compact saves a transcript too
+		// Padded past the compaction floor: Compact saves a transcript too
 		// small to compress verbatim with no LLM call at all, which would make
 		// this scenario pass vacuously — the marker is in the transcript.
-		if err := j001200WriteCanonicalTranscript(w, harp, distillableTurns(
+		if err := j001200WriteCanonicalTranscript(w, harp, compactableTurns(
 			"What should we do about stale cached responses? "+j001100TranscriptMarker,
 			"Cache by ETag and revalidate on 304. "+j001100TranscriptMarker,
 		)); err != nil {
@@ -119,7 +119,7 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 		raw, err := os.ReadFile(filepath.Join(outputDirFor(w, harp), paths.EssenceFileName))
 		body := string(raw)
 		if err != nil {
-			return fmt.Errorf("read essence.md for %s: %w (distill output:\n%s)", harp, err, w.env.LastOutput())
+			return fmt.Errorf("read essence.md for %s: %w (compact output:\n%s)", harp, err, w.env.LastOutput())
 		}
 		if !strings.Contains(body, want) {
 			return fmt.Errorf("essence.md for %s does not contain %q; on-disk body:\n%s", harp, want, body)
@@ -128,11 +128,11 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 	})
 }
 
-// distillableTurns appends an ordinary user/assistant exchange long enough
-// that the seeded transcript clears the distillation floor
+// compactableTurns appends an ordinary user/assistant exchange long enough
+// that the seeded transcript clears the compaction floor
 // (memory.minCompactTokens), so a scenario about what the distiller receives
 // actually reaches the distiller instead of a verbatim dump.
-func distillableTurns(turns ...string) []string {
+func compactableTurns(turns ...string) []string {
 	filler := strings.Repeat("We walked through the design and settled its open questions one by one. ", 40)
 	return append(turns, "Summarize where the design discussion landed.", filler)
 }

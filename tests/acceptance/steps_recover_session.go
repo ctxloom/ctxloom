@@ -22,7 +22,7 @@ import (
 // quit-eagle flow-level regression: recover_session, driven through the REAL
 // MCP surface, against a session large enough to have triggered the
 // ~381,000-char blowup the original bug report described, must come back
-// bounded rather than passing an uncompressed distillation through raw. See
+// bounded rather than passing an uncompressed compaction through raw. See
 // tests/acceptance/features/cli/mcp_tools.feature's "recover_session bounds..."
 // scenario.
 //
@@ -56,7 +56,7 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 	// production shape) hits a real, separate pre-existing mismatch — the
 	// canonical reverse-lookup path resolves to the session via its HARP, so
 	// the loaded agent.Session.ID becomes the harp, while the caller's
-	// original (UUID) sessionID is what the post-distill read-back
+	// original (UUID) sessionID is what the post-compaction read-back
 	// (LoadCompactedSession) still keys on — a legitimate bug, but a
 	// read-path one, out of this task's scope (bounding + fail-loud only;
 	// filed separately, not fixed here).
@@ -75,7 +75,7 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 	})
 
 	// Makes the mock backend the compaction LLM (llm.defaults.primary: mock in
-	// config.yaml) so distillation runs hermetically — no real credentials, no
+	// config.yaml) so compaction runs hermetically — no real credentials, no
 	// network — via the same SetupMockLM() fixture the rest of the suite uses,
 	// switched to its ECHO: the engine's default reply is the point (see the
 	// doc comment above), and it only answers with it when no canned
@@ -113,10 +113,10 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 		if err := j001200AddIndexEntry(w, harp, "seeded production-shape session", transcriptPath); err != nil {
 			return fmt.Errorf("seed index entry for %s: %w", harp, err)
 		}
-		// Padded past the distillation floor: Compact saves a transcript too
+		// Padded past the compaction floor: Compact saves a transcript too
 		// small to compress verbatim with no LLM call, which would let this
-		// pass without a real distillation ever happening.
-		return j001200SeedTranscripts(w, harp, distillableTurns(
+		// pass without a real compaction ever happening.
+		return j001200SeedTranscripts(w, harp, compactableTurns(
 			"What broke the essence read-back? "+recoverIdentityMarker,
 			"The write key and the read key disagreed. "+recoverIdentityMarker,
 		))

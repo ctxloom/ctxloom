@@ -138,7 +138,7 @@ tree. `ctxloom run --session H` mints a new harp yet claims root H
 `coord.ErrStateOwned` — root H still held by a live process — and a held root
 whose owner is a provably abandoned interactive session is ended and
 claimed instead. An internal one-shot host (`bundle distill`, `session
-distill`, init's probe) is an ephemeral root of its own.
+compact`, init's probe) is an ephemeral root of its own.
 
 A SESSION's root outlives the session: after any exit, clean or not,
 `ctxloom run --session H` adopts it with H's runs — ended children

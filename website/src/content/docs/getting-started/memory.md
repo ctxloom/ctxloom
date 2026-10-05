@@ -11,7 +11,7 @@ With ctxloom, you clear and then ask:
 What were we working on before the clear?
 ```
 
-`/clear` empties the window but doesn't end the session; the same session keeps growing underneath it. The agent answers by calling ctxloom's `recover_session` MCP tool, which reads that session's transcript from disk and hands back a fresh distillation of it.
+`/clear` empties the window but doesn't end the session; the same session keeps growing underneath it. The agent answers by calling ctxloom's `recover_session` MCP tool, which reads that session's transcript from disk and hands back a fresh compaction of it.
 
 This works in any session started with `ctxloom run`, because every such session carries ctxloom's MCP server. A Claude Code you launch yourself has no ctxloom MCP server and no session record, so there is nothing to recover.
 
@@ -31,14 +31,14 @@ Your harness's own compaction (`/compact` or its auto-compact equivalent) is the
 
 Session memory solves a different problem: a summary that outlives the session. In-context compaction asks the agent to summarize itself at the moment it has the least room to think, and whatever it drops on the way out is gone after `/clear`.
 
-ctxloom distills out of band instead. It reads the transcript from disk, in a separate process, using the `fast` LLM from your config (Haiku, as `ctxloom init` scaffolds it). The summary is saved to disk, so it's still there after `/clear`, after the process restarts, or a day later.
+ctxloom compacts out of band instead. It reads the transcript from disk, in a separate process, using the `fast` LLM from your config (Haiku, as `ctxloom init` scaffolds it). The summary is saved to disk, so it's still there after `/clear`, after the process restarts, or a day later.
 
-Distillation is **on-demand**. Nothing distills a session automatically when it ends; a session stays title-less until something asks for its essence. These ask for one:
+Compaction is **on-demand**. Nothing compacts a session automatically when it ends; a session stays title-less until something asks for its essence. These ask for one:
 
 - `recover_session`, `load_session`, `get_previous_session`, `compact_session` and `list_sessions` with `distill_missing`, over MCP.
-- `ctxloom run --session <harp> --distill`, which distills the named session first if it has no essence yet.
-- `ctxloom session list --distill`, which distills every listed session whose essence is missing or stale.
-- `ctxloom session distill <harp>`, which gives a session an essence ahead of need, or replaces a stale one.
+- `ctxloom run --session <harp> --compact`, which compacts the named session first if it has no essence yet.
+- `ctxloom session list --compact`, which compacts every listed session whose essence is missing or stale.
+- `ctxloom session compact <harp>`, which gives a session an essence ahead of need, or replaces a stale one.
 
 For durable, cross-session work items (distinct from the agent's ephemeral to-dos), see [Sessions and Tasks](/concepts/sessions-and-tasks/).
 
@@ -72,14 +72,14 @@ which calls `load_session` (it accepts a harp name or a backend session ID, and 
 
 ```bash
 ctxloom run --session quiet-loyal-otter            # fold its full transcript into this run
-ctxloom run --session quiet-loyal-otter --distill  # fold in its distilled essence instead
+ctxloom run --session quiet-loyal-otter --compact  # fold in its compacted essence instead
 ```
 
 To find a session, ask the agent to list recent sessions (it calls `list_sessions`), or run `ctxloom session list`.
 
-## Distillation
+## Compaction
 
-The distilling model reads the transcript from disk, not whatever fits in your live context window. It makes one call over the whole transcript. A transcript larger than the distillation budget is reduced first, compressing the oldest content hardest and keeping the most recent intact, because the tail is what the next session needs to pick up the work. The result is saved as that session's essence.
+The compacting model reads the transcript from disk, not whatever fits in your live context window. It makes one call over the whole transcript. A transcript larger than the compaction budget is reduced first, compressing the oldest content hardest and keeping the most recent intact, because the tail is what the next session needs to pick up the work. The result is saved as that session's essence.
 
 ## Storage
 
@@ -94,7 +94,7 @@ config key says):
 └── transcripts/transcript.jsonl    # the canonical transcript
 
 <Documents>/ctxloom/<project>/<harp>/
-├── essence.md                      # the distilled essence, once something asks for one
+├── essence.md                      # the compacted essence, once something asks for one
 └── *.plan.md                       # the session's plans
 ```
 
@@ -110,10 +110,10 @@ The essence is plain markdown, so a session run on one model can be picked up on
 ```bash
 # Morning: write code with the default model
 ctxloom run --llm claude-code "implement the auth module"
-# When done, exit. Distill it when you want it: ctxloom session distill <harp>
+# When done, exit. Compact it when you want it: ctxloom session compact <harp>
 
 # Afternoon: review with another configured label
-ctxloom run --llm claude-fast --session <harp> --distill "review what was done"
+ctxloom run --llm claude-fast --session <harp> --compact "review what was done"
 ```
 
 `--llm` takes a label from `llm.configs` in your config; `claude-code` and `claude-fast` are the ones `ctxloom init` scaffolds.
@@ -123,21 +123,21 @@ ctxloom run --llm claude-fast --session <harp> --distill "review what was done"
 | Tool | Description |
 |------|-------------|
 | `recover_session` | Recover the current session's context after `/clear` (identity-first: the active harp's bound session, falling back to the most-recently-touched transcript only if that binding is missing) |
-| `load_session` | Distill and load a session by backend session ID or harp name (harp wins) |
+| `load_session` | Compact and load a session by backend session ID or harp name (harp wins) |
 | `get_previous_session` | Get the session *before* this one for this project, for inspecting earlier work. Not the post-`/clear` path, since `/clear` doesn't change which session is current |
-| `list_sessions` | List recent sessions; `distill_missing` distills the ones without an essence first |
-| `compact_session` | Distill a session's transcript on disk for a later session to pick up. It frees no context in the live conversation |
+| `list_sessions` | List recent sessions; `distill_missing` compacts the ones without an essence first |
+| `compact_session` | Compact a session's transcript on disk for a later session to pick up. It frees no context in the live conversation |
 
 See the [MCP tools reference](/reference/mcp-tools/) for every parameter.
 
 ## Configuration
 
-The distillation model is the `fast` role in `llm.defaults`:
+The compaction model is the `fast` role in `llm.defaults`:
 
 ```yaml
 llm:
   defaults:
-    fast: claude-fast      # config label used for distillation
+    fast: claude-fast      # config label used for compaction
 ```
 
 ## CLI commands
@@ -147,14 +147,14 @@ Sessions are harp-named (e.g. `swift-amber-falcon`) and recorded automatically o
 ```bash
 ctxloom session list                      # Sessions for the current project
 ctxloom session list --all                # Sessions for every project
-ctxloom session show <harp>               # Print a session's distilled essence
-ctxloom session distill <harp>            # Distill a session now
+ctxloom session show <harp>               # Print a session's compacted essence
+ctxloom session compact <harp>            # Compact a session now
 ctxloom session edit <harp> --name <new>  # Rename a session
 ctxloom session remove <harp> --yes       # Remove record, transcript and essence
 ctxloom session purge <harp> --yes        # Empty a session, keep it listed
 ```
 
-`remove` and `purge` only report what they would do until you pass `--yes`, and both refuse a session that was never distilled, because that would destroy the only record of it.
+`remove` and `purge` only report what they would do until you pass `--yes`, and both refuse a session that was never compacted, because that would destroy the only record of it.
 
 ## Troubleshooting
 
@@ -163,7 +163,7 @@ ctxloom session purge <harp> --yes        # Empty a session, keep it listed
 - Make sure the session was started with `ctxloom run` (not raw `claude`), so it was recorded and has ctxloom's MCP server.
 - Run `ctxloom session list` to confirm the session exists, then load it by harp name.
 
-### Distillation fails
+### Compaction fails
 
 - Check that the `fast` LLM label resolves: `ctxloom llm list`.
 - Make sure that engine is installed and authenticated.
@@ -171,4 +171,4 @@ ctxloom session purge <harp> --yes        # Empty a session, keep it listed
 ### A session has no essence
 
 - Check `essence.md` in the session's output dir (`<Documents>/ctxloom/<project>/<harp>/` by default).
-- Distill it with `ctxloom session distill <harp>`. Sessions have no essence until something asks for one.
+- Compact it with `ctxloom session compact <harp>`. Sessions have no essence until something asks for one.

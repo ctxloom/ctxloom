@@ -1,7 +1,7 @@
 //go:build acceptance
 
 // Next-step capture and the task hint it feeds the distiller
-// (next_step_capture.feature, distill_task_hint.feature).
+// (next_step_capture.feature, compact_task_hint.feature).
 //
 // Every assertion here reads the CAPTURED FILE or the distiller's OWN RECORD
 // of the prompt it received, never the hook's exit status or the command's
@@ -28,7 +28,7 @@ import (
 // nextStepState carries what a scenario generated or observed so a later step
 // can compare against it rather than against a constant re-typed in the
 // feature: the over-bound closing text (too long to spell in Gherkin) and the
-// hint-free distillation prompt the hinted one is compared with.
+// hint-free compaction prompt the hinted one is compared with.
 type nextStepState struct {
 	longClosingText string
 	hintFreeRecord  string
@@ -146,7 +146,7 @@ func recordedPrompt(w *World) (string, error) {
 	return prompt, nil
 }
 
-// splitInstructionsFromLog separates a distillation prompt into the
+// splitInstructionsFromLog separates a compaction prompt into the
 // instructions and the session log at the last sessionLogOpenLine.
 func splitInstructionsFromLog(prompt string) (instructions, log string, err error) {
 	at := strings.LastIndex(prompt, sessionLogOpenLine)
@@ -248,15 +248,15 @@ func registerNextStepCaptureSteps(ctx *godog.ScenarioContext) {
 
 	// The byte-identity arm, in the only form observable from outside: the
 	// hint-free instructions are a STRICT PREFIX of the hinted ones (the hint
-	// is purely additive and lands after them — a no-hint distill that
+	// is purely additive and lands after them — a no-hint compact that
 	// rendered an empty hint section would diverge from the hinted one where
 	// the hint's text begins, and fail here), and the session log the two
 	// runs sent is the same bytes.
-	ctx.Step(`^the hinted distill sent the hint-free prompt unchanged, with the next step added after the instructions$`, func(c context.Context) error {
+	ctx.Step(`^the hinted compact sent the hint-free prompt unchanged, with the next step added after the instructions$`, func(c context.Context) error {
 		w := worldFrom(c)
 		bare := nextStepOf(w).hintFreeRecord
 		if bare == "" {
-			return fmt.Errorf("no hint-free baseline was kept — put `the distiller's recorded prompt is kept as the hint-free baseline` after the bare distill")
+			return fmt.Errorf("no hint-free baseline was kept — put `the distiller's recorded prompt is kept as the hint-free baseline` after the bare compact")
 		}
 		hinted, err := recordedPrompt(w)
 		if err != nil {
@@ -271,13 +271,13 @@ func registerNextStepCaptureSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("hinted run: %w", err)
 		}
 		if !strings.HasPrefix(hintedInstr, bareInstr) {
-			return fmt.Errorf("the hinted distill did not send the hint-free instructions unchanged;\nhint-free instructions:\n%s\nhinted instructions:\n%s", bareInstr, hintedInstr)
+			return fmt.Errorf("the hinted compact did not send the hint-free instructions unchanged;\nhint-free instructions:\n%s\nhinted instructions:\n%s", bareInstr, hintedInstr)
 		}
 		if len(hintedInstr) == len(bareInstr) {
-			return fmt.Errorf("the hinted distill sent the same instructions as the hint-free one, so the captured next step never reached the distiller;\ninstructions:\n%s", hintedInstr)
+			return fmt.Errorf("the hinted compact sent the same instructions as the hint-free one, so the captured next step never reached the distiller;\ninstructions:\n%s", hintedInstr)
 		}
 		if bareLog != hintedLog {
-			return fmt.Errorf("the two distills sent different session logs, so the prompts are not comparable;\nhint-free log:\n%s\nhinted log:\n%s", bareLog, hintedLog)
+			return fmt.Errorf("the two compacts sent different session logs, so the prompts are not comparable;\nhint-free log:\n%s\nhinted log:\n%s", bareLog, hintedLog)
 		}
 		return nil
 	})

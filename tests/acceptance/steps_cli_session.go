@@ -137,12 +137,12 @@ func seedAdoptHarp(c context.Context, harp, backend, sessionID, start, end strin
 }
 
 // seedFinishedSession records an ENDED session for harp plus a real
-// canonical transcript, and (when distilled) an essence. The transcript
+// canonical transcript, and (when compacted) an essence. The transcript
 // carries real bytes rather than an empty file: a purge reports the bytes it
 // freed, and a zero-byte fixture cannot tell "freed the file" from "freed
 // nothing".
-func seedFinishedSession(c context.Context, harp string, distilled bool) error {
-	if err := seedFinishedSessionFiles(c, harp, distilled); err != nil {
+func seedFinishedSession(c context.Context, harp string, compacted bool) error {
+	if err := seedFinishedSessionFiles(c, harp, compacted); err != nil {
 		return err
 	}
 	// Proven finished by a FREE lock file — the one state that lets a
@@ -153,7 +153,7 @@ func seedFinishedSession(c context.Context, harp string, distilled bool) error {
 // seedFinishedSessionFiles is seedFinishedSession's record-and-files half,
 // with no word about liveness: the caller decides whether the harp gets a
 // free lock, a held one, or none.
-func seedFinishedSessionFiles(c context.Context, harp string, distilled bool) error {
+func seedFinishedSessionFiles(c context.Context, harp string, compacted bool) error {
 	w := worldFrom(c)
 	sessionsRel := filepath.Join(".ctxloom", "sessions")
 	harpRel := filepath.Join(sessionsRel, harp)
@@ -171,7 +171,7 @@ func seedFinishedSessionFiles(c context.Context, harp string, distilled bool) er
 	if err := w.env.WriteHomeFile(transcriptRel, `{"type":"user","content":"hello"}`+"\n"); err != nil {
 		return err
 	}
-	if !distilled {
+	if !compacted {
 		return nil
 	}
 	essence := fmt.Sprintf("---\nharp_name: %s\ndistilled_at: 2026-01-02T00:00:00Z\n---\n\nSeeded essence for %s.\n", harp, harp)

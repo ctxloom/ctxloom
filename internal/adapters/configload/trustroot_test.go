@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -131,7 +132,7 @@ func TestTrustRoot_UnreadableStore_IsRecordedNotErased(t *testing.T) {
 	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
 	root := cfg.trustStore()
 
-	failed := root.LoadErrors()
+	failed := failedSources(root)
 	require.Len(t, failed, 1, "an unreadable allowed_signers location must survive as a failed source")
 	assert.Equal(t, path, failed[0].Path)
 	require.Error(t, failed[0].Err)
@@ -164,7 +165,18 @@ func TestTrustRoot_UnreadableStore_EscalatesViaStrictness(t *testing.T) {
 // fresh install reports a broken trust root.
 func TestTrustRoot_AbsentStore_IsNotALoadError(t *testing.T) {
 	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: afero.NewMemMapFs()}
-	assert.Empty(t, cfg.trustStore().LoadErrors())
+	assert.Empty(t, failedSources(cfg.trustStore()))
+}
+
+// failedSources is the trust root's locations that did not load.
+func failedSources(s *allowedsigners.Store) []allowedsigners.Source {
+	var out []allowedsigners.Source
+	for _, src := range s.Sources() {
+		if !src.Loaded {
+			out = append(out, src)
+		}
+	}
+	return out
 }
 
 // The MIRROR of TestTrustRoot_UnreadableStore_IsRecordedNotErased, on the

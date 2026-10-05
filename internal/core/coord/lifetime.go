@@ -140,7 +140,8 @@ func (c *Coordinator) runnerConnected(runID string) bool {
 }
 
 // readopt gives a run this coordinator did not start — one it found live in
-// the journal at startup and whose runner has just dialed back naming it —
+// the journal at startup and whose runner has just dialed back naming it, on
+// either channel —
 // its runtime attachment: a childRt the terminal path can end (terminateRun
 // reads attach), and its cell ownership through Spawner.Adopt (the release
 // becomes the attachment's close, so the run's end releases what the dead

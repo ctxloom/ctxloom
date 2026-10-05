@@ -166,9 +166,18 @@ func (ch *RunChannel) Identity() Identity { return ch.id }
 // session itself); one channel per role, newest wins (reconnect). cancel is
 // the stream context's, so the coordinator can sever the channel (severChan,
 // a reconnect, the terminal path).
+//
+// A run that outlived the previous coordinator is re-adopted here as in
+// RunnerHello, BEFORE its channel is registered: the two channels redial
+// unordered, and the first frames on this one are the events the dead
+// coordinator never acked — a turn boundary among them — which would find no
+// runtime, change nothing, and be acked all the same.
 func (c *Coordinator) AttachRun(id Identity, hello RunHello, cancel context.CancelFunc) (*RunChannel, error) {
 	if hello.RunID != id.RunID {
 		return nil, fmt.Errorf("%w: run %q", ErrRunNotIssued, hello.RunID)
+	}
+	if id.RunID != "" {
+		c.readopt(id.RunID)
 	}
 	caps := make(map[string]bool, len(hello.Capabilities))
 	for _, cap := range hello.Capabilities {

@@ -116,7 +116,7 @@ fragments:
 		"default": {Fragments: []config.FragmentRef{{Name: "dev#fragments/loader-fragment"}}},
 	}))
 
-	hash, err := regenerateContext(cfg, workDir)
+	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash, "the push path must actually write a context file")
 

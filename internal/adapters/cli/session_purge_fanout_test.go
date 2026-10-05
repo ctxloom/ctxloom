@@ -75,11 +75,11 @@ func TestTranscriptPurge_YesDestroysTheTranscriptOnly(t *testing.T) {
 	assert.Positive(t, got.BytesFreed, "a purge that freed zero bytes destroyed nothing")
 }
 
-// TestTranscriptPurge_NeverDistilledRefuses: the transcript of a session with
+// TestTranscriptPurge_NeverCompactedRefuses: the transcript of a session with
 // no essence is the ONLY record of what happened, so destroying it takes the
-// extra deliberate flag. --undistilled lives here, on the leaf that
+// extra deliberate flag. --uncompacted lives here, on the leaf that
 // understands the question, and never on the parent.
-func TestTranscriptPurge_NeverDistilledRefuses(t *testing.T) {
+func TestTranscriptPurge_NeverCompactedRefuses(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
@@ -88,12 +88,12 @@ func TestTranscriptPurge_NeverDistilledRefuses(t *testing.T) {
 	_, stderr, err := execRootCmdBoth(t, "session", "transcript", "purge", harp, "--yes")
 	require.Error(t, err, "destroying the only record of a session must refuse")
 	assert.True(t, onDisk(t, transcript), "a refusal must leave the transcript alone")
-	assert.Contains(t, stderr, "--undistilled")
+	assert.Contains(t, stderr, "--uncompacted")
 
 	resetFlags(t, rootCmd)
-	_, err = execRootCmd(t, "session", "transcript", "purge", harp, "--undistilled", "--yes")
+	_, err = execRootCmd(t, "session", "transcript", "purge", harp, "--uncompacted", "--yes")
 	require.NoError(t, err)
-	assert.False(t, onDisk(t, transcript), "--undistilled --yes destroys it anyway")
+	assert.False(t, onDisk(t, transcript), "--uncompacted --yes destroys it anyway")
 }
 
 // --- session artifacts purge -----------------------------------------------
@@ -179,17 +179,17 @@ func TestSessionPurge_KeepsTheIndexEntry(t *testing.T) {
 	assert.NotNil(t, entry.PurgedAt, "the index records that the bulk was destroyed")
 }
 
-// TestSessionPurge_UndistilledIsNotOnTheParent: selection flags live on the
+// TestSessionPurge_UncompactedIsNotOnTheParent: selection flags live on the
 // leaf that understands them. The sweep still cannot destroy the only record
-// of an undistilled session — it refuses and names the leaf that can.
-func TestSessionPurge_UndistilledIsNotOnTheParent(t *testing.T) {
+// of an uncompacted session — it refuses and names the leaf that can.
+func TestSessionPurge_UncompactedIsNotOnTheParent(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
-	assert.Nil(t, sessionPurgeCmd.Flags().Lookup("undistilled"),
-		"--undistilled belongs to `session transcript purge`, not to the sweep")
+	assert.Nil(t, sessionPurgeCmd.Flags().Lookup("uncompacted"),
+		"--uncompacted belongs to `session transcript purge`, not to the sweep")
 	assert.Nil(t, sessionPurgeCmd.Flags().Lookup("everything"),
 		"--everything is replaced by the fan-out; the sweep needs no scope flag")
 

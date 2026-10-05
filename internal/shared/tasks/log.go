@@ -537,6 +537,20 @@ func (l *eventLog) lockShared() (unlock func()) {
 	return func() { _ = fl.Unlock() }
 }
 
+// readFolded is the fold every read takes: under a shared cross-process
+// lock when the log exists, and without touching the filesystem at all when
+// it does not. A log only ever comes into being under the exclusive write
+// lock, so a read that finds none is ordered before that first write and has
+// nothing to read consistently — taking the lock would only create the lock
+// file and its directory as a side effect of looking.
+func (l *eventLog) readFolded() (*folded, error) {
+	if _, err := os.Stat(l.path); errors.Is(err, os.ErrNotExist) {
+		return newFolded(), nil
+	}
+	defer l.lockShared()()
+	return l.foldChecked()
+}
+
 // addWithTags is the sole append path for a new task. It stamps an initial
 // tag set on the `add` event itself (rather than a follow-on `tag` event),
 // so a task's creation and its starting tags land as one atomic log line;
@@ -753,8 +767,7 @@ func (l *eventLog) removeTags(harpID string, tags []string) (Task, error) {
 func (l *eventLog) currentTags(harpID string) ([]string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	defer l.lockShared()()
-	f, err := l.foldChecked()
+	f, err := l.readFolded()
 	if err != nil {
 		return nil, err
 	}
@@ -776,8 +789,7 @@ func (l *eventLog) snapshot() ([]Task, error) {
 	// one silently missing task. Best-effort: a lock failure falls back to
 	// an unlocked read rather than failing, since reads must never block (the
 	// in-process mu still serializes same-process access).
-	defer l.lockShared()()
-	f, err := l.foldChecked()
+	f, err := l.readFolded()
 	if err != nil {
 		return nil, err
 	}
@@ -791,8 +803,7 @@ func (l *eventLog) snapshot() ([]Task, error) {
 func (l *eventLog) deferredSince() (map[string]time.Time, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	defer l.lockShared()()
-	f, err := l.foldChecked()
+	f, err := l.readFolded()
 	if err != nil {
 		return nil, err
 	}

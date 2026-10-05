@@ -140,3 +140,38 @@ func TestExecGit_CloneOfAMissingRemoteFails(t *testing.T) {
 	err := g.Clone(context.Background(), "file://"+filepath.Join(t.TempDir(), "nope.git"), work, "")
 	require.Error(t, err)
 }
+
+// A publish needs the branch TIP and nothing behind it: it writes files,
+// commits on top, and pushes. A full-history clone pays for every commit the
+// remote ever carried on every publish, which is what makes publishing to a
+// large self-hosted repository slow. The clone is shallow, and a commit made
+// on top of the shallow tip must still push — the remote already holds the
+// parent, so nothing behind the boundary is needed.
+func TestExecGit_CloneIsShallowAndStillPushes(t *testing.T) {
+	g := NewExec()
+	ctx := context.Background()
+	bare := bareWithSeed(t, "main", "README.md")
+
+	// A second upstream commit, so a full clone and a shallow one differ.
+	upstream := filepath.Join(t.TempDir(), "upstream")
+	runGit(t, filepath.Dir(upstream), "clone", bare, upstream)
+	require.NoError(t, writeFile(filepath.Join(upstream, "second.md"), "second\n"))
+	runGit(t, upstream, "add", "-A")
+	runGit(t, upstream, "commit", "-m", "second")
+	runGit(t, upstream, "push", "origin", "main")
+
+	work := filepath.Join(t.TempDir(), "clone")
+	require.NoError(t, g.Clone(ctx, "file://"+bare, work, "main"))
+	assert.Equal(t, "true", runGit(t, work, "rev-parse", "--is-shallow-repository"))
+	assert.Equal(t, "1", runGit(t, work, "rev-list", "--count", "HEAD"))
+
+	runGit(t, work, "config", "user.name", "ctxloom")
+	runGit(t, work, "config", "user.email", "ctxloom@example.com")
+	require.NoError(t, writeFile(filepath.Join(work, "published.md"), "published\n"))
+	sha, _, err := g.CommitAll(ctx, work, "publish")
+	require.NoError(t, err)
+	require.NoError(t, g.Push(ctx, work, "origin", "HEAD:refs/heads/main"))
+	assert.Equal(t, sha, runGit(t, bare, "rev-parse", "main"))
+	assert.Equal(t, "3", runGit(t, bare, "rev-list", "--count", "main"),
+		"the push must land on top of the remote's history, not replace it")
+}

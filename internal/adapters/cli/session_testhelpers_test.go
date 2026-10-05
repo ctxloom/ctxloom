@@ -192,7 +192,7 @@ func seedTranscript(t *testing.T, harp string) string {
 	return path
 }
 
-// seedEssence writes a distilled essence for harp and returns its path.
+// seedEssence writes a compacted essence for harp and returns its path.
 func seedEssence(t *testing.T, harp string) string {
 	t.Helper()
 	path, err := harpEssencePath(t, harp)

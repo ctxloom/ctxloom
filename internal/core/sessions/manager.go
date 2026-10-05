@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -101,14 +102,14 @@ type Entry struct {
 	// the essence is the record, and a second copy is a second thing to
 	// disagree.
 	Summary string `yaml:"-" json:"summary,omitempty"`
-	// Detail holds the distilled Open Items, derived from essence.md's body
+	// Detail holds the compacted Open Items, derived from essence.md's body
 	// the same way. Kept separate from Summary so the single-line consumers
 	// (session list table, MCP resource) stay one line while a multi-line
 	// renderer can show more.
 	Detail []string `yaml:"-" json:"detail,omitempty"`
 
 	// SourceEntries is the transcript's ENTRY COUNT at the moment this session
-	// was last distilled — the staleness fingerprint. `session list` counts the
+	// was last compacted — the staleness fingerprint. `session list` counts the
 	// live transcript's entries and flags the row "out of date" once more have
 	// arrived.
 	//
@@ -118,7 +119,7 @@ type Entry struct {
 	// because operations.RefreshVendorTranscript replaces the canonical file
 	// wholesale. Under byte size, changing a vendor adapter's field set or
 	// timestamp format re-sized every canonical transcript and falsely staled
-	// every essence, each costing a real LLM re-distillation; and two different
+	// every essence, each costing a real LLM re-compaction; and two different
 	// contents of equal length compared as current. An entry count moves only
 	// when the conversation actually advances and is invariant to
 	// re-serialisation.
@@ -128,7 +129,7 @@ type Entry struct {
 	// the right way round — re-serialisation is common, in-place entry edits
 	// are not.
 	//
-	// Zero when never distilled; omitempty keeps those sidecars clean.
+	// Zero when never compacted; omitempty keeps those sidecars clean.
 	SourceEntries int `yaml:"source_entries,omitempty" json:"source_entries,omitempty"`
 
 	// LastActivity is the last-worked time used to order `session list`:
@@ -180,7 +181,7 @@ type Entry struct {
 
 	// Origin is who the session was minted for (Seed.Origin), stamped by the
 	// mint. EMPTY READS AS A HUMAN'S SESSION: a session that predates the
-	// field, or whose stamp failed, is never purged undistilled.
+	// field, or whose stamp failed, is never purged uncompacted.
 	Origin Origin `yaml:"origin,omitempty" json:"origin,omitempty"`
 
 	// SigCheckDisabled records that the run which minted this session waived
@@ -240,6 +241,11 @@ type Manager struct {
 // A retired global index (index.yaml) at the root is not read: the session
 // directories and their sidecars are the only source of sessions.
 //
+// Opening creates nothing: every reader arrives through Open, and a root that
+// does not exist yet reads as no sessions. The root is laid out by the first
+// mint (AssignHarp). A root that exists but cannot be a directory of sessions
+// is refused here, so the caller reports that rather than a later symptom.
+//
 // sink receives the per-session findings the Manager raises without failing
 // an operation; nil discards them.
 func Open(sink report.Sink) (*Manager, error) {
@@ -247,8 +253,10 @@ func Open(sink report.Sink) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("home dir: %w", err)
 	}
-	if err := os.MkdirAll(root, lockDirMode); err != nil {
-		return nil, fmt.Errorf("mkdir sessions dir: %w", err)
+	if fi, err := os.Stat(root); err == nil && !fi.IsDir() {
+		return nil, fmt.Errorf("open sessions dir: %w", &os.PathError{Op: "open", Path: root, Err: syscall.ENOTDIR})
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("stat sessions root: %w", err)
 	}
 	return &Manager{root: root, rep: report.To(sink)}, nil
 }
@@ -399,6 +407,9 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if err := os.MkdirAll(m.root, lockDirMode); err != nil {
+		return Entry{}, fmt.Errorf("mkdir sessions dir: %w", err)
+	}
 	names, err := os.ReadDir(m.root)
 	if err != nil {
 		return Entry{}, fmt.Errorf("read sessions root: %w", err)
@@ -811,7 +822,7 @@ func (m *Manager) StampMint(harpName string, s MintStamp) error {
 }
 
 // SetSourceEntries stamps the staleness fingerprint: the transcript ENTRY
-// COUNT the essence was just distilled from (see Entry.SourceEntries and
+// COUNT the essence was just compacted from (see Entry.SourceEntries and
 // TranscriptStale). The summary and detail the essence carries are read from
 // essence.md itself; nothing about them is stored here.
 func (m *Manager) SetSourceEntries(harpName string, sourceEntries int) error {

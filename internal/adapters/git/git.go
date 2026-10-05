@@ -157,7 +157,12 @@ type Git interface {
 	// non-empty, is the branch checked out (git clone --branch); empty takes
 	// the remote's own default branch, so the caller can ASK what that is by
 	// cloning and reading HEAD rather than guessing "main" or "master". Only
-	// the checked-out branch is fetched (--single-branch).
+	// the checked-out branch's TIP is fetched (--single-branch, --depth 1):
+	// the clone exists to commit on top of that tip and push, and a commit
+	// whose parent the remote already holds needs nothing behind it, so a
+	// full history would be paid for on every publish and never read. git
+	// ignores --depth for a plain local path, which is why a local remote is
+	// always a file:// URL by the time it gets here.
 	//
 	// AUTHENTICATION IS THE USER'S GIT, NOT CTXLOOM'S. This runs the git
 	// binary, which resolves ~/.ssh/config, ssh-agent, credential helpers and

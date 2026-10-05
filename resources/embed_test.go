@@ -161,7 +161,7 @@ func TestGetPromptText(t *testing.T) {
 		"tooling",
 		"distill-default",
 		"layer-instructions",
-		"session-distill",
+		"session-compact",
 	} {
 		got, err := GetPromptText(name)
 		if err != nil {

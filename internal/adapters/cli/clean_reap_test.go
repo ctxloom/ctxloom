@@ -30,7 +30,7 @@ func crSeedSession(t *testing.T, harp string, age time.Duration) string {
 	return dir
 }
 
-// TestClean_IncludePersist_RemovesTheTranscript is the gate: from a distilled
+// TestClean_IncludePersist_RemovesTheTranscript is the gate: from a compacted
 // session --include-persist takes the transcripts with the other persistent
 // machine members, and the report names transcripts/ among the members it
 // took.

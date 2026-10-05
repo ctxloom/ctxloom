@@ -60,9 +60,9 @@ func TestSessionEdit_TextReportNamesBothSpellings(t *testing.T) {
 // TestSessionEdit_BareRefusesLoudly is the escalated decision, pinned. A
 // session is a RECORD of something that happened: its index entry is
 // machine-written and its essence is DERIVED, regenerated wholesale by
-// `session distill`. There is no document for $EDITOR to open, so the bare
+// `session compact`. There is no document for $EDITOR to open, so the bare
 // form refuses and names the assignments it does take, rather than opening
-// something whose edits the next distill would silently discard.
+// something whose edits the next compact would silently discard.
 func TestSessionEdit_BareRefusesLoudly(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
@@ -74,7 +74,7 @@ func TestSessionEdit_BareRefusesLoudly(t *testing.T) {
 	assert.Contains(t, err.Error(), "no editable document")
 }
 
-// TestSessionEdit_UnknownHarpFails matches `session distill`'s convention:
+// TestSessionEdit_UnknownHarpFails matches `session compact`'s convention:
 // naming a harp nothing knows is an error, not a silent success.
 func TestSessionEdit_UnknownHarpFails(t *testing.T) {
 	testsupport.ProjectDir(t)

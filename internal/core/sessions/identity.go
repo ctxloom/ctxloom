@@ -109,7 +109,7 @@ type Origin string
 
 const (
 	// OriginSession is a human's session: a run at depth 0 that is not a
-	// one-shot. Its transcript is never destroyed undistilled by a sweep.
+	// one-shot. Its transcript is never destroyed uncompacted by a sweep.
 	OriginSession Origin = "session"
 	// OriginAgent is a delegated child's session.
 	OriginAgent Origin = "agent"

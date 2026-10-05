@@ -87,10 +87,10 @@ func TestSessionRemove_LeavesAuthoredWorkAlone(t *testing.T) {
 	assert.Contains(t, out, "design-notes.md", "and it must be named in the report")
 }
 
-// TestSessionRemove_UndistilledRefuses: removing a session that was never
-// distilled would destroy the only record of what happened. It refuses, and
+// TestSessionRemove_UncompactedRefuses: removing a session that was never
+// compacted would destroy the only record of what happened. It refuses, and
 // names the leaf that can do it deliberately.
-func TestSessionRemove_UndistilledRefuses(t *testing.T) {
+func TestSessionRemove_UncompactedRefuses(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
@@ -103,21 +103,21 @@ func TestSessionRemove_UndistilledRefuses(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, entry, "a refusal must leave the index entry")
 	assert.True(t, onDisk(t, transcript), "a refusal must leave the transcript")
-	assert.Contains(t, stderr, "--undistilled")
+	assert.Contains(t, stderr, "--uncompacted")
 }
 
-// TestSessionRemove_AfterAnUndistilledTranscriptPurge_Succeeds pins that the
+// TestSessionRemove_AfterAnUncompactedTranscriptPurge_Succeeds pins that the
 // refusal above is an obstacle a caller can actually get past. The guard asks
 // "is there a transcript here that is the only record", so once the
 // transcript is deliberately gone there is nothing left to protect and remove
 // proceeds — rather than refusing forever over a file that no longer exists.
-func TestSessionRemove_AfterAnUndistilledTranscriptPurge_Succeeds(t *testing.T) {
+func TestSessionRemove_AfterAnUncompactedTranscriptPurge_Succeeds(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
 	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
-	_, err := execRootCmd(t, "session", "transcript", "purge", harp, "--undistilled", "--yes")
+	_, err := execRootCmd(t, "session", "transcript", "purge", harp, "--uncompacted", "--yes")
 	require.NoError(t, err)
 	require.False(t, onDisk(t, transcript))
 	resetFlags(t, rootCmd)

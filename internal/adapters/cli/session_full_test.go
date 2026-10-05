@@ -17,10 +17,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// seedDistilledEssence writes an essence.md for harp under the isolated
+// seedCompactedEssence writes an essence.md for harp under the isolated
 // HOME and returns its path, mirroring how session_query_test.go's
-// TestSessionMatchesQuery_EssenceFallback seeds a distilled session.
-func seedDistilledEssence(t *testing.T, harp, body string) string {
+// TestSessionMatchesQuery_EssenceFallback seeds a compacted session.
+func seedCompactedEssence(t *testing.T, harp, body string) string {
 	t.Helper()
 	dir, err := paths.HarpDir(harp)
 	require.NoError(t, err)
@@ -32,15 +32,15 @@ func seedDistilledEssence(t *testing.T, harp, body string) string {
 }
 
 // TestNewSessionFullRow_CarriesEssenceBody pins the one thing SessionFullRow
-// adds over SessionRow: the complete distilled essence body, read straight
-// off disk. A never-distilled session gets an empty Essence and (via the
+// adds over SessionRow: the complete compacted essence body, read straight
+// off disk. A never-compacted session gets an empty Essence and (via the
 // embedded SessionRow) an empty EssencePath too.
 func TestNewSessionFullRow_CarriesEssenceBody(t *testing.T) {
 	testsupport.Isolate(t)
 
-	t.Run("distilled session carries its real essence body", func(t *testing.T) {
+	t.Run("compacted session carries its real essence body", func(t *testing.T) {
 		body := "## Summary\n\nRoot-caused the flaky retry-backoff-overflow test.\n"
-		essencePath := seedDistilledEssence(t, "plump-loose-sash", body)
+		essencePath := seedCompactedEssence(t, "plump-loose-sash", body)
 
 		row := newSessionFullRow(afero.NewOsFs(), operations.ViewSession(sessions.Entry{HarpName: "plump-loose-sash", Summary: "wrap-up"}))
 
@@ -48,8 +48,8 @@ func TestNewSessionFullRow_CarriesEssenceBody(t *testing.T) {
 		assert.Equal(t, essencePath, row.EssencePath)
 	})
 
-	t.Run("undistilled session has empty essence and path", func(t *testing.T) {
-		row := newSessionFullRow(afero.NewOsFs(), operations.ViewSession(sessions.Entry{HarpName: "never-distilled-harp"}))
+	t.Run("uncompacted session has empty essence and path", func(t *testing.T) {
+		row := newSessionFullRow(afero.NewOsFs(), operations.ViewSession(sessions.Entry{HarpName: "never-compacted-harp"}))
 		assert.Empty(t, row.Essence)
 		assert.Empty(t, row.EssencePath)
 	})
@@ -114,7 +114,7 @@ func TestEmitSessionRows_FullJSON_IsStructuredAndUnpaged(t *testing.T) {
 	require.NoError(t, err)
 
 	body := "## Summary\n\nShipped the essence_path restoration.\n"
-	seedDistilledEssence(t, entry.HarpName, body)
+	seedCompactedEssence(t, entry.HarpName, body)
 
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -151,7 +151,7 @@ func TestEmitSessionRows_FullText_SkipsPagerWhenNotTTY(t *testing.T) {
 	require.NoError(t, err)
 
 	body := "## Summary\n\nRoot-caused the flaky retry-backoff-overflow test.\n"
-	seedDistilledEssence(t, entry.HarpName, body)
+	seedCompactedEssence(t, entry.HarpName, body)
 
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -184,7 +184,7 @@ func TestEmitSessionRows_QueryFull_MatchesAndCarriesBody(t *testing.T) {
 	require.NoError(t, err)
 
 	body := "## Summary\n\nRoot-caused the flaky retry-backoff-overflow test.\n"
-	seedDistilledEssence(t, hit.HarpName, body)
+	seedCompactedEssence(t, hit.HarpName, body)
 
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -248,7 +248,7 @@ func TestEmitSessionRows_FullMarkdown_RendersThroughClifmtLikeEmit(t *testing.T)
 	require.NoError(t, err)
 	_, err = mgr.RecordOutputDir(entry.HarpName, t.TempDir())
 	require.NoError(t, err)
-	seedDistilledEssence(t, entry.HarpName, "## Summary\n\nmarkdown asymmetry.\n")
+	seedCompactedEssence(t, entry.HarpName, "## Summary\n\nmarkdown asymmetry.\n")
 
 	render := func(args ...string) string {
 		var out bytes.Buffer

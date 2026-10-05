@@ -41,13 +41,13 @@ flowchart TD
   C --> LS["loadSessionToCompact<br/>preloaded → identity-bound id → CurrentSession"]
   LS --> SRC
   LS --> S2T["renderEntries → appendEntryText"]
-  S2T --> ES{"tooLittleToDistill<br/>under minDistillTokens"}
+  S2T --> ES{"tooLittleToCompact<br/>under minCompactTokens"}
 
-  ES -->|yes| DUMP["dumpUndistilled<br/>transcript verbatim"]
+  ES -->|yes| DUMP["dumpUncompacted<br/>transcript verbatim"]
   ES -->|no| FB["fitToBudget<br/>recency-graded, rune-safe<br/>only when over SinglePassInputTokens"]
-  FB --> RD["runDistill (ONE call)"]
+  FB --> RD["runCompactTurn (ONE call)"]
   RD --> LLM
-  RES -.->|"session-distill.md"| RD
+  RES -.->|"session-compact.md"| RD
   RD --> ABORT{"distillation failed?"}
   ABORT -->|yes| ERR["error — keep the previous essence"]
   ABORT -->|no| PFM["parseLLMFrontmatter"]
@@ -56,15 +56,15 @@ flowchart TD
   PB --> RP["RenderPlans"] --> AB["assembleBody"]
   ART["collectArtifacts → RenderArtifacts<br/>selection.go"] --> AB
 
-  PFM --> FIN["finishDistill"]
+  PFM --> FIN["finishCompact"]
   DUMP --> FIN
   AB --> FIN
   FIN --> DS["deriveSummary"]
-  FIN --> SD["saveDistilled → saveEssence"]
+  FIN --> SD["saveCompacted → saveEssence"]
   FIN --> USI["updateSessionIndex"] --> IDX
 
   SD --> OUT[("essence.md + per-rotation copy under segments/")]
-  OUT -.read.-> LOAD["LoadDistilledSession"]
+  OUT -.read.-> LOAD["LoadCompactedSession"]
 ```
 
 ---
@@ -76,8 +76,9 @@ flowchart TD
 | `CompactionConfig` | `compactor.go` | Source selection, LLM invocation and output settings for one compaction |
 | `CompactionResult` | `compactor.go` | What one `Compact` reports back to its caller |
 | `Compactor` | `compactor.go` | The configured pipeline. It holds **no field for the session index it mutates** — each method that needs the index calls `sessions.Open` itself, so one `Compact` parses the index more than once |
-| `distilledMeta` | `compactor.go` | The YAML frontmatter written at the top of every essence |
-| `DistilledSession` | `compactor.go` | The parsed form of an essence: `distilledMeta` plus `Body` |
+| `compactedMeta` | `compactor.go` | The YAML frontmatter written at the top of every essence |
+| `essenceKind` / `readEssence` | `essence_schema.go` | The schemaver Kind versioning that frontmatter (never the body): a load migrates an older essence in memory, `--write-upgrades` persists it, a newer one is refused |
+| `CompactedSession` | `compactor.go` | The parsed form of an essence: `compactedMeta` plus `Body` |
 | `PlanBlock` | `plans.go` | One plan file's label and verbatim content, as `RenderPlans` re-attaches it |
 
 ---
@@ -87,22 +88,22 @@ flowchart TD
 | Symbol | File | Notes |
 |---|---|---|
 | `NewCompactor` | `compactor.go` | Defaults and clamps the config, and resolves the `SessionSource` (`resolveSource`) |
-| `Compact` | `compactor.go` | The whole pipeline. `finishDistill` saves the essence before it updates the session index, so a fingerprint is never recorded for an essence that was not written |
+| `Compact` | `compactor.go` | The whole pipeline. `finishCompact` saves the essence before it updates the session index, so a fingerprint is never recorded for an essence that was not written |
 | `loadSessionToCompact` | `compactor.go` | Preloaded → identity-bound id → `CurrentSession`. Explicit-id failures hard-error; index-derived failures fall through with a documented rationale |
-| `tooLittleToDistill` | `compactor.go` | The rendered transcript is under `minDistillTokens`: too small for distillation to compress, and small enough that the model answers with a refusal rather than a summary |
-| `dumpUndistilled` | `compactor.go` | Short-circuits to the transcript itself as the essence (a placeholder when it rendered to nothing); never replaces an existing essence |
+| `tooLittleToCompact` | `compactor.go` | The rendered transcript is under `minCompactTokens`: too small for distillation to compress, and small enough that the model answers with a refusal rather than a summary |
+| `dumpUncompacted` | `compactor.go` | Short-circuits to the transcript itself as the essence (a placeholder when it rendered to nothing); never replaces an existing essence |
 | `fitToBudget` | `compactor.go` | Deterministic recency-graded reduction to `SinglePassInputTokens`; each entry may claim at most half of what remains, so the budget is never exceeded and the head decays geometrically |
 | `splitEntryBlocks` | `compactor.go` | Splits rendered text back into the `## `-headed per-entry blocks `appendEntryText` wrote |
-| `runDistill` | `compactor.go` | The one distillation call, through the package's `Distill`: a run that fails, or exits 0 with no output, is an error rather than an empty essence |
+| `runCompactTurn` | `compactor.go` | The one compaction call, through the package's `RunPrompt`: a run that fails, or exits 0 with no output, is an error rather than an empty essence |
 | `sessionToText` / `renderEntries` / `appendEntryText` | `compactor.go` | Renders entries to markdown. `appendEntryText` has **no `default` case**, so a thinking-only or unrecognized-type entry contributes zero bytes |
 | `parseLLMFrontmatter` | `compactor.go` | Peels the LLM's leading YAML block; returns the original on any parse failure — a correct non-destructive degrade |
 | `deriveSummary` | `compactor.go` | Frontmatter summary, else the first non-heading prose line |
 | `assembleBody` | `compactor.go` | Body + rendered artifacts + rendered plans, owning the spacing invariant |
 | `collectArtifacts` / `RenderArtifacts` | `selection.go` | Deterministic touched-file index, capped at `maxArtifacts` and reporting what the cap dropped |
-| `distillPrompt` | `compactor.go` | The prompt plus the injected essence budget; loads from `PromptDir` when set, failing rather than falling back |
-| `saveDistilled` / `saveEssence` | `compactor.go` | Builds the frontmatter doc and writes it twice under the harp: `essence.md` (the current distillation) and this rotation's `segments/<sessionID>.md`. Refuses an empty body. `saveEssence` warns before every degrade |
+| `compactPrompt` | `compactor.go` | The prompt plus the injected essence budget; loads from `PromptDir` when set, failing rather than falling back |
+| `saveCompacted` / `saveEssence` | `compactor.go` | Builds the frontmatter doc and writes it twice under the harp: `essence.md` (the current distillation) and this rotation's `segments/<sessionID>.md`. Refuses an empty body. `saveEssence` warns before every degrade |
 | `resolveHarpName` / `identityBoundSessionID` / `updateSessionIndex` | `compactor.go` | The index-mutating group |
-| `LoadDistilledSession` / `parseDistilledMarkdown` | `compactor.go` | The read side |
+| `LoadCompactedSession` / `parseCompactedMarkdown` | `compactor.go` | The read side |
 | `RenderPlans` / `planFilesToBlocks` / `IsPlanFile` | `plans.go` | |
 | `StampPlanFile` / `prependFrontmatter` / `updateFrontmatter` / `addHarpToSessionsNode` | `stamp.go` | Ensures a plan file's `sessions:` frontmatter contains the harp |
 

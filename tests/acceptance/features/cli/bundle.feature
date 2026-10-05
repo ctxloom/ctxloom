@@ -38,10 +38,9 @@ Feature: bundle — the container authored content lives in, and everything that
   governs `signer trust` — and splitting one across two files would leave
   neither able to assert the transition that matters.
 
-  `bundle push` is the one leaf here with no hermetic fixture: it writes to a
-  forge, and completeness_test.go's excludedLeaves says so. What IS hermetic is
-  its refusal path, which never reaches the network, and that is what this file
-  drives.
+  `bundle push` publishes to any git remote. A plain git remote is reached
+  through the user's own git, so a file:// repository is a complete hermetic
+  destination, and this file publishes to one.
 
   Where content comes FROM is a different noun (cli/remote.feature); what this
   project has INSTALLED from there is a third (cli/deps.feature).
@@ -451,10 +450,8 @@ Feature: bundle — the container authored content lives in, and everything that
     invocation is not a preference the command can resolve, and guessing either
     way would publish something the operator did not ask for.
 
-    # The refusal happens before the bundle is even loaded, which is what makes
-    # this the one part of `push` a hermetic fixture can reach: no remote, no
-    # key, no network. Publishing itself needs a writable forge and is listed
-    # in completeness_test.go's excludedLeaves for exactly that reason.
+    # The refusal happens before the bundle is even loaded: no remote, no key,
+    # nothing published.
     Scenario: Being told both to sign and not to sign is refused rather than resolved
       Given an initialized ctxloom project
       And a bundle "demo" exists
@@ -464,6 +461,35 @@ Feature: bundle — the container authored content lives in, and everything that
         """
       Then the command fails
       And the output contains "--sign and --no-sign are mutually exclusive"
+
+  Rule: A push lands the bundle's whole tree in the remote's repository
+
+    `bundle push` writes every file of the authored tree to the remote's
+    default branch as ONE commit. A remote that is not a forge with an API is
+    reached through the user's own git, which owns their identity and
+    credentials. ctxloom supplies neither, so the scenario gives git an
+    identity the way a user's own configuration would. Every assertion reads
+    the REMOTE's branch, because "Pushed …" is printed by a push and is
+    equally printed by one that moved nothing.
+
+    Scenario: Pushing a bundle to a plain git remote lands its tree there
+      Given an initialized ctxloom project
+      And a bundle "authored" exists
+      And a git remote "team" serving a ctxloom bundle
+      And the environment variable "GIT_AUTHOR_NAME" is set to "Alice"
+      And the environment variable "GIT_AUTHOR_EMAIL" is set to "alice@example.test"
+      And the environment variable "GIT_COMMITTER_NAME" is set to "Alice"
+      And the environment variable "GIT_COMMITTER_EMAIL" is set to "alice@example.test"
+      When Alice publishes her bundle to the team's repository:
+        """
+        ctxloom bundle push authored team --no-sign
+        """
+      Then the command succeeds
+      And the remote "team" holds file "bundle.yaml" of bundle "authored" containing "acceptance fixture bundle"
+      And the remote "team" holds file "fragments/example.md" of bundle "authored" containing "# Example Fragment"
+      # The bundle the remote already served is still there: a publish adds to
+      # the repository's history rather than replacing it.
+      And the remote "team" holds file "fragments/demo-frag.md" of bundle "demo" containing "Demo fragment content."
 
   Rule: An authored bundle is not an installed dependency
 

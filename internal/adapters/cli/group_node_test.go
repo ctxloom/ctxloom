@@ -21,13 +21,13 @@ func walkCommands(cmd *cobra.Command, visit func(*cobra.Command)) {
 // runRoot drives the real rootCmd with args and returns everything it wrote
 // plus its error.
 //
-// --format is reset before as well as after (resetRootFormat): a namespace
+// Flags are reset before as well as after (resetFlags): a namespace
 // test that quietly depended on a neighbour's leftovers would be measuring
 // the neighbour.
 func runRoot(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	resetRootFormat(t)
+	resetFlags(t, rootCmd)
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)
 	rootCmd.SetArgs(args)
@@ -35,12 +35,7 @@ func runRoot(t *testing.T, args ...string) (string, error) {
 		rootCmd.SetArgs(nil)
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
-		resetRootFormat(t)
-		// rootCommand() clears --help before ITS dispatch, but most of this
-		// package dispatches through rootCmd.Execute() directly and never
-		// gets that reset. A --help this call passed would otherwise turn the
-		// next such dispatch into a help print that exits 0.
-		resetHelpFlag(rootCmd)
+		resetFlags(t, rootCmd)
 	})
 	err := dispatch(rootCommand())
 	return out.String(), err

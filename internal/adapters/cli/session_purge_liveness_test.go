@@ -74,7 +74,7 @@ func TestSessionPurge_EvenIfLiveIsOptInOnEveryFileDestroyer(t *testing.T) {
 func TestSessionPurge_HeldLockRefusesEveryFileDestroyer(t *testing.T) {
 	for _, d := range fileDestroyers(t, seedHarpFor(t)) {
 		t.Run(d.cmd.CommandPath(), func(t *testing.T) {
-			t.Cleanup(func() { resetSessionPurgeFlags(t) })
+			t.Cleanup(func() { resetFlags(t, rootCmd) })
 			harp := d.argv[len(d.argv)-1]
 			swtSeedLiveSession(t, harp)
 
@@ -108,7 +108,7 @@ func TestSessionPurge_NoLockRefusesAndNamesTheEscape(t *testing.T) {
 	transcript := seedTranscript(t, harp)
 	seedEssence(t, harp)
 	removeSessionLock(t, harp)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, stderr, err := execRootCmdBoth(t, "session", "purge", harp, "--yes")
 	require.Error(t, err, "no lock must refuse")
@@ -117,7 +117,7 @@ func TestSessionPurge_NoLockRefusesAndNamesTheEscape(t *testing.T) {
 	assert.Contains(t, stderr, "ctxloom session purge "+harp+" --yes --even-if-live",
 		"the refusal must name the exact command that applies it anyway")
 
-	resetSessionPurgeFlags(t)
+	resetFlags(t, rootCmd)
 	_, stderr, err = execRootCmdBoth(t, "session", "purge", harp)
 	require.Error(t, err, "the report-only run refuses too, so --yes is never the first time the human hears of it")
 	assert.True(t, onDisk(t, transcript))
@@ -132,7 +132,7 @@ func TestSessionPurge_EvenIfLiveDestroysAnyway(t *testing.T) {
 		transcript := seedTranscript(t, harp)
 		essence := seedEssence(t, harp)
 		removeSessionLock(t, harp)
-		t.Cleanup(func() { resetSessionPurgeFlags(t) })
+		t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 		_, err := execRootCmd(t, "session", "purge", harp, "--yes", "--even-if-live")
 		require.NoError(t, err)
@@ -144,7 +144,7 @@ func TestSessionPurge_EvenIfLiveDestroysAnyway(t *testing.T) {
 		transcript := seedTranscript(t, harp)
 		essence := seedEssence(t, harp)
 		swtSeedLiveSession(t, harp)
-		t.Cleanup(func() { resetSessionPurgeFlags(t) })
+		t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 		_, err := execRootCmd(t, "session", "transcript", "purge", harp, "--yes", "--even-if-live")
 		require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestSessionPurge_DeadOwnerSweepReapsItsCleanScratchWorktree(t *testing.T) {
 	seedEssence(t, harp)
 	repo := swtInitRepo(t)
 	wt := swtAddScratchWorktree(t, home, repo, harp, "clean", false)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "purge", harp, "--yes", "--format", "json")
 	require.NoError(t, err)

@@ -14,36 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
-
-// resetSessionWorktreesFlags restores the package-level cobra flag vars
-// backing `session worktrees` to their zero values, AND clidiag's process-
-// wide structured-diagnostics flag to off. Two independent leaks, one
-// helper, because every test in this file trips both the same way:
-//
-//   - pflag only calls Set() on flags actually present in a given argv, so a
-//     value a PRIOR test's execRootCmd left on (e.g. --yes=true) survives
-//     into a later invocation that never mentions the flag at all — the same
-//     reason doctor_cmd_test.go resets doctorDepsOnlyFlag.
-//   - root.go's PersistentPreRun calls clidiag.SetStructured(true) for every
-//     --format json/yaml/toml invocation and never resets it — root_test.go,
-//     format_test.go, group_node_test.go and llm_resolve_test.go all reset it
-//     in t.Cleanup for the same reason. Every test below runs with
-//     --format json, so left unreset it flips clidiag's stderr shape for
-//     every test that runs after it in this package's binary, INCLUDING
-//     ones in other files (startup_helpers_test.go's warning-prefix
-//     assertions, discovered exactly this way).
-//
-// Every test in this file that runs "session worktrees" registers this in
-// t.Cleanup, regardless of which flags/format it itself sets, so no test can
-// leak state into whichever test runs after it.
-func resetSessionWorktreesFlags() {
-	sessionWorktreesPurgeYes = false
-	clidiag.SetStructured(false)
-}
 
 // swtDeadPid is the pid these fixtures stamp into a session's lock file. It
 // names no live process on any real kernel.pid_max configuration — but note
@@ -121,7 +94,7 @@ func swtSeedLiveSession(t *testing.T, harp string) {
 // harness: given a clean/dead-owner tree and a dirty/dead-owner tree, the
 // bare listing reports both, removing neither.
 func TestSessionWorktrees_BareListing_ShowsEveryVerdict(t *testing.T) {
-	t.Cleanup(resetSessionWorktreesFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
 	clean := swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
@@ -161,7 +134,7 @@ func TestSessionWorktrees_BareListing_ShowsEveryVerdict(t *testing.T) {
 // unprovable populations cannot share this harp; they are pinned in the two
 // tests below, against the same verb.
 func TestSessionWorktrees_ReapYes_RemovesOnlyProvenSafe(t *testing.T) {
-	t.Cleanup(resetSessionWorktreesFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
 	clean := swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
@@ -191,7 +164,7 @@ func TestSessionWorktrees_ReapYes_RemovesOnlyProvenSafe(t *testing.T) {
 // owning session still holds its lock. Reaping out from under a running
 // session is the incident this design guards against.
 func TestSessionWorktrees_ReapYes_LiveSessionIsNeverTouched(t *testing.T) {
-	t.Cleanup(resetSessionWorktreesFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
 	live := swtAddScratchWorktree(t, home, repo, "amber", "live", false)
@@ -212,7 +185,7 @@ func TestSessionWorktrees_ReapYes_LiveSessionIsNeverTouched(t *testing.T) {
 // dead, and "cannot determine" is never permission. A missing lock must never
 // read as a free one.
 func TestSessionWorktrees_ReapYes_UnprovableSessionIsNeverTouched(t *testing.T) {
-	t.Cleanup(resetSessionWorktreesFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
 	unknowable := swtAddScratchWorktree(t, home, repo, "amber", "unknowable", false)
@@ -232,7 +205,7 @@ func TestSessionWorktrees_ReapYes_UnprovableSessionIsNeverTouched(t *testing.T) 
 // design landed on: the absence of --yes means report-only, unconditionally —
 // no TTY-based prompting path exists at all, and the report says so out loud.
 func TestSessionWorktrees_ReapWithoutYes_NeverActs(t *testing.T) {
-	t.Cleanup(resetSessionWorktreesFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
 	clean := swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
@@ -252,7 +225,7 @@ func TestSessionWorktrees_ReapWithoutYes_NeverActs(t *testing.T) {
 // even though every candidate was legitimately spared/skipped rather than
 // erroring.
 func TestSessionWorktrees_ReapYes_ChangedNothing_Refuses(t *testing.T) {
-	t.Cleanup(resetSessionWorktreesFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
 	swtAddScratchWorktree(t, home, repo, "amber", "wip", true)
@@ -270,7 +243,7 @@ func TestSessionWorktrees_ReapYes_ChangedNothing_Refuses(t *testing.T) {
 // candidates were spared — sparing is a delivered effect, not a refusal, as
 // long as SOMETHING moved.
 func TestSessionWorktrees_ReapYes_SomethingChanged_Succeeds(t *testing.T) {
-	t.Cleanup(resetSessionWorktreesFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
 	swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
@@ -285,7 +258,7 @@ func TestSessionWorktrees_ReapYes_SomethingChanged_Succeeds(t *testing.T) {
 // long-lived worktree living outside ~/.ctxloom/sessions is invisible to this
 // verb by construction, never merely by an added filter.
 func TestSessionWorktrees_ForeignWorktreeNeverListed(t *testing.T) {
-	t.Cleanup(resetSessionWorktreesFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
 	swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
@@ -305,7 +278,7 @@ func TestSessionWorktrees_ForeignWorktreeNeverListed(t *testing.T) {
 // restricts the SCAN rather than merely filtering a full listing after the
 // fact — a second harp's own scratch worktree must not even be classified.
 func TestSessionWorktrees_HarpFilter_ScopesToOneHarp(t *testing.T) {
-	t.Cleanup(resetSessionWorktreesFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
 	swtAddScratchWorktree(t, home, repo, "amber", "clean", false)
@@ -327,7 +300,7 @@ func TestSessionWorktrees_HarpFilter_ScopesToOneHarp(t *testing.T) {
 // "the harp named has no directory" row: an ordinary error (exit 1), not a
 // refusal.
 func TestSessionWorktrees_HarpNotFound_IsOrdinaryError(t *testing.T) {
-	t.Cleanup(resetSessionWorktreesFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	testsupport.Isolate(t)
 	_, err := execRootCmd(t, "session", "worktrees", "list", "no-such-harp-ever")
 	require.Error(t, err)

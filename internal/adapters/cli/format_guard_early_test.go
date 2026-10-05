@@ -47,7 +47,7 @@ func TestFormatGuard_RefusesBeforeTheCommandDoesAnything(t *testing.T) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
-		resetRootFormat(t)
+		resetFlags(t, rootCmd)
 	})
 
 	err := rootCmd.Execute()
@@ -79,7 +79,7 @@ func TestFormatGuard_TextAndImplicitFormatsStillRun(t *testing.T) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
-		resetRootFormat(t)
+		resetFlags(t, rootCmd)
 	})
 
 	err := rootCmd.Execute()

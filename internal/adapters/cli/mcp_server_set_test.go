@@ -19,8 +19,8 @@ import (
 // the leaf's flags reset on both sides so no run inherits another's.
 func execMCPServerSet(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	resetFlagState(mcpServerSetCmd)
-	t.Cleanup(func() { resetFlagState(mcpServerSetCmd) })
+	resetFlags(t, rootCmd)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	return runRoot(t, append([]string{"mcp", "server", "set"}, args...)...)
 }
 

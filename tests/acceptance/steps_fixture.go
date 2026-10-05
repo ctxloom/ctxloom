@@ -8,13 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-
+	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/spf13/afero"
 
 	"github.com/cucumber/godog"
@@ -584,6 +585,28 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// Where a run delivered each surface, read off the mock's record, which is
+	// written DURING the turn. The runner's teardown releases a delivery into
+	// the project, so a project file's absence after the run shows only that
+	// nothing was left behind; the record is what shows nothing was delivered
+	// there.
+	ctx.Step(`^the mock was handed every surface from its session, none from the project$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if w.mock == nil {
+			return fmt.Errorf(`no mock LLM configured for this scenario (missing a "the mock LLM responds" step)`)
+		}
+		recorded, err := w.mock.GetRecordedInput()
+		if err != nil {
+			return fmt.Errorf("read mock recorded input: %w", err)
+		}
+		evidence, err := mockSurfacesInSession(recorded, filepath.Join(w.env.HomeDir, paths.AppDirName, paths.SessionsDir))
+		if err != nil {
+			return err
+		}
+		w.docStepMaterialized = "surfaces the mock was handed, from its record:\n" + evidence
+		return nil
+	})
+
 	// The session store is where every run mints its harp (sessions.Open
 	// under paths.HomeSessionsDir). A regular file at the store's root makes
 	// opening it fail on the first touch — the mint — rather than on some later
@@ -625,4 +648,31 @@ func installToolingCompanion(w *World, name, marker string) error {
 	}
 	versionJSON := fmt.Sprintf(`{"name":%q,"version":"0.0.0-fixture"}`, bin)
 	return w.env.InstallFakeCompanion(bin, versionJSON, string(envelope))
+}
+
+// mockSurfacesInSession checks a mock record's surface lines: the record names
+// every surface (mock.RecordSurfaceKeys), and each lies under sessionsRoot —
+// which no project tree is. It returns those lines as evidence.
+func mockSurfacesInSession(record, sessionsRoot string) (string, error) {
+	got := map[string]string{}
+	for _, line := range strings.Split(record, "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok && slices.Contains(mock.RecordSurfaceKeys(), k) {
+			got[k] = v
+		}
+	}
+	var lines, bad []string
+	for _, k := range mock.RecordSurfaceKeys() {
+		p, ok := got[k]
+		switch {
+		case !ok:
+			bad = append(bad, k+" is not named")
+		case !strings.HasPrefix(p, sessionsRoot+string(filepath.Separator)):
+			bad = append(bad, fmt.Sprintf("%s was delivered outside the session store %s: %s", k, sessionsRoot, p))
+		}
+		lines = append(lines, k+"="+p)
+	}
+	if len(bad) > 0 {
+		return "", fmt.Errorf("the mock's record places its surfaces outside its session: %s; recorded:\n%s", strings.Join(bad, "; "), record)
+	}
+	return strings.Join(lines, "\n"), nil
 }

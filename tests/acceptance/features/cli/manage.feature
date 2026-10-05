@@ -613,9 +613,10 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # THE GATE FOR THE DELIVERY LAYER: uninstall is the empty plan over the
     # ownership record, so nothing of the harness is left behind; a run
     # afterwards delivers into its own session and the project stays as the
-    # uninstall left it. Asserted on the files the install wrote, each one
-    # absent after the run — a run that delivered into the project would put
-    # them back. Ruled 2026-09-21: sessions carry their surfaces; the project
+    # uninstall left it. Where the run delivered is read off the mock's
+    # record, written while it ran: the run's teardown releases a delivery
+    # into the project, so the install's files being absent afterwards shows
+    # only that nothing was left behind. Ruled 2026-09-21: sessions carry their surfaces; the project
     # is written only under a root the binding selects, and the project-side
     # files this scenario removes are the explicit hooks install's.
     Scenario: After an uninstall, a run delivers into its session and the project stays clean
@@ -633,6 +634,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         """
       Then the command succeeds
       And the output contains "MOCK-REPLY"
+      And the mock was handed every surface from its session, none from the project
       And the file "MOCK_CONTEXT.md" does not exist
       And the file ".mock/mcp.json" does not exist
       And the file ".mock/commands/discover.md" does not exist

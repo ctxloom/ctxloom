@@ -56,7 +56,7 @@ func aliasToURLResolver(cfg *config.Config) func(string) string {
 }
 
 // canonicalizeBundleRefs canonicalizes every per-remote short bundle ref
-// ("<alias>/<bundle>[#<sel>]") in refs to canonical URL form. Bare names
+// ("<alias>/<bundle>[#<sel>]") in refs to the canonical ctxloom URI. Bare names
 // (decision A: no "<alias>/" prefix) and already-canonical refs pass through
 // unchanged, and so does a ref whose base names a local bundle (localExists:
 // local-file-wins, decision E). Returns the input slice unchanged when there is
@@ -68,7 +68,7 @@ func canonicalizeBundleRefs(refs []string, aliasToURL func(string) string, local
 }
 
 // canonicalizeProfileRefs canonicalizes every per-remote short bundle-profile ref
-// ("<alias>/<bundle>#profiles/<name>") in refs to canonical URL form. A ref
+// ("<alias>/<bundle>#profiles/<name>") in refs to the canonical ctxloom URI. A ref
 // without a "#profiles/" selector is a local profile name and is left unchanged
 // (a selector-less "team/dev" stays the local subdir profile it names). Used for
 // profile parents and agent profile lists.
@@ -76,15 +76,6 @@ func canonicalizeProfileRefs(refs []string, aliasToURL func(string) string) []st
 	return mapRefs(refs, func(ref string) string {
 		return remote.CanonicalizeProfileShortRef(ref, aliasToURL)
 	})
-}
-
-// canonicalProfileRefs re-spells refs a profile item is about to STORE in the
-// canonical ctxloom URI grammar (remote.CanonicalSpelling): a profile item is
-// versioned by its bundle's envelope, and every envelope a writer stamps is at
-// the generation where profile refs are canonical. Refs naming no URL pass
-// through as written.
-func canonicalProfileRefs(refs []string) []string {
-	return mapRefs(refs, remote.CanonicalSpelling)
 }
 
 // mapRefs applies fn to each ref, returning the input slice unchanged when empty

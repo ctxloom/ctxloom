@@ -20,7 +20,9 @@ func aliasToPersonal(alias string) string {
 	return ""
 }
 
-const personalURL = "https://github.com/ben/ctxloom-personal"
+// personalBundles is the canonical ctxloom URI prefix of the "personal"
+// remote's bundles.
+const personalBundles = "ctxloom+git://github.com/ben/ctxloom-personal//bundles/"
 
 // agentProfiles extracts agents.<name>.profiles from a parsed config as a
 // []string for assertions.
@@ -41,7 +43,7 @@ func agentProfiles(t *testing.T, root map[string]any, name string) []string {
 
 // TestAgentProfileCanonicalizeUpgrade pins the on-load migration (decision B):
 // a short "<remote>/<bundle>#profiles/<name>" agent profile is rewritten to its
-// canonical URL, while bare/local and canonical refs are left verbatim.
+// canonical ctxloom URI, while bare/local and canonical refs are left verbatim.
 func TestAgentProfileCanonicalizeUpgrade(t *testing.T) {
 	pipe := upgrade.Pipeline{profileRefCanonicalizeUpgrade{canonical: func(ref string) string {
 		return remote.CanonicalizeProfileShortRef(ref, aliasToPersonal)
@@ -63,7 +65,7 @@ func TestAgentProfileCanonicalizeUpgrade(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(out, &root))
 	got := agentProfiles(t, root, "dev")
 	assert.Equal(t, []string{
-		personalURL + "@bundles/agent-ensemble#profiles/finder",
+		personalBundles + "agent-ensemble#profiles/finder",
 		"developer",
 		"tools#profiles/probe",
 		"ctxloom:local@bundles/dev#profiles/x",

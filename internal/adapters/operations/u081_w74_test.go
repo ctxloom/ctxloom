@@ -63,7 +63,7 @@ func TestCanonicalizeBundleArg_ResolvesAgainstTheInjectedFS(t *testing.T) {
 
 	// With the project's filesystem: the alias is a known remote and no local
 	// file claims the spelling, so the short ref canonicalizes to the remote.
-	assert.Equal(t, w74RemoteURL+"@bundles/tool",
+	assert.Equal(t, remote.CanonicalSpelling(w74RemoteURL+"@bundles/tool"),
 		canonicalizeBundleArg(cfg, "personal/tool", dirs, fs),
 		"the injected filesystem must be the one the registry is read from")
 

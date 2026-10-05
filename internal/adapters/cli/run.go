@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -479,6 +480,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	st.runStartupTasks()
 	st.resolveProject()
+	if err := st.agentTokenRefusal(); err != nil {
+		return err
+	}
 
 	// Dry run mode - show the resolved launch and the prompt, then stop
 	// before anything stateful or interactive happens: the same resolver,
@@ -578,6 +582,30 @@ func (st *runState) establishProjectIdentity() (string, error) {
 		clidiag.Warn("ctxloom", "%s", warning)
 	}
 	return pid, err
+}
+
+// agentTokenRefusal refuses a launch, preview or not, whose engine's agent
+// token is not exported — before anything starts, with the engine's own fix,
+// the wording init and auth show (operations.AgentTokenMissing). Every agent
+// the session delegates to authenticates with that token, whatever the
+// human's own session uses. A bare launch or --agent naming no binding is
+// left to the resolver, whose refusal (and its fix) comes first.
+func (st *runState) agentTokenRefusal() error {
+	explicitAssembly := runProfile != "" || len(runFragments) > 0 || len(runTags) > 0
+	name := runAgent
+	if name == "" && !explicitAssembly {
+		name = st.cfg.GetDefaultAgent()
+	}
+	binding, bound := st.cfg.Agent(name)
+	if !bound && (name != "" || !explicitAssembly) {
+		return nil
+	}
+	label := cmp.Or(runLLM, binding.LLM)
+	backend, _ := operations.ResolveBackend(App().Engines(), st.cfg, label)
+	if err := operations.AgentTokenMissing(App().Engines(), backend, os.LookupEnv); err != nil {
+		return refusal{err}
+	}
+	return nil
 }
 
 // lookupProjectIdentity is a dry run's answer to "which project is this":

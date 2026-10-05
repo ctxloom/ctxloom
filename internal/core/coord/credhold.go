@@ -1003,6 +1003,13 @@ func (c *Coordinator) adoptRefusedHold(h holdRecord) {
 		refusedLead, who, cmp.Or(h.Source.Carrier(), h.Key), RefusedCredentialRemedy(h.Source, c.rootHarp))
 }
 
+// refusedStoreRemedyFormat is the remedy for a refused login read in place
+// (the stores, then the session's root harp). The sign-in reaches the running
+// session; the other way out is the agent token every run ctxloom spawns
+// already authenticates with — the one init and auth tell the human to export
+// — which takes a restart, since a session reads its auth once, at launch.
+const refusedStoreRemedyFormat = "sign in again (%s) and resume one of the parked runs, or run this session on the exported agent token instead: set `auth: token` in your config and restart it with `ctxloom run --session %s`"
+
 // RefusedCredentialRemedy is what the human does about a refused credential
 // carried as src, in the session whose root harp is session. A captured
 // variable is read once, at launch, so only a new process sees a fresh one: a
@@ -1014,7 +1021,7 @@ func RefusedCredentialRemedy(src engine.CredentialSource, session string) string
 		return fmt.Sprintf("export a fresh %s, then restart this session from that shell: ctxloom run --session %s",
 			strings.Join(src.EnvVars, " / "), cmp.Or(session, "<session>"))
 	case len(src.Stores) > 0:
-		return fmt.Sprintf("sign in again (%s), then resume one of the parked runs", strings.Join(src.Stores, ", "))
+		return fmt.Sprintf(refusedStoreRemedyFormat, strings.Join(src.Stores, ", "), cmp.Or(session, "<session>"))
 	}
 	return "re-authenticate the engine, then resume one of the parked runs"
 }

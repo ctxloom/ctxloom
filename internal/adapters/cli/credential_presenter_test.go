@@ -84,7 +84,7 @@ func TestCredentialNoticeText_RefusedGivesTheRemedyForItsSource(t *testing.T) {
 	got = credentialNoticeText([]coord.CredentialHold{refusedHold(login, limitUntil, "a")}, "root-harp")
 	assert.Contains(t, got, "sign in again")
 	assert.Contains(t, got, "~/.claude")
-	assert.NotContains(t, got, "--session")
+	assert.Contains(t, got, coord.RefusedCredentialRemedy(login, "root-harp"), "the coordinator's remedy, verbatim")
 }
 
 // ringCounter counts the presenter's bells.

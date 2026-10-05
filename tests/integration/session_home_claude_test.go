@@ -8,12 +8,16 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
@@ -34,10 +38,12 @@ import (
 // fakeClaudeScript answers `--version` with claude's declared floor (in
 // claude's own "<version> (Claude Code)" shape), records its environment and
 // argv, snapshots the config dir it was handed (its listing, and its
-// .claude.json), drains stdin, and speaks enough stream-json for one turn.
+// .claude.json) and, when a test names them, a records dir and one file,
+// drains stdin, and speaks enough stream-json for one turn.
 // The snapshot is taken WHILE THE RUN IS LIVE because the session home is
 // disposable: Close removes it, so a post-run look would find nothing and
-// every "nothing was copied in" assertion would pass vacuously.
+// every "nothing was copied in" assertion would pass vacuously. A delivery
+// is the same: the run's teardown releases it, and its record goes with it.
 func fakeClaudeScript(t *testing.T) string {
 	t.Helper()
 	e, ok := engines.Registry().Lookup(claude.EngineName)
@@ -53,6 +59,8 @@ if [ -n "$CLAUDE_CONFIG_DIR" ]; then
   ls -A "$CLAUDE_CONFIG_DIR" > "$FAKE_CLAUDE_CAPTURE.home"
   if [ -f "$CLAUDE_CONFIG_DIR/.claude.json" ]; then cp "$CLAUDE_CONFIG_DIR/.claude.json" "$FAKE_CLAUDE_CAPTURE.claude.json"; fi
 fi
+if [ -n "$FAKE_CLAUDE_SNAPSHOT_RECORDS" ]; then cp -Rp "$FAKE_CLAUDE_SNAPSHOT_RECORDS" "$FAKE_CLAUDE_CAPTURE.records"; fi
+if [ -n "$FAKE_CLAUDE_SNAPSHOT_FILE" ]; then cp -p "$FAKE_CLAUDE_SNAPSHOT_FILE" "$FAKE_CLAUDE_CAPTURE.file"; fi
 cat > /dev/null
 echo '{"type":"system","subtype":"init","session_id":"fake-native-session"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"FAKE-CLAUDE-REPLY"}]}}'
@@ -275,6 +283,10 @@ func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	writeHostClaudeCredential(t, env)
 	trustProjectOnHost(t, env)
 	createHostHomeAgent(t, env)
+	records := filepath.Join(env.HomeDir, paths.AppDirName, paths.HomeRecordsDirName)
+	mcpFile := filepath.Join(env.ProjectDir, claude.MCPFileName)
+	env.SetChildEnv("FAKE_CLAUDE_SNAPSHOT_RECORDS", records)
+	env.SetChildEnv("FAKE_CLAUDE_SNAPSHOT_FILE", mcpFile)
 
 	_ = env.Run("run", "--agent", "dev", "--dry-run", "unicorn-prompt")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
@@ -301,11 +313,40 @@ func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 
 	bearer := got[claude.EnvRelayBearer]
 	require.NotEmpty(t, bearer, "claude's environment carries the relay bearer the project .mcp.json names")
-	records := filepath.Join(env.HomeDir, paths.AppDirName, paths.HomeRecordsDirName)
-	for _, dir := range []string{records, env.ProjectDir} {
+	liveRecords, liveMCP := capture+".records", capture+".file"
+	for _, dir := range []string{liveRecords, liveMCP, records, env.ProjectDir} {
 		assert.Empty(t, filesHolding(t, dir, bearer), "the relay bearer is on disk under %s", dir)
 	}
-	assert.NotEmpty(t, filesHolding(t, records, "${"+claude.EnvRelayBearer+"}"), "the project .mcp.json's record states the entry by reference")
+	assertRecordStatesTheRelayByReference(t, liveRecords, liveMCP, mcpFile)
+}
+
+// assertRecordStatesTheRelayByReference: the project .mcp.json claude was
+// handed names the relay bearer by reference, and its record — read through
+// the production decoder from the live snapshot — claims that very entry.
+func assertRecordStatesTheRelayByReference(t *testing.T, liveRecords, liveMCP, target string) {
+	t.Helper()
+	data, err := os.ReadFile(liveMCP)
+	require.NoError(t, err, "the project .mcp.json stood while claude ran")
+	var doc struct {
+		MCPServers map[string]struct {
+			Env map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	require.NoError(t, json.Unmarshal(data, &doc))
+	require.Contains(t, doc.MCPServers, claude.AppMCPServerName)
+	assert.Equal(t, "${"+claude.EnvRelayBearer+"}", doc.MCPServers[claude.AppMCPServerName].Env[claude.EnvRelayBearer],
+		"the project .mcp.json states the relay bearer by reference")
+
+	targetFS := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(targetFS, target, data, 0o644))
+	rec, err := fsstatic.NewRecords(afero.NewOsFs(), liveRecords)
+	require.NoError(t, err)
+	states, err := rec.Paths(targetFS, target)
+	require.NoError(t, err)
+	entry := "/mcpServers/" + claude.AppMCPServerName
+	i := slices.IndexFunc(states, func(s delivery.PathState) bool { return s.Pointer == entry })
+	require.GreaterOrEqual(t, i, 0, "the project .mcp.json's record claims %s", entry)
+	assert.True(t, states[i].Live, "the record's claimed %s is the by-reference entry claude was handed", entry)
 }
 
 // TestRun_ClaudeHostHomeOnAnUntrustedRepositoryIsRefused: the same host-home

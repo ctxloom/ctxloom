@@ -181,7 +181,8 @@ bodies, which duplicate coordinator verbs reachable from the other transport
 | `RunnerLink.serveRequest` | run the handler and **always** answer; a nil handler answers `UNIMPLEMENTED` instead of hanging |
 | `Home` | the runner's whole relationship with the coordinator: connection lifecycle, run-channel transport, event plane, request plane, mail plane, artifact transfer — six disjoint field partitions under one mutex |
 | `HomeConfig` | the spawn-injected coordinator trio (`URL`, `Token`, `RunID`) plus runner self-description and the `RunnerRequestHandler` |
-| `NewHome` | dials and starts both channel loops; **never fails hard on an unreachable coordinator**, by design and documented |
+| `NewHome` | builds the shared client conn artifact transfer uses and starts both channel loops; **never fails hard on an unreachable coordinator**, by design and documented |
+| `Home.runChannelAttempt` | one run-channel attempt on a conn of its own, closed when the attempt ends, so no attempt inherits grpc's reconnect backoff from the last |
 | `Home.runChannelOnce` | Hello/ack, then reissue unacked events and pending requests, then receive |
 | `Home.send` | single-writer frame send; drops when the stream is nil, because events sit in `unacked` and requests in `pending` and both are reissued |
 | `Home.advanceAck` | moves the cumulative watermark, prunes `unacked`, wakes waiters |

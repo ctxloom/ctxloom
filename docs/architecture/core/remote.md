@@ -144,7 +144,7 @@ flowchart TD
 | `SplitFragmentVersion` / `SplitPromptVersion` | `internal/adapters/remote/normalize.go:84,112` | Split a canonical bundle ref from its `@version`, per selector family. |
 | `CanonicalProfileKey` / `SplitBundleProfileRef` | `internal/adapters/remote/normalize.go:168,184` | Version-less `<bundle>#profiles/<name>` key, and its split. |
 | `SplitRetiredProfileRef` | `internal/adapters/remote/normalize.go:208` | Recognizes the retired `@profiles/` grammar (migration input only). |
-| `IsCanonicalRef(ref) bool` | `internal/adapters/remote/normalize.go:227` | Scheme-prefix check; names "canonical". |
+| `IsFetchAddressRef(ref) bool` | `internal/adapters/remote/normalize.go:227` | Fetch-address check (http(s), file, scp-like); false for the canonical `ctxloom+` spelling. |
 | `CanonicalizeShortRef(ref, aliasToURL, localExists) string` | `internal/adapters/remote/shortname.go:33` | `<alias>/<path>` → `<url>@bundles/<path>` preserving the selector verbatim; local file wins over a same-spelled alias; unknown alias returns the input unchanged. |
 | `CanonicalizeProfileShortRef(ref, aliasToURL) string` | `internal/adapters/remote/shortname.go:64` | Guards on `#profiles/` then delegates; selector-less names stay local. |
 

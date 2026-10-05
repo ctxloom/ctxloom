@@ -332,7 +332,7 @@ func projectProfileRef(name string) string {
 // (validateProfileName); every other spelling passes through for lookupSeeded
 // to canonicalize.
 func profileRef(name string) (string, error) {
-	if strings.Contains(name, "#") || remote.IsCanonicalRef(name) {
+	if strings.Contains(name, "#") || remote.IsFetchAddressRef(name) {
 		return name, nil
 	}
 	if err := validateProfileName(name); err != nil {
@@ -444,7 +444,7 @@ func (l *Loader) aliasSeededKey(name string) (string, bool) {
 		return "", false
 	}
 	bundle, _, ok := remote.SplitBundleProfileRef(name)
-	if !ok || remote.IsCanonicalRef(bundle) || strings.HasPrefix(bundle, remote.LocalSource) {
+	if !ok || remote.IsFetchAddressRef(bundle) || strings.HasPrefix(bundle, remote.LocalSource) {
 		return "", false
 	}
 	alias, rest, found := strings.Cut(bundle, "/")

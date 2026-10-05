@@ -895,7 +895,6 @@ func (c *Config) GetDefaultLLM() string {
 	return backend
 }
 
-
 // GetToolReflectBytes returns the tool-result size at or above which the
 // PostToolUse reflect hook fires, and whether the hook is enabled at all.
 //

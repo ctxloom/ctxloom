@@ -229,6 +229,47 @@ func TestPresenter_AnArrivalRingsAndSummonsForTheNewAsker(t *testing.T) {
 	assert.Equal(t, barCall{n: 2, oldest: t0, arrived: true}, r.ui.lastBar())
 }
 
+// TestPresenter_AnArrivalAlreadyPresentedAtStartIsNotSummonedAgain: a
+// request parked before the presenter starts is shown by its start, and its
+// arrival event, delivered after, is the same request — not a second
+// arrival. Summoning it again would bring back a modal the human closed.
+func TestPresenter_AnArrivalAlreadyPresentedAtStartIsNotSummonedAgain(t *testing.T) {
+	req := pending("a", "wiry-otter", t0, t0.Add(9*time.Minute))
+	src := newPresenterSource(req)
+	r := startPresenter(t, src)
+	first := r.ui.nextSummon(t)
+	bars := r.ui.barCount()
+
+	src.events <- coord.QueueEvent{Kind: coord.QueueAdded, ID: req.ID, Pending: 1}
+	src.settle()
+	require.NoError(t, first.ctx.Err(), "the start's summon is not withdrawn for a request it already shows")
+	assert.False(t, r.ui.lastBar().arrived, "no bell: nothing arrived")
+
+	// Resolving the request withdraws every summon in flight and waits for
+	// it, so any summon the event started has been made by now.
+	src.resolve(req.ID, agent.DeciderHuman)
+	src.settle()
+	r.ui.noSummon(t)
+	assert.Greater(t, r.ui.barCount(), bars, "the bar still follows the queue")
+}
+
+// TestPresenter_AnArrivalIsSummonedOnce: one arrival event per request; a
+// repeat of it is not a new arrival.
+func TestPresenter_AnArrivalIsSummonedOnce(t *testing.T) {
+	src := newPresenterSource()
+	r := startPresenter(t, src)
+	src.settle()
+	req := pending("a", "wiry-otter", t0, t0.Add(9*time.Minute))
+	src.add(req)
+	first := r.ui.nextSummon(t)
+	src.events <- coord.QueueEvent{Kind: coord.QueueAdded, ID: req.ID, Pending: 1}
+	src.settle()
+	require.NoError(t, first.ctx.Err(), "a repeated arrival does not replace the summon")
+	src.resolve(req.ID, agent.DeciderHuman)
+	src.settle()
+	r.ui.noSummon(t)
+}
+
 // TestPresenter_NothingPendingWithdrawsTheSummon: when the last request
 // resolves before the modal could appear, it never appears, and the bar
 // clears.
@@ -369,7 +410,10 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 		<-pumpDone
 	})
 
-	src := newPresenterSource()
+	// Parked before the presenter starts: its start shows it, and its arrival
+	// event, delivered after the modal is closed, must not show it again.
+	req := pending("a", "wiry-otter", clk.Now().Add(-5*time.Second), clk.Now().Add(10*time.Minute))
+	src := newPresenterSource(req)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- modalPresenter{ui: ui, clock: clk}.Present(ctx, src) }()
@@ -377,12 +421,6 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 		cancel()
 		<-done
 	})
-	// The presenter summons for what is already pending when it starts, and
-	// again on an arrival: a request parked before its start would be summoned
-	// twice, and the second could take the screen after the modal below is
-	// closed. Its loop being at its select orders the arrival after the start.
-	src.settle()
-	src.add(pending("a", "wiry-otter", clk.Now().Add(-5*time.Second), clk.Now().Add(10*time.Minute)))
 	// The presenter sets the bar before it starts the Summon that builds the
 	// modal, so the bar is painted once the modal has been asked for.
 	assert.Equal(t, termui.OverlayStart{Summoned: true, View: "approvals"}, <-starts)
@@ -393,8 +431,17 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 	modal.Abort()
 	require.Equal(t, uint16(22), (<-ui.Resize()).Rows, "the release's nudge")
 	require.Contains(t, tty.String(), "\x1b[?1049l", "modal released")
+	src.events <- coord.QueueEvent{Kind: coord.QueueAdded, ID: req.ID, Pending: 1}
+	src.settle()
+	// The timeout leaves nothing pending, which withdraws any summon in flight
+	// and waits for it: a re-summon from the event has been made by now.
 	src.resolve("a", agent.DeciderTimeout)
 	src.settle()
+	select {
+	case s := <-starts:
+		t.Fatalf("the closed modal re-opened for a request it already showed: %+v", s)
+	default:
+	}
 	// The release counts as engine output, so a note asked for right after it
 	// waits out the bar's engine-busy window — on the controller's clock,
 	// which only the test moves. A second is past that window and well inside

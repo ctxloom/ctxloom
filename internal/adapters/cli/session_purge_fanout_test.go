@@ -18,24 +18,6 @@ import (
 // that quietly destroyed, and a --yes that quietly did nothing. One of the two
 // alone certifies neither.
 
-// resetSessionPurgeFlags restores the package-level flag vars behind every
-// destroyer under `session`. pflag never un-sets a flag a prior invocation
-// set, so a --yes left on turns a later report-only test into an apply — the
-// exact leak these tests exist to catch, arriving from the test harness
-// instead of from the product.
-func resetSessionPurgeFlags(t *testing.T) {
-	t.Helper()
-	sessionPurgeYes = false
-	sessionPurgeEvenIfLive = false
-	sessionTranscriptPurgeYes = false
-	sessionTranscriptPurgeUndistilled = false
-	sessionTranscriptPurgeEvenIfLive = false
-	sessionArtifactsPurgeYes = false
-	sessionArtifactsPurgeEvenIfLive = false
-	sessionWorktreesPurgeYes = false
-	resetRootFormat(t)
-}
-
 type purgePayload struct {
 	Harp    string `json:"harp"`
 	Applied bool   `json:"applied"`
@@ -60,7 +42,7 @@ func TestTranscriptPurge_ReportLeavesEverythingOnDisk(t *testing.T) {
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
 	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "transcript", "purge", harp)
 	require.NoError(t, err)
@@ -79,7 +61,7 @@ func TestTranscriptPurge_YesDestroysTheTranscriptOnly(t *testing.T) {
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
 	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "transcript", "purge", harp, "--yes", "--format", "json")
 	require.NoError(t, err)
@@ -101,14 +83,14 @@ func TestTranscriptPurge_NeverDistilledRefuses(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, stderr, err := execRootCmdBoth(t, "session", "transcript", "purge", harp, "--yes")
 	require.Error(t, err, "destroying the only record of a session must refuse")
 	assert.True(t, onDisk(t, transcript), "a refusal must leave the transcript alone")
 	assert.Contains(t, stderr, "--undistilled")
 
-	resetSessionPurgeFlags(t)
+	resetFlags(t, rootCmd)
 	_, err = execRootCmd(t, "session", "transcript", "purge", harp, "--undistilled", "--yes")
 	require.NoError(t, err)
 	assert.False(t, onDisk(t, transcript), "--undistilled --yes destroys it anyway")
@@ -121,7 +103,7 @@ func TestArtifactsPurge_ReportLeavesTheEssenceOnDisk(t *testing.T) {
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
 	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "artifacts", "purge", harp)
 	require.NoError(t, err)
@@ -137,7 +119,7 @@ func TestArtifactsPurge_YesDestroysTheEssenceOnly(t *testing.T) {
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
 	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "artifacts", "purge", harp, "--yes")
 	require.NoError(t, err)
@@ -153,7 +135,7 @@ func TestSessionPurge_ReportLeavesAllThreePopulationsOnDisk(t *testing.T) {
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
 	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "purge", harp)
 	require.NoError(t, err)
@@ -169,7 +151,7 @@ func TestSessionPurge_YesSweepsTranscriptAndArtifacts(t *testing.T) {
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
 	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "purge", harp, "--yes")
 	require.NoError(t, err)
@@ -186,7 +168,7 @@ func TestSessionPurge_KeepsTheIndexEntry(t *testing.T) {
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	seedTranscript(t, harp)
 	seedEssence(t, harp)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "purge", harp, "--yes")
 	require.NoError(t, err)
@@ -204,7 +186,7 @@ func TestSessionPurge_UndistilledIsNotOnTheParent(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	assert.Nil(t, sessionPurgeCmd.Flags().Lookup("undistilled"),
 		"--undistilled belongs to `session transcript purge`, not to the sweep")
@@ -234,7 +216,7 @@ func TestSessionPurge_LiveSessionRefuses(t *testing.T) {
 	t.Cleanup(func() { sessionlock.Release(entry.HarpName) })
 	transcript := seedTranscript(t, entry.HarpName)
 	seedEssence(t, entry.HarpName)
-	t.Cleanup(func() { resetSessionPurgeFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, stderr, err := execRootCmdBoth(t, "session", "purge", entry.HarpName, "--yes")
 	require.Error(t, err)

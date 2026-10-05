@@ -10,16 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// resetSessionRemoveFlags restores the flag var behind `session remove`, for
-// the reason session_worktrees_test.go documents at length: pflag never
-// un-sets a flag a prior invocation set, so a leftover --yes would turn a
-// report-only test into an apply.
-func resetSessionRemoveFlags(t *testing.T) {
-	t.Helper()
-	sessionRemoveYes = false
-	resetRootFormat(t)
-}
-
 // `session remove` destroys three artifacts: the index entry, the transcript
 // and the essence. Every test below asserts ALL THREE, because a version that
 // drops the index entry and leaves the bytes on disk satisfies any assertion
@@ -32,7 +22,7 @@ func TestSessionRemove_ReportLeavesAllThreeArtifacts(t *testing.T) {
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
 	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetSessionRemoveFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	stdout, stderr, err := execRootCmdBoth(t, "session", "remove", harp)
 	require.NoError(t, err)
@@ -54,7 +44,7 @@ func TestSessionRemove_YesDestroysAllThreeArtifacts(t *testing.T) {
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
 	essence := seedEssence(t, harp)
-	t.Cleanup(func() { resetSessionRemoveFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "remove", harp, "--yes", "--format", "json")
 	require.NoError(t, err)
@@ -88,7 +78,7 @@ func TestSessionRemove_LeavesAuthoredWorkAlone(t *testing.T) {
 	seedTranscript(t, harp)
 	seedEssence(t, harp)
 	notes := seedAuthoredNote(t, harp, "design-notes.md")
-	t.Cleanup(func() { resetSessionRemoveFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "remove", harp, "--yes")
 	require.NoError(t, err)
@@ -104,7 +94,7 @@ func TestSessionRemove_UndistilledRefuses(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	t.Cleanup(func() { resetSessionRemoveFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, stderr, err := execRootCmdBoth(t, "session", "remove", harp, "--yes")
 	require.Error(t, err)
@@ -125,12 +115,12 @@ func TestSessionRemove_AfterAnUndistilledTranscriptPurge_Succeeds(t *testing.T) 
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
 	transcript := seedTranscript(t, harp)
-	t.Cleanup(func() { resetSessionRemoveFlags(t) })
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "transcript", "purge", harp, "--undistilled", "--yes")
 	require.NoError(t, err)
 	require.False(t, onDisk(t, transcript))
-	resetSessionPurgeFlags(t)
+	resetFlags(t, rootCmd)
 
 	_, err = execRootCmd(t, "session", "remove", harp, "--yes")
 	require.NoError(t, err, "with the only record already deliberately destroyed, nothing is left to protect")

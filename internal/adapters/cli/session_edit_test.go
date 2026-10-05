@@ -8,23 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
-
-// resetSessionEditFlags restores the package-level cobra flag var backing
-// `session edit`, and clidiag's process-wide structured flag. pflag only
-// calls Set() on flags present in a given argv and never calls Changed(false)
-// afterwards, so a --name a prior test passed survives into a later
-// invocation that never mentions it — the same leak session_worktrees_test.go
-// documents at length.
-func resetSessionEditFlags() {
-	sessionEditName = ""
-	_ = sessionEditCmd.Flags().Set("name", "")
-	sessionEditCmd.Flags().Lookup("name").Changed = false
-	clidiag.SetStructured(false)
-}
 
 // TestSessionEdit_NameAssignsTheHarp is the rename path in its new spelling:
 // renaming a session is a field assignment, so it rides `edit --name` rather
@@ -32,7 +18,7 @@ func resetSessionEditFlags() {
 func TestSessionEdit_NameAssignsTheHarp(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	mgr, harp := seedEndedSession(t, dir, "claude-code")
-	t.Cleanup(resetSessionEditFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "edit", harp, "--name", "bright-keen-hawk", "--format", "json")
 	require.NoError(t, err)
@@ -63,7 +49,7 @@ func TestSessionEdit_NameAssignsTheHarp(t *testing.T) {
 func TestSessionEdit_TextReportNamesBothSpellings(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
-	t.Cleanup(resetSessionEditFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "edit", harp, "--name", "bright-keen-hawk")
 	require.NoError(t, err)
@@ -80,7 +66,7 @@ func TestSessionEdit_TextReportNamesBothSpellings(t *testing.T) {
 func TestSessionEdit_BareRefusesLoudly(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
-	t.Cleanup(resetSessionEditFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "edit", harp)
 	require.Error(t, err, "a bare `session edit` must refuse, never exit 0 having changed nothing")
@@ -92,7 +78,7 @@ func TestSessionEdit_BareRefusesLoudly(t *testing.T) {
 // naming a harp nothing knows is an error, not a silent success.
 func TestSessionEdit_UnknownHarpFails(t *testing.T) {
 	testsupport.ProjectDir(t)
-	t.Cleanup(resetSessionEditFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "edit", "no-such-harp", "--name", "bright-keen-hawk")
 	require.Error(t, err)
@@ -105,7 +91,7 @@ func TestSessionEdit_UnknownHarpFails(t *testing.T) {
 func TestSessionEdit_NameRefusesPastTheLengthLimit(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	mgr, harpName := seedEndedSession(t, dir, "claude-code")
-	t.Cleanup(resetSessionEditFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	_, err := execRootCmd(t, "session", "edit", harpName, "--name", strings.Repeat("a", harp.MaxNameLen+1))
 	require.ErrorIs(t, err, harp.ErrNameTooLong)

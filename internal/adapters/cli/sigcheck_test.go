@@ -107,10 +107,7 @@ func setSigCheckFlag(t *testing.T, value string) {
 	f := rootCmd.PersistentFlags().Lookup(bundles.SigCheckFlag)
 	require.NotNil(t, f, "--%s is a root persistent flag", bundles.SigCheckFlag)
 	require.NoError(t, rootCmd.PersistentFlags().Set(bundles.SigCheckFlag, value))
-	t.Cleanup(func() {
-		f.Changed = false
-		sigCheckFlag = false
-	})
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 }
 
 func TestSigCheckDisabled_TheEnvSwitchAloneDisables(t *testing.T) {
@@ -176,10 +173,7 @@ func TestInstallApp_SaysNothingWhenTheCheckIsEnforced(t *testing.T) {
 // runCLI restores run's own flags, not the root's persistent ones.
 func resetSigCheckFlagAfter(t *testing.T) {
 	t.Helper()
-	t.Cleanup(func() {
-		rootCmd.PersistentFlags().Lookup(bundles.SigCheckFlag).Changed = false
-		sigCheckFlag = false
-	})
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 }
 
 func TestDryRun_ReportsTheSignatureCheckPosture(t *testing.T) {

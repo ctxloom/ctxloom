@@ -37,14 +37,9 @@ func ssPurgeRow(rep operations.SweepReport) operations.SweepRow {
 	return operations.SweepRow{}
 }
 
-func resetSessionSweepFlags() {
-	sessionSweepOlderThan, sessionSweepPurgeOlderThan = "", ""
-	sessionSweepAllProjects, sessionSweepYes = false, false
-}
-
 func ssRun(t *testing.T, args ...string) operations.SweepReport {
 	t.Helper()
-	t.Cleanup(resetSessionSweepFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	out, err := execRootCmd(t, append([]string{"session", "sweep"}, args...)...)
 	require.NoError(t, err)
 	var rep operations.SweepReport
@@ -82,7 +77,7 @@ func TestSessionSweep_PurgeAgeFromConfigAndFlag(t *testing.T) {
 func TestSessionSweep_RefusesAMalformedPurgeAge(t *testing.T) {
 	cotProject(t)
 	cotHomeConfig(t, "schema_version: 7\nsession_purge_age: later\n")
-	t.Cleanup(resetSessionSweepFlags)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 	_, err := execRootCmd(t, "session", "sweep", "--format", "json")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "session_purge_age")

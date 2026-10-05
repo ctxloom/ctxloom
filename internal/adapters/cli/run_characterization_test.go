@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -105,36 +103,10 @@ type cliResult struct {
 func (r cliResult) all() string { return r.out + r.stdout + r.stderr }
 
 // runCLI drives rootCmd.Execute() with args, capturing every output channel
-// and restoring the run command's package-level flag variables afterwards.
-// The flag vars are process-global and pflag does not reset them between
-// Execute() calls on a shared command tree, so a leaked --profile from one
-// case would silently steer the next.
+// and resetting the command tree's flags afterwards (resetFlags), so a leaked
+// --profile from one case cannot silently steer the next.
 func runCLI(t *testing.T, args ...string) cliResult {
 	t.Helper()
-
-	savedFlags := struct {
-		llm, agent, workspace, permissions, prompt, profile, savedPrompt string
-		session, seedTask, seedStatus                                    string
-		fragments, tags                                                  []string
-		dryRun, oneShot, plain, distill                                  bool
-		verbosity                                                        int
-	}{
-		runLLM, runAgent, runWorkspace, runPermissions, runPrompt, runProfile, runSavedPrompt,
-		runResumeSession, runSeedTask, runSeedStatus,
-		runFragments, runTags,
-		runDryRun, runOneShot, runPlainTerminal, runResumeDistill,
-		runVerbosity,
-	}
-	defer func() {
-		runLLM, runAgent, runWorkspace = savedFlags.llm, savedFlags.agent, savedFlags.workspace
-		runPermissions, runPrompt, runProfile = savedFlags.permissions, savedFlags.prompt, savedFlags.profile
-		runSavedPrompt, runResumeSession = savedFlags.savedPrompt, savedFlags.session
-		runSeedTask, runSeedStatus = savedFlags.seedTask, savedFlags.seedStatus
-		runFragments, runTags = savedFlags.fragments, savedFlags.tags
-		runDryRun, runOneShot = savedFlags.dryRun, savedFlags.oneShot
-		runPlainTerminal, runResumeDistill = savedFlags.plain, savedFlags.distill
-		runVerbosity = savedFlags.verbosity
-	}()
 
 	var cobraOut bytes.Buffer
 	rootCmd.SetOut(&cobraOut)
@@ -159,35 +131,10 @@ func runCLI(t *testing.T, args ...string) cliResult {
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
 	rootCmd.SetArgs(nil)
-	resetFlagState(rootCmd)
+	resetFlags(t, rootCmd)
 	resetApp()
 
 	return cliResult{out: cobraOut.String(), stdout: outBuf.String(), stderr: errBuf.String(), err: execErr}
-}
-
-// resetFlagState returns every flag in the command tree to its declared
-// default AND clears pflag's per-flag `Changed` bit. Both halves matter across
-// Execute() calls on a process-global command tree: the value carries a stale
-// --format into the next case, and the Changed bit is what cobra's
-// MarkFlagsMutuallyExclusive reads — so without this, one case passing
-// --profile makes a later case passing --agent look like both were set at once.
-func resetFlagState(c *cobra.Command) {
-	reset := func(f *pflag.Flag) {
-		if !f.Changed {
-			return
-		}
-		if sv, ok := f.Value.(pflag.SliceValue); ok {
-			_ = sv.Replace(nil)
-		} else {
-			_ = f.Value.Set(f.DefValue)
-		}
-		f.Changed = false
-	}
-	c.Flags().VisitAll(reset)
-	c.PersistentFlags().VisitAll(reset)
-	for _, sub := range c.Commands() {
-		resetFlagState(sub)
-	}
 }
 
 // -----------------------------------------------------------------------------

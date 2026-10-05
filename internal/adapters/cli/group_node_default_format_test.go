@@ -7,25 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
-
-// resetRootFormat puts rootCmd's persistent --format back to its default.
-// rootCmd is package-global and pflag never un-sets a flag a prior test set,
-// so a neighbour's `--format json` otherwise decides this test's answer. It
-// clears Changed rather than calling Set: Set marks the flag Changed, which
-// pins an explicit text format on every later test instead of restoring the
-// unset default cliemit.Resolve derives from stdout. It also turns off the
-// structured-diagnostics channel a json/yaml/toml --format switched on.
-func resetRootFormat(t *testing.T) {
-	t.Helper()
-	if f := rootCmd.PersistentFlags().Lookup("format"); f != nil {
-		require.NoError(t, f.Value.Set(f.DefValue))
-		f.Changed = false
-	}
-	clidiag.SetStructured(false)
-}
 
 // A bare namespace that answers with a listing must honor --format, exactly as
 // the named leaf does. `ctxloom session --format json` used to print the text
@@ -42,8 +25,8 @@ func resetRootFormat(t *testing.T) {
 func TestGroupNodeDefault_BareNounHonorsFormat(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
-	resetRootFormat(t)
-	t.Cleanup(func() { resetRootFormat(t) })
+	resetFlags(t, rootCmd)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "--format", "json")
 	require.NoError(t, err)
@@ -70,8 +53,8 @@ func TestGroupNodeDefault_BareNounHonorsFormat(t *testing.T) {
 func TestGroupNodeDefault_BareNounRendersTheTextTable(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	_, harp := seedEndedSession(t, dir, "claude-code")
-	resetRootFormat(t)
-	t.Cleanup(func() { resetRootFormat(t) })
+	resetFlags(t, rootCmd)
+	t.Cleanup(func() { resetFlags(t, rootCmd) })
 
 	out, err := execRootCmd(t, "session", "--format", "text")
 	require.NoError(t, err)

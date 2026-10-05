@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -137,11 +136,13 @@ func rollbackAdd(registry *remote.Registry, name string) {
 }
 
 // resolveLocalRepoURL turns a remote URL spelled as a filesystem path —
-// absolute, relative to the working directory, or "~/"-relative to the home
-// directory (a quoted tilde the shell never expanded) — into the file:// URL
-// of the repository there. A bare word is refused (refuri.ErrBareWord) here,
-// at the ingest, so its sentinel reaches the caller. Every other spelling
-// passes through untouched.
+// absolute, or relative to the working directory — into the file:// URL of
+// the repository there. A home-relative spelling (a quoted "~" the shell never
+// expanded) is refused with the grammar's own error: this layer is not handed
+// the home directory, and resolving "~" against the working directory would
+// name a different path. A bare word is refused (refuri.ErrBareWord) here, at
+// the ingest, so its sentinel reaches the caller. Every other spelling passes
+// through untouched.
 //
 // It lives at the argv ingest because the repo-URL grammar has no working
 // directory: refuri.ParseRepoURL refuses a path spelling outright
@@ -160,9 +161,9 @@ func resolveLocalRepoURL(raw string) (string, error) {
 	if !errors.Is(err, refuri.ErrSchemelessPath) {
 		return raw, nil
 	}
-	path, err := expandHomePath(strings.TrimSpace(raw))
-	if err != nil {
-		return "", fmt.Errorf("%w: %v", refuri.ErrSchemelessPath, err)
+	path := strings.TrimSpace(raw)
+	if strings.HasPrefix(path, "~") {
+		return "", err
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -172,23 +173,6 @@ func resolveLocalRepoURL(raw string) (string, error) {
 		return "", fmt.Errorf("%w: %q resolves to %s, which holds no git repository (%v); name one, or write its file:// URL", refuri.ErrSchemelessPath, raw, abs, err)
 	}
 	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(abs)}).String(), nil
-}
-
-// expandHomePath resolves a leading "~" or "~/" against the home directory.
-// "~user/..." names another account's home, which this process does not
-// resolve, so it is refused rather than read as a directory named "~user".
-func expandHomePath(path string) (string, error) {
-	if !strings.HasPrefix(path, "~") {
-		return path, nil
-	}
-	if path != "~" && !strings.HasPrefix(path, "~/") {
-		return "", fmt.Errorf("%q names another user's home directory; write a file:// URL naming its absolute path", path)
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot expand %q: %v", path, err)
-	}
-	return filepath.Join(home, strings.TrimPrefix(path, "~")), nil
 }
 
 // checkAddRequest refuses an incomplete add and resolves a local-path URL in

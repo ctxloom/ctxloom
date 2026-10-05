@@ -112,30 +112,17 @@ func TestEditRemote_ResolvesALocalPathURL(t *testing.T) {
 	assert.Equal(t, fileURL(repo), rem.URL, "a refused edit leaves the remote as it was")
 }
 
-// A quoted "~/x" reaches us unexpanded by the shell. It names a path under the
-// home directory and follows the local-path rule: expanded, checked for a
-// repository, stored as its file:// URL — or refused. It is never read as the
-// GitHub repository github.com/~/x.
-func TestAddRemote_ExpandsAHomeRelativePath(t *testing.T) {
-	home := t.TempDir()
-	repo := localBareRepo(t, home, "bundles.git")
-	t.Setenv("HOME", home)
-	registry, _ := setupTestRegistry(t)
-
-	cache, err := addLocal(t, registry, "~/bundles.git")
-	require.NoError(t, err)
-
-	rem, err := registry.Get("local")
-	require.NoError(t, err)
-	assert.Equal(t, fileURL(repo), rem.URL)
-	assert.Equal(t, []string{fileURL(repo)}, cache.urls)
-}
-
-// "~/missing" names no repository; "~alice/x" names another user's home,
-// which this process does not resolve. Both are refused, nothing registered.
-func TestAddRemote_RefusesAHomeRelativePathWithNoRepositoryThere(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	for _, raw := range []string{"~/missing.git", "~alice/bundles.git"} {
+// A quoted "~/x" reaches us unexpanded by the shell. It names a path under a
+// home directory, never the GitHub repository github.com/~/x, and never a
+// directory literally named "~" under the working directory. Expanding it
+// needs the home directory handed to this layer as a value, which it is not,
+// so it is refused naming the file:// spelling.
+func TestAddRemote_RefusesAHomeRelativePath(t *testing.T) {
+	cwd := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(cwd, "~"), 0o755))
+	localBareRepo(t, filepath.Join(cwd, "~"), "bundles.git")
+	t.Chdir(cwd)
+	for _, raw := range []string{"~/bundles.git", "~/missing.git", "~alice/bundles.git", "~"} {
 		t.Run(raw, func(t *testing.T) {
 			registry, _ := setupTestRegistry(t)
 			cache, err := addLocal(t, registry, raw)

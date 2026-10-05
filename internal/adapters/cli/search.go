@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -333,18 +334,12 @@ func printLocalResults(w io.Writer, results []operations.SearchResult) {
 	}
 }
 
-// The remote-results table's geometry. Header, rule and every data row derive
-// from these, so a width can never be changed in one place and left stale in
-// another — the rule in particular used to be a hand-drawn literal.
+// The remote-results table's fixed geometry. The Remote and Name columns
+// have no fixed width: each is as wide as its widest entry, so a name is never
+// cut (remoteTableWidths).
 const (
-	remoteColIndent   = "  "
-	remoteTypeWidth   = 8
-	remoteRemoteWidth = 12
-	remoteNameWidth   = 20
-	// remoteNameCap truncates a name two columns short of its own cell so a
-	// maximal name still leaves a gutter before the next separator. The
-	// ellipsis is reserved by Ellipsize, not pre-subtracted here.
-	remoteNameCap = remoteNameWidth - 2
+	remoteColIndent = "  "
+	remoteTypeWidth = 8
 	// remoteTagsCap has no column width to answer to: Tags is the last column
 	// and runs to end of line, so its cap is a readability limit alone.
 	remoteTagsCap = 20
@@ -353,37 +348,50 @@ const (
 	remoteTagsRule = 12
 )
 
-// remoteTableRow renders one row (and, given the header words, the header) at
-// the widths above.
-func remoteTableRow(itemType, remote, name, tags string) string {
+// remoteTableWidths are the Remote and Name columns' widths, in runes (what
+// fmt pads by): the widest entry or the header word, whichever is wider.
+type remoteTableWidths struct{ remote, name int }
+
+func measureRemoteTable(rows []operations.SearchRemoteEntry) remoteTableWidths {
+	w := remoteTableWidths{remote: utf8.RuneCountInString("Remote"), name: utf8.RuneCountInString("Name")}
+	for _, r := range rows {
+		w.remote = max(w.remote, utf8.RuneCountInString(r.Remote))
+		w.name = max(w.name, utf8.RuneCountInString(inertField(r.Name)))
+	}
+	return w
+}
+
+// remoteTableRow renders one row (and, given the header words, the header).
+func remoteTableRow(w remoteTableWidths, itemType, remote, name, tags string) string {
 	return fmt.Sprintf("%s%-*s │ %-*s │ %-*s │ %s\n", remoteColIndent,
-		remoteTypeWidth, itemType, remoteRemoteWidth, remote, remoteNameWidth, name, tags)
+		remoteTypeWidth, itemType, w.remote, remote, w.name, name, tags)
 }
 
 // remoteTableRule draws the rule under the header with each ┼ under the │
 // above it. A column's rule spans its own width plus the space on either side
 // of the separator; the first column's leading space is part of the row
 // indent, so it takes one fewer.
-func remoteTableRule() string {
+func remoteTableRule(w remoteTableWidths) string {
 	seg := func(width int) string { return strings.Repeat("─", width) }
 	return remoteColIndent +
 		seg(remoteTypeWidth+1) + "┼" +
-		seg(remoteRemoteWidth+2) + "┼" +
-		seg(remoteNameWidth+2) + "┼" +
+		seg(w.remote+2) + "┼" +
+		seg(w.name+2) + "┼" +
 		seg(remoteTagsRule) + "\n"
 }
 
 // printRemoteResults prints remote search results in table format.
 func printRemoteResults(w io.Writer, results []operations.SearchRemoteEntry) {
+	widths := measureRemoteTable(results)
 	fmt.Fprintln(w, "Remote:")
-	fmt.Fprint(w, remoteTableRow("Type", "Remote", "Name", "Tags"))
-	fmt.Fprint(w, remoteTableRule())
+	fmt.Fprint(w, remoteTableRow(widths, "Type", "Remote", "Name", "Tags"))
+	fmt.Fprint(w, remoteTableRule(widths))
 
 	for _, r := range results {
-		fmt.Fprint(w, remoteTableRow(
+		fmt.Fprint(w, remoteTableRow(widths,
 			r.Type,
 			r.Remote,
-			textutil.Ellipsize(inertField(r.Name), remoteNameCap),
+			inertField(r.Name),
 			textutil.Ellipsize(inertField(strings.Join(r.Tags, ", ")), remoteTagsCap),
 		))
 	}

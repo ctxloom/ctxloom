@@ -6,6 +6,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -115,19 +116,27 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 	})
 }
 
-// renderDiscoveredRepos is the human table of a non-empty discovery.
+// discoverDescriptionCap bounds the trailing Description column, the one
+// field the table truncates.
+const discoverDescriptionCap = 35
+
+// renderDiscoveredRepos is the human table of a non-empty discovery. The
+// Repository column is as wide as its widest owner/name, so a name is never
+// cut; only the trailing Description is.
 func renderDiscoveredRepos(out io.Writer, repos []operations.RepoEntry) {
-	fmt.Fprintf(out, "  # │ Forge  │ Repository          │ Stars │ Description\n")
-	fmt.Fprintf(out, "────┼────────┼─────────────────────┼───────┼─────────────────────────────────────\n")
+	names := make([]string, len(repos))
+	repoW := utf8.RuneCountInString("Repository")
+	for i, r := range repos {
+		names[i] = fmt.Sprintf("%s/%s", r.Owner, r.Name)
+		repoW = max(repoW, utf8.RuneCountInString(names[i]))
+	}
+	seg := func(width int) string { return strings.Repeat("─", width) }
+	fmt.Fprintf(out, "  # │ Forge  │ %-*s │ Stars │ Description\n", repoW, "Repository")
+	fmt.Fprintf(out, "────┼────────┼%s┼───────┼%s\n", seg(repoW+2), seg(discoverDescriptionCap+2))
 
 	for i, r := range repos {
-		// Honest column widths (35, 19): Ellipsize reserves the ellipsis from
-		// the budget, so the call site carries no magic -3.
-		desc := textutil.Ellipsize(r.Description, 35)
-		repoName := textutil.Ellipsize(fmt.Sprintf("%s/%s", r.Owner, r.Name), 19)
-
-		fmt.Fprintf(out, "%3d │ %-6s │ %-19s │ %5d │ %s\n",
-			i+1, "GitHub", repoName, r.Stars, desc)
+		fmt.Fprintf(out, "%3d │ %-6s │ %-*s │ %5d │ %s\n",
+			i+1, "GitHub", repoW, names[i], r.Stars, textutil.Ellipsize(r.Description, discoverDescriptionCap))
 	}
 
 	fmt.Fprintln(out)

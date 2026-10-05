@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 )
 
@@ -265,38 +266,58 @@ func TestPrintUnifiedResults_RendersToItsWriter(t *testing.T) {
 	assert.Contains(t, out, "acme-tools")
 }
 
-// TestPrintRemoteResults_TableGeometry is the characterization pin for the
-// remote results table. Its five widths (three format widths, two truncation
-// caps) governed one table but were written out five separate times, with the
-// rule under the header HAND-DRAWN to match — so a width change silently left
-// the rule at the old size, and the name column's 20-wide cell truncating at
-// 18 read as an off-by-two rather than the deliberate gutter it is. Behaviour
-// is unchanged by that cleanup (wave-brief §4 class 2: pure complexity
-// reduction, no test can discriminate), so this pins the rendered bytes AND
-// the structural invariant the hand-drawn rule could violate: every ┼ sits
-// exactly under the │ above it.
+// TestPrintRemoteResults_TableGeometry pins the table's rule: a name is never
+// cut. The Remote and Name columns are as wide as their widest entry, so every
+// row's separators sit under the header's, however long a name is; only the
+// trailing Tags column is capped, and capping a trailing field moves nothing.
 func TestPrintRemoteResults_TableGeometry(t *testing.T) {
+	const longName = "a-name-that-is-way-too-long-to-fit"
+	const longRemote = "a-very-long-remote-name"
 	var buf bytes.Buffer
 	printRemoteResults(&buf, []operations.SearchRemoteEntry{
 		{Type: "bundle", Remote: "acme", Name: "short", Tags: []string{"a"}},
-		{Type: "bundle", Remote: "a-very-long-remote-name", Name: "a-name-that-is-way-too-long-to-fit",
+		{Type: "bundle", Remote: longRemote, Name: longName,
 			Tags: []string{"tag-one", "tag-two", "tag-three", "tag-four"}},
 	})
 
 	const want = "Remote:\n" +
-		"  Type     │ Remote       │ Name                 │ Tags\n" +
-		"  ─────────┼──────────────┼──────────────────────┼────────────\n" +
-		"  bundle   │ acme         │ short                │ a\n" +
-		"  bundle   │ a-very-long-remote-name │ a-name-that-is-...   │ tag-one, tag-two,...\n" +
+		"  Type     │ Remote                  │ Name                               │ Tags\n" +
+		"  ─────────┼─────────────────────────┼────────────────────────────────────┼────────────\n" +
+		"  bundle   │ acme                    │ short                              │ a\n" +
+		"  bundle   │ a-very-long-remote-name │ a-name-that-is-way-too-long-to-fit │ tag-one, tag-two,...\n" +
 		"\n" +
 		"Use one: add its ref to a profile (ctxloom profile create/modify), then ctxloom deps pull\n"
 	assert.Equal(t, want, buf.String())
 
 	lines := strings.Split(buf.String(), "\n")
-	assert.Equal(t, runeOffsets(lines[1], '│'), runeOffsets(lines[2], '┼'),
-		"the rule's junctions must sit under the header's separators — the whole reason the widths cannot be written out twice")
-	assert.Equal(t, runeOffsets(lines[1], '│'), runeOffsets(lines[3], '│'),
-		"a row that fits every column must align with the header")
+	header := runeOffsets(lines[1], '│')
+	assert.Equal(t, header, runeOffsets(lines[2], '┼'), "the rule's junctions sit under the header's separators")
+	for _, row := range lines[3:5] {
+		assert.Equal(t, header, runeOffsets(row, '│'), "every row aligns with the header: %q", row)
+	}
+	assert.Contains(t, lines[4], longName, "a name is shown whole")
+	assert.Contains(t, lines[4], longRemote, "a remote name is shown whole")
+}
+
+// remote discover's table follows the same rule: the repository column is as
+// wide as its widest owner/name and never cut; the trailing description is.
+func TestRenderDiscoveredRepos_NamesAreWholeAndDescriptionsTruncate(t *testing.T) {
+	const longRepo = "an-organisation-with-a-long-name/and-a-long-repository-name"
+	longDesc := strings.Repeat("a description that goes on ", 5)
+	var buf bytes.Buffer
+	renderDiscoveredRepos(&buf, []operations.RepoEntry{
+		{Owner: "acme", Name: "tools", Stars: 3, Description: "short"},
+		{Owner: "an-organisation-with-a-long-name", Name: "and-a-long-repository-name", Stars: 12345, Description: longDesc},
+	})
+	lines := strings.Split(buf.String(), "\n")
+	header := runeOffsets(lines[0], '│')
+	assert.Equal(t, header, runeOffsets(lines[1], '┼'), "the rule's junctions sit under the header's separators")
+	for _, row := range lines[2:4] {
+		assert.Equal(t, header, runeOffsets(row, '│'), "every row aligns with the header: %q", row)
+	}
+	assert.Contains(t, lines[3], longRepo, "a repository name is shown whole")
+	assert.NotContains(t, lines[3], longDesc, "a long description is truncated")
+	assert.Contains(t, lines[3], textutil.Ellipsize(longDesc, discoverDescriptionCap))
 }
 
 // Four of the six Ellipsize call sites this table is cited alongside cap a

@@ -240,15 +240,16 @@ type Manager struct {
 // A retired global index (index.yaml) at the root is not read: the session
 // directories and their sidecars are the only source of sessions.
 //
+// Opening creates nothing: every reader arrives through Open, and a root that
+// does not exist yet reads as no sessions. The root is laid out by the first
+// mint (AssignHarp).
+//
 // sink receives the per-session findings the Manager raises without failing
 // an operation; nil discards them.
 func Open(sink report.Sink) (*Manager, error) {
 	root, err := paths.HomeSessionsDir()
 	if err != nil {
 		return nil, fmt.Errorf("home dir: %w", err)
-	}
-	if err := os.MkdirAll(root, lockDirMode); err != nil {
-		return nil, fmt.Errorf("mkdir sessions dir: %w", err)
 	}
 	return &Manager{root: root, rep: report.To(sink)}, nil
 }
@@ -399,6 +400,9 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if err := os.MkdirAll(m.root, lockDirMode); err != nil {
+		return Entry{}, fmt.Errorf("mkdir sessions dir: %w", err)
+	}
 	names, err := os.ReadDir(m.root)
 	if err != nil {
 		return Entry{}, fmt.Errorf("read sessions root: %w", err)

@@ -265,6 +265,28 @@ func TestSpoolTurnResult_APlanAwaitingApprovalLeadsTheReport(t *testing.T) {
 	assert.Equal(t, "BLOCKED on Bash: needs approval (decided by policy)\n"+cue+"\n\n1. add hello.txt", got[0].Body)
 }
 
+// TestSpoolTurnResult_APlanWithNoFileSaysItIsInTheReport: a planning turn
+// that published no plan file still cues its parent — the plan is the
+// report's own text.
+func TestSpoolTurnResult_APlanWithNoFileSaysItIsInTheReport(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(t, 0)
+	c := newCutoverCoordinator(t, sp, 0)
+	_, home := awaitCutoverChildIdle(t, c, sp, "first task")
+	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
+
+	const cue = `PLAN AWAITING APPROVAL: the plan is in this report (no plan file was published). To approve, agent_send structured {"approve_plan": "<posture>"} (offered: default, acceptEdits); to revise, send a normal message.`
+	plan := &PlanApproval{Postures: []engine.PostureTransition{
+		{Posture: "default", Label: "default"},
+		{Posture: "acceptEdits", Label: "accept edits", Default: true},
+	}}
+	require.NoError(t, home.ReportTurnResult("1. add hello.txt", "", nil, plan, nil))
+	got := recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "PLAN AWAITING") }, conformanceWait)
+	require.Len(t, got, 1)
+	assert.Equal(t, cue+"\n\n1. add hello.txt", got[0].Body)
+}
+
 // TestSpoolTurnResult_EmptyTurnIsReportedAsAnError pins the empty-turn arm on
 // the file plane. The bridge's own diagnostic went to COORDINATOR stderr — a
 // channel the parent, an agent whose sole input is its mail, cannot read — and

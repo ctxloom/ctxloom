@@ -148,17 +148,22 @@ func failurePreamble(f *agent.TurnFailure) string {
 }
 
 // planCue is the lead line of a report whose turn ended holding a plan:
-// where the plan is and how the parent approves or revises it. "" when the
-// turn holds no plan, or none was published to name.
+// where the plan is — its artifact, or this report when no plan file was
+// published — and how the parent approves or revises it. "" when the turn
+// holds no plan.
 func planCue(plan *coord.PlanApproval) string {
-	if plan == nil || plan.Artifact == "" {
+	if plan == nil {
 		return ""
 	}
 	offered := make([]string, len(plan.Postures))
 	for i, p := range plan.Postures {
 		offered[i] = p.Posture
 	}
-	return "PLAN AWAITING APPROVAL: " + plan.Artifact + " — fetch it with agent_fetch_artifact. To approve, agent_send structured {\"" + approvePlanKey + "\": \"<posture>\"} (offered: " + strings.Join(offered, ", ") + "); to revise, send a normal message."
+	where := "the plan is in this report (no plan file was published)."
+	if plan.Artifact != "" {
+		where = plan.Artifact + " — fetch it with agent_fetch_artifact."
+	}
+	return "PLAN AWAITING APPROVAL: " + where + " To approve, agent_send structured {\"" + approvePlanKey + "\": \"<posture>\"} (offered: " + strings.Join(offered, ", ") + "); to revise, send a normal message."
 }
 
 // blockedPreamble is the report's lead: one "BLOCKED on <tool>" line per

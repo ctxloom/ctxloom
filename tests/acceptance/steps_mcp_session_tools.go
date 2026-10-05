@@ -175,7 +175,7 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 // setQuietFastLabel adds llm.configs.<label> as a response-less mock and makes
 // it llm.defaults.fast in the project's config.yaml, leaving the rest intact.
 func setQuietFastLabel(projectDir, label string) error {
-	configPath := filepath.Join(projectDir, paths.AppDirName, "config.yaml")
+	configPath := paths.ConfigPath(filepath.Join(projectDir, paths.AppDirName))
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("read project config: %w", err)

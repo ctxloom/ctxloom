@@ -235,6 +235,10 @@ var (
 		Shape: "CONNECTOR failure",
 		Where: "the init frame's mcp_servers — the servers claude connected before the model said anything",
 	}
+	channelSettingsSources = probeChannel{
+		Shape: "SETTINGS-SOURCES failure",
+		Where: "markers only the config home's user-settings hooks write, and output only one source's permission rule lets a command print",
+	}
 	channelRepoHookMarker = probeChannel{
 		Shape: "REPO-HOOK failure",
 		Where: "marker files outside the repo that only the repo's COMMITTED .claude/settings.json hooks write",
@@ -276,6 +280,7 @@ const (
 	probeP14 = "p14-native-history"
 	probeP15 = "p15-hook-interrupt"
 	probeP16 = "p16-strict-mcp-connectors"
+	probeP17 = "p17-inline-settings"
 	// The two rungs deliberately NOT built. Present as deferred rows so rows
 	// 9 and 10 of the inventory are visibly un-probed rather than invisibly so.
 	probePCmd   = "p10-command-invocation"
@@ -543,6 +548,20 @@ var probeRegistry = []probeSpec{
 		Paid:         true,
 		Cells: []probeCell{
 			hostCell("claude-code", probeWired, "conformance cell T1."),
+		},
+	},
+	// P17 measures that the per-turn posture, an inline JSON --settings,
+	// applies alongside the session home's user settings rather than
+	// replacing them (conformance S1; probe_p17_inline_settings.go).
+	{
+		Name:         probeP17,
+		Title:        "inline settings: an inline-JSON --settings and the config home's user settings both apply to one claude -p turn — each source's allow rule and the home's hooks",
+		Capabilities: []int{6, 7},
+		Channel:      channelSettingsSources,
+		Feature:      "probes/capability_inline_settings.feature",
+		Paid:         true,
+		Cells: []probeCell{
+			hostCell("claude-code", probeWired, "conformance cell S1."),
 		},
 	},
 	{

@@ -69,6 +69,8 @@ linters:
           msg: 'use t.Setenv (auto-restores) or testsupport.Isolate/ProjectDir'
         - pattern: 'os\.Chdir'
           msg: 'use testsupport.ProjectDir'
+        - pattern: '\.ResetConnectBackoff$'
+          msg: 'grpc iterates the conn''s subconn map outside its lock here, racing the balancer; dial a fresh conn per attempt instead (runner.Home.runChannelAttempt)'
   exclusions:
     presets:
       - std-error-handling
@@ -76,6 +78,7 @@ linters:
       - path-except: '_test\.go'
         linters:
           - forbidigo
+        text: 'os\.(Setenv|Chdir)'
 
 # v2 moved formatting checks out of `linters:` into this separate top-level
 # section. Without it, `just lint` never gates Go source formatting at all —

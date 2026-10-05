@@ -1,11 +1,16 @@
 package taskstest
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 // RealGitWorktreeFixture creates a real git repo (main, with one commit) and a
@@ -121,9 +126,11 @@ func requireGit(t *testing.T) {
 }
 
 // Git runs git with args in dir, fails t on any error with git's own output
-// attached, and returns the trimmed combined output. env is appended to the
-// ambient environment; os/exec keeps the LAST value of a duplicated key, so an
-// entry in env overrides an inherited one rather than competing with it.
+// attached, and returns the trimmed combined output. It runs through GitCmd, so
+// dir must be absolute and the inherited environment is made hermetic first;
+// env is appended after that, and os/exec keeps the LAST value of a duplicated
+// key, so an entry in env overrides an inherited one rather than competing
+// with it.
 //
 // This is the one test-side "run git or fail" body. It lives here rather than
 // in internal/testsupport because testsupport imports this package, and
@@ -131,16 +138,68 @@ func requireGit(t *testing.T) {
 // a non-test file outside that tree from importing it.
 func Git(t testing.TB, dir string, env []string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	if env != nil {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd := GitCmd(dir, env, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// ErrGitDirNotAbsolute is what GitCmd's process fails with when it was given a
+// dir that is empty or relative.
+var ErrGitDirNotAbsolute = errors.New("test git needs an absolute working directory")
+
+// gitCeilingEnv is git's own fence on repository discovery: git never looks
+// for a repository in a listed directory or any directory above it.
+const gitCeilingEnv = "GIT_CEILING_DIRECTORIES"
+
+// GitCmd is the ONE constructor for a git process in test code. Every test-side
+// git exec goes through it (or through Git, which delegates here); the arch
+// gate TestArch_TestGitGoesThroughTheHermeticHelper fails on any other.
+//
+// A test's git must only ever touch the fixture it was pointed at, and three
+// things can silently point it elsewhere — at the developer's real checkout,
+// whose .git/config every worktree of it shares:
+//
+//   - an inherited GIT_DIR. `git bisect run` and every git hook export it to
+//     their children, so a suite run under either inherits the REAL repo's
+//     gitdir; `git init` then re-initialises that repository instead of the
+//     fixture's directory. HermeticGitEnv strips it and its siblings.
+//   - an empty or relative dir, which runs git in the test binary's working
+//     directory: the package directory, inside the real checkout. Refused
+//     with ErrGitDirNotAbsolute, returned by Run/Output/Start.
+//   - discovery walking up from a directory that is not (yet) a repository
+//     into one that encloses the temp root. HermeticGitEnv fences discovery at
+//     os.TempDir().
+//
+// env is appended after the hermetic ambient environment, so a caller's entry
+// wins over an inherited one.
+func GitCmd(dir string, env []string, args ...string) *exec.Cmd {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(HermeticGitEnv(os.Environ()), env...)
+	if !filepath.IsAbs(dir) {
+		cmd.Err = fmt.Errorf("%w: got %q for git %v", ErrGitDirNotAbsolute, dir, args)
+	}
+	return cmd
+}
+
+// HermeticGitEnv returns base without the variables that retarget which
+// repository git operates on (gitutil.RepoLocationEnvVars, the one list of
+// them), and with repository discovery fenced at os.TempDir(). For a harness
+// that builds its own full environment rather than inheriting the ambient one,
+// it is applied to that environment instead.
+func HermeticGitEnv(base []string) []string {
+	out := make([]string, 0, len(base)+1)
+	for _, kv := range base {
+		key, _, _ := strings.Cut(kv, "=")
+		if key == gitCeilingEnv || slices.Contains(gitutil.RepoLocationEnvVars, key) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, gitCeilingEnv+"="+os.TempDir())
 }
 
 // GitIdentity is the env pinning git's author and committer to name/email, for

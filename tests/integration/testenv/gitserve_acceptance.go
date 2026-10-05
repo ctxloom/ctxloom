@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 // SeedRemote creates a bare git repo seeded with the given files on its main
@@ -27,7 +29,7 @@ func (e *TestEnvironment) SeedRemote(files map[string]string) (string, error) {
 		{"init", "--bare", "-b", "main", bare},
 		{"init", "-b", "main", work},
 	} {
-		if err := runGitE("", s...); err != nil {
+		if err := runGitE(root, s...); err != nil {
 			return "", err
 		}
 	}
@@ -164,16 +166,18 @@ func (e *TestEnvironment) ResetCachedCloneToFirstCommit(clone string) error {
 	return nil
 }
 
+// standaloneGitEnv runs git free of the developer's own configuration and
+// unable to stop for a credential prompt.
+var standaloneGitEnv = []string{
+	"GIT_TERMINAL_PROMPT=0",
+	"GIT_CONFIG_GLOBAL=/dev/null",
+	"GIT_CONFIG_SYSTEM=/dev/null",
+}
+
 // gitOutput runs git in dir and returns its trimmed stdout, wrapping any
 // failure with stderr for diagnosis.
 func gitOutput(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
-	)
+	cmd := taskstest.GitCmd(dir, standaloneGitEnv, args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -209,7 +213,7 @@ func cloneRemoteWork(root, bareDir, pattern string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := runGitE("", "clone", bareDir, work); err != nil {
+	if err := runGitE(root, "clone", bareDir, work); err != nil {
 		return "", err
 	}
 	if err := runGitSteps(work, gitCommitIdentity); err != nil {
@@ -234,15 +238,7 @@ func writeFilesUnder(dir string, files map[string]string) error {
 }
 
 func runGitE(dir string, args ...string) error {
-	cmd := exec.Command("git", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	cmd.Env = append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
-	)
+	cmd := taskstest.GitCmd(dir, standaloneGitEnv, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
@@ -253,13 +249,7 @@ func runGitE(dir string, args ...string) error {
 // committed and nested .gitignore files as git itself reads them, not as
 // ctxloom believes it wrote them.
 func (e *TestEnvironment) GitIgnores(rel string) (bool, error) {
-	cmd := exec.Command("git", "check-ignore", "-q", "--", rel)
-	cmd.Dir = e.ProjectDir
-	cmd.Env = append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
-	)
+	cmd := taskstest.GitCmd(e.ProjectDir, standaloneGitEnv, "check-ignore", "-q", "--", rel)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	err := cmd.Run()

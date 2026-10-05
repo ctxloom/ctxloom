@@ -500,7 +500,7 @@ func buildProbeCat(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("stage probe cat go.mod: %w", err)
 	}
 	out := filepath.Join(dir, "cat")
-	cmd := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", out, ".")
+	cmd := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-trimpath", "-o", out, ".")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64", "GOWORK=off", "GOFLAGS=", "GOPROXY=off")
 	if b, berr := cmd.CombinedOutput(); berr != nil {

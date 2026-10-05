@@ -69,11 +69,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
@@ -347,8 +348,7 @@ func j001400GitAll(dir string, cmds [][]string) error {
 // j001400Git runs one git command, surfacing its combined output on failure so a
 // seeding problem is diagnosable rather than a bare exit status.
 func j001400Git(dir string, args ...string) error {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
+	cmd := taskstest.GitCmd(dir, nil, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git %s in %s: %w: %s", strings.Join(args, " "), dir, err, out)
 	}

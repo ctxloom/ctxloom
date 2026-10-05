@@ -63,12 +63,6 @@ type StepCompleted struct {
 	Detail  string
 }
 
-// StatusChanged reports a phase transition.
-type StatusChanged struct {
-	Phase  RunPhase
-	Detail string
-}
-
 // InteractionRecorded records a resolved request.
 type InteractionRecorded struct {
 	RequestID  string
@@ -234,7 +228,6 @@ type Status struct {
 func (RunStarted) eventPayload()          {}
 func (StepStarted) eventPayload()         {}
 func (StepCompleted) eventPayload()       {}
-func (StatusChanged) eventPayload()       {}
 func (InteractionRecorded) eventPayload() {}
 func (RunCompleted) eventPayload()        {}
 func (MessageStarted) eventPayload()      {}
@@ -252,7 +245,6 @@ func (CustomEvent) eventPayload()         {}
 func (RunStarted) kind() string          { return "run_started" }
 func (StepStarted) kind() string         { return "step_started" }
 func (StepCompleted) kind() string       { return "step_completed" }
-func (StatusChanged) kind() string       { return "status_changed" }
 func (InteractionRecorded) kind() string { return "interaction" }
 func (RunCompleted) kind() string        { return "run_completed" }
 func (MessageStarted) kind() string      { return "message_started" }
@@ -312,31 +304,6 @@ var StepOutcomes = []StepOutcome{StepOutcomeUnspecified, StepOutcomeSucceeded, S
 // posture toward a value a newer build may spell.
 func ParseStepOutcome(name string) (StepOutcome, bool) {
 	return parseMember(StepOutcomes, StepOutcomeUnspecified, name)
-}
-
-// RunPhase is a StatusChanged phase.
-type RunPhase string
-
-const (
-	PhaseUnspecified     RunPhase = "PHASE_UNSPECIFIED"
-	PhaseInitializing    RunPhase = "PHASE_INITIALIZING"
-	PhasePlanning        RunPhase = "PHASE_PLANNING"
-	PhaseExecuting       RunPhase = "PHASE_EXECUTING"
-	PhaseWaitingApproval RunPhase = "PHASE_WAITING_APPROVAL"
-	PhaseWaitingInput    RunPhase = "PHASE_WAITING_INPUT"
-	PhaseWaitingPeer     RunPhase = "PHASE_WAITING_PEER"
-	PhasePaused          RunPhase = "PHASE_PAUSED"
-	PhaseFinalizing      RunPhase = "PHASE_FINALIZING"
-)
-
-// RunPhases is every member, in wire order.
-var RunPhases = []RunPhase{PhaseUnspecified, PhaseInitializing, PhasePlanning, PhaseExecuting, PhaseWaitingApproval, PhaseWaitingInput, PhaseWaitingPeer, PhasePaused, PhaseFinalizing}
-
-// ParseRunPhase resolves a member by its wire name. An unknown name is the
-// vocabulary's unspecified member and ok is false — the receiving side's
-// posture toward a value a newer build may spell.
-func ParseRunPhase(name string) (RunPhase, bool) {
-	return parseMember(RunPhases, PhaseUnspecified, name)
 }
 
 // InteractionResolution is how a recorded interaction resolved.

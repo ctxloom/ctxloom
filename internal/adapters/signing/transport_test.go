@@ -6,9 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -54,15 +55,13 @@ func TestTransportAgnostic_SameSignatureVerifiesThroughAllThreeChannels(t *testi
 	gitDir := t.TempDir()
 	runGit := func(args ...string) []byte {
 		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = gitDir
+		cmd := taskstest.GitCmd(gitDir, nil, args...)
 		out, err := cmd.Output()
 		require.NoError(t, err, "git %v", args)
 		return out
 	}
 	runGit("init", "-q")
-	hashObjectCmd := exec.Command("git", "hash-object", "-w", "--stdin")
-	hashObjectCmd.Dir = gitDir
+	hashObjectCmd := taskstest.GitCmd(gitDir, nil, "hash-object", "-w", "--stdin")
 	hashObjectCmd.Stdin = bytesReader(original)
 	shaOut, err := hashObjectCmd.Output()
 	require.NoError(t, err)

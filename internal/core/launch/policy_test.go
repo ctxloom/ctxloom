@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -163,6 +164,61 @@ func TestResolvePolicy_ReviewerNeedsTheEngines(t *testing.T) {
 	p, err := resolvePolicy(t, launchtest.Deps(t, launchtest.WithAgent("dev", block), launchtest.FixtureReviewer()), launch.Source{Agent: "dev"})
 	require.NoError(t, err)
 	assert.Equal(t, engine.ApproverReviewer, p.Approver)
+}
+
+// A run that plans first needs a human to approve its plan: with approver
+// none or reviewer nobody ever could, so the launch is refused naming both
+// halves of the conflict. The human approver plans first freely.
+func TestResolvePolicy_PlansFirstNeedsTheHuman(t *testing.T) {
+	for _, approver := range []string{"none", "reviewer"} {
+		block := launchtest.PermissionBlock(fixtureBlock(agents.NeutralPermissions{Approver: approver}, map[string]any{"mode": "plan"}))
+		_, err := resolvePolicy(t, launchtest.Deps(t, launchtest.WithAgent("dev", block), launchtest.FixtureReviewer()), launch.Source{Agent: "dev"})
+		require.ErrorIsf(t, err, launch.ErrPermissionUnhonoured, "approver %s", approver)
+		require.ErrorIsf(t, err, launch.ErrPlansFirstNeedsHuman, "approver %s", approver)
+		require.ErrorContainsf(t, err, approver, "the refusal names the approver")
+	}
+	block := launchtest.PermissionBlock(fixtureBlock(agents.NeutralPermissions{Approver: "human"}, map[string]any{"mode": "plan"}))
+	p, err := resolvePolicy(t, launchtest.Deps(t, launchtest.WithAgent("dev", block)), launch.Source{Agent: "dev"})
+	require.NoError(t, err)
+	assert.Equal(t, engine.ApproverHuman, p.Approver)
+}
+
+// A --degraded launch whose declaration cannot be honoured falls to the
+// engine's floor; where that floor plans first and the approver is not the
+// human, nobody could approve its plan either, so it is refused naming the
+// degraded posture and the approver.
+func TestResolvePolicy_ADegradedFloorThatPlansFirstNeedsTheHuman(t *testing.T) {
+	for _, approver := range []string{"none", "reviewer"} {
+		block := launchtest.PermissionBlock(fixtureBlock(agents.NeutralPermissions{Approver: approver}, map[string]any{"mode": "plann"}))
+		_, err := resolvePolicy(t, launchtest.Deps(t, launchtest.WithAgent("dev", block), launchtest.FixtureReviewer()), launch.Source{Agent: "dev", Degraded: true})
+		require.ErrorIsf(t, err, launch.ErrPlansFirstNeedsHuman, "approver %s", approver)
+		require.ErrorContainsf(t, err, "--degraded", "the refusal says the posture is the degraded one")
+		require.ErrorContainsf(t, err, "the plan posture", "the refusal names the degraded posture")
+		require.ErrorContainsf(t, err, approver, "the refusal names the approver")
+	}
+}
+
+// A structured run that plans first is approved over its session endpoint;
+// with no endpoint it has no approval route, so it is refused.
+func TestResolve_APlanFirstRunWithNoEndpointIsRefused(t *testing.T) {
+	block := launchtest.PermissionBlock(fixtureBlock(agents.NeutralPermissions{}, map[string]any{"mode": "plan"}))
+	env := launchtest.Deps(t, launchtest.WithAgent("dev", block))
+	env.Deps.Endpoints = noEndpoint{}
+	_, err := resolvePolicy(t, env, launch.Source{Agent: "dev"})
+	require.ErrorIs(t, err, launch.ErrPlansFirstNoApprovalRoute)
+
+	block = launchtest.PermissionBlock(fixtureBlock(agents.NeutralPermissions{}, map[string]any{"mode": "default"}))
+	env = launchtest.Deps(t, launchtest.WithAgent("dev", block))
+	env.Deps.Endpoints = noEndpoint{}
+	_, err = resolvePolicy(t, env, launch.Source{Agent: "dev"})
+	require.NoError(t, err, "a run that does not plan first needs no approval route")
+}
+
+// noEndpoint mints no session endpoint.
+type noEndpoint struct{}
+
+func (noEndpoint) MintMCP(context.Context, sessions.Identity, launch.Axes) (sessions.Endpoint, error) {
+	return sessions.Endpoint{}, nil
 }
 
 // Refusals name the value and the rung it came from.

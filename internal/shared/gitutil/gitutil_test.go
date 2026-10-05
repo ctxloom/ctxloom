@@ -1,10 +1,12 @@
-package gitutil
+package gitutil_test
 
 import (
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -16,7 +18,7 @@ import (
 
 func TestFindRoot_FromRepoRoot(t *testing.T) {
 	// This test runs from within the ctxloom repo
-	root, err := FindRoot(".")
+	root, err := gitutil.FindRoot(".")
 	require.NoError(t, err)
 	assert.NotEmpty(t, root)
 
@@ -32,20 +34,20 @@ func TestFindRoot_FromSubdirectory(t *testing.T) {
 	sub := filepath.Join(repo, "a", "b")
 	require.NoError(t, os.MkdirAll(sub, 0o755))
 
-	rootFromSub, err := FindRoot(sub)
+	rootFromSub, err := gitutil.FindRoot(sub)
 	require.NoError(t, err)
-	rootFromTop, err := FindRoot(repo)
+	rootFromTop, err := gitutil.FindRoot(repo)
 	require.NoError(t, err)
 	assert.Equal(t, rootFromTop, rootFromSub)
 }
 
 func TestFindRoot_FromFile(t *testing.T) {
 	// FindRoot should work when given a file path
-	root, err := FindRoot(".")
+	root, err := gitutil.FindRoot(".")
 	require.NoError(t, err)
 
 	// Pass a file instead of directory
-	fileRoot, err := FindRoot(filepath.Join(root, "go.mod"))
+	fileRoot, err := gitutil.FindRoot(filepath.Join(root, "go.mod"))
 	require.NoError(t, err)
 	assert.Equal(t, root, fileRoot)
 }
@@ -54,18 +56,18 @@ func TestFindRoot_NotARepo(t *testing.T) {
 	// Create a temp directory that's not a git repo
 	tmpDir := t.TempDir()
 
-	_, err := FindRoot(tmpDir)
+	_, err := gitutil.FindRoot(tmpDir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a git repository")
 }
 
 func TestFindRoot_InvalidPath(t *testing.T) {
-	_, err := FindRoot("/nonexistent/path/that/does/not/exist")
+	_, err := gitutil.FindRoot("/nonexistent/path/that/does/not/exist")
 	require.Error(t, err)
 }
 
 func TestFindRoot_ReturnsAbsolutePath(t *testing.T) {
-	root, err := FindRoot(".")
+	root, err := gitutil.FindRoot(".")
 	require.NoError(t, err)
 
 	// Should be absolute
@@ -98,7 +100,7 @@ func TestGetRemoteURL_Found(t *testing.T) {
 	repo := initTempRepo(t)
 	addRemote(t, repo, "origin", "https://github.com/example/repo.git")
 
-	url, err := GetRemoteURL(repo, "origin")
+	url, err := gitutil.GetRemoteURL(repo, "origin")
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/example/repo.git", url)
 }
@@ -108,14 +110,14 @@ func TestGetRemoteURL_UnknownRemote(t *testing.T) {
 	// Only an "origin" remote; asking for "upstream" should error.
 	addRemote(t, repo, "origin", "https://github.com/example/repo.git")
 
-	_, err := GetRemoteURL(repo, "upstream")
+	_, err := gitutil.GetRemoteURL(repo, "upstream")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `"upstream" not configured`)
 }
 
 func TestGetRemoteURL_NotARepo(t *testing.T) {
 	dir := t.TempDir() // no git init
-	_, err := GetRemoteURL(dir, "origin")
+	_, err := gitutil.GetRemoteURL(dir, "origin")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a git repository")
 }
@@ -126,7 +128,7 @@ func TestGetRemoteURL_SCPSyntax(t *testing.T) {
 	repo := initTempRepo(t)
 	addRemote(t, repo, "origin", "git@github.com:example/repo.git")
 
-	url, err := GetRemoteURL(repo, "origin")
+	url, err := gitutil.GetRemoteURL(repo, "origin")
 	require.NoError(t, err)
 	assert.Equal(t, "git@github.com:example/repo.git", url)
 }
@@ -138,7 +140,7 @@ func TestGetRemoteURL_MissingOrigin(t *testing.T) {
 	repo := initTempRepo(t)
 	addRemote(t, repo, "fork", "https://github.com/me/fork.git")
 
-	_, err := GetRemoteURL(repo, "origin")
+	_, err := gitutil.GetRemoteURL(repo, "origin")
 	require.Error(t, err)
 }
 
@@ -149,7 +151,7 @@ func TestGetRemoteURL_FilePathResolvesToRepo(t *testing.T) {
 	fileInRepo := filepath.Join(repo, "README.md")
 	require.NoError(t, os.WriteFile(fileInRepo, []byte("hi"), 0o644))
 
-	url, err := GetRemoteURL(fileInRepo, "origin")
+	url, err := gitutil.GetRemoteURL(fileInRepo, "origin")
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/example/repo.git", url)
 }
@@ -166,13 +168,9 @@ func TestGetRemoteURL_FromLinkedWorktree(t *testing.T) {
 		t.Skip("git not on PATH; skipping linked-worktree integration test")
 	}
 	main, linked := taskstest.RealGitWorktreeFixture(t)
-	cmd := exec.Command("git", "remote", "add", "origin", "https://example.com/repo.git")
-	cmd.Dir = main
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git remote add: %v\n%s", err, out)
-	}
+	taskstest.Git(t, main, nil, "remote", "add", "origin", "https://example.com/repo.git")
 
-	url, err := GetRemoteURL(linked, "origin")
+	url, err := gitutil.GetRemoteURL(linked, "origin")
 	require.NoError(t, err, "origin IS configured — in the shared common dir a linked worktree must resolve through")
 	assert.Equal(t, "https://example.com/repo.git", url)
 }
@@ -183,15 +181,15 @@ func TestGetRemoteURL_FromLinkedWorktree(t *testing.T) {
 // the width is a parameter and the RULE is shared. Both widths are pinned here
 // because both are live output.
 func TestAbbrevSHA_TruncatesAtTheRequestedWidth(t *testing.T) {
-	assert.Equal(t, "abc1234", ShortSHA("abc12345def"), "the default width is git's 7")
-	assert.Equal(t, "abcdef1234", AbbrevSHA("abcdef1234567890", 10))
+	assert.Equal(t, "abc1234", gitutil.ShortSHA("abc12345def"), "the default width is git's 7")
+	assert.Equal(t, "abcdef1234", gitutil.AbbrevSHA("abcdef1234567890", 10))
 }
 
 func TestAbbrevSHA_NeverSlicesPastTheEnd(t *testing.T) {
-	assert.Equal(t, "abc", ShortSHA("abc"), "a short hash is returned as-is")
-	assert.Equal(t, "abc1234", ShortSHA("abc1234"), "exactly the width hits len > n on the false side")
-	assert.Equal(t, "", ShortSHA(""))
-	assert.Equal(t, "abc", AbbrevSHA("abc", 10))
+	assert.Equal(t, "abc", gitutil.ShortSHA("abc"), "a short hash is returned as-is")
+	assert.Equal(t, "abc1234", gitutil.ShortSHA("abc1234"), "exactly the width hits len > n on the false side")
+	assert.Equal(t, "", gitutil.ShortSHA(""))
+	assert.Equal(t, "abc", gitutil.AbbrevSHA("abc", 10))
 }
 
 // Both entry points answer the same precondition — "is startPath a file or a
@@ -208,11 +206,11 @@ func TestStartPathResolution_BothEntryPointsReportAnUnstatablePath(t *testing.T)
 	addRemote(t, repo, "origin", "https://github.com/example/repo.git")
 	missing := filepath.Join(repo, "no", "such", "path")
 
-	_, rootErr := FindRoot(missing)
-	require.Error(t, rootErr, "FindRoot must report a path it cannot stat")
+	_, rootErr := gitutil.FindRoot(missing)
+	require.Error(t, rootErr, "gitutil.FindRoot must report a path it cannot stat")
 
-	url, urlErr := GetRemoteURL(missing, "origin")
-	require.Error(t, urlErr, "GetRemoteURL must report a path it cannot stat, not answer from an ancestor")
+	url, urlErr := gitutil.GetRemoteURL(missing, "origin")
+	require.Error(t, urlErr, "gitutil.GetRemoteURL must report a path it cannot stat, not answer from an ancestor")
 	assert.Empty(t, url, "an unresolvable path must not yield an ancestor repo's remote")
 
 	// Same policy, so the same wording: one shared step, not two.
@@ -228,9 +226,9 @@ func TestStartPathResolution_FileResolvesToItsDirectory(t *testing.T) {
 	file := filepath.Join(repo, "README.md")
 	require.NoError(t, os.WriteFile(file, []byte("hi"), 0o644))
 
-	fromFile, err := FindRoot(file)
+	fromFile, err := gitutil.FindRoot(file)
 	require.NoError(t, err)
-	fromDir, err := FindRoot(repo)
+	fromDir, err := gitutil.FindRoot(repo)
 	require.NoError(t, err)
 	assert.Equal(t, fromDir, fromFile)
 }
@@ -256,7 +254,7 @@ func TestGetRemoteURL_ReturnsTheFetchURLNotThePushURL(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(cfg), "pushurl", "fixture is not hostile: no distinct push URL was configured")
 
-	url, err := GetRemoteURL(repo, "origin")
+	url, err := gitutil.GetRemoteURL(repo, "origin")
 	require.NoError(t, err)
 	assert.Equal(t, "https://fetch.example.com/repo.git", url)
 }
@@ -276,7 +274,7 @@ func TestGetRemoteURL_MultipleFetchURLsReturnsTheFirst(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(cfg), "second.example.com", "fixture is not hostile: only one URL was configured")
 
-	url, err := GetRemoteURL(repo, "origin")
+	url, err := gitutil.GetRemoteURL(repo, "origin")
 	require.NoError(t, err)
 	assert.Equal(t, "https://first.example.com/repo.git", url)
 }

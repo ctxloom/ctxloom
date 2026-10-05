@@ -4,9 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
@@ -118,4 +120,27 @@ func TestResolve_AHostHomeRunOfARelocatableEngineRoutesToTheProjectRoot(t *testi
 	for kind, root := range roots("session") {
 		require.Equal(t, present.RootSessionHome, root, "kind %s: a session-home run delivers beneath the session home", kind)
 	}
+}
+
+// TestLoadout_CarriesTheSessionHomeOnlyWhenTheRunHasOne: the delivery a
+// launch hands its endpoint names the session home as the runner reads it —
+// what the endpoint stamps the engine's own plans from — and names none for
+// a run on the host's engine home, whose plans are not the run's.
+func TestLoadout_CarriesTheSessionHomeOnlyWhenTheRunHasOne(t *testing.T) {
+	env := launchtest.Deps(t,
+		launchtest.RelocatableHome(),
+		launchtest.WithAgent("host", launchtest.EngineHome("host")),
+		launchtest.WithAgent("session", launchtest.EngineHome("session")),
+	)
+	resolve := func(agent string) launch.Launch {
+		l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: agent, Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
+		return l
+	}
+	session := resolve("session")
+	require.NotEmpty(t, session.Cell.Paths.Paths().SessionHome.Host)
+	assert.Equal(t, session.Cell.Paths.Paths().SessionHome.Host, session.Loadout(composite.Package{}).SessionHome)
+	host := resolve("host")
+	assert.Empty(t, host.Loadout(composite.Package{}).SessionHome)
 }

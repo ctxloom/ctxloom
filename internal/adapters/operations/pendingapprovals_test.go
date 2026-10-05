@@ -53,7 +53,7 @@ func TestQueryPendingApprovals_ReadsTheQueue(t *testing.T) {
 	f.approvals = &agentcoordpb.PendingApprovalsResult{
 		ProjectDir: "/proj",
 		Pending: []*agentcoordpb.PendingApprovalsResult_Pending{{
-			Kind: agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, Harp: "child-a", Agent: "worker",
+			Harp: "child-a", Agent: "worker",
 			Lineage: []string{"root", "child-a"}, Summary: "Bash: make",
 		}},
 	}

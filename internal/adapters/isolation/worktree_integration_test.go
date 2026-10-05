@@ -230,10 +230,7 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 }
 
 func gitCmd(dir string, args ...string) *exec.Cmd {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), gitFixtureEnv...)
-	return cmd
+	return taskstest.GitCmd(dir, gitFixtureEnv, args...)
 }
 
 // TestGitIdentity_HostileAgentIDStillCommitsCleanly pins a claim, and the
@@ -291,9 +288,7 @@ func gitIdentTestEnv(name, email string) []string {
 // the ident it parses must not pick up a git warning on stderr.
 func gitOutAsIdentity(t *testing.T, dir, name, email string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), gitIdentTestEnv(name, email)...)
+	cmd := taskstest.GitCmd(dir, gitIdentTestEnv(name, email), args...)
 	out, err := cmd.Output()
 	require.NoError(t, err, "git %v", args)
 	return string(out)

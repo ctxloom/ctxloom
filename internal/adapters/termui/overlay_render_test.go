@@ -5,11 +5,10 @@ package termui_test
 import (
 	"context"
 	"fmt"
-	"slices"
+	"io"
+	"os"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	pty "github.com/aymanbagabas/go-pty"
 	"github.com/stretchr/testify/assert"
@@ -40,7 +39,26 @@ type renderHarness struct {
 	tty     *syncBuf
 	c       *termui.Controller
 	nudges  <-chan *agent.WindowSize
-	watched func() []string
+	watches <-chan string // the harps the overlay opened, as it opens them
+	slave   *os.File      // the controller's side of the terminal
+	fences  int
+}
+
+// renderSources is the overlay's roster of renderHarps, reporting every feed
+// it opens on the returned channel.
+func renderSources() (tui.Sources, <-chan string) {
+	watches := make(chan string, 16)
+	rows := make([]tui.RosterRow, len(renderHarps))
+	for i, h := range renderHarps {
+		rows[i] = tui.RosterRow{Harp: h, State: "live"}
+	}
+	return tui.Sources{
+		Roster: func(context.Context) ([]tui.RosterRow, error) { return rows, nil },
+		Watch: func(_ context.Context, h string) (*tui.Feed, error) {
+			watches <- h
+			return &tui.Feed{Source: "live", Events: make(chan operations.SessionFeedEvent), Errs: make(chan error, 1), Cancel: func() {}}, nil
+		},
+	}, watches
 }
 
 func newRenderHarness(t *testing.T, opts ...func(*termui.Options)) *renderHarness {
@@ -48,21 +66,7 @@ func newRenderHarness(t *testing.T, opts ...func(*termui.Options)) *renderHarnes
 	ptyDev, slave, tty := newComposedPTY(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	var mu sync.Mutex
-	var watched []string
-	rows := make([]tui.RosterRow, len(renderHarps))
-	for i, h := range renderHarps {
-		rows[i] = tui.RosterRow{Harp: h, State: "live"}
-	}
-	src := tui.Sources{
-		Roster: func(context.Context) ([]tui.RosterRow, error) { return rows, nil },
-		Watch: func(_ context.Context, h string) (*tui.Feed, error) {
-			mu.Lock()
-			watched = append(watched, h)
-			mu.Unlock()
-			return &tui.Feed{Source: "live", Events: make(chan operations.SessionFeedEvent), Errs: make(chan error, 1), Cancel: func() {}}, nil
-		},
-	}
+	src, watches := renderSources()
 	resize := make(chan *agent.WindowSize, 4)
 	o := termui.Options{
 		Stdin: slave, TTY: slave, Resize: resize, Prefix: compPrefix, Surround: true,
@@ -76,13 +80,9 @@ func newRenderHarness(t *testing.T, opts ...func(*termui.Options)) *renderHarnes
 	t.Cleanup(c.Close)
 	pumpEngineInput(c)
 	resize <- &agent.WindowSize{Rows: renderRows, Cols: renderCols}
-	recvWindowSize(t, c.Resize())
-	waitForComposition(t, "surround establish", func() bool { return strings.Contains(tty.String(), "\x1b[1;23r") })
-	return &renderHarness{t: t, pty: ptyDev, tty: tty, c: c, nudges: c.Resize(), watched: func() []string {
-		mu.Lock()
-		defer mu.Unlock()
-		return slices.Clone(watched)
-	}}
+	await(t, "the initial size", c.Resize())
+	tty.waitUntil(t, "the surround's region", contains("\x1b[1;23r"))
+	return &renderHarness{t: t, pty: ptyDev, tty: tty, c: c, nudges: c.Resize(), watches: watches, slave: slave}
 }
 
 // engine writes through the controller's engine-output seam, as the pty pump
@@ -100,8 +100,7 @@ func (h *renderHarness) paintEngineRows(label string) {
 	for i := 1; i < renderRows; i++ {
 		h.engine(fmt.Sprintf("\x1b[%d;1H%s row %02d", i, label, i))
 	}
-	want := fmt.Sprintf("%s row %02d", label, renderRows-1)
-	waitForComposition(h.t, "the engine's screen", func() bool { return strings.Contains(h.tty.String(), want) })
+	h.tty.waitUntil(h.t, "the engine's screen", contains(fmt.Sprintf("%s row %02d", label, renderRows-1)))
 }
 
 func (h *renderHarness) key(s string) {
@@ -110,29 +109,93 @@ func (h *renderHarness) key(s string) {
 	require.NoError(h.t, err)
 }
 
-// settle waits until the terminal has been quiet for a while — a frame is
-// only judged once nothing more is coming — and returns what it shows.
-func (h *renderHarness) settle() *vtemu.Screen {
+// released waits out a release: its nudge is sent once the release's write to
+// the terminal has returned, and a fence behind that write orders all of it
+// before anything is judged — a cleared row or an absent fragment is only
+// evidence once nothing of the release is still in the pty.
+func (h *renderHarness) released() {
 	h.t.Helper()
-	last, quietSince := -1, time.Now()
-	waitForComposition(h.t, "the terminal to go quiet", func() bool {
-		if n := len(h.tty.String()); n != last {
-			last, quietSince = n, time.Now()
-			return false
+	await(h.t, "the repaint nudge", h.nudges)
+	h.fences++
+	// A DECRQM query: inert to the screen, and unique, so its arrival is the
+	// fence's.
+	f := fmt.Sprintf("\x1b[?%d$p", 7700+h.fences)
+	_, err := io.WriteString(h.slave, f)
+	require.NoError(h.t, err)
+	h.tty.waitUntil(h.t, "the fence behind the release", contains(f))
+}
+
+// tb is what a screen check reports to: the test, or a probe judging a frame
+// that may not have finished arriving.
+type tb interface {
+	require.TestingT
+	Helper()
+}
+
+// probe records a check's failure instead of failing the test.
+type probe struct{ failed bool }
+
+func (p *probe) Errorf(string, ...any) { p.failed = true }
+func (p *probe) FailNow()              { p.failed = true; panic(p) }
+func (p *probe) Helper()               {}
+
+// accepts reports whether check passes on e.
+func accepts(check func(tb, *vtemu.Screen), e *vtemu.Screen) (ok bool) {
+	p := &probe{}
+	defer func() {
+		if r := recover(); r != nil && r != any(p) {
+			panic(r)
 		}
-		return time.Since(quietSince) > 300*time.Millisecond
-	})
+		ok = !p.failed
+	}()
+	check(p, e)
+	return true
+}
+
+// emulate is the screen the bytes so far paint.
+func emulate(s string) *vtemu.Screen {
 	e := vtemu.New(renderRows, renderCols)
-	e.Feed([]byte(h.tty.String()))
-	require.Empty(h.t, e.Unhandled(), "every byte on the terminal must be understood before a frame is judged")
+	e.Feed([]byte(s))
 	return e
+}
+
+// screenWhen waits until the terminal shows a frame check accepts, judged
+// again on every write that arrives, and returns it. A frame is the
+// tea.Program's to finish in its own time; this waits for the frame the test
+// expects rather than for a quiet spell that a loaded machine can fake. At
+// the deadline check runs against the test, so a frame that never came fails
+// with what the screen actually shows.
+func (h *renderHarness) screenWhen(what string, check func(tb, *vtemu.Screen)) *vtemu.Screen {
+	h.t.Helper()
+	judged := func(t tb, e *vtemu.Screen) {
+		t.Helper()
+		require.Empty(t, e.Unhandled(), "every byte on the terminal must be understood before a frame is judged")
+		check(t, e)
+	}
+	cur, ok := h.tty.await(h.t, func(s string) bool { return accepts(judged, emulate(s)) })
+	e := emulate(cur)
+	judged(h.t, e)
+	if !ok {
+		h.t.Fatalf("the terminal never showed %s", what)
+	}
+	return e
+}
+
+// panel is a screenWhen check for assertPanel.
+func panel(top, bottom int) func(tb, *vtemu.Screen) {
+	return func(t tb, e *vtemu.Screen) { t.Helper(); assertPanel(t, e, top, bottom) }
+}
+
+// engineBack is a screenWhen check for assertEngineScreenBack.
+func engineBack(label string) func(tb, *vtemu.Screen) {
+	return func(t tb, e *vtemu.Screen) { t.Helper(); assertEngineScreenBack(t, e, label) }
 }
 
 // assertPanel checks the overlay's frame occupies rows [top, bottom] as a
 // panel should: the header on the first row, one roster row per harp with
 // the pane separator in the header's column, the key hints on the last row,
 // and nothing pushed into the scrollback.
-func assertPanel(t *testing.T, e *vtemu.Screen, top, bottom int) {
+func assertPanel(t tb, e *vtemu.Screen, top, bottom int) {
 	t.Helper()
 	header := e.Row(top)
 	require.True(t, strings.HasPrefix(header, " agents"), "the header starts the panel's first row at column 0:\n%s", e)
@@ -154,7 +217,7 @@ func assertPanel(t *testing.T, e *vtemu.Screen, top, bottom int) {
 
 // assertEngineScreenBack checks release handed back exactly the screen the
 // engine had: every drawable row, the bar, and the engine's cursor.
-func assertEngineScreenBack(t *testing.T, e *vtemu.Screen, label string) {
+func assertEngineScreenBack(t tb, e *vtemu.Screen, label string) {
 	t.Helper()
 	assert.False(t, e.OnAltScreen(), "release returns to the engine's screen")
 	for i := 1; i < renderRows; i++ {
@@ -172,23 +235,24 @@ func TestOverlayRender_QuickPanelIsReadableAndReleaseRestoresTheEngine(t *testin
 	h.paintEngineRows("engine")
 
 	h.key(string([]byte{compPrefix}))
-	waitForComposition(t, "the first roster row's feed opened", func() bool { return slices.Contains(h.watched(), renderHarps[0]) })
+	awaitWatch(t, h.watches, renderHarps[0])
 	// Drawable rows are 23 (the bar reserves one); the panel is the bottom 8
 	// of them: rows 16..23, 0-indexed 15..22.
-	assertPanel(t, h.settle(), 15, 22)
+	h.screenWhen("the panel", panel(15, 22))
 
-	h.key("j")
-	assertPanel(t, h.settle(), 15, 22)
+	h.key("j") // moving the selection opens that row's feed
+	awaitWatch(t, h.watches, renderHarps[1])
+	h.screenWhen("the panel after moving", panel(15, 22))
 
 	h.key("\r")
-	waitForComposition(t, "the selected row's feed opened", func() bool { return slices.Contains(h.watched(), renderHarps[1]) })
-	e := h.settle()
-	assertPanel(t, e, 15, 22)
-	assert.Contains(t, e.Row(15), "feed: "+renderHarps[1], "the header names the opened feed")
+	h.screenWhen("the panel on the opened feed", func(t tb, e *vtemu.Screen) {
+		assertPanel(t, e, 15, 22)
+		assert.Contains(t, e.Row(15), "feed: "+renderHarps[1], "the header names the opened feed")
+	})
 
 	h.key("q")
-	waitForComposition(t, "the repaint nudge", func() bool { return len(h.nudges) > 0 })
-	assertEngineScreenBack(t, h.settle(), "engine")
+	h.released()
+	h.screenWhen("the engine's screen back", engineBack("engine"))
 }
 
 // Full screen draws the whole drawable area, and leaving it — straight from
@@ -199,14 +263,15 @@ func TestOverlayRender_FullScreenIsReadableAndReleaseRestoresTheEngine(t *testin
 	h.paintEngineRows("engine")
 
 	h.key(string([]byte{compPrefix}) + "f")
-	waitForComposition(t, "the first roster row's feed opened", func() bool { return slices.Contains(h.watched(), renderHarps[0]) })
-	e := h.settle()
-	assert.True(t, e.OnAltScreen(), "full screen draws on the alternate screen")
-	assertPanel(t, e, 0, renderRows-2)
+	awaitWatch(t, h.watches, renderHarps[0])
+	h.screenWhen("full screen", func(t tb, e *vtemu.Screen) {
+		assert.True(t, e.OnAltScreen(), "full screen draws on the alternate screen")
+		assertPanel(t, e, 0, renderRows-2)
+	})
 
 	h.key("q")
-	waitForComposition(t, "the repaint nudge", func() bool { return len(h.nudges) > 0 })
-	assertEngineScreenBack(t, h.settle(), "engine")
+	h.released()
+	h.screenWhen("the engine's screen back", engineBack("engine"))
 }
 
 // An engine that is itself on the alternate screen is drawn over in place:
@@ -220,27 +285,29 @@ func TestOverlayRender_OverAnAltScreenEngineTheOverlayDrawsInPlace(t *testing.T)
 	h.paintEngineRows("fullscreen")
 
 	h.key(string([]byte{compPrefix}))
-	waitForComposition(t, "the first roster row's feed opened", func() bool { return slices.Contains(h.watched(), renderHarps[0]) })
-	h.settle()
+	awaitWatch(t, h.watches, renderHarps[0])
+	h.screenWhen("the panel", panel(15, 22))
 	// Still the first key. Sent once the panel is up, as a human types it:
 	// the first roster's feed auto-open clears the note slot.
 	h.key("f")
-	e := h.settle()
-	assert.True(t, e.OnAltScreen(), "still the engine's screen")
-	for i := 1; i <= 15; i++ {
-		assert.Equal(t, fmt.Sprintf("fullscreen row %02d", i), e.Row(i-1), "the engine's rows above the panel are untouched:\n%s", e)
-	}
-	assert.True(t, strings.HasPrefix(e.Row(15), " agents"), "the panel, not full screen:\n%s", e)
-	assert.True(t, strings.HasPrefix(e.Row(22), " full screen unavailable"), "the refusal is readable at 80 columns:\n%s", e)
+	h.screenWhen("the refusal", func(t tb, e *vtemu.Screen) {
+		assert.True(t, e.OnAltScreen(), "still the engine's screen")
+		for i := 1; i <= 15; i++ {
+			assert.Equal(t, fmt.Sprintf("fullscreen row %02d", i), e.Row(i-1), "the engine's rows above the panel are untouched:\n%s", e)
+		}
+		assert.True(t, strings.HasPrefix(e.Row(15), " agents"), "the panel, not full screen:\n%s", e)
+		assert.True(t, strings.HasPrefix(e.Row(22), " full screen unavailable"), "the refusal is readable at 80 columns:\n%s", e)
+	})
 
 	h.key("q")
-	waitForComposition(t, "the repaint nudge", func() bool { return len(h.nudges) > 0 })
-	e = h.settle()
-	assert.True(t, e.OnAltScreen(), "release must not take the engine off its own screen")
-	for i := 1; i <= 15; i++ {
-		assert.Equal(t, fmt.Sprintf("fullscreen row %02d", i), e.Row(i-1), "row %d:\n%s", i, e)
-	}
-	for i := 16; i <= 23; i++ {
-		assert.Empty(t, e.Row(i-1), "the panel region is cleared for the engine's repaint:\n%s", e)
-	}
+	h.released()
+	h.screenWhen("the cleared panel region", func(t tb, e *vtemu.Screen) {
+		assert.True(t, e.OnAltScreen(), "release must not take the engine off its own screen")
+		for i := 1; i <= 15; i++ {
+			assert.Equal(t, fmt.Sprintf("fullscreen row %02d", i), e.Row(i-1), "row %d:\n%s", i, e)
+		}
+		for i := 16; i <= 23; i++ {
+			assert.Empty(t, e.Row(i-1), "the panel region is cleared for the engine's repaint:\n%s", e)
+		}
+	})
 }

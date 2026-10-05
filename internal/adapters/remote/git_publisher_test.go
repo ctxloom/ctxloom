@@ -14,7 +14,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -47,8 +46,7 @@ func gitEnv(t *testing.T) {
 // assert absence — that a ref or a path is genuinely not there.
 func gitFails(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
+	cmd := taskstest.GitCmd(dir, nil, args...)
 	out, err := cmd.CombinedOutput()
 	require.Error(t, err, "git %s unexpectedly succeeded: %s", strings.Join(args, " "), out)
 	return string(out)

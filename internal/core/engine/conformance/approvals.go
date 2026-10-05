@@ -56,9 +56,8 @@ func ApprovalCodec(t *testing.T, eng engine.Engine) {
 	}
 	require.Error(t, codec.ValidateRule(""), "a blank rule is not a rule")
 	require.Error(t, codec.ValidateRule("Bash\nRead"), "a rule is one line")
-	call := engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{}`)}
+	call := engine.PermissionAsk{Tool: "Bash", Input: json.RawMessage(`{}`)}
 	require.False(t, codec.Covers("", call), "a blank rule covers nothing")
-	require.False(t, codec.Covers("Bash", engine.PermissionAsk{Kind: engine.AskQuestion, Tool: "Bash"}), "only a tool call is covered")
 }
 
 // checkAskDecoding: a payload that is not an ask is an error, never an ask.
@@ -74,7 +73,7 @@ func checkAskDecoding(t *testing.T, codec engine.ApprovalCodec, event string) {
 // a mode change goes only where the engine's model offers.
 func checkAnswerEncoding(t *testing.T, eng engine.Engine, codec engine.ApprovalCodec, event string) {
 	t.Helper()
-	ask := engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{}`)}
+	ask := engine.PermissionAsk{Tool: "Bash", Input: json.RawMessage(`{}`)}
 	encodes := func(a engine.PermissionAnswer, why string) {
 		t.Helper()
 		out, err := codec.EncodeAnswer(event, ask, a)

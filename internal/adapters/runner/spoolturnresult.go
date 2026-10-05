@@ -68,6 +68,9 @@ func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.Permissi
 		return nil
 	}
 	body := strings.TrimSpace(text)
+	if cue := planCue(plan); cue != "" {
+		body = strings.TrimSpace(cue + "\n\n" + body)
+	}
 	kind := coord.KindResult
 	calls := blockedCalls(blocked)
 	switch {
@@ -75,7 +78,11 @@ func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.Permissi
 		kind = coord.KindError
 		body = strings.TrimSpace(failurePreamble(failure) + "\n\n" + body)
 	case len(calls) > 0:
-		body = strings.TrimSpace(blockedPreamble(calls) + "\n\n" + body)
+		lead := "\n\n"
+		if planCue(plan) != "" {
+			lead = "\n" // the plan's cue already leads what the turn said
+		}
+		body = strings.TrimSpace(blockedPreamble(calls) + lead + body)
 	case body == "":
 		// An empty body is this project's signature silent no-op, not a
 		// report — so this is not written as an empty result. It is written as
@@ -138,6 +145,20 @@ func failurePreamble(f *agent.TurnFailure) string {
 			"This run alone is parked for a short backoff and resumes on its own; anything sent to it meanwhile waits and runs then."
 	}
 	return fmt.Sprintf("TURN FAILED (%s): the turn did no work, and the run is parked until it is resumed.", f.Kind)
+}
+
+// planCue is the lead line of a report whose turn ended holding a plan:
+// where the plan is and how the parent approves or revises it. "" when the
+// turn holds no plan, or none was published to name.
+func planCue(plan *coord.PlanApproval) string {
+	if plan == nil || plan.Artifact == "" {
+		return ""
+	}
+	offered := make([]string, len(plan.Postures))
+	for i, p := range plan.Postures {
+		offered[i] = p.Posture
+	}
+	return "PLAN AWAITING APPROVAL: " + plan.Artifact + " — fetch it with agent_fetch_artifact. To approve, agent_send structured {\"" + approvePlanKey + "\": \"<posture>\"} (offered: " + strings.Join(offered, ", ") + "); to revise, send a normal message."
 }
 
 // blockedPreamble is the report's lead: one "BLOCKED on <tool>" line per

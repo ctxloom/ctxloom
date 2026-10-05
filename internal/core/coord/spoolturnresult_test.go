@@ -13,6 +13,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
@@ -232,6 +233,36 @@ func TestSpoolTurnResult_BlockedTurnSaysBlocked(t *testing.T) {
 	got = recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "BLOCKED on Write") }, conformanceWait)
 	require.Len(t, got, 1, "a blocked turn that said nothing else is still a blocked report")
 	assert.Equal(t, KindResult, got[0].Kind, "not the empty-turn error: the turn has a report — what stopped it")
+}
+
+// TestSpoolTurnResult_APlanAwaitingApprovalLeadsTheReport pins the parent's
+// cue: a turn that ended holding a plan leads its report with the plan's
+// artifact, how to fetch it, and how to approve or revise it — the offered
+// postures named — beneath any BLOCKED lead, above what the turn said.
+func TestSpoolTurnResult_APlanAwaitingApprovalLeadsTheReport(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(t, 0)
+	c := newCutoverCoordinator(t, sp, 0)
+	_, home := awaitCutoverChildIdle(t, c, sp, "first task")
+	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
+
+	const cue = `PLAN AWAITING APPROVAL: plan/plan-add-hello — fetch it with agent_fetch_artifact. To approve, agent_send structured {"approve_plan": "<posture>"} (offered: default, acceptEdits); to revise, send a normal message.`
+	plan := &PlanApproval{Artifact: "plan/plan-add-hello", Postures: []engine.PostureTransition{
+		{Posture: "default", Label: "default"},
+		{Posture: "acceptEdits", Label: "accept edits", Default: true},
+	}}
+	require.NoError(t, home.ReportTurnResult("1. add hello.txt", "", nil, plan, nil))
+	got := recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "PLAN AWAITING") }, conformanceWait)
+	require.Len(t, got, 1)
+	assert.Equal(t, KindResult, got[0].Kind)
+	assert.Equal(t, cue+"\n\n1. add hello.txt", got[0].Body)
+
+	denial := agent.PermissionDenial{ToolName: "Bash", Reason: "needs approval"}
+	require.NoError(t, home.ReportTurnResult("1. add hello.txt", "", []agent.PermissionDenial{denial}, plan, nil))
+	got = recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "BLOCKED on Bash") }, conformanceWait)
+	require.Len(t, got, 1)
+	assert.Equal(t, "BLOCKED on Bash: needs approval (decided by policy)\n"+cue+"\n\n1. add hello.txt", got[0].Body)
 }
 
 // TestSpoolTurnResult_EmptyTurnIsReportedAsAnError pins the empty-turn arm on

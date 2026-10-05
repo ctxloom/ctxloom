@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -107,7 +108,18 @@ func TestSessionApprovals_NoCoordinator(t *testing.T) {
 	out, errOut, err := runApprovals(t, formatText)
 	require.NoError(t, err)
 	assert.Contains(t, out, noCoordinatorRunning)
+	where, err := paths.HomeCoordDir()
+	require.NoError(t, err)
+	assert.Contains(t, out, where, "it says where it looked")
 	assert.Empty(t, errOut)
+}
+
+// TestSessionApprovals_HelpNamesWhereItLooks: the help says where
+// coordinators are discovered and that nothing here answers a request.
+func TestSessionApprovals_HelpNamesWhereItLooks(t *testing.T) {
+	assert.Contains(t, sessionApprovalsCmd.Long, "~/.ctxloom/coord/")
+	assert.Contains(t, sessionApprovalsCmd.Long, "endpoint.json")
+	assert.Contains(t, sessionApprovalsCmd.Long, "cannot answer")
 }
 
 // TestSessionApprovals_DeadEndpointIsNoCoordinator: an endpoint whose
@@ -140,6 +152,7 @@ func TestSessionApprovals_RefusalExitsNonZero(t *testing.T) {
 	require.True(t, errors.As(err, &exit), "want an ExitError, got %v", err)
 	assert.Equal(t, 1, exit.Code)
 	assert.Contains(t, errOut, "PermissionDenied")
+	assert.Contains(t, errOut, fakeProjectDir, "a failing coordinator is named by its project")
 }
 
 // TestRenderApprovals_ProjectColumnWithSeveralCoordinators: rows from more

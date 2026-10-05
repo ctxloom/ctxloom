@@ -474,7 +474,7 @@ func writeLiveEndpoint(t *testing.T, home string, port int) {
 	t.Helper()
 	dir := filepath.Join(home, ".ctxloom", "coord", "proj", "root-harp")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
-	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q}`, port, fakeConsumerCred)
+	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q,"project_dir":%q}`, port, fakeConsumerCred, fakeProjectDir)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte(body), 0o600))
 	// A live coordinator holds its root's owner lock; discovery lists only those.
 	lock := flock.New(filepath.Join(dir, paths.CoordOwnerLockFileName), flock.SetPermissions(0o600))
@@ -483,6 +483,9 @@ func writeLiveEndpoint(t *testing.T, home string, port int) {
 	require.True(t, held)
 	t.Cleanup(func() { _ = lock.Close() })
 }
+
+// fakeProjectDir is the project every writeLiveEndpoint coordinator serves.
+const fakeProjectDir = "/work/proj"
 
 // fakeConsumerCred is the consumer credential every startFakeCoordinator
 // endpoint.json advertises and its interceptor demands back.

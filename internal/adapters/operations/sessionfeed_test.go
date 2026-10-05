@@ -186,10 +186,14 @@ func startFakeCoordinator(t *testing.T, home, projectKey string, f *fakeConsumer
 	port := ln.Addr().(*net.TCPAddr).Port
 	dir := filepath.Join(home, ".ctxloom", "coord", projectKey, "root-harp")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
-	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q}`, port, fakeConsumerCred)
+	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q,"project_dir":%q}`, port, fakeConsumerCred, fakeProjectDir(projectKey))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte(body), 0o600))
 	holdRootLock(t, dir)
 }
+
+// fakeProjectDir is the project path startFakeCoordinator records for
+// projectKey's coordinator.
+func fakeProjectDir(projectKey string) string { return "/work/" + projectKey }
 
 // fakeConsumerCred is the consumer credential every startFakeCoordinator
 // endpoint.json advertises and its interceptor demands back.

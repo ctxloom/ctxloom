@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
@@ -33,38 +30,34 @@ func QueryCoordinatorSpoolStats(ctx context.Context, ep discover.Endpoint) (*age
 	return res, nil
 }
 
-// QueryPendingApprovals asks every live coordinator on this host for the
-// requests parked at its root, over ConsumerService.PendingApprovals. The
-// queue lives only in the coordinator process, so this read is the only view
-// another terminal has.
-//
-// A coordinator that is not there has nothing pending: an endpoint nobody
-// answers on (codes.Unavailable) is neither an answer nor a failure. A
-// failure is a live coordinator that answered with an error — or, when no
-// coordinator answered at all, an endpoint file discovery could not read,
-// since that may be the one coordinator that is running.
-func QueryPendingApprovals(ctx context.Context) (answers []*agentcoordpb.PendingApprovalsResult, failures []error) {
-	endpoints, skipped := discover.List()
-	for _, ep := range endpoints {
-		res, err := queryPendingApprovals(ctx, ep)
-		switch {
-		case err == nil:
-			answers = append(answers, res)
-		case status.Code(err) != codes.Unavailable:
-			failures = append(failures, err)
-		}
-	}
-	if len(answers) == 0 {
-		failures = append(failures, skipped...)
-	}
-	return answers, failures
+// Coordinator is one live coordinator on this host, as discovery finds it:
+// its endpoint and the project it serves. Embedding keeps the endpoint's
+// credential redaction on every rendering of a Coordinator too.
+type Coordinator struct {
+	discover.Endpoint
 }
 
-// queryPendingApprovals is one coordinator's answer, bounded by
-// consumerDialTimeout like every other one-shot consumer call. The error
-// wraps the gRPC status.
-func queryPendingApprovals(ctx context.Context, ep discover.Endpoint) (*agentcoordpb.PendingApprovalsResult, error) {
-	client, conn, err := dialConsumer(ep)
+// DiscoverCoordinators lists every live coordinator this user can reach,
+// from the endpoint files under the coordinator state root, most recently
+// active first. skipped names each endpoint file that could not be read: it
+// may be a coordinator that is running.
+func DiscoverCoordinators() (coordinators []Coordinator, skipped []error) {
+	endpoints, skipped := discover.List()
+	for _, ep := range endpoints {
+		coordinators = append(coordinators, Coordinator{Endpoint: ep})
+	}
+	return coordinators, skipped
+}
+
+// QueryPendingApprovals asks one coordinator for the requests parked at its
+// root, over ConsumerService.PendingApprovals. The queue lives only in the
+// coordinator process, so this read is the only view another terminal has.
+// The error wraps the gRPC status: a coordinator that exited after
+// discovery found it is codes.Unavailable, distinct from one that answered
+// with a refusal. Bounded by consumerDialTimeout like every other one-shot
+// consumer call.
+func QueryPendingApprovals(ctx context.Context, c Coordinator) (*agentcoordpb.PendingApprovalsResult, error) {
+	client, conn, err := dialConsumer(c.Endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("pending approvals: %w", err)
 	}
@@ -74,7 +67,7 @@ func queryPendingApprovals(ctx context.Context, ep discover.Endpoint) (*agentcoo
 	defer cancel()
 	res, err := client.PendingApprovals(qctx, &agentcoordpb.PendingApprovalsRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("pending approvals at %s: %w", ep.URL, err)
+		return nil, fmt.Errorf("pending approvals at %s: %w", c.URL, err)
 	}
 	return res, nil
 }

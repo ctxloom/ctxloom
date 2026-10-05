@@ -9,10 +9,13 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
@@ -25,7 +28,10 @@ var sessionApprovalsCmd = &cobra.Command{
 	Long: `Lists the requests children have parked for the root human's decision: who asked,
 through which lineage, what for, how long it has waited and how long until it is
 denied. This command cannot answer a request — answering happens only in the
-terminal that started the run.`,
+terminal that started the run.
+
+Every live coordinator on this host is asked: each one records its endpoint in
+~/.ctxloom/coord/<project>/<root>/endpoint.json while it runs.`,
 	Args: cobra.NoArgs,
 	RunE: runSessionApprovals,
 }
@@ -66,11 +72,27 @@ var approvalKindFromWire = map[agentcoordpb.ApprovalRequest_ApprovalKind]coord.A
 }
 
 // runSessionApprovals asks every live coordinator on this host. A coordinator
-// that is not there has nothing pending, so that is a message, not a
-// failure; the exit is non-zero only for what QueryPendingApprovals counts
-// as one.
+// that is not there — none discovered, or one that exited after discovery
+// found it (Unavailable) — has nothing pending, so that is a message naming
+// where discovery looked, not a failure. The exit is non-zero only when a
+// coordinator answered with an error (named by its project), or endpoint
+// files could not be read and no coordinator answered.
 func runSessionApprovals(cmd *cobra.Command, _ []string) error {
-	answers, failures := operations.QueryPendingApprovals(cmd.Context())
+	coordinators, skipped := operations.DiscoverCoordinators()
+	var answers []*agentcoordpb.PendingApprovalsResult
+	var failures []error
+	for _, c := range coordinators {
+		res, err := operations.QueryPendingApprovals(cmd.Context(), c)
+		switch {
+		case err == nil:
+			answers = append(answers, res)
+		case status.Code(err) != codes.Unavailable:
+			failures = append(failures, fmt.Errorf("%s: %w", c.ProjectDir, err))
+		}
+	}
+	if len(answers) == 0 {
+		failures = append(failures, skipped...)
+	}
 	res := buildApprovalsList(answers, time.Now())
 	if err := emit(cmd, res, func() error {
 		ew := errwriter.New(cmd.OutOrStdout())
@@ -78,7 +100,7 @@ func runSessionApprovals(cmd *cobra.Command, _ []string) error {
 		case len(answers) == 0 && len(failures) > 0:
 			ew.Println(noCoordinatorAnswer)
 		case len(answers) == 0:
-			ew.Println(noCoordinatorRunning)
+			ew.Println(noCoordinatorRunningIn())
 		case len(res.Approvals) == 0:
 			ew.Println(noPendingApprovals)
 		default:
@@ -99,6 +121,17 @@ func runSessionApprovals(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	return &ExitError{Code: 1}
+}
+
+// noCoordinatorRunningIn says nothing is running, and where discovery
+// looked. It is only reached when discovery reported nothing it could not
+// read, so the state root resolved.
+func noCoordinatorRunningIn() string {
+	where, err := paths.HomeCoordDir()
+	if err != nil {
+		return noCoordinatorRunning
+	}
+	return noCoordinatorRunning + " (no live endpoint under " + where + ")"
 }
 
 // buildApprovalsList flattens the answers into rows, soonest deadline first.

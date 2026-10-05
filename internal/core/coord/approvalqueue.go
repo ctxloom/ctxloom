@@ -228,7 +228,7 @@ func (q *ApprovalQueue) Park(ctx context.Context, from Identity, req PendingAppr
 	req.Deadline = now.Add(timeout)
 	if err := q.store.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factApprovalParked, now, approvalParked{
-			ID: req.ID, Harp: from.Harp, RunID: from.RunID, Agent: req.Agent, Kind: parkedKindTool,
+			ID: req.ID, Harp: from.Harp, RunID: from.RunID, Agent: req.Agent,
 			Tool: req.Ask.Tool, ToolUseID: req.Ask.ToolUseID, Input: req.Ask.Input, Deadline: req.Deadline,
 		})}, nil
 	}); err != nil {

@@ -164,7 +164,21 @@ func TestApprovalQueue_AnswerResolvesTheParkOnce(t *testing.T) {
 	assert.Equal(t, string(p.ID), decided["id"])
 	var parked map[string]any
 	require.NoError(t, json.Unmarshal(facts[0].Data, &parked))
-	assert.Equal(t, "tool", parked["kind"], "the journal still records the request's kind by name")
+	assert.NotContains(t, parked, "kind", "a tool call is the only request: the fact records no kind")
+	assert.Equal(t, "Bash", parked["tool"])
+}
+
+// TestApprovalParked_AnOldLineStillDecodes: journals written before the kind
+// left the fact still carry "kind":"tool"; a reader ignores the key it no
+// longer knows and reads the rest.
+func TestApprovalParked_AnOldLineStillDecodes(t *testing.T) {
+	old := Fact{Kind: factApprovalParked, Data: json.RawMessage(`{"id":"apv-1","harp":"child-harp","kind":"tool","tool":"Bash","input":{"command":"ls"},"deadline":"2026-10-05T12:00:00Z"}`)}
+	var p approvalParked
+	require.NoError(t, old.decode(&p))
+	assert.Equal(t, ApprovalID("apv-1"), p.ID)
+	assert.Equal(t, "child-harp", p.Harp)
+	assert.Equal(t, "Bash", p.Tool)
+	assert.JSONEq(t, `{"command":"ls"}`, string(p.Input))
 }
 
 // TestApprovalQueue_TimeoutDenies: nobody answers, so the request is denied at

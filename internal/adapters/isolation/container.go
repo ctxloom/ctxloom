@@ -1032,10 +1032,10 @@ func runtimeName(rt Runtime) string {
 var containerNameSafe = regexp.MustCompile(`[^a-zA-Z0-9_.-]+`)
 
 // containerNamePrefix is the fixed prefix containerName stamps every ctxloom
-// container name with. ReapOrphanedContainers (container_reap.go) reads this
+// container name with. FindOrphanedContainers (container_reap.go) reads this
 // same symbol to scope its Enumerate query and, defense-in-depth, to re-check
 // every candidate it gets back — so a runtime that ever returned something
-// unprefixed (a fake in a test, a future Enumerate bug) can never be reaped.
+// unprefixed (a fake in a test, a future Enumerate bug) is never judged an orphan.
 const containerNamePrefix = "ctxloom-iso-"
 
 // containerName builds a unique, teardown-targetable container name from the

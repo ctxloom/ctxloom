@@ -301,10 +301,12 @@ func runGit(ctx context.Context, dir, label string, extraEnv []string, args ...s
 	// overrides after the inherited environment guarantees they win even if the
 	// parent process (or its shell profile) already set GIT_ASKPASS/SSH_ASKPASS.
 	//
-	// GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE/GIT_COMMON_DIR override
-	// cmd.Dir completely if inherited — stripped here for the same reason
-	// internal/adapters/git's outputStdin strips them, so this package's clone/fetch
-	// can never be silently redirected to a different repository.
+	// Inherited repository-location variables and `git -c` overrides
+	// (gitutil.IsRepoLocationEnvVar) override cmd.Dir and the repository's
+	// config — stripped here for the same reason internal/adapters/git's
+	// outputStdin strips them, so this package's clone/fetch can never be
+	// silently redirected to a different repository. extraEnv is appended after
+	// the strip, so this package's own config overrides survive it.
 	cmd.Env = append(gitutil.SanitizedEnviron(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=")
 	cmd.Env = append(cmd.Env, extraEnv...)
 	var stderr strings.Builder

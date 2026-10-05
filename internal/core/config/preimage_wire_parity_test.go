@@ -218,7 +218,6 @@ func deliverMCPToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]by
 	m, ok := item.Interface().(bundles.BundleMCP)
 	require.True(t, ok, "subject item is not a bundles.BundleMCP")
 
-
 	var payload []byte
 	gate := bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		payload = append([]byte(nil), e.Bytes...)

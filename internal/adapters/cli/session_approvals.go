@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"slices"
@@ -10,10 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -70,17 +66,12 @@ var approvalKindFromWire = map[agentcoordpb.ApprovalRequest_ApprovalKind]coord.A
 }
 
 // runSessionApprovals asks every live coordinator on this host. A coordinator
-// that is not there — none discovered, or an endpoint nobody answers on
-// (Unavailable) — has nothing pending, so that is a message, not a failure.
-// The exit is non-zero only when a live coordinator answered with an error,
-// or endpoint files could not be read and no coordinator answered.
+// that is not there has nothing pending, so that is a message, not a
+// failure; the exit is non-zero only for what QueryPendingApprovals counts
+// as one.
 func runSessionApprovals(cmd *cobra.Command, _ []string) error {
-	endpoints, skipped := discover.List()
-	answers, failures := queryApprovals(cmd.Context(), endpoints)
+	answers, failures := operations.QueryPendingApprovals(cmd.Context())
 	res := buildApprovalsList(answers, time.Now())
-	if len(answers) == 0 {
-		failures = append(failures, skipped...)
-	}
 	if err := emit(cmd, res, func() error {
 		ew := errwriter.New(cmd.OutOrStdout())
 		switch {
@@ -108,23 +99,6 @@ func runSessionApprovals(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	return &ExitError{Code: 1}
-}
-
-// queryApprovals asks each endpoint, keeping the answers and the errors of
-// coordinators that were there to answer.
-func queryApprovals(ctx context.Context, endpoints []discover.Endpoint) ([]*agentcoordpb.PendingApprovalsResult, []error) {
-	var answers []*agentcoordpb.PendingApprovalsResult
-	var failures []error
-	for _, ep := range endpoints {
-		res, err := operations.QueryPendingApprovals(ctx, ep)
-		switch {
-		case err == nil:
-			answers = append(answers, res)
-		case status.Code(err) != codes.Unavailable:
-			failures = append(failures, err)
-		}
-	}
-	return answers, failures
 }
 
 // buildApprovalsList flattens the answers into rows, soonest deadline first.

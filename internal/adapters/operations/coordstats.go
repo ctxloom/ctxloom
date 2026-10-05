@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
@@ -30,13 +33,37 @@ func QueryCoordinatorSpoolStats(ctx context.Context, ep discover.Endpoint) (*age
 	return res, nil
 }
 
-// QueryPendingApprovals asks ONE live coordinator for the requests parked
-// at its root, over ConsumerService.PendingApprovals. The queue lives only
-// in the coordinator process, so this read is the only view another
-// terminal has. The error wraps the gRPC status: an endpoint whose
-// coordinator has exited is codes.Unavailable, distinct from a coordinator
-// that answered with a refusal.
-func QueryPendingApprovals(ctx context.Context, ep discover.Endpoint) (*agentcoordpb.PendingApprovalsResult, error) {
+// QueryPendingApprovals asks every live coordinator on this host for the
+// requests parked at its root, over ConsumerService.PendingApprovals. The
+// queue lives only in the coordinator process, so this read is the only view
+// another terminal has.
+//
+// A coordinator that is not there has nothing pending: an endpoint nobody
+// answers on (codes.Unavailable) is neither an answer nor a failure. A
+// failure is a live coordinator that answered with an error — or, when no
+// coordinator answered at all, an endpoint file discovery could not read,
+// since that may be the one coordinator that is running.
+func QueryPendingApprovals(ctx context.Context) (answers []*agentcoordpb.PendingApprovalsResult, failures []error) {
+	endpoints, skipped := discover.List()
+	for _, ep := range endpoints {
+		res, err := queryPendingApprovals(ctx, ep)
+		switch {
+		case err == nil:
+			answers = append(answers, res)
+		case status.Code(err) != codes.Unavailable:
+			failures = append(failures, err)
+		}
+	}
+	if len(answers) == 0 {
+		failures = append(failures, skipped...)
+	}
+	return answers, failures
+}
+
+// queryPendingApprovals is one coordinator's answer, bounded by
+// consumerDialTimeout like every other one-shot consumer call. The error
+// wraps the gRPC status.
+func queryPendingApprovals(ctx context.Context, ep discover.Endpoint) (*agentcoordpb.PendingApprovalsResult, error) {
 	client, conn, err := dialConsumer(ep)
 	if err != nil {
 		return nil, fmt.Errorf("pending approvals: %w", err)

@@ -66,8 +66,10 @@ type fakeConsumerServer struct {
 	runs  []*agentcoordpb.ListRunsResult_RunInfo
 	subs  map[chan *agentcoordpb.AgentEvent]struct{}
 	stats *agentcoordpb.SpoolStatsResult // nil answers all-zero, like a fresh coordinator
-	// approvals answers PendingApprovals; nil answers an empty queue.
-	approvals *agentcoordpb.PendingApprovalsResult
+	// approvals answers PendingApprovals (nil: an empty queue) unless
+	// approvalsErr is set, which answers instead.
+	approvals    *agentcoordpb.PendingApprovalsResult
+	approvalsErr error
 }
 
 func newFakeConsumerServer() *fakeConsumerServer {
@@ -98,6 +100,9 @@ func (f *fakeConsumerServer) SpoolStats(context.Context, *agentcoordpb.SpoolStat
 func (f *fakeConsumerServer) PendingApprovals(context.Context, *agentcoordpb.PendingApprovalsRequest) (*agentcoordpb.PendingApprovalsResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.approvalsErr != nil {
+		return nil, f.approvalsErr
+	}
 	if f.approvals == nil {
 		return &agentcoordpb.PendingApprovalsResult{}, nil
 	}

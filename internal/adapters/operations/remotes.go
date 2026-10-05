@@ -137,7 +137,11 @@ func rollbackAdd(registry *remote.Registry, name string) {
 
 // resolveLocalRepoURL turns a remote URL spelled as a filesystem path —
 // absolute, or relative to the working directory — into the file:// URL of
-// the repository there, and passes every other spelling through untouched.
+// the repository there. A home-relative spelling (a quoted "~" the shell never
+// expanded) is refused with the grammar's own error: this layer is not handed
+// the home directory, and resolving "~" against the working directory would
+// name a different path. Every other spelling passes through untouched; one
+// naming no repository is refused by the registry (refuri.ErrSyntax).
 //
 // It lives at the argv ingest because the repo-URL grammar has no working
 // directory: refuri.ParseRepoURL refuses a path spelling outright
@@ -149,10 +153,15 @@ func rollbackAdd(registry *remote.Registry, name string) {
 // The URL is built with net/url, not concatenated: git percent-decodes a
 // file:// URL, so a raw path holding '%' would name a different directory.
 func resolveLocalRepoURL(raw string) (string, error) {
-	if _, err := refuri.ParseRepoURL(raw); !errors.Is(err, refuri.ErrSchemelessPath) {
+	_, err := refuri.ParseRepoURL(raw)
+	if !errors.Is(err, refuri.ErrSchemelessPath) {
 		return raw, nil
 	}
-	abs, err := filepath.Abs(strings.TrimSpace(raw))
+	path := strings.TrimSpace(raw)
+	if strings.HasPrefix(path, "~") {
+		return "", err
+	}
+	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("%w: cannot resolve %q: %v", refuri.ErrSchemelessPath, raw, err)
 	}

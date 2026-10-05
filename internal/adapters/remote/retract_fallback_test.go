@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"testing"
 	"time"
@@ -338,6 +339,27 @@ func TestResolveRetraction_EveryRunChecks(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, retracted, "an absent manifest says nothing that could clear a recorded retraction")
 		assert.Equal(t, "leaked token", reason)
+	})
+
+	// A pin signed at a release proves the remote once published a manifest.
+	// Its disappearance is reported on every pull — there is no state to make
+	// it once — and the recorded verdict stands.
+	t.Run("a signed pin whose remote stopped publishing a manifest warns every pull", func(t *testing.T) {
+		p := newPuller(t, &LockEntry{
+			SHA: "abc123", URL: "https://github.com/trent/company", SignedVersion: "1.2.0",
+			Retracted: true, RetractedReason: "leaked token",
+			RetractionCheckedAt: now.Add(-time.Hour),
+		})
+		pinned := LockEntry{SignedVersion: "1.2.0"}
+		want := fmt.Sprintf(manifestWithdrawnWarning, localName, "trent", "company")
+		for call := 1; call <= 2; call++ {
+			out := capture(t)
+			retracted, reason, _, err := p.resolveRetraction(context.Background(), newMockFetcher(), "trent", "company", ref, ItemTypeBundle, localName, pinned)
+			require.NoError(t, err)
+			assert.True(t, retracted, "call %d: the recorded retraction still applies", call)
+			assert.Equal(t, "leaked token", reason)
+			assert.Contains(t, out.String(), want, "call %d warns", call)
+		}
 	})
 
 	t.Run("the check runs on every call, not only the first", func(t *testing.T) {

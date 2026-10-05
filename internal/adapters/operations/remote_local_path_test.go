@@ -111,3 +111,34 @@ func TestEditRemote_ResolvesALocalPathURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fileURL(repo), rem.URL, "a refused edit leaves the remote as it was")
 }
+
+// A quoted "~/x" reaches us unexpanded by the shell. It names a path under a
+// home directory, never the GitHub repository github.com/~/x, and never a
+// directory literally named "~" under the working directory. Expanding it
+// needs the home directory handed to this layer as a value, which it is not,
+// so it is refused naming the file:// spelling.
+func TestAddRemote_RefusesAHomeRelativePath(t *testing.T) {
+	cwd := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(cwd, "~"), 0o755))
+	localBareRepo(t, filepath.Join(cwd, "~"), "bundles.git")
+	t.Chdir(cwd)
+	for _, raw := range []string{"~/bundles.git", "~/missing.git", "~alice/bundles.git", "~"} {
+		t.Run(raw, func(t *testing.T) {
+			registry, _ := setupTestRegistry(t)
+			cache, err := addLocal(t, registry, raw)
+			require.ErrorIs(t, err, refuri.ErrSchemelessPath)
+			assert.False(t, registry.Has("local"))
+			assert.Empty(t, cache.urls)
+		})
+	}
+}
+
+// A bare word is refused at the ingest with its own sentinel, before anything
+// is registered or cloned.
+func TestAddRemote_RefusesABareWord(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	cache, err := addLocal(t, registry, "bundles")
+	require.ErrorIs(t, err, refuri.ErrSyntax)
+	assert.False(t, registry.Has("local"))
+	assert.Empty(t, cache.urls)
+}

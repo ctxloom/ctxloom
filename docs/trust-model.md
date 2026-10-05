@@ -122,7 +122,9 @@ signature and signer axes, provenance). First match wins; it is fail-closed:
        and publishes no retraction channel. It clears nothing (deleting a
        manifest is within reach of whoever controls the repository), keeps
        the recorded verdict, and is stamped as a check that ran — never a
-       warning;
+       staleness warning. When the pin carries a `signed_version` the remote
+       once published a manifest, so every pull warns that it no longer does
+       and that any recorded retraction still applies;
      - anything else — unreadable, unsigned, untrusted, tampered, or a
        trusted manifest for another bundle served at this path → *unknown*.
      No unsigned file decides anything: whoever controls a repository can

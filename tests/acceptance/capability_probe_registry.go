@@ -477,8 +477,8 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 12s. The hook fired on Bash and printed nothing; the gated call's tool_result is an error and the file is absent — claude -p refuses a call no hook decided, which is the approval route's fail-closed guarantee. MUTATION-CONFIRMED hermetically (TestP12_Silent): an arm that accepted an unrefused call reds."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12AllowPromptsNone), Status: probeLiveVerified,
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 9.5s. With --permission-prompts none on the argv the PermissionRequest hook is STILL consulted first: it fired on Bash, the gated call's tool_result is stamped after the hook's post-sleep marker, and the hook's allow ran the call (the file exists). none denies only what no hook decided."},
-			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12AllowToolUseIDAbsent), Status: probeWired,
-				Reason: "conformance cell V1: the allow arm plus the PermissionRequest input's missing tool_use_id."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12AllowToolUseIDAbsent), Status: probeLiveVerified,
+				Reason: "conformance cell V1, measured 2026-10-05 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. The PermissionRequest hook still fires under -p with no permission host — it ran on Bash and its allow ran the call, stamped after its post-sleep marker — and its captured input carries no tool_use_id key, so the route's correlation through the preceding PreToolUse still rests on a true premise. Judge MUTATION-CONFIRMED hermetically (TestP12_ToolUseIDAbsent)."},
 		},
 	},
 	// P13 measures ctxloom's repo trust: the VENDOR half — claude's own trust
@@ -533,7 +533,8 @@ var probeRegistry = []probeSpec{
 		Feature:      "probes/capability_hook_interrupt.feature",
 		Paid:         true,
 		Cells: []probeCell{
-			hostCell("claude-code", probeWired, "conformance cell I1."),
+			hostCell("claude-code", probeLiveVerified,
+				"conformance cell I1, measured 2026-10-05 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With claude blocked on its PermissionRequest hook, SIGINT to claude alone made it exit 580ms later, well inside the driver's grace, with exit status 0 and a result frame of subtype error_during_execution; the hook's own process and its sleeping child were both gone from /proc and the hook never answered. So an interrupted turn takes its approval hook with it, and claude reports the turn on its way out."),
 		},
 	},
 	// P16 measures whether --strict-mcp-config, the flag an untrusted
@@ -547,7 +548,10 @@ var probeRegistry = []probeSpec{
 		Feature:      "probes/capability_strict_mcp_connectors.feature",
 		Paid:         true,
 		Cells: []probeCell{
-			hostCell("claude-code", probeWired, "conformance cell T1."),
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Status: probeWired,
+				ExpectedFailure:     shapeConnectorsAbsent,
+				ExpectedFailureNote: "measured 2026-10-05 on claude 2.1.286 (haiku) in token mode, the only credential a live cell may use: the control turn's init frame listed no claude.ai connector, so the strict arm had nothing to suppress (it listed no server at all). This matches the design's note that a token-mode session cannot fetch claude.ai connectors. The control did list a stray project server from an .mcp.json in an ancestor of the cell's temp directory, and --strict-mcp-config removed it. Turning this cell green needs a login-mode credential in the throwaway config home.",
+				Reason:              "conformance cell T1."},
 		},
 	},
 	// P17 measures that the per-turn posture, an inline JSON --settings,
@@ -561,7 +565,8 @@ var probeRegistry = []probeSpec{
 		Feature:      "probes/capability_inline_settings.feature",
 		Paid:         true,
 		Cells: []probeCell{
-			hostCell("claude-code", probeWired, "conformance cell S1."),
+			hostCell("claude-code", probeLiveVerified,
+				"conformance cell S1, measured 2026-10-05 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. Under --setting-sources user with an inline-JSON --settings carrying defaultMode and one allow rule, the config home's settings.json still applied in full: its SessionStart and PreToolUse hooks both wrote their markers, and the echo only its own allow rule permits ran beside the echo only the inline rule permits. The two sources merge; the inline document replaces neither the home's hooks nor its rules."),
 		},
 	},
 	{

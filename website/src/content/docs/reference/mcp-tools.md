@@ -161,7 +161,7 @@ Compact and load an EARLIER session's content — the most recent session BEFORE
 
 ### list_sessions
 
-List harp-named sessions with their title, backend, last-activity time, and whether they're compacted — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set distill_missing to compact title-less or stale sessions first so every row shows a title.
+List harp-named sessions with their title, backend, last-activity time, and whether they're compacted — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set compact_missing to compact title-less or stale sessions first so every row shows a title.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|

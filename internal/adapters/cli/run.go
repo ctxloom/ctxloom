@@ -36,6 +36,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
 )
@@ -552,7 +553,11 @@ func (st *runState) resolveProject() {
 	if projectroot.RootFromFallback() {
 		clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", st.workDir)
 	}
-	pid, warning, err := taskops.ResolveProjectIdentity(taskStoreWorkDir(st.workDir))
+	resolve := taskops.ResolveProjectIdentity
+	if runDryRun {
+		resolve = lookupProjectIdentity
+	}
+	pid, warning, err := resolve(taskStoreWorkDir(st.workDir))
 	if err != nil {
 		clidiag.Warn("ctxloom", "project identity unresolved: %v", err)
 		return
@@ -561,6 +566,22 @@ func (st *runState) resolveProject() {
 	if warning != "" {
 		clidiag.Warn("ctxloom", "%s", warning)
 	}
+}
+
+// lookupProjectIdentity is a dry run's answer to "which project is this":
+// the identity the directory already has (projectid.Manager.Lookup), never
+// one minted, forked or re-pointed for a preview. "" is no project yet; the
+// first real run establishes it.
+func lookupProjectIdentity(workDir string) (projectID, warning string, err error) {
+	pm, err := projectid.Open("")
+	if err != nil {
+		return "", "", fmt.Errorf("open project registry: %w", err)
+	}
+	id, err := pm.Lookup(workDir)
+	if err != nil {
+		return "", "", fmt.Errorf("look up project id: %w", err)
+	}
+	return id, "", nil
 }
 
 // source is the launch as this invocation asks for it: the flags, and

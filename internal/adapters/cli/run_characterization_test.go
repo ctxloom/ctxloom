@@ -220,6 +220,9 @@ func TestRunCharacterization_FlagValidationRejectsBeforeAnyWork(t *testing.T) {
 // A dry run is gated too — previewing a broken setup must say so.
 func TestRunCharacterization_StartupGateAbortsOnRecordedFindings(t *testing.T) {
 	testsupport.ProjectDir(t)
+	// As runCLIFixture: with no agent token the run would be refused for
+	// that, before the gate under test.
+	t.Setenv(claude.OAuthTokenEnv, "sk-ant-oat01-fixture")
 	resetApp()
 	t.Cleanup(resetApp)
 

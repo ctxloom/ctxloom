@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -231,13 +232,15 @@ func TestLaunchDiscovery_TokenGate(t *testing.T) {
 		assert.Len(t, f.ran, 1)
 	})
 
-	t.Run("no token off a terminal: the typed refusal", func(t *testing.T) {
+	t.Run("no token off a terminal: setup stands, the launch is skipped with a warning", func(t *testing.T) {
 		t.Setenv(claude.OAuthTokenEnv, "")
 		f := &tokenGateFake{binary: "/fake/bin/claude"}
 		installTokenGateFake(t, f, nil)
-		err := launchDiscovery(newCmd(), tokenGateEngine, t.TempDir()+"/.ctxloom", false)
-		require.ErrorIs(t, err, ErrAgentTokenNotExported)
+		var warned bytes.Buffer
+		t.Cleanup(clidiag.SetSink(&warned))
+		require.NoError(t, launchDiscovery(newCmd(), tokenGateEngine, t.TempDir()+"/.ctxloom", false))
 		assert.Empty(t, f.ran)
+		assert.Contains(t, warned.String(), ErrAgentTokenNotExported.Error(), "the skipped launch is warned")
 	})
 
 	t.Run("--skip-launch: no engine runs, setup-token included", func(t *testing.T) {

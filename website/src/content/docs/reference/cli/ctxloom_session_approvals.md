@@ -18,6 +18,9 @@ through which lineage, what for, how long it has waited and how long until it is
 denied. This command cannot answer a request — answering happens only in the
 terminal that started the run.
 
+Every live coordinator on this host is asked: each one records its endpoint in
+~/.ctxloom/coord/<project>/<root>/endpoint.json while it runs.
+
 ```
 ctxloom session approvals [flags]
 ```

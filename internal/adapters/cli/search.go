@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
@@ -322,12 +321,12 @@ func printLocalResults(w io.Writer, results []operations.SearchResult) {
 
 		fmt.Fprintf(w, "%s:\n", typeNames[t])
 		for _, item := range items {
-			fmt.Fprintf(w, "  - %s", termsafe.Field(item.Name))
+			fmt.Fprintf(w, "  - %s", inertField(item.Name))
 			if len(item.Tags) > 0 {
-				fmt.Fprintf(w, " [%s]", termsafe.Field(strings.Join(item.Tags, ", ")))
+				fmt.Fprintf(w, " [%s]", inertField(strings.Join(item.Tags, ", ")))
 			}
 			if item.Source != "" {
-				fmt.Fprintf(w, " (%s)", termsafe.Field(item.Source))
+				fmt.Fprintf(w, " (%s)", inertField(item.Source))
 			}
 			fmt.Fprintln(w)
 		}
@@ -384,8 +383,8 @@ func printRemoteResults(w io.Writer, results []operations.SearchRemoteEntry) {
 		fmt.Fprint(w, remoteTableRow(
 			r.Type,
 			r.Remote,
-			textutil.Ellipsize(termsafe.Field(r.Name), remoteNameCap),
-			textutil.Ellipsize(termsafe.Field(strings.Join(r.Tags, ", ")), remoteTagsCap),
+			textutil.Ellipsize(inertField(r.Name), remoteNameCap),
+			textutil.Ellipsize(inertField(strings.Join(r.Tags, ", ")), remoteTagsCap),
 		))
 	}
 

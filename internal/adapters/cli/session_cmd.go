@@ -287,7 +287,7 @@ func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete distilled essence body (text output pages through $PAGER on a terminal)")
 	sessionDistillCmd.Flags().StringVar(&sessionDistillPromptDir, "prompt-dir", "",
 		"Load distillation prompts from this directory instead of the built-in ones (expects <dir>/session-distill.md and <dir>/result-finding.md; a missing prompt is an error, not a fallback)")
-	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionRemoveCmd, sessionDistillCmd)
+	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionRemoveCmd, sessionDistillCmd, sessionApprovalsCmd)
 	rootCmd.AddCommand(sessionCmd)
 }
 

@@ -197,6 +197,7 @@ func launchManaged() *agent.ManagedConfig {
 // there — and this goes red naming the tree that changed.
 func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T) {
 	resetArchStrictness(t)
+	tempRoot := sandboxTempRoot(t)
 	home := realHomeFixture(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
@@ -222,6 +223,35 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	deliverIntoInstance(t, workDir, instances["claude-code"])
 
 	assertHomeUnchanged(t, before, realHomeSnapshot(t, home))
+	assertTempRootUntouched(t, tempRoot)
+}
+
+// sandboxTempRoot points os.TempDir() at a fresh per-test directory, so the
+// assertion below inspects a temp root this test owns and never the machine's
+// shared one.
+func sandboxTempRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("TMPDIR", root)
+	if got := os.TempDir(); got != root {
+		t.Fatalf("os.TempDir() = %q after setting TMPDIR=%q; the temp-root guard would inspect the shared temp dir", got, root)
+	}
+	return root
+}
+
+// assertTempRootUntouched requires that no claude project file landed
+// directly in the temp root. claude reads these from every ANCESTOR of its
+// working directory, so one left at the temp root is picked up by every later
+// claude run beneath it — a delivery that degrades to os.TempDir() when it
+// cannot resolve its own directory is exactly how that happens.
+func assertTempRootUntouched(t *testing.T, root string) {
+	t.Helper()
+	for _, leaf := range []string{claude.MCPFileName, claude.ContextFileName, claude.ConfigDirName} {
+		if _, err := os.Lstat(filepath.Join(root, leaf)); !os.IsNotExist(err) {
+			t.Errorf("an in-tree agent launch left %s at the temp root %s (%v); every claude run under that root would now load it. "+
+				"Delivery writes only into the roots it was handed, never a temp-dir fallback.", leaf, root, err)
+		}
+	}
 }
 
 // sessionInstances prepares each home-controlled engine's per-session home

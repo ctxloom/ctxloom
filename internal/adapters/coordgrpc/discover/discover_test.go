@@ -57,12 +57,13 @@ func TestList_EveryRootOfAProjectIsAnEndpoint(t *testing.T) {
 
 func TestList_ParsesEndpointFiles(t *testing.T) {
 	home := testsupport.Isolate(t)
-	writeEndpoint(t, home, "proj-a", `{"loopback_port":54321,"consumer_cred":"tok-a"}`, time.Now())
+	writeEndpoint(t, home, "proj-a", `{"loopback_port":54321,"consumer_cred":"tok-a","project_dir":"/work/proj-a"}`, time.Now())
 
 	eps, skipped := List()
 	require.Len(t, eps, 1)
 	assert.Equal(t, "http://127.0.0.1:54321/mcp", eps[0].URL)
 	assert.Equal(t, "tok-a", eps[0].Cred)
+	assert.Equal(t, "/work/proj-a", eps[0].ProjectDir, "the project the coordinator serves")
 	assert.Empty(t, skipped)
 }
 

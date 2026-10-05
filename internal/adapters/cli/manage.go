@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // manageCmd is the home for everything that mutates the project harness:
@@ -716,17 +715,17 @@ func resolvedHookMoved(h operations.ResolvedHook) string {
 // nor a prompt is reported as its type rather than as blank space — a blank row
 // reads as a rendering bug and hides a hook that is genuinely there.
 //
-// Command, prompt and type are bundle-authored and go through termsafe.Field:
+// Command, prompt and type are bundle-authored and go through inertField:
 // this column is the command that will run on the operator's machine, and a
 // control byte in it could show one command while another is installed.
 func resolvedHookLabel(h operations.ResolvedHook) string {
 	switch {
 	case h.Command != "":
-		return termsafe.Field(wire.Hook{Command: h.Command, Args: h.Args}.Line())
+		return inertField(wire.Hook{Command: h.Command, Args: h.Args}.Line())
 	case h.Prompt != "":
-		return termsafe.Field(h.Prompt)
+		return inertField(h.Prompt)
 	case h.Type != "":
-		return "(" + termsafe.Field(h.Type) + ")"
+		return "(" + inertField(h.Type) + ")"
 	default:
 		return "(hook)"
 	}
@@ -736,7 +735,7 @@ func resolvedHookLabel(h operations.ResolvedHook) string {
 // publisher chose, so it is rendered inert; SourceKind is ctxloom's own word.
 func resolvedHookOrigin(h operations.ResolvedHook) string {
 	if h.Source != "" {
-		return h.SourceKind + " " + termsafe.Field(h.Source)
+		return h.SourceKind + " " + inertField(h.Source)
 	}
 	return h.SourceKind
 }

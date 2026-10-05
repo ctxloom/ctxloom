@@ -416,6 +416,7 @@ func TestConsumer_CredentialPersistedInEndpointFile(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &ep))
 	assert.NotEmpty(t, ep.ConsumerCred)
 	assert.Equal(t, c.consumerCreds.token(), ep.ConsumerCred)
+	assert.Equal(t, c.projectDir, ep.ProjectDir, "a viewer names a coordinator by the project it serves")
 
 	// The persisted token actually authenticates ConsumerService.
 	client, _ := dialConsumer(t, c.LoopbackURL(), ep.ConsumerCred)

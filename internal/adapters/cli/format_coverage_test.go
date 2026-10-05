@@ -189,12 +189,13 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	}},
 
 	// --- exercised: a representative sample of pre-existing emit()-wired list commands ---
-	"fragment list": {extraArgs: noExtraArgs},
-	"command list":  {extraArgs: noExtraArgs},
-	"skill list":    {extraArgs: noExtraArgs},
-	"agent list":    {extraArgs: noExtraArgs},
-	"profile list":  {extraArgs: noExtraArgs},
-	"session list":  {extraArgs: noExtraArgs},
+	"fragment list":     {extraArgs: noExtraArgs},
+	"command list":      {extraArgs: noExtraArgs},
+	"skill list":        {extraArgs: noExtraArgs},
+	"agent list":        {extraArgs: noExtraArgs},
+	"profile list":      {extraArgs: noExtraArgs},
+	"session list":      {extraArgs: noExtraArgs},
+	"session approvals": {extraArgs: noExtraArgs},
 	// Bare, read-only listing: safe against a fresh sessions dir with nothing
 	// (or nothing of this test's own making) under it — an empty report is
 	// exactly what proves the "no ctxloom-owned scratch worktrees" path

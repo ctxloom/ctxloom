@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 )
 
 // The approvals model is the modal's content: the list of parked requests,
@@ -329,10 +330,10 @@ func (a approvalsModel) applyAnswerResult(msg answerResultMsg) approvalsModel {
 
 func (a approvalsModel) applyRevokeResult(msg revokeResultMsg) approvalsModel {
 	if msg.err != nil {
-		a.note, a.errMsg = "", fmt.Sprintf("revoke %s from %s: %v", sanitizeForDisplay(msg.rule), msg.harp, msg.err)
+		a.note, a.errMsg = "", fmt.Sprintf("revoke %s from %s: %v", displaysafe.Text(msg.rule, true), msg.harp, msg.err)
 		return a
 	}
-	a.note, a.errMsg = fmt.Sprintf("revoked %s from %s (applies from its next turn)", sanitizeForDisplay(msg.rule), msg.harp), ""
+	a.note, a.errMsg = fmt.Sprintf("revoked %s from %s (applies from its next turn)", displaysafe.Text(msg.rule, true), msg.harp), ""
 	if a.sub != nil {
 		a.sub = openGrants(a.src, msg.harp)
 	}

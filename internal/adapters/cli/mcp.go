@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // The MCP noun has NO machine surface: ctxloom's own server is served by
@@ -161,9 +160,9 @@ func printMCPList(w io.Writer, result *operations.ListMCPServersResult) error {
 
 	fmt.Fprintln(w, "MCP Servers:")
 	for _, srv := range result.Servers {
-		fmt.Fprintf(w, "  %s\n", termsafe.Field(srv.Name))
+		fmt.Fprintf(w, "  %s\n", inertField(srv.Name))
 		printMCPServerTarget(w, "    ", srv)
-		fmt.Fprintf(w, "    Bundle: %s\n", termsafe.Field(srv.Source))
+		fmt.Fprintf(w, "    Bundle: %s\n", inertField(srv.Source))
 	}
 	return nil
 }
@@ -176,17 +175,17 @@ const mcpServedBySessionEndpointText = "Served by: the running session's endpoin
 // printMCPServerTarget writes how the server is reached, in the form its
 // declaration takes: the stdio command (and args), the remote URL, or the
 // session-endpoint description. Bundle-authored values go through
-// termsafe.Field; the description is ctxloom's own text.
+// inertField; the description is ctxloom's own text.
 func printMCPServerTarget(w io.Writer, indent string, e operations.MCPServerEntry) {
 	switch {
 	case e.ServedBy == wire.ServedBySessionEndpoint:
 		fmt.Fprintf(w, "%s%s\n", indent, mcpServedBySessionEndpointText)
 	case e.URL != "":
-		fmt.Fprintf(w, "%sURL: %s\n", indent, termsafe.Field(e.URL))
+		fmt.Fprintf(w, "%sURL: %s\n", indent, inertField(e.URL))
 	default:
-		fmt.Fprintf(w, "%sCommand: %s\n", indent, termsafe.Field(e.Command))
+		fmt.Fprintf(w, "%sCommand: %s\n", indent, inertField(e.Command))
 		if len(e.Args) > 0 {
-			fmt.Fprintf(w, "%sArgs: %s\n", indent, termsafe.Field(strings.Join(e.Args, " ")))
+			fmt.Fprintf(w, "%sArgs: %s\n", indent, inertField(strings.Join(e.Args, " ")))
 		}
 	}
 }
@@ -235,17 +234,17 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 
 // printMCPServerEntry is the text rendering of one server: its bundle, how
 // it is reached (printMCPServerTarget), and its env. Every bundle-authored
-// field is the executable surface, so each goes through termsafe.Field. The
+// field is the executable surface, so each goes through inertField. The
 // JSON form of the same entry does not: a structured consumer is owed the
 // raw bytes.
 func printMCPServerEntry(w io.Writer, e operations.MCPServerEntry) {
-	fmt.Fprintf(w, "MCP Server: %s\n", termsafe.Field(e.Name))
-	fmt.Fprintf(w, "Bundle: %s\n", termsafe.Field(e.Source))
+	fmt.Fprintf(w, "MCP Server: %s\n", inertField(e.Name))
+	fmt.Fprintf(w, "Bundle: %s\n", inertField(e.Source))
 	printMCPServerTarget(w, "", e)
 	if len(e.Env) > 0 {
 		fmt.Fprintln(w, "Environment:")
 		for k, v := range e.Env {
-			fmt.Fprintf(w, "  %s=%s\n", termsafe.Field(k), termsafe.Field(v))
+			fmt.Fprintf(w, "  %s=%s\n", inertField(k), inertField(v))
 		}
 	}
 }

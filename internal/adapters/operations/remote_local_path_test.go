@@ -111,3 +111,47 @@ func TestEditRemote_ResolvesALocalPathURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fileURL(repo), rem.URL, "a refused edit leaves the remote as it was")
 }
+
+// A quoted "~/x" reaches us unexpanded by the shell. It names a path under the
+// home directory and follows the local-path rule: expanded, checked for a
+// repository, stored as its file:// URL — or refused. It is never read as the
+// GitHub repository github.com/~/x.
+func TestAddRemote_ExpandsAHomeRelativePath(t *testing.T) {
+	home := t.TempDir()
+	repo := localBareRepo(t, home, "bundles.git")
+	t.Setenv("HOME", home)
+	registry, _ := setupTestRegistry(t)
+
+	cache, err := addLocal(t, registry, "~/bundles.git")
+	require.NoError(t, err)
+
+	rem, err := registry.Get("local")
+	require.NoError(t, err)
+	assert.Equal(t, fileURL(repo), rem.URL)
+	assert.Equal(t, []string{fileURL(repo)}, cache.urls)
+}
+
+// "~/missing" names no repository; "~alice/x" names another user's home,
+// which this process does not resolve. Both are refused, nothing registered.
+func TestAddRemote_RefusesAHomeRelativePathWithNoRepositoryThere(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, raw := range []string{"~/missing.git", "~alice/bundles.git"} {
+		t.Run(raw, func(t *testing.T) {
+			registry, _ := setupTestRegistry(t)
+			cache, err := addLocal(t, registry, raw)
+			require.ErrorIs(t, err, refuri.ErrSchemelessPath)
+			assert.False(t, registry.Has("local"))
+			assert.Empty(t, cache.urls)
+		})
+	}
+}
+
+// A bare word is refused at the ingest with its own sentinel, before anything
+// is registered or cloned.
+func TestAddRemote_RefusesABareWord(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	cache, err := addLocal(t, registry, "bundles")
+	require.ErrorIs(t, err, refuri.ErrBareWord)
+	assert.False(t, registry.Has("local"))
+	assert.Empty(t, cache.urls)
+}

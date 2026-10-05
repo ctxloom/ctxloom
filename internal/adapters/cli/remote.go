@@ -59,9 +59,12 @@ URL formats:
   https://git.example.com/corp/ctxloom   Generic git host URL
   git@github.com:alice/ctxloom.git   SSH URL (converted to HTTPS)
   file:///srv/bundles.git            Local git repository
-  ./bundles.git, /srv/bundles.git    Local path: resolved to the repository
-                                     there and stored as its file:// URL;
+  ./bundles.git, /srv/bundles.git,   Local path: resolved to the repository
+  ~/bundles.git                      there and stored as its file:// URL;
                                      refused if no repository is there
+
+A bare word with no dot and no slash ("bundles") is refused: write owner/repo
+or a URL.
 
 Forge selection:
   Without --forge, the forge resolves from the URL host: github.com (and the

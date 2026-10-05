@@ -542,7 +542,7 @@ func TestAddRemote_InvalidURLFormat(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	fetcher := remote.NewMockFetcher()
 
-	// URL that can't be parsed as a repository URL
+	// A bare word: no dot, no slash, so it names no repository and no host
 	_, err := AddRemote(context.Background(), nil, AddRemoteRequest{
 		Name:     "test",
 		URL:      "not-a-valid-repo-url",
@@ -550,7 +550,7 @@ func TestAddRemote_InvalidURLFormat(t *testing.T) {
 		Fetcher:  fetcher,
 	})
 
-	require.ErrorIs(t, err, refuri.ErrSyntax, "a URL naming no repository is refused as such")
+	require.ErrorIs(t, err, refuri.ErrBareWord, "a URL naming no repository is refused as such")
 	_, gerr := registry.Get("test")
 	assert.Error(t, gerr, "nothing was registered")
 }

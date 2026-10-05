@@ -40,6 +40,15 @@ func registerFreshInitSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	ctx.Step(`^init's terminal output says "([^"]*)"$`, func(c context.Context, want string) error {
+		w := worldFrom(c)
+		if !strings.Contains(w.initInterview, want) {
+			return fmt.Errorf("init's terminal output does not say %q:\n%s", want, w.initInterview)
+		}
+		w.docStepMaterialized = "init's terminal output:\n" + j000400Excerpt(w.initInterview, want, 1)
+		return nil
+	})
+
 	ctx.Step(`^no engine ran during the interview$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if ran, err := os.ReadFile(freshInitStubRan(w)); err == nil {

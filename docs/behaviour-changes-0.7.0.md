@@ -181,8 +181,9 @@ one to answer a prompt, so claude denies every call its posture would have
 asked about. A run is never refused or widened for its posture: a one-shot
 warns at startup, and a delegated child's turn that hit a denial reaches its
 parent as `BLOCKED on <tool>: <reason>` rather than as a finished result.
-`ctxloom init` asks which posture the default agent's headless runs use:
-`plan` (the recommended answer), `bypass`, or none.
+`ctxloom init` gives the default agent the read-only `plan` posture for its
+headless runs and says so; `ctxloom agent edit default --permissions
+<posture>` changes it.
 
 **claude 2.1.283 or newer** is required: an older claude is refused at launch
 with the upgrade as its remedy.

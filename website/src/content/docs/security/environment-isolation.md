@@ -179,8 +179,8 @@ Four options:
 `commit` being the default is why it's the one gated behind more than a config value. A commit
 landing on your branch that you didn't ask for in the moment is the one outcome here worth a
 deliberate yes, so it doesn't fire the first time you hit it. It requires a separate, one-time
-acknowledgement for this checkout, which a human grants with `ctxloom manage commit trust` (or
-by answering yes to the dirty-tree question in `ctxloom init`) and withdraws with
+acknowledgement for this checkout, which a human grants with `ctxloom manage commit trust` and
+withdraws with
 `ctxloom manage commit untrust`. Until it's granted, the spawn is refused and the refusal names
 that command. The acknowledgement is not a config key. It can't be set from
 `.ctxloom/config.yaml`, an environment variable or an `agent_run` parameter, since an agent can

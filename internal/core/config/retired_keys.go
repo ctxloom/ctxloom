@@ -35,8 +35,7 @@ var retiredKeys = map[string]string{
 		"move the Containerfile into the project devcontainer (`ctxloom container scaffold` writes one) " +
 		"or build it and name the image, then delete this key",
 	"dirty_tree_commit_ack": "`dirty_tree_commit_ack` was RETIRED: the consent is no longer a config key, and a value here " +
-		"grants nothing. Re-grant it for this checkout with `ctxloom manage commit trust`, " +
-		"or answer the dirty-tree question in `ctxloom init`",
+		"grants nothing. Re-grant it for this checkout with `ctxloom manage commit trust`",
 }
 
 // RetiredKeyMessage renders the user-visible line for a retired key at the

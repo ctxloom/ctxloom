@@ -73,9 +73,8 @@ func TestInitializeProject_UnknownEngineRefusesAndWritesNothing(t *testing.T) {
 	assert.False(t, cfgExists, "a rejected engine must leave no config.yaml behind")
 }
 
-// TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys proves the init
-// interview's single dirty-tree question actually LANDS both its answers ON
-// DISK — not just that InitializeProject returns success. This is the exact
+// TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys proves a
+// request's handler and acknowledgement actually LAND ON DISK — not just that InitializeProject returns success. This is the exact
 // silent-no-op shape this project is known for (exit 0, success message, zero
 // bytes delivered). dirty_tree_handler lands in config.yaml; the commit acknowledgement now lands in
 // paths.DirtyTreeCommitAckPath — a SEPARATE file outside the layered config

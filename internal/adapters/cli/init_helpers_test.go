@@ -67,7 +67,7 @@ func TestSelectSoleEngine(t *testing.T) {
 func TestWriteInitialConfig(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 
-	if err := writeInitialConfig(appDir, "mock", "copy", "", false); err != nil {
+	if err := writeInitialConfig(appDir, "mock", "copy", ""); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
 	}
 
@@ -107,14 +107,13 @@ func TestWriteInitialConfig(t *testing.T) {
 	}
 }
 
-// TestWriteInitialConfig_DirtyTreeCommitAnswerWritesAckTrue is
-// TestWriteInitialConfig's counterpart for the "commit" answer specifically:
-// it is the only one of the four that must also record the dirty-tree-commit
-// acknowledgement — in its OWN state-store file, never in config.yaml (see
-// config.SetDirtyTreeCommitAck).
-func TestWriteInitialConfig_DirtyTreeCommitAnswerWritesAckTrue(t *testing.T) {
+// TestWriteInitialConfig_CommitHandlerGrantsNoAck: init writes the commit
+// handler, but the acknowledgement that lets it commit on the user's behalf
+// is never init's to grant — it stays a human act (`ctxloom manage commit
+// trust`), and it never lands in config.yaml.
+func TestWriteInitialConfig_CommitHandlerGrantsNoAck(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	if err := writeInitialConfig(appDir, "claude-code", "commit", "", true); err != nil {
+	if err := writeInitialConfig(appDir, "claude-code", "commit", ""); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
 	}
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
@@ -125,27 +124,20 @@ func TestWriteInitialConfig_DirtyTreeCommitAnswerWritesAckTrue(t *testing.T) {
 		t.Errorf("config.yaml should carry dirty_tree_handler: commit; got:\n%s", cfg)
 	}
 	if strings.Contains(string(cfg), "dirty_tree_commit_ack") {
-		t.Errorf("dirty_tree_commit_ack must never appear in config.yaml, even for the commit answer; got:\n%s", cfg)
+		t.Errorf("dirty_tree_commit_ack must never appear in config.yaml; got:\n%s", cfg)
 	}
-	if !config.DirtyTreeCommitAcknowledged(report.Reporter{}, nil, appDir) {
-		t.Error("the commit answer should have recorded the acknowledgement in its own state store")
-	}
-	ackData, err := os.ReadFile(paths.DirtyTreeCommitAckPath(appDir))
-	if err != nil {
-		t.Fatalf("read dirty-tree-commit ack store: %v", err)
-	}
-	if len(ackData) == 0 {
-		t.Error("dirty-tree-commit ack store exists but is empty — the silent-zero-bytes shape this project is characteristically buggy about")
+	if config.DirtyTreeCommitAcknowledged(report.Reporter{}, nil, appDir) {
+		t.Error("init must not record the commit acknowledgement")
 	}
 }
 
 func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 	// Re-running over an existing dir must not error (MkdirAll + overwrite).
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	if err := writeInitialConfig(appDir, "claude-code", "", "", false); err != nil {
+	if err := writeInitialConfig(appDir, "claude-code", "", ""); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if err := writeInitialConfig(appDir, "mock", "", "", false); err != nil {
+	if err := writeInitialConfig(appDir, "mock", "", ""); err != nil {
 		t.Fatalf("second write should succeed: %v", err)
 	}
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
@@ -172,7 +164,7 @@ func authoredV1(appPath string) string {
 // answer reaches config.yaml as the default seed agent's permissions.
 func TestWriteInitialConfig_HeadlessPosture(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	if err := writeInitialConfig(appDir, "mock", "", "plan", false); err != nil {
+	if err := writeInitialConfig(appDir, "mock", "", "plan"); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
 	}
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))

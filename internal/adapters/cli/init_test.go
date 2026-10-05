@@ -1,10 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -100,40 +100,6 @@ func TestCtxloomDefaultTrusted(t *testing.T) {
 		assert.False(t, ctxloomDefaultTrusted(cfg),
 			"a locally distrusted embedded principal must no longer be reported as trusted")
 	})
-}
-
-// TestPromptDirtyTreeHandler_EachOptionAndDefault exercises the init
-// interview's single dirty-tree question end to end at the reader level: a
-// blank line (Enter) picks the recommended "commit" answer with ack true, and
-// each numbered choice returns its handler with ack true ONLY for "commit" —
-// proving the one answer really does decide both dirty_tree_handler AND
-// dirty_tree_commit_ack together, never asking a second question for the ack.
-func TestPromptDirtyTreeHandler_EachOptionAndDefault(t *testing.T) {
-	tests := []struct {
-		name        string
-		input       string
-		wantHandler string
-		wantAck     bool
-	}{
-		{"blank_enter_picks_recommended_commit", "\n", "commit", true},
-		{"1_is_commit_with_ack", "1\n", "commit", true},
-		{"2_is_copy_without_ack", "2\n", "copy", false},
-		{"3_is_stale_without_ack", "3\n", "stale", false},
-		{"4_is_fail_without_ack", "4\n", "fail", false},
-		// An out-of-range/garbage entry re-prompts rather than accepting it;
-		// the loop must recover on the next valid line.
-		{"invalid_then_valid_retries", "0\nnotanumber\n2\n", "copy", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := newInitPromptsFrom(strings.NewReader(tt.input))
-			handler, ack, err := p.promptDirtyTreeHandler()
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantHandler, handler)
-			assert.Equal(t, tt.wantAck, ack)
-		})
-	}
 }
 
 // TestPersonalRemoteRequests covers the pure request builder behind
@@ -416,43 +382,6 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 		"the engine must come from the .ctxloom this init targets")
 }
 
-// TestDirtyTreeHandlerOptions_AreTheOperationsHandlers pins the
-// menu to the handler set that reads its answer back. The interview writes
-// dirty_tree_handler and internal/adapters/operations/delegate.go dispatches on it, so
-// "which four values exist" and "which one needs the commit acknowledgement"
-// are that package's rules; the menu had them as its own string literals, which
-// is a connascence of meaning across a package boundary — nothing links the two
-// lists, and a handler renamed or added there leaves this menu quietly writing
-// a value the dispatcher treats as absent.
-//
-// The literal values stay pinned in TestPromptDirtyTreeHandler_EachOptionAndDefault
-// (they are what lands in config.yaml); this test pins the correspondence.
-func TestDirtyTreeHandlerOptions_AreTheOperationsHandlers(t *testing.T) {
-	values := make([]launch.DirtyTreeHandler, 0, len(dirtyTreeHandlerOptions))
-	for _, opt := range dirtyTreeHandlerOptions {
-		values = append(values, opt.value)
-	}
-	assert.Equal(t, []launch.DirtyTreeHandler{
-		launch.DirtyTreeHandlerCommit,
-		launch.DirtyTreeHandlerCopy,
-		launch.DirtyTreeHandlerStale,
-		launch.DirtyTreeHandlerFail,
-	}, values, "the menu must offer exactly the handlers operations dispatches on, in display order")
-
-	// And the ack rule keys on the SAME commit handler, for every arm.
-	for i, opt := range dirtyTreeHandlerOptions {
-		p := newInitPromptsFrom(strings.NewReader(strconv.Itoa(i+1) + "\n"))
-		var handler string
-		var ack bool
-		var err error
-		captureStdout(t, func() { handler, ack, err = p.promptDirtyTreeHandler() })
-		require.NoError(t, err)
-		assert.Equal(t, string(opt.value), handler)
-		assert.Equal(t, opt.value == launch.DirtyTreeHandlerCommit, ack,
-			"only the commit handler mutates the user's repo, so only it carries the ack")
-	}
-}
-
 // TestDiscoverySessionPrompt_CarriesCompanionSetupGuidance asserts the PROMPT
 // BYTES the discovery session is launched with: a companion's typed
 // `init.setup_guidance` is spliced into the one body the session receives,
@@ -477,44 +406,15 @@ func TestDiscoverySessionPrompt_CarriesCompanionSetupGuidance(t *testing.T) {
 		"the companion's setup_guidance must reach the launched prompt's bytes")
 }
 
-// headlessPermissionsQuestion is the interview's headless-posture question as
-// the human approved it, verbatim, except option 3's consequence, which must
-// state the rule as it is: a headless run is never refused for its posture.
-const headlessPermissionsQuestion = "Your default agent sometimes runs HEADLESS — a one-shot (`ctxloom run --one-shot`)\n" +
-	"or a delegated run — where no human is present to answer a permission prompt.\n" +
-	"Interactive sessions are unaffected: they auto-approve file edits (acceptEdits)\n" +
-	"and ask you before anything else. Which posture may the default agent's\n" +
-	"headless runs use?\n" +
-	"\n" +
-	"  1) plan — read-only: it can look and answer, but cannot change anything (Recommended)\n" +
-	"  2) bypass — it may do anything, including edits and commands, without asking\n" +
-	"  3) none — declare nothing now; headless runs take the engine's default posture,\n" +
-	"     and anything it would ask you about is denied (set one later with\n" +
-	"     ctxloom agent edit default --permissions <posture>)\n" +
-	"\n" +
-	"> (1-3, Enter for recommended):"
-
-// TestPromptHeadlessPermissions_EachOptionAndDefault pins the answer mapping:
-// Enter and 1 are plan, 2 is bypass, 3 declares nothing, and a bad entry
-// re-asks. The question is shown exactly as approved.
-func TestPromptHeadlessPermissions_EachOptionAndDefault(t *testing.T) {
-	for _, tt := range []struct {
-		name, input, want string
-	}{
-		{"blank_enter_picks_recommended_plan", "\n", "plan"},
-		{"1_is_plan", "1\n", "plan"},
-		{"2_is_bypass", "2\n", "bypass"},
-		{"3_is_none", "3\n", ""},
-		{"invalid_then_valid_retries", "0\nnope\n2\n", "bypass"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			p := newInitPromptsFrom(strings.NewReader(tt.input))
-			var got string
-			var err error
-			out := captureStdout(t, func() { got, err = p.promptHeadlessPermissions() })
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
-			assert.Contains(t, out, headlessPermissionsQuestion)
-		})
-	}
+// An interactive init asks neither advanced question. It takes the
+// recommended dirty-tree handler and headless posture and says, one line
+// each, what it chose and how to change it. It never grants the commit
+// acknowledgement: that consent is a human act (`ctxloom manage commit
+// trust`), so the first delegation from a dirty tree stops and names it.
+func TestTakeInterviewDefaults_ChoosesTheRecommendationsAndSaysSo(t *testing.T) {
+	var buf bytes.Buffer
+	handler, posture := takeInterviewDefaults(&buf)
+	assert.Equal(t, string(launch.DirtyTreeHandlerCommit), handler)
+	assert.Equal(t, initDefaultHeadlessPosture, posture)
+	assert.Equal(t, initDefaultDirtyTreeLine+"\n"+initDefaultHeadlessLine+"\n", buf.String())
 }

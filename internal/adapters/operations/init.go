@@ -24,9 +24,8 @@ type InitializeProjectRequest struct {
 	AppDir string `json:"app_dir"`
 	Engine string `json:"engine"`
 
-	// DirtyTreeHandler and DirtyTreeCommitAck carry the init interview's
-	// single dirty-tree-handler answer (internal/adapters/cli/init.go's
-	// promptDirtyTreeHandler) through. Both empty/false (the zero values)
+	// DirtyTreeHandler and DirtyTreeCommitAck carry a dirty-tree-handler
+	// choice and its commit acknowledgement through. Both empty/false (the zero values)
 	// reproduce today's behavior exactly: an unset project default resolving
 	// to the built-in "commit" default, unacknowledged, so the commit handler
 	// still refuses a delegated spawn until a human explicitly acknowledges
@@ -262,10 +261,9 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 // role-marked entries (e.g. mock) get a single self-contained
 // {type: engine} entry serving both roles.
 //
-// dirtyTreeHandler carries the init interview's dirty-tree-handler answer
-// straight into the scaffolded config (config.Fixture.DirtyTreeHandler) —
-// empty reproduces the pre-interview shape (no key written, built-in "commit"
-// default). The interview's OTHER half, the commit acknowledgement, is never
+// dirtyTreeHandler goes straight into the scaffolded config
+// (config.Fixture.DirtyTreeHandler) — empty writes no key and the built-in
+// "commit" default applies. The commit acknowledgement is never
 // part of this scaffold at all — see InitializeProject, which writes it to
 // paths.DirtyTreeCommitAckPath instead.
 func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([]byte, error) {

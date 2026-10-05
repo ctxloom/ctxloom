@@ -390,9 +390,8 @@ func installFreshInitEngineStub(w *World) error {
 }
 
 // driveFreshInitInterview runs a REAL `ctxloom init` on a project with no
-// .ctxloom over a real pty, answering each question as it is asked:
-// no personal repositories, then Enter (the recommendation) at the dirty-tree
-// and headless-posture questions. It is hermetic by construction:
+// .ctxloom over a real pty, answering each question as it is asked: no
+// personal repositories. It is hermetic by construction:
 //   - --skip-launch stops init after its questions and scaffold: no auth
 //     probe and no setup session, so no engine runs (mock or real);
 //   - --no-pull skips the dependency pull;
@@ -419,8 +418,6 @@ func driveFreshInitInterview(w *World) (string, error) {
 
 	for _, qa := range []struct{ prompt, answer string }{
 		{"Do you have any personal ctxloom repositories? (y/N): ", "n"},
-		{"at delegation time?", ""},
-		{"headless runs use?", ""},
 	} {
 		if !sess.WaitForOutput(ptyWaitTimeout, func(out string) bool { return strings.Contains(out, qa.prompt) }) {
 			return sess.Output(), fmt.Errorf("init never asked %q; captured output:\n%s", qa.prompt, sess.Output())

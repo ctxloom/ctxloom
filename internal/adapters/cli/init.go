@@ -365,12 +365,12 @@ func seedCompanionTrust(project bool) string {
 // resolved engine. Per CLAUDE.md fault tolerance, post-scaffold steps warn
 // and continue; only directory/config creation failures are fatal.
 func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, interactive bool) (string, error) {
-	engine, personalRepos, dirtyTreeHandler, dirtyTreeCommitAck, headlessPermissions, err := resolveSetupEngine(selectedEngine, interactive)
+	engine, personalRepos, dirtyTreeHandler, headlessPermissions, err := resolveSetupEngine(selectedEngine, interactive)
 	if err != nil {
 		return "", err
 	}
 
-	if err := writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions, dirtyTreeCommitAck); err != nil {
+	if err := writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions); err != nil {
 		return "", err
 	}
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
@@ -415,28 +415,29 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 }
 
 // resolveSetupEngine decides which engine to install with. It warns (but does
-// not fail) when no engines are detected, runs the interactive engine/repo/
-// dirty-tree-handler prompts when applicable, and finally falls back to the
-// first available primary engine. Returns errNoEngines only when the
-// interactive selection reports none installed. dirtyTreeHandler/
-// dirtyTreeCommitAck/headlessPermissions stay at their zero values whenever
-// the prompts don't run (an --engine flag given, or a non-interactive init) —
-// the same as if the question had never been asked.
-func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, dirtyTreeHandler string, dirtyTreeCommitAck bool, headlessPermissions string, err error) {
+// not fail) when no engines are detected, runs the interactive engine/repo
+// prompts when applicable and takes the interview's defaults
+// (takeInterviewDefaults), and finally falls back to the first available
+// primary engine. Returns errNoEngines only when the interactive selection
+// reports none installed. dirtyTreeHandler/headlessPermissions stay at their
+// zero values whenever the interview doesn't run (an --engine flag given, or
+// a non-interactive init).
+func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, dirtyTreeHandler, headlessPermissions string, err error) {
 	if selected == "" && noEnginesInstalled() {
 		warnNoEnginesDetected()
 		selected = operations.DefaultEngineName(App().Engines())
 	}
 
 	if interactive && selected == "" {
-		selected, repos, dirtyTreeHandler, dirtyTreeCommitAck, headlessPermissions, err = promptForEngineAndRepos()
+		selected, repos, err = promptForEngineAndRepos()
 		if err != nil {
-			return "", nil, "", false, "", err
+			return "", nil, "", "", err
 		}
+		dirtyTreeHandler, headlessPermissions = takeInterviewDefaults(os.Stdout)
 	}
 
 	primary, _ := getAvailableEngines()
-	return pickDefaultEngine(selected, primary), repos, dirtyTreeHandler, dirtyTreeCommitAck, headlessPermissions, nil
+	return pickDefaultEngine(selected, primary), repos, dirtyTreeHandler, headlessPermissions, nil
 }
 
 // writeInitialConfig delegates project bootstrap (the .ctxloom skeleton +
@@ -446,12 +447,11 @@ func resolveSetupEngine(selected string, interactive bool) (engine string, repos
 // cloneConfiguredRemotes, pullSeededDependencies, applyInitHooks) and the
 // discovery launch read that generation; nothing in this process observes
 // the pre-scaffold state again.
-func writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions string, dirtyTreeCommitAck bool) error {
+func writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions string) error {
 	_, err := operations.InitializeProject(context.Background(), App().Engines(), operations.InitializeProjectRequest{
 		AppDir:              appDir,
 		Engine:              engine,
 		DirtyTreeHandler:    dirtyTreeHandler,
-		DirtyTreeCommitAck:  dirtyTreeCommitAck,
 		HeadlessPermissions: headlessPermissions,
 	})
 	if err != nil {

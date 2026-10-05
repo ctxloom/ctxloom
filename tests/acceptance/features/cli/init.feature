@@ -170,12 +170,16 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the output contains "Phase 4 — Agents"
       And the output contains "Phase 5 — Close"
 
-  Rule: A first init asks its questions at the terminal, and writes the answers
+  Rule: A first init asks its questions at the terminal, and says what it chose for the rest
 
     Init's questions are asked in-process, on the user's own terminal, before
-    any engine is involved: that is what keeps an answer like the headless
-    posture unambiguously the human's. Taking every recommendation must leave
-    a project whose default agent may run headless read-only.
+    any engine is involved. The advanced choices — what a delegation does with
+    uncommitted work, and the default agent's headless posture — are not asked:
+    init takes the recommendation, prints one line for each saying what it
+    chose and how to change it, and leaves a project whose default agent may
+    run headless read-only. It never grants ctxloom permission to commit on
+    the user's behalf: that stays a human act, and the first delegation from a
+    dirty tree stops and names it.
 
     # Hermetic: a stub `claude` makes claude-code the only installed engine
     # (so init announces it rather than asking), the https clone of the seeded
@@ -191,3 +195,6 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the file ".ctxloom/config.yaml" contains "type: claude-code"
       And the file ".ctxloom/config.yaml" contains "dirty_tree_handler: commit"
       And the default agent's headless posture is "plan"
+      And init's terminal output says "ctxloom manage commit trust"
+      And init's terminal output says "ctxloom agent edit default --permissions <posture>"
+      And the file ".ctxloom/state/dirty_tree_commit_ack.yaml" does not exist

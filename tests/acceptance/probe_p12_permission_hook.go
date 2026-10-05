@@ -204,8 +204,9 @@ func p12Prompt(proofPath string) string {
 type p12Frame struct {
 	Type              string          `json:"type"`
 	Subtype           string          `json:"subtype"`
-	Skills            []string        `json:"skills"` // the init frame's loaded skills
-	Agents            []string        `json:"agents"` // the init frame's loaded agents
+	Skills            []string        `json:"skills"`      // the init frame's loaded skills
+	Agents            []string        `json:"agents"`      // the init frame's loaded agents
+	MCPServers        []p16MCPServer  `json:"mcp_servers"` // the init frame's MCP servers
 	Timestamp         string          `json:"timestamp"`
 	Message           json.RawMessage `json:"message"`
 	PermissionDenials []p12Denial     `json:"permission_denials"`
@@ -244,8 +245,8 @@ type p12ToolResult struct {
 }
 
 // p12Stream is a decoded run: the gated tool's calls in order, every
-// tool_result by id, the result frame's denials, and the skills and agents the
-// init frame says the session loaded.
+// tool_result by id, the result frame's denials, and the skills, agents and
+// MCP servers the init frame says the session loaded.
 type p12Stream struct {
 	GatedCalls []string
 	Results    map[string]p12ToolResult
@@ -253,6 +254,7 @@ type p12Stream struct {
 	Denials    []p12Denial
 	Skills     []string
 	Agents     []string
+	MCPServers []p16MCPServer
 }
 
 // p12Decode reads stream-json. A line that is not a JSON object is an error:
@@ -273,7 +275,7 @@ func p12Decode(stdout string) (p12Stream, error) {
 		switch f.Type {
 		case "system":
 			if f.Subtype == "init" {
-				s.Skills, s.Agents = f.Skills, f.Agents
+				s.Skills, s.Agents, s.MCPServers = f.Skills, f.Agents, f.MCPServers
 			}
 		case "result":
 			s.SawResult = true

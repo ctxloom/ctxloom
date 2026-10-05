@@ -231,6 +231,10 @@ var (
 		Shape: "HOOK-INTERRUPT failure",
 		Where: "the blocked PermissionRequest hook's own process, read from /proc after the interrupted engine exits",
 	}
+	channelInitMCPServers = probeChannel{
+		Shape: "CONNECTOR failure",
+		Where: "the init frame's mcp_servers — the servers claude connected before the model said anything",
+	}
 	channelRepoHookMarker = probeChannel{
 		Shape: "REPO-HOOK failure",
 		Where: "marker files outside the repo that only the repo's COMMITTED .claude/settings.json hooks write",
@@ -271,6 +275,7 @@ const (
 	probeP13 = "p13-untrusted-repo-hooks"
 	probeP14 = "p14-native-history"
 	probeP15 = "p15-hook-interrupt"
+	probeP16 = "p16-strict-mcp-connectors"
 	// The two rungs deliberately NOT built. Present as deferred rows so rows
 	// 9 and 10 of the inventory are visibly un-probed rather than invisibly so.
 	probePCmd   = "p10-command-invocation"
@@ -524,6 +529,20 @@ var probeRegistry = []probeSpec{
 		Paid:         true,
 		Cells: []probeCell{
 			hostCell("claude-code", probeWired, "conformance cell I1."),
+		},
+	},
+	// P16 measures whether --strict-mcp-config, the flag an untrusted
+	// repository's child is launched with, keeps the account's claude.ai
+	// connectors out (conformance T1; probe_p16_strict_mcp_connectors.go).
+	{
+		Name:         probeP16,
+		Title:        "strict MCP connectors: claude -p with --strict-mcp-config loads none of the claude.ai connectors the same session loads without it",
+		Capabilities: []int{8, 21},
+		Channel:      channelInitMCPServers,
+		Feature:      "probes/capability_strict_mcp_connectors.feature",
+		Paid:         true,
+		Cells: []probeCell{
+			hostCell("claude-code", probeWired, "conformance cell T1."),
 		},
 	},
 	{

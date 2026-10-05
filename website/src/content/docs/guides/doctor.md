@@ -14,7 +14,7 @@ ctxloom doctor
 
 Every check emits a line prefixed with a stable `DOCTOR-CHECK-*` marker. That's deliberate: a human staring at terminal output and an LLM you've asked to triage the same report are reading the same language, not two different ones that have to be reconciled by hand. If you paste doctor's output to an assistant, it can reason about `DOCTOR-CHECK-HOOKS-TRUST-d4: warn` exactly the way you would.
 
-Doctor is diagnostic only — it always exits `0` and never blocks or changes anything. A `warn` status *is* the fail-loud signal here; read the report, don't script against the exit code.
+Doctor is diagnostic only — it always exits `0` and never blocks or changes anything. The container-runtime probe runs podman or docker, which may create its own storage directories. A `warn` status *is* the fail-loud signal here; read the report, don't script against the exit code.
 
 ## What it checks
 

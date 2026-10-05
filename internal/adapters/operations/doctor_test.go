@@ -96,7 +96,7 @@ func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend stri
 func TestDoctorCheckSetupMarker_RightState(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	check := doctorCheckSetupMarker(cfg, nil)
-	assert.Equal(t, DoctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status, check.Detail)
 	assert.Contains(t, check.Detail, cfg.GetAppPaths()[0])
 }
 
@@ -130,8 +130,8 @@ func TestDoctorCheckSetupMarker_WrongState_NoConfigFile(t *testing.T) {
 	require.NoError(t, os.Mkdir(appDir, 0o755))
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}, Source: config.SourceProject})
 	check := doctorCheckSetupMarker(cfg, nil)
-	assert.Equal(t, DoctorWarn, check.Status, "config valid must not be claimed for a config.yaml that is absent: %s", check.Detail)
-	assert.Contains(t, check.Detail, config.ConfigFileName)
+	assert.Equal(t, DoctorWarn, check.Status, "config valid must not be claimed for a config file that is absent: %s", check.Detail)
+	assert.Contains(t, check.Detail, paths.ConfigPath(appDir))
 }
 
 func TestDoctorCheckSetupMarker_WrongState_ConfigLoadError(t *testing.T) {

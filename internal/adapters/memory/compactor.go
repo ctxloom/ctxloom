@@ -87,8 +87,7 @@ type CompactionConfig struct {
 	// it — the canonical-capture source in production (transcript.CanonicalHistory
 	// behind operations' resolver), a fake in a test — so this package never
 	// opens the session index to build a reader and never names an engine to
-	// pick one. Nil is legal only alongside PreloadedSession; a nil source
-	// without one is "no history".
+	// pick one. A nil source is "no history".
 	Source Source
 	// Progress receives human-readable distillation progress. It belongs to
 	// the CALLER because only the caller knows whether it has anywhere safe to
@@ -98,13 +97,6 @@ type CompactionConfig struct {
 	// display, so a caller with no safe sink leaves this nil and the progress
 	// is discarded.
 	Progress io.Writer
-	// PreloadedSession, when set, is returned directly by loadSessionToCompact
-	// instead of resolving a session id through source/CurrentSession. Used by
-	// container-harp distill: the SessionStart bind hook runs inside the
-	// container and never reaches the host's session index, so the host only
-	// knows the mounted transcript path, not a session id. The caller loads the
-	// session by path itself and hands it in here.
-	PreloadedSession *agent.Session
 	// IncludeThinking, when true, includes agent.EntryTypeThinking entries in
 	// the text handed to distillation. Default false: thinking is
 	// the model's scratch work, verbose and not decision-bearing, and is
@@ -462,16 +454,8 @@ func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourc
 // it's a valid session for Compact to short-circuit to a dump via
 // tooLittleToDistill, not a lookup failure.
 func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, error) {
-	// PreloadedSession short-circuits before the source is even consulted:
-	// the container-harp path loads the transcript by its mounted path itself
-	// (the bind hook never reached the host index to leave a session id), so
-	// there is nothing for a Source to resolve.
-	if c.config.PreloadedSession != nil {
-		return c.config.PreloadedSession, nil
-	}
-
 	if c.source == nil {
-		return nil, fmt.Errorf("no transcript source: nothing to compact (the caller resolves CompactionConfig.Source, or supplies a PreloadedSession)")
+		return nil, fmt.Errorf("no transcript source: nothing to compact (the caller resolves CompactionConfig.Source)")
 	}
 
 	explicitSessionID := c.config.SessionID != ""

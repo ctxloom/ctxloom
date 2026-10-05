@@ -676,9 +676,7 @@ func (st *runState) resumedTranscript() []composite.Fragment {
 	if runResumeSession == "" || runResumeDistill {
 		return nil
 	}
-	rendered := resumeFullContext("", runResumeSession, func(h string) ([]agent.SessionEntry, error) {
-		return operations.RecordedSessionEntries(st.ctx, App().Engines(), h)
-	})
+	rendered := resumeFullContext("", runResumeSession, operations.RecordedSessionEntries)
 	if rendered == "" {
 		return nil
 	}
@@ -932,9 +930,7 @@ func (st *runState) emitDryRun() error {
 	// composes (resumedTranscript).
 	context := pkg.Context.Text
 	if runResumeSession != "" && !runResumeDistill {
-		context = resumeFullContext(context, runResumeSession, func(h string) ([]agent.SessionEntry, error) {
-			return operations.RecordedSessionEntries(st.ctx, App().Engines(), h)
-		})
+		context = resumeFullContext(context, runResumeSession, operations.RecordedSessionEntries)
 	}
 	payload := dryRunJSON{
 		Agent:                 runAgent,

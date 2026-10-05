@@ -17,9 +17,8 @@ import (
 )
 
 // E1 — the RUNNER side of artifact transfer: Home dials
-// ArtifactTransferService on the SAME credentialed connection it already
-// holds for RunnerChannel/RunChannel (h.conn), so no separate dial or
-// credential plumbing is needed. UploadArtifact backs the produce path
+// ArtifactTransferService on the long-lived credentialed connection it holds
+// (h.conn), so no per-transfer dial or credential plumbing is needed. UploadArtifact backs the produce path
 // (mcp_runner.go's reportHandler/planStamper); DownloadArtifact backs the
 // consume path (mcp_runner.go's fetchArtifactHandler, RouteArtifactFetch).
 

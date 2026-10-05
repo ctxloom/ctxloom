@@ -37,7 +37,7 @@ func pendingFixture(now time.Time) *agentcoordpb.PendingApprovalsResult {
 	return &agentcoordpb.PendingApprovalsResult{
 		ProjectDir: "/proj",
 		Pending: []*agentcoordpb.PendingApprovalsResult_Pending{{
-			Kind: agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, Harp: "child-a", Agent: "worker",
+			Harp: "child-a", Agent: "worker",
 			Lineage: []string{"root", "child-a"}, Summary: "Bash: make",
 			Since: timestamppb.New(now.Add(-2 * time.Minute)), Deadline: timestamppb.New(now.Add(13 * time.Minute)),
 		}},
@@ -63,7 +63,6 @@ func TestSessionApprovals_ListsFromALiveCoordinator(t *testing.T) {
 	assert.Equal(t, "/proj", a.Project)
 	assert.Equal(t, "child-a", a.Harp)
 	assert.Equal(t, "worker", a.Agent)
-	assert.Equal(t, "tool", a.Kind)
 	assert.Equal(t, "Bash: make", a.Summary)
 	assert.Equal(t, []string{"root", "child-a"}, a.Lineage)
 	assert.InDelta(t, 120, a.AgeSeconds, 5)
@@ -80,7 +79,7 @@ func TestSessionApprovals_Text(t *testing.T) {
 
 	out, _, err := runApprovals(t, formatText)
 	require.NoError(t, err)
-	for _, want := range []string{"LEFT", "AGE", "KIND", "ASKER", "LINEAGE", "SUMMARY", "child-a (worker)", "root→child-a", "Bash: make", "tool"} {
+	for _, want := range []string{"LEFT", "AGE", "ASKER", "LINEAGE", "SUMMARY", "child-a (worker)", "root→child-a", "Bash: make"} {
 		assert.Contains(t, out, want)
 	}
 	assert.NotContains(t, out, "PROJECT")
@@ -159,8 +158,8 @@ func TestSessionApprovals_RefusalExitsNonZero(t *testing.T) {
 // than one coordinator say which project each came from.
 func TestRenderApprovals_ProjectColumnWithSeveralCoordinators(t *testing.T) {
 	res := approvalsListResult{Coordinators: 2, Approvals: []approvalRow{
-		{Project: "/one", Harp: "a", Kind: "tool", Summary: "x", Lineage: []string{"r", "a"}, LeftSeconds: 61, AgeSeconds: 5},
-		{Project: "/two", Harp: "b", Kind: "plan", Summary: "y", Lineage: []string{"r", "b"}, LeftSeconds: 3600, AgeSeconds: 7},
+		{Project: "/one", Harp: "a", Summary: "x", Lineage: []string{"r", "a"}, LeftSeconds: 61, AgeSeconds: 5},
+		{Project: "/two", Harp: "b", Summary: "y", Lineage: []string{"r", "b"}, LeftSeconds: 3600, AgeSeconds: 7},
 	}}
 	var buf bytes.Buffer
 	require.NoError(t, renderApprovals(&buf, res))

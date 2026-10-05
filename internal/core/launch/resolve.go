@@ -94,6 +94,17 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	return l, nil
 }
 
+// requireApprovalRoute refuses a structured run that plans first with no
+// session endpoint: its plan is approved over the route that endpoint
+// serves, so without one it would hold its plan forever.
+func requireApprovalRoute(eng engine.Engine, l Launch) error {
+	model, ok := eng.Permissions().Get()
+	if !ok || l.Mode != engine.Structured || !model.PlansFirst(l.Permission.Posture.Document) || l.MCP.URL != "" {
+		return nil
+	}
+	return fmt.Errorf("%w (posture %s)", ErrPlansFirstNoApprovalRoute, l.Permission.Posture.Label)
+}
+
 // validateIdentity refuses a zero or malformed identity, as ErrNoIdentity.
 func validateIdentity(id sessions.Identity) error {
 	if id.Harp == "" {
@@ -245,8 +256,9 @@ func markOwner(env map[string]string, id sessions.Identity, mode engine.Mode) {
 
 // deliverLaunch fills l's delivery over its prepared cell: Exports, Route
 // (over the cell's roots), the endpoint once per harp (bound on the session
-// record), the catalog index, and the package encoded and carried by size.
-// The caller discards the cell on error.
+// record), the catalog index, and the package encoded and carried by size;
+// a run that plans first must have an approval route over that endpoint
+// (requireApprovalRoute). The caller discards the cell on error.
 func deliverLaunch(ctx context.Context, deps Deps, src Source, eng engine.Engine, pkg composite.Package, roots map[string]string, l *Launch) error {
 	def := eng.Root()
 	exports, err := eng.Exports(pkg.EngineItems(def.Name))
@@ -281,7 +293,7 @@ func deliverLaunch(ctx context.Context, deps Deps, src Source, eng engine.Engine
 		return err
 	}
 	l.Exports, l.Plan, l.MCP, l.Resume, l.Index, l.Package = exports, plan, ep, resume, index, carrier
-	return nil
+	return requireApprovalRoute(eng, *l)
 }
 
 // selection is what Select decided from the config and the Source: the

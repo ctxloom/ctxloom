@@ -89,6 +89,7 @@ func (m FixtureModel) Label(posture string) string {
 	}
 	return ""
 }
+func (FixtureModel) PlansFirst(doc map[string]any) bool { return doc["mode"] == "plan" }
 func (m FixtureModel) Transitions(map[string]any) []engine.PostureTransition {
 	return []engine.PostureTransition{{Posture: "default", Label: m.Label("default"), Default: true}}
 }

@@ -248,6 +248,12 @@ func (m permissionModel) Decode(doc map[string]any) (string, error) {
 	return mode, nil
 }
 
+// PlansFirst: a plan-mode session plans before it acts.
+func (m permissionModel) PlansFirst(doc map[string]any) bool {
+	mode, err := m.mode(doc)
+	return err == nil && mode == modePlan
+}
+
 // Transitions: an approval may move any session but a bypass one to
 // default or acceptEdits (a plan's continuation, the setMode suggestion
 // claude makes on an edit). The default is the document's after_plan when

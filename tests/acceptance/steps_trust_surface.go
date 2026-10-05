@@ -678,12 +678,10 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			"failed to load the remote lockfile", // the file
 			"failed to parse lockfile",           // why it could not be read
 			"no remote bundles loaded",           // the blast radius
-			// The bundle, by the lockfile key the loader reports it under
-			// ("<url>@bundles/<name>") rather than tsRef's canonical
-			// "ctxloom+<url>//bundles/<name>#<selector>" form. Naming THIS
-			// scenario's own remote is what no unrelated content on the host
-			// can satisfy.
-			ts.url + "@bundles/" + ts.bundleName,
+			// The bundle, by the canonical ref the loader reports it under.
+			// Naming THIS scenario's own remote is what no unrelated content
+			// on the host can satisfy.
+			canonicalBundleRef(ts.url, ts.bundleName),
 			"bundle not found",  // its fate: never loaded, so never judged
 			"ctxloom deps pull", // the recovery
 		} {

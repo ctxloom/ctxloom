@@ -79,6 +79,7 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 			URL:          &edited.URL,
 			Headers:      &edited.Headers,
 			Tags:         &edited.Tags,
+			ServedBy:     &edited.ServedBy,
 			Notes:        &edited.Notes,
 			Installation: &edited.Installation,
 		},
@@ -90,16 +91,16 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 	return w.Err()
 }
 
-// parseEditedMCP decodes an MCP editor buffer, refusing one that cannot be a
-// usable entry.
+// parseEditedMCP decodes an MCP editor buffer, refusing an empty one.
+// Whether the entry is launchable is SetBundleMCP's question.
 func parseEditedMCP(newContent, bundleName string) (bundles.BundleMCP, error) {
 	// An emptied editor buffer (the user deleted everything and
 	// saved, or the editor exited leaving a blank temp file) still differs
 	// from the original buffer, so it gets past runBundleMCPEdit's "No
 	// changes made" guard. yaml.Unmarshal("", &edited) succeeds with a ZERO-VALUE struct —
 	// no error, no empty-input signal of its own — so this must be checked
-	// explicitly, before it ever reaches SetBundleMCP, which validates
-	// nothing about the entry naming a command or a url.
+	// explicitly: SetBundleMCP refuses an entry with no target, but an empty
+	// buffer is the user abandoning the edit, and is reported as that.
 	if strings.TrimSpace(newContent) == "" {
 		return bundles.BundleMCP{}, fmt.Errorf("aborted: the edited MCP config is empty; bundle %q was not changed", bundleName)
 	}
@@ -107,9 +108,6 @@ func parseEditedMCP(newContent, bundleName string) (bundles.BundleMCP, error) {
 	var edited bundles.BundleMCP
 	if err := yaml.Unmarshal([]byte(newContent), &edited); err != nil {
 		return bundles.BundleMCP{}, fmt.Errorf("invalid YAML: %w", err)
-	}
-	if edited.Command == "" && edited.URL == "" {
-		return bundles.BundleMCP{}, fmt.Errorf("aborted: the edited MCP config has neither `command:` nor `url:`; bundle %q was not changed", bundleName)
 	}
 	return edited, nil
 }

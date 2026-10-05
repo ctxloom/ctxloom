@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // seedBundleMCP creates bundle "demo" (if it doesn't already exist) with one
@@ -51,18 +52,18 @@ func TestRunBundleMCPEdit_EmptiedBufferAborts(t *testing.T) {
 	assert.Equal(t, "real-mcp-server", after.MCP.Command, "the bundle must be UNCHANGED after an aborted edit")
 }
 
-// TestRunBundleMCPEdit_NoCommandOrURLAborts is the sibling case of an emptied
-// buffer: valid YAML that names neither a `command:` nor a `url:` (e.g. the
-// user deleted just that line) is just as unusable as an empty buffer and must
-// abort the same way.
-func TestRunBundleMCPEdit_NoCommandOrURLAborts(t *testing.T) {
+// TestRunBundleMCPEdit_NoTargetAborts is the sibling case of an emptied
+// buffer: valid YAML that names no target (e.g. the user deleted just the
+// `command:` line) is just as unusable as an empty buffer and must abort,
+// leaving the bundle unchanged.
+func TestRunBundleMCPEdit_NoTargetAborts(t *testing.T) {
 	cfg := setupEditProject(t)
 	seedBundleMCP(t, cfg, "srv")
 	setFakeEditor(t, "args:\n  - --flag\n")
 
 	cmd := &cobra.Command{}
 	err := runBundleMCPEdit(cmd, []string{"demo", "srv"})
-	require.Error(t, err, "a command-less MCP edit must abort")
+	require.ErrorIs(t, err, wire.ErrMCPServerNoTarget, "a target-less MCP edit must abort")
 
 	after, gerr := operations.GetBundleMCP(context.Background(), cfg, operations.GetBundleMCPRequest{Bundle: "demo", Name: "srv"})
 	require.NoError(t, gerr)

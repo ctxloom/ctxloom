@@ -327,6 +327,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"mcp unregister":              {skip: "installer: unregisters ctxloom as an MCP server"},
 	"mcp server create":           {skip: "wired to emit(); mutating, not exercised here"},
 	"mcp server remove":           {skip: "wired to emit(); mutating, not exercised here"},
+	"mcp server set":              {skip: "wired to emit(); TestMCPServerSet_EmitsTheResult drives it with --format json"},
 	"mcp server show":             {skip: "wired to emit(), but needs an existing server fixture; not exercised here"},
 	"manage statusline install":   {skip: "installer: writes real statusline config"},
 	"manage statusline uninstall": {skip: "installer: removes real statusline config"},

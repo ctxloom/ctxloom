@@ -8,8 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
@@ -26,7 +24,7 @@ var mcpCmd = mcpBareMachineRefusal(groupNodeDefault(&cobra.Command{
 every engine.
 
   ctxloom mcp              List the MCP servers this project registers
-  ctxloom mcp server       List, show and edit registered servers
+  ctxloom mcp server       List, show, edit and set registered servers
 
 Every server here comes from a BUNDLE — ctxloom's own included, which its
 own companion loadout declares as SERVED BY THE RUNNING SESSION'S ENDPOINT:
@@ -275,28 +273,18 @@ Examples:
 }
 
 // runMCPServerEdit edits a bundle-scoped MCP server named by a
-// `<bundle>#mcp/<name>` ref, judged by bundles.ParseItemAsk — the one selector
-// parser every reader shares.
+// `<bundle>#mcp/<name>` ref (parseBundleMCPRef).
 //
 // A ref that does not select an MCP server is refused by name: an MCP server
 // lives in a bundle and nowhere else, so a ref that names no bundle names
 // nothing this command can edit — and reporting success having changed nothing
 // is the failure mode this refusal exists to prevent.
 func runMCPServerEdit(cmd *cobra.Command, args []string) error {
-	notBundleScoped := func() error {
-		return fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s); every MCP server lives in a bundle, so there is no other store to edit", args[0], trust.FormatSelector(trust.KindMCP, "<name>"))
-	}
-	ask, err := bundles.ParseItemAsk(args[0])
+	bundleName, name, err := parseBundleMCPRef(args[0])
 	if err != nil {
-		return notBundleScoped()
+		return fmt.Errorf("mcp server edit: %w", err)
 	}
-	if !ask.Scoped || ask.Kind != trust.KindMCP {
-		return notBundleScoped()
-	}
-	if ask.Bundle == "" || ask.Item == "" {
-		return fmt.Errorf("mcp server edit: incomplete ref %q (expected <bundle>#%s)", args[0], trust.FormatSelector(trust.KindMCP, "<name>"))
-	}
-	return runBundleMCPEdit(cmd, []string{ask.Bundle, ask.Item})
+	return runBundleMCPEdit(cmd, []string{bundleName, name})
 }
 
 // mcpServerCmd is the MCP-server noun: the canonical spine over the servers
@@ -305,7 +293,7 @@ func runMCPServerEdit(cmd *cobra.Command, args []string) error {
 // reading it touches nothing.
 var mcpServerCmd = groupNodeDefault(&cobra.Command{
 	Use:   "server",
-	Short: "List, show, or edit the MCP servers this project registers",
+	Short: "List, show, edit, or set the MCP servers this project registers",
 }, "list")
 
 func init() {

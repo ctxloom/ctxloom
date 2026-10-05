@@ -23,10 +23,12 @@ func (m Mock) Approvals() engine.Declared[engine.ApprovalCodec] {
 
 type approvalCodec struct{}
 
-// mockCall is the mock's ask payload.
+// mockCall is the mock's ask payload; an ask may carry the posture the
+// engine suggests moving to.
 type mockCall struct {
-	Tool  string          `json:"tool"`
-	Input json.RawMessage `json:"input"`
+	Tool            string          `json:"tool"`
+	Input           json.RawMessage `json:"input"`
+	SuggestsSetMode string          `json:"suggests_set_mode,omitempty"`
 }
 
 var (
@@ -42,7 +44,7 @@ func (c mockCall) decode() (string, json.RawMessage, error) {
 	return c.Tool, in, err
 }
 
-// DecodeAsk reads a mock ask: every mock ask is a tool call.
+// DecodeAsk reads a mock ask: every ask is a tool call.
 func (approvalCodec) DecodeAsk(_ string, payload []byte) (engine.PermissionAsk, error) {
 	var c mockCall
 	if err := json.Unmarshal(payload, &c); err != nil {
@@ -52,7 +54,11 @@ func (approvalCodec) DecodeAsk(_ string, payload []byte) (engine.PermissionAsk, 
 	if err != nil {
 		return engine.PermissionAsk{}, err
 	}
-	return engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: in}, nil
+	ask := engine.PermissionAsk{Tool: tool, Input: in}
+	if c.SuggestsSetMode != "" {
+		ask.SuggestsSetMode = engine.Provide(c.SuggestsSetMode)
+	}
+	return ask, nil
 }
 
 // EncodeAnswer writes {allow, session_rules, set_mode, message}; a deny
@@ -81,10 +87,12 @@ func (approvalCodec) EncodeAnswer(_ string, _ engine.PermissionAsk, a engine.Per
 	return json.Marshal(out)
 }
 
-// Hooks are the mock's approval hooks: one permission_ask hook (the mock's
-// native events are the unified ones) for every tool.
+// Hooks are the mock's approval hooks (the mock's native events are the
+// unified ones): one permission_ask hook for every tool.
 func (approvalCodec) Hooks(timeout time.Duration) wire.UnifiedHooks {
-	return wire.UnifiedHooks{PermissionAsk: []wire.Hook{agent.ApprovalHook(wire.HookEventPermissionAsk, "", timeout)}}
+	return wire.UnifiedHooks{
+		PermissionAsk: []wire.Hook{agent.ApprovalHook(wire.HookEventPermissionAsk, "", timeout)},
+	}
 }
 
 // RepoSurfaces are the repository files the mock loads that can run code:
@@ -94,7 +102,7 @@ func (approvalCodec) RepoSurfaces() []string { return []string{settingsRel, hook
 // Covers reports whether rule allows ask's call: a mock rule is a tool name,
 // covering every call of that tool.
 func (approvalCodec) Covers(rule string, ask engine.PermissionAsk) bool {
-	return ask.Kind == engine.AskTool && rule != "" && rule == ask.Tool
+	return rule != "" && rule == ask.Tool
 }
 
 // ValidateRule accepts any one-line, non-blank rule: the mock has no rule

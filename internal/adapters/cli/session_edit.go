@@ -17,9 +17,9 @@ import (
 // The spine's contract is that a bare `edit <ref>` opens $EDITOR on the
 // referenced document, and a session has none to open. Its index entry is
 // machine-written — session id, timestamps, transcript path, engine version —
-// and its essence is DERIVED: `session distill` regenerates that file
+// and its essence is DERIVED: `session compact` regenerates that file
 // wholesale, so an editor round-trip there would offer edits the next
-// distillation silently discards. That is this project's characteristic
+// compaction silently discards. That is this project's characteristic
 // failure shape (an exit-0 success message over work that did not survive),
 // so the bare form says outright that there is no document and names the
 // assignment it does take.
@@ -50,10 +50,10 @@ applied; everything else keeps its current value.
 
 Unlike every other 'edit' in ctxloom, the bare form does NOT open an editor.
 A session is a record of something that happened: its index entry is written
-by ctxloom itself, and its essence is derived — 'ctxloom session distill'
+by ctxloom itself, and its essence is derived — 'ctxloom session compact'
 rewrites that file whole. There is no authored document here for an editor to
 round-trip, so the bare form refuses rather than accept edits a later
-distillation would discard.`,
+compaction would discard.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSessionEdit,
 }
@@ -67,7 +67,7 @@ func runSessionEdit(cmd *cobra.Command, args []string) error {
 	harp := args[0]
 	if !cmd.Flags().Changed("name") {
 		return fmt.Errorf("ctxloom session edit %s: nothing to assign, and a session has no editable document to open — "+
-			"its index entry is machine-written and its essence is derived (`ctxloom session distill` rewrites it whole). "+
+			"its index entry is machine-written and its essence is derived (`ctxloom session compact` rewrites it whole). "+
 			"Name a field: --name <new-harp>", harp)
 	}
 

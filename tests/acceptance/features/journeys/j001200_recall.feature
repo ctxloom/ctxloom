@@ -25,7 +25,7 @@ Feature: The archaeologist — what did we decide in March?
   # which is the unproven half.
   #
   # NOTE ON THE THREE MARKERS. A session's searchable text lives in three
-  # places — harp name, index summary, distilled essence — and a search
+  # places — harp name, index summary, compacted essence — and a search
   # matching only one of them would look identical to a working one against a
   # fixture where all three say the same thing. Each carries its OWN marker, so
   # each scenario proves a specific field participates. The same split is
@@ -35,7 +35,7 @@ Feature: The archaeologist — what did we decide in March?
   # would satisfy.
   #
   # NOTE ON THE FIXTURE'S SECOND SESSION. Every search assertion has a wrong
-  # answer available to give: an unrelated, never-distilled session sits beside
+  # answer available to give: an unrelated, never-compacted session sits beside
   # the March one. A search returning one hit proves nothing if there was
   # nothing else it could have returned.
   #
@@ -58,7 +58,7 @@ Feature: The archaeologist — what did we decide in March?
   # DECISION is written down in prose.
   Scenario: A phrase from the decision itself finds the session that made it
     When I run "ctxloom session search J001200-ESSENCE-WORKTREE-NAMING-DECISION"
-    Then the search names the March session by a phrase that appears only in its distilled essence
+    Then the search names the March session by a phrase that appears only in its compacted essence
 
   # The summary field, proven separately for the same reason: one scenario per
   # field, so a regression narrows to a field rather than to "search broke".
@@ -94,40 +94,40 @@ Feature: The archaeologist — what did we decide in March?
     When I run "ctxloom session show amber-quiet-heron"
     Then ctxloom prints the decision the session reached
 
-  # BOUNDARY B9, and the product states the gap itself: `session distill`'s own
-  # help says "Distillation is on-demand: nothing distills a session
-  # automatically when it ends." So the UNDISTILLED session is the default case,
+  # BOUNDARY B9, and the product states the gap itself: `session compact`'s own
+  # help says "Compaction is on-demand: nothing compacts a session
+  # automatically when it ends." So the UNCOMPACTED session is the default case,
   # not the exception — most of the archive is in this state — and the error a
   # user hits has to distinguish "this session has no summary yet" from "this
   # session was never recorded", or they will conclude the capture failed and
   # stop trusting the archive.
   #
   # UNTAGGED 2026-08-05, condition met and confirmed to bite. The command does
-  # name the remedy: "no essence for %q (run `ctxloom session distill %s` to
+  # name the remedy: "no essence for %q (run `ctxloom session compact %s` to
   # compact this session first)". Mutation: dropping the parenthetical from
-  # cli.undistilledSessionError so it reads "(compact this session first)"
+  # cli.uncompactedSessionError so it reads "(compact this session first)"
   # turns this red — the row asserts the REMEDY, not merely that an error
   # happened, which is what keeps a user from concluding the capture failed.
   #
   # Tabled by format: `session show` is wired to emit(), and (internal/adapters/cli/
-  # session_cmd.go's runSessionShow / undistilledSessionError) documents the
-  # divergence outright — the structured shape reports distilled:false rather
+  # session_cmd.go's runSessionShow / uncompactedSessionError) documents the
+  # divergence outright — the structured shape reports compacted:false rather
   # than erroring, so a caller can show a hint without branching on an exit
   # code, while the text renderer is the only one that raises the remedy
   # error this scenario used to assert unconditionally. So the OUTCOME itself
   # varies by row, not just the payload: json (and the no-flag default, which
-  # is JSON off a terminal) succeeds and reports distilled:false; an explicit
+  # is JSON off a terminal) succeeds and reports compacted:false; an explicit
   # --format text still fails and still names the remedy.
-  Scenario Outline: A session nobody ever distilled says so, and says what to do about it
+  Scenario Outline: A session nobody ever compacted says so, and says what to do about it
     When I run "ctxloom session show brisk-copper-moth <flags>"
     Then the command <outcome>
     And the output <detail>
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | outcome  | detail                                            |
-      |               | succeeds | reports "distilled" as "false"                    |
-      | --format json | succeeds | reports "distilled" as "false"                    |
-      | --format text | fails    | contains "session distill brisk-copper-moth"      |
+      |               | succeeds | reports "compacted" as "false"                    |
+      | --format json | succeeds | reports "compacted" as "false"                    |
+      | --format text | fails    | contains "session compact brisk-copper-moth"      |
 
   # THE PAYOFF. Everything upstream — the tee, the readers, the canonical
   # schema, four vendors' conversion — exists to make this one line work.
@@ -146,8 +146,8 @@ Feature: The archaeologist — what did we decide in March?
     When I run "ctxloom run --session amber-quiet-heron --dry-run -p default"
     Then the assembled context carries the conversation she had in March
 
-  # The two resume modes must differ in what reaches the model, or --distill is
-  # a flag that costs a distillation and buys nothing. Asserted as a three-way
+  # The two resume modes must differ in what reaches the model, or --compact is
+  # a flag that costs a compaction and buys nothing. Asserted as a three-way
   # discrimination — essence present, raw absent — so neither "carried
   # everything" nor "carried nothing" can pass.
   #
@@ -155,14 +155,14 @@ Feature: The archaeologist — what did we decide in March?
   # (CTXLOOM_RESUMED_FROM/PARTS), NOT through the assembled context, and a
   # --dry-run stops before the launch sets that env. So the preview shows it
   # in its own section, read by the hook's own function
-  # (cli.distilledResumePreview over cli.resumedEssenceForInjection) — what is
+  # (cli.compactedResumePreview over cli.resumedEssenceForInjection) — what is
   # shown is what the hook would inject. The preview is read-only: a missing or
-  # stale essence is named ("the launch distills it on demand"), never
-  # distilled, because a dry run writes nothing. Mutation: dropping the
+  # stale essence is named ("the launch compacts it on demand"), never
+  # compacted, because a dry run writes nothing. Mutation: dropping the
   # Resumed Essence section from cli.runState.emitDryRun turns this red.
   Scenario: Resuming through the essence carries the conclusion, not the whole conversation
-    When I run "ctxloom run --session amber-quiet-heron --distill --dry-run -p default"
-    Then the assembled context carries the distilled essence and not the raw conversation
+    When I run "ctxloom run --session amber-quiet-heron --compact --dry-run -p default"
+    Then the assembled context carries the compacted essence and not the raw conversation
 
   # The payoff row above proves the transcript reaches the ASSEMBLED CONTEXT.
   # This one proves it reaches the MODEL, which is a different claim: a context
@@ -176,30 +176,30 @@ Feature: The archaeologist — what did we decide in March?
   # negative half requires the recording to be non-empty, so a launch that never
   # happened cannot pass by having no marker in it.
   #
-  # NO --distill TWIN HERE, deliberately. The two modes reach the model by
+  # NO --compact TWIN HERE, deliberately. The two modes reach the model by
   # structurally different routes: full resume folds into the assembled context,
-  # while --distill rides CTXLOOM_RESUMED_FROM/PARTS and a SessionStart hook and
+  # while --compact rides CTXLOOM_RESUMED_FROM/PARTS and a SessionStart hook and
   # never passes through the launch payload at all. So the mock's recorded input
-  # — which captures that payload — is the wrong instrument for the distilled
+  # — which captures that payload — is the wrong instrument for the compacted
   # half, and a row asserting it there fails for a reason that says nothing about
-  # --distill. The distilled half needs `the hook's additionalContext contains`
+  # --compact. The compacted half needs `the hook's additionalContext contains`
   # (session_hooks.feature) driven with those env vars set, which no step can do
   # yet.
-  Scenario: Resuming without --distill puts the conversation in front of the model, not the conclusion
+  Scenario: Resuming without --compact puts the conversation in front of the model, not the conclusion
     Given the mock LLM responds "MOCK-REPLY"
     When I run "ctxloom run --one-shot --session amber-quiet-heron -p default Remind me what we concluded."
     Then the command succeeds
     And the mock recorded input contains "J001200-TRANSCRIPT-ONLY-MARKER"
     And the mock recorded input does not contain "J001200-ESSENCE-WORKTREE-NAMING-DECISION"
 
-  # THE --distill HALF of the discrimination above, on the only instrument that
-  # can see it. --distill never puts the essence in the launch payload the mock
+  # THE --compact HALF of the discrimination above, on the only instrument that
+  # can see it. --compact never puts the essence in the launch payload the mock
   # records — it sets CTXLOOM_RESUMED_FROM/CTXLOOM_RESUMED_PARTS
-  # (cli.resumeDistillEnv) and delivers the essence LATER, at SessionStart, via
+  # (cli.resumeCompactEnv) and delivers the essence LATER, at SessionStart, via
   # cli.resumedEssenceForInjection. So this row drives `ctxloom hook
   # inject-context` directly with those two vars set — the same command and the
   # same env pair a real resumed session's SessionStart callback receives from
-  # the environment `run --session --distill` set before launching the engine —
+  # the environment `run --session --compact` set before launching the engine —
   # and reads the envelope the engine actually gets, via the existing
   # `the hook's additionalContext contains` step (session_hooks.feature). The
   # hash argument names a context file that does not exist, so nothing but the
@@ -207,9 +207,9 @@ Feature: The archaeologist — what did we decide in March?
   #
   # UNTAGGED 2026-08-18. Mutation: neutering cli.resumedEssenceForInjection to
   # return "" unconditionally turns this row red while "Resuming without
-  # --distill..." above stays green — proving the two rows discriminate the two
+  # --compact..." above stays green — proving the two rows discriminate the two
   # resume paths rather than merely agreeing with each other.
-  Scenario: The SessionStart hook delivers the essence for a --distill resume
+  Scenario: The SessionStart hook delivers the essence for a --compact resume
     Given the environment variable "CTXLOOM_RESUMED_FROM" is set to "amber-quiet-heron"
     And the environment variable "CTXLOOM_RESUMED_PARTS" is set to "session"
     When I run "ctxloom hook inject-context no-such-hash" with input:

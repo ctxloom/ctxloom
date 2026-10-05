@@ -24,7 +24,7 @@ var toolReflectMinBytes int
 // with it.
 const ToolReflectReminder = "That tool result was large. Before your next tool call, state what you " +
 	"actually learned from it — including \"nothing\" or \"not what I expected\". " +
-	"Session distillation keeps this sentence and discards the output itself, so " +
+	"Session compaction keeps this sentence and discards the output itself, so " +
 	"anything you do not say here is not recoverable later."
 
 var hookToolReflectCmd = &cobra.Command{
@@ -35,7 +35,7 @@ var hookToolReflectCmd = &cobra.Command{
 least --min-output-bytes, emits an additionalContext reminder asking the agent
 to state what it learned.
 
-Distillation reduces a tool result to its shape (byte and line counts) because
+Compaction reduces a tool result to its shape (byte and line counts) because
 a truncated fragment of one is neither the information nor a summary of it. The
 agent's own statement of what it learned is the part that survives, and the part
 nothing else can reconstruct.

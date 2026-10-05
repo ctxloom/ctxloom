@@ -15,31 +15,16 @@ const summaryMaxRunes = 80
 var summaryInputFields = [...]string{"command", "file_path", "url", "pattern"}
 
 // Summary is the request in one bounded line, composed where it parks so
-// every viewer shows the same words: a tool request is the tool and what it
-// acts on, a question its first header, a plan its path. It is RAW — the
+// every viewer shows the same words: the tool and what it acts on. It is RAW — the
 // asking child's own characters — because it travels to programs as well as
 // terminals: each viewer makes it safe for wherever it shows it
 // (displaysafe.Text on a terminal), and a JSON consumer gets the text itself.
 // Only line breaks are not kept: each run of them is one space, so the line
 // stays a line however it is shown.
 func (p PendingApproval) Summary() string {
-	var s string
-	switch p.Kind {
-	case ApprovalQuestion:
-		s = "question"
-		if len(p.Ask.Questions) > 0 && p.Ask.Questions[0].Header != "" {
-			s = p.Ask.Questions[0].Header
-		}
-	case ApprovalPlan:
-		s = "plan"
-		if p.Ask.Plan != nil && p.Ask.Plan.Path != "" {
-			s = p.Ask.Plan.Path
-		}
-	default:
-		s = p.Ask.Tool
-		if target := toolTarget(p.Ask.Input); target != "" {
-			s += ": " + target
-		}
+	s := p.Ask.Tool
+	if target := toolTarget(p.Ask.Input); target != "" {
+		s += ": " + target
 	}
 	return truncateRunes(oneLine(s), summaryMaxRunes)
 }

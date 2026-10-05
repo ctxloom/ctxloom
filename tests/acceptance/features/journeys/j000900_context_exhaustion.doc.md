@@ -61,7 +61,7 @@ dead end.
 
 ## What comes back
 
-A distillation, not a replay. The recovered artifact is bounded — it has to
+A compaction, not a replay. The recovered artifact is bounded — it has to
 fit in the window you just cleared, or it has solved nothing — so it carries the
 conclusions and decisions rather than the full conversation. In a real recovery
 of a long session, that has meant roughly 104,000 tokens of transcript coming

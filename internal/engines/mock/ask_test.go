@@ -189,11 +189,11 @@ func TestMockAsk_ADeclaredDenyBeatsAGrant(t *testing.T) {
 	assert.NoFileExists(t, marker)
 }
 
-// TestMockApprovalCodec_HooksAreOnePermissionAskForEveryTool: the mock's
-// approval route is one permission_ask hook (the mock's native events are
-// the unified ones) admitting every tool, running ctxloom's hook for that
-// event and outliving the approval timeout.
-func TestMockApprovalCodec_HooksAreOnePermissionAskForEveryTool(t *testing.T) {
+// TestMockApprovalCodec_HooksAreAPermissionAsk: the mock's approval route
+// (the mock's native events are the unified ones) is one permission_ask hook
+// admitting every tool, running ctxloom's hook and outliving the approval
+// timeout.
+func TestMockApprovalCodec_HooksAreAPermissionAsk(t *testing.T) {
 	codec, ok := mock.New().Approvals().Get()
 	require.True(t, ok)
 	h := codec.Hooks(time.Minute)
@@ -218,9 +218,8 @@ func TestMockAsk_AnExecFormHookRunsWithNoShell(t *testing.T) {
 func TestMockApprovalCodec_Covers(t *testing.T) {
 	codec, ok := mock.New().Approvals().Get()
 	require.True(t, ok)
-	bash := engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}
+	bash := engine.PermissionAsk{Tool: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}
 	assert.True(t, codec.Covers("Bash", bash))
 	assert.False(t, codec.Covers("Write", bash))
 	assert.False(t, codec.Covers("", bash))
-	assert.False(t, codec.Covers("Bash", engine.PermissionAsk{Kind: engine.AskPlan, Tool: "Bash"}))
 }

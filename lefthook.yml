@@ -151,9 +151,10 @@ pre-push:
     cache-report:
       # Bound the Go build cache. ~/.cache/go-build has no native size cap: Go
       # trims entries unused for ~5 days, which bounds it at five days of churn
-      # and nothing more. A heavy multi-agent day here produces ~100 GB, and
-      # worktrees multiply it because `go test` compiles without -trimpath, so
-      # identical source in N worktrees is N entries (obtuse-equinox).
+      # and nothing more. A heavy multi-agent day here produces ~100 GB. Every
+      # just recipe compiles with -trimpath (the justfile's GOFLAGS export), so
+      # identical source in N worktrees shares ONE entry; a go command run
+      # outside just does not, and multiplies it again.
       #
       # This is not hypothetical maintenance. On 2026-08-07 the cache reached
       # 145 GB, /home hit 100%, and the linker started failing with "no space

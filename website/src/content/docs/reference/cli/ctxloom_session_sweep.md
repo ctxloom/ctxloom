@@ -24,11 +24,11 @@ machine) and decides each one by a fixed table, in order:
   clean scratch worktrees      removed
   older than --older-than      its disposable members reclaimed (what
                                'ctxloom clean' reclaims)
-  distilled, older than        purged: its transcripts go; its output dir
+  compacted, older than        purged: its transcripts go; its output dir
   --purge-older-than           (essence, plans) and the files you wrote stay
-  never distilled              never purged; 'ctxloom session distill <harp>'
+  never compacted              never purged; 'ctxloom session compact <harp>'
                                is named
-  an internal one-shot, older  purged without a distill
+  an internal one-shot, older  purged without a compact
   than --purge-older-than
   undelivered mail             spared from purge, and counted
 

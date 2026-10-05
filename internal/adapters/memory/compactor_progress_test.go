@@ -25,15 +25,15 @@ func progressFixture(t *testing.T, progress io.Writer) *Compactor {
 	mockHistory := &mockSource{
 		currentSession: &agent.Session{
 			ID: "progress-session",
-			Entries: aboveDistillFloor([]agent.SessionEntry{
+			Entries: aboveCompactFloor([]agent.SessionEntry{
 				{Type: agent.EntryTypeUser, Content: "ask"},
 				{Type: agent.EntryTypeAssistant, Content: "answer"},
 			}),
 		},
 	}
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
-			_, _ = stdout.Write([]byte("Distilled."))
+			_, _ = stdout.Write([]byte("Compacted."))
 			return 0, nil
 		},
 	}
@@ -49,7 +49,7 @@ func progressFixture(t *testing.T, progress io.Writer) *Compactor {
 	return c
 }
 
-// TestCompact_ProgressGoesToTheInjectedSink: distillation progress is reported
+// TestCompact_ProgressGoesToTheInjectedSink: compaction progress is reported
 // to the sink the CALLER supplied, so a caller that owns a terminal can render
 // it and one that does not can discard it.
 func TestCompact_ProgressGoesToTheInjectedSink(t *testing.T) {
@@ -62,8 +62,8 @@ func TestCompact_ProgressGoesToTheInjectedSink(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Contains(t, sink.String(), "distilling session",
-		"distillation progress must reach the caller's sink")
+	assert.Contains(t, sink.String(), "compacting session",
+		"compaction progress must reach the caller's sink")
 }
 
 // TestCompact_WritesNoProgressToStderr is the TUI-corruption regression. The
@@ -93,7 +93,7 @@ func TestCompact_WritesNoProgressToStderr(t *testing.T) {
 	got, err := os.ReadFile(captured)
 	require.NoError(t, err)
 	assert.Empty(t, strings.TrimSpace(string(got)),
-		"a clean distillation must write nothing to the process's stderr — that fd may be a live TUI")
+		"a clean compaction must write nothing to the process's stderr — that fd may be a live TUI")
 }
 
 // TestCompact_NilProgressIsSilentNotFatal: the sink is optional; callers with

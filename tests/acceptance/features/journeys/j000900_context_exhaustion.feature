@@ -19,7 +19,7 @@ Feature: Running out of context mid-task — clearing, and getting the thread ba
 
   # This journey owns the SAME-SESSION loop: the nudge that follows a clear, the
   # recovery that answers it, and the contrast with compaction. It does not
-  # re-drive capture (j001000), plain distillation (j001100), or recall of an EARLIER
+  # re-drive capture (j001000), plain compaction (j001100), or recall of an EARLIER
   # session (j001200) — /clear keeps the same session alive, which is exactly why
   # recover_session and not get_previous_session is the post-clear path.
   #
@@ -74,7 +74,7 @@ Feature: Running out of context mid-task — clearing, and getting the thread ba
   # before it — and returns what was concluded rather than what was said. The
   # marker exists only inside this session's own transcript, so an answer
   # carrying it cannot have come from anywhere else.
-  Scenario: Recovery hands back this session's own thread, distilled
+  Scenario: Recovery hands back this session's own thread, compacted
     Given a captured session "steady-vellum-crane" bound to a backend-native session id
     And the compaction LLM is a mock that never compresses
     When the agent calls tool "recover_session" with:

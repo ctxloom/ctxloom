@@ -22,17 +22,11 @@ import (
 func fullApprovalRequest() coord.ApprovalRequest {
 	return coord.ApprovalRequest{
 		Ask: engine.PermissionAsk{
-			Kind:            engine.AskQuestion,
-			Tool:            "AskUserQuestion",
-			Input:           json.RawMessage(`{"questions":[{"question":"which?"}]}`),
+			Tool:            "Bash",
+			Input:           json.RawMessage(`{"command":"ls"}`),
 			ToolUseID:       "toolu_9",
 			Suggestions:     []string{"Bash(ls:*)"},
 			SuggestsSetMode: engine.Provide("acceptEdits"),
-			Plan:            &engine.PlanProposal{Markdown: "# p", Path: "/p.md"},
-			Questions: []engine.Question{{
-				Header: "Pick", Text: "which?", MultiSelect: true,
-				Options: []engine.QuestionOption{{Label: "a", Description: "first"}, {Label: "b"}},
-			}},
 		},
 		Transitions: []engine.PostureTransition{
 			{Posture: "default", Label: "default"},
@@ -47,7 +41,6 @@ func fullApprovalRequest() coord.ApprovalRequest {
 func TestApprovalRequest_RoundTrips(t *testing.T) {
 	want := fullApprovalRequest()
 	wire := ApprovalRequestToWire(want)
-	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_QUESTION, wire.GetKind())
 	require.Len(t, wire.GetTransitions(), 2)
 	assert.False(t, wire.GetTransitions()[0].GetDefault(), "the default is a flag, not the first offer")
 	assert.True(t, wire.GetTransitions()[1].GetDefault())
@@ -57,14 +50,10 @@ func TestApprovalRequest_RoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 
-	for _, kind := range []engine.AskKind{engine.AskTool, engine.AskQuestion, engine.AskPlan} {
-		req := coord.ApprovalRequest{Ask: engine.PermissionAsk{Kind: kind}}
-		back, err := ApprovalRequestFromWire(ApprovalRequestToWire(req))
-		require.NoError(t, err)
-		assert.Equal(t, kind, back.Ask.Kind)
-		_, set := back.Ask.SuggestsSetMode.Get()
-		assert.False(t, set, "no suggestion on the wire decodes as none")
-	}
+	back, err := ApprovalRequestFromWire(ApprovalRequestToWire(coord.ApprovalRequest{Ask: engine.PermissionAsk{Tool: "Bash"}}))
+	require.NoError(t, err)
+	_, set := back.Ask.SuggestsSetMode.Get()
+	assert.False(t, set, "no suggestion on the wire decodes as none")
 }
 
 // TestApprovalRequestFromWire_Refuses: a request the coordinator cannot
@@ -76,8 +65,7 @@ func TestApprovalRequestFromWire_Refuses(t *testing.T) {
 		mut   func(*agentcoordpb.ApprovalRequest)
 		wants string
 	}{
-		{"unspecified-kind", func(r *agentcoordpb.ApprovalRequest) { r.Kind = agentcoordpb.ApprovalRequest_APPROVAL_KIND_UNSPECIFIED }, "kind"},
-		{"unknown-kind", func(r *agentcoordpb.ApprovalRequest) { r.Kind = 99 }, "kind"},
+		{"no-tool", func(r *agentcoordpb.ApprovalRequest) { r.Tool = "" }, "tool"},
 		{"input-not-json", func(r *agentcoordpb.ApprovalRequest) { r.Input = []byte("{nope") }, "input"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -97,7 +85,6 @@ func TestApprovalDecision_RoundTrips(t *testing.T) {
 		Allow:        true,
 		SessionRules: []string{"Bash(ls:*)"},
 		SetMode:      engine.Provide("acceptEdits"),
-		Answers:      []engine.QuestionAnswer{{Question: "which?", Labels: []string{"a", "b"}, Other: "and c"}},
 		Message:      "go",
 		Decider:      agent.DeciderHuman,
 	}
@@ -260,32 +247,28 @@ func TestPendingApprovalsToWire(t *testing.T) {
 	since := time.Date(2026, 10, 5, 1, 2, 3, 0, time.UTC)
 	ps := []coord.PendingApproval{
 		{
-			ID: "secret-id", Kind: coord.ApprovalTool, From: coord.Identity{Harp: "child-a", RunID: "run-a"}, Agent: "worker",
+			ID: "secret-id", From: coord.Identity{Harp: "child-a", RunID: "run-a"}, Agent: "worker",
 			Lineage: []string{"root", "child-a"}, WorkDir: "/w",
-			Ask:   engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{"command":"make"}`)},
+			Ask:   engine.PermissionAsk{Tool: "Bash", Input: json.RawMessage(`{"command":"make"}`)},
 			Since: since, Deadline: since.Add(15 * time.Minute),
 		},
 		{
-			ID: "other", Kind: coord.ApprovalQuestion, From: coord.Identity{Harp: "child-b"},
-			Ask:   engine.PermissionAsk{Kind: engine.AskQuestion, Questions: []engine.Question{{Header: "Pick"}}},
+			ID: "other", From: coord.Identity{Harp: "child-b"},
+			Ask:   engine.PermissionAsk{Tool: "Read", Input: json.RawMessage(`{"file_path":"/a"}`)},
 			Since: since, Deadline: since.Add(20 * time.Minute),
 		},
-		{ID: "plan", Kind: coord.ApprovalPlan, From: coord.Identity{Harp: "child-c"}, Since: since, Deadline: since.Add(30 * time.Minute)},
 	}
 	out := PendingApprovalsToWire(ps, "/proj")
 	assert.Equal(t, "/proj", out.GetProjectDir())
-	require.Len(t, out.GetPending(), 3)
+	require.Len(t, out.GetPending(), 2)
 	a := out.GetPending()[0]
-	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, a.GetKind())
 	assert.Equal(t, "child-a", a.GetHarp())
 	assert.Equal(t, "worker", a.GetAgent())
 	assert.Equal(t, []string{"root", "child-a"}, a.GetLineage())
 	assert.Equal(t, ps[0].Summary(), a.GetSummary())
 	assert.True(t, since.Equal(a.GetSince().AsTime()))
 	assert.True(t, ps[0].Deadline.Equal(a.GetDeadline().AsTime()))
-	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_QUESTION, out.GetPending()[1].GetKind())
-	assert.Equal(t, "Pick", out.GetPending()[1].GetSummary())
-	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_PLAN, out.GetPending()[2].GetKind())
+	assert.Equal(t, "Read: /a", out.GetPending()[1].GetSummary(), "the queue's order is kept")
 
 	raw, err := protojson.Marshal(out)
 	require.NoError(t, err)
@@ -298,7 +281,7 @@ func TestPendingApprovalsToWire(t *testing.T) {
 // characters — a bidi override arrives as itself; making it safe is each
 // viewer's job, for the place it shows it.
 func TestPendingApprovalsToWire_SummaryIsRaw(t *testing.T) {
-	p := coord.PendingApproval{Kind: coord.ApprovalTool, Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{"command":"ls \u202egnp.exe"}`)}}
+	p := coord.PendingApproval{Ask: engine.PermissionAsk{Tool: "Bash", Input: json.RawMessage(`{"command":"ls \u202egnp.exe"}`)}}
 	out := PendingApprovalsToWire([]coord.PendingApproval{p}, "/proj")
 	assert.Equal(t, "Bash: ls \u202egnp.exe", out.GetPending()[0].GetSummary())
 }

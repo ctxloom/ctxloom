@@ -28,7 +28,7 @@ func TestRunCmd_EveryFlagVarIsActuallyBound(t *testing.T) {
 	for _, name := range []string{
 		"llm", "prompt", "command", "fragment", "tag", "profile",
 		"agent", "workspace", "permissions", "dry-run", "one-shot",
-		"plain-terminal", "no-startup-findings", "verbose", "session", "distill",
+		"plain-terminal", "no-startup-findings", "verbose", "session", "compact",
 		"seed-task", "seed-status",
 	} {
 		assert.NotNil(t, flags.Lookup(name), "--%s is declared but never registered by init()", name)

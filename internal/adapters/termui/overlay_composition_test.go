@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -35,23 +34,28 @@ import (
 // termui (roster.go), this file is package termui_test (an external test
 // package) — an internal termui test importing tui would cycle.
 //
-// syncBuf/waitForComposition/recvWindowSize deliberately re-derive
-// controller_test.go's lockedBuffer/waitFor/drainTranslated idioms rather
-// than reuse them: those helpers are unexported to package termui's internal
-// tests and unreachable from this external package.
+// syncBuf/expiry/await deliberately re-derive controller_test.go's
+// lockedBuffer/expiry/await idioms rather than reuse them: those helpers are
+// unexported to package termui's internal tests and unreachable from this
+// external package.
 
 const compPrefix byte = 0x1d
 
 // syncBuf is a goroutine-safe io.Writer standing in for the tty side a real
-// pty's master-read loop feeds.
+// pty's master-read loop feeds. Every write is an event a wait wakes on.
 type syncBuf struct {
-	mu sync.Mutex
-	b  strings.Builder
+	mu      sync.Mutex
+	b       strings.Builder
+	written chan struct{} // closed by the next write
 }
 
 func (s *syncBuf) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.written != nil {
+		close(s.written)
+		s.written = nil
+	}
 	return s.b.Write(p)
 }
 
@@ -61,37 +65,78 @@ func (s *syncBuf) String() string {
 	return s.b.String()
 }
 
-// waitForComposition polls until cond holds — hermetic, no bare sleeps as
-// synchronization (Wave F playbook timing constraint).
-//
-// The budget is generous on purpose. cond is always an EVENT (bytes the real
-// bubbletea renderer or the Controller wrote through a real pty, or a call
-// the overlay's own command goroutines made), so a longer wait never turns a
-// failure into a pass — it only stops a real event being called absent
-// because a pty round trip, a tea.Program and its renderer were competing for
-// a CPU with every other package `go test ./...` is running at that moment.
-// The previous three seconds sat inside that contention's tail, so it expired
-// on events that were merely late.
-func waitForComposition(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(time.Millisecond)
+// next returns what has been written and a channel the next write closes.
+func (s *syncBuf) next() (string, <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.written == nil {
+		s.written = make(chan struct{})
 	}
-	t.Fatalf("timed out waiting for %s", what)
+	return s.b.String(), s.written
 }
 
-func recvWindowSize(t *testing.T, ch <-chan *agent.WindowSize) *agent.WindowSize {
+// await re-checks cond on every write until it holds, and reports false only
+// at the test's deadline.
+func (s *syncBuf) await(t *testing.T, cond func(string) bool) (string, bool) {
+	t.Helper()
+	expired := expiry(t)
+	for {
+		cur, written := s.next()
+		if cond(cur) {
+			return cur, true
+		}
+		select {
+		case <-written:
+		case <-expired:
+			return s.String(), false
+		}
+	}
+}
+
+// waitUntil blocks until what has arrived satisfies cond.
+func (s *syncBuf) waitUntil(t *testing.T, what string, cond func(string) bool) {
+	t.Helper()
+	if cur, ok := s.await(t, cond); !ok {
+		t.Fatalf("never saw %s; arrived: %q", what, cur)
+	}
+}
+
+// contains is a waitUntil condition.
+func contains(sub string) func(string) bool {
+	return func(s string) bool { return strings.Contains(s, sub) }
+}
+
+// expiry bounds a wait on an event by the test binary's own deadline, less
+// enough to name the event that never came. No wait here carries a deadline of
+// its own: every one is for bytes crossing a real pty or a call a real
+// tea.Program makes, which a loaded machine delays by any amount, and a
+// deadline short enough to matter fails on an event that was merely late.
+func expiry(t *testing.T) <-chan time.Time {
+	d, ok := t.Deadline()
+	if !ok {
+		return nil
+	}
+	return time.After(time.Until(d) - 10*time.Second)
+}
+
+// await receives the event ch carries, failing only at the test's deadline.
+func await[T any](t *testing.T, what string, ch <-chan T) T {
 	t.Helper()
 	select {
-	case ws := <-ch:
-		return ws
-	case <-time.After(3 * time.Second):
-		t.Fatal("no resize event arrived")
-		return nil
+	case v := <-ch:
+		return v
+	case <-expiry(t):
+		t.Fatalf("never received %s", what)
+		var zero T
+		return zero
+	}
+}
+
+// awaitWatch waits for the overlay to open harp's feed: a Watch call is the
+// only frame-diff-proof evidence that it did.
+func awaitWatch(t *testing.T, watches <-chan string, harp string) {
+	t.Helper()
+	for await(t, "a Watch call for "+harp, watches) != harp {
 	}
 }
 
@@ -130,29 +175,16 @@ func newComposedPTY(t *testing.T) (master pty.Pty, slave *os.File, tty *syncBuf)
 // realOverlaySources is a minimal tui.Sources good enough to drive the real
 // Model through one auto-opened roster row (tui's own fakeSources is
 // unexported and package-local — this re-derives the same idiom externally).
-// It also RECORDS the harps the overlay asked to watch: that call is the only
+// Every Watch call is sent on the returned channel: that call is the only
 // frame-diff-proof evidence that a feed was opened (see the engage assertion).
-type recordedSources struct {
-	mu      sync.Mutex
-	watched []string
-}
-
-func (r *recordedSources) watchedHarps() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]string(nil), r.watched...)
-}
-
-func realOverlaySources(harp string) (tui.Sources, *recordedSources) {
-	rec := &recordedSources{}
+func realOverlaySources(harp string) (tui.Sources, <-chan string) {
+	watches := make(chan string, 16)
 	return tui.Sources{
 		Roster: func(context.Context) ([]tui.RosterRow, error) {
 			return []tui.RosterRow{{Harp: harp, State: "live"}}, nil
 		},
 		Watch: func(_ context.Context, h string) (*tui.Feed, error) {
-			rec.mu.Lock()
-			rec.watched = append(rec.watched, h)
-			rec.mu.Unlock()
+			watches <- h
 			return &tui.Feed{
 				Source: "live",
 				Events: make(chan operations.SessionFeedEvent),
@@ -160,7 +192,7 @@ func realOverlaySources(harp string) (tui.Sources, *recordedSources) {
 				Cancel: func() {},
 			}, nil
 		},
-	}, rec
+	}, watches
 }
 
 // pumpEngineInput drains c.Stdin() (the interceptor's engine-bound side) —
@@ -195,7 +227,7 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	ptyDev, slave, tty := newComposedPTY(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	src, watched := realOverlaySources("perky-same-chevy")
+	src, watches := realOverlaySources("perky-same-chevy")
 
 	resize := make(chan *agent.WindowSize, 4)
 	warns := make(chan string, 4)
@@ -219,9 +251,9 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	engine := pumpEngineInput(c)
 
 	resize <- &agent.WindowSize{Rows: 24, Cols: 80}
-	ws := recvWindowSize(t, c.Resize())
+	ws := await(t, "the initial size", c.Resize())
 	require.Equal(t, uint16(23), ws.Rows, "initial size reaches the engine reserved")
-	waitForComposition(t, "surround establish", func() bool { return strings.Contains(tty.String(), "\x1b[1;23r") })
+	tty.waitUntil(t, "the surround's region", contains("\x1b[1;23r"))
 
 	// Engage: prefix + a viewer key, written to the pty's MASTER side (the
 	// "terminal emulator" role) — the controller's interceptor reads them
@@ -246,12 +278,8 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	// (which is the composition claim), and the Watch call proves the row's
 	// feed was auto-opened (which is the behaviour claim). Neither depends on
 	// which side of the race won.
-	waitForComposition(t, "the real overlay painted its panel on the pty", func() bool {
-		return strings.Contains(tty.String(), "feed:")
-	})
-	waitForComposition(t, "the real overlay auto-opened the roster row's feed", func() bool {
-		return slices.Contains(watched.watchedHarps(), "perky-same-chevy")
-	})
+	tty.waitUntil(t, "the real overlay's panel on the pty", contains("feed:"))
+	awaitWatch(t, watches, "perky-same-chevy")
 	assert.Contains(t, tty.String(), "\x1b[?1049h\x1b[r",
 		"engage moves to the alternate screen (saving the engine's screen and cursor) with the full scroll region")
 
@@ -265,7 +293,10 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	// Controller's one atomic restore write + replay + nudge follow.
 	_, err = ptyDev.Write([]byte("q"))
 	require.NoError(t, err)
-	waitForComposition(t, "held output replayed", func() bool { return strings.Contains(tty.String(), "HELD-OUTPUT") })
+	// The nudge is sent after the release wrote its restore and replay to the
+	// pty; the pty delivers them to this side in its own time.
+	first := await(t, "the repaint nudge", c.Resize())
+	tty.waitUntil(t, "the held output's replay", contains("HELD-OUTPUT"))
 
 	out := tty.String()
 	leaveAt := strings.LastIndex(out, "\x1b[?1049l")
@@ -277,15 +308,14 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	assert.Less(t, regionAt, cursorAt, "engine cursor restored (DECRC) after the bar repaint")
 	assert.Less(t, cursorAt, replayAt, "the replay lands on a fully restored screen")
 
-	first := recvWindowSize(t, c.Resize())
-	second := recvWindowSize(t, c.Resize())
+	second := await(t, "the nudge's restore", c.Resize())
 	assert.Equal(t, uint16(22), first.Rows, "repaint nudge wiggles a row")
 	assert.Equal(t, uint16(23), second.Rows)
 
 	// Interceptor is back to passthrough.
 	_, err = ptyDev.Write([]byte("typed-after"))
 	require.NoError(t, err)
-	waitForComposition(t, "passthrough restored", func() bool { return engine.String() == "typed-after" })
+	engine.waitUntil(t, "passthrough restored", func(s string) bool { return s == "typed-after" })
 
 	select {
 	case w := <-warns:
@@ -332,25 +362,21 @@ func TestOverlayComposition_RealOverlayPanicDegradesPermanently(t *testing.T) {
 	engine := pumpEngineInput(c)
 
 	resize <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = recvWindowSize(t, c.Resize())
+	await(t, "the initial size", c.Resize())
 
 	_, err := ptyDev.Write([]byte{compPrefix, 'j'})
 	require.NoError(t, err)
 
-	select {
-	case w := <-warns:
-		assert.Contains(t, w, "plain terminal")
-		assert.Contains(t, w, "panic",
-			"the real Program's own ErrProgramPanic recovery surfaces through the degrade warning")
-	case <-time.After(3 * time.Second):
-		t.Fatal("no degradation warning after the real overlay's Roster source panicked")
-	}
+	w := await(t, "the degradation warning after the real overlay's Roster source panicked", warns)
+	assert.Contains(t, w, "plain terminal")
+	assert.Contains(t, w, "panic",
+		"the real Program's own ErrProgramPanic recovery surfaces through the degrade warning")
 
 	// Permanent: prefix now passes straight through (ixOff, not a one-shot
 	// Disengage) — proven against the real Program/pty stack.
 	_, err = ptyDev.Write([]byte{compPrefix, 'x'})
 	require.NoError(t, err)
-	waitForComposition(t, "permanent passthrough after the real overlay panicked", func() bool {
-		return engine.String() == string(compPrefix)+"x"
+	engine.waitUntil(t, "permanent passthrough after the real overlay panicked", func(s string) bool {
+		return s == string(compPrefix)+"x"
 	})
 }

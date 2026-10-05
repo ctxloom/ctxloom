@@ -229,6 +229,64 @@ func TestPresenter_AnArrivalRingsAndSummonsForTheNewAsker(t *testing.T) {
 	assert.Equal(t, barCall{n: 2, oldest: t0, arrived: true}, r.ui.lastBar())
 }
 
+// TestPresenter_AnArrivalAlreadyPresentedAtStartIsNotSummonedAgain: a
+// request parked before the presenter starts is shown by its start, and its
+// arrival event, delivered after, is the same request — not a second
+// arrival. Summoning it again would bring back a modal the human closed.
+func TestPresenter_AnArrivalAlreadyPresentedAtStartIsNotSummonedAgain(t *testing.T) {
+	req := pending("a", "wiry-otter", t0, t0.Add(9*time.Minute))
+	src := newPresenterSource(req)
+	r := startPresenter(t, src)
+	first := r.ui.nextSummon(t)
+	bars := r.ui.barCount()
+
+	src.events <- coord.QueueEvent{Kind: coord.QueueAdded, ID: req.ID, Pending: 1}
+	src.settle()
+	require.NoError(t, first.ctx.Err(), "the start's summon is not withdrawn for a request it already shows")
+	assert.False(t, r.ui.lastBar().arrived, "no bell: nothing arrived")
+
+	// Resolving the request withdraws every summon in flight and waits for
+	// it, so any summon the event started has been made by now.
+	src.resolve(req.ID, agent.DeciderHuman)
+	src.settle()
+	r.ui.noSummon(t)
+	assert.Greater(t, r.ui.barCount(), bars, "the bar still follows the queue")
+}
+
+// TestPresenter_AnArrivalIsSummonedOnce: one arrival event per request; a
+// repeat of it is not a new arrival.
+func TestPresenter_AnArrivalIsSummonedOnce(t *testing.T) {
+	src := newPresenterSource()
+	r := startPresenter(t, src)
+	src.settle()
+	req := pending("a", "wiry-otter", t0, t0.Add(9*time.Minute))
+	src.add(req)
+	first := r.ui.nextSummon(t)
+	src.events <- coord.QueueEvent{Kind: coord.QueueAdded, ID: req.ID, Pending: 1}
+	src.settle()
+	require.NoError(t, first.ctx.Err(), "a repeated arrival does not replace the summon")
+	src.resolve(req.ID, agent.DeciderHuman)
+	src.settle()
+	r.ui.noSummon(t)
+}
+
+// TestPresenter_AResolvedRequestIsForgotten: what the presenter remembers
+// as shown is the pending requests; one parked again under the same id after
+// it resolved is an arrival again. (The queue mints a fresh id per park
+// today; this keeps the presenter from depending on that.)
+func TestPresenter_AResolvedRequestIsForgotten(t *testing.T) {
+	src := newPresenterSource()
+	r := startPresenter(t, src)
+	src.settle()
+	req := pending("a", "wiry-otter", t0, t0.Add(9*time.Minute))
+	src.add(req)
+	r.ui.nextSummon(t)
+	src.resolve(req.ID, agent.DeciderHuman)
+	src.add(req)
+	s := r.ui.nextSummon(t)
+	assert.Equal(t, termui.Notice{Text: "approval from wiry-otter"}, s.notice)
+}
+
 // TestPresenter_NothingPendingWithdrawsTheSummon: when the last request
 // resolves before the modal could appear, it never appears, and the bar
 // clears.
@@ -347,19 +405,20 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 	modal := &fakeModal{quit: make(chan struct{})}
 	stdinR, stdinW := io.Pipe()
 	tty := &lockedTTY{}
+	// Buffered before New, as watchResize does: the controller establishes the
+	// region inside New.
 	sizes := make(chan *agent.WindowSize, 1)
+	sizes <- &agent.WindowSize{Rows: 24, Cols: 100}
 	ui := termui.New(termui.Options{
 		Stdin: stdinR, TTY: tty, Resize: sizes, Prefix: 0x1d, Surround: true, Clock: clk,
 		NewOverlay: func(s termui.OverlayStart) termui.Overlay { starts <- s; return modal },
 	})
+	require.Contains(t, tty.String(), "\x1b[1;23r", "surround established by New")
+	require.Equal(t, uint16(23), (<-ui.Resize()).Rows, "the initial size, translated inside New")
 	pumpDone := make(chan struct{})
 	go func() {
 		defer close(pumpDone)
 		_, _ = io.Copy(io.Discard, ui.Stdin())
-	}()
-	go func() {
-		for range ui.Resize() {
-		}
 	}()
 	t.Cleanup(func() {
 		ui.Close()
@@ -367,10 +426,11 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 		close(sizes)
 		<-pumpDone
 	})
-	sizes <- &agent.WindowSize{Rows: 24, Cols: 100}
-	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "\x1b[1;23r") }, 5*time.Second, time.Millisecond, "surround established")
 
-	src := newPresenterSource()
+	// Parked before the presenter starts: its start shows it, and its arrival
+	// event, delivered after the modal is closed, must not show it again.
+	req := pending("a", "wiry-otter", clk.Now().Add(-5*time.Second), clk.Now().Add(10*time.Minute))
+	src := newPresenterSource(req)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- modalPresenter{ui: ui, clock: clk}.Present(ctx, src) }()
@@ -378,21 +438,27 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 		cancel()
 		<-done
 	})
-	src.add(pending("a", "wiry-otter", clk.Now().Add(-5*time.Second), clk.Now().Add(10*time.Minute)))
-	select {
-	case s := <-starts:
-		assert.Equal(t, termui.OverlayStart{Summoned: true, View: "approvals"}, s)
-	case <-time.After(5 * time.Second):
-		t.Fatal("the modal was never summoned")
-	}
-	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "⚑ 1 · oldest 00:05") }, 5*time.Second, time.Millisecond)
+	// The presenter sets the bar before it starts the Summon that builds the
+	// modal, so the bar is painted once the modal has been asked for.
+	assert.Equal(t, termui.OverlayStart{Summoned: true, View: "approvals"}, <-starts)
+	assert.Contains(t, tty.String(), "⚑ 1 · oldest 00:05")
 	// The human closes the modal before the request times out. The modal's
-	// teardown runs on the controller's overlay goroutine; the takeover's
-	// leave sequence on the tty is that release having been written.
+	// teardown runs on the controller's overlay goroutine and sends its repaint
+	// nudge after the release is written.
 	modal.Abort()
-	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "\x1b[?1049l") }, 5*time.Second, time.Millisecond, "modal released")
+	require.Equal(t, uint16(22), (<-ui.Resize()).Rows, "the release's nudge")
+	require.Contains(t, tty.String(), "\x1b[?1049l", "modal released")
+	src.events <- coord.QueueEvent{Kind: coord.QueueAdded, ID: req.ID, Pending: 1}
+	src.settle()
+	// The timeout leaves nothing pending, which withdraws any summon in flight
+	// and waits for it: a re-summon from the event has been made by now.
 	src.resolve("a", agent.DeciderTimeout)
 	src.settle()
+	select {
+	case s := <-starts:
+		t.Fatalf("the closed modal re-opened for a request it already showed: %+v", s)
+	default:
+	}
 	// The release counts as engine output, so a note asked for right after it
 	// waits out the bar's engine-busy window — on the controller's clock,
 	// which only the test moves. A second is past that window and well inside

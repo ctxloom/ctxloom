@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	// SinglePassInputTokens is the input budget for the ONE distillation call a
+	// SinglePassInputTokens is the input budget for the ONE compaction call a
 	// session gets. A transcript at or under it is handed to the model whole;
 	// past it, fitToBudget reduces it deterministically (see there) — the
 	// transcript is never split across several calls whose outputs are then
@@ -46,17 +46,17 @@ const (
 	// visibly and in a known place; a reduce pass loses it invisibly.
 	SinglePassInputTokens = 150_000
 	// BytesPerToken is the bytes-per-token ratio, owned by internal/tokens so
-	// the distillation estimate and the dry-run preview agree on one
+	// the compaction estimate and the dry-run preview agree on one
 	// heuristic. Bytes, not characters: fitToBudget slices by byte offset, and
 	// the two readings diverge by 2-4x on non-ASCII text.
 	BytesPerToken = tokens.BytesPerToken
-	// distillConcurrency bounds how many result repairs run in parallel. Each
+	// compactConcurrency bounds how many result repairs run in parallel. Each
 	// repair spawns its own LLM plugin subprocess, so this caps concurrent
 	// subprocesses (and provider rate pressure) while still cutting wall-clock
 	// from sum-of-repairs to roughly slowest × ceil(n/limit).
-	distillConcurrency = 4
+	compactConcurrency = 4
 
-	// MaxEssenceChars is the hard ceiling, in characters, on the distilled
+	// MaxEssenceChars is the hard ceiling, in characters, on the compacted
 	// essence body Compact will save or hand back to a caller. It is the
 	// backstop against a pipeline that "succeeds" (the LLM call exits 0)
 	// but fails to actually COMPRESS: recover_session was once found
@@ -75,7 +75,7 @@ const (
 // CompactionConfig holds settings for session compaction.
 type CompactionConfig struct {
 	// Run drives one turn of the distiller session the caller resolved; every
-	// distillation call this compactor makes goes through it. Required for
+	// compaction call this compactor makes goes through it. Required for
 	// any compaction that distils.
 	Run       Runner
 	Backend   string // Backend name to read session from (e.g., "claude-code")
@@ -89,7 +89,7 @@ type CompactionConfig struct {
 	// opens the session index to build a reader and never names an engine to
 	// pick one. A nil source is "no history".
 	Source Source
-	// Progress receives human-readable distillation progress. It belongs to
+	// Progress receives human-readable compaction progress. It belongs to
 	// the CALLER because only the caller knows whether it has anywhere safe to
 	// put it: a CLI owns its terminal, while the coordinator's host-relay
 	// handlers run inside the session-owning process whose stderr is the live
@@ -98,7 +98,7 @@ type CompactionConfig struct {
 	// is discarded.
 	Progress io.Writer
 	// IncludeThinking, when true, includes agent.EntryTypeThinking entries in
-	// the text handed to distillation. Default false: thinking is
+	// the text handed to compaction. Default false: thinking is
 	// the model's scratch work, verbose and not decision-bearing, and is
 	// exactly the wrong thing to spend a compacted context window on — see
 	// appendEntryText. The escape hatch exists for someone debugging a
@@ -106,12 +106,12 @@ type CompactionConfig struct {
 	// essence; it is not exposed as a CLI/MCP flag yet (deliberately deferred,
 	// narrow use case — wire one if the need becomes real).
 	IncludeThinking bool
-	// EssenceMaxChars is the character budget appended to the distillation
+	// EssenceMaxChars is the character budget appended to the compaction
 	// prompt. 0 takes agent.DefaultEssenceChars. Clamped to MaxEssenceChars,
 	// which is the hard refusal ceiling: a target above it would ask the model
 	// for output Compact must then reject.
 	EssenceMaxChars int
-	// TaskHint states what the RESUMING session intends to do, so distillation
+	// TaskHint states what the RESUMING session intends to do, so compaction
 	// can be task-aware rather than task-agnostic — preferentially retaining
 	// the material that next step will need. Task-agnostic compression is the
 	// measurably weaker regime (LongBench 39.1 vs 44.0 at 5x, arXiv 2403.12968),
@@ -119,8 +119,8 @@ type CompactionConfig struct {
 	// answer as readily as anything else.
 	//
 	// Empty is the honest default and must stay behaviourally free: with no
-	// hint, distillPrompt emits the same bytes it did before this field
-	// existed. A fresh harp has no captured next step, and a distill that
+	// hint, compactPrompt emits the same bytes it did before this field
+	// existed. A fresh harp has no captured next step, and a compaction that
 	// invented one would steer retention by a guess.
 	TaskHint string
 	// PromptDir loads every prompt the compactor sends from a directory on
@@ -146,9 +146,9 @@ type CompactionResult struct {
 	// deterministically thinned before the model ever saw it.
 	InputReduced   bool
 	TotalTokensOut int
-	DistilledPath  string
+	CompactedPath  string
 	Duration       time.Duration
-	// Selection reports what selectForDistill removed before any LLM call.
+	// Selection reports what selectForCompact removed before any LLM call.
 	// Without it a small essence from a well-filtered transcript and one from a
 	// distiller that said nothing are indistinguishable at the output.
 	Selection SelectionStats
@@ -199,7 +199,7 @@ func clampCompactionBounds(config *CompactionConfig) {
 	// was introduced to remove. Clamp and say so rather than honour it.
 	if config.EssenceMaxChars > MaxEssenceChars {
 		clidiag.Warn("ctxloom",
-			"essence_max_chars %d exceeds the %d-char ceiling a distilled essence may reach; using %d",
+			"essence_max_chars %d exceeds the %d-char ceiling a compacted essence may reach; using %d",
 			config.EssenceMaxChars, MaxEssenceChars, MaxEssenceChars)
 		config.EssenceMaxChars = MaxEssenceChars
 	}
@@ -218,9 +218,9 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	harpName := c.resolveHarpName()
 
 	// Stamp the source transcript's byte size now — right after the entries were
-	// read and before the slow distill — so the fingerprint best matches the
-	// content actually distilled. If the live session appends during the distill,
-	// the next staleness check sees live > stamped and correctly re-distills.
+	// read and before the slow compaction — so the fingerprint best matches the
+	// content actually compacted. If the live session appends during the compaction,
+	// the next staleness check sees live > stamped and correctly re-compacts.
 	sourceEntries := transcriptEntryCount(harpName)
 
 	// Plans are the session's own .plan.md documents, read straight from its
@@ -231,7 +231,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 
 	// Convert entries to text for chunking. Plans live in separate files now, so
 	// there are no in-transcript plan blocks to placeholder out.
-	sel := selectForDistill(session.Entries)
+	sel := selectForCompact(session.Entries)
 	app.Artifacts, app.ArtifactsOmitted = sel.Artifacts, sel.ArtifactsOmitted
 	if n := c.repairResults(ctx, sel); n > 0 {
 		c.progressf("ctxloom: recovered %d finding(s) from uncommented results...\n", n)
@@ -240,64 +240,64 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	result.Selection = sel.Stats
 	result.TotalTokensIn = tokens.Estimate(logText)
 
-	// Below the floor there is nothing to compress (see minDistillTokens).
-	// Skip distillation entirely (no plugin subprocess spawned at all) and
+	// Below the floor there is nothing to compress (see minCompactTokens).
+	// Skip compaction entirely (no plugin subprocess spawned at all) and
 	// persist the transcript itself, so the resume flow still finds a valid
 	// essence.
-	if tooLittleToDistill(logText) {
-		return c.dumpUndistilled(session, harpName, sourceEntries, app, result, logText, start)
+	if tooLittleToCompact(logText) {
+		return c.dumpUncompacted(session, harpName, sourceEntries, app, result, logText, start)
 	}
 
-	// ONE distillation call over the whole transcript. An oversized transcript
+	// ONE compaction call over the whole transcript. An oversized transcript
 	// is REDUCED to fit (deterministically, oldest content hardest — see
 	// fitToBudget), never split into chunks whose separate summaries are then
 	// merged by a pass that cannot see the source.
 	fitted, reduced := fitToBudget(logText, SinglePassInputTokens)
 	result.InputReduced = reduced
 	if reduced {
-		c.progressf("ctxloom: transcript exceeds the %d-token distillation budget; compressing older content to fit...\n", SinglePassInputTokens)
+		c.progressf("ctxloom: transcript exceeds the %d-token compaction budget; compressing older content to fit...\n", SinglePassInputTokens)
 	}
 
-	prompt, err := c.distillPrompt()
+	prompt, err := c.compactPrompt()
 	if err != nil {
 		return nil, err
 	}
 
-	c.progressf("ctxloom: distilling session...\n")
-	combined, err := c.runDistill(ctx, prompt, fitted)
+	c.progressf("ctxloom: compacting session...\n")
+	combined, err := c.runCompactTurn(ctx, prompt, fitted)
 	if err != nil {
-		// A failed distillation would otherwise replace a previously good
+		// A failed compaction would otherwise replace a previously good
 		// essence with nothing — data loss, not graceful degradation. Refuse
 		// the save and keep whatever is already on disk.
-		c.warnf("distillation failed; keeping previous essence: %v", err)
-		return nil, fmt.Errorf("distillation failed: %w", err)
+		c.warnf("compaction failed; keeping previous essence: %v", err)
+		return nil, fmt.Errorf("compaction failed: %w", err)
 	}
 	result.TotalTokensOut = tokens.Estimate(combined)
 
 	// Pull the LLM-emitted YAML frontmatter (Phase 3.5.2). If it's
 	// missing/malformed, fall through with empty summary: `session list`
-	// shows "(no summary)" and the user can re-run distill on demand.
+	// shows "(no summary)" and the user can re-run compact on demand.
 	summary, cleanedBody, hadFM := parseLLMFrontmatter(strings.TrimSpace(combined))
 	if !hadFM {
-		c.warnf("distillation lacks YAML frontmatter; deriving summary from body")
+		c.warnf("compaction lacks YAML frontmatter; deriving summary from body")
 		cleanedBody = strings.TrimSpace(combined)
 	}
 
-	// Fail-loud backstop: a "successful" distillation (the LLM call exited 0)
+	// Fail-loud backstop: a "successful" compaction (the LLM call exited 0)
 	// can still hand back something enormous if the model ignored its
 	// character budget and did not actually compress. Never save or return a
 	// body over the bound; the caller (e.g. recover_session) must see an
 	// honest failure instead of an unbounded payload.
 	if len(cleanedBody) > MaxEssenceChars {
-		return nil, fmt.Errorf("distilled essence for session %s is %d chars, over the %d-char bound (MaxEssenceChars); refusing to save or return an unbounded summary", session.ID, len(cleanedBody), MaxEssenceChars)
+		return nil, fmt.Errorf("compacted essence for session %s is %d chars, over the %d-char bound (MaxEssenceChars); refusing to save or return an unbounded summary", session.ID, len(cleanedBody), MaxEssenceChars)
 	}
 
-	return c.finishDistill(session, harpName, sourceEntries, app, result, summary, cleanedBody, start)
+	return c.finishCompact(session, harpName, sourceEntries, app, result, summary, cleanedBody, start)
 }
 
-// minDistillTokens is the floor below which a transcript is not distilled.
+// minCompactTokens is the floor below which a transcript is not compacted.
 //
-// Distillation exists to compress, and its output has a fixed shape (a
+// Compaction exists to compress, and its output has a fixed shape (a
 // frontmatter title plus five headed sections) that costs a couple of hundred
 // tokens however little it says. A transcript below the floor is no larger
 // than any essence of it would be, so the transcript itself is the most
@@ -305,56 +305,56 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 // worse than wasteful: it answers with a refusal or an invention ("the
 // provided content appears to be corrupted"), and that answer would be saved
 // as the session's essence, fluent and authoritative and containing nothing.
-const minDistillTokens = 256
+const minCompactTokens = 256
 
-// tooLittleToDistill reports whether the rendered transcript is below
-// minDistillTokens. It keys on the RENDERED text, not on the entries: a
+// tooLittleToCompact reports whether the rendered transcript is below
+// minCompactTokens. It keys on the RENDERED text, not on the entries: a
 // session with no main-thread entries, and one whose entries render to
 // nothing (only `thinking`, which appendEntryText suppresses by policy, or a
 // type this renderer has no case for), are the zero end of the same range.
-func tooLittleToDistill(logText string) bool {
-	return tokens.Estimate(logText) < minDistillTokens
+func tooLittleToCompact(logText string) bool {
+	return tokens.Estimate(logText) < minCompactTokens
 }
 
 // emptySessionPlaceholder is the body written for a session whose transcript
 // renders to nothing, so the saved essence is never a literal empty string
 // (a blank file would look indistinguishable from a write failure to a
 // human skimming <output dir>/essence.md).
-const emptySessionPlaceholder = "_(empty session — no conversation content to distill)_"
+const emptySessionPlaceholder = "_(empty session — no conversation content to compact)_"
 
-// dumpUndistilled is the short-circuit for tooLittleToDistill: it skips
-// distillation entirely — no LLM plugin subprocess is spawned — and
+// dumpUncompacted is the short-circuit for tooLittleToCompact: it skips
+// compaction entirely — no LLM plugin subprocess is spawned — and
 // persists the transcript text itself as the essence (emptySessionPlaceholder
 // when it is empty; any plan files still re-attached verbatim) via the same
-// saveDistilled/updateSessionIndex plumbing normal distillation uses, so a
+// saveCompacted/updateSessionIndex plumbing normal compaction uses, so a
 // later `session list` sees a well-formed entry rather than
-// a hole. Returns success: too little to distill is not a failure, just
+// a hole. Returns success: too little to compact is not a failure, just
 // nothing to compact.
-func (c *Compactor) dumpUndistilled(session *agent.Session, harpName string, sourceEntries int, app appendices, result *CompactionResult, logText string, start time.Time) (*CompactionResult, error) {
+func (c *Compactor) dumpUncompacted(session *agent.Session, harpName string, sourceEntries int, app appendices, result *CompactionResult, logText string, start time.Time) (*CompactionResult, error) {
 	label := harpName
 	if label == "" {
 		label = session.ID
 	}
-	// A below-floor dump must never REPLACE work that was already distilled.
-	// The dump writes through the same atomic saveDistilled the real pipeline
+	// A below-floor dump must never REPLACE work that was already compacted.
+	// The dump writes through the same atomic saveCompacted the real pipeline
 	// uses, and deriveSummary turns its body into a non-empty summary, so it
-	// would also overwrite the index summary. Re-distills are automatic (the
+	// would also overwrite the index summary. Re-compacts are automatic (the
 	// staleness path) and a session can read as empty or near-empty for
 	// reasons that have nothing to do with its essence — a reaped transcript,
 	// an all-sidechain log — so this fired on real, populated sessions.
 	//
 	// Keeping the existing essence is the right outcome, not an error: too
-	// little to distill is still not a failure, there is simply nothing better
+	// little to compact is still not a failure, there is simply nothing better
 	// to write.
 	if path, ok := c.existingEssence(session.ID, harpName); ok {
-		c.warnf("session %s has too little to distill but already has a distilled essence; keeping %s", label, path)
+		c.warnf("session %s has too little to compact but already has a compacted essence; keeping %s", label, path)
 		result.TotalTokensOut = result.TotalTokensIn
-		result.DistilledPath = path
+		result.CompactedPath = path
 		result.Duration = time.Since(start)
 		return result, nil
 	}
 
-	c.progressf("ctxloom: session %s has too little to distill — saved verbatim\n", label)
+	c.progressf("ctxloom: session %s has too little to compact — saved verbatim\n", label)
 
 	result.TotalTokensOut = result.TotalTokensIn // verbatim dump: no compression ran
 
@@ -362,7 +362,7 @@ func (c *Compactor) dumpUndistilled(session *agent.Session, harpName string, sou
 	if body == "" {
 		body = emptySessionPlaceholder
 	}
-	return c.finishDistill(session, harpName, sourceEntries, app, result, "", body, start)
+	return c.finishCompact(session, harpName, sourceEntries, app, result, "", body, start)
 }
 
 // rotationEssencePath returns where THIS session's per-rotation essence lives:
@@ -381,7 +381,7 @@ func (c *Compactor) rotationEssencePath(harpName, sessionID string) (string, err
 		return filepath.Join(c.config.OutputDir, sessionID+".md"), nil
 	}
 	if harpName == "" {
-		return "", fmt.Errorf("no harp for session %s: a distilled essence is filed under its harp's lineage, so one must be bound before distilling", sessionID)
+		return "", fmt.Errorf("no harp for session %s: a compacted essence is filed under its harp's lineage, so one must be bound before compacting", sessionID)
 	}
 	out, err := harpOutputDir(harpName)
 	if err != nil {
@@ -390,10 +390,10 @@ func (c *Compactor) rotationEssencePath(harpName, sessionID string) (string, err
 	return paths.OutputSegmentEssencePath(out, sessionID), nil
 }
 
-// existingEssence reports whether a distilled essence already exists for this
+// existingEssence reports whether a compacted essence already exists for this
 // session, checking the harp's current essence first (the primary write target)
 // and then this rotation's own essence under segments/, mirroring
-// saveDistilled's own precedence so the two can't disagree about where the
+// saveCompacted's own precedence so the two can't disagree about where the
 // essence lives.
 func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 	if harpName != "" {
@@ -414,21 +414,21 @@ func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 	return "", false
 }
 
-// finishDistill assembles the index summary + Open-Items detail, re-attaches
-// plan blocks, and persists the distilled artifact plus session-index entry.
+// finishCompact assembles the index summary + Open-Items detail, re-attaches
+// plan blocks, and persists the compacted artifact plus session-index entry.
 // Shared by the normal compaction path (cleanedBody is the LLM's combined,
-// possibly-reduced output) and dumpUndistilled (cleanedBody is the transcript
+// possibly-reduced output) and dumpUncompacted (cleanedBody is the transcript
 // itself, or the empty placeholder) so both produce an identically-shaped
 // on-disk essence.
-func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourceEntries int, app appendices, result *CompactionResult, frontmatterSummary, cleanedBody string, start time.Time) (*CompactionResult, error) {
+func (c *Compactor) finishCompact(session *agent.Session, harpName string, sourceEntries int, app appendices, result *CompactionResult, frontmatterSummary, cleanedBody string, start time.Time) (*CompactionResult, error) {
 	// Fall back to the first prose line when there's no frontmatter summary,
-	// so a distilled session never renders as "(no summary)" in `session list`.
+	// so a compacted session never renders as "(no summary)" in `session list`.
 	summary := deriveSummary(frontmatterSummary, cleanedBody)
 
 	body := assembleBody(cleanedBody, app)
 
-	// Save distilled output
-	distilledPath, err := c.saveDistilled(session.ID, body, distilledMeta{
+	// Save compacted output
+	compactedPath, err := c.saveCompacted(session.ID, body, compactedMeta{
 		EntryCount: len(session.Entries),
 		TokensIn:   result.TotalTokensIn,
 		TokensOut:  result.TotalTokensOut,
@@ -437,9 +437,9 @@ func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourc
 		HarpName:   harpName,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("save distilled: %w", err)
+		return nil, fmt.Errorf("save compacted: %w", err)
 	}
-	result.DistilledPath = distilledPath
+	result.CompactedPath = compactedPath
 
 	c.updateSessionIndex(harpName, session.ID, summary, sourceEntries)
 
@@ -452,7 +452,7 @@ func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourc
 // nothing-to-do cases (no backend history support, no session found). An
 // empty session (found, but zero main-thread entries) is NOT rejected here:
 // it's a valid session for Compact to short-circuit to a dump via
-// tooLittleToDistill, not a lookup failure.
+// tooLittleToCompact, not a lookup failure.
 func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, error) {
 	if c.source == nil {
 		return nil, fmt.Errorf("no transcript source: nothing to compact (the caller resolves CompactionConfig.Source)")
@@ -478,7 +478,7 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 		session, err = c.source.GetSession(ctx, sessionID)
 		if err != nil {
 			if explicitSessionID {
-				// The caller (e.g. `session distill <harp>`) asked for exactly
+				// The caller (e.g. `session compact <harp>`) asked for exactly
 				// this session — never silently substitute another one.
 				return nil, fmt.Errorf("get session %s: %w", sessionID, err)
 			}
@@ -503,19 +503,19 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 	if session == nil {
 		return nil, fmt.Errorf("no session found")
 	}
-	// Distillation reflects the conversation the user had: subagent-interior
+	// Compaction reflects the conversation the user had: subagent-interior
 	// (sidechain) entries are attribution data for viewers, not essence input.
 	// A session with zero main-thread entries (including an all-sidechain
 	// session, which filters down to none) is not an error here:
-	// Compact's tooLittleToDistill check short-circuits it to a plain dump rather
-	// than failing, since "nothing to distill" is not "nothing was found".
+	// Compact's tooLittleToCompact check short-circuits it to a plain dump rather
+	// than failing, since "nothing to compact" is not "nothing was found".
 	session.Entries = agent.MainThreadEntries(session.Entries)
 	return session, nil
 }
 
-// progressf reports distillation progress to the caller's sink, or nowhere
+// progressf reports compaction progress to the caller's sink, or nowhere
 // when the caller supplied none. Best-effort: progress never blocks or fails
-// the distillation. The line is formatted into ONE buffer and emitted as a
+// the compaction. The line is formatted into ONE buffer and emitted as a
 // single Write, so concurrent chunk progress doesn't interleave mid-line.
 func (c *Compactor) progressf(format string, args ...any) {
 	if c.config.Progress == nil {
@@ -541,7 +541,7 @@ func (c *Compactor) warnf(format string, args ...any) {
 // appendices are the sections pinned verbatim after the LLM body. They travel
 // together because they are one idea -- content the transcript already states
 // exactly, which a language model can only degrade -- and because carrying
-// them as separate parameters had finishDistill approaching ten arguments,
+// them as separate parameters had finishCompact approaching ten arguments,
 // which is where call sites start transposing them.
 type appendices struct {
 	Plans     []PlanBlock
@@ -552,7 +552,7 @@ type appendices struct {
 }
 
 // assembleBody re-attaches the deterministic appendices after the LLM summary
-// so they survive distillation unmodified, with a blank line between sections.
+// so they survive compaction unmodified, with a blank line between sections.
 //
 // Both appendices exist for the same reason: they are FACTS the transcript
 // already carries exactly, so routing them through a language model can only
@@ -617,7 +617,7 @@ func fitToBudget(text string, budgetTokens int) (string, bool) {
 			// The marker is part of the allowance, not an addition to it, and
 			// the cut lands on a rune boundary: a mid-rune split makes the
 			// text invalid UTF-8, which fails proto3 string marshaling and
-			// silently turns the whole distillation into a failure.
+			// silently turns the whole compaction into a failure.
 			head := textutil.TruncateBytes(entry, allowance-maxElisionMarkerBytes)
 			kept[i] = head + elisionMarker(len(entry)-len(head))
 			remaining -= allowance
@@ -628,7 +628,7 @@ func fitToBudget(text string, budgetTokens int) (string, bool) {
 
 	var b strings.Builder
 	if dropped > 0 {
-		fmt.Fprintf(&b, "_[%d earlier entries omitted: the session exceeded the distillation budget]_\n\n", dropped)
+		fmt.Fprintf(&b, "_[%d earlier entries omitted: the session exceeded the compaction budget]_\n\n", dropped)
 	}
 	for _, entry := range kept {
 		if entry == "" {
@@ -695,7 +695,7 @@ func splitEntryBlocks(text string) []string {
 }
 
 // resolveHarpName returns the harp name keying index entries: the config
-// field wins over the CTXLOOM_SESSION_HARP env var so `ctxloom session distill
+// field wins over the CTXLOOM_SESSION_HARP env var so `ctxloom session compact
 // <harp>` can override without mutating process env.
 func (c *Compactor) resolveHarpName() string {
 	// An explicit SessionID naming a DIFFERENT, genuinely-existing
@@ -728,7 +728,7 @@ func (c *Compactor) resolveHarpName() string {
 // isn't bound yet (SessionStart hasn't fired), or the entry's recorded backend
 // doesn't match the one this compactor is reading from (a bound id is only
 // valid within its own backend's transcript store). Best-effort: an index read
-// failure degrades to "" so distillation still proceeds via the mtime-based
+// failure degrades to "" so compaction still proceeds via the mtime-based
 // CurrentSession fallback rather than erroring — recovery must never block
 // (CLAUDE.md fault tolerance).
 func (c *Compactor) identityBoundSessionID() string {
@@ -751,7 +751,7 @@ func (c *Compactor) identityBoundSessionID() string {
 }
 
 // updateSessionIndex best-effort records the session ID against the harp (so a
-// later `ctxloom session distill <harp>` finds the transcript) and updates the
+// later `ctxloom session compact <harp>` finds the transcript) and updates the
 // index summary, detail lines, and source-size staleness fingerprint. No-op
 // without a harp name; all failures warn, never fatal.
 func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, sourceEntries int) {
@@ -776,7 +776,7 @@ func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, sour
 		// "no entry for this harp", and both fall through to no bind at all.
 		// The bind is first-bind-wins and is never retried, so a harp that
 		// misses it has no session id for the rest of its life and every later
-		// distill/resume fails with "no session bound".
+		// compact/resume fails with "no session bound".
 		c.warnf("read session index for %s: %v (session id not recorded)", harpName, ferr)
 	case entry != nil && entry.SessionID == "":
 		if err := mgr.BindSession(harpName, sessionID, ""); err != nil {
@@ -785,10 +785,10 @@ func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, sour
 	}
 	// The summary and Open Items are read from essence.md itself by every
 	// listing; only the staleness fingerprint is recorded on the session.
-	// Guarded on a non-empty summary so a failed distill (no frontmatter)
+	// Guarded on a non-empty summary so a failed compaction (no frontmatter)
 	// never stamps a fingerprint for an essence that was not produced. The
 	// essence.md frontmatter carries EntryCount unconditionally, so the
-	// authoritative staleness check (loadOrDistillSession) works even here.
+	// authoritative staleness check (loadOrCompactSession) works even here.
 	if summary != "" {
 		if err := mgr.SetSourceEntries(harpName, sourceEntries); err != nil {
 			c.warnf("session fingerprint update failed: %v", err)
@@ -799,7 +799,7 @@ func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, sour
 // transcriptEntryCount returns the ENTRY COUNT of the harp's bound transcript,
 // or 0 when it can't be determined (no harp, no bound path, or unreadable).
 // This is the staleness fingerprint stamped into the essence and index:
-// `session list` and loadOrDistillSession count the same transcript and flag
+// `session list` and loadOrCompactSession count the same transcript and flag
 // the essence out of date once more entries have arrived.
 // Best-effort and read-only per the fault-tolerance philosophy — an
 // unresolvable path degrades to "no fingerprint", never an error.
@@ -816,10 +816,10 @@ func transcriptEntryCount(harpName string) int {
 		return 0
 	}
 	// Prefer the canonical transcript's size (S4): once a harp has
-	// one, that is the file Compact actually distilled from (NewCompactor's
+	// one, that is the file Compact actually compacted from (NewCompactor's
 	// CanonicalFallbackSource), so the staleness fingerprint must be stamped
 	// against IT, not the legacy engine file — otherwise Entry.SourceStale
-	// compares the essence to a source it was never distilled from.
+	// compares the essence to a source it was never compacted from.
 	path := entry.CanonicalTranscriptPath
 	if path == "" {
 		path = entry.TranscriptPath
@@ -842,16 +842,16 @@ func transcriptEntryCount(harpName string) int {
 	return count
 }
 
-// sessionToText converts a session to readable text for distillation. Plans
+// sessionToText converts a session to readable text for compaction. Plans
 // live in separate .plan.md files (re-attached verbatim from RenderPlans), so
 // the transcript text is rendered straight through.
 func (c *Compactor) sessionToText(session *agent.Session) (string, SelectionStats) {
-	sel := selectForDistill(session.Entries)
+	sel := selectForCompact(session.Entries)
 	return c.renderEntries(sel.Entries), sel.Stats
 }
 
 // renderEntries writes already-selected entries as the text handed to
-// distillation. Split from selection so the LLM repair pass (repairResults)
+// compaction. Split from selection so the LLM repair pass (repairResults)
 // has somewhere to sit between the two: it rewrites entries, and rendering
 // must see the rewritten ones.
 func (c *Compactor) renderEntries(entries []agent.SessionEntry) string {
@@ -865,7 +865,7 @@ func (c *Compactor) renderEntries(entries []agent.SessionEntry) string {
 // repairResults recovers a finding for each large tool result the agent never
 // commented on, and writes it into the entry in place of the excerpt.
 //
-// Bounded by the same concurrency limit as chunk distillation, because each
+// Bounded by the same concurrency limit as chunk compaction, because each
 // repair spawns its own plugin subprocess. A repair that fails leaves the
 // entry exactly as selection rendered it -- shape line plus excerpt -- so the
 // worst case is the deterministic behaviour, never an empty result. That is
@@ -877,7 +877,7 @@ func (c *Compactor) repairResults(ctx context.Context, sel Selection) int {
 	}
 	var recovered atomic.Int64
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, distillConcurrency)
+	sem := make(chan struct{}, compactConcurrency)
 
 	for _, r := range sel.Repairs {
 		wg.Add(1)
@@ -913,7 +913,7 @@ func (c *Compactor) recoverFinding(ctx context.Context, r ResultRepair) (string,
 	if err != nil {
 		return "", err
 	}
-	out, err := c.runDistill(ctx, prompt, content)
+	out, err := c.runCompactTurn(ctx, prompt, content)
 	if err != nil {
 		return "", err
 	}
@@ -939,7 +939,7 @@ func truncateForSummary(s string) string {
 // the switch simply predating the entry type; it is now an explicit policy.
 // Thinking is the model's scratch work — verbose, and the model talking to
 // itself — not the conclusions a compacted context should spend tokens on.
-// Suppressing it here (at SELECTION time, in distill/compact) rather than at
+// Suppressing it here (at SELECTION time, in Compact) rather than at
 // capture time is deliberate: the canonical transcript is the durable record
 // cross-engine resume reads, and dropping thinking there would be an
 // unrecoverable loss the IR2/IR3 fidelity work explicitly guards against.
@@ -989,7 +989,7 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 			builder.WriteString(renderErrorBody(entry.ToolOutput))
 			builder.WriteString(" [ERROR]")
 		} else {
-			// selectForDistill already reduced this to a shape line, or to a
+			// selectForCompact already reduced this to a shape line, or to a
 			// shape line plus an excerpt where nothing was said about it.
 			builder.WriteString(entry.ToolOutput)
 		}
@@ -1000,26 +1000,28 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 	}
 }
 
-// runDistill executes one distillation turn over transcript-shaped content:
-// Distill on this compactor's runner, the content enveloped as a
-// <session_log>. The session distillation and the per-result finding repair
+// runCompactTurn executes one compaction turn over transcript-shaped content:
+// RunPrompt on this compactor's runner, the content enveloped as a
+// <session_log>. The session compaction and the per-result finding repair
 // (recoverFinding) both go through here; the prompt itself is built by
-// Distill so the shape stays in one place.
-func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string) (string, error) {
-	return Distill(ctx, c.config.Run, systemPrompt, fmt.Sprintf("<session_log>\n%s\n</session_log>", content))
+// RunPrompt so the shape stays in one place.
+func (c *Compactor) runCompactTurn(ctx context.Context, systemPrompt, content string) (string, error) {
+	return RunPrompt(ctx, c.config.Run, systemPrompt, fmt.Sprintf("<session_log>\n%s\n</session_log>", content))
 }
 
-// distilledMeta is the YAML front-matter stored at the top of every
-// distilled session .md file. Programmatic readers (e.g. the rectifier's
+// compactedMeta is the YAML front-matter stored at the top of every
+// compacted session .md file. Programmatic readers (e.g. the rectifier's
 // staleness check, `session list`) consume these fields without
 // parsing the body.
-type distilledMeta struct {
-	SessionID   string    `yaml:"session_id"`
-	HarpName    string    `yaml:"harp_name,omitempty"`
-	DistilledAt time.Time `yaml:"distilled_at"`
-	// EntryCount is the number of entries this essence was distilled from, and
-	// doubles as the STALENESS FINGERPRINT: loadOrDistillSession counts the
-	// live transcript's entries and re-distills once more have arrived;
+type compactedMeta struct {
+	// SchemaVersion is essenceKind's generation; the writer stamps the current one.
+	SchemaVersion int       `yaml:"schema_version"`
+	SessionID     string    `yaml:"session_id"`
+	HarpName      string    `yaml:"harp_name,omitempty"`
+	CompactedAt   time.Time `yaml:"compacted_at"`
+	// EntryCount is the number of entries this essence was compacted from, and
+	// doubles as the STALENESS FINGERPRINT: loadOrCompactSession counts the
+	// live transcript's entries and re-compacts once more have arrived;
 	// `session list` badges the row "out of date".
 	//
 	// It replaced a separate byte-size fingerprint, which was justified by
@@ -1033,13 +1035,13 @@ type distilledMeta struct {
 	TokensOut  int `yaml:"tokens_out,omitempty"`
 	PlanBlocks int `yaml:"plan_blocks"`
 	// Summary is the one-line essence emitted by the LLM in its own YAML
-	// frontmatter; see parseLLMFrontmatter. Empty when distillation produced
+	// frontmatter; see parseLLMFrontmatter. Empty when compaction produced
 	// no valid frontmatter (graceful degrade: `session list` shows "no summary").
 	Summary string `yaml:"summary,omitempty"`
 }
 
 // parseLLMFrontmatter peels a leading YAML block off the LLM-produced
-// distillation, returning the summary value and the body sans frontmatter.
+// compaction, returning the summary value and the body sans frontmatter.
 // On any failure (no leading ---, no closing ---, malformed YAML), returns
 // ("", original, false) so callers can fall back without corrupting output.
 // Summary is trimmed and capped at 80 chars per the prompt spec.
@@ -1064,7 +1066,7 @@ func parseLLMFrontmatter(out string) (summary, body string, ok bool) {
 	return sessions.FirstLineSummary(parsed.Summary), bodyText, true
 }
 
-// deriveSummary returns the index one-liner for a distillation: the LLM's
+// deriveSummary returns the index one-liner for a compaction: the LLM's
 // frontmatter summary when present, otherwise the first non-empty, non-heading
 // line of the body. Both are reduced to a single line capped at 80 bytes so a
 // session with any content never renders as "(no summary)".
@@ -1082,7 +1084,7 @@ func deriveSummary(frontmatterSummary, body string) string {
 	return ""
 }
 
-// saveDistilled writes the distilled session as markdown with YAML
+// saveCompacted writes the compacted session as markdown with YAML
 // front-matter. Path resolution:
 //
 //   - If meta.HarpName is set, write to <output dir>/essence.md (harpOutputDir)
@@ -1090,18 +1092,19 @@ func deriveSummary(frontmatterSummary, body string) string {
 //     the body) under the legacy outputDir so existing callers that look up
 //     by sessionID continue to work.
 //   - Otherwise, fall back to the legacy <outputDir>/<sessionID>.md layout.
-func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (string, error) {
-	// The floor: never write an empty distillation. The write is atomic and
+func (c *Compactor) saveCompacted(sessionID, body string, meta compactedMeta) (string, error) {
+	// The floor: never write an empty compaction. The write is atomic and
 	// replaces the previous essence.md, so an empty body is not a degraded
-	// result — it is silent destruction of the only distilled record of a
+	// result — it is silent destruction of the only compacted record of a
 	// session. Refusing here backstops every route into this function, not just
 	// the empty-LLM-output one that was found.
 	if strings.TrimSpace(body) == "" {
-		return "", fmt.Errorf("refusing to write an empty distillation for session %s: it would replace any existing essence with nothing", sessionID)
+		return "", fmt.Errorf("refusing to write an empty compaction for session %s: it would replace any existing essence with nothing", sessionID)
 	}
 
 	meta.SessionID = sessionID
-	meta.DistilledAt = time.Now().UTC()
+	meta.SchemaVersion = essenceKind.Current()
+	meta.CompactedAt = time.Now().UTC()
 
 	frontmatter, err := yaml.Marshal(meta)
 	if err != nil {
@@ -1118,10 +1121,10 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 	docBytes := []byte(doc.String())
 
 	// Two writes, both under the harp: essence.md is the harp's CURRENT
-	// distillation, and segments/<sessionID>.md is THIS rotation's, keyed
-	// beside the canonical segment it was distilled from. essence.md is
-	// overwritten by every distill, so without the second write a harp's
-	// earlier rotations leave no distilled record at all.
+	// compaction, and segments/<sessionID>.md is THIS rotation's, keyed
+	// beside the canonical segment it was compacted from. essence.md is
+	// overwritten by every compaction, so without the second write a harp's
+	// earlier rotations leave no compacted record at all.
 	rotationPath, err := c.rotationEssencePath(meta.HarpName, sessionID)
 	if err != nil {
 		return "", err
@@ -1176,65 +1179,59 @@ func harpOutputDir(harpName string) (string, error) {
 	return sessions.OutputDirIn(harpName, os.Getenv)
 }
 
-// DistilledSession is the loaded form of a distilled session .md file:
+// CompactedSession is the loaded form of a compacted session .md file:
 // front-matter fields plus the full markdown body (everything after
 // the closing "---").
-type DistilledSession struct {
+type CompactedSession struct {
 	SessionID     string
-	DistilledAt   time.Time
+	CompactedAt   time.Time
 	SourceEntries int
 	TokensOut     int
 	Body          string
 }
 
-// LoadDistilledSession reads <sessionsDir>/<sessionID>.md.
-func LoadDistilledSession(fsys afero.Fs, sessionsDir, sessionID string) (*DistilledSession, error) {
-	path := filepath.Join(sessionsDir, sessionID+".md")
-	data, err := afero.ReadFile(fsys, path)
+// LoadCompactedSession reads <sessionsDir>/<sessionID>.md.
+func LoadCompactedSession(fsys afero.Fs, sessionsDir, sessionID string) (*CompactedSession, error) {
+	data, err := readEssence(fsys, filepath.Join(sessionsDir, sessionID+".md"))
 	if err != nil {
 		return nil, err
 	}
-	return parseDistilledMarkdown(data)
+	return parseCompactedMarkdown(data)
 }
 
-// parseDistilledMarkdown extracts front-matter + body from a distilled .md.
-func parseDistilledMarkdown(data []byte) (*DistilledSession, error) {
-	text := string(data)
-	if !strings.HasPrefix(text, "---\n") {
-		return nil, fmt.Errorf("distilled file missing front-matter")
+// parseCompactedMarkdown extracts front-matter + body from a compacted .md.
+func parseCompactedMarkdown(data []byte) (*CompactedSession, error) {
+	fm, after, err := splitEssence(data)
+	if err != nil {
+		return nil, err
 	}
-	rest := text[len("---\n"):]
-	end := strings.Index(rest, "\n---\n")
-	if end < 0 {
-		return nil, fmt.Errorf("distilled file has unterminated front-matter")
-	}
-	var meta distilledMeta
-	if err := yaml.Unmarshal([]byte(rest[:end+1]), &meta); err != nil {
+	var meta compactedMeta
+	if err := yaml.Unmarshal([]byte(fm), &meta); err != nil {
 		return nil, fmt.Errorf("parse front-matter: %w", err)
 	}
-	body := strings.TrimLeft(rest[end+len("\n---\n"):], "\n")
-	return &DistilledSession{
+	body := strings.TrimLeft(after, "\n")
+	return &CompactedSession{
 		SessionID:     meta.SessionID,
-		DistilledAt:   meta.DistilledAt,
+		CompactedAt:   meta.CompactedAt,
 		SourceEntries: meta.EntryCount,
 		TokensOut:     meta.TokensOut,
 		Body:          body,
 	}, nil
 }
 
-// sessionDistillPromptName is the prompt file's stem, shared by the embedded
+// sessionCompactPromptName is the prompt file's stem, shared by the embedded
 // lookup and the on-disk PromptDir override so the two can never name
 // different files.
-const sessionDistillPromptName = "session-distill"
+const sessionCompactPromptName = "session-compact"
 
-// sessionDistillPrompt is the embedded system prompt for session distillation.
+// sessionCompactPrompt is the embedded system prompt for session compaction.
 // It requires a leading YAML frontmatter block carrying a one-line summary so
 // a session's title is available without a second LLM call, and orders the body
 // sections with Open Items first to optimize the resume use case ("what do I
 // need to pick up?").
-var sessionDistillPrompt = resources.MustGetPromptText(sessionDistillPromptName)
+var sessionCompactPrompt = resources.MustGetPromptText(sessionCompactPromptName)
 
-// distillPrompt is the distillation instruction with this compactor's essence
+// compactPrompt is the compaction instruction with this compactor's essence
 // budget appended. The number is injected rather than written into the prompt
 // file so there is ONE source for it -- a budget stated in prose and a budget
 // resolved from config would drift, and only the prose one is visible to the
@@ -1243,14 +1240,14 @@ var sessionDistillPrompt = resources.MustGetPromptText(sessionDistillPromptName)
 // A PromptDir read failure is returned, never swallowed: falling back to the
 // embedded prompt would report a result attributed to the variant under
 // evaluation while actually measuring the built-in one.
-func (c *Compactor) distillPrompt() (string, error) {
-	text, err := c.promptText(sessionDistillPromptName, sessionDistillPrompt)
+func (c *Compactor) compactPrompt() (string, error) {
+	text, err := c.promptText(sessionCompactPromptName, sessionCompactPrompt)
 	if err != nil {
 		return "", err
 	}
 	prompt := fmt.Sprintf("%s\n- The finished essence must be under %d characters.\n",
 		text, c.config.EssenceMaxChars)
-	// Appended ONLY when a hint exists, so a no-hint distill is byte-identical
+	// Appended ONLY when a hint exists, so a no-hint compaction is byte-identical
 	// to one from before task-awareness landed. An empty hint rendered as an
 	// empty section would still change the prompt, and every essence produced
 	// without a hint would then be attributable to a prompt no evaluation had

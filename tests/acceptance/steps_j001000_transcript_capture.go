@@ -198,7 +198,7 @@ func j001000ReadCanonicalTranscript(w *World, harp string) (string, error) {
 
 // j001000ReadCanonicalRecords parses harp's canonical transcript into the real
 // production transcript.Record type — the same schema the Recorder writes
-// and every other reader (distill, resume) consumes — rather than a
+// and every other reader (compact, resume) consumes — rather than a
 // hand-rolled duplicate shape that could silently drift from it.
 func j001000ReadCanonicalRecords(w *World, harp string) ([]transcript.Record, error) {
 	body, err := j001000ReadCanonicalTranscript(w, harp)

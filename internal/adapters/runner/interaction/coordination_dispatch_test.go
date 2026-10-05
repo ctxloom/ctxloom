@@ -20,11 +20,11 @@ func TestCoordinationHandler_ResolvesEveryCoordinationTool(t *testing.T) {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
-			h, err := coordinationHandler(rep, nil, "harp", "/cwd", name)
+			h, err := coordinationHandler(rep, nil, &artifactStamper{harp: "harp"}, "/cwd", name)
 			require.NoError(t, err)
 			assert.NotNil(t, h)
 		})
 	}
-	_, err := coordinationHandler(rep, nil, "harp", "/cwd", "no_such_tool")
+	_, err := coordinationHandler(rep, nil, &artifactStamper{harp: "harp"}, "/cwd", "no_such_tool")
 	require.Error(t, err)
 }

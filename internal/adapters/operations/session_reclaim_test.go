@@ -41,7 +41,7 @@ var srOldEnough = time.Now().Add(-90 * 24 * time.Hour)
 // srSeedHarp plants a harp directory in the real session-dir layout — the
 // sidecar at the top, scratch/ and transcripts/ and package/ as peers, each
 // holding bytes, and an essence in the session's recorded output dir so it
-// reads as distilled — and back-dates it, so "aged" is a property of the
+// reads as compacted — and back-dates it, so "aged" is a property of the
 // fixture rather than of how long the test ran.
 //
 // The layout is the point: the sweep's whole contract is WHICH of these

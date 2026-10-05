@@ -340,7 +340,8 @@ func WithLead(ctx context.Context, deps Deps, l Launch, blocks ...composite.Frag
 // package: the ONE builder, so the runner and the local launcher deliver
 // the same value.
 func (l Launch) Loadout(pkg composite.Package) delivery.Loadout {
-	return delivery.Loadout{Plan: l.Plan, Package: pkg, Exports: l.Exports, Index: l.Index, MCP: l.MCP, Identity: l.Identity, WorkDir: l.Cell.Paths.Paths().ProjectRoot.Host}
+	roots := l.Cell.Paths.Paths()
+	return delivery.Loadout{Plan: l.Plan, Package: pkg, Exports: l.Exports, Index: l.Index, MCP: l.MCP, Identity: l.Identity, WorkDir: roots.ProjectRoot.Host, SessionHome: roots.SessionHome.Host}
 }
 
 // Target is where this launch's static items land: the cell's advised

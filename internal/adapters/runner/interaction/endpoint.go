@@ -62,7 +62,7 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 		return delivery.Served{}, err
 	}
 	rep := report.To(e.Reporter)
-	server, err := NewServer(rep, e.Home, lo.Identity.Harp, lo.WorkDir, lo.Identity.Leaf, loadoutSurface{lo: lo}, e.Wake)
+	server, err := NewServer(rep, e.Home, lo.Identity.Harp, lo.WorkDir, lo.SessionHome, lo.Identity.Leaf, loadoutSurface{lo: lo}, e.Wake)
 	if err != nil {
 		return delivery.Served{}, err
 	}

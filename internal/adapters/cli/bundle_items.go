@@ -62,34 +62,26 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 		w.Println("No changes made.")
 		return w.Err()
 	}
-	// An emptied editor buffer (the user deleted everything and
-	// saved, or the editor exited leaving a blank temp file) still differs
-	// from mcpYAML, so it fell straight past the "No changes made" guard
-	// above. yaml.Unmarshal("", &edited) succeeds with a ZERO-VALUE struct —
-	// no error, no empty-input signal of its own — so this must be checked
-	// explicitly, before it ever reaches SetBundleMCP, which validates
-	// nothing about Command being non-empty.
-	if strings.TrimSpace(newContent) == "" {
-		return fmt.Errorf("aborted: the edited MCP config is empty; bundle %q was not changed", bundleName)
+	edited, err := parseEditedMCP(newContent, bundleName)
+	if err != nil {
+		return err
 	}
 
-	var edited bundles.BundleMCP
-	if err := yaml.Unmarshal([]byte(newContent), &edited); err != nil {
-		return fmt.Errorf("invalid YAML: %w", err)
-	}
-	if edited.Command == "" {
-		return fmt.Errorf("aborted: the edited MCP config has no `command:`; bundle %q was not changed", bundleName)
-	}
-
+	// The buffer is the whole entry, so the input names every field: a field
+	// deleted from the buffer is cleared, not kept from the stored entry.
 	if _, err := operations.SetBundleMCP(cmd.Context(), cfg, operations.SetBundleMCPRequest{
 		Bundle: bundleName,
 		Name:   mcpName,
 		MCP: operations.BundleMCPInput{
-			Command:      edited.Command,
-			Args:         edited.Args,
-			Env:          edited.Env,
-			Notes:        edited.Notes,
-			Installation: edited.Installation,
+			Command:      &edited.Command,
+			Args:         &edited.Args,
+			Env:          &edited.Env,
+			URL:          &edited.URL,
+			Headers:      &edited.Headers,
+			Tags:         &edited.Tags,
+			ServedBy:     &edited.ServedBy,
+			Notes:        &edited.Notes,
+			Installation: &edited.Installation,
 		},
 	}); err != nil {
 		return err
@@ -97,6 +89,27 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 
 	w.Printf("Updated MCP server %q in bundle %q\n", mcpName, bundleName)
 	return w.Err()
+}
+
+// parseEditedMCP decodes an MCP editor buffer, refusing an empty one.
+// Whether the entry is launchable is SetBundleMCP's question.
+func parseEditedMCP(newContent, bundleName string) (bundles.BundleMCP, error) {
+	// An emptied editor buffer (the user deleted everything and
+	// saved, or the editor exited leaving a blank temp file) still differs
+	// from the original buffer, so it gets past runBundleMCPEdit's "No
+	// changes made" guard. yaml.Unmarshal("", &edited) succeeds with a ZERO-VALUE struct —
+	// no error, no empty-input signal of its own — so this must be checked
+	// explicitly: SetBundleMCP refuses an entry with no target, but an empty
+	// buffer is the user abandoning the edit, and is reported as that.
+	if strings.TrimSpace(newContent) == "" {
+		return bundles.BundleMCP{}, fmt.Errorf("aborted: the edited MCP config is empty; bundle %q was not changed", bundleName)
+	}
+
+	var edited bundles.BundleMCP
+	if err := yaml.Unmarshal([]byte(newContent), &edited); err != nil {
+		return bundles.BundleMCP{}, fmt.Errorf("invalid YAML: %w", err)
+	}
+	return edited, nil
 }
 
 // editInEditor opens content in the configured editor and returns the edited

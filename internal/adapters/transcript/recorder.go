@@ -59,14 +59,6 @@ type fileRecorder struct {
 	now    func() time.Time
 	policy RawPolicy
 
-	// defaultPath is true when path is STILL the default canonical location
-	// (paths.HarpCanonicalTranscriptPath(harp), never overridden by
-	// WithPath or WithWriter) — see ensureFile's ownership-probe lock, which
-	// only a default-path recorder takes. An overridden recorder writes to a
-	// file or writer nothing else contends for, so taking the lock there
-	// would cost a syscall for no exclusion anybody needs.
-	defaultPath bool
-
 	// open creates/appends the transcript file. A seam, not a strategy: the
 	// only production implementation is openAppendFile(fs), and it exists so a
 	// test can drive the partial-write path — a Write that delivers SOME
@@ -129,22 +121,6 @@ func WithClock(now func() time.Time) RecorderOption {
 	}
 }
 
-// WithPath overrides the file a Recorder writes to, which otherwise is always
-// paths.HarpCanonicalTranscriptPath(harp).
-//
-// The file is opened through the Recorder's fs, appending. Live capture never
-// passes this: the harp IS the destination there, and letting a capture path
-// choose its own file would put a session's bytes somewhere nothing reads
-// back. A re-conversion fills a safefs.AtomicFile through WithWriter instead.
-func WithPath(p string) RecorderOption {
-	return func(r *fileRecorder) {
-		if p != "" {
-			r.path = p
-			r.defaultPath = false
-		}
-	}
-}
-
 // WithWriter makes a Recorder append its lines to w instead of opening a
 // file: no path is opened, no directory is created, no ownership lock is
 // taken, and Close leaves w open, because w belongs to the caller.
@@ -162,7 +138,6 @@ func WithWriter(w io.Writer) RecorderOption {
 	return func(r *fileRecorder) {
 		if w != nil {
 			r.writer = w
-			r.defaultPath = false
 		}
 	}
 }
@@ -183,8 +158,7 @@ func WithContinuation(seq int, sessionID string) RecorderOption {
 }
 
 // NewRecorder returns a Recorder for harp/engine, targeting
-// paths.HarpCanonicalTranscriptPath(harp) unless WithPath or WithWriter
-// overrides it.
+// paths.HarpCanonicalTranscriptPath(harp) unless WithWriter overrides it.
 //
 // The underlying file is opened LAZILY, on the first successful Record call —
 // NOT eagerly here — and the transcripts/ directory is created at that same
@@ -218,14 +192,13 @@ func NewRecorder(fs afero.Fs, harp, engine string, opts ...RecorderOption) (Reco
 		return nil, fmt.Errorf("transcript: resolve canonical transcript path for harp %q: %w", harp, err)
 	}
 	r := &fileRecorder{
-		fs:          fs,
-		harp:        harp,
-		engine:      engine,
-		path:        p,
-		defaultPath: true,
-		now:         func() time.Time { return time.Now().UTC() },
-		policy:      DefaultRawPolicy,
-		open:        openAppendFile(fs),
+		fs:     fs,
+		harp:   harp,
+		engine: engine,
+		path:   p,
+		now:    func() time.Time { return time.Now().UTC() },
+		policy: DefaultRawPolicy,
+		open:   openAppendFile(fs),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -298,9 +271,9 @@ func openAppendFile(fs afero.Fs) func(path string) (io.WriteCloser, error) {
 //
 // A WithWriter recorder opens nothing: its lines go to the caller's writer.
 //
-// A DEFAULT-path recorder (no WithPath or WithWriter override — the two structured/ACP
+// Every other recorder writes the canonical path (the two structured/ACP
 // host seams, the engine chat client and
-// internal/core/coord/enginehost.go) also takes a SHARED ownership
+// internal/core/coord/enginehost.go) and takes a SHARED ownership
 // lock on the canonical transcript here, held for the recorder's lifetime
 // and released in Close. This is the other half of the easeful-dial fix:
 // operations.convertVendorTranscript's refresh path takes the matching
@@ -316,20 +289,18 @@ func (r *fileRecorder) ensureFile() error {
 		r.file = callerOwnedWriter{r.writer}
 		return nil
 	}
-	if r.defaultPath {
-		lockPath := paths.PathFor(r.path)
-		if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
-			return fmt.Errorf("transcript: prepare canonical-transcript ownership lock directory for %s: %w", r.path, err)
-		}
-		fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
-		stop := lockwait.Watch(lockPath)
-		err := fl.RLock()
-		stop()
-		if err != nil {
-			return fmt.Errorf("transcript: acquire canonical-transcript ownership lock for %s: %w", r.path, err)
-		}
-		r.unlock = func() { _ = fl.Unlock() }
+	lockPath := paths.PathFor(r.path)
+	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
+		return fmt.Errorf("transcript: prepare canonical-transcript ownership lock directory for %s: %w", r.path, err)
 	}
+	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+	stop := lockwait.Watch(lockPath)
+	err := fl.RLock()
+	stop()
+	if err != nil {
+		return fmt.Errorf("transcript: acquire canonical-transcript ownership lock for %s: %w", r.path, err)
+	}
+	r.unlock = func() { _ = fl.Unlock() }
 	if err := r.fs.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
 		r.releaseLock()
 		return fmt.Errorf("transcript: create transcripts dir: %w", err)

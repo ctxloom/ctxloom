@@ -485,7 +485,14 @@ type SetBundleMCPRequest struct {
 	Store bundles.Store `json:"-"`
 }
 
-// SetBundleMCPResult reports an updated MCP server.
+// SetBundleMCPResult.Status values: whether the set made the entry or changed
+// one the bundle already had.
+const (
+	SetBundleMCPStatusCreated = "created"
+	SetBundleMCPStatusUpdated = "updated"
+)
+
+// SetBundleMCPResult reports a created or updated MCP server.
 type SetBundleMCPResult struct {
 	Status string `json:"status"`
 	Bundle string `json:"bundle"`
@@ -494,7 +501,9 @@ type SetBundleMCPResult struct {
 }
 
 // SetBundleMCP upserts an MCP server config into a bundle (symlink-guarded
-// save), the write half of an MCP edit. The frontend supplies a structured
+// save), the write half of an MCP edit: req.MCP is patched onto the entry (see
+// BundleMCPInput), or onto the zero entry when the bundle lacks one, and an
+// entry the loader would refuse is not saved (refuseUnloadableMCP). The frontend supplies a structured
 // BundleMCPInput — it never hands the core its editor's raw YAML.
 func SetBundleMCP(_ context.Context, cfg *config.Config, req SetBundleMCPRequest) (*SetBundleMCPResult, error) {
 	store := bundleStore(cfg, req.Store)
@@ -502,11 +511,18 @@ func SetBundleMCP(_ context.Context, cfg *config.Config, req SetBundleMCPRequest
 	if err != nil {
 		return nil, err
 	}
+	status := SetBundleMCPStatusUpdated
+	if _, had := bundle.MCP[req.Name]; !had {
+		status = SetBundleMCPStatusCreated
+	}
 	applyMCPEdits(bundle, map[string]BundleMCPInput{req.Name: req.MCP}, nil, nil)
+	if err := refuseUnloadableMCP(bundle); err != nil {
+		return nil, err
+	}
 	if err := store.Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
-	return &SetBundleMCPResult{Status: "updated", Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}, nil
+	return &SetBundleMCPResult{Status: status, Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}, nil
 }
 
 // itemFields is the read-side projection of a bundle item: every field the item

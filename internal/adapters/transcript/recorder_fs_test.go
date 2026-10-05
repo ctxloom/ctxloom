@@ -11,17 +11,21 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestNewRecorder_WritesThroughTheGivenFs: the recorder's transcripts dir and its
-// held append handle both come from the fs it was given, so a caller filling a
-// safefs.AtomicFile's temp file over some fs reaches that file through the
-// same fs — never past it on the OS filesystem.
+// held append handle both come from the fs it was given — never past it on the
+// OS filesystem. (The ownership lock is a kernel lock and lives on the OS
+// filesystem by design.)
 func TestNewRecorder_WritesThroughTheGivenFs(t *testing.T) {
+	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
-	path := filepath.Join(t.TempDir(), "persist", "transcript.jsonl")
-	rec, err := NewRecorder(fs, "fs-harp", "mock", WithPath(path))
+	path, err := paths.HarpCanonicalTranscriptPath("fs-harp")
+	require.NoError(t, err)
+	rec, err := NewRecorder(fs, "fs-harp", "mock")
 	require.NoError(t, err)
 
 	for _, text := range []string{"first", "second"} {

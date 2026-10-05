@@ -1,0 +1,151 @@
+//go:build arch
+
+package arch
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+// hermeticGitFile and hermeticGitFunc name the one place test code may build a
+// git process itself: taskstest.GitCmd.
+const (
+	hermeticGitFile = "internal/shared/tasks/taskstest/gitfixture.go"
+	hermeticGitFunc = "GitCmd"
+)
+
+// TEST CODE RUNS GIT ONLY THROUGH taskstest.GitCmd.
+//
+// A test's git that inherits GIT_DIR, runs in an implicit directory, or walks
+// up out of its temp root operates on the developer's REAL checkout, whose
+// .git/config every worktree of it shares. That has happened: an integration
+// suite run under `git bisect run` inherited the bisected worktree's GIT_DIR,
+// and a fixture's `git init` + identity writes turned the main checkout into a
+// bare repository carrying the test identity. GitCmd is the constructor that
+// makes a test's git hermetic; a raw exec.Command("git", ...) in test code
+// bypasses every one of its defences, so it is refused here.
+//
+// Test code is every _test.go file, every file under tests/ and
+// internal/testsupport/, and every package named *test (taskstest, spooltest,
+// …), which exist only to serve tests.
+func TestArch_TestGitGoesThroughTheHermeticHelper(t *testing.T) {
+	root := moduleRoot(t)
+	fset := token.NewFileSet()
+	var findings []string
+	sanctioned := 0
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case d.IsDir():
+			return skipModuleDir(root, p, d)
+		case !strings.HasSuffix(d.Name(), ".go"):
+			return nil
+		}
+		f, perr := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
+		if perr != nil {
+			t.Errorf("parse %s: %v", p, perr)
+			return nil
+		}
+		rel, _ := filepath.Rel(root, p)
+		rel = filepath.ToSlash(rel)
+		if !isTestCode(rel, f) {
+			return nil
+		}
+		for _, site := range rawGitExecs(f) {
+			if rel == hermeticGitFile && site.fn == hermeticGitFunc {
+				sanctioned++
+				continue
+			}
+			findings = append(findings, rel+":"+strconv.Itoa(fset.Position(site.pos).Line))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+	if sanctioned != 1 {
+		t.Fatalf("expected exactly one git exec inside %s's %s, found %d — the detector or the helper "+
+			"moved, and this gate is no longer checking what it claims", hermeticGitFile, hermeticGitFunc, sanctioned)
+	}
+	sort.Strings(findings)
+	for _, f := range findings {
+		t.Errorf("test code execs git directly: %s\n"+
+			"    build the process with taskstest.GitCmd (or run it with taskstest.Git): it strips an "+
+			"inherited GIT_DIR, refuses an implicit directory and fences discovery at the temp root.", f)
+	}
+}
+
+// isTestCode reports whether the file at module-relative path rel is test code.
+func isTestCode(rel string, f *ast.File) bool {
+	return strings.HasSuffix(rel, "_test.go") ||
+		strings.HasPrefix(rel, "tests/") ||
+		strings.HasPrefix(rel, "internal/testsupport/") ||
+		strings.HasSuffix(f.Name.Name, "test")
+}
+
+type gitExecSite struct {
+	pos token.Pos
+	fn  string // enclosing top-level function, "" at package level
+}
+
+// rawGitExecs returns every exec.Command / exec.CommandContext call in f whose
+// program is the literal "git", under whatever name f imports os/exec as.
+func rawGitExecs(f *ast.File) []gitExecSite {
+	name := ""
+	for _, imp := range f.Imports {
+		if path, _ := strconv.Unquote(imp.Path.Value); path == "os/exec" {
+			name = "exec"
+			if imp.Name != nil {
+				name = imp.Name.Name
+			}
+		}
+	}
+	if name == "" || name == "_" {
+		return nil
+	}
+	var out []gitExecSite
+	for _, decl := range f.Decls {
+		fn := ""
+		if fd, ok := decl.(*ast.FuncDecl); ok {
+			fn = fd.Name.Name
+		}
+		ast.Inspect(decl, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := sel.X.(*ast.Ident); !ok || id.Name != name {
+				return true
+			}
+			prog := -1
+			switch sel.Sel.Name {
+			case "Command":
+				prog = 0
+			case "CommandContext":
+				prog = 1
+			}
+			if prog < 0 || len(call.Args) <= prog {
+				return true
+			}
+			if lit, ok := call.Args[prog].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if v, _ := strconv.Unquote(lit.Value); v == "git" {
+					out = append(out, gitExecSite{pos: call.Pos(), fn: fn})
+				}
+			}
+			return true
+		})
+	}
+	return out
+}

@@ -8,20 +8,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/vtemu"
 )
 
 // overlay_render_test.go feeds the controller hand-written engine bytes. This
@@ -47,6 +44,7 @@ while [ ! -e "$STOP" ]; do sleep 0.02; done`
 
 type ptyEngineHarness struct {
 	*renderHarness
+	label    string
 	winchLog string
 	stop     string
 	done     chan struct{}
@@ -64,21 +62,7 @@ func newPTYEngineHarness(t *testing.T, label string, alt bool, opts ...func(*ter
 	ptyDev, slave, tty := newComposedPTY(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	var mu sync.Mutex
-	var watched []string
-	rows := make([]tui.RosterRow, len(renderHarps))
-	for i, h := range renderHarps {
-		rows[i] = tui.RosterRow{Harp: h, State: "live"}
-	}
-	src := tui.Sources{
-		Roster: func(context.Context) ([]tui.RosterRow, error) { return rows, nil },
-		Watch: func(_ context.Context, h string) (*tui.Feed, error) {
-			mu.Lock()
-			watched = append(watched, h)
-			mu.Unlock()
-			return &tui.Feed{Source: "live", Events: make(chan operations.SessionFeedEvent), Errs: make(chan error, 1), Cancel: func() {}}, nil
-		},
-	}
+	src, watches := renderSources()
 	resize := make(chan *agent.WindowSize, 4)
 	o := termui.Options{
 		Stdin: slave, TTY: slave, Resize: resize, Prefix: compPrefix, Surround: true,
@@ -91,7 +75,7 @@ func newPTYEngineHarness(t *testing.T, label string, alt bool, opts ...func(*ter
 	c := termui.New(o)
 	t.Cleanup(c.Close)
 	resize <- &agent.WindowSize{Rows: renderRows, Cols: renderCols}
-	waitForComposition(t, "surround establish", func() bool { return strings.Contains(tty.String(), "\x1b[1;23r") })
+	tty.waitUntil(t, "the surround's region", contains("\x1b[1;23r"))
 
 	engineResize := make(chan agent.WindowSize, 8)
 	go func() {
@@ -103,14 +87,11 @@ func newPTYEngineHarness(t *testing.T, label string, alt bool, opts ...func(*ter
 
 	dir := t.TempDir()
 	h := &ptyEngineHarness{
-		renderHarness: &renderHarness{t: t, pty: ptyDev, tty: tty, c: c, watched: func() []string {
-			mu.Lock()
-			defer mu.Unlock()
-			return slices.Clone(watched)
-		}},
-		winchLog: filepath.Join(dir, "winch.log"),
-		stop:     filepath.Join(dir, "stop"),
-		done:     make(chan struct{}),
+		renderHarness: &renderHarness{t: t, pty: ptyDev, tty: tty, c: c, watches: watches, slave: slave},
+		label:         label,
+		winchLog:      filepath.Join(dir, "winch.log"),
+		stop:          filepath.Join(dir, "stop"),
+		done:          make(chan struct{}),
 	}
 	env := append(os.Environ(), "LABEL="+label, "WINCHLOG="+h.winchLog, "STOP="+h.stop)
 	if alt {
@@ -123,9 +104,21 @@ func newPTYEngineHarness(t *testing.T, label string, alt bool, opts ...func(*ter
 	}()
 	t.Cleanup(h.end)
 
-	last := fmt.Sprintf("%s row %02d", label, renderRows-1)
-	waitForComposition(t, "the engine's first paint", func() bool { return strings.Contains(tty.String(), last) })
+	tty.waitUntil(t, "the engine's first paint", contains(fmt.Sprintf("%s row %02d", label, renderRows-1)))
 	return h
+}
+
+// repainted waits for the engine's repaint at its full size in what arrived
+// after since, and requires the SIGWINCH behind it. The script logs a
+// SIGWINCH before it repaints, and nothing else paints the engine's last row
+// after a release, so the repaint arriving orders the log entry before it.
+func (h *ptyEngineHarness) repainted(since int) {
+	h.t.Helper()
+	last := fmt.Sprintf("%s row %02d", h.label, renderRows-1)
+	h.tty.waitUntil(h.t, "the engine's repaint on the nudge", func(s string) bool {
+		return len(s) > since && strings.Contains(s[since:], last)
+	})
+	require.Positive(h.t, h.winches(), "the nudge reached the engine as a SIGWINCH")
 }
 
 // winches is how many SIGWINCHes the engine has handled.
@@ -143,11 +136,7 @@ func (h *ptyEngineHarness) end() {
 	case <-h.done:
 	default:
 		require.NoError(h.t, os.WriteFile(h.stop, nil, 0o600))
-		select {
-		case <-h.done:
-		case <-time.After(20 * time.Second):
-			h.t.Fatal("the engine never exited")
-		}
+		await(h.t, "the engine's exit", h.done)
 	}
 	require.NoError(h.t, h.err)
 	assert.Equal(h.t, int32(0), h.code)
@@ -158,16 +147,17 @@ func (h *ptyEngineHarness) end() {
 // repaint nudge reaches the engine as a real SIGWINCH.
 func TestEnginePTYRender_OverlayOverARealEngineReleasesToItsScreen(t *testing.T) {
 	h := newPTYEngineHarness(t, "engine", false)
-	assertEngineScreenBack(t, h.settle(), "engine")
+	h.screenWhen("the engine's screen", engineBack("engine"))
 	require.Zero(t, h.winches(), "nothing has resized the engine yet")
 
 	h.key(string([]byte{compPrefix}))
-	waitForComposition(t, "the first roster row's feed opened", func() bool { return slices.Contains(h.watched(), renderHarps[0]) })
-	assertPanel(t, h.settle(), 15, 22)
+	awaitWatch(t, h.watches, renderHarps[0])
+	h.screenWhen("the panel", panel(15, 22))
 
+	since := len(h.tty.String())
 	h.key("q")
-	waitForComposition(t, "the repaint nudge to reach the engine", func() bool { return h.winches() > 0 })
-	assertEngineScreenBack(t, h.settle(), "engine")
+	h.repainted(since)
+	h.screenWhen("the engine's screen back", engineBack("engine"))
 }
 
 // A full-screen engine is drawn over in place, and what the panel covered is
@@ -178,17 +168,25 @@ func TestEnginePTYRender_AltScreenEngineRepaintsUnderThePanelOnTheNudge(t *testi
 	h := newPTYEngineHarness(t, "fullscreen", true)
 
 	h.key(string([]byte{compPrefix}))
-	waitForComposition(t, "the first roster row's feed opened", func() bool { return slices.Contains(h.watched(), renderHarps[0]) })
-	e := h.settle()
-	assert.True(t, e.OnAltScreen(), "still the engine's screen")
-	assertPanel(t, e, 15, 22)
+	awaitWatch(t, h.watches, renderHarps[0])
+	h.screenWhen("the panel over the engine", func(t tb, e *vtemu.Screen) {
+		assert.True(t, e.OnAltScreen(), "still the engine's screen")
+		assertPanel(t, e, 15, 22)
+	})
 
+	since := len(h.tty.String())
 	h.key("q")
-	waitForComposition(t, "the repaint nudge to reach the engine", func() bool { return h.winches() > 0 })
-	e = h.settle()
-	assert.True(t, e.OnAltScreen(), "release must not take the engine off its own screen")
+	h.repainted(since)
+	h.screenWhen("the engine's repainted screen", fullscreenBack)
+}
+
+// fullscreenBack is a screenWhen check: a full-screen engine has its own
+// screen again, every row repainted, with the bar back.
+func fullscreenBack(t tb, e *vtemu.Screen) {
+	t.Helper()
+	assert.True(t, e.OnAltScreen(), "the engine stays on its own screen")
 	for i := 1; i < renderRows; i++ {
-		assert.Equal(t, fmt.Sprintf("fullscreen row %02d", i), e.Row(i-1), "row %d is the engine's again:\n%s", i, e)
+		assert.Equal(t, fmt.Sprintf("fullscreen row %02d", i), e.Row(i-1), "row %d is the engine's again, and nothing of the overlay survives:\n%s", i, e)
 	}
 	assert.Contains(t, e.Row(renderRows-1), "viewer", "the bar is back on the reserved row")
 }

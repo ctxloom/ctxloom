@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,14 +67,10 @@ func (m *paintedModal) factory() func(*termui.Options) {
 func summonModal(t *testing.T, c *termui.Controller, m *paintedModal) {
 	t.Helper()
 	require.NoError(t, c.Summon(context.Background(), termui.OverlayStart{View: "approvals"}, termui.Notice{Text: "approval from wiry-otter"}))
-	select {
-	case <-m.shown:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the modal never painted")
-	}
+	await(t, "the modal's paint", m.shown)
 }
 
-func assertModalOwnsTheScreen(t *testing.T, e *vtemu.Screen) {
+func assertModalOwnsTheScreen(t tb, e *vtemu.Screen) {
 	t.Helper()
 	for r := 1; r < renderRows; r++ {
 		assert.Equal(t, fmt.Sprintf("MODAL %02d", r), e.Row(r-1), "the modal covers drawable row %d:\n%s", r, e)
@@ -90,13 +85,15 @@ func TestSummonRender_MainScreenEngineGetsItsScreenBack(t *testing.T) {
 	m := newPaintedModal()
 	h := newPTYEngineHarness(t, "engine", false, m.factory())
 	summonModal(t, h.c, m)
-	e := h.settle()
-	assert.True(t, e.OnAltScreen(), "the modal is on the alternate screen, the engine's screen untouched beneath")
-	assertModalOwnsTheScreen(t, e)
+	h.screenWhen("the modal", func(t tb, e *vtemu.Screen) {
+		assert.True(t, e.OnAltScreen(), "the modal is on the alternate screen, the engine's screen untouched beneath")
+		assertModalOwnsTheScreen(t, e)
+	})
 
+	since := len(h.tty.String())
 	m.Abort()
-	waitForComposition(t, "the repaint nudge to reach the engine", func() bool { return h.winches() > 0 })
-	assertEngineScreenBack(t, h.settle(), "engine")
+	h.repainted(since)
+	h.screenWhen("the engine's screen back", engineBack("engine"))
 }
 
 // Over a real full-screen engine the modal draws on the engine's own
@@ -107,18 +104,15 @@ func TestSummonRender_AltScreenEngineRepaintsOnTheNudge(t *testing.T) {
 	m := newPaintedModal()
 	h := newPTYEngineHarness(t, "fullscreen", true, m.factory())
 	summonModal(t, h.c, m)
-	e := h.settle()
-	assert.True(t, e.OnAltScreen())
-	assertModalOwnsTheScreen(t, e)
+	h.screenWhen("the modal", func(t tb, e *vtemu.Screen) {
+		assert.True(t, e.OnAltScreen())
+		assertModalOwnsTheScreen(t, e)
+	})
 
+	since := len(h.tty.String())
 	m.Abort()
-	waitForComposition(t, "the repaint nudge to reach the engine", func() bool { return h.winches() > 0 })
-	e = h.settle()
-	assert.True(t, e.OnAltScreen(), "the engine stays on its own screen")
-	for i := 1; i < renderRows; i++ {
-		assert.Equal(t, fmt.Sprintf("fullscreen row %02d", i), e.Row(i-1), "row %d is the engine's again, and no modal row survives:\n%s", i, e)
-	}
-	assert.Contains(t, e.Row(renderRows-1), "viewer", "the bar is back on the reserved row")
+	h.repainted(since)
+	h.screenWhen("the engine's repainted screen", fullscreenBack)
 }
 
 // Engine output held while the modal is up is replayed onto the screen it
@@ -129,15 +123,16 @@ func TestSummonRender_HeldOutputIsReplayedOntoTheEnginesScreen(t *testing.T) {
 	h.paintEngineRows("engine")
 	summonModal(t, h.c, m)
 	h.engine("\x1b[5;1H\x1b[2Kchanged behind the modal\x1b[23;1H\x1b[2Kengine row 23")
-	assertModalOwnsTheScreen(t, h.settle())
+	h.screenWhen("the modal over held output", func(t tb, e *vtemu.Screen) { assertModalOwnsTheScreen(t, e) })
 
 	m.Abort()
-	waitForComposition(t, "the repaint nudge", func() bool { return len(h.nudges) > 0 })
-	e := h.settle()
-	assert.False(t, e.OnAltScreen())
-	assert.Equal(t, "changed behind the modal", e.Row(4), "the held write landed on the engine's screen:\n%s", e)
-	assert.Equal(t, "engine row 04", e.Row(3))
-	assert.Contains(t, e.Row(renderRows-1), "viewer")
+	h.released()
+	h.screenWhen("the replay on the engine's screen", func(t tb, e *vtemu.Screen) {
+		assert.False(t, e.OnAltScreen())
+		assert.Equal(t, "changed behind the modal", e.Row(4), "the held write landed on the engine's screen:\n%s", e)
+		assert.Equal(t, "engine row 04", e.Row(3))
+		assert.Contains(t, e.Row(renderRows-1), "viewer")
+	})
 }
 
 // A hold that overflowed is not replayed — not even its whole-looking tail:
@@ -153,13 +148,14 @@ func TestSummonRender_OverflowClearsWithANoticeAndPrintsNoFragment(t *testing.T)
 	h.engine("1mTORN-TAIL")
 
 	m.Abort()
-	waitForComposition(t, "the repaint nudge", func() bool { return len(h.nudges) > 0 })
-	e := h.settle()
-	assert.False(t, e.OnAltScreen())
-	assert.True(t, strings.HasPrefix(e.Row(0), "ctxloom: engine output overflowed while the overlay"), "the loss is said, on one row:\n%s", e)
-	for r := 1; r < renderRows-1; r++ {
-		assert.Empty(t, e.Row(r), "row %d is cleared for the engine's repaint:\n%s", r+1, e)
-	}
-	assert.NotContains(t, e.String(), "TORN-TAIL")
-	assert.Contains(t, e.Row(renderRows-1), "viewer", "the bar is back")
+	h.released()
+	h.screenWhen("the overflow notice on a cleared screen", func(t tb, e *vtemu.Screen) {
+		assert.False(t, e.OnAltScreen())
+		assert.True(t, strings.HasPrefix(e.Row(0), "ctxloom: engine output overflowed while the overlay"), "the loss is said, on one row:\n%s", e)
+		for r := 1; r < renderRows-1; r++ {
+			assert.Empty(t, e.Row(r), "row %d is cleared for the engine's repaint:\n%s", r+1, e)
+		}
+		assert.NotContains(t, e.String(), "TORN-TAIL")
+		assert.Contains(t, e.Row(renderRows-1), "viewer", "the bar is back")
+	})
 }

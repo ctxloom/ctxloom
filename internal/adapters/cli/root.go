@@ -285,9 +285,13 @@ func GetConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
+// rootFirstStep is the command the root help's quick start opens with: every
+// other command assumes a project exists, and this is the one that makes it.
+const rootFirstStep = "ctxloom init"
+
 var rootCmd = &cobra.Command{
 	Use:   "ctxloom",
-	Short: "Sophisticated Context Management",
+	Short: "Assemble context for your AI coding assistant and launch it",
 	// Execute owns error printing: without these, cobra prints every RunE
 	// error twice ("Error: x" + Execute's own print) and dumps the full
 	// usage text — including for a wrapped LLM's ordinary nonzero exit.
@@ -310,36 +314,34 @@ var rootCmd = &cobra.Command{
 	// Symmetrically with PersistentPreRunE above, and enforced by the same test:
 	// no subcommand defines its own PersistentPostRun(E), so this runs for all.
 	PersistentPostRunE: rootPersistentPostRunE,
-	Long: `ctxloom manages context for AI coding assistants.
+	Long: `ctxloom assembles context for your AI coding assistant — coding standards,
+saved prompts, tools — from bundles you choose, and launches the assistant
+with it.
 
-QUICK START
-  ctxloom run -p developer "explain this code"    Run with a profile
-  ctxloom fragment edit core#fragments/coding     Edit a fragment
+GET STARTED
+  ` + rootFirstStep + `                     Set up this project (once per project)
+  ctxloom doctor                   Check the setup; each problem names its fix
+  ctxloom run -n                   Show what a launch would carry, without launching
+  ctxloom run                      Launch your assistant with the default agent
 
-CONTENT COMMANDS
-  fragment      Manage fragments (list, show, create, remove, edit, search)
-  command       Manage commands (list, show, create, remove, edit)
-  profile       Manage profiles (list, show, create, remove, edit)
-
-INFRASTRUCTURE
-  manage        Install/manage ctxloom's project harness (init, hooks, mcp, config)
-  remote        Manage remotes (create, remove, list, default, pull, update, upgrade)
-  mcp           Run ctxloom as an MCP server
-
-WORKFLOW
-  run           Assemble context and run AI
+FIND AND ADD CONTENT
+  ctxloom search <query>           Search installed and remote content
+  ctxloom profile list             The profiles you can launch with 'run -p <ref>'
+  ctxloom deps pull                Install what the project's profiles name
+  ctxloom review                   Accept or reject content waiting for review
 
 KEY CONCEPTS
-  Fragments   Reusable context snippets (coding standards, patterns, etc.)
-  Commands    Saved prompt templates, exported as slash commands
-  Profiles    Named configurations combining bundles and variables
-  Bundles     YAML files containing fragments/commands (internal format)
-  Remotes     Git repositories for sharing content (GitHub or generic git)
+  Fragment   A reusable piece of context: a coding standard, a pattern
+  Command    A saved prompt, exported to the assistant as a slash command
+  Profile    A named set of fragments and settings to launch with
+  Bundle     A package of fragments, commands and profiles
+  Remote     A git repository that publishes bundles
+  Agent      An engine bound to profiles; a bare 'ctxloom run' uses the default
 
 REFERENCE SYNTAX
-  bundle#fragments/name           Specific fragment from bundle
-  bundle#commands/name            Specific command from bundle
-  remote/bundle                   Bundle from a remote repository
+  <remote>/<bundle>                A bundle a remote publishes
+  <bundle>#fragments/<name>        One fragment of a bundle
+  <bundle>#profiles/<name>         One profile of a bundle
 
 Run 'ctxloom <command> --help' for details on any command.`,
 }

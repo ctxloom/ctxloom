@@ -375,7 +375,7 @@ detached signature (as 'ctxloom skill export --sign' produces), it is
 verified against the extracted tree's own recomputed manifest before the
 import is reported; an unsigned or untrusted-publisher signature does not
 block the import (ctxloom never auto-trusts remote content on import —
-'ctxloom review'/'ctxloom trust' still govern whether it is ever exposed),
+'ctxloom review'/'ctxloom signer trust' still govern whether it is ever exposed),
 but a STRUCTURALLY invalid archive or package (a rejected entry, or a
 SKILL.md that fails frontmatter validation) is refused and cleaned up.
 

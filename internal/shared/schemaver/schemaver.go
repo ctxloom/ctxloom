@@ -154,30 +154,52 @@ func (k Kind) unreadable(cause error) *VersionError {
 // thing. The kind's own decode, which follows, reports it as the parse failure
 // it is.
 func (k Kind) Upgrade(data []byte) (Result, error) {
-	doc, commentOnly, err := k.parse(data)
-	if errors.Is(err, errMalformed) {
-		return Result{Data: data}, nil
-	}
+	r, _, err := k.migrate(data)
+	return r, err
+}
+
+// Decode is Upgrade followed by the kind's decode of the result into out, from
+// ONE parse: the value is decoded from the migrated tree, never from bytes
+// parsed a second time. A document that is not a well-formed mapping is
+// decoded from its bytes, so out's decode reports the parse failure it is.
+func (k Kind) Decode(data []byte, out any) (Result, error) {
+	r, doc, err := k.migrate(data)
 	if err != nil {
 		return Result{}, err
+	}
+	if doc == nil {
+		return r, yaml.Unmarshal(data, out)
+	}
+	return r, doc.Decode(out)
+}
+
+// migrate is Upgrade, also returning the migrated tree; the tree is nil for a
+// document that is not a well-formed mapping.
+func (k Kind) migrate(data []byte) (Result, *yaml.Node, error) {
+	doc, commentOnly, err := k.parse(data)
+	if errors.Is(err, errMalformed) {
+		return Result{Data: data}, nil, nil
+	}
+	if err != nil {
+		return Result{}, nil, err
 	}
 	root := doc.Content[0]
 	found, applied, err := k.gate(root)
 	if err != nil {
-		return Result{}, err
+		return Result{}, nil, err
 	}
 	for _, step := range k.Steps[found-k.Oldest:] {
 		step.Apply(root)
 		applied = append(applied, step.Name())
 	}
 	if len(applied) == 0 {
-		return Result{Data: data, From: found, To: found}, nil
+		return Result{Data: data, From: found, To: found}, root, nil
 	}
 	out, err := k.encode(&doc, data, commentOnly)
 	if err != nil {
-		return Result{}, err
+		return Result{}, nil, err
 	}
-	return Result{Data: out, From: found, To: k.Current(), Applied: applied}, nil
+	return Result{Data: out, From: found, To: k.Current(), Applied: applied}, root, nil
 }
 
 // parse returns data's single document with a mapping root. An empty,

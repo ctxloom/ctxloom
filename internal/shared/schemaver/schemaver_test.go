@@ -447,3 +447,48 @@ func TestIntroduceKey_KeylessBecomesGenerationOneUnchangedOtherwise(t *testing.T
 	require.NoError(t, yaml.Unmarshal(r.Data, &m))
 	assert.Equal(t, map[string]any{Key: 1, "kept": "x"}, m)
 }
+
+// widget is what Decode fills in the tests below.
+type widget struct {
+	Version int    `yaml:"schema_version"`
+	Kept    string `yaml:"kept"`
+	AddedA  string `yaml:"added_a"`
+	AddedB  string `yaml:"added_b"`
+}
+
+// Decode is Upgrade and the kind's decode from ONE parse: the value comes out
+// of the migrated tree, and the Result says what Upgrade would.
+func TestDecode_MigratesThenDecodesTheTree(t *testing.T) {
+	var w widget
+	r, err := withSteps.Decode(doc(2, "kept: x\n"), &w)
+	require.NoError(t, err)
+	assert.Equal(t, widget{Version: 3, Kept: "x", AddedB: "yes"}, w)
+	assert.Equal(t, []string{stepB.Name()}, r.Applied)
+	assert.Equal(t, 3, declared(t, r.Data), "a migrated Result still carries what WriteBack persists")
+
+	in := doc(3, "kept: y\n")
+	w = widget{}
+	r, err = withSteps.Decode(in, &w)
+	require.NoError(t, err)
+	assert.Equal(t, widget{Version: 3, Kept: "y"}, w)
+	assert.Empty(t, r.Applied)
+	assert.Same(t, &in[0], &r.Data[0])
+}
+
+func TestDecode_RefusesAsUpgradeDoes(t *testing.T) {
+	var w widget
+	_, err := withSteps.Decode(doc(4, ""), &w)
+	requireVersionError(t, err, ErrNewer)
+	_, err = withSteps.Decode(doc(0, ""), &w)
+	requireVersionError(t, err, ErrTooOld)
+}
+
+// A document that is not a well-formed mapping is the decode's own failure,
+// never a version fault.
+func TestDecode_MalformedIsTheParseFailure(t *testing.T) {
+	var w widget
+	_, err := withSteps.Decode([]byte("kept: [unterminated\n"), &w)
+	require.Error(t, err)
+	var ve *VersionError
+	assert.NotErrorAs(t, err, &ve)
+}

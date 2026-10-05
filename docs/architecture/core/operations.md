@@ -218,7 +218,7 @@ flowchart LR
 |---|---|---|
 | `ApplyHooks` | `hooks.go:54` | Reloads config, runs the $HOME-collision scope guard, optionally regenerates context, builds the executable trust gate, then writes every requested backend's surfaces. Callers: `cli/manage.go:109,257`, `cli/trust.go:223`, `mcp/mcp_server.go:270`, `cli/init.go:1035`. |
 | `checkHookTargetScope` (+ per-engine variants) | `hooks.go:234,271,300,326` | Refuses to apply when the resolved workDir would write onto an engine's *global* settings file. |
-| `maybeRegenerateContext` / `regenerateContext` | `hooks.go:358,487` | Collects, dedupes, sorts and loads fragments and writes the SessionStart context cache. |
+| `maybeRegenerateContext` / `regenerateContext` | `hooks.go` | Writes the SessionStart context cache from the fragments of the package `ApplyHooks` assembled once for the default profiles — the same package every backend is written from. |
 | `applyHooksToBackends` / `applyHooksToBackend` | `hooks.go:397,435` | Per-backend loop; each failure is recorded via `strictness.Fail` and collected, and the loop aborts on ctx cancel. |
 | `hookBackendNames` | `hooks.go:372` | `"all"` → every settings backend, else the single named backend. |
 | `RemoveHooks` / `removeBackendHarness` | `manage.go:36,70` | Strips ctxloom wiring from each backend: the empty plan through `delivery.Static` (`RemoveProject`), which removes what the project writer's claims name. |
@@ -326,8 +326,8 @@ Every host-side launch enters through `launch.Resolve`
 10. **Path confinement for authored bundles is `requireSafeBundlePath`** (`bundles.go:926`):
     absolute, under a configured dir, and no symlink in any component.
 11. **`AssembleContext` (`context.go:112`) is the single composition entry point.** `hooks.go`'s
-    `regenerateContext` (`hooks.go:487`) is a second, independent implementation of the same job for
-    the SessionStart cache.
+    `regenerateContext` composes nothing: it writes the SessionStart cache from the package
+    `ApplyHooks` assembled (`AssemblePackage`), so one apply resolves the default profiles once.
 
 ## Boundaries
 

@@ -139,13 +139,13 @@ func TestConfigSerializers_FirstSaveMatchesRender(t *testing.T) {
 }
 
 var characterizationGolden = map[string]string{
-	"empty/MarshalYAML": `schema_version: 6
+	"empty/MarshalYAML": `schema_version: 7
 `,
-	"empty/authored": `schema_version: 6
+	"empty/authored": `schema_version: 7
 `,
-	"empty/saveLocked-project": `schema_version: 6
+	"empty/saveLocked-project": `schema_version: 7
 `,
-	"empty/saveLocked-home": `schema_version: 6
+	"empty/saveLocked-home": `schema_version: 7
 `,
 	"full/MarshalYAML": `agents:
     worker:
@@ -185,7 +185,7 @@ permissions:
     approver: none
     network: false
 runtime: container
-schema_version: 6
+schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
 sync:
@@ -233,7 +233,7 @@ permissions:
     approver: none
     network: false
 runtime: container
-schema_version: 6
+schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
 sync:
@@ -266,7 +266,7 @@ llm:
 permissions:
     approver: none
     network: false
-schema_version: 6
+schema_version: 7
 sync:
     auto_sync: true
 ui:
@@ -312,7 +312,7 @@ permissions:
     approver: none
     network: false
 runtime: container
-schema_version: 6
+schema_version: 7
 session_purge_age: 180d
 session_reap_age: 45d
 sync:
@@ -322,25 +322,25 @@ ui:
     surround: true
 workspace: worktree
 `,
-	"explicit_false_and_stale_version/MarshalYAML": `schema_version: 6
+	"explicit_false_and_stale_version/MarshalYAML": `schema_version: 7
 sync:
     auto_sync: false
 ui:
     surround: false
 `,
-	"explicit_false_and_stale_version/authored": `schema_version: 6
+	"explicit_false_and_stale_version/authored": `schema_version: 7
 sync:
     auto_sync: false
 ui:
     surround: false
 `,
-	"explicit_false_and_stale_version/saveLocked-project": `schema_version: 6
+	"explicit_false_and_stale_version/saveLocked-project": `schema_version: 7
 sync:
     auto_sync: false
 ui:
     surround: false
 `,
-	"explicit_false_and_stale_version/saveLocked-home": `schema_version: 6
+	"explicit_false_and_stale_version/saveLocked-home": `schema_version: 7
 sync:
     auto_sync: false
 ui:
@@ -355,24 +355,24 @@ ui:
             type: claude-code
     defaults:
         primary: shipped
-schema_version: 6
+schema_version: 7
 `,
 	"default_overlay/authored": `llm:
     configs:
         mine:
             type: codex
-schema_version: 6
+schema_version: 7
 `,
 	"default_overlay/saveLocked-project": `llm:
     configs:
         mine:
             type: codex
-schema_version: 6
+schema_version: 7
 `,
 	"default_overlay/saveLocked-home": `llm:
     configs:
         mine:
             type: codex
-schema_version: 6
+schema_version: 7
 `,
 }

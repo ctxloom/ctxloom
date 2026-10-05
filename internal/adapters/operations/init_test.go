@@ -337,12 +337,12 @@ func TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent(t *testing.T) {
 // The init path parses the documents ctxloom ships with ParseConfig, which
 // skips schema validation; a retired key there must stop init, not be dropped.
 func TestParseShippedConfig_RefusesARetiredKey(t *testing.T) {
-	_, err := parseShippedConfig([]byte("schema_version: 6\nisolation_base_containerfile: x\n"), "init scaffold")
+	_, err := parseShippedConfig([]byte("schema_version: 7\nisolation_base_containerfile: x\n"), "init scaffold")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "init scaffold")
 	assert.Contains(t, err.Error(), "isolation_base", "the same fix line the main load prints")
 
-	cfg, err := parseShippedConfig([]byte("schema_version: 6\n"), "init scaffold")
+	cfg, err := parseShippedConfig([]byte("schema_version: 7\n"), "init scaffold")
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 }

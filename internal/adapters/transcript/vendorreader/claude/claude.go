@@ -26,10 +26,10 @@ package claude
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
+	"github.com/spf13/afero"
 )
 
 // Adapter implements vendorreader.VendorAdapter for claude's
@@ -73,8 +73,8 @@ var VersionedAdapters = []vendorreader.VersionedAdapter{{
 // doc comment for the general contract (malformed lines skipped, not fatal;
 // a rec.Record failure or ctx cancellation IS fatal). It is ConvertFrom from
 // the beginning with nobody asking for a checkpoint — one conversion, not two.
-func (a Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string) error {
-	return a.ConvertFrom(ctx, rec, src, vendorreader.Checkpoint{}, nil)
+func (a Adapter) Convert(ctx context.Context, fsys afero.Fs, rec transcript.Recorder, src string) error {
+	return a.ConvertFrom(ctx, fsys, rec, src, vendorreader.Checkpoint{}, nil)
 }
 
 // ConvertFrom implements vendorreader.ResumableAdapter. Each line goes
@@ -82,8 +82,8 @@ func (a Adapter) Convert(ctx context.Context, rec transcript.Recorder, src strin
 // conversion starts at the beginning or at a checkpoint; what a checkpoint
 // carries across is the converter's open turn boundary and its end-of-file
 // counters (resumeState).
-func (Adapter) ConvertFrom(ctx context.Context, rec transcript.Recorder, src string, from vendorreader.Checkpoint, onCheckpoint func(vendorreader.Checkpoint) error) error {
-	f, err := os.Open(src)
+func (Adapter) ConvertFrom(ctx context.Context, fsys afero.Fs, rec transcript.Recorder, src string, from vendorreader.Checkpoint, onCheckpoint func(vendorreader.Checkpoint) error) error {
+	f, err := fsys.Open(src)
 	if err != nil {
 		return fmt.Errorf("claude: open %s: %w", src, err)
 	}

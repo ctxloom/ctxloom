@@ -3,10 +3,10 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 )
@@ -38,7 +38,7 @@ import (
 // convertVendorTranscript: an unknown-version refusal is a real, actionable
 // signal and should only be raised about a session that actually has a
 // transcript to read.
-func ResolveTurnTranscript(ctx context.Context, reg engine.Registry, harp, hookTranscriptPath string) (vendorreader.VendorAdapter, string, error) {
+func ResolveTurnTranscript(ctx context.Context, fsys afero.Fs, reg engine.Registry, harp, hookTranscriptPath string) (vendorreader.VendorAdapter, string, error) {
 	entry, err := GetSession(harp)
 	if err != nil {
 		return nil, "", fmt.Errorf("look up session %s: %w", harp, err)
@@ -53,12 +53,12 @@ func ResolveTurnTranscript(ctx context.Context, reg engine.Registry, harp, hookT
 
 	src := strings.TrimSpace(hookTranscriptPath)
 	if src != "" {
-		if _, statErr := os.Stat(src); statErr != nil {
+		if _, statErr := fsys.Stat(src); statErr != nil {
 			src = ""
 		}
 	}
 	if src == "" {
-		located, found := vr.locate(ctx, *entry)
+		located, found := vr.locate(ctx, fsys, *entry)
 		if !found {
 			return nil, "", fmt.Errorf("no %s transcript could be located for %s", entry.Backend, harp)
 		}

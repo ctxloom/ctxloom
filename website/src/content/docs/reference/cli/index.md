@@ -42,15 +42,15 @@ remote/bundle@v1.0.0      # Versioned bundle
 https://github.com/o/r@bundles/b#profiles/n   # Bundle-shipped profile (canonical)
 ```
 
-`profile create -b` and `profile modify --add-bundle`/`--remove-bundle` accept the **per-remote short form** `<remote>/<bundle>[#<type>/<item>]` (e.g. `-b ctxloom-default/testing`). It is expanded to that remote's canonical URL before the profile is stored, so a stored profile never carries a machine-local alias. A bare name with no `<remote>/` prefix is a local bundle and is stored as written. Full URLs (`https://github.com/owner/repo@bundles/name`) and `ctxloom:local@...` refs pass through unchanged.
+`profile create --include` and `profile modify --add-bundle`/`--remove-bundle` accept the **per-remote short form** `<remote>/<bundle>[#<type>/<item>]` (e.g. `--include ctxloom-default/testing`). It is expanded to that remote's canonical `ctxloom+git://` URI before the profile is stored, so a stored profile never carries a machine-local alias. A bare name with no `<remote>/` prefix is a local bundle and is stored as written. A full URL (`https://github.com/owner/repo@bundles/name`) is stored in the same canonical spelling; `ctxloom:local@...` refs pass through unchanged.
 
 Parent refs (`--parent`, `--add-parent`) expand the same way when they name a bundle-shipped profile (`<remote>/<bundle>#profiles/<name>`). A parent with no `#profiles/` selector is always a local profile name, so subdirectory paths like `personal/go-developer` work.
 
 **Consuming remote content is reference-only** — you don't "install" remote items. Author a local profile that references remote content, then pull:
 
 ```bash
-ctxloom profile create testing -b ctxloom-default/testing
-ctxloom profile create security -b ctxloom-default/security#fragments/owasp-top-10
+ctxloom profile create testing --include ctxloom-default/testing
+ctxloom profile create security --include ctxloom-default/security#fragments/owasp-top-10
 ctxloom deps pull
 ```
 

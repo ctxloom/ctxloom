@@ -52,10 +52,10 @@ func TestRemoteDefaultClear_WritesThroughTheCommandsWriter(t *testing.T) {
 func TestPrintProfileCreated_WritesToTheGivenWriter(t *testing.T) {
 	t.Cleanup(func() {
 		profileCreateParents = nil
-		profileCreateBundles = nil
+		profileCreateIncludes = nil
 	})
 	profileCreateParents = []string{"base"}
-	profileCreateBundles = nil
+	profileCreateIncludes = nil
 
 	var out bytes.Buffer
 	printProfileCreated(&out, "developer", "/tmp/developer.yaml")

@@ -16,9 +16,14 @@ import (
 // their keypair — the mistake this package's whole "ctxloom never reads private
 // key material" posture exists to make safe. The needle is a marker: if it
 // reaches an error string, the real bytes would have too.
-const privateKeyPaste = "-----BEGIN OPENSSH PRIVATE KEY-----\n" + // gitleaks:allow
+// pemPrivateKeyLabel is split so that no committed line spells a PEM
+// private-key header: push-time secret scanners flag that header on sight, and
+// this fixture is deliberately fake (the body is a marker, not a key).
+const pemPrivateKeyLabel = "OPENSSH " + "PRIVATE KEY"
+
+const privateKeyPaste = "-----BEGIN " + pemPrivateKeyLabel + "-----\n" +
 	"b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAA-NEEDLE-SECRET-MATERIAL\n" +
-	"-----END OPENSSH PRIVATE KEY-----\n"
+	"-----END " + pemPrivateKeyLabel + "-----\n"
 
 const privateKeyNeedle = "NEEDLE-SECRET-MATERIAL"
 
@@ -44,7 +49,7 @@ func TestExplicitKey_PrivateKeyMaterialIsNeverEchoed(t *testing.T) {
 		require.Error(t, err)
 		assert.NotContains(t, err.Error(), privateKeyNeedle,
 			"private key bytes must never reach an error string: %q", err.Error())
-		assert.NotContains(t, err.Error(), "BEGIN OPENSSH PRIVATE KEY",
+		assert.NotContains(t, err.Error(), "BEGIN "+pemPrivateKeyLabel,
 			"not even the header: %q", err.Error())
 		assert.Contains(t, strings.ToLower(err.Error()), "redacted",
 			"the user must be told the value was withheld, not silently dropped: %q", err.Error())

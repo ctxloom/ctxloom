@@ -11,7 +11,7 @@ import (
 // retired key in a document it reads would vanish in silence. It records the
 // same unknown-key warning, from the same table, that the main load does.
 func TestParseConfig_RecordsRetiredKeys(t *testing.T) {
-	cfg, err := ParseConfig([]byte("schema_version: 6\nisolation_devcontainer_base: false\nllm:\n  plugins: {}\n"))
+	cfg, err := ParseConfig([]byte("schema_version: 7\nisolation_devcontainer_base: false\nllm:\n  plugins: {}\n"))
 	require.NoError(t, err)
 
 	var texts []string
@@ -27,7 +27,7 @@ func TestParseConfig_RecordsRetiredKeys(t *testing.T) {
 }
 
 func TestParseConfig_CleanDocumentRecordsNoWarnings(t *testing.T) {
-	cfg, err := ParseConfig([]byte("schema_version: 6\nisolation_base: ctxloom\n"))
+	cfg, err := ParseConfig([]byte("schema_version: 7\nisolation_base: ctxloom\n"))
 	require.NoError(t, err)
 	assert.Empty(t, cfg.GetWarnings())
 }

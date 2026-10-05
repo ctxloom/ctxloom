@@ -44,7 +44,7 @@ func TestSetAgent_CanonicalizesShortProfiles(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	want := []string{shortNamePersonalURL + "@bundles/agent-ensemble#profiles/finder", "developer"}
+	want := []string{remote.CanonicalSpelling(shortNamePersonalURL + "@bundles/agent-ensemble#profiles/finder"), "developer"}
 	assert.Equal(t, want, res.Profiles, "result reflects the canonical stored form")
 
 	reloaded, err := configload.Load(configload.WithAppDir(appDir))

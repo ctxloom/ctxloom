@@ -69,7 +69,7 @@ Feature: content decisions — ctxloom review, bundle trust, bundle reject, bund
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       # The pinned third-party bundle's items are born pending: review names them…
       When I run "ctxloom review --list <flags>"
@@ -105,7 +105,7 @@ Feature: content decisions — ctxloom review, bundle trust, bundle reject, bund
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       When I run "ctxloom bundle reject <flags>" on the pending item "demo#fragments/demo-frag" from remote "origin"
       Then the command succeeds
@@ -154,7 +154,7 @@ Feature: content decisions — ctxloom review, bundle trust, bundle reject, bund
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       # Establish the rejection, and that it is really in force.
       When I run "ctxloom bundle reject" on the pending item "demo#fragments/demo-frag" from remote "origin"
@@ -199,7 +199,7 @@ Feature: content decisions — ctxloom review, bundle trust, bundle reject, bund
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       When I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       Then the command succeeds
@@ -231,7 +231,7 @@ Feature: content decisions — ctxloom review, bundle trust, bundle reject, bund
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       When I run "ctxloom bundle forget <flags>" on the pending item "demo#fragments/demo-frag" from remote "origin"
       Then the command succeeds

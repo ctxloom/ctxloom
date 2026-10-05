@@ -72,7 +72,7 @@ ctxloom run -t security "implement auth"
 ctxloom run -p backend-developer "review this PR"
 
 # Reference a remote bundle in a local profile, then pull
-ctxloom profile create testing -b ctxloom-default/testing
+ctxloom profile create testing --include ctxloom-default/testing
 ctxloom deps pull
 ```
 

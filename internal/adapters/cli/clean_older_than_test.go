@@ -41,7 +41,7 @@ func cotProject(t *testing.T) string {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.AppDirName), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.AppDirName, paths.ConfigFileName+".yaml"),
-		[]byte("schema_version: 6\n"), 0o644))
+		[]byte("schema_version: 7\n"), 0o644))
 	t.Setenv(projectroot.EnvVar, dir)
 	resetApp()
 	t.Cleanup(resetApp)
@@ -160,7 +160,7 @@ func TestClean_WithoutOlderThan_ReapsOnTheDefaultAge(t *testing.T) {
 // is reaped when session_reap_age says five days.
 func TestClean_HonoursSessionReapAgeFromHomeConfig(t *testing.T) {
 	cotProject(t)
-	cotHomeConfig(t, "schema_version: 6\nsession_reap_age: 5d\n")
+	cotHomeConfig(t, "schema_version: 7\nsession_reap_age: 5d\n")
 	dir := cotSeedSession(t, "aged-quiet-heron", 10*24*time.Hour)
 
 	rep := cotRun(t, "--yes", "--format", "json")
@@ -175,7 +175,7 @@ func TestClean_HonoursSessionReapAgeFromHomeConfig(t *testing.T) {
 // which would reap on an age nobody chose. Nothing on disk changes.
 func TestClean_RefusesAMalformedSessionReapAge(t *testing.T) {
 	cotProject(t)
-	cotHomeConfig(t, "schema_version: 6\nsession_reap_age: soon\n")
+	cotHomeConfig(t, "schema_version: 7\nsession_reap_age: soon\n")
 	dir := cotSeedSession(t, "aged-quiet-heron", 90*24*time.Hour)
 
 	_, err := execRootCmd(t, "clean", "--yes", "--format", "json")
@@ -190,7 +190,7 @@ func TestClean_RefusesAMalformedSessionReapAge(t *testing.T) {
 // invocation's bound and beats the configured one in both directions.
 func TestClean_OlderThan_OverridesTheConfiguredAge(t *testing.T) {
 	cotProject(t)
-	cotHomeConfig(t, "schema_version: 6\nsession_reap_age: 5d\n")
+	cotHomeConfig(t, "schema_version: 7\nsession_reap_age: 5d\n")
 	dir := cotSeedSession(t, "aged-quiet-heron", 10*24*time.Hour)
 
 	cotRun(t, "--older-than", "20d", "--yes", "--format", "json")

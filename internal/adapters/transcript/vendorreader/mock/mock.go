@@ -35,6 +35,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/spf13/afero"
 )
 
 // Adapter converts the mock transcript format. Stateless by construction:
@@ -76,8 +77,8 @@ type line struct {
 // conversation to rec in the file's own order. Follows
 // vendorreader.VendorAdapter's contract: a malformed line is skipped and is
 // never fatal; a rec.Record failure or ctx cancellation IS fatal.
-func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string) error {
-	lines, err := vendorreader.OpenAndReadJSONLLines(vendorName, src)
+func (Adapter) Convert(ctx context.Context, fsys afero.Fs, rec transcript.Recorder, src string) error {
+	lines, err := vendorreader.OpenAndReadJSONLLines(fsys, vendorName, src)
 	if err != nil {
 		return err
 	}

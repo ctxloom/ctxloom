@@ -82,7 +82,7 @@ var helpArgCommands = []struct {
 	{path: []string{"agent", "create"}, behaviour: actsOnResource, exists: agentHelpExists, flags: map[string]string{"profiles": "default"}, seed: seedProjectConfig},
 	{path: []string{"agent", "default"}, behaviour: helpAsFallback},
 	{path: []string{"agent", "remove"}, behaviour: helpAsFallback},
-	{path: []string{"profile", "create"}, behaviour: actsOnResource, exists: profileHelpExists, flags: map[string]string{"bundle": "some-bundle"}},
+	{path: []string{"profile", "create"}, behaviour: actsOnResource, exists: profileHelpExists, flags: map[string]string{"include": "some-bundle"}},
 	{path: []string{"profile", "remove"}, behaviour: helpAsFallback},
 	{path: []string{"profile", "show"}, behaviour: helpAsFallback},
 	{path: []string{"profile", "modify"}, behaviour: helpAsFallback},
@@ -207,7 +207,7 @@ func bundleHelpExists(t *testing.T) bool {
 func seedProjectConfig(t *testing.T) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(".ctxloom", 0o755))
-	testsupport.WriteFileString(t, afero.NewOsFs(), filepath.Join(".ctxloom", "config.yaml"), "schema_version: 6\n", 0o644)
+	testsupport.WriteFileString(t, afero.NewOsFs(), filepath.Join(".ctxloom", "config.yaml"), "schema_version: 7\n", 0o644)
 }
 
 func agentHelpExists(t *testing.T) bool {

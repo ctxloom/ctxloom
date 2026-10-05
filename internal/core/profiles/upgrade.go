@@ -215,9 +215,11 @@ func (u bundleRefCanonicalizeUpgrade) canonicalize(ref string) (string, bool) {
 	if !strings.Contains(base, "/") {
 		return ref, false
 	}
-	// "<alias>/<bundle>": the shared short-ref resolver, local-file-wins.
+	// "<alias>/<bundle>": the shared short-ref resolver, local-file-wins. It
+	// returns the base as written when it resolved nothing (local, unknown
+	// alias, no resolver), and the canonical ctxloom URI when it did.
 	resolved := remote.CanonicalizeShortRef(base, u.aliasToURL, u.localBundleExists)
-	if !remote.IsCanonicalRef(resolved) {
+	if resolved == base {
 		return ref, false
 	}
 
@@ -227,7 +229,7 @@ func (u bundleRefCanonicalizeUpgrade) canonicalize(ref string) (string, bool) {
 	if _, err := remote.ParseReference(canonical); err != nil {
 		return ref, false
 	}
-	return remote.CanonicalSpelling(resolved) + item, true
+	return canonical, true
 }
 
 // splitBundleSelector separates a bundle ref's bundle portion from an optional

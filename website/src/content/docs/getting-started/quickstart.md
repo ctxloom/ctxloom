@@ -200,8 +200,8 @@ ctxloom remote create community alice/ctxloom-golang
 ctxloom remote show community
 
 # Author a local profile referencing the remote bundle, then pull it.
-# A profile's -b accepts the short <remote>/<bundle> form.
-ctxloom profile create go-testing -b community/go-testing
+# A profile's --include accepts the short <remote>/<bundle> form.
+ctxloom profile create go-testing --include community/go-testing
 ctxloom deps pull
 
 # Accept the newly pulled content, then run with it
@@ -210,7 +210,7 @@ ctxloom run -p go-testing "help with tests"
 ```
 
 A profile is the way to bring a whole remote bundle in. `<remote>/<bundle>` is a
-**bundle** ref, so it works with `profile create -b`, but not with `run -f`,
+**bundle** ref, so it works with `profile create --include`, but not with `run -f`,
 which resolves fragments.
 
 ## Next Steps

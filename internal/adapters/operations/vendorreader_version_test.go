@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -121,14 +122,14 @@ func TestConvertVendorTranscript_UnrecordedVersionRefusesAndWritesNothing(t *tes
 	harp := "convert-unversioned-harp"
 	e := sessions.Entry{HarpName: harp, Backend: "claude-code", TranscriptPath: claudeFixturePath}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	assert.False(t, converted, "nothing may be attempted for a session whose format is unknown")
 	require.Error(t, err)
 
 	var missing *vendorreader.NoRecordedVersionError
 	assert.ErrorAs(t, err, &missing)
 	assert.Contains(t, err.Error(), harp, "the refusal must name the session, so a user can act on it")
-	assert.False(t, hasCanonicalTranscript(harp),
+	assert.False(t, hasCanonicalTranscript(afero.NewOsFs(), harp),
 		"a refused read must leave no canonical transcript — a half-written one is the plausible-but-wrong output this refuses to produce")
 }
 
@@ -138,14 +139,14 @@ func TestConvertVendorTranscript_UnknownVersionRefuses(t *testing.T) {
 	harp := "convert-future-version-harp"
 	e := sessions.Entry{HarpName: harp, Backend: "claude-code", TranscriptPath: claudeFixturePath, EngineVersion: "9.9.9"}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	assert.False(t, converted)
 	require.Error(t, err)
 
 	var unsupported *vendorreader.UnsupportedVersionError
 	require.ErrorAs(t, err, &unsupported)
 	assert.Equal(t, "9.9.9", unsupported.Version)
-	assert.False(t, hasCanonicalTranscript(harp))
+	assert.False(t, hasCanonicalTranscript(afero.NewOsFs(), harp))
 }
 
 // A session whose vendor transcript cannot be located at all stays the QUIET
@@ -156,7 +157,7 @@ func TestConvertVendorTranscript_UnknownVersionRefuses(t *testing.T) {
 func TestConvertVendorTranscript_UnlocatableSessionStaysSilentDespiteNoVersion(t *testing.T) {
 	e := sessions.Entry{HarpName: "convert-unbound-harp", Backend: "claude-code"}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	assert.False(t, converted)
 	assert.NoError(t, err,
 		"a session with nothing to convert must not shout about an unknown version — the refusal is for transcripts that actually exist")
@@ -186,7 +187,7 @@ func TestConvertVendorTranscript_MalformedLineInAKnownVersionDegradesToPartial(t
 		EngineVersion:  stubEngineVersion, // a version the adapter IS validated for
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err,
 		"a bad LINE inside a known format is not a structural failure — only an unreadable source, a cancelled context or a failing recorder is")
 	assert.True(t, converted)

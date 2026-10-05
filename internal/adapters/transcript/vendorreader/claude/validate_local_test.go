@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
@@ -103,7 +104,7 @@ func jsonlFiles(t *testing.T, root string) []string {
 // tallyFile reads one (already copied) transcript through the production
 // path and adds its accounting to the bucket for its highest version.
 func tallyFile(byVersion map[string]*versionStats, path string) {
-	lines, err := vendorreader.OpenAndReadJSONLLines("claude", path)
+	lines, err := vendorreader.OpenAndReadJSONLLines(afero.NewOsFs(), "claude", path)
 	version := highestVersion(lines)
 	st := byVersion[version]
 	if st == nil {

@@ -3,6 +3,7 @@ package cli
 import (
 	"io"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -119,7 +120,7 @@ type sessionAdoptResult struct {
 
 func runSessionAdopt(cmd *cobra.Command, args []string) error {
 	harp := args[0]
-	scan, err := operations.ScanAdoptCandidates(harp)
+	scan, err := operations.ScanAdoptCandidates(afero.NewOsFs(), harp)
 	if err != nil {
 		return err
 	}

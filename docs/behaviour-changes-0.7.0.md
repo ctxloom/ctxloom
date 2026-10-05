@@ -51,6 +51,10 @@ NEWER than this ctxloom knows fails the same way, naming both numbers, with
 upgrading ctxloom as the remedy. The `version` key is read as the legacy
 spelling of `schema_version`.
 
+Config generation 7 stores every agent binding's profile refs
+(`agents.<name>.profiles`) in the canonical `ctxloom+git://` spelling; an older
+layer's are read that way.
+
 An older layer is migrated in memory and its file is left alone; `ctxloom run`
 no longer offers to rewrite it. Pass `--write-upgrades` to any command to
 persist the migration (the previous file is kept beside it as `<file>.bak`).
@@ -252,8 +256,10 @@ segment now, like every bundle item's.
 What else follows from profiles being bundle items:
 
 - `ctxloom profile create/modify/remove/edit/import` write into the project
-  bundle; `create` and `import` take `--in-bundle <local bundle>` for another
-  local bundle, and a remote bundle's profiles are refused. Writing into a
+  bundle; `create` and `import` take `--bundle <local bundle>` for another
+  local bundle, and a remote bundle's profiles are refused. `profile create`'s
+  `-b/--bundle` therefore no longer names the bundles a profile includes: that
+  is `-i/--include`, and `-b` is gone. Writing into a
   signed local bundle warns that the write stales its signature.
 - Every profile is decoded strictly: a profile item carrying a key the schema
   does not declare stops its bundle loading.

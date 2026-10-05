@@ -322,11 +322,14 @@ func (c *Coordinator) ControlPause(ctx context.Context, by ControlInitiator, har
 		return false, err
 	}
 	// The pause is a hold, journaled BEFORE it is sent, so a coordinator that
-	// dies in between re-asserts it on adopt.
+	// dies in between re-asserts it on adopt. A failure drops it only when the
+	// runner certainly did not pause; when it may have (the answer was lost),
+	// the hold stands — it is what the steer disposition reads, it re-asserts
+	// on the runner's re-Hello, and a resume releases it.
 	id := c.recordPause(by, rec, reason)
 	resp, err := c.runnerControl(ctx, by, rec, "pause", reason)
 	if err != nil {
-		if id != "" {
+		if id != "" && !requestMayHaveLanded(err) {
 			c.dropFromHold(pauseKey(rec.Harp), id, heldRun{rec.RunID, rec.Harp})
 		}
 		return false, err

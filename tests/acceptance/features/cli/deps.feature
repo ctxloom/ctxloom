@@ -66,7 +66,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       When Alice asks what she has installed:
         """
@@ -99,7 +99,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And I run "ctxloom deps hold origin/demo"
       When Alice reviews what is frozen:
@@ -123,7 +123,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       When Alice installs the content her profile draws on:
         """
         ctxloom deps pull
@@ -135,7 +135,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       When Alice pulls again with nothing new pinned:
         """
@@ -154,7 +154,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin" changes fragment "demo-frag" to "MARKER-SKIPPED-PULL-never-seen"
@@ -184,7 +184,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And the remote "origin" stops publishing bundle "demo"
       When Alice pulls after upstream deleted the bundle:
@@ -212,7 +212,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin" becomes unreachable
@@ -235,7 +235,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And the remote "origin" becomes unreachable
       And I run "ctxloom deps pull"
@@ -253,7 +253,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And the project already has the file ".ctxloom/content/bundles/v2/project/profiles/orphan.yaml":
         """
         parents:
@@ -275,7 +275,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And the remote "origin" becomes unreachable
       When Alice checks for updates while the remote is unreachable:
@@ -289,7 +289,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And the remote "origin" becomes unreachable
       When Alice upgrades while the remote is unreachable:
@@ -311,7 +311,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And the remote "origin" advances its bundle
       When Alice asks what could be advanced:
@@ -333,7 +333,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And the remote "origin" advances its bundle
       When Alice advances her pins to the newest commit:
@@ -351,7 +351,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       And a git remote "origin" serving a ctxloom bundle
       And a git remote "other" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo --bundle other/demo"
+      And I run "ctxloom profile create dev --include origin/demo --include other/demo"
       And I run "ctxloom deps pull"
       And I run "ctxloom profile modify dev --remove-bundle other/demo"
       When Alice advances her pins to the newest commit:
@@ -369,7 +369,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And the remote "origin" advances its bundle
       And I run "ctxloom deps upgrade"
@@ -391,7 +391,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And I run "ctxloom deps hold origin/demo"
       And the remote "origin" advances its bundle
@@ -417,7 +417,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And I run "ctxloom deps hold origin/demo"
@@ -436,7 +436,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And I run "ctxloom deps hold origin/demo"
       And the remote "origin" advances its bundle
@@ -461,7 +461,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And I run "ctxloom profile materialize dev --target before"
@@ -484,7 +484,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
-      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom profile create dev --include origin/demo"
       And I run "ctxloom deps pull"
       And I run "ctxloom bundle trust" on the pending item "demo#fragments/demo-frag" from remote "origin"
       And the remote "origin" changes fragment "demo-frag" to "MARKER-STALE-CHECKOUT-current"

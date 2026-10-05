@@ -166,17 +166,19 @@ ctxloom deps pull
 ctxloom profile create backend \
   --parent base \
   --parent 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer' \
-  -b go-development \
-  -b testing \
+  --include go-development \
+  --include testing \
   -d "Backend developer profile"
 ```
 
-Refs passed to `--parent`/`-b` follow one rule: a bare, unprefixed name (e.g.
-`--parent developer` or `-b code-review-base#fragments/conduct`) is always a
-**local** profile/bundle name — it is never expanded against a remote. Only an
-alias-prefixed ref (`<remote-alias>/<bundle>[#selector]`, e.g.
-`-b ctxloom-default/security`) expands into its canonical URL, using the
-configured remote's alias. Full URLs and `ctxloom:local@...` refs pass through
+Refs passed to `--parent`/`--include` follow one rule: a bare, unprefixed name
+(e.g. `--parent developer` or `--include code-review-base#fragments/conduct`) is
+always a **local** profile/bundle name — it is never expanded against a remote.
+Only an alias-prefixed ref (`<remote-alias>/<bundle>[#selector]`, e.g.
+`--include ctxloom-default/security`) expands, using the configured remote's
+alias. Every ref naming its source is stored in the canonical
+`ctxloom+git://<host>/<repo>//bundles/<name>` spelling, a full
+`https://…@bundles/…` URL included; `ctxloom:local@...` refs pass through
 unchanged.
 
 ## Profile Inheritance
@@ -344,7 +346,7 @@ See [Templating](/guides/templating) for full variable documentation.
 
 Every local profile is an item of a local bundle — the project bundle unless
 you address another one (`<bundle>#profiles/<name>`, or `profile create
---in-bundle <bundle>`). `config.yaml` has no `profiles:` block: a config that
+--bundle <bundle>`). `config.yaml` has no `profiles:` block: a config that
 still carries one is reported with the move to make (write each definition to
 `<name>.yaml`, its body unchanged, and `ctxloom profile import` it).
 

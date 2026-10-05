@@ -33,6 +33,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/spf13/afero"
 )
 
 // Decision is the outcome of classifying one turn.
@@ -456,9 +457,9 @@ func (c *collector) Close() error { return nil }
 // wants "the last assistant line", and it is how a build ends up with two
 // disagreeing notions of what a transcript entry is: the vendor format is the
 // adapter's problem, and it already solves it for every engine ctxloom reads.
-func ReadTranscript(ctx context.Context, adapter vendorreader.VendorAdapter, src string) ([]agent.ChatEvent, error) {
+func ReadTranscript(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, src string) ([]agent.ChatEvent, error) {
 	c := &collector{}
-	if err := adapter.Convert(ctx, c, src); err != nil {
+	if err := adapter.Convert(ctx, fsys, c, src); err != nil {
 		return nil, err
 	}
 	return c.events, nil
@@ -469,8 +470,8 @@ func ReadTranscript(ctx context.Context, adapter vendorreader.VendorAdapter, src
 //
 // On failure it returns BOTH a changed Decision and the error, so a caller
 // that only inspects the Decision still fails in the speaking direction.
-func ClassifyTranscript(ctx context.Context, adapter vendorreader.VendorAdapter, src string) (Decision, error) {
-	evs, err := ReadTranscript(ctx, adapter, src)
+func ClassifyTranscript(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, src string) (Decision, error) {
+	evs, err := ReadTranscript(ctx, fsys, adapter, src)
 	if err != nil {
 		return Decision{Changed: true, Reason: "transcript could not be read: " + err.Error()}, err
 	}

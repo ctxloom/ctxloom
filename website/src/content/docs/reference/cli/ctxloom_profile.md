@@ -19,7 +19,7 @@ A profile is an item of a bundle. A project's own profiles live in its
 project bundle, so a bare profile name is that bundle's profile; a profile of
 any other bundle is addressed as <bundle>#profiles/<name>. The write commands
 (create, update, edit, remove, import) write into the project bundle unless
-the name addresses another LOCAL bundle (create and import take --in-bundle).
+the name addresses another LOCAL bundle (create and import take --bundle).
 
 ```
 ctxloom profile [flags]

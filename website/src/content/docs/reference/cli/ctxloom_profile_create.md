@@ -13,13 +13,16 @@ Create a new profile
 
 ### Synopsis
 
-Create a new profile with bundles and/or parents.
+Create a new profile with included bundles and/or parents.
 
-Bundle references use full URLs:
+--include names a bundle the profile pulls in; --bundle names the LOCAL bundle
+the profile is written into (default: the project bundle).
+
+Included bundle references use full URLs:
   https://github.com/user/repo@bundles/name    # Bundle from remote
 
 Example:
-  ctxloom profile create developer -b https://github.com/user/ctxloom@bundles/go-development -d "Standard dev context"
+  ctxloom profile create developer -i https://github.com/user/ctxloom@bundles/go-development -d "Standard dev context"
 
 ```
 ctxloom profile create <name> [flags]
@@ -28,9 +31,9 @@ ctxloom profile create <name> [flags]
 ### Options
 
 ```
-  -b, --bundle strings       Bundle URL(s) to include
+      --bundle string        Local bundle to create the profile in (default: the project bundle)
   -d, --description string   Description of the profile
-      --in-bundle string     Local bundle to create the profile in (default: the project bundle)
+  -i, --include strings      Bundle URL(s) the profile includes
       --llm string           Preferred LLM config label/backend to launch (overridable by run -l)
       --parent strings       Parent profile(s) to inherit from: a local name or <bundle>#profiles/<name> (bundle = canonical URL, remote/bundle alias, or local bundle name)
 ```

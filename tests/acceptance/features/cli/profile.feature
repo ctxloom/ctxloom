@@ -17,7 +17,7 @@ Feature: profile — the composition that decides what an agent actually receive
   as flags on two commands, and the vocabulary is worth learning once:
 
   | intent                      | how it is spelled                                   |
-  | attach a bundle             | `profile create -b <bundle>` / `modify --add-bundle`|
+  | attach a bundle             | `profile create --include <bundle>` / `modify --add-bundle`|
   | detach a bundle             | `profile modify --remove-bundle <bundle>`           |
   | attach a parent             | `profile create --parent <p>` / `modify --add-parent`|
   | detach a parent             | `profile modify --remove-parent <p>`                |
@@ -57,7 +57,7 @@ Feature: profile — the composition that decides what an agent actually receive
       And a bundle "demo" exists
       When Alice names the context she wants to work in:
         """
-        ctxloom profile create dev -b demo -d day-to-day-work
+        ctxloom profile create dev --include demo -d day-to-day-work
         """
       Then the command succeeds
       And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" exists
@@ -85,12 +85,12 @@ Feature: profile — the composition that decides what an agent actually receive
       And a bundle "demo" exists
       # The composed form first, so "no file was written" below is read in a
       # fixture where a create demonstrably DOES write one.
-      When I run "ctxloom profile create dev -b demo"
+      When I run "ctxloom profile create dev --include demo"
       Then the command succeeds
       And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" exists
       When I run "ctxloom profile create hollow"
       Then the command fails
-      And the output contains "at least one parent (--parent) or bundle (-b) is required"
+      And the output contains "at least one parent (--parent) or included bundle (--include) is required"
       And the file ".ctxloom/content/bundles/v2/project/profiles/hollow.yaml" does not exist
 
     Scenario Outline: Showing a profile reads its composition back
@@ -184,7 +184,7 @@ Feature: profile — the composition that decides what an agent actually receive
       And a fragment "testing" in bundle "demo" exists
       When Alice composes her profile on top of the team's base:
         """
-        ctxloom profile create dev --parent base -b demo -d day-to-day-work
+        ctxloom profile create dev --parent base --include demo -d day-to-day-work
         """
       Then the command succeeds
       When I run "ctxloom profile show dev <flags>"
@@ -220,10 +220,10 @@ Feature: profile — the composition that decides what an agent actually receive
       And a profile "base" with bundle "demo"
       # A real parent composes, so the refusal below is about the NAME rather
       # than about `--parent` never having worked in this fixture.
-      When I run "ctxloom profile create good --parent base -b demo"
+      When I run "ctxloom profile create good --parent base --include demo"
       Then the command succeeds
       And the file ".ctxloom/content/bundles/v2/project/profiles/good.yaml" exists
-      When I run "ctxloom profile create dev --parent no-such-base -b demo"
+      When I run "ctxloom profile create dev --parent no-such-base --include demo"
       Then the command fails
       And the file ".ctxloom/content/bundles/v2/project/profiles/dev.yaml" does not exist
 

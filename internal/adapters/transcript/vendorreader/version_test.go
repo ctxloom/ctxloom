@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -12,7 +13,7 @@ import (
 
 type namedAdapter struct{ name string }
 
-func (namedAdapter) Convert(context.Context, transcript.Recorder, string) error { return nil }
+func (namedAdapter) Convert(context.Context, afero.Fs, transcript.Recorder, string) error { return nil }
 
 // claudeLine is shaped like the real claude-code declaration: the whole 2.x
 // line, with a validated version inside it.

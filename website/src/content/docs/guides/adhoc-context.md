@@ -308,13 +308,13 @@ ctxloom run -f go-style -f testing-patterns -f owasp-top-10 "..."
 
 # Create a profile for future use — profiles take BUNDLES, not fragments
 ctxloom profile create go-secure \
-  -b my-project \
-  -b 'https://github.com/ctxloom/ctxloom-default@bundles/security' \
+  --include my-project \
+  --include 'https://github.com/ctxloom/ctxloom-default@bundles/security' \
   -d "Go development with security focus"
 ```
 
-Note the change of unit: `run -f` takes fragment names, `profile create -b`
-takes bundle references. A bare `-b` value means a *local* bundle and is not
+Note the change of unit: `run -f` takes fragment names, `profile create --include`
+takes bundle references. A bare `--include` value means a *local* bundle and is not
 checked at create time, so a bundle that came from a remote must be given as
 `<remote-alias>/<bundle>` or as a full URL — otherwise the profile is stored
 pointing at a local bundle that does not exist and quietly contributes nothing.

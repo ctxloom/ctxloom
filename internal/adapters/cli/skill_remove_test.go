@@ -36,7 +36,7 @@ func seedRemovableSkill(t *testing.T, cfg *config.Config) string {
 }
 
 func TestRunSkillRemove_BareReportsAndDestroysNothing(t *testing.T) {
-	agentProject(t, "schema_version: 6\n")
+	agentProject(t, "schema_version: 7\n")
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	greetDir := seedRemovableSkill(t, cfg)
@@ -52,7 +52,7 @@ func TestRunSkillRemove_BareReportsAndDestroysNothing(t *testing.T) {
 // TestRunSkillRemove_YesRemovesAndReports pins the apply side, paired with
 // the bare-path test above.
 func TestRunSkillRemove_YesRemovesAndReports(t *testing.T) {
-	agentProject(t, "schema_version: 6\n")
+	agentProject(t, "schema_version: 7\n")
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	greetDir := seedRemovableSkill(t, cfg)
@@ -68,7 +68,7 @@ func TestRunSkillRemove_YesRemovesAndReports(t *testing.T) {
 }
 
 func TestRunSkillRemove_UnknownNameErrors(t *testing.T) {
-	agentProject(t, "schema_version: 6\n")
+	agentProject(t, "schema_version: 7\n")
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	seedRemovableSkill(t, cfg)
@@ -80,7 +80,7 @@ func TestRunSkillRemove_UnknownNameErrors(t *testing.T) {
 }
 
 func TestRunSkillRemove_InvalidRefIsUsageError(t *testing.T) {
-	agentProject(t, "schema_version: 6\n")
+	agentProject(t, "schema_version: 7\n")
 	cmd, _ := textCmd()
 	err := runSkillRemove(cmd, []string{"not-a-valid-ref"})
 	require.Error(t, err)

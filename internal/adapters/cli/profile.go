@@ -61,7 +61,11 @@ func runProfileList(cmd *cobra.Command, args []string) error {
 			}
 			return nil
 		}
-		return renderProfileList(out, list)
+		var refs []string
+		for _, p := range list {
+			refs = append(append(refs, p.Name, p.Bundle), p.Parents...)
+		}
+		return renderProfileList(out, list, refLabels(refLabeler(cmd.Context(), cfg), refs...))
 	})
 }
 
@@ -70,11 +74,11 @@ func runProfileList(cmd *cobra.Command, args []string) error {
 // (default-tag, parents/bundles line, description indentation) are
 // testable without invoking cobra or touching the real config. The
 // per-entry Default flag is resolved by the operations layer.
-func renderProfileList(out io.Writer, list []operations.ProfileEntry) error {
+func renderProfileList(out io.Writer, list []operations.ProfileEntry, show func(string) string) error {
 	w := errwriter.New(out)
 	w.Printf("Profiles (%d):\n", len(list))
 	for _, p := range list {
-		w.Printf("  %s", p.Name)
+		w.Printf("  %s", show(p.Name))
 		if p.Default {
 			w.Printf(" (default)")
 		}
@@ -85,10 +89,14 @@ func renderProfileList(out io.Writer, list []operations.ProfileEntry) error {
 
 		var parts []string
 		if p.Bundle != "" {
-			parts = append(parts, fmt.Sprintf("from bundle: %s", p.Bundle))
+			parts = append(parts, fmt.Sprintf("from bundle: %s", show(p.Bundle)))
 		}
 		if len(p.Parents) > 0 {
-			parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(p.Parents, ", ")))
+			parents := make([]string, len(p.Parents))
+			for i, parent := range p.Parents {
+				parents[i] = show(parent)
+			}
+			parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(parents, ", ")))
 		}
 		if len(p.Bundles) > 0 {
 			parts = append(parts, fmt.Sprintf("%d bundles", len(p.Bundles)))

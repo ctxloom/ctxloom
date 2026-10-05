@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1036,10 +1037,13 @@ func (st *runState) printDryRun(l launch.Launch, payload dryRunJSON) error {
 		printSignatureCheck(os.Stdout, payload.SignatureCheck, payload.SessionSignatureCheck, payload.EditedSignedTrees)
 		fmt.Println("=== LLM ===")
 		fmt.Printf("%s (%s)\n", l.Label.Label, l.Engine)
+		// One labelling over both lists, so a short name is judged across
+		// everything the preview names.
+		shown := refLabeler(st.ctx, st.cfg)(append(slices.Clone(payload.Profiles), payload.Fragments...))
 		fmt.Println("\n=== Profiles ===")
-		printListOr(payload.Profiles, "(no profiles)")
+		printListOr(shown[:len(payload.Profiles)], "(no profiles)")
 		fmt.Println("\n=== Fragments Loaded ===")
-		printListOr(payload.Fragments, "(no fragments)")
+		printListOr(shown[len(payload.Profiles):], "(no fragments)")
 		printDeliveryRoutes(os.Stdout, payload.Delivery)
 		printEngineHome(os.Stdout, payload.EngineHome)
 		fmt.Printf("\n=== Assembled Context (~%d tokens) ===\n", payload.Tokens)

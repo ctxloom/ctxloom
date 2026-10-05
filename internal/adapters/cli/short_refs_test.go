@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 var shortRefRemotes = []operations.RemoteEntry{
@@ -59,4 +62,34 @@ func TestShortRefs_SharedShortNameFallsBackToCanonical(t *testing.T) {
 	a := remote.CanonicalizeShortRef("acme/go", aliasURL, nil)
 	refs := []string{a, "acme/go"} // a local item spelled like the short form
 	assert.Equal(t, []string{a, "acme/go"}, shortRefs(refs, shortRefRemotes))
+}
+
+// markRefs is a recognisable stand-in for shortRefs: a renderer test asserts
+// every ref position it prints goes through the labeler.
+func markRefs(refs []string) []string {
+	out := make([]string, len(refs))
+	for i, r := range refs {
+		out[i] = "<" + r + ">"
+	}
+	return out
+}
+
+// TestTextListings_NameEveryRefThroughTheLabeler: the profile and item
+// listings print a ref in several positions (a profile's name, its bundle,
+// its parents; an item's bundle header). Each goes through the one labeler.
+func TestTextListings_NameEveryRefThroughTheLabeler(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, renderProfileList(&buf, []operations.ProfileEntry{{
+		Name: "rp", Bundle: "rb", Parents: []string{"pa", "pb"},
+	}}, refLabels(markRefs)))
+	for _, want := range []string{"<rp>", "from bundle: <rb>", "parents: <pa>, <pb>"} {
+		assert.Contains(t, buf.String(), want)
+	}
+
+	buf.Reset()
+	printItemInfos(&buf, []itemRow{{Name: "frag", Bundle: "rb"}}, "fragment", refLabels(markRefs))
+	assert.Contains(t, buf.String(), "<rb>:")
+
+	labelled := labelBundleInfos([]*bundles.BundleInfo{{Name: "rb", Ref: "rb"}}, markRefs)
+	assert.Equal(t, "<rb>", labelled[0].Name)
 }

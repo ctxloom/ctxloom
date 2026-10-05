@@ -163,7 +163,7 @@ func filterByBundle(rows []itemRow, bundleFilter string) []itemRow {
 // redirects a command's output (a test, the VSCode companion capturing a
 // subprocess, `ctxloom ... > file`) used to see nothing from this path even
 // though the command itself reported success.
-func printItemInfos(w io.Writer, rows []itemRow, itemType ItemType) {
+func printItemInfos(w io.Writer, rows []itemRow, itemType ItemType, show func(string) string) {
 	fmt.Fprintf(w, "%ss (%d):\n\n", titleCase(string(itemType)), len(rows))
 	currentBundle := ""
 	for _, r := range rows {
@@ -171,7 +171,7 @@ func printItemInfos(w io.Writer, rows []itemRow, itemType ItemType) {
 			if currentBundle != "" {
 				fmt.Fprintln(w)
 			}
-			fmt.Fprintf(w, "  %s:\n", inertField(r.Bundle))
+			fmt.Fprintf(w, "  %s:\n", inertField(show(r.Bundle)))
 			currentBundle = r.Bundle
 		}
 		fmt.Fprintf(w, "    - %s", inertField(r.Name))
@@ -248,7 +248,11 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 			fmt.Fprintln(out, emptyListingHint(cfg))
 			return nil
 		}
-		printItemInfos(cmd.OutOrStdout(), filtered, itemType)
+		bundleRefs := make([]string, len(filtered))
+		for i, r := range filtered {
+			bundleRefs[i] = r.Bundle
+		}
+		printItemInfos(cmd.OutOrStdout(), filtered, itemType, refLabels(refLabeler(cmd.Context(), cfg), bundleRefs...))
 		return nil
 	})
 }

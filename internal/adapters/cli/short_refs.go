@@ -6,6 +6,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
@@ -76,4 +77,37 @@ func refLabeler(ctx context.Context, cfg *config.Config) func([]string) []string
 		return func(refs []string) []string { return refs }
 	}
 	return func(refs []string) []string { return shortRefs(refs, res.Remotes) }
+}
+
+// refLabels is a renderer's view of label: every ref in refs is labelled in
+// ONE call, so a shared short name is judged across the whole listing; a ref
+// outside the batch is labelled on its own.
+func refLabels(label func([]string) []string, refs ...string) func(string) string {
+	shown := make(map[string]string, len(refs))
+	for i, l := range label(refs) {
+		shown[refs[i]] = l
+	}
+	return func(ref string) string {
+		if l, ok := shown[ref]; ok {
+			return l
+		}
+		return label([]string{ref})[0]
+	}
+}
+
+// labelBundleInfos is infos with each Name replaced by its text label, as
+// copies: bundles.ListingNames then disambiguates any label two rows share
+// by the canonical Ref, which the copies keep.
+func labelBundleInfos(infos []*bundles.BundleInfo, label func([]string) []string) []*bundles.BundleInfo {
+	names := make([]string, len(infos))
+	for i, info := range infos {
+		names[i] = info.Name
+	}
+	out := make([]*bundles.BundleInfo, len(infos))
+	for i, l := range label(names) {
+		c := *infos[i]
+		c.Name = l
+		out[i] = &c
+	}
+	return out
 }

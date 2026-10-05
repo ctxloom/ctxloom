@@ -29,30 +29,49 @@ func shortRefs(refs []string, remotes []operations.RemoteEntry) []string {
 		urls[r.Name] = r.URL
 	}
 	aliasURL := func(alias string) string { return urls[alias] }
-	type prefix struct{ alias, canonical string }
-	var prefixes []prefix
+	prefixes := remotePrefixes(remotes, aliasURL)
+	labels := make([]string, len(refs))
+	for i, ref := range refs {
+		labels[i] = shortLabel(ref, prefixes, aliasURL)
+	}
+	return canonicalWhereShared(refs, labels)
+}
+
+// remotePrefix is one registered remote and the canonical prefix every ref
+// inside its bundles starts with.
+type remotePrefix struct{ alias, canonical string }
+
+// remotePrefixes derives each remote's canonical prefix from the grammar
+// itself: the expansion of "<remote>/<probe>", less the probe.
+func remotePrefixes(remotes []operations.RemoteEntry, aliasURL func(string) string) []remotePrefix {
+	var prefixes []remotePrefix
 	for _, r := range remotes {
 		probe := remote.CanonicalizeShortRef(r.Name+"/"+shortRefProbe, aliasURL, nil)
 		if p, ok := strings.CutSuffix(probe, shortRefProbe); ok && p != r.Name+"/" {
-			prefixes = append(prefixes, prefix{r.Name, p})
+			prefixes = append(prefixes, remotePrefix{r.Name, p})
 		}
 	}
+	return prefixes
+}
 
-	labels := make([]string, len(refs))
-	for i, ref := range refs {
-		labels[i] = ref
-		for _, p := range prefixes {
-			rest, ok := strings.CutPrefix(ref, p.canonical)
-			if !ok || rest == "" {
-				continue
-			}
-			if short := p.alias + "/" + rest; remote.CanonicalizeShortRef(short, aliasURL, nil) == ref {
-				labels[i] = short
-				break
-			}
+// shortLabel is ref's "<remote>/<rest>" form when that form expands back to
+// ref exactly, else ref as written.
+func shortLabel(ref string, prefixes []remotePrefix, aliasURL func(string) string) string {
+	for _, p := range prefixes {
+		rest, ok := strings.CutPrefix(ref, p.canonical)
+		if !ok || rest == "" {
+			continue
+		}
+		if short := p.alias + "/" + rest; remote.CanonicalizeShortRef(short, aliasURL, nil) == ref {
+			return short
 		}
 	}
+	return ref
+}
 
+// canonicalWhereShared returns labels with every label two different refs
+// share replaced by each one's ref.
+func canonicalWhereShared(refs, labels []string) []string {
 	owners := make(map[string]map[string]bool, len(labels))
 	for i, label := range labels {
 		if owners[label] == nil {
@@ -60,12 +79,14 @@ func shortRefs(refs []string, remotes []operations.RemoteEntry) []string {
 		}
 		owners[label][refs[i]] = true
 	}
+	out := make([]string, len(labels))
 	for i, label := range labels {
+		out[i] = label
 		if len(owners[label]) > 1 {
-			labels[i] = refs[i]
+			out[i] = refs[i]
 		}
 	}
-	return labels
+	return out
 }
 
 // refLabeler is shortRefs over cfg's registered remotes, for a text renderer.

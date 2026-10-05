@@ -462,15 +462,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err := st.loadConfig(); err != nil {
 		return err
 	}
-	// An invalid ui.prefix_key is a broken-config finding like any other:
-	// recorded with the config load so the startup gate aborts on it before
-	// launch (a viewer on a key the user didn't configure is a wrong-context
-	// session's cousin).
-	validateTerminalUIConfig(st.cfg)
-	if runLLM != "" {
-		if _, err := validateExplicitLLM(st.cfg, runLLM); err != nil {
-			return err
-		}
+	if err := st.validateLoaded(); err != nil {
+		return err
 	}
 	if err := st.resolvePrompt(); err != nil {
 		return err
@@ -607,6 +600,20 @@ func (st *runState) agentTokenRefusal() error {
 		return refusal{err}
 	}
 	return nil
+}
+
+// validateLoaded checks what the loaded config says about this invocation.
+// An invalid ui.prefix_key is a broken-config finding like any other:
+// recorded with the config load so the startup gate aborts on it before
+// launch (a viewer on a key the user didn't configure is a wrong-context
+// session's cousin). An explicit --llm must name a usable label.
+func (st *runState) validateLoaded() error {
+	validateTerminalUIConfig(st.cfg)
+	if runLLM == "" {
+		return nil
+	}
+	_, err := validateExplicitLLM(st.cfg, runLLM)
+	return err
 }
 
 // lookupProjectIdentity is a dry run's answer to "which project is this":

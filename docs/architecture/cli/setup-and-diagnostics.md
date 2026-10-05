@@ -54,8 +54,9 @@ flowchart TD
     end
 
     subgraph doctor["doctor_cmd.go"]
-        DC["doctor (--deps)"] --> OD[["operations.Doctor(ctx, app, DoctorRequest{DepsOnly, Home}) → DoctorReport"]]
-        OD --> RDR["renderDoctorReport"]
+        DC["doctor (--deps, --all)"] --> OD[["operations.Doctor(ctx, app, DoctorRequest{DepsOnly, Home}) → DoctorReport"]]
+        OD -->|"text, default"| RDS["renderDoctorSummary — warn rows + the first fix"]
+        OD -->|"text, --all"| RDR["renderDoctorReport"]
         ISD["init_systemdeps.go: checkSystemDeps"] --> SKRD[["operations.SignKeyResolutionDetail / GitIdentityDetail"]]
     end
 
@@ -132,13 +133,15 @@ resolution.
 
 The checks are `operations.Doctor`'s: `--deps` selects the machine-capability
 subset (`DoctorRequest.DepsOnly`), the CLI hands in the home it stands in for
-the composition root on (`DoctorRequest.Home`), and `renderDoctorReport` is
-the only text the command writes. Each row is an `operations.DoctorCheck{Marker,
-Status, Detail}` where `Marker` carries the `DOCTOR-CHECK-*` vocabulary
+the composition root on (`DoctorRequest.Home`). Text output is
+`renderDoctorSummary` — the warn rows and the first fix — unless `--all` asks for
+`renderDoctorReport`'s every row; structured formats carry every row. Each row is an
+`operations.DoctorCheck{Marker, Status, Detail, Remedy}`, `Remedy` being the one-line
+fix where one is known, and `Marker` carries the `DOCTOR-CHECK-*` vocabulary
 **shared with the external `ctxloom-doctor` Agent Skill** and `Status` is the
 `operations.DoctorStatus` enum (`ok` | `warn` | `info`). The run banner's
 startup findings (`run_startup_findings.go`) are `operations.StartupFindings`
-rendered through the same renderer.
+rendered through `renderDoctorReport`.
 
 `operations.SignKeyResolutionDetail` and `operations.GitIdentityDetail` are
 shared with `init_systemdeps.go`'s `warnIf*` probes, so a diagnosis is worded

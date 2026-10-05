@@ -184,7 +184,7 @@ across every project on the machine and created lazily by exercising a
 specific feature — a fresh install, or one that never touched that feature,
 legitimately has none of them yet.
 
-`Layout` is read by doctor's local-tier check (`cli.doctorCheckLocalTierState`),
+`Layout` is read by doctor's local-tier check (`operations.doctorCheckLocalTierState`),
 which resolves each row against the root `Entry.Root` names and reports any
 absent `PresenceMustExist` `TierLocal` row using that entry's `Lost` text;
 a `PresenceIfUsed` row is reported only when PRESENT, never when absent. The

@@ -1,14 +1,10 @@
-// Package displaysafe renders text an agent controls — what a child asks the
-// human to approve — so that nothing in it can act on a terminal or hide part
-// of what is asked.
+// Package displaysafe renders text someone else controls — what a child asks
+// the human to approve, what a publisher wrote for review — so that nothing in
+// it can act on a terminal or hide part of what the human is reading.
 //
-// It is not termsafe, and the two policies differ on purpose. termsafe guards
-// publisher prose under review and leaves zero-width joiners alone because
-// legitimate prose needs them; an approval shows a command, a path or a rule
-// whose every character the human is judging, so here every format character
-// is shown. And termsafe's output must never reach structured output, while a
-// pending approval's summary is rendered once, where it parks, and goes to
-// every viewer — JSON included.
+// It is for human-facing renderings only. A value a program parses (a
+// --format json/yaml/toml result) keeps its raw bytes: that grammar already
+// renders a control byte inert, and a marker in it would corrupt the content.
 package displaysafe
 
 import (

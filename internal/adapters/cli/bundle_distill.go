@@ -20,7 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/compression"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -214,7 +213,7 @@ func printDistillInvalidatedApprovals(w *errwriter.Writer, refs []string) {
 	w.Println("  them.")
 	w.Println()
 	for _, ref := range refs {
-		w.Printf("    %s\n", termsafe.Field(ref))
+		w.Printf("    %s\n", inertField(ref))
 	}
 	w.Println()
 	w.Println("  Review them:            ctxloom review")
@@ -244,11 +243,11 @@ func printDistillItems(w *errwriter.Writer, items []operations.DistillBundleItem
 	for _, it := range items {
 		switch it.Status {
 		case operations.DistillStatusSkipped:
-			w.Printf("  Skipping %s %s (%s)\n", it.Kind, termsafe.Field(it.Name), termsafe.Field(it.Reason))
+			w.Printf("  Skipping %s %s (%s)\n", it.Kind, inertField(it.Name), inertField(it.Reason))
 		case operations.DistillStatusPlanned:
-			w.Printf("  Would distill %s: %s\n", it.Kind, termsafe.Field(it.Name))
+			w.Printf("  Would distill %s: %s\n", it.Kind, inertField(it.Name))
 		case operations.DistillStatusDistilled:
-			w.Printf("  Distilled %s: %s (%s)\n", it.Kind, termsafe.Field(it.Name), termsafe.Field(it.ModelID))
+			w.Printf("  Distilled %s: %s (%s)\n", it.Kind, inertField(it.Name), inertField(it.ModelID))
 		}
 	}
 }

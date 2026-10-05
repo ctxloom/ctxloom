@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 var browseRecursive bool
@@ -80,7 +79,7 @@ func renderRemoteBrowse(out io.Writer, itemType string, result *operations.Brows
 	})
 
 	for _, item := range items {
-		fmt.Fprintf(out, "  %s\n", termsafe.Field(item.PullRef))
+		fmt.Fprintf(out, "  %s\n", inertField(item.PullRef))
 	}
 
 	fmt.Fprintln(out)

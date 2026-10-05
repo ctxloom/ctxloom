@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -154,17 +153,17 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 	if len(result.Retracted) > 0 {
 		fmt.Fprintf(w, "  Retracted: %d\n", len(result.Retracted))
 		for _, item := range result.Retracted {
-			fmt.Fprintf(w, "    - %s: retracted (%s)\n", termsafe.Field(item.Reference), termsafe.Sanitize(item.Error, 0, false).Text)
+			fmt.Fprintf(w, "    - %s: retracted (%s)\n", inertField(item.Reference), inertBody(item.Error, 0, false).Text)
 		}
 	}
 	for _, identity := range result.Removed {
-		fmt.Fprintf(w, "  Removed %s from the lockfile: nothing this project composes depends on it any more.\n", termsafe.Field(identity))
+		fmt.Fprintf(w, "  Removed %s from the lockfile: nothing this project composes depends on it any more.\n", inertField(identity))
 	}
 	if result.Errors > 0 {
 		fmt.Fprintf(w, "  Failed: %d\n", result.Errors)
 		for _, item := range result.Failed {
-			fmt.Fprintf(w, "    - %s: %s%s\n", termsafe.Field(item.Reference), termsafe.Sanitize(item.Error, 0, false).Text,
-				clifmt.FixLine("      ", termsafe.Sanitize(item.Remedy(), 0, false).Text))
+			fmt.Fprintf(w, "    - %s: %s%s\n", inertField(item.Reference), inertBody(item.Error, 0, false).Text,
+				clifmt.FixLine("      ", inertBody(item.Remedy(), 0, false).Text))
 		}
 	}
 	renderIncompleteLock(w, result)
@@ -178,7 +177,7 @@ func renderIncompleteLock(w io.Writer, result *operations.SyncDependenciesResult
 	}
 	names := make([]string, 0, len(result.Unreachable))
 	for _, ref := range result.Unreachable {
-		names = append(names, termsafe.Field(ref))
+		names = append(names, inertField(ref))
 	}
 	fmt.Fprintf(w, pullIncompleteFormat, strings.Join(names, ", "))
 }

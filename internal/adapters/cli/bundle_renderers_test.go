@@ -337,11 +337,11 @@ func TestRenderBundleMCPEntry_MinimalShowsCommandOnly(t *testing.T) {
 
 // An MCP entry's Notes and Installation are publisher-authored BODIES, like
 // the bundle's own Notes: an installation recipe is several commands, one per
-// line, and the one-line identifier cap would flatten it to ^J-joined text and
+// line, and the one-line identifier cap would flatten it to ⟨U+000A⟩-joined text and
 // cut it at a line's worth of bytes. They keep their lines and the body cap —
 // and a control byte inside them is still escaped, not passed through.
 func TestRenderBundleMCPEntry_NotesAndInstallationRenderAsBodies(t *testing.T) {
-	long := strings.Repeat("x", 300) // past termsafe.DefaultFieldMaxBytes
+	long := strings.Repeat("x", 300) // past publisherFieldMaxBytes
 	mcp := bundles.BundleMCP{
 		Command:      "mcp-fs",
 		Notes:        "needs a token\n" + long,
@@ -355,8 +355,8 @@ func TestRenderBundleMCPEntry_NotesAndInstallationRenderAsBodies(t *testing.T) {
 
 	assert.Contains(t, out, "      Notes:\n        needs a token\n        "+long+"\n")
 	assert.Contains(t, out,
-		"      Installation:\n        go install example.com/mcp-fs@latest\n        mcp-fs init ^[[2K"+long+"\n")
-	assert.NotContains(t, out, "^J", "a body's newlines are kept, not escaped")
+		"      Installation:\n        go install example.com/mcp-fs@latest\n        mcp-fs init ⟨ESC⟩[2K"+long+"\n")
+	assert.NotContains(t, out, "⟨U+000A⟩", "a body's newlines are kept, not escaped")
 	assert.NotContains(t, out, "\x1b", "a control byte in a body is still escaped")
 }
 

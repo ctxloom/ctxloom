@@ -36,7 +36,7 @@ func TestPrintBundleItemTrust_StripsControlCharactersFromName(t *testing.T) {
 	printBundleItemTrust(&out, stamper, "somebundle", trust.KindFragment, "solid\nEVIL-INJECTED-LINE")
 
 	assert.NotContains(t, out.String(), "\n\n", "the printed line must not carry an embedded newline from the name")
-	assert.Contains(t, out.String(), "fragments/solid^JEVIL-INJECTED-LINE:")
+	assert.Contains(t, out.String(), "fragments/solid⟨U+000A⟩EVIL-INJECTED-LINE:")
 	// Exactly one newline: the trailing one printBundleItemTrust itself emits.
 	assert.Equal(t, 1, strings.Count(out.String(), "\n"))
 }
@@ -70,12 +70,12 @@ func TestPrintBundleItemTrust_ControlBytesAreEscapedNotDeleted(t *testing.T) {
 	got := render(hostile)
 
 	// 1. The alteration is REPORTED, and the report is the rendered text
-	//    itself: termsafe.Field's contract is that the escaping is visible in
+	//    itself: inertField's contract is that the escaping is visible in
 	//    the output, so a reader sees exactly where the publisher put a
-	//    control byte. Caret notation is what `cat -v` prints.
-	assert.Contains(t, got, "^[", "ESC must render as visible caret notation")
-	assert.Contains(t, got, "^M", "CR must render as visible caret notation")
-	assert.Contains(t, got, "^?", "DEL must render as visible caret notation")
+	//    control byte.
+	assert.Contains(t, got, "⟨ESC⟩", "ESC must render as a visible marker")
+	assert.Contains(t, got, "⟨U+000D⟩", "CR must render as a visible marker")
+	assert.Contains(t, got, "⟨U+007F⟩", "DEL must render as a visible marker")
 
 	// 2. Nothing was silently dropped: the deleting render's output — the
 	//    name with its control bytes simply gone — must NOT be what appears.
@@ -111,7 +111,7 @@ func TestPrintBundleHookTrust_ControlBytesAreEscapedNotDeleted(t *testing.T) {
 	})
 
 	got := out.String()
-	assert.Contains(t, got, "hooks/session-start^[[2K/0:", "the hook id must render escaped, not stripped")
+	assert.Contains(t, got, "hooks/session-start⟨ESC⟩[2K/0:", "the hook id must render escaped, not stripped")
 	assert.NotContains(t, got, "hooks/session-start[2K/0:", "a deleted ESC would leave the erase-line text bare")
 	assert.NotContains(t, got, "\x1b")
 	assert.Equal(t, 1, strings.Count(got, "\n"))
@@ -120,7 +120,7 @@ func TestPrintBundleHookTrust_ControlBytesAreEscapedNotDeleted(t *testing.T) {
 // listItemRows is the `fragment list` / `command list` read path (item_list.go).
 // Its rows feed BOTH the human listing and `--format json`, so the row holds
 // the publisher's ACTUAL bytes and only the text renderer (printItemInfos)
-// escapes them. termsafe exists to protect a terminal; a JSON consumer is not
+// escapes them. The publisher render seam exists to protect a terminal; a JSON consumer is not
 // one, and JSON's own grammar already renders a control byte inert inside a
 // string.
 //
@@ -186,8 +186,8 @@ func TestListItems_TextEscapesAndJSONCarriesRaw(t *testing.T) {
 
 		got := buf.String()
 		assert.NotContains(t, got, "\x1b", "no live ESC may reach the terminal")
-		assert.Contains(t, got, "  de^[mo:\n", "the bundle heading renders escaped")
-		assert.Contains(t, got, "    - go-^[testing [t^[ag]\n", "the name and its tags render escaped")
+		assert.Contains(t, got, "  de⟨ESC⟩mo:\n", "the bundle heading renders escaped")
+		assert.Contains(t, got, "    - go-⟨ESC⟩testing [t⟨ESC⟩ag]\n", "the name and its tags render escaped")
 		assert.Contains(t, got, "    - go-testing\n", "the clean name renders byte for byte")
 	})
 

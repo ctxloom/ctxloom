@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // `ctxloom review` — the single review porcelain of the signature-envelope
@@ -271,17 +270,17 @@ func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 	for _, b := range res.Bundles {
 		// Every interpolation below is a string the PUBLISHER chose, on the
 		// one surface whose job is to tell a human which publisher they are
-		// about to trust. termsafe.Field keeps each of them on the line it was
+		// about to trust. inertField keeps each of them on the line it was
 		// written into, so none can erase or impersonate the ctxloom-authored
 		// lines around it (delicious-goatskin).
-		fmt.Fprintf(w, "\n%s", termsafe.Field(b.Ref))
+		fmt.Fprintf(w, "\n%s", inertField(b.Ref))
 		if b.Remote != "" {
-			fmt.Fprintf(w, " (remote: %s)", termsafe.Field(b.Remote))
+			fmt.Fprintf(w, " (remote: %s)", inertField(b.Remote))
 		}
 		fmt.Fprintln(w)
 		renderReviewPublisher(w, b)
 		for _, it := range b.Items {
-			fmt.Fprintf(w, "  %-8s %s/%s\n", it.Status, termsafe.Field(it.Kind), termsafe.Field(it.Name))
+			fmt.Fprintf(w, "  %-8s %s/%s\n", it.Status, inertField(it.Kind), inertField(it.Name))
 		}
 	}
 	fmt.Fprintln(w, "\nRun 'ctxloom review' in a terminal to review interactively, or use the")
@@ -308,13 +307,13 @@ func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 func renderReviewPublisher(w io.Writer, b operations.ReviewBundle) {
 	switch b.Publisher {
 	case bundles.ReasonUntrustedSigner:
-		fmt.Fprintf(w, "  signer:  untrusted key %s\n", termsafe.Field(b.SignerFingerprint))
+		fmt.Fprintf(w, "  signer:  untrusted key %s\n", inertField(b.SignerFingerprint))
 		fmt.Fprintln(w, "           Signed, but by a key this machine does not trust to publish.")
 		fmt.Fprintln(w, "           That fingerprint is a string to COMPARE, not a name: confirm it")
 		fmt.Fprintln(w, "           with the publisher out of band, then trust the key by principal:")
 		fmt.Fprintln(w, "             ctxloom signer trust <principal> --key <key.pub>")
 	case bundles.ReasonTrustedSigner:
-		fmt.Fprintf(w, "  signer:  %s — a key you trust to publish\n", termsafe.Field(b.Signer))
+		fmt.Fprintf(w, "  signer:  %s — a key you trust to publish\n", inertField(b.Signer))
 		fmt.Fprintln(w, "           Read the items and decide: ctxloom review")
 	case bundles.ReasonUnsigned:
 		fmt.Fprintln(w, "  signer:  none — these bytes carry no publisher signature")
@@ -412,9 +411,9 @@ func printReviewBundleHeader(w io.Writer, b operations.ReviewBundle) {
 			reReviews++
 		}
 	}
-	fmt.Fprintf(w, "\n━━ %s", termsafe.Field(b.Ref))
+	fmt.Fprintf(w, "\n━━ %s", inertField(b.Ref))
 	if b.Remote != "" {
-		fmt.Fprintf(w, " (remote: %s)", termsafe.Field(b.Remote))
+		fmt.Fprintf(w, " (remote: %s)", inertField(b.Remote))
 	}
 	fmt.Fprintf(w, " — %d pending", len(b.Items))
 	if updates > 0 {
@@ -438,7 +437,7 @@ func printReviewItem(w io.Writer, idx, count int, item operations.ReviewItem) {
 	case operations.ReviewStatusReReview:
 		label = "RE-REVIEW — approval no longer applies"
 	}
-	fmt.Fprintf(w, "\n[%d/%d] %s/%s (%s)\n", idx, count, termsafe.Field(item.Kind), termsafe.Field(item.Name), label)
+	fmt.Fprintf(w, "\n[%d/%d] %s/%s (%s)\n", idx, count, inertField(item.Kind), inertField(item.Name), label)
 	if item.AlternateContent != "" {
 		// Both forms follow, so the exposed one must be named too — an
 		// unlabelled block above a labelled one reads as "the only form".
@@ -517,7 +516,7 @@ func unifiedReviewDiff(previous, current string) string {
 
 // printPublisherBlock writes one block of publisher-authored bytes under an
 // item's header: indented two spaces, "(empty)" when there is nothing, and
-// rendered inert by the shared termsafe seam so the block cannot rewrite the
+// rendered inert by the publisher render seam (publisherBody) so the block cannot rewrite the
 // lines above it — which on THIS surface are the ones naming the bundle, the
 // signer, and the decision being asked for.
 //

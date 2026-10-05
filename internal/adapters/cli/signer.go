@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // signer management is CLI-only (ADR 0024): none of this is exposed over
@@ -133,12 +132,12 @@ func runSignerTrust(cmd *cobra.Command, cfg *config.Config, principal, keyArg st
 // never a first-sight TOFU prompt (the spec rejects TOFU); it is an explicit
 // command the user re-runs once the fingerprint checks out.
 //
-// The principal goes through termsafe.Field: it is supplied by the entity
+// The principal goes through inertField: it is supplied by the entity
 // seeking trust, and this is the line the operator reads to decide whether to
 // grant it. A control byte there could rewrite that line while it is read.
 func discloseSignerTrust(cmd *cobra.Command, principal string, key operations.SignerKeyInfo, namespaces []string) {
 	fmt.Fprintf(cmd.ErrOrStderr(), "\nTrust %s as a %s\n\n  %s  (%s)\n\n  %s\n  Verify this fingerprint out of band before you continue.\n\n",
-		termsafe.Field(principal), signerRoleWord(namespaces), key.Fingerprint, key.PublicKey.Type(), signerConsequenceText(namespaces))
+		inertField(principal), signerRoleWord(namespaces), key.Fingerprint, key.PublicKey.Type(), signerConsequenceText(namespaces))
 }
 
 // hasPublishNamespace reports whether a grant includes the publish namespace —
@@ -211,7 +210,7 @@ func printSignerListings(w io.Writer, listings []operations.SignerListing) error
 			// Not an entry — a line in this store that could not be read.
 			// Shown rather than omitted so the listing cannot pass a
 			// silently-shortened trust root off as the whole one.
-			if _, err := fmt.Fprintf(w, "%-40s %-10s %s\n", "(unreadable)", l.Source, termsafe.Field(l.Unreadable)); err != nil {
+			if _, err := fmt.Fprintf(w, "%-40s %-10s %s\n", "(unreadable)", l.Source, inertField(l.Unreadable)); err != nil {
 				return err
 			}
 			continue
@@ -231,7 +230,7 @@ func printSignerListings(w io.Writer, listings []operations.SignerListing) error
 		// remote or an embedded root authored; the fingerprint is derived
 		// from the key and Source is ctxloom's own word.
 		if _, err := fmt.Fprintf(w, "%-40s %-10s %-45s %s%s\n",
-			termsafe.Field(principal), l.Source, termsafe.Field(ns), l.Fingerprint, embeddedAnnotation(l)); err != nil {
+			inertField(principal), l.Source, inertField(ns), l.Fingerprint, embeddedAnnotation(l)); err != nil {
 			return err
 		}
 	}

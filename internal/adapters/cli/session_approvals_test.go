@@ -171,3 +171,30 @@ func TestRenderApprovals_ProjectColumnWithSeveralCoordinators(t *testing.T) {
 	assert.Contains(t, out, "01:01")
 	assert.Less(t, strings.Index(out, "/one"), strings.Index(out, "/two"))
 }
+
+// TestSessionApprovals_SummaryRawInJSONMarkedInText: the summary arrives raw;
+// a program reading --format json gets the child's characters as they are,
+// and a terminal gets them made visible — a bidi override can neither
+// reorder the line a human reads nor turn into a marker a script parses.
+func TestSessionApprovals_SummaryRawInJSONMarkedInText(t *testing.T) {
+	home := testsupport.Isolate(t)
+	f := newFakeConsumerServer()
+	f.approvals = pendingFixture(time.Now())
+	f.approvals.Pending[0].Summary = "Bash: ls ‮gnp.exe"
+	f.approvals.Pending[0].Agent = "work‮er"
+	startFakeCoordinator(t, home, f)
+
+	out, _, err := runApprovals(t, formatJSON)
+	require.NoError(t, err)
+	var got approvalsListResult
+	require.NoError(t, json.Unmarshal([]byte(out), &got), out)
+	require.Len(t, got.Approvals, 1)
+	assert.Equal(t, "Bash: ls ‮gnp.exe", got.Approvals[0].Summary, "JSON carries the raw text")
+	assert.NotContains(t, out, "⟨U+202E⟩", "no marker reaches JSON")
+
+	out, _, err = runApprovals(t, formatText)
+	require.NoError(t, err)
+	assert.Contains(t, out, "Bash: ls ⟨U+202E⟩gnp.exe")
+	assert.Contains(t, out, "work⟨U+202E⟩er")
+	assert.NotContains(t, out, "‮", "no bidi override reaches the terminal")
+}

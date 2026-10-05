@@ -15,6 +15,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
@@ -159,7 +160,9 @@ func buildApprovalsList(answers []*agentcoordpb.PendingApprovalsResult, now time
 }
 
 // renderApprovals is the text table; it names each row's project only when
-// more than one coordinator answered.
+// more than one coordinator answered. Every value is rendered through
+// displaysafe.Text: the summary arrives raw (the child's own characters), and
+// nothing a terminal would act on may reach it.
 func renderApprovals(w io.Writer, res approvalsListResult) error {
 	ew := errwriter.New(w)
 	tw := tabwriter.NewWriter(ew, 0, 0, 2, ' ', 0)
@@ -173,11 +176,14 @@ func renderApprovals(w io.Writer, res approvalsListResult) error {
 		if r.Agent != "" {
 			asker += " (" + r.Agent + ")"
 		}
-		line := strings.Join([]string{mmss(r.LeftSeconds), mmss(r.AgeSeconds), r.Kind, asker, strings.Join(r.Lineage, "→"), r.Summary}, "\t")
+		cells := []string{mmss(r.LeftSeconds), mmss(r.AgeSeconds), r.Kind, asker, strings.Join(r.Lineage, "→"), r.Summary}
 		if res.Coordinators > 1 {
-			line = r.Project + "\t" + line
+			cells = append([]string{r.Project}, cells...)
 		}
-		_, _ = fmt.Fprintln(tw, line)
+		for i, c := range cells {
+			cells[i] = displaysafe.Text(c, false)
+		}
+		_, _ = fmt.Fprintln(tw, strings.Join(cells, "\t"))
 	}
 	if err := tw.Flush(); err != nil {
 		return err

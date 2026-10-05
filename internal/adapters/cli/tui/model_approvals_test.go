@@ -136,7 +136,7 @@ var apprBase = time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 func toolReq(id, harp, tool, input string, left time.Duration) coord.PendingApproval {
 	return coord.PendingApproval{
-		ID: coord.ApprovalID(id), Kind: coord.ApprovalTool,
+		ID:   coord.ApprovalID(id),
 		From: coord.Identity{Harp: harp}, Agent: "coder", Lineage: []string{"root", harp},
 		Ask:         engine.PermissionAsk{Tool: tool, Input: json.RawMessage(input)},
 		Transitions: offer("default", "default", "acceptEdits"), Since: apprBase, Deadline: apprBase.Add(left),

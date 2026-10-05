@@ -315,6 +315,10 @@ type interaction struct {
 	Detail map[string]string `json:"detail,omitempty"`
 }
 
+// parkedKindTool is approvalParked's kind: a tool call is the one request
+// the queue parks.
+const parkedKindTool = "tool"
+
 // approvalParked is factApprovalParked's payload. Input is the tool call's
 // input as the engine sent it (the journal is 0600: it carries tool input).
 type approvalParked struct {
@@ -322,7 +326,7 @@ type approvalParked struct {
 	Harp      string          `json:"harp"`
 	RunID     string          `json:"run_id,omitempty"`
 	Agent     string          `json:"agent,omitempty"`
-	Kind      ApprovalKind    `json:"kind"`
+	Kind      string          `json:"kind"`
 	Tool      string          `json:"tool,omitempty"`
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Input     json.RawMessage `json:"input,omitempty"`

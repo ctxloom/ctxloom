@@ -68,7 +68,6 @@ var askerID = Identity{Harp: "child-harp", RunID: "run-1", Depth: 1}
 
 func toolAsk(tool string) PendingApproval {
 	return PendingApproval{
-		Kind:  ApprovalTool,
 		Agent: "worker",
 		Ask:   engine.PermissionAsk{Tool: tool, Input: json.RawMessage(`{"command":"ls"}`), ToolUseID: "toolu_1"},
 	}
@@ -163,6 +162,9 @@ func TestApprovalQueue_AnswerResolvesTheParkOnce(t *testing.T) {
 	assert.Equal(t, "human", decided["decider"])
 	assert.Equal(t, true, decided["allow"])
 	assert.Equal(t, string(p.ID), decided["id"])
+	var parked map[string]any
+	require.NoError(t, json.Unmarshal(facts[0].Data, &parked))
+	assert.Equal(t, "tool", parked["kind"], "the journal still records the request's kind by name")
 }
 
 // TestApprovalQueue_TimeoutDenies: nobody answers, so the request is denied at

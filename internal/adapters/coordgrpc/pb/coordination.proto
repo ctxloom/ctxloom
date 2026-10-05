@@ -1062,15 +1062,9 @@ message CoordinatorResponse {
 // decides, the timeout elapses (deny), or the run ends (deny). Nothing on any
 // wire ANSWERS a request: the decision is made in the root's process.
 message ApprovalRequest {
-  enum ApprovalKind {
-    APPROVAL_KIND_UNSPECIFIED = 0;
-    APPROVAL_KIND_TOOL = 1;
-    // A model's questions and plans are not approvals: the child ends its
-    // turn holding them and its parent answers between turns.
-    reserved 2, 3;
-    reserved "APPROVAL_KIND_QUESTION", "APPROVAL_KIND_PLAN";
-  }
-  ApprovalKind kind = 1;
+  // 1 classified the request; a tool call is the only one there is.
+  reserved 1;
+  reserved "kind";
   string tool = 2;
   bytes input = 3;                    // the tool call's input, canonical JSON
   string tool_use_id = 4;

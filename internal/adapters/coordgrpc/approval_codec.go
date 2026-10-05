@@ -13,7 +13,6 @@ import (
 func ApprovalRequestToWire(r coord.ApprovalRequest) *agentcoordpb.ApprovalRequest {
 	ask := r.Ask
 	out := &agentcoordpb.ApprovalRequest{
-		Kind:            agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL,
 		Tool:            ask.Tool,
 		Input:           ask.Input,
 		ToolUseId:       ask.ToolUseID,
@@ -26,12 +25,12 @@ func ApprovalRequestToWire(r coord.ApprovalRequest) *agentcoordpb.ApprovalReques
 }
 
 // ApprovalRequestFromWire decodes a run's request. A request the coordinator
-// could not present as asked — not a tool call, or input it cannot read — is
+// could not present as asked — naming no tool, or input it cannot read — is
 // refused rather than defaulted.
 func ApprovalRequestFromWire(w *agentcoordpb.ApprovalRequest) (coord.ApprovalRequest, error) {
 	var out coord.ApprovalRequest
-	if w.GetKind() != agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL {
-		return out, fmt.Errorf("approval: kind %s is not a request this coordinator presents", w.GetKind())
+	if w.GetTool() == "" {
+		return out, fmt.Errorf("approval: the request names no tool")
 	}
 	if in := w.GetInput(); len(in) > 0 && !json.Valid(in) {
 		return out, fmt.Errorf("approval: input is not JSON")

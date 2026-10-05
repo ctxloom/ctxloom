@@ -17,32 +17,10 @@ import (
 // ever answers an id it was handed.
 type ApprovalID string
 
-// ApprovalKind classifies a parked request. A tool call is the one kind an
-// engine asks about; the journal records it by name.
-type ApprovalKind int
-
-const (
-	ApprovalTool ApprovalKind = iota
-)
-
-var approvalKindNames = [...]string{ApprovalTool: "tool"}
-
-// String renders the kind's journal spelling.
-func (k ApprovalKind) String() string {
-	if k >= 0 && int(k) < len(approvalKindNames) {
-		return approvalKindNames[k]
-	}
-	return fmt.Sprintf("approvalKind(%d)", int(k))
-}
-
-// MarshalText writes the kind by name, so the journal stays jq-legible.
-func (k ApprovalKind) MarshalText() ([]byte, error) { return []byte(k.String()), nil }
-
 // PendingApproval is one request parked for the root human's decision, as a
 // presenter shows it.
 type PendingApproval struct {
 	ID    ApprovalID
-	Kind  ApprovalKind
 	From  Identity
 	Agent string
 	// Lineage is the asker's delegation chain, root → … → the asking harp.
@@ -250,7 +228,7 @@ func (q *ApprovalQueue) Park(ctx context.Context, from Identity, req PendingAppr
 	req.Deadline = now.Add(timeout)
 	if err := q.store.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factApprovalParked, now, approvalParked{
-			ID: req.ID, Harp: from.Harp, RunID: from.RunID, Agent: req.Agent, Kind: req.Kind,
+			ID: req.ID, Harp: from.Harp, RunID: from.RunID, Agent: req.Agent, Kind: parkedKindTool,
 			Tool: req.Ask.Tool, ToolUseID: req.Ask.ToolUseID, Input: req.Ask.Input, Deadline: req.Deadline,
 		})}, nil
 	}); err != nil {

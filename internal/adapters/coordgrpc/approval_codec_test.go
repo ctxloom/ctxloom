@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -157,15 +158,17 @@ func TestRunnerRequestToWire_SetGrants(t *testing.T) {
 	assert.Equal(t, []string{"Bash(ls:*)"}, out.GetSetGrants().GetRules())
 }
 
-// TestNoWirePathAnswersAnApproval is the absence the root-human rule rests
-// on: ApprovalDecision travels only coordinator → run, as a reply field, and
-// no RPC names approvals — so nothing out of the root's process can answer
-// one. A new field or method carrying a decision toward the coordinator fails
-// here.
-func TestNoWirePathAnswersAnApproval(t *testing.T) {
+// approvalWireRules walks every message and method in the coordination
+// package once, for the clauses of TestNoWirePathAnswersAnApproval.
+type approvalWireRules struct {
+	decisionCarriers []string            // messages with an ApprovalDecision field
+	methods          map[string][]string // service name → its method names
+	decisionMethods  []string            // methods taking or returning an ApprovalDecision
+}
+
+func walkApprovalWire() approvalWireRules {
 	decision := (&agentcoordpb.ApprovalDecision{}).ProtoReflect().Descriptor().FullName()
-	var carriers []string
-	var methods []string
+	out := approvalWireRules{methods: map[string][]string{}}
 	protoregistry.GlobalFiles.RangeFilesByPackage(agentcoordpb.File_coordination_proto.Package(), func(fd protoreflect.FileDescriptor) bool {
 		var walk func(protoreflect.MessageDescriptors)
 		walk = func(msgs protoreflect.MessageDescriptors) {
@@ -174,7 +177,7 @@ func TestNoWirePathAnswersAnApproval(t *testing.T) {
 				fields := md.Fields()
 				for j := 0; j < fields.Len(); j++ {
 					if m := fields.Get(j).Message(); m != nil && m.FullName() == decision {
-						carriers = append(carriers, string(md.Name()))
+						out.decisionCarriers = append(out.decisionCarriers, string(md.Name()))
 					}
 				}
 				walk(md.Messages())
@@ -183,17 +186,118 @@ func TestNoWirePathAnswersAnApproval(t *testing.T) {
 		walk(fd.Messages())
 		svcs := fd.Services()
 		for i := 0; i < svcs.Len(); i++ {
-			ms := svcs.Get(i).Methods()
+			svc := svcs.Get(i)
+			ms := svc.Methods()
 			for j := 0; j < ms.Len(); j++ {
 				m := ms.Get(j)
-				if strings.Contains(strings.ToLower(string(m.Name())), "approv") ||
-					m.Input().FullName() == decision || m.Output().FullName() == decision {
-					methods = append(methods, string(m.FullName()))
+				out.methods[string(svc.Name())] = append(out.methods[string(svc.Name())], string(m.Name()))
+				if m.Input().FullName() == decision || m.Output().FullName() == decision {
+					out.decisionMethods = append(out.decisionMethods, string(m.FullName()))
 				}
 			}
 		}
 		return true
 	})
-	assert.Equal(t, []string{"CoordinatorResponse"}, carriers)
-	assert.Empty(t, methods)
+	return out
+}
+
+// TestNoWirePathAnswersAnApproval is the absence the root-human rule rests
+// on: nothing out of the root's process can answer a parked request. Each
+// clause fails on its own:
+//
+//	(i)   ApprovalDecision travels only coordinator → run, as a reply field;
+//	(ii)  ConsumerService is exactly its reviewed methods, so a new one —
+//	      a read that grows a write — fails until reviewed;
+//	(iii) no CoordinatorService method names approvals, and no method of
+//	      any service takes or returns a decision;
+//	(iv)  nothing reachable from PendingApprovalsResult names a request
+//	      (an id), carries the raw request, or carries a decision — a
+//	      reader holds nothing an answer could address.
+func TestNoWirePathAnswersAnApproval(t *testing.T) {
+	w := walkApprovalWire()
+	assert.Equal(t, []string{"CoordinatorResponse"}, w.decisionCarriers, "(i)")
+	assert.ElementsMatch(t, []string{"WatchRuns", "ListRuns", "SpoolStats", "PendingApprovals"}, w.methods["ConsumerService"], "(ii)")
+	for _, m := range w.methods["CoordinatorService"] {
+		assert.NotContains(t, strings.ToLower(m), "approv", "(iii) CoordinatorService.%s", m)
+	}
+	assert.Empty(t, w.decisionMethods, "(iii)")
+	assertNamesNoRequest(t, (&agentcoordpb.PendingApprovalsResult{}).ProtoReflect().Descriptor())
+}
+
+// assertNamesNoRequest is clause (iv): md and every message reachable from it
+// has no id field and no field holding a request or a decision.
+func assertNamesNoRequest(t *testing.T, md protoreflect.MessageDescriptor) {
+	t.Helper()
+	forbidden := map[protoreflect.FullName]bool{
+		(&agentcoordpb.ApprovalRequest{}).ProtoReflect().Descriptor().FullName():  true,
+		(&agentcoordpb.ApprovalDecision{}).ProtoReflect().Descriptor().FullName(): true,
+	}
+	seen := map[protoreflect.FullName]bool{}
+	var walk func(protoreflect.MessageDescriptor)
+	walk = func(md protoreflect.MessageDescriptor) {
+		if seen[md.FullName()] {
+			return
+		}
+		seen[md.FullName()] = true
+		fields := md.Fields()
+		for i := 0; i < fields.Len(); i++ {
+			f := fields.Get(i)
+			name := string(f.Name())
+			assert.False(t, name == "id" || strings.HasSuffix(name, "_id"), "(iv) %s.%s names a request", md.FullName(), name)
+			if m := f.Message(); m != nil {
+				assert.False(t, forbidden[m.FullName()], "(iv) %s.%s carries %s", md.FullName(), name, m.FullName())
+				walk(m)
+			}
+		}
+	}
+	walk(md)
+}
+
+// TestPendingApprovalsToWire: the projection keeps the queue's order and
+// carries who asked, through which lineage, the summary and the times — and
+// nothing an answer could address: no id, no raw input, no workdir.
+func TestPendingApprovalsToWire(t *testing.T) {
+	since := time.Date(2026, 10, 5, 1, 2, 3, 0, time.UTC)
+	ps := []coord.PendingApproval{
+		{
+			ID: "secret-id", Kind: coord.ApprovalTool, From: coord.Identity{Harp: "child-a", RunID: "run-a"}, Agent: "worker",
+			Lineage: []string{"root", "child-a"}, WorkDir: "/w",
+			Ask:   engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{"command":"make"}`)},
+			Since: since, Deadline: since.Add(15 * time.Minute),
+		},
+		{
+			ID: "other", Kind: coord.ApprovalQuestion, From: coord.Identity{Harp: "child-b"},
+			Ask:   engine.PermissionAsk{Kind: engine.AskQuestion, Questions: []engine.Question{{Header: "Pick"}}},
+			Since: since, Deadline: since.Add(20 * time.Minute),
+		},
+		{ID: "plan", Kind: coord.ApprovalPlan, From: coord.Identity{Harp: "child-c"}, Since: since, Deadline: since.Add(30 * time.Minute)},
+	}
+	out := PendingApprovalsToWire(ps, "/proj")
+	assert.Equal(t, "/proj", out.GetProjectDir())
+	require.Len(t, out.GetPending(), 3)
+	a := out.GetPending()[0]
+	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, a.GetKind())
+	assert.Equal(t, "child-a", a.GetHarp())
+	assert.Equal(t, "worker", a.GetAgent())
+	assert.Equal(t, []string{"root", "child-a"}, a.GetLineage())
+	assert.Equal(t, ps[0].Summary(), a.GetSummary())
+	assert.True(t, since.Equal(a.GetSince().AsTime()))
+	assert.True(t, ps[0].Deadline.Equal(a.GetDeadline().AsTime()))
+	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_QUESTION, out.GetPending()[1].GetKind())
+	assert.Equal(t, "Pick", out.GetPending()[1].GetSummary())
+	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_PLAN, out.GetPending()[2].GetKind())
+
+	raw, err := protojson.Marshal(out)
+	require.NoError(t, err)
+	for _, leak := range []string{"secret-id", "run-a", "/w", `"command"`} {
+		assert.NotContains(t, string(raw), leak, "the wire form must not carry %q", leak)
+	}
+}
+
+// TestPendingApprovalsToWire_Empty: nothing pending is an empty list, still
+// naming the project.
+func TestPendingApprovalsToWire_Empty(t *testing.T) {
+	out := PendingApprovalsToWire(nil, "/proj")
+	assert.Empty(t, out.GetPending())
+	assert.Equal(t, "/proj", out.GetProjectDir())
 }

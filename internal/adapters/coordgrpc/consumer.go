@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -11,7 +13,7 @@ import (
 
 // consumerService implements agentcoord.v1.ConsumerService: additive,
 // read-only, no change to CoordinatorService. Each RPC projects the
-// coordinator's own in-process form (ListRuns, SpoolStats, WatchRuns).
+// coordinator's own in-process form.
 type consumerService struct {
 	agentcoordpb.UnimplementedConsumerServiceServer
 	c *coord.Coordinator
@@ -29,6 +31,19 @@ func (s *consumerService) ListRuns(_ context.Context, req *agentcoordpb.ListRuns
 // coordinator can see them.
 func (s *consumerService) SpoolStats(context.Context, *agentcoordpb.SpoolStatsRequest) (*agentcoordpb.SpoolStatsResult, error) {
 	return SpoolStatsToWire(s.c.SpoolStats()), nil
+}
+
+// PendingApprovals projects the root's approval queue for a viewer in
+// another terminal. Only the consumer credential reads it: the auth
+// interceptor admits any identity to ConsumerService, and an agent is shown
+// that a child waits, never what it asks. The project is the caller's
+// identity's, which the coordinator stamps with the one project it serves.
+func (s *consumerService) PendingApprovals(ctx context.Context, _ *agentcoordpb.PendingApprovalsRequest) (*agentcoordpb.PendingApprovalsResult, error) {
+	id, ok := s.c.Identify(mdToken(ctx))
+	if !ok || !id.Consumer {
+		return nil, status.Error(codes.PermissionDenied, "pending approvals are read with the consumer credential only")
+	}
+	return PendingApprovalsToWire(s.c.Approvals().Pending(), id.ProjectDir), nil
 }
 
 // WatchRuns serves the stream: snapshot first, then live AgentEvents

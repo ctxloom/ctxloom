@@ -196,6 +196,7 @@ type ctlHarness struct {
 	warns   chan string
 	overlay *fakeOverlay
 	pumpEnd chan struct{}
+	nudges  int // restores moved by nudgeRestored
 }
 
 func newCtlHarness(t *testing.T, mutate func(*Options)) *ctlHarness {
@@ -268,9 +269,13 @@ func (h *ctlHarness) sized(t *testing.T, rows, cols uint16) *agent.WindowSize {
 }
 
 // nudgeRestored moves the clock past the nudge's wiggle separation and
-// returns the size the nudge settles on.
+// returns the size the nudge settles on. Nudge sends the wiggle and then arms
+// the restore, on the releasing goroutine: the clock may move only once that
+// timer exists, or the restore is armed after the move and never fires.
 func (h *ctlHarness) nudgeRestored(t *testing.T) *agent.WindowSize {
 	t.Helper()
+	h.nudges++
+	h.clk.waitArmed(t, nudgeWiggleSeparation, h.nudges)
 	h.clk.Advance(nudgeWiggleSeparation)
 	return h.drainTranslated(t)
 }
@@ -281,10 +286,18 @@ func (h *ctlHarness) nudgeRestored(t *testing.T) *agent.WindowSize {
 type armClock struct {
 	*fakeclock.Clock
 	changed signal
+	mu      sync.Mutex
+	armed   map[time.Duration]int // every timer ever armed, by duration
 }
 
 func (c *armClock) AfterFunc(d time.Duration, f func()) func() bool {
 	stop := c.Clock.AfterFunc(d, f)
+	c.mu.Lock()
+	if c.armed == nil {
+		c.armed = map[time.Duration]int{}
+	}
+	c.armed[d]++
+	c.mu.Unlock()
 	c.changed.fire()
 	return func() bool {
 		stopped := stop()
@@ -293,19 +306,34 @@ func (c *armClock) AfterFunc(d time.Duration, f func()) func() bool {
 	}
 }
 
+// waitArmed blocks until n timers of duration d have been armed in all.
+func (c *armClock) waitArmed(t *testing.T, d time.Duration, n int) {
+	t.Helper()
+	c.waitClock(t, fmt.Sprintf("%d timers of %v armed", n, d), func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.armed[d] >= n
+	})
+}
+
 // waitPending blocks until exactly n timers are armed.
 func (c *armClock) waitPending(t *testing.T, n int) {
+	t.Helper()
+	c.waitClock(t, fmt.Sprintf("%d pending timers", n), func() bool { return c.Pending() == n })
+}
+
+func (c *armClock) waitClock(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	expired := expiry(t)
 	for {
 		changed := c.changed.wait()
-		if c.Pending() == n {
+		if cond() {
 			return
 		}
 		select {
 		case <-changed:
 		case <-expired:
-			t.Fatalf("never saw %d armed timers; have %d", n, c.Pending())
+			t.Fatalf("never saw %s", what)
 		}
 	}
 }

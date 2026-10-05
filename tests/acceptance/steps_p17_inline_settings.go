@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+
 	"github.com/cucumber/godog"
 )
 
@@ -115,7 +117,7 @@ func p17Fixture(w *World, p *p17State) error {
 			return err
 		}
 	}
-	if out, err := exec.Command("git", "init", "-q", p.repo).CombinedOutput(); err != nil {
+	if out, err := taskstest.GitCmd(filepath.Dir(p.repo), nil, "init", "-q", p.repo).CombinedOutput(); err != nil {
 		return fmt.Errorf("%s: git init %s: %w: %s", p17Family, p.repo, err, out)
 	}
 	settings, err := p17HomeSettingsJSON(p.dir)

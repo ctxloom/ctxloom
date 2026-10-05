@@ -21,6 +21,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
@@ -82,7 +84,7 @@ func registerP14NativeHistorySteps(ctx *godog.ScenarioContext) {
 			if err := os.Symlink(p14NativeLink, filepath.Join(p.cfg, claude.TranscriptsDirName)); err != nil {
 				return err
 			}
-			if out, err := exec.Command("git", "init", "-q", p.repo).CombinedOutput(); err != nil {
+			if out, err := taskstest.GitCmd(filepath.Dir(p.repo), nil, "init", "-q", p.repo).CombinedOutput(); err != nil {
 				return fmt.Errorf("%s: git init %s: %w: %s", p14Family, p.repo, err, out)
 			}
 			return nil

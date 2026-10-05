@@ -119,14 +119,70 @@ type BundleCommandInput struct {
 }
 
 // BundleMCPInput describes an MCP server entry to add or update via operations.
+// It is a PATCH, applied the same way by create, add and set: a nil field
+// leaves the entry's field as it is, a non-nil field replaces it, and an
+// explicit empty value ("" or an empty list or map) clears it. A new entry is
+// the patch applied to the zero entry.
+//
 // BundleMCP has no Description; use Notes for AI-invisible annotations and
-// Installation for setup instructions surfaced to the AI on install.
+// Installation for setup text shown to the human. Header values are signed
+// bundle content: put a secret in an env reference, never a literal.
 type BundleMCPInput struct {
-	Command      string            `json:"command"`
-	Args         []string          `json:"args,omitempty"`
-	Env          map[string]string `json:"env,omitempty"`
-	Notes        string            `json:"notes,omitempty"`
-	Installation string            `json:"installation,omitempty"`
+	Command      *string            `json:"command"`
+	Args         *[]string          `json:"args"`
+	Env          *map[string]string `json:"env"`
+	URL          *string            `json:"url"`
+	Headers      *map[string]string `json:"headers"`
+	Tags         *[]string          `json:"tags"`
+	ServedBy     *string            `json:"served_by"`
+	Notes        *string            `json:"notes"`
+	Installation *string            `json:"installation"`
+}
+
+// patch applies m to e (see BundleMCPInput). A cleared list or map is stored
+// as nil, so clearing a field the entry never had is no change.
+func (m BundleMCPInput) patch(e bundles.BundleMCP) bundles.BundleMCP {
+	setIfNamed(&e.Command, m.Command)
+	setIfNamed(&e.Args, m.Args)
+	setIfNamed(&e.Env, m.Env)
+	setIfNamed(&e.URL, m.URL)
+	setIfNamed(&e.Headers, m.Headers)
+	setIfNamed(&e.Tags, m.Tags)
+	setIfNamed(&e.ServedBy, m.ServedBy)
+	setIfNamed(&e.Notes, m.Notes)
+	setIfNamed(&e.Installation, m.Installation)
+	if len(e.Args) == 0 {
+		e.Args = nil
+	}
+	if len(e.Env) == 0 {
+		e.Env = nil
+	}
+	if len(e.Headers) == 0 {
+		e.Headers = nil
+	}
+	if len(e.Tags) == 0 {
+		e.Tags = nil
+	}
+	return e
+}
+
+// refuseUnloadableMCP is every write path's check that the bundle carries no
+// MCP entry the loader would refuse (wire.MCPServer.Validate, whose sentinels
+// it returns unchanged). Saving one would leave a bundle that no longer loads.
+// Entries are visited in sorted order so the first offender is stable.
+func refuseUnloadableMCP(b *bundles.Bundle) error {
+	for _, name := range collections.SortedKeys(b.MCP) {
+		if err := b.MCP[name].AsWire().Validate(); err != nil {
+			return fmt.Errorf("mcp %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func setIfNamed[T any](dst, v *T) {
+	if v != nil {
+		*dst = *v
+	}
 }
 
 // CreateBundleResult is what CreateBundle returns on success.
@@ -178,6 +234,9 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	applyFragmentInputs(bundle, req.Fragments)
 	applyPromptInputs(bundle, req.Commands)
 	applyMCPInputs(bundle, req.MCPServers)
+	if err := refuseUnloadableMCP(bundle); err != nil {
+		return nil, err
+	}
 
 	distillFragments(ctx, bundle, namesNeedingFragmentDistill(bundle, req.Fragments), req.Distiller)
 	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Commands), req.Distiller)
@@ -344,6 +403,9 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 	promptDistillTargets = append(promptDistillTargets, addPT...)
 	changes = applyMCPEdits(bundle, onlyNewKeys(req.AddMCPServers, bundle.MCP), nil, changes)
 	changes = applyMCPEdits(bundle, req.SetMCPServers, req.RemoveMCPServers, changes)
+	if err := refuseUnloadableMCP(bundle); err != nil {
+		return nil, err
+	}
 
 	if len(changes) == 0 {
 		return &UpdateBundleResult{Status: "no_changes", Name: req.Name, Path: bundle.Path}, nil
@@ -624,7 +686,7 @@ func onlyNewKeys[V, E any](in map[string]V, existing map[string]E) map[string]V 
 	return out
 }
 
-// applyMCPEdits merges set inputs into the bundle's MCP servers and applies
+// applyMCPEdits patches set inputs onto the bundle's MCP servers and applies
 // removals, appending a change line per mutation — a merge identical to the
 // existing entry is not one, per applyFragmentEdits. MCP servers carry no
 // distilled content, so there are no distill targets to return.
@@ -634,12 +696,7 @@ func applyMCPEdits(bundle *bundles.Bundle, set map[string]BundleMCPInput, remove
 			bundle.MCP = make(map[string]bundles.BundleMCP)
 		}
 		existing, hadExisting := bundle.MCP[name]
-		merged := existing
-		merged.Command = in.Command
-		merged.Args = in.Args
-		merged.Env = in.Env
-		merged.Notes = in.Notes
-		merged.Installation = in.Installation
+		merged := in.patch(existing)
 		if hadExisting && reflect.DeepEqual(merged, existing) {
 			continue
 		}
@@ -1230,13 +1287,7 @@ func applyPromptInputs(b *bundles.Bundle, in map[string]BundleCommandInput) {
 
 func applyMCPInputs(b *bundles.Bundle, in map[string]BundleMCPInput) {
 	applyInputs(&b.MCP, in, func(m BundleMCPInput) bundles.BundleMCP {
-		return bundles.BundleMCP{
-			Command:      m.Command,
-			Args:         m.Args,
-			Env:          m.Env,
-			Notes:        m.Notes,
-			Installation: m.Installation,
-		}
+		return m.patch(bundles.BundleMCP{})
 	})
 }
 

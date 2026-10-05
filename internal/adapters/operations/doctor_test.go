@@ -96,7 +96,7 @@ func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend stri
 func TestDoctorCheckSetupMarker_RightState(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	check := doctorCheckSetupMarker(cfg, nil)
-	assert.Equal(t, DoctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status, check.Detail)
 	assert.Contains(t, check.Detail, cfg.GetAppPaths()[0])
 }
 
@@ -104,6 +104,34 @@ func TestDoctorCheckSetupMarker_WrongState_NoMarkerDir(t *testing.T) {
 	check := doctorCheckSetupMarker(&config.Config{}, nil)
 	assert.Equal(t, DoctorWarn, check.Status, "an empty AppPaths must fail loud, not silently pass")
 	assert.Contains(t, check.Detail, "no .ctxloom marker directory found")
+}
+
+// The reader falls back to ~/.ctxloom — creating it — when no project marker
+// is found walking up from cwd, so a resolved AppDir alone proves nothing: in
+// a fresh repo it is the empty directory this very doctor run just made.
+func TestDoctorCheckSetupMarker_WrongState_HomeFallbackIsNotAProjectMarker(t *testing.T) {
+	homeApp := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.Mkdir(homeApp, 0o755))
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{homeApp}, Source: config.SourceHome})
+	check := doctorCheckSetupMarker(cfg, nil)
+	assert.Equal(t, DoctorWarn, check.Status, "the home fallback is not a project marker: %s", check.Detail)
+	assert.Contains(t, check.Detail, homeApp)
+}
+
+func TestDoctorCheckSetupMarker_WrongState_MarkerDirAbsentOnDisk(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}, Source: config.SourceProject})
+	check := doctorCheckSetupMarker(cfg, nil)
+	assert.Equal(t, DoctorWarn, check.Status, "a marker that is not on disk must not pass: %s", check.Detail)
+}
+
+func TestDoctorCheckSetupMarker_WrongState_NoConfigFile(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.Mkdir(appDir, 0o755))
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}, Source: config.SourceProject})
+	check := doctorCheckSetupMarker(cfg, nil)
+	assert.Equal(t, DoctorWarn, check.Status, "config valid must not be claimed for a config file that is absent: %s", check.Detail)
+	assert.Contains(t, check.Detail, paths.ConfigPath(appDir))
 }
 
 func TestDoctorCheckSetupMarker_WrongState_ConfigLoadError(t *testing.T) {

@@ -130,11 +130,9 @@ func TestRunMCPServerEdit_RefusesAnythingButABundleScopedMCPRef(t *testing.T) {
 		"demo#widgets/x",       // unrecognized kind word
 	} {
 		err := runMCPServerEdit(c, []string{ref})
-		require.Error(t, err, ref)
-		assert.Contains(t, err.Error(), "not a bundle-scoped ref", ref)
+		require.ErrorIs(t, err, errNotABundleMCPRef, ref)
 	}
 
 	err := runMCPServerEdit(c, []string{"#mcp/pg"})
-	require.Error(t, err, "a selector with no bundle before it addresses nothing")
-	assert.Contains(t, err.Error(), "incomplete ref")
+	require.ErrorIs(t, err, errNotABundleMCPRef, "a selector with no bundle before it addresses nothing")
 }

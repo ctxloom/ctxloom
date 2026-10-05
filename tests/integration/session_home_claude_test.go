@@ -8,12 +8,17 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
@@ -34,10 +39,12 @@ import (
 // fakeClaudeScript answers `--version` with claude's declared floor (in
 // claude's own "<version> (Claude Code)" shape), records its environment and
 // argv, snapshots the config dir it was handed (its listing, and its
-// .claude.json), drains stdin, and speaks enough stream-json for one turn.
+// .claude.json) and any paths a test names through snapshotWhileLive, drains
+// stdin, and speaks enough stream-json for one turn.
 // The snapshot is taken WHILE THE RUN IS LIVE because the session home is
 // disposable: Close removes it, so a post-run look would find nothing and
-// every "nothing was copied in" assertion would pass vacuously.
+// every "nothing was copied in" assertion would pass vacuously. A delivery
+// is the same: the run's teardown releases it, and its record goes with it.
 func fakeClaudeScript(t *testing.T) string {
 	t.Helper()
 	e, ok := engines.Registry().Lookup(claude.EngineName)
@@ -53,11 +60,40 @@ if [ -n "$CLAUDE_CONFIG_DIR" ]; then
   ls -A "$CLAUDE_CONFIG_DIR" > "$FAKE_CLAUDE_CAPTURE.home"
   if [ -f "$CLAUDE_CONFIG_DIR/.claude.json" ]; then cp "$CLAUDE_CONFIG_DIR/.claude.json" "$FAKE_CLAUDE_CAPTURE.claude.json"; fi
 fi
+if [ -n "$FAKE_CLAUDE_SNAPSHOT" ]; then
+  mkdir -p "$FAKE_CLAUDE_CAPTURE.live"
+  i=0; IFS=:
+  for p in $FAKE_CLAUDE_SNAPSHOT; do cp -Rp "$p" "$FAKE_CLAUDE_CAPTURE.live/$i" 2>/dev/null; i=$((i+1)); done
+  unset IFS
+fi
 cat > /dev/null
 echo '{"type":"system","subtype":"init","session_id":"fake-native-session"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"FAKE-CLAUDE-REPLY"}]}}'
 echo '{"type":"result","subtype":"success","num_turns":1}'
 `
+
+// snapshotWhileLive has the fake claude copy each of targets while the run is
+// live, and returns where each copy lands, in order. A copy that is missing
+// after the run fails liveCopies: an absence asserted against a copy that was
+// never taken is the vacuous check this exists to replace.
+func snapshotWhileLive(env *testenv.TestEnvironment, capture string, targets ...string) []string {
+	env.SetChildEnv("FAKE_CLAUDE_SNAPSHOT", strings.Join(targets, ":"))
+	out := make([]string, len(targets))
+	for i := range targets {
+		out[i] = filepath.Join(capture+".live", strconv.Itoa(i))
+	}
+	return out
+}
+
+// liveCopies requires that every copy snapshotWhileLive named was taken.
+func liveCopies(t *testing.T, copies []string) []string {
+	t.Helper()
+	for _, c := range copies {
+		_, err := os.Stat(c)
+		require.NoError(t, err, "the fake claude took no live copy at %s", c)
+	}
+	return copies
+}
 
 // hostCredentialWithRefresh is the host's own native ~/.claude login, which
 // ctxloom must never copy.
@@ -157,7 +193,7 @@ func requireSharesTheHumansLogin(t *testing.T, got map[string]string) {
 // the human's own host session under `auth: login` shares their login and is handed
 // the token blank; claude is told the session home as CLAUDE_CONFIG_DIR; that
 // home holds a .claude.json with the account identity and NO credential; the
-// project tree and the real home are byte-identical before and after.
+// project tree and the real home are byte-identical before, during and after.
 func TestRun_ClaudeLoginAgentRunsInTheSessionHome(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
 	writeHostClaudeCredential(t, env)
@@ -168,11 +204,13 @@ func TestRun_ClaudeLoginAgentRunsInTheSessionHome(t *testing.T) {
 
 	projectBefore := treeSnapshot(t, env.ProjectDir, projectExcluded...)
 	homeBefore := treeSnapshot(t, env.HomeDir, paths.AppDirName)
+	live := snapshotWhileLive(env, capture, env.ProjectDir, env.HomeDir)
 
 	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 	require.Contains(t, env.LastOutput(), "FAKE-CLAUDE-REPLY")
 	assert.NotContains(t, env.LastOutput(), "unsafe", "a default run names nothing unsafe")
+	assertTreesUntouchedWhileLive(t, liveCopies(t, live), projectBefore, homeBefore)
 
 	got := capturedEnv(t, capture)
 	configDir := got["CLAUDE_CONFIG_DIR"]
@@ -195,8 +233,17 @@ func TestRun_ClaudeLoginAgentRunsInTheSessionHome(t *testing.T) {
 
 	assert.Equal(t, projectBefore, treeSnapshot(t, env.ProjectDir, projectExcluded...), "a default claude run wrote the project tree")
 	assert.Equal(t, homeBefore, treeSnapshot(t, env.HomeDir, paths.AppDirName), "a default claude run wrote the user's real home outside ~/.ctxloom")
-	assert.NoFileExists(t, filepath.Join(env.ProjectDir, ".mcp.json"), "the MCP config lands in the session home, not the project")
-	assert.NoFileExists(t, filepath.Join(env.ProjectDir, "CLAUDE.md"), "the context lands in the session home, not the project")
+}
+
+// assertTreesUntouchedWhileLive: the project tree and the real home, copied
+// while claude ran, match their state before the run. Every surface a
+// default run delivers lands in the session home; one that landed in the
+// project or the real home would be released by the run's teardown, so only
+// the live copies can show it.
+func assertTreesUntouchedWhileLive(t *testing.T, live []string, projectBefore, homeBefore map[string]string) {
+	t.Helper()
+	assert.Equal(t, projectBefore, treeSnapshot(t, live[0], projectExcluded...), "while claude ran, a default run had written the project tree")
+	assert.Equal(t, homeBefore, treeSnapshot(t, live[1], paths.AppDirName), "while claude ran, a default run had written the user's real home outside ~/.ctxloom")
 }
 
 // TestRun_ClaudeLoginAgentWithNoTokenSharesTheHumansLogin: no
@@ -211,19 +258,21 @@ func TestRun_ClaudeLoginAgentWithNoTokenSharesTheHumansLogin(t *testing.T) {
 	configureSessionLogin(t, env)
 	projectBefore := treeSnapshot(t, env.ProjectDir, projectExcluded...)
 	homeBefore := treeSnapshot(t, env.HomeDir, paths.AppDirName)
+	live := snapshotWhileLive(env, capture, env.ProjectDir, env.HomeDir)
 
 	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
 	require.Equal(t, 0, env.LastExitCode(), "a host run with no token proceeds on the human's login:\n%s", env.LastOutput())
 	require.Contains(t, env.LastOutput(), "FAKE-CLAUDE-REPLY")
+	assertTreesUntouchedWhileLive(t, liveCopies(t, live), projectBefore, homeBefore)
 
 	got := capturedEnv(t, capture)
 	requireSharesTheHumansLogin(t, got)
 	assert.NotContains(t, capturedHome(t, capture), ".credentials.json", "the login is shared in place, never copied")
 	assert.Equal(t, projectBefore, treeSnapshot(t, env.ProjectDir, projectExcluded...), "the run wrote the project tree")
 	assert.Equal(t, homeBefore, treeSnapshot(t, env.HomeDir, paths.AppDirName), "the run wrote the user's real home outside ~/.ctxloom")
-	for _, d := range sessionDirs(t, env) {
-		assert.Empty(t, findUnder(t, d, ".credentials.json"), "a shared login copies nothing")
-	}
+	liveSessions := filepath.Join(live[1], paths.AppDirName, paths.SessionsDir)
+	require.DirExists(t, liveSessions, "the session store stood while claude ran")
+	assert.Empty(t, findUnder(t, liveSessions, ".credentials.json"), "a shared login copies nothing, even while the run is live")
 }
 
 // TestRun_ClaudeTokenAgentGetsTheExportedToken: an agent declaring no auth
@@ -275,6 +324,10 @@ func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	writeHostClaudeCredential(t, env)
 	trustProjectOnHost(t, env)
 	createHostHomeAgent(t, env)
+	records := filepath.Join(env.HomeDir, paths.AppDirName, paths.HomeRecordsDirName)
+	mcpFile := filepath.Join(env.ProjectDir, claude.MCPFileName)
+	live := snapshotWhileLive(env, capture, records, mcpFile, env.ProjectDir,
+		filepath.Join(env.HomeDir, paths.AppDirName, paths.SessionsDir))
 
 	_ = env.Run("run", "--agent", "dev", "--dry-run", "unicorn-prompt")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
@@ -295,17 +348,45 @@ func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 
 	got := capturedEnv(t, capture)
 	assert.Empty(t, got["CLAUDE_CONFIG_DIR"], "a host-home run keeps the real home: claude is told no config dir")
-	for _, d := range sessionDirs(t, env) {
-		assert.Empty(t, findUnder(t, d, ".credentials.json"), "no credential is seeded into a session home the run does not use")
-	}
+	live = liveCopies(t, live)
+	liveRecords, liveMCP, liveProject, liveSessions := live[0], live[1], live[2], live[3]
+	assert.Empty(t, findUnder(t, liveSessions, ".credentials.json"), "no credential is seeded into a session home the run does not use")
 
 	bearer := got[claude.EnvRelayBearer]
 	require.NotEmpty(t, bearer, "claude's environment carries the relay bearer the project .mcp.json names")
-	records := filepath.Join(env.HomeDir, paths.AppDirName, paths.HomeRecordsDirName)
-	for _, dir := range []string{records, env.ProjectDir} {
+	for _, dir := range []string{liveRecords, liveMCP, liveProject, records, env.ProjectDir} {
 		assert.Empty(t, filesHolding(t, dir, bearer), "the relay bearer is on disk under %s", dir)
 	}
-	assert.NotEmpty(t, filesHolding(t, records, "${"+claude.EnvRelayBearer+"}"), "the project .mcp.json's record states the entry by reference")
+	assertRecordStatesTheRelayByReference(t, liveRecords, liveMCP, mcpFile)
+}
+
+// assertRecordStatesTheRelayByReference: the project .mcp.json claude was
+// handed names the relay bearer by reference, and its record — read through
+// the production decoder from the live snapshot — claims that very entry.
+func assertRecordStatesTheRelayByReference(t *testing.T, liveRecords, liveMCP, target string) {
+	t.Helper()
+	data, err := os.ReadFile(liveMCP)
+	require.NoError(t, err, "the project .mcp.json stood while claude ran")
+	var doc struct {
+		MCPServers map[string]struct {
+			Env map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	require.NoError(t, json.Unmarshal(data, &doc))
+	require.Contains(t, doc.MCPServers, claude.AppMCPServerName)
+	assert.Equal(t, "${"+claude.EnvRelayBearer+"}", doc.MCPServers[claude.AppMCPServerName].Env[claude.EnvRelayBearer],
+		"the project .mcp.json states the relay bearer by reference")
+
+	targetFS := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(targetFS, target, data, 0o644))
+	rec, err := fsstatic.NewRecords(afero.NewOsFs(), liveRecords)
+	require.NoError(t, err)
+	states, err := rec.Paths(targetFS, target)
+	require.NoError(t, err)
+	entry := "/mcpServers/" + claude.AppMCPServerName
+	i := slices.IndexFunc(states, func(s delivery.PathState) bool { return s.Pointer == entry })
+	require.GreaterOrEqual(t, i, 0, "the project .mcp.json's record claims %s", entry)
+	assert.True(t, states[i].Live, "the record's claimed %s is the by-reference entry claude was handed", entry)
 }
 
 // TestRun_ClaudeHostHomeOnAnUntrustedRepositoryIsRefused: the same host-home
@@ -389,10 +470,10 @@ func TestRun_ClaudeLoginAgentWithNoLoginIsRefused(t *testing.T) {
 const credentialSentinel = "sk-ant-oat01-EXPOSURE-SENTINEL-7Q2"
 
 // TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed: a token agent's run
-// reaches its engine with the exported credential and leaves no copy of it
-// anywhere ctxloom writes — its output, its logs and session state under the
-// ctxloom home, the project, the real home, or the temp dir its runner and
-// launchers use. It lives only in the environment it was exported in.
+// reaches its engine with the exported credential and holds no copy of it,
+// while the run is live or after it, anywhere ctxloom writes — its output,
+// its logs and session state under the ctxloom home, the project, the real
+// home, or the temp dir its runner and launchers use. It lives only in the environment it was exported in.
 func TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
 	tmp := t.TempDir()
@@ -400,6 +481,7 @@ func TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed(t *testing.T) {
 	env.SetChildEnv("CLAUDE_CODE_OAUTH_TOKEN", credentialSentinel)
 	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	live := snapshotWhileLive(env, capture, env.HomeDir, env.ProjectDir, tmp)
 	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 	output := env.LastOutput()
@@ -408,7 +490,9 @@ func TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed(t *testing.T) {
 
 	require.Equal(t, credentialSentinel, capturedEnv(t, capture)["CLAUDE_CODE_OAUTH_TOKEN"], "fixture: the engine did receive it")
 	assert.NotContains(t, output, credentialSentinel, "no command's output echoes the credential")
-	for _, root := range []string{env.HomeDir, env.ProjectDir, tmp} {
+	// The live copies are what can show a copy the run's teardown removed: the
+	// session home it ran in is gone once the run returns.
+	for _, root := range append(liveCopies(t, live), env.HomeDir, env.ProjectDir, tmp) {
 		require.NoError(t, filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
 				return nil

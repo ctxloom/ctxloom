@@ -26,11 +26,12 @@ func newClaudeLifecycle() *agent.BaseLifecycle {
 }
 
 func TestClaudeContext_GetContextHash(t *testing.T) {
+	workDir := t.TempDir()
 	context := agent.NewBaseContextProvider()
 
 	// Write context to set hash
 	fragments := []*agent.Fragment{{Content: "test content"}}
-	_ = context.Provide("/tmp", fragments)
+	require.NoError(t, context.Provide(workDir, fragments))
 
 	hash := context.GetContextHash()
 	assert.NotEmpty(t, hash)
@@ -64,12 +65,13 @@ func TestClaudeContext_GetContextFilePath_WithHash(t *testing.T) {
 }
 
 func TestClaudeContext_Clear(t *testing.T) {
+	workDir := t.TempDir()
 	context := agent.NewBaseContextProvider()
 
 	// Provide some context first
-	_ = context.Provide("/tmp", []*agent.Fragment{{Content: "test"}})
+	require.NoError(t, context.Provide(workDir, []*agent.Fragment{{Content: "test"}}))
 
-	err := context.Clear("/tmp")
+	err := context.Clear(workDir)
 	require.NoError(t, err)
 	assert.Equal(t, "", context.GetContextHash())
 }
@@ -80,11 +82,12 @@ func TestClaudeContext_Clear(t *testing.T) {
 // covered host-side in operations/managedhooks (assemble_test.go).
 
 func TestClaudeLifecycle_MergeManaged_AppendsContextInjection(t *testing.T) {
+	workDir := t.TempDir()
 	lifecycle := newClaudeLifecycle()
 
 	lifecycle.MergeManaged(report.Reporter{}, &agent.ManagedConfig{
 		Hooks: &wire.HooksConfig{Ext: map[string]wire.BackendHooks{}},
-	}, "/tmp", "abc123hash")
+	}, workDir, "abc123hash")
 
 	hooks := lifecycle.GetHooks()
 	var hasInject bool
@@ -97,6 +100,7 @@ func TestClaudeLifecycle_MergeManaged_AppendsContextInjection(t *testing.T) {
 }
 
 func TestClaudeLifecycle_MergeManaged_NoContextHash(t *testing.T) {
+	workDir := t.TempDir()
 	lifecycle := newClaudeLifecycle()
 
 	// Host-assembled SessionStart hooks (e.g. bundle `hook session-bind`) ride in
@@ -109,7 +113,7 @@ func TestClaudeLifecycle_MergeManaged_NoContextHash(t *testing.T) {
 			},
 			Ext: map[string]wire.BackendHooks{},
 		},
-	}, "/tmp", "")
+	}, workDir, "")
 
 	hooks := lifecycle.GetHooks()
 	for _, h := range hooks.Unified.SessionStart {
@@ -126,6 +130,7 @@ func TestClaudeLifecycle_MergeManaged_NoContextHash(t *testing.T) {
 }
 
 func TestClaudeLifecycle_MergeManaged_MergesHooksAndMCP(t *testing.T) {
+	workDir := t.TempDir()
 	lifecycle := newClaudeLifecycle()
 
 	lifecycle.MergeManaged(report.Reporter{}, &agent.ManagedConfig{
@@ -134,7 +139,7 @@ func TestClaudeLifecycle_MergeManaged_MergesHooksAndMCP(t *testing.T) {
 			Ext:     map[string]wire.BackendHooks{},
 		},
 		BundleMCP: map[string]wire.MCPServer{"profile-mcp": {Command: "profile-mcp-cmd"}},
-	}, "/tmp", "hash123")
+	}, workDir, "hash123")
 
 	hooks := lifecycle.GetHooks()
 	assert.Len(t, hooks.Unified.PreTool, 1)
@@ -172,12 +177,14 @@ func TestClaudeLifecycle_MergeManaged_Statusline(t *testing.T) {
 }
 
 func TestClaudeLifecycle_MergeManaged_NilIsNoOp(t *testing.T) {
+	workDir := t.TempDir()
 	lifecycle := newClaudeLifecycle()
-	lifecycle.MergeManaged(report.Reporter{}, nil, "/tmp", "hash123") // must not panic
+	lifecycle.MergeManaged(report.Reporter{}, nil, workDir, "hash123") // must not panic
 	assert.Nil(t, lifecycle.GetHooks(), "nil managed config must not initialize hook state")
 }
 
 func TestClaudeLifecycle_GetMCP(t *testing.T) {
+	workDir := t.TempDir()
 	lifecycle := newClaudeLifecycle()
 
 	// Initially nil
@@ -186,7 +193,7 @@ func TestClaudeLifecycle_GetMCP(t *testing.T) {
 	// After merging a managed config carrying MCP servers.
 	lifecycle.MergeManaged(report.Reporter{}, &agent.ManagedConfig{
 		BundleMCP: map[string]wire.MCPServer{"test-server": {Command: "test"}},
-	}, "/tmp", "")
+	}, workDir, "")
 
 	assert.NotNil(t, lifecycle.GetBundleMCP())
 }

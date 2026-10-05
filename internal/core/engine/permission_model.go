@@ -83,9 +83,9 @@ func (p Posture) Named(m PermissionModel) Posture {
 // it; Default marks the one the engine continues at when the approver does
 // not choose. The default is explicit, never an offer's position.
 type PostureTransition struct {
-	Posture string
-	Label   string
-	Default bool
+	Posture string `json:"posture"`
+	Label   string `json:"label"`
+	Default bool   `json:"default,omitempty"`
 }
 
 // Clone copies the posture so a copy's edits never reach the original.

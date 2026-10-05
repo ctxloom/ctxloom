@@ -89,7 +89,7 @@ func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.Permissi
 		// MARKED AUTOMATIC. The correlation above is what makes this necessary:
 		// without the marker this message is indistinguishable from the child
 		// deliberately answering the ask that started the turn.
-		Structured: coord.AutoReportStructured(calls...),
+		Structured: coord.AutoReportStructured(coord.AutoReport{Blocked: calls}),
 	}); err != nil {
 		// LOUD AND COUNTED. A report that could not be written is a turn the
 		// parent will never hear about, and the accumulator that held it has

@@ -68,7 +68,7 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 	// above. yaml.Unmarshal("", &edited) succeeds with a ZERO-VALUE struct —
 	// no error, no empty-input signal of its own — so this must be checked
 	// explicitly, before it ever reaches SetBundleMCP, which validates
-	// nothing about Command being non-empty.
+	// nothing about the entry naming a command or a url.
 	if strings.TrimSpace(newContent) == "" {
 		return fmt.Errorf("aborted: the edited MCP config is empty; bundle %q was not changed", bundleName)
 	}
@@ -77,19 +77,24 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 	if err := yaml.Unmarshal([]byte(newContent), &edited); err != nil {
 		return fmt.Errorf("invalid YAML: %w", err)
 	}
-	if edited.Command == "" {
-		return fmt.Errorf("aborted: the edited MCP config has no `command:`; bundle %q was not changed", bundleName)
+	if edited.Command == "" && edited.URL == "" {
+		return fmt.Errorf("aborted: the edited MCP config has neither `command:` nor `url:`; bundle %q was not changed", bundleName)
 	}
 
+	// The buffer is the whole entry, so the input names every field: a field
+	// deleted from the buffer is cleared, not kept from the stored entry.
 	if _, err := operations.SetBundleMCP(cmd.Context(), cfg, operations.SetBundleMCPRequest{
 		Bundle: bundleName,
 		Name:   mcpName,
 		MCP: operations.BundleMCPInput{
-			Command:      edited.Command,
-			Args:         edited.Args,
-			Env:          edited.Env,
-			Notes:        edited.Notes,
-			Installation: edited.Installation,
+			Command:      &edited.Command,
+			Args:         &edited.Args,
+			Env:          &edited.Env,
+			URL:          &edited.URL,
+			Headers:      &edited.Headers,
+			Tags:         &edited.Tags,
+			Notes:        &edited.Notes,
+			Installation: &edited.Installation,
 		},
 	}); err != nil {
 		return err

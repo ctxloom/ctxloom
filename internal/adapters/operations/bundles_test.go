@@ -154,9 +154,9 @@ func TestCreateBundle_WithMCPServers(t *testing.T) {
 		Name: "with-mcp",
 		MCPServers: map[string]BundleMCPInput{
 			"tree-sitter": {
-				Command: "tree-sitter-mcp",
-				Args:    []string{"--lang", "rust"},
-				Env:     map[string]string{"DEBUG": "1"},
+				Command: new("tree-sitter-mcp"),
+				Args: &[]string{"--lang", "rust"},
+				Env: &map[string]string{"DEBUG": "1"},
 			},
 		},
 	})
@@ -452,7 +452,7 @@ func TestUpdateBundle_PromptAndMCPMutations(t *testing.T) {
 			"p1": {Content: "prompt content", NoDistill: true},
 		},
 		SetMCPServers: map[string]BundleMCPInput{
-			"server1": {Command: "cmd"},
+			"server1": {Command: new("cmd")},
 		},
 	})
 	require.NoError(t, err)
@@ -1091,7 +1091,7 @@ func TestCreateBundle_NotesAndInstallationRoundTrip(t *testing.T) {
 			"p": {Content: "y", Notes: "p-notes", Installation: "install y", NoDistill: true},
 		},
 		MCPServers: map[string]BundleMCPInput{
-			"m": {Command: "cmd", Notes: "m-notes", Installation: "install m"},
+			"m": {Command: new("cmd"), Notes: new("m-notes"), Installation: new("install m")},
 		},
 	})
 	require.NoError(t, err)

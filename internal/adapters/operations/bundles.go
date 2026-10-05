@@ -119,14 +119,55 @@ type BundleCommandInput struct {
 }
 
 // BundleMCPInput describes an MCP server entry to add or update via operations.
+// It is a PATCH, applied the same way by create, add and set: a nil field
+// leaves the entry's field as it is, a non-nil field replaces it, and an
+// explicit empty value ("" or an empty list or map) clears it. A new entry is
+// the patch applied to the zero entry.
+//
 // BundleMCP has no Description; use Notes for AI-invisible annotations and
-// Installation for setup instructions surfaced to the AI on install.
+// Installation for setup text shown to the human. Header values are signed
+// bundle content: put a secret in an env reference, never a literal.
 type BundleMCPInput struct {
-	Command      string            `json:"command"`
-	Args         []string          `json:"args,omitempty"`
-	Env          map[string]string `json:"env,omitempty"`
-	Notes        string            `json:"notes,omitempty"`
-	Installation string            `json:"installation,omitempty"`
+	Command      *string            `json:"command"`
+	Args         *[]string          `json:"args"`
+	Env          *map[string]string `json:"env"`
+	URL          *string            `json:"url"`
+	Headers      *map[string]string `json:"headers"`
+	Tags         *[]string          `json:"tags"`
+	Notes        *string            `json:"notes"`
+	Installation *string            `json:"installation"`
+}
+
+// patch applies m to e (see BundleMCPInput). A cleared list or map is stored
+// as nil, so clearing a field the entry never had is no change.
+func (m BundleMCPInput) patch(e bundles.BundleMCP) bundles.BundleMCP {
+	setIfNamed(&e.Command, m.Command)
+	setIfNamed(&e.Args, m.Args)
+	setIfNamed(&e.Env, m.Env)
+	setIfNamed(&e.URL, m.URL)
+	setIfNamed(&e.Headers, m.Headers)
+	setIfNamed(&e.Tags, m.Tags)
+	setIfNamed(&e.Notes, m.Notes)
+	setIfNamed(&e.Installation, m.Installation)
+	if len(e.Args) == 0 {
+		e.Args = nil
+	}
+	if len(e.Env) == 0 {
+		e.Env = nil
+	}
+	if len(e.Headers) == 0 {
+		e.Headers = nil
+	}
+	if len(e.Tags) == 0 {
+		e.Tags = nil
+	}
+	return e
+}
+
+func setIfNamed[T any](dst, v *T) {
+	if v != nil {
+		*dst = *v
+	}
 }
 
 // CreateBundleResult is what CreateBundle returns on success.
@@ -624,7 +665,7 @@ func onlyNewKeys[V, E any](in map[string]V, existing map[string]E) map[string]V 
 	return out
 }
 
-// applyMCPEdits merges set inputs into the bundle's MCP servers and applies
+// applyMCPEdits patches set inputs onto the bundle's MCP servers and applies
 // removals, appending a change line per mutation — a merge identical to the
 // existing entry is not one, per applyFragmentEdits. MCP servers carry no
 // distilled content, so there are no distill targets to return.
@@ -634,12 +675,7 @@ func applyMCPEdits(bundle *bundles.Bundle, set map[string]BundleMCPInput, remove
 			bundle.MCP = make(map[string]bundles.BundleMCP)
 		}
 		existing, hadExisting := bundle.MCP[name]
-		merged := existing
-		merged.Command = in.Command
-		merged.Args = in.Args
-		merged.Env = in.Env
-		merged.Notes = in.Notes
-		merged.Installation = in.Installation
+		merged := in.patch(existing)
 		if hadExisting && reflect.DeepEqual(merged, existing) {
 			continue
 		}
@@ -1230,13 +1266,7 @@ func applyPromptInputs(b *bundles.Bundle, in map[string]BundleCommandInput) {
 
 func applyMCPInputs(b *bundles.Bundle, in map[string]BundleMCPInput) {
 	applyInputs(&b.MCP, in, func(m BundleMCPInput) bundles.BundleMCP {
-		return bundles.BundleMCP{
-			Command:      m.Command,
-			Args:         m.Args,
-			Env:          m.Env,
-			Notes:        m.Notes,
-			Installation: m.Installation,
-		}
+		return m.patch(bundles.BundleMCP{})
 	})
 }
 

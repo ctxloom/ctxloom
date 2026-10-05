@@ -31,6 +31,8 @@ func TestRenderPullSummary_SkippedDoesNotClaimCurrency(t *testing.T) {
 	assert.Contains(t, text, "ctxloom deps check", "name the command that can actually see upstream")
 	assert.NotContains(t, text, "ctxloom deps upgrade",
 		"pull is offline: it cannot know a pin is behind, so it must not advise advancing it")
+	assert.True(t, strings.HasPrefix(text, fmt.Sprintf(pullSummaryHeaderFormat, 2)),
+		"a pull that moved nothing must not open by claiming it pulled: %q", text)
 }
 
 // TestRenderPullSummary_NothingToPull keeps the empty case intact.

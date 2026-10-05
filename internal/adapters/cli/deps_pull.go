@@ -223,7 +223,7 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 		return
 	}
 
-	fmt.Fprintf(w, "\nPulled %d items:\n", result.Total)
+	fmt.Fprintf(w, pullSummaryHeaderFormat, result.Total)
 	if result.Installed > 0 {
 		fmt.Fprintf(w, "  Installed: %d\n", result.Installed)
 	}
@@ -266,6 +266,12 @@ func renderIncompleteLock(w io.Writer, result *operations.SyncDependenciesResult
 	}
 	fmt.Fprintf(w, pullIncompleteFormat, strings.Join(names, ", "))
 }
+
+// pullSummaryHeaderFormat opens a pull's summary with the size of the
+// dependency set it reconciled. It does not say "pulled": most pulls install
+// nothing and keep every pin, and the lines below say which outcome each
+// dependency had.
+const pullSummaryHeaderFormat = "\nDependencies (%d):\n"
 
 // pullIncompleteFormat is the summary line for a pull whose lock rebuild could
 // not reach part of the closure; it takes the unreachable items, joined.

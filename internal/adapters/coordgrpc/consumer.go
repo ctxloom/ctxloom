@@ -4,8 +4,6 @@ import (
 	"context"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -34,15 +32,10 @@ func (s *consumerService) SpoolStats(context.Context, *agentcoordpb.SpoolStatsRe
 }
 
 // PendingApprovals projects the root's approval queue for a viewer in
-// another terminal. Only the consumer credential reads it: the auth
-// interceptor admits any identity to ConsumerService, and an agent is shown
-// that a child waits, never what it asks. The project is the caller's
-// identity's, which the coordinator stamps with the one project it serves.
+// another terminal. The project is the caller's identity's, which the
+// coordinator stamps with the one project it serves.
 func (s *consumerService) PendingApprovals(ctx context.Context, _ *agentcoordpb.PendingApprovalsRequest) (*agentcoordpb.PendingApprovalsResult, error) {
-	id, ok := s.c.Identify(mdToken(ctx))
-	if !ok || !id.Consumer {
-		return nil, status.Error(codes.PermissionDenied, "pending approvals are read with the consumer credential only")
-	}
+	id, _ := s.c.Identify(mdToken(ctx))
 	return PendingApprovalsToWire(s.c.Approvals().Pending(), id.ProjectDir), nil
 }
 

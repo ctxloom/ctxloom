@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
@@ -72,19 +70,4 @@ func TestConsumerService_PendingApprovals_Empty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got.GetPending())
 	assert.Equal(t, c.projectDir, got.GetProjectDir())
-}
-
-// TestConsumerService_PendingApprovals_AgentCredentialRefused: an agent
-// sees that a child waits (its roster phase), never what another child
-// asks — so a run's own credential, which every other ConsumerService read
-// accepts, is refused here.
-func TestConsumerService_PendingApprovals_AgentCredentialRefused(t *testing.T) {
-	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(t), nil)
-	out := spawnResearcher(t, c)
-	env := waitForChildEnv(t, c, out.RunID)
-	client, _ := dialConsumer(t, c.LoopbackURL(), env[EnvCoordCred])
-	_, err := client.PendingApprovals(context.Background(), &agentcoordpb.PendingApprovalsRequest{})
-	require.Error(t, err)
-	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }

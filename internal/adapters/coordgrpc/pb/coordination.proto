@@ -1604,8 +1604,7 @@ service ConsumerService {
   // PendingApprovals is a snapshot of the root's approval queue, for a
   // viewer in another terminal. Read-only: it names no request (no approval
   // id), so a reader holds nothing an answer could address — answering
-  // stays in the originator's modal. Served to the consumer credential
-  // only: an agent sees that a child waits, never what it asks.
+  // stays in the originator's modal.
   rpc PendingApprovals(PendingApprovalsRequest) returns (PendingApprovalsResult);
 }
 

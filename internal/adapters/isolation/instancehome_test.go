@@ -157,6 +157,24 @@ func TestPrepareInstanceHome_SerializesTwoRunsSharingOneInstance(t *testing.T) {
 		"two runs sharing one session instance must serialize; %d were generating at once", rec.maxInFlight.Load())
 }
 
+// An instance home the home lock store cannot key is REFUSED, never prepared
+// unserialized: the lock is what keeps two runs sharing the instance from
+// interleaving their load-modify-write, so preparing without it is the lost
+// write the serialization test above guards against.
+func TestPrepareInstanceHome_RefusesAnUnkeyableInstance(t *testing.T) {
+	withFakeHome(t)
+	clearAuth(t)
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x")
+	rec := &recordingInstanceConfig{}
+	withInstanceConfigWriter(t, "claude-code", rec)
+	instance := t.TempDir()
+	t.Setenv("HOME", "") // the home lock store is keyed under the account home
+
+	_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	require.ErrorIs(t, err, errInstanceHomeUnkeyed)
+	assert.Empty(t, rec.seen(), "nothing is generated into an instance that could not be locked")
+}
+
 // claude's .claude.json lands in the session home through the engine's own
 // writer, owner-only, carrying the account identity and never the user's own
 // registrations. No credential file lands beside it, however complete the

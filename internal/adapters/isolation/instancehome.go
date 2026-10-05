@@ -92,8 +92,8 @@ var ensureOwnerOnlyDir = owneronly.EnsureDir
 // req.InstanceHome, so two launches sharing ONE session instance (two under
 // the same harp, as a resume is) cannot interleave their load-modify-write of
 // the same config file. A delegated child is not one of them: it gets a harp,
-// and so an instance, of its own. An instance home outside any
-// .ctxloom tree cannot be keyed and proceeds unlocked.
+// and so an instance, of its own. An instance home the lock cannot be keyed
+// for is refused (errInstanceHomeUnkeyed) rather than prepared unserialized.
 func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	f, ok := factsFor(req.Engine)
 	if !ok {
@@ -102,7 +102,10 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	if req.InstanceHome == "" {
 		return InstanceHomeReport{}, fmt.Errorf("instance home for %s: no instance home to prepare (internal error)", req.Engine)
 	}
-	unlock := lockInstanceHome(req.InstanceHome)
+	unlock, err := lockInstanceHome(req.InstanceHome)
+	if err != nil {
+		return InstanceHomeReport{}, fmt.Errorf("instance home for %s: %w", req.Engine, err)
+	}
 	defer unlock()
 
 	var rep InstanceHomeReport
@@ -267,21 +270,25 @@ const (
 	lockDirMode  = 0o755
 )
 
+// errInstanceHomeUnkeyed refuses an instance home the home lock store cannot
+// key (paths.HomePathFor failed), so it cannot be serialized.
+var errInstanceHomeUnkeyed = errors.New("instance home: cannot key the instance lock")
+
 // lockInstanceHome takes the lock for instanceHome and returns the release.
 // The instance is a member of the home-rooted session dir (paths.HarpSessionEngineHomes),
 // so its sidecar goes to the home locks store (paths.HomePathFor) — the
 // session dir itself holds only paths.HarpMembers. A home that cannot be
-// keyed to a lock location, or an acquisition failure, returns a no-op
-// release rather than failing the run — see PrepareInstanceHome's doc for
-// why that case has no second writer.
-func lockInstanceHome(instanceHome string) func() {
+// keyed to a lock location is refused (errInstanceHomeUnkeyed); a lock
+// directory that cannot be created, or an acquisition failure, is warned
+// about and returns a no-op release.
+func lockInstanceHome(instanceHome string) (func(), error) {
 	lockPath, err := paths.HomePathFor(instanceHome)
 	if err != nil {
-		return func() {}
+		return nil, fmt.Errorf("%w %s: %w", errInstanceHomeUnkeyed, instanceHome, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
 		clidiag.Warn("ctxloom", "instance home: could not prepare the instance lock directory for %s (%v); proceeding unserialized", lockPath, err)
-		return func() {}
+		return func() {}, nil
 	}
 	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
 	stop := lockwait.Watch(lockPath)
@@ -289,7 +296,7 @@ func lockInstanceHome(instanceHome string) func() {
 	stop()
 	if err != nil {
 		clidiag.Warn("ctxloom", "instance home: could not take the instance lock %s (%v); proceeding unserialized", lockPath, err)
-		return func() {}
+		return func() {}, nil
 	}
-	return func() { _ = fl.Unlock() }
+	return func() { _ = fl.Unlock() }, nil
 }

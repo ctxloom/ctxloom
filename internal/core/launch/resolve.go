@@ -69,13 +69,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 
-	if deps.CheckCredential != nil {
-		if err := deps.CheckCredential(string(def.Name), RunAuth(src.Identity, cfg.SessionAuth())); err != nil {
-			return Launch{}, err
-		}
-	}
-	src.Identity.Project = admittedProject(deps, src.Identity.Project)
-	passthrough, cell, err := prepareCell(ctx, deps, src, eng, axes, dirty, sel, label)
+	passthrough, cell, err := admitAndPrepare(ctx, deps, &src, eng, axes, dirty, sel, label)
 	if err != nil {
 		return Launch{}, err
 	}
@@ -98,6 +92,20 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 	return l, nil
+}
+
+// admitAndPrepare admits the launch and prepares its cell. Admission is the
+// last refusal before anything is established: the engine's credential for
+// the mode this run authenticates in (deps.CheckCredential), then the
+// project identity the cell carries (admittedProject), set on src.
+func admitAndPrepare(ctx context.Context, deps Deps, src *Source, eng engine.Engine, axes Axes, dirty DirtyTreeHandler, sel selection, label string) (map[string]string, Cell, error) {
+	if deps.CheckCredential != nil {
+		if err := deps.CheckCredential(string(eng.Root().Name), RunAuth(src.Identity, deps.Snapshot.Config.SessionAuth())); err != nil {
+			return nil, Cell{}, err
+		}
+	}
+	src.Identity.Project = admittedProject(deps, src.Identity.Project)
+	return prepareCell(ctx, deps, *src, eng, axes, dirty, sel, label)
 }
 
 // admittedProject is the project id an admitted launch carries: the one the

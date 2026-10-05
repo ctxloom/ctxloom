@@ -22,13 +22,16 @@ no_distill. Use --no-distill to skip re-distillation for just this edit (e.g. a
 typo fix) without burning an LLM call — the distilled form is left empty
 (never stale) until you run 'ctxloom fragment distill'.
 
-Examples:
+```
+ctxloom fragment edit <bundle>#fragments/<name> [flags]
+```
+
+### Examples
+
+```
   ctxloom fragment edit core#fragments/tdd
   ctxloom fragment edit go-tools#fragments/testing
   ctxloom fragment edit core#fragments/tdd --no-distill
-
-```
-ctxloom fragment edit <bundle>#fragments/<name> [flags]
 ```
 
 ### Options

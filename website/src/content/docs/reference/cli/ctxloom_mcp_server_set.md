@@ -28,13 +28,16 @@ refused and nothing is saved.
 
 Header values land in shell history and in signed bundle content, so name a secret through an environment variable the engine expands, never as a literal.
 
-Examples:
+```
+ctxloom mcp server set <bundle>#mcp/<name> [flags]
+```
+
+### Examples
+
+```
   ctxloom mcp server set tools#mcp/search --url https://mcp.example.com/v1 --header X-Team=core --tag search
   ctxloom mcp server set tools#mcp/search --notes "Team search index"
   ctxloom mcp server set tools#mcp/search --url "" --header "" --command search-mcp --arg=--stdio
-
-```
-ctxloom mcp server set <bundle>#mcp/<name> [flags]
 ```
 
 ### Options

@@ -15,6 +15,12 @@ Show which backends have ctxloom hooks wired in
 ctxloom manage hooks check [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage hooks check
+```
+
 ### Options inherited from parent commands
 
 ```

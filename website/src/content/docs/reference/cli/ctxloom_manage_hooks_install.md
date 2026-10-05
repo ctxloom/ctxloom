@@ -30,6 +30,13 @@ removes it.
 ctxloom manage hooks install [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage hooks install
+  ctxloom manage hooks install --backend claude-code
+```
+
 ### Options
 
 ```

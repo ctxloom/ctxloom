@@ -9,19 +9,19 @@ This page is generated from `ctxloom session transcript purge --help`.
 
 ## ctxloom session transcript purge
 
-Destroy a finished session's recorded conversation, keeping its essence
+Destroy a finished session's recorded conversation, keeping its summary
 
 ### Synopsis
 
-Destroys the machine-written bulk under a harp's directory —
+Destroys the machine-written bulk under a session's directory —
 everything under transcripts/ (the canonical transcript.jsonl and its
 rotation segments) and native/ (the engine's own history) — and nothing
-else. The compacted essence, the index entry and every authored file stay.
+else. The compacted summary, the index entry and every authored file stay.
 
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
 
-A session that was never compacted is REFUSED: with no essence, the
+A session that was never compacted is REFUSED: with no summary, the
 transcript is the only record of what happened. Pass --uncompacted to
 destroy it anyway.
 
@@ -30,14 +30,20 @@ agent may still be appending to this transcript. A held lock, or no lock at
 all, both refuse. Pass --even-if-live to destroy it anyway.
 
 ```
-ctxloom session transcript purge <harp-name> [flags]
+ctxloom session transcript purge <session-name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom session transcript purge amber-swift-owl --yes
 ```
 
 ### Options
 
 ```
       --even-if-live   permit destroying a session whose owner may still be running: its session lock is held, or it has no lock at all (every session from before the lock existed)
-      --uncompacted    permit destroying the transcript of a session that has no essence
+      --uncompacted    permit destroying the transcript of a session that has no summary
   -y, --yes            apply the plan this invocation printed (default: report only)
 ```
 

@@ -22,6 +22,12 @@ Shows bundle name, version, description, and content summary.
 ctxloom bundle list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom bundle list
+```
+
 ### Options inherited from parent commands
 
 ```

@@ -29,13 +29,16 @@ To return an item to pending, decided neither way, use
 
 Reference format matches 'ctxloom bundle trust' (see its help).
 
-Examples:
+```
+ctxloom bundle reject <ref> [flags]
+```
+
+### Examples
+
+```
   ctxloom bundle reject 'tooling#fragments/curl-pipe-sh'
   ctxloom bundle reject 'ctxloom+companion:ltk#hooks/PreToolUse/0'
   ctxloom bundle reject 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'
-
-```
-ctxloom bundle reject <ref> [flags]
 ```
 
 ### Options inherited from parent commands

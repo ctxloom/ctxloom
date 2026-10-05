@@ -51,12 +51,15 @@ isolated from your own and thrown away with the session. It wins on every
 invocation path this binding resolves through — a bare run under
 default_agent, run --agent, a delegated child, a oneshot fan member alike.
 
-Examples:
-  ctxloom agent edit dev --runtime container-rootless
-  ctxloom agent edit reviewer --profiles cr-correctness-golang,cr-security
-
 ```
 ctxloom agent edit <name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom agent edit dev --runtime container-rootless
+  ctxloom agent edit reviewer --profiles cr-correctness-golang,cr-security
 ```
 
 ### Options

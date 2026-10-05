@@ -27,15 +27,18 @@ Path formats:
   bundle-name#skills/name         Skill manifest
   bundle-name#profiles/name       Profile definition
 
-Examples:
+```
+ctxloom bundle view <name[#path]> [flags]
+```
+
+### Examples
+
+```
   ctxloom bundle view core-practices
   ctxloom bundle view core-practices#fragments/tdd
   ctxloom bundle view mcp-tasks#commands/setup-tasks
   ctxloom bundle view sequential-thinking#mcp/default
   ctxloom bundle view code-review#profiles/cr-security-golang
-
-```
-ctxloom bundle view <name[#path]> [flags]
 ```
 
 ### Options

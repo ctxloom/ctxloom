@@ -22,6 +22,13 @@ section; an unknown section is refused with the list of available ones.
 ctxloom config show [section] [flags]
 ```
 
+### Examples
+
+```
+  ctxloom config show
+  ctxloom config show llm
+```
+
 ### Options
 
 ```

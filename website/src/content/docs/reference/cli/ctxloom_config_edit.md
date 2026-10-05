@@ -15,6 +15,12 @@ Open config.yaml in $EDITOR
 ctxloom config edit [flags]
 ```
 
+### Examples
+
+```
+  ctxloom config edit
+```
+
 ### Options inherited from parent commands
 
 ```

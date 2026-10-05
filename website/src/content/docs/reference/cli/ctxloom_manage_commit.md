@@ -20,8 +20,7 @@ worktree) can see them.
 
 This is deliberately NOT a config.yaml key: the config chain has three
 channels an agent can reach (a home file, an environment variable, an argv),
-and this decision must come from a human, once, through one of exactly two
-surfaces — this command, or the dirty-tree question in 'ctxloom init'.
+and this decision must come from a human, once, through this command.
 
 An absent decision is untrusted, and the spawn is refused rather than
 committing on your behalf.

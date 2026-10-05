@@ -44,6 +44,12 @@ repository — so the signature covers the bytes that were produced there.
 ctxloom companion list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom companion list
+```
+
 ### Options inherited from parent commands
 
 ```

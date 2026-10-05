@@ -21,13 +21,16 @@ and .sigs/ — and lands as a directory under its own name.
 
 Use -o to name the destination tree's path directly.
 
-Examples:
+```
+ctxloom bundle export <name> [dest-dir] [flags]
+```
+
+### Examples
+
+```
   ctxloom bundle export go-tools ../ctxloom-default/ctxloom/bundles
   ctxloom bundle export my-bundle ./exports
   ctxloom bundle export my-bundle -o exported.yaml
-
-```
-ctxloom bundle export <name> [dest-dir] [flags]
 ```
 
 ### Options

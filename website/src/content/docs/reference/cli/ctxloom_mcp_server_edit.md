@@ -21,12 +21,15 @@ the containing bundle is updated with the new configuration.
 The ref shape selects the store, per the universal addressing grammar:
 a '<bundle>#mcp/<name>' ref addresses a bundle-scoped server.
 
-Examples:
-  ctxloom mcp server edit my-bundle#mcp/tree-sitter
-  ctxloom mcp server edit tools#mcp/sequential-thinking
-
 ```
 ctxloom mcp server edit <bundle>#mcp/<name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom mcp server edit my-bundle#mcp/tree-sitter
+  ctxloom mcp server edit tools#mcp/sequential-thinking
 ```
 
 ### Options inherited from parent commands

@@ -15,6 +15,12 @@ List configured MCP servers
 ctxloom mcp server list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom mcp server list
+```
+
 ### Options inherited from parent commands
 
 ```

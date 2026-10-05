@@ -15,6 +15,12 @@ Remove ctxloom hooks, statusline, MCP entries, and command files
 ctxloom manage hooks uninstall [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage hooks uninstall --backend claude-code
+```
+
 ### Options
 
 ```

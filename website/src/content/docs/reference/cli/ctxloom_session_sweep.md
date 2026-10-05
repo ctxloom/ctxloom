@@ -25,8 +25,8 @@ machine) and decides each one by a fixed table, in order:
   older than --older-than      its disposable members reclaimed (what
                                'ctxloom clean' reclaims)
   compacted, older than        purged: its transcripts go; its output dir
-  --purge-older-than           (essence, plans) and the files you wrote stay
-  never compacted              never purged; 'ctxloom session compact <harp>'
+  --purge-older-than           (summary, plans) and the files you wrote stay
+  never compacted              never purged; 'ctxloom session compact <session-name>'
                                is named
   an internal one-shot, older  purged without a compact
   than --purge-older-than
@@ -44,6 +44,13 @@ plan it reports, re-checking each session under its lock before acting.
 
 ```
 ctxloom session sweep [flags]
+```
+
+### Examples
+
+```
+  ctxloom session sweep                       # report what would be reclaimed
+  ctxloom session sweep --purge-older-than 90d --yes
 ```
 
 ### Options

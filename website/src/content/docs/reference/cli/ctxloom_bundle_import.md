@@ -19,12 +19,15 @@ Import a bundle tree — named by its directory or its bundle.yaml — into
 The tree is copied WHOLE and keeps its own name. Use --force to overwrite an
 existing bundle.
 
-Examples:
-  ctxloom bundle import ../ctxloom-default/.ctxloom/content/bundles/v2/unattended
-  ctxloom bundle import ./my-bundle --force
-
 ```
 ctxloom bundle import <path> [flags]
+```
+
+### Examples
+
+```
+  ctxloom bundle import ../ctxloom-default/.ctxloom/content/bundles/v2/unattended
+  ctxloom bundle import ./my-bundle --force
 ```
 
 ### Options

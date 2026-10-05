@@ -13,75 +13,36 @@ Remove this project's regenerable cache, keeping everything a clone cannot resto
 
 ### Synopsis
 
-Removes .ctxloom/cache — the pulled bundle copies, the git clone cache,
-the assembled context files and the refused-advance record. Every one of them
-is rebuilt by a command this report names, so the only cost is the time to
-re-run it.
+Removes .ctxloom/cache: the pulled bundle copies, the git clone cache, the
+assembled context files and the refused-advance record. Each is rebuilt by a
+command the report names.
 
-Nothing else is touched by default. Your authored content and profiles are
-committed and a clone has them. Your approvals and application records are
-LOCAL-ONLY — nothing rebuilds them, so clean never takes them, and neither
-does --yes. lock.yaml survives too: it is rebuildable but committed, so
-deleting it would dirty your tree rather than free anything.
+It also reclaims the disposable parts of ended sessions under
+~/.ctxloom/sessions/<session-name>/ (the per-session engine home, scratch/ and
+the worktree checkouts under work/) once nothing there has changed for 30d,
+or session_reap_age in ~/.ctxloom/config.yaml. --older-than overrides that for
+one run, as an age (30d, 12w, 720h) or a date (2026-01-01). --include-persist
+also takes transcripts, engine history, the spool, the package store and
+logs, except from a session that was never compacted.
 
-Every session also leaves a directory under ~/.ctxloom/sessions/<harp>/,
-and clean reaps its DISPOSABLE members by age — the ones whose loss costs
-nothing because the next run rebuilds them: the engine's per-session home
-home/ (settings, scaffolding and the credential copied in for the run), the
-per-run scratch/, and the worktree checkouts under work/ — triaged, never
-taken blind. The report names exactly what it takes. A session is aged when no file under its
-directory has been modified for longer than the bound — 30d unless your
-~/.ctxloom/config.yaml sets session_reap_age, and --older-than overrides
-either for one invocation:
+Never taken: authored content and profiles, approvals, lock.yaml, a session's
+identity and its output dir, a session with an empty 'keep' file at the top
+of its directory, a session that is running or whose liveness cannot be
+proven, and a worktree with uncommitted work. The report says what it left.
 
-  ctxloom clean --older-than 30d          an offset: 30d, 12w, 720h
-  ctxloom clean --older-than 2026-01-01   or a date
-
-The persistent machine members — transcripts/, native/ engine history, the
-mail spool/, the launch package/ store and the session's logs — are no age's
-to take. Pass --include-persist to reap them too, from the same aged
-sessions — except a session that was never compacted, whose transcript is
-its only record: it keeps them until 'ctxloom session compact <harp>'.
-The session's identity (its session.yaml and keep marker) is never taken:
-the directory stays, and the session still lists and resolves. Nor is its
-output dir — essence, next step, plans — which lives outside
-~/.ctxloom/sessions/ and which clean never touches.
-
-To exempt one session from every sweep, place an empty file named 'keep'
-at the top of its directory.
-
-A session is reclaimed only when its liveness lock proves its owner has
-ended. A running session, or one whose liveness cannot be established at
-all, is reported and left alone. A session holding a scratch worktree with
-uncommitted work is reported and left alone too — that work exists nowhere
-else.
-
-A session that predates the liveness lock has no lock file, so its owner can
-never be proven dead — and this sweep, which ranges over every session at
-once, will NEVER reclaim it. That is deliberate, not a gap: nothing but the
-lock can tell such a session apart from one still running, and a bulk sweep
-is the wrong place to gamble a live session's scratch on a guess. Clearing
-one is a per-session decision a human makes by naming it:
-'ctxloom session transcript purge <harp> --even-if-live' (and the artifacts
-counterpart) destroy the machine-written bulk of the one session you name.
-
-Without --yes this only reports; nothing on disk changes.
-
-This is the reclaim half of 'ctxloom session sweep', which tidies one
-project's ended sessions by the same rules and can also purge them.
-
-clean is not uninstall. What it takes comes back on your next run, because
-that is what regenerable means. To strip ctxloom's integration with this
-project — its hooks, statusline, MCP registration and generated command
-files — use 'ctxloom manage uninstall'.
-
-A run does not bring those surfaces back: running ctxloom never writes the
-project. They are written only when you ask — 'ctxloom manage hooks install'
-or 'ctxloom profile materialize' — so what 'manage uninstall' removes stays
-gone until you run one of those again.
+Without --yes this only reports. 'ctxloom session sweep' applies the same
+rules to one project's ended sessions; 'ctxloom manage uninstall' removes
+ctxloom's hooks and generated files from the project.
 
 ```
 ctxloom clean [flags]
+```
+
+### Examples
+
+```
+  ctxloom clean                       # report what would be reclaimed
+  ctxloom clean --older-than 30d --yes
 ```
 
 ### Options

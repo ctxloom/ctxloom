@@ -13,7 +13,7 @@ Browse and manage your recorded sessions
 
 ### Synopsis
 
-Read and manage the harp-keyed sessions under ~/.ctxloom/sessions:
+Read and manage the named sessions under ~/.ctxloom/sessions:
 one directory per session, each carrying its own record. Use to list/show/edit/remove
 sessions without launching the LLM. Sessions appear here automatically
 once `ctxloom run` has been used to launch a backend.
@@ -37,16 +37,16 @@ ctxloom session [flags]
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Assemble context for your AI coding assistant and launch it
-* [ctxloom session adopt](/reference/cli/ctxloom_session_adopt/)	 - Re-index orphaned vendor transcripts into a harp's rotation lineage
+* [ctxloom session adopt](/reference/cli/ctxloom_session_adopt/)	 - Re-index orphaned vendor transcripts into a session's rotation lineage
 * [ctxloom session approvals](/reference/cli/ctxloom_session_approvals/)	 - List approvals waiting for the human, from any terminal (read-only)
-* [ctxloom session artifacts](/reference/cli/ctxloom_session_artifacts/)	 - What a session produced — its compacted essence: list it, destroy it
-* [ctxloom session compact](/reference/cli/ctxloom_session_compact/)	 - Compact a session by harp name. Compaction is on-demand: nothing compacts a session automatically when it ends.
-* [ctxloom session edit](/reference/cli/ctxloom_session_edit/)	 - Assign a recorded session's fields (today: --name, which renames the harp)
+* [ctxloom session artifacts](/reference/cli/ctxloom_session_artifacts/)	 - What a session produced — its compacted summary: list it, destroy it
+* [ctxloom session compact](/reference/cli/ctxloom_session_compact/)	 - Compact a named session. Compaction is on-demand: nothing compacts a session automatically when it ends.
+* [ctxloom session edit](/reference/cli/ctxloom_session_edit/)	 - Assign a recorded session's fields (today: --name, which renames the session)
 * [ctxloom session list](/reference/cli/ctxloom_session_list/)	 - List recorded sessions (default: current project; --all for everything)
 * [ctxloom session purge](/reference/cli/ctxloom_session_purge/)	 - Empty a finished session: its transcript, its artifacts and its scratch worktrees
-* [ctxloom session remove](/reference/cli/ctxloom_session_remove/)	 - Remove a session entirely: its index entry, its transcript and its essence
-* [ctxloom session search](/reference/cli/ctxloom_session_search/)	 - Search sessions by harp, summary, and compacted essence content (default: current project; --all for everything)
-* [ctxloom session show](/reference/cli/ctxloom_session_show/)	 - Print the compacted essence of a harp-named session
+* [ctxloom session remove](/reference/cli/ctxloom_session_remove/)	 - Remove a session entirely: its index entry, its transcript and its summary
+* [ctxloom session search](/reference/cli/ctxloom_session_search/)	 - Search sessions by name, one-line summary, and compacted summary content (default: current project; --all for everything)
+* [ctxloom session show](/reference/cli/ctxloom_session_show/)	 - Print the compacted summary of a named session
 * [ctxloom session sweep](/reference/cli/ctxloom_session_sweep/)	 - Tidy every ended session of this project by rule: remove what it can prove is safe, report the rest
 * [ctxloom session transcript](/reference/cli/ctxloom_session_transcript/)	 - The recorded conversation behind a session: list it, watch it, destroy it
 * [ctxloom session worktrees](/reference/cli/ctxloom_session_worktrees/)	 - The scratch git checkouts a session left behind: list them, remove the safe ones

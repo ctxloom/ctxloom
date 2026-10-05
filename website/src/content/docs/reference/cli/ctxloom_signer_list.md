@@ -15,6 +15,12 @@ List trusted signers
 ctxloom signer list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom signer list
+```
+
 ### Options inherited from parent commands
 
 ```

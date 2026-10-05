@@ -20,12 +20,15 @@ Pass --yes to apply it.
 
 Reference format: bundle#fragments/name
 
-Examples:
-  ctxloom fragment remove my-bundle#fragments/old-standard
-  ctxloom fragment remove my-bundle#fragments/old-standard --yes
-
 ```
 ctxloom fragment remove <bundle>#fragments/<name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom fragment remove my-bundle#fragments/old-standard
+  ctxloom fragment remove my-bundle#fragments/old-standard --yes
 ```
 
 ### Options

@@ -15,11 +15,14 @@ Show a remote and the bundles it publishes
 
 Show one remote: its bundles, as published in the remote repository.
 
-Examples:
-  ctxloom remote show ctxloom-default
-
 ```
 ctxloom remote show <remote> [flags]
+```
+
+### Examples
+
+```
+  ctxloom remote show ctxloom-default
 ```
 
 ### Options

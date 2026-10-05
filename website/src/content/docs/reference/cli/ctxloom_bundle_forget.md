@@ -31,12 +31,15 @@ withheld.
 
 Reference format matches 'ctxloom bundle trust' (see its help).
 
-Examples:
-  ctxloom bundle forget 'tooling#fragments/curl-pipe-sh'
-  ctxloom bundle forget --project 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'
-
 ```
 ctxloom bundle forget <ref> [flags]
+```
+
+### Examples
+
+```
+  ctxloom bundle forget 'tooling#fragments/curl-pipe-sh'
+  ctxloom bundle forget --project 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'
 ```
 
 ### Options

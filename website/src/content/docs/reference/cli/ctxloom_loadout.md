@@ -28,6 +28,13 @@ document bytes (base64) plus an OPTIONAL detached publish signature.
 ctxloom loadout [flags]
 ```
 
+### Examples
+
+```
+  ctxloom loadout
+  ctxloom loadout --format json
+```
+
 ### Options
 
 ```

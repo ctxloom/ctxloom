@@ -9,12 +9,12 @@ This page is generated from `ctxloom container prune --help`.
 
 ## ctxloom container prune
 
-Remove superseded ctxloom agent images (a dry run unless --apply)
+Remove superseded ctxloom agent images (a dry run unless --yes)
 
 ### Synopsis
 
 Find the agent images ctxloom built that nothing uses any more, and — with
---apply — remove them. Without --apply this only prints the plan.
+--yes — remove them. Without --yes this only prints the plan.
 
 Every ctxloom commit (and every change to the admitted companion set) builds
 a new agent image tag, and the old ones are never overwritten, so they pile
@@ -48,12 +48,19 @@ no container runtime is available.
 ctxloom container prune [flags]
 ```
 
+### Examples
+
+```
+  ctxloom container prune              # print the plan
+  ctxloom container prune --yes --min-age 72h
+```
+
 ### Options
 
 ```
-      --apply              remove the superseded images (default: print the plan and remove nothing)
       --min-age duration   keep any image younger than this (default 24h0m0s)
       --runtime string     sweep only this container runtime (docker|podman); every available one when empty
+  -y, --yes                remove the superseded images (default: print the plan and remove nothing)
 ```
 
 ### Options inherited from parent commands

@@ -60,6 +60,12 @@ the subscription's limits (https://support.claude.com/en/articles/15036540).
 ctxloom auth status [flags]
 ```
 
+### Examples
+
+```
+  ctxloom auth status
+```
+
 ### Options inherited from parent commands
 
 ```

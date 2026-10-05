@@ -17,12 +17,15 @@ Display the content of a specific command.
 
 Reference format: bundle#commands/name
 
-Examples:
-  ctxloom command show core#commands/code-review
-  ctxloom command show go-tools#commands/testing
-
 ```
 ctxloom command show <bundle>#commands/<name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom command show core#commands/code-review
+  ctxloom command show go-tools#commands/testing
 ```
 
 ### Options

@@ -17,12 +17,15 @@ Export a local bundle's profile to an arbitrary directory.
 
 Useful for publishing profiles to a shared repository like ctxloom-default.
 
-Examples:
-  ctxloom profile export architect ../ctxloom-default/ctxloom/profiles
-  ctxloom profile export my-profile ./exports
-
 ```
 ctxloom profile export <name> <dest-dir> [flags]
+```
+
+### Examples
+
+```
+  ctxloom profile export architect ../ctxloom-default/ctxloom/profiles
+  ctxloom profile export my-profile ./exports
 ```
 
 ### Options inherited from parent commands

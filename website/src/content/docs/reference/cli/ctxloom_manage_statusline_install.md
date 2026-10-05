@@ -15,6 +15,12 @@ Let ctxloom manage the HUD statusline (default)
 ctxloom manage statusline install [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage statusline install
+```
+
 ### Options inherited from parent commands
 
 ```

@@ -36,14 +36,17 @@ Forge selection:
   override — "github", "git", or the label of a forges: entry (e.g. a GitHub
   Enterprise instance).
 
-Examples:
+```
+ctxloom remote create <name> <url> [flags]
+```
+
+### Examples
+
+```
   ctxloom remote create alice alice/ctxloom
   ctxloom remote create corp https://git.example.com/corp/ctxloom
   ctxloom remote create corp https://git.example.com/corp/ctxloom --forge git
   ctxloom remote create work https://github.mycorp.com/me/ctxloom --forge work-ghe
-
-```
-ctxloom remote create <name> <url> [flags]
 ```
 
 ### Options

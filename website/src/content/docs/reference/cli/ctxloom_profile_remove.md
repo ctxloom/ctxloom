@@ -22,6 +22,12 @@ Pass --yes to apply it.
 ctxloom profile remove <name> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom profile remove go-dev --yes
+```
+
 ### Options
 
 ```

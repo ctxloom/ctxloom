@@ -18,16 +18,19 @@ Manage ctxloom bundles - versioned collections of fragments, commands, and MCP s
 Bundles are the primary content unit in ctxloom. They group related context fragments,
 commands, and optional MCP server configurations with a single version.
 
-Examples:
+```
+ctxloom bundle [flags]
+```
+
+### Examples
+
+```
   ctxloom bundle list                  # List all installed bundles
   ctxloom bundle show go-tools         # Show bundle contents
   ctxloom bundle create my-bundle      # Create a new bundle
   ctxloom bundle export go-tools ./out # Export bundle to directory
   ctxloom bundle import ./my-bundle.yaml # Import bundle from file
   ctxloom bundle move go-tools --to ctxloom-default # Relocate a bundle (signature and all)
-
-```
-ctxloom bundle [flags]
 ```
 
 ### Options inherited from parent commands

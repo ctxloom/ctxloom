@@ -18,10 +18,16 @@ with the size on disk. A session whose transcript was never captured is
 listed too, saying so — omitting it would make "nothing was captured"
 indistinguishable from "there are no sessions".
 
-Naming a harp restricts the listing to that one session.
+Naming a session restricts the listing to that one session.
 
 ```
-ctxloom session transcript list [<harp-name>] [flags]
+ctxloom session transcript list [<session-name>] [flags]
+```
+
+### Examples
+
+```
+  ctxloom session transcript list
 ```
 
 ### Options

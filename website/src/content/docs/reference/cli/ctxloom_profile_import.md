@@ -18,12 +18,15 @@ another local bundle) as the profile named by the file's basename.
 
 Use --force to overwrite an existing profile.
 
-Examples:
-  ctxloom profile import ../ctxloom-default/ctxloom/profiles/architect.yaml
-  ctxloom profile import ./my-profile.yaml --force
-
 ```
 ctxloom profile import <path> [flags]
+```
+
+### Examples
+
+```
+  ctxloom profile import ../ctxloom-default/ctxloom/profiles/architect.yaml
+  ctxloom profile import ./my-profile.yaml --force
 ```
 
 ### Options

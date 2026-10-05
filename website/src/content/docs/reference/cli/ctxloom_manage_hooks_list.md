@@ -29,6 +29,13 @@ place you can go and change.
 ctxloom manage hooks list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage hooks list
+  ctxloom manage hooks list --event pre_tool
+```
+
 ### Options
 
 ```

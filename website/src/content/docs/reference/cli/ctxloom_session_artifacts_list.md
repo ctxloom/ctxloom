@@ -9,19 +9,26 @@ This page is generated from `ctxloom session artifacts list --help`.
 
 ## ctxloom session artifacts list
 
-List which sessions have been compacted, and how large each essence is
+List which sessions have been compacted, and how large each summary is
 
 ### Synopsis
 
 Names every recorded session and whether it has been compacted yet, with
-the essence's size on disk. An uncompacted session is listed saying so —
+the summary's size on disk. An uncompacted session is listed saying so —
 omitting it would make "nothing has been compacted" indistinguishable from
 "there are no sessions".
 
-Naming a harp restricts the listing to that one session.
+Naming a session restricts the listing to that one session.
 
 ```
-ctxloom session artifacts list [<harp-name>] [flags]
+ctxloom session artifacts list [<session-name>] [flags]
+```
+
+### Examples
+
+```
+  ctxloom session artifacts list
+  ctxloom session artifacts list amber-swift-owl
 ```
 
 ### Options
@@ -44,5 +51,5 @@ ctxloom session artifacts list [<harp-name>] [flags]
 
 ### SEE ALSO
 
-* [ctxloom session artifacts](/reference/cli/ctxloom_session_artifacts/)	 - What a session produced — its compacted essence: list it, destroy it
+* [ctxloom session artifacts](/reference/cli/ctxloom_session_artifacts/)	 - What a session produced — its compacted summary: list it, destroy it
 

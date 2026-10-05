@@ -17,12 +17,15 @@ Distill a command to create a token-efficient version.
 
 Reference format: bundle#commands/name
 
-Examples:
-  ctxloom command distill core#commands/code-review
-  ctxloom command distill go-tools#commands/testing --force
-
 ```
 ctxloom command distill <bundle>#commands/<name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom command distill core#commands/code-review
+  ctxloom command distill go-tools#commands/testing --force
 ```
 
 ### Options

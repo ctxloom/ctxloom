@@ -28,6 +28,12 @@ needs the network and is 'ctxloom deps check'.
 ctxloom deps list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom deps list
+```
+
 ### Options inherited from parent commands
 
 ```

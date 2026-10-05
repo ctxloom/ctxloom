@@ -19,15 +19,18 @@ Commands live inside bundles — local bundle YAML files in .ctxloom/content/bun
 or lockfile-pinned remote bundles — and are referenced using the syntax:
 bundle#commands/name
 
-Examples:
+```
+ctxloom command [flags]
+```
+
+### Examples
+
+```
   ctxloom command list                                 # List all commands
   ctxloom command show core#commands/code-review        # Show command content
   ctxloom command edit core#commands/code-review        # Edit command content
   ctxloom command create my-bundle code-review          # Create new command
   ctxloom command remove my-bundle#commands/old-one --yes # Remove a command
-
-```
-ctxloom command [flags]
 ```
 
 ### Options inherited from parent commands

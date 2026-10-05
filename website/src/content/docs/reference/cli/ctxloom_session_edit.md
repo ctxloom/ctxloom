@@ -9,32 +9,38 @@ This page is generated from `ctxloom session edit --help`.
 
 ## ctxloom session edit
 
-Assign a recorded session's fields (today: --name, which renames the harp)
+Assign a recorded session's fields (today: --name, which renames the session)
 
 ### Synopsis
 
 Assigns fields on a session's index entry. Only the flags you pass are
 applied; everything else keeps its current value.
 
-  --name <new-harp>   rename the harp. The backend transcript is unaffected —
+  --name <new-name>   rename the session. The backend transcript is unaffected —
                       the entry keeps its bound session id, its transcript
-                      path and its essence; only the name it answers to moves.
+                      path and its summary; only the name it answers to moves.
 
 Unlike every other 'edit' in ctxloom, the bare form does NOT open an editor.
 A session is a record of something that happened: its index entry is written
-by ctxloom itself, and its essence is derived — 'ctxloom session compact'
+by ctxloom itself, and its summary is derived — 'ctxloom session compact'
 rewrites that file whole. There is no authored document here for an editor to
 round-trip, so the bare form refuses rather than accept edits a later
 compaction would discard.
 
 ```
-ctxloom session edit <harp-name> [flags]
+ctxloom session edit <session-name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom session edit amber-swift-owl --name release-notes
 ```
 
 ### Options
 
 ```
-      --name string   Rename the harp to this name. The backend transcript is unaffected.
+      --name string   Rename the session to this name. The backend transcript is unaffected.
 ```
 
 ### Options inherited from parent commands

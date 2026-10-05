@@ -21,6 +21,12 @@ Shows all fragments, commands, and MCP server configuration contained in the bun
 ctxloom bundle show <name> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom bundle show go-tools
+```
+
 ### Options
 
 ```

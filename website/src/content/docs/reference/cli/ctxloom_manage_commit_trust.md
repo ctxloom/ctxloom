@@ -15,6 +15,12 @@ Trust ctxloom to auto-commit this checkout's dirty tree
 ctxloom manage commit trust [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage commit trust
+```
+
 ### Options inherited from parent commands
 
 ```

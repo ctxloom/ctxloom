@@ -48,20 +48,23 @@ which. A remote ALIAS is never a reference: an alias addresses a fetch.
 
 Every form needs shell quoting, because '#' starts a comment in most shells.
 
-Examples:
-  ctxloom bundle trust 'core#fragments/tdd'
-  ctxloom bundle trust 'lang/go#fragments/idioms'
-  ctxloom bundle trust 'ctxloom+local:dev#commands/review'
-  ctxloom bundle trust 'ctxloom+companion:ltk#hooks/PreToolUse/0'
-  ctxloom bundle trust 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'
-  ctxloom bundle trust 'ctxloom+git://github.com/acme/repo//bundles/x@v1.2.0#fragments/y'
-
 Reject an item with 'ctxloom bundle reject <ref>'. Withdraw this approval —
 returning the item to pending, without rejecting it — with
 'ctxloom bundle forget <ref>'.
 
 ```
 ctxloom bundle trust <ref> [flags]
+```
+
+### Examples
+
+```
+  ctxloom bundle trust 'core#fragments/tdd'
+  ctxloom bundle trust 'lang/go#fragments/idioms'
+  ctxloom bundle trust 'ctxloom+local:dev#commands/review'
+  ctxloom bundle trust 'ctxloom+companion:ltk#hooks/PreToolUse/0'
+  ctxloom bundle trust 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'
+  ctxloom bundle trust 'ctxloom+git://github.com/acme/repo//bundles/x@v1.2.0#fragments/y'
 ```
 
 ### Options inherited from parent commands

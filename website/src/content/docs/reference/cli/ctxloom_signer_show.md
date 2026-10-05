@@ -15,6 +15,12 @@ Show every trust-root entry for a principal
 ctxloom signer show <principal> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom signer show context@acme.com
+```
+
 ### Options inherited from parent commands
 
 ```

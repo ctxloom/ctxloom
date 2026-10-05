@@ -21,6 +21,13 @@ Use --bundle to filter by a specific bundle.
 ctxloom skill list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom skill list
+  ctxloom skill list --bundle go-tools
+```
+
 ### Options
 
 ```

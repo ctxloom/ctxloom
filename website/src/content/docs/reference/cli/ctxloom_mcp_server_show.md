@@ -15,6 +15,12 @@ Show details of an MCP server configuration
 ctxloom mcp server show <name> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom mcp server show postgres
+```
+
 ### Options inherited from parent commands
 
 ```

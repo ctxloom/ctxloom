@@ -15,6 +15,12 @@ List all local agents
 ctxloom agent list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom agent list
+```
+
 ### Options inherited from parent commands
 
 ```

@@ -15,6 +15,12 @@ List all profiles
 ctxloom profile list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom profile list
+```
+
 ### Options inherited from parent commands
 
 ```

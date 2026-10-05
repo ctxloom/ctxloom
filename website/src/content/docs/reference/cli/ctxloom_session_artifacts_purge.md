@@ -9,13 +9,13 @@ This page is generated from `ctxloom session artifacts purge --help`.
 
 ## ctxloom session artifacts purge
 
-Destroy a finished session's derived essence, keeping its transcript
+Destroy a finished session's derived summary, keeping its transcript
 
 ### Synopsis
 
 Destroys what compaction produced — essence.md — and nothing else. The
 transcript stays, which is what makes this reversible: while the transcript
-is on disk the essence can be produced again with 'ctxloom session compact'.
+is on disk the summary can be produced again with 'ctxloom session compact'.
 
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
@@ -24,7 +24,13 @@ A session whose lock does not prove its owner dead is REFUSED — a held
 lock, or no lock at all. Pass --even-if-live to destroy it anyway.
 
 ```
-ctxloom session artifacts purge <harp-name> [flags]
+ctxloom session artifacts purge <session-name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom session artifacts purge amber-swift-owl --yes
 ```
 
 ### Options
@@ -48,5 +54,5 @@ ctxloom session artifacts purge <harp-name> [flags]
 
 ### SEE ALSO
 
-* [ctxloom session artifacts](/reference/cli/ctxloom_session_artifacts/)	 - What a session produced — its compacted essence: list it, destroy it
+* [ctxloom session artifacts](/reference/cli/ctxloom_session_artifacts/)	 - What a session produced — its compacted summary: list it, destroy it
 

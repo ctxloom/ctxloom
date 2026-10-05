@@ -22,6 +22,13 @@ With an LLM name argument, sets that LLM as the default.
 ctxloom llm default [name] [flags]
 ```
 
+### Examples
+
+```
+  ctxloom llm default                 # show the default engine
+  ctxloom llm default big             # make 'big' the default
+```
+
 ### Options inherited from parent commands
 
 ```

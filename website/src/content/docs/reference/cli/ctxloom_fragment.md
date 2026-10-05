@@ -19,15 +19,18 @@ Fragments live inside bundles — local bundle YAML files in .ctxloom/content/bu
 or lockfile-pinned remote bundles — and are referenced using the syntax:
 bundle#fragments/name
 
-Examples:
+```
+ctxloom fragment [flags]
+```
+
+### Examples
+
+```
   ctxloom fragment list                              # List all fragments
   ctxloom fragment show core#fragments/tdd           # Show fragment content
   ctxloom fragment edit core#fragments/tdd           # Edit fragment content
   ctxloom fragment create my-bundle coding-standards # Create new fragment
   ctxloom fragment remove my-bundle#fragments/old-one --yes # Remove a fragment
-
-```
-ctxloom fragment [flags]
 ```
 
 ### Options inherited from parent commands

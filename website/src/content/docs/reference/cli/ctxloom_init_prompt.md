@@ -27,6 +27,12 @@ Run this (or ask your agent to) any time you want to reconfigure.
 ctxloom init prompt [flags]
 ```
 
+### Examples
+
+```
+  ctxloom init prompt
+```
+
 ### Options inherited from parent commands
 
 ```

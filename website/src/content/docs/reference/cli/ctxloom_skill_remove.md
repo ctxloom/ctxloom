@@ -20,12 +20,15 @@ Pass --yes to apply it.
 
 Reference format: bundle#skills/name
 
-Examples:
-  ctxloom skill remove my-bundle#skills/old-skill
-  ctxloom skill remove my-bundle#skills/old-skill --yes
-
 ```
 ctxloom skill remove <bundle>#skills/<name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom skill remove my-bundle#skills/old-skill
+  ctxloom skill remove my-bundle#skills/old-skill --yes
 ```
 
 ### Options

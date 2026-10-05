@@ -9,10 +9,16 @@ This page is generated from `ctxloom session show --help`.
 
 ## ctxloom session show
 
-Print the compacted essence of a harp-named session
+Print the compacted summary of a named session
 
 ```
-ctxloom session show <harp-name> [flags]
+ctxloom session show <session-name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom session show amber-swift-owl
 ```
 
 ### Options inherited from parent commands

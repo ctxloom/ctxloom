@@ -34,12 +34,15 @@ store — the same project-by-default/--user scope as above, since only a new
 binary changes the compiled-in bytes themselves. Content signed only by that
 key is withheld from here on, on this machine or project.
 
-Examples:
-  ctxloom signer untrust context@acme.com
-  ctxloom signer untrust lead@team.example --user
-
 ```
 ctxloom signer untrust <principal> [flags]
+```
+
+### Examples
+
+```
+  ctxloom signer untrust context@acme.com
+  ctxloom signer untrust lead@team.example --user
 ```
 
 ### Options

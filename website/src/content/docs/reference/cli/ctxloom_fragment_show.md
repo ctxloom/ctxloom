@@ -17,12 +17,15 @@ Display the content of a specific fragment.
 
 Reference format: bundle#fragments/name
 
-Examples:
-  ctxloom fragment show core#fragments/tdd
-  ctxloom fragment show go-tools#fragments/testing
-
 ```
 ctxloom fragment show <bundle>#fragments/<name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom fragment show core#fragments/tdd
+  ctxloom fragment show go-tools#fragments/testing
 ```
 
 ### Options

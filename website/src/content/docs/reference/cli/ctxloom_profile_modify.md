@@ -15,13 +15,16 @@ Modify a profile's configuration
 
 Modify an existing profile by adding or removing items.
 
-Examples:
+```
+ctxloom profile modify <name> [flags]
+```
+
+### Examples
+
+```
   ctxloom profile modify go-developer --add-parent 'https://github.com/user/ctxloom@bundles/dev#profiles/developer'
   ctxloom profile modify developer --add-bundle https://github.com/user/ctxloom@bundles/go-development
   ctxloom profile modify developer -d "New description"
-
-```
-ctxloom profile modify <name> [flags]
 ```
 
 ### Options

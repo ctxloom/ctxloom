@@ -25,7 +25,13 @@ unattended run that found nothing to do cannot be mistaken for one that
 cleaned up.
 
 ```
-ctxloom session worktrees purge <harp-name> [flags]
+ctxloom session worktrees purge <session-name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom session worktrees purge amber-swift-owl --yes
 ```
 
 ### Options

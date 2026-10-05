@@ -25,6 +25,12 @@ builds on it from then on. Refused when the project already has a devcontainer
 ctxloom container scaffold [flags]
 ```
 
+### Examples
+
+```
+  ctxloom container scaffold
+```
+
 ### Options inherited from parent commands
 
 ```

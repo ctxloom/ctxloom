@@ -28,6 +28,13 @@ document bytes (base64) plus an OPTIONAL detached publish signature.
 taskloom loadout [flags]
 ```
 
+### Examples
+
+```
+  taskloom loadout
+  taskloom loadout --format json
+```
+
 ### Options
 
 ```

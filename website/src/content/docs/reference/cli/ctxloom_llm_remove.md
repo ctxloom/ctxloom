@@ -23,6 +23,12 @@ Pass --yes to apply it.
 ctxloom llm remove <label> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom llm remove big --yes
+```
+
 ### Options
 
 ```

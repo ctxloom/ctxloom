@@ -34,6 +34,12 @@ docker-in-docker, or should stay on 'runtime: host'.
 ctxloom container check [backend] [flags]
 ```
 
+### Examples
+
+```
+  ctxloom container check
+```
+
 ### Options inherited from parent commands
 
 ```

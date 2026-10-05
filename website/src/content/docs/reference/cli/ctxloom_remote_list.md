@@ -15,6 +15,12 @@ List configured remotes
 ctxloom remote list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom remote list
+```
+
 ### Options inherited from parent commands
 
 ```

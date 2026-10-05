@@ -19,6 +19,12 @@ Lists the available LLM backends.
 ctxloom llm list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom llm list
+```
+
 ### Options inherited from parent commands
 
 ```

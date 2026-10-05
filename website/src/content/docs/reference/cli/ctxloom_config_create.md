@@ -24,6 +24,12 @@ fuller project scaffold (hooks, discovery), use 'ctxloom init'.
 ctxloom config create [flags]
 ```
 
+### Examples
+
+```
+  ctxloom config create --engine claude-code
+```
+
 ### Options
 
 ```

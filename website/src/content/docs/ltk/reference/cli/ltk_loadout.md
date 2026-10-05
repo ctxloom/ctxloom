@@ -28,6 +28,13 @@ document bytes (base64) plus an OPTIONAL detached publish signature.
 ltk loadout [flags]
 ```
 
+### Examples
+
+```
+  ltk loadout
+  ltk loadout --format json
+```
+
 ### Options
 
 ```

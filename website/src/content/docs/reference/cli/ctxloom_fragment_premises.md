@@ -29,6 +29,12 @@ Having chosen, load one with its reference:
 ctxloom fragment premises [flags]
 ```
 
+### Examples
+
+```
+  ctxloom fragment premises
+```
+
 ### Options inherited from parent commands
 
 ```

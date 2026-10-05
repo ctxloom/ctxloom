@@ -40,13 +40,16 @@ which otherwise re-resolves every reference.
 Pulling does not expose content to your assistant. Content from an untrusted
 source is withheld per item until you accept it with 'ctxloom review'.
 
-Examples:
+```
+ctxloom deps pull [flags]
+```
+
+### Examples
+
+```
   ctxloom deps pull                      # Install the closure and reconcile it
   ctxloom deps pull --force              # Re-resolve every reference
   ctxloom deps pull --lock=false         # Leave the lockfile alone
-
-```
-ctxloom deps pull [flags]
 ```
 
 ### Options

@@ -18,10 +18,16 @@ isolation.ReapOrphanedWorktrees' safety rules would reach: reapable
 (orphaned and clean), spared (orphaned but carrying real or unknowable
 work), or skipped (owner alive, or its liveness can't be proven).
 
-Read-only. Naming a harp restricts the listing to that one session.
+Read-only. Naming a session restricts the listing to that one session.
 
 ```
-ctxloom session worktrees list [<harp-name>] [flags]
+ctxloom session worktrees list [<session-name>] [flags]
+```
+
+### Examples
+
+```
+  ctxloom session worktrees list
 ```
 
 ### Options inherited from parent commands

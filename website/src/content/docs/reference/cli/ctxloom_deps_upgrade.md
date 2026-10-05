@@ -42,12 +42,15 @@ A pin is also NOT moved below the version its publisher signed at the last pin
 Name a ref with --allow-downgrade to accept that for it; the lower version then
 becomes its floor.
 
-Examples:
-  ctxloom deps upgrade                   # Advance pins to the latest available
-  ctxloom deps upgrade --allow-downgrade <ref>   # Accept a lower signed version for <ref>
-
 ```
 ctxloom deps upgrade [flags]
+```
+
+### Examples
+
+```
+  ctxloom deps upgrade                   # Advance pins to the latest available
+  ctxloom deps upgrade --allow-downgrade <ref>   # Accept a lower signed version for <ref>
 ```
 
 ### Options

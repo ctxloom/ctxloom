@@ -22,6 +22,12 @@ fragment and prompt that you can edit.
 ctxloom bundle create <name> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom bundle create go-tools --description "Go testing guidance"
+```
+
 ### Options
 
 ```

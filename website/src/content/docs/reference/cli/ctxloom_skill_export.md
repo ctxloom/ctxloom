@@ -21,19 +21,22 @@ skill) containing every manifest file, with POSIX modes preserved.
 (the same bytes 'ctxloom skill import' verifies), using the same zero-config
 key discovery 'ctxloom bundle sign' uses.
 
-Examples:
-  ctxloom skill export my-bundle#skills/code-reviewer
-  ctxloom skill export my-bundle#skills/code-reviewer -o /tmp/code-reviewer.zip --sign
-
 ```
 ctxloom skill export <bundle>#skills/<name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom skill export my-bundle#skills/code-reviewer
+  ctxloom skill export my-bundle#skills/code-reviewer -o /tmp/code-reviewer.zip --sign
 ```
 
 ### Options
 
 ```
-  -o, --out string   Output .zip path (default: <name>.zip)
-      --sign         sign the exported manifest (writes a detached .sig sibling)
+  -o, --output string   Output .zip path (default: <name>.zip)
+      --sign            sign the exported manifest (writes a detached .sig sibling)
 ```
 
 ### Options inherited from parent commands

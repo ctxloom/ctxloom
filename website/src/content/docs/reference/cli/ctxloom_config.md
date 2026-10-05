@@ -15,15 +15,18 @@ Show or modify ctxloom configuration
 
 Show or modify ctxloom configuration.
 
-Examples:
+```
+ctxloom config [flags]
+```
+
+### Examples
+
+```
   ctxloom config show              # Show the effective configuration
   ctxloom config show --raw        # Show only what the configuration sets
   ctxloom config show llm          # Show one section
   ctxloom config edit              # Open config.yaml in $EDITOR
   ctxloom config create            # Scaffold a default config.yaml
-
-```
-ctxloom config [flags]
 ```
 
 ### Options inherited from parent commands

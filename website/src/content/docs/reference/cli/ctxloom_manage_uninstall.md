@@ -23,6 +23,12 @@ directory and its contents (profiles, bundles, config) untouched.
 ctxloom manage uninstall [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage uninstall
+```
+
 ### Options inherited from parent commands
 
 ```

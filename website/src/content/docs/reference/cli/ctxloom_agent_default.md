@@ -22,12 +22,15 @@ as 'default_agent' in .ctxloom/config.yaml). The named agent should exist under
 'agents:' — an unknown name is accepted with a
 warning (a bare run then degrades to empty context until it is defined).
 
-Examples:
-  ctxloom agent default            # show the current default agent
-  ctxloom agent default dev        # make 'dev' the default agent
-
 ```
 ctxloom agent default [name] [flags]
+```
+
+### Examples
+
+```
+  ctxloom agent default            # show the current default agent
+  ctxloom agent default dev        # make 'dev' the default agent
 ```
 
 ### Options inherited from parent commands

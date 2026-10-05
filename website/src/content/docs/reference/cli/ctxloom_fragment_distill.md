@@ -17,12 +17,15 @@ Distill a fragment to create a token-efficient version.
 
 Reference format: bundle#fragments/name
 
-Examples:
-  ctxloom fragment distill core#fragments/tdd
-  ctxloom fragment distill go-tools#fragments/testing --force
-
 ```
 ctxloom fragment distill <bundle>#fragments/<name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom fragment distill core#fragments/tdd
+  ctxloom fragment distill go-tools#fragments/testing --force
 ```
 
 ### Options

@@ -25,6 +25,12 @@ to use from a script or CI.
 ctxloom manage install [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage install --engine claude-code
+```
+
 ### Options
 
 ```

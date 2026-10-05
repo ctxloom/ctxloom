@@ -21,6 +21,12 @@ constraint allows.
 ctxloom deps unhold <name> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom deps unhold ctxloom-default/go-tools
+```
+
 ### Options inherited from parent commands
 
 ```

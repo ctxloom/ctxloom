@@ -15,6 +15,12 @@ Add ctxloom's private-state and transient-artifact ignores
 ctxloom manage gitignore install [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage gitignore install
+```
+
 ### Options inherited from parent commands
 
 ```

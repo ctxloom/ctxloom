@@ -15,6 +15,12 @@ Show details of a profile
 ctxloom profile show <name> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom profile show default
+```
+
 ### Options inherited from parent commands
 
 ```

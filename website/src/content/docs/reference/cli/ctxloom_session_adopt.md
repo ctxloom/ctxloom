@@ -9,41 +9,48 @@ This page is generated from `ctxloom session adopt --help`.
 
 ## ctxloom session adopt
 
-Re-index orphaned vendor transcripts into a harp's rotation lineage
+Re-index orphaned vendor transcripts into a session's rotation lineage
 
 ### Synopsis
 
-Scans the same claude-code project directory as the harp's current
+Scans the same claude-code project directory as the session's current
 transcript for vendor .jsonl files no rotation the index ever recorded left
 reachable — chiefly pre-rotation-lineage-fix '/clear's — and reports which
-ones belong in this harp's lineage.
+ones belong in this session's lineage.
 
-A candidate already resolvable through the session store (the harp's current
-binding, an already-recorded rotation, or another harp's binding/rotation) is
+A candidate already resolvable through the session store (the session's current
+binding, an already-recorded rotation, or another session's binding/rotation) is
 skipped as already known. Everything else is ordered and judged by its OWN
 internal record timestamps — never file mtime, which is routinely rewritten
 by tools outside ctxloom's control. A candidate whose span slots into a gap
-in the harp's existing lineage is ADOPTED; one whose span overlaps an
+in the session's existing lineage is ADOPTED; one whose span overlaps an
 existing segment (a concurrent, unrelated session) is SKIPPED, never
 adopted.
 
-Without --apply this only reports; nothing on disk or in the session index
-changes. --apply appends every adopted candidate to the harp's Rotations
+Without --yes this only reports; nothing on disk or in the session index
+changes. --yes appends every adopted candidate to the session's Rotations
 through the session store, oldest first — never a hand edit of the record —
 and prints the next step (compact or recover) to actually materialize the
 recovered history; it does not run that step itself.
 
-Only claude-code harps are supported today; every other backend refuses by
+Only claude-code sessions are supported today; every other backend refuses by
 name rather than silently scanning nothing.
 
 ```
-ctxloom session adopt <harp-name> [flags]
+ctxloom session adopt <session-name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom session adopt amber-swift-owl        # report the plan
+  ctxloom session adopt amber-swift-owl --yes
 ```
 
 ### Options
 
 ```
-      --apply   apply the plan this invocation printed (default: report only)
+  -y, --yes   apply the plan this invocation printed (default: report only)
 ```
 
 ### Options inherited from parent commands

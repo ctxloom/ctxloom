@@ -27,6 +27,12 @@ held against one of them would not be a freeze.
 ctxloom deps hold <name> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom deps hold ctxloom-default/go-tools
+```
+
 ### Options inherited from parent commands
 
 ```

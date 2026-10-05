@@ -20,16 +20,19 @@ distinct from a user-invoked slash "command" (ctxloom command).
 Skills live inside bundles — .ctxloom/content/bundles/v2/<bundle>/skills/<name>/
 — and are referenced using the syntax: bundle#skills/name
 
-Examples:
+```
+ctxloom skill [flags]
+```
+
+### Examples
+
+```
   ctxloom skill list                                   # List all skills
   ctxloom skill show core#skills/code-reviewer          # Show frontmatter + files
   ctxloom skill create my-bundle code-reviewer          # Scaffold a new skill package
   ctxloom skill remove my-bundle#skills/code-reviewer --yes  # Remove a skill package
   ctxloom skill export my-bundle#skills/code-reviewer    # Pack to an Anthropic-shaped .zip
   ctxloom skill import ./code-reviewer.zip --bundle my-bundle
-
-```
-ctxloom skill [flags]
 ```
 
 ### Options inherited from parent commands

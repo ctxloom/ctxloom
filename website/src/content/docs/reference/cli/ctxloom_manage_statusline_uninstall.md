@@ -15,6 +15,12 @@ Stop managing the HUD statusline; keep your own
 ctxloom manage statusline uninstall [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage statusline uninstall
+```
+
 ### Options inherited from parent commands
 
 ```

@@ -31,13 +31,16 @@ leaves the item's approvals stale until you run 'ctxloom bundle sign <bundle>'.
 In the editor, always-load must be written as the literal NONE: an emptied
 premise is refused rather than read as always-load.
 
-Examples:
+```
+ctxloom fragment draft-premise <bundle>#fragments/<name> [flags]
+```
+
+### Examples
+
+```
   ctxloom fragment draft-premise core#fragments/tdd
   ctxloom fragment draft-premise core#fragments/tdd --no-critique
   ctxloom fragment draft-premise core#fragments/tdd --dry-run --format json
-
-```
-ctxloom fragment draft-premise <bundle>#fragments/<name> [flags]
 ```
 
 ### Options

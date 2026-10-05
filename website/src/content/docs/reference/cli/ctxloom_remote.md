@@ -38,13 +38,15 @@ A remote carries no trust: its content takes the review path whatever address
 it came from. To auto-trust a publisher's content, trust their signing key
 ('ctxloom signer trust') — a key is verified over the bytes, a URL is not.
 
-Examples:
-  ctxloom remote create alice alice/ctxloom
-  ctxloom search "golang testing"
-  ctxloom remote show ctxloom-default
-
 ```
 ctxloom remote [flags]
+```
+
+### Examples
+
+```
+  ctxloom remote create alice alice/ctxloom
+  ctxloom remote show ctxloom-default
 ```
 
 ### Options inherited from parent commands

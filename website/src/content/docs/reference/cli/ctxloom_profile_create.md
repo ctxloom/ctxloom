@@ -21,11 +21,14 @@ the profile is written into (default: the project bundle).
 Included bundle references use full URLs:
   https://github.com/user/repo@bundles/name    # Bundle from remote
 
-Example:
-  ctxloom profile create developer -i https://github.com/user/ctxloom@bundles/go-development -d "Standard dev context"
-
 ```
 ctxloom profile create <name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom profile create developer -i https://github.com/user/ctxloom@bundles/go-development -d "Standard dev context"
 ```
 
 ### Options

@@ -15,6 +15,12 @@ Show what ctxloom has wired into this project
 ctxloom manage check [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage check
+```
+
 ### Options inherited from parent commands
 
 ```

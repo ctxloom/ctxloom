@@ -57,15 +57,18 @@ The working outcome of init is a functioning ctxloom CLI/TUI.
 Skipped or interrupted the interview? 'ctxloom init prompt' (or ask your
 agent to run it) re-enters the companions/profiles/agent-binding half any time.
 
-Examples:
+```
+ctxloom init [flags]
+```
+
+### Examples
+
+```
   ctxloom init                     # Interactive setup (if TTY)
   ctxloom init --home              # Initialize in ~/.ctxloom
   ctxloom init --engine claude-code # Pre-select engine
   ctxloom init --non-interactive   # Skip all prompts
   ctxloom init --no-pull           # Scaffold without installing dependencies
-
-```
-ctxloom init [flags]
 ```
 
 ### Options

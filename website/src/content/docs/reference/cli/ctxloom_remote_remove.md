@@ -23,6 +23,12 @@ content already pulled from it.
 ctxloom remote remove <name> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom remote remove corp --yes
+```
+
 ### Options
 
 ```

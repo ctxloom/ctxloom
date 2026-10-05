@@ -15,13 +15,6 @@ Edit a bundle
 
 Edit an existing bundle by adding or removing items.
 
-Examples:
-  ctxloom bundle edit my-bundle -d "New description"
-  ctxloom bundle edit my-bundle --add-fragment coding-standards
-  ctxloom bundle edit my-bundle --remove-prompt old-prompt
-  ctxloom bundle edit my-bundle --add-tag golang --add-tag testing
-  ctxloom bundle edit my-bundle --add-mcp tree-sitter
-
 SKILLS are not edited here. A skill is a directory PACKAGE (skills/<name>/),
 not a single entry in a map, so it has its own verbs:
 
@@ -32,6 +25,16 @@ the bundle's SHA256SUMS covers them.
 
 ```
 ctxloom bundle edit <name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom bundle edit my-bundle -d "New description"
+  ctxloom bundle edit my-bundle --add-fragment coding-standards
+  ctxloom bundle edit my-bundle --remove-prompt old-prompt
+  ctxloom bundle edit my-bundle --add-tag golang --add-tag testing
+  ctxloom bundle edit my-bundle --add-mcp tree-sitter
 ```
 
 ### Options

@@ -22,13 +22,16 @@ no_distill. Use --no-distill to skip re-distillation for just this edit (e.g. a
 typo fix) without burning an LLM call — the distilled form is left empty
 (never stale) until you run 'ctxloom command distill'.
 
-Examples:
+```
+ctxloom command edit <bundle>#commands/<name> [flags]
+```
+
+### Examples
+
+```
   ctxloom command edit core#commands/code-review
   ctxloom command edit go-tools#commands/testing
   ctxloom command edit core#commands/code-review --no-distill
-
-```
-ctxloom command edit <bundle>#commands/<name> [flags]
 ```
 
 ### Options

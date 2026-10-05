@@ -51,6 +51,13 @@ The scriptable plumbing under this porcelain:
 ctxloom review [flags]
 ```
 
+### Examples
+
+```
+  ctxloom review
+  ctxloom review --list
+```
+
 ### Options
 
 ```

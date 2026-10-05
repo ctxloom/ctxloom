@@ -15,12 +15,19 @@ List recorded sessions (default: current project; --all for everything)
 ctxloom session list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom session list
+  ctxloom session list --all
+```
+
 ### Options
 
 ```
       --all       Include sessions from every project (default: filter to cwd)
-      --compact   Compact sessions whose essence is missing or stale before listing, so every row shows a title
-      --full      Include each session's complete compacted essence body (text output pages through $PAGER on a terminal)
+      --compact   Compact sessions whose summary is missing or stale before listing, so every row shows a title
+      --full      Include each session's complete compacted summary body (text output pages through $PAGER on a terminal)
 ```
 
 ### Options inherited from parent commands

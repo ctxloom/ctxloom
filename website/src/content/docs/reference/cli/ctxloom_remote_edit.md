@@ -26,6 +26,13 @@ Renaming the default remote carries the default with it; the report says so.
 ctxloom remote edit <name> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom remote edit corp --url https://git.example.com/corp/ctxloom
+  ctxloom remote edit corp --name work
+```
+
 ### Options
 
 ```

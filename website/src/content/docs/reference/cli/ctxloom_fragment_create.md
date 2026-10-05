@@ -17,12 +17,15 @@ Create a new fragment in an existing bundle.
 
 The fragment will be created with placeholder content that you can edit.
 
-Examples:
-  ctxloom fragment create my-bundle coding-standards
-  ctxloom fragment create go-tools testing-patterns
-
 ```
 ctxloom fragment create <bundle> <name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom fragment create my-bundle coding-standards
+  ctxloom fragment create go-tools testing-patterns
 ```
 
 ### Options inherited from parent commands

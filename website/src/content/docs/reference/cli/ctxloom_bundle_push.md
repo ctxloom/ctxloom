@@ -28,17 +28,19 @@ signature that no longer covers the bundle (edited after signing) stops
 the push rather than shipping a pair every consumer reads as tampering.
 Publishing unsigned is fine and supported; consumers review it.
 
-Examples:
+```
+ctxloom bundle push <name> [remote] [flags]
+```
+
+### Examples
+
+```
   ctxloom bundle push my-bundle
   ctxloom bundle push my-bundle ctxloom-default
   ctxloom bundle push my-bundle --pr
-  ctxloom bundle sign my-bundle && ctxloom bundle push my-bundle  # sign here, publish there
-  ctxloom bundle push my-bundle --sign                            # the same thing in one command
+  ctxloom bundle push my-bundle --sign                            # sign, then publish
   ctxloom bundle push my-bundle --no-sign                         # publish bare
   ctxloom bundle push my-bundle ctxloom-default --message "Add my bundle"
-
-```
-ctxloom bundle push <name> [remote] [flags]
 ```
 
 ### Options

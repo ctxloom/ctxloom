@@ -19,12 +19,15 @@ Bare invocation reports what would be removed — the bundle and every
 fragment/command/mcp-server/skill/profile it carries — and removes nothing
 (exit 0). Pass --yes to apply it.
 
-Examples:
-  ctxloom bundle remove old-bundle
-  ctxloom bundle remove my-bundle --yes
-
 ```
 ctxloom bundle remove <name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom bundle remove old-bundle
+  ctxloom bundle remove my-bundle --yes
 ```
 
 ### Options

@@ -9,14 +9,14 @@ This page is generated from `ctxloom session remove --help`.
 
 ## ctxloom session remove
 
-Remove a session entirely: its index entry, its transcript and its essence
+Remove a session entirely: its index entry, its transcript and its summary
 
 ### Synopsis
 
 Removes all three of a session's own artifacts — the index entry, the
-recorded transcript, and the compacted essence.
+recorded transcript, and the compacted summary.
 
-Authored files in the harp directory are never destroyed; they are named in
+Authored files in the session directory are never destroyed; they are named in
 the report and left where they are, so removing a session cannot take work
 nobody filed with it.
 
@@ -25,13 +25,19 @@ changes, on a TTY or not.
 
 A session that was never compacted is refused, because removing it would
 destroy the only record of what happened. To do it deliberately, destroy the
-transcript first with 'ctxloom session transcript purge <harp> --uncompacted
+transcript first with 'ctxloom session transcript purge <session-name> --uncompacted
 --yes', then remove.
 
 To empty a session but keep it listed, use 'ctxloom session purge'.
 
 ```
-ctxloom session remove <harp-name> [flags]
+ctxloom session remove <session-name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom session remove amber-swift-owl --yes
 ```
 
 ### Options

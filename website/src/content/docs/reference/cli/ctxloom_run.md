@@ -38,7 +38,7 @@ Verbosity levels (-v can be repeated):
 
 Use --session <name> to resume a prior session by the name 'ctxloom session list' shows:
 its full recorded transcript is folded into this run's assembled context.
-Add --compact to resume via the session's compacted essence instead
+Add --compact to resume via the session's compacted summary instead
 (compacting on demand first if one doesn't exist yet).
 
 Exit status: when the engine ran and exited, ctxloom run exits with the
@@ -48,7 +48,13 @@ engine status (cancelled, or the engine never launched) exits 1. ctxloom's
 own refusals (2) and fatal startup findings (3) happen before the engine
 launches, so a 2 or 3 after the engine ran is the engine's.
 
-Examples:
+```
+ctxloom run [flags] [prompt...]
+```
+
+### Examples
+
+```
   ctxloom run -f coding-standards "review this code"
   ctxloom run -p developer "explain the architecture"
   ctxloom run -p reviewer -f extra-rules "review this PR"
@@ -56,9 +62,6 @@ Examples:
   ctxloom run -vv -p developer "debug mode"
   ctxloom run --session swift-amber-falcon
   ctxloom run --session swift-amber-falcon --compact
-
-```
-ctxloom run [flags] [prompt...]
 ```
 
 ### Options
@@ -66,7 +69,7 @@ ctxloom run [flags] [prompt...]
 ```
       --agent string                   Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)
   -r, --command string                 Run a saved command by name
-      --compact                        With --session, resume via the session's compacted essence instead of its full transcript (compacts on demand first if not yet compacted)
+      --compact                        With --session, resume via the session's compacted summary instead of its full transcript (compacts on demand first if not yet compacted)
   -n, --dry-run                        Show command that would be executed
   -f, --fragment strings               Context fragment(s) to include (can be repeated)
   -l, --llm string                     config label to use (e.g. claude-code, claude-fast); overrides the configured default
@@ -76,7 +79,7 @@ ctxloom run [flags] [prompt...]
       --plain-terminal                 Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session
   -p, --profile string                 Profile to use (predefined fragment collection)
       --prompt string                  Prompt to send to the AI (alternative to positional args)
-      --session ctxloom session list   Resume the named session (see ctxloom session list): folds its full recorded transcript into this run's assembled context. Combine with --compact to resume via its compacted essence instead.
+      --session ctxloom session list   Resume the named session (see ctxloom session list): folds its full recorded transcript into this run's assembled context. Combine with --compact to resume via its compacted summary instead.
   -t, --tag strings                    Include fragments with this tag (can be repeated)
   -v, --verbose count                  Increase verbosity (can be repeated: -v, -vv, -vvv)
       --workspace string               Session workspace axis (none|worktree; empty = project default)

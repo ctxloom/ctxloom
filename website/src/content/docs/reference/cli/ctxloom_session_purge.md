@@ -14,7 +14,7 @@ Empty a finished session: its transcript, its artifacts and its scratch worktree
 ### Synopsis
 
 Sweeps all three of a session's destroyable populations at once —
-the recorded conversation, the derived essence, and the scratch git
+the recorded conversation, the derived summary, and the scratch git
 worktrees the session left in its work/ directory. Authored files are
 never destroyed; they are named in the report instead.
 
@@ -26,7 +26,7 @@ The index entry SURVIVES. Purge empties a session, it does not unlist it —
 
 A session that was never compacted is refused, because sweeping it would
 destroy the only record of what happened. The refusal names the leaf that
-can do it deliberately: 'ctxloom session transcript purge <harp>
+can do it deliberately: 'ctxloom session transcript purge <session-name>
 --uncompacted'.
 
 A session whose lock does not prove its owner dead is refused: a running
@@ -37,7 +37,13 @@ their own verdict: a worktree whose owner is not provably dead is skipped
 and reported, never reaped.
 
 ```
-ctxloom session purge <harp-name> [flags]
+ctxloom session purge <session-name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom session purge amber-swift-owl --yes
 ```
 
 ### Options

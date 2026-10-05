@@ -15,6 +15,12 @@ Show an agent and its resolved engine
 ctxloom agent show <name> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom agent show dev
+```
+
 ### Options inherited from parent commands
 
 ```

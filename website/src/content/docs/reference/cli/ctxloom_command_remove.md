@@ -20,12 +20,15 @@ Pass --yes to apply it.
 
 Reference format: bundle#commands/name
 
-Examples:
-  ctxloom command remove my-bundle#commands/old-command
-  ctxloom command remove my-bundle#commands/old-command --yes
-
 ```
 ctxloom command remove <bundle>#commands/<name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom command remove my-bundle#commands/old-command
+  ctxloom command remove my-bundle#commands/old-command --yes
 ```
 
 ### Options

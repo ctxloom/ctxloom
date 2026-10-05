@@ -25,6 +25,12 @@ Every live coordinator on this host is asked: each one records its endpoint in
 ctxloom session approvals [flags]
 ```
 
+### Examples
+
+```
+  ctxloom session approvals
+```
+
 ### Options inherited from parent commands
 
 ```

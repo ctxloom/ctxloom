@@ -18,12 +18,15 @@ Set the default remote for push operations.
 The current default is shown by 'ctxloom remote list' (marked "(default)").
 Use --clear to remove the default.
 
-Examples:
-  ctxloom remote default ctxloom-default   # Set default to ctxloom-default
-  ctxloom remote default --clear           # Clear the default
-
 ```
 ctxloom remote default <name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom remote default ctxloom-default   # Set default to ctxloom-default
+  ctxloom remote default --clear           # Clear the default
 ```
 
 ### Options

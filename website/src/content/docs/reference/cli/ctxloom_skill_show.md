@@ -18,11 +18,14 @@ instructions body, and per-file manifest (path, sha256, mode).
 
 Reference format: bundle#skills/name
 
-Examples:
-  ctxloom skill show core#skills/code-reviewer
-
 ```
 ctxloom skill show <bundle>#skills/<name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom skill show core#skills/code-reviewer
 ```
 
 ### Options inherited from parent commands

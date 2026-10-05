@@ -15,6 +15,12 @@ Print the version number
 ctxloom version [flags]
 ```
 
+### Examples
+
+```
+  ctxloom version
+```
+
 ### Options inherited from parent commands
 
 ```

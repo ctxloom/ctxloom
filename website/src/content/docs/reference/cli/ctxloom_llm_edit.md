@@ -31,12 +31,15 @@ An entry carries NO credentials and no environment: the engine authenticates
 itself and reads its environment from the shell that runs ctxloom, so export
 a variable there — ctxloom's config is not where it goes.
 
-Examples:
-  ctxloom llm edit big --model o1-pro
-  ctxloom llm edit big --permissions plan
-
 ```
 ctxloom llm edit <label> [flags]
+```
+
+### Examples
+
+```
+  ctxloom llm edit big --model o1-pro
+  ctxloom llm edit big --permissions plan
 ```
 
 ### Options

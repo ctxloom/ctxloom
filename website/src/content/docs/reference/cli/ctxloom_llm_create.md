@@ -27,12 +27,15 @@ An entry carries NO credentials and no environment: the engine authenticates
 itself and reads its environment from the shell that runs ctxloom, so export
 a variable there — ctxloom's config is not where it goes.
 
-Examples:
-  ctxloom llm create big --type claude-code --model claude-opus-4-8
-  ctxloom llm create fast --type claude-code --permissions bypass
-
 ```
 ctxloom llm create <label> [flags]
+```
+
+### Examples
+
+```
+  ctxloom llm create big --type claude-code --model claude-opus-4-8
+  ctxloom llm create fast --type claude-code --permissions bypass
 ```
 
 ### Options

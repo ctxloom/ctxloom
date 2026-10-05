@@ -21,6 +21,13 @@ Use --bundle to filter by a specific bundle.
 ctxloom fragment list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom fragment list
+  ctxloom fragment list --bundle go-tools
+```
+
 ### Options
 
 ```

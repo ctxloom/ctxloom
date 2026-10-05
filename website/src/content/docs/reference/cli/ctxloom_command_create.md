@@ -17,12 +17,15 @@ Create a new command in an existing bundle.
 
 The command will be created with placeholder content that you can edit.
 
-Examples:
-  ctxloom command create my-bundle code-review
-  ctxloom command create go-tools testing-patterns
-
 ```
 ctxloom command create <bundle> <name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom command create my-bundle code-review
+  ctxloom command create go-tools testing-patterns
 ```
 
 ### Options inherited from parent commands

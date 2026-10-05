@@ -30,12 +30,15 @@ project but travels with nobody else. Run outside a project (no .ctxloom
 directory found), the default falls back to the user store automatically
 and says so.
 
-Examples:
-  ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
-  ctxloom signer trust lead@team.example --key lead.pub --namespace approve,reject --user
-
 ```
 ctxloom signer trust <principal> [flags]
+```
+
+### Examples
+
+```
+  ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
+  ctxloom signer trust lead@team.example --key lead.pub --namespace approve,reject --user
 ```
 
 ### Options

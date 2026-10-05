@@ -20,12 +20,15 @@ The scaffolded SKILL.md has valid frontmatter (name matching the directory,
 a placeholder description) that passes validation immediately — edit
 SKILL.md to describe the skill and add any scripts/assets.
 
-Examples:
-  ctxloom skill create my-bundle code-reviewer
-  ctxloom skill create my-bundle code-reviewer --description "Reviews Go diffs for common bugs"
-
 ```
 ctxloom skill create <bundle> <name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom skill create my-bundle code-reviewer
+  ctxloom skill create my-bundle code-reviewer --description "Reviews Go diffs for common bugs"
 ```
 
 ### Options

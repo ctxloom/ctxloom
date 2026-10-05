@@ -39,13 +39,16 @@ argument that is neither a known remote nor an existing directory is an error.
 The source is removed ONLY after the destination write has fully succeeded
 (bundle AND signature). A move that fails part-way leaves the source untouched.
 
-Examples:
+```
+ctxloom bundle move <name> --to <remote|path> [flags]
+```
+
+### Examples
+
+```
   ctxloom bundle move go-tools --to ctxloom-default
   ctxloom bundle move go-tools --to ../other-project
   ctxloom bundle move go-tools --to ../shared/bundles --force
-
-```
-ctxloom bundle move <name> --to <remote|path> [flags]
 ```
 
 ### Options

@@ -9,17 +9,23 @@ This page is generated from `ctxloom session compact --help`.
 
 ## ctxloom session compact
 
-Compact a session by harp name. Compaction is on-demand: nothing compacts a session automatically when it ends.
+Compact a named session. Compaction is on-demand: nothing compacts a session automatically when it ends.
 
 ### Synopsis
 
-Looks up the harp's bound session_id in its session record,
+Looks up the session's bound session_id in its session record,
 runs the compactor on that backend session, and writes a fresh essence.md
-under the harp directory. Errors if the harp has no session_id bound
+under the session directory. Errors if the session has no session_id bound
 (the SessionStart bind hook records it for sessions launched via ctxloom run).
 
 ```
-ctxloom session compact <harp-name> [flags]
+ctxloom session compact <session-name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom session compact amber-swift-owl
 ```
 
 ### Options

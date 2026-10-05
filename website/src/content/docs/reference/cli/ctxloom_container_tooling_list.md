@@ -15,6 +15,12 @@ Emit admitted companions' agent-image tooling declarations for the LLM to apply
 ctxloom container tooling list [flags]
 ```
 
+### Examples
+
+```
+  ctxloom container tooling list
+```
+
 ### Options inherited from parent commands
 
 ```

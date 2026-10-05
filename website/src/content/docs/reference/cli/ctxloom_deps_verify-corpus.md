@@ -45,6 +45,12 @@ corpus could not be checked — an unreadable remote, or nothing found to parse.
 ctxloom deps verify-corpus [flags]
 ```
 
+### Examples
+
+```
+  ctxloom deps verify-corpus
+```
+
 ### Options inherited from parent commands
 
 ```

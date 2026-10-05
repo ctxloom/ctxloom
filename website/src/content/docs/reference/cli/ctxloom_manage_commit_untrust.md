@@ -15,6 +15,12 @@ Withdraw that trust for this checkout
 ctxloom manage commit untrust [flags]
 ```
 
+### Examples
+
+```
+  ctxloom manage commit untrust
+```
+
 ### Options inherited from parent commands
 
 ```

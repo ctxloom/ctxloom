@@ -15,11 +15,14 @@ Edit a profile
 
 Edit a profile's YAML file using your configured editor.
 
-Examples:
-  ctxloom profile edit my-profile
-
 ```
 ctxloom profile edit <name> [flags]
+```
+
+### Examples
+
+```
+  ctxloom profile edit my-profile
 ```
 
 ### Options inherited from parent commands

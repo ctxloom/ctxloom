@@ -22,6 +22,13 @@ Pass --yes to apply it.
 ctxloom agent remove <name> [flags]
 ```
 
+### Examples
+
+```
+  ctxloom agent remove dev          # report what would be removed
+  ctxloom agent remove dev --yes
+```
+
 ### Options
 
 ```

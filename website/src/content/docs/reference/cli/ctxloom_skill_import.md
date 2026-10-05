@@ -28,12 +28,15 @@ block the import (ctxloom never auto-trusts remote content on import —
 but a STRUCTURALLY invalid archive or package (a rejected entry, or a
 SKILL.md that fails frontmatter validation) is refused and cleaned up.
 
-Examples:
-  ctxloom skill import ./code-reviewer.zip --bundle my-bundle
-  ctxloom skill import ./code-reviewer.zip --bundle my-bundle --sig ./code-reviewer.zip.sig
-
 ```
 ctxloom skill import <archive> [flags]
+```
+
+### Examples
+
+```
+  ctxloom skill import ./code-reviewer.zip --bundle my-bundle
+  ctxloom skill import ./code-reviewer.zip --bundle my-bundle --sig ./code-reviewer.zip.sig
 ```
 
 ### Options

@@ -1,6 +1,7 @@
 package composite
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // The gate holder decides with three ports and NOTHING else: a trust root
@@ -66,6 +69,23 @@ func mustTrust(t *testing.T, r ReviewRecords, x RetractionRecords) Trust {
 	return tr
 }
 
+// remoteTools is the canonical ref the remote fixtures below are pinned
+// under: the publisher repo remoteExecutable's item comes from.
+const remoteTools = "https://github.com/acme/repo@bundles/tools"
+
+// toolsBundle is the pinned bundle the remote fixtures read. A remote tree
+// must carry an item; the repofs reader refuses an empty one.
+func toolsBundle() *bundles.Bundle {
+	return &bundles.Bundle{Name: "tools", Commands: map[string]bundles.BundleCommand{"deploy": {ItemBody: bundles.ItemBody{Content: "echo deploy"}}}}
+}
+
+// remoteToolsRead is the read the repofs reader establishes for toolsBundle
+// pinned at remoteTools, signed as s.
+func remoteToolsRead(t *testing.T, s bundletree.Signing) bundles.BundleRead {
+	t.Helper()
+	return bundletree.RemoteRead(t, remoteTools, toolsBundle(), s)
+}
+
 // remoteExecutable is an unsigned command pulled from a publisher's repo —
 // the shape that must be withheld until a human reviews it.
 func remoteExecutable(t *testing.T) (bundles.Exposure, string) {
@@ -73,9 +93,7 @@ func remoteExecutable(t *testing.T) (bundles.Exposure, string) {
 	const refStr = "ctxloom+git://github.com/acme/repo//bundles/tools#prompts/deploy"
 	br, err := trust.ParseBundleRef(refStr)
 	require.NoError(t, err)
-	b := &bundles.Bundle{Name: "tools"}
-	read := bundles.NewRead("tools", b, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
-		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
+	read := remoteToolsRead(t, bundletree.Unsigned)
 	return bundles.Exposure{
 		Read:      read,
 		BundleRef: br,
@@ -188,16 +206,13 @@ func TestTrust_ZeroValue_HasNoPermissiveAnswer(t *testing.T) {
 
 // --- the locality rule ------------------------------------------------------
 
-// invalidlySigned is a bundle read whose signature does not cover its files
-// — an author's edit after signing — in the given trust context and
-// provenance.
-func invalidlySigned(t *testing.T, refStr string, ctx bundles.TrustCtx, prov bundles.ProvenanceClass) bundles.Exposure {
+// invalidlySigned exposes refStr's item through read, a read whose signature
+// does not cover its files — an author's edit after signing.
+func invalidlySigned(t *testing.T, refStr string, read bundles.BundleRead) bundles.Exposure {
 	t.Helper()
 	br, err := trust.ParseBundleRef(refStr)
 	require.NoError(t, err)
-	b := &bundles.Bundle{Name: br.Bundle}
-	read := bundles.NewRead(br.Bundle, b, prov, ctx,
-		bundles.SignatureFacts{Signature: bundles.SignatureInvalid, Signer: bundles.SignerUntrusted, Detail: "its files no longer match SHA256SUMS"})
+	require.Equal(t, bundles.SignatureInvalid, read.Signature(), "fixture must actually be invalidly signed")
 	return bundles.Exposure{Read: read, BundleRef: br, Bytes: []byte("echo deploy"), Form: bundles.FormRaw}
 }
 
@@ -210,7 +225,8 @@ func invalidlySigned(t *testing.T, refStr string, ctx bundles.TrustCtx, prov bun
 // can warn, and the author is told how to re-sign.
 func TestNewTrust_LocalityRule_AProjectLocalBundleWithAnInvalidSignatureIsAdmittedAsUnsigned(t *testing.T) {
 	tr := mustTrust(t, noRecords(), noRetraction())
-	e := invalidlySigned(t, "ctxloom+local:tools#prompts/deploy", bundles.TrustCtxLocal, bundles.ProvenanceProject)
+	e := invalidlySigned(t, "ctxloom+local:tools#prompts/deploy",
+		bundletree.ProjectRead(t, "tools", toolsBundle(), bundletree.EditedAfterTrustedSigning))
 
 	v := tr.Authorizer().Admit(e)
 
@@ -228,7 +244,8 @@ func TestNewTrust_LocalityRule_AProjectLocalBundleWithAnInvalidSignatureIsAdmitt
 // read at all; the gate withholds it if one ever arrives.)
 func TestNewTrust_LocalityRule_TheSameBundleFromARemoteSourceIsWithheld(t *testing.T) {
 	tr := mustTrust(t, noRecords(), noRetraction())
-	e := invalidlySigned(t, "ctxloom+git://github.com/acme/repo//bundles/tools#prompts/deploy", bundles.TrustCtxRemote, bundles.ProvenanceRemote)
+	e := invalidlySigned(t, "ctxloom+git://github.com/acme/repo//bundles/tools#prompts/deploy",
+		remoteToolsRead(t, bundletree.EditedAfterUntrustedSigning))
 
 	v := tr.Authorizer().Admit(e)
 
@@ -253,9 +270,15 @@ func companionFragment(t *testing.T) bundles.Exposure {
 	const refStr = "ctxloom+companion:ctxloom#fragments/isolation-axes"
 	br, err := trust.ParseBundleRef(refStr)
 	require.NoError(t, err)
-	b := &bundles.Bundle{Name: "ctxloom:companion@ctxloom"}
-	read := bundles.NewRead("ctxloom:companion@ctxloom", b, bundles.ProvenanceCompanion, bundles.TrustCtxLocal,
-		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
+	reads, err := bundles.NewCompanionReader(func(context.Context) (bundles.CompanionProbe, error) {
+		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{{
+			Bin:      "ctxloom",
+			Document: testsupport.RunLoadout("version: 1.0.0\nfragments:\n  isolation-axes:\n    content: Set both isolation axes.\n"),
+		}}}, nil
+	}).Read(context.Background())
+	require.NoError(t, err)
+	require.Len(t, reads, 1)
+	read := reads[0]
 	return bundles.Exposure{
 		Read:      read,
 		BundleRef: br,
@@ -372,21 +395,17 @@ func TestRetractable_OnlyContentFromAPublishersRepositoryCanBeRetracted(t *testi
 // it. The untrusted-signer row is the case no other test reaches — remote
 // content signed by a key the root does not trust.
 func TestPendingReason_NamesTheRemedyForRemoteContent(t *testing.T) {
-	read := func(ctx bundles.TrustCtx, sig bundles.Signature, signer bundles.Signer) bundles.BundleRead {
-		return bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, ctx,
-			bundles.SignatureFacts{Signature: sig, Signer: signer})
-	}
 	for _, tc := range []struct {
 		name string
 		read bundles.BundleRead
 		want bundles.Reason
 	}{
-		{"remote unsigned", read(bundles.TrustCtxRemote, bundles.SignatureNone, bundles.SignerNone), bundles.ReasonUnsigned},
-		{"remote signed by an untrusted key", read(bundles.TrustCtxRemote, bundles.SignatureValid, bundles.SignerUntrusted), bundles.ReasonUntrustedSigner},
-		{"remote invalidly signed by an untrusted key", read(bundles.TrustCtxRemote, bundles.SignatureInvalid, bundles.SignerUntrusted), bundles.ReasonTampered},
-		{"remote invalidly signed by a trusted key", read(bundles.TrustCtxRemote, bundles.SignatureInvalid, bundles.SignerTrusted), bundles.ReasonTampered},
-		{"remote signed by a trusted key", read(bundles.TrustCtxRemote, bundles.SignatureValid, bundles.SignerTrusted), bundles.ReasonPending},
-		{"local unsigned", read(bundles.TrustCtxLocal, bundles.SignatureNone, bundles.SignerNone), bundles.ReasonPending},
+		{"remote unsigned", remoteToolsRead(t, bundletree.Unsigned), bundles.ReasonUnsigned},
+		{"remote signed by an untrusted key", remoteToolsRead(t, bundletree.SignedByUntrustedKey), bundles.ReasonUntrustedSigner},
+		{"remote invalidly signed by an untrusted key", remoteToolsRead(t, bundletree.EditedAfterUntrustedSigning), bundles.ReasonTampered},
+		{"remote invalidly signed by a trusted key", remoteToolsRead(t, bundletree.EditedAfterTrustedSigning), bundles.ReasonTampered},
+		{"remote signed by a trusted key", remoteToolsRead(t, bundletree.SignedByTrustedKey), bundles.ReasonPending},
+		{"local unsigned", bundletree.ProjectRead(t, "tools", toolsBundle(), bundletree.Unsigned), bundles.ReasonPending},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, pendingReason(tc.read))

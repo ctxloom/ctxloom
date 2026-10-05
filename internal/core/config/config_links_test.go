@@ -143,14 +143,10 @@ func TestConfig_ResolveBundleHooks_LinkedHookFollowsTheRunsGrantedMCPSet(t *test
 // spelled bundles.LinksUnchecked, out loud.
 func TestExtractHooksFromBundle_NilLinkGrantWithholdsLinkedHooksOnly(t *testing.T) {
 	link := []string{"ctxloom:link_id=think"}
-	b := &bundles.Bundle{
-		MCP: map[string]bundles.BundleMCP{"think": {Command: "think-server", Tags: link}},
-		Hooks: bundles.BundleHooks{
-			SessionStart: []bundles.BundleHook{{Command: "think-warmup", Tags: link}},
-			PreTool:      []bundles.BundleHook{{Command: "free-guard"}},
-		},
-	}
-	read := bundles.NewRead("fixture", b, bundles.ProvenanceProject, bundles.TrustCtxLocal, bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
+	read := readWithHooks(t, bundles.BundleHooks{
+		SessionStart: []bundles.BundleHook{{Command: "think-warmup", Tags: link}},
+		PreTool:      []bundles.BundleHook{{Command: "free-guard"}},
+	})
 
 	got := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), admitall.Authorizer(), nil)
 	assert.Empty(t, hookCommands(got.SessionStart))

@@ -120,9 +120,7 @@ func wantsNonTextOutput(cmd *cobra.Command) bool {
 // only two paths through this package that read --format — and
 // checkFormatWasHonored (rootCmd's PersistentPostRunE, wired in root.go)
 // turns "accepted and silently discarded" into a loud, actionable error
-// instead of a false "success". This is the runtime enforcement counterpart
-// to format_coverage_test.go's static formatDebtAllowlist ledger, which
-// documents the same gap per-command but enforces nothing at runtime.
+// instead of a false "success".
 //
 // Package-level, reset once per invocation (resetFormatGuard, called from
 // root.go's PersistentPreRun) rather than threaded through cmd.Context(): a

@@ -330,7 +330,8 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		if err := j001500WireReference(w); err != nil {
 			return err
 		}
-		_ = w.env.Run("deps", "pull")
+		// Text: the steps below read the human warning, not a payload.
+		_ = w.env.Run("--format", "text", "deps", "pull")
 		st.tamperPullOutput, st.tamperPullExit = w.env.LastOutput(), w.env.LastExitCode()
 		_ = w.env.Run("profile", "materialize", "default", "--target", "out")
 		return nil

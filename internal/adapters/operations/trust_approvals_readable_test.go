@@ -49,7 +49,7 @@ func TestEffectiveTrust_AbsentApprovalsStore_DeniesAllAndNamesInit(t *testing.T)
 	ref := trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true}
 
 	mark := strictness.Checkpoint()
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref:        ref,
 		Posture:    postureCtxOf(ref),
 		Provenance: postureProvOf(ref),
@@ -88,7 +88,7 @@ func TestEffectiveTrust_UnreadableApprovalsStore_DenyAllAndStrictFatal(t *testin
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{projectDir}})
 
 	mark := strictness.Checkpoint()
-	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, cfg, EffectiveTrustRequest{
 		Ref:        trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true},
 		Posture:    postureCtxOf(trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true}),
 		Provenance: postureProvOf(trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true}),
@@ -158,7 +158,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 
 	// Sanity: while the store is intact, the rejection is honored — a
 	// rejected LOCAL item is denied, ref-level, beating the local exemption.
-	sanity, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	sanity, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: rejectedRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
 		Posture: postureCtxOf(rejectedRef), Provenance: postureProvOf(rejectedRef),
 	})
@@ -176,7 +176,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 	// Re-materialize the PREVIOUSLY-REJECTED item: must stay denied, and
 	// specifically must NOT resolve as the local ALLOW exemption — that
 	// exemption is exactly what a swallowed Rejected() falls through to.
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: rejectedRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
 		Posture: postureCtxOf(rejectedRef), Provenance: postureProvOf(rejectedRef),
 	})
@@ -190,7 +190,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 	// this is genuinely "deny everything" once the store proves unreadable,
 	// not merely "the one item with reject history stays denied".
 	untouchedLocalRef := trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true}
-	res2, err2 := EffectiveTrust(nil, EffectiveTrustRequest{
+	res2, err2 := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: untouchedLocalRef, Payload: pbytes("y"), Form: rawForm, Records: records, FS: fs,
 		Posture: postureCtxOf(untouchedLocalRef), Provenance: postureProvOf(untouchedLocalRef),
 	})
@@ -229,7 +229,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_ProvisionedEmptyStore_NormalPe
 	// An ordinary unsigned/unreviewed remote item resolves the everyday
 	// "awaiting review" pending — not the deny-all fail-closed path.
 	remoteRef := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "never-reviewed"}
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: remoteRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
 		Posture: postureCtxOf(remoteRef), Provenance: postureProvOf(remoteRef),
 	})
@@ -240,7 +240,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_ProvisionedEmptyStore_NormalPe
 	// A local item must STILL be allowed via the local exemption — proving
 	// the guard genuinely did not fire (a false trip would deny this too).
 	localRef := trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true}
-	res2, err2 := EffectiveTrust(nil, EffectiveTrustRequest{
+	res2, err2 := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: localRef, Payload: pbytes("y"), Form: rawForm, Records: records, FS: fs,
 		Posture: postureCtxOf(localRef), Provenance: postureProvOf(localRef),
 	})
@@ -288,7 +288,7 @@ func TestEffectiveTrust_CorruptedRejectSignature_StaysDenied(t *testing.T) {
 
 	mark := strictness.Checkpoint()
 
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: rejectedRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
 		Posture: postureCtxOf(rejectedRef), Provenance: postureProvOf(rejectedRef),
 	})
@@ -321,7 +321,7 @@ func TestEffectiveTrust_RemovedProjectStore_RejectionIsNotDiscarded(t *testing.T
 
 	require.NoError(t, fs.RemoveAll(projectDir))
 
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref: rejectedRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
 		Posture: postureCtxOf(rejectedRef), Provenance: postureProvOf(rejectedRef),
 	})

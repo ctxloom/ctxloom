@@ -80,7 +80,7 @@ const exitCodeFatalFindings = strictness.ExitCodeFatalFindings
 // result and persists it over real state. `ctxloom deps upgrade` did exactly
 // that — it rebuilt the lockfile from an empty closure, erased every pin, hold
 // and retraction, and reported "Everything is up to date." Destructive commands
-// call the loader directly and fail on its error (see runRemoteUpgrade).
+// call the loader directly and fail on its error.
 func loadConfigOrFallback(loader func() (*config.Config, error), w io.Writer) *config.Config {
 	cfg, err := loader()
 	if err != nil {

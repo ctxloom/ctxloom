@@ -493,7 +493,7 @@ type RepoEntry struct {
 type DiscoverRemotesResult struct {
 	Repositories []RepoEntry `json:"repositories"`
 	Count        int         `json:"count"`
-	Errors       []string    `json:"errors,omitempty"`
+	Errors       []string    `json:"errors"`
 }
 
 // DiscoverRemotes searches forges for ctxloom repositories.
@@ -558,7 +558,7 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 			// discovered from the same owner used to render identical
 			// AddCommand strings, so following the second suggestion silently
 			// collided with (overwrote) the first remote's registry entry.
-			AddCommand: fmt.Sprintf("ctxloom remote add %s %s/%s", r.Name, r.Owner, r.Name),
+			AddCommand: fmt.Sprintf("ctxloom remote create %s %s/%s", r.Name, r.Owner, r.Name),
 		})
 	}
 
@@ -583,7 +583,7 @@ type BrowseItemEntry struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
 	Path    string `json:"path"`
-	IsDir   bool   `json:"is_dir,omitempty"`
+	IsDir   bool   `json:"is_dir"`
 	PullRef string `json:"pull_ref"`
 }
 
@@ -593,7 +593,7 @@ type BrowseRemoteResult struct {
 	URL      string            `json:"url"`
 	Items    []BrowseItemEntry `json:"items"`
 	Count    int               `json:"count"`
-	Warnings []string          `json:"warnings,omitempty"`
+	Warnings []string          `json:"warnings"`
 }
 
 // BrowseRemote lists items available in a remote repository.
@@ -834,7 +834,7 @@ type repoCloner interface {
 
 // ensureClone clones rem into the local repo cache with full history (so any
 // pinned SHA is readable), returning a human-readable warning string on failure
-// (empty on success). Shared by the eager clone at `remote add` (AddRemote) and
+// (empty on success). Shared by the eager clone at `remote create` (AddRemote) and
 // the all-remotes clone at init (EnsureRemoteClones).
 func ensureClone(ctx context.Context, cache repoCloner, rem *remote.Remote) string {
 	forgeType, _, derr := remote.DetectForge(rem.URL)

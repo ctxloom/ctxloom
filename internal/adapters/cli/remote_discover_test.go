@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"strings"
 	"testing"
 
@@ -111,12 +112,12 @@ func TestRunRemoteDiscover_ProgressLineIsClosedBeforeAnError(t *testing.T) {
 	// itself errors, before anything has closed the progress line.
 	discoverSource = "gitlab"
 
-	var err error
-	out := captureStdout(t, func() {
-		err = runRemoteDiscover(&cobra.Command{}, nil, discoverTestConfig, remote.NewMockFetcher())
-	})
+	var progress bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&progress)
+	err := runRemoteDiscover(cmd, nil, discoverTestConfig, remote.NewMockFetcher())
 	require.Error(t, err)
-	assert.Equal(t, "Searching repositories...\n", out,
+	assert.Equal(t, "Searching repositories...\n", progress.String(),
 		"the progress line must be terminated so the error does not read as its continuation")
 }
 
@@ -129,11 +130,7 @@ func discoverTestConfig() (*config.Config, error) {
 // same "No ctxloom repositories found." on a total search failure (every
 // configured source erroring — today that is the sole GitHub fetcher) as it
 // did on a genuinely empty, successful search, and returned nil either way.
-// The fix (already landed) distinguishes the two; this pins it against a
-// live caller instead of leaving the fix unguarded. Extracted into
-// runRemoteDiscover (mirroring runRemoteUpgrade's injected-loadConfig shape)
-// specifically so this is expressible without a real cobra dispatch or
-// network access.
+// This pins the distinction against a live caller.
 func TestRunRemoteDiscover_TotalSearchFailureIsAnErrorNotEmptyClaim(t *testing.T) {
 	fetcher := remote.NewMockFetcher()
 	fetcher.SearchReposErr = assert.AnError

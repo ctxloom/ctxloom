@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // --disable-sig-check waives the SIGNATURE step of the cascade and nothing
@@ -39,8 +40,7 @@ func TestWithoutSignatureCheck_AdmitsUnsignedRemoteContentAndTheReasonNamesTheSw
 func TestWithoutSignatureCheck_AdmitsAnUntrustedSignersContent(t *testing.T) {
 	tr := waivedTrust(t, noRecords(), noRetraction())
 	e, _ := remoteExecutable(t)
-	e.Read = bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
-		bundles.SignatureFacts{Signature: bundles.SignatureValid, Signer: bundles.SignerUntrusted})
+	e.Read = remoteToolsRead(t, bundletree.SignedByUntrustedKey)
 
 	v := tr.Authorizer().Admit(e)
 
@@ -104,9 +104,12 @@ func TestWithoutSignatureCheck_LeavesNonRemoteReadsAlone(t *testing.T) {
 	tr := waivedTrust(t, noRecords(), noRetraction())
 	e, _ := remoteExecutable(t)
 	// A local-posture read that reached the pending arm was denied by
-	// something other than a signature; the waiver has nothing to say.
-	e.Read = bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, bundles.TrustCtxLocal,
-		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
+	// something other than a signature; the waiver has nothing to say. No
+	// reader produces one: it is a project read whose exported Provenance was
+	// flipped, which takes it past every first-party arm while its trust
+	// context stays local.
+	e.Read = bundletree.ProjectRead(t, "tools", toolsBundle(), bundletree.Unsigned)
+	e.Read.Provenance = bundles.ProvenanceRemote
 
 	v := tr.Authorizer().Admit(e)
 
@@ -122,15 +125,15 @@ func TestWithoutSignatureCheck_LeavesTheTrustRootAlone(t *testing.T) {
 // editedTreeRead is a remote tree whose installed bytes no longer match the
 // manifest a trusted publisher signed: the read the tree reader carries only
 // under a waived generation (bundles.WithEditedTreesCarried).
-func editedTreeRead() bundles.BundleRead {
-	return bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
-		bundles.SignatureFacts{Signature: bundles.SignatureInvalid, Signer: bundles.SignerTrusted, Detail: "fragments/x.md changed"})
+func editedTreeRead(t *testing.T) bundles.BundleRead {
+	t.Helper()
+	return remoteToolsRead(t, bundletree.EditedAfterTrustedSigning)
 }
 
 func TestWithoutSignatureCheck_AcceptsAnEditedSignedTreeAndSaysWhy(t *testing.T) {
 	tr := waivedTrust(t, noRecords(), noRetraction())
 	e, _ := remoteExecutable(t)
-	e.Read = editedTreeRead()
+	e.Read = editedTreeRead(t)
 
 	v := tr.Authorizer().Admit(e)
 
@@ -146,8 +149,7 @@ func TestWithoutSignatureCheck_AcceptsAnEditedSignedTreeAndSaysWhy(t *testing.T)
 func TestWithoutSignatureCheck_AnUntrustedSignersEditedTreeIsAcceptedAsEdited(t *testing.T) {
 	tr := waivedTrust(t, noRecords(), noRetraction())
 	e, _ := remoteExecutable(t)
-	e.Read = bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
-		bundles.SignatureFacts{Signature: bundles.SignatureInvalid, Signer: bundles.SignerUntrusted})
+	e.Read = remoteToolsRead(t, bundletree.EditedAfterUntrustedSigning)
 
 	v := tr.Authorizer().Admit(e)
 
@@ -158,7 +160,7 @@ func TestWithoutSignatureCheck_AnUntrustedSignersEditedTreeIsAcceptedAsEdited(t 
 func TestEnforcedTrust_RefusesAnEditedSignedTreeAsTampered(t *testing.T) {
 	tr := mustTrust(t, noRecords(), noRetraction())
 	e, _ := remoteExecutable(t)
-	e.Read = editedTreeRead()
+	e.Read = editedTreeRead(t)
 
 	v := tr.Authorizer().Admit(e)
 
@@ -170,7 +172,7 @@ func TestEnforcedTrust_RefusesAnEditedSignedTreeAsTampered(t *testing.T) {
 func TestWithoutSignatureCheck_ARejectionOfAnEditedTreeStillRefuses(t *testing.T) {
 	tr := waivedTrust(t, fakeRecords{rejected: func(trust.Ref, []byte) bool { return true }}, noRetraction())
 	e, _ := remoteExecutable(t)
-	e.Read = editedTreeRead()
+	e.Read = editedTreeRead(t)
 
 	v := tr.Authorizer().Admit(e)
 

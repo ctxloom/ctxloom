@@ -17,23 +17,9 @@ import (
 )
 
 // The distillation/compaction cluster the session commands share with the MCP
-// memory tools: resolving the compaction model, running the compactor for one
-// entry, and resolving a transcript source for a backend. CompactEntry is the
+// memory tools: running the compactor for one entry, and resolving a
+// transcript source for a backend. CompactEntry is the
 // single funnel every distill path goes through.
-
-// CompactionModelFor resolves the model one distill runs with: an explicit
-// caller override wins, and "" falls back to the configured compaction model.
-// Kept as a named function despite the single call site (CompactEntry, which
-// is itself the single funnel) because it is the one unit-testable statement
-// of the override rule — honoring the override on only some distill paths
-// is exactly the bug this exists to prevent — and CompactEntry needs a live
-// session entry and compactor to exercise.
-func CompactionModelFor(cfg *config.Config, override string) string {
-	if override != "" {
-		return override
-	}
-	return cfg.GetCompactionModel()
-}
 
 // DistillOptions carries what varies per distill invocation, as a struct
 // rather than three more positional parameters: model and progress were
@@ -42,9 +28,10 @@ func CompactionModelFor(cfg *config.Config, override string) string {
 type DistillOptions struct {
 	// Hosts yields the coordinator the distilling one-shot runs on.
 	Hosts RunHosts
-	// Model overrides the compaction model for THIS call; "" uses
-	// cfg.GetCompactionModel(). It exists so a caller-supplied model override
-	// reaches the canonical/harp distill path too, not just the backend one.
+	// Model overrides, for THIS call, the model of the label the distiller
+	// runs on (DistillerOneShot); "" keeps that label's own. It exists so a
+	// caller-supplied model override reaches the canonical/harp distill path
+	// too, not just the backend one.
 	Model string
 	// Progress receives human-readable distillation progress, or nil where the
 	// caller has no safe sink for it (see memory.CompactionConfig.Progress).
@@ -76,7 +63,7 @@ type DistillOptions struct {
 // wiring can be observed in a test; that test seam stays in mcp and is not
 // duplicated here.
 func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
-	model := CompactionModelFor(cfg, opts.Model)
+	model := opts.Model
 	backendName := entry.Backend
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLM()
@@ -92,10 +79,10 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	// nothing else to do with "no hint": an absent hint IS the empty string,
 	// and distillPrompt appends nothing for it.
 	taskHint, _ := memory.ReadNextStep(configFS(cfg), entry.HarpName)
-	// The distiller is a real session on the FAST role's label: one harp for
-	// every turn this compaction makes, started on the first turn and ended
+	// The distiller is a real session run as the distiller agent: one harp
+	// for every turn this compaction makes, started on the first turn and ended
 	// when the compaction is done.
-	distiller := OneShot(f, opts.Hosts, cfg).Label(cfg.FastLabel()).Model(model).WorkDir(entry.ProjectDir).Lazy()
+	distiller := DistillerOneShot(f, opts.Hosts, cfg).Model(model).WorkDir(entry.ProjectDir).Lazy()
 	defer distiller.End()
 	// The compactor does not build its own source: resolve it here and inject.
 	source, err := DistillSource(entry.ProjectDir)

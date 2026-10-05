@@ -25,6 +25,10 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
@@ -128,6 +132,74 @@ func registerMCPSessionToolSteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+
+	// Points llm.defaults.fast at a SECOND mock label that carries no canned
+	// response, so a distillation that falls back to the fast role echoes its
+	// prompt instead of answering with the response the "mock" label's env
+	// declares. Without it the fast role falls back to llm.defaults.primary —
+	// the "mock" label itself — and a run on the fallback is indistinguishable
+	// from one on the agent the scenario declares. Written directly: `llm
+	// create` takes no mock type, and nothing on the CLI sets the fast role.
+	ctx.Step(`^the fast role is a mock label "([^"]*)" with no canned response$`, func(c context.Context, label string) error {
+		return setQuietFastLabel(worldFrom(c).env.ProjectDir, label)
+	})
+
+	// The STANDING owner's own session has a bound, captured transcript long
+	// enough to distill, seeded by MERGING into its live record (the record
+	// carries the endpoint its runner serves). A bare compact_session targets
+	// the caller's own harp, and the caller the endpoint identifies IS the
+	// owner — whose record a launch mints with no transcript, which is
+	// "nothing to distill" rather than a distillation.
+	ctx.Step(`^the standing session has a captured transcript to distill$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if w.owner == nil {
+			return fmt.Errorf("no session owner is standing: put `a session owner is standing` before this step")
+		}
+		harp := w.owner.harp
+		if err := mergeSessionSidecar(w, harp, sessionSeed{
+			SessionID:      "seeded-" + harp,
+			Backend:        config.BackendMock,
+			ProjectDir:     w.env.ProjectDir,
+			EngineVersion:  j001000SeededEngineVersion(config.BackendMock),
+			TranscriptPath: j001200VendorTranscriptPath(w, harp),
+		}); err != nil {
+			return err
+		}
+		return j001200SeedTranscripts(w, harp, distillableTurns(
+			"What does the standing session hold? "+recoverIdentityMarker,
+			"Its own captured thread. "+recoverIdentityMarker,
+		))
+	})
+}
+
+// setQuietFastLabel adds llm.configs.<label> as a response-less mock and makes
+// it llm.defaults.fast in the project's config.yaml, leaving the rest intact.
+func setQuietFastLabel(projectDir, label string) error {
+	configPath := paths.ConfigPath(filepath.Join(projectDir, paths.AppDirName))
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read project config: %w", err)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("parse project config: %w", err)
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return fmt.Errorf("project config %s is not a mapping", configPath)
+	}
+	llm := yamlx.EnsureMap(doc.Content[0], "llm")
+	entry := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	yamlx.MapSet(entry, "type", yamlx.ScalarNode("mock"))
+	perms := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	yamlx.MapSet(perms, "mode", yamlx.ScalarNode("bypass"))
+	yamlx.MapSet(entry, "permissions", perms)
+	yamlx.MapSet(yamlx.EnsureMap(llm, "configs"), label, entry)
+	yamlx.MapSet(yamlx.EnsureMap(llm, "defaults"), "fast", yamlx.ScalarNode(label))
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		return fmt.Errorf("marshal project config: %w", err)
+	}
+	return os.WriteFile(configPath, out, 0o644)
 }
 
 // harpEssencePathIn is where this scenario's ctxloom reads and writes a harp's

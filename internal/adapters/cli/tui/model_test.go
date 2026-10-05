@@ -915,6 +915,22 @@ func TestModel_AnEndedRowShowsItsCause(t *testing.T) {
 	assert.Contains(t, m.feedTitle(), "ended: "+coord.CauseLaunchFailed+" — "+detail)
 }
 
+// TestModel_AFailedEndShowsTheFailureGlyph: an ended row whose cause is a
+// failure does not wear the success check — a launch that never came up, a
+// lost runner, an interrupted drain or a stop did not finish. A clean end
+// keeps the check.
+func TestModel_AFailedEndShowsTheFailureGlyph(t *testing.T) {
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "dead-kid", State: coord.StateEnded, Cause: coord.CauseLaunchFailed},
+		RosterRow{Harp: "done-kid", State: coord.StateEnded, Cause: coord.CauseFinalReported},
+	)
+	m := openSelected(t, newTestModel(f), f)
+
+	lines := m.rosterLines(m.contentHeight())
+	assert.Contains(t, lines[0], failedGlyph+" dead-kid")
+	assert.Contains(t, lines[1], stateGlyph(StateEnded)+" done-kid", "a clean end keeps the success check")
+}
+
 // A pause says who paused the child, not a failure it waits on.
 func TestHoldLabel_APauseSaysWhoPausedIt(t *testing.T) {
 	assert.Equal(t, "paused by the human", HoldLabel(&coord.RunHold{Kind: coord.HoldKindHuman}))

@@ -166,7 +166,7 @@ Feature: remote — registering the sources content comes from, and browsing the
       And a git remote "origin" serving a ctxloom bundle
       When Alice browses what a remote publishes:
         """
-        ctxloom remote show origin
+        ctxloom remote show origin --format text
         """
       Then the command succeeds
       And the output contains "//bundles/demo"

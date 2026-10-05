@@ -32,7 +32,7 @@ type ReapPolicy struct {
 	// --include-persist and TAKES the persistent machine members — the
 	// transcripts and native history with the spool, the package store and
 	// the logs — from a COMPACTED session only. An uncompacted one
-	// (Distilled) keeps them, because its transcript is its only record; it
+	// (Compacted) keeps them, because its transcript is its only record; it
 	// is reaped as under the default scope and the report says why.
 	Scope paths.Lifetime
 	// Apply is the plan/act switch. False reports the same verdicts and
@@ -308,7 +308,7 @@ func screenAgedUnkept(l Layout, name string, p ReapPolicy, c *ReapCandidate) boo
 // whatever the verdict. proceed is false (spared) when nothing is left to
 // take.
 func narrowUncompacted(l Layout, name string, p ReapPolicy, c *ReapCandidate, members []paths.HarpMember, m memberMeasure) ([]paths.HarpMember, memberMeasure, bool) {
-	if p.scope() != paths.Persist || Distilled(c.Dir) {
+	if p.scope() != paths.Persist || Compacted(c.Dir) {
 		return members, m, true
 	}
 	c.Reason = fmt.Sprintf("its persistent members are spared: it was never compacted, so its transcript is its only record — run `ctxloom session compact %s` first", name)

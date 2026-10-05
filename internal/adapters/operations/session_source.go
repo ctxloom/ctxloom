@@ -106,7 +106,7 @@ func EssenceCurrent(src ResolvedSource, cached []byte) (current, known bool) {
 	return !stale, known
 }
 
-// DistillEntry runs the compactor for src.Entry and returns the result — the
+// CompactResolved runs the compactor for src.Entry and returns the result — the
 // ONE compact call a caller reaches once ResolveAndHeal has resolved a
 // source and EssenceCurrent has decided the cache can't be trusted. It is
 // CompactEntry addressed by ResolvedSource instead of a bare *sessions.Entry,
@@ -116,7 +116,7 @@ func EssenceCurrent(src ResolvedSource, cached []byte) (current, known bool) {
 // the long-lived MCP host relay fielding concurrent tool calls for the same
 // session, and stay there (withCompactBudget, singleflightCompact) rather
 // than becoming a concern every one-shot CLI caller has to reason about too.
-func DistillEntry(ctx context.Context, f LaunchFacts, src ResolvedSource, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
+func CompactResolved(ctx context.Context, f LaunchFacts, src ResolvedSource, cfg *config.Config, opts CompactOptions) (*memory.CompactionResult, error) {
 	if src.Entry == nil {
 		return nil, fmt.Errorf("nothing to compact: session not found in the index")
 	}

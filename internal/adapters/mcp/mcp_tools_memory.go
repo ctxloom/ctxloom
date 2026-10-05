@@ -107,7 +107,7 @@ const (
 // On the host-relay path a handler runs on the COORDINATOR's base context,
 // which has no deadline: the caller's budget bounds only how long it WAITS,
 // never the work. Left unbounded, one wedged LLM subprocess runs forever —
-// holding a singleflight entry open, or a listing. mcpschema.DistillBudget is
+// holding a singleflight entry open, or a listing. mcpschema.CompactBudget is
 // one number deliberately covering both sides of the relay, so a host can
 // never outlive its caller's patience by design; this is where the host side
 // of that contract is applied. A caller that already carries a deadline keeps
@@ -116,7 +116,7 @@ func withCompactBudget(ctx context.Context) (context.Context, context.CancelFunc
 	if _, has := ctx.Deadline(); has {
 		return ctx, func() {}
 	}
-	return context.WithTimeout(ctx, mcpschema.DistillBudget)
+	return context.WithTimeout(ctx, mcpschema.CompactBudget)
 }
 
 // compactionTargetHarp resolves the harp whose session a compact_session call
@@ -210,7 +210,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 			}
 		}
 		if src.Entry != nil {
-			result, derr := operations.DistillEntry(ctx, s.facts, src, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Model: model, Progress: io.Discard})
+			result, derr := operations.CompactResolved(ctx, s.facts, src, s.cfg, operations.CompactOptions{Hosts: s.hostsFor(), Model: model, Progress: io.Discard})
 			if derr != nil {
 				return nil, fmt.Errorf("compaction failed: %w", derr)
 			}
@@ -227,7 +227,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		// compactionTargetHarp resolved it through the index, so its entry
 		// exists — which leaves the default target: the caller's own harp,
 		// against an ambient backend with no BindSession yet. Nothing for
-		// ResolveAndHeal/DistillEntry to resolve, so this compacts directly
+		// ResolveAndHeal/CompactResolved to resolve, so this compacts directly
 		// off the caller's input. OutputDir is left unset so the essence files
 		// itself under that harp's own lineage, which is the only place
 		// anything reads one from.
@@ -236,7 +236,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		taskHint, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
 		distiller := operations.DistillerOneShot(s.facts, s.hostsFor(), s.cfg).Model(model).WorkDir(workDir).Lazy()
 		defer distiller.End()
-		source, serr := operations.DistillSource(workDir)
+		source, serr := operations.CompactionSource(workDir)
 		if serr != nil {
 			return nil, fmt.Errorf("resolve transcript source: %w", serr)
 		}
@@ -351,7 +351,7 @@ func (s *ctxServer) compactMissingForList(ctx context.Context, entries []session
 		if src.Entry == nil {
 			src.Entry = e
 		}
-		if _, err := compactEntryFn(ctx, s.facts, src.Entry, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Progress: io.Discard}); err != nil {
+		if _, err := compactEntryFn(ctx, s.facts, src.Entry, s.cfg, operations.CompactOptions{Hosts: s.hostsFor(), Progress: io.Discard}); err != nil {
 			clidiag.Warn("ctxloom", "list_sessions: could not compact %s: %v", e.HarpName, err)
 		}
 	}
@@ -715,7 +715,7 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 			}
 		}
 
-		if _, derr := operations.DistillEntry(ctx, s.facts, src, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Model: model, Progress: io.Discard}); derr != nil {
+		if _, derr := operations.CompactResolved(ctx, s.facts, src, s.cfg, operations.CompactOptions{Hosts: s.hostsFor(), Model: model, Progress: io.Discard}); derr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
 				Message: fmt.Sprintf("Couldn't compact previous session %s: %v", harp, derr),
@@ -1106,7 +1106,7 @@ func (s *ctxServer) compactSessionOnce(ctx context.Context, sessionID, backendNa
 	taskHint, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
 	distiller := operations.DistillerOneShot(s.facts, s.hostsFor(), s.cfg).Model(model).WorkDir(workDir).Lazy()
 	defer distiller.End()
-	source, serr := operations.DistillSource(workDir)
+	source, serr := operations.CompactionSource(workDir)
 	if serr != nil {
 		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't resolve a transcript source for session %s: %v", sessionID, serr)}, nil
 	}

@@ -122,7 +122,7 @@ func TestSessionSources_ServeOnlyCanonicalCapture(t *testing.T) {
 
 			resolved, _, err := ResolveSessionSource(engines.Registry(), &config.Config{}, eng, home)
 			require.NoError(t, err)
-			compact, err := DistillSource(home)
+			compact, err := CompactionSource(home)
 			require.NoError(t, err)
 
 			for name, src := range map[string]interface {

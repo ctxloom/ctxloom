@@ -21,11 +21,11 @@ import (
 // transcript source for a backend. CompactEntry is the
 // single funnel every compact path goes through.
 
-// DistillOptions carries what varies per compact invocation, as a struct
+// CompactOptions carries what varies per compact invocation, as a struct
 // rather than three more positional parameters: model and progress were
 // already in flight and a third string argument beside them is where call
 // sites start transposing them.
-type DistillOptions struct {
+type CompactOptions struct {
 	// Hosts yields the coordinator the compacting one-shot runs on.
 	Hosts RunHosts
 	// Model overrides, for THIS call, the model of the label the distiller
@@ -62,7 +62,7 @@ type DistillOptions struct {
 // mcp's compactEntryFn is CompactEntry behind a package var so a caller's
 // wiring can be observed in a test; that test seam stays in mcp and is not
 // duplicated here.
-func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
+func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg *config.Config, opts CompactOptions) (*memory.CompactionResult, error) {
 	model := opts.Model
 	backendName := entry.Backend
 	if backendName == "" {
@@ -85,7 +85,7 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	distiller := DistillerOneShot(f, opts.Hosts, cfg).Model(model).WorkDir(entry.ProjectDir).Lazy()
 	defer distiller.End()
 	// The compactor does not build its own source: resolve it here and inject.
-	source, err := DistillSource(entry.ProjectDir)
+	source, err := CompactionSource(entry.ProjectDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve transcript source for backend %q: %w", backendName, err)
 	}
@@ -126,12 +126,12 @@ func compactable(entry *sessions.Entry) error {
 	return fmt.Errorf("harp %q has no session_id bound and no captured transcript; nothing to compact", entry.HarpName)
 }
 
-// DistillSource builds the transcript source the compactor reads for a
+// CompactionSource builds the transcript source the compactor reads for a
 // compact: ctxloom's own canonical capture, scoped to workDir, read raw (no
 // read-side content policy — a compact reads the transcript's own bytes).
 // Callers that build a memory.CompactionConfig directly (the MCP memory
 // tools) use it so they need not know how a canonical source is assembled.
-func DistillSource(workDir string) (memory.Source, error) {
+func CompactionSource(workDir string) (memory.Source, error) {
 	store, err := sessions.Open(strictness.Sink("ctxloom"))
 	if err != nil {
 		return nil, fmt.Errorf("session index unavailable: %w", err)

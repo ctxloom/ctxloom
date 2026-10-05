@@ -247,7 +247,7 @@ func reapSeedUncompacted(t *testing.T, l Layout, harp string) string {
 // TestReap_PersistScope_SparesThePersistStoreOfAnUncompactedSession: without
 // an essence the transcript is the session's only record, so even
 // --include-persist leaves its persistent machine members alone — the same rule PurgeSession
-// enforces with ErrPurgeUndistilled. The ephemeral members still go: a wider
+// enforces with ErrPurgeUncompacted. The ephemeral members still go: a wider
 // scope must never free less than the default one. The report names the
 // spare and the command that lifts it.
 func TestReap_PersistScope_SparesThePersistStoreOfAnUncompactedSession(t *testing.T) {

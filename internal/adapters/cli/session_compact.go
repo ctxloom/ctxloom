@@ -74,7 +74,7 @@ func compactMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 		if src.Entry == nil {
 			src.Entry = e
 		}
-		if _, dErr := operations.DistillEntry(cmd.Context(), App().LaunchFacts(), src, cfg, operations.DistillOptions{Hosts: internalRunHosts(), Progress: progress}); dErr != nil {
+		if _, dErr := operations.CompactResolved(cmd.Context(), App().LaunchFacts(), src, cfg, operations.CompactOptions{Hosts: internalRunHosts(), Progress: progress}); dErr != nil {
 			clidiag.Warn("ctxloom", "could not compact %s: %v", e.HarpName, dErr)
 		}
 	}

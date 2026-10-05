@@ -27,7 +27,7 @@ func TestCompactSource_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T)
 	require.NoError(t, os.MkdirAll(filepath.Dir(sessionsPath), 0o755))
 	require.NoError(t, os.WriteFile(sessionsPath, []byte("not a directory"), 0o644))
 
-	_, err := DistillSource(home)
+	_, err := CompactionSource(home)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "session index",
 		"the failure that actually happened must be the one reported")

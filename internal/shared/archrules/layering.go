@@ -220,7 +220,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb":                       "sanctioned: the proto is coordgrpc's own subpackage (slice 10 folds mcpschema into coordgrpc)",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/discover":                           "sanctioned: a package's own subpackage — the servers record the endpoint they bound in the file discover reads",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":                                 "sanctioned: a package's own subpackage — the codec speaks its own proto",
-			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "the host relay's distill handlers bound their work to mcpschema.DistillBudget, the one number both sides of the relay share",
+			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "the host relay's distill handlers bound their work to mcpschema.CompactBudget, the one number both sides of the relay share",
 			"internal/adapters/runner/interaction -> internal/adapters/coordgrpc/pb":                        "sanctioned: runner/interaction is the session endpoint and speaks the wire (the proto lives only in adapters)",
 			"internal/adapters/runner/interaction -> internal/adapters/coordgrpc/mcpschema":                 "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/interaction speaks the wire through it (measured)",
 

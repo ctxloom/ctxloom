@@ -40,7 +40,7 @@ func TestCompactEntryFn_IsBoundToTheRealCompactor(t *testing.T) {
 }
 
 // withCompactBudget is the one place the host side of the relay's budget
-// contract is applied. DistillBudget's own doc states the invariant: it
+// contract is applied. CompactBudget's own doc states the invariant: it
 // "bounds BOTH sides of the relay: how long the caller waits, and how long
 // the host lets the work run — one number, so the two can't drift into a host
 // that outlives its caller's patience by design."
@@ -55,7 +55,7 @@ func TestWithCompactBudget(t *testing.T) {
 
 		dl, ok := ctx.Deadline()
 		require.True(t, ok, "an unbounded host context must not be handed to minutes-long LLM work")
-		assert.InDelta(t, mcpschema.DistillBudget.Seconds(), time.Until(dl).Seconds(), 60,
+		assert.InDelta(t, mcpschema.CompactBudget.Seconds(), time.Until(dl).Seconds(), 60,
 			"the host's bound must be the relay's budget, not some other number")
 	})
 
@@ -78,9 +78,9 @@ func TestWithCompactBudget(t *testing.T) {
 // On the host-relay path the handler runs on the coordinator's deadline-less
 // base context: the caller's budget bounds only how long it WAITS, never the
 // work. compactSession and previousSessionByHarp each re-bound that context to
-// DistillBudget before spending LLM time; compactMissingForList did not, so a
+// CompactBudget before spending LLM time; compactMissingForList did not, so a
 // wedged LLM subprocess held the listing open forever — the exact drift
-// DistillBudget's doc says the single number exists to prevent. list_sessions
+// CompactBudget's doc says the single number exists to prevent. list_sessions
 // is in relayBudgets for precisely this reason.
 func TestCompactMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *testing.T) {
 	testsupport.Isolate(t)
@@ -99,7 +99,7 @@ func TestCompactMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 	var gotDeadline bool
 	var budget time.Duration
 	prev := compactEntryFn
-	compactEntryFn = func(ctx context.Context, _ operations.LaunchFacts, _ *sessions.Entry, _ *config.Config, _ operations.DistillOptions) (*memory.CompactionResult, error) {
+	compactEntryFn = func(ctx context.Context, _ operations.LaunchFacts, _ *sessions.Entry, _ *config.Config, _ operations.CompactOptions) (*memory.CompactionResult, error) {
 		dl, ok := ctx.Deadline()
 		gotDeadline = ok
 		if ok {
@@ -117,8 +117,8 @@ func TestCompactMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 
 	require.True(t, gotDeadline,
 		"compact_missing spends LLM time; it must not inherit an unbounded host context")
-	assert.InDelta(t, mcpschema.DistillBudget.Seconds(), budget.Seconds(), 60,
-		"the bound must be the relay's DistillBudget")
+	assert.InDelta(t, mcpschema.CompactBudget.Seconds(), budget.Seconds(), 60,
+		"the bound must be the relay's CompactBudget")
 }
 
 // THE SECOND sessionEssenceInfo CALL IS THE POINT, NOT WASTE.
@@ -146,7 +146,7 @@ func TestHandleListSessions_CompactMissingReportsThePostCompactState(t *testing.
 	// compactor would have written, so the SECOND probe sees a compacted
 	// session where the first saw none.
 	prev := compactEntryFn
-	compactEntryFn = func(_ context.Context, _ operations.LaunchFacts, entry *sessions.Entry, _ *config.Config, _ operations.DistillOptions) (*memory.CompactionResult, error) {
+	compactEntryFn = func(_ context.Context, _ operations.LaunchFacts, entry *sessions.Entry, _ *config.Config, _ operations.CompactOptions) (*memory.CompactionResult, error) {
 		out, perr := sessions.OutputDir(entry.HarpName)
 		require.NoError(t, perr)
 		p := filepath.Join(out, paths.EssenceFileName)
@@ -194,7 +194,7 @@ func TestCompactMissingForList_WarningsGoToTheRedirectableSinkNotStderr(t *testi
 	require.NoError(t, err)
 
 	prev := compactEntryFn
-	compactEntryFn = func(context.Context, operations.LaunchFacts, *sessions.Entry, *config.Config, operations.DistillOptions) (*memory.CompactionResult, error) {
+	compactEntryFn = func(context.Context, operations.LaunchFacts, *sessions.Entry, *config.Config, operations.CompactOptions) (*memory.CompactionResult, error) {
 		return nil, errors.New("legacy session needs a cwd-bound reader")
 	}
 	defer func() { compactEntryFn = prev }()
@@ -244,7 +244,7 @@ func TestCompactMissingForList_HealsTheTranscriptBeforeCompacting(t *testing.T) 
 
 	var canonAtCompact []byte
 	prev := compactEntryFn
-	compactEntryFn = func(context.Context, operations.LaunchFacts, *sessions.Entry, *config.Config, operations.DistillOptions) (*memory.CompactionResult, error) {
+	compactEntryFn = func(context.Context, operations.LaunchFacts, *sessions.Entry, *config.Config, operations.CompactOptions) (*memory.CompactionResult, error) {
 		canonAtCompact, _ = os.ReadFile(canonPath)
 		return &memory.CompactionResult{}, nil
 	}
@@ -266,7 +266,7 @@ func TestCompactMissingForList_SkippedEntryIsNotHealed(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("---\nsummary: already compacted\n---\n# essence\n"), 0o644))
 
 	prev := compactEntryFn
-	compactEntryFn = func(context.Context, operations.LaunchFacts, *sessions.Entry, *config.Config, operations.DistillOptions) (*memory.CompactionResult, error) {
+	compactEntryFn = func(context.Context, operations.LaunchFacts, *sessions.Entry, *config.Config, operations.CompactOptions) (*memory.CompactionResult, error) {
 		t.Fatal("an entry with an essence and no known staleness is not compacted")
 		return nil, nil
 	}

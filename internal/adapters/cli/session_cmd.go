@@ -354,7 +354,7 @@ func runSessionCompact(cmd *cobra.Command, args []string) error {
 	if src.Entry == nil {
 		src.Entry = entry
 	}
-	result, err := operations.DistillEntry(cmd.Context(), App().LaunchFacts(), src, cfg, operations.DistillOptions{
+	result, err := operations.CompactResolved(cmd.Context(), App().LaunchFacts(), src, cfg, operations.CompactOptions{
 		Hosts:     internalRunHosts(),
 		Progress:  progress,
 		PromptDir: sessionCompactPromptDir,

@@ -255,7 +255,7 @@ func runHarpFilePurge(cmd *cobra.Command, harp string, p harpFilePurge) error {
 	res, purgeErr := operations.PurgeSession(harp, operations.PurgeSessionRequest{
 		Harp:        harp,
 		Populations: p.populations,
-		Undistilled: p.uncompacted,
+		Uncompacted: p.uncompacted,
 		EvenIfLive:  p.evenIfLive,
 		Apply:       p.apply,
 	})
@@ -292,7 +292,7 @@ func harpPurgeRefusal(harp string, err error, commandPath string) string {
 		return fmt.Sprintf("ctxloom refuses to purge %s: %v. Nothing was removed. "+
 			"To destroy it anyway, deliberately: `%s %s --yes --%s`",
 			harp, err, commandPath, harp, evenIfLiveFlagName)
-	case errors.Is(err, operations.ErrPurgeUndistilled):
+	case errors.Is(err, operations.ErrPurgeUncompacted):
 		return fmt.Sprintf("ctxloom refuses: %s was never compacted — its transcript is the only record of what happened. "+
 			"Nothing was removed. To destroy it anyway, deliberately: `ctxloom session transcript purge %s --uncompacted --yes`", harp, harp)
 	case errors.Is(err, operations.ErrPurgeNothingToDo):

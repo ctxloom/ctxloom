@@ -84,10 +84,10 @@ type PurgeSessionRequest struct {
 	// nothing and is an error: a destroyer with no population is a command
 	// that reports success having done nothing at all.
 	Populations []PurgePopulation
-	// Undistilled permits destroying the TRANSCRIPT of a session that has no
+	// Uncompacted permits destroying the TRANSCRIPT of a session that has no
 	// essence. Without an essence the transcript is the only record of what
 	// happened, so this is the deliberate second flag that allows it.
-	Undistilled bool
+	Uncompacted bool
 	// EvenIfLive permits destroying a session whose liveness lock does not
 	// prove its owner dead: held (the owner is running right now), or absent
 	// (a session from before the lock existed, or one whose Hold failed), or
@@ -136,11 +136,11 @@ var (
 	// before EndSession has none while its free lock proves it gone. It is a
 	// timestamp, not a liveness signal.
 	ErrPurgeOwnerNotProvenDead = errors.New("the session lock does not prove its owner dead")
-	// ErrPurgeUndistilled is returned when the TRANSCRIPT population is asked
-	// for against a session with no essence.md and Undistilled was not also
+	// ErrPurgeUncompacted is returned when the TRANSCRIPT population is asked
+	// for against a session with no essence.md and Uncompacted was not also
 	// set. Without an essence the transcript is the session's ONLY record;
 	// this is the extra deliberate flag that permits destroying it.
-	ErrPurgeUndistilled = errors.New("session was never compacted")
+	ErrPurgeUncompacted = errors.New("session was never compacted")
 	// ErrPurgeNoPopulation is returned when a request names no population. A
 	// destroyer that was handed nothing to destroy must say so rather than
 	// walk the directory, keep every file, and report success.
@@ -162,7 +162,7 @@ var (
 // keeps the row instead of silently reconciling it away over its now-missing
 // transcript.
 //
-// "Is this session compacted?" is sessions.Distilled — the disk, never
+// "Is this session compacted?" is sessions.Compacted — the disk, never
 // entry.Summary.
 func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, error) {
 	if len(req.Populations) == 0 {
@@ -203,7 +203,7 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 		return res, fmt.Errorf("%w: %s", ErrPurgeOwnerNotProvenDead, probe.Reason)
 	}
 
-	hasEssence := sessions.Distilled(harpDir)
+	hasEssence := sessions.Compacted(harpDir)
 	wantTranscript := req.wants(PurgePopulationTranscript)
 	wantArtifacts := req.wants(PurgePopulationArtifacts)
 
@@ -217,8 +217,8 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	// one. Firing on the request alone would refuse forever for a session
 	// whose transcript is already deliberately gone — the caller would have
 	// done exactly what the refusal asked and still be told no.
-	if wantTranscript && !hasEssence && !req.Undistilled && hasClass(items, PurgeClassMachine) {
-		return res, fmt.Errorf("%w: %q — its transcript is the only record of this session; pass --uncompacted to destroy it anyway", ErrPurgeUndistilled, harp)
+	if wantTranscript && !hasEssence && !req.Uncompacted && hasClass(items, PurgeClassMachine) {
+		return res, fmt.Errorf("%w: %q — its transcript is the only record of this session; pass --uncompacted to destroy it anyway", ErrPurgeUncompacted, harp)
 	}
 
 	for _, it := range items {

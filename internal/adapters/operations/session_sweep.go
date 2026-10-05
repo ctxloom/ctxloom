@@ -351,7 +351,7 @@ func classifySession(ctx context.Context, g git.Git, l sessions.Layout, store se
 	if _, err := os.Lstat(l.KeepMarker(name)); err == nil {
 		f.Kept = true
 	}
-	f.Compacted = sessions.Distilled(f.Dir)
+	f.Compacted = sessions.Compacted(f.Dir)
 	f.Reclaimable, f.ReclaimBytes, f.ReclaimSymlink = measureReclaim(l, name, reclaimMembers(req, f.Compacted))
 
 	if probe.Verdict == sessionlock.Dead {
@@ -662,7 +662,7 @@ func applyReclaim(ctx context.Context, g git.Git, l sessions.Layout, req SweepRe
 func applyPurge(f SessionFacts, r *SweepRow) {
 	res, err := PurgeSession(r.Harp, PurgeSessionRequest{
 		Populations: []PurgePopulation{PurgePopulationTranscript},
-		Undistilled: f.Origin == sessions.OriginOneShot,
+		Uncompacted: f.Origin == sessions.OriginOneShot,
 		Apply:       true,
 	})
 	switch {
@@ -673,7 +673,7 @@ func applyPurge(f SessionFacts, r *SweepRow) {
 				r.Reason = appendReason(r.Reason, "kept "+k.Rel)
 			}
 		}
-	case errors.Is(err, ErrPurgeNothingToDo), errors.Is(err, ErrPurgeOwnerNotProvenDead), errors.Is(err, ErrPurgeUndistilled):
+	case errors.Is(err, ErrPurgeNothingToDo), errors.Is(err, ErrPurgeOwnerNotProvenDead), errors.Is(err, ErrPurgeUncompacted):
 		r.Verdict, r.Reason = SweepLeft, err.Error()
 	default:
 		r.Verdict, r.Reason = SweepFailed, err.Error()

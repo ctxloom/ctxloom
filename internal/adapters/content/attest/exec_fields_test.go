@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // A remote MCP server's headers and a hook's tags are signed bundle content:
@@ -42,7 +43,7 @@ func TestVerifyBundle_EditedMCPHeaderOrHookTagInASignedTreeIsCaught(t *testing.T
 			raw, err := afero.ReadFile(fsys, p)
 			require.NoError(t, err)
 			require.Contains(t, string(raw), tc.from)
-			require.NoError(t, afero.WriteFile(fsys, p, []byte(strings.ReplaceAll(string(raw), tc.from, tc.to)), 0o644))
+			testsupport.WriteFileString(t, fsys, p, strings.ReplaceAll(string(raw), tc.from, tc.to), 0o644)
 
 			v, err = VerifyBundle(ctx, b, rootTrusting(publisher("pub@example.test", pub)), now)
 			require.NoError(t, err)

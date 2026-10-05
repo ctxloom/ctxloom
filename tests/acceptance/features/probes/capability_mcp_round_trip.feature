@@ -91,7 +91,7 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
     # checkout because it is COMMITTED, and
     # probeCellRunDir resolved that checkout and read the call log out of it —
     # which works here because the server's writes leave the tree dirty and the
-    # WIP-safe teardown spares it. P3's worktree row shows the other side.
+    # WIP-safe teardown spares it.
     @probe-p2-mcp-round-trip @claude-code @container-rootless @ws-worktree
     Examples:
       | engine      | runtime            | workspace |

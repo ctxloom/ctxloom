@@ -37,7 +37,7 @@ ctxloom bundle distill <file-pattern>... [flags]
 ```
   -n, --dry-run      Preview what would be distilled
   -f, --force        Re-distill even if unchanged
-  -l, --llm string   llm.configs label to distill with (e.g. claude-fast); overrides the fast role's configured label
+  -l, --llm string   llm.configs label to distill with (e.g. claude-fast); overrides the distiller agent
 ```
 
 ### Options inherited from parent commands

@@ -244,19 +244,10 @@ func flagSiteExercised(s flagSite, blocks map[string][]coverBlock) (exercised, f
 // (a literal, or a constant constantFlagNames resolves). Both are writable Go;
 // either would otherwise shrink the census without saying so.
 func changedFlagSites(srcDir string) ([]flagSite, error) {
-	entries, err := os.ReadDir(srcDir)
+	names, err := nonTestGoFiles(srcDir)
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		n := e.Name()
-		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
-			continue
-		}
-		names = append(names, n)
-	}
-	sort.Strings(names)
 
 	root, err := moduleRootFrom(srcDir)
 	if err != nil {
@@ -318,6 +309,25 @@ func changedFlagSites(srcDir string) ([]flagSite, error) {
 		return out[i].Line < out[j].Line
 	})
 	return out, nil
+}
+
+// nonTestGoFiles lists the non-test Go files directly in dir, sorted, whatever
+// their build constraints.
+func nonTestGoFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 // sitesInFunc classifies every Changed() call inside fn, returning the sites

@@ -111,7 +111,7 @@ enforcing parity. `record.go:9-12` claims the payloads mirror `agent.ChatEvent` 
 |---|---|---|
 | `Recorder` (interface) | `recorder.go` | `Record(agent.ChatEvent) error` + `Close() error`. The seam every capture path shares; `vendorreader.VendorAdapter` takes it as a parameter |
 | `NewRecorder(fs afero.Fs, harp, engine string, opts ...RecorderOption)` | `recorder.go` | Requires a non-nil `fs` (every write goes through it) and a non-empty harp + engine, resolves the path via `paths.HarpCanonicalTranscriptPath`, applies options. **Does not open the file** |
-| `RecorderOption` (the `With*` constructors) | `recorder.go` | No production caller passes `WithRawPolicy` — so in production the policy is always `DefaultRawPolicy`. `WithPath` opts a recorder out of the default canonical path and its shared ownership lock |
+| `RecorderOption` (the `With*` constructors) | `recorder.go` | No production caller passes `WithRawPolicy` — so in production the policy is always `DefaultRawPolicy`. `WithWriter` sends a recorder's lines to a caller-owned writer instead of the default canonical path, so no file is opened and no ownership lock is taken |
 | `fileRecorder.Record` | `recorder.go` | Classifies via `payloadFromChatEvent`, stamps the envelope, lazily creates dir + file, appends one line, bumps `seq`. Refuses a fully-zero `ChatEvent` |
 | `fileRecorder.Close` | `recorder.go` | Idempotent (nil-guarded) |
 | `RecordUserText` | `recorder.go` | The **only** path that captures user turns; called by the runner's engine host |

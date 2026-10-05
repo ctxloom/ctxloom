@@ -14,47 +14,23 @@ Show whether each auth mode's credential is present in the environment (never it
 ### Synopsis
 
 How ctxloom-launched engines authenticate, and whether the credential each
-auth mode reads is present in your environment.
+auth mode reads is exported.
 
 Every agent ctxloom spawns (a delegated child, a one-shot, a container cell)
-authenticates with ONE credential: a long-lived token YOU mint with the
-engine's own flow and export (claude: run 'claude setup-token', then export
-CLAUDE_CODE_OAUTH_TOKEN, or keep it in your secret manager and export it from
-there). An agent has no auth to choose, and none ever reaches your login.
+uses one long-lived token you mint and export: for claude, run
+'claude setup-token' and export CLAUDE_CODE_OAUTH_TOKEN, or export it from
+your secret manager. 'ctxloom init' checks for it and runs that flow for you.
 
-'ctxloom init' checks for that token. With none exported, on a terminal, it
-runs the engine's own flow (claude: 'claude setup-token') attached to your
-terminal, reading nothing it prints, then shows the line to add to your shell
-profile and stops: a child process cannot set your shell's environment.
-Export the token and re-run 'ctxloom init'. Off a terminal it only names these
-steps.
+Your own 'ctxloom run' session uses the top-level 'auth:' in your config:
 
-Your OWN 'ctxloom run' session authenticates as the top-level 'auth:' in your
-config says:
+  token    that same token; init writes this, and it is the default
+  login    your own engine login, shared in place; host only
 
-  token    the token above. The default when 'auth:' is undeclared.
-  login    your own login, shared: the same credential and the same refresh
-           as your own engine (claude: CLAUDE_SECURESTORAGE_CONFIG_DIR). On
-           the host only: a container session refuses it. 'ctxloom init'
-           writes this.
-
-ctxloom never collects, stores or mints a credential: it READS the mode's
-credential from the environment it is launched in and hands it to the engine
-(a container receives the token as a secret file). Anthropic does not allow a
-third party to "collect, store, or intermediate Claude.ai credentials or
-session tokens" (https://code.claude.com/docs/en/legal-and-compliance). A run
-whose credential is not exported is refused, naming what to export.
-
-Only the mode's credential reaches the engine: every other credential the
-engine reads (an API key, a gateway token, a cloud-provider switch) is
-removed from the run's environment — including one you exported yourself.
-
-Agents on a subscription draw from the same usage limits as your own
-interactive use: Pro and Max limits are shared across Claude and Claude Code
-(https://support.claude.com/en/articles/11145838), and 'claude -p' draws from
-the subscription's limits (https://support.claude.com/en/articles/15036540).
-
-  ctxloom auth status    # per engine: is the token exported?
+ctxloom never collects, stores or mints a credential. It reads the mode's
+credential from its environment, strips every other engine credential (API
+keys, gateway tokens, cloud-provider switches) from the run, and refuses a
+run whose credential is not exported, naming what to export. Agents on a
+subscription share your usage limits.
 
 ```
 ctxloom auth status [flags]

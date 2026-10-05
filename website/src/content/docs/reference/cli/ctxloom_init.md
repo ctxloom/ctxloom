@@ -13,55 +13,26 @@ Initialize a new .ctxloom directory
 
 ### Synopsis
 
-Initialize a new .ctxloom directory in the current working directory.
+Set up ctxloom in the current directory: create the .ctxloom directory that
+marks the project root, scaffold a local "default" profile on the
+ctxloom-default baseline, register the ctxloom-default remote, and install the
+dependencies the scaffold declares (--no-pull skips that). Outside any project,
+ctxloom falls back to ~/.ctxloom.
 
-This creates a marker directory that ctxloom uses to identify a project root.
-All ctxloom data (profiles, bundles, fragments, commands) will be stored here.
+On a terminal, init asks which engine to use and whether to add a personal
+repository, takes the remaining defaults without asking (printing one line
+for each and how to change it), then launches your engine for one setup
+interview that configures profiles and binds agents. 'ctxloom init prompt'
+re-enters that interview later.
 
-If no .ctxloom directory exists when running ctxloom commands, the user home ~/.ctxloom
-is used as a fallback.
+Agents authenticate with a token you mint once. If none is exported, init runs
+the engine's own flow (claude: 'claude setup-token') and shows the line to add
+to your shell profile; export it and re-run init. Off a terminal, or with
+--non-interactive, it warns and exits 0 without launching the interview;
+--skip-launch launches nothing.
 
-init scaffolds the project bundle with a LOCAL default coding profile (its
-"default" profile, inheriting the ctxloom-default baseline) and wires the trusted ctxloom-default
-remote so its code-review lens profiles are available.
-
-It then installs the dependencies that scaffold declares ('ctxloom deps pull'),
-because a declared-but-uninstalled remote parent is SKIPPED at assembly: without
-this the project reads as initialized while composing less context than its
-configuration says. --no-pull suppresses it; a pull that cannot reach its remote
-never rolls the init back — it warns and leaves a usable project.
-
-init writes no engine file into the project. The setup interview below, like
-every 'ctxloom run', is a session that carries ctxloom's hooks and MCP server
-in its own session home; an engine launched directly in the project tree
-gets neither.
-
-When run interactively (TTY detected), init will guide you through:
-  1. Selecting an AI engine
-  2. Optionally adding a personal ctxloom repository as a remote
-  3. Launching your AI for one setup interview: discover and configure
-     profiles, then bind agents to them (an orchestrator you drive, a
-     containerized developer, a cheap finder — plus any other roles)
-
-Before the interview, init checks for the token every agent authenticates with
-(claude: CLAUDE_CODE_OAUTH_TOKEN). If it is exported, init probes it. If not,
-on a terminal init runs the engine's own 'claude setup-token' attached to your
-terminal, reading nothing it prints, then shows the line to add to your shell
-profile and stops: export the token and re-run 'ctxloom init'. Off a terminal
-(or with --non-interactive) it warns, naming those steps, and exits 0: the
-project is already set up, and only the setup interview was not launched. ctxloom never captures or stores the token.
---skip-launch runs no engine, and so neither of these.
-
-init writes the top-level 'auth: token': your own sessions run on that same
-token, checked before launch. 'auth: login' (your own engine login, shared in
-place, host only) is opt-in; it is not pre-checked beyond its store being on
-this host, and the engine reports a login it does not accept when the session
-starts.
-
-The working outcome of init is a functioning ctxloom CLI/TUI.
-
-Skipped or interrupted the interview? 'ctxloom init prompt' (or ask your
-agent to run it) re-enters the companions/profiles/agent-binding half any time.
+init writes 'auth: token', so your own sessions use that same token; 'auth:
+login' (your own engine login, host only) is opt-in.
 
 ```
 ctxloom init [flags]

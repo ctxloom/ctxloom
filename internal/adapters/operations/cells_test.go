@@ -487,7 +487,7 @@ func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
 		require.NoError(t, err, "runtime %s", runtime)
 
 		spec, err := isolation.NewSpec(req.Axes, req.Engine).Project(req.ProjectRoot).
-			Session("test-harp", req.SessionDir, isolation.SessionStateFromEnv(req.Env)).
+			Session(req.SessionDir, isolation.SessionState{Harp: "test-harp", ProjectID: req.Identity.Project}).
 			Home(agents.HomeMode(req.HomeMode)).Credentials(tokenCreds).Build()
 		require.NoError(t, err)
 		// Rendered, not compared: the engine value carries funcs, which

@@ -162,7 +162,7 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 		plan.Launch = l
 		return coord.Resolved{Launch: l}, nil
 	}
-	cenv, err := preparedContainer(ctx, "docker", coord.ContainerStoryBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
+	cenv, err := preparedContainer(ctx, "docker", coord.ContainerStoryBackend(plan), s.image, s.projectDir, isolation.SessionState{Harp: start.Identity.Harp, ProjectID: start.Identity.Project})
 	if err != nil {
 		return coord.Resolved{}, err
 	}

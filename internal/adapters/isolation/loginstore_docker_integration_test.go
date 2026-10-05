@@ -26,7 +26,7 @@ func TestLoginStore_ALiveContainerRunRefusesTheLogin(t *testing.T) {
 	resetStrictness(t)
 	home := fakeHostHome(t, tokenFixture) // a fixture login under a fake $HOME, never a real one
 	s, err := NewSpec(launch.Axes{Workspace: WorkspaceShared, Runtime: RuntimeContainerRootless}, claudeEngine(t)).Project(t.TempDir()).
-		Session(harpA, sessionDir(home, harpA), SessionState{Harp: harpA}).Credentials(claudeCredentials(t, engine.AuthLogin)).Build()
+		Session(sessionDir(home, harpA), SessionState{Harp: harpA}).Credentials(claudeCredentials(t, engine.AuthLogin)).Build()
 	require.NoError(t, err)
 
 	_, err = Prepare(context.Background(), s)

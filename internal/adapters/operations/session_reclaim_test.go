@@ -322,7 +322,7 @@ func srAddWorktree(t *testing.T, repo, harp string) string {
 	sessionDir, err := paths.HarpDir(harp)
 	require.NoError(t, err)
 	spec, err := isolation.NewSpec(isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost}, mock.New()).
-		Project(repo).Session(harp, sessionDir, isolation.SessionState{Harp: harp}).Build()
+		Project(repo).Session(sessionDir, isolation.SessionState{Harp: harp}).Build()
 	require.NoError(t, err)
 	env, err := isolation.Prepare(context.Background(), spec)
 	require.NoError(t, err)

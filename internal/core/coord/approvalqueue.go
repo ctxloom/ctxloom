@@ -2,8 +2,6 @@ package coord
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -19,46 +17,10 @@ import (
 // ever answers an id it was handed.
 type ApprovalID string
 
-// ApprovalKind classifies a parked request.
-type ApprovalKind int
-
-const (
-	ApprovalTool ApprovalKind = iota
-	ApprovalQuestion
-	ApprovalPlan
-)
-
-var approvalKindNames = [...]string{ApprovalTool: "tool", ApprovalQuestion: "question", ApprovalPlan: "plan"}
-
-// String renders the kind's journal spelling.
-func (k ApprovalKind) String() string {
-	if k >= 0 && int(k) < len(approvalKindNames) {
-		return approvalKindNames[k]
-	}
-	return fmt.Sprintf("approvalKind(%d)", int(k))
-}
-
-// MarshalText writes the kind by name, so the journal stays jq-legible.
-func (k ApprovalKind) MarshalText() ([]byte, error) { return []byte(k.String()), nil }
-
-// ApprovalKindOf is the kind a parked request takes from what the engine
-// asked.
-func ApprovalKindOf(k engine.AskKind) ApprovalKind {
-	switch k {
-	case engine.AskQuestion:
-		return ApprovalQuestion
-	case engine.AskPlan:
-		return ApprovalPlan
-	default:
-		return ApprovalTool
-	}
-}
-
 // PendingApproval is one request parked for the root human's decision, as a
 // presenter shows it.
 type PendingApproval struct {
 	ID    ApprovalID
-	Kind  ApprovalKind
 	From  Identity
 	Agent string
 	// Lineage is the asker's delegation chain, root → … → the asking harp.
@@ -85,10 +47,9 @@ type PendingApproval struct {
 type ApprovalDecision struct {
 	Allow        bool
 	SessionRules []string
-	// SetMode is a posture change riding the allow (plan posture, or the
-	// engine's own set-mode suggestion); one of the request's Transitions.
+	// SetMode is a posture change riding the allow (the engine's own
+	// set-mode suggestion); one of the request's Transitions.
 	SetMode engine.Declared[string]
-	Answers []engine.QuestionAnswer
 	Message string
 	Decider agent.Decider
 }
@@ -267,7 +228,7 @@ func (q *ApprovalQueue) Park(ctx context.Context, from Identity, req PendingAppr
 	req.Deadline = now.Add(timeout)
 	if err := q.store.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factApprovalParked, now, approvalParked{
-			ID: req.ID, Harp: from.Harp, RunID: from.RunID, Agent: req.Agent, Kind: req.Kind,
+			ID: req.ID, Harp: from.Harp, RunID: from.RunID, Agent: req.Agent,
 			Tool: req.Ask.Tool, ToolUseID: req.Ask.ToolUseID, Input: req.Ask.Input, Deadline: req.Deadline,
 		})}, nil
 	}); err != nil {
@@ -464,10 +425,10 @@ func keyOf(id Identity) runKey { return runKey{harp: id.Harp, runID: id.RunID} }
 // covers: allowed, granting nothing further.
 var coveredByGrant = ApprovalDecision{Allow: true, Decider: agent.DeciderGrant}
 
-// coveredLocked reports whether one of rules covers req's call. Only a tool
-// call is ever covered. Call with q.mu held.
+// coveredLocked reports whether one of rules covers req's call. Call with
+// q.mu held.
 func (q *ApprovalQueue) coveredLocked(req PendingApproval, rules []string) bool {
-	return req.Kind == ApprovalTool && q.covers != nil &&
+	return q.covers != nil &&
 		slices.ContainsFunc(rules, func(r string) bool { return q.covers(req, r) })
 }
 
@@ -518,14 +479,14 @@ func (q *ApprovalQueue) uncover(harp, rule string) (restore func()) {
 }
 
 // decisionFacts is the facts one decision journals: the decision, then a
-// grant per new session rule, then the plan's approval. Runs inside the
+// grant per new session rule. Runs inside the
 // journal's writer window, so the grants fold it reads is quiescent.
 func (q *ApprovalQueue) decisionFacts(req PendingApproval, d ApprovalDecision) []Fact {
 	now, harp := q.now(), req.From.Harp
 	setMode, _ := d.SetMode.Get()
 	facts := []Fact{factAt(factApprovalDecided, now, approvalDecided{
 		ID: req.ID, Harp: harp, Decider: d.Decider, Allow: d.Allow, Rules: d.SessionRules,
-		SetMode: setMode, Answers: d.Answers, Message: d.Message,
+		SetMode: setMode, Message: d.Message,
 	})}
 	for i, rule := range d.SessionRules {
 		if q.grants.holds(harp, req.engine, rule) {
@@ -533,12 +494,6 @@ func (q *ApprovalQueue) decisionFacts(req PendingApproval, d ApprovalDecision) [
 		}
 		facts = append(facts, factAt(factGrantAdded, now, grantAdded{
 			ID: fmt.Sprintf("%s-%d", req.ID, i), Harp: harp, Rule: rule, From: req.ID, Engine: req.engine,
-		}))
-	}
-	if d.Allow && req.Kind == ApprovalPlan && req.Ask.Plan != nil {
-		sum := sha256.Sum256([]byte(req.Ask.Plan.Markdown))
-		facts = append(facts, factAt(factPlanApproved, now, planApproved{
-			ID: req.ID, Harp: harp, Posture: setMode, Digest: "sha256:" + hex.EncodeToString(sum[:]), Path: req.Ask.Plan.Path,
 		}))
 	}
 	return facts

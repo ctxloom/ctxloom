@@ -2,6 +2,7 @@ package refuri
 
 import (
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -58,5 +59,61 @@ func TestParseRepoURL_DottedHostsAndNamesAreNotPaths(t *testing.T) {
 		if _, err := ParseRepoURL(in); err != nil {
 			t.Errorf("ParseRepoURL(%q) = %v; want it parsed, not refused", in, err)
 		}
+	}
+}
+
+// A home-relative spelling is a LOCAL path too. Its first segment "~" carries
+// no dot, so the shorthand arm would otherwise read "~/bundles" as the GitHub
+// repository github.com/~/bundles. Expanding the home directory is the argv
+// ingest's job, as resolving any path is; the grammar refuses it.
+func TestParseRepoURL_RefusesAHomeRelativePath(t *testing.T) {
+	for _, in := range []string{"~/bundles", "~/bundles.git", "~", "~/", "~alice/bundles", "  ~/x  "} {
+		got, err := ParseRepoURL(in)
+		if !errors.Is(err, ErrSchemelessPath) {
+			t.Errorf("ParseRepoURL(%q) = %q, %v; want ErrSchemelessPath", in, got.Normalized(), err)
+			continue
+		}
+		if !strings.Contains(err.Error(), homeRemedy) {
+			t.Errorf("ParseRepoURL(%q) error %q does not name the remedy %q", in, err, homeRemedy)
+		}
+		if _, err := CanonicalRepoURL(in); !errors.Is(err, ErrSyntax) {
+			t.Errorf("CanonicalRepoURL(%q) err = %v; want ErrSyntax", in, err)
+		}
+	}
+}
+
+// A bare word — no dot, no slash — is neither a host anyone can reach by name
+// on the public network nor a repository path. Reading "bundles" as the host
+// https://bundles is a guess; it is refused, naming the spellings that work.
+// A dotted bare host is a real host name and stays parseable.
+func TestParseRepoURL_RefusesABareWord(t *testing.T) {
+	for _, in := range []string{"bundles", "localhost", "my-repo", "  x  "} {
+		got, err := ParseRepoURL(in)
+		if !errors.Is(err, ErrSyntax) {
+			t.Errorf("ParseRepoURL(%q) = %q, %v; want ErrSyntax", in, got.Normalized(), err)
+			continue
+		}
+		if _, err := CanonicalRepoURL(in); !errors.Is(err, ErrSyntax) {
+			t.Errorf("CanonicalRepoURL(%q) err = %v; want ErrSyntax", in, err)
+		}
+	}
+	for _, in := range []string{"gitlab.com", "example.com.git"} {
+		if _, err := ParseRepoURL(in); err != nil {
+			t.Errorf("ParseRepoURL(%q) = %v; a dotted bare host is not a bare word", in, err)
+		}
+	}
+}
+
+// The file:// remedy is a URL, and git percent-decodes a file:// URL: a path
+// holding '%' concatenated after "file://" names a different directory. The
+// remedy must round-trip to the path the user wrote.
+func TestFileRemedy_EscapesPercent(t *testing.T) {
+	const path = "/srv/100%25done/bundles"
+	parsed, err := url.Parse(fileRemedy(path))
+	if err != nil {
+		t.Fatalf("fileRemedy(%q) = %q does not parse: %v", path, fileRemedy(path), err)
+	}
+	if parsed.Scheme != "file" || parsed.Path != path {
+		t.Errorf("fileRemedy(%q) = %q decodes to scheme %q path %q; want file %q", path, fileRemedy(path), parsed.Scheme, parsed.Path, path)
 	}
 }

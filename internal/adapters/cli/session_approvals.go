@@ -14,7 +14,6 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
@@ -57,19 +56,12 @@ type approvalRow struct {
 	Project     string    `json:"project"`
 	Harp        string    `json:"harp"`
 	Agent       string    `json:"agent,omitempty"`
-	Kind        string    `json:"kind"`
 	Summary     string    `json:"summary"`
 	Lineage     []string  `json:"lineage"`
 	Since       time.Time `json:"since"`
 	Deadline    time.Time `json:"deadline"`
 	AgeSeconds  int64     `json:"age_seconds"`
 	LeftSeconds int64     `json:"left_seconds"`
-}
-
-var approvalKindFromWire = map[agentcoordpb.ApprovalRequest_ApprovalKind]coord.ApprovalKind{
-	agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL:     coord.ApprovalTool,
-	agentcoordpb.ApprovalRequest_APPROVAL_KIND_QUESTION: coord.ApprovalQuestion,
-	agentcoordpb.ApprovalRequest_APPROVAL_KIND_PLAN:     coord.ApprovalPlan,
 }
 
 // runSessionApprovals asks every live coordinator on this host. A coordinator
@@ -145,7 +137,6 @@ func buildApprovalsList(answers []*agentcoordpb.PendingApprovalsResult, now time
 				Project:     a.GetProjectDir(),
 				Harp:        p.GetHarp(),
 				Agent:       p.GetAgent(),
-				Kind:        approvalKindFromWire[p.GetKind()].String(),
 				Summary:     p.GetSummary(),
 				Lineage:     p.GetLineage(),
 				Since:       since,
@@ -166,7 +157,7 @@ func buildApprovalsList(answers []*agentcoordpb.PendingApprovalsResult, now time
 func renderApprovals(w io.Writer, res approvalsListResult) error {
 	ew := errwriter.New(w)
 	tw := tabwriter.NewWriter(ew, 0, 0, 2, ' ', 0)
-	header := "LEFT\tAGE\tKIND\tASKER\tLINEAGE\tSUMMARY"
+	header := "LEFT\tAGE\tASKER\tLINEAGE\tSUMMARY"
 	if res.Coordinators > 1 {
 		header = "PROJECT\t" + header
 	}
@@ -176,7 +167,7 @@ func renderApprovals(w io.Writer, res approvalsListResult) error {
 		if r.Agent != "" {
 			asker += " (" + r.Agent + ")"
 		}
-		cells := []string{mmss(r.LeftSeconds), mmss(r.AgeSeconds), r.Kind, asker, strings.Join(r.Lineage, "→"), r.Summary}
+		cells := []string{mmss(r.LeftSeconds), mmss(r.AgeSeconds), asker, strings.Join(r.Lineage, "→"), r.Summary}
 		if res.Coordinators > 1 {
 			cells = append([]string{r.Project}, cells...)
 		}

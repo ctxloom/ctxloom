@@ -347,19 +347,20 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 	modal := &fakeModal{quit: make(chan struct{})}
 	stdinR, stdinW := io.Pipe()
 	tty := &lockedTTY{}
+	// Buffered before New, as watchResize does: the controller establishes the
+	// region inside New.
 	sizes := make(chan *agent.WindowSize, 1)
+	sizes <- &agent.WindowSize{Rows: 24, Cols: 100}
 	ui := termui.New(termui.Options{
 		Stdin: stdinR, TTY: tty, Resize: sizes, Prefix: 0x1d, Surround: true, Clock: clk,
 		NewOverlay: func(s termui.OverlayStart) termui.Overlay { starts <- s; return modal },
 	})
+	require.Contains(t, tty.String(), "\x1b[1;23r", "surround established by New")
+	require.Equal(t, uint16(23), (<-ui.Resize()).Rows, "the initial size, translated inside New")
 	pumpDone := make(chan struct{})
 	go func() {
 		defer close(pumpDone)
 		_, _ = io.Copy(io.Discard, ui.Stdin())
-	}()
-	go func() {
-		for range ui.Resize() {
-		}
 	}()
 	t.Cleanup(func() {
 		ui.Close()
@@ -367,8 +368,6 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 		close(sizes)
 		<-pumpDone
 	})
-	sizes <- &agent.WindowSize{Rows: 24, Cols: 100}
-	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "\x1b[1;23r") }, 5*time.Second, time.Millisecond, "surround established")
 
 	src := newPresenterSource()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -378,19 +377,22 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 		cancel()
 		<-done
 	})
+	// The presenter summons for what is already pending when it starts, and
+	// again on an arrival: a request parked before its start would be summoned
+	// twice, and the second could take the screen after the modal below is
+	// closed. Its loop being at its select orders the arrival after the start.
+	src.settle()
 	src.add(pending("a", "wiry-otter", clk.Now().Add(-5*time.Second), clk.Now().Add(10*time.Minute)))
-	select {
-	case s := <-starts:
-		assert.Equal(t, termui.OverlayStart{Summoned: true, View: "approvals"}, s)
-	case <-time.After(5 * time.Second):
-		t.Fatal("the modal was never summoned")
-	}
-	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "⚑ 1 · oldest 00:05") }, 5*time.Second, time.Millisecond)
+	// The presenter sets the bar before it starts the Summon that builds the
+	// modal, so the bar is painted once the modal has been asked for.
+	assert.Equal(t, termui.OverlayStart{Summoned: true, View: "approvals"}, <-starts)
+	assert.Contains(t, tty.String(), "⚑ 1 · oldest 00:05")
 	// The human closes the modal before the request times out. The modal's
-	// teardown runs on the controller's overlay goroutine; the takeover's
-	// leave sequence on the tty is that release having been written.
+	// teardown runs on the controller's overlay goroutine and sends its repaint
+	// nudge after the release is written.
 	modal.Abort()
-	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "\x1b[?1049l") }, 5*time.Second, time.Millisecond, "modal released")
+	require.Equal(t, uint16(22), (<-ui.Resize()).Rows, "the release's nudge")
+	require.Contains(t, tty.String(), "\x1b[?1049l", "modal released")
 	src.resolve("a", agent.DeciderTimeout)
 	src.settle()
 	// The release counts as engine output, so a note asked for right after it

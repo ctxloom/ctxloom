@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -317,8 +318,7 @@ func gitRepo(t *testing.T) string {
 		{"config", "gc.auto", "0"},
 		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"},
 	} {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
+		cmd := taskstest.GitCmd(dir, nil, args...)
 		out, err := cmd.CombinedOutput()
 		require.NoError(t, err, "git %v: %s", args, out)
 	}

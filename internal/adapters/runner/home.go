@@ -78,7 +78,10 @@ type Home struct {
 	// session's endpoint at /hook; nil until a run whose approver is the
 	// human binds one.
 	approvalRoute ApprovalRoute
-	turnPending   map[string]bool
+	// planStamp publishes the plan a turn left and names its artifact
+	// (SetPlanStamp); nil until the session endpoint binds it.
+	planStamp   func(ctx context.Context) string
+	turnPending map[string]bool
 	// acking holds the ids the engine has ACCEPTED whose delivery ack
 	// (spool.Deliver) the pump has not yet performed; ackWake is closed and
 	// replaced whenever turnPending or acking shrinks. Together they let

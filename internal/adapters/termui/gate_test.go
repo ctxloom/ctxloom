@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -298,10 +297,6 @@ func TestOutputGate_HoldNeverBlocksTheEngine(t *testing.T) {
 			}
 		}
 	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("a held gate blocked the engine's writes")
-	}
+	await(t, "the engine's writes through a held gate", done)
 	assert.Empty(t, tty.String())
 }

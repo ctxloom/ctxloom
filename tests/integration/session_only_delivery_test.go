@@ -96,11 +96,6 @@ func findUnder(t *testing.T, dir, name string) []string {
 	return hits
 }
 
-// mockProjectFiles are the mock engine's well-known project-side files: the
-// ones an explicit project-root selection lands and a default run never
-// does.
-var mockProjectFiles = []string{"MOCK_CONTEXT.md", ".mock/mcp.json", ".mock/settings.json", ".mock/commands", ".mock/skills"}
-
 // projectExcluded are the project paths a run legitimately touches: its
 // own state, the project identity a first run mints, and git's.
 var projectExcluded = []string{".ctxloom/state", ".ctxloom/project-id", ".git"}
@@ -120,10 +115,11 @@ func setupSessionOnlyProject(t *testing.T) (*testenv.TestEnvironment, *testenv.M
 // TestRun_DefaultBindingWritesOnlyTheSession: after a run on the mock with
 // a default binding, the project tree and the fake real home are
 // byte-identical before and after — except the project's .ctxloom/state and
-// ctxloom's own ~/.ctxloom — while the mock read its context from under the
-// session's directory. Where the context was is read off the mock's record,
-// written during the turn: the runner reverses its delivery at teardown, so
-// the file itself is gone by the time the run returns.
+// ctxloom's own ~/.ctxloom — while the mock was handed every surface from
+// under the session's directory. Where each surface was is read off the
+// mock's record, written during the turn: the runner reverses its delivery
+// at teardown, so a surface delivered into the project is gone by the time
+// the run returns, and only the record can show it.
 func TestRun_DefaultBindingWritesOnlyTheSession(t *testing.T) {
 	env, mockLM := setupSessionOnlyProject(t)
 	_ = env.Run("agent", "create", "dev", "--profiles", "dev")
@@ -140,16 +136,10 @@ func TestRun_DefaultBindingWritesOnlyTheSession(t *testing.T) {
 		"a default run wrote the project tree")
 	assert.Equal(t, homeBefore, treeSnapshot(t, env.HomeDir, paths.AppDirName),
 		"a default run wrote the user's real home outside ~/.ctxloom")
-	for _, f := range mockProjectFiles {
-		assert.NoFileExists(t, filepath.Join(env.ProjectDir, f), "the mock's project-side file %s landed under a default binding", f)
-	}
+	assertSurfacesInSession(t, env, mockLM, mock.RecordSurfaceKeys())
 
 	contextFile, context := mockRecordedContext(t, mockLM)
 	assert.Equal(t, "MOCK_CONTEXT.md", filepath.Base(contextFile))
-	dirs := sessionDirs(t, env)
-	require.NotEmpty(t, dirs)
-	assert.True(t, slices.ContainsFunc(dirs, func(d string) bool { return strings.HasPrefix(contextFile, d+string(filepath.Separator)) }),
-		"the mock read its context from %s, not from under the session's directory %v", contextFile, dirs)
 	assert.Contains(t, context, "Project rules for the session.", "the session's context reached the mock")
 }
 
@@ -176,22 +166,29 @@ func TestRun_ProjectRootSelectedForOneSurface(t *testing.T) {
 	assert.Equal(t, filepath.Join(env.ProjectDir, "MOCK_CONTEXT.md"), contextFile, "the selected surface lands in the project")
 	assert.Contains(t, context, "Project rules for the session.", "the project's file carried the session's context")
 	assert.NoFileExists(t, contextFile, "the run's teardown reverses its write into the project")
-	// Where every OTHER surface was delivered is read off the mock's record,
-	// written DURING the turn: the runner's teardown erases a stray write
-	// into the project before anything after the run could see it.
+	assertSurfacesInSession(t, env, mockLM, slices.DeleteFunc(mock.RecordSurfaceKeys(), func(k string) bool { return k == mock.RecordContextFile }))
+	assert.NoDirExists(t, filepath.Join(env.HomeDir, ".mock"), "the run leaves nothing in the real home")
+}
+
+// assertSurfacesInSession: each surface named by keys was delivered, during
+// the mock's turn, under the session's directory and not into the project.
+// It is read off the mock's record, written DURING the turn: the runner's
+// teardown erases a stray write into the project before anything after the
+// run could see it.
+func assertSurfacesInSession(t *testing.T, env *testenv.TestEnvironment, mockLM *testenv.MockLM, keys []string) {
+	t.Helper()
 	dirs := sessionDirs(t, env)
 	require.NotEmpty(t, dirs)
 	surfaces := mockRecordedSurfaces(t, mockLM)
-	for _, key := range []string{mock.RecordMCPFile, mock.RecordSettingsFile, mock.RecordHooksFile, mock.RecordCommandsDir, mock.RecordSkillsDir} {
+	for _, key := range keys {
 		path, ok := surfaces[key]
 		if !assert.True(t, ok, "the mock's record names no %s", key) {
 			continue
 		}
-		assert.False(t, strings.HasPrefix(path, env.ProjectDir+string(filepath.Separator)), "an unselected surface %s landed in the project: %s", key, path)
+		assert.False(t, strings.HasPrefix(path, env.ProjectDir+string(filepath.Separator)), "the surface %s landed in the project: %s", key, path)
 		assert.True(t, slices.ContainsFunc(dirs, func(d string) bool { return strings.HasPrefix(path, d+string(filepath.Separator)) }),
-			"the unselected surface %s was delivered to %s, not under the session's directory %v", key, path, dirs)
+			"the surface %s was delivered to %s, not under the session's directory %v", key, path, dirs)
 	}
-	assert.NoDirExists(t, filepath.Join(env.HomeDir, ".mock"), "the real home is never written")
 }
 
 // mockRecordedSurfaces is where the mock's record says each surface was

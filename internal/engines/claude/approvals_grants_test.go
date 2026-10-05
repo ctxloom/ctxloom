@@ -83,7 +83,7 @@ func TestApprovalCodec_TheRulesItAddsAreRulesAndCoverTheCall(t *testing.T) {
 
 func bashAsk(command string) engine.PermissionAsk {
 	in, _ := json.Marshal(map[string]string{"command": command, "description": "anything"})
-	return engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: in}
+	return engine.PermissionAsk{Tool: "Bash", Input: in}
 }
 
 // TestApprovalCodec_Covers: a whole-tool rule covers every call of the tool
@@ -94,9 +94,9 @@ func bashAsk(command string) engine.PermissionAsk {
 func TestApprovalCodec_Covers(t *testing.T) {
 	c := codec(t)
 	read := func(p string) engine.PermissionAsk {
-		return engine.PermissionAsk{Kind: engine.AskTool, Tool: "Read", Input: json.RawMessage(`{"file_path":"` + p + `"}`)}
+		return engine.PermissionAsk{Tool: "Read", Input: json.RawMessage(`{"file_path":"` + p + `"}`)}
 	}
-	mcp := engine.PermissionAsk{Kind: engine.AskTool, Tool: "mcp__srv__do_it", Input: json.RawMessage(`{}`)}
+	mcp := engine.PermissionAsk{Tool: "mcp__srv__do_it", Input: json.RawMessage(`{}`)}
 	for _, tc := range []struct {
 		rule string
 		ask  engine.PermissionAsk
@@ -122,13 +122,12 @@ func TestApprovalCodec_Covers(t *testing.T) {
 		{"mcp__sr", mcp, false},
 		{"mcp__srv__do", mcp, false},
 		{"mcp__other", mcp, false},
-		{"mcp__srv", engine.PermissionAsk{Kind: engine.AskTool, Tool: "mcp__srv__a__b"}, false},
-		{"mcp__a__b", engine.PermissionAsk{Kind: engine.AskTool, Tool: "mcp__a__b__c"}, false},
-		{"WebFetch(domain:example.com)", engine.PermissionAsk{Kind: engine.AskTool, Tool: "WebFetch", Input: json.RawMessage(`{"url":"https://example.com"}`)}, false},
+		{"mcp__srv", engine.PermissionAsk{Tool: "mcp__srv__a__b"}, false},
+		{"mcp__a__b", engine.PermissionAsk{Tool: "mcp__a__b__c"}, false},
+		{"WebFetch(domain:example.com)", engine.PermissionAsk{Tool: "WebFetch", Input: json.RawMessage(`{"url":"https://example.com"}`)}, false},
 		{"", bashAsk("ls"), false},
 		{"Bash(", bashAsk("ls"), false},
-		{"Bash", engine.PermissionAsk{Kind: engine.AskQuestion, Tool: "Bash"}, false},
-		{"Bash(ls)", engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{`)}, false},
+		{"Bash(ls)", engine.PermissionAsk{Tool: "Bash", Input: json.RawMessage(`{`)}, false},
 	} {
 		assert.Equalf(t, tc.want, c.Covers(tc.rule, tc.ask), "Covers(%q, %s %s)", tc.rule, tc.ask.Tool, tc.ask.Input)
 	}

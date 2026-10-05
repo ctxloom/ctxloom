@@ -14,13 +14,13 @@ ctxloom doctor
 
 Every check emits a line prefixed with a stable `DOCTOR-CHECK-*` marker. That's deliberate: a human staring at terminal output and an LLM you've asked to triage the same report are reading the same language, not two different ones that have to be reconciled by hand. If you paste doctor's output to an assistant, it can reason about `DOCTOR-CHECK-HOOKS-TRUST-d4: warn` exactly the way you would.
 
-Doctor is diagnostic only — it always exits `0` and never blocks or changes anything. A `warn` status *is* the fail-loud signal here; read the report, don't script against the exit code.
+Doctor is diagnostic only — it always exits `0` and never blocks or changes anything. The container-runtime probe runs podman or docker, which may create its own storage directories. A `warn` status *is* the fail-loud signal here; read the report, don't script against the exit code.
 
 ## What it checks
 
 Run with no flags on an already-set-up project and doctor runs every check it has. The report itself is the complete list; these are the ones you will act on most:
 
-- **`DOCTOR-CHECK-SETUP-MARKER-e5`** — the `.ctxloom` marker directory is present and config loaded without error
+- **`DOCTOR-CHECK-SETUP-MARKER-e5`** — the project's `.ctxloom` marker directory and its config file are present, and config loaded without error; the home `~/.ctxloom` fallback the config read resolves to outside any project does not count
 - **`DOCTOR-CHECK-DEPS-a1`** — `git` and each configured engine's native client (e.g. `claude`) are on `PATH` (required); a container runtime is required only when an agent uses a container runtime; `ssh` and `ssh-keygen` are present (recommended — `ssh` is what `git` itself needs for an `ssh://` remote, `ssh-keygen` is only for generating a *new* signing key by hand; ctxloom's own signing is pure Go over the ssh-agent protocol and never execs either)
 - **`DOCTOR-CHECK-SIGNKEY-k1`** — a signing identity resolves via the exact resolver `ctxloom review`'s approve path and `ctxloom bundle sign`/`--sign` use (explicit `sign.key`, then `git config user.signingkey`, then ssh-agent's sole identity). The key must be an SSH key: ctxloom signs only with SSH signatures (the sshsig format `ssh-keygen -Y sign` writes, verified against `allowed_signers`), never GPG/PGP
 - **`DOCTOR-CHECK-GITIDENT-l2`** — `git config user.name` and `user.email` both resolve, because agents ctxloom launches commit their own work inside isolated worktrees, and an unset identity means a commit fails or gets silently mis-attributed to whatever the OS account derives

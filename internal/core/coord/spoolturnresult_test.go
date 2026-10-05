@@ -13,6 +13,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
@@ -170,7 +171,7 @@ func TestSpoolTurnResult_SelfReportSuppressesIt(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 0, resp.GetStatus().GetCode())
-	require.NoError(t, home.ReportTurnResult("whatever the model happened to say", "", nil, nil))
+	require.NoError(t, home.ReportTurnResult("whatever the model happened to say", "", nil, nil, nil))
 
 	require.NotEmpty(t, recvBody(t, c, "in my own words", conformanceWait), "the child's own report must arrive")
 	assert.Empty(t, recvBody(t, c, "whatever the model happened to say", 300*time.Millisecond),
@@ -189,7 +190,7 @@ func TestSpoolTurnResult_RateLimitedTurnSaysParked(t *testing.T) {
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
 
-	require.NoError(t, home.ReportTurnResult("You've hit your limit.", "", nil, &agent.TurnFailure{Kind: agent.FailureRateLimited}))
+	require.NoError(t, home.ReportTurnResult("You've hit your limit.", "", nil, nil, &agent.TurnFailure{Kind: agent.FailureRateLimited}))
 	got := recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "RATE LIMITED") }, conformanceWait)
 	require.Len(t, got, 1, "the parent must hear the turn was turned away")
 	assert.Equal(t, KindError, got[0].Kind, "a turn that did no work is an error, not a result")
@@ -214,7 +215,7 @@ func TestSpoolTurnResult_BlockedTurnSaysBlocked(t *testing.T) {
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
 
 	denial := agent.PermissionDenial{ToolName: "Bash", ToolCallID: "t1", Reason: "needs approval"}
-	require.NoError(t, home.ReportTurnResult("I could not run the migration.", "", []agent.PermissionDenial{denial}, nil))
+	require.NoError(t, home.ReportTurnResult("I could not run the migration.", "", []agent.PermissionDenial{denial}, nil, nil))
 	got := recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "BLOCKED") }, conformanceWait)
 	require.Len(t, got, 1, "the parent must hear the turn was blocked")
 	assert.Equal(t, KindResult, got[0].Kind)
@@ -228,10 +229,62 @@ func TestSpoolTurnResult_BlockedTurnSaysBlocked(t *testing.T) {
 	require.NoError(t, json.Unmarshal(got[0].Structured, &structured))
 	assert.Equal(t, []BlockedCall{{Tool: "Bash", Reason: "needs approval", Decider: "policy"}}, structured.Blocked)
 
-	require.NoError(t, home.ReportTurnResult("  ", "", []agent.PermissionDenial{{ToolName: "Write"}}, nil))
+	require.NoError(t, home.ReportTurnResult("  ", "", []agent.PermissionDenial{{ToolName: "Write"}}, nil, nil))
 	got = recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "BLOCKED on Write") }, conformanceWait)
 	require.Len(t, got, 1, "a blocked turn that said nothing else is still a blocked report")
 	assert.Equal(t, KindResult, got[0].Kind, "not the empty-turn error: the turn has a report — what stopped it")
+}
+
+// TestSpoolTurnResult_APlanAwaitingApprovalLeadsTheReport pins the parent's
+// cue: a turn that ended holding a plan leads its report with the plan's
+// artifact, how to fetch it, and how to approve or revise it — the offered
+// postures named — beneath any BLOCKED lead, above what the turn said.
+func TestSpoolTurnResult_APlanAwaitingApprovalLeadsTheReport(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(t, 0)
+	c := newCutoverCoordinator(t, sp, 0)
+	_, home := awaitCutoverChildIdle(t, c, sp, "first task")
+	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
+
+	const cue = `PLAN AWAITING APPROVAL: plan/plan-add-hello — fetch it with agent_fetch_artifact. To approve, agent_send structured {"approve_plan": "<posture>"} (offered: default, acceptEdits); to revise, send a normal message.`
+	plan := &PlanApproval{Artifact: "plan/plan-add-hello", Postures: []engine.PostureTransition{
+		{Posture: "default", Label: "default"},
+		{Posture: "acceptEdits", Label: "accept edits", Default: true},
+	}}
+	require.NoError(t, home.ReportTurnResult("1. add hello.txt", "", nil, plan, nil))
+	got := recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "PLAN AWAITING") }, conformanceWait)
+	require.Len(t, got, 1)
+	assert.Equal(t, KindResult, got[0].Kind)
+	assert.Equal(t, cue+"\n\n1. add hello.txt", got[0].Body)
+
+	denial := agent.PermissionDenial{ToolName: "Bash", Reason: "needs approval"}
+	require.NoError(t, home.ReportTurnResult("1. add hello.txt", "", []agent.PermissionDenial{denial}, plan, nil))
+	got = recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "BLOCKED on Bash") }, conformanceWait)
+	require.Len(t, got, 1)
+	assert.Equal(t, "BLOCKED on Bash: needs approval (decided by policy)\n"+cue+"\n\n1. add hello.txt", got[0].Body)
+}
+
+// TestSpoolTurnResult_APlanWithNoFileSaysItIsInTheReport: a planning turn
+// that published no plan file still cues its parent — the plan is the
+// report's own text.
+func TestSpoolTurnResult_APlanWithNoFileSaysItIsInTheReport(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(t, 0)
+	c := newCutoverCoordinator(t, sp, 0)
+	_, home := awaitCutoverChildIdle(t, c, sp, "first task")
+	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
+
+	const cue = `PLAN AWAITING APPROVAL: the plan is in this report (no plan file was published). To approve, agent_send structured {"approve_plan": "<posture>"} (offered: default, acceptEdits); to revise, send a normal message.`
+	plan := &PlanApproval{Postures: []engine.PostureTransition{
+		{Posture: "default", Label: "default"},
+		{Posture: "acceptEdits", Label: "accept edits", Default: true},
+	}}
+	require.NoError(t, home.ReportTurnResult("1. add hello.txt", "", nil, plan, nil))
+	got := recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "PLAN AWAITING") }, conformanceWait)
+	require.Len(t, got, 1)
+	assert.Equal(t, cue+"\n\n1. add hello.txt", got[0].Body)
 }
 
 // TestSpoolTurnResult_EmptyTurnIsReportedAsAnError pins the empty-turn arm on
@@ -249,7 +302,7 @@ func TestSpoolTurnResult_EmptyTurnIsReportedAsAnError(t *testing.T) {
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
 
-	require.NoError(t, home.ReportTurnResult("   \n  ", "", nil, nil))
+	require.NoError(t, home.ReportTurnResult("   \n  ", "", nil, nil, nil))
 
 	got := recvKind(t, c, KindError, conformanceWait)
 	require.NotEmpty(t, got, "an empty turn must reach the PARENT, not just the runner's stderr")

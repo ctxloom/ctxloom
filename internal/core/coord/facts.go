@@ -68,9 +68,6 @@ const (
 	factGrantAdded = "grant.added"
 	// factGrantRevoked withdraws one grant.
 	factGrantRevoked = "grant.revoked"
-	// factPlanApproved records an approved plan and the posture it executes
-	// under.
-	factPlanApproved = "plan.approved"
 )
 
 // Hold fact kinds, journaled in the run-registry journal beside the runs they
@@ -337,7 +334,6 @@ type approvalParked struct {
 	Harp      string          `json:"harp"`
 	RunID     string          `json:"run_id,omitempty"`
 	Agent     string          `json:"agent,omitempty"`
-	Kind      ApprovalKind    `json:"kind"`
 	Tool      string          `json:"tool,omitempty"`
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Input     json.RawMessage `json:"input,omitempty"`
@@ -346,14 +342,13 @@ type approvalParked struct {
 
 // approvalDecided is factApprovalDecided's payload.
 type approvalDecided struct {
-	ID      ApprovalID              `json:"id"`
-	Harp    string                  `json:"harp"`
-	Decider agent.Decider           `json:"decider"`
-	Allow   bool                    `json:"allow"`
-	Rules   []string                `json:"rules,omitempty"`
-	SetMode string                  `json:"set_mode,omitempty"`
-	Answers []engine.QuestionAnswer `json:"answers,omitempty"`
-	Message string                  `json:"message,omitempty"`
+	ID      ApprovalID    `json:"id"`
+	Harp    string        `json:"harp"`
+	Decider agent.Decider `json:"decider"`
+	Allow   bool          `json:"allow"`
+	Rules   []string      `json:"rules,omitempty"`
+	SetMode string        `json:"set_mode,omitempty"`
+	Message string        `json:"message,omitempty"`
 }
 
 // grantAdded is factGrantAdded's payload; the grant's time is the fact's.
@@ -370,16 +365,6 @@ type grantAdded struct {
 type grantRevoked struct {
 	ID   string `json:"id"`
 	Harp string `json:"harp"`
-}
-
-// planApproved is factPlanApproved's payload: the approval that approved the
-// plan, the posture it executes under, and the plan's digest and path.
-type planApproved struct {
-	ID      ApprovalID `json:"id"`
-	Harp    string     `json:"harp"`
-	Posture string     `json:"posture,omitempty"`
-	Digest  string     `json:"digest"`
-	Path    string     `json:"path,omitempty"`
 }
 
 // factAt builds one journal fact with the command-time timestamp — the ONLY

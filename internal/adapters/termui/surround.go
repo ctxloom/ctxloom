@@ -25,9 +25,6 @@ func reserveActive(rows, reserve int) bool {
 	return reserve > 0 && rows >= minRowsForReserve
 }
 
-// nowNanos is a seam for tests; production is time.Now.
-var nowNanos = func() int64 { return time.Now().UnixNano() }
-
 // BarInfo is the static identity segment of the surround bar.
 type BarInfo struct {
 	Harp   string
@@ -92,16 +89,17 @@ type surround struct {
 	hasApprovals bool
 	// note is a transient line the bar leads with (Controller.NoteBar).
 	note string
-	// now measures the oldest request's age at paint time; the controller's
-	// clock.
-	now   func() time.Time
+	// clock is the controller's: it measures the oldest request's age at
+	// paint time, the engine-busy window, and arms the idle flush — one time
+	// source, so a test owns every paint the surround makes.
+	clock Clock
 	dirty atomic.Bool
 	buf   []byte // render scratch, reused (guarded by mu)
 }
 
 // newSurround builds the bar renderer. mu is the tty lock shared with the
 // outputGate; enabled=false renders nothing ever (reserve stays 0).
-func newSurround(mu *sync.Mutex, w io.Writer, enabled bool, info BarInfo) *surround {
+func newSurround(clock Clock, mu *sync.Mutex, w io.Writer, enabled bool, info BarInfo) *surround {
 	reserve := 0
 	if enabled {
 		reserve = surroundReserve
@@ -113,7 +111,7 @@ func newSurround(mu *sync.Mutex, w io.Writer, enabled bool, info BarInfo) *surro
 		reserve:          reserve,
 		info:             info,
 		engineBusyWindow: 30 * time.Millisecond,
-		now:              time.Now,
+		clock:            clock,
 	}
 }
 
@@ -271,7 +269,7 @@ func (s *surround) ringLocked() bool {
 // for the gate's next afterWrite flush.
 func (s *surround) RequestPaint() {
 	if s.lastEngineWrite != nil {
-		if since := nowNanos() - s.lastEngineWrite(); since < int64(s.engineBusyWindow) {
+		if since := s.clock.Now().UnixNano() - s.lastEngineWrite(); since < int64(s.engineBusyWindow) {
 			s.dirty.Store(true)
 			s.flushWhenIdle(time.Duration(int64(s.engineBusyWindow) - since))
 			return
@@ -292,7 +290,7 @@ func (s *surround) flushWhenIdle(d time.Duration) {
 	if !s.idleFlushArmed.CompareAndSwap(false, true) {
 		return
 	}
-	time.AfterFunc(d, func() {
+	s.clock.AfterFunc(d, func() {
 		s.idleFlushArmed.Store(false)
 		if s.dirty.CompareAndSwap(true, false) {
 			s.RequestPaint()
@@ -396,7 +394,7 @@ func (s *surround) appendBarBody(b []byte) []byte {
 func (s *surround) rosterDigestLocked() string {
 	digest := ""
 	if s.hasRoster || s.hasApprovals {
-		digest = rosterDigest(s.roster, approvalsDigest(s.approvals, s.now().Sub(s.oldest), !s.oldest.IsZero()))
+		digest = rosterDigest(s.roster, approvalsDigest(s.approvals, s.clock.Now().Sub(s.oldest), !s.oldest.IsZero()))
 	}
 	switch {
 	case s.note == "":

@@ -134,8 +134,7 @@ func newCtlHarness(t *testing.T, mutate func(*Options)) *ctlHarness {
 	t.Cleanup(func() {
 		// Close drains any in-flight overlay goroutine (engage → runOverlay)
 		// by waiting on sessionMu; without it that goroutine can outlive the
-		// test and read the nowNanos seam concurrently with the next test's
-		// swap of it (a cross-test data race). tearHarness already Closes here.
+		// test and keep writing to its tty after the test has returned.
 		h.c.Close()
 		_ = pw.Close()
 		close(h.src)
@@ -467,7 +466,7 @@ func TestController_WithoutABarAnnounceAndRingReachTheTerminal(t *testing.T) {
 func TestOutputGate_InjectWaitsBehindAHold(t *testing.T) {
 	var mu sync.Mutex
 	dst := &lockedBuffer{}
-	g := newOutputGate(&mu, dst, nil, nil)
+	g := newOutputGate(realClock{}, &mu, dst, nil, nil)
 	g.Hold(1 << 10)
 	_, _ = g.Write([]byte("held engine bytes"))
 	g.Inject([]byte("\r\nNOTICE\r\n"))
@@ -497,9 +496,8 @@ func TestController_RosterPollFeedsBar(t *testing.T) {
 // TestController_CloseJoinsRosterPoll forces the interleaving rapid-grass is
 // about: the poll goroutine is held mid-iteration inside FetchRoster when
 // Close runs. Close must not return until that goroutine has exited —
-// otherwise the rest of the iteration (SetRoster, which reads the
-// package-level nowNanos seam) runs after Close, racing whatever the caller
-// does next, such as a later test swapping that seam.
+// otherwise the rest of the iteration (SetRoster, which paints the bar to the
+// caller's tty) runs after Close, racing whatever the caller does next.
 func TestController_CloseJoinsRosterPoll(t *testing.T) {
 	entered := make(chan struct{})
 	closeReturned := make(chan struct{})

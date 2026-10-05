@@ -25,8 +25,7 @@ func TestRunRepairCmd_ReintroducesDisplacedTaskAndUnblocksList(t *testing.T) {
 	tc, err := taskContextSingle()
 	require.NoError(t, err)
 
-	_, logPath, err := operations.ResolveLogPath(tc)
-	require.NoError(t, err)
+	_, logPath := establishedLogPath(t, tc)
 	// Two adds independently claim the same harp -- the same shape a
 	// concurrent-mint race or a union-merge across branches produces.
 	raw := `{"op":"add","task":"alpha","text":"first writer","status":"To Do","ts":"2026-01-01T00:00:00Z"}

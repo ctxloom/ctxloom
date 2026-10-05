@@ -158,9 +158,11 @@ func ResolveProjectIdentity(workDir string) (projectID, warning string, err erro
 }
 
 // ResolveLogPath resolves the per-project task log path for tc — the project-id
-// pinned in tc (by `ctxloom run`) or a live registry resolution — without
-// opening the store. `taskloom watch` uses it to learn which file to watch, so
-// the path convention stays owned here rather than reconstructed by a frontend.
+// pinned in tc (by `ctxloom run`) or the identity the directory already has
+// (projectid.Manager.Lookup) — without opening the store or minting anything.
+// Both are returned empty when the directory has no project yet. `taskloom
+// watch` uses it to learn which file to watch, so the path convention stays
+// owned here rather than reconstructed by a frontend.
 //
 // In ModeRepo, projectID is always returned empty: the repo IS the identity
 // in that mode (see paths.RepoTasksLogPath and internal/taskloom/config's doc),
@@ -179,11 +181,14 @@ func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
 		if perr != nil {
 			return "", "", fmt.Errorf("open project registry: %w", perr)
 		}
-		res, rerr := pm.Resolve(tc.WorkDir)
-		if rerr != nil {
-			return "", "", fmt.Errorf("resolve project id: %w", rerr)
+		id, lerr := pm.Lookup(tc.WorkDir)
+		if lerr != nil {
+			return "", "", fmt.Errorf("look up project id: %w", lerr)
 		}
-		projectID = res.ProjectID
+		if id == "" {
+			return "", "", nil
+		}
+		projectID = id
 	}
 	logPath, err = paths.HomeTasksLogPath(projectID)
 	if err != nil {

@@ -72,10 +72,11 @@ Feature: init — the setup interview, and what it does to a project that alread
     # existing `.ctxloom` printed "already exists", exited 0, and added zero
     # remotes. Nothing about that invocation looked like it had failed.
     #
-    # Registering a remote is local bookkeeping over `.ctxloom/remotes.yaml`
-    # (see cli/remote.feature), so this stays offline; the registry file is the
-    # effect, and the listing is read back because a write that landed in the
-    # wrong place would satisfy a stdout-only assertion.
+    # Registering a remote records it in `.ctxloom/remotes.yaml` and tries a
+    # clone, whose failure only warns (see cli/remote.feature), so this stays
+    # offline; the registry file is the effect, and the listing is read back
+    # because a write that landed in the wrong place would satisfy a
+    # stdout-only assertion.
     Scenario: A personal remote named on the command line is registered, not discarded
       Given an initialized ctxloom project
       And the environment variable "CLAUDE_CODE_OAUTH_TOKEN" is set to "sk-ant-oat01-acceptance-fixture-not-real"

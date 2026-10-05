@@ -4,10 +4,12 @@ Feature: remote — registering the sources content comes from, and browsing the
   Covers: `ctxloom remote create`, `remote edit`, `remote list`, `remote show`, `remote
   default`, `remote remove`, and the bare `ctxloom remote` form.
 
-  A remote is an ADDRESS. Registering one is local bookkeeping over
-  `.ctxloom/remotes.yaml`: which repositories this project may draw shared
-  bundles from, and which of them is the default. No fetch, no credential,
-  nothing installed — which is what makes every verb here safe to run offline.
+  A remote is an ADDRESS. Registering one records it in
+  `.ctxloom/remotes.yaml` — which repositories this project may draw shared
+  bundles from, and which of them is the default — and clones it into the
+  cache, so a wrong URL or missing access shows up then rather than on first
+  use. A clone that fails is a warning, not a refusal: the remote stays
+  registered. Nothing is installed and no credential is stored.
 
   A remote carries no trust either. Its content takes the review path whatever
   address it arrived from, and auto-trusting a publisher means trusting their
@@ -22,12 +24,11 @@ Feature: remote — registering the sources content comes from, and browsing the
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
   hermetically against a seeded file:// repository.
 
-  Rule: The registry is local bookkeeping — no fetch happens
+  Rule: The registry records the address, and nothing is installed
 
-    Registering, defaulting, and removing a remote only ever touch
-    `.ctxloom/remotes.yaml`. None of the three names, let alone reaches, a
-    bundle — that is what makes them safe to run with no network and no
-    credential.
+    Registering, defaulting, and removing a remote change `.ctxloom/remotes.yaml`;
+    registering also clones the repository into the cache. None of them
+    installs a bundle.
 
     Scenario: Registering a remote records it and it is listed back
       Given an initialized ctxloom project

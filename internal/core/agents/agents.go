@@ -205,6 +205,11 @@ func HomeModeNames() []string {
 	return []string{string(HomeModeHost), string(HomeModeSession)}
 }
 
+// ErrUnknownHomeMode is ParseHomeMode's refusal of a declared engine_home that
+// is neither of HomeModeNames. The wrapping error names the rejected value and
+// the known ones.
+var ErrUnknownHomeMode = errors.New("unknown value")
+
 // ParseHomeMode validates and normalizes a binding's DECLARED
 // Agent.HomeMode into its always-non-empty EFFECTIVE value: the declared
 // value when it is one of HomeModeNames, HomeModeSession when undeclared
@@ -225,8 +230,8 @@ func ParseHomeMode(declared string) (HomeMode, error) {
 	case HomeModeHost, HomeModeSession:
 		return HomeMode(declared), nil
 	default:
-		return HomeModeSession, fmt.Errorf("engine_home %q: unknown value (known: %s)",
-			declared, strings.Join(HomeModeNames(), ", "))
+		return HomeModeSession, fmt.Errorf("engine_home %q: %w (known: %s)",
+			declared, ErrUnknownHomeMode, strings.Join(HomeModeNames(), ", "))
 	}
 }
 

@@ -24,9 +24,14 @@ import (
 func TestLoginStore_ALiveContainerRunRefusesTheLogin(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the login-store refusal integration test")
 	resetStrictness(t)
+	// Demand the ownership this daemon HAS: a demand it cannot serve never
+	// reaches a container at all (chainFor refuses it at the gate instead), so
+	// the store refusal under test would go unexercised.
+	_, owns := newDockerRuntime(runtimeReachable)
+	require.NotEqual(t, ownershipUndecided, owns, "docker answered but its ownership could not be probed")
 	home := fakeHostHome(t, tokenFixture) // a fixture login under a fake $HOME, never a real one
-	s, err := NewSpec(launch.Axes{Workspace: WorkspaceShared, Runtime: RuntimeContainerRootless}, claudeEngine(t)).Project(t.TempDir()).
-		Session(harpA, sessionDir(home, harpA), SessionState{Harp: harpA}).Credentials(claudeCredentials(t, engine.AuthLogin)).Build()
+	s, err := NewSpec(launch.Axes{Workspace: WorkspaceShared, Runtime: owns}, claudeEngine(t)).Project(t.TempDir()).
+		Session(sessionDir(home, harpA), SessionState{Harp: harpA}).Credentials(claudeCredentials(t, engine.AuthLogin)).Build()
 	require.NoError(t, err)
 
 	_, err = Prepare(context.Background(), s)

@@ -666,7 +666,7 @@ image another is between building and running.
 | `ProbeRuntime` | `runtime.go` | The unconstrained "what's reachable?" question — diagnostics/build only, never a run |
 | `InContainer` | `runtime.go` | Self-detection (sentinel files + env + cgroup v1) |
 | `RunSpec` / `LaunchSpec` / `Mount` | `runtime.go` | Run description / spawn params / bind mount |
-| `SessionState` / `SessionStateFromEnv` | `statemounts.go` | Harp + project id threaded into the seam |
+| `SessionState` | `statemounts.go` | Harp + project id threaded into the seam |
 | `TraceProbe` / `TraceRead` / `ParseStraceReads` | `traceprobe.go` | Read-observation vocabulary |
 | `Diagnosis` / `Diagnose` | `diagnose.go` | `container check` report |
 | `BuildAgentImage` / `ImageBuildOptions` / `hostProvenanceDigest` | `imagebuild.go` | `container build` |

@@ -282,11 +282,9 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	// that declares a name a companion or another profile bundle already
 	// claimed is a contest between two different refs, and mcpNameClaims
 	// withholds it loudly.
-	for _, resolved := range set {
-		for _, bundleRef := range resolved.Bundles {
-			addServers(bundleRef, loadMCPFromBundleRef(c.rep, bundleRef, cat, c.ExecutableTrustGate()))
-		}
-	}
+	eachBundleRef(set, func(bundleRef string) {
+		addServers(bundleRef, loadMCPFromBundleRef(c.rep, bundleRef, cat, c.ExecutableTrustGate()))
+	})
 
 	return result
 }

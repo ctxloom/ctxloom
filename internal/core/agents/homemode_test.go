@@ -1,6 +1,8 @@
 package agents
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,9 +38,10 @@ func TestParseHomeMode_AcceptsBothDeclaredValues(t *testing.T) {
 func TestParseHomeMode_UnknownValueIsAnErrorCarryingTheSessionDefault(t *testing.T) {
 	// The typo must not CONTAIN a valid value, or the "names the valid values"
 	// assertion below is satisfied by the echo of the input alone.
-	got, err := ParseHomeMode("project")
-	require.Error(t, err, "an unknown engine_home must be reported")
-	assert.Contains(t, err.Error(), `"project"`, "the error must echo the rejected value")
-	assert.Contains(t, err.Error(), "known: host, session", "the error must name the valid values")
+	const typo = "project"
+	got, err := ParseHomeMode(typo)
+	require.ErrorIs(t, err, ErrUnknownHomeMode, "an unknown engine_home must be reported")
+	assert.Contains(t, err.Error(), strconv.Quote(typo), "the error must echo the rejected value")
+	assert.Contains(t, err.Error(), strings.Join(HomeModeNames(), ", "), "the error must name the valid values")
 	assert.Equal(t, HomeModeSession, got, "beside the error, the degraded default is the session home — never the real home")
 }

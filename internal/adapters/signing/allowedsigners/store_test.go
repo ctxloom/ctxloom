@@ -290,8 +290,6 @@ func TestStore_FailedSource_IsRepresentable(t *testing.T) {
 	assert.Equal(t, "/etc/ctxloom/allowed_signers", srcs[0].Path)
 	assert.False(t, srcs[0].Loaded)
 	require.Error(t, srcs[0].Err)
-
-	require.Len(t, failed.LoadErrors(), 1)
 }
 
 // An EMPTY store that loaded fine is a different fact from one that failed,
@@ -304,7 +302,6 @@ func TestStore_EmptyLoadedSource_IsNotAFailure(t *testing.T) {
 	assert.Zero(t, loaded.Len())
 	require.Len(t, loaded.Sources(), 1)
 	assert.True(t, loaded.Sources()[0].Loaded)
-	assert.Empty(t, loaded.LoadErrors())
 }
 
 // Union must PRESERVE a failed source rather than erase it. Skipping a nil
@@ -317,9 +314,11 @@ func TestStore_Union_PreservesFailedSources(t *testing.T) {
 
 	u := Union(good, bad)
 	assert.Equal(t, 1, u.Len())
-	require.Len(t, u.LoadErrors(), 1, "a failed location must survive the union")
-	assert.Equal(t, "/bad", u.LoadErrors()[0].Path)
-	assert.Len(t, u.Sources(), 2)
+	srcs := u.Sources()
+	require.Len(t, srcs, 2, "a failed location must survive the union")
+	assert.True(t, srcs[0].Loaded)
+	assert.Equal(t, "/bad", srcs[1].Path)
+	assert.False(t, srcs[1].Loaded)
 }
 
 // Len() on a nil store is zero, and asking a nil store for provenance is not
@@ -328,7 +327,6 @@ func TestStore_NilProvenance(t *testing.T) {
 	var s *Store
 	assert.Zero(t, s.Len())
 	assert.Empty(t, s.Sources())
-	assert.Empty(t, s.LoadErrors())
 }
 
 // --- the trust root must not be writable through anything it hands out ------

@@ -28,7 +28,7 @@ them by searching for the package's import path.
 ```mermaid
 flowchart TD
   subgraph ext["boundary"]
-    SRC["pb.SessionSource<br/>(NewCanonicalFallbackSource:<br/>canonical first, legacy second)"]
+    SRC["pb.SessionSource<br/>(NewCanonicalFallbackSource:<br/>canonical capture, by harp or session id)"]
     LLM["pb.ClientFactory → one-shot plugin subprocess"]
     IDX["sessions.Manager → index.yaml"]
     RES["resources.MustGetPromptText"]

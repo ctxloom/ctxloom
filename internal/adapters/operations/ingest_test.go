@@ -359,7 +359,7 @@ func TestIngest_RegenerateContext_CompanionFragmentAlsoSelectedByRefIsWrittenOnc
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	}), isolationCompanion(t))
 
-	hash, err := regenerateContext(cfg, workDir)
+	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash)
 
@@ -395,7 +395,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir)
+	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
 	require.NoError(t, err)
 	written, err := agent.ReadContextFile(workDir, hash)
 	require.NoError(t, err)
@@ -426,7 +426,7 @@ fragments:
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 		}), isolationCompanion(t))
-		h, err := regenerateContext(cfg, workDir)
+		h, err := regenerateContext(defaultPackage(t, cfg), workDir)
 		require.NoError(t, err)
 		w, err := agent.ReadContextFile(workDir, h)
 		require.NoError(t, err)
@@ -579,7 +579,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	}), isolationCompanion(t))
 
-	hash, err := regenerateContext(cfg, workDir)
+	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
 	require.NoError(t, err)
 	written, err := agent.ReadContextFile(workDir, hash)
 	require.NoError(t, err)

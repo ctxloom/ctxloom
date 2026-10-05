@@ -145,16 +145,12 @@ var _ engine.InstanceConfigWriter = claudeInstanceConfig{}
 // dest (the .claude.json path itself) — NOT reliance on a caller's lock.
 //
 // This does NOT double-acquire with isolation.PrepareInstanceHome's caller-side lock
-// (isolation.lockInstanceHome): that lock is paths.ProjectPathFor(instanceHome)
-// — a DIFFERENT lock namespace (project-tree-relative) at a DIFFERENT path
-// (InstanceHome itself, not InstanceHome/.claude.json) than the
-// paths.HomePathFor(dest) this function's own WithFileLock takes. flock is
-// per-inode; two distinct paths in two distinct lock trees never contend, so
-// nesting is safe. It is also NOT redundant: lockInstanceHome silently
-// no-ops when InstanceHome is not inside any .ctxloom tree (the harpless
-// worktree fallback — see its doc), while paths.HomePathFor always
-// resolves (it only needs the real OS home directory), so this function's own
-// lock is the ONLY guarantee in that fallback case. No ledger is added here:
+// (isolation.lockInstanceHome): that lock is paths.HomePathFor(instanceHome),
+// a DIFFERENT path (InstanceHome itself, not InstanceHome/.claude.json) than
+// the paths.HomePathFor(dest) this function's own WithFileLock takes. flock is
+// per-inode; two distinct paths never contend, so nesting is safe. It is also
+// NOT redundant: the caller's lock serializes PrepareInstanceHome, while this
+// one holds for any caller of this writer. No ledger is added here:
 // unlike a shared settings.json, ctxloom owns the WHOLE file, so there is no
 // foreign content to distinguish from ctxloom's own and nothing for a ledger
 // to record beyond "this file exists" — see PrepareInstanceHome's doc: the

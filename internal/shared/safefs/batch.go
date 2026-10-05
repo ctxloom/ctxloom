@@ -23,6 +23,11 @@ type Edit func(cur []byte, exists bool) (next []byte, keep bool, err error)
 // does not.
 type Seal func(before []byte, existed bool, after []byte, keep bool) error
 
+// Confirm runs under the path's lock once the path's write or removal has
+// landed, and only then: a record a Seal marked as possibly unwritten can be
+// told the write is done. A file the batch did not change is not confirmed.
+type Confirm func() error
+
 // Locker serializes one path's commit. It is injected because the lock-file
 // scheme is not this package's: safefs is shared and cannot know where a
 // path's lock lives.
@@ -39,8 +44,9 @@ type Batch struct {
 }
 
 type staged struct {
-	edits []Edit
-	seals []Seal
+	edits    []Edit
+	seals    []Seal
+	confirms []Confirm
 }
 
 // Committed is what a Commit did, each list sorted.
@@ -67,12 +73,18 @@ func (b *Batch) Edit(path string, e Edit) { b.file(path).edits = append(b.file(p
 // Seal stages s on path; seals run in the order staged.
 func (b *Batch) Seal(path string, s Seal) { b.file(path).seals = append(b.file(path).seals, s) }
 
+// Confirm stages c on path; confirms run in the order staged.
+func (b *Batch) Confirm(path string, c Confirm) {
+	b.file(path).confirms = append(b.file(path).confirms, c)
+}
+
 // fold is one path's read and folded result, held until every path folds.
 type fold struct {
 	path          string
 	before, after []byte
 	existed, keep bool
 	seals         []Seal
+	confirms      []Confirm
 }
 
 func (f fold) changed() bool {
@@ -136,7 +148,7 @@ func (b *Batch) fold(path string) (fold, error) {
 			cur = nil
 		}
 	}
-	return fold{path: path, before: before, existed: existed, after: cur, keep: keep, seals: s.seals}, nil
+	return fold{path: path, before: before, existed: existed, after: cur, keep: keep, seals: s.seals, confirms: s.confirms}, nil
 }
 
 func (b *Batch) land(f fold, out *Committed) error {
@@ -159,7 +171,7 @@ func (b *Batch) land(f fold, out *Committed) error {
 			}
 		}
 		out.Removed = append(out.Removed, f.path)
-		return nil
+		return f.confirm()
 	}
 	if err := b.fs.MkdirAll(filepath.Dir(f.path), 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(f.path), err)
@@ -168,5 +180,14 @@ func (b *Batch) land(f fold, out *Committed) error {
 		return err
 	}
 	out.Written = append(out.Written, f.path)
+	return f.confirm()
+}
+
+func (f fold) confirm() error {
+	for _, c := range f.confirms {
+		if err := c(); err != nil {
+			return err
+		}
+	}
 	return nil
 }

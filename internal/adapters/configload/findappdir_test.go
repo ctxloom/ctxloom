@@ -115,9 +115,9 @@ func TestLoad_EmptyHomeNonRepoCwd_CreatesNothing(t *testing.T) {
 }
 
 func TestLastResortAppDir_CreatesNothing(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	path := lastResortAppDir(fs, "/work/cwd")
-	assert.Equal(t, filepath.Join("/work/cwd", config.AppDirName), path)
-	exists, _ := afero.DirExists(fs, path)
-	assert.False(t, exists, "lastResortAppDir resolves a path; it must not create it")
+	cwd := t.TempDir()
+	path := lastResortAppDir(cwd)
+	assert.Equal(t, filepath.Join(cwd, config.AppDirName), path)
+	_, err := os.Stat(path)
+	assert.True(t, os.IsNotExist(err), "lastResortAppDir resolves a path; it must not create it (stat err: %v)", err)
 }

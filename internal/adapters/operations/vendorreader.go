@@ -539,34 +539,44 @@ func appendRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorrea
 		if mkErr := fsys.MkdirAll(filepath.Dir(segPath), 0o755); mkErr != nil {
 			return fmt.Errorf("create segments dir for %s: %w", e.HarpName, mkErr)
 		}
-		seg, aerr := newRebuildFile(fsys, segPath)
-		if aerr != nil {
-			return fmt.Errorf("open segment rebuild file for %s/%s: %w", e.HarpName, rot.SessionID, aerr)
-		}
-		rec, rerr := transcript.NewRecorder(fsys, e.HarpName, e.Backend, transcript.WithWriter(seg), transcript.WithClock(vendorSourceClock(fsys, rot.TranscriptPath)))
-		if rerr != nil {
-			_ = seg.af.Abort()
-			return fmt.Errorf("open segment recorder for %s/%s: %w", e.HarpName, rot.SessionID, rerr)
-		}
-		cerr := adapter.Convert(ctx, fsys, rec, rot.TranscriptPath)
-		_ = rec.Close()
-		if cerr != nil {
-			_ = seg.af.Abort()
-			return fmt.Errorf("convert rotation %s transcript for %s: %w", rot.SessionID, e.HarpName, cerr)
-		}
-		if seg.written == 0 {
-			// Zero events converted: a legitimate degrade-to-partial outcome
-			// for THIS segment (vendorreader.VendorAdapter's contract), not a
-			// failure — nothing to cache, nothing to append.
-			_ = seg.af.Abort()
-			return nil
-		}
-		if cerr := seg.af.Commit(); cerr != nil {
-			return fmt.Errorf("install cached segment for %s/%s: %w", e.HarpName, rot.SessionID, cerr)
+		cached, cerr := cacheRotationSegment(ctx, fsys, adapter, e, rot, segPath)
+		if cerr != nil || !cached {
+			return cerr
 		}
 	}
 
 	return appendFileBytes(fsys, rf, segPath)
+}
+
+// cacheRotationSegment converts rot's vendor transcript into the segment cache
+// at segPath, whose directory exists. cached is false when the conversion
+// produced no events: a legitimate degrade-to-partial outcome for THIS
+// segment (vendorreader.VendorAdapter's contract), not a failure — nothing to
+// cache, nothing to append.
+func cacheRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, segPath string) (cached bool, err error) {
+	seg, err := newRebuildFile(fsys, segPath)
+	if err != nil {
+		return false, fmt.Errorf("open segment rebuild file for %s/%s: %w", e.HarpName, rot.SessionID, err)
+	}
+	rec, err := transcript.NewRecorder(fsys, e.HarpName, e.Backend, transcript.WithWriter(seg), transcript.WithClock(vendorSourceClock(fsys, rot.TranscriptPath)))
+	if err != nil {
+		_ = seg.af.Abort()
+		return false, fmt.Errorf("open segment recorder for %s/%s: %w", e.HarpName, rot.SessionID, err)
+	}
+	err = adapter.Convert(ctx, fsys, rec, rot.TranscriptPath)
+	_ = rec.Close()
+	if err != nil {
+		_ = seg.af.Abort()
+		return false, fmt.Errorf("convert rotation %s transcript for %s: %w", rot.SessionID, e.HarpName, err)
+	}
+	if seg.written == 0 {
+		_ = seg.af.Abort()
+		return false, nil
+	}
+	if err := seg.af.Commit(); err != nil {
+		return false, fmt.Errorf("install cached segment for %s/%s: %w", e.HarpName, rot.SessionID, err)
+	}
+	return true, nil
 }
 
 // appendFileBytes copies src's full contents onto the end of w — the

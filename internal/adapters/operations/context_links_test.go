@@ -21,7 +21,6 @@ import (
 // bundle; "without" vetoes the server, so its assembly must not carry the
 // fragment — and must still carry the bundle's unlinked fragment.
 func TestAssembleContext_LinkedFragmentFollowsTheRunsGrantedMCPSet(t *testing.T) {
-	t.Skip("unexpressible: a bundle is a tree, and the tree's MCP sidecar carries no tags, so an MCP server cannot declare ctxloom:link_id — raised with the human (unruly-frostbite) as a tree-format decision")
 	root := t.TempDir()
 	appDir := filepath.Join(root, paths.AppDirName)
 	profilesDir := bundletree.ProjectProfilesDir(t, appDir)

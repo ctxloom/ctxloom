@@ -146,10 +146,15 @@ type MCP struct {
 	Command string
 	Args    []string
 	Env     map[string]string
+	// URL and Headers are a network-hosted server's target, the remote
+	// counterpart of Command/Args/Env.
+	URL     string
+	Headers map[string]string
 	// ServedBy is the session-endpoint declaration (wire.ServedBySessionEndpoint).
 	ServedBy string
-	// Notes and Installation are human-facing and live in the sidecar, keeping
-	// the content file consumable by an MCP client as-is.
+	// Tags, Notes and Installation are ctxloom's and live in the sidecar,
+	// keeping the content file consumable by an MCP client as-is.
+	Tags         []string
 	Notes        string
 	Installation string
 }
@@ -162,14 +167,17 @@ type mcpContent struct {
 	Command  string            `yaml:"command,omitempty"`
 	Args     []string          `yaml:"args,omitempty"`
 	Env      map[string]string `yaml:"env,omitempty"`
+	URL      string            `yaml:"url,omitempty"`
+	Headers  map[string]string `yaml:"headers,omitempty"`
 	ServedBy string            `yaml:"served_by,omitempty"`
 }
 
 // mcpMeta is the sidecar's shape: our keys only. It decodes non-strictly, so a
 // key it does not model is ignored rather than refused.
 type mcpMeta struct {
-	Notes        string `yaml:"notes,omitempty"`
-	Installation string `yaml:"installation,omitempty"`
+	Tags         []string `yaml:"tags,omitempty"`
+	Notes        string   `yaml:"notes,omitempty"`
+	Installation string   `yaml:"installation,omitempty"`
 }
 
 type mcpType struct{}
@@ -213,6 +221,10 @@ func (t mcpType) Decode(src Source) (Surface, error) {
 		Command:      content.Command,
 		Args:         content.Args,
 		Env:          content.Env,
+		URL:          content.URL,
+		Headers:      content.Headers,
+		ServedBy:     content.ServedBy,
+		Tags:         meta.Tags,
 		Notes:        meta.Notes,
 		Installation: meta.Installation,
 	}, nil
@@ -224,8 +236,8 @@ func (t mcpType) Encode(s Surface) ([]Component, error) {
 		return nil, fmt.Errorf("%w: %T is not an MCP", ErrSurfaceType, s)
 	}
 	return encodeExecItem(t, m.Name,
-		mcpContent{Command: m.Command, Args: m.Args, Env: m.Env},
-		mcpMeta{Notes: m.Notes, Installation: m.Installation})
+		mcpContent{Command: m.Command, Args: m.Args, Env: m.Env, URL: m.URL, Headers: m.Headers, ServedBy: m.ServedBy},
+		mcpMeta{Tags: m.Tags, Notes: m.Notes, Installation: m.Installation})
 }
 
 // -------------------------------------------------------------------- hooks
@@ -282,6 +294,10 @@ type Hook struct {
 	Timeout         int
 	Async           bool
 	PreToolFallback bool
+
+	// Tags are host-evaluated routing (a link group membership rides here),
+	// ctxloom's rather than the hook's, so they live in the sidecar.
+	Tags []string
 }
 
 // HookOrderStep is re-exported so a caller ordering content.Hooks does not have
@@ -326,7 +342,7 @@ type hookContent struct {
 	PreToolFallback bool     `yaml:"pre_tool_fallback,omitempty"`
 }
 
-// hookMeta is the sidecar's shape: our keys only, which today is exactly one.
+// hookMeta is the sidecar's shape: our keys only.
 //
 // Residency follows encodeExecItem's rule verbatim — the content file stays PURE
 // hook configuration with none of ctxloom's keys in it. `order` is ours: it says
@@ -335,7 +351,8 @@ type hookContent struct {
 // time: reordering an event rewrites SIDECARS, leaving every hook's behavioural
 // bytes untouched, so a reader diffing what a hook actually executes sees nothing.
 type hookMeta struct {
-	Order *int `yaml:"order,omitempty"`
+	Order *int     `yaml:"order,omitempty"`
+	Tags  []string `yaml:"tags,omitempty"`
 }
 
 type hookType struct{}
@@ -389,6 +406,7 @@ func (t hookType) Decode(src Source) (Surface, error) {
 		Timeout:         content.Timeout,
 		Async:           content.Async,
 		PreToolFallback: content.PreToolFallback,
+		Tags:            meta.Tags,
 	}, nil
 }
 
@@ -415,9 +433,10 @@ func (t hookType) Encode(s Surface) ([]Component, error) {
 			PreToolFallback: h.PreToolFallback,
 		},
 		// marshalYAML renders an all-omitempty struct as nothing, so a hook that
-		// declares no order writes NO sidecar — absence is represented by the
-		// absence of a file, not by an empty one. An empty `{}` per hook would be
-		// bytes in the digest that mean nothing, and would make "authored before
-		// the field existed" indistinguishable from "deliberately unordered".
-		hookMeta{Order: h.Order})
+		// declares neither order nor tags writes NO sidecar — absence is
+		// represented by the absence of a file, not by an empty one. An empty
+		// `{}` per hook would be bytes in the digest that mean nothing, and would
+		// make "authored before the field existed" indistinguishable from
+		// "deliberately unordered".
+		hookMeta{Order: h.Order, Tags: h.Tags})
 }

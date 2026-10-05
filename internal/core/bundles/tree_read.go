@@ -210,7 +210,10 @@ func (r *reader) addMCP(v content.MCP) {
 		Command:      v.Command,
 		Args:         v.Args,
 		Env:          v.Env,
+		URL:          v.URL,
+		Headers:      v.Headers,
 		ServedBy:     v.ServedBy,
+		Tags:         v.Tags,
 		Notes:        v.Notes,
 		Installation: v.Installation,
 	})
@@ -265,6 +268,7 @@ func (r *reader) finishHooks() {
 				Timeout:         h.Timeout,
 				Async:           h.Async,
 				PreToolFallback: h.PreToolFallback,
+				Tags:            h.Tags,
 				// Order is carried through rather than dropped: it is what made
 				// this sequence resolvable, and a re-conversion that lost it
 				// would fall back to positional spacing and stale every

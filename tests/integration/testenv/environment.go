@@ -761,9 +761,11 @@ func (e *TestEnvironment) gitEnv() []string {
 // CreateProjectConfig creates the .ctxloom directory structure in the project.
 func (e *TestEnvironment) CreateProjectConfig() error {
 	dirs := []string{
-		// The FORMAT root authored bundles go in; MkdirAll creates the
-		// bundles root above it, which is what GetBundleDirs stats.
-		filepath.Join(e.ProjectDir, ".ctxloom", "content", "bundles", "v1"),
+		// The FORMAT root authored bundles go in, resolved through the same
+		// accessor the reader uses so the two cannot name different layouts;
+		// MkdirAll creates the bundles root above it, which is what
+		// GetBundleDirs stats.
+		paths.LocalBundlesPathFor(filepath.Join(e.ProjectDir, paths.AppDirName), paths.LayoutV2),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {

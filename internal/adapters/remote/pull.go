@@ -480,10 +480,13 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 // checkedAt as "leave the persisted timestamp alone").
 //
 // A remote that publishes no manifest (retractionUnpublished) has answered:
-// it is never a warning, and it is stamped p.now() so a manifest-less remote
-// never goes stale. It keeps whatever verdict was recorded — a deleted
+// it is stamped p.now() so a manifest-less remote never goes stale, and it is
+// not a staleness warning. It keeps whatever verdict was recorded — a deleted
 // manifest is within reach of whoever controls the repository and must not
-// lift a retraction — and is not-retracted when nothing was.
+// lift a retraction — and is not-retracted when nothing was. When the pin
+// carries a signed version the remote once published a manifest, so its
+// absence is warned about (manifestWithdrawnWarning) on every pull: no state
+// records that the warning was already shown.
 //
 // A check that could not run (RetractionUnknown) is reported. Falling back to
 // a STALE verdict — older than RetractionStaleAfter, or with no recorded check
@@ -516,6 +519,9 @@ func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, 
 	}
 
 	if verdict == retractionUnpublished {
+		if pinned.SignedVersion != "" {
+			clidiag.Warn("ctxloom", manifestWithdrawnWarning, localName, owner, repo)
+		}
 		return recorded.Retracted, recorded.RetractedReason, p.now(), nil
 	}
 	if !hasRecorded {
@@ -527,6 +533,11 @@ func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, 
 	p.warnStaleFallback(recorded, localName, owner, repo)
 	return recorded.Retracted, recorded.RetractedReason, recorded.RetractionCheckedAt, nil
 }
+
+// manifestWithdrawnWarning reports a remote that once published a signed
+// retraction manifest — the pin carries a signed version — and no longer
+// does. Arguments: the bundle, then owner and repo.
+const manifestWithdrawnWarning = "%s: %s/%s no longer publishes the signed retraction manifest it once did; any retraction already recorded still applies"
 
 // recordedEntry is the lockfile's entry for the item; false when there is
 // none or the lockfile cannot be read.

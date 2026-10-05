@@ -1,9 +1,8 @@
 package claude
 
 import (
+	"bytes"
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -42,16 +41,14 @@ func TestConvert_DeterministicAcrossFreshAndSharedAdapterInstances(t *testing.T)
 
 	convert := func(t *testing.T, a vendorreader.VendorAdapter, label string) []byte {
 		t.Helper()
-		out := filepath.Join(t.TempDir(), "out.jsonl")
-		rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude", transcript.WithPath(out), transcript.WithClock(clock))
+		var out bytes.Buffer
+		rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude", transcript.WithWriter(&out), transcript.WithClock(clock))
 		require.NoError(t, err)
 		err = a.Convert(context.Background(), afero.NewOsFs(), rec, fixturePath(t, "transcript-fixture.jsonl"))
 		require.NoError(t, err)
 		require.NoError(t, rec.Close())
-		b, err := os.ReadFile(out)
-		require.NoError(t, err)
-		require.NotEmpty(t, b, label)
-		return b
+		require.NotEmpty(t, out.Bytes(), label)
+		return out.Bytes()
 	}
 
 	fresh1 := convert(t, Adapter{}, "fresh Adapter{} #1")

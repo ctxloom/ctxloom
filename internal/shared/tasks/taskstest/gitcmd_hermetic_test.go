@@ -3,6 +3,7 @@ package taskstest
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -78,5 +79,38 @@ func TestGitCmd_RefusesAnImplicitDirectory(t *testing.T) {
 	for _, dir := range []string{"", "relative/dir"} {
 		err := GitCmd(dir, nil, "status").Run()
 		assert.ErrorIs(t, err, ErrGitDirNotAbsolute, "dir %q", dir)
+	}
+}
+
+// CLAIM: a test's git cannot be reconfigured by config overrides inherited from
+// whatever ran the suite. `git -c` exports them to every child — as
+// GIT_CONFIG_PARAMETERS, and as GIT_CONFIG_COUNT with its GIT_CONFIG_KEY_<n> /
+// GIT_CONFIG_VALUE_<n> pairs — so a suite run from a hook or an alias would
+// hand every fixture's git a configuration that outranks the fixture's own.
+func TestGitCmd_InheritedConfigOverridesDoNotReachTheTestsGit(t *testing.T) {
+	const fixtureName, injectedName = "Fixture Identity", "Injected Override"
+	for name, env := range map[string][][2]string{
+		"count-key-value": {
+			{"GIT_CONFIG_COUNT", "1"},
+			{"GIT_CONFIG_KEY_0", "user.name"},
+			{"GIT_CONFIG_VALUE_0", injectedName},
+		},
+		"parameters": {
+			{"GIT_CONFIG_PARAMETERS", "'user.name'='" + injectedName + "'"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			Git(t, dir, nil, "init", "-q")
+			Git(t, dir, nil, "config", "user.name", fixtureName)
+			for _, kv := range env {
+				t.Setenv(kv[0], kv[1])
+			}
+
+			out, err := GitCmd(dir, nil, "config", "--get", "user.name").CombinedOutput()
+			require.NoError(t, err, "%s", out)
+			assert.Equal(t, fixtureName, strings.TrimSpace(string(out)),
+				"the fixture's git read its identity from an inherited config override")
+		})
 	}
 }

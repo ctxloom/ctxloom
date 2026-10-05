@@ -11,6 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// initRepoIdentity is the repository-local user.name initRepo configures.
+const initRepoIdentity = "ctxloom"
+
 // initRepo creates a temp git repo with one commit and returns its path. It sets
 // a REPO-LOCAL identity + a default branch so `git commit` succeeds under any
 // global config — including none at all. Callers guard on git availability
@@ -34,7 +37,7 @@ func initRepo(t *testing.T) string {
 		}
 	}
 	runInit("init", "-b", "main")
-	runInit("config", "user.name", "ctxloom")
+	runInit("config", "user.name", initRepoIdentity)
 	runInit("config", "user.email", "ctxloom@example.com")
 	require.NoError(t, writeFile(filepath.Join(dir, "README.md"), "seed"))
 	runInit("add", "README.md")

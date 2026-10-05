@@ -131,16 +131,22 @@ func requireGit(t *testing.T) {
 // a non-test file outside that tree from importing it.
 func Git(t testing.TB, dir string, env []string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	if env != nil {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd := GitCmd(dir, env, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// GitCmd (UNFIXED STUB for the red run).
+func GitCmd(dir string, env []string, args ...string) *exec.Cmd {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	return cmd
 }
 
 // GitIdentity is the env pinning git's author and committer to name/email, for

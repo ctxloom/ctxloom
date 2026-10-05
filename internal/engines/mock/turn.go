@@ -84,7 +84,6 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 		ask: func(tool string, input json.RawMessage) (*agent.PermissionDenial, error) {
 			return d.ask(ctx, ex, hooks, send, tool, input, in.Posture.Grants)
 		},
-		plan: func(plan string) error { return d.presentPlan(ctx, ex, hooks, send, plan) },
 	}
 	if in.Posture.Mode != "" {
 		calls.mode = in.Posture.Mode
@@ -136,16 +135,15 @@ func mockAnswer(ex engine.Exec, prompt string) string {
 	return answer
 }
 
-// turnCalls are the turn's mode and the calls it has decided outside the
-// stream: an asked call, a presented plan.
+// turnCalls are the turn's mode and the call it has decided outside the
+// stream: an asked call.
 type turnCalls struct {
 	mode string
 	ask  func(string, json.RawMessage) (*agent.PermissionDenial, error)
-	plan func(string) error
 }
 
 // sendTurnEvents relays the turn: the resumable session at the turn's
-// mode, a TOOLS turn's entries, a plan-posture mock:plan call, a mock:deny
+// mode, a TOOLS turn's entries, a mock:deny
 // or mock:ask call (ask makes the latter), the answer, and the completion.
 func sendTurnEvents(send func(agent.ChatEvent) error, calls turnCalls, prompt, answer string) error {
 	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true, PermissionMode: calls.mode}}); err != nil {
@@ -154,7 +152,7 @@ func sendTurnEvents(send func(agent.ChatEvent) error, calls turnCalls, prompt, a
 	if f := turnFailureIn(prompt); f != nil {
 		return sendTurnFailure(send, f)
 	}
-	if err := sendMarkedCalls(send, calls, prompt); err != nil {
+	if err := sendToolsTurn(send, prompt); err != nil {
 		return err
 	}
 	meta := &agent.TurnMeta{StopReason: "end_turn"}
@@ -169,18 +167,16 @@ func sendTurnEvents(send func(agent.ChatEvent) error, calls turnCalls, prompt, a
 	return send(agent.ChatEvent{Complete: meta})
 }
 
-// sendMarkedCalls relays the calls a prompt's markers make before any is
-// asked about: a TOOLS turn's entries, then a plan-posture mock:plan call.
-func sendMarkedCalls(send func(agent.ChatEvent) error, calls turnCalls, prompt string) error {
-	if strings.Contains(prompt, "TOOLS") {
-		for _, ev := range toolsTurn(prompt) {
-			if err := send(ev); err != nil {
-				return err
-			}
-		}
+// sendToolsTurn relays a TOOLS turn's entries, before any call is asked
+// about.
+func sendToolsTurn(send func(agent.ChatEvent) error, prompt string) error {
+	if !strings.Contains(prompt, "TOOLS") {
+		return nil
 	}
-	if plan, ok := planIn(prompt); ok && calls.mode == modePlan {
-		return calls.plan(plan)
+	for _, ev := range toolsTurn(prompt) {
+		if err := send(ev); err != nil {
+			return err
+		}
 	}
 	return nil
 }

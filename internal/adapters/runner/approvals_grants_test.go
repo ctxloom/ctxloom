@@ -93,7 +93,9 @@ func TestApprovals_SetGrantsReplacesTheSet(t *testing.T) {
 
 // postureEngine records each turn's posture. A turn prompted "ask" makes a
 // call and has it decided through the route (a pre-tool-style ask naming
-// its call); a turn prompted "hold" announces itself and waits to be let go.
+// its call); one prompted "edit" makes an edit whose ask suggests the
+// engine's mode change; one prompted "hold" announces itself and waits to
+// be let go.
 type postureEngine struct {
 	home     *fakeEngineHome
 	postures chan engine.TurnPosture
@@ -121,16 +123,15 @@ func (e *postureEngine) Turn(ctx context.Context, _ engine.Exec, in engine.Turn,
 			return engine.TurnResult{}, err
 		}
 		send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolCallID: "t1", ToolOutput: "listed"}})
-	case "plan":
-		input := json.RawMessage(`{"plan":"ship-it"}`)
-		send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolCallID: "p1", ToolName: mock.PlanTool, ToolInput: input}})
+	case "edit":
+		send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolCallID: "e1", ToolName: "Edit", ToolInput: json.RawMessage(`{}`)}})
 		e.home.mu.Lock()
 		route := e.home.approvalRoute
 		e.home.mu.Unlock()
-		if _, err := route.Hook(ctx, wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":{"plan":"ship-it"}}`)); err != nil {
+		if _, err := route.Hook(ctx, wire.HookEventPermissionAsk, []byte(`{"tool":"Edit","input":{},"suggests_set_mode":"`+heldPosture+`"}`)); err != nil {
 			return engine.TurnResult{}, err
 		}
-		send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolCallID: "p1", ToolOutput: "approved"}})
+		send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolCallID: "e1", ToolOutput: "edited"}})
 	case "hold":
 		e.holding <- struct{}{}
 		<-e.release

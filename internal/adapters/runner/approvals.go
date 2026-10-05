@@ -89,15 +89,11 @@ type approvals struct {
 	// is handed these afresh. The StartRun seeds them (seedGrants); the
 	// coordinator's SetGrants replaces them.
 	grants []string
-	// mode is the posture an allow moved the run to — an approved plan's,
-	// or a mode change the human allowed — in the engine's vocabulary; ""
-	// while the run is at its declared posture. The engine's own mode dies
-	// with the turn's process, so each later turn starts at it.
+	// mode is the posture an allow moved the run to — a mode change the
+	// human allowed — in the engine's vocabulary; "" while the run is at its
+	// declared posture. The engine's own mode dies with the turn's process,
+	// so each later turn starts at it.
 	mode string
-	// pendingMode is an approved plan's posture the process that presented
-	// it has not switched to yet: the first call after the approval carries
-	// it (design §6, pendingSetMode). It ends with that process.
-	pendingMode engine.Declared[string]
 }
 
 // approvalTurn is one engine process's ledger. Its context ends with the
@@ -187,7 +183,6 @@ func (a *approvals) endTurn() {
 	a.mu.Lock()
 	a.turn.end()
 	a.turn = newApprovalTurn()
-	a.pendingMode = engine.Declared[string]{}
 	a.broadcastLocked()
 	a.mu.Unlock()
 }
@@ -243,32 +238,7 @@ func (a *approvals) Hook(ctx context.Context, event string, payload []byte) ([]b
 	if d.err != nil {
 		return a.codec.EncodeAnswer(event, ask, denial(d.err))
 	}
-	return a.codec.EncodeAnswer(event, ask, engineAnswer(ask, d.ans))
-}
-
-// engineAnswer is a decision as the engine is answered: a plan's posture is
-// the run's to hold (mode, pendingMode), never the plan answer's — the
-// engine leaves plan mode on its own terms, and the transition rides the
-// first call after it.
-func engineAnswer(ask engine.PermissionAsk, ans engine.PermissionAnswer) engine.PermissionAnswer {
-	if ask.Kind == engine.AskPlan {
-		ans.SetMode = engine.Declared[string]{}
-	}
-	return ans
-}
-
-// decideFor decides an ask, the pending transition of an approved plan
-// first: a call the engine itself suggests that posture for is allowed with
-// it, nobody asked — the human approved executing at it; any other is the
-// root's (settle attaches the transition to its allow).
-func (a *approvals) decideFor(ctx context.Context, ask engine.PermissionAsk) (engine.PermissionAnswer, error) {
-	a.mu.Lock()
-	pending, ok := a.pendingMode.Get()
-	a.mu.Unlock()
-	if suggested, sok := ask.SuggestsSetMode.Get(); ok && sok && ask.Kind == engine.AskTool && suggested == pending {
-		return engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(pending)}, nil
-	}
-	return a.decide(ctx, ask)
+	return a.codec.EncodeAnswer(event, ask, d.ans)
 }
 
 // bind matches an ask to an open call of the ledger, waiting (bounded) for
@@ -323,7 +293,7 @@ func (t *approvalTurn) matchLocked(tool string, input []byte) (call *toolCall, f
 // settle has the root decide the ask on the turn's context and releases
 // every ask waiting on d.
 func (a *approvals) settle(turn *approvalTurn, d *decision, ask engine.PermissionAsk) {
-	ans, err := a.decideFor(turn.ctx, ask)
+	ans, err := a.decide(turn.ctx, ask)
 	if turn.ctx.Err() != nil {
 		err = errTurnEnded
 	}
@@ -335,44 +305,18 @@ func (a *approvals) settle(turn *approvalTurn, d *decision, ask engine.Permissio
 		}
 	}
 	a.mu.Lock()
-	if err == nil && ans.Allow {
-		ans = a.moveLocked(ask, ans)
-	}
 	d.ans, d.err = ans, err
 	if err == nil && ans.Allow {
 		// Held before the answer is released, so a turn that starts once
-		// the engine has applied it already carries the grant.
+		// the engine has applied it already carries the grant and the mode.
 		a.grantLocked(ans.SessionRules)
-	}
-	close(d.done)
-	a.broadcastLocked()
-	a.mu.Unlock()
-}
-
-// moveLocked moves the run's posture by an allow. An approved plan's posture
-// is held, and left pending for the process that presented it. A call's
-// allow takes the pending transition — carrying it when it brings no mode
-// change of its own — and any mode change it carries is held. Call with
-// a.mu held.
-func (a *approvals) moveLocked(ask engine.PermissionAsk, ans engine.PermissionAnswer) engine.PermissionAnswer {
-	switch ask.Kind {
-	case engine.AskPlan:
-		if m, ok := ans.SetMode.Get(); ok {
-			a.mode, a.pendingMode = m, ans.SetMode
-		}
-		return ans
-	case engine.AskTool:
-		if _, pending := a.pendingMode.Get(); pending {
-			if _, own := ans.SetMode.Get(); !own {
-				ans.SetMode = a.pendingMode
-			}
-			a.pendingMode = engine.Declared[string]{}
-		}
 		if m, ok := ans.SetMode.Get(); ok {
 			a.mode = m
 		}
 	}
-	return ans
+	close(d.done)
+	a.broadcastLocked()
+	a.mu.Unlock()
 }
 
 // heldMode is the posture an allow moved the run to; "" for its declared one.
@@ -380,14 +324,6 @@ func (a *approvals) heldMode() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.mode
-}
-
-// hasPendingMode reports an approved plan's transition not yet taken.
-func (a *approvals) hasPendingMode() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	_, ok := a.pendingMode.Get()
-	return ok
 }
 
 // grantLocked adds the rules an allow carried to the run's grants, each

@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -186,6 +187,10 @@ func (r *Registry) save() error {
 	return nil
 }
 
+// duplicateRemoteURLFix is the fix for registering an address a remote
+// already has: use that remote, whose bundles its own listing names.
+const duplicateRemoteURLFix = "use the existing remote: `ctxloom remote show %s` lists its bundles"
+
 // Add registers a new remote (explicit user command).
 // Returns error if:
 //   - A remote with the same name already exists
@@ -205,7 +210,7 @@ func (r *Registry) Add(name, repoURL string) error {
 
 	// Check if any existing remote points to this URL
 	if existingName, found := r.findByURLLocked(repoURL); found {
-		return fmt.Errorf("remote '%s' already points to this URL; use 'ctxloom deps pull %s/<path>' instead", existingName, existingName)
+		return report.Errorf(fmt.Sprintf(duplicateRemoteURLFix, existingName), "remote '%s' already points to this URL", existingName)
 	}
 
 	remote := &Remote{

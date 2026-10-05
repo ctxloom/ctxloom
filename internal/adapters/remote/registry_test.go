@@ -1,6 +1,8 @@
 package remote
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -120,6 +123,10 @@ func TestRegistry_Add(t *testing.T) {
 		err = registry.Add("remote2", "https://github.com/owner/repo")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already points to this URL")
+		var r report.Remediable
+		require.True(t, errors.As(err, &r), "the refusal names its fix: %v", err)
+		assert.Equal(t, fmt.Sprintf(duplicateRemoteURLFix, "remote1"), r.Remedy(),
+			"the fix is a command that exists: the registered remote's own listing")
 	})
 }
 

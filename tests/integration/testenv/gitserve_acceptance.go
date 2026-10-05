@@ -109,6 +109,13 @@ func (e *TestEnvironment) BreakRemote(bareDir string) (string, error) {
 	return broken, nil
 }
 
+// RemoteFile reads path as the bare repository's default branch holds it: the
+// evidence a publish landed, read from the destination rather than inferred
+// from the publishing command's exit code.
+func (e *TestEnvironment) RemoteFile(bareDir, path string) (string, error) {
+	return gitOutput(bareDir, "show", "HEAD:"+path)
+}
+
 // FindRepoCacheClone locates the git clone the CLI cached under this
 // environment's project (.ctxloom/cache/repos/...) for a previously seeded
 // remote. Scenarios in this suite seed at most one remote, so the first clone

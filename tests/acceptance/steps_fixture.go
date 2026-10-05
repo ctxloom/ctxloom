@@ -524,6 +524,24 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return w.env.ResetCachedCloneToFirstCommit(clone)
 	})
 
+	// Reads a file of a bundle's tree as a seeded remote's default branch now
+	// holds it — what a `bundle push` to that remote actually landed.
+	ctx.Step(`^the remote "([^"]*)" holds file "([^"]*)" of bundle "([^"]*)" containing "([^"]*)"$`, func(c context.Context, name, file, bundle, want string) error {
+		w := worldFrom(c)
+		bare := w.remoteBare[name]
+		if bare == "" {
+			return fmt.Errorf("remote %q was not seeded", name)
+		}
+		got, err := w.env.RemoteFile(bare, treeBundleItemPath(bundle, file))
+		if err != nil {
+			return fmt.Errorf("remote %q holds no %s in bundle %q: %w", name, file, bundle, err)
+		}
+		if !strings.Contains(got, want) {
+			return fmt.Errorf("remote %q's %s in bundle %q does not contain %q:\n%s", name, file, bundle, want, got)
+		}
+		return nil
+	})
+
 	ctx.Step(`^the mock LLM responds "([^"]*)"$`, func(c context.Context, response string) error {
 		w := worldFrom(c)
 		mock, err := w.env.SetupMockLM()

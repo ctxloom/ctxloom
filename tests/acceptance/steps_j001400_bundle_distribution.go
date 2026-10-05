@@ -389,8 +389,6 @@ func j001400WriteTree(work string, authored map[string]j001400File) error {
 //
 // There is no CLI route to it yet — `ctxloom bundle sign` signs a single file's
 // bytes — so the Go API is used directly (taskloom: no verb signs a tree).
-// Publishing is likewise not the product's job here: remote.NewPublisher refuses
-// generic git hosts, so a bare-repo fixture has to push with git either way.
 func j001400SignTree(work string, st *j001400State) error {
 	if st.signer == nil {
 		return fmt.Errorf("there is no publishing key for Trent, so the tree cannot be signed")

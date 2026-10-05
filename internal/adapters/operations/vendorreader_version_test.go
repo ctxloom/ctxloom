@@ -129,7 +129,7 @@ func TestConvertVendorTranscript_UnrecordedVersionRefusesAndWritesNothing(t *tes
 	var missing *vendorreader.NoRecordedVersionError
 	assert.ErrorAs(t, err, &missing)
 	assert.Contains(t, err.Error(), harp, "the refusal must name the session, so a user can act on it")
-	assert.False(t, hasCanonicalTranscript(harp),
+	assert.False(t, hasCanonicalTranscript(afero.NewOsFs(), harp),
 		"a refused read must leave no canonical transcript — a half-written one is the plausible-but-wrong output this refuses to produce")
 }
 
@@ -146,7 +146,7 @@ func TestConvertVendorTranscript_UnknownVersionRefuses(t *testing.T) {
 	var unsupported *vendorreader.UnsupportedVersionError
 	require.ErrorAs(t, err, &unsupported)
 	assert.Equal(t, "9.9.9", unsupported.Version)
-	assert.False(t, hasCanonicalTranscript(harp))
+	assert.False(t, hasCanonicalTranscript(afero.NewOsFs(), harp))
 }
 
 // A session whose vendor transcript cannot be located at all stays the QUIET

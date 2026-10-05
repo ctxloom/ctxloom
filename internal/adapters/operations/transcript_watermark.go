@@ -10,7 +10,6 @@ import (
 	"hash"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 
@@ -74,7 +73,7 @@ func rotationIDs(e sessions.Entry) []string {
 // saveWatermark — so an unbound or unkeyed entry finds none). The canonical-bytes and
 // vendor-line checks happen while resuming (copyCanonicalPrefix,
 // vendorreader.Checkpoint.Seek), where the bytes are read anyway.
-func loadWatermark(adapter vendorreader.VendorAdapter, e sessions.Entry, liveSrc string) (vendorreader.ResumableAdapter, *transcriptWatermark, bool) {
+func loadWatermark(fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, liveSrc string) (vendorreader.ResumableAdapter, *transcriptWatermark, bool) {
 	ra, resumable := adapter.(vendorreader.ResumableAdapter)
 	if !resumable {
 		return nil, nil, false
@@ -83,7 +82,7 @@ func loadWatermark(adapter vendorreader.VendorAdapter, e sessions.Entry, liveSrc
 	if err != nil {
 		return nil, nil, false
 	}
-	raw, err := os.ReadFile(p)
+	raw, err := afero.ReadFile(fsys, p)
 	if err != nil {
 		return nil, nil, false
 	}
@@ -99,22 +98,22 @@ func loadWatermark(adapter vendorreader.VendorAdapter, e sessions.Entry, liveSrc
 // describes an older transcript). A failure is warned about, never returned:
 // the transcript it describes is already committed, and a missing or stale
 // watermark only costs the next refresh a full conversion.
-func saveWatermark(e sessions.Entry, wm *transcriptWatermark) {
+func saveWatermark(fsys afero.Fs, e sessions.Entry, wm *transcriptWatermark) {
 	if e.SessionID == "" {
 		return
 	}
 	p, err := paths.ResolveHarpSegmentWatermarkPath(e.HarpName, e.SessionID)
 	if err == nil {
-		err = writeWatermarkFile(p, wm)
+		err = writeWatermarkFile(fsys, p, wm)
 	}
 	if err != nil {
 		clidiag.Warn("ctxloom", "rebuild %s: could not record the transcript watermark (%v); the next refresh will convert in full", e.HarpName, err)
 	}
 }
 
-func writeWatermarkFile(p string, wm *transcriptWatermark) error {
+func writeWatermarkFile(fsys afero.Fs, p string, wm *transcriptWatermark) error {
 	if wm == nil {
-		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := fsys.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		return nil
@@ -123,18 +122,18 @@ func writeWatermarkFile(p string, wm *transcriptWatermark) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := fsys.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	return safefs.WriteFile(afero.NewOsFs(), p, raw, 0o644)
+	return safefs.WriteFile(fsys, p, raw, 0o644)
 }
 
 // copyCanonicalPrefix copies the first wm.CanonicalLength bytes of the
 // canonical transcript at dest onto w, feeding them to digest, and verifies
 // they are the bytes the watermark was taken over. Raw bytes, no decoding:
 // this is what a resume pays for the prefix instead of re-converting it.
-func copyCanonicalPrefix(dest string, wm *transcriptWatermark, w io.Writer, digest hash.Hash) error {
-	f, err := os.Open(dest)
+func copyCanonicalPrefix(fsys afero.Fs, dest string, wm *transcriptWatermark, w io.Writer, digest hash.Hash) error {
+	f, err := fsys.Open(dest)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errStaleWatermark, err)
 	}
@@ -165,26 +164,26 @@ type resumePoint struct {
 // convertLive converts liveSrc into af's temp file from `from`, returning the
 // watermark taken at the adapter's checkpoint — nil when it offered none,
 // which a non-resumable adapter never does.
-func convertLive(ctx context.Context, fs afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, af *safefs.AtomicFile, liveSrc string, from resumePoint) (*transcriptWatermark, error) {
+func convertLive(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, af *safefs.AtomicFile, liveSrc string, from resumePoint) (*transcriptWatermark, error) {
 	// transcript.Recorder holds its own append handle, opened by PATH through
-	// fs — the fs af was opened over — so it is handed af's temp path rather
+	// fsys — the fs af was opened over — so it is handed af's temp path rather
 	// than af itself (safefs.AtomicFile.TempPath). commitRebuild stats the
 	// temp file's actual size, so bytes Recorder writes here are covered by
 	// the same empty-guard as anything written through af.Write.
-	rec, err := transcript.NewRecorder(fs, e.HarpName, e.Backend, transcript.WithPath(af.TempPath()),
-		transcript.WithClock(vendorSourceClock(liveSrc)), transcript.WithContinuation(from.seq, from.sessionID))
+	rec, err := transcript.NewRecorder(fsys, e.HarpName, e.Backend, transcript.WithPath(af.TempPath()),
+		transcript.WithClock(vendorSourceClock(fsys, liveSrc)), transcript.WithContinuation(from.seq, from.sessionID))
 	if err != nil {
 		return nil, fmt.Errorf("open recorder for %s: %w", e.HarpName, err)
 	}
 	tr := &trackingRecorder{Recorder: rec, seq: from.seq, sessionID: from.sessionID}
 	var wm *transcriptWatermark
 	if ra, ok := adapter.(vendorreader.ResumableAdapter); ok {
-		err = ra.ConvertFrom(ctx, fs, tr, liveSrc, from.vendor, func(cp vendorreader.Checkpoint) error {
-			wm, err = takeWatermark(af.TempPath(), from, tr, cp)
+		err = ra.ConvertFrom(ctx, fsys, tr, liveSrc, from.vendor, func(cp vendorreader.Checkpoint) error {
+			wm, err = takeWatermark(fsys, af.TempPath(), from, tr, cp)
 			return err
 		})
 	} else {
-		err = adapter.Convert(ctx, fs, tr, liveSrc)
+		err = adapter.Convert(ctx, fsys, tr, liveSrc)
 	}
 	_ = rec.Close()
 	if err != nil {
@@ -199,8 +198,8 @@ func convertLive(ctx context.Context, fs afero.Fs, adapter vendorreader.VendorAd
 // takeWatermark is the watermark at checkpoint cp: the canonical bytes
 // written so far (the rebuild's temp file, from.length of which are already
 // in from.digest), and where the canonical lines continue.
-func takeWatermark(tempPath string, from resumePoint, tr *trackingRecorder, cp vendorreader.Checkpoint) (*transcriptWatermark, error) {
-	f, err := os.Open(tempPath)
+func takeWatermark(fsys afero.Fs, tempPath string, from resumePoint, tr *trackingRecorder, cp vendorreader.Checkpoint) (*transcriptWatermark, error) {
+	f, err := fsys.Open(tempPath)
 	if err != nil {
 		return nil, fmt.Errorf("watermark: %w", err)
 	}

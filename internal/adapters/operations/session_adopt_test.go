@@ -250,7 +250,7 @@ not json at all
 {"type":"assistant","timestamp":"2026-01-01T02:00:00.500Z"}
 `
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
-	start, end, n, err := claudeRecordSpan(path)
+	start, end, n, err := claudeRecordSpan(afero.NewOsFs(), path)
 	require.NoError(t, err)
 	assert.Equal(t, 2, n)
 	assert.True(t, start.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
@@ -261,12 +261,12 @@ func TestClaudeRecordSpan_NoTimestampsIsNotAnError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.jsonl")
 	require.NoError(t, os.WriteFile(path, []byte(`{"type":"summary"}`+"\n"), 0o644))
-	_, _, n, err := claudeRecordSpan(path)
+	_, _, n, err := claudeRecordSpan(afero.NewOsFs(), path)
 	require.NoError(t, err)
 	assert.Equal(t, 0, n)
 }
 
 func TestClaudeRecordSpan_MissingFileErrors(t *testing.T) {
-	_, _, _, err := claudeRecordSpan(filepath.Join(t.TempDir(), "does-not-exist.jsonl"))
+	_, _, _, err := claudeRecordSpan(afero.NewOsFs(), filepath.Join(t.TempDir(), "does-not-exist.jsonl"))
 	require.Error(t, err)
 }

@@ -2,6 +2,8 @@ package turnchange
 
 import (
 	"context"
+	"io/fs"
+	"os"
 	"strings"
 	"testing"
 
@@ -115,4 +117,23 @@ func TestReadTranscript_UnreadableFileErrors(t *testing.T) {
 	_, err := ReadTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, "/nonexistent/transcript.jsonl")
 	require.Error(t, err)
 	assert.False(t, strings.Contains(err.Error(), "no error"))
+}
+
+// TestReadTranscript_ReadsThroughTheGivenFs: the transcript exists only in
+// the injected fs, so a read that reached for the disk would fail to open it.
+func TestReadTranscript_ReadsThroughTheGivenFs(t *testing.T) {
+	raw, err := os.ReadFile(writeTranscript(t,
+		promptLine("capture my next step", "u1"),
+		assistantTextLine("a1", "msg_1", "Next I will merge the branch.", false),
+	))
+	require.NoError(t, err)
+	const src = "/turnchange-memfs-only/transcript.jsonl"
+	_, statErr := os.Stat(src)
+	require.ErrorIs(t, statErr, fs.ErrNotExist, "the transcript must be absent from disk")
+	mem := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(mem, src, raw, 0o644))
+
+	evs, err := ReadTranscript(context.Background(), mem, claudereader.Adapter{}, src)
+	require.NoError(t, err)
+	assert.Equal(t, "Next I will merge the branch.", LastAssistantText(evs))
 }

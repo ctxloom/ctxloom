@@ -3,7 +3,6 @@ package operations
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -136,9 +135,9 @@ func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 	}
 	scanDir := filepath.Dir(entry.TranscriptPath)
 
-	timeline := existingLineageTimeline(*entry)
+	timeline := existingLineageTimeline(fsys, *entry)
 
-	dirEntries, err := os.ReadDir(scanDir)
+	dirEntries, err := afero.ReadDir(fsys, scanDir)
 	if err != nil {
 		return nil, fmt.Errorf("session adopt: scan %s: %w", scanDir, err)
 	}
@@ -169,7 +168,7 @@ func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 			continue
 		}
 
-		start, end, n, serr := claudeRecordSpan(path)
+		start, end, n, serr := claudeRecordSpan(fsys, path)
 		switch {
 		case serr != nil:
 			unspanned = append(unspanned, AdoptCandidate{SessionID: sessionID, TranscriptPath: path, Verdict: AdoptVerdictSkip, Reason: fmt.Sprintf("could not read: %v", serr)})
@@ -250,10 +249,10 @@ func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 // conservative direction: a candidate that would only have been rejected
 // because of an unreadable member's span is instead judged only against
 // what IS still known, never blocked on it.
-func existingLineageTimeline(e sessions.Entry) []adoptTimelineSpan {
+func existingLineageTimeline(fsys afero.Fs, e sessions.Entry) []adoptTimelineSpan {
 	var timeline []adoptTimelineSpan
 	if e.TranscriptPath != "" {
-		if start, end, n, err := claudeRecordSpan(e.TranscriptPath); err == nil && n > 0 {
+		if start, end, n, err := claudeRecordSpan(fsys, e.TranscriptPath); err == nil && n > 0 {
 			timeline = append(timeline, adoptTimelineSpan{sessionID: e.SessionID, start: start, end: end})
 		}
 	}
@@ -261,7 +260,7 @@ func existingLineageTimeline(e sessions.Entry) []adoptTimelineSpan {
 		if r.TranscriptPath == "" {
 			continue
 		}
-		if start, end, n, err := claudeRecordSpan(r.TranscriptPath); err == nil && n > 0 {
+		if start, end, n, err := claudeRecordSpan(fsys, r.TranscriptPath); err == nil && n > 0 {
 			timeline = append(timeline, adoptTimelineSpan{sessionID: r.SessionID, start: start, end: end})
 		}
 	}
@@ -329,8 +328,8 @@ type claudeTimestampLine struct {
 // missing the field, or every value unparseable) — a real, if unhelpful,
 // outcome the caller treats as "cannot determine this file's span," not an
 // error. err is only ever an I/O failure opening or reading the file.
-func claudeRecordSpan(path string) (start, end time.Time, n int, err error) {
-	lines, rerr := vendorreader.OpenAndReadJSONLLines(afero.NewOsFs(), "claude", path)
+func claudeRecordSpan(fsys afero.Fs, path string) (start, end time.Time, n int, err error) {
+	lines, rerr := vendorreader.OpenAndReadJSONLLines(fsys, "claude", path)
 	if rerr != nil {
 		return time.Time{}, time.Time{}, 0, rerr
 	}

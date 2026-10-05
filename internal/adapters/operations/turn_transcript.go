@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -54,12 +53,12 @@ func ResolveTurnTranscript(ctx context.Context, fsys afero.Fs, reg engine.Regist
 
 	src := strings.TrimSpace(hookTranscriptPath)
 	if src != "" {
-		if _, statErr := os.Stat(src); statErr != nil {
+		if _, statErr := fsys.Stat(src); statErr != nil {
 			src = ""
 		}
 	}
 	if src == "" {
-		located, found := vr.locate(ctx, *entry)
+		located, found := vr.locate(ctx, fsys, *entry)
 		if !found {
 			return nil, "", fmt.Errorf("no %s transcript could be located for %s", entry.Backend, harp)
 		}

@@ -248,14 +248,14 @@ func TestLocateBoundTranscript(t *testing.T) {
 	real := filepath.Join(dir, "transcript.jsonl")
 	require.NoError(t, os.WriteFile(real, []byte("{}\n"), 0o644))
 
-	src, ok := locateBoundTranscript(context.Background(), sessions.Entry{TranscriptPath: real})
+	src, ok := locateBoundTranscript(context.Background(), afero.NewOsFs(), sessions.Entry{TranscriptPath: real})
 	assert.True(t, ok)
 	assert.Equal(t, real, src)
 
-	_, ok = locateBoundTranscript(context.Background(), sessions.Entry{})
+	_, ok = locateBoundTranscript(context.Background(), afero.NewOsFs(), sessions.Entry{})
 	assert.False(t, ok, "an unbound entry has nothing to locate")
 
-	_, ok = locateBoundTranscript(context.Background(), sessions.Entry{TranscriptPath: filepath.Join(dir, "gone.jsonl")})
+	_, ok = locateBoundTranscript(context.Background(), afero.NewOsFs(), sessions.Entry{TranscriptPath: filepath.Join(dir, "gone.jsonl")})
 	assert.False(t, ok, "a dangling bind must degrade to not-found")
 }
 

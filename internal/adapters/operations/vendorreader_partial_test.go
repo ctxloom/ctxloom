@@ -55,7 +55,7 @@ func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(
 	assert.True(t, converted, "Convert was genuinely attempted")
 	require.Error(t, err, "a partial failure must surface as an error the first time")
 
-	assert.False(t, hasCanonicalTranscript(harp),
+	assert.False(t, hasCanonicalTranscript(afero.NewOsFs(), harp),
 		"a failed import must not leave a canonical file that a later retry mistakes for a complete, already-captured transcript")
 
 	// A second call must genuinely retry, not silently no-op as "already
@@ -97,5 +97,5 @@ func TestConvertVendorTranscript_ZeroLinesIsNotReportedAsConverted(t *testing.T)
 	require.NoError(t, err)
 	assert.False(t, converted,
 		"a Convert that wrote zero canonical lines must not be reported as \"converted\" — nothing was actually delivered")
-	assert.False(t, hasCanonicalTranscript(harp), "no canonical file should exist when nothing was recorded")
+	assert.False(t, hasCanonicalTranscript(afero.NewOsFs(), harp), "no canonical file should exist when nothing was recorded")
 }

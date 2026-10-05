@@ -2,9 +2,10 @@ package operations
 
 import (
 	"context"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

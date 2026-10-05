@@ -186,7 +186,7 @@ it starts its own coordinator beside the first. The two are independent
 trees. Each has its own children, roster, inbox, shutdown drain and lifetime,
 and they share no state, so one failing never affects the other. The
 concurrency cap on children applies to each tree separately. The same holds
-for the short-lived coordinator that `bundle distill`, `session distill` or
+for the short-lived coordinator that `bundle distill`, `session compact` or
 `init`'s probe stands up: it runs beside any open session.
 
 A tree's state lives in a root directory named after the session that
@@ -205,7 +205,7 @@ still holds the root, the resume runs without agent delegation and says so.
 The one exception is an interactive owner whose terminal is gone: it is
 provably abandoned, so the resume ends it and takes the tree over. A root is
 removed along with its session by `ctxloom session sweep`. The short-lived
-coordinator behind `bundle distill`, `session distill` or `init`'s probe is
+coordinator behind `bundle distill`, `session compact` or `init`'s probe is
 the exception: nothing resumes it, so its root is removed as soon as it
 finishes. `ctxloom doctor` lists every tree in the project and
 who owns it (`DOCTOR-CHECK-PROJECT-OWNER-v4`). It removes none of them.

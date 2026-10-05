@@ -73,10 +73,10 @@ func TestSessionToText_ElidesEditPayload(t *testing.T) {
 		},
 	})
 	if strings.Contains(text, "GENERATED_CODE_MARKER") {
-		t.Fatalf("generated code reached the distillation text: %s", text)
+		t.Fatalf("generated code reached the compaction text: %s", text)
 	}
 	if !strings.Contains(text, "/a/b.go") {
-		t.Fatalf("edited path lost from distillation text: %s", text)
+		t.Fatalf("edited path lost from compaction text: %s", text)
 	}
 }
 
@@ -102,16 +102,16 @@ func TestRenderToolArgs_QuestionsKeepTextDropOptions(t *testing.T) {
 // its intent ("this is a large result") rather than a magic length.
 func bigBody() string { return strings.Repeat("z", agent.DefaultToolReflectBytes*2) }
 
-// TestSelectForDistill_RepairsOnlyUnreflectedLargeResults pins the trigger from
+// TestSelectForCompact_RepairsOnlyUnreflectedLargeResults pins the trigger from
 // all three sides: a large result the agent commented on needs no repair, an
 // identical one it ignored does, and a SMALL ignored one does not. Asserting
 // only the positive case would be satisfied by queueing every result for an
 // LLM call, which is the expensive failure.
-func TestSelectForDistill_RepairsOnlyUnreflectedLargeResults(t *testing.T) {
+func TestSelectForCompact_RepairsOnlyUnreflectedLargeResults(t *testing.T) {
 	call := agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: "Bash",
 		ToolInput: []byte(`{"command":"go build ./..."}`)}
 
-	reflected := selectForDistill([]agent.SessionEntry{
+	reflected := selectForCompact([]agent.SessionEntry{
 		call,
 		{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: bigBody()},
 		{Type: agent.EntryTypeAssistant, Content: "The build failed on a link error."},
@@ -120,7 +120,7 @@ func TestSelectForDistill_RepairsOnlyUnreflectedLargeResults(t *testing.T) {
 		t.Fatalf("queued a repair for a result the agent already commented on: %+v", reflected.Repairs)
 	}
 
-	ignored := selectForDistill([]agent.SessionEntry{
+	ignored := selectForCompact([]agent.SessionEntry{
 		call,
 		{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: bigBody()},
 		call,
@@ -138,7 +138,7 @@ func TestSelectForDistill_RepairsOnlyUnreflectedLargeResults(t *testing.T) {
 		t.Fatalf("repair Index does not address its own entry: %+v", got)
 	}
 
-	small := selectForDistill([]agent.SessionEntry{
+	small := selectForCompact([]agent.SessionEntry{
 		{Type: agent.EntryTypeToolUse, ToolName: "Write", ToolInput: []byte(`{"file_path":"/a"}`)},
 		{Type: agent.EntryTypeToolResult, ToolName: "Write", ToolOutput: "ok"},
 		{Type: agent.EntryTypeToolUse, ToolName: "Write", ToolInput: []byte(`{"file_path":"/b"}`)},
@@ -195,7 +195,7 @@ func TestRenderResultBody_ExcerptOnlyWhenUnreflected(t *testing.T) {
 // the agent never commented on -- the only shape that reaches repairResults.
 func unreflectedSelection(t *testing.T) Selection {
 	t.Helper()
-	sel := selectForDistill([]agent.SessionEntry{
+	sel := selectForCompact([]agent.SessionEntry{
 		{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"go vet ./..."}`)},
 		{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: bigBody()},
 		{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"ls"}`)},
@@ -213,7 +213,7 @@ func unreflectedSelection(t *testing.T) Selection {
 // silent no-op.
 func TestRepairResults_WritesRecoveredFindingIntoTheEntry(t *testing.T) {
 	const finding = "go vet reported no findings across the module."
-	mock := &scriptedDistiller{
+	mock := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte(finding))
 			return 0, nil
@@ -240,7 +240,7 @@ func TestRepairResults_WritesRecoveredFindingIntoTheEntry(t *testing.T) {
 // failed LLM call must leave the deterministic rendering standing, never an
 // empty result -- the excerpt is the whole reason tier 3 exists.
 func TestRepairResults_FailedRecoveryLeavesTheExcerpt(t *testing.T) {
-	mock := &scriptedDistiller{
+	mock := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			return 0, errors.New("plugin unreachable")
 		},
@@ -265,7 +265,7 @@ func TestRepairResults_FailedRecoveryLeavesTheExcerpt(t *testing.T) {
 // hatch. A model with nothing to say must not overwrite the excerpt with a
 // confident nothing.
 func TestRepairResults_NoConclusionLeavesTheExcerpt(t *testing.T) {
-	mock := &scriptedDistiller{
+	mock := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("  " + noConclusionAvailable + "\n"))
 			return 0, nil
@@ -287,7 +287,7 @@ func TestRepairResults_NoConclusionLeavesTheExcerpt(t *testing.T) {
 // result was commented on costs nothing. Spawning a plugin subprocess per
 // result would make reflection more expensive than not reflecting.
 func TestRepairResults_NoCandidatesMakesNoCall(t *testing.T) {
-	mock := &scriptedDistiller{
+	mock := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatal("repairResults called the model with no repair candidates")
 			return 0, nil
@@ -295,7 +295,7 @@ func TestRepairResults_NoCandidatesMakesNoCall(t *testing.T) {
 	}
 	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{Run: runnerOver(mock)}}
 
-	sel := selectForDistill([]agent.SessionEntry{
+	sel := selectForCompact([]agent.SessionEntry{
 		{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"go vet ./..."}`)},
 		{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: bigBody()},
 		{Type: agent.EntryTypeAssistant, Content: "Vet was clean."},
@@ -310,7 +310,7 @@ func TestRepairResults_NoCandidatesMakesNoCall(t *testing.T) {
 }
 
 // TestRepairResults_ConcurrentRecoveriesEachLandInTheirOwnEntry drives ENOUGH
-// candidates to exceed distillConcurrency, so the pass actually runs in
+// candidates to exceed compactConcurrency, so the pass actually runs in
 // parallel. The single-candidate tests above cannot exercise that: they spawn
 // one goroutine, so a race detector run over them proves nothing.
 //
@@ -318,7 +318,7 @@ func TestRepairResults_NoCandidatesMakesNoCall(t *testing.T) {
 // can break -- a shared index, or a captured loop variable, would land every
 // finding on one entry and leave the rest holding excerpts.
 func TestRepairResults_ConcurrentRecoveriesEachLandInTheirOwnEntry(t *testing.T) {
-	const candidates = distillConcurrency * 3
+	const candidates = compactConcurrency * 3
 
 	var entries []agent.SessionEntry
 	for i := 0; i < candidates; i++ {
@@ -330,7 +330,7 @@ func TestRepairResults_ConcurrentRecoveriesEachLandInTheirOwnEntry(t *testing.T)
 			agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"true"}`)},
 		)
 	}
-	sel := selectForDistill(entries)
+	sel := selectForCompact(entries)
 	if len(sel.Repairs) != candidates {
 		t.Fatalf("want %d repair candidates, got %d", candidates, len(sel.Repairs))
 	}
@@ -338,7 +338,7 @@ func TestRepairResults_ConcurrentRecoveriesEachLandInTheirOwnEntry(t *testing.T)
 	// Echo the pkg number back out of the prompt so each answer is distinct and
 	// traceable to the call that produced it.
 	pkgRE := regexp.MustCompile(`go test \./pkg(\d+)/`)
-	mock := &scriptedDistiller{
+	mock := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			m := pkgRE.FindStringSubmatch(prompt)
 			if m == nil {
@@ -397,7 +397,7 @@ func TestRenderErrorBody_BoundsAPathologicalError(t *testing.T) {
 // recovered, and it is the FINDING -- not the raw body -- that the distiller
 // is asked to summarize.
 //
-// The assertion reads what the distilling backend actually RECEIVED, not what
+// The assertion reads what the compacting backend actually RECEIVED, not what
 // Compact reported doing. Every cheaper check here is satisfied by a pipeline
 // that recovers a finding and then throws it away.
 func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
@@ -410,7 +410,7 @@ func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
 
 	history := &mockSource{currentSession: &agent.Session{
 		ID: "e2e-session",
-		Entries: aboveDistillFloor([]agent.SessionEntry{
+		Entries: aboveCompactFloor([]agent.SessionEntry{
 			{Type: agent.EntryTypeUser, Content: "why is the suite slow"},
 			{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"go test ./..."}`)},
 			{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: rawBody + bigBody()},
@@ -421,15 +421,15 @@ func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
 	}}
 
 	var mu sync.Mutex
-	var distillerSaw []string
-	mock := &scriptedDistiller{
+	var runnerSaw []string
+	mock := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			if strings.Contains(prompt, toolCall) {
 				_, _ = stdout.Write([]byte(finding)) // the recovery call
 				return 0, nil
 			}
 			mu.Lock()
-			distillerSaw = append(distillerSaw, prompt) // the chunk/reduce calls
+			runnerSaw = append(runnerSaw, prompt) // the chunk/reduce calls
 			mu.Unlock()
 			_, _ = stdout.Write([]byte("---\nsummary: e2e\n---\n\n### Open Items\n- none\n"))
 			return 0, nil
@@ -453,10 +453,10 @@ func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(distillerSaw) == 0 {
+	if len(runnerSaw) == 0 {
 		t.Fatal("the distiller was never called; the pipeline short-circuited")
 	}
-	all := strings.Join(distillerSaw, "\n")
+	all := strings.Join(runnerSaw, "\n")
 	if !strings.Contains(all, finding) {
 		t.Fatalf("recovered finding never reached the distiller:\n%s", truncateForSummary(all))
 	}
@@ -488,23 +488,23 @@ func TestResultShape_DistinguishesEmptyFromDiscarded(t *testing.T) {
 	}
 }
 
-// TestDistillPrompt_CarriesTheConfiguredBudget pins that the budget reaches the
+// TestCompactPrompt_CarriesTheConfiguredBudget pins that the budget reaches the
 // MODEL. It is injected at runtime rather than written into the prompt file,
-// so a config value that never made it into the prompt would leave distillation
+// so a config value that never made it into the prompt would leave compaction
 // with no size instruction at all -- and nothing else would notice.
-func TestDistillPrompt_CarriesTheConfiguredBudget(t *testing.T) {
+func TestCompactPrompt_CarriesTheConfiguredBudget(t *testing.T) {
 	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{EssenceMaxChars: 7331}}
 
-	got, err := c.distillPrompt()
+	got, err := c.compactPrompt()
 	if err != nil {
-		t.Fatalf("distillPrompt: %v", err)
+		t.Fatalf("compactPrompt: %v", err)
 	}
 
 	if !strings.Contains(got, "7331") {
 		t.Fatalf("configured budget absent from the prompt: %q", truncateForSummary(got))
 	}
 	if !strings.Contains(got, "Open Items") {
-		t.Fatal("budget injection dropped the distillation instruction itself")
+		t.Fatal("budget injection dropped the compaction instruction itself")
 	}
 }
 

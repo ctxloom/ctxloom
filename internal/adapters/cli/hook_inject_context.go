@@ -113,9 +113,9 @@ func runHookInjectContext(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	// On the initial launch of a resumed session, inject the resumed
-	// session's distilled essence alongside the project context. Skipped on
+	// session's compacted essence alongside the project context. Skipped on
 	// /clear and /compact (by source), where re-injecting would also mean a
-	// redistill on the resume hot path — there the user pulls prior context
+	// re-compact on the resume hot path — there the user pulls prior context
 	// back explicitly with /recover.
 	resumedEssence := resumedEssenceForInjection(part, hookInput.Source,
 		os.Getenv("CTXLOOM_RESUMED_FROM"), os.Getenv("CTXLOOM_RESUMED_PARTS"))
@@ -292,7 +292,7 @@ func buildInjectContextOutput(content, resumedEssence string, part, total int) H
 	var body string
 	if includeEssence {
 		body = "# Resumed session (assembled by ctxloom)" +
-			"\n\n_The summary below is the distilled essence of the session you resumed from. " +
+			"\n\n_The summary below is the compacted essence of the session you resumed from. " +
 			"Use it to pick up where that session left off. It is recovered memory, not project instructions._" +
 			"\n\n<ctxloom-resumed-session>\n\n" + resumedEssence + "\n\n</ctxloom-resumed-session>\n"
 	}
@@ -330,7 +330,7 @@ func buildInjectContextOutput(content, resumedEssence string, part, total int) H
 	}
 }
 
-// resumedEssenceForInjection returns the distilled essence to inject for a
+// resumedEssenceForInjection returns the compacted essence to inject for a
 // resumed session, or "" when none should be injected. Essence rides only the
 // first chunk, only on an initial launch (not /clear or /compact, see
 // shouldInjectResumedEssence), only when a resume happened (resumedFrom set),

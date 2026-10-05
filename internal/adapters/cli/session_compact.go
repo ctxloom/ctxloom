@@ -12,19 +12,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
-// The distillation/compaction cluster the session commands share with the MCP
+// The compaction/compaction cluster the session commands share with the MCP
 // memory tools: situating a one-shot process in a session's own project dir,
 // then running the compactor for one entry. operations.CompactEntry is the
-// single funnel every distill path goes through.
+// single funnel every compact path goes through.
 
-// distillMissingOrStale distills every entry whose essence is missing or stale
-// (SourceStale), so `session list --distill` shows a title on every row. Each
+// compactMissingOrStale compacts every entry whose essence is missing or stale
+// (SourceStale), so `session list --compact` shows a title on every row. Each
 // session is compacted in its own project dir — its project config governs the
-// distillation — so the loop chdir's per entry and restores the original cwd on
+// compaction — so the loop chdir's per entry and restores the original cwd on
 // return. Per-entry failures are warned and skipped: a session that can't be
-// distilled (e.g. one with no captured transcript) must not
+// compacted (e.g. one with no captured transcript) must not
 // block the listing (CLAUDE.md — a usable partial listing beats a hard fail).
-func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir string) {
+func compactMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir string) {
 	origWd, _ := os.Getwd()
 	defer func() {
 		if origWd != "" {
@@ -34,19 +34,19 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 	progress := errwriter.New(cmd.ErrOrStderr())
 	for i := range entries {
 		e := &entries[i]
-		_, distilled := operations.SessionEssenceInfo(e.HarpName, e)
+		_, compacted := operations.SessionEssenceInfo(e.HarpName, e)
 		stale, known := e.SourceStale()
 		knownStale := known && stale
-		if distilled && !knownStale {
+		if compacted && !knownStale {
 			continue // fresh essence already present
 		}
 		// Situate in the entry's own project dir before loading config /
-		// reading the transcript (see runSessionDistill for why chdir is
+		// reading the transcript (see runSessionCompact for why chdir is
 		// required and safe for a one-shot CLI) — or back in origWd when
 		// this entry has none of its own (leaving the PREVIOUS
 		// entry's chdir in place here meant GetConfig() silently read the
 		// wrong project's config for THIS entry, using another project's
-		// cwd-bound legacy LLM/backend settings for a distillation that
+		// cwd-bound legacy LLM/backend settings for a compaction that
 		// never intended to touch it at all).
 		if cerr := situateForEntry(e, origWd); cerr != nil {
 			clidiag.Warn("ctxloom", "could not enter project dir %q for %s: %v", e.ProjectDir, e.HarpName, cerr)
@@ -54,12 +54,12 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 		}
 		cfg, cErr := GetConfig()
 		if cErr != nil {
-			clidiag.Warn("ctxloom", "could not load config to distill %s: %v", e.HarpName, cErr)
+			clidiag.Warn("ctxloom", "could not load config to compact %s: %v", e.HarpName, cErr)
 			continue
 		}
 		// Ruled sub-choice #2 (stale-gated, not
 		// every row): the staleness gate above already decided this row
-		// needs distilling, so the heal cost is paid only for rows that
+		// needs compacting, so the heal cost is paid only for rows that
 		// looked stale or title-less — never for every row in the sweep
 		// (RefreshVendorTranscript's own doc: "a sweep across an index must
 		// not" pay the heal unconditionally).
@@ -74,14 +74,14 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 		if src.Entry == nil {
 			src.Entry = e
 		}
-		if _, dErr := operations.DistillEntry(cmd.Context(), App().LaunchFacts(), src, cfg, operations.DistillOptions{Hosts: internalRunHosts(), Progress: progress}); dErr != nil {
-			clidiag.Warn("ctxloom", "could not distill %s: %v", e.HarpName, dErr)
+		if _, dErr := operations.CompactResolved(cmd.Context(), App().LaunchFacts(), src, cfg, operations.CompactOptions{Hosts: internalRunHosts(), Progress: progress}); dErr != nil {
+			clidiag.Warn("ctxloom", "could not compact %s: %v", e.HarpName, dErr)
 		}
 	}
 }
 
 // situateForEntry chdirs the process to e's own ProjectDir, or back to
-// origWd when e has none — the shared cwd-management step distillMissingOrStale
+// origWd when e has none — the shared cwd-management step compactMissingOrStale
 // needs before every GetConfig()/operations.CompactEntry call, extracted so it is
 // independently testable rather than living as an inline branch
 // that only ever changed directory FORWARD and never restored it for an

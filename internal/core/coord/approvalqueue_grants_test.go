@@ -55,25 +55,20 @@ func assertGrantDecided(t *testing.T, d ApprovalDecision) {
 // TestApprovalQueue_AGrantResolvesTheAskersCoveredRequests: the human's
 // allow-for-session resolves the same child's other parked requests the new
 // rule covers — as the grant's decision — and leaves the rest: a call the
-// rule does not cover, another child's call, and a request that is not a
-// tool call.
+// rule does not cover, and another child's call.
 func TestApprovalQueue_AGrantResolvesTheAskersCoveredRequests(t *testing.T) {
 	q, _, path := newTestQueue(t)
 	events := q.Subscribe(t.Context())
 	other := Identity{Harp: "other-harp", RunID: "run-9", Depth: 1}
-	question := toolAsk("Bash")
-	question.Kind, question.Ask.Kind = ApprovalQuestion, engine.AskQuestion
-
 	asked, askedDone := parkFrom(t, q, events, askerID, toolAsk("Bash"))
 	_, sibling := parkFrom(t, q, events, askerID, toolAsk("Bash"))
 	write, _ := parkFrom(t, q, events, askerID, toolAsk("Write"))
 	elsewhere, _ := parkFrom(t, q, events, other, toolAsk("Bash"))
-	asking, _ := parkFrom(t, q, events, askerID, question)
 
 	require.NoError(t, q.Answer(asked, ApprovalDecision{Allow: true, SessionRules: []string{"Bash"}}))
 	assert.Equal(t, agent.DeciderHuman, decided(t, askedDone).Decider)
 	assertGrantDecided(t, decided(t, sibling))
-	assert.ElementsMatch(t, []ApprovalID{write, elsewhere, asking}, pendingIDs(q))
+	assert.ElementsMatch(t, []ApprovalID{write, elsewhere}, pendingIDs(q))
 
 	var deciders []string
 	for _, f := range readFacts(t, path) {

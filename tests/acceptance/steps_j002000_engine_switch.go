@@ -251,7 +251,7 @@ func registerJ002000Steps(ctx *godog.ScenarioContext) {
 	// reaps an entry it warns "session <harp> dropped from the index" on
 	// stderr, so the message announcing that the history was DELETED contained
 	// the very string the assertion looked for. Measured: inverting
-	// operations.isUnrecoverable so a distilled entry is reaped left this
+	// operations.isUnrecoverable so a compacted entry is reaped left this
 	// scenario green while `session list --all` listed nothing at all.
 	ctx.Step(`^the sessions recorded under the old engine are still listed after the switch$`, func(c context.Context) error {
 		w := worldFrom(c)

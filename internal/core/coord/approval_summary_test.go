@@ -12,12 +12,11 @@ import (
 )
 
 func toolRequest(tool, input string) PendingApproval {
-	return PendingApproval{Kind: ApprovalTool, Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: json.RawMessage(input)}}
+	return PendingApproval{Ask: engine.PermissionAsk{Tool: tool, Input: json.RawMessage(input)}}
 }
 
-// TestPendingApprovalSummary_Kinds: a tool request names the tool and the
-// first present of its command, file_path, url or pattern; a question names
-// its first header; a plan names its path.
+// TestPendingApprovalSummary_Kinds: a request names the tool and the first
+// present of its command, file_path, url or pattern.
 func TestPendingApprovalSummary_Kinds(t *testing.T) {
 	cases := []struct {
 		name string
@@ -33,13 +32,6 @@ func TestPendingApprovalSummary_Kinds(t *testing.T) {
 		{"no known field", toolRequest("Task", `{"prompt":"go"}`), "Task"},
 		{"input not an object", toolRequest("Task", `[1]`), "Task"},
 		{"no input", toolRequest("Task", ``), "Task"},
-		{"question", PendingApproval{Kind: ApprovalQuestion, Ask: engine.PermissionAsk{Kind: engine.AskQuestion,
-			Questions: []engine.Question{{Header: "Pick", Text: "which?"}, {Header: "Second"}}}}, "Pick"},
-		{"question without questions", PendingApproval{Kind: ApprovalQuestion}, "question"},
-		{"plan", PendingApproval{Kind: ApprovalPlan, Ask: engine.PermissionAsk{Kind: engine.AskPlan,
-			Plan: &engine.PlanProposal{Markdown: "# p", Path: "/plans/p.md"}}}, "/plans/p.md"},
-		{"plan without path", PendingApproval{Kind: ApprovalPlan, Ask: engine.PermissionAsk{Kind: engine.AskPlan,
-			Plan: &engine.PlanProposal{Markdown: "# p"}}}, "plan"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -58,7 +50,7 @@ func TestPendingApprovalSummary_RawButOneLine(t *testing.T) {
 		in, _ := json.Marshal(map[string]string{"command": "ls" + brk + "rm"})
 		assert.Equal(t, "Bash: ls rm", toolRequest("Bash", string(in)).Summary(), "line break %q", brk)
 	}
-	tool := PendingApproval{Kind: ApprovalTool, Ask: engine.PermissionAsk{Tool: "Ba\nsh"}}
+	tool := PendingApproval{Ask: engine.PermissionAsk{Tool: "Ba\nsh"}}
 	assert.Equal(t, "Ba sh", tool.Summary(), "the tool name is the child's too")
 }
 

@@ -23,7 +23,6 @@ func TestItemKind_CoversEveryPayloadCase(t *testing.T) {
 		{"run_started", Event{Payload: RunStarted{}}},
 		{"step_started", Event{Payload: StepStarted{}}},
 		{"step_completed", Event{Payload: StepCompleted{}}},
-		{"status_changed", Event{Payload: StatusChanged{}}},
 		{"run_completed", Event{Payload: RunCompleted{}}},
 		{"message_started", Event{Payload: MessageStarted{}}},
 		{"message_delta", Event{Payload: MessageDelta{}}},
@@ -50,7 +49,7 @@ func TestItemKind_CoversEveryPayloadCase(t *testing.T) {
 func TestItemKind_DeltaAndBoundaryAgree(t *testing.T) {
 	assert.True(t, itemIsDelta("message_delta"))
 	assert.True(t, itemIsDelta("tool_call_args_delta"))
-	for _, boundary := range []string{"run_started", "run_completed", "message_completed", "tool_call_completed", "interaction", "raw", "status_changed"} {
+	for _, boundary := range []string{"run_started", "run_completed", "message_completed", "tool_call_completed", "interaction", "raw"} {
 		assert.False(t, itemIsDelta(boundary), "%s must force a flush", boundary)
 	}
 }

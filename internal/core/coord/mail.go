@@ -3,6 +3,8 @@ package coord
 import (
 	"encoding/json"
 	"errors"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // Typed mail refusals.
@@ -64,17 +66,35 @@ type BlockedCall struct {
 	Decider string `json:"decider"`
 }
 
-// AutoReportStructured is the marker payload, plus the turn's refused calls
-// when there were any: a turn that was blocked says so in the structure a
+// PlanApproval is the plan a plan-first child's turn ended holding: the
+// plan artifact the turn left, when one was stamped, and the postures the
+// parent may approve it for — exactly one of them the default.
+type PlanApproval struct {
+	Artifact string                     `json:"artifact,omitempty"`
+	Postures []engine.PostureTransition `json:"postures"`
+}
+
+// AutoReport is what an automatic turn report says in its structure, beside
+// the marker: the turn's refused calls, and the plan awaiting approval.
+type AutoReport struct {
+	Blocked      []BlockedCall
+	PlanApproval *PlanApproval
+}
+
+// AutoReportStructured is the marker payload, plus what r holds: a turn that
+// was blocked, or that ended holding a plan, says so in the structure a
 // parent can branch on, not only in prose.
-func AutoReportStructured(blocked ...BlockedCall) json.RawMessage {
+func AutoReportStructured(r AutoReport) json.RawMessage {
 	payload := map[string]any{autoReportKey: true}
-	if len(blocked) > 0 {
-		payload["blocked"] = blocked
+	if len(r.Blocked) > 0 {
+		payload["blocked"] = r.Blocked
+	}
+	if r.PlanApproval != nil {
+		payload["plan_approval"] = r.PlanApproval
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
-		panic(err) // a bool and a slice of string structs always marshal
+		panic(err) // a bool and structs of strings and bools always marshal
 	}
 	return b
 }

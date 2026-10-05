@@ -31,7 +31,7 @@ func (t sessionTime) MarshalJSON() ([]byte, error) {
 
 // SessionRow is the lightweight per-session projection `session list` and
 // `session query` render by default: a single-line summary, the harp name,
-// start/end timestamps, and — when the session has been distilled — the
+// start/end timestamps, and — when the session has been compacted — the
 // essence file's path, but never the essence BODY itself (that stays
 // `session show`'s job, or `--full`'s — see session_full.go). Projected from
 // operations.SessionView, the one read model, never from the store's entry.
@@ -53,7 +53,7 @@ type SessionRow struct {
 }
 
 // newSessionRow projects the read model down to a SessionRow. Summary falls
-// back to a placeholder for a session that was never distilled, and carries
+// back to a placeholder for a session that was never compacted, and carries
 // the "out of date" badge when the essence predates the live transcript
 // (SessionView.Stale) — so the badge rides in the row itself and shows up in
 // every format, not just text.

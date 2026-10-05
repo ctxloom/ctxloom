@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"mime"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
@@ -54,13 +56,15 @@ type LocalSurface interface {
 // harp names the session (the server's Title and the identity every
 // coordination frame speaks as); cwd is the cell's working directory — the
 // cell-path boundary agent_report and agent_fetch_artifact confine
-// themselves to (resolveCellPath). leaf withholds the coordinator-only tools
+// themselves to (resolveCellPath). sessionHome is the session's home for
+// the engine as this process reads it, "" for none: the engine's own plans
+// under it are stamped as the session's (artifactStamper). leaf withholds the coordinator-only tools
 // (mcpschema.CoordinatorOnlyTools): a one-shot run, or one at the
 // delegation-depth cap, holding a roster would infer it has children and stall waiting on notifications that never
 // arrive. It is the launch identity's Leaf, decided by the coordinator that
 // minted it — the runner holds no config to compute it from. wake serves the
 // session relay's subscription to engine.WakeURI.
-func NewServer(rep report.Reporter, home *runner.Home, harp, cwd string, leaf bool, local LocalSurface, wake *WakeSignal) (*mcp.Server, error) {
+func NewServer(rep report.Reporter, home *runner.Home, harp, cwd, sessionHome string, leaf bool, local LocalSurface, wake *WakeSignal) (*mcp.Server, error) {
 	opts := &mcp.ServerOptions{Instructions: operations.SessionInstructions(harp)}
 	wake.options(opts)
 	server := mcp.NewServer(&mcp.Implementation{
@@ -81,9 +85,14 @@ func NewServer(rep report.Reporter, home *runner.Home, harp, cwd string, leaf bo
 		return nil, err
 	}
 
-	if err := registerGeneratedTools(rep, server, home, harp, cwd, leaf, routes, registered); err != nil {
+	// ONE stamper per session: agent_report and the turn's end publish the
+	// same plans, and its record of what was uploaded is what keeps either
+	// from uploading the other's again.
+	stamper := &artifactStamper{harp: harp, sessionHome: sessionHome}
+	if err := registerGeneratedTools(rep, server, home, stamper, cwd, leaf, routes, registered); err != nil {
 		return nil, err
 	}
+	home.SetPlanStamp(func(ctx context.Context) string { return stamper.turnPlan(ctx, rep, home) })
 
 	// Exhaustiveness: nothing classified may be missing from this surface.
 	for name := range routes {
@@ -154,7 +163,7 @@ func addHostRelay[In any](server *mcp.Server, home *runner.Home, name, desc stri
 // registerGeneratedTools adds the proto-canonical tools: coordination frames
 // AND artifact-fetch both draw their schemas from mcpschema.Tools() and differ
 // only in which handler builder serves them (Binding.Route).
-func registerGeneratedTools(rep report.Reporter, server *mcp.Server, home *runner.Home, harp, cwd string, leaf bool, routes map[string]mcpschema.Route, registered map[string]bool) error {
+func registerGeneratedTools(rep report.Reporter, server *mcp.Server, home *runner.Home, stamper *artifactStamper, cwd string, leaf bool, routes map[string]mcpschema.Route, registered map[string]bool) error {
 	tools, err := mcpschema.Tools()
 	if err != nil {
 		return err
@@ -181,7 +190,7 @@ func registerGeneratedTools(rep report.Reporter, server *mcp.Server, home *runne
 			registered[spec.Name] = true
 			continue
 		}
-		h, herr := generatedToolHandler(rep, home, harp, cwd, route, spec.Name)
+		h, herr := generatedToolHandler(rep, home, stamper, cwd, route, spec.Name)
 		if herr != nil {
 			return herr
 		}
@@ -201,10 +210,10 @@ func registerGeneratedTools(rep report.Reporter, server *mcp.Server, home *runne
 
 // generatedToolHandler picks the handler builder one generated tool's route
 // names. An unclassified tool is a startup error, never a silent fallthrough.
-func generatedToolHandler(rep report.Reporter, home *runner.Home, harp, cwd string, route mcpschema.Route, name string) (mcp.ToolHandler, error) {
+func generatedToolHandler(rep report.Reporter, home *runner.Home, stamper *artifactStamper, cwd string, route mcpschema.Route, name string) (mcp.ToolHandler, error) {
 	switch route {
 	case mcpschema.RouteCoordination:
-		return coordinationHandler(rep, home, harp, cwd, name)
+		return coordinationHandler(rep, home, stamper, cwd, name)
 	case mcpschema.RouteArtifactFetch:
 		return artifactFetchHandler(home, cwd, name)
 	default:
@@ -262,10 +271,10 @@ func relayTyped[In any](home *runner.Home, name string) mcp.ToolHandlerFor[In, m
 // tool: protojson-decode the args into the bound contract message (both
 // snake_case and camelCase accepted), run the plane-2 exchange (or the
 // runner-local report), and project the result back with proto names.
-func coordinationHandler(rep report.Reporter, home *runner.Home, harp, cwd, name string) (mcp.ToolHandler, error) {
+func coordinationHandler(rep report.Reporter, home *runner.Home, stamper *artifactStamper, cwd, name string) (mcp.ToolHandler, error) {
 	switch name {
 	case mcpschema.ToolAgentReport:
-		return reportHandler(rep, home, harp, cwd), nil
+		return reportHandler(rep, home, stamper, cwd), nil
 	}
 	if h, ok := requestToolHandler(home, name); ok {
 		return h, nil
@@ -459,8 +468,7 @@ func protoIsNil(m proto.Message) bool {
 // bytes are UPLOADED via ArtifactTransferService BEFORE the manifest fact is
 // filed — the ArtifactProduced fact carries upload_id (+ sha256), path stays
 // a label, never the transfer mechanism (manifests can no longer dangle).
-func reportHandler(rep report.Reporter, home *runner.Home, harp, cwd string) mcp.ToolHandler {
-	stamper := &artifactStamper{harp: harp}
+func reportHandler(rep report.Reporter, home *runner.Home, stamper *artifactStamper, cwd string) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var summary agentcoordpb.Summary
 		if err := unmarshalArgs(req, &summary); err != nil {
@@ -605,9 +613,19 @@ type artifactCandidate struct {
 // reads the file cell-locally and uploads it).
 type artifactStamper struct {
 	harp string
-	mu   sync.Mutex
-	seen map[string]string // artifact_id → hex sha256 last successfully uploaded
+	// sessionHome is the session's home for the engine, "" when the run has
+	// none: a run on the host's own engine home shares that home with
+	// everything else on the host, so no plan there is attributable to it.
+	sessionHome string
+	mu          sync.Mutex
+	seen        map[string]string // artifact_id → hex sha256 last successfully uploaded
 }
+
+// nativePlansDir is where an engine that plans natively keeps its plans,
+// beneath its home: claude writes plan mode's plans there, one markdown
+// file each (live cell cell3-plans-dir, claude 2.1.286, with no permission
+// host). An engine that keeps none has no such dir, and offers nothing.
+const nativePlansDir = "plans"
 
 // planCandidates lists the session's *.plan.md files as publish candidates —
 // unconditional on every report; publish decides per-file whether content
@@ -633,16 +651,109 @@ func (p *artifactStamper) planCandidates() ([]artifactCandidate, error) {
 	}
 	var out []artifactCandidate
 	for _, abs := range found {
-		base := filepath.Base(abs)
-		out = append(out, artifactCandidate{
-			artifactID: "plan/" + strings.TrimSuffix(base, paths.PlanFileExt),
-			name:       base,
-			mediaType:  "text/markdown",
-			kind:       agentcoordpb.ArtifactKind_ARTIFACT_KIND_IMPLEMENTATION_PLAN,
-			absPath:    abs,
-		})
+		out = append(out, planCandidate(abs, paths.PlanFileExt))
+	}
+	native, err := p.nativePlanCandidates()
+	if err != nil {
+		return out, err
+	}
+	return append(out, native...), nil
+}
+
+// nativePlanCandidates lists the engine's own plans — the markdown files in
+// nativePlansDir under the session home — as publish candidates. No session
+// home, or no plans dir yet, is no candidates; an unreadable one is a fault,
+// for the reason planCandidates gives.
+func (p *artifactStamper) nativePlanCandidates() ([]artifactCandidate, error) {
+	if p.sessionHome == "" {
+		return nil, nil
+	}
+	dir := filepath.Join(p.sessionHome, nativePlansDir)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("the engine's plans: directory %s unreadable: %w", dir, err)
+	}
+	var out []artifactCandidate
+	for _, e := range entries {
+		if e.Type().IsRegular() && filepath.Ext(e.Name()) == ".md" {
+			out = append(out, planCandidate(filepath.Join(dir, e.Name()), ".md"))
+		}
 	}
 	return out, nil
+}
+
+// planCandidate is the plan at abs as a publish candidate: plan/<name>, its
+// name without ext.
+func planCandidate(abs, ext string) artifactCandidate {
+	base := filepath.Base(abs)
+	return artifactCandidate{
+		artifactID: "plan/" + strings.TrimSuffix(base, ext),
+		name:       base,
+		mediaType:  "text/markdown",
+		kind:       agentcoordpb.ArtifactKind_ARTIFACT_KIND_IMPLEMENTATION_PLAN,
+		absPath:    abs,
+	}
+}
+
+// turnPlan publishes the engine's newest plan at a turn's end and names its
+// artifact — the plan a run that plans first is holding for approval. A plan
+// unchanged since it was last published is named without a second upload.
+// "" when there is none, or it could not be published (said, not hidden):
+// a report must never name an artifact the parent cannot fetch.
+func (p *artifactStamper) turnPlan(ctx context.Context, rep report.Reporter, home *runner.Home) string {
+	cands, err := p.nativePlanCandidates()
+	if err != nil {
+		rep.Warnf("plan approval: %v", err)
+		return ""
+	}
+	newest, ok := newestCandidate(rep, cands)
+	if !ok {
+		return ""
+	}
+	a, err := p.publish(ctx, home, newest)
+	if err != nil {
+		rep.Warnf("plan approval: plan stamp %s: %v", newest.absPath, err)
+		return ""
+	}
+	if a != nil {
+		if err := home.Report(ctx, nil, []*agentcoordpb.ArtifactProduced{a}); err != nil {
+			// Uploaded but not journaled: forget the upload so the next stamp
+			// files it again, instead of taking it as already published.
+			p.forget(newest.artifactID)
+			rep.Warnf("plan approval: plan %s was not journaled: %v", newest.artifactID, err)
+			return ""
+		}
+	}
+	return newest.artifactID
+}
+
+// newestCandidate is the most recently modified of cands; false for none. A
+// candidate that cannot be read is skipped, said.
+func newestCandidate(rep report.Reporter, cands []artifactCandidate) (artifactCandidate, bool) {
+	var newest artifactCandidate
+	var at time.Time
+	found := false
+	for _, c := range cands {
+		info, err := os.Stat(c.absPath)
+		if err != nil {
+			rep.Warnf("plan approval: %v", err)
+			continue
+		}
+		if !found || info.ModTime().After(at) {
+			newest, at, found = c, info.ModTime(), true
+		}
+	}
+	return newest, found
+}
+
+// forget drops what the stamper recorded as uploaded for artifactID.
+func (p *artifactStamper) forget(artifactID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.seen, artifactID)
 }
 
 // publish uploads one candidate IF its content changed since the last

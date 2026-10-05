@@ -44,8 +44,8 @@ func TestOutputDir_ASessionThatRecordedNoneIsTheSentinel(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNoOutputDir)
 }
 
-// Distilled asks the recorded output dir, never the session dir.
-func TestDistilled_IsAnEssenceInTheRecordedOutputDir(t *testing.T) {
+// Compacted asks the recorded output dir, never the session dir.
+func TestCompacted_IsAnEssenceInTheRecordedOutputDir(t *testing.T) {
 	testsupport.Isolate(t)
 	m, err := Open(nil)
 	require.NoError(t, err)
@@ -53,16 +53,16 @@ func TestDistilled_IsAnEssenceInTheRecordedOutputDir(t *testing.T) {
 	require.NoError(t, err)
 	dir, err := paths.HarpDir(e.HarpName)
 	require.NoError(t, err)
-	assert.False(t, Distilled(dir), "no output dir recorded: nowhere an essence could be")
+	assert.False(t, Compacted(dir), "no output dir recorded: nowhere an essence could be")
 
 	out, err := m.RecordOutputDir(e.HarpName, t.TempDir())
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.EssenceFileName), []byte("# stray\n"), 0o644))
-	assert.False(t, Distilled(dir), "an essence in the session dir is not the session's essence")
+	assert.False(t, Compacted(dir), "an essence in the session dir is not the session's essence")
 
 	require.NoError(t, os.MkdirAll(out, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("# e\n"), 0o644))
-	assert.True(t, Distilled(dir))
+	assert.True(t, Compacted(dir))
 }
 
 func TestMemStoreRecordOutputDir_MatchesTheManager(t *testing.T) {

@@ -83,9 +83,9 @@ func (p Posture) Named(m PermissionModel) Posture {
 // it; Default marks the one the engine continues at when the approver does
 // not choose. The default is explicit, never an offer's position.
 type PostureTransition struct {
-	Posture string
-	Label   string
-	Default bool
+	Posture string `json:"posture"`
+	Label   string `json:"label"`
+	Default bool   `json:"default,omitempty"`
 }
 
 // Clone copies the posture so a copy's edits never reach the original.
@@ -171,6 +171,10 @@ type PermissionModel interface {
 	// Decode reads a resolved document back (off the wire, the journal)
 	// and names its posture.
 	Decode(doc map[string]any) (string, error)
+	// PlansFirst reports whether a run at doc must plan before it acts: it
+	// ends its turns holding a plan until a human approves one, and runs at
+	// the posture the approval names from then on.
+	PlansFirst(doc map[string]any) bool
 	// Transitions are the postures an approval may move a session at doc
 	// to (a plan's continuation, a mode change riding an allow), exactly
 	// one of them the Default when there are any.

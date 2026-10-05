@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
-// SelectionStats reports what selectForDistill removed and what it cost.
+// SelectionStats reports what selectForCompact removed and what it cost.
 // Attached to CompactionResult so a caller can tell a small essence produced
 // from a well-filtered transcript from one produced by a distiller that failed
 // to say anything — the two are otherwise indistinguishable at the output.
@@ -183,7 +183,7 @@ func (a *Artifact) addTool(name string) {
 }
 
 // RenderArtifacts formats the touched-file index as a trailing section of the
-// distilled output, mirroring RenderPlans. omitted is the count collectArtifacts
+// compacted output, mirroring RenderPlans. omitted is the count collectArtifacts
 // dropped at the cap, reported inline so the list never reads as complete when
 // it is not. Returns the empty string when there is nothing to pin.
 func RenderArtifacts(artifacts []Artifact, omitted int) string {
@@ -206,19 +206,19 @@ func RenderArtifacts(artifacts []Artifact, omitted int) string {
 	return b.String()
 }
 
-// selectForDistill drops transcript entries whose content is synthetic or
+// selectForCompact drops transcript entries whose content is synthetic or
 // re-derivable, before rendering.
 //
 // This is SELECTION, not capture, and it belongs here for the same reason
 // thinking suppression does (see appendEntryText): the canonical transcript
 // stays the durable record cross-engine resume reads, and dropping content
-// there would be an unrecoverable loss. Filtering at distill time costs the
+// there would be an unrecoverable loss. Filtering at compact time costs the
 // essence nothing that cannot be recovered by looking again.
 //
 // Errors are always kept. They were measured at 0.1-0.5% of transcript bytes
 // across real sessions — filtering them saves nothing and discards the highest
 // signal-per-byte content in the file.
-func selectForDistill(entries []agent.SessionEntry) Selection {
+func selectForCompact(entries []agent.SessionEntry) Selection {
 	var stats SelectionStats
 	kept := make([]agent.SessionEntry, 0, len(entries))
 	var repairs []ResultRepair
@@ -306,7 +306,7 @@ var codePayloadArgs = map[string]bool{
 	"content":    true,
 }
 
-// renderToolArgs renders a tool call's arguments for distillation, replacing
+// renderToolArgs renders a tool call's arguments for compaction, replacing
 // generated-code payloads with a size marker. Unparseable input is returned
 // unchanged: a renderer that silently emitted nothing for arguments it could
 // not decode would be indistinguishable from a call that had none.
@@ -396,7 +396,7 @@ func resultShape(out string) string {
 //
 // It is a fallback, and a self-extinguishing one: the excerpt is kept only
 // where the agent said nothing about a large result, so the more reliably
-// reflection happens, the less raw body distillation carries. That is the
+// reflection happens, the less raw body compaction carries. That is the
 // intended gradient -- a stated finding is strictly better than an excerpt,
 // because it says what mattered rather than what came first.
 const resultExcerptBytes = 1000
@@ -423,7 +423,7 @@ func reflectedAfter(entries []agent.SessionEntry, i int) bool {
 	return false
 }
 
-// renderResultBody reduces a tool result to what distillation should keep.
+// renderResultBody reduces a tool result to what compaction should keep.
 //
 // A result whose meaning the agent stated is reduced to its SHAPE: the finding
 // already carries what mattered, and a truncated fragment of the output is

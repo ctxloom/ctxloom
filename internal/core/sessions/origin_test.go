@@ -33,7 +33,7 @@ func TestSeedOrigin(t *testing.T) {
 
 // The mint stamp has to survive the FILE: the sweep that reads the origin
 // runs in a later process, and an in-memory stamp would leave every one-shot
-// reading as a human's session — never purgeable without a distill. The
+// reading as a human's session — never purgeable without a compact. The
 // signature-check posture is read later for the same reason: to tell a session
 // that ran without signature verification apart from one that did not.
 func TestStampMint_PersistsToTheSidecar(t *testing.T) {

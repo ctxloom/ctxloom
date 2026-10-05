@@ -76,7 +76,7 @@ type PremiseDraft struct {
 }
 
 // DraftPremise proposes a premise for one fragment body, plus a split verdict,
-// by one LLM call through the shared distillation path (memory.Distill). The
+// by one LLM call through the shared distillation path (memory.RunPrompt). The
 // result is a PROPOSAL for the author to judge; callers must not write it back
 // to a fragment unreviewed.
 func DraftPremise(ctx context.Context, cfg PremiseAuthorConfig, name, body string) (*PremiseDraft, error) {
@@ -93,7 +93,7 @@ func DraftPremise(ctx context.Context, cfg PremiseAuthorConfig, name, body strin
 		return nil, err
 	}
 	payload := fmt.Sprintf("<fragment name=%q>\n%s\n</fragment>", name, body)
-	out, err := memory.Distill(ctx, cfg.Run, prompt, payload)
+	out, err := memory.RunPrompt(ctx, cfg.Run, prompt, payload)
 	if err != nil {
 		return nil, fmt.Errorf("draft premise for %q: %w", name, err)
 	}

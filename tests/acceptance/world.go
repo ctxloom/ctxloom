@@ -275,7 +275,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ000600Steps(ctx)
 	registerJ002500Steps(ctx)
 	registerJ001000Steps(ctx)
-	registerJ001100SessionDistillSteps(ctx)
+	registerJ001100SessionCompactSteps(ctx)
 	registerContentDistillSteps(ctx)
 	registerSessionHookSteps(ctx)
 	registerNextStepCaptureSteps(ctx)

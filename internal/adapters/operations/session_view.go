@@ -9,7 +9,7 @@ import (
 // SessionView is the ONE read model the session listing and show render
 // from: what the store records for a session (sessions.Entry) joined with
 // the derived facts every renderer used to compute for itself — whether
-// the session is distilled and where its essence is, whether that essence
+// the session is compacted and where its essence is, whether that essence
 // is stale against the transcript, whether a purge destroyed the transcript,
 // and the one clock the listing is ordered by. Built by ViewSession, once
 // per entry; the CLI's rows and the MCP session menu project from it and
@@ -28,8 +28,8 @@ type SessionView struct {
 	LastActivity time.Time `json:"last_activity"`
 	// Purged says `session purge` destroyed this session's transcript.
 	Purged bool `json:"purged,omitempty"`
-	// Distilled says an essence exists; EssencePath is where.
-	Distilled   bool   `json:"distilled"`
+	// Compacted says an essence exists; EssencePath is where.
+	Compacted   bool   `json:"compacted"`
 	EssencePath string `json:"essence_path,omitempty"`
 	// Stale says the essence predates the live transcript; StaleKnown says
 	// whether that could be determined at all (sessions.Entry.SourceStale).
@@ -50,7 +50,7 @@ func ViewSession(e sessions.Entry) SessionView {
 		LastActivity:  e.LastActivity,
 		Purged:        e.PurgedAt != nil,
 	}
-	v.EssencePath, v.Distilled = SessionEssenceInfo(e.HarpName, &e)
+	v.EssencePath, v.Compacted = SessionEssenceInfo(e.HarpName, &e)
 	v.Stale, v.StaleKnown = e.SourceStale()
 	return v
 }

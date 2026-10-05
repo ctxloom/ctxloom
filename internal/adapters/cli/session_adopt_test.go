@@ -118,7 +118,7 @@ func TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "adopted")
 	assert.Contains(t, stderr, "adopted 1 rotation")
-	assert.Contains(t, stderr, "session distill "+harp)
+	assert.Contains(t, stderr, "session compact "+harp)
 
 	fresh, err := sessions.Open(nil)
 	require.NoError(t, err)

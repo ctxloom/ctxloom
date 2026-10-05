@@ -197,7 +197,7 @@ func TestListAll_StaleIndexYAMLLeftBehindIsIgnored(t *testing.T) {
 func TestListAll_SummaryAndDetailDerivedFromEssence(t *testing.T) {
 	m, root := openSidecarRoot(t)
 	out := t.TempDir()
-	writeSidecar(t, root, "distilled", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\nsource_entries: 3\noutput_dir: "+out+"\n")
+	writeSidecar(t, root, "compacted", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\nsource_entries: 3\noutput_dir: "+out+"\n")
 	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte(`---
 session_id: sess-1
 distilled_at: 2026-09-01T12:00:00Z
@@ -221,7 +221,7 @@ Some prose.
 	assert.Equal(t, "Rewired the session index into per-harp sidecars", got[0].Summary, "summary comes from essence.md, not from any stored copy")
 	assert.Equal(t, []string{"- migrate the readers", "- delete Reconcile"}, got[0].Detail)
 
-	one, err := m.Find("distilled")
+	one, err := m.Find("compacted")
 	require.NoError(t, err)
 	require.NotNil(t, one)
 	assert.Equal(t, "Rewired the session index into per-harp sidecars", one.Summary)

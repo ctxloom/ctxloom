@@ -143,8 +143,6 @@ func runPayloadFromWire(payload any) (v coord.EventPayload, ok bool) {
 		v = coord.StepStarted{StepID: p.StepStarted.GetStepId(), Title: p.StepStarted.GetTitle(), Ordinal: p.StepStarted.GetOrdinal()}
 	case *agentcoordpb.AgentEvent_StepCompleted:
 		v = coord.StepCompleted{StepID: p.StepCompleted.GetStepId(), Outcome: parsed(coord.ParseStepOutcome(p.StepCompleted.GetOutcome().String())), Detail: p.StepCompleted.GetDetail()}
-	case *agentcoordpb.AgentEvent_StatusChanged:
-		v = coord.StatusChanged{Phase: parsed(coord.ParseRunPhase(p.StatusChanged.GetPhase().String())), Detail: p.StatusChanged.GetDetail()}
 	case *agentcoordpb.AgentEvent_Interaction:
 		v = coord.InteractionRecorded{
 			RequestID:  p.Interaction.GetRequestId(),
@@ -253,10 +251,6 @@ func setRunPayload(ev *agentcoordpb.AgentEvent, payload coord.EventPayload) bool
 	case coord.StepCompleted:
 		ev.Payload = &agentcoordpb.AgentEvent_StepCompleted{StepCompleted: &agentcoordpb.StepCompleted{
 			StepId: p.StepID, Outcome: agentcoordpb.StepCompleted_Outcome(agentcoordpb.StepCompleted_Outcome_value[string(p.Outcome)]), Detail: p.Detail,
-		}}
-	case coord.StatusChanged:
-		ev.Payload = &agentcoordpb.AgentEvent_StatusChanged{StatusChanged: &agentcoordpb.StatusChanged{
-			Phase: agentcoordpb.StatusChanged_Phase(agentcoordpb.StatusChanged_Phase_value[string(p.Phase)]), Detail: p.Detail,
 		}}
 	case coord.InteractionRecorded:
 		ev.Payload = &agentcoordpb.AgentEvent_Interaction{Interaction: &agentcoordpb.InteractionRecorded{

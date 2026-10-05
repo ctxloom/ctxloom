@@ -30,7 +30,6 @@ func codec(t *testing.T) engine.ApprovalCodec {
 func TestApprovalCodec_DecodesAPermissionRequest(t *testing.T) {
 	ask, err := codec(t).DecodeAsk(hookEventPermissionRequest, []byte(livePermissionRequest))
 	require.NoError(t, err)
-	assert.Equal(t, engine.AskTool, ask.Kind)
 	assert.Equal(t, "Bash", ask.Tool)
 	assert.JSONEq(t, `{"command":"touch a1","description":"Create file a1"}`, string(ask.Input))
 	assert.Equal(t, `{"command":"touch a1","description":"Create file a1"}`, string(ask.Input), "the input is canonical: keys sorted")
@@ -85,7 +84,7 @@ func encode(t *testing.T, event string, ask engine.PermissionAsk, a engine.Permi
 }
 
 func TestApprovalCodec_EncodesAnAllowForSession(t *testing.T) {
-	out := encode(t, hookEventPermissionRequest, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}, engine.PermissionAnswer{
+	out := encode(t, hookEventPermissionRequest, engine.PermissionAsk{Tool: "Bash"}, engine.PermissionAnswer{
 		Allow: true, SessionRules: []string{"Bash(touch *)", "Read"}, SetMode: engine.Provide(modeAcceptEdits),
 	})
 	assert.Equal(t, hookEventPermissionRequest, out.HookSpecificOutput.HookEventName)
@@ -100,18 +99,18 @@ func TestApprovalCodec_EncodesAnAllowForSession(t *testing.T) {
 }
 
 func TestApprovalCodec_EncodesAPlainAllowAndADeny(t *testing.T) {
-	allow := encode(t, hookEventPermissionRequest, engine.PermissionAsk{Kind: engine.AskTool}, engine.PermissionAnswer{Allow: true})
+	allow := encode(t, hookEventPermissionRequest, engine.PermissionAsk{}, engine.PermissionAnswer{Allow: true})
 	assert.Equal(t, "allow", allow.HookSpecificOutput.Decision.Behavior)
 	assert.Empty(t, allow.HookSpecificOutput.Decision.UpdatedPermissions)
 
-	deny := encode(t, hookEventPermissionRequest, engine.PermissionAsk{Kind: engine.AskTool}, engine.PermissionAnswer{Message: "no"})
+	deny := encode(t, hookEventPermissionRequest, engine.PermissionAsk{}, engine.PermissionAnswer{Message: "no"})
 	assert.Equal(t, "deny", deny.HookSpecificOutput.Decision.Behavior)
 	assert.Equal(t, "no", deny.HookSpecificOutput.Decision.Message)
 }
 
 func TestApprovalCodec_EncodeRefuses(t *testing.T) {
 	c := codec(t)
-	tool := engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}
+	tool := engine.PermissionAsk{Tool: "Bash"}
 	for name, tc := range map[string]struct {
 		event string
 		a     engine.PermissionAnswer
@@ -146,7 +145,7 @@ func TestApprovalCodec_EncodeProperty_SessionOnlyNoBypass(t *testing.T) {
 		if m := modes[rng.Intn(len(modes))]; m != "" {
 			a.SetMode = engine.Provide(m)
 		}
-		raw, err := c.EncodeAnswer(hookEventPermissionRequest, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}, a)
+		raw, err := c.EncodeAnswer(hookEventPermissionRequest, engine.PermissionAsk{Tool: "Bash"}, a)
 		if err != nil {
 			continue
 		}

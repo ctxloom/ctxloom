@@ -11,20 +11,21 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
-// reconcileInstalled is `deps pull`'s rendering over
-// operations.ReconcileInstalled: what the reconcile did and what it could
-// not do. Failures are reported and never fatal — reconciliation is a SECOND
-// guarantee layered on a pull that has already succeeded.
-func reconcileInstalled(ctx context.Context, cfg *config.Config, out io.Writer) {
-	res, err := operations.ReconcileInstalled(ctx, cfg)
+// reconcileInstalled runs `deps pull`'s reconcile and returns its plan for the
+// caller to render, warning about anything it could not apply. Failures are
+// reported and never fatal — reconciliation is a SECOND guarantee layered on a
+// pull that has already succeeded — and a lockfile that could not be read
+// returns nil: nothing was decided, so there is no plan.
+func reconcileInstalled(ctx context.Context, cfg *config.Config) *operations.ReconcilePlan {
+	res, err := reconcileInstalledOp(ctx, cfg)
 	if err != nil {
 		clidiag.Warn("ctxloom", "reconcile: read the lockfile: %v", err)
-		return
+		return nil
 	}
-	renderReconcile(out, res.Plan)
 	for _, w := range res.Warnings {
 		clidiag.Warn("ctxloom", "reconcile: %s", termsafe.Field(w))
 	}
+	return &res.Plan
 }
 
 // renderReconcile says what the reconcile did and what it could not do.

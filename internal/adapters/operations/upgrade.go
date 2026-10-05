@@ -44,7 +44,7 @@ type UpgradeResult struct {
 	// the closure no longer reaches them. The lock is rewritten wholesale, so
 	// without this a removal is indistinguishable from never having been
 	// pinned.
-	Removed []string `json:"removed,omitempty"`
+	Removed []string `json:"removed"`
 }
 
 // UpgradeDependencies re-resolves the project's dependency closure to the newest

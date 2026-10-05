@@ -21,10 +21,10 @@ var errDistillFailed = errors.New("distillation failed")
 
 // newLLMDistiller builds the distiller for one config label and the distill
 // prompt. It is the single construction point shared by every CLI frontend
-// (bundle/fragment/prompt distill and item edits), and the ONE place that
-// decides which label distills: an explicit label (`bundle distill --llm
-// <label>`) is used as named; "" selects the fast (compression) role,
-// cfg.FastLabel. The label resolves to its engine through the one launch
+// (bundle/fragment/prompt distill and item edits): an explicit label
+// (`bundle distill --llm <label>`) is used as named; "" runs as the
+// distiller agent (operations.DistillerOneShot decides, and reports its
+// fallback). A label resolves to its engine through the one launch
 // resolver, so a bare engine name that is not a configured entry (`--llm
 // mock`) reaches that engine here exactly as it does on `run`, and a label
 // that names nothing refuses rather than silently running the default.
@@ -32,18 +32,13 @@ var errDistillFailed = errors.New("distillation failed")
 // Returning nil means "this content will be stored RAW", which every caller
 // treats as success — so the reason is warned rather than swallowed: a distill
 // command that reports "distilled 4 items" while storing four raw ones is
-// indistinguishable from working. The one reason is a nil config. An empty
-// cfg.FastLabel is not a second one: configload overlays the embedded default
-// config, which always sets llm.defaults.fast and llm.defaults.primary.
+// indistinguishable from working. The one reason is a nil config.
 //
 // A NON-NIL ERROR IS A REFUSAL, not a fault: see the prompt load below.
 func newLLMDistiller(cfg *config.Config, label string) (*llmDistiller, error) {
 	if cfg == nil {
 		clidiag.Warn("ctxloom", "no config is available, so nothing can be distilled: content will be stored RAW (undistilled)")
 		return nil, nil
-	}
-	if label == "" {
-		label = cfg.FastLabel()
 	}
 	// The ONE error this constructor has: the project configured a `distill`
 	// prompt and the trust gate withheld it. Warning-and-continuing here would
@@ -58,11 +53,12 @@ func newLLMDistiller(cfg *config.Config, label string) (*llmDistiller, error) {
 }
 
 // llmDistiller adapts the cmd distill helpers to the operations.Distiller
-// interface. The distiller is ONE internal one-shot session on the label —
+// interface. The distiller is ONE internal one-shot session —
 // its own harp, started on the first item and ended by Close — whose turns
 // are the items. A nil *llmDistiller is a Distiller that stores raw.
 type llmDistiller struct {
-	cfg    *config.Config
+	cfg *config.Config
+	// label is the explicit --llm label; "" is the distiller agent.
 	label  string
 	prompt string
 	// session is the one-shot, started lazily so a command that distils
@@ -82,13 +78,22 @@ func (d *llmDistiller) Close() {
 // turn drives one distill turn on the session, starting it on first use.
 func (d *llmDistiller) turn(ctx context.Context, prompt string) (answer, model string, err error) {
 	if d.session == nil {
-		s, err := operations.OneShot(App().LaunchFacts(), internalRunHosts(), d.cfg).Label(d.label).WorkDir(projectroot.WorkDir()).Start(ctx)
+		s, err := operations.DistillerOneShot(App().LaunchFacts(), internalRunHosts(), d.cfg).Label(d.label).WorkDir(projectroot.WorkDir()).Start(ctx)
 		if err != nil {
-			return "", "", fmt.Errorf("no reachable engine for distillation (label %q): %w — content saved raw, undistilled", d.label, err)
+			return "", "", fmt.Errorf("no reachable engine for distillation (%s): %w — content saved raw, undistilled", d.engineChoice(), err)
 		}
 		d.session = s
 	}
 	return d.session.TurnWithModel(ctx, prompt)
+}
+
+// engineChoice names what the distillation was asked to run on, for a
+// refusal: the explicit label, else the distiller agent.
+func (d *llmDistiller) engineChoice() string {
+	if d.label != "" {
+		return fmt.Sprintf("label %q", d.label)
+	}
+	return "the distiller agent"
 }
 
 func (d *llmDistiller) Distill(ctx context.Context, req operations.DistillRequest) (operations.DistillResult, error) {

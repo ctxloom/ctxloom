@@ -274,8 +274,9 @@ func TestBuildInitialConfig(t *testing.T) {
 			// the ResolveLLM model check three lines above, and the accessor
 			// itself was deleted as uncalled by the degradation audit.
 
-			assert.Equal(t, tt.wantFastBE, cfg.GetCompactionLLM())
-			assert.Equal(t, tt.wantFastMod, cfg.GetCompactionModel())
+			fastBE, fastModel := cfg.ResolveLLM(cfg.FastLabel())
+			assert.Equal(t, tt.wantFastBE, fastBE)
+			assert.Equal(t, tt.wantFastMod, fastModel)
 		})
 	}
 }

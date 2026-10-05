@@ -624,7 +624,8 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		j001900Of(w).pinBeforeSync = pin
-		_ = w.env.Run("deps", "upgrade")
+		// Text: the steps below read what the sync told her in words.
+		_ = w.env.Run("--format", "text", "deps", "upgrade")
 		j001900Of(w).syncOutput = w.env.LastOutput()
 		j001900Of(w).syncExit = w.env.LastExitCode()
 		return nil

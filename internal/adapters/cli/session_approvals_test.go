@@ -180,8 +180,8 @@ func TestSessionApprovals_SummaryRawInJSONMarkedInText(t *testing.T) {
 	home := testsupport.Isolate(t)
 	f := newFakeConsumerServer()
 	f.approvals = pendingFixture(time.Now())
-	f.approvals.Pending[0].Summary = "Bash: ls ‮gnp.exe"
-	f.approvals.Pending[0].Agent = "work‮er"
+	f.approvals.Pending[0].Summary = "Bash: ls \u202egnp.exe"
+	f.approvals.Pending[0].Agent = "work\u202eer"
 	startFakeCoordinator(t, home, f)
 
 	out, _, err := runApprovals(t, formatJSON)
@@ -189,12 +189,12 @@ func TestSessionApprovals_SummaryRawInJSONMarkedInText(t *testing.T) {
 	var got approvalsListResult
 	require.NoError(t, json.Unmarshal([]byte(out), &got), out)
 	require.Len(t, got.Approvals, 1)
-	assert.Equal(t, "Bash: ls ‮gnp.exe", got.Approvals[0].Summary, "JSON carries the raw text")
+	assert.Equal(t, "Bash: ls \u202egnp.exe", got.Approvals[0].Summary, "JSON carries the raw text")
 	assert.NotContains(t, out, "⟨U+202E⟩", "no marker reaches JSON")
 
 	out, _, err = runApprovals(t, formatText)
 	require.NoError(t, err)
 	assert.Contains(t, out, "Bash: ls ⟨U+202E⟩gnp.exe")
 	assert.Contains(t, out, "work⟨U+202E⟩er")
-	assert.NotContains(t, out, "‮", "no bidi override reaches the terminal")
+	assert.NotContains(t, out, "\u202e", "no bidi override reaches the terminal")
 }

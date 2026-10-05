@@ -78,7 +78,7 @@ func runConvert(t *testing.T, fixture string) []transcript.Record {
 	require.NoError(t, err)
 
 	src := fixturePath(t, fixture)
-	err = Adapter{}.Convert(context.Background(), rec, src)
+	err = Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src)
 	require.NoError(t, err)
 	require.NoError(t, rec.Close())
 
@@ -147,7 +147,7 @@ func TestConvert_ConformsToJSONSchema(t *testing.T) {
 	testsupport.Isolate(t)
 	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude-code")
 	require.NoError(t, err)
-	require.NoError(t, Adapter{}.Convert(context.Background(), rec, fixturePath(t, "transcript-fixture.jsonl")))
+	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, fixturePath(t, "transcript-fixture.jsonl")))
 	require.NoError(t, rec.Close())
 
 	path, err := paths.HarpCanonicalTranscriptPath(fixtureHarp)
@@ -295,7 +295,7 @@ func TestConvert_TurnBoundaryOnMessageIDChange(t *testing.T) {
 	testsupport.Isolate(t)
 	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude-code")
 	require.NoError(t, err)
-	require.NoError(t, Adapter{}.Convert(context.Background(), rec, fixturePath(t, "turn-boundary-fixture.jsonl")))
+	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, fixturePath(t, "turn-boundary-fixture.jsonl")))
 	require.NoError(t, rec.Close())
 
 	path, err := paths.HarpCanonicalTranscriptPath(fixtureHarp)
@@ -336,7 +336,7 @@ func TestConvert_MalformedLineDegradesToPartial(t *testing.T) {
 
 	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude-code")
 	require.NoError(t, err)
-	require.NoError(t, Adapter{}.Convert(context.Background(), rec, src))
+	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src))
 	require.NoError(t, rec.Close())
 
 	path, err := paths.HarpCanonicalTranscriptPath(fixtureHarp)
@@ -359,7 +359,7 @@ func TestConvert_OpenFailure(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
-	err = Adapter{}.Convert(context.Background(), rec, fixturePath(t, "does-not-exist.jsonl"))
+	err = Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, fixturePath(t, "does-not-exist.jsonl"))
 	require.Error(t, err)
 }
 
@@ -374,6 +374,6 @@ func TestConvert_ContextCancelled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err = Adapter{}.Convert(ctx, rec, fixturePath(t, "transcript-fixture.jsonl"))
+	err = Adapter{}.Convert(ctx, afero.NewOsFs(), rec, fixturePath(t, "transcript-fixture.jsonl"))
 	require.ErrorIs(t, err, context.Canceled)
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/spf13/afero"
 )
 
 // `ctxloom session adopt` re-indexes vendor transcripts a rotation the index
@@ -112,7 +113,7 @@ type adoptTimelineSpan struct {
 // Only claude-code entries are supported: the scan locates candidates by
 // claude's per-project transcript directory. Errors clearly, naming the backend, rather than silently
 // scanning nothing.
-func ScanAdoptCandidates(harp string) (*AdoptScan, error) {
+func ScanAdoptCandidates(fsys afero.Fs, harp string) (*AdoptScan, error) {
 	store, err := openSessions()
 	if err != nil {
 		return nil, err
@@ -329,7 +330,7 @@ type claudeTimestampLine struct {
 // outcome the caller treats as "cannot determine this file's span," not an
 // error. err is only ever an I/O failure opening or reading the file.
 func claudeRecordSpan(path string) (start, end time.Time, n int, err error) {
-	lines, rerr := vendorreader.OpenAndReadJSONLLines("claude", path)
+	lines, rerr := vendorreader.OpenAndReadJSONLLines(afero.NewOsFs(), "claude", path)
 	if rerr != nil {
 		return time.Time{}, time.Time{}, 0, rerr
 	}

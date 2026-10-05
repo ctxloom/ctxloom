@@ -2,9 +2,10 @@ package cli
 
 import (
 	"errors"
-	"github.com/spf13/afero"
 	"io"
 	"os"
+
+	"github.com/spf13/afero"
 
 	"github.com/spf13/cobra"
 
@@ -73,11 +74,11 @@ func captureNextStep(cmd *cobra.Command) error {
 	// hook is installed on every hooking backend, so assuming one engine's
 	// format here is how the capture fires every turn on the others and
 	// stores nothing.
-	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), App().Engines(), harp, payload.TranscriptPath)
+	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), afero.NewOsFs(), App().Engines(), harp, payload.TranscriptPath)
 	if err != nil {
 		return err
 	}
-	evs, err := turnchange.ReadTranscript(cmd.Context(), adapter, src)
+	evs, err := turnchange.ReadTranscript(cmd.Context(), afero.NewOsFs(), adapter, src)
 	if err != nil {
 		return err
 	}

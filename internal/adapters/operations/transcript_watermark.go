@@ -179,12 +179,12 @@ func convertLive(ctx context.Context, fs afero.Fs, adapter vendorreader.VendorAd
 	tr := &trackingRecorder{Recorder: rec, seq: from.seq, sessionID: from.sessionID}
 	var wm *transcriptWatermark
 	if ra, ok := adapter.(vendorreader.ResumableAdapter); ok {
-		err = ra.ConvertFrom(ctx, tr, liveSrc, from.vendor, func(cp vendorreader.Checkpoint) error {
+		err = ra.ConvertFrom(ctx, fs, tr, liveSrc, from.vendor, func(cp vendorreader.Checkpoint) error {
 			wm, err = takeWatermark(af.TempPath(), from, tr, cp)
 			return err
 		})
 	} else {
-		err = adapter.Convert(ctx, tr, liveSrc)
+		err = adapter.Convert(ctx, fs, tr, liveSrc)
 	}
 	_ = rec.Close()
 	if err != nil {

@@ -5,7 +5,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"os"
+
+	"github.com/spf13/afero"
 )
 
 // Line is one non-empty, trimmed line of a JSONL source and where it sits in
@@ -70,14 +71,14 @@ func LineBytes(lines []Line) [][]byte {
 	return out
 }
 
-// OpenAndReadJSONLLines opens the JSONL file at path and reads every line
+// OpenAndReadJSONLLines opens the JSONL file at path in fsys and reads every line
 // via ReadJSONLLines, wrapping either failure with vendor's own error
 // prefix ("claude: open ...", "claude: read ...") — the "open, read, hand the
 // lines to convertLines" shell every JSONL-per-session engine's Convert
 // repeats verbatim once its actual line-reading delegates to
 // ReadJSONLLines.
-func OpenAndReadJSONLLines(vendor, path string) ([][]byte, error) {
-	f, err := os.Open(path)
+func OpenAndReadJSONLLines(fsys afero.Fs, vendor, path string) ([][]byte, error) {
+	f, err := fsys.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("%s: open %s: %w", vendor, path, err)
 	}

@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/spf13/afero"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/spf13/afero"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -202,7 +203,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 	// concurrent compact_session calls for the same harp don't each pay for
 	// their own redundant heal.
 	res, err := s.singleflightCompact(harp+"\x00compact\x00"+model, func() (*compactSessionResult, error) {
-		src, herr := operations.ResolveAndHeal(ctx, s.facts.Engines, harp)
+		src, herr := operations.ResolveAndHeal(ctx, afero.NewOsFs(), s.facts.Engines, harp)
 		if herr != nil {
 			return nil, fmt.Errorf("resolve session %s: %w", harp, herr)
 		}
@@ -342,7 +343,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 		if distilled && !knownStale {
 			continue // fresh essence already present
 		}
-		src, herr := operations.ResolveAndHeal(ctx, s.facts.Engines, e.HarpName)
+		src, herr := operations.ResolveAndHeal(ctx, afero.NewOsFs(), s.facts.Engines, e.HarpName)
 		if herr != nil {
 			clidiag.Warn("ctxloom", "list_sessions: could not resolve %s: %v", e.HarpName, herr)
 			continue
@@ -687,7 +688,7 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 		// be stale post-heal (a fresh conversion can change
 		// CanonicalTranscriptPath), so use the ResolvedSource's entry, not
 		// the outer one, from here on.
-		src, herr := operations.ResolveAndHeal(ctx, s.facts.Engines, harp)
+		src, herr := operations.ResolveAndHeal(ctx, afero.NewOsFs(), s.facts.Engines, harp)
 		if herr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
@@ -841,7 +842,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	refreshFailed := false
 	if policy.LiveTranscript {
 		if harp := sessionHarpForID(sessionID); harp != "" {
-			if src, _ := operations.ResolveAndHeal(ctx, s.facts.Engines, harp); src.HealErr != nil {
+			if src, _ := operations.ResolveAndHeal(ctx, afero.NewOsFs(), s.facts.Engines, harp); src.HealErr != nil {
 				// The stored transcript may still be readable; a refresh failure
 				// costs freshness, not the recovery. It does cost the right to
 				// call the cached essence current, though — see the cache branch.
@@ -865,7 +866,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		// lost the context in which to act on it.
 		var noCanon *transcript.NoCanonicalTranscriptError
 		if errors.As(err, &noCanon) {
-			src, herr := operations.ResolveAndHeal(ctx, s.facts.Engines, noCanon.Harp)
+			src, herr := operations.ResolveAndHeal(ctx, afero.NewOsFs(), s.facts.Engines, noCanon.Harp)
 			if herr == nil {
 				herr = src.HealErr
 			}

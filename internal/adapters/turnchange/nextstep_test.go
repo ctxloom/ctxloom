@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -98,7 +99,7 @@ func TestReadTranscript_ReadsTheVendorFormatEndToEnd(t *testing.T) {
 		assistantTextLine("a2", "msg_2", "Next I will merge the branch.", false),
 	)
 
-	evs, err := ReadTranscript(context.Background(), claudereader.Adapter{}, p)
+	evs, err := ReadTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	require.NotEmpty(t, evs, "the vendor transcript must yield events")
 
@@ -111,7 +112,7 @@ func TestReadTranscript_ReadsTheVendorFormatEndToEnd(t *testing.T) {
 //
 // MUTATION — swallow the Convert error and return (c.events, nil) — red.
 func TestReadTranscript_UnreadableFileErrors(t *testing.T) {
-	_, err := ReadTranscript(context.Background(), claudereader.Adapter{}, "/nonexistent/transcript.jsonl")
+	_, err := ReadTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, "/nonexistent/transcript.jsonl")
 	require.Error(t, err)
 	assert.False(t, strings.Contains(err.Error(), "no error"))
 }

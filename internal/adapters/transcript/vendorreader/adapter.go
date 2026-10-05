@@ -37,14 +37,15 @@ import (
 	"context"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	"github.com/spf13/afero"
 )
 
 // VendorAdapter converts one vendor-native transcript into ctxloom's
 // canonical schema by appending to rec.
 //
-// src is an engine-specific locator for the transcript to convert. For a
-// JSONL-per-session engine (claude) this is simply the transcript file's
-// path. A database-backed store cannot be located by a bare path alone — such
+// src is an engine-specific locator for the transcript to convert, resolved
+// in fsys. For a JSONL-per-session engine (claude) this is simply the
+// transcript file's path. A database-backed store cannot be located by a bare path alone — such
 // an adapter would carry a composite locator (e.g. "<db-path>#<conversation-id>");
 // this interface does not change shape to accommodate that, the string just
 // carries a richer convention for that one implementation.
@@ -72,5 +73,5 @@ import (
 // safe to paper over by skipping and continuing — unlike a single
 // unparseable vendor line, it means the sink itself is no longer trustworthy).
 type VendorAdapter interface {
-	Convert(ctx context.Context, rec transcript.Recorder, src string) error
+	Convert(ctx context.Context, fsys afero.Fs, rec transcript.Recorder, src string) error
 }

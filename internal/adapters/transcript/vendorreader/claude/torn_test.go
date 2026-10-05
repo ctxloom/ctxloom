@@ -72,7 +72,7 @@ func TestConvert_TornLineRecoversTheGluedRecord(t *testing.T) {
 	defer clidiag.SetSink(&buf)()
 
 	src := writeLines(t, "torn.jsonl", tornFragment+gluedLine+"\n")
-	lines, err := vendorreader.OpenAndReadJSONLLines("claude", src)
+	lines, err := vendorreader.OpenAndReadJSONLLines(afero.NewOsFs(), "claude", src)
 	require.NoError(t, err)
 	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
 	require.NoError(t, err)

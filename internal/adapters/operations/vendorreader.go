@@ -234,8 +234,8 @@ func vendorSourceClock(src string) func() time.Time {
 // hasCanonicalTranscript's presence-only guard would treat a partial file as a
 // complete one forever, silently masking the original failure on every later
 // call for this harp instead of allowing a genuine retry.
-func ConvertVendorTranscript(ctx context.Context, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
-	return convertVendorTranscript(ctx, reg, e, false)
+func ConvertVendorTranscript(ctx context.Context, fsys afero.Fs, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
+	return convertVendorTranscript(ctx, fsys, reg, e, false)
 }
 
 // RefreshVendorTranscript re-converts e's vendor-native transcript even when a
@@ -255,8 +255,8 @@ func ConvertVendorTranscript(ctx context.Context, reg engine.Registry, e session
 // vendor transcript is re-read and re-written. That is why this is a separate
 // verb rather than the default: callers that know their session is finished
 // should not pay even the copy, and a sweep across an index must not.
-func RefreshVendorTranscript(ctx context.Context, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
-	return convertVendorTranscript(ctx, reg, e, true)
+func RefreshVendorTranscript(ctx context.Context, fsys afero.Fs, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
+	return convertVendorTranscript(ctx, fsys, reg, e, true)
 }
 
 // convertVendorTranscript is the shared body of ConvertVendorTranscript and
@@ -276,7 +276,7 @@ func RefreshVendorTranscript(ctx context.Context, reg engine.Registry, e session
 // everything said before the clear the moment the canonical transcript was
 // (re)built: the vendor file naming that conversation was still on disk, but
 // nothing pointed at it anymore.
-func convertVendorTranscript(ctx context.Context, reg engine.Registry, e sessions.Entry, refresh bool) (converted bool, err error) {
+func convertVendorTranscript(ctx context.Context, fsys afero.Fs, reg engine.Registry, e sessions.Entry, refresh bool) (converted bool, err error) {
 	vr, ok := vendorReaderFor(reg, e.Backend)
 	if !ok || e.HarpName == "" {
 		return false, nil
@@ -557,7 +557,7 @@ func appendRotationSegment(ctx context.Context, adapter vendorreader.VendorAdapt
 			_ = segAF.Abort()
 			return fmt.Errorf("open segment recorder for %s/%s: %w", e.HarpName, rot.SessionID, rerr)
 		}
-		cerr := adapter.Convert(ctx, rec, rot.TranscriptPath)
+		cerr := adapter.Convert(ctx, fsys, rec, rot.TranscriptPath)
 		_ = rec.Close()
 		if cerr != nil {
 			_ = segAF.Abort()

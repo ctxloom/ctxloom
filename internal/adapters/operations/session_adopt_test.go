@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -79,7 +80,7 @@ func TestScanAdoptCandidates_OrdersByInternalTimestampNeverMtime(t *testing.T) {
 	oldMtime := time.Unix(0, 0)
 	writeClaudeVendorFile(t, dir, "id-mid", midStart, midEnd, &oldMtime) // internally MIDDLE, mtime OLDEST
 
-	scan, err := ScanAdoptCandidates(harp)
+	scan, err := ScanAdoptCandidates(afero.NewOsFs(), harp)
 	require.NoError(t, err)
 	// id-early, id-mid (both adopted) plus id-live itself — the live
 	// binding's OWN vendor file sits in the same scanned directory, and is
@@ -130,7 +131,7 @@ func TestScanAdoptCandidates_SkipsOverlappingSpan(t *testing.T) {
 		time.Date(2026, 2, 1, 0, 30, 0, 0, time.UTC),
 		time.Date(2026, 2, 1, 2, 0, 0, 0, time.UTC), nil)
 
-	scan, err := ScanAdoptCandidates(harp)
+	scan, err := ScanAdoptCandidates(afero.NewOsFs(), harp)
 	require.NoError(t, err)
 	// id-concurrent (overlap skip) plus id-live itself, re-discovered and
 	// skipped as already-in-lineage (see the ordering test's comment).
@@ -178,7 +179,7 @@ func TestScanAdoptCandidates_SkipsAlreadyKnownAndAnotherHarp(t *testing.T) {
 		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC), nil)
 	require.NoError(t, mgr.BindSession(other.HarpName, "id-other-harp", otherPath))
 
-	scan, err := ScanAdoptCandidates(harp)
+	scan, err := ScanAdoptCandidates(afero.NewOsFs(), harp)
 	require.NoError(t, err)
 	// id-live (this harp's own current binding), id-rotated (already in
 	// Rotations) and id-other-harp (bound elsewhere) — all three resolve via
@@ -213,7 +214,7 @@ func TestScanAdoptCandidates_UnsupportedBackendErrors(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, mgr.BindSession(entry.HarpName, "id-1", "/tmp/does-not-matter.jsonl"))
 
-	_, err = ScanAdoptCandidates(entry.HarpName)
+	_, err = ScanAdoptCandidates(afero.NewOsFs(), entry.HarpName)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), config.BackendMock)
 	assert.Contains(t, err.Error(), "not supported yet")
@@ -222,7 +223,7 @@ func TestScanAdoptCandidates_UnsupportedBackendErrors(t *testing.T) {
 // TestScanAdoptCandidates_UnknownHarpErrors pins the harp-not-found error.
 func TestScanAdoptCandidates_UnknownHarpErrors(t *testing.T) {
 	testsupport.Isolate(t)
-	_, err := ScanAdoptCandidates("no-such-harp")
+	_, err := ScanAdoptCandidates(afero.NewOsFs(), "no-such-harp")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no-such-harp")
 }
@@ -235,7 +236,7 @@ func TestScanAdoptCandidates_NoTranscriptPathErrors(t *testing.T) {
 	mgr := newAdoptManager(t)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
-	_, err = ScanAdoptCandidates(entry.HarpName)
+	_, err = ScanAdoptCandidates(afero.NewOsFs(), entry.HarpName)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), entry.HarpName)
 }

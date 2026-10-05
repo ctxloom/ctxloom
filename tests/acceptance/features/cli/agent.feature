@@ -368,6 +368,30 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points at this session's config-home instance
       And Alice's own "claude-code" home directory was never created by the run
 
+  Rule: --env-host and --env declare which host environment a binding's runs see
+
+    Scenario: Create records the declared host environment, and show reads it back
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      When I run "ctxloom agent create developer --llm claude-code --profiles dev --env-host=false --env ALPHA_TOKEN --env BETA_TOKEN"
+      Then the command succeeds
+      When I run "ctxloom agent show developer --format text"
+      Then the command succeeds
+      And the output contains "Env host: false"
+      And the output contains "ALPHA_TOKEN"
+      And the output contains "BETA_TOKEN"
+
+    Scenario: An edit passing an empty --env clears the names and keeps env_host
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev --env-host=false --env ALPHA_TOKEN"
+      When I run "ctxloom agent edit developer --env ''"
+      Then the command succeeds
+      When I run "ctxloom agent show developer --format text"
+      Then the command succeeds
+      And the output contains "Env host: false"
+      And the output does not contain "ALPHA_TOKEN"
+
   Rule: The default agent is what a bare run binds
 
     `ctxloom run` with no --agent and no -p/-f/-t binds the DEFAULT AGENT: its

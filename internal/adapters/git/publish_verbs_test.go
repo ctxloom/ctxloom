@@ -154,7 +154,7 @@ func TestExecGit_CloneIsShallowAndStillPushes(t *testing.T) {
 
 	// A second upstream commit, so a full clone and a shallow one differ.
 	upstream := filepath.Join(t.TempDir(), "upstream")
-	runGit(t, "", "clone", bare, upstream)
+	runGit(t, filepath.Dir(upstream), "clone", bare, upstream)
 	require.NoError(t, writeFile(filepath.Join(upstream, "second.md"), "second\n"))
 	runGit(t, upstream, "add", "-A")
 	runGit(t, upstream, "commit", "-m", "second")

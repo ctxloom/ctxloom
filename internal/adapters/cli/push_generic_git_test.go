@@ -2,7 +2,6 @@ package cli
 
 import (
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 // The product's own publish path, end to end, against a REAL bare repository:
@@ -22,14 +22,10 @@ import (
 // recorder, which proves what push ASKED for and nothing about what a remote
 // ends up holding. The assertions here read the bare repository itself.
 
-// bareGit runs git against the bare repository and returns its trimmed stdout.
+// bareGit runs git against the bare repository and returns its trimmed output.
 func bareGit(t *testing.T, bare string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = bare
-	out, err := cmd.Output()
-	require.NoError(t, err, "git %s", strings.Join(args, " "))
-	return strings.TrimSpace(string(out))
+	return taskstest.Git(t, bare, nil, args...)
 }
 
 func TestPushBundle_GenericGitRemote_LandsTheTreeInTheBareRepository(t *testing.T) {
@@ -45,8 +41,8 @@ func TestPushBundle_GenericGitRemote_LandsTheTreeInTheBareRepository(t *testing.
 	root := t.TempDir()
 	bare := filepath.Join(root, "bundles.git")
 	seed := filepath.Join(root, "seed")
-	initPullGit(t, "", "init", "--bare", "-b", "main", bare)
-	initPullGit(t, "", "init", "-b", "main", seed)
+	initPullGit(t, root, "init", "--bare", "-b", "main", bare)
+	initPullGit(t, root, "init", "-b", "main", seed)
 	require.NoError(t, os.WriteFile(filepath.Join(seed, "README.md"), []byte("seed\n"), 0o644))
 	initPullGit(t, seed, "add", "-A")
 	initPullGit(t, seed, "-c", "user.name=seed", "-c", "user.email=seed@ctxloom.invalid", "commit", "-m", "seed")

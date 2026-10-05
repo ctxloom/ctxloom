@@ -105,14 +105,6 @@ func p16RunArm(c context.Context, p *p16State, strict bool) p16Arm {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
-	a := p16Arm{Started: true, TimedOut: errors.Is(runCtx.Err(), context.DeadlineExceeded),
-		Run: probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: err}}
-	var exitErr *exec.ExitError
-	switch {
-	case errors.As(err, &exitErr):
-		a.Run.ExitCode = exitErr.ExitCode()
-	case err != nil:
-		a.Run.ExitCode = -1
-	}
-	return a
+	return p16Arm{Started: true, TimedOut: errors.Is(runCtx.Err(), context.DeadlineExceeded),
+		Run: probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: err, ExitCode: probeExitCode(err)}}
 }

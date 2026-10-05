@@ -80,14 +80,7 @@ func registerP17InlineSettingsSteps(ctx *godog.ScenarioContext) {
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		err := cmd.Run()
 		o := p17Outcome{Cell: p.cell(), Started: true, TimedOut: errors.Is(runCtx.Err(), context.DeadlineExceeded),
-			Run: probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: err}, Fired: map[string]bool{}}
-		var exitErr *exec.ExitError
-		switch {
-		case errors.As(err, &exitErr):
-			o.Run.ExitCode = exitErr.ExitCode()
-		case err != nil:
-			o.Run.ExitCode = -1
-		}
+			Run: probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: err, ExitCode: probeExitCode(err)}, Fired: map[string]bool{}}
 		for event, marker := range p13Markers {
 			switch _, err := os.Stat(filepath.Join(p.dir, marker)); {
 			case err == nil:

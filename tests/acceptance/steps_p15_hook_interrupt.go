@@ -111,47 +111,51 @@ func p15Run(p *p15State) p15Outcome {
 		return o
 	}
 	o.Started = true
+	waitErr := p15Interrupt(cmd, filepath.Join(p.dir, p15HookPIDName), &o)
+	o.Run = probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: waitErr, ExitCode: probeExitCode(waitErr)}
+	p15Observe(p.dir, &o)
+	return o
+}
+
+// p15Interrupt waits for the hook to block, then interrupts claude the way
+// the driver does and kills it if it outlives the grace. It returns claude's
+// exit.
+func p15Interrupt(cmd *exec.Cmd, pidPath string, o *p15Outcome) error {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-
-	var waitErr error
-	exited := false
-	o.HookPID, o.HookStartErr, waitErr, exited = p15AwaitHook(filepath.Join(p.dir, p15HookPIDName), done)
-	if !exited {
-		interrupted := time.Now()
-		if err := procsig.Interrupt(cmd.Process); err != nil {
-			o.HookStartErr = errors.Join(o.HookStartErr, err)
-		}
-		select {
-		case waitErr = <-done:
-			o.ExitedOnInterrupt = o.HookStartErr == nil
-			o.ExitAfter = time.Since(interrupted)
-		case <-time.After(p15Grace):
-			_ = cmd.Process.Kill()
-			waitErr = <-done
-			o.ExitAfter = p15Grace
-		}
+	pid, startErr, waitErr, exited := p15AwaitHook(pidPath, done)
+	o.HookPID, o.HookStartErr = pid, startErr
+	if exited {
+		return waitErr
 	}
-	o.Run = probeRun{Stdout: stdout.String(), Stderr: stderr.String(), Err: waitErr}
-	var exitErr *exec.ExitError
-	switch {
-	case errors.As(waitErr, &exitErr):
-		o.Run.ExitCode = exitErr.ExitCode()
-	case waitErr != nil:
-		o.Run.ExitCode = -1
+	interrupted := time.Now()
+	if err := procsig.Interrupt(cmd.Process); err != nil {
+		o.HookStartErr = errors.Join(o.HookStartErr, err)
 	}
+	select {
+	case waitErr = <-done:
+		o.ExitedOnInterrupt = o.HookStartErr == nil
+		o.ExitAfter = time.Since(interrupted)
+	case <-time.After(p15Grace):
+		_ = cmd.Process.Kill()
+		waitErr = <-done
+		o.ExitAfter = p15Grace
+	}
+	return waitErr
+}
 
+// p15Observe reads the hook's fate once claude has exited — its process, its
+// sleeping child, its marker — and then kills whatever is still alive.
+func p15Observe(dir string, o *p15Outcome) {
 	if o.HookPID != 0 {
 		o.HookAlive, o.HookAliveErr = p15AwaitDeath(o.HookPID)
 	}
-	sleepPID, _ := p15ReadPID(filepath.Join(p.dir, p15SleepPIDName))
+	sleepPID, _ := p15ReadPID(filepath.Join(dir, p15SleepPIDName))
 	if sleepPID != 0 {
 		o.SleepAlive, _ = p15ProcessAlive(sleepPID)
 	}
-	_, markerErr := os.Stat(filepath.Join(p.dir, p12MarkerName))
+	_, markerErr := os.Stat(filepath.Join(dir, p12MarkerName))
 	o.MarkerExists = markerErr == nil
-
-	// Measured; now leave nothing behind.
 	for _, pid := range []int{o.HookPID, sleepPID} {
 		if alive, _ := p15ProcessAlive(pid); pid != 0 && alive {
 			if proc, err := os.FindProcess(pid); err == nil {
@@ -159,7 +163,6 @@ func p15Run(p *p15State) p15Outcome {
 			}
 		}
 	}
-	return o
 }
 
 // p15AwaitHook waits for the hook's pid file, or for claude to exit first.

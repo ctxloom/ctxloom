@@ -439,7 +439,7 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/adapters/cli/doctor_cmd.go":      "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*; until then the CLI reads the home it hands operations.Doctor (DoctorRequest.Home)",
 	"internal/adapters/cli/init.go":            "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 	"internal/adapters/cli/session_cmd.go":     "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/adapters/cli/session_distill.go": "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
+	"internal/adapters/cli/session_compact.go": "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 	"internal/adapters/cli/session_query.go":   "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 
 	// the engines: Home() is a HomeSpec the runner realises

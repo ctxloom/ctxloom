@@ -14,27 +14,27 @@ import (
 )
 
 // session artifacts — the sub-noun for what a session PRODUCED, as opposed to
-// what it recorded. Today that is the distilled essence: the readable summary
-// `session distill` writes and `session show` prints.
+// what it recorded. Today that is the compacted essence: the readable summary
+// `session compact` writes and `session show` prints.
 //
 // It is separated from the transcript because the two have opposite recovery
 // properties, and a caller deciding what to throw away needs to know which is
-// which. An artifact is DERIVED — while the transcript survives, distillation
+// which. An artifact is DERIVED — while the transcript survives, compaction
 // can produce it again. A transcript is not derived from anything.
 
 var sessionArtifactsCmd = groupNodeDefault(&cobra.Command{
 	Use:   "artifacts",
-	Short: "What a session produced — its distilled essence: list it, destroy it",
+	Short: "What a session produced — its compacted essence: list it, destroy it",
 	Long: `A session's artifacts are what ctxloom derived from it: essence.md in
 the session's output dir (<Documents>/ctxloom/<project>/<harp>/ unless the
 output_dir config key says otherwise). No sweep or clean ever removes it;
 purge here is the one command that does.
 
-  list    which sessions have been distilled, and how large the result is
+  list    which sessions have been compacted, and how large the result is
   purge   destroy the essence, reporting first
 
 Artifacts are recoverable in a way a transcript is not: while the transcript
-is still on disk, 'ctxloom session distill' produces the essence again.`,
+is still on disk, 'ctxloom session compact' produces the essence again.`,
 }, "list")
 
 // sessionArtifactsListAll widens the listing past the current project, the
@@ -45,7 +45,7 @@ var sessionArtifactsListAll bool
 // type, matching cli.SessionRow's convention (see session_row.go).
 type sessionArtifactRow struct {
 	Harp      string `json:"harp"           label:"Harp"      col:"HARP"`
-	Distilled bool   `json:"distilled"      label:"Distilled" col:"DISTILLED"`
+	Compacted bool   `json:"compacted"      label:"Compacted" col:"COMPACTED"`
 	Bytes     int64  `json:"bytes"          label:"Bytes"     col:"BYTES"`
 	Path      string `json:"path,omitempty" label:"Path"      col:"PATH"`
 }
@@ -57,10 +57,10 @@ type sessionArtifactReport struct {
 
 var sessionArtifactsListCmd = &cobra.Command{
 	Use:   "list [<harp-name>]",
-	Short: "List which sessions have been distilled, and how large each essence is",
-	Long: `Names every recorded session and whether it has been distilled yet, with
-the essence's size on disk. An undistilled session is listed saying so —
-omitting it would make "nothing has been distilled" indistinguishable from
+	Short: "List which sessions have been compacted, and how large each essence is",
+	Long: `Names every recorded session and whether it has been compacted yet, with
+the essence's size on disk. An uncompacted session is listed saying so —
+omitting it would make "nothing has been compacted" indistinguishable from
 "there are no sessions".
 
 Naming a harp restricts the listing to that one session.`,
@@ -90,15 +90,15 @@ func runSessionArtifactsList(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// newSessionArtifactRow answers "has this been distilled, and how big is the
+// newSessionArtifactRow answers "has this been compacted, and how big is the
 // result" for one harp, from the FILE rather than from the index's Summary.
 // The index carries a Summary as soon as anything syncs a summary line, which
 // happens long before a real essence is ever written — reading that instead
-// would report sessions as distilled that have nothing to show.
+// would report sessions as compacted that have nothing to show.
 func newSessionArtifactRow(harp string) sessionArtifactRow {
 	row := sessionArtifactRow{Harp: harp}
 	if path, size, ok := statHarpFile(afero.NewOsFs(), harp, essencePath); ok {
-		row.Distilled = true
+		row.Compacted = true
 		row.Bytes = size
 		row.Path = path
 	}

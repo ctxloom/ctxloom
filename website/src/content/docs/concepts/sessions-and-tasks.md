@@ -54,7 +54,7 @@ in the project's task log, and any session reads them from there with
 `task_list`.
 
 When you *resume* a session with `ctxloom run --session <harp>`, its full recorded
-transcript is folded into the new run's context. Add `--distill` to resume from
+transcript is folded into the new run's context. Add `--compact` to resume from
 its distilled essence instead.
 
 ## Tasks vs. the agent's to-dos

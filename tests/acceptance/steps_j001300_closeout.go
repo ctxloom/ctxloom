@@ -6,7 +6,7 @@
 // and its `purge` leaf, `session purge`, and `session sweep` — the
 // deterministic sweep that ties the leaves together.
 //
-// `session distill` takes NO --skill and NO --to-bundle. That leg was
+// `session compact` takes NO --skill and NO --to-bundle. That leg was
 // specified here and rejected: extraction-into-a-bundle is not a close-out
 // concern, so do not re-add steps for it.
 //
@@ -298,7 +298,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 
 	// A FINISHED session: seeded, then proven ended by a FREE lock file. That
 	// is the only state that permits reclaiming anything of it.
-	ctx.Step(`^a finished session "([^"]*)" whose work is already distilled$`, func(c context.Context, harp string) error {
+	ctx.Step(`^a finished session "([^"]*)" whose work is already compacted$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
 		if err := j001300SeedHarp(w, harp, true, false); err != nil {
 			return err
@@ -306,7 +306,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		return seedDeadSession(w, harp)
 	})
 
-	ctx.Step(`^a finished session "([^"]*)" that was never distilled$`, func(c context.Context, harp string) error {
+	ctx.Step(`^a finished session "([^"]*)" that was never compacted$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
 		if err := j001300SeedHarp(w, harp, false, false); err != nil {
 			return err
@@ -556,7 +556,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 	// indistinguishable from one that never existed. Asserting the two halves
 	// in one step keeps them from being read as alternatives — a run that
 	// destroyed the essence AND unlisted the session must not pass.
-	ctx.Step(`^its distilled essence goes with the bulk, and its index entry survives$`, func(c context.Context) error {
+	ctx.Step(`^its compacted essence goes with the bulk, and its index entry survives$`, func(c context.Context) error {
 		w := worldFrom(c)
 		st := j001300Of(w)
 		for _, h := range st.harps {
@@ -565,7 +565,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 			}
 			p := filepath.Join(outputDirFor(w, h.name), paths.EssenceFileName)
 			if _, err := os.Stat(p); err == nil {
-				return fmt.Errorf("the distilled essence of %s survived a sweep that reported success (exit %d). "+
+				return fmt.Errorf("the compacted essence of %s survived a sweep that reported success (exit %d). "+
 					"Emptying a session covers every population ctxloom wrote into it, and an essence left standing means the "+
 					"caller believes the session is empty while its derived half is still on disk. Output:\n%s",
 					h.name, w.env.LastExitCode(), w.env.LastOutput())
@@ -618,18 +618,18 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 	// is told no and left with nowhere to go, which is how someone ends up
 	// deleting a harp directory by hand. So this asserts the REMEDY as well as
 	// the refusal.
-	ctx.Step(`^ctxloom refuses, naming the session that was never distilled and the leaf that can destroy it$`, func(c context.Context) error {
+	ctx.Step(`^ctxloom refuses, naming the session that was never compacted and the leaf that can destroy it$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := j001300RanRealSurface(w); err != nil {
 			return err
 		}
 		if w.env.LastExitCode() == 0 {
-			return fmt.Errorf("the sweep proceeded against an undistilled session (exit 0). With no essence the transcript is the only "+
+			return fmt.Errorf("the sweep proceeded against an uncompacted session (exit 0). With no essence the transcript is the only "+
 				"record of what happened, and destroying it must take a deliberate act on the leaf that owns it. Output:\n%s",
 				w.env.LastOutput())
 		}
 		return j001300Answered(w, w.env.LastOutput(), "the refusal",
-			"brisk-copper-moth", "never distilled", "session transcript purge", "--undistilled")
+			"brisk-copper-moth", "never compacted", "session transcript purge", "--uncompacted")
 	})
 
 	// The sweep covers the scratch worktrees, under the worktree population's
@@ -665,7 +665,7 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 
 	// An INTERNAL one-shot: the mint stamps origin "oneshot" on it, the one
 	// fact that lets a sweep empty it without an essence.
-	ctx.Step(`^an internal one-shot session "([^"]*)" that was never distilled$`, func(c context.Context, harp string) error {
+	ctx.Step(`^an internal one-shot session "([^"]*)" that was never compacted$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
 		if err := j001300SeedHarp(w, harp, false, false); err != nil {
 			return err

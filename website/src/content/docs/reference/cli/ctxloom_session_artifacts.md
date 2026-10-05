@@ -9,7 +9,7 @@ This page is generated from `ctxloom session artifacts --help`.
 
 ## ctxloom session artifacts
 
-What a session produced — its distilled essence: list it, destroy it
+What a session produced — its compacted essence: list it, destroy it
 
 ### Synopsis
 
@@ -18,11 +18,11 @@ the session's output dir (<Documents>/ctxloom/<project>/<harp>/ unless the
 output_dir config key says otherwise). No sweep or clean ever removes it;
 purge here is the one command that does.
 
-  list    which sessions have been distilled, and how large the result is
+  list    which sessions have been compacted, and how large the result is
   purge   destroy the essence, reporting first
 
 Artifacts are recoverable in a way a transcript is not: while the transcript
-is still on disk, 'ctxloom session distill' produces the essence again.
+is still on disk, 'ctxloom session compact' produces the essence again.
 
 ```
 ctxloom session artifacts [flags]
@@ -43,6 +43,6 @@ ctxloom session artifacts [flags]
 ### SEE ALSO
 
 * [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage harp-named sessions
-* [ctxloom session artifacts list](/reference/cli/ctxloom_session_artifacts_list/)	 - List which sessions have been distilled, and how large each essence is
+* [ctxloom session artifacts list](/reference/cli/ctxloom_session_artifacts_list/)	 - List which sessions have been compacted, and how large each essence is
 * [ctxloom session artifacts purge](/reference/cli/ctxloom_session_artifacts_purge/)	 - Destroy a finished session's derived essence, keeping its transcript
 

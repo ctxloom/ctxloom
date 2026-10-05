@@ -132,10 +132,10 @@ func fillCanonicalTranscript(e *Entry) {
 }
 
 // TranscriptStale compares a transcript's current ENTRY COUNT to the count
-// stamped when an essence was distilled from it (Entry.SourceEntries). It
+// stamped when an essence was compacted from it (Entry.SourceEntries). It
 // reports whether the essence is out of date and whether that could be
 // determined at all: known=false (stale=false) when there is no stamped count
-// (never distilled), no transcript path, or the file cannot be read.
+// (never compacted), no transcript path, or the file cannot be read.
 //
 // See Entry.SourceEntries for WHY this counts entries rather than bytes.
 // Read-only and best-effort per the fault-tolerance philosophy — an unreadable
@@ -201,13 +201,13 @@ func CountTranscriptEntries(path string) (int, bool) {
 // cannot import that one without a cycle).
 const transcriptEntryKind = "entry"
 
-// SourceStale reports whether this entry's distilled essence is out of date
+// SourceStale reports whether this entry's compacted essence is out of date
 // relative to its source transcript, and whether that could be determined (see
 // TranscriptStale). `session list` uses it to badge stale rows.
 //
 // Prefers CanonicalTranscriptPath over TranscriptPath (S4): once a
 // harp has a captured canonical transcript, that IS the file the compactor
-// actually distills from (memory stamps its entry count the same way), so
+// actually compacts from (memory stamps its entry count the same way), so
 // staleness must compare against it — comparing the essence's stamped count
 // to the legacy engine file's would compare two different sources and the
 // badge would lie.

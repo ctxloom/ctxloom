@@ -14,7 +14,7 @@ import (
 
 // ResolvedSource is a harp's session-index entry plus the outcome of trying
 // to heal (convert/refresh) its canonical transcript — the shared result
-// every distillation path resolves down to before it either reads from the
+// every compaction path resolves down to before it either reads from the
 // source or reuses a cached essence.
 type ResolvedSource struct {
 	// Entry is the harp's session-index entry, or nil when harp names no
@@ -35,12 +35,12 @@ type ResolvedSource struct {
 	// what staleness compares against.
 	SourcePath string
 	// StampedEntries is the entry count recorded when the harp's essence was last
-	// distilled (Entry.SourceEntries) — the fingerprint EssenceCurrent compares
-	// SourcePath's live size against. Zero when never distilled.
+	// compacted (Entry.SourceEntries) — the fingerprint EssenceCurrent compares
+	// SourcePath's live size against. Zero when never compacted.
 	StampedEntries int
 }
 
-// ResolveAndHeal is the ONE source-resolution + heal seam every distillation
+// ResolveAndHeal is the ONE source-resolution + heal seam every compaction
 // path funnels through: it resolves harp's session-index entry and refreshes
 // its canonical transcript, unconditionally. A canonical file existing is
 // not evidence it is COMPLETE — a mid-session /recover materializes one, and
@@ -83,7 +83,7 @@ func ResolveAndHeal(ctx context.Context, fsys afero.Fs, reg engine.Registry, har
 	return src, nil
 }
 
-// EssenceCurrent is the ONE staleness predicate every distillation path's
+// EssenceCurrent is the ONE staleness predicate every compaction path's
 // cache check funnels through:
 //
 //   - an empty or over-MaxEssenceChars cached body is never current, and that
@@ -106,19 +106,19 @@ func EssenceCurrent(src ResolvedSource, cached []byte) (current, known bool) {
 	return !stale, known
 }
 
-// DistillEntry runs the compactor for src.Entry and returns the result — the
-// ONE distill call a caller reaches once ResolveAndHeal has resolved a
+// CompactResolved runs the compactor for src.Entry and returns the result — the
+// ONE compact call a caller reaches once ResolveAndHeal has resolved a
 // source and EssenceCurrent has decided the cache can't be trusted. It is
 // CompactEntry addressed by ResolvedSource instead of a bare *sessions.Entry,
 // so a caller that already paid for source resolution does not re-resolve.
 //
 // Budget bounding and singleflight dedup are NOT here: they matter only to
 // the long-lived MCP host relay fielding concurrent tool calls for the same
-// session, and stay there (withDistillBudget, singleflightDistill) rather
+// session, and stay there (withCompactBudget, singleflightCompact) rather
 // than becoming a concern every one-shot CLI caller has to reason about too.
-func DistillEntry(ctx context.Context, f LaunchFacts, src ResolvedSource, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
+func CompactResolved(ctx context.Context, f LaunchFacts, src ResolvedSource, cfg *config.Config, opts CompactOptions) (*memory.CompactionResult, error) {
 	if src.Entry == nil {
-		return nil, fmt.Errorf("nothing to distill: session not found in the index")
+		return nil, fmt.Errorf("nothing to compact: session not found in the index")
 	}
 	return CompactEntry(ctx, f, src.Entry, cfg, opts)
 }

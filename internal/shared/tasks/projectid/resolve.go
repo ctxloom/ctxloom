@@ -116,6 +116,37 @@ func (m *Manager) Resolve(projectDir string) (Resolution, error) {
 	return m.moveOrFork(e, projectDir)
 }
 
+// Lookup is Resolve for a READ: the identity projectDir already has, decided
+// by the same steps, with nothing written. Where Resolve keeps an existing
+// identity — a registered path, a marker the registry knows here or has lost
+// (Adopt), a proven move (Repoint) — Lookup returns that id without healing,
+// adopting or re-pointing. Where Resolve would mint — an unknown tree, a live
+// copy, an original it cannot read — Lookup returns "": no project yet, and
+// the first write through Resolve mints, forks or re-points exactly as it
+// always has.
+func (m *Manager) Lookup(projectDir string) (string, error) {
+	if e, err := m.ResolveByPath(projectDir); err != nil {
+		return "", err
+	} else if e != nil {
+		return e.ProjectID, nil
+	}
+	marker, err := ReadMarker(projectDir)
+	if err != nil || marker == "" {
+		return "", err
+	}
+	e, err := m.ResolveByID(marker)
+	if err != nil {
+		return "", err
+	}
+	if e == nil || cleanPath(e.Path) == cleanPath(projectDir) {
+		return marker, nil
+	}
+	if gone, probeErr := oldTreeGone(e.Path, e.ProjectID); probeErr == nil && gone {
+		return marker, nil
+	}
+	return "", nil
+}
+
 // moveOrFork decides between re-pointing (a proven move) and forking (a live
 // copy or an unreadable original).
 func (m *Manager) moveOrFork(e *Entry, projectDir string) (Resolution, error) {

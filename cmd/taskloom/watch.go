@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,6 +17,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/watch"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
+
+// errNoProjectYet is watch's refusal in a directory with no project
+// identity yet (operations.ResolveLogPath returned no log path): there is no
+// log to follow, and a watch does not mint a project to get one. The message
+// names the write that establishes it.
+var errNoProjectYet = errors.New(`no project here yet; add a task first (taskloom add "<task text>")`)
 
 // watchEvent is one line of the `taskloom watch` JSONL stream.
 type watchEvent struct {
@@ -75,6 +82,9 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	projectID, logPath, err := operations.ResolveLogPath(tc)
 	if err != nil {
 		return err
+	}
+	if logPath == "" {
+		return errNoProjectYet
 	}
 
 	// Watch the tasks directory (not the file directly): the log may not

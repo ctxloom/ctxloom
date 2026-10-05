@@ -66,7 +66,7 @@ func TestCompactor_SessionToText(t *testing.T) {
 
 // TestCompactor_SessionToText_ThinkingExcludedByDefault is the
 // payload assertion: a thinking entry's content must not reach the text
-// handed to distillation unless IncludeThinking is explicitly set. "It ran"
+// handed to compaction unless IncludeThinking is explicitly set. "It ran"
 // proves nothing here — assert the actual bytes.
 func TestCompactor_SessionToText_ThinkingExcludedByDefault(t *testing.T) {
 	session := &agent.Session{
@@ -81,7 +81,7 @@ func TestCompactor_SessionToText_ThinkingExcludedByDefault(t *testing.T) {
 	suppressed, _ := (&Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}).sessionToText(session)
 	assert.Contains(t, suppressed, "ASK")
 	assert.Contains(t, suppressed, "CONCLUSION")
-	assert.NotContains(t, suppressed, "SCRATCH_REASONING_TEXT", "thinking content must not reach distillation by default")
+	assert.NotContains(t, suppressed, "SCRATCH_REASONING_TEXT", "thinking content must not reach compaction by default")
 
 	included, _ := (&Compactor{fs: afero.NewOsFs(), config: CompactionConfig{IncludeThinking: true}}).sessionToText(session)
 	assert.Contains(t, included, "SCRATCH_REASONING_TEXT", "IncludeThinking:true must preserve the escape hatch")
@@ -123,14 +123,14 @@ func TestCompactor_SessionToText_ErrorFlag(t *testing.T) {
 	assert.Contains(t, text, "[ERROR]")
 }
 
-func TestDistilledSession_RoundTrip(t *testing.T) {
+func TestCompactedSession_RoundTrip(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 	const harp = "round-trip-harp"
 	out := recordOutputDir(t, harp)
 
 	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{OutputDir: tmpDir}}
-	path, err := c.saveDistilled("round-trip", "## Summary\nDistilled body.", distilledMeta{
+	path, err := c.saveCompacted("round-trip", "## Summary\nCompacted body.", compactedMeta{
 		HarpName:   harp,
 		EntryCount: 12,
 		TokensIn:   2000,
@@ -139,22 +139,22 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// saveDistilled returns the harp's CURRENT essence, which is what a caller
+	// saveCompacted returns the harp's CURRENT essence, which is what a caller
 	// prints and what the picker reads; the rotation copy read back below is
 	// the other half of the same write.
 	assert.Equal(t, filepath.Join(out, paths.EssenceFileName), path, "the essence is written in the session's output dir")
 
-	loaded, err := LoadDistilledSession(afero.NewOsFs(), tmpDir, "round-trip")
+	loaded, err := LoadCompactedSession(afero.NewOsFs(), tmpDir, "round-trip")
 	require.NoError(t, err)
 	assert.Equal(t, "round-trip", loaded.SessionID)
 	assert.Equal(t, 300, loaded.TokensOut)
 	assert.Equal(t, 12, loaded.SourceEntries, "the staleness fingerprint (the entry count) must survive the essence round-trip")
-	assert.False(t, loaded.DistilledAt.IsZero())
+	assert.False(t, loaded.CompactedAt.IsZero())
 	assert.Contains(t, loaded.Body, "## Summary")
-	assert.Contains(t, loaded.Body, "Distilled body.")
+	assert.Contains(t, loaded.Body, "Compacted body.")
 }
 
-func TestLoadDistilledSession(t *testing.T) {
+func TestLoadCompactedSession(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	frontmatter := "---\n" +
@@ -163,30 +163,30 @@ func TestLoadDistilledSession(t *testing.T) {
 		"entry_count: 8\n" +
 		"plan_blocks: 0\n" +
 		"---\n\n" +
-		"# Session summary\n\nDistilled content here\n"
+		"# Session summary\n\nCompacted content here\n"
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "abc123.md"), []byte(frontmatter), 0644))
 
-	loaded, err := LoadDistilledSession(afero.NewOsFs(), tmpDir, "abc123")
+	loaded, err := LoadCompactedSession(afero.NewOsFs(), tmpDir, "abc123")
 	require.NoError(t, err)
 
 	assert.Equal(t, "abc123", loaded.SessionID)
-	assert.Contains(t, loaded.Body, "Distilled content here")
+	assert.Contains(t, loaded.Body, "Compacted content here")
 }
 
-func TestLoadDistilledSession_NotFound(t *testing.T) {
+func TestLoadCompactedSession_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	_, err := LoadDistilledSession(afero.NewOsFs(), tmpDir, "nonexistent")
+	_, err := LoadCompactedSession(afero.NewOsFs(), tmpDir, "nonexistent")
 	assert.Error(t, err)
 }
 
-func TestCompactor_RunDistill_WithMockClient(t *testing.T) {
+func TestCompactor_RunCompact_WithMockClient(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create a mock client that returns distilled content
-	mockClient := &scriptedDistiller{
+	// Create a mock client that returns compacted content
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
-			_, _ = stdout.Write([]byte("Distilled: key decisions and outcomes"))
+			_, _ = stdout.Write([]byte("Compacted: key decisions and outcomes"))
 			return 0, nil
 		},
 	}
@@ -200,16 +200,16 @@ func TestCompactor_RunDistill_WithMockClient(t *testing.T) {
 		},
 	}
 
-	result, err := c.runDistill(context.Background(), sessionDistillPrompt, "Original session content")
+	result, err := c.runCompactTurn(context.Background(), sessionCompactPrompt, "Original session content")
 	require.NoError(t, err)
 
-	assert.Equal(t, "Distilled: key decisions and outcomes", result)
+	assert.Equal(t, "Compacted: key decisions and outcomes", result)
 	assert.Equal(t, 1, mockClient.RunCalls)
 }
 
-func TestCompactor_RunDistill_ClientError(t *testing.T) {
+func TestCompactor_RunCompact_ClientError(t *testing.T) {
 	// Create a mock client that returns an error
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			return 0, errors.New("connection failed")
 		},
@@ -222,14 +222,14 @@ func TestCompactor_RunDistill_ClientError(t *testing.T) {
 		},
 	}
 
-	_, err := c.runDistill(context.Background(), sessionDistillPrompt, "content")
+	_, err := c.runCompactTurn(context.Background(), sessionCompactPrompt, "content")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "connection failed")
 }
 
-func TestCompactor_RunDistill_NonZeroExit(t *testing.T) {
+func TestCompactor_RunCompact_NonZeroExit(t *testing.T) {
 	// Create a mock client that returns non-zero exit code
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stderr.Write([]byte("LLM error"))
 			return 1, nil
@@ -243,16 +243,16 @@ func TestCompactor_RunDistill_NonZeroExit(t *testing.T) {
 		},
 	}
 
-	_, err := c.runDistill(context.Background(), sessionDistillPrompt, "content")
+	_, err := c.runCompactTurn(context.Background(), sessionCompactPrompt, "content")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "exited with code 1")
 }
 
 // An LLM that exits 0 having written nothing is a FAILURE, not an
-// empty distillation. Treated as success it produced an empty body which
-// saveDistilled then atomically wrote over a previously good essence.md.
-func TestCompactor_RunDistill_EmptyOutputIsAFailure(t *testing.T) {
-	mockClient := &scriptedDistiller{
+// empty compaction. Treated as success it produced an empty body which
+// saveCompacted then atomically wrote over a previously good essence.md.
+func TestCompactor_RunCompact_EmptyOutputIsAFailure(t *testing.T) {
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			return 0, nil // exit 0, not one byte of output
 		},
@@ -263,19 +263,19 @@ func TestCompactor_RunDistill_EmptyOutputIsAFailure(t *testing.T) {
 		config: CompactionConfig{Run: runnerOver(mockClient)},
 	}
 
-	_, err := c.runDistill(context.Background(), sessionDistillPrompt, "content")
-	require.Error(t, err, "exit 0 with empty stdout must not read as a successful distillation")
+	_, err := c.runCompactTurn(context.Background(), sessionCompactPrompt, "content")
+	require.Error(t, err, "exit 0 with empty stdout must not read as a successful compaction")
 	assert.Contains(t, err.Error(), "no output")
 }
 
-// The other half of the same rule: even if an empty body reaches saveDistilled by some
-// other route, it must never replace an existing essence. Distillation exists
+// The other half of the same rule: even if an empty body reaches saveCompacted by some
+// other route, it must never replace an existing essence. Compaction exists
 // to preserve context; silently zeroing it is the worst possible outcome.
-func TestCompactor_SaveDistilled_RefusesEmptyBody(t *testing.T) {
+func TestCompactor_SaveCompacted_RefusesEmptyBody(t *testing.T) {
 	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{OutputDir: t.TempDir()}}
 
-	_, err := c.saveDistilled("some-session", "   \n\n  ", distilledMeta{})
-	require.Error(t, err, "an empty distilled body must not be written over a good essence")
+	_, err := c.saveCompacted("some-session", "   \n\n  ", compactedMeta{})
+	require.Error(t, err, "an empty compacted body must not be written over a good essence")
 }
 
 // mockSource is a canned transcript Source for testing the compactor.
@@ -349,10 +349,10 @@ func TestCompact_NoSession(t *testing.T) {
 
 // TestCompact_EmptySession is the empty-session regression test: a session with
 // zero main-thread entries must short-circuit straight to a dumped, trivial
-// essence — succeeding, not erroring — and must never reach the distillation
+// essence — succeeding, not erroring — and must never reach the compaction
 // LLM pipeline. The ClientFactory below fails the test outright if the
 // compactor ever tries to spawn an LLM plugin, so a regression that routes an
-// empty session back through the distillation call is
+// empty session back through the compaction call is
 // caught even if the result's shape still happens to look plausible.
 func TestCompact_EmptySession(t *testing.T) {
 	testsupport.Isolate(t) // isolates CTXLOOM_SESSION_HARP too — this test's mock
@@ -367,7 +367,7 @@ func TestCompact_EmptySession(t *testing.T) {
 	}
 	mockBe := mockHistory
 
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatal("compaction pipeline invoked for an empty session; must short-circuit to a dump before any LLM call")
 			return 0, nil
@@ -385,17 +385,17 @@ func TestCompact_EmptySession(t *testing.T) {
 
 	result, err := compactor.Compact(context.Background())
 	require.NoError(t, err, "an empty session must dump successfully, not error")
-	assert.NotEmpty(t, result.DistilledPath)
+	assert.NotEmpty(t, result.CompactedPath)
 
-	data, err := os.ReadFile(result.DistilledPath)
+	data, err := os.ReadFile(result.CompactedPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), emptySessionPlaceholder, "the dumped essence must carry the trivial placeholder body")
 }
 
 // TestCompact_SidechainEntriesExcluded: the reader now surfaces
-// subagent-interior (sidechain) entries for viewers, but distillation keeps
+// subagent-interior (sidechain) entries for viewers, but compaction keeps
 // its historic main-thread-only input — sidechain content never reaches the
-// distilling LLM, and an all-sidechain session is "no entries".
+// compacting LLM, and an all-sidechain session is "no entries".
 func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
@@ -403,7 +403,7 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 	mockHistory := &mockSource{
 		currentSession: &agent.Session{
 			ID: "sidechain-session",
-			Entries: aboveDistillFloor([]agent.SessionEntry{
+			Entries: aboveCompactFloor([]agent.SessionEntry{
 				{Type: agent.EntryTypeUser, Content: "MAIN_THREAD_ASK"},
 				{Type: agent.EntryTypeAssistant, Content: "SIDECHAIN_INTERIOR", Sidechain: true},
 				{Type: agent.EntryTypeAssistant, Content: "MAIN_THREAD_ANSWER"},
@@ -414,12 +414,12 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 
 	var mu sync.Mutex
 	var prompts []string
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			mu.Lock()
 			prompts = append(prompts, prompt)
 			mu.Unlock()
-			_, _ = stdout.Write([]byte("Distilled."))
+			_, _ = stdout.Write([]byte("Compacted."))
 			return 0, nil
 		},
 	}
@@ -442,7 +442,7 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 	joined := strings.Join(prompts, "\n")
 	assert.Contains(t, joined, "MAIN_THREAD_ASK")
 	assert.Contains(t, joined, "MAIN_THREAD_ANSWER")
-	assert.NotContains(t, joined, "SIDECHAIN_INTERIOR", "sidechain content must not reach distillation")
+	assert.NotContains(t, joined, "SIDECHAIN_INTERIOR", "sidechain content must not reach compaction")
 }
 
 // TestCompact_ThinkingExcludedFromLLMPrompt is the end-to-end
@@ -456,7 +456,7 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 	mockHistory := &mockSource{
 		currentSession: &agent.Session{
 			ID: "thinking-session",
-			Entries: aboveDistillFloor([]agent.SessionEntry{
+			Entries: aboveCompactFloor([]agent.SessionEntry{
 				{Type: agent.EntryTypeUser, Content: "MAIN_THREAD_ASK"},
 				{Type: agent.EntryTypeThinking, Content: "SCRATCH_REASONING_TEXT"},
 				{Type: agent.EntryTypeAssistant, Content: "MAIN_THREAD_ANSWER"},
@@ -467,12 +467,12 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 
 	var mu sync.Mutex
 	var prompts []string
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			mu.Lock()
 			prompts = append(prompts, prompt)
 			mu.Unlock()
-			_, _ = stdout.Write([]byte("Distilled."))
+			_, _ = stdout.Write([]byte("Compacted."))
 			return 0, nil
 		},
 	}
@@ -516,7 +516,7 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 	}
 	mockBe := mockHistory
 
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatal("compaction pipeline invoked for an all-sidechain (empty main-thread) session")
 			return 0, nil
@@ -536,17 +536,17 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 	require.NoError(t, err, "an all-sidechain session must dump successfully, not error")
 }
 
-// An empty session must NOT replace an already-distilled essence
-// with the 54-byte placeholder. Re-distillation is triggered automatically by
+// An empty session must NOT replace an already-compacted essence
+// with the 54-byte placeholder. Re-compaction is triggered automatically by
 // the staleness path, and loadSessionToCompact falls back to the current
 // session when a bound transcript is gone — so a good essence could be wiped
-// by a routine, automatic re-distill of a session that reads as empty.
+// by a routine, automatic re-compaction of a session that reads as empty.
 func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
 	testsupport.Isolate(t)
 	outDir := t.TempDir()
 
-	const sessionID = "previously-distilled"
-	const goodEssence = "---\nsession_id: previously-distilled\n---\n\n# Session summary\n\nReal, hard-won distilled context.\n"
+	const sessionID = "previously-compacted"
+	const goodEssence = "---\nsession_id: previously-compacted\n---\n\n# Session summary\n\nReal, hard-won compacted context.\n"
 	existing := filepath.Join(outDir, sessionID+".md")
 	require.NoError(t, os.WriteFile(existing, []byte(goodEssence), 0o644))
 
@@ -554,7 +554,7 @@ func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
 		currentSession: &agent.Session{ID: sessionID, Entries: []agent.SessionEntry{}},
 	}
 	mockBe := mockHistory
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatal("empty session must not reach the LLM")
 			return 0, nil
@@ -576,7 +576,7 @@ func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
 	after, readErr := os.ReadFile(existing)
 	require.NoError(t, readErr)
 	assert.Equal(t, goodEssence, string(after),
-		"the placeholder must not have replaced a real distilled essence")
+		"the placeholder must not have replaced a real compacted essence")
 }
 
 func TestCompact_WithMockClient(t *testing.T) {
@@ -594,9 +594,9 @@ func TestCompact_WithMockClient(t *testing.T) {
 	}
 	mockBe := mockHistory
 
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
-			_, _ = stdout.Write([]byte("Distilled: User greeted assistant, assistant responded positively."))
+			_, _ = stdout.Write([]byte("Compacted: User greeted assistant, assistant responded positively."))
 			return 0, nil
 		},
 	}
@@ -614,17 +614,17 @@ func TestCompact_WithMockClient(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "test-compact-session", result.SessionID)
-	assert.NotEmpty(t, result.DistilledPath)
+	assert.NotEmpty(t, result.CompactedPath)
 	assert.Greater(t, result.TotalTokensIn, 0)
 	assert.Greater(t, result.TotalTokensOut, 0)
 
 	// Verify file was created
-	_, err = os.Stat(result.DistilledPath)
+	_, err = os.Stat(result.CompactedPath)
 	require.NoError(t, err)
 }
 
 // TestCompact_EnforcesMaxEssenceChars pins the requirement: even a
-// "successful" distillation pipeline (every LLM call exits 0) must never save
+// "successful" compaction pipeline (every LLM call exits 0) must never save
 // or return an essence body over the named MaxEssenceChars ceiling. Here the
 // reduce call itself exits 0 but its OWN output is oversized — a distinct
 // failure mode from "the reduce call errored" (covered by
@@ -646,9 +646,9 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 	}
 
 	oversized := strings.Repeat("z", MaxEssenceChars+1)
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
-			// The distillation "succeeds" (exit 0) but its output is over the
+			// The compaction "succeeds" (exit 0) but its output is over the
 			// bound -- a model that ignored its character budget.
 			_, _ = stdout.Write([]byte(oversized))
 			return 0, nil
@@ -682,9 +682,9 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 }
 
 // TestCompact_DeliversSystemPromptOnTheMinimalForm pins the fragment-delivery
-// fix: distillation declares LaunchFormMinimal, which states it has no managed
+// fix: compaction declares LaunchFormMinimal, which states it has no managed
 // surfaces, and the runner hands the package to the engine through a delivered
-// context surface — which this form declares away. So the distill
+// context surface — which this form declares away. So the compaction
 // instructions must ride in the prompt itself, or the model never sees them and
 // just answers the transcript conversationally (no frontmatter, no Open Items).
 func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
@@ -694,12 +694,12 @@ func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 	mockBe := &mockSource{
 		currentSession: &agent.Session{
 			ID:      "sysprompt-session",
-			Entries: aboveDistillFloor([]agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "hello"}}),
+			Entries: aboveCompactFloor([]agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "hello"}}),
 		},
 	}
 
 	var sawPrompt string
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			sawPrompt = prompt
 			_, _ = stdout.Write([]byte("---\nsummary: ok\n---\n\n### Open Items\n- x"))
@@ -719,8 +719,8 @@ func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 	_, err = compactor.Compact(context.Background())
 	require.NoError(t, err)
 
-	assert.Contains(t, sawPrompt, sessionDistillPrompt,
-		"the distill system prompt must reach the model in the prompt, since the minimal form delivers no context surface")
+	assert.Contains(t, sawPrompt, sessionCompactPrompt,
+		"the compaction system prompt must reach the model in the prompt, since the minimal form delivers no context surface")
 	assert.Contains(t, sawPrompt, "hello", "the transcript must still be in the prompt")
 }
 
@@ -749,7 +749,7 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 	// Capture the prompt the LLM sees: plans live in files, so the transcript
 	// the LLM summarizes never carries the plan body.
 	var sawLLMInput string
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			sawLLMInput = prompt
 			_, _ = stdout.Write([]byte("### Summary\nUser asked for a plan."))
@@ -769,18 +769,18 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 
 	assert.NotContains(t, sawLLMInput, planBody, "plan files are not fed to the summary LLM")
 
-	loaded, err := LoadDistilledSession(afero.NewOsFs(), tmpDir, "plan-survival")
+	loaded, err := LoadCompactedSession(afero.NewOsFs(), tmpDir, "plan-survival")
 	require.NoError(t, err)
 	assert.Contains(t, loaded.Body, "## Preserved plans")
 	assert.Contains(t, loaded.Body, planBody, "the plan file is re-attached verbatim")
 	assert.Contains(t, loaded.Body, "schema", "the plan file's name labels its block")
 }
 
-// TestCompact_DistillationFailed_KeepsPreviousEssence pins the data-loss guard: a
-// totally failed distillation (LLM backend down → every chunk a failure
+// TestCompact_CompactionFailed_KeepsPreviousEssence pins the data-loss guard: a
+// totally failed compaction (LLM backend down → every chunk a failure
 // marker) must abort the save and leave a previously good essence.md and its
 // legacy mirror untouched, instead of overwriting them with failure markers.
-func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
+func TestCompact_CompactionFailed_KeepsPreviousEssence(t *testing.T) {
 	home := testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
@@ -795,13 +795,13 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 	mockBe := &mockSource{
 		currentSession: &agent.Session{
 			ID: "fail-session",
-			Entries: aboveDistillFloor([]agent.SessionEntry{
+			Entries: aboveCompactFloor([]agent.SessionEntry{
 				{Type: agent.EntryTypeUser, Content: "hello"},
 				{Type: agent.EntryTypeAssistant, Content: "world"},
 			}),
 		},
 	}
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			return 0, errors.New("backend down")
 		},
@@ -817,7 +817,7 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = compactor.Compact(context.Background())
-	require.Error(t, err, "a failed distillation must not report success")
+	require.Error(t, err, "a failed compaction must not report success")
 	// The error is the ONLY diagnosis most callers ever get: warnf is dropped
 	// whenever Progress is nil, which is every MCP relay call. A cause-free
 	// failure sent a real investigation to the wrong subsystem entirely.
@@ -825,7 +825,7 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 
 	got, err := os.ReadFile(essencePath)
 	require.NoError(t, err)
-	assert.Equal(t, prior, string(got), "previous essence must survive a total distillation failure")
+	assert.Equal(t, prior, string(got), "previous essence must survive a total compaction failure")
 	gotLegacy, err := os.ReadFile(legacyPath)
 	require.NoError(t, err)
 	assert.Equal(t, prior, string(gotLegacy), "legacy mirror must survive too")
@@ -848,9 +848,9 @@ func TestCompact_BySessionID(t *testing.T) {
 	}
 	mockBe := mockHistory
 
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
-			_, _ = stdout.Write([]byte("Distilled content"))
+			_, _ = stdout.Write([]byte("Compacted content"))
 			return 0, nil
 		},
 	}
@@ -906,9 +906,9 @@ func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
 	}
 	mockBe := mockHistory
 
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
-			_, _ = stdout.Write([]byte("Distilled content"))
+			_, _ = stdout.Write([]byte("Compacted content"))
 			return 0, nil
 		},
 	}
@@ -943,9 +943,9 @@ func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
 		},
 	}
 	mockBe := mockHistory
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
-			_, _ = stdout.Write([]byte("Distilled content"))
+			_, _ = stdout.Write([]byte("Compacted content"))
 			return 0, nil
 		},
 	}
@@ -993,9 +993,9 @@ func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 		sessions: map[string]*agent.Session{},
 	}
 	mockBe := mockHistory
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
-			_, _ = stdout.Write([]byte("Distilled content"))
+			_, _ = stdout.Write([]byte("Compacted content"))
 			return 0, nil
 		},
 	}
@@ -1016,7 +1016,7 @@ func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 }
 
 // TestCompact_ExplicitSessionIDStaleHardErrors pins the boundary the fix must
-// NOT cross: `session distill <harp>` (and any other explicit-SessionID
+// NOT cross: `session compact <harp>` (and any other explicit-SessionID
 // caller) asked for exactly that session, so a missing transcript must still
 // hard-error rather than silently substituting CurrentSession.
 func TestCompact_ExplicitSessionIDStaleHardErrors(t *testing.T) {
@@ -1030,9 +1030,9 @@ func TestCompact_ExplicitSessionIDStaleHardErrors(t *testing.T) {
 		sessions: map[string]*agent.Session{},
 	}
 	mockBe := mockHistory
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
-			_, _ = stdout.Write([]byte("Distilled content"))
+			_, _ = stdout.Write([]byte("Compacted content"))
 			return 0, nil
 		},
 	}
@@ -1127,7 +1127,7 @@ func TestParseLLMFrontmatter_EmptySummaryStillSucceeds(t *testing.T) {
 }
 
 // =============================================================================
-// deriveSummary — body fallback so a distilled session is never "(no summary)"
+// deriveSummary — body fallback so a compacted session is never "(no summary)"
 // =============================================================================
 
 func TestDeriveSummary(t *testing.T) {
@@ -1178,7 +1178,7 @@ func TestDeriveSummary(t *testing.T) {
 
 // TestCompact_EntriesThatRenderToNothing_ShortCircuit covers the state an
 // entry count cannot see: entries are present, but the text
-// handed to distillation is empty. A session whose only main-thread entries
+// handed to compaction is empty. A session whose only main-thread entries
 // are `thinking` reaches exactly that, because appendEntryText suppresses
 // thinking by policy unless IncludeThinking is set.
 //
@@ -1191,7 +1191,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 
 	thinkingOnly := []agent.SessionEntry{
 		{Type: agent.EntryTypeThinking, Content: "let me consider the options"},
-		// Long enough that, rendered, it clears minDistillTokens: the
+		// Long enough that, rendered, it clears minCompactTokens: the
 		// IncludeThinking half below must reach the LLM.
 		{Type: agent.EntryTypeThinking, Content: strings.Repeat("still considering the options and their trade-offs. ", 40)},
 	}
@@ -1207,7 +1207,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	mockBe := &mockSource{
 		currentSession: &agent.Session{ID: "thinking-only-session", Entries: thinkingOnly},
 	}
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatalf("an LLM subprocess was spawned to distil an empty transcript; prompt was %q", prompt)
 			return 0, nil
@@ -1225,8 +1225,8 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 
 	result, err := compactor.Compact(context.Background())
 	require.NoError(t, err, "nothing to distil is not a failure")
-	require.NotEmpty(t, result.DistilledPath)
-	data, err := os.ReadFile(result.DistilledPath)
+	require.NotEmpty(t, result.CompactedPath)
+	data, err := os.ReadFile(result.CompactedPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), emptySessionPlaceholder)
 
@@ -1234,10 +1234,10 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	// down the ordinary pipeline — the short-circuit keys on the rendered
 	// output, not on the entry types.
 	var spawned int
-	includeClient := &scriptedDistiller{
+	includeClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			spawned++
-			_, _ = io.WriteString(stdout, "distilled ok")
+			_, _ = io.WriteString(stdout, "compacted ok")
 			return 0, nil
 		},
 	}
@@ -1252,14 +1252,14 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	require.NoError(t, err)
 	_, err = inclusive.Compact(context.Background())
 	require.NoError(t, err)
-	assert.Positive(t, spawned, "with thinking included the transcript is not empty and must be distilled")
+	assert.Positive(t, spawned, "with thinking included the transcript is not empty and must be compacted")
 }
 
-// A distillation with no harp has nowhere to go, and must say so rather than
+// A compaction with no harp has nowhere to go, and must say so rather than
 // invent a location.
 //
 // This used to resolve a default under the CURRENT WORKING DIRECTORY, which is
-// the shape the refusal replaces: every CLI distill path chdirs into the
+// the shape the refusal replaces: every CLI compact path chdirs into the
 // session's own project dir and back out again, so a cwd-derived default named
 // a different file depending on when it was resolved, and its unconditional
 // MkdirAll minted a stray .ctxloom under whatever directory the process
@@ -1269,7 +1269,7 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 //
 // Asserts the EFFECT, not just the error: nothing may be written anywhere under
 // the working directory.
-func TestSaveDistilled_NoHarpRefusesRatherThanGuessingALocation(t *testing.T) {
+func TestSaveCompacted_NoHarpRefusesRatherThanGuessingALocation(t *testing.T) {
 	testsupport.ProjectDir(t)
 	wd, err := os.Getwd()
 	require.NoError(t, err)
@@ -1277,8 +1277,8 @@ func TestSaveDistilled_NoHarpRefusesRatherThanGuessingALocation(t *testing.T) {
 	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{}}
 	require.Empty(t, c.config.OutputDir, "this pin exercises the no-OutputDir path")
 
-	path, err := c.saveDistilled("anchored", "## Summary\nbody.", distilledMeta{})
-	require.Error(t, err, "a distillation with no harp must refuse, not resolve some default")
+	path, err := c.saveCompacted("anchored", "## Summary\nbody.", compactedMeta{})
+	require.Error(t, err, "a compaction with no harp must refuse, not resolve some default")
 	assert.Empty(t, path, "a refused save must not name a file it did not write")
 	assert.Contains(t, err.Error(), "harp", "the error must name what is missing")
 
@@ -1295,7 +1295,7 @@ func TestSaveDistilled_NoHarpRefusesRatherThanGuessingALocation(t *testing.T) {
 // An unreadable session index must not be indistinguishable from "this harp has
 // no entry". The bind is first-bind-wins and is never retried, so a harp that
 // misses it here has no session id for the rest of its life and every later
-// `session distill`/resume fails with "no session bound" — with nothing on the
+// `session compact`/resume fails with "no session bound" — with nothing on the
 // record saying why. The lookup failure is a degradation and the compactor
 // already has a sink for degradations.
 func TestUpdateSessionIndex_WarnsWhenTheIndexCannotBeRead(t *testing.T) {
@@ -1323,7 +1323,7 @@ func TestUpdateSessionIndex_WarnsWhenTheIndexCannotBeRead(t *testing.T) {
 		"an unreadable index must be reported, not silently taken for an absent entry")
 }
 
-// Distillation is headless: there is no human to answer an engine that stops to
+// Compaction is headless: there is no human to answer an engine that stops to
 // ask, so the request must leave here in ONESHOT with a posture that cannot
 // block. The gRPC server floors a ONESHOT whose posture would block, so this is
 // the SECOND altitude of that invariant and the public behaviour is identical
@@ -1331,15 +1331,15 @@ func TestUpdateSessionIndex_WarnsWhenTheIndexCannotBeRead(t *testing.T) {
 // sibling one-shot call in the trigger-triage path spells this differently and
 // relies on the floor alone; anything that unifies the two must not quietly
 // take this with it.
-func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
+func TestRunCompact_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
 	testsupport.Isolate(t)
 
 	var sawPrompt *string
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			p := prompt
 			sawPrompt = &p
-			_, _ = stdout.Write([]byte("distilled"))
+			_, _ = stdout.Write([]byte("compacted"))
 			return 0, nil
 		},
 	}
@@ -1348,9 +1348,9 @@ func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
 		fs:     afero.NewOsFs(),
 		config: CompactionConfig{Run: runnerOver(mockClient)},
 	}
-	out, err := c.runDistill(context.Background(), "instructions", "transcript")
+	out, err := c.runCompactTurn(context.Background(), "instructions", "transcript")
 	require.NoError(t, err)
-	require.Equal(t, "distilled", out)
+	require.Equal(t, "compacted", out)
 
 	require.NotNil(t, sawPrompt, "the pin is worthless unless the request actually reached the client")
 	assert.Contains(t, *sawPrompt, "instructions", "the instruction leads the turn")
@@ -1359,18 +1359,18 @@ func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
 
 // TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder pins the
 // contract every caller that reads an essence back depends on: the key
-// CompactionResult reports must be a key saveDistilled actually wrote.
+// CompactionResult reports must be a key saveCompacted actually wrote.
 //
 // The two can diverge, and did. Compact resolves its own session (result.
-// SessionID = session.ID) and keys saveDistilled off that same value, so for an
+// SessionID = session.ID) and keys saveCompacted off that same value, so for an
 // interactive session whose vendor id is a UUID the essence lands under the
-// HARP. cli.distillSessionOnce used to read back with the id its CALLER passed
-// instead, which nothing writes — so a completely successful distillation
+// HARP. cli.compactSessionOnce used to read back with the id its CALLER passed
+// instead, which nothing writes — so a completely successful compaction
 // reported "couldn't read it back", and the cache lookup on the way in missed
-// forever, re-distilling an essence already on disk.
+// forever, re-compacting an essence already on disk.
 //
 // Fixing the caller is not enough on its own: it now trusts this invariant, so
-// the invariant needs a test of its own. A mutation keying saveDistilled off
+// the invariant needs a test of its own. A mutation keying saveCompacted off
 // anything other than the value Compact reports kills this immediately.
 func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) {
 	testsupport.Isolate(t)
@@ -1382,14 +1382,14 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 	mockBe := &mockSource{
 		currentSession: &agent.Session{
 			ID: resolvedID,
-			Entries: aboveDistillFloor([]agent.SessionEntry{
+			Entries: aboveCompactFloor([]agent.SessionEntry{
 				{Type: agent.EntryTypeUser, Content: "where did the essence go"},
 				{Type: agent.EntryTypeAssistant, Content: "written under one key, read under another"},
 			}),
 		},
 	}
-	const body = "Distilled: the write key and the read key must agree."
-	mockClient := &scriptedDistiller{
+	const body = "Compacted: the write key and the read key must agree."
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte(body))
 			return 0, nil
@@ -1407,25 +1407,25 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 
 	result, err := compactor.Compact(context.Background())
 	require.NoError(t, err)
-	require.NotEmpty(t, result.SessionID, "a distillation that wrote a file must report the key it used")
+	require.NotEmpty(t, result.SessionID, "a compaction that wrote a file must report the key it used")
 
 	// The assertion that matters: reading back by the REPORTED key finds the
 	// essence, and finds the real body rather than an empty file.
-	loaded, err := LoadDistilledSession(afero.NewOsFs(), outputDir, result.SessionID)
-	require.NoError(t, err, "LoadDistilledSession(afero.NewOsFs(), outputDir, result.SessionID) must find what Compact just wrote")
-	assert.Contains(t, loaded.Body, body, "the essence read back must carry the distilled content, not be empty")
+	loaded, err := LoadCompactedSession(afero.NewOsFs(), outputDir, result.SessionID)
+	require.NoError(t, err, "LoadCompactedSession(afero.NewOsFs(), outputDir, result.SessionID) must find what Compact just wrote")
+	assert.Contains(t, loaded.Body, body, "the essence read back must carry the compacted content, not be empty")
 }
 
-// runDistill's contract with Distill: the transcript travels enveloped as a
+// runCompactTurn's contract with RunPrompt: the transcript travels enveloped as a
 // <session_log>, after the system prompt. The envelope is what tells the model
 // which part of the prompt is material rather than instruction; losing it
 // leaves the transcript indistinguishable from the instructions above it.
-func TestCompactor_RunDistill_EnvelopesContentAsSessionLog(t *testing.T) {
+func TestCompactor_RunCompact_EnvelopesContentAsSessionLog(t *testing.T) {
 	var captured string
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			captured = prompt
-			_, _ = stdout.Write([]byte("distilled"))
+			_, _ = stdout.Write([]byte("compacted"))
 			return 0, nil
 		},
 	}
@@ -1434,7 +1434,7 @@ func TestCompactor_RunDistill_EnvelopesContentAsSessionLog(t *testing.T) {
 		config: CompactionConfig{Run: runnerOver(mockClient)},
 	}
 
-	_, err := c.runDistill(context.Background(), "SYSTEM PROMPT", "the transcript")
+	_, err := c.runCompactTurn(context.Background(), "SYSTEM PROMPT", "the transcript")
 	require.NoError(t, err)
 	require.NotEmpty(t, captured)
 	assert.Contains(t, captured, "<session_log>\nthe transcript\n</session_log>")
@@ -1444,17 +1444,17 @@ func TestCompactor_RunDistill_EnvelopesContentAsSessionLog(t *testing.T) {
 		"the instruction must precede the material")
 }
 
-// scriptedDistiller is a scripted distiller engine: RunFunc receives the whole
+// scriptedRunner is a scripted distiller engine: RunFunc receives the whole
 // prompt of one turn, writes its answer (and stderr), and reports an exit
-// code. RunCalls counts the turns (the compactor distills chunks
+// code. RunCalls counts the turns (the compactor compacts chunks
 // concurrently, so the count is guarded).
-type scriptedDistiller struct {
+type scriptedRunner struct {
 	RunFunc  func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error)
 	mu       sync.Mutex
 	RunCalls int
 }
 
-func (m *scriptedDistiller) Run(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
+func (m *scriptedRunner) Run(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 	m.mu.Lock()
 	m.RunCalls++
 	m.mu.Unlock()
@@ -1467,7 +1467,7 @@ func (m *scriptedDistiller) Run(ctx context.Context, prompt string, stdout, stde
 // runnerOver drives client as the distiller session's turn: the whole prompt
 // in, stdout out, a non-zero exit as an error — what the one-shot turn does
 // over a real runner.
-func runnerOver(client *scriptedDistiller) Runner {
+func runnerOver(client *scriptedRunner) Runner {
 	return func(ctx context.Context, prompt string) (string, error) {
 		var stdout, stderr bytes.Buffer
 		code, err := client.Run(ctx, prompt, &stdout, &stderr)
@@ -1481,13 +1481,13 @@ func runnerOver(client *scriptedDistiller) Runner {
 	}
 }
 
-// TestCompact_BelowDistillFloor_DumpsVerbatimWithoutLLM pins the floor
+// TestCompact_BelowCompactFloor_DumpsVerbatimWithoutLLM pins the floor
 // between "empty" and "worth an LLM call". The fixture is the shape of a real
 // session whose essence ended up being the model's refusal: two turns of an
 // exact-phrase echo, a transcript smaller than any summary of it. Handed that,
 // the model declined, and the decline was saved as the essence. Below the
 // floor no LLM is called, and the transcript itself is the essence.
-func TestCompact_BelowDistillFloor_DumpsVerbatimWithoutLLM(t *testing.T) {
+func TestCompact_BelowCompactFloor_DumpsVerbatimWithoutLLM(t *testing.T) {
 	testsupport.Isolate(t)
 
 	const phrase = "ROYAL_PRIOR_STRUCTURED_TURN_ONE"
@@ -1498,7 +1498,7 @@ func TestCompact_BelowDistillFloor_DumpsVerbatimWithoutLLM(t *testing.T) {
 	mockBe := &mockSource{
 		currentSession: &agent.Session{ID: "below-floor-session", Entries: tiny},
 	}
-	mockClient := &scriptedDistiller{
+	mockClient := &scriptedRunner{
 		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatalf("an LLM subprocess was spawned to distil a below-floor transcript; prompt was %q", prompt)
 			return 0, nil
@@ -1517,8 +1517,8 @@ func TestCompact_BelowDistillFloor_DumpsVerbatimWithoutLLM(t *testing.T) {
 	result, err := compactor.Compact(context.Background())
 	require.NoError(t, err, "too little to distil is not a failure")
 	require.Positive(t, result.TotalTokensIn, "fixture precondition: the transcript is not empty")
-	require.Less(t, result.TotalTokensIn, minDistillTokens, "fixture precondition: the transcript is below the floor")
-	data, err := os.ReadFile(result.DistilledPath)
+	require.Less(t, result.TotalTokensIn, minCompactTokens, "fixture precondition: the transcript is below the floor")
+	data, err := os.ReadFile(result.CompactedPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "Say the exact phrase: "+phrase,
 		"the essence of a below-floor session is its transcript, verbatim")
@@ -1526,10 +1526,10 @@ func TestCompact_BelowDistillFloor_DumpsVerbatimWithoutLLM(t *testing.T) {
 		"a session that said something is not empty")
 }
 
-// aboveDistillFloor appends an ordinary assistant turn long enough that the
-// rendered transcript clears minDistillTokens, so a fixture that is about
+// aboveCompactFloor appends an ordinary assistant turn long enough that the
+// rendered transcript clears minCompactTokens, so a fixture that is about
 // what the distiller receives actually reaches the distiller.
-func aboveDistillFloor(entries []agent.SessionEntry) []agent.SessionEntry {
+func aboveCompactFloor(entries []agent.SessionEntry) []agent.SessionEntry {
 	filler := strings.Repeat("The session worked through the design and settled its open questions. ", 40)
 	return append(entries, agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: filler})
 }

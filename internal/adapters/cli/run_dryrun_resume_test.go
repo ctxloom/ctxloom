@@ -10,8 +10,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// A --distill --dry-run must SHOW the essence the launch's SessionStart hook
-// would inject, without distilling (a preview writes nothing). These cover the
+// A --compact --dry-run must SHOW the essence the launch's SessionStart hook
+// would inject, without compacting (a preview writes nothing). These cover the
 // three states the harp's essence can be in.
 
 func writeEssence(t *testing.T, _ /* home */, harp, body string) {
@@ -21,11 +21,11 @@ func writeEssence(t *testing.T, _ /* home */, harp, body string) {
 	require.NoError(t, os.WriteFile(essence, []byte(body), 0o644))
 }
 
-func TestDistilledResumePreview_ShowsWhatTheHookInjects(t *testing.T) {
+func TestCompactedResumePreview_ShowsWhatTheHookInjects(t *testing.T) {
 	home := testsupport.Isolate(t)
 	writeEssence(t, home, "swift-amber-falcon", "  the decision and why  \n")
 
-	essence, note := distilledResumePreview("swift-amber-falcon", func(string) bool { return false })
+	essence, note := compactedResumePreview("swift-amber-falcon", func(string) bool { return false })
 
 	assert.Equal(t, resumedEssenceForInjection(1, "startup", "swift-amber-falcon", resumedPartsSession), essence,
 		"the preview must be exactly what the SessionStart hook injects")
@@ -33,25 +33,25 @@ func TestDistilledResumePreview_ShowsWhatTheHookInjects(t *testing.T) {
 	assert.Empty(t, note, "a current essence needs no caveat")
 }
 
-func TestDistilledResumePreview_MissingEssenceSaysTheLaunchDistills(t *testing.T) {
+func TestCompactedResumePreview_MissingEssenceSaysTheLaunchCompacts(t *testing.T) {
 	testsupport.Isolate(t)
 	staleAsked := false
 
-	essence, note := distilledResumePreview("swift-amber-falcon", func(string) bool { staleAsked = true; return false })
+	essence, note := compactedResumePreview("swift-amber-falcon", func(string) bool { staleAsked = true; return false })
 
 	assert.Empty(t, essence)
-	assert.Contains(t, note, "not distilled yet")
-	assert.Contains(t, note, "distills it on demand")
+	assert.Contains(t, note, "not compacted yet")
+	assert.Contains(t, note, "compacts it on demand")
 	assert.False(t, staleAsked, "staleness is meaningless with no essence to compare")
 }
 
-func TestDistilledResumePreview_StaleEssenceIsShownWithTheCaveat(t *testing.T) {
+func TestCompactedResumePreview_StaleEssenceIsShownWithTheCaveat(t *testing.T) {
 	home := testsupport.Isolate(t)
 	writeEssence(t, home, "swift-amber-falcon", "from before the clear")
 
-	essence, note := distilledResumePreview("swift-amber-falcon", func(string) bool { return true })
+	essence, note := compactedResumePreview("swift-amber-falcon", func(string) bool { return true })
 
 	assert.Equal(t, "from before the clear", essence)
 	assert.Contains(t, note, "stale")
-	assert.Contains(t, note, "re-distills")
+	assert.Contains(t, note, "re-compacts")
 }

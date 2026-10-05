@@ -117,7 +117,7 @@ func reapSeed(t *testing.T, l Layout, harp string) string {
 		require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 	}
 	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "elsewhere.jsonl"), filepath.Join(dir, reapLinkName)))
-	// The session is distilled: its recorded output dir holds an essence.
+	// The session is compacted: its recorded output dir holds an essence.
 	out := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(out, paths.EssenceFileName), []byte("# essence\n"), 0o644))
 	sidecar := filepath.Join(dir, paths.SessionSidecarFileName)
@@ -214,7 +214,7 @@ func TestReap_RemovesExactlyTheEphemeralMembers(t *testing.T) {
 }
 
 // TestReap_PersistScope_TakesTheMachineMembersWithTheTranscript: Scope
-// Persist is a human's --include-persist, and from a DISTILLED session it
+// Persist is a human's --include-persist, and from a COMPACTED session it
 // TAKES the persistent machine members — the transcripts and native history
 // with them. The session's identity still survives: the directory stays, and
 // the session still lists and resolves.
@@ -232,9 +232,9 @@ func TestReap_PersistScope_TakesTheMachineMembersWithTheTranscript(t *testing.T)
 	assert.Contains(t, rep.Members, paths.TranscriptsDirName)
 }
 
-// reapSeedUndistilled is reapSeed without the essence: the session was never
-// distilled, so its transcript is the only record of it.
-func reapSeedUndistilled(t *testing.T, l Layout, harp string) string {
+// reapSeedUncompacted is reapSeed without the essence: the session was never
+// compacted, so its transcript is the only record of it.
+func reapSeedUncompacted(t *testing.T, l Layout, harp string) string {
 	t.Helper()
 	dir := reapSeed(t, l, harp)
 	out, ok := OutputDirOf(dir)
@@ -244,20 +244,20 @@ func reapSeedUndistilled(t *testing.T, l Layout, harp string) string {
 	return dir
 }
 
-// TestReap_PersistScope_SparesThePersistStoreOfAnUndistilledSession: without
+// TestReap_PersistScope_SparesThePersistStoreOfAnUncompactedSession: without
 // an essence the transcript is the session's only record, so even
 // --include-persist leaves its persistent machine members alone — the same rule PurgeSession
-// enforces with ErrPurgeUndistilled. The ephemeral members still go: a wider
+// enforces with ErrPurgeUncompacted. The ephemeral members still go: a wider
 // scope must never free less than the default one. The report names the
 // spare and the command that lifts it.
-func TestReap_PersistScope_SparesThePersistStoreOfAnUndistilledSession(t *testing.T) {
+func TestReap_PersistScope_SparesThePersistStoreOfAnUncompactedSession(t *testing.T) {
 	l := reapLayout(t)
-	dir := reapSeedUndistilled(t, l, "aged-quiet-heron")
+	dir := reapSeedUncompacted(t, l, "aged-quiet-heron")
 
 	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
 	require.NoError(t, err)
 
-	assert.FileExists(t, filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), "an undistilled session's transcript is its only record")
+	assert.FileExists(t, filepath.Join(dir, paths.TranscriptsDirName, paths.CanonicalTranscriptFileName), "an uncompacted session's transcript is its only record")
 	for rel, body := range reapFixture {
 		m := reapTopRow(t, rel)
 		p := filepath.Join(dir, filepath.FromSlash(rel))
@@ -276,16 +276,16 @@ func TestReap_PersistScope_SparesThePersistStoreOfAnUndistilledSession(t *testin
 	require.Len(t, rep.Candidates, 1)
 	c := rep.Candidates[0]
 	assert.Equal(t, ReapReclaimed, c.Verdict, "its ephemeral members were reclaimed")
-	assert.Contains(t, c.Reason, "never distilled")
-	assert.Contains(t, c.Reason, "ctxloom session distill aged-quiet-heron")
+	assert.Contains(t, c.Reason, "never compacted")
+	assert.Contains(t, c.Reason, "ctxloom session compact aged-quiet-heron")
 }
 
-// TestReap_PersistScope_UndistilledWithOnlyPersistDataIsSpared: when
-// persistent machine data is all an undistilled session holds, nothing is taken and the
+// TestReap_PersistScope_UncompactedWithOnlyPersistDataIsSpared: when
+// persistent machine data is all an uncompacted session holds, nothing is taken and the
 // session is reported spared rather than hidden.
-func TestReap_PersistScope_UndistilledWithOnlyPersistDataIsSpared(t *testing.T) {
+func TestReap_PersistScope_UncompactedWithOnlyPersistDataIsSpared(t *testing.T) {
 	l := reapLayout(t)
-	dir := reapSeedUndistilled(t, l, "aged-quiet-heron")
+	dir := reapSeedUncompacted(t, l, "aged-quiet-heron")
 	for _, m := range (ReapPolicy{}).Members() {
 		require.NoError(t, os.RemoveAll(l.Member("aged-quiet-heron", m)))
 	}
@@ -299,8 +299,8 @@ func TestReap_PersistScope_UndistilledWithOnlyPersistDataIsSpared(t *testing.T) 
 	assert.Zero(t, rep.Bytes)
 	require.Len(t, rep.Candidates, 1)
 	assert.Equal(t, ReapSpared, rep.Candidates[0].Verdict)
-	assert.Contains(t, rep.Candidates[0].Reason, "never distilled")
-	assert.Contains(t, rep.Candidates[0].Reason, "ctxloom session distill aged-quiet-heron")
+	assert.Contains(t, rep.Candidates[0].Reason, "never compacted")
+	assert.Contains(t, rep.Candidates[0].Reason, "ctxloom session compact aged-quiet-heron")
 }
 
 // TestReap_WithoutAnAgeBound_ReapsNothing is the load-bearing one at this
@@ -731,11 +731,11 @@ func TestReap_MovesAHomesRealHistoryIntoNativeFirst(t *testing.T) {
 	assert.Equal(t, "container\n", got(t, filepath.Join(dir, paths.NativeDirName, "claude"), "projects/-p/s.jsonl"))
 }
 
-// --include-persist on an undistilled session spares native/ but takes home/:
+// --include-persist on an uncompacted session spares native/ but takes home/:
 // the home's history still lands in native/.
-func TestReap_PersistScope_UndistilledKeepsTheHomesHistoryInNative(t *testing.T) {
+func TestReap_PersistScope_UncompactedKeepsTheHomesHistoryInNative(t *testing.T) {
 	l := reapLayout(t)
-	dir := reapSeedUndistilled(t, l, "aged-quiet-heron")
+	dir := reapSeedUncompacted(t, l, "aged-quiet-heron")
 	reapSeedHomeHistory(t, dir)
 
 	_, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)

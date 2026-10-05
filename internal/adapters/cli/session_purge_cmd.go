@@ -23,7 +23,7 @@ import (
 //	session worktrees purge <harp>    the scratch git checkouts
 //	session purge <harp>              sweeps all three
 //
-// Selection flags live on the leaf that understands them — --undistilled on
+// Selection flags live on the leaf that understands them — --uncompacted on
 // transcript — and never on the sweep. A flag on the parent would have to
 // mean something for populations it was never about. --even-if-live is not a
 // selection flag: liveness is a property of the SESSION, the same for every
@@ -43,7 +43,7 @@ var (
 	sessionPurgeYes                   bool
 	sessionPurgeEvenIfLive            bool
 	sessionTranscriptPurgeYes         bool
-	sessionTranscriptPurgeUndistilled bool
+	sessionTranscriptPurgeUncompacted bool
 	sessionTranscriptPurgeEvenIfLive  bool
 	sessionArtifactsPurgeYes          bool
 	sessionArtifactsPurgeEvenIfLive   bool
@@ -71,13 +71,13 @@ var sessionTranscriptPurgeCmd = &cobra.Command{
 	Long: `Destroys the machine-written bulk under a harp's directory —
 everything under transcripts/ (the canonical transcript.jsonl and its
 rotation segments) and native/ (the engine's own history) — and nothing
-else. The distilled essence, the index entry and every authored file stay.
+else. The compacted essence, the index entry and every authored file stay.
 
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
 
-A session that was never distilled is REFUSED: with no essence, the
-transcript is the only record of what happened. Pass --undistilled to
+A session that was never compacted is REFUSED: with no essence, the
+transcript is the only record of what happened. Pass --uncompacted to
 destroy it anyway.
 
 A session whose lock does not prove its owner dead is REFUSED: a running
@@ -91,7 +91,7 @@ func runSessionTranscriptPurge(cmd *cobra.Command, args []string) error {
 	return runHarpFilePurge(cmd, args[0], harpFilePurge{
 		populations: []operations.PurgePopulation{operations.PurgePopulationTranscript},
 		apply:       sessionTranscriptPurgeYes,
-		undistilled: sessionTranscriptPurgeUndistilled,
+		uncompacted: sessionTranscriptPurgeUncompacted,
 		evenIfLive:  sessionTranscriptPurgeEvenIfLive,
 		commandPath: "ctxloom session transcript purge",
 	})
@@ -102,9 +102,9 @@ func runSessionTranscriptPurge(cmd *cobra.Command, args []string) error {
 var sessionArtifactsPurgeCmd = &cobra.Command{
 	Use:   "purge <harp-name>",
 	Short: "Destroy a finished session's derived essence, keeping its transcript",
-	Long: `Destroys what distillation produced — essence.md — and nothing else. The
+	Long: `Destroys what compaction produced — essence.md — and nothing else. The
 transcript stays, which is what makes this reversible: while the transcript
-is on disk the essence can be produced again with 'ctxloom session distill'.
+is on disk the essence can be produced again with 'ctxloom session compact'.
 
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
@@ -140,10 +140,10 @@ index changes, on a TTY or not.
 The index entry SURVIVES. Purge empties a session, it does not unlist it —
 'ctxloom session remove' is what removes a session entirely.
 
-A session that was never distilled is refused, because sweeping it would
+A session that was never compacted is refused, because sweeping it would
 destroy the only record of what happened. The refusal names the leaf that
 can do it deliberately: 'ctxloom session transcript purge <harp>
---undistilled'.
+--uncompacted'.
 
 A session whose lock does not prove its owner dead is refused: a running
 agent may still be writing the transcript this would destroy. A held lock,
@@ -158,7 +158,7 @@ and reported, never reaped.`,
 func init() {
 	sessionTranscriptPurgeCmd.Flags().BoolVarP(&sessionTranscriptPurgeYes, "yes", "y", false,
 		"apply the plan this invocation printed (default: report only)")
-	sessionTranscriptPurgeCmd.Flags().BoolVar(&sessionTranscriptPurgeUndistilled, "undistilled", false,
+	sessionTranscriptPurgeCmd.Flags().BoolVar(&sessionTranscriptPurgeUncompacted, "uncompacted", false,
 		"permit destroying the transcript of a session that has no essence")
 	addEvenIfLiveFlag(sessionTranscriptPurgeCmd, &sessionTranscriptPurgeEvenIfLive)
 	sessionTranscriptCmd.AddCommand(sessionTranscriptPurgeCmd)
@@ -246,7 +246,7 @@ func runSessionPurge(cmd *cobra.Command, args []string) error {
 type harpFilePurge struct {
 	populations []operations.PurgePopulation
 	apply       bool
-	undistilled bool
+	uncompacted bool
 	evenIfLive  bool
 	commandPath string
 }
@@ -255,7 +255,7 @@ func runHarpFilePurge(cmd *cobra.Command, harp string, p harpFilePurge) error {
 	res, purgeErr := operations.PurgeSession(harp, operations.PurgeSessionRequest{
 		Harp:        harp,
 		Populations: p.populations,
-		Undistilled: p.undistilled,
+		Uncompacted: p.uncompacted,
 		EvenIfLive:  p.evenIfLive,
 		Apply:       p.apply,
 	})
@@ -292,9 +292,9 @@ func harpPurgeRefusal(harp string, err error, commandPath string) string {
 		return fmt.Sprintf("ctxloom refuses to purge %s: %v. Nothing was removed. "+
 			"To destroy it anyway, deliberately: `%s %s --yes --%s`",
 			harp, err, commandPath, harp, evenIfLiveFlagName)
-	case errors.Is(err, operations.ErrPurgeUndistilled):
-		return fmt.Sprintf("ctxloom refuses: %s was never distilled — its transcript is the only record of what happened. "+
-			"Nothing was removed. To destroy it anyway, deliberately: `ctxloom session transcript purge %s --undistilled --yes`", harp, harp)
+	case errors.Is(err, operations.ErrPurgeUncompacted):
+		return fmt.Sprintf("ctxloom refuses: %s was never compacted — its transcript is the only record of what happened. "+
+			"Nothing was removed. To destroy it anyway, deliberately: `ctxloom session transcript purge %s --uncompacted --yes`", harp, harp)
 	case errors.Is(err, operations.ErrPurgeNothingToDo):
 		return fmt.Sprintf("ctxloom removed nothing for %s: no file in this population matched (`%s %s`)", harp, commandPath, harp)
 	}

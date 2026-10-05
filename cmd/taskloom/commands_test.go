@@ -44,6 +44,20 @@ func mustTaskContext(t *testing.T) operations.TaskContext {
 	return tc
 }
 
+// establishedLogPath is tc's task log path once the project exists: it mints
+// tc's identity the way a first write does, for a test that seeds the log
+// directly instead of through a write (operations.ResolveLogPath mints
+// nothing, so a fresh directory has no log path until then).
+func establishedLogPath(t *testing.T, tc operations.TaskContext) (projectID, logPath string) {
+	t.Helper()
+	_, _, err := operations.ResolveProjectIdentity(tc.WorkDir)
+	require.NoError(t, err)
+	projectID, logPath, err = operations.ResolveLogPath(tc)
+	require.NoError(t, err)
+	require.NotEmpty(t, logPath)
+	return projectID, logPath
+}
+
 // TestNoteHidden pins the anti-silent-truncation hint: a --term or
 // --tag-query listing whose matches were partly suppressed by the default
 // active-only view says so (with per-kind counts and the flag that reveals

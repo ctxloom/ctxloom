@@ -38,8 +38,8 @@ Verbosity levels (-v can be repeated):
 
 Use --session <harp> to deterministically resume a prior harp-named session:
 its full recorded transcript is folded into this run's assembled context.
-Add --distill to resume via the session's distilled essence instead
-(distilling on demand first if one doesn't exist yet).
+Add --compact to resume via the session's compacted essence instead
+(compacting on demand first if one doesn't exist yet).
 
 Exit status: when the engine ran and exited, ctxloom run exits with the
 engine's own status — its exit code, or 128+signum when a signal ended it
@@ -55,7 +55,7 @@ Examples:
   ctxloom run -t security "check for vulnerabilities"
   ctxloom run -vv -p developer "debug mode"
   ctxloom run --session swift-amber-falcon
-  ctxloom run --session swift-amber-falcon --distill
+  ctxloom run --session swift-amber-falcon --compact
 
 ```
 ctxloom run [flags] [prompt...]
@@ -66,7 +66,7 @@ ctxloom run [flags] [prompt...]
 ```
       --agent string          Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)
   -r, --command string        Run a saved command by name
-      --distill               With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)
+      --compact               With --session, resume via the harp's compacted essence instead of its full transcript (compacts on demand first if not yet compacted)
   -n, --dry-run               Show command that would be executed
   -f, --fragment strings      Context fragment(s) to include (can be repeated)
   -l, --llm string            config label to use (e.g. claude-code, claude-fast); overrides the configured default
@@ -76,7 +76,7 @@ ctxloom run [flags] [prompt...]
       --plain-terminal        Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session
   -p, --profile string        Profile to use (predefined fragment collection)
       --prompt string         Prompt to send to the AI (alternative to positional args)
-      --session string        Resume the named harp session: folds its full recorded transcript into this run's assembled context. Combine with --distill to resume via its distilled essence instead.
+      --session string        Resume the named harp session: folds its full recorded transcript into this run's assembled context. Combine with --compact to resume via its compacted essence instead.
   -t, --tag strings           Include fragments with this tag (can be repeated)
   -v, --verbose count         Increase verbosity (can be repeated: -v, -vv, -vvv)
       --workspace string      Session workspace axis (none|worktree; empty = project default)

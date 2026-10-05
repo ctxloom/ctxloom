@@ -6,26 +6,26 @@ import (
 	"github.com/spf13/afero"
 )
 
-// A session's distilled essence lives in one of two places, BOTH under the harp
+// A session's compacted essence lives in one of two places, BOTH under the harp
 // dir, and is resolved by ONE lookup order: the harp's current essence.md
 // first, then that session's own per-rotation segments/<sessionID>.md —
 // operations.SessionEssenceInfo answers "where is it / is there one" without
 // opening the file, for listings that need that per row; readSessionEssence
 // is its reading face. Callers are `session show`, `session list`, `session
 // query`, --full, and the memory MCP tools, so the order living in exactly one
-// place is what stops a session reading as distilled in one command and
+// place is what stops a session reading as compacted in one command and
 // pending in another.
 
-// readSessionEssence returns a session's distilled essence and whether one was
+// readSessionEssence returns a session's compacted essence and whether one was
 // found. It is the READING face of operations.SessionEssenceInfo — one
-// resolution order for both, so a session can never read as distilled in one
+// resolution order for both, so a session can never read as compacted in one
 // command and pending in another. A pending session (no bound id) or a
 // missing essence yields ("", false) rather than an error, so callers can
-// present "not distilled yet" uniformly; an essence that exists but cannot be
+// present "not compacted yet" uniformly; an essence that exists but cannot be
 // READ is a different fact and is reported rather than passed off as
-// never-distilled.
+// never-compacted.
 func readSessionEssence(fsys afero.Fs, v operations.SessionView) (string, bool) {
-	if !v.Distilled {
+	if !v.Compacted {
 		return "", false
 	}
 	data, err := afero.ReadFile(fsys, v.EssencePath)

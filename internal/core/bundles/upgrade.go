@@ -34,8 +34,26 @@ import (
 var envelopeKind = schemaver.Kind{
 	Name:   "bundle",
 	Oldest: 0,
-	Steps:  []upgrade.Upgrader{retiredKeysStep{}, profileRefsStep{}},
+	Steps:  []upgrade.Upgrader{retiredKeysStep{}, profileRefsStep{}, execItemFieldsStep{}},
 }
+
+// execItemFieldsGeneration is the generation execItemFieldsStep migrates an
+// envelope TO.
+const execItemFieldsGeneration = 3
+
+// execItemFieldsStep is generation 2 -> 3: a tree's MCP items may declare
+// url, headers and tags, and its hook items tags. Nothing an older tree holds
+// changes meaning, so the step edits nothing; the generation exists so a
+// binary that cannot read those keys refuses the tree (schemaver.ErrNewer)
+// rather than loading a remote server with no target or an item with its
+// link membership silently dropped.
+type execItemFieldsStep struct{}
+
+func (execItemFieldsStep) Name() string {
+	return "mcp items gain url, headers and tags; hook items gain tags"
+}
+
+func (execItemFieldsStep) Apply(*yaml.Node) bool { return false }
 
 // profileRefsGeneration is the generation profileRefsStep migrates an
 // envelope TO. A tree whose envelope declares an older one has its profile

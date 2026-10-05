@@ -64,7 +64,7 @@ func TestResolveRetraction_FailStale(t *testing.T) {
 			Retracted: false, RetractionCheckedAt: checkedAt,
 		})
 
-		fetcher := newMockFetcher() // no manifest reachable at all -> RetractionUnknown
+		fetcher := unreadableTip() // the tip read fails -> RetractionUnknown
 
 		var out bytes.Buffer
 		restore := clidiag.SetSink(&out)
@@ -91,7 +91,7 @@ func TestResolveRetraction_FailStale(t *testing.T) {
 			RetractionCheckedAt: checkedAt,
 		})
 
-		fetcher := newMockFetcher() // unreachable manifest -> RetractionUnknown
+		fetcher := unreadableTip() // the tip read fails -> RetractionUnknown
 
 		retracted, reason, gotCheckedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
 		require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestResolveRetraction_FailStale(t *testing.T) {
 			RetractionCheckedAt: checkedAt,
 		})
 
-		fetcher := newMockFetcher()
+		fetcher := unreadableTip()
 
 		var out bytes.Buffer
 		restore := clidiag.SetSink(&out)
@@ -134,7 +134,7 @@ func TestResolveRetraction_FailStale(t *testing.T) {
 			// RetractionCheckedAt deliberately left zero: pre-migration entry.
 		})
 
-		fetcher := newMockFetcher()
+		fetcher := unreadableTip()
 
 		var out bytes.Buffer
 		restore := clidiag.SetSink(&out)
@@ -148,14 +148,12 @@ func TestResolveRetraction_FailStale(t *testing.T) {
 		assert.Contains(t, out.String(), "UNKNOWN AGE")
 	})
 
-	// The warning must not NAME a cause it cannot know. An Unknown verdict is
-	// ambiguous by construction (CheckRetracted's doc): "this remote publishes
-	// no manifest" — the ordinary case — is indistinguishable from an outage.
-	// Asserting "could not reach" sent users hunting a network fault that did
-	// not exist; the production fetcher reads a LOCAL clone, so on that path
-	// the claimed cause cannot apply at all. Both fallback branches are
-	// checked: the stale-age one worded the cause identically and would
-	// otherwise regress on its own.
+	// The warning must not NAME a cause it cannot know. Asserting "could not
+	// reach" sent users hunting a network fault that did not exist; the
+	// production fetcher reads a LOCAL clone, so on that path the claimed
+	// cause cannot apply at all. Both fallback branches are checked: the
+	// stale-age one worded the cause identically and would otherwise regress
+	// on its own.
 	t.Run("the fallback warning does not assert the remote was unreachable", func(t *testing.T) {
 		now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 		for _, tc := range []struct {
@@ -180,29 +178,24 @@ func TestResolveRetraction_FailStale(t *testing.T) {
 				restore := clidiag.SetSink(&out)
 				defer restore()
 
-				_, _, _, err := p.resolveRetraction(context.Background(), newMockFetcher(), "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
+				_, _, _, err := p.resolveRetraction(context.Background(), unreadableTip(), "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
 				require.NoError(t, err)
 
 				warning := out.String()
 				require.Contains(t, warning, "warning",
 					"this case must actually warn, or the assertions below pass over an empty buffer")
 				assert.NotContains(t, warning, "could not reach",
-					"the warning must not state unreachability as the cause: an Unknown verdict cannot tell an outage from a remote that simply publishes no manifest")
-				assert.Contains(t, warning, "no retraction manifest",
-					"the warning must offer the ordinary cause (no manifest published) alongside the unreadable one")
+					"the warning must not state unreachability as the cause: a failed tip read says nothing about the network")
 			})
 		}
 	})
 
-	// With NOTHING recorded at all (first-ever check for this ref), there is
-	// no verdict to fall back to and nothing whose age could be reported. This
-	// is overwhelmingly the ordinary "this remote publishes no manifest" case
-	// (see CheckRetracted's doc), not evidence of an outage — so it resolves
-	// to not-retracted, silently. It is stamped with the time that check RAN:
-	// a zero stamp would be persisted as indistinguishable from an entry
-	// written before check times were tracked, and every later run would then
-	// warn about a verdict of "unknown age" that is in fact a day old.
-	t.Run("no persisted entry resolves unretracted, stamped now, and the next run does not warn", func(t *testing.T) {
+	// A first-ever check against a remote that publishes no manifest resolves
+	// to not-retracted, silently, stamped with the time that check RAN: a zero
+	// stamp would be persisted as indistinguishable from an entry written
+	// before check times were tracked, and every later run would then warn
+	// about a verdict of "unknown age" that is in fact a day old.
+	t.Run("no persisted entry and no manifest resolves unretracted, stamped now, and the next run does not warn", func(t *testing.T) {
 		now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 		p := newPuller(t, now, nil)
 
@@ -224,7 +217,7 @@ func TestResolveRetraction_FailStale(t *testing.T) {
 		p.now = func() time.Time { return now.Add(24 * time.Hour) }
 		_, _, again, err := p.resolveRetraction(context.Background(), newMockFetcher(), "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
 		require.NoError(t, err)
-		assert.True(t, again.Equal(now), "the second run falls back to the first run's stamp, not a fresh one")
+		assert.True(t, again.Equal(now.Add(24*time.Hour)), "the second run checks again and is stamped with when it ran")
 		assert.Empty(t, out.String(), "a day-old verdict from a no-manifest remote is not of unknown age")
 	})
 
@@ -284,5 +277,109 @@ func TestResolveRetraction_FailStale(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, retracted)
 		assert.Contains(t, out.String(), "rolled back")
+	})
+}
+
+// TestResolveRetraction_EveryRunChecks pins the owner's ruling on retraction
+// checks: the check runs on every call; a remote that publishes no retraction
+// manifest has answered and is never a warning, however long ago the verdict
+// was first recorded; and a check that could not run is still reported.
+func TestResolveRetraction_EveryRunChecks(t *testing.T) {
+	const localName = "ctxloom+git://github.com/trent/company//bundles/incident-runbook"
+	ref := &Reference{Path: "incident-runbook"}
+	tip := ref.TreeRepoPath() + "/SHA256SUMS"
+	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+
+	newPuller := func(t *testing.T, seed *LockEntry) *Puller {
+		t.Helper()
+		lm := NewLockfileManager("/proj/.ctxloom", WithLockfileFS(afero.NewMemMapFs()))
+		lf := &Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}
+		if seed != nil {
+			lf.AddEntry(ItemTypeBundle, localName, *seed)
+		}
+		require.NoError(t, lm.Save(lf))
+		return &Puller{
+			lockfileManager: lm,
+			now:             func() time.Time { return now },
+			manifestVerify:  verifierFor(nil),
+		}
+	}
+	capture := func(t *testing.T) *bytes.Buffer {
+		t.Helper()
+		var out bytes.Buffer
+		t.Cleanup(clidiag.SetSink(&out))
+		return &out
+	}
+
+	t.Run("a manifest-less remote never warns, however old its last check", func(t *testing.T) {
+		p := newPuller(t, &LockEntry{
+			SHA: "abc123", URL: "https://github.com/trent/company",
+			RetractionCheckedAt: now.Add(-10 * RetractionStaleAfter),
+		})
+		out := capture(t)
+
+		retracted, _, checkedAt, err := p.resolveRetraction(context.Background(), newMockFetcher(), "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
+		require.NoError(t, err)
+		assert.False(t, retracted)
+		assert.True(t, checkedAt.Equal(now), "a check that ran and found no manifest is stamped with when it ran")
+		assert.Empty(t, out.String(), "a remote that publishes no retraction manifest is not a warning")
+	})
+
+	// Deleting the manifest is something whoever controls the repository can
+	// do; it must not lift a retraction a trusted publisher already signed.
+	t.Run("a manifest removed after a retraction keeps the recorded retraction", func(t *testing.T) {
+		p := newPuller(t, &LockEntry{
+			SHA: "abc123", URL: "https://github.com/trent/company",
+			Retracted: true, RetractedReason: "leaked token",
+			RetractionCheckedAt: now.Add(-time.Hour),
+		})
+
+		retracted, reason, _, err := p.resolveRetraction(context.Background(), newMockFetcher(), "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
+		require.NoError(t, err)
+		assert.True(t, retracted, "an absent manifest says nothing that could clear a recorded retraction")
+		assert.Equal(t, "leaked token", reason)
+	})
+
+	t.Run("the check runs on every call, not only the first", func(t *testing.T) {
+		p := newPuller(t, nil)
+		fetcher := newMockFetcher()
+
+		_, _, first, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
+		require.NoError(t, err)
+		_, err = p.updateLockfile(localName, PullOptions{ItemType: ItemTypeBundle}, &Remote{URL: "https://github.com/trent/company"},
+			"abc123", "", "", "", false, "", first, Verified{})
+		require.NoError(t, err)
+
+		later := now.Add(3 * RetractionStaleAfter)
+		p.now = func() time.Time { return later }
+		_, _, second, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{tip, tip}, fetcher.fetched, "each call reads the tip manifest itself")
+		assert.True(t, second.Equal(later), "the second check is stamped with when IT ran, so it never goes stale")
+	})
+
+	t.Run("a stale verdict whose re-check could not run is reported", func(t *testing.T) {
+		p := newPuller(t, &LockEntry{
+			SHA: "abc123", URL: "https://github.com/trent/company",
+			RetractionCheckedAt: now.Add(-2 * RetractionStaleAfter),
+		})
+		out := capture(t)
+
+		_, _, checkedAt, err := p.resolveRetraction(context.Background(), unreadableTip(), "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
+		require.NoError(t, err)
+		assert.True(t, checkedAt.Equal(now.Add(-2*RetractionStaleAfter)), "a check that did not run must not refresh the stamp")
+		assert.NotEmpty(t, out.String(), "a check that could not run is reported")
+	})
+
+	t.Run("a first check that could not run is reported and left unstamped", func(t *testing.T) {
+		p := newPuller(t, nil)
+		out := capture(t)
+
+		retracted, _, checkedAt, err := p.resolveRetraction(context.Background(), unreadableTip(), "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
+		require.NoError(t, err)
+		assert.False(t, retracted)
+		assert.True(t, checkedAt.IsZero(), "no check established this verdict, so no check time is claimed for it")
+		assert.NotEmpty(t, out.String(), "a check that could not run is reported even with nothing recorded")
 	})
 }

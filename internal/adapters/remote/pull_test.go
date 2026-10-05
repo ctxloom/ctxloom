@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 func TestPromptConfirmation(t *testing.T) {
@@ -64,6 +65,11 @@ type mockFetcher struct {
 	defaultBranch string
 	refs          map[string]string
 	forge         ForgeType
+	// readErr, when set, is what every FetchFile returns: a read that FAILED,
+	// as distinct from a file that is absent.
+	readErr error
+	// fetched records every path FetchFile was asked for, in order.
+	fetched []string
 }
 
 func newMockFetcher() *mockFetcher {
@@ -76,6 +82,10 @@ func newMockFetcher() *mockFetcher {
 }
 
 func (m *mockFetcher) FetchFile(ctx context.Context, owner, repo, path, ref string) ([]byte, error) {
+	m.fetched = append(m.fetched, path)
+	if m.readErr != nil {
+		return nil, m.readErr
+	}
 	if content, ok := m.files[path]; ok {
 		return content, nil
 	}
@@ -124,6 +134,10 @@ type fileNotFoundError struct {
 func (e *fileNotFoundError) Error() string {
 	return "file not found: " + e.path
 }
+
+// Unwrap carries the sentinel the production fetchers wrap for an absent file,
+// so callers telling "absent" from "broken" see the same answer here.
+func (e *fileNotFoundError) Unwrap() error { return errs.ErrRemoteContentNotFound }
 
 // mockFetcherFactory creates a FetcherFactory that returns the given fetcher.
 func mockFetcherFactory(f Fetcher) FetcherFactory {

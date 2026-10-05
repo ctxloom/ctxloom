@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -49,43 +50,20 @@ func TestHelp_ExamplesAreRealCommands(t *testing.T) {
 	})
 }
 
+// exampleToken is one shell word of an example line: a single- or
+// double-quoted word, or a run of non-space characters.
+var exampleToken = regexp.MustCompile(`'[^']*'|"[^"]*"|\S+`)
+
 // exampleWords splits one example line the way a shell would, enough for
-// these lines: single and double quotes group, a " #" starts a comment, and
-// only the first command of a "&&" or "|" chain is kept.
+// these lines: quotes group a word, an unquoted '#' word starts a comment,
+// and only the first command of a "&&", "|" or ";" chain is kept.
 func exampleWords(line string) []string {
 	var words []string
-	var cur strings.Builder
-	inWord, quote := false, rune(0)
-	for _, r := range strings.TrimSpace(line) {
-		switch {
-		case quote != 0:
-			if r == quote {
-				quote = 0
-			} else {
-				cur.WriteRune(r)
-			}
-		case r == '\'' || r == '"':
-			quote, inWord = r, true
-		case r == ' ' || r == '\t':
-			if inWord {
-				words = append(words, cur.String())
-				cur.Reset()
-				inWord = false
-			}
-		case r == '#' && !inWord:
-			return words
-		default:
-			cur.WriteRune(r)
-			inWord = true
+	for _, tok := range exampleToken.FindAllString(line, -1) {
+		if strings.HasPrefix(tok, "#") || tok == "&&" || tok == "|" || tok == ";" {
+			break
 		}
-	}
-	if inWord {
-		words = append(words, cur.String())
-	}
-	for i, w := range words {
-		if w == "&&" || w == "|" || w == ";" {
-			return words[:i]
-		}
+		words = append(words, strings.Trim(tok, `'"`))
 	}
 	return words
 }
@@ -95,34 +73,35 @@ func exampleWords(line string) []string {
 func splitExampleFlags(cmd *cobra.Command, rest []string) (positional, unknown []string) {
 	for i := 0; i < len(rest); i++ {
 		w := rest[i]
-		if w == "--" {
-			return append(positional, rest[i+1:]...), unknown
-		}
 		if !strings.HasPrefix(w, "-") || w == "-" {
 			positional = append(positional, w)
 			continue
 		}
-		name, _, hasValue := strings.Cut(strings.TrimLeft(w, "-"), "=")
-		var f *pflag.Flag
-		if strings.HasPrefix(w, "--") {
-			f = cmd.Flags().Lookup(name)
-			if f == nil {
-				f = cmd.InheritedFlags().Lookup(name)
-			}
-		} else {
-			f = cmd.Flags().ShorthandLookup(name[:1])
-			if f == nil {
-				f = cmd.InheritedFlags().ShorthandLookup(name[:1])
-			}
-			hasValue = hasValue || len(name) > 1
-		}
+		f, inline := lookupExampleFlag(cmd, w)
 		if f == nil {
 			unknown = append(unknown, w)
 			continue
 		}
-		if f.NoOptDefVal == "" && !hasValue {
-			i++ // the flag's value
+		if f.NoOptDefVal == "" && !inline {
+			i++ // the flag's value is the next word
 		}
 	}
 	return positional, unknown
+}
+
+// lookupExampleFlag finds the flag a "--name[=v]" or "-x[v]" word names among
+// cmd's own and inherited flags, and whether the word carries its value.
+func lookupExampleFlag(cmd *cobra.Command, w string) (*pflag.Flag, bool) {
+	if name, ok := strings.CutPrefix(w, "--"); ok {
+		name, _, inline := strings.Cut(name, "=")
+		if f := cmd.Flags().Lookup(name); f != nil {
+			return f, inline
+		}
+		return cmd.InheritedFlags().Lookup(name), inline
+	}
+	short := strings.TrimPrefix(w, "-")
+	if f := cmd.Flags().ShorthandLookup(short[:1]); f != nil {
+		return f, len(short) > 1
+	}
+	return cmd.InheritedFlags().ShorthandLookup(short[:1]), len(short) > 1
 }

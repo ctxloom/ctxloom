@@ -355,8 +355,9 @@ Exit status: when the engine ran and exited, ctxloom run exits with the
 engine's own status — its exit code, or 128+signum when a signal ended it
 (143 for SIGTERM), as a shell would report. A run that failed without an
 engine status (cancelled, or the engine never launched) exits 1. ctxloom's
-own refusals (2) and fatal startup findings (3) happen before the engine
-launches, so a 2 or 3 after the engine ran is the engine's.`,
+own refusals exit 2 and fatal startup findings 3, before the engine launches —
+with one exception: a credential the engine refuses AFTER launch (the
+CREDENTIAL REFUSED notice) also exits 2, whatever the engine's own status.`,
 	Example: `  ctxloom run -f coding-standards "review this code"
   ctxloom run -p developer "explain the architecture"
   ctxloom run -p reviewer -f extra-rules "review this PR"
@@ -1384,6 +1385,16 @@ func (st *runState) startTransport() error {
 // drive runs the session over whichever transport startTransport stood up, and
 // is the last thing runRun does.
 func (st *runState) drive() error {
+	err := st.driveTransport()
+	if st.sessionCoord == nil {
+		return err
+	}
+	return credentialRefusedOutcome(err, st.sessionCoord.CredentialHolds(), st.activeHarp)
+}
+
+// driveTransport runs the session over its transport and returns the run's
+// own outcome.
+func (st *runState) driveTransport() error {
 	if st.pty != nil {
 		return st.driveOwnedInteractive()
 	}
@@ -1391,6 +1402,21 @@ func (st *runState) drive() error {
 	// coordinator's event stream, record the oneshot transcript, exit with
 	// the run's status.
 	return runOneshotViaCoord(st.ctx, st.ownedRun, st.activeHarp, st.backendName, st.prompt, os.Stdout)
+}
+
+// credentialRefusedOutcome is a session's outcome once the engine refused its
+// credential AFTER launch (a refused-credential hold covering harp): the
+// refusal status, as for a credential refused before launch — the engine
+// itself often exits 0 having done nothing. The coordinator's CREDENTIAL
+// REFUSED notice, with its remedy, has already been printed, so the status
+// is relayed unreported. Without such a hold the run's own outcome stands.
+func credentialRefusedOutcome(err error, holds []coord.CredentialHold, harp string) error {
+	for _, h := range holds {
+		if h.Kind == agent.FailureCredentialRejected && slices.Contains(h.Harps, harp) {
+			return &ExitError{Code: exitCodeRefused}
+		}
+	}
+	return err
 }
 
 // sessionIO is the terminal seam set the interactive drive pumps onto the

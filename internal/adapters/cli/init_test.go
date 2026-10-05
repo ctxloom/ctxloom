@@ -53,15 +53,18 @@ func TestGenerateConfig_DefaultsBlock(t *testing.T) {
 	assert.Contains(t, body, "fast: claude-fast")
 }
 
-// init gives the HUMAN's own session their login (the top-level `auth:`),
-// and no binding an auth of its own: every agent ctxloom spawns runs on the
-// token. A scaffold carrying a binding `auth:` would not even load.
-func TestGenerateConfig_TheHumansSessionSharesTheLogin(t *testing.T) {
+// init scaffolds the HUMAN's own session on the token (the top-level
+// `auth:`, written out), matching its own advice to export it: one credential
+// for the session and every agent it spawns, checked before launch. The login
+// stays an opt-in (`auth: login`). No binding gets an auth of its own; a
+// scaffold carrying a binding `auth:` would not even load.
+func TestGenerateConfig_TheHumansSessionRunsOnTheToken(t *testing.T) {
 	data, err := operations.BuildInitialConfig("claude-code", "", "")
 	require.NoError(t, err)
 	cfg, err := config.ParseConfig(data)
 	require.NoError(t, err, string(data))
-	assert.Equal(t, engine.AuthLogin, cfg.SessionAuth())
+	assert.Equal(t, engine.AuthToken, cfg.SessionAuth())
+	assert.Contains(t, string(data), "auth: "+string(engine.AuthToken), "written out, not left to the parser's default")
 }
 
 // TestCtxloomDefaultTrusted pins init's trust claim about the seeded

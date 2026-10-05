@@ -283,9 +283,11 @@ Install (and authenticate) the CLI for the backend you configured, or point `llm
 at one you already have. See [Configuration → LLMs](/guides/configuration/#llms) for the config shape.
 
 ctxloom runs claude in a per-session home that holds no login. Your own `ctxloom run` session
-uses your login in place (`ctxloom init` writes the top-level `auth: login`). Every agent
-ctxloom spawns authenticates with a long-lived token, which you mint yourself and export;
-ctxloom reads it from the environment it is launched in and never stores it:
+and every agent ctxloom spawns authenticate with a long-lived token (`ctxloom init` writes the
+top-level `auth: token`), which you mint yourself and export; ctxloom reads it from the
+environment it is launched in, checks it before launching, and never stores it. To run your own
+session on your claude login instead, set `auth: login`: it is not pre-checked beyond its store
+being on this host, and claude reports a login it does not accept when the session starts:
 
 ```bash
 claude setup-token                          # claude's own flow; prints a one-year token

@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +10,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // TestCredentialRefusedOutcome_ExitsRefusedNotTheEnginesStatus: when the
@@ -29,4 +33,21 @@ func TestCredentialRefusedOutcome_ExitsRefusedNotTheEnginesStatus(t *testing.T) 
 	assert.NoError(t, credentialRefusedOutcome(nil, limited, "mine"), "a rate limit is not a refusal")
 	engineFailed := &ExitError{Code: 7}
 	assert.Equal(t, engineFailed, credentialRefusedOutcome(engineFailed, nil, "mine"), "no refusal: the run's own outcome stands")
+}
+
+// TestRun_LoginModeWithNoLoginOnThisHost_WritesNoProjectMarker: a login-mode
+// run on a host with no engine login store is refused — and, like every
+// credential refusal, before the project identity is established: the
+// refused run leaves no .ctxloom/project-id behind.
+func TestRun_LoginModeWithNoLoginOnThisHost_WritesNoProjectMarker(t *testing.T) {
+	dir := runCLIFixture(t)
+	marker := filepath.Join(dir, paths.AppDirName, paths.ProjectIDFileName)
+	_ = os.Remove(marker)
+	resetApp()
+
+	res := runCLI(t, "--config-set", "auth="+string(engine.AuthLogin), "run", "--one-shot", "-p", "dev", "hi")
+	require.ErrorIs(t, res.err, engine.ErrNoCredential, res.all())
+	assert.Equal(t, exitCodeRefused, errorExitCode(res.err))
+	_, statErr := os.Stat(marker)
+	assert.True(t, os.IsNotExist(statErr), "a refused login run wrote the project marker")
 }

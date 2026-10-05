@@ -48,6 +48,15 @@ func stageStores(eng string, stores []engine.SharedStore) ([]sharedStore, error)
 	return out, nil
 }
 
+// CheckStores is stageStores' refusal alone: nil when every credential store
+// the run's credentials share in place is on this host, else the same
+// refusal (and fix) preparing the run would raise. A launch asks it before
+// anything is established for a run that could not start logged in.
+func CheckStores(eng string, stores []engine.SharedStore) error {
+	_, err := stageStores(eng, stores)
+	return err
+}
+
 // presentEnvKeys returns the subset of keys that getenv reports as set
 // (non-empty), in order: a SCOPED allowlist filter, so the host's full
 // environment never blanket-crosses into a container (hostTerminalEnv).

@@ -216,13 +216,12 @@ func New(opts Options) *Controller {
 		opts: opts, clock: opts.Clock, present: opts.Present.normalized(),
 		done: make(chan struct{}), rosterDone: make(chan struct{}),
 	}
-	c.sur = newSurround(&c.ttyMu, opts.TTY, opts.Surround, opts.Bar)
-	c.sur.now = c.clock.Now
+	c.sur = newSurround(c.clock, &c.ttyMu, opts.TTY, opts.Surround, opts.Bar)
 	// The guard runs inside the gate under the shared tty lock; its callbacks
 	// are the surround's *Locked accessors (same mutex, no re-entry).
 	guard := newVTGuard(c.sur.regionBottomLocked, c.sur.reassertLocked, c.sur.markDirtyLocked)
 	c.guard = guard
-	c.gate = newOutputGate(&c.ttyMu, opts.TTY, guard, c.sur.FlushLocked)
+	c.gate = newOutputGate(c.clock, &c.ttyMu, opts.TTY, guard, c.sur.FlushLocked)
 	// SetEngineIdle/SetPaintSafe inlined: construction-only writes, before any
 	// goroutine starts.
 	c.sur.lastEngineWrite = c.gate.LastWriteNanos

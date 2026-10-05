@@ -63,7 +63,7 @@ type Runtime interface {
 	// a caller to find — see container_reap.go's doc). Each result's Labels
 	// carries exactly what ownerLabelArgs stamped at `run` time, verbatim; a
 	// caller decides what an absent or malformed one means. This is what
-	// ReapOrphanedContainers uses instead of composing `ps` argv itself: Host
+	// FindOrphanedContainers uses instead of composing `ps` argv itself: Host
 	// launches no containers and always returns nil, nil.
 	Enumerate(ctx context.Context, namePrefix string) ([]ContainerInfo, error)
 
@@ -387,7 +387,7 @@ func (rt ociRuntime) paths() pathSeam { return newPathSeam(rt.pathMap, rt.self) 
 // enumerate is the shared Docker/Podman Enumerate body: `<binary> ps --filter
 // name=<namePrefix> --format {{.Names}}\t{{json .Labels}}`, one line per
 // RUNNING container whose name contains namePrefix (docker/podman's `name`
-// filter is substring, not anchored — ReapOrphanedContainers re-checks the
+// filter is substring, not anchored — classifyContainer re-checks the
 // prefix itself rather than trusting this as an exact filter). Routed through
 // probeExec (package var) so it is testable without a runtime present, same
 // seam sharedFSProbe and diagnoseAdvisory already use.

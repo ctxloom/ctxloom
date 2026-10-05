@@ -13,7 +13,6 @@ package operations
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -32,7 +31,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // lockFileMode and lockDirMode are the modes the canonical-transcript
@@ -389,18 +387,18 @@ func rebuildCanonicalTranscript(ctx context.Context, fsys afero.Fs, adapter vend
 			return converted, rerr
 		}
 	}
-	af, aerr := safefs.NewAtomicFile(fsys, dest, 0o644)
+	rf, aerr := newRebuildFile(fsys, dest)
 	if aerr != nil {
 		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
 	}
 
-	wm, werr := writeRebuildSegments(ctx, fsys, adapter, e, af, liveSrc, liveOK)
+	wm, werr := writeRebuildSegments(ctx, fsys, adapter, e, rf, liveSrc, liveOK)
 	if werr != nil {
-		_ = af.Abort()
+		_ = rf.af.Abort()
 		return true, werr
 	}
 
-	return commitRebuild(fsys, af, e, wm)
+	return commitRebuild(fsys, rf, e, wm)
 }
 
 // resumeRebuild rebuilds e's canonical transcript from its watermark: the
@@ -411,61 +409,58 @@ func rebuildCanonicalTranscript(ctx context.Context, fsys afero.Fs, adapter vend
 // after a commit — exactly as they were. errStaleWatermark when the watermark
 // turns out not to describe the files; the caller rebuilds in full.
 func resumeRebuild(ctx context.Context, fsys afero.Fs, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest, liveSrc string, wm *transcriptWatermark) (converted bool, err error) {
-	af, aerr := safefs.NewAtomicFile(fsys, dest, 0o644)
+	rf, aerr := newRebuildFile(fsys, dest)
 	if aerr != nil {
 		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
 	}
-	next, rerr := resumeInto(ctx, fsys, adapter, e, dest, af, liveSrc, wm)
+	next, rerr := resumeInto(ctx, fsys, adapter, e, dest, rf, liveSrc, wm)
 	if rerr != nil {
-		_ = af.Abort()
+		_ = rf.af.Abort()
 		return true, rerr
 	}
-	return commitRebuild(fsys, af, e, next)
+	return commitRebuild(fsys, rf, e, next)
 }
 
-func resumeInto(ctx context.Context, fsys afero.Fs, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest string, af *safefs.AtomicFile, liveSrc string, wm *transcriptWatermark) (*transcriptWatermark, error) {
-	from := resumePoint{vendor: wm.Vendor, seq: wm.NextSeq, sessionID: wm.SessionID, digest: sha256.New(), length: wm.CanonicalLength}
-	if err := copyCanonicalPrefix(fsys, dest, wm, af, from.digest); err != nil {
+func resumeInto(ctx context.Context, fsys afero.Fs, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest string, rf *rebuildFile, liveSrc string, wm *transcriptWatermark) (*transcriptWatermark, error) {
+	from := resumePoint{vendor: wm.Vendor, seq: wm.NextSeq, sessionID: wm.SessionID}
+	if err := copyCanonicalPrefix(fsys, dest, wm, rf); err != nil {
 		return nil, err
 	}
-	next, err := convertLive(ctx, fsys, adapter, e, af, liveSrc, from)
+	next, err := convertLive(ctx, fsys, adapter, e, rf, liveSrc, from)
 	if errors.Is(err, vendorreader.ErrCheckpointMismatch) {
 		return nil, fmt.Errorf("%w: %w", errStaleWatermark, err)
 	}
 	return next, err
 }
 
-// writeRebuildSegments appends every rotation's cached segment onto af, then
-// converts the live vendor transcript (when liveOK) into af's temp file from
-// its beginning, returning the watermark the conversion offered (nil for
-// none). The caller aborts af on error.
-func writeRebuildSegments(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, af *safefs.AtomicFile, liveSrc string, liveOK bool) (*transcriptWatermark, error) {
+// writeRebuildSegments appends every rotation's cached segment onto rf, then
+// converts the live vendor transcript (when liveOK) onto rf from its
+// beginning, returning the watermark the conversion offered (nil for none).
+// The caller aborts rf on error.
+func writeRebuildSegments(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rf *rebuildFile, liveSrc string, liveOK bool) (*transcriptWatermark, error) {
 	for _, rot := range e.Rotations {
-		if werr := appendRotationSegment(ctx, fsys, adapter, e, rot, af); werr != nil {
+		if werr := appendRotationSegment(ctx, fsys, adapter, e, rot, rf); werr != nil {
 			return nil, werr
 		}
 	}
 	if !liveOK {
 		return nil, nil
 	}
-	return convertLive(ctx, fsys, adapter, e, af, liveSrc, newResumePoint())
+	return convertLive(ctx, fsys, adapter, e, rf, liveSrc, newResumePoint())
 }
 
-// commitRebuild installs af over the canonical transcript when the rebuild
+// commitRebuild installs rf over the canonical transcript when the rebuild
 // produced bytes, and otherwise aborts it. Only after a commit is wm — the
 // watermark describing what was just installed, nil for none — recorded:
 // written first, it could describe a transcript that never landed.
-func commitRebuild(fsys afero.Fs, af *safefs.AtomicFile, e sessions.Entry, wm *transcriptWatermark) (converted bool, err error) {
-	// Convert succeeding is NOT the same fact as bytes landing on disk.
-	// transcript.Recorder only creates its canonical file on the FIRST
-	// SUCCESSFUL Record, so a live Convert that (legitimately, per
-	// vendorreader.VendorAdapter's own degrade-to-partial contract) wrote zero
-	// entries — combined with no rotation contributing a segment either —
-	// leaves the temp file at size zero (safefs.NewAtomicFile creates it empty
-	// up front, so it always exists, unlike the old fixed ".rebuild" name).
-	info, serr := fsys.Stat(af.TempPath())
-	if serr != nil || info.Size() == 0 {
-		_ = af.Abort()
+func commitRebuild(fsys afero.Fs, rf *rebuildFile, e sessions.Entry, wm *transcriptWatermark) (converted bool, err error) {
+	// Convert succeeding is NOT the same fact as bytes landing on disk: a
+	// live Convert that (legitimately, per vendorreader.VendorAdapter's own
+	// degrade-to-partial contract) wrote zero entries — combined with no
+	// rotation contributing a segment either — wrote nothing to rf, whose
+	// temp file safefs.NewAtomicFile created empty up front.
+	if rf.written == 0 {
+		_ = rf.af.Abort()
 		// A harp with NO recorded rotations degrading to nothing is the
 		// ordinary single-file "nothing to do" outcome (unchanged from before
 		// rotation lineage existed): reporting it as an error would turn every
@@ -483,7 +478,7 @@ func commitRebuild(fsys afero.Fs, af *safefs.AtomicFile, e sessions.Entry, wm *t
 		}
 		return false, nil
 	}
-	if cerr := af.Commit(); cerr != nil {
+	if cerr := rf.af.Commit(); cerr != nil {
 		return true, fmt.Errorf("install canonical transcript for %s: %w", e.HarpName, cerr)
 	}
 	saveWatermark(fsys, e, wm)
@@ -513,7 +508,7 @@ func tryOwnCanonicalTranscript(harp, dest string) (release func(), acquired bool
 // appendRotationSegment ensures a cached canonical segment exists for one
 // displaced binding in e's rotation lineage — converting it once via adapter
 // when no cache is present, reusing the cached file otherwise (paths.
-// ResolveHarpSegmentPath) — and appends its bytes onto af, the harp-lifetime
+// ResolveHarpSegmentPath) — and appends its bytes onto rf, the harp-lifetime
 // canonical rebuild in progress.
 //
 // A rotation whose vendor file is gone (rotated-away files can be reaped by
@@ -522,7 +517,7 @@ func tryOwnCanonicalTranscript(harp, dest string) (release func(), acquired bool
 // through clidiag rather than returning an error for that case. Only a
 // genuine I/O failure while converting or caching a segment that DOES exist
 // returns an error.
-func appendRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, af *safefs.AtomicFile) error {
+func appendRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, rf *rebuildFile) error {
 	segPath, perr := paths.ResolveHarpSegmentPath(e.HarpName, rot.SessionID)
 	if perr != nil {
 		return fmt.Errorf("resolve segment path for %s/%s: %w", e.HarpName, rot.SessionID, perr)
@@ -544,42 +539,48 @@ func appendRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorrea
 		if mkErr := fsys.MkdirAll(filepath.Dir(segPath), 0o755); mkErr != nil {
 			return fmt.Errorf("create segments dir for %s: %w", e.HarpName, mkErr)
 		}
-		segAF, aerr := safefs.NewAtomicFile(fsys, segPath, 0o644)
-		if aerr != nil {
-			return fmt.Errorf("open segment rebuild file for %s/%s: %w", e.HarpName, rot.SessionID, aerr)
-		}
-		// Same temp-path recorder as the live conversion (convertLive) — see
-		// its comment.
-		rec, rerr := transcript.NewRecorder(fsys, e.HarpName, e.Backend, transcript.WithPath(segAF.TempPath()), transcript.WithClock(vendorSourceClock(fsys, rot.TranscriptPath)))
-		if rerr != nil {
-			_ = segAF.Abort()
-			return fmt.Errorf("open segment recorder for %s/%s: %w", e.HarpName, rot.SessionID, rerr)
-		}
-		cerr := adapter.Convert(ctx, fsys, rec, rot.TranscriptPath)
-		_ = rec.Close()
-		if cerr != nil {
-			_ = segAF.Abort()
-			return fmt.Errorf("convert rotation %s transcript for %s: %w", rot.SessionID, e.HarpName, cerr)
-		}
-		info, serr := fsys.Stat(segAF.TempPath())
-		if serr != nil || info.Size() == 0 {
-			// Zero events converted: a legitimate degrade-to-partial outcome
-			// for THIS segment (vendorreader.VendorAdapter's contract), not a
-			// failure — nothing to cache, nothing to append.
-			_ = segAF.Abort()
-			return nil
-		}
-		if cerr := segAF.Commit(); cerr != nil {
-			return fmt.Errorf("install cached segment for %s/%s: %w", e.HarpName, rot.SessionID, cerr)
+		cached, cerr := cacheRotationSegment(ctx, fsys, adapter, e, rot, segPath)
+		if cerr != nil || !cached {
+			return cerr
 		}
 	}
 
-	return appendFileBytes(fsys, af, segPath)
+	return appendFileBytes(fsys, rf, segPath)
+}
+
+// cacheRotationSegment converts rot's vendor transcript into the segment cache
+// at segPath, whose directory exists. cached is false when the conversion
+// produced no events: a legitimate degrade-to-partial outcome for THIS
+// segment (vendorreader.VendorAdapter's contract), not a failure — nothing to
+// cache, nothing to append.
+func cacheRotationSegment(ctx context.Context, fsys afero.Fs, adapter vendorreader.VendorAdapter, e sessions.Entry, rot sessions.Rotation, segPath string) (cached bool, err error) {
+	seg, err := newRebuildFile(fsys, segPath)
+	if err != nil {
+		return false, fmt.Errorf("open segment rebuild file for %s/%s: %w", e.HarpName, rot.SessionID, err)
+	}
+	rec, err := transcript.NewRecorder(fsys, e.HarpName, e.Backend, transcript.WithWriter(seg), transcript.WithClock(vendorSourceClock(fsys, rot.TranscriptPath)))
+	if err != nil {
+		_ = seg.af.Abort()
+		return false, fmt.Errorf("open segment recorder for %s/%s: %w", e.HarpName, rot.SessionID, err)
+	}
+	err = adapter.Convert(ctx, fsys, rec, rot.TranscriptPath)
+	_ = rec.Close()
+	if err != nil {
+		_ = seg.af.Abort()
+		return false, fmt.Errorf("convert rotation %s transcript for %s: %w", rot.SessionID, e.HarpName, err)
+	}
+	if seg.written == 0 {
+		_ = seg.af.Abort()
+		return false, nil
+	}
+	if err := seg.af.Commit(); err != nil {
+		return false, fmt.Errorf("install cached segment for %s/%s: %w", e.HarpName, rot.SessionID, err)
+	}
+	return true, nil
 }
 
 // appendFileBytes copies src's full contents onto the end of w — the
-// harp-lifetime rebuild in progress (an safefs.AtomicFile, which satisfies
-// io.Writer via its own Write method) — used to concatenate a harp's cached
+// harp-lifetime rebuild in progress (a rebuildFile) — used to concatenate a harp's cached
 // rotation segments (each already in canonical JSONL form) ahead of the live
 // binding's own conversion.
 func appendFileBytes(fsys afero.Fs, w io.Writer, src string) error {

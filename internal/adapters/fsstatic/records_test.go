@@ -476,6 +476,101 @@ func TestClaimsRecoverAfterTwoLostWritesInARow(t *testing.T) {
 	assert.Equal(t, userMCP, read(t, fs, mcpTarget))
 }
 
+// A change whose target write was interrupted is redone by the next
+// delivery restating it: the record's note is all that tells the file's old
+// value from a user's edit.
+func TestClaimsAnInterruptedChangeIsRedoneByTheNextDelivery(t *testing.T) {
+	fs := &failingRename{Fs: withUserFile(t), target: mcpTarget}
+	c := newRecords(t, fs)
+	mustCommit(t, c, fs, stage(mcpTarget, project, server("taskloom", taskA)))
+
+	fs.fail = true
+	_, err := commitOps(t, c, fs, stage(mcpTarget, project, server("taskloom", taskB)))
+	require.ErrorIs(t, err, errInjected)
+	fs.fail = false
+
+	mustCommit(t, c, fs, stage(mcpTarget, project, server("taskloom", taskB)))
+	assert.Equal(t, []any{"b"}, servers(t, fs)["taskloom"].(map[string]any)["args"])
+}
+
+// A user who restores a delivered file to its exact pre-delivery bytes has
+// edited it: once the write is confirmed, nothing tells that revert from an
+// interrupted write except the note, so the note must be gone.
+func TestClaimsAUsersExactRevertOfAConfirmedWriteIsLeftAlone(t *testing.T) {
+	fs := withUserFile(t)
+	c := newRecords(t, fs)
+	mustCommit(t, c, fs, stage(mcpTarget, project, server("taskloom", taskA)))
+	preDelivery := read(t, fs, mcpTarget)
+	mustCommit(t, c, fs, stage(mcpTarget, project, server("taskloom", taskB)))
+
+	testsupport.WriteFileString(t, fs, mcpTarget, preDelivery, 0o644)
+	mustCommit(t, c, fs, stage(mcpTarget, project, server("taskloom", taskB)))
+	assert.Equal(t, preDelivery, read(t, fs, mcpTarget))
+}
+
+func TestClaimsAUsersExactRevertOfAConfirmedWholeFileWriteIsLeftAlone(t *testing.T) {
+	const cmd = "/proj/.claude/commands/x.md"
+	fs := afero.NewMemMapFs()
+	c := newRecords(t, fs)
+	mustCommit(t, c, fs, stage(cmd, project, present.Claim{Value: []byte("one\n")}))
+	mustCommit(t, c, fs, stage(cmd, project, present.Claim{Value: []byte("two\n")}))
+
+	testsupport.WriteFileString(t, fs, cmd, "one\n", 0o644)
+	mustCommit(t, c, fs, stage(cmd, project, present.Claim{Value: []byte("two\n")}))
+	assert.Equal(t, "one\n", read(t, fs, cmd))
+}
+
+// A confirmed write leaves no note behind, so the record of a settled file
+// says only what is claimed.
+func TestClaimsAConfirmedWriteLeavesNoPendingNote(t *testing.T) {
+	fs := withUserFile(t)
+	c := newRecords(t, fs)
+	mustCommit(t, c, fs, stage(mcpTarget, project, server("taskloom", taskA)))
+	rec, _, err := c.load(mcpTarget)
+	require.NoError(t, err)
+	assert.Nil(t, rec.Pending)
+}
+
+// failingConfirm fails the record write that confirms a landed target write:
+// the target lands, the note stays.
+type failingConfirm struct {
+	afero.Fs
+	record string
+	fail   bool
+	writes int
+}
+
+func (f *failingConfirm) Rename(o, n string) error {
+	if n == f.record {
+		f.writes++
+		if f.fail && f.writes%2 == 0 {
+			return errInjected
+		}
+	}
+	return safefs.Rename(f.Fs, o, n)
+}
+
+// A note whose confirm was lost is dropped by the next delivery that finds
+// its write landed, so a revert after that is still the user's.
+func TestClaimsANoteWhoseWriteLandedIsDroppedByTheNextDelivery(t *testing.T) {
+	fs := &failingConfirm{Fs: withUserFile(t)}
+	c := newRecords(t, fs)
+	fs.record = c.path(mcpTarget)
+	mustCommit(t, c, fs, stage(mcpTarget, project, server("taskloom", taskA)))
+	preDelivery := read(t, fs, mcpTarget)
+
+	fs.fail, fs.writes = true, 0
+	_, err := commitOps(t, c, fs, stage(mcpTarget, project, server("taskloom", taskB)))
+	require.ErrorIs(t, err, errInjected)
+	fs.fail = false
+	assert.Equal(t, []any{"b"}, servers(t, fs)["taskloom"].(map[string]any)["args"], "the target write landed")
+
+	mustCommit(t, c, fs, stage(mcpTarget, project, server("taskloom", taskB)))
+	testsupport.WriteFileString(t, fs, mcpTarget, preDelivery, 0o644)
+	mustCommit(t, c, fs, stage(mcpTarget, project, server("taskloom", taskB)))
+	assert.Equal(t, preDelivery, read(t, fs, mcpTarget))
+}
+
 func TestClaimsRecoverAReleaseWhoseTargetWriteNeverLanded(t *testing.T) {
 	fs := &failingRename{Fs: withUserFile(t), target: mcpTarget}
 	c := newRecords(t, fs)

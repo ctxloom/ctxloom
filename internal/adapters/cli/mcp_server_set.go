@@ -63,8 +63,9 @@ clears that list or map. A repeatable flag replaces the stored list or map
 with exactly the values given; --env and --header take NAME=value.
 
 A server has exactly one target: --command (with --arg), --url, or
---served-by session-endpoint. Moving to another target clears the old one in
-the same call, and a set that would leave none or two is refused unsaved.
+--served-by session-endpoint. To move to another target, clear the old one in
+the same call (the last example); a set that would leave none or two is
+refused and nothing is saved.
 
 Header values land in shell history and in signed bundle content, so name a secret through an environment variable the engine expands, never as a literal.
 

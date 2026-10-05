@@ -68,10 +68,24 @@ func (c *Records) mark(w, target string) error {
 	if err != nil {
 		return err
 	}
+	existed, err := afero.DirExists(c.fs, c.dir)
+	if err != nil {
+		return err
+	}
 	if err := confpatch.EnsureRecordDir(c.fs, c.claimantsPath()); err != nil {
 		return err
 	}
+	if !existed {
+		// The store is created here, so no record predates the index.
+		if err := c.markIndexed(); err != nil {
+			return err
+		}
+	}
 	return safefs.WriteFile(c.fs, path, data, owneronly.FileMode, safefs.Durable())
+}
+
+func (c *Records) markIndexed() error {
+	return safefs.WriteFile(c.fs, filepath.Join(c.claimantsPath(), indexedName), nil, owneronly.FileMode, safefs.Durable())
 }
 
 func (c *Records) unmark(w, target string) error {
@@ -138,8 +152,7 @@ func (c *Records) claimants(want func(prefix string) bool, onePerWriter bool) (m
 // record written while this runs is never missed; one it read before a seal
 // changed it can only leave a marker too many.
 func (c *Records) ensureIndexed() error {
-	done := filepath.Join(c.claimantsPath(), indexedName)
-	if ok, err := afero.Exists(c.fs, done); err != nil || ok {
+	if ok, err := afero.Exists(c.fs, filepath.Join(c.claimantsPath(), indexedName)); err != nil || ok {
 		return err
 	}
 	if ok, err := afero.DirExists(c.fs, c.dir); err != nil || !ok {
@@ -159,7 +172,7 @@ func (c *Records) ensureIndexed() error {
 	if err := confpatch.EnsureRecordDir(c.fs, c.claimantsPath()); err != nil {
 		return err
 	}
-	return safefs.WriteFile(c.fs, done, nil, owneronly.FileMode, safefs.Durable())
+	return c.markIndexed()
 }
 
 // eachRecord decodes every claims record in the store.

@@ -365,9 +365,13 @@ type Ownership interface {
 	// Paths lists target's claimed places, each with its writers effective
 	// first and whether the file on fs holds the effective value.
 	Paths(fs afero.Fs, target string) ([]PathState, error)
+	// Targets lists the files writer claims anything in, sorted. It may also
+	// name a file a write that did not finish left listed; releasing writer
+	// there changes nothing.
 	Targets(writer Writer) ([]string, error)
 	// Writers lists every writer that claims anything in any file the record
-	// covers, sorted: what a sweep of departed sessions walks.
+	// covers, sorted: what a sweep of departed sessions walks. Like Targets,
+	// it may name a writer a release that did not finish left listed.
 	Writers() ([]Writer, error)
 }
 

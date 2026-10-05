@@ -33,13 +33,19 @@ func TestRemoteDefaultClear_WritesThroughTheCommandsWriter(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cmd.RunE)
 
+	// The asserted line is the TEXT rendering. Off a terminal an unset
+	// --format resolves to JSON, exactly as a piped invocation would, so the
+	// test asks for text the way a caller must. --format is the root's
+	// persistent flag, shared by every command, hence the reset.
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	remoteDefaultClear = true
 	t.Cleanup(func() {
 		cmd.SetOut(nil)
 		remoteDefaultClear = false
+		resetRootFormat(t)
 	})
+	require.NoError(t, cmd.Flags().Set("format", formatText))
 
 	require.NoError(t, cmd.RunE(cmd, nil))
 	assert.Contains(t, out.String(), "Cleared default remote.",

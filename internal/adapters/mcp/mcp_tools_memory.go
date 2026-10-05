@@ -163,7 +163,7 @@ func (s *ctxServer) compactionTargetHarp(sessionID string) (string, error) {
 }
 
 func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolRequest, in compactSessionInput) (*mcp.CallToolResult, *compactSessionResult, error) {
-	model := operations.CompactionModelFor(s.cfg, in.Model)
+	model := in.Model
 
 	backend := in.Backend
 	if backend == "" {
@@ -196,12 +196,9 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		reportedID = harp
 	}
 
-	// eager-trash unification: this used to always recompact unconditionally,
-	// with no heal and no cache check, and re-implemented the model-default
-	// rule (operations.CompactionModelFor) inline instead of sharing it. Heal
-	// and the cache check run INSIDE the singleflight (not before it) so two
-	// concurrent compact_session calls for the same harp don't each pay for
-	// their own redundant heal.
+	// Heal and the cache check run INSIDE the singleflight (not before it) so
+	// two concurrent compact_session calls for the same harp don't each pay
+	// for their own redundant heal.
 	res, err := s.singleflightCompact(harp+"\x00compact\x00"+model, func() (*compactSessionResult, error) {
 		src, herr := operations.ResolveAndHeal(ctx, afero.NewOsFs(), s.facts.Engines, harp)
 		if herr != nil {
@@ -237,7 +234,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		// The TurnEnd-captured next step; absent on a harp that has not
 		// finished a turn, and absent costs nothing (see distillPrompt).
 		taskHint, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
-		distiller := operations.OneShot(s.facts, s.hostsFor(), s.cfg).Label(s.cfg.FastLabel()).Model(model).WorkDir(workDir).Lazy()
+		distiller := operations.DistillerOneShot(s.facts, s.hostsFor(), s.cfg).Model(model).WorkDir(workDir).Lazy()
 		defer distiller.End()
 		source, serr := operations.DistillSource(workDir)
 		if serr != nil {
@@ -654,8 +651,8 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 // indeterminate cache (a finished session rarely changes), the same bias the
 // backend path applies with redistillWhenUnknown=false.
 //
-// model is the caller's per-call override, forwarded to compactEntry ("" uses
-// cfg.GetCompactionModel()). Honoring it ONLY on the backend path meant an
+// model is the caller's per-call override, forwarded to compactEntry ("" keeps
+// the distiller's own model). Honoring it ONLY on the backend path meant an
 // explicit override was silently ignored whenever the previous session was
 // canonical/ACP — the caller got a distill from a model it did not ask for,
 // with no indication.
@@ -1083,9 +1080,6 @@ func (s *ctxServer) singleflightCompact(key string, fn func() (*compactSessionRe
 // this runs inside the session-owning process, whose stderr is the terminal the
 // harness is drawing its TUI on.
 func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir, harp string) (*loadSessionResult, error) {
-	if model == "" {
-		model = s.cfg.GetCompactionModel()
-	}
 	// Bound the work to the same budget the relay grants the caller, so one
 	// wedged LLM subprocess cannot hold the singleflight entry open forever
 	// and queue every later recover of this session behind it (see
@@ -1110,7 +1104,7 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 	// The TurnEnd-captured next step; absent on a harp that has not finished
 	// a turn, and absent costs nothing (see distillPrompt).
 	taskHint, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
-	distiller := operations.OneShot(s.facts, s.hostsFor(), s.cfg).Label(s.cfg.FastLabel()).Model(model).WorkDir(workDir).Lazy()
+	distiller := operations.DistillerOneShot(s.facts, s.hostsFor(), s.cfg).Model(model).WorkDir(workDir).Lazy()
 	defer distiller.End()
 	source, serr := operations.DistillSource(workDir)
 	if serr != nil {

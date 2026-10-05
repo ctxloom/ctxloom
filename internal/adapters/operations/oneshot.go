@@ -242,6 +242,29 @@ type OneShotBuilder struct {
 	hosts                 RunHosts
 	cfg                   *config.Config
 	label, model, workDir string
+	// role is the agent name the one-shot runs as when no Label is named
+	// (distillerAgent, triageAgent); "" is no role.
+	role string
+}
+
+// The role agents are resolved BY NAME: the agent the project names
+// `distiller` is the distiller, `triage` the triage agent — the names
+// ctxloom-init tells a user to create. A role one-shot runs as that agent
+// through the binding arm of the launch, so its label, the label's env, its
+// profiles and its runtime axis are the agent's, exactly as for any other
+// launch of it.
+const (
+	distillerAgent = "distiller"
+	triageAgent    = "triage"
+)
+
+// DistillerOneShot is the one-shot every distillation runs on: session
+// compaction and content distillation. It runs as the distiller agent; a
+// Label named on it (an explicit `--llm`) wins.
+func DistillerOneShot(f LaunchFacts, hosts RunHosts, cfg *config.Config) *OneShotBuilder {
+	b := OneShot(f, hosts, cfg)
+	b.role = distillerAgent
+	return b
 }
 
 // OneShot starts an internal one-shot under f, on the coordinator hosts
@@ -250,7 +273,7 @@ func OneShot(f LaunchFacts, hosts RunHosts, cfg *config.Config) *OneShotBuilder 
 	return &OneShotBuilder{facts: f, hosts: hosts, cfg: cfg}
 }
 
-// Label names the LLM label the one-shot runs on.
+// Label names the LLM label the one-shot runs on, over any role agent.
 func (b *OneShotBuilder) Label(label string) *OneShotBuilder { b.label = label; return b }
 
 // Model overrides the label's model for this one-shot.
@@ -279,7 +302,25 @@ func (b *OneShotBuilder) Start(ctx context.Context) (*OneShotSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	return StartOneShot(ctx, deps, b.hosts, sessions.Seed{ProjectDir: b.workDir}, InternalSource(b.label, b.model, b.workDir))
+	return StartOneShot(ctx, deps, b.hosts, sessions.Seed{ProjectDir: b.workDir}, b.source(deps.Reporter))
+}
+
+// source is the Source the one-shot asks with: the named Label's internal
+// source; else the role agent's binding when the project declares it; else,
+// for a role whose agent is absent, defaults.fast — reported to rep, since
+// the user was told to create that agent and nothing else would say it is
+// not the one running. Every arm is at plan (see InternalSource).
+func (b *OneShotBuilder) source(rep report.Sink) launch.Source {
+	if b.label != "" || b.role == "" {
+		return InternalSource(b.label, b.model, b.workDir)
+	}
+	if _, ok := b.cfg.Agent(b.role); ok {
+		return launch.Source{Agent: b.role, Model: b.model, WorkDir: b.workDir, Permission: "plan"}
+	}
+	fast := b.cfg.FastLabel()
+	report.To(rep).WarnOncef("no %q agent is configured, so this %s runs on llm.defaults.fast (%q); create one with `ctxloom agent create %s` to choose its engine, env and runtime",
+		b.role, b.role, fast, b.role)
+	return InternalSource(fast, b.model, b.workDir)
 }
 
 // Lazy defers Start to the one-shot's first turn: a caller that never turns

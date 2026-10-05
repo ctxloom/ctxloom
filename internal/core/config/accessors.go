@@ -3,8 +3,7 @@ package config
 // *Config's fields are unexported; every cross-package read goes through a
 // Get* accessor in this file. NAMING: the "Get" prefix matches the
 // convention already established elsewhere in this package (GetEditorCommand,
-// GetProfileLoader, GetDefaultLLM, GetCompactionLLM, GetCompactionModel,
-// GetDefaultLLMModel) — Go disallows a field and a
+// GetProfileLoader, GetDefaultLLM) — Go disallows a field and a
 // method of the same name on one type, so a shorter, field-shadowing name
 // was never an option.
 //

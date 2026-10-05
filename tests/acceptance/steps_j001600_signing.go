@@ -533,7 +533,7 @@ func j001600Reference(w *World) error {
 	if err := runOK(w, "bundle", "create", "seed", "-d", "J001600 seed bundle"); err != nil {
 		return err
 	}
-	if err := runOK(w, "profile", "create", "default", "-b", "seed", "-d", "J001600 default profile"); err != nil {
+	if err := runOK(w, "profile", "create", "default", "--include", "seed", "-d", "J001600 default profile"); err != nil {
 		return err
 	}
 	if err := runOK(w, "remote", "create", "company", st.url, "--forge", "git"); err != nil {

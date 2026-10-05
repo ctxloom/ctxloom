@@ -551,7 +551,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 			}
 		}
 		if !w.env.FileExists(testenv.ProjectProfileFile("default")) {
-			if err := runOK(w, "profile", "create", "default", "-b", "seed", "-d", "J001400 consumer profile"); err != nil {
+			if err := runOK(w, "profile", "create", "default", "--include", "seed", "-d", "J001400 consumer profile"); err != nil {
 				return err
 			}
 		}

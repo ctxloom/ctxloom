@@ -65,8 +65,8 @@ applies hooks — it takes no item argument.
 
 ```bash
 # Consume a remote bundle (or one fragment of it)
-ctxloom profile create testing -b ctxloom-default/testing
-ctxloom profile create tdd -b ctxloom-default/testing#fragments/tdd
+ctxloom profile create testing --include ctxloom-default/testing
+ctxloom profile create tdd --include ctxloom-default/testing#fragments/tdd
 
 # Inherit a bundle-shipped profile (canonical URL ref)
 ctxloom profile create my-dev --parent 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer'

@@ -110,7 +110,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 		if err := testenv.WriteBundleTree(w.env.ProjectDir, "team", j000400TeamBundleYAML()); err != nil {
 			return err
 		}
-		return runOK(w, "profile", "create", "team", "-b", "team", "-d", "J000400 shared team profile")
+		return runOK(w, "profile", "create", "team", "--include", "team", "-d", "J000400 shared team profile")
 	})
 
 	ctx.Step(`^Alice materializes the team profile for (\S+)$`, func(c context.Context, engine string) error {
@@ -292,7 +292,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 		if err := testenv.WriteBundleTree(w.env.ProjectDir, "team", body); err != nil {
 			return err
 		}
-		return runOK(w, "profile", "create", "team", "-b", "team", "-d", "J000400 shared team profile")
+		return runOK(w, "profile", "create", "team", "--include", "team", "-d", "J000400 shared team profile")
 	})
 
 	ctx.Step(`^Alice asks her (\S+) assistant to repeat the sentinel it can see$`, func(c context.Context, _ string) error {

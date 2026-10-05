@@ -69,7 +69,7 @@ Feature: Fault tolerance
   Scenario: An unreachable remote fails the pull cleanly rather than crashing
     Given an initialized ctxloom project
     And I run "ctxloom remote create broken file:///nonexistent/ctxloom-repo.git --forge git"
-    And I run "ctxloom profile create dev --bundle broken/demo"
+    And I run "ctxloom profile create dev --include broken/demo"
     When I run "ctxloom deps pull"
     Then the command fails
     And the output contains "Failed: 1"

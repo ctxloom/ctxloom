@@ -161,7 +161,7 @@ do not imply it is saved anywhere and do not invent a file to put it in.
 
 Author a local profile that points at what they picked — you don't
 "install" remote content. `ctxloom profile create <name> --parent
-<pull_ref>` inherits a remote profile; `-b <pull_ref>` pulls in a bundle (or
+<pull_ref>` inherits a remote profile; `--include <pull_ref>` pulls in a bundle (or
 one fragment of it); a `@<tag-or-sha>` suffix on the ref pins a version. Then
 `ctxloom deps pull` so the reference actually resolves and the lockfile
 updates. `ctxloom profile create --help` has the exact flags.

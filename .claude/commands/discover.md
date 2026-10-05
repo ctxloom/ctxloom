@@ -21,7 +21,7 @@ Scan the current project and discover matching ctxloom content from configured r
   for what is already installed locally.
 - **Consumption is CLI and reference-only.** You author a local profile that
   references remote content (`ctxloom profile create <name> --parent <ref>` for a
-  remote profile, or `-b <ref>` for a bundle), then `ctxloom deps pull` fetches
+  remote profile, or `--include <ref>` for a bundle), then `ctxloom deps pull` fetches
   the referenced bundles/profiles and updates the lockfile.
 
 ## Steps
@@ -52,7 +52,7 @@ Scan the current project and discover matching ctxloom content from configured r
      `ctxloom profile create <name> --parent <pull_ref>`
      (e.g. `ctxloom profile create go-dev --parent ctxloom-default/go-developer`)
    - Reference a remote bundle (or one fragment):
-     `ctxloom profile create <name> -b <pull_ref>` (optionally `#fragments/<frag>`)
+     `ctxloom profile create <name> --include <pull_ref>` (optionally `#fragments/<frag>`)
    - Run `ctxloom deps pull` afterward so every bundle/profile a profile
      references is fetched into the cache and the lockfile is updated.
    - To pin a specific content version, append a git tag or commit SHA to the

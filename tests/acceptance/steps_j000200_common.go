@@ -207,7 +207,7 @@ func scaffoldProjectWithConfig(w *World, configYAML string) error {
 	if err := runOK(w, "bundle", "create", "seed", "-d", "J000200 seed bundle"); err != nil {
 		return err
 	}
-	return runOK(w, "profile", "create", "default", "-b", "seed", "-d", "J000200 default profile")
+	return runOK(w, "profile", "create", "default", "--include", "seed", "-d", "J000200 default profile")
 }
 
 // ensureProjectWithEngine is scaffoldProjectWithConfig for the common case: a

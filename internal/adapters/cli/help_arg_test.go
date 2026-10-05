@@ -82,7 +82,7 @@ var helpArgCommands = []struct {
 	{path: []string{"agent", "create"}, behaviour: actsOnResource, exists: agentHelpExists, flags: map[string]string{"profiles": "default"}, seed: seedProjectConfig},
 	{path: []string{"agent", "default"}, behaviour: helpAsFallback},
 	{path: []string{"agent", "remove"}, behaviour: helpAsFallback},
-	{path: []string{"profile", "create"}, behaviour: actsOnResource, exists: profileHelpExists, flags: map[string]string{"bundle": "some-bundle"}},
+	{path: []string{"profile", "create"}, behaviour: actsOnResource, exists: profileHelpExists, flags: map[string]string{"include": "some-bundle"}},
 	{path: []string{"profile", "remove"}, behaviour: helpAsFallback},
 	{path: []string{"profile", "show"}, behaviour: helpAsFallback},
 	{path: []string{"profile", "modify"}, behaviour: helpAsFallback},

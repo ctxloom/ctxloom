@@ -50,6 +50,7 @@ func TestClaimsRecord_DeliveredTextIsStoredAsText(t *testing.T) {
 	mustCommit(t, c, fs, stage(notesTarget, project, whole([]byte(text))))
 
 	size := len(read(t, fs, recordPath(notesTarget)))
+	t.Logf("a %d-byte text file records %d bytes", len(text), size)
 	assert.Less(t, size, len(text)*5/4, "a %d-byte text file's record is %d bytes", len(text), size)
 	assert.Equal(t, text, rawEntry(t, fs, notesTarget)["content"])
 }

@@ -14,11 +14,12 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/spf13/afero"
-	yamlv3 "gopkg.in/yaml.v3"
+	yaml "gopkg.in/yaml.v3"
 
 	// The formats a claim's place is found in: registered HERE, by the
 	// record that needs them, so a file's claims never depend on which
@@ -33,6 +34,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Records is the ownership record: one record per TARGET FILE, naming for each
@@ -81,7 +84,61 @@ func (e *NotOursError) Unwrap() error { return ErrNotOurs }
 
 // claimsKind versions a claims record. LegacyKey: the record spelled its
 // format generation `claims` before schemaver.
-var claimsKind = schemaver.Kind{Name: "claims record", LegacyKey: "claims", Oldest: 2}
+var claimsKind = schemaver.Kind{Name: "claims record", LegacyKey: "claims", Oldest: 2, Steps: []upgrade.Upgrader{contentAsText{}}}
+
+// contentAsText is generation 3: a whole-file or appended-section claim's
+// delivered bytes move from `bytes`, one YAML integer per byte, to `content`,
+// the bytes as a string — text when they are UTF-8, !!binary when not — in
+// every claim and in the pending note's prior state.
+type contentAsText struct{}
+
+func (contentAsText) Name() string { return "store delivered bytes as content" }
+
+func (contentAsText) Apply(root *yaml.Node) bool {
+	changed := false
+	if paths := yamlx.MapValue(root, "paths"); paths != nil && paths.Kind == yaml.MappingNode {
+		for i := 1; i < len(paths.Content); i += 2 {
+			for _, e := range paths.Content[i].Content {
+				changed = bytesToContent(e) || changed
+			}
+		}
+	}
+	values := yamlx.MapValue(yamlx.MapValue(yamlx.MapValue(root, "pending"), "prior"), "values")
+	if values != nil && values.Kind == yaml.MappingNode {
+		for i := 1; i < len(values.Content); i += 2 {
+			changed = bytesToContent(values.Content[i]) || changed
+		}
+	}
+	return changed
+}
+
+// bytesToContent rewrites one claim entry's integer-list `bytes` as
+// `content`. A list that is not bytes is left as it is: the claim then holds
+// no content, and so matches no file, which refuses rather than overwrites.
+func bytesToContent(entry *yaml.Node) bool {
+	if entry.Kind != yaml.MappingNode {
+		return false
+	}
+	list := yamlx.MapValue(entry, "bytes")
+	if list == nil || list.Kind != yaml.SequenceNode {
+		return false
+	}
+	b := make([]byte, len(list.Content))
+	for i, n := range list.Content {
+		v, err := strconv.ParseUint(n.Value, 10, 8)
+		if n.Kind != yaml.ScalarNode || err != nil {
+			return false
+		}
+		b[i] = byte(v)
+	}
+	var content yaml.Node
+	if err := content.Encode(string(b)); err != nil {
+		return false
+	}
+	yamlx.MapDelete(entry, "bytes")
+	yamlx.MapSet(entry, "content", &content)
+	return true
+}
 
 const (
 	claimsSuffix = ".claims.yaml"
@@ -129,13 +186,16 @@ type claimsRecord struct {
 }
 
 // claimEntry is one writer's claim at one place. Seq orders claims of one
-// writer kind: the latest staged is on top.
+// writer kind: the latest staged is on top. Content is a whole-file or
+// appended-section claim's delivered bytes, held as a string so the record
+// carries text as text; yaml.v3 writes bytes that are not UTF-8 as !!binary,
+// so they still come back exactly.
 type claimEntry struct {
-	Writer string `yaml:"writer"`
-	Via    string `yaml:"via,omitempty"`
-	Seq    uint64 `yaml:"seq"`
-	Value  any    `yaml:"value"`
-	Bytes  []byte `yaml:"bytes,omitempty"`
+	Writer  string `yaml:"writer"`
+	Via     string `yaml:"via,omitempty"`
+	Seq     uint64 `yaml:"seq"`
+	Value   any    `yaml:"value"`
+	Content string `yaml:"content,omitempty"`
 }
 
 // pendingWrite is written WITH the record, before the target: the target's
@@ -179,13 +239,9 @@ func (c *Records) load(target string) (claimsRecord, []byte, error) {
 // decodeClaims reads one record's bytes at the current generation, migrating
 // an older spelling in memory only: the next seal writes it stamped.
 func decodeClaims(path string, data []byte) (claimsRecord, error) {
-	r, err := claimsKind.Upgrade(data)
-	if err != nil {
-		return claimsRecord{}, fmt.Errorf("fsstatic: claims record %s: %w", path, err)
-	}
 	var rec claimsRecord
-	if err := yamlv3.Unmarshal(r.Data, &rec); err != nil {
-		return claimsRecord{}, fmt.Errorf("fsstatic: read claims record %s: %w", path, err)
+	if _, err := claimsKind.Decode(data, &rec); err != nil {
+		return claimsRecord{}, fmt.Errorf("fsstatic: claims record %s: %w", path, err)
 	}
 	return rec, nil
 }
@@ -236,7 +292,7 @@ func (rec *claimsRecord) stage(w delivery.Writer, claims []stagedClaim) {
 		rec.Paths = map[string][]claimEntry{}
 	}
 	for _, cl := range claims {
-		e := claimEntry{Writer: string(w), Via: cl.via, Seq: rec.Seq, Value: cl.value, Bytes: cl.bytes}
+		e := claimEntry{Writer: string(w), Via: cl.via, Seq: rec.Seq, Value: cl.value, Content: cl.content}
 		rec.Paths[cl.key] = append(dropWriter(rec.Paths[cl.key], string(w), nil, cl.key), e)
 	}
 }
@@ -262,7 +318,7 @@ func (rec *claimsRecord) settle(was claimsRecord) {
 }
 
 func sameClaim(a, b claimEntry) bool {
-	return a.Via == b.Via && bytes.Equal(a.Bytes, b.Bytes) && reflect.DeepEqual(a.Value, b.Value)
+	return a.Via == b.Via && a.Content == b.Content && reflect.DeepEqual(a.Value, b.Value)
 }
 
 func (rec *claimsRecord) release(w delivery.Writer, keep func(pointer, via string) bool) {
@@ -362,7 +418,7 @@ func (s *Staging) Stage(target string, w delivery.Writer, claims []present.Claim
 type stagedClaim struct {
 	key, via string
 	value    any
-	bytes    []byte
+	content  string
 }
 
 func isOpaque(key string) bool { return key == "" || key == present.AppendedSection }
@@ -374,7 +430,7 @@ func stageable(target string, cl present.Claim) (stagedClaim, error) {
 		if !ok {
 			return stagedClaim{}, fmt.Errorf("fsstatic: %s: a whole-file or appended-section claim's value is its bytes", target)
 		}
-		sc.bytes = b
+		sc.content = string(b)
 		return sc, nil
 	}
 	if _, _, ok := bindingFor(target); !ok {
@@ -494,7 +550,7 @@ func (t *targetOps) seal(before []byte, existed bool, after []byte, keep bool) e
 		return nil
 	}
 	rec.SchemaVersion, rec.Target = claimsKind.Current(), t.target
-	data, err := yamlv3.Marshal(rec)
+	data, err := yaml.Marshal(rec)
 	if err != nil {
 		return err
 	}
@@ -550,7 +606,7 @@ func (c *Records) retireConfpatchRecords(target string) error {
 			return fmt.Errorf("fsstatic: read %s: %w", path, err)
 		}
 		var rec confpatch.Record
-		if yamlv3.Unmarshal(data, &rec) != nil || rec.Reversal == "" || !recordsTarget(rec, target) {
+		if yaml.Unmarshal(data, &rec) != nil || rec.Reversal == "" || !recordsTarget(rec, target) {
 			continue
 		}
 		if err := c.fs.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -623,7 +679,7 @@ func (t *targetOps) section(cur []byte, exists bool, from, to fileState, rec *cl
 		if !hasO && len(bytes.TrimSpace(user)) == 0 {
 			rec.Created = true // nothing of the user's to keep: the file leaves with the section
 		}
-		return appendSection(user, n.Bytes), true, nil
+		return appendSection(user, []byte(n.Content)), true, nil
 	}
 	if !exists {
 		return cur, exists, nil
@@ -645,13 +701,13 @@ func (t *targetOps) sectionUser(cur []byte, exists bool, o claimEntry, hasO bool
 	if !hasO || !exists {
 		return cur, false, nil
 	}
-	if u, ok := stripSection(cur, o.Bytes); ok {
+	if u, ok := stripSection(cur, []byte(o.Content)); ok {
 		return u, false, nil
 	}
-	if !bytes.Contains(cur, bytes.TrimRight(o.Bytes, "\n")) {
+	if !bytes.Contains(cur, []byte(strings.TrimRight(o.Content, "\n"))) {
 		return cur, false, nil
 	}
-	if hasN && bytes.Equal(o.Bytes, n.Bytes) {
+	if hasN && o.Content == n.Content {
 		return cur, true, nil
 	}
 	return nil, false, &NotOursError{Target: t.target, Pointer: present.AppendedSection}
@@ -695,7 +751,7 @@ func (t *targetOps) wholeFile(cur []byte, exists bool, from, to fileState, rec *
 		if !exists {
 			rec.Created = true
 		}
-		return n.Bytes, true, nil
+		return []byte(n.Content), true, nil
 	}
 	if !exists || !rec.Created {
 		return cur, exists, nil
@@ -708,10 +764,10 @@ func (t *targetOps) wholeFile(cur []byte, exists bool, from, to fileState, rec *
 // it holds one of them (ours), or it is an unchanged claim the user has
 // since edited (leave it), or it is not ctxloom's.
 func (t *targetOps) wholeFileEdited(cur []byte, o claimEntry, hasO bool, n claimEntry, hasN bool) (bool, error) {
-	if (hasO && bytes.Equal(cur, o.Bytes)) || (hasN && bytes.Equal(cur, n.Bytes)) {
+	if (hasO && string(cur) == o.Content) || (hasN && string(cur) == n.Content) {
 		return false, nil
 	}
-	if hasO && hasN && bytes.Equal(o.Bytes, n.Bytes) {
+	if hasO && hasN && o.Content == n.Content {
 		return true, nil
 	}
 	return false, &NotOursError{Target: t.target}
@@ -1270,9 +1326,9 @@ func (c *Records) Paths(fs afero.Fs, target string) ([]delivery.PathState, error
 func live(doc hew.Document, cur []byte, exists bool, key string, top claimEntry) bool {
 	switch container, elem := elementOf(key); {
 	case key == "":
-		return exists && bytes.Equal(cur, top.Bytes)
+		return exists && string(cur) == top.Content
 	case key == present.AppendedSection:
-		_, ok := stripSection(cur, top.Bytes)
+		_, ok := stripSection(cur, []byte(top.Content))
 		return ok
 	case doc == nil:
 		return false

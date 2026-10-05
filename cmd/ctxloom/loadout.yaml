@@ -69,8 +69,8 @@ run:
         ## Isolation: specify both axes
 
         Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
-        set`, `run --agent`, `agent_run`)? Set both axes explicitly — never rely
-        on the default:
+        create`, `ctxloom agent edit`, `run --agent`, `agent_run`)? Set both axes
+        explicitly — never rely on the default:
 
         - **runtime** (`host` | `container-rootless` | `container-rootful`,
           the agent binding's `runtime:`) isolates the PROCESS. There is

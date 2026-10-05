@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,4 +104,35 @@ func TestLoadoutCommand_EmitsTheV2Envelope(t *testing.T) {
 	assert.Equal(t, loadoutYAML, doc)
 	assert.Equal(t, loadoutSig, sig)
 	assert.Contains(t, out.String(), `"contract": "`+signing.LoadoutContract+`"`)
+}
+
+// loadoutCommandSpan finds a `ctxloom ...` code span in fragment prose; a span
+// may wrap across lines.
+var loadoutCommandSpan = regexp.MustCompile("`ctxloom\\s+([^`]+)`")
+
+// TestLoadout_FragmentsNameCommandsThatExist: guidance the loadout delivers
+// into every session tells agents what to run, so every `ctxloom <noun>
+// <verb>` it names must resolve to a real command, not stop at a group whose
+// subcommands do not include the verb.
+func TestLoadout_FragmentsNameCommandsThatExist(t *testing.T) {
+	lo, err := bundles.ParseLoadout(loadoutYAML)
+	require.NoError(t, err)
+	root := cli.GetRootCmd(compose(strictness.Sink("ctxloom")))
+	for name, frag := range lo.Run.Fragments {
+		for _, m := range loadoutCommandSpan.FindAllStringSubmatch(frag.Content, -1) {
+			var words []string
+			for _, w := range strings.Fields(m[1]) {
+				if strings.HasPrefix(w, "-") || strings.HasPrefix(w, "<") {
+					break
+				}
+				words = append(words, w)
+			}
+			cmd, rest, err := root.Find(words)
+			require.NoErrorf(t, err, "fragment %q names %q", name, m[0])
+			if cmd.HasSubCommands() && len(rest) > 0 {
+				assert.Failf(t, "unknown command", "fragment %q names %q: %q has no subcommand %q",
+					name, m[0], cmd.CommandPath(), rest[0])
+			}
+		}
+	}
 }

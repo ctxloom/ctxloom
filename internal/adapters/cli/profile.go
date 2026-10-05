@@ -99,10 +99,10 @@ func renderProfileList(out io.Writer, list []operations.ProfileEntry) error {
 
 var (
 	profileCreateParents     []string
-	profileCreateIncludes     []string
+	profileCreateIncludes    []string
 	profileCreateDescription string
 	profileCreateLLM         string
-	profileCreateTarget    string
+	profileCreateTarget      string
 )
 
 var profileCreateCmd = &cobra.Command{
@@ -468,7 +468,7 @@ func runProfileExport(cmd *cobra.Command, args []string) error {
 }
 
 var (
-	profileImportForce    bool
+	profileImportForce  bool
 	profileImportTarget string
 )
 

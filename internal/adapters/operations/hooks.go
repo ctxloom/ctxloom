@@ -129,7 +129,17 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	// content loader, so each decides at its own choke with the generation's
 	// Trust (freshCfg.ExecutableTrustGate); a DENY omits the executable.
 
-	contextHash, regenFailed := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
+	// The ONE package, for the configured DEFAULT profiles: ApplyHooks writes
+	// the project's STATIC managed config (the `manage hooks install` path)
+	// and there is no per-run `-p` selection here. The regenerated context and
+	// every backend below are written from it, so the default profile set is
+	// resolved once per apply.
+	pkg, err := AssemblePackage(ctx, freshCfg, PackageRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	contextHash, regenFailed := maybeRegenerateContext(req, pkg, workDir, contextOpts)
 
 	// The trust gate, checked BEFORE a single backend is written. A deny-all
 	// posture (unreadable/unconfigured approvals store, unreadable trust root)
@@ -145,15 +155,6 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	// package's context either way — the file and the cache are composed
 	// from one package — and a hook-route engine gets the injection hook
 	// only when there is a hash for it to read.
-
-	// The ONE package, for the configured DEFAULT profiles: ApplyHooks writes
-	// the project's STATIC managed config (the `manage hooks install` path)
-	// and there is no per-run `-p` selection here. Its servers, commands and
-	// deny list are what every backend below is written from.
-	pkg, err := AssemblePackage(ctx, freshCfg, PackageRequest{})
-	if err != nil {
-		return nil, err
-	}
 
 	backendNames, err := hookBackendNames(reg, freshCfg, backend)
 	if err != nil {
@@ -347,11 +348,11 @@ func checkHookTargetScope(reg engine.Registry, cfg *config.Config, workDir, back
 // (req.RegenerateContext == false), so ApplyHooks can refuse to let a
 // failure silently strip a native-file backend's existing managed context
 // while still reporting success.
-func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, workDir string, contextOpts []agent.ContextFileOption) (hash string, regenFailed bool) {
+func maybeRegenerateContext(req ApplyHooksRequest, pkg composite.Package, workDir string, contextOpts []agent.ContextFileOption) (hash string, regenFailed bool) {
 	if !req.RegenerateContext {
 		return "", false
 	}
-	contextHash, err := regenerateContext(freshCfg, workDir, contextOpts...)
+	contextHash, err := regenerateContext(pkg, workDir, contextOpts...)
 	if err != nil {
 		strictness.Fail(report.KindApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
 			"regenerate context failed: %v", err)
@@ -594,17 +595,13 @@ func applyHooksToBackend(ctx context.Context, reg engine.Registry, backendName s
 	return nil, nil
 }
 
-// regenerateContext writes the SessionStart-injected context file for the
-// default agent's profiles: the ONE package's fragments (AssemblePackage,
-// the same assembly `ctxloom run` delivers — a premised fragment held back
+// regenerateContext writes the SessionStart-injected context file from pkg,
+// the ONE package the apply assembled for the default agent's profiles: its
+// fragments (AssemblePackage, the same assembly `ctxloom run` delivers — a premised fragment held back
 // there is held back here, and the file carries no body the run would not),
 // written through the context-file writer. The name each fragment is written
 // under is its ref.
-func regenerateContext(cfg *config.Config, workDir string, opts ...agent.ContextFileOption) (string, error) {
-	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{})
-	if err != nil {
-		return "", err
-	}
+func regenerateContext(pkg composite.Package, workDir string, opts ...agent.ContextFileOption) (string, error) {
 	var backendFrags []*agent.Fragment
 	for _, f := range pkg.Fragments {
 		backendFrags = append(backendFrags, &agent.Fragment{Name: f.Value.Name, Content: f.Value.Body})

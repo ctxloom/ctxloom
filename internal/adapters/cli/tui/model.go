@@ -781,6 +781,9 @@ func (m Model) feedTitle() string {
 	if hold := HoldLabel(r.Hold); hold != "" {
 		title += " · " + hold
 	}
+	if ended := endedLabel(r); ended != "" {
+		title += " · " + ended
+	}
 	if m.feedSource != "" {
 		title += " · " + m.feedSource
 	}
@@ -831,6 +834,9 @@ func (m Model) rosterLines(height int) []string {
 		label := r.Harp
 		if r.Agent != "" {
 			label += "·" + r.Agent
+		}
+		if r.Cause != "" {
+			label += " " + r.Cause
 		}
 		line := strings.Repeat("  ", min(r.Depth, 3)) + rowGlyph(r) + " " + label
 		if offset+i == m.sel {

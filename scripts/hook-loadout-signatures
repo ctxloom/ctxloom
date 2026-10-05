@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# lefthook's loadout-signatures pre-commit gate; lefthook.yml carries the
+# invariant it enforces. Run with bash explicitly: lefthook hands a run block
+# to /bin/sh, which is not bash everywhere a commit is made.
+set -euo pipefail
+signers=internal/adapters/configload/embedded_signers.allowed_signers
+identity=$(grep -v '^#' "$signers" | grep -v '^[[:space:]]*$' | head -1 | awk '{print $1}')
+for yaml in cmd/*/loadout.yaml; do
+  sig="$yaml.sig"
+  if ! git cat-file -e ":$sig" 2>/dev/null; then
+    echo "$sig is missing from the index — run 'just sign-loadouts' and stage it." >&2
+    echo "A loadout without its signature is withheld, not shipped unsigned." >&2
+    exit 1
+  fi
+  tmpsig=$(mktemp)
+  git show ":$sig" > "$tmpsig"
+  ok=0
+  git show ":$yaml" | ssh-keygen -Y verify -f "$signers" -I "$identity" \
+      -n publish.v1.ctxloom.dev -s "$tmpsig" >/dev/null 2>&1 || ok=1
+  rm -f "$tmpsig"
+  if [ "$ok" -ne 0 ]; then
+    echo "$sig does not cover the staged bytes of $yaml." >&2
+    echo "Run 'just sign-loadouts' and stage both files together." >&2
+    exit 1
+  fi
+done

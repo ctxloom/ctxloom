@@ -898,6 +898,23 @@ func TestModel_AHeldRowShowsItsHold(t *testing.T) {
 	assert.Contains(t, lines[1], stateGlyph(coord.StateIdle)+" idle-kid", "an unheld idle row keeps its glyph")
 }
 
+// TestModel_AnEndedRowShowsItsCause: an ended child says why it ended — a
+// launch that never came up is not a finish. The agents pane carries the
+// cause; the feed title carries the cause and its detail.
+func TestModel_AnEndedRowShowsItsCause(t *testing.T) {
+	const detail = "the engine binary is not on PATH"
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "dead-kid", State: coord.StateEnded, Cause: coord.CauseLaunchFailed, Detail: detail},
+		RosterRow{Harp: "live-kid", State: coord.StateExecuting},
+	)
+	m := openSelected(t, newTestModel(f), f)
+
+	lines := m.rosterLines(m.contentHeight())
+	assert.Contains(t, lines[0], "dead-kid "+coord.CauseLaunchFailed)
+	assert.NotContains(t, lines[1], "live-kid ", "a row with no cause carries nothing after its label")
+	assert.Contains(t, m.feedTitle(), "ended: "+coord.CauseLaunchFailed+" — "+detail)
+}
+
 // A pause says who paused the child, not a failure it waits on.
 func TestHoldLabel_APauseSaysWhoPausedIt(t *testing.T) {
 	assert.Equal(t, "paused by the human", HoldLabel(&coord.RunHold{Kind: coord.HoldKindHuman}))

@@ -69,17 +69,23 @@ const (
 	// local deny; the cell records whether the hook is still consulted first
 	// (ctxloom passes none for every approver but the human).
 	p12AllowPromptsNone p12Decision = "allow-prompts-none"
+	// p12AllowToolUseIDAbsent: the allow arm, judged on one more thing — the
+	// hook's input carries no tool_use_id. ctxloom's approval route correlates
+	// a PermissionRequest with its call through the PreToolUse that precedes
+	// it BECAUSE this event names no id; if a release adds one, the
+	// correlation's premise moved and the route should be re-examined.
+	p12AllowToolUseIDAbsent p12Decision = "allow-tool-use-id-absent"
 )
 
 // p12Decisions are the variants the rung knows, in the feature's order.
-var p12Decisions = []p12Decision{p12Allow, p12Deny, p12Silent, p12AllowPromptsNone}
+var p12Decisions = []p12Decision{p12Allow, p12Deny, p12Silent, p12AllowPromptsNone, p12AllowToolUseIDAbsent}
 
 // answer is what the cell's hook prints: the behavior, or nothing.
 func (d p12Decision) answer() (p12Decision, bool) {
 	switch d {
 	case p12Silent:
 		return "", false
-	case p12AllowPromptsNone:
+	case p12AllowPromptsNone, p12AllowToolUseIDAbsent:
 		return p12Allow, true
 	}
 	return d, true
@@ -100,6 +106,9 @@ const (
 	p12HookEvent    = "PermissionRequest"
 	p12GatedTool    = "Bash"
 	p12DeniedByHook = "Permission denied by hook"
+	// p12ToolUseIDKey is the key PreToolUse's input carries and
+	// PermissionRequest's does not.
+	p12ToolUseIDKey = "tool_use_id"
 )
 
 // p12HookDelay is how long the hook sleeps before writing its marker and
@@ -385,6 +394,10 @@ const (
 	// shapeDecisionIgnored: the hook answered and the engine did something
 	// other than what the answer said.
 	shapeDecisionIgnored probeShape = "DECISION-IGNORED failure"
+	// shapeToolUseIDPresent: the PermissionRequest hook's input names a
+	// tool_use_id, so the vendor contract the route's correlation is built
+	// around has changed.
+	shapeToolUseIDPresent probeShape = "TOOL-USE-ID-PRESENT failure"
 )
 
 func (o p12Outcome) verdict() probeVerdict {
@@ -420,6 +433,11 @@ func p12Assert(o p12Outcome) error {
 	}
 
 	switch o.Decision {
+	case p12AllowToolUseIDAbsent:
+		if err := o.assertNoToolUseID(v); err != nil {
+			return err
+		}
+		return o.assertAllow(v, s, call, res)
 	case p12Allow, p12AllowPromptsNone:
 		return o.assertAllow(v, s, call, res)
 	case p12Deny:
@@ -460,6 +478,19 @@ func (o p12Outcome) hookFired(v probeVerdict) error {
 	}
 	if o.MarkerErr != nil {
 		return v.fail(shapeHookNotFired, fmt.Sprintf("the hook started but never wrote its marker after the %s sleep: %v", p12HookDelay, o.MarkerErr), o.evidence())
+	}
+	return nil
+}
+
+// assertNoToolUseID: the hook's captured input has no tool_use_id key at all —
+// an empty value would still be the event growing the field.
+func (o p12Outcome) assertNoToolUseID(v probeVerdict) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(o.HookInput, &keys); err != nil {
+		return v.fail(shapeHookNotFired, fmt.Sprintf("the hook's captured input is not a JSON object: %v", err), o.evidence())
+	}
+	if id, ok := keys[p12ToolUseIDKey]; ok {
+		return v.fail(shapeToolUseIDPresent, fmt.Sprintf("the %s hook's input carries %s=%s", p12HookEvent, p12ToolUseIDKey, id), o.evidence())
 	}
 	return nil
 }

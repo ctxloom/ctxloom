@@ -462,6 +462,8 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 12s. The hook fired on Bash and printed nothing; the gated call's tool_result is an error and the file is absent — claude -p refuses a call no hook decided, which is the approval route's fail-closed guarantee. MUTATION-CONFIRMED hermetically (TestP12_Silent): an arm that accepted an unrefused call reds."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12AllowPromptsNone), Status: probeLiveVerified,
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 9.5s. With --permission-prompts none on the argv the PermissionRequest hook is STILL consulted first: it fired on Bash, the gated call's tool_result is stamped after the hook's post-sleep marker, and the hook's allow ran the call (the file exists). none denies only what no hook decided."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12AllowToolUseIDAbsent), Status: probeWired,
+				Reason: "conformance cell V1: the allow arm plus the PermissionRequest input's missing tool_use_id."},
 		},
 	},
 	// P13 measures ctxloom's repo trust: the VENDOR half — claude's own trust

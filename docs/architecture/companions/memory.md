@@ -47,7 +47,7 @@ flowchart TD
   ES -->|no| FB["fitToBudget<br/>recency-graded, rune-safe<br/>only when over SinglePassInputTokens"]
   FB --> RD["runCompactTurn (ONE call)"]
   RD --> LLM
-  RES -.->|"session-distill.md"| RD
+  RES -.->|"session-compact.md"| RD
   RD --> ABORT{"distillation failed?"}
   ABORT -->|yes| ERR["error — keep the previous essence"]
   ABORT -->|no| PFM["parseLLMFrontmatter"]

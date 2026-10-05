@@ -1227,7 +1227,7 @@ func parseCompactedMarkdown(data []byte) (*CompactedSession, error) {
 // sessionCompactPromptName is the prompt file's stem, shared by the embedded
 // lookup and the on-disk PromptDir override so the two can never name
 // different files.
-const sessionCompactPromptName = "session-distill"
+const sessionCompactPromptName = "session-compact"
 
 // sessionCompactPrompt is the embedded system prompt for session compaction.
 // It requires a leading YAML frontmatter block carrying a one-line summary so

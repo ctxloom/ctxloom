@@ -82,7 +82,7 @@ func TestCompactPrompt_TaskHintIsAppendedVerbatimAfterTheNoHintPrompt(t *testing
 // act on, and the appending code cannot detect that on its own.
 //
 // MUTATION — delete the task-hint bullet from
-// resources/prompts/session-distill.md — turns this red.
+// resources/prompts/session-compact.md — turns this red.
 func TestSessionCompactPrompt_TellsTheModelWhatToDoWithAHint(t *testing.T) {
 	assert.Contains(t, sessionCompactPrompt, "task hint",
 		"the prompt must instruct the model on what a task hint is for")

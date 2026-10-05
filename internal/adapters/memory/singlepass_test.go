@@ -198,7 +198,7 @@ func TestAssembleBody_PinsArtifactsAndPlansAfterTheBody(t *testing.T) {
 func TestCompactPrompt_PromptDirOverridesTheEmbeddedPrompt(t *testing.T) {
 	dir := t.TempDir()
 	variant := "VARIANT PROMPT UNDER EVALUATION"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "session-distill.md"), []byte(variant), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "session-compact.md"), []byte(variant), 0o644))
 
 	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{PromptDir: dir, EssenceMaxChars: 4242}}
 	got, err := c.compactPrompt()
@@ -219,7 +219,22 @@ func TestCompactPrompt_MissingPromptFailsLoudly(t *testing.T) {
 	_, err := c.compactPrompt()
 
 	require.Error(t, err, "a missing prompt must fail, never silently use the embedded one")
-	assert.Contains(t, err.Error(), "session-distill", "the error must name the prompt it wanted")
+	assert.Contains(t, err.Error(), "session-compact", "the error must name the prompt it wanted")
+}
+
+// TestCompactPrompt_PromptDirIgnoresTheRetiredFileName: the prompt file is
+// session-compact.md and nothing else. A variant left under the retired name
+// must fail loudly rather than be read, or an evaluation would silently run a
+// prompt nobody meant to measure.
+func TestCompactPrompt_PromptDirIgnoresTheRetiredFileName(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "session-distill.md"), []byte("RETIRED NAME"), 0o644))
+
+	c := &Compactor{fs: afero.NewOsFs(), config: CompactionConfig{PromptDir: dir, EssenceMaxChars: 1000}}
+
+	_, err := c.compactPrompt()
+
+	require.Error(t, err, "only session-compact.md is a prompt-dir override")
 }
 
 // TestCompact_CompactsInExactlyOneLLMCall is the whole point of the change: a

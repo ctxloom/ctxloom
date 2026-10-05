@@ -32,7 +32,7 @@ retry the right way. See https://ctxloom.dev/ltk/rules/ for the full rule model.
 ### Options
 
 ```
-      --format string    Output format: json, yaml, toml, text, or markdown (default "text")
+      --format string    Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help             help for ltk
       --write-upgrades   Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
 ```

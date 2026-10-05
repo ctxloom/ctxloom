@@ -42,7 +42,7 @@ func presentPlan(t *testing.T, h *routeHarness, id string) planAnswer {
 	t.Helper()
 	input := `{"plan":"ship-it"}`
 	h.toolUse(id, mock.PlanTool, input)
-	raw, err := h.a.Hook(context.Background(), wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":`+input+`,"tool_use_id":"`+id+`"}`))
+	raw, err := h.a.Hook(context.Background(), wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":`+input+`}`))
 	require.NoError(t, err)
 	return decodePlanAnswer(t, raw)
 }
@@ -52,7 +52,7 @@ func presentPlan(t *testing.T, h *routeHarness, id string) planAnswer {
 func askAbout(t *testing.T, h *routeHarness, id, tool, suggests string) planAnswer {
 	t.Helper()
 	h.toolUse(id, tool, `{}`)
-	raw, err := h.a.Hook(context.Background(), wire.HookEventPermissionAsk, []byte(`{"tool":"`+tool+`","input":{},"tool_use_id":"`+id+`","suggests_set_mode":"`+suggests+`"}`))
+	raw, err := h.a.Hook(context.Background(), wire.HookEventPermissionAsk, []byte(`{"tool":"`+tool+`","input":{},"suggests_set_mode":"`+suggests+`"}`))
 	require.NoError(t, err)
 	return decodePlanAnswer(t, raw)
 }
@@ -177,7 +177,7 @@ func TestApprovals_AnEditDuringAParkedPlanIsTheHumans(t *testing.T) {
 	h.toolUse("p1", mock.PlanTool, input)
 	plan := make(chan []byte, 1)
 	go func() {
-		raw, _ := h.a.Hook(context.Background(), wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":`+input+`,"tool_use_id":"p1"}`))
+		raw, _ := h.a.Hook(context.Background(), wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":`+input+`}`))
 		plan <- raw
 	}()
 	require.Equal(t, mock.PlanTool, recvAsk(t, root).Tool, "the plan is parked")
@@ -185,7 +185,7 @@ func TestApprovals_AnEditDuringAParkedPlanIsTheHumans(t *testing.T) {
 	h.toolUse("e1", "Edit", `{}`)
 	edit := make(chan []byte, 1)
 	go func() {
-		raw, _ := h.a.Hook(context.Background(), wire.HookEventPermissionAsk, []byte(`{"tool":"Edit","input":{},"tool_use_id":"e1","suggests_set_mode":"`+approvedPosture+`"}`))
+		raw, _ := h.a.Hook(context.Background(), wire.HookEventPermissionAsk, []byte(`{"tool":"Edit","input":{},"suggests_set_mode":"`+approvedPosture+`"}`))
 		edit <- raw
 	}()
 	require.Equal(t, "Edit", recvAsk(t, root).Tool, "the edit went to the human while the plan was parked")
@@ -204,10 +204,17 @@ func TestApprovals_AnEditDuringAParkedPlanIsTheHumans(t *testing.T) {
 // the release, an edit the engine sends the moment it applies the approval
 // could reach the human first.
 func TestApprovals_ThePlansTransitionIsPendingWhenItsAnswerIsReleased(t *testing.T) {
-	h := newRouteHarness(t, (&scriptedRoot{}).decide)
+	h := newRouteHarness(t, (&scriptedRoot{answers: []engine.PermissionAnswer{approvePlan()}}).decide)
+	h.a.mu.Lock()
+	turn := h.a.turn
+	h.a.mu.Unlock()
 	d := &decision{done: make(chan struct{})}
-	h.a.settle(d, engine.PermissionAsk{Kind: engine.AskPlan, Tool: mock.PlanTool}, approvePlan(), nil)
-	require.True(t, isClosed(d.done))
+	h.a.settle(turn, d, engine.PermissionAsk{Kind: engine.AskPlan, Tool: mock.PlanTool})
+	select {
+	case <-d.done:
+	default:
+		t.Fatal("settle returned without releasing the decision")
+	}
 	assert.True(t, h.a.hasPendingMode())
 	assert.Equal(t, approvedPosture, h.a.heldMode())
 }
@@ -273,19 +280,11 @@ func TestApprovals_ClaudePlanToAcceptEdits(t *testing.T) {
 
 	edit := `{"file_path":"/w/a.go","old_string":"a","new_string":"b"}`
 	h.toolUse("toolu_edit", "Edit", edit)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	held := make(chan error, 1)
-	go func() {
-		held <- h.a.hold(ctx, json.RawMessage(`{"tool_name":"Edit","input":`+edit+`,"tool_use_id":"toolu_edit"}`))
-	}()
 	raw, err = h.a.Hook(context.Background(), "PermissionRequest", []byte(`{"hook_event_name":"PermissionRequest","tool_name":"Edit","tool_input":`+edit+`,"permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}`))
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedPermissions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}}`, string(raw))
 	assert.Equal(t, []string{"ExitPlanMode"}, root.asked, "nobody was asked about the edit")
 	assert.Equal(t, "acceptEdits", h.a.heldMode())
-	h.toolResult("toolu_edit")
-	assert.ErrorIs(t, <-held, errSuperseded)
 }
 
 // TestApprovals_ASecondPlanIsNeverTheFirstsTransition: only a call's ask can
@@ -297,7 +296,7 @@ func TestApprovals_ASecondPlanIsNeverTheFirstsTransition(t *testing.T) {
 	presentPlan(t, h, "p1")
 	input := `{"plan":"ship-more"}`
 	h.toolUse("p2", mock.PlanTool, input)
-	raw, err := h.a.Hook(context.Background(), wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":`+input+`,"tool_use_id":"p2","suggests_set_mode":"`+approvedPosture+`"}`))
+	raw, err := h.a.Hook(context.Background(), wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":`+input+`,"suggests_set_mode":"`+approvedPosture+`"}`))
 	require.NoError(t, err)
 	assert.False(t, decodePlanAnswer(t, raw).Allow)
 	assert.Equal(t, []string{mock.PlanTool, mock.PlanTool}, root.asked, "the second plan was the human's")
@@ -323,11 +322,6 @@ func TestApprovals_AHumansOwnModeChangeBeatsThePendingTransition(t *testing.T) {
 
 	cmd := `{"command":"make"}`
 	h.toolUse("toolu_bash", "Bash", cmd)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		_ = h.a.hold(ctx, json.RawMessage(`{"tool_name":"Bash","input":`+cmd+`,"tool_use_id":"toolu_bash"}`))
-	}()
 	raw, err := h.a.Hook(context.Background(), "PermissionRequest", []byte(`{"tool_name":"Bash","tool_input":`+cmd+`}`))
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedPermissions":[{"type":"setMode","mode":"default","destination":"session"}]}}}`, string(raw))
@@ -352,11 +346,6 @@ func TestApprovals_ASuggestionWiderThanTheApprovedPostureIsTheHumans(t *testing.
 
 	edit := `{"file_path":"/w/a.go","old_string":"a","new_string":"b"}`
 	h.toolUse("toolu_edit", "Edit", edit)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		_ = h.a.hold(ctx, json.RawMessage(`{"tool_name":"Edit","input":`+edit+`,"tool_use_id":"toolu_edit"}`))
-	}()
 	raw, err := h.a.Hook(context.Background(), "PermissionRequest", []byte(`{"tool_name":"Edit","tool_input":`+edit+`,"permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}`))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"ExitPlanMode", "Edit"}, root.asked, "the edit was the human's")

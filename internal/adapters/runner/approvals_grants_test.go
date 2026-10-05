@@ -125,9 +125,9 @@ func (e *postureEngine) Turn(ctx context.Context, _ engine.Exec, in engine.Turn,
 		input := json.RawMessage(`{"plan":"ship-it"}`)
 		send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolCallID: "p1", ToolName: mock.PlanTool, ToolInput: input}})
 		e.home.mu.Lock()
-		route := e.home.approvalHost
+		route := e.home.approvalRoute
 		e.home.mu.Unlock()
-		if _, err := route.Hook(ctx, wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":{"plan":"ship-it"},"tool_use_id":"p1"}`)); err != nil {
+		if _, err := route.Hook(ctx, wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":{"plan":"ship-it"}}`)); err != nil {
 			return engine.TurnResult{}, err
 		}
 		send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolCallID: "p1", ToolOutput: "approved"}})

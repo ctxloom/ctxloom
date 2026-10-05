@@ -23,12 +23,11 @@ func TestMockApprovalCodec_ThePlanToolIsAPlanAsk(t *testing.T) {
 	codec, ok := mock.New().Approvals().Get()
 	require.True(t, ok)
 
-	ask, err := codec.DecodeAsk(wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":{"plan":"do-it"},"tool_use_id":"p1"}`))
+	ask, err := codec.DecodeAsk(wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":{"plan":"do-it"}}`))
 	require.NoError(t, err)
 	assert.Equal(t, engine.AskPlan, ask.Kind)
 	require.NotNil(t, ask.Plan)
 	assert.Equal(t, "do-it", ask.Plan.Markdown)
-	assert.Equal(t, "p1", ask.ToolUseID)
 
 	ask, err = codec.DecodeAsk(wire.HookEventPermissionAsk, []byte(`{"tool":"Edit","input":{},"suggests_set_mode":"default"}`))
 	require.NoError(t, err)

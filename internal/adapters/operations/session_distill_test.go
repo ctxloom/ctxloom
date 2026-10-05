@@ -21,8 +21,8 @@ import (
 func TestDistillSource_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) {
 	home := testsupport.Isolate(t)
 
-	// Make sessions.Open fail: it MkdirAll's the index's parent, so a plain
-	// file where that directory belongs is enough.
+	// Make sessions.Open fail: it refuses a sessions root that is not a
+	// directory, so a plain file where that directory belongs is enough.
 	sessionsPath := filepath.Join(home, ".ctxloom", "sessions")
 	require.NoError(t, os.MkdirAll(filepath.Dir(sessionsPath), 0o755))
 	require.NoError(t, os.WriteFile(sessionsPath, []byte("not a directory"), 0o644))

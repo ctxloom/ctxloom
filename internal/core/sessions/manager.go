@@ -231,6 +231,10 @@ type Manager struct {
 	rep report.Reporter
 }
 
+// errRootNotDir is Open's refusal of a sessions root that exists as
+// something other than a directory.
+var errRootNotDir = errors.New("not a directory")
+
 // Open returns a Manager over the sessions root — ~/.ctxloom/sessions, the
 // same root every harp-derived path (paths.HarpDir and its family) resolves
 // through, so the directories this Manager enumerates and the files the
@@ -242,7 +246,8 @@ type Manager struct {
 //
 // Opening creates nothing: every reader arrives through Open, and a root that
 // does not exist yet reads as no sessions. The root is laid out by the first
-// mint (AssignHarp).
+// mint (AssignHarp). A root that exists but cannot be a directory of sessions
+// is refused here, so the caller reports that rather than a later symptom.
 //
 // sink receives the per-session findings the Manager raises without failing
 // an operation; nil discards them.
@@ -250,6 +255,11 @@ func Open(sink report.Sink) (*Manager, error) {
 	root, err := paths.HomeSessionsDir()
 	if err != nil {
 		return nil, fmt.Errorf("home dir: %w", err)
+	}
+	if fi, err := os.Stat(root); err == nil && !fi.IsDir() {
+		return nil, fmt.Errorf("sessions root %s: %w", root, errRootNotDir)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("stat sessions root: %w", err)
 	}
 	return &Manager{root: root, rep: report.To(sink)}, nil
 }

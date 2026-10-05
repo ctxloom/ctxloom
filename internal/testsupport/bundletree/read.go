@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/release"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Signing is what happens to a fixture tree between being written and being
@@ -125,7 +126,7 @@ func stage(t testing.TB, fsys afero.Fs, root, name string, b *bundles.Bundle, s 
 		file := path.Join(root, name, "fragments", editedFragment+".md")
 		before, err := afero.ReadFile(fsys, file)
 		require.NoError(t, err, "bundletree: the edited fixture must have an item file to edit")
-		require.NoError(t, afero.WriteFile(fsys, file, append(before, []byte("\nedited after signing\n")...), 0o644))
+		require.NoError(t, safefs.WriteFile(fsys, file, append(before, []byte("\nedited after signing\n")...), 0o644))
 	}
 	if s.trusted() {
 		return []bundles.ReaderOption{bundles.WithTrustRoot(trustRoot)}

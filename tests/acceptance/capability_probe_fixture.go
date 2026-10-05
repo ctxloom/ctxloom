@@ -26,9 +26,10 @@ package acceptance
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 // matrixAgent is the one agent binding every cell configures. Fixed, so the
@@ -169,8 +170,7 @@ func probeCellRunDir(family, projectDir, workspace string, run probeRun) (string
 	if workspace != "worktree" {
 		return projectDir, nil
 	}
-	cmd := exec.Command("git", "worktree", "list", "--porcelain")
-	cmd.Dir = projectDir
+	cmd := taskstest.GitCmd(projectDir, nil, "worktree", "list", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("%s: listing worktrees of %s to locate the cell's per-agent checkout: %w", family, projectDir, err)

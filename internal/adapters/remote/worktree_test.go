@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,11 +50,7 @@ func newWorktreeFixture(t *testing.T) *worktreeFixture {
 
 func (f *worktreeFixture) git(args ...string) string {
 	f.t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = f.repo
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.test",
-		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.test")
+	cmd := taskstest.GitCmd(f.repo, []string{"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.test", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.test"}, args...)
 	out, err := cmd.CombinedOutput()
 	require.NoErrorf(f.t, err, "git %v: %s", args, out)
 	return string(out)
@@ -61,8 +59,7 @@ func (f *worktreeFixture) git(args ...string) string {
 // config reads one config value from the fixture clone, empty when unset.
 func (f *worktreeFixture) config(key string) string {
 	f.t.Helper()
-	cmd := exec.Command("git", "config", "--default", "", key)
-	cmd.Dir = f.repo
+	cmd := taskstest.GitCmd(f.repo, nil, "config", "--default", "", key)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

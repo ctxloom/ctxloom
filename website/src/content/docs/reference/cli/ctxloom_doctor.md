@@ -50,7 +50,8 @@ hasn't been set up yet. This is the mode init's PRIME and the setup skill's
 phase 1 use, before there's anything else to check.
 
 Diagnostic only: no check outcome ever fails the command, and nothing is
-blocked or changed. A "warn" status IS this command's fail-loud signal — read
+blocked or changed. The container-runtime probe runs podman or docker, which
+may create its own storage directories. A "warn" status IS this command's fail-loud signal — read
 the report, don't grep the exit code. A usage error is still an error (e.g. a
 --format value this build cannot render).
 

@@ -15,6 +15,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"golang.org/x/crypto/ssh"
 )
@@ -603,24 +605,18 @@ func (e *TestEnvironment) Cleanup() error {
 // InitGitRepo initializes the project directory as a git repository.
 func (e *TestEnvironment) InitGitRepo() error {
 	// Initialize git repo
-	cmd := exec.Command("git", "init")
-	cmd.Dir = e.ProjectDir
-	cmd.Env = e.gitEnv()
+	cmd := e.gitCmd("init")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git init failed: %s: %w", output, err)
 	}
 
 	// Configure git user for commits
-	cmd = exec.Command("git", "config", "user.email", "test@example.com")
-	cmd.Dir = e.ProjectDir
-	cmd.Env = e.gitEnv()
+	cmd = e.gitCmd("config", "user.email", "test@example.com")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git config email failed: %s: %w", output, err)
 	}
 
-	cmd = exec.Command("git", "config", "user.name", "Test User")
-	cmd.Dir = e.ProjectDir
-	cmd.Env = e.gitEnv()
+	cmd = e.gitCmd("config", "user.name", "Test User")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git config name failed: %s: %w", output, err)
 	}
@@ -629,7 +625,7 @@ func (e *TestEnvironment) InitGitRepo() error {
 }
 
 // GitConfigLocal sets a repository-local git config value in the project
-// checkout, through this environment's own isolated environment (gitEnv —
+// checkout, through this environment's own isolated environment (gitCmd —
 // HOME/XDG rooted at e.HomeDir and every testsupport.EnvKeys variable
 // scrubbed), so no caller has to hand-roll HOME redirection to make git read
 // the fake home instead of the developer's.
@@ -639,9 +635,7 @@ func (e *TestEnvironment) InitGitRepo() error {
 // user.signingkey`), which reads the REPOSITORY's own .git/config, so the
 // fixture must write there — repository-local, never global, never the host's.
 func (e *TestEnvironment) GitConfigLocal(key, value string) error {
-	cmd := exec.Command("git", "config", "--local", key, value)
-	cmd.Dir = e.ProjectDir
-	cmd.Env = e.gitEnv()
+	cmd := e.gitCmd("config", "--local", key, value)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git config --local %s failed: %s: %w", key, output, err)
 	}
@@ -661,9 +655,7 @@ func (e *TestEnvironment) AddGitWorktree(name string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(dir), 0755); err != nil {
 		return "", fmt.Errorf("create worktrees parent dir: %w", err)
 	}
-	cmd := exec.Command("git", "worktree", "add", "-q", "-b", name, dir)
-	cmd.Dir = e.ProjectDir
-	cmd.Env = e.gitEnv()
+	cmd := e.gitCmd("worktree", "add", "-q", "-b", name, dir)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("git worktree add %q failed: %s: %w", name, output, err)
 	}
@@ -714,7 +706,10 @@ func scrubAmbientEnv(env []string) []string {
 // would steer the spawned binary at the LIVE repo's .ctxloom instead of the
 // fake project, and an inherited SSH_AUTH_SOCK would hand it the developer's
 // ssh-agent. scrubAmbientEnv drops scrubbedEnvKeys so
-// Run/RunWithStdin/Command/StartMCP are all isolated the same way.
+// Run/RunWithStdin/Command/StartMCP are all isolated the same way. The base is
+// gitutil.SanitizedEnviron, not the raw environment: a suite run under
+// `git bisect run` or a git hook inherits GIT_DIR naming the REAL checkout,
+// and the binary's own git calls would otherwise operate on it.
 func (e *TestEnvironment) isolatedEnv() []string {
 	// Variables to replace with our test paths
 	replacements := map[string]string{
@@ -725,7 +720,7 @@ func (e *TestEnvironment) isolatedEnv() []string {
 	}
 
 	var env []string
-	for _, v := range scrubAmbientEnv(os.Environ()) {
+	for _, v := range scrubAmbientEnv(gitutil.SanitizedEnviron()) {
 		key := strings.SplitN(v, "=", 2)[0]
 		if _, shouldReplace := replacements[key]; shouldReplace {
 			continue // Skip, we'll add our own
@@ -753,17 +748,23 @@ func (e *TestEnvironment) isolatedEnv() []string {
 	return env
 }
 
-// gitEnv returns environment variables for git commands.
-func (e *TestEnvironment) gitEnv() []string {
-	return e.isolatedEnv()
+// gitCmd is every TestEnvironment git invocation: taskstest.GitCmd's process,
+// in the project checkout, under the isolated environment made hermetic for
+// git by taskstest.HermeticGitEnv.
+func (e *TestEnvironment) gitCmd(args ...string) *exec.Cmd {
+	cmd := taskstest.GitCmd(e.ProjectDir, nil, args...)
+	cmd.Env = taskstest.HermeticGitEnv(e.isolatedEnv())
+	return cmd
 }
 
 // CreateProjectConfig creates the .ctxloom directory structure in the project.
 func (e *TestEnvironment) CreateProjectConfig() error {
 	dirs := []string{
-		// The FORMAT root authored bundles go in; MkdirAll creates the
-		// bundles root above it, which is what GetBundleDirs stats.
-		filepath.Join(e.ProjectDir, ".ctxloom", "content", "bundles", "v1"),
+		// The FORMAT root authored bundles go in, resolved through the same
+		// accessor the reader uses so the two cannot name different layouts;
+		// MkdirAll creates the bundles root above it, which is what
+		// GetBundleDirs stats.
+		paths.LocalBundlesPathFor(filepath.Join(e.ProjectDir, paths.AppDirName), paths.LayoutV2),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -908,17 +909,13 @@ func (e *TestEnvironment) Run(args ...string) error {
 // GitCommit creates a git commit with the given message.
 func (e *TestEnvironment) GitCommit(message string) error {
 	// Add all files
-	cmd := exec.Command("git", "add", "-A")
-	cmd.Dir = e.ProjectDir
-	cmd.Env = e.gitEnv()
+	cmd := e.gitCmd("add", "-A")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git add failed: %s: %w", output, err)
 	}
 
 	// Commit
-	cmd = exec.Command("git", "commit", "-m", message, "--allow-empty")
-	cmd.Dir = e.ProjectDir
-	cmd.Env = e.gitEnv()
+	cmd = e.gitCmd("commit", "-m", message, "--allow-empty")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git commit failed: %s: %w", output, err)
 	}

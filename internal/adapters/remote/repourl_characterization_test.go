@@ -92,9 +92,6 @@ func repoURLCases() []repoURLCase {
 		{name: "bare host with .git", in: "example.com.git",
 			identity: "https://example.com.git", transport: "https://example.com.git",
 			cacheDir: "/base/example.com.git", kind: SourceKindRemote},
-		{name: "bare token no dot", in: "owner",
-			identity: "https://owner", transport: "https://owner",
-			cacheDir: "/base/owner", kind: SourceKindRemote},
 
 		// --- https ------------------------------------------------------------
 		{name: "https", in: "https://github.com/owner/repo",
@@ -209,20 +206,27 @@ func repoURLCases() []repoURLCase {
 	}
 }
 
-// TestRepoURL_PathSpellingsRenderNothing: a repository spelled as a
-// filesystem path is refused by the grammar (refuri.ErrSchemelessPath), so no
-// renderer turns it into a network URL to fetch or a cache directory to clone
-// into. Resolving it is the argv ingest's job (operations.resolveLocalRepoURL).
-func TestRepoURL_PathSpellingsRenderNothing(t *testing.T) {
+// TestRepoURL_UnguessableSpellingsRenderNothing: a repository spelled as a
+// filesystem path (absolute, relative or home-relative) is refused by the
+// grammar (refuri.ErrSchemelessPath), and so is a bare word with no dot and no
+// slash (refuri.ErrSyntax), so no renderer guesses either into a network URL
+// to fetch or a cache directory to clone into. Resolving a path is the argv
+// ingest's job (operations.resolveLocalRepoURL).
+func TestRepoURL_UnguessableSpellingsRenderNothing(t *testing.T) {
 	cache := NewRepoCache("/base", AuthConfig{})
-	for _, in := range []string{".", "..", "./bundles.git", "../bundles", "/srv/bundles.git"} {
+	for in, want := range map[string]error{
+		".": refuri.ErrSchemelessPath, "..": refuri.ErrSchemelessPath,
+		"./bundles.git": refuri.ErrSchemelessPath, "../bundles": refuri.ErrSchemelessPath,
+		"/srv/bundles.git": refuri.ErrSchemelessPath, "~/bundles": refuri.ErrSchemelessPath,
+		"owner": refuri.ErrSyntax,
+	} {
 		t.Run(in, func(t *testing.T) {
 			_, err := ParseRepoURL(in)
-			require.ErrorIs(t, err, refuri.ErrSchemelessPath)
+			require.ErrorIs(t, err, want)
 			assert.Empty(t, storedRepoURL(in), "identity")
 			assert.Empty(t, normalizeCloneURL(in), "transport")
 			_, err = cache.RepoDirForURL(in)
-			assert.ErrorIs(t, err, refuri.ErrSchemelessPath, "filesystem")
+			assert.ErrorIs(t, err, want, "filesystem")
 		})
 	}
 }

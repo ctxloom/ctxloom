@@ -26,9 +26,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 
 	"github.com/cucumber/godog"
 
@@ -375,7 +376,7 @@ func j000700BobPull(w *World) error {
 	}
 	if j000700.bobDir == "" {
 		dir := filepath.Join(w.env.Root, "bob-project")
-		if _, err := j000700Git("", "clone", j000700.bareOrigin, dir); err != nil {
+		if _, err := j000700Git(filepath.Dir(dir), "clone", j000700.bareOrigin, dir); err != nil {
 			return err
 		}
 		j000700.bobDir = dir
@@ -456,15 +457,11 @@ func j000700GitEnv() []string {
 	)
 }
 
-// j000700Git runs git in dir (or the current process's cwd when dir is empty, for
-// the one-shot bare-repo init) with a hermetic environment, returning stdout
-// or an error carrying stderr.
+// j000700Git runs git in dir with a hermetic environment, returning stdout or
+// an error carrying stderr.
 func j000700Git(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	cmd.Env = j000700GitEnv()
+	cmd := taskstest.GitCmd(dir, nil, args...)
+	cmd.Env = taskstest.HermeticGitEnv(j000700GitEnv())
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -483,7 +480,7 @@ func j000700NewBareOrigin(w *World) (string, error) {
 		return "", err
 	}
 	bare := filepath.Join(root, "team.git")
-	if _, err := j000700Git("", "init", "--bare", "-b", "main", bare); err != nil {
+	if _, err := j000700Git(filepath.Dir(bare), "init", "--bare", "-b", "main", bare); err != nil {
 		return "", err
 	}
 	return bare, nil

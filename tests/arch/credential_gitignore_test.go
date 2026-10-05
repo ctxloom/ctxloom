@@ -3,8 +3,9 @@
 package arch
 
 import (
-	"os/exec"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 // A vendor CLI whose home is project-scoped keeps its credential inside that
@@ -39,8 +40,7 @@ func TestArch_SeededCredentialsAreGitignored(t *testing.T) {
 			// git check-ignore exits 0 when the path IS ignored, 1 when it is not.
 			// Ask git rather than parsing .gitignore ourselves: negation patterns
 			// make hand-parsing wrong in exactly the cases that matter.
-			cmd := exec.Command("git", "check-ignore", "-q", "--no-index", c.path)
-			cmd.Dir = root
+			cmd := taskstest.GitCmd(root, nil, "check-ignore", "-q", "--no-index", c.path)
 			err := cmd.Run()
 			if err != nil {
 				t.Errorf("%s is NOT gitignored — %s.\n"+

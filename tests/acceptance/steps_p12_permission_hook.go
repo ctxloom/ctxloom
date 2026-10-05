@@ -18,6 +18,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+
 	"github.com/cucumber/godog"
 )
 
@@ -152,7 +154,7 @@ func p12Fixture(w *World, p *p12State) error {
 			return err
 		}
 	}
-	if out, err := exec.Command("git", "init", "-q", p.repo).CombinedOutput(); err != nil {
+	if out, err := taskstest.GitCmd(filepath.Dir(p.repo), nil, "init", "-q", p.repo).CombinedOutput(); err != nil {
 		return fmt.Errorf("%s: git init %s: %w: %s", p12Family, p.repo, err, out)
 	}
 	hookPath := filepath.Join(p.dir, p12HookName)

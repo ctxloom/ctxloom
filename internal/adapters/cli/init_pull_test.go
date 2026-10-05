@@ -3,10 +3,11 @@ package cli
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -27,15 +28,7 @@ const pullFixtureMarker = "SEEDED-REMOTE-FRAGMENT-PAYLOAD"
 // prompt) for the fixture below.
 func initPullGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	cmd.Env = append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
-	)
+	cmd := taskstest.GitCmd(dir, []string{"GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"}, args...)
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "git %s: %s", strings.Join(args, " "), out)
 }
@@ -51,8 +44,8 @@ func seedBundleRemote(t *testing.T) string {
 	bare := filepath.Join(root, "remote.git")
 	work := filepath.Join(root, "work")
 
-	initPullGit(t, "", "init", "--bare", "-b", "main", bare)
-	initPullGit(t, "", "init", "-b", "main", work)
+	initPullGit(t, root, "init", "--bare", "-b", "main", bare)
+	initPullGit(t, root, "init", "-b", "main", work)
 	for _, kv := range [][]string{
 		{"user.email", "test@example.com"},
 		{"user.name", "Test User"},

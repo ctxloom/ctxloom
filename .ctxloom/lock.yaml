@@ -1,297 +1,179 @@
-version: 2
-locked_at: 2026-09-28T01:59:14.233053Z
+schema_version: 2
+locked_at: 2026-10-05T01:59:13.692481059Z
 bundles:
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/agent-ensemble:
-        sha: 27d38fdafc0b1a5560bebba1cb4961f004e80e20
+        sha: aea9c8ae4426eb65fb250540f467fa9842dc12e6
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.421171607Z
         signed_version: 1.0.0
         publisher: ben@abbitt.me
-    ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/containers:
-        sha: 27d38fdafc0b1a5560bebba1cb4961f004e80e20
+    ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/config-versioning:
+        sha: aea9c8ae4426eb65fb250540f467fa9842dc12e6
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.447700037Z
         signed_version: 1.0.0
         publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/core-practices:
-        sha: 27d38fdafc0b1a5560bebba1cb4961f004e80e20
+        sha: aea9c8ae4426eb65fb250540f467fa9842dc12e6
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.477447046Z
         signed_version: 1.0.0
         publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/developer-mindset:
-        sha: 27d38fdafc0b1a5560bebba1cb4961f004e80e20
+        sha: aea9c8ae4426eb65fb250540f467fa9842dc12e6
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.515515203Z
         signed_version: 1.1.0
         publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/go-development:
-        sha: 27d38fdafc0b1a5560bebba1cb4961f004e80e20
+        sha: aea9c8ae4426eb65fb250540f467fa9842dc12e6
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.551020838Z
         signed_version: 1.0.0
         publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/just:
-        sha: 27d38fdafc0b1a5560bebba1cb4961f004e80e20
+        sha: aea9c8ae4426eb65fb250540f467fa9842dc12e6
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.579629665Z
         signed_version: 1.0.0
         publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/prototyping:
-        sha: 27d38fdafc0b1a5560bebba1cb4961f004e80e20
+        sha: aea9c8ae4426eb65fb250540f467fa9842dc12e6
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.606977194Z
         signed_version: 1.0.0
         publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/source-organization:
-        sha: 27d38fdafc0b1a5560bebba1cb4961f004e80e20
+        sha: aea9c8ae4426eb65fb250540f467fa9842dc12e6
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.635433902Z
         signed_version: 1.0.0
         publisher: ben@abbitt.me
     ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/unattended:
-        sha: 27d38fdafc0b1a5560bebba1cb4961f004e80e20
+        sha: aea9c8ae4426eb65fb250540f467fa9842dc12e6
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.1.1
+        fetched_at: 2026-10-05T01:59:13.675050685Z
+        signed_version: 1.3.0
         publisher: ben@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/agent-roles:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690922312Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-coding-general:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690923742Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-developer:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
+        requested_version: branch:main
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690924208Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ast-grep:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690924651Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-quality:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-accessibility-i18n:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-api-compat:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-base:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-correctness:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-cost-infra:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-data:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-dependencies:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-documentation:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-dx:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-language-idioms:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-maintainability:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-observability:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-performance:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-reliability:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-security:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690925046Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-structural:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-testing:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-        signed_version: 1.0.0
-        publisher: ben+ctxloom@abbitt.me
-    ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-review-ux:
-        sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690925639Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/conduct:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690927447Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/git:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690928419Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/go-ai-practices:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690928757Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/lefthook:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690929092Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ltk:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.69093001Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/rtk:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690930354Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/sequential-thinking:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690931039Z
         signed_version: 1.0.1
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/taskloom:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690931472Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/testing:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690931973Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me
     ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/versionator:
         sha: f3aea2531c95e733224728fbeb7650b9f7f6763b
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
+        fetched_at: 2026-10-05T01:59:13.690932397Z
         signed_version: 1.0.0
         publisher: ben+ctxloom@abbitt.me

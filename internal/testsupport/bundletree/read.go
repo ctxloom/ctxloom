@@ -98,9 +98,6 @@ func only(t testing.TB, r bundles.Reader) bundles.BundleRead {
 func stage(t testing.TB, fsys afero.Fs, root, name string, b *bundles.Bundle, s Signing) []bundles.ReaderOption {
 	t.Helper()
 	staged := *b
-	if staged.Version == "" {
-		staged.Version = "1.0.0"
-	}
 	if s.edited() {
 		frags := make(map[string]bundles.BundleFragment, len(b.Fragments)+1)
 		for k, v := range b.Fragments {
@@ -114,7 +111,7 @@ func stage(t testing.TB, fsys afero.Fs, root, name string, b *bundles.Bundle, s 
 		return nil
 	}
 
-	signer, trustRoot := publisherKey(t)
+	signer, trustRoot, _ := PublisherKey(t, Publisher)
 	ctx := context.Background()
 	st, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
 	require.NoError(t, err)
@@ -134,9 +131,10 @@ func stage(t testing.TB, fsys afero.Fs, root, name string, b *bundles.Bundle, s 
 	return nil
 }
 
-// publisherKey mints a throwaway signing key and the trust root that
-// authorizes it to publish as Publisher.
-func publisherKey(t testing.TB) (ssh.Signer, *allowedsigners.Store) {
+// PublisherKey mints a throwaway signing key and the trust root that
+// authorizes it to publish as principal, with its public key for a caller that
+// shows or compares the fingerprint.
+func PublisherKey(t testing.TB, principal string) (ssh.Signer, *allowedsigners.Store, ssh.PublicKey) {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -145,10 +143,10 @@ func publisherKey(t testing.TB) (ssh.Signer, *allowedsigners.Store) {
 	sshPub, err := ssh.NewPublicKey(pub)
 	require.NoError(t, err)
 	return signer, allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{Publisher},
+		Principals: []string{principal},
 		Namespaces: []string{signing.NamespacePublish},
 		PublicKey:  sshPub,
-	})
+	}), sshPub
 }
 
 // treeRelease is the release a publisher signs tree under: its id and the

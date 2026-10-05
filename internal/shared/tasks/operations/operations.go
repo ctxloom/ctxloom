@@ -240,9 +240,12 @@ type ListOptions struct {
 // have seen in full. A limit <= 0 means no cap.
 func ListTasks(tc TaskContext, opts ListOptions) (*TaskListResult, error) {
 	statuses, includeDone, limit := opts.Statuses, opts.IncludeDone, opts.Limit
-	store, proj, warning, err := resolveTaskStore(tc)
+	store, proj, warning, err := resolveTaskStoreForRead(tc)
 	if err != nil {
 		return nil, err
+	}
+	if store == nil {
+		return &TaskListResult{Tasks: []tasks.Task{}, Warning: warning}, nil
 	}
 	list, err := store.ListWithTagQuery(statuses, opts.Term, opts.TagQuery, tc.TagSchema)
 	if err != nil {
@@ -793,9 +796,12 @@ type TagListResult struct {
 // tags are free-form on write, so without an enumeration surface the
 // vocabulary is write-only and typo-twins accumulate invisibly.
 func ListTagCounts(tc TaskContext) (*TagListResult, error) {
-	store, proj, warning, err := resolveTaskStore(tc)
+	store, proj, warning, err := resolveTaskStoreForRead(tc)
 	if err != nil {
 		return nil, err
+	}
+	if store == nil {
+		return &TagListResult{Tags: []TagCount{}, Warning: warning}, nil
 	}
 	list, err := store.List(nil, "")
 	if err != nil {
@@ -843,9 +849,12 @@ func TagCountsOf(list []tasks.Task) []TagCount {
 // status. Trigger evaluation uses this to scope its evidence per task; it is
 // otherwise the same TaskContext-resolution wrapper as ListTasks/AddTask.
 func DeferredSince(tc TaskContext) (map[string]time.Time, error) {
-	store, _, _, err := resolveTaskStore(tc)
+	store, _, _, err := resolveTaskStoreForRead(tc)
 	if err != nil {
 		return nil, err
+	}
+	if store == nil {
+		return map[string]time.Time{}, nil
 	}
 	since, err := store.DeferredSince()
 	if err != nil {
@@ -875,11 +884,7 @@ func DeferredSince(tc TaskContext) (map[string]time.Time, error) {
 // doc. A caller driving `--sort priority` is expected to surface a degenerate
 // Diagnostics to the user rather than silently rendering the numbers.
 func ComputeTaskPriorities(tc TaskContext, now time.Time) (map[string]priority.Result, priority.Diagnostics, error) {
-	store, _, _, err := resolveTaskStore(tc)
-	if err != nil {
-		return nil, priority.Diagnostics{}, err
-	}
-	all, err := store.Snapshot()
+	all, err := readSnapshot(tc)
 	if err != nil {
 		return nil, priority.Diagnostics{}, fmt.Errorf("snapshot for priority computation: %w", err)
 	}
@@ -892,11 +897,7 @@ func ComputeTaskPriorities(tc TaskContext, now time.Time) (map[string]priority.R
 // never blocks a write and never filters what it inspects, unlike ListTasks'
 // active-only default view.
 func LintTasks(tc TaskContext) (lint.Result, error) {
-	store, _, _, err := resolveTaskStore(tc)
-	if err != nil {
-		return lint.Result{}, err
-	}
-	all, err := store.Snapshot()
+	all, err := readSnapshot(tc)
 	if err != nil {
 		return lint.Result{}, fmt.Errorf("snapshot for lint: %w", err)
 	}
@@ -920,6 +921,16 @@ func RepairStore(tc TaskContext) error {
 		return err
 	}
 	return store.Repair()
+}
+
+// readSnapshot is every task in tc's store, for a read: none when the
+// directory has no project yet.
+func readSnapshot(tc TaskContext) ([]tasks.Task, error) {
+	store, _, _, err := resolveTaskStoreForRead(tc)
+	if err != nil || store == nil {
+		return nil, err
+	}
+	return store.Snapshot()
 }
 
 // projectIdentity names the project a task operation resolved to, so
@@ -951,20 +962,66 @@ func (p projectIdentity) taskResult(store *tasks.Store, task tasks.Task, warning
 	}
 }
 
-// resolveTaskStore opens the project's task log for tc: in ModeRepo, the
+// noProjectYetNote is the warning a read carries when its directory has no
+// project identity yet (projectid.Manager.Lookup returned ""): the answer is
+// a truthful "no tasks", and the note says why — including the case in which
+// this directory's history was recorded by a task store this environment
+// cannot see. %s is the working directory.
+const noProjectYetNote = "no project yet at %s: no task has been written here, so there is nothing to list (the first write creates its project identity) — if this directory should already have task history, this environment's task store may not be the one that recorded it"
+
+// liveIdentity is how a home-homed operation with no pinned project-id
+// learns which project its working directory is: mintOnWrite for a write,
+// lookupOnRead for a read.
+type liveIdentity func(pm *projectid.Manager, workDir string) (proj projectIdentity, warning string, err error)
+
+// mintOnWrite is projectid.Manager.Resolve: a write establishes the identity
+// it needs, minting, forking or re-pointing.
+func mintOnWrite(pm *projectid.Manager, workDir string) (projectIdentity, string, error) {
+	res, err := pm.Resolve(workDir)
+	if err != nil {
+		return projectIdentity{}, "", fmt.Errorf("resolve project id: %w", err)
+	}
+	return projectIdentity{ID: res.ProjectID, New: res.Action == projectid.ActionNewProject}, res.Warning, nil
+}
+
+// lookupOnRead is projectid.Manager.Lookup: a read learns the identity the
+// directory already has and writes nothing; an empty ID is "no project yet".
+func lookupOnRead(pm *projectid.Manager, workDir string) (projectIdentity, string, error) {
+	id, err := pm.Lookup(workDir)
+	if err != nil {
+		return projectIdentity{}, "", fmt.Errorf("look up project id: %w", err)
+	}
+	return projectIdentity{ID: id}, "", nil
+}
+
+// resolveTaskStore opens the project's task log for a WRITE (mintOnWrite).
+func resolveTaskStore(tc TaskContext) (*tasks.Store, projectIdentity, string, error) {
+	return openTaskStore(tc, mintOnWrite)
+}
+
+// resolveTaskStoreForRead opens the project's task log for a READ
+// (lookupOnRead). The store is nil when the directory has no project yet;
+// the warning then carries noProjectYetNote and the caller answers empty.
+func resolveTaskStoreForRead(tc TaskContext) (*tasks.Store, projectIdentity, string, error) {
+	return openTaskStore(tc, lookupOnRead)
+}
+
+// openTaskStore opens the project's task log for tc: in ModeRepo, the
 // checked-in log inside tc.WorkDir (resolveRepoHomedStore); otherwise
 // (ModeHome, or "" — every pre-homing caller) the project-id from tc (set by
-// `ctxloom run`) or a live registry resolution, then OpenLog. The
-// project-resolution warning is returned for the frontend to surface; it is
-// never printed here.
-func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity, warning string, err error) {
+// `ctxloom run`) or live's answer, then OpenLog. The project-resolution
+// warning is returned for the frontend to surface; it is never printed here.
+func openTaskStore(tc TaskContext, live liveIdentity) (store *tasks.Store, proj projectIdentity, warning string, err error) {
 	if tc.HomingMode == paths.ModeRepo {
 		return resolveRepoHomedStore(tc)
 	}
 	pm, pmErr := projectid.Open("")
-	proj, warning, err = resolveProjectFor(tc, pm, pmErr)
+	proj, warning, err = resolveProjectFor(tc, pm, pmErr, live)
 	if err != nil {
 		return nil, proj, "", err
+	}
+	if proj.ID == "" {
+		return nil, proj, appendNote(warning, fmt.Sprintf(noProjectYetNote, tc.WorkDir)), nil
 	}
 	logPath, err := paths.HomeTasksLogPath(proj.ID)
 	if err != nil {
@@ -988,24 +1045,21 @@ func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity,
 }
 
 // resolveProjectFor answers WHICH project a home-homed operation acts on: the
-// id pinned in tc (exported by `ctxloom run`) or a live registry resolution,
+// id pinned in tc (exported by `ctxloom run`) or live's registry answer,
 // plus the registered root to display and any note the frontend should
 // surface. pmErr is the registry's own open failure, carried in rather than
 // re-derived: it is fatal only when the id has to be resolved live, and
 // merely disables the advisory lookups otherwise.
-func resolveProjectFor(tc TaskContext, pm *projectid.Manager, pmErr error) (proj projectIdentity, warning string, err error) {
+func resolveProjectFor(tc TaskContext, pm *projectid.Manager, pmErr error, live liveIdentity) (proj projectIdentity, warning string, err error) {
 	proj.ID = tc.ProjectID
 	if proj.ID == "" {
 		if pmErr != nil {
 			return proj, "", fmt.Errorf("open project registry: %w", pmErr)
 		}
-		res, rerr := pm.Resolve(tc.WorkDir)
-		if rerr != nil {
-			return proj, "", fmt.Errorf("resolve project id: %w", rerr)
+		proj, warning, err = live(pm, tc.WorkDir)
+		if err != nil || proj.ID == "" {
+			return proj, warning, err
 		}
-		proj.ID = res.ProjectID
-		proj.New = res.Action == projectid.ActionNewProject
-		warning = res.Warning
 	}
 	if pmErr != nil {
 		return proj, warning, nil

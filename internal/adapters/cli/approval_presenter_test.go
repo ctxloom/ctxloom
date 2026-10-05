@@ -67,6 +67,14 @@ func (s *presenterSource) resolve(id coord.ApprovalID, d agent.Decider) {
 	s.events <- coord.QueueEvent{Kind: coord.QueueResolved, ID: id, Decider: d, Pending: n}
 }
 
+// settle returns once the presenter has finished every event sent before it:
+// it sends a resolution of nothing (no note, the same count), and the send
+// is unbuffered, so it completes only when the presenter's single loop is
+// back at its select.
+func (s *presenterSource) settle() {
+	s.events <- coord.QueueEvent{Kind: coord.QueueResolved, Decider: agent.DeciderPolicy, Pending: len(s.Pending())}
+}
+
 // barCall is one SetApprovals.
 type barCall struct {
 	n       int
@@ -378,8 +386,17 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 		t.Fatal("the modal was never summoned")
 	}
 	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "⚑ 1 · oldest 00:05") }, 5*time.Second, time.Millisecond)
+	// The human closes the modal before the request times out. The modal's
+	// teardown runs on the controller's overlay goroutine; the takeover's
+	// leave sequence on the tty is that release having been written.
 	modal.Abort()
+	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "\x1b[?1049l") }, 5*time.Second, time.Millisecond, "modal released")
 	src.resolve("a", agent.DeciderTimeout)
-	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "approval resolved (timed out)") }, 5*time.Second, time.Millisecond,
-		"nobody decided it: the bar says so; tail %q", func() string { t := tty.String(); return t[max(len(t)-600, 0):] }())
+	src.settle()
+	// The release counts as engine output, so a note asked for right after it
+	// waits out the bar's engine-busy window — on the controller's clock,
+	// which only the test moves. A second is past that window and well inside
+	// timedOutNoteFor; the deferred repaint runs inside Advance.
+	clk.Advance(time.Second)
+	assert.Contains(t, tty.String(), timedOutNote, "nobody decided it: the bar says so")
 }

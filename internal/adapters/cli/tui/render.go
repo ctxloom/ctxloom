@@ -62,6 +62,18 @@ func rowGlyph(r RosterRow) string {
 	return stateGlyph(r.State)
 }
 
+// endedLabel says why r's run ended and what came with it ("" while it has
+// not): the agents pane has room for the cause alone.
+func endedLabel(r RosterRow) string {
+	if r.Cause == "" {
+		return ""
+	}
+	if r.Detail == "" {
+		return "ended: " + r.Cause
+	}
+	return "ended: " + r.Cause + " — " + r.Detail
+}
+
 // HoldLabel says what a hold waits on and, when it releases itself, until
 // when ("" for no hold) — the one wording for a hold on every root surface
 // (the overlay's feed title, the bar's digest).

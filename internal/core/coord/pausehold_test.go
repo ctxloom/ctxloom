@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -246,4 +247,23 @@ func TestControlPause_ARefusedPauseDropsItsHold(t *testing.T) {
 	_, err := c.ControlPause(ctx, humanInitiator(), out.Harp, "human is reviewing")
 	require.Error(t, err)
 	assert.False(t, c.harpHeld(out.Harp), "a refused pause leaves no hold behind")
+}
+
+// TestRequestMayHaveLanded: only a request that reached the session's send
+// queue and then lost its answer is ambiguous; a refusal, and a request that
+// never left the coordinator, are definitive. Wrapped as sendRunnerControl
+// wraps them.
+func TestRequestMayHaveLanded(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"the wait ran out after the send":    {fmt.Errorf("pause h: %w", fmt.Errorf("%w: %w", errRunnerUnanswered, context.DeadlineExceeded)), true},
+		"the session ended before answering": {fmt.Errorf("pause h refused: %w", ErrRunnerSessionEnded), true},
+		"the runner refused":                 {fmt.Errorf("pause h refused: %w", errLaunchRemedyCause), false},
+		"no runner request could reach it":   {fmt.Errorf("pause: %w", ErrCapabilityUnavailable), false},
+		"the wait ran out before the send":   {fmt.Errorf("pause h: %w", context.DeadlineExceeded), false},
+	} {
+		assert.Equal(t, tc.want, requestMayHaveLanded(tc.err), name)
+	}
 }

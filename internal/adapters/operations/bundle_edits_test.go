@@ -131,7 +131,7 @@ func TestApplyPromptEdits(t *testing.T) {
 func TestApplyMCPEdits(t *testing.T) {
 	b := &bundles.Bundle{Name: "b"}
 	changes := applyMCPEdits(b, map[string]BundleMCPInput{
-		"srv": {Command: "run-me", Args: []string{"--flag"}},
+		"srv": {Command: new("run-me"), Args: &[]string{"--flag"}},
 	}, nil, nil)
 
 	if got := b.MCP["srv"]; got.Command != "run-me" || !slices.Equal(got.Args, []string{"--flag"}) {

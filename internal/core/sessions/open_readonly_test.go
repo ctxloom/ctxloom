@@ -1,6 +1,9 @@
 package sessions
 
 import (
+	"os"
+	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -35,4 +38,17 @@ func TestOpen_ReadsLeaveTheSessionsRootUncreated(t *testing.T) {
 	got, err := m.Find(e.HarpName)
 	require.NoError(t, err)
 	require.NotNil(t, got)
+}
+
+// A root that exists but is not a directory is refused at Open with the OS's
+// own error, so a caller can tell it apart and report the real reason.
+func TestOpen_RefusesARootThatIsNotADirectory(t *testing.T) {
+	testsupport.Isolate(t)
+	root, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(root), 0o755))
+	require.NoError(t, os.WriteFile(root, []byte("not a directory\n"), 0o644))
+
+	_, err = Open(nil)
+	require.ErrorIs(t, err, syscall.ENOTDIR)
 }

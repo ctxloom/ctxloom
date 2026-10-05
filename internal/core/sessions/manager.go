@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -231,10 +232,6 @@ type Manager struct {
 	rep report.Reporter
 }
 
-// errRootNotDir is Open's refusal of a sessions root that exists as
-// something other than a directory.
-var errRootNotDir = errors.New("not a directory")
-
 // Open returns a Manager over the sessions root — ~/.ctxloom/sessions, the
 // same root every harp-derived path (paths.HarpDir and its family) resolves
 // through, so the directories this Manager enumerates and the files the
@@ -257,7 +254,7 @@ func Open(sink report.Sink) (*Manager, error) {
 		return nil, fmt.Errorf("home dir: %w", err)
 	}
 	if fi, err := os.Stat(root); err == nil && !fi.IsDir() {
-		return nil, fmt.Errorf("sessions root %s: %w", root, errRootNotDir)
+		return nil, fmt.Errorf("open sessions dir: %w", &os.PathError{Op: "open", Path: root, Err: syscall.ENOTDIR})
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("stat sessions root: %w", err)
 	}

@@ -83,7 +83,7 @@ field decodes to. This table is the security-relevant audit.
 | `Result.RunStatus` | `RUN_STATUS_UNSPECIFIED` | **fails open** | every consumer tests `== RUN_STATUS_FAILED`, so `run_owned.go` exits 0 for UNSPECIFIED, CANCELLED and TIMED_OUT; `children.go` records no failure reason |
 | `MessageChannel` | `MESSAGE_CHANNEL_UNSPECIFIED` | **read two opposite ways** | `children.go` treats unset as *not* final (dropped from the turn accumulator); `operations/sessionfeed.go` renders it as user-facing assistant output |
 | `ArtifactKind`, `InteractionRecorded.Resolution`, `PeerSendResult.Delivery`, `MessageRole` | — | neutral (always explicitly set, or lookup-fallback only) | — |
-| `StepCompleted.Outcome`, `StatusChanged.Phase`, `SteerResult.Applied`, `SpawnAgentRequest.NotifyOn` | — | **dead enums** — no value referenced anywhere | — |
+| `StepCompleted.Outcome`, `SteerResult.Applied`, `SpawnAgentRequest.NotifyOn` | — | **dead enums** — no value referenced anywhere | — |
 
 ## Contracts asserted in the proto that the code does not implement
 

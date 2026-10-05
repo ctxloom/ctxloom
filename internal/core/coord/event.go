@@ -63,9 +63,9 @@ type StepCompleted struct {
 	Detail  string
 }
 
-// StatusChanged reports a phase transition.
+// StatusChanged reports a durable change in the run's status, said in
+// Detail.
 type StatusChanged struct {
-	Phase  RunPhase
 	Detail string
 }
 
@@ -312,31 +312,6 @@ var StepOutcomes = []StepOutcome{StepOutcomeUnspecified, StepOutcomeSucceeded, S
 // posture toward a value a newer build may spell.
 func ParseStepOutcome(name string) (StepOutcome, bool) {
 	return parseMember(StepOutcomes, StepOutcomeUnspecified, name)
-}
-
-// RunPhase is a StatusChanged phase.
-type RunPhase string
-
-const (
-	PhaseUnspecified     RunPhase = "PHASE_UNSPECIFIED"
-	PhaseInitializing    RunPhase = "PHASE_INITIALIZING"
-	PhasePlanning        RunPhase = "PHASE_PLANNING"
-	PhaseExecuting       RunPhase = "PHASE_EXECUTING"
-	PhaseWaitingApproval RunPhase = "PHASE_WAITING_APPROVAL"
-	PhaseWaitingInput    RunPhase = "PHASE_WAITING_INPUT"
-	PhaseWaitingPeer     RunPhase = "PHASE_WAITING_PEER"
-	PhasePaused          RunPhase = "PHASE_PAUSED"
-	PhaseFinalizing      RunPhase = "PHASE_FINALIZING"
-)
-
-// RunPhases is every member, in wire order.
-var RunPhases = []RunPhase{PhaseUnspecified, PhaseInitializing, PhasePlanning, PhaseExecuting, PhaseWaitingApproval, PhaseWaitingInput, PhaseWaitingPeer, PhasePaused, PhaseFinalizing}
-
-// ParseRunPhase resolves a member by its wire name. An unknown name is the
-// vocabulary's unspecified member and ok is false — the receiving side's
-// posture toward a value a newer build may spell.
-func ParseRunPhase(name string) (RunPhase, bool) {
-	return parseMember(RunPhases, PhaseUnspecified, name)
 }
 
 // InteractionResolution is how a recorded interaction resolved.

@@ -1928,20 +1928,12 @@ message StepCompleted {
   string detail = 3;
 }
 
-// Durable phase transitions. Transient % progress goes in Heartbeat.
+// A durable change in the run's status. Transient % progress goes in
+// Heartbeat.
 message StatusChanged {
-  enum Phase {
-    PHASE_UNSPECIFIED = 0;
-    PHASE_INITIALIZING = 1;
-    PHASE_PLANNING = 2;
-    PHASE_EXECUTING = 3;
-    PHASE_WAITING_APPROVAL = 4;  // an ApprovalRequest is outstanding
-    PHASE_WAITING_INPUT = 5;     // a UserInputRequest is outstanding
-    PHASE_WAITING_PEER = 6;      // blocked on a sibling (peer msg / spawn result)
-    PHASE_PAUSED = 7;
-    PHASE_FINALIZING = 8;
-  }
-  Phase phase = 1;
+  // 1 was a phase enum nothing ever set.
+  reserved 1;
+  reserved "phase";
   string detail = 2;  // human-readable, one line
 }
 

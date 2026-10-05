@@ -20,7 +20,7 @@ schema_version: 7
 #     quick: { type: claude-code, model: claude-haiku-4-5-20251001 } # ...two claude-code backends
 #   defaults:
 #     primary: big     # coding/interactive role → label
-#     fast:    quick    # compression role (distill, compaction) → label
+#     fast:    quick    # fallback for distill/compaction/triage when no `distiller`/`triage` agent is configured
 
 # Behavioral settings.
 # config:

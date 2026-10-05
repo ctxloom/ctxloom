@@ -51,9 +51,10 @@ compression has no such gate and works in every build.
 
 ### LLM-Based Compression (Prose)
 
-For prose and documentation, ctxloom falls back to LLM compression. The model is
-the **fast role** (`llm.defaults.fast`, or `bundle distill --llm <label>`), run as
-one internal one-shot session whose turns are the items being distilled. The
+For prose and documentation, ctxloom falls back to LLM compression. It runs as
+the agent named `distiller` (or on `bundle distill --llm <label>`; with neither,
+on the **fast role**, `llm.defaults.fast`), as one internal one-shot session
+whose turns are the items being distilled. The
 prompt is ctxloom's built-in one unless a bundle you use ships a `distill`
 command, which replaces it; a `distill` command the trust gate withholds stops the
 run rather than falling back to the built-in prompt (`ctxloom review` settles it).
@@ -306,7 +307,7 @@ ctxloom fragment distill --force my-bundle#fragments/standards
 
 ## Cost Considerations
 
-Distillation runs model turns on the fast role's engine, which have costs:
+Distillation runs model turns on the distiller's engine, which have costs:
 
 - Each item LLM-distilled takes one turn; AST and JSON compression take none
 - Longer content = more tokens = higher cost

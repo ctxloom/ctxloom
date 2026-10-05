@@ -160,7 +160,7 @@ client of its own, so the backend's binary must be installed and on `PATH` befor
 it. See [Installation → Prerequisites](/getting-started/installation/#running-an-ai-engine) for
 the binary each backend needs.
 
-A **config label** is an arbitrary name for a fully-specified backend config; the backend is chosen by the entry's `type`. Two labels can point at the same backend with different models (e.g. a `big` and a `quick` claude-code). Set the interactive default with `llm.defaults.primary` (or per-run with `--llm <label>`), and the compression role with `llm.defaults.fast`:
+A **config label** is an arbitrary name for a fully-specified backend config; the backend is chosen by the entry's `type`. Two labels can point at the same backend with different models (e.g. a `big` and a `quick` claude-code). Set the interactive default with `llm.defaults.primary` (or per-run with `--llm <label>`), and the fallback for distillation and trigger triage with `llm.defaults.fast` (used only when no `distiller` / `triage` agent is configured):
 
 ```yaml
 llm:
@@ -324,14 +324,16 @@ ctxloom deps pull        # Fetch referenced content and update lock.yaml
 
 ## Memory Configuration
 
-Session memory is always enabled. The compaction/distillation model is the
-**fast role** (`llm.defaults.fast`), and the size of a distilled session
-essence is a behavioral setting:
+Session memory is always enabled. Compaction and distillation run as the
+agent named `distiller` — its engine, environment and runtime — falling back
+to the **fast role** (`llm.defaults.fast`) with a warning when no such agent
+is configured. The size of a distilled session essence is a behavioral
+setting:
 
 ```yaml
 llm:
   defaults:
-    fast: quick              # config label used for distillation
+    fast: quick              # config label used for distillation without a distiller agent
 config:
   essence_max_chars: 10000   # character budget for a distilled session essence
 ```

@@ -191,9 +191,10 @@ The proto (`coordination.proto`) is the authority; this table restates its oneof
 There is no coordinator→agent request plane and no message push: a steer, question
 or summarize to a child is a file in that child's `in/` (`Coordinator.ControlSteer`,
 `spoolcontrol.go`); pause/resume and start/stop/kill/drain ride `RunnerRequest` on
-`RunnerChannel`. `AgentRequest.kind` admits `approval`, `user_input` and `peer_send`
-that `serveAgentRequest` answers `Unimplemented` — `agent_send` on the runner-hosted
-surface is intercepted before the wire (`Home.sendPeerViaSpool`).
+`RunnerChannel`. `AgentRequest.kind` admits `user_input` and `peer_send`, which
+`serveAgentRequest` refuses (`ErrUnsupportedRequest`) — `agent_send` on the
+runner-hosted surface is intercepted before the wire (`Home.sendPeerViaSpool`); an
+`approval` parks, as below.
 
 ## Message flow
 

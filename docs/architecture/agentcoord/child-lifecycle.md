@@ -27,7 +27,7 @@ flowchart TD
   ISR -->|"StartRun refused ErrRunnerUnavailable<br/>(errEndpointUnavailable)"| REBIND["ResolveLaunch again (a fresh mint) → issueStartRun<br/>ONCE, same runner"]
 
   ENG[["EngineHost.runTurn<br/>adapters/runner/enginehost.go"]] -->|events| RCH[["HandleEvent<br/>runchannel.go"]]
-  ENG -->|turn boundary| TR["ReportTurnResult → run's out/ spool, kind result<br/>adapters/runner/spoolturnresult.go"]
+  ENG -->|turn boundary| TR["ReportTurnResult → run's out/ spool, kind result<br/>coord.AutoReport: blocked calls · PlanApproval<br/>adapters/runner/spoolturnresult.go"]
   RCH --> OTS["onTurnStarted"]
   RCH --> CRF["captureRunFailure"]
   RCH --> OTI["onTurnIdle"]

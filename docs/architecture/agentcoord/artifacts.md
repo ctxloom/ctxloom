@@ -14,6 +14,7 @@ flowchart TD
   subgraph child["child runner"]
     REP["mcp_runner agent_report<br/>rejects empty text + SCOPE_UNSPECIFIED"]
     STAMP["artifactStamper.publish"]
+    PLANS["planCandidates · nativePlanCandidates<br/>*.plan.md + the session home's plans/ → plan/&lt;name&gt;"]
     HU["Home.UploadArtifact<br/>homeartifacts.go"]
     HD["Home.DownloadArtifact<br/>homeartifacts.go<br/>sha256 verify BEFORE place"]
     HR["Home.Report → waits for durable Ack<br/>home.go"]
@@ -32,6 +33,7 @@ flowchart TD
   end
   REP --> HR --> RS --> RF
   REP --> STAMP --> HU --> AS --> AU --> ST
+  PLANS --> STAMP
   HR --> RA --> RF
   RS --> CP --> SNAP --> FILE[("items-snapshot.json")]
   FILE --> LOAD --> BOOT["openStoreFromOffset<br/>coordinator.go"]

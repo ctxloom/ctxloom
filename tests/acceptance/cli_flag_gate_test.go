@@ -5,6 +5,7 @@ package acceptance
 import (
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/parser"
 	"go/token"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"golang.org/x/tools/go/packages"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
@@ -49,7 +52,7 @@ import (
 type flagSite struct {
 	File    string // module-relative, "internal/adapters/cli/root.go"
 	Line    int    // line of the Changed() call
-	Flag    string // the literal flag name
+	Flag    string // the flag name, from a literal or a resolved constant
 	Func    string // enclosing function, for the failure message
 	Guarded bool   // the call IS an `if` condition (its body is the evidence)
 
@@ -237,25 +240,20 @@ func flagSiteExercised(s flagSite, blocks map[string][]coverBlock) (exercised, f
 // flagSite per `…Changed("name")` call, in source order.
 //
 // It ERRORS rather than skipping on a shape it cannot name — a call outside
-// any function declaration, or one whose flag name is not a string literal.
-// Both are writable Go; neither exists today; either would otherwise shrink
-// the census without saying so.
+// any function declaration, or one whose flag name is not a string constant
+// (a literal, or a constant constantFlagNames resolves). Both are writable Go;
+// either would otherwise shrink the census without saying so.
 func changedFlagSites(srcDir string) ([]flagSite, error) {
-	entries, err := os.ReadDir(srcDir)
+	names, err := nonTestGoFiles(srcDir)
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		n := e.Name()
-		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
-			continue
-		}
-		names = append(names, n)
-	}
-	sort.Strings(names)
 
 	root, err := moduleRootFrom(srcDir)
+	if err != nil {
+		return nil, err
+	}
+	consts, err := constantFlagNames(srcDir)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +287,7 @@ func changedFlagSites(srcDir string) ([]flagSite, error) {
 			if !ok || fn.Body == nil {
 				continue
 			}
-			sites, claimed, err := sitesInFunc(fset, fn, rel)
+			sites, claimed, err := sitesInFunc(fset, fn, rel, consts)
 			if err != nil {
 				return nil, err
 			}
@@ -313,9 +311,28 @@ func changedFlagSites(srcDir string) ([]flagSite, error) {
 	return out, nil
 }
 
+// nonTestGoFiles lists the non-test Go files directly in dir, sorted, whatever
+// their build constraints.
+func nonTestGoFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
 // sitesInFunc classifies every Changed() call inside fn, returning the sites
 // and the set of calls it accounted for.
-func sitesInFunc(fset *token.FileSet, fn *ast.FuncDecl, rel string) ([]flagSite, map[*ast.CallExpr]bool, error) {
+func sitesInFunc(fset *token.FileSet, fn *ast.FuncDecl, rel string, consts map[argKey]string) ([]flagSite, map[*ast.CallExpr]bool, error) {
 	// Guarded calls first: an `if` whose condition holds the call as a
 	// positive top-level conjunct, so the body running means the flag was
 	// passed. Recorded with the brace position, which is where the cover tool
@@ -359,7 +376,10 @@ func sitesInFunc(fset *token.FileSet, fn *ast.FuncDecl, rel string) ([]flagSite,
 		}
 		flag, ok := literalFlagName(c)
 		if !ok {
-			walkErr = fmt.Errorf("%s:%d: Changed() is called with a non-literal flag name in "+
+			flag, ok = consts[keyOf(fset.Position(c.Args[0].Pos()))]
+		}
+		if !ok {
+			walkErr = fmt.Errorf("%s:%d: Changed() is called with a flag name that is not a string constant in "+
 				"%s(); the census cannot report a flag it cannot name",
 				rel, fset.Position(c.Pos()).Line, fn.Name.Name)
 			return false
@@ -459,6 +479,54 @@ func literalFlagName(c *ast.CallExpr) (string, bool) {
 	return name, true
 }
 
+// argKey names one Changed() argument by its file's base name and byte offset,
+// which is the same in the parsed census and the type-checked load because
+// both read the same directory's files.
+type argKey struct {
+	file   string
+	offset int
+}
+
+func keyOf(p token.Position) argKey { return argKey{file: filepath.Base(p.Filename), offset: p.Offset} }
+
+// constantFlagNames type-checks the package in srcDir and returns the string
+// value of every Changed() argument that is a constant expression, so a flag
+// spelled through a constant (one the package owning the flag exports) is
+// named exactly as a literal is. The census itself still walks every file with
+// go/parser: a type-checked load sees only the files of the host's build, and
+// a census that dropped the others would report a completeness it never
+// checked. A package that fails to type-check fails the census, because an
+// unresolved name would otherwise surface as a misleading non-constant site.
+func constantFlagNames(srcDir string) (map[argKey]string, error) {
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
+		Dir:  srcDir,
+	}
+	pkgs, err := packages.Load(cfg, ".")
+	if err != nil {
+		return nil, fmt.Errorf("type-check %s: %w", srcDir, err)
+	}
+	out := map[argKey]string{}
+	for _, pkg := range pkgs {
+		if len(pkg.Errors) > 0 {
+			return nil, fmt.Errorf("type-check %s: %v", srcDir, pkg.Errors)
+		}
+		for _, file := range pkg.Syntax {
+			ast.Inspect(file, func(n ast.Node) bool {
+				c, ok := n.(*ast.CallExpr)
+				if !ok || !isChangedCall(c) {
+					return true
+				}
+				if tv, ok := pkg.TypesInfo.Types[c.Args[0]]; ok && tv.Value != nil && tv.Value.Kind() == constant.String {
+					out[keyOf(pkg.Fset.Position(c.Args[0].Pos()))] = constant.StringVal(tv.Value)
+				}
+				return true
+			})
+		}
+	}
+	return out, nil
+}
+
 // cliSourceDir locates internal/adapters/cli relative to THIS source file, the
 // precedent steps_j001000_transcript_capture.go sets. The working directory of
 // a `go test` run is the test's own package, which says nothing about where
@@ -488,5 +556,56 @@ func moduleRootFrom(dir string) (string, error) {
 			return "", fmt.Errorf("no go.mod at or above %s", dir)
 		}
 		d = parent
+	}
+}
+
+// TestChangedFlagSites_NamesAFlagSpelledAsAConstant: a flag name may be a
+// constant — the CLI names a flag owned by another package through that
+// package's exported constant — and the census must name the flag it holds,
+// not refuse the site.
+func TestChangedFlagSites_NamesAFlagSpelledAsAConstant(t *testing.T) {
+	mod := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(mod, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module example.test/census\n\ngo 1.22\n")
+	write("owner/owner.go", "package owner\n\nconst Flag = \"owned-flag\"\n")
+	write("cli/cli.go", `package cli
+
+import "example.test/census/owner"
+
+type flags interface{ Changed(string) bool }
+
+const local = "local-flag"
+
+func Run(f flags) int {
+	n := 0
+	if f.Changed(owner.Flag) {
+		n++
+	}
+	if f.Changed(local) {
+		n++
+	}
+	return n
+}
+`)
+	sites, err := changedFlagSites(filepath.Join(mod, "cli"))
+	if err != nil {
+		t.Fatalf("census: %v", err)
+	}
+	var got []string
+	for _, s := range sites {
+		got = append(got, s.Flag)
+	}
+	want := []string{"owned-flag", "local-flag"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("census named %v, want %v", got, want)
 	}
 }

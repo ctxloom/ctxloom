@@ -17,3 +17,4 @@ bundles:
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/just
     - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/lefthook
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/source-organization
+    - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/config-versioning

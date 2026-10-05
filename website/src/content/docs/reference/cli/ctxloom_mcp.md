@@ -17,7 +17,7 @@ The MCP (Model Context Protocol) noun: the servers this project hands to
 every engine.
 
   ctxloom mcp              List the MCP servers this project registers
-  ctxloom mcp server       List, show and edit registered servers
+  ctxloom mcp server       List, show, edit and set registered servers
 
 Every server here comes from a BUNDLE — ctxloom's own included, which its
 own companion loadout declares as SERVED BY THE RUNNING SESSION'S ENDPOINT:
@@ -59,5 +59,5 @@ ctxloom mcp [flags]
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
-* [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, show, or edit the MCP servers this project registers
+* [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, show, edit, or set the MCP servers this project registers
 

@@ -293,7 +293,7 @@ func TestBundleMCP_GetSet(t *testing.T) {
 	// Seed an MCP server.
 	_, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
 		Name:          "b",
-		SetMCPServers: map[string]BundleMCPInput{"srv": {Command: "old"}},
+		SetMCPServers: map[string]BundleMCPInput{"srv": {Command: new("old")}},
 	})
 	require.NoError(t, err)
 
@@ -302,7 +302,7 @@ func TestBundleMCP_GetSet(t *testing.T) {
 	assert.Equal(t, "old", got.MCP.Command)
 
 	_, err = SetBundleMCP(context.Background(), cfg, SetBundleMCPRequest{
-		Bundle: "b", Name: "srv", MCP: BundleMCPInput{Command: "new", Args: []string{"-x"}},
+		Bundle: "b", Name: "srv", MCP: BundleMCPInput{Command: new("new"), Args: &[]string{"-x"}},
 	})
 	require.NoError(t, err)
 

@@ -71,6 +71,12 @@ profile and stops: export the token and re-run 'ctxloom init'. Off a terminal
 project is already set up, and only the setup interview was not launched. ctxloom never captures or stores the token.
 --skip-launch runs no engine, and so neither of these.
 
+init writes the top-level 'auth: token': your own sessions run on that same
+token, checked before launch. 'auth: login' (your own engine login, shared in
+place, host only) is opt-in; it is not pre-checked beyond its store being on
+this host, and the engine reports a login it does not accept when the session
+starts.
+
 The working outcome of init is a functioning ctxloom CLI/TUI.
 
 Skipped or interrupted the interview? 'ctxloom init prompt' (or ask your

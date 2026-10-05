@@ -20,18 +20,14 @@ import (
 //  2. Walk up from cwd looking for .ctxloom directory
 //  3. Fall back to user home ~/.ctxloom directory
 //
-// Always returns a path (creates user home .ctxloom if needed).
+// Always returns a path, and never creates it: resolving config is a read,
+// so the directory is created by whatever first writes under it.
 func findAppDir(fs afero.Fs) (string, config.ConfigSource) {
 	// CTXLOOM_ROOT is authoritative when valid: the user named the root
-	// explicitly, so resolve config at $CTXLOOM_ROOT/.ctxloom and create it if
-	// absent, mirroring the home fallback below. A failed MkdirAll warns and
-	// continues — the path is still returned so the run isn't blocked.
+	// explicitly, so config resolves at $CTXLOOM_ROOT/.ctxloom whether or not
+	// it exists yet.
 	if root, ok := projectroot.FromEnv(fs); ok {
-		appPath := filepath.Join(root, config.AppDirName)
-		if err := fs.MkdirAll(appPath, 0755); err != nil {
-			zap.L().Warn("failed to create CTXLOOM_ROOT .ctxloom directory", zap.String("path", appPath), zap.Error(err))
-		}
-		return appPath, config.SourceProject
+		return filepath.Join(root, config.AppDirName), config.SourceProject
 	}
 
 	// The walk-up-from-cwd loop below has one deliberate boundary: the OS
@@ -59,17 +55,10 @@ func findAppDir(fs afero.Fs) (string, config.ConfigSource) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		zap.L().Warn("failed to get home directory", zap.Error(err))
-		return lastResortAppDir(fs, pwd), config.SourceProject
+		return lastResortAppDir(pwd), config.SourceProject
 	}
 
-	homeApp := filepath.Join(home, config.AppDirName)
-
-	// Ensure the directory exists
-	if err := fs.MkdirAll(homeApp, 0755); err != nil {
-		zap.L().Warn("failed to create home .ctxloom directory", zap.Error(err))
-	}
-
-	return homeApp, config.SourceHome
+	return filepath.Join(home, config.AppDirName), config.SourceHome
 }
 
 // walkUpForAppDir walks from dir toward the filesystem root looking for a
@@ -117,26 +106,21 @@ func walkUpForAppDir(fs afero.Fs, dir, tempRoot string) (string, bool) {
 }
 
 // lastResortAppDir answers when the home directory itself is unresolvable: the
-// cwd's .ctxloom, resolved ABSOLUTELY and created, matching both of findAppDir's
-// other returns. config.NewBuilder derives appRoot as filepath.Dir of this, so a
+// cwd's .ctxloom, resolved ABSOLUTELY (and, like findAppDir's other returns,
+// not created). config.NewBuilder derives appRoot as filepath.Dir of this, so a
 // relative result would resolve the whole project to "." and make every path
 // built from it — bundles, agents, sessions, the config file — depend on
 // whatever cwd the process holds when it is used. This is the branch reached
 // when the environment is already degraded; it must not degrade the answer
 // further. pwd is "" when os.Getwd() failed too.
-func lastResortAppDir(fs afero.Fs, pwd string) string {
-	appPath := filepath.Join(pwd, config.AppDirName)
-	if pwd == "" {
-		if abs, aerr := filepath.Abs(config.AppDirName); aerr == nil {
-			appPath = abs
-		} else {
-			appPath = config.AppDirName
-		}
+func lastResortAppDir(pwd string) string {
+	if pwd != "" {
+		return filepath.Join(pwd, config.AppDirName)
 	}
-	if err := fs.MkdirAll(appPath, 0755); err != nil {
-		zap.L().Warn("failed to create fallback .ctxloom directory", zap.String("path", appPath), zap.Error(err))
+	if abs, err := filepath.Abs(config.AppDirName); err == nil {
+		return abs
 	}
-	return appPath
+	return config.AppDirName
 }
 
 // worktreeSignpost records a fatal ClassConfig finding when dir is the root of

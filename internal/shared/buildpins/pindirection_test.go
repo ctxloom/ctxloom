@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,9 +52,8 @@ func newPinRepo(t *testing.T) *pinRepo {
 
 func (r *pinRepo) git(args ...string) string {
 	r.t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = r.dir
-	cmd.Env = scrubbedEnv()
+	cmd := taskstest.GitCmd(r.dir, nil, args...)
+	cmd.Env = taskstest.HermeticGitEnv(scrubbedEnv())
 	out, err := cmd.CombinedOutput()
 	require.NoError(r.t, err, "git %v: %s", args, out)
 	return string(out)
@@ -79,7 +80,7 @@ func (r *pinRepo) run(override string) (int, string) {
 	require.NoError(r.t, err)
 	cmd := exec.Command(script)
 	cmd.Dir = r.dir
-	cmd.Env = scrubbedEnv()
+	cmd.Env = taskstest.HermeticGitEnv(scrubbedEnv())
 	if override != "" {
 		cmd.Env = append(cmd.Env, downgradeOverrideEnv+"="+override)
 	}
@@ -226,7 +227,7 @@ func TestLintPins_List_CoversEveryPinSourceOfTheRealTree(t *testing.T) {
 	require.NoError(t, err)
 	cmd := exec.Command(script, "--list")
 	cmd.Dir = "../../.."
-	cmd.Env = scrubbedEnv()
+	cmd.Env = taskstest.HermeticGitEnv(scrubbedEnv())
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", out)
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -16,16 +17,119 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// lockedBuffer is a goroutine-safe tty stand-in.
+// lockedBuffer is a goroutine-safe tty stand-in. Every write is an event
+// waitUntil wakes on.
 type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	written signal
 }
 
 func (b *lockedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
+	n, err := b.buf.Write(p)
+	b.mu.Unlock()
+	b.written.fire()
+	return n, err
+}
+
+// waitUntil blocks until what has been written satisfies cond, re-checking on
+// every write. For bytes a goroutine the test does not drive writes; where
+// the code under test orders a write before an event the test can receive,
+// receive that instead and assert.
+func (b *lockedBuffer) waitUntil(t *testing.T, what string, cond func(string) bool) {
+	t.Helper()
+	expired := expiry(t)
+	for {
+		written := b.written.wait()
+		if cond(b.String()) {
+			return
+		}
+		select {
+		case <-written:
+		case <-expired:
+			t.Fatalf("never saw %s; written: %q", what, b.String())
+		}
+	}
+}
+
+// expiry bounds a wait on an event by the test binary's own deadline, less
+// enough to name the event that never came. No wait carries a deadline of its
+// own: one short enough to matter expires on an event that is merely late on
+// a loaded machine, which is a failure of the test, not of the code.
+func expiry(t *testing.T) <-chan time.Time {
+	d, ok := t.Deadline()
+	if !ok {
+		return nil
+	}
+	return time.After(time.Until(d) - 10*time.Second)
+}
+
+// await receives the event ch carries, failing only at the test's deadline.
+func await[T any](t *testing.T, what string, ch <-chan T) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-expiry(t):
+		t.Fatalf("never received %s", what)
+		var zero T
+		return zero
+	}
+}
+
+// stdinFeed is the harness's terminal input: each typed string is one read,
+// and typing returns once the interceptor has come back for the next read —
+// by then everything the chunk did on the stdin pump (the scan, an engage,
+// routing to the viewer's sink, the engine's copy) has happened.
+type stdinFeed struct {
+	chunks chan []byte
+	done   chan struct{} // the reader finished a chunk and wants the next
+	closed chan struct{}
+	once   sync.Once
+	// Touched only by the reading goroutine.
+	rest    []byte
+	pending bool // a chunk was delivered and not yet acknowledged
+}
+
+func newStdinFeed() *stdinFeed {
+	return &stdinFeed{chunks: make(chan []byte), done: make(chan struct{}), closed: make(chan struct{})}
+}
+
+func (f *stdinFeed) Read(p []byte) (int, error) {
+	if len(f.rest) == 0 {
+		if f.pending {
+			select {
+			case f.done <- struct{}{}:
+			case <-f.closed:
+				return 0, io.EOF
+			}
+			f.pending = false
+		}
+		select {
+		case f.rest = <-f.chunks:
+			f.pending = true
+		case <-f.closed:
+			return 0, io.EOF
+		}
+	}
+	n := copy(p, f.rest)
+	f.rest = f.rest[n:]
+	return n, nil
+}
+
+func (f *stdinFeed) close() { f.once.Do(func() { close(f.closed) }) }
+
+// typeKeys delivers s as one read and returns once the reader has finished
+// with it.
+func (f *stdinFeed) typeKeys(t *testing.T, s string) {
+	t.Helper()
+	select {
+	case f.chunks <- []byte(s):
+	case <-expiry(t):
+		t.Fatalf("the stdin reader never took %q", s)
+	}
+	await(t, "the stdin reader back for more after "+strconv.Quote(s), f.done)
 }
 
 func (b *lockedBuffer) String() string {
@@ -79,33 +183,35 @@ func (f *fakeOverlay) Abort() {
 	}
 }
 
-// ctlHarness assembles a controller over pipe-backed stdin, a locked tty, and
-// a test resize source, with a pump goroutine standing in for the plugin
-// client's stdin pump.
+// ctlHarness assembles a controller over a typed stdin feed, a locked tty, a
+// test resize source and a fake clock, with a pump goroutine standing in for
+// the plugin client's stdin pump.
 type ctlHarness struct {
 	c       *Controller
-	stdinW  *io.PipeWriter
+	stdin   *stdinFeed
 	tty     *lockedBuffer
 	src     chan *agent.WindowSize
+	clk     *armClock
 	engine  lockedBuffer // what the engine "receives" from the pump
 	warns   chan string
 	overlay *fakeOverlay
 	pumpEnd chan struct{}
+	nudges  int // restores moved by nudgeRestored
 }
 
 func newCtlHarness(t *testing.T, mutate func(*Options)) *ctlHarness {
 	t.Helper()
-	pr, pw := io.Pipe()
 	h := &ctlHarness{
-		stdinW:  pw,
+		stdin:   newStdinFeed(),
 		tty:     &lockedBuffer{},
 		src:     make(chan *agent.WindowSize, 4),
+		clk:     &armClock{Clock: fakeclock.New()},
 		warns:   make(chan string, 4),
 		overlay: newFakeOverlay(),
 		pumpEnd: make(chan struct{}),
 	}
 	opts := Options{
-		Stdin:      pr,
+		Stdin:      h.stdin,
 		TTY:        h.tty,
 		Resize:     h.src,
 		Prefix:     testPrefix,
@@ -113,6 +219,7 @@ func newCtlHarness(t *testing.T, mutate func(*Options)) *ctlHarness {
 		Bar:        BarInfo{Harp: "perky-same-chevy", Engine: "claude-code", PrefixHint: "^]"},
 		NewOverlay: func(OverlayStart) Overlay { return h.overlay },
 		Warn:       func(format string, args ...any) { h.warns <- fmt.Sprintf(format, args...) },
+		Clock:      h.clk,
 	}
 	if mutate != nil {
 		mutate(&opts)
@@ -136,24 +243,99 @@ func newCtlHarness(t *testing.T, mutate func(*Options)) *ctlHarness {
 		// by waiting on sessionMu; without it that goroutine can outlive the
 		// test and keep writing to its tty after the test has returned.
 		h.c.Close()
-		_ = pw.Close()
+		h.stdin.close()
 		close(h.src)
 		<-h.pumpEnd
 	})
 	return h
 }
 
-// waitFor polls until cond holds (hermetic replacement for sleeps).
-func waitFor(t *testing.T, what string, cond func() bool) {
+// typeKeys is one read of the terminal, returned from once the stdin pump has
+// done everything that read asks of it.
+func (h *ctlHarness) typeKeys(t *testing.T, s string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	h.stdin.typeKeys(t, s)
+}
+
+// sized delivers the terminal's size and drains its translation. The surround
+// establishes its region before the translated size is sent, so it is on the
+// tty when this returns.
+func (h *ctlHarness) sized(t *testing.T, rows, cols uint16) *agent.WindowSize {
+	t.Helper()
+	h.src <- &agent.WindowSize{Rows: rows, Cols: cols}
+	ws := h.drainTranslated(t)
+	require.Contains(t, h.tty.String(), fmt.Sprintf("\x1b[1;%dr", rows-1), "the surround's region")
+	return ws
+}
+
+// nudgeRestored moves the clock past the nudge's wiggle separation and
+// returns the size the nudge settles on. Nudge sends the wiggle and then arms
+// the restore, on the releasing goroutine: the clock may move only once that
+// timer exists, or the restore is armed after the move and never fires.
+func (h *ctlHarness) nudgeRestored(t *testing.T) *agent.WindowSize {
+	t.Helper()
+	h.nudges++
+	h.clk.waitArmed(t, nudgeWiggleSeparation, h.nudges)
+	h.clk.Advance(nudgeWiggleSeparation)
+	return h.drainTranslated(t)
+}
+
+// armClock is a fake clock whose timer arming and stopping are events a test
+// can wait on: a goroutine the test does not drive (Summon's retry) reaching
+// the clock is the moment the test may move it.
+type armClock struct {
+	*fakeclock.Clock
+	changed signal
+	mu      sync.Mutex
+	armed   map[time.Duration]int // every timer ever armed, by duration
+}
+
+func (c *armClock) AfterFunc(d time.Duration, f func()) func() bool {
+	stop := c.Clock.AfterFunc(d, f)
+	c.mu.Lock()
+	if c.armed == nil {
+		c.armed = map[time.Duration]int{}
+	}
+	c.armed[d]++
+	c.mu.Unlock()
+	c.changed.fire()
+	return func() bool {
+		stopped := stop()
+		c.changed.fire()
+		return stopped
+	}
+}
+
+// waitArmed blocks until n timers of duration d have been armed in all.
+func (c *armClock) waitArmed(t *testing.T, d time.Duration, n int) {
+	t.Helper()
+	c.waitClock(t, fmt.Sprintf("%d timers of %v armed", n, d), func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.armed[d] >= n
+	})
+}
+
+// waitPending blocks until exactly n timers are armed.
+func (c *armClock) waitPending(t *testing.T, n int) {
+	t.Helper()
+	c.waitClock(t, fmt.Sprintf("%d pending timers", n), func() bool { return c.Pending() == n })
+}
+
+func (c *armClock) waitClock(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	expired := expiry(t)
+	for {
+		changed := c.changed.wait()
 		if cond() {
 			return
 		}
-		time.Sleep(time.Millisecond)
+		select {
+		case <-changed:
+		case <-expired:
+			t.Fatalf("never saw %s", what)
+		}
 	}
-	t.Fatalf("timed out waiting for %s", what)
 }
 
 func (h *ctlHarness) drainTranslated(t *testing.T) *agent.WindowSize {
@@ -162,26 +344,18 @@ func (h *ctlHarness) drainTranslated(t *testing.T) *agent.WindowSize {
 
 func TestController_EngageHoldReplayNudge(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	ws := h.drainTranslated(t)
+	ws := h.sized(t, 24, 80)
 	require.Equal(t, uint16(23), ws.Rows, "initial size reaches the engine reserved")
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
 
 	// Engage: prefix + a viewer key.
-	_, err := h.stdinW.Write([]byte{testPrefix, 'j'})
-	require.NoError(t, err)
-	var geo OverlayGeometry
-	select {
-	case geo = <-h.overlay.started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("overlay never started")
-	}
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
+	geo := await(t, "the overlay's start", h.overlay.started)
 	assert.Equal(t, 23, geo.Rows, "geo.Rows is the DRAWABLE height (real 24 rows minus the surround's 1-row reservation)")
 	assert.Equal(t, 80, geo.Cols)
 	assert.Equal(t, 8, geo.PanelRows, "bottom third floored at 8 rows")
 	assert.Contains(t, h.tty.String(), "\x1b[?1049h\x1b[r",
 		"engage moves to the alternate screen (saving the engine's screen and cursor) with the full scroll region")
-	waitFor(t, "viewer key routed", func() bool { return h.overlay.ui.String() == "j" })
+	h.overlay.ui.waitUntil(t, "the viewer key", func(s string) bool { return s == "j" })
 
 	// Engine output during engagement is held.
 	before := h.tty.String()
@@ -192,8 +366,9 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 	// Disengage: one atomic restore — back to the engine's screen, scroll
 	// region + bar re-established, engine cursor restored — then the replay,
 	// then a nudge.
+	// The nudge is sent after the restore and the replay are written.
 	h.overlay.release <- nil
-	waitFor(t, "held output replayed", func() bool { return strings.Contains(h.tty.String(), "HELD-OUTPUT") })
+	first := h.drainTranslated(t)
 	out := h.tty.String()
 	leaveAt := strings.LastIndex(out, "\x1b[?1049l")
 	regionAt := strings.LastIndex(out, "\x1b[1;23r")
@@ -205,14 +380,13 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 	assert.Less(t, regionAt, cursorAt, "engine cursor restored after the bar repaint")
 	assert.Less(t, cursorAt, replayAt, "the replay lands on a fully restored screen")
 
-	first := h.drainTranslated(t)
-	second := h.drainTranslated(t)
+	second := h.nudgeRestored(t)
 	assert.Equal(t, uint16(22), first.Rows, "repaint nudge wiggles a row")
 	assert.Equal(t, uint16(23), second.Rows)
 
 	// interceptor is back to passthrough.
-	_, _ = h.stdinW.Write([]byte("typed-after"))
-	waitFor(t, "passthrough restored", func() bool { return h.engine.String() == "typed-after" })
+	h.typeKeys(t, "typed-after")
+	assert.Equal(t, "typed-after", h.engine.String(), "passthrough restored")
 }
 
 // TestController_EngageGeometryExcludesReservedRow is DEFECT D: the overlay
@@ -226,18 +400,10 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 // that row.
 func TestController_EngageGeometryExcludesReservedRow(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	h.sized(t, 24, 80)
 
-	_, err := h.stdinW.Write([]byte{testPrefix, 'j'})
-	require.NoError(t, err)
-	var geo OverlayGeometry
-	select {
-	case geo = <-h.overlay.started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("overlay never started")
-	}
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
+	geo := await(t, "the overlay's start", h.overlay.started)
 
 	const realRows = 24
 	assert.Equal(t, realRows-surroundReserve, geo.Rows,
@@ -258,17 +424,10 @@ func TestController_EngageGeometryExcludesReservedRow(t *testing.T) {
 // deferred to ResumeSequence on release.
 func TestController_ResizeWhileEngagedDoesNotRepaintBar(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	h.sized(t, 24, 80)
 
-	_, err := h.stdinW.Write([]byte{testPrefix, 'j'})
-	require.NoError(t, err)
-	select {
-	case <-h.overlay.started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("overlay never started")
-	}
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
+	await(t, "the overlay's start", h.overlay.started)
 
 	before := h.tty.String()
 	h.src <- &agent.WindowSize{Rows: 30, Cols: 100} // SIGWINCH while engaged
@@ -282,79 +441,63 @@ func TestController_ResizeWhileEngagedDoesNotRepaintBar(t *testing.T) {
 	// Release: the NEW size (recorded during suspension) must be what
 	// ResumeSequence re-establishes, proving the resize wasn't just dropped.
 	h.overlay.release <- nil
-	waitFor(t, "resume with the new size", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;29r") })
+	h.drainTranslated(t) // the release's nudge: its resume is on the tty
+	assert.Contains(t, h.tty.String(), "\x1b[1;29r", "resumed with the new size")
 }
 
 func TestController_DoublePressLiteralAbortsOverlay(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
+	h.sized(t, 24, 80)
 
 	// Two writes → two read chunks → engage fires, then the literal aborts it.
-	_, _ = h.stdinW.Write([]byte{testPrefix})
-	select {
-	case <-h.overlay.started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("overlay never started")
-	}
-	_, _ = h.stdinW.Write([]byte{testPrefix})
-	waitFor(t, "literal prefix reaches the engine", func() bool { return h.engine.String() == string(testPrefix) })
+	h.typeKeys(t, string([]byte{testPrefix}))
+	await(t, "the overlay's start", h.overlay.started)
+	h.typeKeys(t, string([]byte{testPrefix}))
+	assert.Equal(t, string(testPrefix), h.engine.String(), "the literal prefix reaches the engine")
 	select {
 	case <-h.overlay.aborts:
-	case <-time.After(2 * time.Second):
-		t.Fatal("overlay was never aborted")
+	default:
+		t.Fatal("the literal did not abort the overlay") // AbortLiteral runs on the pump
 	}
 }
 
 func TestController_OverlayErrorDegradesToPlainTerminal(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
+	h.sized(t, 24, 80)
 
-	_, _ = h.stdinW.Write([]byte{testPrefix, 'j'})
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
 	<-h.overlay.started
 	h.overlay.release <- fmt.Errorf("boom")
 
-	select {
-	case w := <-h.warns:
-		assert.Contains(t, w, "plain terminal")
-		assert.Contains(t, w, "boom")
-	case <-time.After(2 * time.Second):
-		t.Fatal("no degradation warning streamed")
-	}
+	w := await(t, "the degradation warning", h.warns)
+	assert.Contains(t, w, "plain terminal")
+	assert.Contains(t, w, "boom")
 
 	// The prefix now passes through — the session must survive the UI.
-	_, _ = h.stdinW.Write([]byte{testPrefix, 'x'})
-	waitFor(t, "degraded passthrough", func() bool {
-		return h.engine.String() == string(testPrefix)+"x"
-	})
+	h.typeKeys(t, string([]byte{testPrefix, 'x'}))
+	assert.Equal(t, string(testPrefix)+"x", h.engine.String(), "degraded passthrough")
 }
 
 func TestController_FactoryPanicDegrades(t *testing.T) {
 	h := newCtlHarness(t, func(o *Options) {
 		o.NewOverlay = func(OverlayStart) Overlay { panic("factory exploded") }
 	})
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
+	h.sized(t, 24, 80)
 
-	_, _ = h.stdinW.Write([]byte{testPrefix, 'j'})
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
 	select {
 	case w := <-h.warns:
 		assert.Contains(t, w, "factory exploded")
-	case <-time.After(2 * time.Second):
-		t.Fatal("no warning for the factory panic")
+	default:
+		t.Fatal("no warning for the factory panic") // the factory runs on the pump
 	}
-	_, _ = h.stdinW.Write([]byte("still-typing"))
-	waitFor(t, "engine keeps receiving input", func() bool {
-		return strings.Contains(h.engine.String(), "still-typing")
-	})
+	h.typeKeys(t, "still-typing")
+	assert.Contains(t, h.engine.String(), "still-typing", "the engine keeps receiving input")
 }
 
 func TestController_CloseRestoresTerminal(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	h.sized(t, 24, 80)
 
 	h.c.Close()
 	out := h.tty.String()
@@ -366,10 +509,9 @@ func TestController_CloseRestoresTerminal(t *testing.T) {
 
 func TestController_CloseWhileEngagedFlushesHeldOutput(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
+	h.sized(t, 24, 80)
 
-	_, _ = h.stdinW.Write([]byte{testPrefix, 'j'})
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
 	<-h.overlay.started
 	_, _ = h.c.Stdout().Write([]byte("FINAL-WORDS"))
 
@@ -383,11 +525,9 @@ func TestController_CloseWhileEngagedFlushesHeldOutput(t *testing.T) {
 // silent), a burst rings once per approvalBellInterval, a count change that
 // is not an arrival never rings, and the bar carries the count.
 func TestController_SetApprovalsRingsPerArrivalRateLimited(t *testing.T) {
-	clk := fakeclock.New()
-	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	h := newCtlHarness(t, nil)
+	clk := h.clk
+	h.sized(t, 24, 80)
 	bells := func() int { return strings.Count(h.tty.String(), "\a") }
 
 	h.c.SetApprovals(1, clk.Now().Add(-65*time.Second), true)
@@ -410,11 +550,9 @@ func TestController_SetApprovalsRingsPerArrivalRateLimited(t *testing.T) {
 // bar could not ring (suspended under an overlay) does not count against the
 // rate limit: the next arrival on a visible bar still rings.
 func TestController_SuppressedBellDoesNotSpendTheInterval(t *testing.T) {
-	clk := fakeclock.New()
-	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	h := newCtlHarness(t, nil)
+	clk := h.clk
+	h.sized(t, 24, 80)
 
 	h.c.sur.Suspend()
 	h.c.SetApprovals(1, clk.Now(), true)
@@ -430,11 +568,9 @@ func TestController_SuppressedBellDoesNotSpendTheInterval(t *testing.T) {
 // bell's interval — the caller rings once per event, and an approval bell a
 // moment earlier must not swallow it.
 func TestController_RingRingsOnceWhileTheBarShows(t *testing.T) {
-	clk := fakeclock.New()
-	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	h := newCtlHarness(t, nil)
+	clk := h.clk
+	h.sized(t, 24, 80)
 	bells := func() int { return strings.Count(h.tty.String(), "\a") }
 
 	h.c.SetApprovals(1, clk.Now(), true)
@@ -480,15 +616,15 @@ func TestOutputGate_InjectWaitsBehindAHold(t *testing.T) {
 
 func TestController_RosterPollFeedsBar(t *testing.T) {
 	h := newCtlHarness(t, func(o *Options) {
-		o.RosterInterval = 5 * time.Millisecond
+		o.RosterInterval = time.Hour // the poll's immediate first fetch is the one under test
 		o.FetchRoster = func() ([]RosterEntry, error) {
 			return []RosterEntry{{Harp: "swift-elm-fox", State: "executing", LastActivityUnix: 1}}, nil
 		}
 	})
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
-	waitFor(t, "roster digest on the bar", func() bool {
-		return strings.Contains(h.tty.String(), "swift-elm-fox→executing")
+	h.sized(t, 24, 80)
+	// The poll paints on its own goroutine; its paint is the event.
+	h.tty.waitUntil(t, "the roster digest on the bar", func(s string) bool {
+		return strings.Contains(s, "swift-elm-fox→executing")
 	})
 	h.c.Close()
 }
@@ -592,11 +728,9 @@ func TestController_NoSizeYetRefusesEngage(t *testing.T) {
 	h := newCtlHarness(t, nil)
 	// No size event at all: engaging can't lay out a panel; keystrokes drop
 	// back to passthrough rather than wedging.
-	_, _ = h.stdinW.Write([]byte{testPrefix, 'j'})
-	_, _ = h.stdinW.Write([]byte("after"))
-	waitFor(t, "passthrough after refused engage", func() bool {
-		return strings.Contains(h.engine.String(), "after")
-	})
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
+	h.typeKeys(t, "after")
+	assert.Contains(t, h.engine.String(), "after", "passthrough after the refused engage")
 	select {
 	case <-h.overlay.started:
 		t.Fatal("overlay must not start without a known terminal size")
@@ -607,15 +741,8 @@ func TestController_NoSizeYetRefusesEngage(t *testing.T) {
 // engageFake engages the fake overlay and returns the geometry it was given.
 func engageFake(t *testing.T, h *ctlHarness) OverlayGeometry {
 	t.Helper()
-	_, err := h.stdinW.Write([]byte{testPrefix, 'j'})
-	require.NoError(t, err)
-	select {
-	case geo := <-h.overlay.started:
-		return geo
-	case <-time.After(2 * time.Second):
-		t.Fatal("overlay never started")
-		return OverlayGeometry{}
-	}
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
+	return await(t, "the overlay's start", h.overlay.started)
 }
 
 // An engine already on the alternate screen cannot be kept by moving the
@@ -624,9 +751,7 @@ func engageFake(t *testing.T, h *ctlHarness) OverlayGeometry {
 // region, and the overlay is told not to switch screens itself.
 func TestController_EngineOnAltScreenIsDrawnOverInPlace(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	h.sized(t, 24, 80)
 	_, _ = h.c.Stdout().Write([]byte("\x1b[?1049h"))
 	engagedAt := len(h.tty.String())
 
@@ -648,9 +773,7 @@ func TestController_EngineOnAltScreenIsDrawnOverInPlace(t *testing.T) {
 // moved to the alternate screen.
 func TestController_CloseDuringEngagementLeavesTheAltScreen(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	h.sized(t, 24, 80)
 	engageFake(t, h)
 	engagedAt := strings.LastIndex(h.tty.String(), "\x1b[?1049h")
 	require.GreaterOrEqual(t, engagedAt, 0)

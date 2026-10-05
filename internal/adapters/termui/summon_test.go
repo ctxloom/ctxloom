@@ -11,38 +11,26 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 )
 
-// summonHarness is a controller on a fake clock with the real stdin pump.
-type summonHarness struct {
-	*ctlHarness
-	clk *fakeclock.Clock
-}
+// summonHarness is a sized controller on the fake clock with the real stdin
+// pump.
+type summonHarness struct{ *ctlHarness }
 
 func newSummonHarness(t *testing.T, mutate func(*Options)) *summonHarness {
 	t.Helper()
-	clk := fakeclock.New()
-	h := newCtlHarness(t, func(o *Options) {
-		o.Clock = clk
-		if mutate != nil {
-			mutate(o)
-		}
-	})
-	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
-	_ = h.drainTranslated(t)
-	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
-	return &summonHarness{ctlHarness: h, clk: clk}
+	h := newCtlHarness(t, mutate)
+	h.sized(t, 24, 80)
+	return &summonHarness{ctlHarness: h}
 }
 
-// typeToEngine writes keys and waits until the engine has them — the read
-// that carried them has been scanned, so the quiet gate has seen it.
+// typeToEngine types keys bound for the engine: the read that carried them
+// has been scanned, so the quiet gate has seen it.
 func (h *summonHarness) typeToEngine(t *testing.T, s string) {
 	t.Helper()
 	want := h.engine.String() + s
-	_, err := h.stdinW.Write([]byte(s))
-	require.NoError(t, err)
-	waitFor(t, "engine received "+s, func() bool { return h.engine.String() == want })
+	h.typeKeys(t, s)
+	require.Equal(t, want, h.engine.String(), "the engine received %q", s)
 }
 
 // testNotice is what the tests' Summon asks an engaged overlay to show.
@@ -55,11 +43,11 @@ func (h *summonHarness) summon(ctx context.Context) <-chan error {
 	return done
 }
 
-// waitTimers waits until exactly n clock timers are armed: Summon has made
-// its attempt and is waiting on the clock.
+// waitTimers waits until exactly n clock timers are armed: Summon, on its own
+// goroutine, has made its attempt and is waiting on the clock.
 func (h *summonHarness) waitTimers(t *testing.T, n int) {
 	t.Helper()
-	waitFor(t, "armed timers", func() bool { return h.clk.Pending() == n })
+	h.clk.waitPending(t, n)
 }
 
 func (h *summonHarness) discarded() int {
@@ -70,13 +58,7 @@ func (h *summonHarness) discarded() int {
 
 func recvErr(t *testing.T, ch <-chan error) error {
 	t.Helper()
-	select {
-	case err := <-ch:
-		return err
-	case <-time.After(2 * time.Second):
-		t.Fatal("Summon never returned")
-		return nil
-	}
+	return await(t, "Summon's return", ch)
 }
 
 func notStarted(t *testing.T, ov *fakeOverlay, why string) {
@@ -137,11 +119,11 @@ func TestSummon_ArmingDiscardsCountsAndRestarts(t *testing.T) {
 	<-h.overlay.started
 	h.waitTimers(t, 1) // the arming window, started by the first frame
 
-	_, _ = h.stdinW.Write([]byte("y1\r"))
-	waitFor(t, "three keys discarded", func() bool { return h.discarded() == 3 })
+	h.typeKeys(t, "y1\r")
+	require.Equal(t, 3, h.discarded(), "three keys discarded")
 	h.clk.Advance(500 * time.Millisecond)
-	_, _ = h.stdinW.Write([]byte("n"))
-	waitFor(t, "a fourth", func() bool { return h.discarded() == 4 })
+	h.typeKeys(t, "n")
+	require.Equal(t, 4, h.discarded(), "a fourth")
 
 	h.clk.Advance(250 * time.Millisecond) // the first window's end: moved by the key at 500ms
 	h.waitTimers(t, 1)
@@ -150,18 +132,18 @@ func TestSummon_ArmingDiscardsCountsAndRestarts(t *testing.T) {
 		t.Fatalf("armed at %d discarded while a key had restarted the window", n)
 	default:
 	}
-	h.clk.Advance(500 * time.Millisecond) // 750ms after the last key
+	h.clk.Advance(500 * time.Millisecond) // 750ms after the last key: Armed runs inside Advance
 	select {
 	case n := <-h.overlay.armed:
 		assert.Equal(t, 4, n, "Armed reports every key the window swallowed")
-	case <-time.After(2 * time.Second):
+	default:
 		t.Fatal("never armed")
 	}
 	assert.Empty(t, h.overlay.ui.String(), "no key typed while arming reached the modal")
 	assert.Empty(t, h.engine.String(), "nor the engine")
 
-	_, _ = h.stdinW.Write([]byte("j"))
-	waitFor(t, "armed keys reach the modal", func() bool { return h.overlay.ui.String() == "j" })
+	h.typeKeys(t, "j")
+	h.overlay.ui.waitUntil(t, "armed keys at the modal", func(s string) bool { return s == "j" })
 	assert.Equal(t, 0, h.clk.Pending(), "Armed is called once; nothing re-arms")
 }
 
@@ -176,11 +158,9 @@ func TestSummon_RepliesGoToTheEngine(t *testing.T) {
 	h.clk.Advance(defaultArmFor)
 	<-h.overlay.armed
 
-	_, _ = h.stdinW.Write([]byte("k\x1b[12;40R\x1b[<0;3;4M\x1b]11;rgb:0/0/0\x1b\\\x1b[Ij"))
-	waitFor(t, "keys at the modal", func() bool { return h.overlay.ui.String() == "kj" })
-	waitFor(t, "replies at the engine", func() bool {
-		return h.engine.String() == "\x1b[12;40R\x1b]11;rgb:0/0/0\x1b\\\x1b[I"
-	})
+	h.typeKeys(t, "k\x1b[12;40R\x1b[<0;3;4M\x1b]11;rgb:0/0/0\x1b\\\x1b[Ij")
+	assert.Equal(t, "\x1b[12;40R\x1b]11;rgb:0/0/0\x1b\\\x1b[I", h.engine.String(), "replies at the engine")
+	h.overlay.ui.waitUntil(t, "keys at the modal", func(s string) bool { return s == "kj" })
 }
 
 // TestSummon_MainScreenReplaysByteExact is T5: over an engine on the main
@@ -196,11 +176,11 @@ func TestSummon_MainScreenReplaysByteExact(t *testing.T) {
 	_, _ = h.c.Stdout().Write([]byte("HELD-WHILE-MODAL"))
 	assert.NotContains(t, h.tty.String(), "HELD-WHILE-MODAL")
 	h.overlay.release <- nil
-	waitFor(t, "replay", func() bool { return strings.Contains(h.tty.String(), "HELD-WHILE-MODAL") })
+	assert.Equal(t, uint16(22), h.drainTranslated(t).Rows, "the nudge follows")
 	out := h.tty.String()
+	require.Contains(t, out, "HELD-WHILE-MODAL", "replayed before the nudge")
 	assert.Less(t, strings.LastIndex(out, "\x1b[?1049l"), strings.Index(out, "HELD-WHILE-MODAL"))
 	assert.Less(t, strings.LastIndex(out, "\x1b[1;23r"), strings.Index(out, "HELD-WHILE-MODAL"))
-	assert.Equal(t, uint16(22), h.drainTranslated(t).Rows, "the nudge follows")
 }
 
 // TestSummon_AltScreenEngineIsRedrawn is T6: over an engine on the alternate
@@ -247,7 +227,7 @@ func TestSummon_OverflowRedrawsWithANotice(t *testing.T) {
 // TestSummon_NeverTakesTheScreenFromAnOverlay is T8's first case.
 func TestSummon_NeverTakesTheScreenFromAnOverlay(t *testing.T) {
 	h := newSummonHarness(t, nil)
-	_, _ = h.stdinW.Write([]byte{testPrefix, 'j'})
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
 	<-h.overlay.started
 	err := recvErr(t, h.summon(context.Background()))
 	require.ErrorIs(t, err, ErrOverlayEngaged)
@@ -257,7 +237,7 @@ func TestSummon_NeverTakesTheScreenFromAnOverlay(t *testing.T) {
 	default:
 		t.Fatal("the engaged overlay was not told")
 	}
-	waitFor(t, "the key", func() bool { return h.overlay.ui.String() == "j" })
+	h.overlay.ui.waitUntil(t, "the key", func(s string) bool { return s == "j" })
 }
 
 func TestSummon_UnavailableAndCancelled(t *testing.T) {
@@ -281,10 +261,10 @@ func TestSummon_UnavailableAndCancelled(t *testing.T) {
 
 func TestSummon_DegradedIsUnavailable(t *testing.T) {
 	h := newSummonHarness(t, nil)
-	_, _ = h.stdinW.Write([]byte{testPrefix, 'j'})
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
 	<-h.overlay.started
 	h.overlay.release <- errors.New("viewer broke")
-	waitFor(t, "degrade", func() bool { return h.c.uiOff.Load() })
+	await(t, "the degradation warning", h.warns) // degrade warns after it turns the layer off
 	require.ErrorIs(t, recvErr(t, h.summon(context.Background())), ErrUIUnavailable)
 }
 
@@ -310,15 +290,11 @@ func TestSummon_WaitsForATeardownThenTakesTheScreen(t *testing.T) {
 // relaid out on a terminal resize, with the same geometry rules as Run.
 func TestController_ResizeReachesAnEngagedOverlay(t *testing.T) {
 	h := newSummonHarness(t, nil)
-	_, _ = h.stdinW.Write([]byte{testPrefix, 'j'})
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
 	<-h.overlay.started
 	h.src <- &agent.WindowSize{Rows: 30, Cols: 100}
-	select {
-	case geo := <-h.overlay.resizes:
-		assert.Equal(t, OverlayGeometry{Cols: 100, Rows: 29, PanelRows: 9}, geo)
-	case <-time.After(2 * time.Second):
-		t.Fatal("the overlay never heard of the resize")
-	}
+	geo := await(t, "the overlay's resize", h.overlay.resizes)
+	assert.Equal(t, OverlayGeometry{Cols: 100, Rows: 29, PanelRows: 9}, geo)
 }
 
 // TestController_PasteStraddlingDismissalNeverReachesTheEngine pins that a
@@ -326,13 +302,13 @@ func TestController_ResizeReachesAnEngagedOverlay(t *testing.T) {
 // a newline inside it would submit whatever claude had typed.
 func TestController_PasteStraddlingDismissalNeverReachesTheEngine(t *testing.T) {
 	h := newSummonHarness(t, nil)
-	_, _ = h.stdinW.Write([]byte{testPrefix, 'j'})
+	h.typeKeys(t, string([]byte{testPrefix, 'j'}))
 	<-h.overlay.started
-	_, _ = h.stdinW.Write([]byte("\x1b[200~first half"))
-	waitFor(t, "the paste starts in the viewer", func() bool { return strings.Contains(h.overlay.ui.String(), "first half") })
+	h.typeKeys(t, "\x1b[200~first half")
+	h.overlay.ui.waitUntil(t, "the paste starting in the viewer", func(s string) bool { return strings.Contains(s, "first half") })
 	h.overlay.release <- nil
 	_ = h.drainTranslated(t) // the release nudge: disengaged
-	_, _ = h.stdinW.Write([]byte("\rsecond half\x1b[201~"))
+	h.typeKeys(t, "\rsecond half\x1b[201~")
 	h.typeToEngine(t, "z")
 	assert.Equal(t, "z", h.engine.String(), "the rest of the paste was drained; the key after it is the engine's")
 }

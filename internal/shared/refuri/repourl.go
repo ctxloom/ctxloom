@@ -15,9 +15,26 @@ import (
 // an ingest that does.
 var ErrSchemelessPath = errors.New("a local repository path needs the file:// scheme")
 
+// bareWordRemedy is ErrSyntax's detail for a repository URL that is a single
+// word with no dot and no slash. It names no repository path, and as a host it
+// is reachable only through whatever local name resolution answers for it —
+// reading it as one is a guess at a host the user never named.
+const bareWordRemedy = "a bare word names no repository: write owner/repo or a URL"
+
 // fileRemedy is the spelling a scheme-less absolute path should have been
-// written in.
-func fileRemedy(path string) string { return "file://" + path }
+// written in. It is built with net/url, not concatenated: git percent-decodes
+// a file:// URL, so a raw path holding '%' would name a different directory.
+func fileRemedy(path string) string { return (&url.URL{Scheme: "file", Path: path}).String() }
+
+// homeRemedy is the refusal's instruction for a home-relative spelling. It is
+// generic because no layer that parses a repository URL is handed the home
+// directory to spell the expansion out.
+const homeRemedy = "write the absolute path instead of ~"
+
+// isHomePath reports whether raw is spelled relative to a home directory —
+// "~", "~/x" or "~user/x". Its first segment carries no dot, so the shorthand
+// arm would otherwise read it as a GitHub owner.
+func isHomePath(raw string) bool { return strings.HasPrefix(raw, "~") }
 
 // isRelativePath reports whether raw is spelled as a path relative to a
 // working directory: ".", "..", or a leading "./" or "../". A dot anywhere
@@ -185,7 +202,7 @@ func IsSCPForm(raw string) bool {
 // ParseRepoURL parses a repository URL into the one representation every
 // consumer renders from. It errors on empty input and on a scheme-less
 // filesystem path (ErrSchemelessPath; an absolute one is told its file://
-// spelling); every other
+// spelling), and on a bare word with no dot and no slash (ErrSyntax); every other
 // string is classified into some form, because the callers it replaces were
 // all total functions over strings arriving from argv, remotes.yaml and
 // lockfiles.
@@ -212,15 +229,8 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 		return RepoURL{kind: SourceKindCompanion, form: formSentinel, raw: raw}, nil
 	}
 
-	// A leading "/" is a filesystem path. Every arm below would trim it and
-	// read the rest as a host or as GitHub shorthand, turning a local bare
-	// repository into a network URL — one that is fetched, trust-keyed and
-	// may well exist under someone else's control.
-	if strings.HasPrefix(raw, "/") {
-		return RepoURL{}, fmt.Errorf("%w: write %q", ErrSchemelessPath, fileRemedy(raw))
-	}
-	if isRelativePath(raw) {
-		return RepoURL{}, fmt.Errorf("%w: %q is relative; write a file:// URL naming its absolute path", ErrSchemelessPath, raw)
+	if err := refusePathSpelling(raw); err != nil {
+		return RepoURL{}, err
 	}
 
 	r := RepoURL{kind: SourceKindRemote, raw: raw}
@@ -243,6 +253,9 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 	case strings.Contains(raw, "/"):
 		return parsePathForm(r, raw), nil
 
+	case !strings.Contains(raw, "."):
+		return RepoURL{}, fmt.Errorf("%w: %s: %q", ErrSyntax, bareWordRemedy, raw)
+
 	default:
 		// A bare host has no path, so a trailing ".git" here is part of the
 		// HOST NAME — "example.com.git" is a different DNS name from
@@ -253,6 +266,23 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 		r.form, r.host = formBareHost, strings.Trim(raw, "/")
 		return r, nil
 	}
+}
+
+// refusePathSpelling refuses raw when it is spelled as a filesystem path:
+// absolute, relative, or home-relative. Every arm of ParseRepoURL would trim
+// a leading "/" or read "." or "~" as a host or a GitHub owner, turning a
+// local repository into a network URL — one that is fetched, trust-keyed and
+// may well exist under someone else's control.
+func refusePathSpelling(raw string) error {
+	switch {
+	case strings.HasPrefix(raw, "/"):
+		return fmt.Errorf("%w: write %q", ErrSchemelessPath, fileRemedy(raw))
+	case isRelativePath(raw):
+		return fmt.Errorf("%w: %q is relative; write a file:// URL naming its absolute path", ErrSchemelessPath, raw)
+	case isHomePath(raw):
+		return fmt.Errorf("%w: %q is home-relative: %s", ErrSchemelessPath, raw, homeRemedy)
+	}
+	return nil
 }
 
 // parseURLForm fills r from a scheme URL. An unparseable or degenerate one

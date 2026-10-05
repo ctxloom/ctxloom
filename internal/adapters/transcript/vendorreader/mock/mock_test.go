@@ -52,7 +52,7 @@ func runConvert(t *testing.T, fixture string) []transcript.Record {
 	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "mock")
 	require.NoError(t, err)
 
-	require.NoError(t, Adapter{}.Convert(context.Background(), rec, fixturePath(t, fixture)))
+	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, fixturePath(t, fixture)))
 	require.NoError(t, rec.Close())
 
 	path, err := paths.HarpCanonicalTranscriptPath(fixtureHarp)
@@ -115,7 +115,7 @@ func TestConvert_MissingFileIsAnError(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
-	err = Adapter{}.Convert(context.Background(), rec, fixturePath(t, "does-not-exist.jsonl"))
+	err = Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, fixturePath(t, "does-not-exist.jsonl"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mock", "the error must name the vendor so a multi-adapter failure is attributable")
 }
@@ -133,7 +133,7 @@ func TestConvert_CancelledContextIsFatal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err = Adapter{}.Convert(ctx, rec, fixturePath(t, "basic.jsonl"))
+	err = Adapter{}.Convert(ctx, afero.NewOsFs(), rec, fixturePath(t, "basic.jsonl"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
@@ -175,7 +175,7 @@ func TestConvert_WrongFormatRefusesRatherThanEmptyingTheFile(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
-	err = Adapter{}.Convert(context.Background(), rec, fixturePath(t, "wrong-format.jsonl"))
+	err = Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, fixturePath(t, "wrong-format.jsonl"))
 	require.Error(t, err, "converting a file in another format must REFUSE, never report success having written nothing")
 	assert.Contains(t, err.Error(), "ZERO transcript entries",
 		"the refusal must say what happened, so a caller is not left guessing why its transcript is empty")

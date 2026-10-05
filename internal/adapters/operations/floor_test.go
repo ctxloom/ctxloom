@@ -65,7 +65,6 @@ func TestUpgrade_ARollbackToAnOlderSignedReleaseIsRefused(t *testing.T) {
 	require.Len(t, res.Refused, 1)
 	assert.Contains(t, res.Refused[0].Detail, "below")
 	assert.Equal(t, RefusalBelowFloor, res.Refused[0].Cause)
-	assert.True(t, res.Refused[0].BelowFloor)
 	got := floorEntry(t, baseDir, ref)
 	assert.Equal(t, first, got.SHA)
 	assert.Equal(t, "1.2.0", got.SignedVersion)

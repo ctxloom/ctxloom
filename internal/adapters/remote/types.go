@@ -202,12 +202,13 @@ type LockEntry struct {
 
 	// RetractionCheckedAt is when Retracted/RetractedReason were last
 	// established by a check that actually ran: an answered manifest read
-	// (Puller.resolveRetraction's "Fresh" branch), or a first check with no
-	// recorded verdict to fall back to — never bumped by a fallback that
-	// reused a previously recorded verdict. This is what lets a later
-	// fallback (see RetractionStaleAfter) know how old the verdict it is
-	// honoring actually is. Zero only on an entry written before this field
-	// existed, which reads as UNKNOWN AGE and is warned about whenever
+	// (Puller.resolveRetraction's "Fresh" branch), or a read that found the
+	// remote publishes no manifest — never bumped by a fallback that reused a
+	// previously recorded verdict. This is what lets a later fallback (see
+	// RetractionStaleAfter) know how old the verdict it is honoring actually
+	// is. Zero when no check that ran has established the verdict — an entry
+	// written before this field existed, or one whose first check could not
+	// run — which reads as UNKNOWN AGE and is warned about whenever
 	// resolveRetraction falls back to it; zero is deliberately not treated as
 	// "just checked" (that would silently read as fresher than it is) nor as
 	// "definitely stale".

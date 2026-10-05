@@ -298,6 +298,22 @@ func (c *Coordinator) requestRunner(ctx context.Context, credHash string, req Ru
 		return resp, nil
 	case <-ctx.Done():
 		rs.Withdraw(req.RequestID)
-		return RunnerResponse{}, ctx.Err()
+		return RunnerResponse{}, fmt.Errorf("%w: %w", errRunnerUnanswered, ctx.Err())
 	}
+}
+
+// errRunnerUnanswered marks a request requestRunner handed to the session's
+// send queue and then stopped waiting on: unlike every other way it fails,
+// the runner may have received the request and acted on it. A caller whose
+// own bookkeeping assumed the request (ControlPause's journaled hold) reads
+// it through requestMayHaveLanded.
+var errRunnerUnanswered = errors.New("coord: the runner did not answer a request it may have received")
+
+// requestMayHaveLanded reports whether err, from a runner request, leaves it
+// UNKNOWN whether the runner acted: the request was queued to its session and
+// either the wait ran out or the session ended before an answer. Every other
+// failure is definitive — the request never left this coordinator, or the
+// runner answered it with a refusal.
+func requestMayHaveLanded(err error) bool {
+	return errors.Is(err, errRunnerUnanswered) || errors.Is(err, ErrRunnerSessionEnded)
 }

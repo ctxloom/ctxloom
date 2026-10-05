@@ -11,6 +11,7 @@ import (
 	"io"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	"github.com/spf13/afero"
 )
 
 // ErrCheckpointMismatch reports that a vendor file no longer extends the
@@ -92,5 +93,5 @@ type ResumableAdapter interface {
 	//
 	// ErrCheckpointMismatch when src no longer extends `from`; otherwise the
 	// VendorAdapter error contract.
-	ConvertFrom(ctx context.Context, rec transcript.Recorder, src string, from Checkpoint, onCheckpoint func(Checkpoint) error) error
+	ConvertFrom(ctx context.Context, fsys afero.Fs, rec transcript.Recorder, src string, from Checkpoint, onCheckpoint func(Checkpoint) error) error
 }

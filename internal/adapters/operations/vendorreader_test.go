@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -74,7 +75,7 @@ func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 		EngineVersion:  "2.1.225",
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.True(t, converted)
 
@@ -101,7 +102,7 @@ func TestConvertVendorTranscript_UnregisteredBackend(t *testing.T) {
 		TranscriptPath: claudeFixturePath,
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted)
 	assert.Nil(t, canonicalLines(t, harp))
@@ -112,7 +113,7 @@ func TestConvertVendorTranscript_NoBoundTranscript(t *testing.T) {
 	harp := "convert-no-transcript-harp"
 	e := sessions.Entry{HarpName: harp, Backend: "claude-code"} // never bound
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted)
 	assert.Nil(t, canonicalLines(t, harp))
@@ -127,7 +128,7 @@ func TestConvertVendorTranscript_DanglingBoundPath(t *testing.T) {
 		TranscriptPath: filepath.Join(t.TempDir(), "does-not-exist.jsonl"),
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted, "a bind pointing at a since-removed file must degrade to not-found, not a hard failure")
 }
@@ -147,13 +148,13 @@ func TestConvertVendorTranscript_Idempotent(t *testing.T) {
 		EngineVersion:  stubEngineVersion,
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	first := canonicalLines(t, harp)
 	require.NotEmpty(t, first)
 
-	converted, err = ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err = ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted, "a harp that already has a canonical transcript must be skipped")
 	assert.Equal(t, first, canonicalLines(t, harp), "the canonical file must be byte-for-byte untouched by the skipped second call")
@@ -181,7 +182,7 @@ func TestConvertVendorTranscript_PreRenameFileIsNotACanonicalTranscript(t *testi
 		TranscriptPath: claudeFixturePath,
 		EngineVersion:  stubEngineVersion,
 	}
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.True(t, converted, "a pre-rename leaf is not a canonical transcript; the conversion must run")
 
@@ -207,7 +208,7 @@ func TestConvertVendorTranscript_BestEffortOnFailure(t *testing.T) {
 		EngineVersion:  stubEngineVersion,
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	assert.True(t, converted, "Convert was genuinely attempted")
 	assert.Error(t, err)
 }
@@ -216,7 +217,7 @@ func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 	testsupport.Isolate(t)
 	e := sessions.Entry{Backend: "claude-code", TranscriptPath: claudeFixturePath}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted)
 }
@@ -247,14 +248,14 @@ func TestLocateBoundTranscript(t *testing.T) {
 	real := filepath.Join(dir, "transcript.jsonl")
 	require.NoError(t, os.WriteFile(real, []byte("{}\n"), 0o644))
 
-	src, ok := locateBoundTranscript(context.Background(), sessions.Entry{TranscriptPath: real})
+	src, ok := locateBoundTranscript(context.Background(), afero.NewOsFs(), sessions.Entry{TranscriptPath: real})
 	assert.True(t, ok)
 	assert.Equal(t, real, src)
 
-	_, ok = locateBoundTranscript(context.Background(), sessions.Entry{})
+	_, ok = locateBoundTranscript(context.Background(), afero.NewOsFs(), sessions.Entry{})
 	assert.False(t, ok, "an unbound entry has nothing to locate")
 
-	_, ok = locateBoundTranscript(context.Background(), sessions.Entry{TranscriptPath: filepath.Join(dir, "gone.jsonl")})
+	_, ok = locateBoundTranscript(context.Background(), afero.NewOsFs(), sessions.Entry{TranscriptPath: filepath.Join(dir, "gone.jsonl")})
 	assert.False(t, ok, "a dangling bind must degrade to not-found")
 }
 
@@ -319,7 +320,7 @@ func TestConvertVendorTranscript_RotationLineage_ConcatenatesSegmentAndLive(t *t
 		},
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.True(t, converted)
 
@@ -367,7 +368,7 @@ func TestConvertVendorTranscript_CachedSegmentIsReused(t *testing.T) {
 		},
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 
@@ -378,7 +379,7 @@ func TestConvertVendorTranscript_CachedSegmentIsReused(t *testing.T) {
 	const poison = `{"v":1,"engine":"claude-code","harp":"` + "rotation-cache-reuse-harp" + `","seq":0,"kind":"raw","raw":{"poisoned":true}}` + "\n"
 	require.NoError(t, os.WriteFile(segPath, []byte(poison), 0o644))
 
-	converted, err = RefreshVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err = RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 
@@ -413,7 +414,7 @@ func TestConvertVendorTranscript_RotationVendorFileGone_SkipsSegmentWithoutFaili
 	restore := clidiag.SetSink(&warnings)
 	defer restore()
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err, "one missing rotation file must not fail the whole rebuild")
 	assert.True(t, converted)
 
@@ -448,7 +449,7 @@ func TestConvertVendorTranscript_AllSourcesMissing_SurfacesRatherThanSilentlySuc
 		},
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	assert.True(t, converted, "a rebuild WAS attempted (rotation history existed)")
 	require.Error(t, err, "recovering nothing from a harp with rotation history must surface, not silently succeed")
 	assert.Contains(t, err.Error(), harp)
@@ -484,7 +485,7 @@ func TestConvertVendorTranscript_Refresh_ReplacesExistingSymlinkWithARegularFile
 	require.NoError(t, lerr)
 	require.True(t, fi.Mode()&os.ModeSymlink != 0, "fixture setup: dest must start out as a symlink")
 
-	converted, err := RefreshVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.True(t, converted)
 

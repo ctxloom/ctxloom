@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"path"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
@@ -17,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // ProjectAppDir returns the project's .ctxloom directory for lockfile and
@@ -130,13 +135,51 @@ func rollbackAdd(registry *remote.Registry, name string) {
 	}
 }
 
-// AddRemote registers a new remote source.
-func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*AddRemoteResult, error) {
+// resolveLocalRepoURL turns a remote URL spelled as a filesystem path —
+// absolute, or relative to the working directory — into the file:// URL of
+// the repository there, and passes every other spelling through untouched.
+//
+// It lives at the argv ingest because the repo-URL grammar has no working
+// directory: refuri.ParseRepoURL refuses a path spelling outright
+// (refuri.ErrSchemelessPath) so that no layer can guess it into a network
+// host. A path naming no repository — bare or working tree — is refused with
+// that same sentinel rather than registered: there is nothing local for it to
+// mean.
+//
+// The URL is built with net/url, not concatenated: git percent-decodes a
+// file:// URL, so a raw path holding '%' would name a different directory.
+func resolveLocalRepoURL(raw string) (string, error) {
+	if _, err := refuri.ParseRepoURL(raw); !errors.Is(err, refuri.ErrSchemelessPath) {
+		return raw, nil
+	}
+	abs, err := filepath.Abs(strings.TrimSpace(raw))
+	if err != nil {
+		return "", fmt.Errorf("%w: cannot resolve %q: %v", refuri.ErrSchemelessPath, raw, err)
+	}
+	if _, err := git.PlainOpen(abs); err != nil {
+		return "", fmt.Errorf("%w: %q resolves to %s, which holds no git repository (%v); name one, or write its file:// URL", refuri.ErrSchemelessPath, raw, abs, err)
+	}
+	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(abs)}).String(), nil
+}
+
+// checkAddRequest refuses an incomplete add and resolves a local-path URL in
+// place (resolveLocalRepoURL).
+func checkAddRequest(req *AddRemoteRequest) error {
 	if req.Name == "" {
-		return nil, fmt.Errorf("name is required")
+		return fmt.Errorf("name is required")
 	}
 	if req.URL == "" {
-		return nil, fmt.Errorf("url is required")
+		return fmt.Errorf("url is required")
+	}
+	resolved, err := resolveLocalRepoURL(req.URL)
+	req.URL = resolved
+	return err
+}
+
+// AddRemote registers a new remote source.
+func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*AddRemoteResult, error) {
+	if err := checkAddRequest(&req); err != nil {
+		return nil, err
 	}
 
 	registry := req.Registry
@@ -259,6 +302,23 @@ type EditRemoteResult struct {
 	DefaultPointerUpdated bool `json:"default_pointer_updated,omitempty"`
 }
 
+// checkEditRequest refuses an edit that names no remote or asks for nothing,
+// and resolves a local-path URL in place (resolveLocalRepoURL).
+func checkEditRequest(req *EditRemoteRequest) error {
+	if req.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if req.NewName == nil && req.URL == nil && req.Forge == nil {
+		return fmt.Errorf("nothing to edit: pass at least one of --name, --url or --forge")
+	}
+	if req.URL == nil {
+		return nil
+	}
+	resolved, err := resolveLocalRepoURL(*req.URL)
+	req.URL = &resolved
+	return err
+}
+
 // EditRemote changes a registered remote's name, URL or forge binding.
 //
 // A remote is an address and carries no authority (see remote.Remote's own
@@ -267,11 +327,8 @@ type EditRemoteResult struct {
 // dependencies are unaffected too — each lockfile entry records its own URL
 // rather than pointing back at a remote by name.
 func EditRemote(_ context.Context, cfg *config.Config, req EditRemoteRequest) (*EditRemoteResult, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if req.NewName == nil && req.URL == nil && req.Forge == nil {
-		return nil, fmt.Errorf("nothing to edit: pass at least one of --name, --url or --forge")
+	if err := checkEditRequest(&req); err != nil {
+		return nil, err
 	}
 
 	registry := req.Registry

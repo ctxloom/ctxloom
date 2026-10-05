@@ -249,3 +249,25 @@ func TestBuildRoster_CarriesTheHold(t *testing.T) {
 	assert.Equal(t, hold, byHarp["bus-only-kid"].Hold)
 	assert.Nil(t, byHarp["free-kid"].Hold)
 }
+
+// TestBuildRoster_CarriesTheTerminalCause: an ended child's cause and detail
+// reach its row whether the row came from the index or from the coordinator
+// alone.
+func TestBuildRoster_CarriesTheTerminalCause(t *testing.T) {
+	testsupport.Isolate(t)
+	const detail = "the engine binary is not on PATH"
+	rows := BuildRoster(
+		[]sessions.Entry{{HarpName: "indexed-kid", Backend: "claude-code"}},
+		[]coord.RosterEntry{
+			{Harp: "indexed-kid", State: coord.StateEnded, Cause: coord.CauseLaunchFailed, Detail: detail},
+			{Harp: "bus-only-kid", State: coord.StateEnded, Cause: coord.CauseRunnerLoss, Detail: detail},
+		}, "")
+	byHarp := map[string]RosterRow{}
+	for _, r := range rows {
+		byHarp[r.Harp] = r
+	}
+	assert.Equal(t, coord.CauseLaunchFailed, byHarp["indexed-kid"].Cause)
+	assert.Equal(t, detail, byHarp["indexed-kid"].Detail)
+	assert.Equal(t, coord.CauseRunnerLoss, byHarp["bus-only-kid"].Cause)
+	assert.Equal(t, detail, byHarp["bus-only-kid"].Detail)
+}

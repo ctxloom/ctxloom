@@ -676,9 +676,7 @@ func (st *runState) resumedTranscript() []composite.Fragment {
 	if runResumeSession == "" || runResumeDistill {
 		return nil
 	}
-	rendered := resumeFullContext("", runResumeSession, func(h string) ([]agent.SessionEntry, error) {
-		return operations.RecordedSessionEntries(st.ctx, App().Engines(), h)
-	})
+	rendered := resumeFullContext("", runResumeSession, operations.RecordedSessionEntries)
 	if rendered == "" {
 		return nil
 	}
@@ -932,9 +930,7 @@ func (st *runState) emitDryRun() error {
 	// composes (resumedTranscript).
 	context := pkg.Context.Text
 	if runResumeSession != "" && !runResumeDistill {
-		context = resumeFullContext(context, runResumeSession, func(h string) ([]agent.SessionEntry, error) {
-			return operations.RecordedSessionEntries(st.ctx, App().Engines(), h)
-		})
+		context = resumeFullContext(context, runResumeSession, operations.RecordedSessionEntries)
 	}
 	payload := dryRunJSON{
 		Agent:                 runAgent,
@@ -1474,7 +1470,7 @@ func convertVendorTranscriptOnExit(harp string) {
 	// path. Reusing it would make the heal abort immediately
 	// (vendorreader.VendorAdapter implementations check ctx.Err() up front) on
 	// exactly the sessions this hook most needs to capture.
-	src, err := operations.ResolveAndHeal(context.Background(), App().Engines(), harp)
+	src, err := operations.ResolveAndHeal(context.Background(), afero.NewOsFs(), App().Engines(), harp)
 	if err != nil {
 		clidiag.Warn("ctxloom", "vendor transcript import: look up %s: %v", harp, err)
 		return

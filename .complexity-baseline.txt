@@ -78,7 +78,7 @@
 ./internal/adapters/operations/remotes.go|EditRemote _ context . Context , cfg * config . Config , req EditRemoteRequest|1|13|EditRemote|269-320
 ./internal/adapters/operations/resume.go|RenderResumedTranscript harp string , entries [ ] agent . SessionEntry|1|13|RenderResumedTranscript|89-148
 ./internal/adapters/operations/review.go|(e*reviewEnumerator)pendingItems bundleRef string , read bundles . BundleRead|1|16|pendingItems|250-349
-./internal/adapters/operations/session_adopt.go|ScanAdoptCandidates harp string|1|20|ScanAdoptCandidates|115-242
+./internal/adapters/operations/session_adopt.go|ScanAdoptCandidates fsys afero . Fs , harp string|1|20|ScanAdoptCandidates|115-242
 ./internal/adapters/operations/session_purge.go|PurgeSession harp string , req PurgeSessionRequest|1|26|PurgeSession|165-284
 ./internal/adapters/operations/sessionfeed.go||1|28||309-427
 ./internal/adapters/operations/signer.go|removeFromAllowedSignersFile fs afero . Fs , path , principal string|1|14|removeFromAllowedSignersFile|522-594
@@ -92,7 +92,7 @@
 ./internal/adapters/operations/trust.go|SetBlacklist cfg * config . Config , req SetBlacklistRequest|1|13|SetBlacklist|433-496
 ./internal/adapters/operations/trust.go|SetItemTrust cfg * config . Config , req SetItemTrustRequest|1|12|SetItemTrust|309-385
 ./internal/adapters/operations/trust.go|computeItemPayloadPair cat bundles . Catalog , tRef trust . Ref , key trust . BundleKey|1|16|computeItemPayloadPair|521-598
-./internal/adapters/operations/vendorreader.go|appendRotationSegment ctx context . Context , adapter vendorreader . VendorAdapter , e sessions . Entry , rot sessions . Rotation , af * safefs . AtomicFile|1|13|appendRotationSegment|529-582
+./internal/adapters/operations/vendorreader.go|appendRotationSegment ctx context . Context , fsys afero . Fs , adapter vendorreader . VendorAdapter , e sessions . Entry , rot sessions . Rotation , af * safefs . AtomicFile|1|13|appendRotationSegment|525-578
 ./internal/adapters/projectroot/projectroot_test.go|TestPackageDocNamesEveryExportedSurface t * testing . T|1|18|TestPackageDocNamesEveryExportedSurface|235-288
 ./internal/adapters/projectroot/worktree.go|DetectWorktree fs afero . Fs , dir string|1|12|DetectWorktree|74-133
 ./internal/adapters/remote/registry.go|(r*Registry)Update name string , edit RemoteEdit|1|16|Update|288-354

@@ -239,7 +239,7 @@ func sessionInstances(t *testing.T, workDir, harp string) map[string]string {
 			t.Fatalf("session dir: %v", err)
 		}
 		spec, err := isolation.NewSpec(launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost}, eng).
-			Project(workDir).Session(harp, sessionDir, isolation.SessionState{Harp: harp}).Home(agents.HomeModeSession).Build()
+			Project(workDir).Session(sessionDir, isolation.SessionState{Harp: harp}).Home(agents.HomeModeSession).Build()
 		if err != nil {
 			t.Fatalf("%s: spec: %v", backend, err)
 		}

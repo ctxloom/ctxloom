@@ -258,7 +258,7 @@ func TestConvert_SidechainPropagates(t *testing.T) {
 
 	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
 	require.NoError(t, err)
-	require.NoError(t, Adapter{}.Convert(context.Background(), rec, src))
+	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src))
 	require.NoError(t, rec.Close())
 
 	path, err := paths.HarpCanonicalTranscriptPath(fixtureHarp)

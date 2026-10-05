@@ -292,7 +292,7 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
   `hasCanonicalTranscript` idempotency guard, and the `BackfillResult` bucketing — every
   consequence of "the vendor reader cannot report a count" surfaces there, not here.
 - **`internal/adapters/memory`** reads through `pb.SessionSource`, which `CanonicalHistory` satisfies via
-  `pb.NewCanonicalFallbackSource` (canonical first, legacy second).
+  `pb.NewCanonicalFallbackSource`, which resolves a harp or a backend-native session id to it.
 - **`internal/adapters/runner`** owns the live producer (the engine host's `CoordinatedRecorder`
   wiring); the reader adapters (`canonical_source.go`, `source.go`, `filtered_source.go`) are this
   package's own.

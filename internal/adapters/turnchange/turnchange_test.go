@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -255,7 +256,7 @@ func TestClassifyTranscript_CoordinatorTurn(t *testing.T) {
 		assistantToolLine("a1", "msg_1", "Read", `{"file_path":"/plan.md"}`, false),
 		assistantToolLine("a2", "msg_2", "Agent", `{"prompt":"go implement it"}`, false),
 	)
-	d, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
+	d, err := ClassifyTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	assert.True(t, d.Changed, "a dispatching coordinator turn must receive the close-out contract")
 }
@@ -266,7 +267,7 @@ func TestClassifyTranscript_ConversationalTurn(t *testing.T) {
 		assistantToolLine("a1", "msg_1", "Read", `{"file_path":"/docs/trust.md"}`, false),
 		assistantToolLine("a2", "msg_2", "Bash", `{"command":"git log -1"}`, false),
 	)
-	d, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
+	d, err := ClassifyTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	assert.False(t, d.Changed)
 }
@@ -276,7 +277,7 @@ func TestClassifyTranscript_EditTurn(t *testing.T) {
 		promptLine("fix it", "u1"),
 		assistantToolLine("a1", "msg_1", "Edit", `{"file_path":"/x/y.go"}`, false),
 	)
-	d, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
+	d, err := ClassifyTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	assert.True(t, d.Changed)
 }
@@ -290,7 +291,7 @@ func TestClassifyTranscript_PriorTurnEditDoesNotLeak(t *testing.T) {
 		promptLine("now explain what you did", "u2"),
 		assistantToolLine("a2", "msg_2", "Read", `{"file_path":"/x/y.go"}`, false),
 	)
-	d, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
+	d, err := ClassifyTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	assert.False(t, d.Changed)
 }
@@ -299,7 +300,7 @@ func TestClassifyTranscript_PriorTurnEditDoesNotLeak(t *testing.T) {
 // cleanly and records nothing, so there is nothing to close out.
 func TestClassifyTranscript_Empty(t *testing.T) {
 	p := writeTranscript(t)
-	d, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
+	d, err := ClassifyTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	assert.False(t, d.Changed)
 }
@@ -307,12 +308,12 @@ func TestClassifyTranscript_Empty(t *testing.T) {
 // TestClassifyTranscript_Missing / _Unparsable: both must surface an
 // error so the caller can fail SAFE IN THE SPEAKING DIRECTION.
 func TestClassifyTranscript_Missing(t *testing.T) {
-	_, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, filepath.Join(t.TempDir(), "nope.jsonl"))
+	_, err := ClassifyTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, filepath.Join(t.TempDir(), "nope.jsonl"))
 	assert.Error(t, err)
 }
 
 func TestClassifyTranscript_Unparsable(t *testing.T) {
 	p := writeTranscript(t, "this is not json", "neither is this")
-	_, err := ClassifyTranscript(context.Background(), claudereader.Adapter{}, p)
+	_, err := ClassifyTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, p)
 	assert.Error(t, err, "a file this build cannot read must not be reported as an unchanged turn")
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -68,7 +69,7 @@ func TestConvertVendorTranscript_Deterministic_ReconversionsAreByteIdentical(t *
 	harp := "determinism-pin-harp"
 	e := claudeEntry(harp, claudeFixturePath)
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	first := canonicalBytes(t, harp)
@@ -78,14 +79,14 @@ func TestConvertVendorTranscript_Deterministic_ReconversionsAreByteIdentical(t *
 	// masked by two calls landing within the same clock tick.
 	time.Sleep(50 * time.Millisecond)
 
-	converted, err = RefreshVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err = RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	second := canonicalBytes(t, harp)
 
 	time.Sleep(50 * time.Millisecond)
 
-	converted, err = RefreshVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err = RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	third := canonicalBytes(t, harp)

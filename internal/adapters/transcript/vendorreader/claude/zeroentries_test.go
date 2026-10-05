@@ -41,7 +41,7 @@ func TestConvert_ConversationalLinesWithNoEntriesIsAnError(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
-	err = Adapter{}.Convert(context.Background(), rec, src)
+	err = Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src)
 	assert.Error(t, err, "zero entries from lines this adapter claims to understand is a failed import, not a successful empty one")
 }
 
@@ -55,7 +55,7 @@ func TestConvert_AllLinesMalformedIsAnError(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
-	err = Adapter{}.Convert(context.Background(), rec, src)
+	err = Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src)
 	assert.Error(t, err, "a file whose every line failed to parse must not import as a success")
 }
 
@@ -71,7 +71,7 @@ func TestConvert_AdminOnlyFileIsLegitimatelyEmpty(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
-	assert.NoError(t, Adapter{}.Convert(context.Background(), rec, src),
+	assert.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src),
 		"no user/assistant lines at all is 'nothing to import', not a failure")
 }
 
@@ -93,7 +93,7 @@ func TestConvert_DroppedVendorContentIsReported(t *testing.T) {
 
 	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
 	require.NoError(t, err)
-	require.NoError(t, Adapter{}.Convert(context.Background(), rec, src))
+	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src))
 	require.NoError(t, rec.Close())
 
 	assert.Contains(t, buf.String(), "image",
@@ -144,7 +144,7 @@ func TestConvert_DriftedUsageShapeDegradesToZeroNotError(t *testing.T) {
 	rec, err := transcript.NewRecorder(afero.NewOsFs(), fixtureHarp, "claude")
 	require.NoError(t, err)
 
-	require.NoError(t, Adapter{}.Convert(context.Background(), rec, src),
+	require.NoError(t, Adapter{}.Convert(context.Background(), afero.NewOsFs(), rec, src),
 		"a drifted usage shape must not fail the whole import — the conversational content is still good")
 	require.NoError(t, rec.Close())
 

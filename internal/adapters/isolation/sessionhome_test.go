@@ -87,7 +87,7 @@ func homeSpec(t *testing.T, eng engine.Engine, home, harp string, m agents.HomeM
 func credSpec(t *testing.T, eng engine.Engine, home, harp string, m agents.HomeMode, c engine.Credentials) Spec {
 	t.Helper()
 	s, err := NewSpec(launch.Axes{}, eng).Project(t.TempDir()).
-		Session(harp, sessionDir(home, harp), SessionState{Harp: harp}).Home(m).Credentials(c).Build()
+		Session(sessionDir(home, harp), SessionState{Harp: harp}).Home(m).Credentials(c).Build()
 	require.NoError(t, err)
 	return s
 }
@@ -268,7 +268,7 @@ func TestPrepare_AContainerLoginIsRefusedBeforeAnythingIsPrepared(t *testing.T) 
 	stubRuntimeProbe(t, fakeRuntime{name: "docker", available: true})
 	home := fakeHostHome(t, tokenFixture)
 	s, err := NewSpec(launch.Axes{Workspace: WorkspaceShared, Runtime: RuntimeContainerRootless}, claudeEngine(t)).Project(t.TempDir()).
-		Session(harpA, sessionDir(home, harpA), SessionState{Harp: harpA}).Credentials(claudeCredentials(t, engine.AuthLogin)).Build()
+		Session(sessionDir(home, harpA), SessionState{Harp: harpA}).Credentials(claudeCredentials(t, engine.AuthLogin)).Build()
 	require.NoError(t, err)
 
 	_, err = Prepare(context.Background(), s)

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# lefthook's archlint pre-commit gate; lefthook.yml carries why it is shaped
+# this way. Run with bash explicitly: lefthook hands a run block to /bin/sh,
+# which is not bash everywhere a commit is made.
+set -euo pipefail
+if [ ! -x bin/archlint ]; then
+  echo "bin/archlint is missing — run 'just build', which generates code and then builds it." >&2
+  echo "archlint type-checks the whole module and generated code is not committed, so on a fresh checkout 'just build-archlint' alone is not enough." >&2
+  echo "The architectural gate cannot pass by not running." >&2
+  exit 1
+fi
+if [ -n "$(find internal/shared/archrules internal/shared/archlint cmd/archlint -name '*.go' -newer bin/archlint -print -quit)" ]; then
+  echo "bin/archlint is older than the rules in internal/shared/archrules or the analyzers in internal/shared/archlint — run 'just build-archlint'." >&2
+  echo "A stale linter enforces the rules it was built with, not the ones on disk." >&2
+  exit 1
+fi
+scripts/lint-arch-passes.sh

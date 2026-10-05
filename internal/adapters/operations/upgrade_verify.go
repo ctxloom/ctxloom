@@ -51,11 +51,6 @@ type RefusedAdvance struct {
 	// Detail is the verification failure, in the words of the verifier, so a
 	// human is told WHY rather than just that something was refused.
 	Detail string `json:"detail"`
-	// BelowFloor reports a refusal by the version floor — the proposed content
-	// is signed at a lower version than the pin recorded, or is no longer
-	// signed — rather than by a signature that fails. The remedies differ: this
-	// one the operator can override by naming the ref.
-	BelowFloor bool `json:"below_floor,omitempty"`
 	// Cause is why the advance was refused.
 	Cause RefusalCause `json:"cause"`
 }

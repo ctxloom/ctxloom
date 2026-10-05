@@ -1,8 +1,9 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -261,7 +261,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		// Drives the real "ctxloom signer trust" leaf (project store, so the
 		// whole team inherits the trust decision) — see completeness_test.go's
 		// knownUncoveredCLI, pruned for this ref by J001500.
-		return runOK(w, "signer", "trust", j001500.principal, "--key", keyPath, "--project")
+		return runOK(w, "signer", "trust", j001500.principal, "--key", keyPath, "--project", "--yes")
 	})
 
 	// --- Scenario 1: reference mechanic ---------------------------------------

@@ -471,25 +471,26 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 // untouched here: a hard error from CheckRetracted still propagates as an
 // error, never falls back).
 //
-// checkedAt reports when the RETURNED verdict was actually established: p.now()
-// for a fresh verdict, or the persisted entry's own RetractionCheckedAt for a
-// fallback — NEVER p.now() for a fallback, since bumping it would erase the
-// staleness signal the next fallback needs (see LockEntry.RetractionCheckedAt
-// and RecordRetraction, which treats a zero checkedAt as "leave the persisted
-// timestamp alone"). When there is nothing to fall back to at all (no existing
-// lockfile entry for localName), checkedAt is p.now(): the not-retracted
-// answer was reached by the check that ran now, and a zero stamp would persist
-// it as indistinguishable from an entry written before check times existed —
-// warned about as UNKNOWN AGE on every later run.
+// The check runs on every call. checkedAt reports when the RETURNED verdict
+// was actually established by a check that ran: p.now() for a fresh verdict
+// and for a remote that publishes no manifest, or the persisted entry's own
+// RetractionCheckedAt for a fallback — NEVER p.now() for a fallback, since
+// bumping it would erase the staleness signal the next fallback needs (see
+// LockEntry.RetractionCheckedAt and RecordRetraction, which treats a zero
+// checkedAt as "leave the persisted timestamp alone").
 //
-// Falling back to a STALE verdict — older than RetractionStaleAfter, or with
-// no recorded check time at all (unknown age: an entry written before this
-// field existed) — warns via clidiag, matching the rest of this package's
-// fault-tolerant-but-not-silent diagnostics. Falling back with NOTHING
-// recorded resolves to Clean, un-warned: that is overwhelmingly the ordinary
-// "this remote publishes no manifest" case (see CheckRetracted's doc), not
-// evidence of an outage, and there is no verdict whose age could even be
-// reported.
+// A remote that publishes no manifest (retractionUnpublished) has answered:
+// it is never a warning, and it is stamped p.now() so a manifest-less remote
+// never goes stale. It keeps whatever verdict was recorded — a deleted
+// manifest is within reach of whoever controls the repository and must not
+// lift a retraction — and is not-retracted when nothing was.
+//
+// A check that could not run (RetractionUnknown) is reported. Falling back to
+// a STALE verdict — older than RetractionStaleAfter, or with no recorded check
+// time at all (UNKNOWN AGE) — warns via clidiag, matching the rest of this
+// package's fault-tolerant-but-not-silent diagnostics. With NOTHING recorded
+// it warns and resolves to not-retracted with a zero checkedAt: no check
+// established that verdict, so none is claimed for it.
 //
 // Two more rules keep a signed retraction from being undone by whoever controls
 // the repository:
@@ -514,16 +515,17 @@ func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, 
 		clidiag.Warn("ctxloom", "%s: %s — the repository may have been rolled back; keeping the retraction verdict last recorded for it", localName, reason)
 	}
 
-	if !hasRecorded {
-		// Never previously checked at all (or the lockfile is unreadable):
-		// there is no verdict to fall back to, and this is far more often
-		// "this remote publishes no signed release" than a first-pull outage.
-		// See the doc above.
-		return false, "", p.now(), nil
+	if verdict == retractionUnpublished {
+		return recorded.Retracted, recorded.RetractedReason, p.now(), nil
 	}
-	entry := recorded
-	p.warnStaleFallback(entry, localName, owner, repo)
-	return entry.Retracted, entry.RetractedReason, entry.RetractionCheckedAt, nil
+	if !hasRecorded {
+		clidiag.Warn("ctxloom",
+			"could not check whether %s is retracted against %s/%s (its retraction manifest could not be read or verified), and no earlier verdict is recorded — treating it as not retracted",
+			localName, owner, repo)
+		return false, "", time.Time{}, nil
+	}
+	p.warnStaleFallback(recorded, localName, owner, repo)
+	return recorded.Retracted, recorded.RetractedReason, recorded.RetractionCheckedAt, nil
 }
 
 // recordedEntry is the lockfile's entry for the item; false when there is
@@ -560,21 +562,17 @@ func (p *Puller) warnStaleFallback(entry LockEntry, localName trust.BundleKey, o
 	unknownAge := entry.RetractionCheckedAt.IsZero()
 	age := p.now().Sub(entry.RetractionCheckedAt)
 	if unknownAge || age > RetractionStaleAfter {
-		// Do NOT assert unreachability here. An Unknown verdict is ambiguous by
-		// construction (see CheckRetracted's doc): "this remote publishes no
-		// manifest" — the ordinary case, most do not — is indistinguishable at
-		// that seam from a genuine outage. Naming only the outage sent users
-		// hunting a network fault that did not exist: a fresh init emitted one
-		// of these per lock entry while `git ls-remote` reached both remotes
-		// fine, and the production fetcher reads a local clone with no network
-		// I/O at all, so the claimed cause could not even apply on that path.
+		// Do NOT assert unreachability here: the production fetcher reads a
+		// local clone with no network I/O at all, and an Unknown verdict also
+		// covers a manifest that was read but did not verify. Naming an outage
+		// sends users hunting a network fault that does not exist.
 		if unknownAge {
 			clidiag.Warn("ctxloom",
-				"could not re-check whether %s is retracted against %s/%s (that remote may publish no retraction manifest, or it could not be read); falling back to a previously recorded verdict of UNKNOWN AGE (recorded before this project tracked check times) — its retraction status may be out of date",
+				"could not re-check whether %s is retracted against %s/%s (its retraction manifest could not be read or verified); falling back to a previously recorded verdict of UNKNOWN AGE (no check that ran has confirmed it) — its retraction status may be out of date",
 				localName, owner, repo)
 		} else {
 			clidiag.Warn("ctxloom",
-				"could not re-check whether %s is retracted against %s/%s (that remote may publish no retraction manifest, or it could not be read); falling back to the verdict last confirmed %s ago (older than the %s freshness window) — its retraction status may be out of date",
+				"could not re-check whether %s is retracted against %s/%s (its retraction manifest could not be read or verified); falling back to the verdict last confirmed %s ago (older than the %s freshness window) — its retraction status may be out of date",
 				localName, owner, repo, age.Round(time.Hour), RetractionStaleAfter)
 		}
 	}

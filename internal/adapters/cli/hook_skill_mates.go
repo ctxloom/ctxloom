@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -93,11 +94,11 @@ func skillMatesOutput(cmd *cobra.Command) (claude.PostToolUseOutput, error) {
 	// The transcript is read through the ACTIVE engine's own adapter, as
 	// next-step does: this verb is claude-code's today, but the reader is
 	// selected by the session's recorded engine, never assumed.
-	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), App().Engines(), harp, payload.TranscriptPath)
+	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), afero.NewOsFs(), App().Engines(), harp, payload.TranscriptPath)
 	if err != nil {
 		return claude.PostToolUseOutput{}, err
 	}
-	evs, err := turnchange.ReadTranscript(cmd.Context(), adapter, src)
+	evs, err := turnchange.ReadTranscript(cmd.Context(), afero.NewOsFs(), adapter, src)
 	if err != nil {
 		return claude.PostToolUseOutput{}, err
 	}

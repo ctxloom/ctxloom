@@ -46,7 +46,7 @@ func TestRecordedSessionEntries_WithoutCanonicalCaptureRefuses(t *testing.T) {
 		t.Run(eng, func(t *testing.T) {
 			testsupport.Isolate(t)
 			entry := boundWithoutCapture(t, eng, "")
-			entries, err := RecordedSessionEntries(context.Background(), engines.Registry(), entry.HarpName)
+			entries, err := RecordedSessionEntries(entry.HarpName)
 			require.Error(t, err)
 			assert.Nil(t, entries)
 		})
@@ -71,7 +71,7 @@ func TestRecordedSessionEntries_UnreadableCanonicalCaptureRefuses(t *testing.T) 
 			require.NotEmpty(t, entry.CanonicalTranscriptPath)
 			require.NoError(t, os.WriteFile(entry.CanonicalTranscriptPath, []byte("{not json\n"), 0o600))
 
-			entries, err := RecordedSessionEntries(context.Background(), engines.Registry(), entry.HarpName)
+			entries, err := RecordedSessionEntries(entry.HarpName)
 			require.Error(t, err)
 			assert.Nil(t, entries)
 		})
@@ -122,7 +122,7 @@ func TestSessionSources_ServeOnlyCanonicalCapture(t *testing.T) {
 
 			resolved, _, err := ResolveSessionSource(engines.Registry(), &config.Config{}, eng, home)
 			require.NoError(t, err)
-			distill, err := distillSource(home)
+			distill, err := DistillSource(home)
 			require.NoError(t, err)
 
 			for name, src := range map[string]interface {

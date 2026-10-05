@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -349,13 +348,9 @@ func TestResolveAgent_UnknownEngineHomeIsRefused(t *testing.T) {
 	cfg := agentTestConfig(root, map[string]agents.Agent{
 		"dev": {LLM: "slow", Profiles: []string{"p1"}, HomeMode: typo},
 	})
-	_, parseErr := agents.ParseHomeMode(typo)
-	require.Error(t, parseErr, "fixture: the spelling must not parse")
-
 	res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "dev", "")
-	require.Error(t, err, "an unparseable engine_home must be refused, not warned past")
+	require.ErrorIs(t, err, agents.ErrUnknownHomeMode, "an unparseable engine_home must be refused, not warned past; the refusal is the parser's own")
 	assert.Nil(t, res)
-	require.EqualError(t, errors.Unwrap(err), parseErr.Error(), "the refusal is the parser's own, naming the value and the known ones")
 }
 
 // TestResolveAgent_NotFound is the unknown-name error path.

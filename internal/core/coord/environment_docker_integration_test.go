@@ -46,7 +46,7 @@ func preparedContainer(ctx context.Context, runtimeName, backend, image, project
 	}
 	spec, err := isolation.NewSpec(containerAxes(runtimeName), eng).
 		Project(projectDir).
-		Session(state.Harp, sessionDir, state).
+		Session(sessionDir, state).
 		Image(isolation.ImageConfig{Image: image}).
 		Build()
 	if err != nil {

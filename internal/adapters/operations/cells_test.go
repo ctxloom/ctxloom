@@ -99,15 +99,13 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 func TestCellsPrepare_UnknownHomeModeIsRefused(t *testing.T) {
 	resetStrictness(t)
 	const typo = agents.HomeMode("hostt")
-	_, parseErr := agents.ParseHomeMode(string(typo))
-	require.Error(t, parseErr, "fixture: the spelling must not parse")
 
 	req := claudeKind(t)
 	req.ProjectRoot = t.TempDir()
 	req.SessionDir = harpDir(t, "test-harp")
 	req.HomeMode = typo
 	_, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
-	require.EqualError(t, err, parseErr.Error())
+	require.ErrorIs(t, err, agents.ErrUnknownHomeMode)
 }
 
 // TestCellsPrepare_AWorktreeLivesInItsOwnSession: the session a cell's
@@ -487,7 +485,7 @@ func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
 		require.NoError(t, err, "runtime %s", runtime)
 
 		spec, err := isolation.NewSpec(req.Axes, req.Engine).Project(req.ProjectRoot).
-			Session("test-harp", req.SessionDir, isolation.SessionStateFromEnv(req.Env)).
+			Session(req.SessionDir, isolation.SessionState{Harp: "test-harp", ProjectID: req.Identity.Project}).
 			Home(agents.HomeMode(req.HomeMode)).Credentials(tokenCreds).Build()
 		require.NoError(t, err)
 		// Rendered, not compared: the engine value carries funcs, which

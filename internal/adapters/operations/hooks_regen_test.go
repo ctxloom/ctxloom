@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 )
@@ -29,6 +30,15 @@ func regenTestApp(t *testing.T) (appDir, workDir string) {
 	workDir = filepath.Join(tmp, "work")
 	require.NoError(t, os.MkdirAll(workDir, 0o755))
 	return appDir, workDir
+}
+
+// defaultPackage assembles the package an apply writes from: the default
+// agent's profiles, no per-run selection.
+func defaultPackage(t *testing.T, cfg *config.Config) composite.Package {
+	t.Helper()
+	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{})
+	require.NoError(t, err)
+	return pkg
 }
 
 func writeRegenBundle(t *testing.T, appDir, name, content string) {
@@ -63,7 +73,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir)
+	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash)
 
@@ -100,7 +110,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"devprof"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir)
+	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash,
 		"the default agent's profiles must produce a non-empty injected context")
@@ -132,7 +142,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir)
+	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash)
 
@@ -198,7 +208,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir)
+	hash, err := regenerateContext(defaultPackage(t, cfg), workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash)
 

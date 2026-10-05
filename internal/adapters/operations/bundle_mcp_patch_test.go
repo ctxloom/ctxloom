@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // remoteMCPInput is a fully named remote server entry: every field a caller
@@ -138,4 +139,55 @@ func TestUpdateBundleRequest_JSONAbsentKeepsAndEmptyClears(t *testing.T) {
 	var back BundleMCPInput
 	require.NoError(t, json.Unmarshal(raw, &back))
 	assert.Equal(t, in, back)
+}
+
+// served_by is patched like every other field.
+func TestSetBundleMCP_PatchesServedBy(t *testing.T) {
+	ctx := context.Background()
+	cfg := newItemTestBundle(t)
+	_, err := SetBundleMCP(ctx, cfg, SetBundleMCPRequest{Bundle: "b", Name: "srv", MCP: BundleMCPInput{
+		ServedBy: new(wire.ServedBySessionEndpoint), Notes: new("n"),
+	}})
+	require.NoError(t, err)
+	_, err = SetBundleMCP(ctx, cfg, SetBundleMCPRequest{Bundle: "b", Name: "srv", MCP: BundleMCPInput{Notes: new("n2")}})
+	require.NoError(t, err)
+
+	got, err := GetBundleMCP(ctx, cfg, GetBundleMCPRequest{Bundle: "b", Name: "srv"})
+	require.NoError(t, err)
+	assert.Equal(t, wire.ServedBySessionEndpoint, got.MCP.ServedBy)
+	assert.Equal(t, "n2", got.MCP.Notes)
+}
+
+// A set on a name the bundle lacks creates the entry: set is an upsert.
+func TestSetBundleMCP_CreatesAMissingEntry(t *testing.T) {
+	ctx := context.Background()
+	cfg := newItemTestBundle(t)
+	_, err := SetBundleMCP(ctx, cfg, SetBundleMCPRequest{Bundle: "b", Name: "fresh", MCP: remoteMCPInput()})
+	require.NoError(t, err)
+	got, err := GetBundleMCP(ctx, cfg, GetBundleMCPRequest{Bundle: "b", Name: "fresh"})
+	require.NoError(t, err)
+	assertRemoteMCP(t, got.MCP)
+}
+
+// The loader refuses an entry with no target or two, so a set that would
+// produce one is refused before it is saved: saving it would leave a bundle
+// that no longer loads.
+func TestSetBundleMCP_RefusesAnEntryTheLoaderWouldRefuse(t *testing.T) {
+	ctx := context.Background()
+	cfg := newItemTestBundle(t)
+	_, err := SetBundleMCP(ctx, cfg, SetBundleMCPRequest{Bundle: "b", Name: "srv", MCP: remoteMCPInput()})
+	require.NoError(t, err)
+
+	_, err = SetBundleMCP(ctx, cfg, SetBundleMCPRequest{Bundle: "b", Name: "srv", MCP: BundleMCPInput{URL: new("")}})
+	require.ErrorIs(t, err, wire.ErrMCPServerNoTarget)
+	_, err = SetBundleMCP(ctx, cfg, SetBundleMCPRequest{Bundle: "b", Name: "srv", MCP: BundleMCPInput{Command: new("bin")}})
+	require.ErrorIs(t, err, wire.ErrMCPServerTwoTargets)
+	_, err = SetBundleMCP(ctx, cfg, SetBundleMCPRequest{Bundle: "b", Name: "new", MCP: BundleMCPInput{Notes: new("n")}})
+	require.ErrorIs(t, err, wire.ErrMCPServerNoTarget)
+
+	got, err := GetBundleMCP(ctx, cfg, GetBundleMCPRequest{Bundle: "b", Name: "srv"})
+	require.NoError(t, err)
+	assertRemoteMCP(t, got.MCP)
+	_, err = GetBundleMCP(ctx, cfg, GetBundleMCPRequest{Bundle: "b", Name: "new"})
+	require.ErrorIs(t, err, ErrItemNotFound, "a refused set creates nothing")
 }

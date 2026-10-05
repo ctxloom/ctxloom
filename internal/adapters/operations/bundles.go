@@ -134,6 +134,7 @@ type BundleMCPInput struct {
 	URL          *string            `json:"url"`
 	Headers      *map[string]string `json:"headers"`
 	Tags         *[]string          `json:"tags"`
+	ServedBy     *string            `json:"served_by"`
 	Notes        *string            `json:"notes"`
 	Installation *string            `json:"installation"`
 }
@@ -147,6 +148,7 @@ func (m BundleMCPInput) patch(e bundles.BundleMCP) bundles.BundleMCP {
 	setIfNamed(&e.URL, m.URL)
 	setIfNamed(&e.Headers, m.Headers)
 	setIfNamed(&e.Tags, m.Tags)
+	setIfNamed(&e.ServedBy, m.ServedBy)
 	setIfNamed(&e.Notes, m.Notes)
 	setIfNamed(&e.Installation, m.Installation)
 	if len(e.Args) == 0 {

@@ -2,8 +2,6 @@ package transcript
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"sort"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -11,25 +9,15 @@ import (
 )
 
 // CanonicalFallbackSource is the Source every production reader (compactor,
-// MCP memory tools, `memory`/`session` CLI commands) reads through. It
-// prefers ctxloom's own captured transcript.jsonl (CanonicalHistory) for any
-// harp that has one, and falls back to a legacy Source only when one is
-// given. No shipped engine keeps a transcript store of its own, so every
-// production caller passes legacy=nil: canonical capture is the ONLY source.
-
-// CanonicalFallbackSource wraps a legacy Source with canonical-first
-// selection. Store resolves a backend-native session id to the harp that owns
-// it (the reverse of the index's forward SessionID lookup) so GetSession's
-// sessionID parameter — always backend-native at every call site in this
-// codebase — can still be checked against the canonical store, which is
-// harp-keyed.
+// MCP memory tools, `memory`/`session` CLI commands) reads through: ctxloom's
+// own captured transcript.jsonl (CanonicalHistory) is the only transcript
+// source, since no shipped engine keeps a readable store of its own.
 //
-// legacy may be nil: for a retired-scraper backend there is no
-// legacy reader to fall back to at all, so every method serves canonical-only
-// and degrades to canonical's own "not found"/"empty" contract instead of
-// ever dereferencing legacy.
+// What it adds over CanonicalHistory is id resolution. Store resolves a
+// backend-native session id to the harp that owns it (the reverse of the
+// index's forward SessionID lookup), so GetSession accepts either a harp or a
+// backend-native session id and still reads the harp-keyed canonical store.
 type CanonicalFallbackSource struct {
-	legacy    Source // nil for a retired-scraper backend: canonical-only
 	canonical *CanonicalHistory
 	store     sessions.Store
 }
@@ -37,13 +25,10 @@ type CanonicalFallbackSource struct {
 var _ Source = (*CanonicalFallbackSource)(nil)
 
 // NewCanonicalFallbackSource returns a CanonicalFallbackSource scoped to
-// workDir (the project the canonical enumeration/CurrentSession is limited
-// to, matching legacy's own project scoping). Pass legacy=nil for a
-// retired-scraper backend — canonical becomes the sole source, never
-// falling back.
-func NewCanonicalFallbackSource(legacy Source, workDir string, store sessions.Store) *CanonicalFallbackSource {
+// workDir, the project the canonical enumeration and CurrentSession are
+// limited to.
+func NewCanonicalFallbackSource(workDir string, store sessions.Store) *CanonicalFallbackSource {
 	return &CanonicalFallbackSource{
-		legacy:    legacy,
 		canonical: NewCanonicalHistory(workDir, store),
 		store:     store,
 	}
@@ -51,17 +36,16 @@ func NewCanonicalFallbackSource(legacy Source, workDir string, store sessions.St
 
 // harpForSessionID reverse-resolves a backend-native session id to its owning
 // harp via the index, or "" when unbound/unknown. A best-effort, read-only
-// lookup: an index error degrades to "" (legacy fallback), never an error —
-// selection must never block a read the legacy path could still serve.
+// lookup: an index error degrades to "", and GetSession then reports the
+// first canonical attempt's error.
 //
 // Store.FindBySessionID is the ONE definition of "which harp owns this id",
 // and it is a LINEAGE lookup: it matches an id the harp is currently bound to
 // AND any id a /clear rebind has displaced into Entry.Rotations. Both count.
 // The id recover_session targets after a context wipe is precisely a
 // rotated-away one — the pre-clear thread — and a scan of the current binding
-// alone could not map it to its harp, so the read fell through to a legacy
-// leg a retired-scraper backend does not have and the caller was told there
-// was nothing to recover.
+// alone could not map it to its harp, and the caller would be told there was
+// nothing to recover.
 func (f *CanonicalFallbackSource) harpForSessionID(sessionID string) string {
 	if sessionID == "" || f.store == nil {
 		return ""
@@ -74,12 +58,9 @@ func (f *CanonicalFallbackSource) harpForSessionID(sessionID string) string {
 }
 
 // GetSession resolves id — which callers pass as EITHER a harp OR a
-// backend-native session id, see below — and prefers the canonical
-// transcript when one is captured; otherwise falls back to the legacy source
-// keyed directly by id. When legacy is nil (a retired-scraper backend)
-// there is nothing to fall back to: no
+// backend-native session id, see below — to its canonical transcript. No
 // canonical transcript for a resolvable harp, or an unresolvable id, is a
-// genuine "no session" rather than a scrape attempt.
+// genuine "no session".
 //
 // id is resolved HARP-FIRST, not just as a backend-native
 // session id. `memory list`'s SESSION ID column literally displays the harp
@@ -100,16 +81,8 @@ func (f *CanonicalFallbackSource) GetSession(ctx context.Context, id string) (*a
 		return sess, nil
 	}
 
-	// "This harp captured no transcript" is the selection rule saying "try the
-	// other leg", not a failure. Any OTHER canonical error — corrupt, truncated,
-	// a schema this build refuses to guess at — is a real one, and reporting it
-	// as absence tells the user to stop looking for a transcript that is right
-	// there on disk.
-	var lastErr error
-	var uncaptured *NoCanonicalTranscriptError
-	if !errors.As(firstErr, &uncaptured) {
-		lastErr = firstErr
-	}
+	// The id did not name a harp with a readable transcript: try it as a
+	// backend-native session id.
 	if harp := f.harpForSessionID(id); harp != "" {
 		sess, err := f.canonical.GetSession(ctx, harp)
 		if err == nil {
@@ -123,85 +96,35 @@ func (f *CanonicalFallbackSource) GetSession(ctx context.Context, id string) (*a
 			sess.ID = id
 			return sess, nil
 		}
-		// No canonical transcript (or it failed to parse) for this harp: fall
-		// through to the legacy read below rather than surfacing the
-		// canonical-side error, since the legacy transcript may still be
-		// perfectly readable (the whole point of a transitional fallback) —
-		// unless legacy is nil, in which case this canonical-side error IS
-		// the answer.
-		lastErr = err
+		// No canonical transcript (or it failed to parse) for the harp the id
+		// resolved to: that canonical-side error IS the answer.
+		return nil, err
 	}
-	if f.legacy == nil {
-		if lastErr != nil {
-			return nil, lastErr
-		}
-		// Nothing better emerged, so the FIRST attempt's error is the answer.
-		// It was set aside above as a selection signal ("try the other leg"),
-		// not because it was uninformative — a NoCanonicalTranscriptError names
-		// the harp and the concrete remedy (importing the vendor transcript),
-		// and discarding it here replaced that with a generic message the
-		// caller cannot act on.
-		if firstErr != nil {
-			return nil, firstErr
-		}
-		return nil, fmt.Errorf("no canonical transcript for session %q (legacy scraper reader retired)", id)
-	}
-	return f.legacy.GetSession(ctx, id)
+	// The id resolves to no harp, so the first attempt's error is the answer:
+	// a NoCanonicalTranscriptError names the harp and the concrete remedy
+	// (importing the vendor transcript), and any other error — corrupt,
+	// truncated, a schema this build refuses to guess at — is a real one that
+	// must not be reported as absence.
+	return nil, firstErr
 }
 
-// CurrentSession prefers the project's most-recently-active canonical-backed
-// session; falls back to the legacy source's own notion of "current" when the
-// project has none (pre-capture project, or every session in it predates
-// capture) and a legacy source exists. When legacy is nil canonical's
-// own "no sessions" contract (nil, nil) is returned as-is.
+// CurrentSession is the project's most-recently-active canonical-backed
+// session, with canonical's own "no sessions" contract (nil, nil).
 func (f *CanonicalFallbackSource) CurrentSession(ctx context.Context) (*agent.Session, error) {
-	sess, err := f.canonical.CurrentSession(ctx)
-	if err == nil && sess != nil {
-		return sess, nil
-	}
-	if f.legacy == nil {
-		return sess, err
-	}
-	return f.legacy.CurrentSession(ctx)
+	return f.canonical.CurrentSession(ctx)
 }
 
-// ListSessions merges canonical-backed sessions for this project with legacy
-// entries not already covered by one of those harps (deduped by backend
-// session id, so a harp with BOTH a canonical transcript and a legacy
-// transcript file is listed once, from canonical). Best-effort: a canonical
-// listing failure degrades to legacy-only rather than erroring the whole
-// list. When legacy is nil the listing is canonical-only.
+// ListSessions is this project's canonical-backed sessions, newest first. A
+// failed canonical read is the WHOLE listing's failure, not "zero sessions":
+// discarding it would report a confident empty list indistinguishable from a
+// project that genuinely has none.
 func (f *CanonicalFallbackSource) ListSessions(ctx context.Context) ([]agent.SessionMeta, error) {
-	canonMetas, canonErr := f.canonical.ListSessions(ctx)
-
-	if f.legacy == nil {
-		// No legacy leg to fall back to (a retired scraper, declared on the
-		// engine's descriptor): a failed canonical read is the WHOLE
-		// listing's failure, not "zero sessions". Discarding canonErr here
-		// would report a confident empty list indistinguishable from a
-		// project that genuinely has none.
-		if canonErr != nil {
-			return nil, canonErr
-		}
-		sortNewestFirst(canonMetas)
-		return canonMetas, nil
-	}
-
-	covered := f.coveredSessionIDs(canonMetas)
-	legacyMetas, err := f.legacyListing(ctx, canonMetas, canonErr)
+	metas, err := f.canonical.ListSessions(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	out := make([]agent.SessionMeta, 0, len(canonMetas)+len(legacyMetas))
-	out = append(out, canonMetas...)
-	for _, m := range legacyMetas {
-		if !covered[m.ID] {
-			out = append(out, m)
-		}
-	}
-	sortNewestFirst(out)
-	return out, nil
+	sortNewestFirst(metas)
+	return metas, nil
 }
 
 // sortNewestFirst orders sessions by start time, newest first, stably.
@@ -209,50 +132,4 @@ func sortNewestFirst(metas []agent.SessionMeta) {
 	sort.SliceStable(metas, func(i, j int) bool {
 		return metas[i].StartTime.After(metas[j].StartTime)
 	})
-}
-
-// coveredSessionIDs is the backend session ids the canonical sessions'
-// harps are bound to — the legacy entries already listed from canonical.
-// One enumeration for the whole dedup set, not one Find per canonical
-// session; an unreadable store simply covers nothing.
-func (f *CanonicalFallbackSource) coveredSessionIDs(canonMetas []agent.SessionMeta) map[string]bool {
-	covered := make(map[string]bool, len(canonMetas))
-	if f.store == nil || len(canonMetas) == 0 {
-		return covered
-	}
-	all, err := f.store.ListAll()
-	if err != nil {
-		return covered
-	}
-	sessionIDByHarp := make(map[string]string, len(all))
-	for _, e := range all {
-		if e.SessionID != "" {
-			sessionIDByHarp[e.HarpName] = e.SessionID
-		}
-	}
-	for _, m := range canonMetas {
-		if sessionID := sessionIDByHarp[m.ID]; sessionID != "" {
-			covered[sessionID] = true
-		}
-	}
-	return covered
-}
-
-// legacyListing is the legacy leg's sessions. When it fails and canonical
-// has sessions to show, the listing degrades to canonical-only (nil, nil);
-// when neither leg produced anything, the error is canonical's if it failed
-// too — the primary source's failure is the more actionable one — else
-// legacy's.
-func (f *CanonicalFallbackSource) legacyListing(ctx context.Context, canonMetas []agent.SessionMeta, canonErr error) ([]agent.SessionMeta, error) {
-	legacyMetas, err := f.legacy.ListSessions(ctx)
-	if err == nil {
-		return legacyMetas, nil
-	}
-	if len(canonMetas) > 0 {
-		return nil, nil
-	}
-	if canonErr != nil {
-		return nil, canonErr
-	}
-	return nil, err
 }

@@ -128,8 +128,10 @@ build-full: validate proto
 #
 # PREBUILT on purpose. The pre-commit hook invokes this binary; compiling an
 # analyzer suite on every commit is slow enough that the hook gets bypassed,
-# and lefthook.yml's own rule is that it never is. No codegen prerequisites:
-# the analyzers parse source and never import generated packages.
+# and lefthook.yml's own rule is that it never is. BUILDING it has no codegen
+# prerequisites: the analyzers never import generated packages. RUNNING it
+# does — it type-checks the whole module, and generated code is not committed,
+# so a fresh checkout needs `proto` first (`build` runs both).
 build-archlint:
     go build {{buildvcs}} {{trimpath}} -o bin/archlint ./cmd/archlint
 

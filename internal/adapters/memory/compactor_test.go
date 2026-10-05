@@ -831,49 +831,6 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 	assert.Equal(t, prior, string(gotLegacy), "legacy mirror must survive too")
 }
 
-// refusingSessionSource is a transcript.Source whose every method fails the
-// test if called — used to prove PreloadedSession short-circuits
-// loadSessionToCompact entirely, without consulting source/CurrentSession.
-type refusingSessionSource struct{ t *testing.T }
-
-func (r refusingSessionSource) GetSession(context.Context, string) (*agent.Session, error) {
-	r.t.Fatal("GetSession must not be called when PreloadedSession is set")
-	return nil, nil
-}
-func (r refusingSessionSource) ListSessions(context.Context) ([]agent.SessionMeta, error) {
-	r.t.Fatal("ListSessions must not be called when PreloadedSession is set")
-	return nil, nil
-}
-func (r refusingSessionSource) CurrentSession(context.Context) (*agent.Session, error) {
-	r.t.Fatal("CurrentSession must not be called when PreloadedSession is set")
-	return nil, nil
-}
-
-// TestCompactor_LoadSessionToCompact_PreloadedSessionBypassesSource pins the
-// container-harp distill fix: when only the mounted transcript
-// path is known host-side (no bound session_id), the caller loads the
-// session by path itself and hands it to the compactor via
-// CompactionConfig.PreloadedSession. loadSessionToCompact must return it
-// directly, never touching c.source (identity-bound lookup, CurrentSession,
-// or otherwise) — the source is wired to fail the test if consulted.
-func TestCompactor_LoadSessionToCompact_PreloadedSessionBypassesSource(t *testing.T) {
-	preloaded := &agent.Session{
-		ID: "preloaded-session",
-		Entries: []agent.SessionEntry{
-			{Type: agent.EntryTypeUser, Content: "hi from container harp"},
-		},
-	}
-	c := &Compactor{
-		fs:     afero.NewOsFs(),
-		config: CompactionConfig{PreloadedSession: preloaded},
-		source: refusingSessionSource{t: t},
-	}
-
-	got, err := c.loadSessionToCompact(context.Background())
-	require.NoError(t, err)
-	assert.Same(t, preloaded, got, "loadSessionToCompact must return the preloaded session as-is")
-}
-
 func TestCompact_BySessionID(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()

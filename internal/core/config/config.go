@@ -978,19 +978,25 @@ func (c *Config) GetProfileLoader() *profiles.Loader {
 	for _, appPath := range c.appPaths {
 		roots = append(roots, paths.LocalBundlesPathFor(appPath, paths.LayoutV2))
 	}
-	return profiles.NewLoader(roots, c.ProfileLoaderOptions()...)
+	oracle := &localBundleOracle{c: c, shared: true}
+	defer oracle.unshare()
+	return profiles.NewLoader(roots, c.profileLoaderOptions(oracle.exists)...)
 }
 
 // ProfileLoaderOptions returns the loader options GetProfileLoader wires:
 // which filesystem is written, how a local bundle profile's alias refs
 // canonicalize, and which profiles exist.
 func (c *Config) ProfileLoaderOptions() []profiles.LoaderOption {
+	return c.profileLoaderOptions(c.LocalBundleExists)
+}
+
+func (c *Config) profileLoaderOptions(localBundleExists func(string) bool) []profiles.LoaderOption {
 	opts := []profiles.LoaderOption{profiles.WithReporter(c.rep.Sink)}
 	if c.fs != nil {
 		opts = append(opts, profiles.WithFS(c.fs))
 	}
 	if resolveURL := c.ProfileRemoteURLResolver(); resolveURL != nil {
-		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL), profiles.WithLocalBundleResolver(c.LocalBundleExists))
+		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL), profiles.WithLocalBundleResolver(localBundleExists))
 	}
 	// Seed remote profiles read from the git clone cache at their locked SHA, so
 	// every consumer of the loader sees them as references without a materialized
@@ -1003,9 +1009,40 @@ func (c *Config) ProfileLoaderOptions() []profiles.LoaderOption {
 // refs, at load and at store alike, read from the same directories the
 // catalog's project reader reads.
 func (c *Config) LocalBundleExists(name string) bool {
-	_, err := bundles.NewLoader(bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs())).Find(name)
+	_, err := c.localBundles().Find(name)
 	return err == nil
 }
+
+// localBundles reads the project's own authored bundles afresh: every bundle,
+// parsed — the cost of one local-file-wins answer.
+func (c *Config) localBundles() *bundles.Loader {
+	return bundles.NewLoader(bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs()))
+}
+
+// localBundleOracle is LocalBundleExists for one loader. While shared — the
+// loader's construction, which asks once per local profile's "<alias>/<bundle>"
+// ref in one synchronous pass with no write between — it answers every
+// question from one read of the local bundles. Unshared, it reads afresh per
+// question, as LocalBundleExists does: the loader keeps it for Save, and a
+// bundle created after the loader was built must be one Save can write into.
+type localBundleOracle struct {
+	c      *Config
+	shared bool
+	read   *bundles.Loader
+}
+
+func (o *localBundleOracle) exists(name string) bool {
+	if !o.shared {
+		return o.c.LocalBundleExists(name)
+	}
+	if o.read == nil {
+		o.read = o.c.localBundles()
+	}
+	_, err := o.read.Find(name)
+	return err == nil
+}
+
+func (o *localBundleOracle) unshare() { o.shared, o.read = false, nil }
 
 // ProfileSeedOptions returns the loader option that seeds the profiles shipped
 // INSIDE bundles (the ungated, compound bundle item kind), keyed by their

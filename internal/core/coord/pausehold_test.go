@@ -2,9 +2,11 @@ package coord
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -178,4 +180,90 @@ func TestHoldLaunch_ANewChildOnAHeldCredentialStartsPaused(t *testing.T) {
 	clk.Advance(limitResets.Sub(clk.Now()))
 	assert.Empty(t, f.c.CredentialHolds())
 	awaitChatText(t, f.sp, 3, "the new child's briefing")
+}
+
+// TestControlPause_AnUnansweredPauseKeepsItsHold: the runner takes the pause
+// but its answer never reaches the coordinator before the caller gives up.
+// The runner is paused, so the journaled hold must stand — the steer
+// disposition reads it, and a later resume must be able to release it. The
+// interleaving is forced: the runner's handler blocks on the pause until the
+// caller's context has ended, then installs the gate.
+func TestControlPause_AnUnansweredPauseKeepsItsHold(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(t, 0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChild(t, c, sp, "first task")
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	sp.mu.Lock()
+	sp.refuse = func(req *agentcoordpb.RunnerRequest) error {
+		if req.GetPauseRun() != nil {
+			close(entered)
+			<-release
+		}
+		return nil
+	}
+	sp.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.ControlPause(ctx, humanInitiator(), out.Harp, "human is reviewing")
+		done <- err
+	}()
+	<-entered
+	cancel()
+	err := <-done
+	close(release)
+
+	require.ErrorIs(t, err, context.Canceled, "the caller still hears that it got no answer")
+	assert.True(t, c.harpHeld(out.Harp), "a pause the runner may have taken keeps its journaled hold")
+	assert.Empty(t, journaled[holdReleased](t, c, factHoldReleased), "nothing released the hold")
+
+	rctx, rcancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer rcancel()
+	_, err = c.ControlResume(rctx, humanInitiator(), out.Harp)
+	require.NoError(t, err)
+	assert.False(t, c.harpHeld(out.Harp), "the kept hold is the resume's to release")
+}
+
+// TestControlPause_ARefusedPauseDropsItsHold: a runner that answers the pause
+// with a refusal did not pause, so the hold journaled before the send is
+// dropped with the error.
+func TestControlPause_ARefusedPauseDropsItsHold(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(t, 0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChild(t, c, sp, "first task")
+
+	sp.mu.Lock()
+	sp.refuse = refuseOnly(func(req *agentcoordpb.RunnerRequest) bool { return req.GetPauseRun() != nil }, remedialRefusal())
+	sp.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	_, err := c.ControlPause(ctx, humanInitiator(), out.Harp, "human is reviewing")
+	require.Error(t, err)
+	assert.False(t, c.harpHeld(out.Harp), "a refused pause leaves no hold behind")
+}
+
+// TestRequestMayHaveLanded: only a request that reached the session's send
+// queue and then lost its answer is ambiguous; a refusal, and a request that
+// never left the coordinator, are definitive. Wrapped as sendRunnerControl
+// wraps them.
+func TestRequestMayHaveLanded(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"the wait ran out after the send":    {fmt.Errorf("pause h: %w", fmt.Errorf("%w: %w", errRunnerUnanswered, context.DeadlineExceeded)), true},
+		"the session ended before answering": {fmt.Errorf("pause h refused: %w", ErrRunnerSessionEnded), true},
+		"the runner refused":                 {fmt.Errorf("pause h refused: %w", errLaunchRemedyCause), false},
+		"no runner request could reach it":   {fmt.Errorf("pause: %w", ErrCapabilityUnavailable), false},
+		"the wait ran out before the send":   {fmt.Errorf("pause h: %w", context.DeadlineExceeded), false},
+	} {
+		assert.Equal(t, tc.want, requestMayHaveLanded(tc.err), name)
+	}
 }

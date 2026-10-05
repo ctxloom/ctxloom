@@ -2,12 +2,15 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // RetractionVerdict is CheckRetracted's three-valued outcome. A bool cannot
@@ -35,6 +38,12 @@ const (
 	// is a finding in its own right, and like Unknown it never clears a
 	// recorded verdict — the caller falls back to it and says why.
 	RetractionRollback
+	// retractionUnpublished means the check ran and the tip carries no
+	// manifest at all: this remote publishes no retraction channel. Like
+	// Unknown it clears nothing — deleting a manifest is within reach of
+	// whoever controls the repository — but unlike Unknown it is an answer,
+	// not a check that failed to run.
+	retractionUnpublished
 )
 
 // RetractionStaleAfter is how old a PERSISTED retraction verdict may get
@@ -71,9 +80,12 @@ type ManifestVerifyFunc func(manifest []byte, sigFiles map[string][]byte) (Verif
 //   - A signed tip whose version is BELOW pinned.SignedVersion:
 //     RetractionRollback. The branch was rewound to an older release; it
 //     says nothing about what was retracted since, so it clears nothing.
-//   - Anything else — no manifest, unreachable, unsigned, signed by nobody
-//     trusted, tampered, or a trusted manifest for ANOTHER bundle served at
-//     this path — is RetractionUnknown, and the caller's fail-stale policy
+//   - No manifest at the tip at all — the remote answered, and publishes no
+//     retraction channel — is retractionUnpublished. It clears nothing, but
+//     it is an answer rather than a failed check.
+//   - Anything else — unreadable, unsigned, signed by nobody trusted,
+//     tampered, or a trusted manifest for ANOTHER bundle served at this
+//     path — is RetractionUnknown, and the caller's fail-stale policy
 //     applies (docs/trust-model.md).
 //
 // Why unsigned is Unknown and not Clean: a retraction is the only channel a
@@ -84,10 +96,10 @@ func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo string, re
 	if err := ctx.Err(); err != nil {
 		return RetractionUnknown, "", err
 	}
-	if verify == nil {
-		return RetractionUnknown, "", nil
+	v, absent, ok := fetchVerifiedTip(ctx, fetcher, owner, repo, ref.TreeRepoPath(), verify)
+	if absent {
+		return retractionUnpublished, "", nil
 	}
-	v, ok := fetchVerifiedTip(ctx, fetcher, owner, repo, ref.TreeRepoPath(), verify)
 	if !ok {
 		return RetractionUnknown, "", nil
 	}
@@ -109,25 +121,31 @@ func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo string, re
 }
 
 // fetchVerifiedTip reads and verifies the tip manifest for the bundle rooted
-// at root on the default branch. false — Unknown — when it cannot be read,
-// does not verify to a publisher and version, or names another bundle.
-func fetchVerifiedTip(ctx context.Context, fetcher Fetcher, owner, repo, root string, verify ManifestVerifyFunc) (Verified, bool) {
+// at root on the default branch. absent reports that the read succeeded and
+// found no manifest there (errs.ErrRemoteContentNotFound), which needs no
+// verifier to establish. ok is false — Unknown — when the tip cannot be read,
+// no verifier is wired, or it does not verify to a publisher and version for
+// this bundle.
+func fetchVerifiedTip(ctx context.Context, fetcher Fetcher, owner, repo, root string, verify ManifestVerifyFunc) (v Verified, absent, ok bool) {
 	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
 	if err != nil {
-		return Verified{}, false
+		return Verified{}, false, false
 	}
 	raw, err := fetcher.FetchFile(ctx, owner, repo, root+"/"+tipManifestName, branch)
-	if err != nil {
-		return Verified{}, false
+	if errors.Is(err, errs.ErrRemoteContentNotFound) {
+		return Verified{}, true, false
 	}
-	v, err := verify(raw, tipManifestSignatures(ctx, fetcher, owner, repo, root, branch))
+	if err != nil || verify == nil {
+		return Verified{}, false, false
+	}
+	v, err = verify(raw, tipManifestSignatures(ctx, fetcher, owner, repo, root, branch))
 	if err != nil || v.Publisher == "" || v.Release.Version == nil {
-		return Verified{}, false
+		return Verified{}, false, false
 	}
 	if v.Release.Name != path.Base(root) {
-		return Verified{}, false
+		return Verified{}, false, false
 	}
-	return v, true
+	return v, false, true
 }
 
 // tipManifestName is the bundle manifest's file name and its signatures' key

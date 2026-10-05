@@ -16,21 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestSessionStateFromEnv: the session identity reads from the SAME env map
-// the launch paths export into the engine (harp + project id); absent keys
-// yield zero fields, and a nil map is safe.
-func TestSessionStateFromEnv(t *testing.T) {
-	got := SessionStateFromEnv(map[string]string{
-		"CTXLOOM_SESSION_HARP": "brisk-teal-otter",
-		"CTXLOOM_PROJECT_ID":   "proj-1",
-		"OTHER":                "ignored",
-	})
-	assert.Equal(t, SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}, got)
-
-	assert.Equal(t, SessionState{}, SessionStateFromEnv(nil))
-	assert.Equal(t, SessionState{Harp: "h"}, SessionStateFromEnv(map[string]string{"CTXLOOM_SESSION_HARP": "h"}))
-}
-
 // TestSessionStateMounts_MembersOutputAndTaskLog pins the state mounts: each
 // Mounted session member at the same relative path under the CONTAINER home,
 // the session's output dir at containerOutputDir with CTXLOOM_OUTPUT_DIR

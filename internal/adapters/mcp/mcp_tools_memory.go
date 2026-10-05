@@ -239,7 +239,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		taskHint, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
 		distiller := operations.OneShot(s.facts, s.hostsFor(), s.cfg).Label(s.cfg.FastLabel()).Model(model).WorkDir(workDir).Lazy()
 		defer distiller.End()
-		source, serr := operations.DistillSource(s.facts.Engines, backend, workDir)
+		source, serr := operations.DistillSource(workDir)
 		if serr != nil {
 			return nil, fmt.Errorf("resolve transcript source: %w", serr)
 		}
@@ -1112,7 +1112,7 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 	taskHint, _ := memory.ReadNextStep(afero.NewOsFs(), harp)
 	distiller := operations.OneShot(s.facts, s.hostsFor(), s.cfg).Label(s.cfg.FastLabel()).Model(model).WorkDir(workDir).Lazy()
 	defer distiller.End()
-	source, serr := operations.DistillSource(s.facts.Engines, backendName, workDir)
+	source, serr := operations.DistillSource(workDir)
 	if serr != nil {
 		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't resolve a transcript source for session %s: %v", sessionID, serr)}, nil
 	}

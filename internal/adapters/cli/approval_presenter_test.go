@@ -270,6 +270,23 @@ func TestPresenter_AnArrivalIsSummonedOnce(t *testing.T) {
 	r.ui.noSummon(t)
 }
 
+// TestPresenter_AResolvedRequestIsForgotten: what the presenter remembers
+// as shown is the pending requests; one parked again under the same id after
+// it resolved is an arrival again. (The queue mints a fresh id per park
+// today; this keeps the presenter from depending on that.)
+func TestPresenter_AResolvedRequestIsForgotten(t *testing.T) {
+	src := newPresenterSource()
+	r := startPresenter(t, src)
+	src.settle()
+	req := pending("a", "wiry-otter", t0, t0.Add(9*time.Minute))
+	src.add(req)
+	r.ui.nextSummon(t)
+	src.resolve(req.ID, agent.DeciderHuman)
+	src.add(req)
+	s := r.ui.nextSummon(t)
+	assert.Equal(t, termui.Notice{Text: "approval from wiry-otter"}, s.notice)
+}
+
 // TestPresenter_NothingPendingWithdrawsTheSummon: when the last request
 // resolves before the modal could appear, it never appears, and the bar
 // clears.

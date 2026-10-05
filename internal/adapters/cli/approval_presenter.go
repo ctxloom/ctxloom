@@ -50,14 +50,16 @@ const (
 // presentApprovals is the presenter's policy:
 //   - the bar always carries the count and the oldest request's arrival;
 //   - an arrival rings the bell and summons the modal, naming its asker —
-//     replacing a summon still waiting for the human's typing pause;
+//     replacing a summon still waiting for the human's typing pause — once
+//     per request: an arrival event for a request already presented (by the
+//     start, or an earlier event) is ignored;
 //   - a hidden modal comes back only for a new request, or once per request
 //     at warnBefore left (with one more bell);
 //   - nothing pending withdraws a waiting summon;
 //   - a request that timed out leaves a note on the bar: nobody decided it.
 func presentApprovals(ctx context.Context, src coord.ApprovalSource, ui presenterUI, clock termui.Clock) error {
 	events := src.Subscribe(ctx)
-	p := &presenter{src: src, ui: ui, clock: clock, warned: map[coord.ApprovalID]bool{}}
+	p := &presenter{src: src, ui: ui, clock: clock, warned: map[coord.ApprovalID]bool{}, presented: map[coord.ApprovalID]bool{}}
 	defer p.stopSummon()
 	wake := make(chan struct{}, 1)
 	stop := clock.AfterFunc(presenterTick, func() { nudge(wake) })
@@ -92,6 +94,10 @@ type presenter struct {
 	ui     presenterUI
 	clock  termui.Clock
 	warned map[coord.ApprovalID]bool
+	// presented holds the pending requests already shown: the subscription
+	// opens before start reads the queue, so a request parked in between is
+	// both in start's scan and in an arrival event. Forgotten once resolved.
+	presented map[coord.ApprovalID]bool
 	// cancel withdraws the summon in flight; wg waits for it to return.
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -100,6 +106,9 @@ type presenter struct {
 // start shows what was already waiting: no bell, since nothing arrived.
 func (p *presenter) start(ctx context.Context) {
 	pending := p.bar(false)
+	for _, req := range pending {
+		p.presented[req.ID] = true
+	}
 	if len(pending) > 0 {
 		p.markWarned(pending)
 		p.summon(ctx, pending[0].From.Harp)
@@ -109,14 +118,19 @@ func (p *presenter) start(ctx context.Context) {
 func (p *presenter) onEvent(ctx context.Context, ev coord.QueueEvent) {
 	switch ev.Kind {
 	case coord.QueueAdded:
+		if p.presented[ev.ID] {
+			return
+		}
 		pending := p.bar(true)
 		for _, req := range pending {
 			if req.ID == ev.ID {
+				p.presented[req.ID] = true
 				p.markWarned([]coord.PendingApproval{req})
 				p.summon(ctx, req.From.Harp)
 			}
 		}
 	case coord.QueueResolved:
+		delete(p.presented, ev.ID)
 		if ev.Decider == agent.DeciderTimeout {
 			p.ui.noteBar(timedOutNote, timedOutNoteFor)
 		}
@@ -142,6 +156,11 @@ func (p *presenter) onTick(ctx context.Context) {
 	for id := range p.warned {
 		if !live[id] {
 			delete(p.warned, id)
+		}
+	}
+	for id := range p.presented {
+		if !live[id] {
+			delete(p.presented, id)
 		}
 	}
 }

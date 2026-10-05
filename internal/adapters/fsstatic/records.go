@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/spf13/afero"
@@ -132,7 +133,7 @@ func bytesToContent(entry *yaml.Node) bool {
 		b[i] = byte(v)
 	}
 	var content yaml.Node
-	if err := content.Encode(string(b)); err != nil {
+	if err := content.Encode(deliveredContent(b)); err != nil {
 		return false
 	}
 	yamlx.MapDelete(entry, "bytes")
@@ -187,15 +188,27 @@ type claimsRecord struct {
 
 // claimEntry is one writer's claim at one place. Seq orders claims of one
 // writer kind: the latest staged is on top. Content is a whole-file or
-// appended-section claim's delivered bytes, held as a string so the record
-// carries text as text; yaml.v3 writes bytes that are not UTF-8 as !!binary,
-// so they still come back exactly.
+// appended-section claim's delivered bytes.
 type claimEntry struct {
-	Writer  string `yaml:"writer"`
-	Via     string `yaml:"via,omitempty"`
-	Seq     uint64 `yaml:"seq"`
-	Value   any    `yaml:"value"`
-	Content string `yaml:"content,omitempty"`
+	Writer  string           `yaml:"writer"`
+	Via     string           `yaml:"via,omitempty"`
+	Seq     uint64           `yaml:"seq"`
+	Value   any              `yaml:"value"`
+	Content deliveredContent `yaml:"content,omitempty"`
+}
+
+// deliveredContent is delivered bytes held as a string, so the record
+// carries text as text. UTF-8 is written DOUBLE-QUOTED, never as a block
+// scalar: yaml.v3 writes a block scalar for text that starts with a newline
+// or a space that it then cannot read back. Bytes that are not UTF-8 are
+// written as yaml.v3 writes such a string, !!binary, and read back exactly.
+type deliveredContent string
+
+func (c deliveredContent) MarshalYAML() (any, error) {
+	if !utf8.ValidString(string(c)) {
+		return string(c), nil
+	}
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Style: yaml.DoubleQuotedStyle, Value: string(c)}, nil
 }
 
 // pendingWrite is written WITH the record, before the target: the target's
@@ -419,7 +432,7 @@ func (s *Staging) Stage(target string, w delivery.Writer, claims []present.Claim
 type stagedClaim struct {
 	key, via string
 	value    any
-	content  string
+	content  deliveredContent
 }
 
 func isOpaque(key string) bool { return key == "" || key == present.AppendedSection }
@@ -431,7 +444,7 @@ func stageable(target string, cl present.Claim) (stagedClaim, error) {
 		if !ok {
 			return stagedClaim{}, fmt.Errorf("fsstatic: %s: a whole-file or appended-section claim's value is its bytes", target)
 		}
-		sc.content = string(b)
+		sc.content = deliveredContent(b)
 		return sc, nil
 	}
 	if _, _, ok := bindingFor(target); !ok {
@@ -732,7 +745,7 @@ func (t *targetOps) sectionUser(cur []byte, exists bool, o claimEntry, hasO bool
 	if u, ok := stripSection(cur, []byte(o.Content)); ok {
 		return u, false, nil
 	}
-	if !bytes.Contains(cur, []byte(strings.TrimRight(o.Content, "\n"))) {
+	if !bytes.Contains(cur, []byte(strings.TrimRight(string(o.Content), "\n"))) {
 		return cur, false, nil
 	}
 	if hasN && o.Content == n.Content {
@@ -792,7 +805,7 @@ func (t *targetOps) wholeFile(cur []byte, exists bool, from, to fileState, rec *
 // it holds one of them (ours), or it is an unchanged claim the user has
 // since edited (leave it), or it is not ctxloom's.
 func (t *targetOps) wholeFileEdited(cur []byte, o claimEntry, hasO bool, n claimEntry, hasN bool) (bool, error) {
-	if (hasO && string(cur) == o.Content) || (hasN && string(cur) == n.Content) {
+	if (hasO && deliveredContent(cur) == o.Content) || (hasN && deliveredContent(cur) == n.Content) {
 		return false, nil
 	}
 	if hasO && hasN && o.Content == n.Content {
@@ -1354,7 +1367,7 @@ func (c *Records) Paths(fs afero.Fs, target string) ([]delivery.PathState, error
 func live(doc hew.Document, cur []byte, exists bool, key string, top claimEntry) bool {
 	switch container, elem := elementOf(key); {
 	case key == "":
-		return exists && string(cur) == top.Content
+		return exists && deliveredContent(cur) == top.Content
 	case key == present.AppendedSection:
 		_, ok := stripSection(cur, []byte(top.Content))
 		return ok

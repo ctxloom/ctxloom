@@ -64,6 +64,8 @@ func TestClaimsRecord_ContentRoundTripsByteExactly(t *testing.T) {
 		"edge whitespace":     []byte("  leading\n\n\ttabbed\ntrailing  \n\n\n"),
 		"crlf and controls":   []byte("a\r\nb\x00c\x1b[0m\r\n"),
 		"yaml-looking":        []byte("key: value\n- item\n---\n"),
+		"leading newline":     []byte("\nA first line,\nthen one (with a colon): that ends a block scalar early\n"),
+		"leading spaces":      []byte("   indented: first\nnot: indented\n"),
 		"not utf-8":           {0xff, 0xfe, 'h', 'i', 0x80, '\n', 0xc3},
 	} {
 		t.Run(name, func(t *testing.T) {

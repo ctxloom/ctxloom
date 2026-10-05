@@ -160,8 +160,8 @@
 //
 // Durability boundary: requests/responses are control-plane and are NOT
 // part of the agent's event log. Durable milestones they cause (e.g.
-// "now waiting on approval", "approval resolved") are recorded by the
-// agent as StatusChanged / InteractionResolved events, and the
+// "approval resolved") are recorded by the agent as InteractionRecorded
+// events, and the
 // coordinator journals its own decisions on its side.
 //
 // Design lineage:
@@ -1872,13 +1872,15 @@ message AgentEvent {
   // un-reserved: ArtifactProduced returned with the
   // plan-manifest consumer.
   reserved 60, 61;
+  // 13 was status_changed, an event no producer ever sent.
+  reserved 13;
+  reserved "status_changed";
 
   oneof payload {
     // --- lifecycle ---
     RunStarted run_started = 10;
     StepStarted step_started = 11;
     StepCompleted step_completed = 12;
-    StatusChanged status_changed = 13;
     RunCompleted run_completed = 14;  // terminal; exactly one per run
 
     // --- messages (item lifecycle: started -> delta* -> completed) ---
@@ -1944,15 +1946,6 @@ message StepCompleted {
   }
   Outcome outcome = 2;
   string detail = 3;
-}
-
-// A durable change in the run's status. Transient % progress goes in
-// Heartbeat.
-message StatusChanged {
-  // 1 was a phase enum nothing ever set.
-  reserved 1;
-  reserved "phase";
-  string detail = 2;  // human-readable, one line
 }
 
 // Durable record that a plane-2 interaction happened and how it resolved,

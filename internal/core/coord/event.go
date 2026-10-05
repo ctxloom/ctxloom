@@ -63,12 +63,6 @@ type StepCompleted struct {
 	Detail  string
 }
 
-// StatusChanged reports a durable change in the run's status, said in
-// Detail.
-type StatusChanged struct {
-	Detail string
-}
-
 // InteractionRecorded records a resolved request.
 type InteractionRecorded struct {
 	RequestID  string
@@ -234,7 +228,6 @@ type Status struct {
 func (RunStarted) eventPayload()          {}
 func (StepStarted) eventPayload()         {}
 func (StepCompleted) eventPayload()       {}
-func (StatusChanged) eventPayload()       {}
 func (InteractionRecorded) eventPayload() {}
 func (RunCompleted) eventPayload()        {}
 func (MessageStarted) eventPayload()      {}
@@ -252,7 +245,6 @@ func (CustomEvent) eventPayload()         {}
 func (RunStarted) kind() string          { return "run_started" }
 func (StepStarted) kind() string         { return "step_started" }
 func (StepCompleted) kind() string       { return "step_completed" }
-func (StatusChanged) kind() string       { return "status_changed" }
 func (InteractionRecorded) kind() string { return "interaction" }
 func (RunCompleted) kind() string        { return "run_completed" }
 func (MessageStarted) kind() string      { return "message_started" }

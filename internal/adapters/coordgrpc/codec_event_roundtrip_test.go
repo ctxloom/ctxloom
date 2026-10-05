@@ -23,7 +23,6 @@ func TestEvent_RoundTripsEveryPayloadVariant(t *testing.T) {
 		{coord.RunStarted{Input: map[string]any{"task": "x"}, Agent: &coord.AgentIdentity{AgentID: "a", Harness: "claude"}, Config: map[string]any{"k": "v"}, ParentRunID: "p-1"}, &agentcoordpb.AgentEvent_RunStarted{}},
 		{coord.StepStarted{StepID: "s", Title: "t", Ordinal: 2}, &agentcoordpb.AgentEvent_StepStarted{}},
 		{coord.StepCompleted{StepID: "s", Outcome: coord.StepOutcomeFailed, Detail: "d"}, &agentcoordpb.AgentEvent_StepCompleted{}},
-		{coord.StatusChanged{Detail: "d"}, &agentcoordpb.AgentEvent_StatusChanged{}},
 		{coord.InteractionRecorded{RequestID: "r", Kind: "approval", Resolution: coord.ResolutionDenied, Detail: map[string]any{"why": "no"}}, &agentcoordpb.AgentEvent_Interaction{}},
 		{coord.RunCompleted{Result: &coord.Result{Status: coord.RunStatusFailed, Text: "done", NumTurns: 3}}, &agentcoordpb.AgentEvent_RunCompleted{}},
 		{coord.MessageStarted{MessageID: "m", Role: coord.RoleTool, Channel: coord.ChannelReasoning}, &agentcoordpb.AgentEvent_MessageStarted{}},

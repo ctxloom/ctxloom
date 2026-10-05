@@ -319,7 +319,10 @@ A run's `AgentRequest.approval` parks in the ROOT coordinator's approval queue
 (`coord.ApprovalQueue`, served by `Coordinator.parkApproval`) until the human decides,
 its timeout denies it, or the run ends. Only an in-process presenter answers one
 (`coord.ApprovalSource`): no wire request reaches `ApprovalQueue.Answer`
-(`TestNoWirePathAnswersAnApproval`).
+(`TestNoWirePathAnswersAnApproval`). Another terminal can READ the queue —
+`ConsumerService.PendingApprovals`, behind `ctxloom session approvals` — with the
+consumer credential only; it carries no approval id, so nothing it returns can
+address an answer.
 
 ## Where the known gaps live
 

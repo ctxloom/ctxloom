@@ -456,7 +456,7 @@ func TestAddRemote_Success(t *testing.T) {
 	assert.Contains(t, result.URL, "github.com/alice/ctxloom")
 	assert.Empty(t, result.Warning)
 	assert.Equal(t, []string{"https://github.com/alice/ctxloom"}, cloner.urls,
-		"remote add must eagerly clone the remote (full history)")
+		"remote create must eagerly clone the remote (full history)")
 
 	// Verify fetcher was called
 	assert.Len(t, fetcher.ValidateCalls, 1)
@@ -724,11 +724,11 @@ func TestDiscoverRemotes_AddCommandFormat(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result.Repositories, 1)
-	assert.Equal(t, "ctxloom remote add ctxloom alice/ctxloom", result.Repositories[0].AddCommand)
+	assert.Equal(t, "ctxloom remote create ctxloom alice/ctxloom", result.Repositories[0].AddCommand)
 }
 
 // TestDiscoverRemotes_AddCommandUsesRepoNameNotOwner is a regression guard:
-// AddCommand used to alias every suggested `remote add` on the repo
+// AddCommand used to alias every suggested `remote create` on the repo
 // OWNER, so two repos discovered from the same owner rendered IDENTICAL add
 // commands — the second one silently collides with (overwrites) the first
 // remote a user who followed the suggestion registered.
@@ -745,8 +745,8 @@ func TestDiscoverRemotes_AddCommandUsesRepoNameNotOwner(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result.Repositories, 2)
-	assert.Equal(t, "ctxloom remote add ctxloom-core alice/ctxloom-core", result.Repositories[0].AddCommand)
-	assert.Equal(t, "ctxloom remote add ctxloom-tools alice/ctxloom-tools", result.Repositories[1].AddCommand)
+	assert.Equal(t, "ctxloom remote create ctxloom-core alice/ctxloom-core", result.Repositories[0].AddCommand)
+	assert.Equal(t, "ctxloom remote create ctxloom-tools alice/ctxloom-tools", result.Repositories[1].AddCommand)
 	assert.NotEqual(t, result.Repositories[0].AddCommand, result.Repositories[1].AddCommand,
 		"two repos from the same owner must not collide on the suggested alias")
 }

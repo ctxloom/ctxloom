@@ -79,6 +79,9 @@ func (rs *RunnerSession) end() {
 // the previous coordinator: it is re-adopted here, BEFORE it registers as
 // connected, so a caller that sees the runner connected sees the run owned.
 func (c *Coordinator) RunnerHello(credHash string, hello RunnerHello) error {
+	if hook := c.runnerHelloHook; hook != nil {
+		hook(credHash)
+	}
 	if c.Draining() && len(hello.ActiveRunIDs) == 0 {
 		return ErrDraining
 	}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -13,6 +14,18 @@ import (
 
 // doctorDepsOnlyFlag backs --deps (operations.DoctorRequest.DepsOnly).
 var doctorDepsOnlyFlag bool
+
+// doctorAllFlag backs --all: the text report lists every check rather than
+// the warnings alone. Structured output always carries every check.
+var doctorAllFlag bool
+
+const (
+	// doctorAllClearLine closes a text report that found nothing to fix.
+	doctorAllClearLine = "No warnings. `ctxloom doctor --all` lists every check."
+	// doctorNoFixNamed ends the summary when no warning carries a structured
+	// remedy; most rows state their fix inside the detail instead.
+	doctorNoFixNamed = "see each row above for its fix"
+)
 
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
@@ -38,7 +51,9 @@ fresh clone has no way to learn it lacks anywhere else; and, always, a stated
 reminder of the one boundary no check here crosses: ctxloom can confirm it
 WROTE the assembled context onto the engine's own surface, never that the
 engine actually READ it — that happens inside a process ctxloom does not own.
-Each line is prefixed with a DOCTOR-CHECK-* marker — the SAME vocabulary the
+The text report lists only the warnings, then one line counting them and
+naming the first fix; --all lists every check. Each line is prefixed with a
+DOCTOR-CHECK-* marker — the SAME vocabulary the
 "ctxloom-doctor" Agent Skill uses, so a human or an LLM reading either
 surface sees one language.
 
@@ -76,7 +91,12 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return emit(cmd, report, func() error { return renderDoctorReport(cmd.OutOrStdout(), report) })
+	return emit(cmd, report, func() error {
+		if doctorAllFlag {
+			return renderDoctorReport(cmd.OutOrStdout(), report)
+		}
+		return renderDoctorSummary(cmd.OutOrStdout(), report)
+	})
 }
 
 // doctorHome is the user's home as the doctor's home-rooted checks see it —
@@ -98,16 +118,60 @@ func renderDoctorReport(out io.Writer, report operations.DoctorReport) error {
 	w := errwriter.New(out)
 	w.Println("ctxloom doctor")
 	for _, c := range report.Checks {
-		// A detail is ctxloom's sentence with publisher values (bundle refs,
-		// remote errors) spliced in. inertBody and not inertField: inertField's
-		// line-sized cap would clip ctxloom's own longer sentences.
-		w.Printf("  %s [%s] %s%s\n", c.Marker, c.Status, inertBody(c.Detail, 0, false).Text,
-			clifmt.FixLine("    ", inertBody(c.Remedy, 0, false).Text))
+		writeDoctorRow(w, c)
 	}
 	return w.Err()
 }
 
+// renderDoctorSummary is the default text report: the warn rows alone, then
+// one line counting them and naming the first remedy, or the all-clear line.
+func renderDoctorSummary(out io.Writer, report operations.DoctorReport) error {
+	w := errwriter.New(out)
+	w.Println("ctxloom doctor")
+	warnings, firstFix := 0, ""
+	for _, c := range report.Checks {
+		if c.Status != operations.DoctorWarn {
+			continue
+		}
+		warnings++
+		if firstFix == "" {
+			firstFix = inertBody(c.Remedy, 0, false).Text
+		}
+		writeDoctorRow(w, c)
+	}
+	if warnings == 0 {
+		w.Println(doctorAllClearLine)
+	} else {
+		w.Println(doctorWarningsSummary(warnings, firstFix))
+	}
+	return w.Err()
+}
+
+// doctorWarningsSummary is the text report's closing line for n warnings,
+// naming fix (the first warning's remedy) when there is one.
+func doctorWarningsSummary(n int, fix string) string {
+	noun := "warnings"
+	if n == 1 {
+		noun = "warning"
+	}
+	if fix == "" {
+		return fmt.Sprintf("%d %s; %s", n, noun, doctorNoFixNamed)
+	}
+	return fmt.Sprintf("%d %s; first fix: %s", n, noun, fix)
+}
+
+// writeDoctorRow writes one "DOCTOR-CHECK-* [status] detail" line and its fix
+// line. A detail is ctxloom's sentence with publisher values (bundle refs,
+// remote errors) spliced in. inertBody and not inertField: inertField's
+// line-sized cap would clip ctxloom's own longer sentences.
+func writeDoctorRow(w *errwriter.Writer, c operations.DoctorCheck) {
+	w.Printf("  %s [%s] %s%s\n", c.Marker, c.Status, inertBody(c.Detail, 0, false).Text,
+		clifmt.FixLine("    ", inertBody(c.Remedy, 0, false).Text))
+}
+
 func init() {
+	doctorCmd.Flags().BoolVar(&doctorAllFlag, "all", false,
+		"list every check in the text report, not only the warnings")
 	doctorCmd.Flags().BoolVar(&doctorDepsOnlyFlag, "deps", false,
 		"check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients/signing key/git identity) — skips agents/profiles/hooks/trust, for use before a project has been set up")
 	rootCmd.AddCommand(doctorCmd)

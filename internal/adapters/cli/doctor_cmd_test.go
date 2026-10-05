@@ -612,3 +612,65 @@ func TestRenderDoctorReport_RemedyIsTheFixLine(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"marker":"M","status":"warn","detail":"d","remedy":"ctxloom deps pull"}`, string(data))
 }
+
+// The default text report is the warnings alone, closed by one summary line
+// that names how many there are and the first fix; ok and info rows are left
+// to --all.
+func TestRenderDoctorSummary_ShowsOnlyWarnRowsAndTheFirstFix(t *testing.T) {
+	const fix = "ctxloom deps pull"
+	var buf bytes.Buffer
+	require.NoError(t, renderDoctorSummary(&buf, operations.DoctorReport{Checks: []operations.DoctorCheck{
+		{Marker: "DOCTOR-CHECK-OK", Status: operations.DoctorOK, Detail: "fine"},
+		{Marker: "DOCTOR-CHECK-W1", Status: operations.DoctorWarn, Detail: "no fix here"},
+		{Marker: "DOCTOR-CHECK-INFO", Status: operations.DoctorInfo, Detail: "context"},
+		{Marker: "DOCTOR-CHECK-W2", Status: operations.DoctorWarn, Detail: "broken", Remedy: fix},
+	}}))
+	out := buf.String()
+	assert.Contains(t, out, "DOCTOR-CHECK-W1 [warn] no fix here")
+	assert.Contains(t, out, "DOCTOR-CHECK-W2 [warn] broken"+clifmt.FixLine("    ", fix))
+	assert.NotContains(t, out, "DOCTOR-CHECK-OK")
+	assert.NotContains(t, out, "DOCTOR-CHECK-INFO")
+	assert.Contains(t, out, doctorWarningsSummary(2, fix)+"\n")
+}
+
+func TestRenderDoctorSummary_AllClear(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, renderDoctorSummary(&buf, operations.DoctorReport{Checks: []operations.DoctorCheck{
+		{Marker: "DOCTOR-CHECK-OK", Status: operations.DoctorOK, Detail: "fine"},
+		{Marker: "DOCTOR-CHECK-INFO", Status: operations.DoctorInfo, Detail: "context"},
+	}}))
+	assert.NotContains(t, buf.String(), "DOCTOR-CHECK-")
+	assert.Contains(t, buf.String(), doctorAllClearLine+"\n")
+}
+
+// Warnings none of which names a fix still get a summary; it points at the
+// rows rather than inventing a remedy.
+func TestRenderDoctorSummary_WarningsWithoutARemedy(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, renderDoctorSummary(&buf, operations.DoctorReport{Checks: []operations.DoctorCheck{
+		{Marker: "DOCTOR-CHECK-W1", Status: operations.DoctorWarn, Detail: "d"},
+	}}))
+	assert.Contains(t, buf.String(), doctorWarningsSummary(1, "")+"\n")
+}
+
+func TestDoctorWarningsSummary_Wording(t *testing.T) {
+	assert.Equal(t, "1 warning; first fix: ctxloom deps pull", doctorWarningsSummary(1, "ctxloom deps pull"))
+	assert.Equal(t, "2 warnings; first fix: x", doctorWarningsSummary(2, "x"))
+	assert.Equal(t, "1 warning; "+doctorNoFixNamed, doctorWarningsSummary(1, ""))
+}
+
+// --all is the full report: every row, ok and info included, in text.
+func TestDoctorCmd_AllFlagPrintsEveryCheckInText(t *testing.T) {
+	root, _ := setupProject(t, "claude-code")
+	t.Cleanup(func() { doctorAllFlag = false })
+
+	out, err := runDoctor(t, root, "--format", "text")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "[ok]", "the default text report shows warnings only")
+	assert.NotContains(t, out, "DOCTOR-CHECK-INGESTION-q7", "an info row is --all's to show")
+
+	out, err = runDoctor(t, root, "--format", "text", "--all")
+	require.NoError(t, err)
+	assert.Contains(t, out, "[ok]")
+	assert.Contains(t, out, "DOCTOR-CHECK-INGESTION-q7")
+}

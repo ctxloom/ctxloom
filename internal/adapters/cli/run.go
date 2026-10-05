@@ -474,7 +474,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	st.runStartupTasks()
 	st.resolveProject()
-	if err := st.agentTokenRefusal(); err != nil {
+	if err := st.credentialRefusal(); err != nil {
 		return err
 	}
 
@@ -578,13 +578,17 @@ func (st *runState) establishProjectIdentity() (string, error) {
 	return pid, err
 }
 
-// agentTokenRefusal refuses a launch, preview or not, whose engine's agent
-// token is not exported — before anything starts, with the engine's own fix,
-// the wording init and auth show (operations.AgentTokenMissing). Every agent
-// the session delegates to authenticates with that token, whatever the
-// human's own session uses. A bare launch or --agent naming no binding is
-// left to the resolver, whose refusal (and its fix) comes first.
-func (st *runState) agentTokenRefusal() error {
+// credentialRefusal refuses a real launch whose engine cannot authenticate
+// in the mode this session runs in (the configured `auth:`, as
+// launch.RunAuth gives the human's own session) — before anything starts or
+// is written, with the engine's own fix (operations.CheckRunCredential):
+// the token's wording is the one init and auth show. A preview is left to its
+// findings gate. A bare launch or --agent naming no binding is left to the
+// resolver, whose refusal and fix come first.
+func (st *runState) credentialRefusal() error {
+	if runDryRun {
+		return nil
+	}
 	explicitAssembly := runProfile != "" || len(runFragments) > 0 || len(runTags) > 0
 	name := runAgent
 	if name == "" && !explicitAssembly {
@@ -594,9 +598,8 @@ func (st *runState) agentTokenRefusal() error {
 	if !bound && (name != "" || !explicitAssembly) {
 		return nil
 	}
-	label := cmp.Or(runLLM, binding.LLM)
-	backend, _ := operations.ResolveBackend(App().Engines(), st.cfg, label)
-	if err := operations.AgentTokenMissing(App().Engines(), backend, os.LookupEnv); err != nil {
+	backend, _ := operations.ResolveBackend(App().Engines(), st.cfg, cmp.Or(runLLM, binding.LLM))
+	if err := operations.CheckRunCredential(App().Engines(), backend, st.cfg.SessionAuth()); err != nil {
 		return refusal{err}
 	}
 	return nil

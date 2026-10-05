@@ -12,15 +12,13 @@ import (
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
-// TestRun_NoAgentToken_RefusedBeforeLaunchWithTheEnginesFix: a run whose
-// engine's agent token is not exported is refused BEFORE anything launches —
-// not started, then reported as a refused credential with a remedy that
-// contradicts init's. The refusal is the same one init and auth give, with
-// the engine's own fix, and exits with the refusal status, preview or not.
-func TestRun_NoAgentToken_RefusedBeforeLaunchWithTheEnginesFix(t *testing.T) {
+// TestRun_NoToken_RefusedBeforeLaunchWithTheEnginesFix: a token-mode run
+// (the default `auth:`) with no token exported is refused BEFORE anything
+// launches or is written, with the engine's own fix — the wording init and
+// auth show — and the refusal status.
+func TestRun_NoToken_RefusedBeforeLaunchWithTheEnginesFix(t *testing.T) {
 	for _, args := range [][]string{
 		{"run", "--one-shot", "-p", "dev", "hi"},
-		{"run", "-n", "-p", "dev", "hi"},
 	} {
 		t.Run(args[1], func(t *testing.T) {
 			runCLIFixture(t)

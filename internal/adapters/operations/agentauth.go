@@ -72,9 +72,9 @@ const redactedCredential = "<redacted>"
 // AgentTokenMissing is the engine's own refusal when the token every agent
 // it runs authenticates with is not exported in lookup's environment, and nil
 // otherwise — including for an engine that declares no auth, or an unknown
-// one. init, auth and run all ask this one question, and the refusal carries
-// the engine's fix (report.Remediable), so a human reads the same wording
-// wherever they meet it.
+// one. It is init's question; its refusal is the engine's own (the one
+// `ctxloom auth` lists, and CheckRunCredential returns for a token run), so a
+// human reads the same fix wherever they meet it.
 func AgentTokenMissing(reg engine.Registry, backend string, lookup func(string) (string, bool)) error {
 	kind, ok := reg.Lookup(engine.Name(backend))
 	if !ok {
@@ -88,4 +88,14 @@ func AgentTokenMissing(reg engine.Registry, backend string, lookup func(string) 
 		return err
 	}
 	return nil
+}
+
+// CheckRunCredential is resolveRunAuth's refusal for a run of backend in
+// mode, without building anything: nil when the credential that run will
+// authenticate with is there, else the engine's own refusal and fix — a token
+// not exported, a login not on this host, a mode the engine lacks. A caller
+// asks before launching, so a run that cannot authenticate never starts.
+func CheckRunCredential(reg engine.Registry, backend string, mode engine.AuthMode) error {
+	_, err := resolveRunAuth(reg, runAuth{Backend: backend, Mode: mode})
+	return err
 }

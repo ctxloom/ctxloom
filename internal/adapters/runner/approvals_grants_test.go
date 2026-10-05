@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -120,6 +121,16 @@ func (e *postureEngine) Turn(ctx context.Context, _ engine.Exec, in engine.Turn,
 			return engine.TurnResult{}, err
 		}
 		send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolCallID: "t1", ToolOutput: "listed"}})
+	case "plan":
+		input := json.RawMessage(`{"plan":"ship-it"}`)
+		send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolCallID: "p1", ToolName: mock.PlanTool, ToolInput: input}})
+		e.home.mu.Lock()
+		route := e.home.approvalHost
+		e.home.mu.Unlock()
+		if _, err := route.Hook(ctx, wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":{"plan":"ship-it"},"tool_use_id":"p1"}`)); err != nil {
+			return engine.TurnResult{}, err
+		}
+		send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolCallID: "p1", ToolOutput: "approved"}})
 	case "hold":
 		e.holding <- struct{}{}
 		<-e.release

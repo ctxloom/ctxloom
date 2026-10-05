@@ -114,6 +114,9 @@ func TestPermissionModel_DecodeAndTransitions(t *testing.T) {
 		{Posture: "acceptEdits", Label: "accept edits", Default: true},
 	}, m.Transitions(map[string]any{"mode": "plan", "after_plan": "acceptEdits"}), "the declared after_plan is the default, said explicitly")
 	assert.Empty(t, m.Transitions(map[string]any{"mode": "bypass"}), "nothing an approval changes on a bypass session")
+	assert.Equal(t, []string{"acceptEdits", "default"}, m.Transitions(map[string]any{"mode": "plan", "after_plan": "acceptEdits"}),
+		"a plan-first session's declared continuation comes first: the presenter's default selection")
+	assert.Equal(t, []string{"default", "acceptEdits"}, m.Transitions(map[string]any{"mode": "plan", "after_plan": "default"}))
 }
 
 // Every claude posture has its own display name: the roster and the

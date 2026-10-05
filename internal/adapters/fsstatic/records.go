@@ -370,6 +370,7 @@ type targetOps struct {
 	rec   claimsRecord
 	disk  []byte
 	prior fileState
+	had   []string // the writers the record named before the ops
 }
 
 func (s *Staging) touch(target string) *targetOps {
@@ -500,7 +501,7 @@ func (t *targetOps) fold(cur []byte, exists bool) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	t.disk, t.prior = disk, rec.state()
+	t.disk, t.prior, t.had = disk, rec.state(), rec.writers()
 	// A pending note whose write landed is left as it is: it is still true,
 	// and clearing it would be a record write that changes nothing.
 	if p := rec.Pending; p != nil && digest(cur, exists) != p.After {
@@ -528,12 +529,39 @@ func (t *targetOps) fold(cur []byte, exists bool) ([]byte, bool, error) {
 	return next, keep, err
 }
 
-// seal writes the record before the target: with a pending note when the
-// target is about to change, and not at all when nothing in it changed. A
-// record left with no claims is removed once its target is settled — kept,
-// with its note, while the write that emptied it may not have landed. The
-// records this one superseded are retired (retireSuperseded).
+// seal writes the record before the target, its writers' claimant markers
+// before the record and the departed writers' out after it (see
+// claimantsDir).
 func (t *targetOps) seal(before []byte, existed bool, after []byte, keep bool) error {
+	now := t.rec.writers()
+	for _, w := range now {
+		if err := t.c.mark(w, t.target); err != nil {
+			return err
+		}
+	}
+	if err := t.writeRecord(before, existed, after, keep); err != nil {
+		return err
+	}
+	gone := slices.Clone(t.had)
+	for _, op := range t.ops {
+		gone = append(gone, string(op.writer))
+	}
+	for _, w := range gone {
+		if !slices.Contains(now, w) {
+			if err := t.c.unmark(w, t.target); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// writeRecord writes the record: with a pending note when the target is
+// about to change, and not at all when nothing in it changed. A record left
+// with no claims is removed once its target is settled — kept, with its note,
+// while the write that emptied it may not have landed. The records this one
+// superseded are retired (retireSuperseded).
+func (t *targetOps) writeRecord(before []byte, existed bool, after []byte, keep bool) error {
 	rec := t.rec
 	changing := digest(before, existed) != digest(after, keep)
 	if changing {
@@ -1360,65 +1388,6 @@ func mapsKeys(m map[string][]claimEntry) func(func(string) bool) {
 			}
 		}
 	}
-}
-
-// Targets lists the files w claims anything in, sorted.
-func (c *Records) Targets(w delivery.Writer) ([]string, error) {
-	var out []string
-	err := c.each(func(rec claimsRecord) {
-		for _, entries := range rec.Paths {
-			if slices.ContainsFunc(entries, func(e claimEntry) bool { return e.Writer == string(w) }) {
-				out = append(out, rec.Target)
-				return
-			}
-		}
-	})
-	sort.Strings(out)
-	return out, err
-}
-
-// Writers lists every writer that claims anything in any file, sorted.
-func (c *Records) Writers() ([]delivery.Writer, error) {
-	seen := map[delivery.Writer]bool{}
-	err := c.each(func(rec claimsRecord) {
-		for _, entries := range rec.Paths {
-			for _, e := range entries {
-				seen[delivery.Writer(e.Writer)] = true
-			}
-		}
-	})
-	out := make([]delivery.Writer, 0, len(seen))
-	for w := range seen {
-		out = append(out, w)
-	}
-	slices.Sort(out)
-	return out, err
-}
-
-func (c *Records) each(visit func(claimsRecord)) error {
-	entries, err := afero.ReadDir(c.fs, c.dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), claimsSuffix) {
-			continue
-		}
-		path := filepath.Join(c.dir, e.Name())
-		data, err := afero.ReadFile(c.fs, path)
-		if err != nil {
-			return err
-		}
-		rec, err := decodeClaims(path, data)
-		if err != nil {
-			return err
-		}
-		visit(rec)
-	}
-	return nil
 }
 
 // bindingFor names the hew binding a target's format has, when it has one.

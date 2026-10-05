@@ -227,3 +227,25 @@ func TestClaimsRecord_ReleaseLeavesTheListings(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []delivery.Writer{project}, writers)
 }
+
+// A marker a seal left behind — the record no longer names its writer — is
+// listed, and the release that listing leads to changes nothing but the
+// marker.
+func TestClaimsRecord_AStaleMarkerIsReleasedAway(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	c := newRecords(t, fs)
+	mustCommit(t, c, fs, stage(notesTarget, project, whole([]byte("ours\n"))))
+	require.NoError(t, c.mark(string(other), notesTarget))
+	record := read(t, fs, recordPath(notesTarget))
+
+	targets, err := c.Targets(other)
+	require.NoError(t, err)
+	assert.Equal(t, []string{notesTarget}, targets)
+
+	mustCommit(t, c, fs, release(notesTarget, other))
+	targets, err = c.Targets(other)
+	require.NoError(t, err)
+	assert.Empty(t, targets)
+	assert.Equal(t, "ours\n", read(t, fs, notesTarget))
+	assert.Equal(t, record, read(t, fs, recordPath(notesTarget)))
+}

@@ -48,22 +48,18 @@ func TestPendingApprovalSummary_Kinds(t *testing.T) {
 	}
 }
 
-// TestPendingApprovalSummary_HidesNothing: a child controls its tool input,
-// so nothing in it may act on a terminal or hide what it is asking — a
-// control, bidi override, zero-width or line separator is shown, never
-// passed through.
-func TestPendingApprovalSummary_HidesNothing(t *testing.T) {
-	for _, r := range []rune{0x1b, '\r', '\n', 0x7f, 0x9b, 0x202e, 0x200b, 0x2028, 0xe0041} {
-		in, _ := json.Marshal(map[string]string{"command": "ls" + string(r) + "rm"})
-		got := toolRequest("Bash", string(in)).Summary()
-		assert.NotContains(t, got, string(r), "rune %U passed through", r)
-		assert.True(t, strings.HasPrefix(got, "Bash: ls"), got)
-		assert.True(t, strings.HasSuffix(got, "rm"), got)
+// TestPendingApprovalSummary_RawButOneLine: the summary is the child's own
+// text, unmarked — each viewer makes it safe for wherever it shows it — but
+// it is one line: every run of line breaks becomes one space.
+func TestPendingApprovalSummary_RawButOneLine(t *testing.T) {
+	assert.Equal(t, "Bash: ls \u202egnp.exe \x1b[2J", toolRequest("Bash", `{"command":"ls \u202egnp.exe \u001b[2J"}`).Summary(),
+		"bidi and controls that do not break a line stay raw")
+	for _, brk := range []string{"\n", "\r", "\r\n", "\v", "\f", "\u0085", "\u2028", "\u2029", "\n\n\r\n"} {
+		in, _ := json.Marshal(map[string]string{"command": "ls" + brk + "rm"})
+		assert.Equal(t, "Bash: ls rm", toolRequest("Bash", string(in)).Summary(), "line break %q", brk)
 	}
-	assert.Equal(t, "Bash: ls⟨U+000A⟩rm ⟨ESC⟩[2J", toolRequest("Bash", `{"command":"ls\nrm \u001b[2J"}`).Summary(),
-		"the approval overlay's markers, and a line break cannot leave the line")
-	tool := PendingApproval{Kind: ApprovalTool, Ask: engine.PermissionAsk{Tool: "Ba\u202esh"}}
-	assert.NotContains(t, tool.Summary(), "\u202e", "the tool name is the child's too")
+	tool := PendingApproval{Kind: ApprovalTool, Ask: engine.PermissionAsk{Tool: "Ba\nsh"}}
+	assert.Equal(t, "Ba sh", tool.Summary(), "the tool name is the child's too")
 }
 
 // TestPendingApprovalSummary_Bounded: a summary is one bounded line,

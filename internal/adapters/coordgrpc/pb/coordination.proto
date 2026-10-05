@@ -1616,7 +1616,7 @@ message PendingApprovalsResult {
     string harp = 2;                         // the asker
     string agent = 3;                        // its agent name, when known
     repeated string lineage = 4;             // root → … → asker
-    string summary = 5;                      // one line, rendered by the coordinator, bounded
+    string summary = 5;                      // one line, bounded, RAW: a viewer sanitizes it for display
     google.protobuf.Timestamp since = 6;
     google.protobuf.Timestamp deadline = 7;
   }

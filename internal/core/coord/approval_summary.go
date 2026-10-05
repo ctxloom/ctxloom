@@ -2,9 +2,8 @@ package coord
 
 import (
 	"encoding/json"
+	"strings"
 	"unicode/utf8"
-
-	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 )
 
 // summaryMaxRunes bounds a Summary: it is one line in a list, not the
@@ -15,11 +14,14 @@ const summaryMaxRunes = 80
 // present one winning: what the call acts on, for the tools that ask most.
 var summaryInputFields = [...]string{"command", "file_path", "url", "pattern"}
 
-// Summary is the request in one bounded line, rendered where it parks so
+// Summary is the request in one bounded line, composed where it parks so
 // every viewer shows the same words: a tool request is the tool and what it
-// acts on, a question its first header, a plan its path. Everything in it
-// is the asking child's, so it is rendered as the approval overlay renders
-// child text (displaysafe.Text), held to one line.
+// acts on, a question its first header, a plan its path. It is RAW — the
+// asking child's own characters — because it travels to programs as well as
+// terminals: each viewer makes it safe for wherever it shows it
+// (displaysafe.Text on a terminal), and a JSON consumer gets the text itself.
+// Only line breaks are not kept: each run of them is one space, so the line
+// stays a line however it is shown.
 func (p PendingApproval) Summary() string {
 	var s string
 	switch p.Kind {
@@ -39,7 +41,7 @@ func (p PendingApproval) Summary() string {
 			s += ": " + target
 		}
 	}
-	return truncateRunes(displaysafe.Text(s, false), summaryMaxRunes)
+	return truncateRunes(oneLine(s), summaryMaxRunes)
 }
 
 // toolTarget is the first non-empty string among summaryInputFields in a
@@ -55,6 +57,38 @@ func toolTarget(input json.RawMessage) string {
 		}
 	}
 	return ""
+}
+
+// oneLine replaces each run of line breaks with one space. Invalid UTF-8
+// becomes U+FFFD: the summary is a proto string field, which must be valid
+// UTF-8 to marshal at all.
+func oneLine(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inBreak := false
+	for _, r := range strings.ToValidUTF8(s, string(utf8.RuneError)) {
+		if isLineBreak(r) {
+			if !inBreak {
+				b.WriteByte(' ')
+			}
+			inBreak = true
+			continue
+		}
+		inBreak = false
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// isLineBreak reports whether r ends a line on some terminal or in some
+// renderer: LF, VT, FF, CR, NEL, and the Unicode line and paragraph
+// separators.
+func isLineBreak(r rune) bool {
+	switch r {
+	case '\n', '\v', '\f', '\r', 0x85, 0x2028, 0x2029:
+		return true
+	}
+	return false
 }
 
 // truncateRunes cuts s to at most n runes, the last one an ellipsis when

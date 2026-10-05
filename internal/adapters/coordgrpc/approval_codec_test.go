@@ -294,6 +294,15 @@ func TestPendingApprovalsToWire(t *testing.T) {
 	}
 }
 
+// TestPendingApprovalsToWire_SummaryIsRaw: the wire carries the child's own
+// characters — a bidi override arrives as itself; making it safe is each
+// viewer's job, for the place it shows it.
+func TestPendingApprovalsToWire_SummaryIsRaw(t *testing.T) {
+	p := coord.PendingApproval{Kind: coord.ApprovalTool, Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{"command":"ls \u202egnp.exe"}`)}}
+	out := PendingApprovalsToWire([]coord.PendingApproval{p}, "/proj")
+	assert.Equal(t, "Bash: ls \u202egnp.exe", out.GetPending()[0].GetSummary())
+}
+
 // TestPendingApprovalsToWire_Empty: nothing pending is an empty list, still
 // naming the project.
 func TestPendingApprovalsToWire_Empty(t *testing.T) {

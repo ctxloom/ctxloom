@@ -39,8 +39,9 @@ tools and nothing says why.
 
 ## The `ctxloom mcp` noun
 
-`internal/adapters/cli/mcp.go`. The noun is the configured-server listing:
-`mcp` (bare, a person at a terminal), `mcp server list|show|edit`. Every
+`internal/adapters/cli/mcp.go` and its siblings. The noun reads and edits the
+configured servers: `mcp` (bare, a person at a terminal) and the `mcp server`
+subcommands. Every
 server is a bundle item (`<bundle>#mcp/<name>`), gated at the bundle exec
 choke; the listing DESCRIBES each entry as declared — a command, a URL, or
 "served by the running session's endpoint" (`printMCPServerTarget`). Off a

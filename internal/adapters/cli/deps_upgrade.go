@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
@@ -87,69 +88,71 @@ func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error
 		return fmt.Errorf("cannot upgrade dependencies: the config could not be loaded, and upgrade rewrites the lockfile from it: %w", err)
 	}
 
-	fmt.Println("Resolving latest commits for pinned dependencies...")
+	fmt.Fprintln(cmd.ErrOrStderr(), "Resolving latest commits for pinned dependencies...")
 
 	res, err := upgradeDependencies(cmd.Context(), cfg, depsUpgradeAllowDowngrade)
 	if err != nil {
 		return err
 	}
 
+	if err := emit(cmd, res, func() error {
+		renderUpgrade(cmd.OutOrStdout(), res)
+		return nil
+	}); err != nil {
+		return err
+	}
+	// A round can BOTH advance some pins and refuse others; the refusal is what
+	// decides the exit code, because it is the part of the request that was not
+	// carried out. Reporting a partial round as a clean 0 is the silence this
+	// whole feature exists to remove. The payload above went out first, so a
+	// machine caller has the refusals the exit code announces.
+	if len(res.Refused) > 0 {
+		return refusedExit()
+	}
+	return nil
+}
+
+// renderUpgrade is the human report of an upgrade round.
+func renderUpgrade(out io.Writer, res operations.UpgradeResult) {
 	// The refusals print FIRST and unconditionally, before any tally. A pin
 	// that did not move because its new content failed publisher verification
 	// reads exactly like a pin that had nothing to move to, and the difference
 	// is the whole point: one means "you are current", the other means
 	// "somebody published bytes their signature does not cover".
-	reportRefusedAdvances(res.Refused)
+	reportRefusedAdvances(out, res.Refused)
 	// Removals print on every branch below: the lock is rewritten wholesale, so
 	// an entry dropped without a line here is indistinguishable from one that
 	// was never pinned — including under "Everything is up to date."
-	reportRemovedPins(res.Removed)
+	reportRemovedPins(out, res.Removed)
 
 	if res.Advanced == 0 {
-		if len(res.Refused) > 0 {
+		switch {
+		case len(res.Refused) > 0:
 			// Deliberately NOT "Everything is up to date." — nothing advanced
 			// precisely because something was wrong upstream.
-			fmt.Printf("No pins advanced: %d refused above. Your existing pins are unchanged.\n", len(res.Refused))
-			return refusedExit()
+			fmt.Fprintf(out, "No pins advanced: %d refused above. Your existing pins are unchanged.\n", len(res.Refused))
+		case res.Incomplete:
+			// advanced==0 only means nothing that WAS resolved needed to move —
+			// it says nothing about the part that was never resolved at all.
+			fmt.Fprintln(out, "No pins advanced among what could be resolved — part of the dependency closure was unreachable this round (see warning above); re-run once it's reachable to get a complete picture.")
+		case res.NothingDeclared:
+			// An empty closure reaches here with advanced==0 and nothing
+			// refused, exactly like a healthy current project. The difference
+			// is the one the user needs: one means "your pins are current", the
+			// other means "there is nothing here", and only the second has a
+			// remedy.
+			fmt.Fprintln(out, msgNothingDeclared)
+		default:
+			fmt.Fprintln(out, msgEverythingUpToDate)
 		}
-		// "Everything is up to date." used to print unconditionally
-		// here, even on a round where part of the dependency closure could not
-		// be reached (a warning about it prints separately, but the terminal
-		// message still claimed a clean, complete check). advanced==0 only
-		// means nothing that WAS resolved needed to move — it says nothing
-		// about the part that was never resolved at all.
-		if res.Incomplete {
-			fmt.Println("No pins advanced among what could be resolved — part of the dependency closure was unreachable this round (see warning above); re-run once it's reachable to get a complete picture.")
-		} else if res.NothingDeclared {
-			// An empty closure reaches this branch with advanced==0 and nothing
-			// refused, exactly like a healthy current project — and it used to
-			// print the same line. The difference is the one the user needs:
-			// one means "your pins are current", the other means "there is
-			// nothing here", and only the second has a remedy.
-			fmt.Println(msgNothingDeclared)
-		} else {
-			fmt.Println(msgEverythingUpToDate)
-		}
-		return nil
+		return
 	}
 
-	fmt.Printf("Advanced %d dependency pin(s).\n", res.Advanced)
-	// This used to say "Changed content from untrusted sources is withheld
-	// until reviewed: ctxloom review", which was a dead end: the content most
-	// likely to be withheld after an upgrade was withheld as TAMPERED, which is
-	// deliberately not reviewable, so `ctxloom review` answered "Nothing is
-	// pending review." and the user went in a circle. Upgrade now refuses that
-	// advance outright (above), and what remains is pointed at an inspector
-	// that answers whatever the state actually is.
-	fmt.Println("Newly pinned content is not exposed to your assistant until it passes the trust gate: run 'ctxloom doctor' to see whether any of it is withheld, and why.")
-	// A round can BOTH advance some pins and refuse others; the refusal is what
-	// decides the exit code, because it is the part of the request that was not
-	// carried out. Reporting a partial round as a clean 0 is the silence this
-	// whole feature exists to remove.
-	if len(res.Refused) > 0 {
-		return refusedExit()
-	}
-	return nil
+	fmt.Fprintf(out, "Advanced %d dependency pin(s).\n", res.Advanced)
+	// Content withheld as TAMPERED is deliberately not reviewable, so
+	// `ctxloom review` would answer "Nothing is pending review." here; doctor
+	// answers whatever the state actually is.
+	fmt.Fprintln(out, "Newly pinned content is not exposed to your assistant until it passes the trust gate: run 'ctxloom doctor' to see whether any of it is withheld, and why.")
 }
 
 // refusedExit is the exit-2 outcome: the command completed, said in full why,
@@ -181,36 +184,36 @@ const (
 // wrong here by construction — bytes a signature does not cover are never
 // offered for review (bundles.Reason.NeedsReview), so sending the user there
 // answers "Nothing is pending review." and teaches them the message is noise.
-func reportRefusedAdvances(refused []operations.RefusedAdvance) {
+func reportRefusedAdvances(out io.Writer, refused []operations.RefusedAdvance) {
 	for _, r := range refused {
 		if r.Cause == operations.RefusalBelowFloor {
-			fmt.Printf("REFUSED to advance %s: the content at %s is not signed at or above the version this project last pinned (%s).\n",
+			fmt.Fprintf(out, "REFUSED to advance %s: the content at %s is not signed at or above the version this project last pinned (%s).\n",
 				r.Identity, shortSHA(r.ProposedSHA), r.Detail)
-			fmt.Printf("  Keeping the pin %s. Whoever controls the repository can re-serve an older signed release; if going back is what you intend, re-run with --allow-downgrade %s.\n",
+			fmt.Fprintf(out, "  Keeping the pin %s. Whoever controls the repository can re-serve an older signed release; if going back is what you intend, re-run with --allow-downgrade %s.\n",
 				shortSHA(r.KeptSHA), r.Identity)
 			continue
 		}
 		if r.Cause == operations.RefusalSignature {
-			fmt.Printf("REFUSED to advance %s: the publisher signature on the content at %s does not verify over those bytes (%s).\n",
+			fmt.Fprintf(out, "REFUSED to advance %s: the publisher signature on the content at %s does not verify over those bytes (%s).\n",
 				r.Identity, shortSHA(r.ProposedSHA), r.Detail)
 		} else {
-			fmt.Printf("REFUSED to advance %s: the content at %s could not be read as a bundle (%s).\n",
+			fmt.Fprintf(out, "REFUSED to advance %s: the content at %s could not be read as a bundle (%s).\n",
 				r.Identity, shortSHA(r.ProposedSHA), r.Detail)
 		}
-		fmt.Printf("  Keeping the last verified pin %s — your assistant goes on receiving the content at that pin.\n", shortSHA(r.KeptSHA))
+		fmt.Fprintf(out, "  Keeping the last verified pin %s — your assistant goes on receiving the content at that pin.\n", shortSHA(r.KeptSHA))
 		if r.Cause == operations.RefusalSignature {
-			fmt.Println(msgRefusedTamper)
+			fmt.Fprintln(out, msgRefusedTamper)
 		} else {
-			fmt.Println(msgRefusedUnreadable)
+			fmt.Fprintln(out, msgRefusedUnreadable)
 		}
 	}
 }
 
 // reportRemovedPins names each lockfile entry upgrade dropped because nothing
 // the project composes reaches it any more.
-func reportRemovedPins(removed []string) {
+func reportRemovedPins(out io.Writer, removed []string) {
 	for _, identity := range removed {
-		fmt.Printf("Removed %s from the lockfile: nothing this project composes depends on it any more.\n", identity)
+		fmt.Fprintf(out, "Removed %s from the lockfile: nothing this project composes depends on it any more.\n", identity)
 	}
 }
 

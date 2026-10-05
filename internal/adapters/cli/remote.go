@@ -98,8 +98,10 @@ func runRemoteCreate(cmd *cobra.Command, args []string) error {
 		clidiag.Warn("ctxloom", "%s", result.Warning)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Added remote '%s' → %s\n", result.Name, result.URL)
-	return nil
+	return emit(cmd, result, func() error {
+		fmt.Fprintf(cmd.OutOrStdout(), "Added remote '%s' → %s\n", result.Name, result.URL)
+		return nil
+	})
 }
 
 var remoteRemoveYes bool
@@ -237,28 +239,28 @@ func runRemoteDefault(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Clear the default.
-	if remoteDefaultClear {
-		if _, err := setDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: ""}); err != nil {
-			return err
+	// An empty name clears the default. Without --clear a name is required;
+	// the current default is visible via `ctxloom remote list`.
+	var name string
+	if !remoteDefaultClear {
+		if len(args) == 0 {
+			return fmt.Errorf("remote name required (or use --clear); see the current default in 'ctxloom remote list'")
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Cleared default remote.")
-		return nil
+		name = args[0]
 	}
 
-	// A name is required to set the default; the current default is visible via
-	// `ctxloom remote list`.
-	if len(args) == 0 {
-		return fmt.Errorf("remote name required (or use --clear); see the current default in 'ctxloom remote list'")
-	}
-
-	// Set a new default.
-	name := args[0]
-	if _, err := setDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: name}); err != nil {
+	result, err := setDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: name})
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Set default remote to: %s\n", name)
-	return nil
+	return emit(cmd, result, func() error {
+		if result.Name == "" {
+			fmt.Fprintln(cmd.OutOrStdout(), "Cleared default remote.")
+			return nil
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Set default remote to: %s\n", result.Name)
+		return nil
+	})
 }
 
 var (

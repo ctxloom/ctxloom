@@ -57,29 +57,34 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("browse %s: %w", remoteName, err)
 	}
 
-	if result.Count == 0 {
-		fmt.Fprintf(out, "No bundles found in %s\n", remoteName)
-		return nil
-	}
+	sort.Slice(result.Items, func(i, j int) bool {
+		return result.Items[i].Path < result.Items[j].Path
+	})
 
-	renderRemoteBrowse(out, itemType, result)
-	return nil
+	return emit(cmd, result, func() error {
+		// A partial browse lists what it reached; the warnings name what it
+		// did not, so the listing is never read as the whole remote.
+		for _, w := range result.Warnings {
+			clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "%s", termsafe.Field(w))
+		}
+		if result.Count == 0 {
+			fmt.Fprintf(out, "No bundles found in %s\n", remoteName)
+			return nil
+		}
+		renderRemoteBrowse(out, itemType, result)
+		return nil
+	})
 }
 
-// renderRemoteBrowse is `remote show`'s listing of a non-empty browse. Each
+// renderRemoteBrowse is `remote show`'s listing of a non-empty browse, in the
+// path order runRemoteBrowse sorted it into. Each
 // PullRef is built from the remote's own paths, so it is publisher-authored;
 // the remote's name and URL are the operator's registration.
 func renderRemoteBrowse(out io.Writer, itemType string, result *operations.BrowseRemoteResult) {
 	title := strings.ToUpper(itemType[:1]) + itemType[1:] + "s"
 	fmt.Fprintf(out, "%s in %s (%s):\n\n", title, result.Remote, result.URL)
 
-	// Sort entries by path
-	items := result.Items
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Path < items[j].Path
-	})
-
-	for _, item := range items {
+	for _, item := range result.Items {
 		fmt.Fprintf(out, "  %s\n", termsafe.Field(item.PullRef))
 	}
 

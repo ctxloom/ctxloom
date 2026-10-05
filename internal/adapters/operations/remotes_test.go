@@ -165,7 +165,7 @@ func TestRepoEntry_Fields(t *testing.T) {
 		Stars:       42,
 		URL:         "https://github.com/testowner/testrepo",
 		Forge:       "github",
-		AddCommand:  "ctxloom remote add testowner testowner/testrepo",
+		AddCommand:  "ctxloom remote create testrepo testowner/testrepo",
 	}
 
 	assert.Equal(t, "testowner", entry.Owner)
@@ -174,7 +174,7 @@ func TestRepoEntry_Fields(t *testing.T) {
 	assert.Equal(t, 42, entry.Stars)
 	assert.Equal(t, "https://github.com/testowner/testrepo", entry.URL)
 	assert.Equal(t, "github", entry.Forge)
-	assert.Contains(t, entry.AddCommand, "ctxloom remote add")
+	assert.Contains(t, entry.AddCommand, "ctxloom remote create")
 }
 
 func TestBrowseItemEntry_Fields(t *testing.T) {

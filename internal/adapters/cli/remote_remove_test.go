@@ -16,9 +16,8 @@ import (
 )
 
 // remoteRemoveProject builds an isolated project with one registered remote
-// ("origin"), seeded directly through remote.Registry (no network probe —
-// see remote_update_lockfile_scope_test.go's updateScopeFixture for the same
-// pattern), and returns the config over it.
+// ("origin"), seeded directly through remote.Registry (no network probe), and
+// returns the config over it.
 func remoteRemoveProject(t *testing.T) *config.Config {
 	t.Helper()
 	root := testsupport.ProjectDir(t)

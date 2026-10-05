@@ -3,11 +3,11 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
@@ -44,8 +44,11 @@ Examples:
 // is read here first so a failed load warns the way every fault-tolerant
 // startup path warns (loadConfigOrFallback); the service re-reads the same
 // memoized generation and proceeds over the same minimal default.
+//
+// Progress and per-entry warnings go to stderr in every format; the result
+// goes through emit().
 func runDepsCheck(cmd *cobra.Command, args []string) error {
-	_ = loadConfigOrFallback(GetConfig, os.Stderr)
+	_ = loadConfigOrFallback(GetConfig, cmd.ErrOrStderr())
 	var ref string
 	if len(args) > 0 {
 		ref = args[0]
@@ -60,12 +63,139 @@ func runDepsCheck(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	out := cmd.OutOrStdout()
 	if res.Single != nil {
-		renderDependencyStatus(os.Stdout, *res.Single)
-		return nil
+		status := *res.Single
+		return emit(cmd, newCheckRefView(status, res.Refresh), func() error {
+			renderDependencyStatus(out, status)
+			return nil
+		})
 	}
-	renderDependencyCheck(os.Stdout, res)
-	return nil
+	if res.Entries > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Checking %d items for updates...\n", res.Entries)
+		warnRefreshFailures(res.Refresh)
+		for _, u := range res.Unchecked {
+			warnUncheckedDependency(u)
+		}
+	}
+	return emit(cmd, newCheckView(res), func() error {
+		renderDependencyCheck(out, res)
+		return nil
+	})
+}
+
+// checkView is `deps check`'s structured result over the whole closure. SHAs
+// are full; every list is always present.
+type checkView struct {
+	Entries                int                  `json:"entries"`
+	Updates                []checkUpdateView    `json:"updates"`
+	Unchecked              []checkUncheckedView `json:"unchecked"`
+	RefreshFailures        []refreshFailureView `json:"refresh_failures"`
+	SkippedEmpty           int                  `json:"skipped_empty"`
+	MissingDefaultProfiles []string             `json:"missing_default_profiles"`
+	// MissingDefaultsError says the default profiles could not be checked at
+	// all, which "none missing" must not be mistaken for.
+	MissingDefaultsError string `json:"missing_defaults_error"`
+}
+
+type checkUpdateView struct {
+	Ref        string              `json:"ref"`
+	Type       remote.ItemType     `json:"type"`
+	CurrentSHA string              `json:"current_sha"`
+	LatestSHA  string              `json:"latest_sha"`
+	Selector   remote.SelectorKind `json:"selector"`
+	Requested  string              `json:"requested"`
+	Resolved   string              `json:"resolved"`
+}
+
+type checkUncheckedView struct {
+	Ref        string `json:"ref"`
+	URL        string `json:"url"`
+	Constraint string `json:"constraint"`
+	Reason     string `json:"reason"`
+	Error      string `json:"error"`
+}
+
+type refreshFailureView struct {
+	URL   string `json:"url"`
+	Error string `json:"error"`
+}
+
+// checkRefView is a single-reference check's structured result.
+type checkRefView struct {
+	Ref             string               `json:"ref"`
+	InLockfile      bool                 `json:"in_lockfile"`
+	CurrentSHA      string               `json:"current_sha"`
+	LatestSHA       string               `json:"latest_sha"`
+	UpToDate        bool                 `json:"up_to_date"`
+	RefreshFailures []refreshFailureView `json:"refresh_failures"`
+}
+
+func newCheckView(res operations.CheckDependenciesResult) checkView {
+	view := checkView{
+		Entries:                res.Entries,
+		RefreshFailures:        newRefreshFailureViews(res.Refresh),
+		SkippedEmpty:           res.SkippedEmpty,
+		MissingDefaultProfiles: res.MissingDefaults,
+		MissingDefaultsError:   errorText(res.MissingDefaultsErr),
+	}
+	for _, u := range res.Updates {
+		view.Updates = append(view.Updates, checkUpdateView{
+			Ref: u.Ref, Type: u.Type, CurrentSHA: u.CurrentSHA, LatestSHA: u.LatestSHA,
+			Selector: u.Kind, Requested: u.RequestedVersion, Resolved: u.Version,
+		})
+	}
+	for _, u := range res.Unchecked {
+		view.Unchecked = append(view.Unchecked, checkUncheckedView{
+			Ref: u.Ref, URL: u.URL, Constraint: u.Constraint, Reason: uncheckedReasonName(u.Reason), Error: errorText(u.Err),
+		})
+	}
+	return view
+}
+
+func newCheckRefView(status operations.DependencyStatus, refresh []operations.RefreshFailure) checkRefView {
+	return checkRefView{
+		Ref:             status.Ref,
+		InLockfile:      status.CurrentSHA != "",
+		CurrentSHA:      status.CurrentSHA,
+		LatestSHA:       status.LatestSHA,
+		UpToDate:        status.UpToDate(),
+		RefreshFailures: newRefreshFailureViews(refresh),
+	}
+}
+
+func newRefreshFailureViews(failures []operations.RefreshFailure) []refreshFailureView {
+	var views []refreshFailureView
+	for _, f := range failures {
+		views = append(views, refreshFailureView{URL: f.URL, Error: errorText(f.Err)})
+	}
+	return views
+}
+
+// uncheckedReasonName is the payload's spelling of each
+// operations.UncheckedReason.
+func uncheckedReasonName(reason operations.UncheckedReason) string {
+	switch reason {
+	case operations.UncheckedUnparseable:
+		return "unparseable"
+	case operations.UncheckedNoRepositoryURL:
+		return "no_repository_url"
+	case operations.UncheckedUnreachable:
+		return "unreachable"
+	case operations.UncheckedUnresolvable:
+		return "unresolvable"
+	case operations.UncheckedNotRefreshed:
+		return "not_refreshed"
+	}
+	panic(fmt.Sprintf("uncheckedReasonName: unhandled operations.UncheckedReason %d", reason))
+}
+
+// errorText is err's message, or "" for no error.
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // warnRefreshFailures reports each clone the check could not refresh; its
@@ -95,8 +225,9 @@ func renderDependencyStatus(out io.Writer, status operations.DependencyStatus) {
 }
 
 // renderDependencyCheck prints the whole-closure check in the order the
-// service established it: the refresh failures, then each unchecked entry
-// in lockfile order, then the verdict — which is a claim about entries that
+// service established it: each unchecked entry in lockfile order (the refresh
+// failures and the warning-worthy reasons already went to stderr), then the
+// verdict — which is a claim about entries that
 // were actually CHECKED. When some entries' checks failed, saying "up to
 // date" unconditionally reads as "everything was verified current" when in
 // fact part of the closure was never resolved at all.
@@ -107,9 +238,6 @@ func renderDependencyCheck(out io.Writer, res operations.CheckDependenciesResult
 		return
 	}
 
-	fmt.Fprintf(out, "Checking %d items for updates...\n\n", res.Entries)
-
-	warnRefreshFailures(res.Refresh)
 	for _, u := range res.Unchecked {
 		renderUncheckedDependency(out, u)
 	}
@@ -135,22 +263,30 @@ func renderDependencyCheck(out io.Writer, res operations.CheckDependenciesResult
 	fmt.Fprintln(out, "\nRun 'ctxloom deps upgrade' to advance these pins.")
 }
 
-// renderUncheckedDependency says why one entry could not be checked. A
-// reference with no repository URL is a line in the report; every other
-// reason is a warning, since it is an attempt that failed rather than a
-// fact about the entry.
-func renderUncheckedDependency(out io.Writer, u operations.UncheckedDependency) {
+// warnUncheckedDependency warns, on stderr, about an entry whose check was
+// an attempt that failed; renderUncheckedDependency covers the reasons that
+// are facts about the entry rather than failures.
+func warnUncheckedDependency(u operations.UncheckedDependency) {
 	switch u.Reason {
 	case operations.UncheckedUnparseable:
 		clidiag.Warn("ctxloom", "%s: could not parse reference (%v); skipping the update check for it", u.Ref, u.Err)
-	case operations.UncheckedNoRepositoryURL:
-		fmt.Fprintf(out, "  %s: reference has no repository URL\n", u.Ref)
 	case operations.UncheckedUnreachable:
 		clidiag.Warn("ctxloom", "%s: could not reach %s (%v); skipping the update check for it", u.Ref, u.URL, u.Err)
 	case operations.UncheckedUnresolvable:
 		clidiag.Warn("ctxloom", "%s: could not resolve %q (%v); skipping the update check for it", u.Ref, u.Constraint, u.Err)
+	case operations.UncheckedNoRepositoryURL, operations.UncheckedNotRefreshed:
+	}
+}
+
+// renderUncheckedDependency is the report line for an entry that could not be
+// checked for a reason that is a fact about it, not a failed attempt.
+func renderUncheckedDependency(out io.Writer, u operations.UncheckedDependency) {
+	switch u.Reason {
+	case operations.UncheckedNoRepositoryURL:
+		fmt.Fprintf(out, "  %s: reference has no repository URL\n", u.Ref)
 	case operations.UncheckedNotRefreshed:
 		fmt.Fprintf(out, "  %s: not checked — %s could not be fetched (see warning above)\n", u.Ref, u.URL)
+	case operations.UncheckedUnparseable, operations.UncheckedUnreachable, operations.UncheckedUnresolvable:
 	}
 }
 
@@ -189,5 +325,3 @@ func reportMissingDefaults(out io.Writer, missing []string, err error) {
 func init() {
 	depsCmd.AddCommand(depsCheckCmd)
 }
-
-func uncheckedReasonName(operations.UncheckedReason) string { return "" }

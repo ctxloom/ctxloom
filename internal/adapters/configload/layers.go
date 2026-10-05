@@ -228,7 +228,10 @@ func (s *Sources) normalize(b *config.Builder, r schemaver.Result) (schemaver.Re
 		return r, nil
 	}
 	shell := b.Shell()
-	pipeline := upgrade.Pipeline{profileRefCanonicalizeUpgrade{canonical: func(ref string) string { return s.canonicalize(shell, ref) }}}
+	pipeline := upgrade.Pipeline{profileRefCanonicalizeUpgrade{
+		name:      "canonicalize agent profile refs",
+		canonical: func(ref string) string { return s.canonicalize(shell, ref) },
+	}}
 	out, applied, err := pipeline.Run(r.Data)
 	if err != nil {
 		return schemaver.Result{}, err

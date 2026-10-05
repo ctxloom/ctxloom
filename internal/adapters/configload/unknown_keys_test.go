@@ -43,7 +43,7 @@ func unknownKeyWarnings(cfg *config.Config) []config.Warning {
 // context the user never asked for. It must be NAMED, in a message a human can
 // act on — not the raw jsonschema pointer soup.
 func TestLoad_UnknownTopLevelKey_NamesTheKey(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\nagentz:\n  definitions: {}\n")
+	cfg := loadYAML(t, "schema_version: 7\nagentz:\n  definitions: {}\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1, "an unknown top-level key produces exactly one unknown-key warning")
@@ -56,7 +56,7 @@ func TestLoad_UnknownTopLevelKey_NamesTheKey(t *testing.T) {
 // A nested typo must name the SECTION too — "use_distiled" alone doesn't tell a
 // user where to look.
 func TestLoad_UnknownNestedKey_NamesTheFullPath(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\nconfig:\n  use_distiled: false\n")
+	cfg := loadYAML(t, "schema_version: 7\nconfig:\n  use_distiled: false\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
@@ -74,7 +74,7 @@ func TestLoad_UnknownNestedKey_NamesTheFullPath(t *testing.T) {
 // — must be told where profiles live now rather than getting a bare
 // "unknown key" that reads like a typo.
 func TestLoad_RetiredProfilesBlock_AtCurrentVersion_NamesReplacement(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\nprofiles:\n  definitions:\n    dev:\n      description: d\n")
+	cfg := loadYAML(t, "schema_version: 7\nprofiles:\n  definitions:\n    dev:\n      description: d\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
@@ -87,7 +87,7 @@ func TestLoad_RetiredProfilesBlock_AtCurrentVersion_NamesReplacement(t *testing.
 // The older `profiles.defaults` spelling reaches the same guidance, since the
 // whole block is retired — a user pasting either one is asking the same question.
 func TestLoad_RetiredProfilesDefaults_AtCurrentVersion_NamesReplacement(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\nprofiles:\n  defaults:\n    - dev\n")
+	cfg := loadYAML(t, "schema_version: 7\nprofiles:\n  defaults:\n    - dev\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
@@ -99,7 +99,7 @@ func TestLoad_RetiredProfilesDefaults_AtCurrentVersion_NamesReplacement(t *testi
 // block must be told about all of it in one pass, the way the findings gate lists
 // every finding rather than the first.
 func TestLoad_SeveralUnknownKeys_OneWarningEach(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\nconfig:\n  use_distiled: false\n  compaction_chunk: 10\n")
+	cfg := loadYAML(t, "schema_version: 7\nconfig:\n  use_distiled: false\n  compaction_chunk: 10\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 2, "one warning per unknown key")
@@ -112,7 +112,7 @@ func TestLoad_SeveralUnknownKeys_OneWarningEach(t *testing.T) {
 // described does not exist — so it is an unknown key like any other: named on
 // load, never silently accepted as if it did something.
 func TestLoad_AgentEscalationKey_IsUnknown(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\nagents:\n  coder:\n    profiles: [p]\n    escalation:\n      - action: auto_accept\n")
+	cfg := loadYAML(t, "schema_version: 7\nagents:\n  coder:\n    profiles: [p]\n    escalation:\n      - action: auto_accept\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
@@ -130,7 +130,7 @@ func TestLoad_AgentEscalationKey_IsUnknown(t *testing.T) {
 // through anyOf: the suggestion is drawn from the UNION of every branch's
 // field names, not from the branch the entry's type selects.
 func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\nllm:\n  configs:\n    big:\n      type: claude-code\n      binary_pth: /usr/bin/claude\n")
+	cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    big:\n      type: claude-code\n      binary_pth: /usr/bin/claude\n")
 
 	// The per-branch fan-out this used to produce (one leaf failure per anyOf
 	// alternative, one identical warning per branch for one typo) is deduplicated now;
@@ -150,7 +150,7 @@ func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
 // its old kind and its raw text: this change narrows the unknown-key case out of
 // config.WarnKindValidate, it does not swallow the rest.
 func TestLoad_NonUnknownKeySchemaError_StaysValidateKind(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\nagents:\n  a:\n    llm: e\n    permissions:\n      sandbox: nonsense\n")
+	cfg := loadYAML(t, "schema_version: 7\nagents:\n  a:\n    llm: e\n    permissions:\n      sandbox: nonsense\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "a bad enum is not an unknown key")
 	require.Len(t, cfg.GetWarnings(), 1)
@@ -164,7 +164,7 @@ func TestLoad_NonUnknownKeySchemaError_StaysValidateKind(t *testing.T) {
 // material), so a value at the PROJECT layer — this fixture's own layer — is
 // now a genuine layerscope violation, not something "valid" any longer.
 func TestLoad_ValidConfig_NoWarnings(t *testing.T) {
-	cfg := loadYAML(t, `schema_version: 6
+	cfg := loadYAML(t, `schema_version: 7
 llm:
   configs:
     main:
@@ -199,9 +199,9 @@ func TestLoad_UnknownKeyInHomeLayer_StillWarns(t *testing.T) {
 
 	homeAppDir := filepath.Join(home, config.AppDirName)
 	testsupport.WriteFile(t, fs, paths.ConfigPath(homeAppDir),
-		[]byte("schema_version: 6\nagentz:\n  definitions: {}\n"), 0644)
+		[]byte("schema_version: 7\nagentz:\n  definitions: {}\n"), 0644)
 	testsupport.WriteFile(t, fs, "/proj/.ctxloom/config.yaml",
-		[]byte("schema_version: 6\ndefault_agent: dev\n"), 0644)
+		[]byte("schema_version: 7\ndefault_agent: dev\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)
@@ -220,9 +220,9 @@ func TestLoad_UnknownKeyInProjectLayer_NotMaskedByValidHome(t *testing.T) {
 
 	homeAppDir := filepath.Join(home, config.AppDirName)
 	testsupport.WriteFile(t, fs, paths.ConfigPath(homeAppDir),
-		[]byte("schema_version: 6\ndefault_agent: dev\n"), 0644)
+		[]byte("schema_version: 7\ndefault_agent: dev\n"), 0644)
 	testsupport.WriteFile(t, fs, "/proj/.ctxloom/config.yaml",
-		[]byte("schema_version: 6\nagentz:\n  definitions: {}\n"), 0644)
+		[]byte("schema_version: 7\nagentz:\n  definitions: {}\n"), 0644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
 	require.NoError(t, err)
@@ -240,7 +240,7 @@ func TestLoad_UnknownKeyInProjectLayer_NotMaskedByValidHome(t *testing.T) {
 // even though the value was fully honored. Proves the warning is gone AND
 // the field is actually parsed onto the Agent.
 func TestLoad_AgentDriving_NoUnknownKeyWarning(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\nagents:\n  coord:\n    llm: main\n    profiles: [work]\n    driving: oneshot\n")
+	cfg := loadYAML(t, "schema_version: 7\nagents:\n  coord:\n    llm: main\n    profiles: [work]\n    driving: oneshot\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "driving must validate as a known agent-binding key: %+v", unknownKeyWarnings(cfg))
 	assert.Empty(t, cfg.GetWarnings(), "a config using only documented agent-binding keys must load with no warnings at all: %+v", cfg.GetWarnings())
@@ -262,7 +262,7 @@ func TestLoad_AgentDriving_NoUnknownKeyWarning(t *testing.T) {
 // that block the user got RIGHT. A diagnostic that repeats itself once per branch
 // and then blames a correct line is worse than the raw error it replaced.
 func TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\nllm:\n  configs:\n    big:\n      type: claude-code\n      binary_pth: /usr/bin/claude\n")
+	cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    big:\n      type: claude-code\n      binary_pth: /usr/bin/claude\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1,
@@ -281,7 +281,7 @@ func TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise(t *testing.
 // ONLY fault sits inside a branch — a valid backend with a bad value — has no
 // unknown keys at all, so it still reports the raw validation error.
 func TestLoad_NonUnknownKeyFaultInsideAnyOfBranch_StillReported(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\nllm:\n  configs:\n    big:\n      type: claude-code\n      args: 12\n")
+	cfg := loadYAML(t, "schema_version: 7\nllm:\n  configs:\n    big:\n      type: claude-code\n      args: 12\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "a wrong-typed value is not an unknown key")
 	require.NotEmpty(t, cfg.GetWarnings(), "a fault inside a branch must still be reported")
@@ -294,7 +294,7 @@ func TestLoad_NonUnknownKeyFaultInsideAnyOfBranch_StillReported(t *testing.T) {
 // not fail SILENTLY — the user has to be told the key is retired and how to
 // re-grant, or a refused spawn reads as a regression with no cause.
 func TestLoad_RetiredDirtyTreeCommitAck_NamesRegrantCommand(t *testing.T) {
-	cfg := loadYAML(t, "schema_version: 6\ndirty_tree_commit_ack: true\n")
+	cfg := loadYAML(t, "schema_version: 7\ndirty_tree_commit_ack: true\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
@@ -308,8 +308,8 @@ func TestLoad_RetiredDirtyTreeCommitAck_NamesRegrantCommand(t *testing.T) {
 // base the user did not choose, and there is no migration to carry it over.
 func TestLoad_RetiredIsolationBaseKeys_NameIsolationBase(t *testing.T) {
 	for _, doc := range []string{
-		"schema_version: 6\nisolation_base_containerfile: .ctxloom/base.Containerfile\n",
-		"schema_version: 6\nisolation_devcontainer_base: false\n",
+		"schema_version: 7\nisolation_base_containerfile: .ctxloom/base.Containerfile\n",
+		"schema_version: 7\nisolation_devcontainer_base: false\n",
 	} {
 		warns := unknownKeyWarnings(loadYAML(t, doc))
 		require.Len(t, warns, 1, doc)

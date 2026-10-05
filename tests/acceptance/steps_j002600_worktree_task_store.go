@@ -110,7 +110,7 @@ func registerJ002600Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("create %s/.ctxloom: %w", dir, err)
 		}
 		cfg := filepath.Join(dir, ".ctxloom", "config.yaml")
-		if err := os.WriteFile(cfg, []byte("schema_version: 6\n"), 0644); err != nil {
+		if err := os.WriteFile(cfg, []byte("schema_version: 7\n"), 0644); err != nil {
 			return fmt.Errorf("write %s: %w", cfg, err)
 		}
 		// The premise of the scenario, asserted rather than assumed: a marker

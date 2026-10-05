@@ -86,7 +86,7 @@ func TestSetAgent_ContainerStoryGateRefusesATypodRuntimeRatherThanPassingItClean
 	}
 
 	t.Run("control: a declared container axis on the project default IS seen by the gate", func(t *testing.T) {
-		_, appDir := loadConfigDir(t, "schema_version: 6\n")
+		_, appDir := loadConfigDir(t, "schema_version: 7\n")
 		cfg := newCfg(string(isolation.RuntimeContainerRootless), nil)
 		require.False(t, isolation.HasContainerStory("acp"),
 			"fixture precondition: the label's backend must have no container story")
@@ -99,7 +99,7 @@ func TestSetAgent_ContainerStoryGateRefusesATypodRuntimeRatherThanPassingItClean
 	})
 
 	t.Run("control: the other ownership mode is seen too", func(t *testing.T) {
-		_, appDir := loadConfigDir(t, "schema_version: 6\n")
+		_, appDir := loadConfigDir(t, "schema_version: 7\n")
 		cfg := newCfg(string(isolation.RuntimeContainerRootful), nil)
 
 		_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "odd", LLM: ptr(noAuthLabel)})
@@ -108,7 +108,7 @@ func TestSetAgent_ContainerStoryGateRefusesATypodRuntimeRatherThanPassingItClean
 	})
 
 	t.Run("a typo'd project runtime default is refused and nothing is written", func(t *testing.T) {
-		_, appDir := loadConfigDir(t, "schema_version: 6\n")
+		_, appDir := loadConfigDir(t, "schema_version: 7\n")
 		cfg := newCfg("contianer-rootless", nil)
 
 		_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "odd", LLM: ptr(noAuthLabel)})
@@ -121,7 +121,7 @@ func TestSetAgent_ContainerStoryGateRefusesATypodRuntimeRatherThanPassingItClean
 	})
 
 	t.Run("a typo'd RECORDED runtime is refused and the binding is not mutated", func(t *testing.T) {
-		_, appDir := loadConfigDir(t, "schema_version: 6\n")
+		_, appDir := loadConfigDir(t, "schema_version: 7\n")
 		cfg := newCfg("", map[string]agents.Agent{
 			"odd": {LLM: noAuthLabel, Runtime: "contianer-rootful"},
 		})
@@ -134,7 +134,7 @@ func TestSetAgent_ContainerStoryGateRefusesATypodRuntimeRatherThanPassingItClean
 	})
 
 	t.Run("UNSET is not a typo: it still writes exactly as before", func(t *testing.T) {
-		_, appDir := loadConfigDir(t, "schema_version: 6\n")
+		_, appDir := loadConfigDir(t, "schema_version: 7\n")
 		cfg := newCfg("", nil)
 
 		_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "plain", LLM: ptr(noAuthLabel)})
@@ -253,7 +253,7 @@ func TestOneShot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 // the parser cannot drift — an offer the writer's own parser would refuse is a
 // decision collected and then thrown away.
 func TestAgentRuntimeOffer_MenuCanOnlyHoldDeclaredMembers(t *testing.T) {
-	cfg, _ := loadConfigDir(t, "schema_version: 6\n")
+	cfg, _ := loadConfigDir(t, "schema_version: 7\n")
 	names := EngineNames(engines.Registry())
 	require.NotEmpty(t, names)
 

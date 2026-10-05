@@ -11,7 +11,7 @@ import (
 // (no default overlay) and that the role marker binds to its own field rather
 // than leaking into the inline body.
 func TestParseConfig_RoundTrips(t *testing.T) {
-	src := []byte(`schema_version: 6
+	src := []byte(`schema_version: 7
 llm:
   configs:
     claude-code:

@@ -5,7 +5,7 @@
 # engine), and writes the result before launching the engine. The `llm`,
 # `agents`, and `default_agent` blocks are intentionally absent here — init
 # fills them from the user's selection.
-schema_version: 6
+schema_version: 7
 
 # Behavioral settings.
 config:

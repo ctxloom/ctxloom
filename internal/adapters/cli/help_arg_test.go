@@ -207,7 +207,7 @@ func bundleHelpExists(t *testing.T) bool {
 func seedProjectConfig(t *testing.T) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(".ctxloom", 0o755))
-	testsupport.WriteFileString(t, afero.NewOsFs(), filepath.Join(".ctxloom", "config.yaml"), "schema_version: 6\n", 0o644)
+	testsupport.WriteFileString(t, afero.NewOsFs(), filepath.Join(".ctxloom", "config.yaml"), "schema_version: 7\n", 0o644)
 }
 
 func agentHelpExists(t *testing.T) bool {

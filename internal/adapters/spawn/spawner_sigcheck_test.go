@@ -36,7 +36,7 @@ func sigCheckSpawner(t *testing.T, opts ...config.Option) (*spawner, string) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "fixture-not-a-token") // the auth check needs one exported; nothing runs
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeSpawnerConfig(t, appDir, "schema_version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: plan\n")
+	writeSpawnerConfig(t, appDir, "schema_version: 7\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      claude-code:\n        mode: plan\n")
 	src, err := configload.New(nil, nil, configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	owner, err := config.Open(context.Background(), src, opts...)

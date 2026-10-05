@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -65,8 +66,8 @@ func versioned(n int, rest string) string {
 const refusalBody = "llm:\n  defaults:\n    primary: claude-code\n"
 
 // The kind's current generation IS the config version every writer stamps:
-// config has no migration steps, so the two can only part if one is bumped
-// without the other.
+// the kind derives it from its steps and config declares it, so the two part
+// whenever a step is added without the bump, or the bump without a step.
 func TestConfigKind_CurrentIsTheConfigVersion(t *testing.T) {
 	assert.Equal(t, config.CurrentConfigVersion, configKind.Current())
 }
@@ -208,4 +209,68 @@ func TestLoad_CanonicalizedProfileRefs_PersistOnlyWithWriteUpgrades(t *testing.T
 		assert.Contains(t, string(got), canonical)
 		assert.NotContains(t, string(got), short)
 	})
+}
+
+// agentRefsGeneration is the last config generation whose agent bindings
+// could store a profile ref in the fetch-address grammar; the step out of it
+// re-spells them canonically.
+const agentRefsGeneration = 6
+
+const (
+	fetchAddressAgentRef = "https://github.com/acme/tools@bundles/kit#profiles/dev"
+	canonicalAgentRef    = "ctxloom+git://github.com/acme/tools//bundles/kit#profiles/dev"
+)
+
+// agentRefsBody is a config whose one agent binding names a bundle profile in
+// the fetch-address grammar beside a bare local profile.
+const agentRefsBody = "agents:\n  dev:\n    llm: claude-code\n    profiles:\n      - " + fetchAddressAgentRef + "\n      - developer\n"
+
+// The config kind's step out of agentRefsGeneration re-spells every agent
+// binding's fetch-address profile ref as its canonical ctxloom URI, needing
+// nothing beyond the document, and leaves a bare local name as written.
+func TestConfigKind_StepRespellsAgentProfileRefsCanonically(t *testing.T) {
+	r, err := configKind.Upgrade([]byte(versioned(agentRefsGeneration, agentRefsBody)))
+	require.NoError(t, err)
+	assert.Equal(t, agentRefsGeneration, r.From)
+	assert.Equal(t, configKind.Current(), r.To)
+
+	var root map[string]any
+	require.NoError(t, yaml.Unmarshal(r.Data, &root))
+	assert.Equal(t, []string{canonicalAgentRef, "developer"}, agentProfiles(t, root, "dev"))
+}
+
+// An old-spelling config loads migrated in memory: the binding carries the
+// canonical ref, no finding is raised, and the file on disk is untouched.
+func TestLoad_OldSpellingAgentRefs_MigrateInMemory(t *testing.T) {
+	body := versioned(agentRefsGeneration, agentRefsBody)
+	fs := seedProjectConfig(t, body)
+	strictness.Reset()
+	t.Cleanup(func() { strictness.Reset() })
+	mark := strictness.Checkpoint()
+
+	cfg, err := Load(WithFS(fs), WithAppDir(refusalAppDir))
+	require.NoError(t, err)
+	assert.Empty(t, strictness.Since(mark), "a migratable config raises nothing")
+	agent, ok := cfg.Agent("dev")
+	require.True(t, ok)
+	assert.Equal(t, []string{canonicalAgentRef, "developer"}, agent.Profiles)
+
+	got, err := afero.ReadFile(fs, paths.ConfigPath(refusalAppDir))
+	require.NoError(t, err)
+	assert.Equal(t, body, string(got), "without --write-upgrades the file is byte-identical")
+}
+
+// --write-upgrades persists the canonical spelling at the current generation.
+func TestLoad_OldSpellingAgentRefs_WithWriteUpgrades_PersistCanonical(t *testing.T) {
+	writeUpgradesOn(t)
+	fs := seedProjectConfig(t, versioned(agentRefsGeneration, agentRefsBody))
+	path := paths.ConfigPath(refusalAppDir)
+
+	assert.Empty(t, loadFindings(t, fs))
+
+	got, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	assert.Contains(t, string(got), versioned(configKind.Current(), ""))
+	assert.Contains(t, string(got), canonicalAgentRef)
+	assert.NotContains(t, string(got), fetchAddressAgentRef)
 }

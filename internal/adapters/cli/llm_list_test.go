@@ -65,7 +65,7 @@ func TestRunLLMList_TextMarksAuthoredAndFallbackDifferently(t *testing.T) {
 	// ("claude-code"), in a single listing. The default is pinned to a THIRD
 	// name so the two markers are checked both with and without "(default)"
 	// sitting between them.
-	agentProject(t, "schema_version: 6\nllm:\n  configs:\n    big: { type: mock }\n  defaults:\n    primary: mock\n")
+	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    big: { type: mock }\n  defaults:\n    primary: mock\n")
 	cmd, out := textCmd()
 	require.NoError(t, runLLMList(cmd, nil))
 
@@ -79,7 +79,7 @@ func TestRunLLMList_TextMarksAuthoredAndFallbackDifferently(t *testing.T) {
 }
 
 func TestRunLLMList_JSONCarriesAuthored(t *testing.T) {
-	agentProject(t, "schema_version: 6\nllm:\n  configs:\n    big: { type: mock }\n")
+	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    big: { type: mock }\n")
 	cmd, out := textCmd()
 	cmd.Flags().String("format", formatText, "")
 	require.NoError(t, cmd.Flags().Set("format", formatJSON))
@@ -104,7 +104,7 @@ func TestRunLLMList_JSONCarriesAuthored(t *testing.T) {
 // distinction exists for: a project with NO llm block at all gets every
 // default label merged into its read view, and not one of them is the user's.
 func TestRunLLMList_WholeRegistryFallbackIsNeverAuthored(t *testing.T) {
-	agentProject(t, "schema_version: 6\n")
+	agentProject(t, "schema_version: 7\n")
 	cmd, out := textCmd()
 	cmd.Flags().String("format", formatText, "")
 	require.NoError(t, cmd.Flags().Set("format", formatJSON))
@@ -150,7 +150,7 @@ func TestLLMList_DegradedConfigAuthorsNothing(t *testing.T) {
 // container story) renders host and nothing else, WITH the reason — a shorter
 // menu on its own would read as ctxloom having an opinion about containers.
 func TestRunLLMList_TextWithholdsContainerForEngineWithoutAuthAndSaysWhy(t *testing.T) {
-	agentProject(t, "schema_version: 6\nllm:\n  configs:\n    editor: { type: acp }\n")
+	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    editor: { type: acp }\n")
 	cmd, out := textCmd()
 	require.NoError(t, runLLMList(cmd, nil))
 
@@ -165,7 +165,7 @@ func TestRunLLMList_TextWithholdsContainerForEngineWithoutAuthAndSaysWhy(t *test
 // TestRunLLMList_TextOffersBothContainerAxesForAnAuthedEngine proves the gate
 // is not simply off for everyone.
 func TestRunLLMList_TextOffersBothContainerAxesForAnAuthedEngine(t *testing.T) {
-	agentProject(t, "schema_version: 6\n")
+	agentProject(t, "schema_version: 7\n")
 	cmd, out := textCmd()
 	require.NoError(t, runLLMList(cmd, nil))
 
@@ -178,7 +178,7 @@ func TestRunLLMList_TextOffersBothContainerAxesForAnAuthedEngine(t *testing.T) {
 // `--format json`) consults instead of carrying its own list of "engines that
 // support containers".
 func TestRunLLMList_JSONCarriesTheRuntimeOffer(t *testing.T) {
-	agentProject(t, "schema_version: 6\nllm:\n  configs:\n    editor: { type: acp }\n")
+	agentProject(t, "schema_version: 7\nllm:\n  configs:\n    editor: { type: acp }\n")
 	cmd, out := textCmd()
 	cmd.Flags().String("format", formatText, "")
 	require.NoError(t, cmd.Flags().Set("format", formatJSON))

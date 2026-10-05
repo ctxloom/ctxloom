@@ -69,7 +69,7 @@ func pulledProject(t *testing.T) (appDir, repoURL string) {
 	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, appDir), "dev.yaml"),
 		[]byte("bundles:\n  - "+bundleRef+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir),
-		[]byte("schema_version: 6\ndefault_agent: default\nagents:\n  default:\n    profiles: [dev]\n"), 0o644))
+		[]byte("schema_version: 7\ndefault_agent: default\nagents:\n  default:\n    profiles: [dev]\n"), 0o644))
 	return appDir, repoURL
 }
 

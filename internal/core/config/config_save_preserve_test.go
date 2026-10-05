@@ -70,7 +70,7 @@ func TestConfig_Save_PreservesCommentsAndKeyOrder(t *testing.T) {
 	// The unrelated change landed and the version was stamped forward under
 	// the current key, the legacy one gone.
 	assert.Contains(t, got, "reviewer", "the unrelated default_agent change must land")
-	assert.Contains(t, got, "\nschema_version: 6\n")
+	assert.Contains(t, got, "\nschema_version: 7\n")
 	assert.NotContains(t, got, "\nversion:")
 
 	// Original key ORDER is preserved (version before editor before

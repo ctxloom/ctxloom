@@ -126,6 +126,11 @@ has no equivalent of).
   `<canonical-url>@bundles/<name>` refs read as their `<bundle-uri>`, in
   memory; `--write-upgrades` (or signing the bundle) persists that, item files
   included. Either way the bundle's identity is its `<bundle-uri>`.
+- **A config's agent bindings are versioned by the config's own
+  `schema_version`**: a `config.yaml` older than the agent-ref step has every
+  `agents.<name>.profiles` ref naming its source by URL read as its
+  `<bundle-uri>`, in memory; `--write-upgrades` persists it. An `<alias>/…`
+  binding ref resolves through the registry on load, the same way.
 - **A local bundle's profiles resolve `<alias>/…` refs on load**, in memory —
   an alias table is this machine's, so a remote bundle's profiles are never
   read against it.

@@ -160,7 +160,7 @@ func TestOpen_WithEngines_ValidatesEveryGeneration(t *testing.T) {
 // warning scrolls past. This is the deliberate exception for review.
 func TestParseConfig_RefusesAnAgentAuthKey(t *testing.T) {
 	for _, mode := range []string{"login", "api-key", "cloud", "token"} {
-		_, err := config.ParseConfig([]byte("schema_version: 6\nagents:\n  dev:\n    profiles: [base]\n    auth: " + mode + "\n"))
+		_, err := config.ParseConfig([]byte("schema_version: 7\nagents:\n  dev:\n    profiles: [base]\n    auth: " + mode + "\n"))
 		require.ErrorIs(t, err, agents.ErrRetiredAuthKey, mode)
 		assert.Contains(t, err.Error(), `"dev"`, mode)
 		assert.Contains(t, err.Error(), "claude setup-token", mode)
@@ -174,16 +174,16 @@ func TestParseConfig_RefusesAnAgentAuthKey(t *testing.T) {
 // everyone -- refused, typed, naming what is accepted.
 func TestParseConfig_SessionAuth(t *testing.T) {
 	for doc, want := range map[string]engine.AuthMode{
-		"schema_version: 6\n":              engine.AuthToken,
-		"schema_version: 6\nauth: token\n": engine.AuthToken,
-		"schema_version: 6\nauth: login\n": engine.AuthLogin,
+		"schema_version: 7\n":              engine.AuthToken,
+		"schema_version: 7\nauth: token\n": engine.AuthToken,
+		"schema_version: 7\nauth: login\n": engine.AuthLogin,
 	} {
 		cfg, err := config.ParseConfig([]byte(doc))
 		require.NoError(t, err, doc)
 		assert.Equal(t, want, cfg.SessionAuth(), doc)
 	}
 	for _, mode := range []string{"api-key", "cloud", "keychain"} {
-		_, err := config.ParseConfig([]byte("schema_version: 6\nauth: " + mode + "\n"))
+		_, err := config.ParseConfig([]byte("schema_version: 7\nauth: " + mode + "\n"))
 		require.ErrorIs(t, err, engine.ErrUnknownAuthMode, mode)
 		var r report.Remediable
 		require.ErrorAs(t, err, &r, mode)

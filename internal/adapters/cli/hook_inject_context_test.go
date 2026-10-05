@@ -403,14 +403,14 @@ func TestAgentSetupNudge_Wiring(t *testing.T) {
 	}
 
 	t.Run("profiles, no agents → nudge on first chunk", func(t *testing.T) {
-		root := writeRoot(t, "schema_version: 6\n", "default")
+		root := writeRoot(t, "schema_version: 7\n", "default")
 		inProject(t, root)
 		assert.NotEmpty(t, agentSetupNudge(1))
 		assert.Empty(t, agentSetupNudge(2), "fires once, on the first chunk")
 	})
 
 	t.Run("agent configured → silent", func(t *testing.T) {
-		root := writeRoot(t, "schema_version: 6\nagents:\n  dev:\n    profiles: [default]\n", "default")
+		root := writeRoot(t, "schema_version: 7\nagents:\n  dev:\n    profiles: [default]\n", "default")
 		inProject(t, root)
 		assert.Empty(t, agentSetupNudge(1))
 	})

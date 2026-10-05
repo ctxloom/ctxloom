@@ -320,7 +320,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":
         """
-        schema_version: 6
+        schema_version: 7
         agents:
           developer:
             profiles: [dev]

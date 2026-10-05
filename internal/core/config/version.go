@@ -4,4 +4,4 @@ package config
 // writes: the integer every writer stamps as schema_version. The reader gates
 // each layer against it (configload's configKind, whose derived Current a
 // test pins to this). Distinct from the application version.
-const CurrentConfigVersion = 6
+const CurrentConfigVersion = 7

@@ -269,17 +269,8 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	if cache == nil {
 		cache = NewRepoCache(cfg)
 	}
-	//
-	// A validation probe that ERRORED and a failed clone are one cause (the
-	// address could not be read), so the clone's failure replaces the probe's
-	// rather than repeating it. The warning is the caller's to render.
-	if msg := ensureClone(ctx, cache, rem); msg != "" {
-		if validErr != nil {
-			result.Warning = msg
-		} else {
-			result.Warning = appendWarning(result.Warning, msg)
-		}
-	}
+	// The warning is the caller's to render.
+	result.Warning = withCloneFailure(result.Warning, validErr, ensureClone(ctx, cache, rem))
 
 	return result, nil
 }
@@ -861,6 +852,21 @@ func ensureClone(ctx context.Context, cache repoCloner, rem *remote.Remote) stri
 		return fmt.Sprintf("%s: clone failed: %v", rem.Name, cerr)
 	}
 	return ""
+}
+
+// withCloneFailure folds the eager clone's failure (cloneMsg, "" on success)
+// into an add's warning. A validation probe that ERRORED and a failed clone
+// are one cause — the address could not be read — so the clone's failure
+// replaces the probe's rather than repeating it.
+func withCloneFailure(warning string, validErr error, cloneMsg string) string {
+	switch {
+	case cloneMsg == "":
+		return warning
+	case validErr != nil:
+		return cloneMsg
+	default:
+		return appendWarning(warning, cloneMsg)
+	}
 }
 
 // appendWarning joins two warning strings with "; ", treating an empty existing

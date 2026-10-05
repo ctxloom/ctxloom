@@ -28,10 +28,8 @@ import (
 var configCmd = groupNodeDefault(&cobra.Command{
 	Use:   "config",
 	Short: "Show or modify ctxloom configuration",
-	Long: `Show or modify ctxloom configuration.
-
-Examples:
-  ctxloom config show              # Show the effective configuration
+	Long:  `Show or modify ctxloom configuration.`,
+	Example: `  ctxloom config show              # Show the effective configuration
   ctxloom config show --raw        # Show only what the configuration sets
   ctxloom config show llm          # Show one section
   ctxloom config edit              # Open config.yaml in $EDITOR
@@ -50,8 +48,10 @@ var configShowCmd = &cobra.Command{
 	Use:   "show [section]",
 	Short: "Show the effective configuration, or one section",
 	Long:  configShowLong,
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runConfigShow,
+	Example: `  ctxloom config show
+  ctxloom config show llm`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runConfigShow,
 }
 
 func runConfigShow(cmd *cobra.Command, args []string) error {
@@ -177,10 +177,11 @@ func renderConfigSection(doc yaml.Marshaler, name string, out io.Writer) error {
 }
 
 var configEditCmd = &cobra.Command{
-	Use:   "edit",
-	Short: "Open config.yaml in $EDITOR",
-	Args:  cobra.NoArgs,
-	RunE:  runConfigEdit,
+	Use:     "edit",
+	Short:   "Open config.yaml in $EDITOR",
+	Example: `  ctxloom config edit`,
+	Args:    cobra.NoArgs,
+	RunE:    runConfigEdit,
 }
 
 func runConfigEdit(cmd *cobra.Command, _ []string) error {
@@ -223,11 +224,12 @@ is (re)written with defaults — back up a customized remotes.yaml first. For a
 fuller project scaffold (hooks, discovery), use 'ctxloom init'.`
 
 var configCreateCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Scaffold a default config.yaml (and remotes.yaml)",
-	Long:  configCreateLong,
-	Args:  cobra.NoArgs,
-	RunE:  runConfigCreate,
+	Use:     "create",
+	Short:   "Scaffold a default config.yaml (and remotes.yaml)",
+	Long:    configCreateLong,
+	Example: `  ctxloom config create --engine claude-code`,
+	Args:    cobra.NoArgs,
+	RunE:    runConfigCreate,
 }
 
 func runConfigCreate(cmd *cobra.Command, _ []string) error {

@@ -8,9 +8,10 @@ import (
 )
 
 var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print the version number",
-	RunE:  runVersion,
+	Use:     "version",
+	Short:   "Print the version number",
+	Example: `  ctxloom version`,
+	RunE:    runVersion,
 }
 
 func runVersion(cmd *cobra.Command, _ []string) error {

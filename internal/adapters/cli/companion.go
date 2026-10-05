@@ -80,11 +80,12 @@ var companionCmd = groupNodeDefault(&cobra.Command{
 // strictly more useful: it reports what would happen on the next run rather
 // than what someone once agreed to.
 var companionListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "Show which discovered companions ctxloom would execute, and why",
-	Long:  companionLong,
-	Args:  cobra.NoArgs,
-	RunE:  runCompanionListCmd,
+	Use:     "list",
+	Short:   "Show which discovered companions ctxloom would execute, and why",
+	Long:    companionLong,
+	Example: `  ctxloom companion list`,
+	Args:    cobra.NoArgs,
+	RunE:    runCompanionListCmd,
 }
 
 // companionListing is the emitted shape of `companion list`.
@@ -124,11 +125,12 @@ func runCompanionListCmd(cmd *cobra.Command, _ []string) error {
 }
 
 var companionShowCmd = &cobra.Command{
-	Use:   "show <path-or-name>",
-	Short: "Show whether ctxloom would execute one companion binary, and why",
-	Long:  companionLong,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runCompanionShowCmd,
+	Use:     "show <path-or-name>",
+	Short:   "Show whether ctxloom would execute one companion binary, and why",
+	Long:    companionLong,
+	Example: `  ctxloom companion show ltk`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runCompanionShowCmd,
 }
 
 // companionShow is the emitted shape of `companion show` — the read-one

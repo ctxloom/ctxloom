@@ -64,6 +64,8 @@ omitting it would make "nothing has been compacted" indistinguishable from
 "there are no sessions".
 
 Naming a session restricts the listing to that one session.`,
+	Example: `  ctxloom session artifacts list
+  ctxloom session artifacts list amber-swift-owl`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSessionArtifactsList,
 }

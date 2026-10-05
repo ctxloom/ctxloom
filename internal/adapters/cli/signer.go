@@ -50,10 +50,9 @@ trust the publisher individually. --user writes to your PER-MACHINE USER
 store (~/.ctxloom/allowed_signers) instead, which follows you across every
 project but travels with nobody else. Run outside a project (no .ctxloom
 directory found), the default falls back to the user store automatically
-and says so.
+and says so.`
 
-Examples:
-  ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
+const signerCreateExample = `  ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
   ctxloom signer trust lead@team.example --key lead.pub --namespace approve,reject --user`
 
 // runSignerTrustCmd is signerTrustCmd's RunE.
@@ -292,10 +291,9 @@ key is compiled into the binary and cannot be deleted by this command.
 Instead this records a LOCAL distrust decision in your distrusted_signers
 store — the same project-by-default/--user scope as above, since only a new
 binary changes the compiled-in bytes themselves. Content signed only by that
-key is withheld from here on, on this machine or project.
+key is withheld from here on, on this machine or project.`
 
-Examples:
-  ctxloom signer untrust context@acme.com
+const signerDeleteExample = `  ctxloom signer untrust context@acme.com
   ctxloom signer untrust lead@team.example --user`
 
 func runSignerUntrustCmd(cmd *cobra.Command, args []string) error {
@@ -368,32 +366,36 @@ fingerprint you are supposed to verify out of band; re-run with --yes to trust.
 }, "list")
 
 var signerTrustCmd = &cobra.Command{
-	Use:   "trust <principal>",
-	Short: "Trust a signer's public key",
-	Long:  signerCreateLong,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runSignerTrustCmd,
+	Use:     "trust <principal>",
+	Short:   "Trust a signer's public key",
+	Long:    signerCreateLong,
+	Example: signerCreateExample,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSignerTrustCmd,
 }
 
 var signerListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List trusted signers",
-	RunE:  runSignerListCmd,
+	Use:     "list",
+	Short:   "List trusted signers",
+	Example: `  ctxloom signer list`,
+	RunE:    runSignerListCmd,
 }
 
 var signerShowCmd = &cobra.Command{
-	Use:   "show <principal>",
-	Short: "Show every trust-root entry for a principal",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runSignerShowCmd,
+	Use:     "show <principal>",
+	Short:   "Show every trust-root entry for a principal",
+	Example: `  ctxloom signer show context@acme.com`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSignerShowCmd,
 }
 
 var signerUntrustCmd = &cobra.Command{
-	Use:   "untrust <principal>",
-	Short: "Withdraw trust from a signer's public key",
-	Long:  signerDeleteLong,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runSignerUntrustCmd,
+	Use:     "untrust <principal>",
+	Short:   "Withdraw trust from a signer's public key",
+	Long:    signerDeleteLong,
+	Example: signerDeleteExample,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSignerUntrustCmd,
 }
 
 func init() {

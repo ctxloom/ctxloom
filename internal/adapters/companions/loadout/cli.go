@@ -92,6 +92,7 @@ ctxloom:companion@%s (signature-envelope spec §4.3, §6).
 document bytes (base64) plus an OPTIONAL detached publish signature.
 
 --format yaml (the default) prints the raw loadout document for a human to read.`, binName, binName, binName),
+		Example: fmt.Sprintf("  %[1]s %[2]s\n  %[1]s %[2]s --%[3]s %[4]s", binName, Subcommand, FormatFlag, FormatJSON),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			loadoutYAML, sig := content()
 			return Emit(cmd.OutOrStdout(), resolveFormat(cmd, format), loadoutYAML, sig)

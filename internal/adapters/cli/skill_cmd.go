@@ -29,10 +29,8 @@ optional scripts/assets) that an engine loads via progressive disclosure,
 distinct from a user-invoked slash "command" (ctxloom command).
 
 Skills live inside bundles — .ctxloom/content/bundles/v2/<bundle>/skills/<name>/
-— and are referenced using the syntax: bundle#skills/name
-
-Examples:
-  ctxloom skill list                                   # List all skills
+— and are referenced using the syntax: bundle#skills/name`,
+	Example: `  ctxloom skill list                                   # List all skills
   ctxloom skill show core#skills/code-reviewer          # Show frontmatter + files
   ctxloom skill create my-bundle code-reviewer          # Scaffold a new skill package
   ctxloom skill remove my-bundle#skills/code-reviewer --yes  # Remove a skill package
@@ -48,6 +46,8 @@ var skillListCmd = &cobra.Command{
 	Long: `List all Agent Skill packages from all installed bundles.
 
 Use --bundle to filter by a specific bundle.`,
+	Example: `  ctxloom skill list
+  ctxloom skill list --bundle go-tools`,
 	RunE: runSkillList,
 }
 
@@ -122,12 +122,10 @@ var skillShowCmd = &cobra.Command{
 	Long: `Display a skill's SKILL.md frontmatter (description, license, etc.),
 instructions body, and per-file manifest (path, sha256, mode).
 
-Reference format: bundle#skills/name
-
-Examples:
-  ctxloom skill show core#skills/code-reviewer`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSkillShow,
+Reference format: bundle#skills/name`,
+	Example: `  ctxloom skill show core#skills/code-reviewer`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSkillShow,
 }
 
 func runSkillShow(cmd *cobra.Command, args []string) error {
@@ -180,10 +178,8 @@ bundle. The directory is the skill: nothing else is registered.
 
 The scaffolded SKILL.md has valid frontmatter (name matching the directory,
 a placeholder description) that passes validation immediately — edit
-SKILL.md to describe the skill and add any scripts/assets.
-
-Examples:
-  ctxloom skill create my-bundle code-reviewer
+SKILL.md to describe the skill and add any scripts/assets.`,
+	Example: `  ctxloom skill create my-bundle code-reviewer
   ctxloom skill create my-bundle code-reviewer --description "Reviews Go diffs for common bugs"`,
 	Args: cobra.ExactArgs(2),
 	RunE: runSkillCreate,
@@ -222,10 +218,8 @@ var skillRemoveCmd = &cobra.Command{
 Bare invocation reports what would be removed and removes nothing (exit 0).
 Pass --yes to apply it.
 
-Reference format: bundle#skills/name
-
-Examples:
-  ctxloom skill remove my-bundle#skills/old-skill
+Reference format: bundle#skills/name`,
+	Example: `  ctxloom skill remove my-bundle#skills/old-skill
   ctxloom skill remove my-bundle#skills/old-skill --yes`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSkillRemove,
@@ -304,10 +298,8 @@ skill) containing every manifest file, with POSIX modes preserved.
 
 --sign additionally writes a detached signature over the skill's manifest
 (the same bytes 'ctxloom skill import' verifies), using the same zero-config
-key discovery 'ctxloom bundle sign' uses.
-
-Examples:
-  ctxloom skill export my-bundle#skills/code-reviewer
+key discovery 'ctxloom bundle sign' uses.`,
+	Example: `  ctxloom skill export my-bundle#skills/code-reviewer
   ctxloom skill export my-bundle#skills/code-reviewer -o /tmp/code-reviewer.zip --sign`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSkillExport,
@@ -377,10 +369,8 @@ import is reported; an unsigned or untrusted-publisher signature does not
 block the import (ctxloom never auto-trusts remote content on import —
 'ctxloom review'/'ctxloom signer trust' still govern whether it is ever exposed),
 but a STRUCTURALLY invalid archive or package (a rejected entry, or a
-SKILL.md that fails frontmatter validation) is refused and cleaned up.
-
-Examples:
-  ctxloom skill import ./code-reviewer.zip --bundle my-bundle
+SKILL.md that fails frontmatter validation) is refused and cleaned up.`,
+	Example: `  ctxloom skill import ./code-reviewer.zip --bundle my-bundle
   ctxloom skill import ./code-reviewer.zip --bundle my-bundle --sig ./code-reviewer.zip.sig`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSkillImport,

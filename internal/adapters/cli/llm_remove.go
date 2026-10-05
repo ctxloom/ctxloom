@@ -17,6 +17,7 @@ var llmRemoveYes bool
 // `remove` leaf in this CLI shares (remove_preview.go).
 var llmRemoveCmd = &cobra.Command{
 	Use:     "remove <label>",
+	Example: `  ctxloom llm remove big --yes`,
 	Aliases: []string{"rm", "del"},
 	Short:   "Remove an LLM engine config from config.yaml",
 	Long: `Remove a labeled LLM engine config from the 'llm.configs' key of

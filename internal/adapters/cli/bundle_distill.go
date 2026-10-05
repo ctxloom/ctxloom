@@ -38,10 +38,8 @@ to create a compressed version. The distilled content, content hash, and
 model info are written back into the bundle's item files.
 
 A bundle is named by its directory or its bundle.yaml. Supports glob patterns
-to process multiple bundles at once.
-
-Examples:
-  ctxloom bundle distill ./my-bundle                                   # One bundle
+to process multiple bundles at once.`,
+	Example: `  ctxloom bundle distill ./my-bundle                                   # One bundle
   ctxloom bundle distill .ctxloom/content/bundles/v2/*/bundle.yaml    # Every bundle
   ctxloom bundle distill ./my-bundle --force                           # Re-distill all items
   ctxloom bundle distill ./my-bundle --dry-run                         # Preview what would be distilled`,

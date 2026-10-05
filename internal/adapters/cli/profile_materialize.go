@@ -43,10 +43,8 @@ named profile(s)' context exactly as materialize would, but rather than
 writing it under --target, diffs it against an already-delivered context file
 (e.g. another machine's materialized CLAUDE.md) and reports what differs — the
 two-machine "it works on his machine, not hers" symptom. --target is not
-required in this mode; nothing is written.
-
-Examples:
-  ctxloom profile materialize default --target ./out
+required in this mode; nothing is written.`,
+	Example: `  ctxloom profile materialize default --target ./out
   ctxloom profile materialize go-dev cr-correctness-go --target ../worktree
   ctxloom profile materialize default --diff ../bob-checkout/CLAUDE.md`,
 	Args: cobra.MinimumNArgs(1),

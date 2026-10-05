@@ -355,10 +355,8 @@ engine's own status — its exit code, or 128+signum when a signal ended it
 (143 for SIGTERM), as a shell would report. A run that failed without an
 engine status (cancelled, or the engine never launched) exits 1. ctxloom's
 own refusals (2) and fatal startup findings (3) happen before the engine
-launches, so a 2 or 3 after the engine ran is the engine's.
-
-Examples:
-  ctxloom run -f coding-standards "review this code"
+launches, so a 2 or 3 after the engine ran is the engine's.`,
+	Example: `  ctxloom run -f coding-standards "review this code"
   ctxloom run -p developer "explain the architecture"
   ctxloom run -p reviewer -f extra-rules "review this PR"
   ctxloom run -t security "check for vulnerabilities"

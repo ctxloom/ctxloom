@@ -42,8 +42,9 @@ contract structured frontends consume) each change is one NDJSON line,
 {"event":"changed","kind":"plans"}, and a GUI re-queries the plan list on each.
 Text mode prints a short line per change. The watch plumbing lives here in the
 backend so a frontend never has to touch ~/.ctxloom itself.`,
-	Args: cobra.NoArgs,
-	RunE: runPlanWatch,
+	Example: `  ctxloom plan watch`,
+	Args:    cobra.NoArgs,
+	RunE:    runPlanWatch,
 }
 
 func runPlanWatch(cmd *cobra.Command, args []string) error {

@@ -109,6 +109,7 @@ func llmOriginMarker(authored bool) string {
 
 var llmListCmd = &cobra.Command{
 	Use:     "list",
+	Example: `  ctxloom llm list`,
 	Aliases: []string{"ls"},
 	Short:   "List available LLMs",
 	Long:    `Lists the available LLM backends.`,

@@ -84,6 +84,7 @@ type depsListing struct {
 
 var depsListCmd = &cobra.Command{
 	Use:     "list",
+	Example: `  ctxloom deps list`,
 	Aliases: []string{"ls"},
 	Short:   "List the installed dependency closure",
 	Long: `Read the lockfile and report what this project has installed: each bundle, the
@@ -258,8 +259,9 @@ not edit the manifest, and the held commit still satisfies the constraint.
 A hold survives a 'deps pull' too, including a forced one: forcing a pull
 re-resolves the reference exactly as an upgrade would, and a freeze that only
 held against one of them would not be a freeze.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runDepsHold,
+	Example: `  ctxloom deps hold ctxloom-default/go-tools`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runDepsHold,
 }
 
 var depsUnholdCmd = &cobra.Command{
@@ -268,8 +270,9 @@ var depsUnholdCmd = &cobra.Command{
 	Long: `Clear the hold flag on a bundle's active lockfile entry. The next
 'ctxloom deps upgrade' may advance it to the newest commit its version
 constraint allows.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runDepsUnhold,
+	Example: `  ctxloom deps unhold ctxloom-default/go-tools`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runDepsUnhold,
 }
 
 func runDepsHold(cmd *cobra.Command, args []string) error {

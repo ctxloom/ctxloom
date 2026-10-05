@@ -27,52 +27,38 @@ const (
 	doctorNoFixNamed = "see each row above for its fix"
 )
 
+// doctorCmd is the init-as-skill setup skill's Phase 6 postcondition check
+// (init-as-skill.plan.md §8.2). Its DOCTOR-CHECK-* markers are the vocabulary
+// the "ctxloom-doctor" Agent Skill uses, so a human and an LLM reading either
+// surface see one language. --deps is the mode init's PRIME and the setup
+// skill's phase 1 use, before there is anything else to check. The
+// transcript-reader rows exist because reading a vendor's own transcript store
+// refuses an unvalidated format rather than guessing; the local-state rows
+// cover every paths.TierLocal path a fresh clone has no way to learn it lacks.
+// Version currency has no check: it is best-effort and skill-guided.
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
 	Short: "Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)",
-	Long: `Run ctxloom's deterministic setup checks — this IS the init-as-skill setup
-skill's Phase 6 postcondition check (init-as-skill.plan.md §8.2): the
-.ctxloom marker + config validity; required binaries on PATH (git, each
-configured engine's own client, a container runtime when this project runs
-'runtime: container' agents, and — recommended, not required — ssh/ssh-keygen);
-whether every configured agent resolves (profile composition +
-engine/runtime) and the roster is non-empty; the seeded
-dependency lockfile parses and a real context assembly succeeds; hooks AND
-MCP registration per configured backend; the trust store's signers;
-which version-scoped transcript reader each configured engine's INSTALLED
-version selects, and the version ranges ctxloom carries readers for — what
-you need when a transcript refuses to convert, since reading a vendor's own
-transcript store refuses rather than guessing at an unvalidated format;
-companion detection + loadout probing (taskloom/ltk/...); every
-paths.TierLocal path (internal/core/paths.Layout) this checkout is missing — the
-local-only state (the dirty-tree-commit acknowledgement, the task-log
-project-id marker, compacted sessions, review's cached diff objects) that a
-fresh clone has no way to learn it lacks anywhere else; and, always, a stated
-reminder of the one boundary no check here crosses: ctxloom can confirm it
-WROTE the assembled context onto the engine's own surface, never that the
-engine actually READ it — that happens inside a process ctxloom does not own.
-The text report lists only the warnings, then one line counting them and
-naming the first fix; --all lists every check. Each line is prefixed with a
-DOCTOR-CHECK-* marker — the SAME vocabulary the
-"ctxloom-doctor" Agent Skill uses, so a human or an LLM reading either
-surface sees one language.
+	Long: `Check this project's setup and say what to fix: the .ctxloom marker and
+config, required binaries (git, each configured engine's client, a container
+runtime for container agents), whether every agent resolves, the lockfile and
+context assembly, hooks and MCP registration, trusted signers, companions,
+transcript readers for each engine's installed version, and local-only state
+a fresh clone lacks. It also states the one thing no check can confirm:
+ctxloom writes the context onto the engine's surface, but whether the engine
+reads it happens in a process ctxloom does not own.
 
-Version currency has no dedicated check here (best-effort, skill-guided):
-compare 'ctxloom version' against your remote's newest tag by hand, or ask
-an assistant carrying the ctxloom-doctor skill to do it.
+The text report lists the warnings, then one line counting them and naming
+the first fix; --all lists every check. Each row starts with a DOCTOR-CHECK-*
+marker. --deps checks only what this machine needs (binaries, signing key,
+git identity), so it reads clean before a project is set up.
 
---deps scopes the report to ONLY the machine-capability probes (git/ssh/
-ssh-keygen, a container runtime, any already-configured engine's client,
-signing-key readiness, and git identity) —
-no agents/profiles/hooks/trust checks, so it reads clean on a project that
-hasn't been set up yet. This is the mode init's PRIME and the setup skill's
-phase 1 use, before there's anything else to check.
-
-Diagnostic only: no check outcome ever fails the command, and nothing is
-blocked or changed. The container-runtime probe runs podman or docker, which
-may create its own storage directories. A "warn" status IS this command's fail-loud signal — read
-the report, don't grep the exit code. A usage error is still an error (e.g. a
---format value this build cannot render).`,
+A warning is the signal: doctor exits 0 whatever it finds, and changes
+nothing (the container-runtime probe may create the runtime's own storage
+directories). A usage error, such as an unknown --format, still fails.`,
+	Example: `  ctxloom doctor                      # the warnings, and the first fix
+  ctxloom doctor --all                # every check
+  ctxloom doctor --deps               # only what this machine needs`,
 	Args: cobra.NoArgs,
 	RunE: runDoctorCmd,
 }

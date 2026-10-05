@@ -52,6 +52,7 @@ They are never shipped in bundles or remotes: the engine choice is yours.`,
 
 var agentListCmd = &cobra.Command{
 	Use:     "list",
+	Example: `  ctxloom agent list`,
 	Aliases: []string{"ls"},
 	Short:   "List all local agents",
 	RunE:    runAgentList,
@@ -104,10 +105,11 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 }
 
 var agentShowCmd = &cobra.Command{
-	Use:   "show <name>",
-	Short: "Show an agent and its resolved engine",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runAgentShow,
+	Use:     "show <name>",
+	Short:   "Show an agent and its resolved engine",
+	Example: `  ctxloom agent show dev`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runAgentShow,
 }
 
 func runAgentShow(cmd *cobra.Command, args []string) error {
@@ -322,11 +324,9 @@ var agentCreateCmd = &cobra.Command{
 'agents:' key of .ctxloom/config.yaml. Refuses a name that already names an
 agent — change an existing one with 'ctxloom agent edit'.
 
-` + agentWriteLong + `
-
-Examples:
-  ctxloom agent create finder --engine claude-fast --profiles finder
-  ctxloom agent create dev --engine claude-code --profiles default,go-developer --runtime container-rootless
+` + agentWriteLong + ``,
+	Example: `  ctxloom agent create finder --llm claude-fast --profiles finder
+  ctxloom agent create dev --llm claude-code --profiles default,go-developer --runtime container-rootless
   ctxloom agent create reviewer --profiles cr-correctness-golang   # default engine`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAgentCreate,
@@ -348,10 +348,8 @@ driving has NO flag: it is agent DATA, authored in config.yaml under
 agents.<name>. A flag that only writes a config field is a second way to say
 the same thing, and the two spellings drift.
 
-` + agentWriteLong + `
-
-Examples:
-  ctxloom agent edit dev --runtime container-rootless
+` + agentWriteLong + ``,
+	Example: `  ctxloom agent edit dev --runtime container-rootless
   ctxloom agent edit reviewer --profiles cr-correctness-golang,cr-security`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAgentEdit,
@@ -544,10 +542,8 @@ runtime + permissions the transport. This replaces the retired 'profile default'
 With no argument, prints the current default agent. With a name, sets it (written
 as 'default_agent' in .ctxloom/config.yaml). The named agent should exist under
 'agents:' — an unknown name is accepted with a
-warning (a bare run then degrades to empty context until it is defined).
-
-Examples:
-  ctxloom agent default            # show the current default agent
+warning (a bare run then degrades to empty context until it is defined).`,
+	Example: `  ctxloom agent default            # show the current default agent
   ctxloom agent default dev        # make 'dev' the default agent`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runAgentDefault,
@@ -612,7 +608,9 @@ var agentRemoveYes bool
 // invocation reports what would be removed and removes nothing (exit 0);
 // --yes applies it.
 var agentRemoveCmd = &cobra.Command{
-	Use:     "remove <name>",
+	Use: "remove <name>",
+	Example: `  ctxloom agent remove dev          # report what would be removed
+  ctxloom agent remove dev --yes`,
 	Aliases: []string{"rm", "del"},
 	Short:   "Remove a local agent from config.yaml",
 	Long: `Remove a local agent binding from config.yaml.

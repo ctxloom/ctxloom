@@ -51,6 +51,8 @@ as held and never acted on. Each takes an offset (30d, 12w, 720h) or a date
 
 Without --yes this only reports; nothing changes. --yes acts on exactly the
 plan it reports, re-checking each session under its lock before acting.`,
+	Example: `  ctxloom session sweep                       # report what would be reclaimed
+  ctxloom session sweep --purge-older-than 90d --yes`,
 	Args: cobra.NoArgs,
 	RunE: runSessionSweep,
 }

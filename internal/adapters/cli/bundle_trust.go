@@ -61,17 +61,16 @@ which. A remote ALIAS is never a reference: an alias addresses a fetch.
 
 Every form needs shell quoting, because '#' starts a comment in most shells.
 
-Examples:
-  ctxloom bundle trust 'core#fragments/tdd'
+Reject an item with 'ctxloom bundle reject <ref>'. Withdraw this approval —
+returning the item to pending, without rejecting it — with
+'ctxloom bundle forget <ref>'.`
+
+const bundleTrustExample = `  ctxloom bundle trust 'core#fragments/tdd'
   ctxloom bundle trust 'lang/go#fragments/idioms'
   ctxloom bundle trust 'ctxloom+local:dev#commands/review'
   ctxloom bundle trust 'ctxloom+companion:ltk#hooks/PreToolUse/0'
   ctxloom bundle trust 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'
-  ctxloom bundle trust 'ctxloom+git://github.com/acme/repo//bundles/x@v1.2.0#fragments/y'
-
-Reject an item with 'ctxloom bundle reject <ref>'. Withdraw this approval —
-returning the item to pending, without rejecting it — with
-'ctxloom bundle forget <ref>'.`
+  ctxloom bundle trust 'ctxloom+git://github.com/acme/repo//bundles/x@v1.2.0#fragments/y'`
 
 // runBundleTrustCmd is bundleTrustCmd's RunE.
 func runBundleTrustCmd(cmd *cobra.Command, args []string) error {
@@ -84,11 +83,12 @@ func runBundleTrustCmd(cmd *cobra.Command, args []string) error {
 
 // bundleTrustCmd records that an item's current content may reach the agent.
 var bundleTrustCmd = &cobra.Command{
-	Use:   "trust <ref>",
-	Short: "Trust an item's current content (fragment, command, MCP server, or hook)",
-	Long:  bundleTrustLong,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runBundleTrustCmd,
+	Use:     "trust <ref>",
+	Short:   "Trust an item's current content (fragment, command, MCP server, or hook)",
+	Long:    bundleTrustLong,
+	Example: bundleTrustExample,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runBundleTrustCmd,
 }
 
 // runItemTrust records the resolved item as accepted and reports the recorded
@@ -135,10 +135,9 @@ undo an approval — it is a stronger, stickier statement than withdrawing one.
 To return an item to pending, decided neither way, use
 'ctxloom bundle forget <ref>'.
 
-Reference format matches 'ctxloom bundle trust' (see its help).
+Reference format matches 'ctxloom bundle trust' (see its help).`
 
-Examples:
-  ctxloom bundle reject 'tooling#fragments/curl-pipe-sh'
+const bundleRejectExample = `  ctxloom bundle reject 'tooling#fragments/curl-pipe-sh'
   ctxloom bundle reject 'ctxloom+companion:ltk#hooks/PreToolUse/0'
   ctxloom bundle reject 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'`
 
@@ -153,11 +152,12 @@ func runBundleRejectCmd(cmd *cobra.Command, args []string) error {
 
 // bundleRejectCmd withholds an item from every exposure surface.
 var bundleRejectCmd = &cobra.Command{
-	Use:   "reject <ref>",
-	Short: "Reject an item so it is withheld from the agent, always",
-	Long:  bundleRejectLong,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runBundleRejectCmd,
+	Use:     "reject <ref>",
+	Short:   "Reject an item so it is withheld from the agent, always",
+	Long:    bundleRejectLong,
+	Example: bundleRejectExample,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runBundleRejectCmd,
 }
 
 // runItemReject records both rejection components and reports what was written.
@@ -221,10 +221,9 @@ store with --project. A decision the other store holds still stands, and the
 command says so rather than reporting an item back to pending while it stays
 withheld.
 
-Reference format matches 'ctxloom bundle trust' (see its help).
+Reference format matches 'ctxloom bundle trust' (see its help).`
 
-Examples:
-  ctxloom bundle forget 'tooling#fragments/curl-pipe-sh'
+const bundleForgetExample = `  ctxloom bundle forget 'tooling#fragments/curl-pipe-sh'
   ctxloom bundle forget --project 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'`
 
 // runBundleForgetCmd is bundleForgetCmd's RunE.
@@ -238,11 +237,12 @@ func runBundleForgetCmd(cmd *cobra.Command, args []string) error {
 
 // bundleForgetCmd returns an item to pending by clearing its decision.
 var bundleForgetCmd = &cobra.Command{
-	Use:   "forget <ref>",
-	Short: "Clear an item's recorded decision (approval or rejection), back to pending",
-	Long:  bundleForgetLong,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runBundleForgetCmd,
+	Use:     "forget <ref>",
+	Short:   "Clear an item's recorded decision (approval or rejection), back to pending",
+	Long:    bundleForgetLong,
+	Example: bundleForgetExample,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runBundleForgetCmd,
 }
 
 // runItemForget clears the recorded decision and reports what actually went.

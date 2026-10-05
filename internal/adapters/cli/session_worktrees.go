@@ -87,8 +87,9 @@ isolation.ReapOrphanedWorktrees' safety rules would reach: reapable
 work), or skipped (owner alive, or its liveness can't be proven).
 
 Read-only. Naming a session restricts the listing to that one session.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runSessionWorktreesList,
+	Example: `  ctxloom session worktrees list`,
+	Args:    cobra.MaximumNArgs(1),
+	RunE:    runSessionWorktreesList,
 }
 
 var sessionWorktreesPurgeCmd = &cobra.Command{
@@ -104,8 +105,9 @@ changes anything runs, on a TTY or not.
 It refuses (exit 2) when it was asked to remove and removed nothing, so an
 unattended run that found nothing to do cannot be mistaken for one that
 cleaned up.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSessionWorktreesPurge,
+	Example: `  ctxloom session worktrees purge amber-swift-owl --yes`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSessionWorktreesPurge,
 }
 
 func init() {

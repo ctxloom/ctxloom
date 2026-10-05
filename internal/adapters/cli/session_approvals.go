@@ -32,8 +32,9 @@ terminal that started the run.
 
 Every live coordinator on this host is asked: each one records its endpoint in
 ~/.ctxloom/coord/<project>/<root>/endpoint.json while it runs.`,
-	Args: cobra.NoArgs,
-	RunE: runSessionApprovals,
+	Example: `  ctxloom session approvals`,
+	Args:    cobra.NoArgs,
+	RunE:    runSessionApprovals,
 }
 
 const (

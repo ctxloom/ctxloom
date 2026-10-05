@@ -17,14 +17,12 @@ var browseRecursive bool
 // remoteShowCmd is the canonical spine's `show` for the remote noun. It was
 // spelled `browse`; the spine has one read verb (verb-spine reorg §5).
 var remoteShowCmd = &cobra.Command{
-	Use:   "show <remote>",
-	Short: "Show a remote and the bundles it publishes",
-	Long: `Show one remote: its bundles, as published in the remote repository.
-
-Examples:
-  ctxloom remote show ctxloom-default`,
-	Args: cobra.ExactArgs(1),
-	RunE: runRemoteBrowse,
+	Use:     "show <remote>",
+	Short:   "Show a remote and the bundles it publishes",
+	Long:    `Show one remote: its bundles, as published in the remote repository.`,
+	Example: `  ctxloom remote show ctxloom-default`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runRemoteBrowse,
 }
 
 func runRemoteBrowse(cmd *cobra.Command, args []string) error {

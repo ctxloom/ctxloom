@@ -36,7 +36,9 @@ var (
 var sessionListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List recorded sessions (default: current project; --all for everything)",
-	RunE:  runSessionList,
+	Example: `  ctxloom session list
+  ctxloom session list --all`,
+	RunE: runSessionList,
 }
 
 func runSessionList(cmd *cobra.Command, _ []string) error {
@@ -109,10 +111,11 @@ type sessionEssence struct {
 }
 
 var sessionShowCmd = &cobra.Command{
-	Use:   "show <session-name>",
-	Short: "Print the compacted summary of a named session",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runSessionShow,
+	Use:     "show <session-name>",
+	Short:   "Print the compacted summary of a named session",
+	Example: `  ctxloom session show amber-swift-owl`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSessionShow,
 }
 
 func runSessionShow(cmd *cobra.Command, args []string) error {
@@ -189,8 +192,9 @@ transcript first with 'ctxloom session transcript purge <session-name> --uncompa
 --yes', then remove.
 
 To empty a session but keep it listed, use 'ctxloom session purge'.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSessionRemove,
+	Example: `  ctxloom session remove amber-swift-owl --yes`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSessionRemove,
 }
 
 // sessionRemoveResult names each artifact separately. A single "removed:true"
@@ -278,8 +282,9 @@ var sessionCompactCmd = &cobra.Command{
 runs the compactor on that backend session, and writes a fresh essence.md
 under the session directory. Errors if the session has no session_id bound
 (the SessionStart bind hook records it for sessions launched via ctxloom run).`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSessionCompact,
+	Example: `  ctxloom session compact amber-swift-owl`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSessionCompact,
 }
 
 // sessionCompactPromptDir backs --prompt-dir: it points compaction at prompt

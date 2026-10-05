@@ -83,8 +83,9 @@ destroy it anyway.
 A session whose lock does not prove its owner dead is REFUSED: a running
 agent may still be appending to this transcript. A held lock, or no lock at
 all, both refuse. Pass --even-if-live to destroy it anyway.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSessionTranscriptPurge,
+	Example: `  ctxloom session transcript purge amber-swift-owl --yes`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSessionTranscriptPurge,
 }
 
 func runSessionTranscriptPurge(cmd *cobra.Command, args []string) error {
@@ -111,8 +112,9 @@ changes, on a TTY or not.
 
 A session whose lock does not prove its owner dead is REFUSED — a held
 lock, or no lock at all. Pass --even-if-live to destroy it anyway.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSessionArtifactsPurge,
+	Example: `  ctxloom session artifacts purge amber-swift-owl --yes`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSessionArtifactsPurge,
 }
 
 func runSessionArtifactsPurge(cmd *cobra.Command, args []string) error {
@@ -151,8 +153,9 @@ or no lock at all (every session from before the lock existed), both
 refuse. Pass --even-if-live to sweep it anyway. The scratch worktrees keep
 their own verdict: a worktree whose owner is not provably dead is skipped
 and reported, never reaped.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSessionPurge,
+	Example: `  ctxloom session purge amber-swift-owl --yes`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSessionPurge,
 }
 
 func init() {

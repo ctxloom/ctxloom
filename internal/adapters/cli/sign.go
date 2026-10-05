@@ -27,48 +27,35 @@ var (
 // between the flag registration and anywhere else this needs restating.
 const signKeyFlagHelp = "explicit signing key: a SHA256:... ssh-agent fingerprint, a path to a public key, or a ssh-agent key's comment/name (case-insensitive substring)"
 
-// signCmdLong documents `ctxloom bundle sign`.
-const signCmdLong = `Sign a local bundle tree, so anyone who trusts your key can verify the
-bundle came from you.
+// signCmdLong documents `ctxloom bundle sign`. A ref is never resolved
+// against a catalog: a publishing repository signs the bundles it ships,
+// whether or not they are installed anywhere. A remote bundle or a companion
+// loadout is refused by name rather than skipped. Key discovery is zero-config
+// so anyone who already signs commits with SSH needs no ctxloom setup.
+const signCmdLong = `Sign a local bundle tree so anyone who trusts your key can verify it came
+from you. Signing writes a SHA256SUMS manifest over every file in the tree,
+headed by the bundle's name and version, and your signature over it in the
+bundle's .sigs/ directory; anyone can check the files with
+'sha256sum -c SHA256SUMS'.
 
-Signing writes a SHA256SUMS manifest at the bundle root covering every file in
-the tree, headed by the bundle's name and version, and files your signature
-over that manifest in the bundle's .sigs/ directory. Consumers without ctxloom
-can check the files with 'sha256sum -c SHA256SUMS'.
+With a VERSION file at the project root (the directory holding .ctxloom),
+signing first sets bundle.yaml's version to match it, and says so. A version
+already signed over different files is refused: bump the version, or pass
+--force to re-sign it.
 
-In a project with a VERSION file at its root (the directory holding
-.ctxloom), that file is the bundle's version: signing first rewrites
-bundle.yaml's version: to match it, and says so. Without a VERSION file the
-version is the one bundle.yaml declares. Either way, a version already signed
-over different files is refused — bump the version (VERSION, where it
-exists) or pass --force to re-sign it deliberately.
+ref is a local bundle name, its 'ctxloom+local:<name>' URI, or an item ref
+('<bundle>#fragments/<name>'), which signs the bundle that holds it. Only
+bundles you author locally can be signed: a remote bundle is its publisher's
+to sign, and a companion's loadout is signed where it is built.
 
-ref is a bundle ref or an item ref, in the grammar 'ctxloom bundle trust'
-uses: a plain local bundle name, or the canonical 'ctxloom+local:<name>' URI.
-The signature covers the whole bundle, so an item ref
-("<bundle>#fragments/<name>") resolves to its containing bundle and signs
-that; ctxloom bundle sign says so.
+The key is --key or the sign.key config value, else 'git config
+user.signingkey', else the only identity in ssh-agent. Each accepts a
+SHA256:... fingerprint, a public key or its path, or part of an ssh-agent
+key's comment, matched case-insensitively (e.g. "ben@abbitt" for
+"ben@abbitt.me"). ctxloom never reads, generates or stores private key
+material: your ssh-agent makes every signature.`
 
-Only bundles you author LOCALLY can be signed. A remote bundle's tree is not
-yours to write — only that remote's own publisher can sign it — and a
-companion's loadout is signed where it is built (just sign-loadouts). Both are
-refused by name rather than skipped.
-
-ref is never resolved against a catalog: a publishing repository signs the
-bundles it ships, whether or not they are installed anywhere.
-
-Key discovery is zero-config: it tries 'git config user.signingkey' first
-(anyone who already signs commits with SSH needs no ctxloom setup at all),
-then the sole identity in ssh-agent when there is exactly one. --key (or the
-sign.key config value; 'ctxloom config show sign') overrides both. --key and user.signingkey
-accept the same forms: a SHA256:... fingerprint, a public key or a path to
-one, or a ssh-agent key's comment/name (matched case-insensitively, substring
-OK, e.g. "ben@abbitt" for "ben@abbitt.me"). ctxloom never reads, generates,
-or stores private key material; every signature is produced by your existing
-ssh-agent.
-
-Examples:
-  ctxloom bundle sign my-tools                          # bare = local bundle (the common case)
+const signCmdExample = `  ctxloom bundle sign my-tools                          # bare = local bundle (the common case)
   ctxloom bundle sign 'my-tools#fragments/go-testing'    # resolves to bundle my-tools
   ctxloom bundle sign 'ctxloom+local:my-tools'           # the same bundle, canonically
   ctxloom bundle sign --all                              # every local bundle this project publishes
@@ -94,11 +81,12 @@ func runSignCmd(cmd *cobra.Command, args []string) error {
 
 // bundleSignCmd is the bundle noun's `sign` domain verb.
 var bundleSignCmd = &cobra.Command{
-	Use:   "sign [ref]",
-	Short: "Sign a local bundle for publication",
-	Long:  signCmdLong,
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runSignCmd,
+	Use:     "sign [ref]",
+	Short:   "Sign a local bundle for publication",
+	Long:    signCmdLong,
+	Example: signCmdExample,
+	Args:    cobra.MaximumNArgs(1),
+	RunE:    runSignCmd,
 }
 
 // signCmdResult is emit()'s result for `ctxloom bundle sign`: one entry per bundle

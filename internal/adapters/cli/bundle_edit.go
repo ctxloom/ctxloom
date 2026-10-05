@@ -20,8 +20,9 @@ var bundleCreateCmd = &cobra.Command{
 
 Scaffolds a bundle tree — bundle.yaml plus one file per item — with an example
 fragment and prompt that you can edit.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runBundleCreate,
+	Example: `  ctxloom bundle create go-tools --description "Go testing guidance"`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runBundleCreate,
 }
 
 func runBundleCreate(cmd *cobra.Command, args []string) error {
@@ -82,13 +83,6 @@ var bundleEditCmd = &cobra.Command{
 	Short: "Edit a bundle",
 	Long: `Edit an existing bundle by adding or removing items.
 
-Examples:
-  ctxloom bundle edit my-bundle -d "New description"
-  ctxloom bundle edit my-bundle --add-fragment coding-standards
-  ctxloom bundle edit my-bundle --remove-prompt old-prompt
-  ctxloom bundle edit my-bundle --add-tag golang --add-tag testing
-  ctxloom bundle edit my-bundle --add-mcp tree-sitter
-
 SKILLS are not edited here. A skill is a directory PACKAGE (skills/<name>/),
 not a single entry in a map, so it has its own verbs:
 
@@ -96,6 +90,11 @@ not a single entry in a map, so it has its own verbs:
 
 Run 'ctxloom skill --help' for the rest. Sign after editing a skill's files:
 the bundle's SHA256SUMS covers them.`,
+	Example: `  ctxloom bundle edit my-bundle -d "New description"
+  ctxloom bundle edit my-bundle --add-fragment coding-standards
+  ctxloom bundle edit my-bundle --remove-prompt old-prompt
+  ctxloom bundle edit my-bundle --add-tag golang --add-tag testing
+  ctxloom bundle edit my-bundle --add-mcp tree-sitter`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleEdit,
 }
@@ -202,10 +201,8 @@ var bundleRemoveCmd = &cobra.Command{
 
 Bare invocation reports what would be removed — the bundle and every
 fragment/command/mcp-server/skill/profile it carries — and removes nothing
-(exit 0). Pass --yes to apply it.
-
-Examples:
-  ctxloom bundle remove old-bundle
+(exit 0). Pass --yes to apply it.`,
+	Example: `  ctxloom bundle remove old-bundle
   ctxloom bundle remove my-bundle --yes`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleRemove,

@@ -43,10 +43,8 @@ A configured remote NAME always wins over a directory of the same spelling. An
 argument that is neither a known remote nor an existing directory is an error.
 
 The source is removed ONLY after the destination write has fully succeeded
-(bundle AND signature). A move that fails part-way leaves the source untouched.
-
-Examples:
-  ctxloom bundle move go-tools --to ctxloom-default
+(bundle AND signature). A move that fails part-way leaves the source untouched.`,
+	Example: `  ctxloom bundle move go-tools --to ctxloom-default
   ctxloom bundle move go-tools --to ../other-project
   ctxloom bundle move go-tools --to ../shared/bundles --force`,
 	Args: cobra.ExactArgs(1),

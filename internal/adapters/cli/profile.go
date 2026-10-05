@@ -30,6 +30,7 @@ the name addresses another LOCAL bundle (create and import take --bundle).`,
 
 var profileListCmd = &cobra.Command{
 	Use:     "list",
+	Example: `  ctxloom profile list`,
 	Aliases: []string{"ls"},
 	Short:   "List all profiles",
 	RunE:    runProfileList,
@@ -117,12 +118,10 @@ var profileCreateCmd = &cobra.Command{
 the profile is written into (default: the project bundle).
 
 Included bundle references use full URLs:
-  https://github.com/user/repo@bundles/name    # Bundle from remote
-
-Example:
-  ctxloom profile create developer -i https://github.com/user/ctxloom@bundles/go-development -d "Standard dev context"`,
-	Args: cobra.ExactArgs(1),
-	RunE: runProfileCreate,
+  https://github.com/user/repo@bundles/name    # Bundle from remote`,
+	Example: `  ctxloom profile create developer -i https://github.com/user/ctxloom@bundles/go-development -d "Standard dev context"`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runProfileCreate,
 }
 
 func runProfileCreate(cmd *cobra.Command, args []string) error {
@@ -196,6 +195,7 @@ var profileRemoveYes bool
 
 var profileRemoveCmd = &cobra.Command{
 	Use:     "remove <name>",
+	Example: `  ctxloom profile remove go-dev --yes`,
 	Aliases: []string{"rm", "del"},
 	Short:   "Remove a profile",
 	Long: `Remove a profile.
@@ -251,10 +251,11 @@ func runProfileRemove(cmd *cobra.Command, args []string) error {
 }
 
 var profileShowCmd = &cobra.Command{
-	Use:   "show <name>",
-	Short: "Show details of a profile",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runProfileShow,
+	Use:     "show <name>",
+	Short:   "Show details of a profile",
+	Example: `  ctxloom profile show default`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runProfileShow,
 }
 
 func runProfileShow(cmd *cobra.Command, args []string) error {
@@ -338,10 +339,8 @@ func writeBulletList(w *errwriter.Writer, heading string, items []string) {
 var profileUpdateCmd = &cobra.Command{
 	Use:   "modify <name>",
 	Short: "Modify a profile's configuration",
-	Long: `Modify an existing profile by adding or removing items.
-
-Examples:
-  ctxloom profile modify go-developer --add-parent 'https://github.com/user/ctxloom@bundles/dev#profiles/developer'
+	Long:  `Modify an existing profile by adding or removing items.`,
+	Example: `  ctxloom profile modify go-developer --add-parent 'https://github.com/user/ctxloom@bundles/dev#profiles/developer'
   ctxloom profile modify developer --add-bundle https://github.com/user/ctxloom@bundles/go-development
   ctxloom profile modify developer -d "New description"`,
 	Args: cobra.ExactArgs(1),
@@ -424,14 +423,12 @@ var (
 )
 
 var profileEditCmd = &cobra.Command{
-	Use:   "edit <name>",
-	Short: "Edit a profile",
-	Long: `Edit a profile's YAML file using your configured editor.
-
-Examples:
-  ctxloom profile edit my-profile`,
-	Args: cobra.ExactArgs(1),
-	RunE: runProfileEdit,
+	Use:     "edit <name>",
+	Short:   "Edit a profile",
+	Long:    `Edit a profile's YAML file using your configured editor.`,
+	Example: `  ctxloom profile edit my-profile`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runProfileEdit,
 }
 
 func runProfileEdit(cmd *cobra.Command, args []string) error {
@@ -443,10 +440,8 @@ var profileExportCmd = &cobra.Command{
 	Short: "Export a profile to a directory",
 	Long: `Export a local bundle's profile to an arbitrary directory.
 
-Useful for publishing profiles to a shared repository like ctxloom-default.
-
-Examples:
-  ctxloom profile export architect ../ctxloom-default/ctxloom/profiles
+Useful for publishing profiles to a shared repository like ctxloom-default.`,
+	Example: `  ctxloom profile export architect ../ctxloom-default/ctxloom/profiles
   ctxloom profile export my-profile ./exports`,
 	Args: cobra.ExactArgs(2),
 	RunE: runProfileExport,
@@ -481,10 +476,8 @@ var profileImportCmd = &cobra.Command{
 	Long: `Import a profile YAML file into the project bundle (or, with --bundle,
 another local bundle) as the profile named by the file's basename.
 
-Use --force to overwrite an existing profile.
-
-Examples:
-  ctxloom profile import ../ctxloom-default/ctxloom/profiles/architect.yaml
+Use --force to overwrite an existing profile.`,
+	Example: `  ctxloom profile import ../ctxloom-default/ctxloom/profiles/architect.yaml
   ctxloom profile import ./my-profile.yaml --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runProfileImport,

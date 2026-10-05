@@ -29,10 +29,8 @@ var remoteDiscoverCmd = &cobra.Command{
 	Long: `Discover ctxloom repositories on GitHub.
 
 Searches for repositories named 'ctxloom' or starting with 'ctxloom-'.
-Only repositories with valid ctxloom/ structure are shown.
-
-Examples:
-  ctxloom remote discover                      # Find all ctxloom repos
+Only repositories with valid ctxloom/ structure are shown.`,
+	Example: `  ctxloom remote discover                      # Find all ctxloom repos
   ctxloom remote discover golang               # Filter by 'golang' in description
   ctxloom remote discover --stars 10           # Only repos with 10+ stars`,
 	RunE: runRemoteDiscoverCmd,

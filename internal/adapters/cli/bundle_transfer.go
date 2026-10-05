@@ -49,14 +49,11 @@ and push CARRIES them — so the key that signs never has to be on the machine t
 publishes, and CI can ship signed content it cannot itself forge. A
 signature that no longer covers the bundle (edited after signing) stops
 the push rather than shipping a pair every consumer reads as tampering.
-Publishing unsigned is fine and supported; consumers review it.
-
-Examples:
-  ctxloom bundle push my-bundle
+Publishing unsigned is fine and supported; consumers review it.`,
+	Example: `  ctxloom bundle push my-bundle
   ctxloom bundle push my-bundle ctxloom-default
   ctxloom bundle push my-bundle --pr
-  ctxloom bundle sign my-bundle && ctxloom bundle push my-bundle  # sign here, publish there
-  ctxloom bundle push my-bundle --sign                            # the same thing in one command
+  ctxloom bundle push my-bundle --sign                            # sign, then publish
   ctxloom bundle push my-bundle --no-sign                         # publish bare
   ctxloom bundle push my-bundle ctxloom-default --message "Add my bundle"`,
 	Args: cobra.RangeArgs(1, 2),
@@ -82,10 +79,8 @@ Useful for publishing bundles to a shared repository like ctxloom-default.
 The bundle's tree is copied WHOLE — its items, distilled versions, SHA256SUMS
 and .sigs/ — and lands as a directory under its own name.
 
-Use -o to name the destination tree's path directly.
-
-Examples:
-  ctxloom bundle export go-tools ../ctxloom-default/ctxloom/bundles
+Use -o to name the destination tree's path directly.`,
+	Example: `  ctxloom bundle export go-tools ../ctxloom-default/ctxloom/bundles
   ctxloom bundle export my-bundle ./exports
   ctxloom bundle export my-bundle -o exported.yaml`,
 	Args: cobra.RangeArgs(1, 2),
@@ -129,10 +124,8 @@ var bundleImportCmd = &cobra.Command{
 .ctxloom/content/bundles.
 
 The tree is copied WHOLE and keeps its own name. Use --force to overwrite an
-existing bundle.
-
-Examples:
-  ctxloom bundle import ../ctxloom-default/.ctxloom/content/bundles/v2/unattended
+existing bundle.`,
+	Example: `  ctxloom bundle import ../ctxloom-default/.ctxloom/content/bundles/v2/unattended
   ctxloom bundle import ./my-bundle --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleImport,

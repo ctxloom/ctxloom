@@ -21,7 +21,8 @@ var bundleListCmd = &cobra.Command{
 plus remote bundles pinned in the lockfile.
 
 Shows bundle name, version, description, and content summary.`,
-	RunE: runBundleList,
+	Example: `  ctxloom bundle list`,
+	RunE:    runBundleList,
 }
 
 func runBundleList(cmd *cobra.Command, args []string) error {
@@ -153,8 +154,9 @@ var bundleShowCmd = &cobra.Command{
 	Long: `Display detailed information about a bundle.
 
 Shows all fragments, commands, and MCP server configuration contained in the bundle.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runBundleShow,
+	Example: `  ctxloom bundle show go-tools`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runBundleShow,
 }
 
 func runBundleShow(cmd *cobra.Command, args []string) error {

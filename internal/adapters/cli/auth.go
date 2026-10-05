@@ -65,11 +65,12 @@ var authCmd = groupNodeDefault(&cobra.Command{
 }, "status")
 
 var authStatusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show whether each auth mode's credential is present in the environment (never its value)",
-	Long:  authLong,
-	Args:  cobra.NoArgs,
-	RunE:  runAuthStatus,
+	Use:     "status",
+	Short:   "Show whether each auth mode's credential is present in the environment (never its value)",
+	Long:    authLong,
+	Example: `  ctxloom auth status`,
+	Args:    cobra.NoArgs,
+	RunE:    runAuthStatus,
 }
 
 // authStatusRow is the emitted shape of one `auth status` row: whether the

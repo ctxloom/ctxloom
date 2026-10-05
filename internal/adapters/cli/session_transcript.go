@@ -62,8 +62,9 @@ listed too, saying so — omitting it would make "nothing was captured"
 indistinguishable from "there are no sessions".
 
 Naming a session restricts the listing to that one session.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runSessionTranscriptList,
+	Example: `  ctxloom session transcript list`,
+	Args:    cobra.MaximumNArgs(1),
+	RunE:    runSessionTranscriptList,
 }
 
 func init() {

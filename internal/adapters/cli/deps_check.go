@@ -33,10 +33,8 @@ actually satisfies what its manifest asked for. An entry pinned to an exact tag
 or SHA is never out of date, and is not fetched for.
 
 An entry that could NOT be checked — an unreachable remote, an unparseable
-reference — is reported as unchecked rather than folded into "up to date".
-
-Examples:
-  ctxloom deps check
+reference — is reported as unchecked rather than folded into "up to date".`,
+	Example: `  ctxloom deps check
   ctxloom deps check https://github.com/alice/ctxloom@bundles/security`,
 	RunE: runDepsCheck,
 }

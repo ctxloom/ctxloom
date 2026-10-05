@@ -60,10 +60,8 @@ pinned and never advances one.
 A pin is also NOT moved below the version its publisher signed at the last pin
 — a rollback to an older signed release — nor from signed to unsigned content.
 Name a ref with --allow-downgrade to accept that for it; the lower version then
-becomes its floor.
-
-Examples:
-  ctxloom deps upgrade                   # Advance pins to the latest available
+becomes its floor.`,
+	Example: `  ctxloom deps upgrade                   # Advance pins to the latest available
   ctxloom deps upgrade --allow-downgrade <ref>   # Accept a lower signed version for <ref>`,
 	RunE: runDepsUpgradeCmd,
 }

@@ -50,6 +50,8 @@ recovered history; it does not run that step itself.
 
 Only claude-code sessions are supported today; every other backend refuses by
 name rather than silently scanning nothing.`,
+	Example: `  ctxloom session adopt amber-swift-owl        # report the plan
+  ctxloom session adopt amber-swift-owl --yes`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSessionAdopt,
 }

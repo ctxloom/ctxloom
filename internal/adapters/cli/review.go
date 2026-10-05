@@ -69,6 +69,8 @@ The scriptable plumbing under this porcelain:
   ctxloom bundle trust <ref>   trust one item
   ctxloom bundle reject <ref>  reject one item
   ctxloom bundle forget <ref>  clear either decision, back to pending`,
+	Example: `  ctxloom review
+  ctxloom review --list`,
 	Args: cobra.NoArgs,
 	RunE: runReviewCmd,
 }

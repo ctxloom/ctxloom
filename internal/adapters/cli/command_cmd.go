@@ -13,10 +13,8 @@ var commandCmd = groupNodeDefault(&cobra.Command{
 
 Commands live inside bundles — local bundle YAML files in .ctxloom/content/bundles/
 or lockfile-pinned remote bundles — and are referenced using the syntax:
-bundle#commands/name
-
-Examples:
-  ctxloom command list                                 # List all commands
+bundle#commands/name`,
+	Example: `  ctxloom command list                                 # List all commands
   ctxloom command show core#commands/code-review        # Show command content
   ctxloom command edit core#commands/code-review        # Edit command content
   ctxloom command create my-bundle code-review          # Create new command
@@ -29,6 +27,8 @@ var commandListCmd = &cobra.Command{
 	Long: `List all commands from all installed bundles.
 
 Use --bundle to filter by a specific bundle.`,
+	Example: `  ctxloom command list
+  ctxloom command list --bundle go-tools`,
 	RunE: runCommandList,
 }
 
@@ -43,10 +43,8 @@ var commandShowCmd = &cobra.Command{
 	Short: "Show command content",
 	Long: `Display the content of a specific command.
 
-Reference format: bundle#commands/name
-
-Examples:
-  ctxloom command show core#commands/code-review
+Reference format: bundle#commands/name`,
+	Example: `  ctxloom command show core#commands/code-review
   ctxloom command show go-tools#commands/testing`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCommandShow,
@@ -66,10 +64,8 @@ var commandCreateCmd = &cobra.Command{
 	Short: "Create a new command",
 	Long: `Create a new command in an existing bundle.
 
-The command will be created with placeholder content that you can edit.
-
-Examples:
-  ctxloom command create my-bundle code-review
+The command will be created with placeholder content that you can edit.`,
+	Example: `  ctxloom command create my-bundle code-review
   ctxloom command create go-tools testing-patterns`,
 	Args: cobra.ExactArgs(2),
 	RunE: runCommandCreate,
@@ -90,10 +86,8 @@ var commandRemoveCmd = &cobra.Command{
 Bare invocation reports what would be removed and removes nothing (exit 0).
 Pass --yes to apply it.
 
-Reference format: bundle#commands/name
-
-Examples:
-  ctxloom command remove my-bundle#commands/old-command
+Reference format: bundle#commands/name`,
+	Example: `  ctxloom command remove my-bundle#commands/old-command
   ctxloom command remove my-bundle#commands/old-command --yes`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCommandRemove,
@@ -113,10 +107,8 @@ Reference format: bundle#commands/name
 After editing, the command will be automatically re-distilled unless marked as
 no_distill. Use --no-distill to skip re-distillation for just this edit (e.g. a
 typo fix) without burning an LLM call — the distilled form is left empty
-(never stale) until you run 'ctxloom command distill'.
-
-Examples:
-  ctxloom command edit core#commands/code-review
+(never stale) until you run 'ctxloom command distill'.`,
+	Example: `  ctxloom command edit core#commands/code-review
   ctxloom command edit go-tools#commands/testing
   ctxloom command edit core#commands/code-review --no-distill`,
 	Args: cobra.ExactArgs(1),
@@ -134,10 +126,8 @@ var commandDistillCmd = &cobra.Command{
 	Short: "Distill a command",
 	Long: `Distill a command to create a token-efficient version.
 
-Reference format: bundle#commands/name
-
-Examples:
-  ctxloom command distill core#commands/code-review
+Reference format: bundle#commands/name`,
+	Example: `  ctxloom command distill core#commands/code-review
   ctxloom command distill go-tools#commands/testing --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCommandDistill,

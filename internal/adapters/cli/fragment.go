@@ -17,10 +17,8 @@ var fragmentCmd = groupNodeDefault(&cobra.Command{
 
 Fragments live inside bundles — local bundle YAML files in .ctxloom/content/bundles/
 or lockfile-pinned remote bundles — and are referenced using the syntax:
-bundle#fragments/name
-
-Examples:
-  ctxloom fragment list                              # List all fragments
+bundle#fragments/name`,
+	Example: `  ctxloom fragment list                              # List all fragments
   ctxloom fragment show core#fragments/tdd           # Show fragment content
   ctxloom fragment edit core#fragments/tdd           # Edit fragment content
   ctxloom fragment create my-bundle coding-standards # Create new fragment
@@ -33,6 +31,8 @@ var fragmentListCmd = &cobra.Command{
 	Long: `List all fragments from all installed bundles.
 
 Use --bundle to filter by a specific bundle.`,
+	Example: `  ctxloom fragment list
+  ctxloom fragment list --bundle go-tools`,
 	RunE: runFragmentList,
 }
 
@@ -47,10 +47,8 @@ var fragmentShowCmd = &cobra.Command{
 	Short: "Show fragment content",
 	Long: `Display the content of a specific fragment.
 
-Reference format: bundle#fragments/name
-
-Examples:
-  ctxloom fragment show core#fragments/tdd
+Reference format: bundle#fragments/name`,
+	Example: `  ctxloom fragment show core#fragments/tdd
   ctxloom fragment show go-tools#fragments/testing`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFragmentShow,
@@ -70,10 +68,8 @@ var fragmentCreateCmd = &cobra.Command{
 	Short: "Create a new fragment",
 	Long: `Create a new fragment in an existing bundle.
 
-The fragment will be created with placeholder content that you can edit.
-
-Examples:
-  ctxloom fragment create my-bundle coding-standards
+The fragment will be created with placeholder content that you can edit.`,
+	Example: `  ctxloom fragment create my-bundle coding-standards
   ctxloom fragment create go-tools testing-patterns`,
 	Args: cobra.ExactArgs(2),
 	RunE: runFragmentCreate,
@@ -94,10 +90,8 @@ var fragmentRemoveCmd = &cobra.Command{
 Bare invocation reports what would be removed and removes nothing (exit 0).
 Pass --yes to apply it.
 
-Reference format: bundle#fragments/name
-
-Examples:
-  ctxloom fragment remove my-bundle#fragments/old-standard
+Reference format: bundle#fragments/name`,
+	Example: `  ctxloom fragment remove my-bundle#fragments/old-standard
   ctxloom fragment remove my-bundle#fragments/old-standard --yes`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFragmentRemove,
@@ -117,10 +111,8 @@ Reference format: bundle#fragments/name
 After editing, the fragment will be automatically re-distilled unless marked as
 no_distill. Use --no-distill to skip re-distillation for just this edit (e.g. a
 typo fix) without burning an LLM call — the distilled form is left empty
-(never stale) until you run 'ctxloom fragment distill'.
-
-Examples:
-  ctxloom fragment edit core#fragments/tdd
+(never stale) until you run 'ctxloom fragment distill'.`,
+	Example: `  ctxloom fragment edit core#fragments/tdd
   ctxloom fragment edit go-tools#fragments/testing
   ctxloom fragment edit core#fragments/tdd --no-distill`,
 	Args: cobra.ExactArgs(1),
@@ -138,10 +130,8 @@ var fragmentDistillCmd = &cobra.Command{
 	Short: "Distill a fragment",
 	Long: `Distill a fragment to create a token-efficient version.
 
-Reference format: bundle#fragments/name
-
-Examples:
-  ctxloom fragment distill core#fragments/tdd
+Reference format: bundle#fragments/name`,
+	Example: `  ctxloom fragment distill core#fragments/tdd
   ctxloom fragment distill go-tools#fragments/testing --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFragmentDistill,
@@ -193,8 +183,9 @@ Having chosen, load one with its reference:
 
   ctxloom fragment premises                       # what is on offer, and when it applies
   ctxloom fragment show core#fragments/tdd        # load one you selected`,
-	Args: cobra.NoArgs,
-	RunE: runFragmentPremises,
+	Example: `  ctxloom fragment premises`,
+	Args:    cobra.NoArgs,
+	RunE:    runFragmentPremises,
 }
 
 func runFragmentPremises(cmd *cobra.Command, _ []string) error {

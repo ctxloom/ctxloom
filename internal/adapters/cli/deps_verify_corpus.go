@@ -40,8 +40,9 @@ EXIT CODES. 0 when every bundle in a non-empty corpus parsed. 1 when at least
 one bundle would not parse; each is named with its parse error. 2 when the
 corpus could not be checked — an unreadable remote, or nothing found to parse.
 2 is not a pass: "clean" and "I could not look" are different answers.`,
-	Args: cobra.NoArgs,
-	RunE: runDepsVerifyCorpus,
+	Example: `  ctxloom deps verify-corpus`,
+	Args:    cobra.NoArgs,
+	RunE:    runDepsVerifyCorpus,
 }
 
 // corpusViolationView is one offending bundle in a form every encoding can

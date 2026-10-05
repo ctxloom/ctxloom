@@ -16,7 +16,7 @@ import (
 
 // `llm create`/`llm edit` — the write half of the parity gap with `agent`
 // (agent.go's agentCreateCmd/agentEditCmd/writeAgentBinding is the template
-// this mirrors). agent create --engine <label> draws from a vocabulary this
+// this mirrors). agent create --llm <label> draws from a vocabulary this
 // closes the gap on: previously enumerable (`llm list`) but not manageable.
 
 var (
@@ -90,7 +90,7 @@ func writeLLM(cmd *cobra.Command, label string, mustExist bool) error {
 // checkLLMExistence enforces create-vs-edit's differing precondition
 // against the MERGED "does this name resolve to anything" view
 // (operations.AvailableLLMNames: registered backends UNION config-declared
-// labels) — the exact set `agent create --engine`/`llm default` already
+// labels) — the exact set `agent create --llm`/`llm default` already
 // accept, so a bare backend name like "claude-code" counts as existing even
 // with no config.yaml entry (create refuses it — it would shadow the
 // built-in; edit accepts it — that is how a built-in becomes explicit).
@@ -191,10 +191,8 @@ func applyEngineNamedHelp(reg engine.Registry) {
 registered backend (` + engines + `) — change an
 existing one with 'ctxloom llm edit'.
 
-` + llmWriteLong(reg) + `
-
-Examples:
-  ctxloom llm create big --type claude-code --model claude-opus-4-8
+` + llmWriteLong(reg)
+	llmCreateCmd.Example = `  ctxloom llm create big --type claude-code --model claude-opus-4-8
   ctxloom llm create fast --type claude-code --permissions bypass`
 
 	llmEditCmd.Long = `Change an EXISTING labeled LLM engine config. Refuses a label neither
@@ -206,10 +204,8 @@ explicit entry.
 Only the flags you pass are applied; every unnamed field keeps its current
 value.
 
-` + llmWriteLong(reg) + `
-
-Examples:
-  ctxloom llm edit big --model o1-pro
+` + llmWriteLong(reg)
+	llmEditCmd.Example = `  ctxloom llm edit big --model o1-pro
   ctxloom llm edit big --permissions plan`
 
 	for _, c := range []*cobra.Command{llmCreateCmd, llmEditCmd} {

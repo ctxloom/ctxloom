@@ -39,11 +39,8 @@ What this project has INSTALLED from those remotes is the other noun:
 
 A remote carries no trust: its content takes the review path whatever address
 it came from. To auto-trust a publisher's content, trust their signing key
-('ctxloom signer trust') — a key is verified over the bytes, a URL is not.
-
-Examples:
-  ctxloom remote create alice alice/ctxloom
-  ctxloom search "golang testing"
+('ctxloom signer trust') — a key is verified over the bytes, a URL is not.`,
+	Example: `  ctxloom remote create alice alice/ctxloom
   ctxloom remote show ctxloom-default`,
 }, "list")
 
@@ -73,10 +70,8 @@ Forge selection:
   owner/repo shorthand) use the rich GitHub adapter; every other host uses the
   generic git adapter (clone + local read, ambient git auth). Pass --forge to
   override — "github", "git", or the label of a forges: entry (e.g. a GitHub
-  Enterprise instance).
-
-Examples:
-  ctxloom remote create alice alice/ctxloom
+  Enterprise instance).`,
+	Example: `  ctxloom remote create alice alice/ctxloom
   ctxloom remote create corp https://git.example.com/corp/ctxloom
   ctxloom remote create corp https://git.example.com/corp/ctxloom --forge git
   ctxloom remote create work https://github.mycorp.com/me/ctxloom --forge work-ghe`,
@@ -113,6 +108,7 @@ var remoteRemoveYes bool
 
 var remoteRemoveCmd = &cobra.Command{
 	Use:     "remove <name>",
+	Example: `  ctxloom remote remove corp --yes`,
 	Aliases: []string{"rm", "del"},
 	Short:   "Remove a remote source",
 	Long: `Remove a remote source from the registry.
@@ -169,6 +165,7 @@ func runRemoteRemove(cmd *cobra.Command, args []string) error {
 
 var remoteListCmd = &cobra.Command{
 	Use:     "list",
+	Example: `  ctxloom remote list`,
 	Aliases: []string{"ls"},
 	Short:   "List configured remotes",
 	RunE:    runRemoteList,
@@ -227,10 +224,8 @@ var remoteDefaultCmd = &cobra.Command{
 	Long: `Set the default remote for push operations.
 
 The current default is shown by 'ctxloom remote list' (marked "(default)").
-Use --clear to remove the default.
-
-Examples:
-  ctxloom remote default ctxloom-default   # Set default to ctxloom-default
+Use --clear to remove the default.`,
+	Example: `  ctxloom remote default ctxloom-default   # Set default to ctxloom-default
   ctxloom remote default --clear           # Clear the default`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runRemoteDefault,
@@ -285,6 +280,8 @@ irrelevant to trust, which is keyed to a signing identity and verified over
 the bytes themselves — a remote is an address and carries no authority.
 
 Renaming the default remote carries the default with it; the report says so.`,
+	Example: `  ctxloom remote edit corp --url https://git.example.com/corp/ctxloom
+  ctxloom remote edit corp --name work`,
 	Args: cobra.ExactArgs(1),
 	RunE: runRemoteEdit,
 }

@@ -64,8 +64,9 @@ statusline into its own session home, so an engine launched directly in the
 project tree gets no ctxloom hooks and no ctxloom MCP server. Unlike root
 'ctxloom init', it never prompts and never launches an AI, so it is the form
 to use from a script or CI.`,
-	Args: cobra.NoArgs,
-	RunE: runManageInstall,
+	Example: `  ctxloom manage install --engine claude-code`,
+	Args:    cobra.NoArgs,
+	RunE:    runManageInstall,
 }
 
 var manageUninstallCmd = &cobra.Command{
@@ -76,15 +77,17 @@ files from every supported backend — what an earlier ctxloom's install, or an
 explicit 'manage hooks install', wrote into the project. A project that only
 ever saw the current install has nothing to strip. Leaves the .ctxloom
 directory and its contents (profiles, bundles, config) untouched.`,
-	Args: cobra.NoArgs,
-	RunE: runManageUninstall,
+	Example: `  ctxloom manage uninstall`,
+	Args:    cobra.NoArgs,
+	RunE:    runManageUninstall,
 }
 
 var manageCheckCmd = &cobra.Command{
-	Use:   "check",
-	Short: "Show what ctxloom has wired into this project",
-	Args:  cobra.NoArgs,
-	RunE:  runManageCheck,
+	Use:     "check",
+	Short:   "Show what ctxloom has wired into this project",
+	Example: `  ctxloom manage check`,
+	Args:    cobra.NoArgs,
+	RunE:    runManageCheck,
 }
 
 // runManageInstall scaffolds ctxloom into the current project: the .ctxloom
@@ -198,7 +201,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 // ends up as the TYPE of a real `{type: engine}` LM config entry
 // (operations.engineRegistry/fallbackRegistry) when InitializeProject scaffolds
 // — the same set InitializeProject itself already enforces via
-// backends.Exists — not a resolved LABEL like `agent edit --engine`'s (whose
+// backends.Exists — not a resolved LABEL like `agent edit --llm`'s (whose
 // membership set, AvailableLLMNames, additionally includes labels a project's
 // own config declares, because that command binds to a label the config
 // resolves, not a backend type). Checking a project's declared labels here
@@ -549,6 +552,8 @@ you run this command (or select a project root on an agent binding's
 roots:). What it writes is shared by every session and every person using
 this checkout, and it is not locked against them. 'ctxloom manage uninstall'
 removes it.`,
+	Example: `  ctxloom manage hooks install
+  ctxloom manage hooks install --backend claude-code`,
 	Args: cobra.NoArgs,
 	RunE: runManageHooksInstall,
 }
@@ -598,10 +603,11 @@ func runManageHooksInstall(cmd *cobra.Command, _ []string) error {
 }
 
 var manageHooksUninstallCmd = &cobra.Command{
-	Use:   "uninstall",
-	Short: "Remove ctxloom hooks, statusline, MCP entries, and command files",
-	Args:  cobra.NoArgs,
-	RunE:  runManageHooksUninstall,
+	Use:     "uninstall",
+	Short:   "Remove ctxloom hooks, statusline, MCP entries, and command files",
+	Example: `  ctxloom manage hooks uninstall --backend claude-code`,
+	Args:    cobra.NoArgs,
+	RunE:    runManageHooksUninstall,
 }
 
 func runManageHooksUninstall(cmd *cobra.Command, _ []string) error {
@@ -620,10 +626,11 @@ func runManageHooksUninstall(cmd *cobra.Command, _ []string) error {
 }
 
 var manageHooksCheckCmd = &cobra.Command{
-	Use:   "check",
-	Short: "Show which backends have ctxloom hooks wired in",
-	Args:  cobra.NoArgs,
-	RunE:  runManageCheck,
+	Use:     "check",
+	Short:   "Show which backends have ctxloom hooks wired in",
+	Example: `  ctxloom manage hooks check`,
+	Args:    cobra.NoArgs,
+	RunE:    runManageCheck,
 }
 
 var (
@@ -656,6 +663,8 @@ emergent: no single file states it. This is where you read it.
 Each hook is reported with where it came from — your config, which profile, or
 which bundle or companion — so a sequence you dislike points at one
 place you can go and change.`,
+	Example: `  ctxloom manage hooks list
+  ctxloom manage hooks list --event pre_tool`,
 	Args: cobra.NoArgs,
 	RunE: runManageHooksList,
 }
@@ -753,17 +762,19 @@ next 'ctxloom manage hooks install' or 'ctxloom run'.`,
 })
 
 var manageStatuslineInstallCmd = &cobra.Command{
-	Use:   "install",
-	Short: "Let ctxloom manage the HUD statusline (default)",
-	Args:  cobra.NoArgs,
-	RunE:  runManageStatuslineInstall,
+	Use:     "install",
+	Short:   "Let ctxloom manage the HUD statusline (default)",
+	Example: `  ctxloom manage statusline install`,
+	Args:    cobra.NoArgs,
+	RunE:    runManageStatuslineInstall,
 }
 
 var manageStatuslineUninstallCmd = &cobra.Command{
-	Use:   "uninstall",
-	Short: "Stop managing the HUD statusline; keep your own",
-	Args:  cobra.NoArgs,
-	RunE:  runManageStatuslineUninstall,
+	Use:     "uninstall",
+	Short:   "Stop managing the HUD statusline; keep your own",
+	Example: `  ctxloom manage statusline uninstall`,
+	Args:    cobra.NoArgs,
+	RunE:    runManageStatuslineUninstall,
 }
 
 func runManageStatuslineInstall(cmd *cobra.Command, _ []string) error {
@@ -809,10 +820,11 @@ var manageGitignoreCmd = groupNode(&cobra.Command{
 })
 
 var manageGitignoreInstallCmd = &cobra.Command{
-	Use:   "install",
-	Short: "Add ctxloom's private-state and transient-artifact ignores",
-	Args:  cobra.NoArgs,
-	RunE:  runManageGitignoreInstall,
+	Use:     "install",
+	Short:   "Add ctxloom's private-state and transient-artifact ignores",
+	Example: `  ctxloom manage gitignore install`,
+	Args:    cobra.NoArgs,
+	RunE:    runManageGitignoreInstall,
 }
 
 func runManageGitignoreInstall(cmd *cobra.Command, _ []string) error {
@@ -884,17 +896,19 @@ committing on your behalf.`,
 })
 
 var manageCommitTrustCmd = &cobra.Command{
-	Use:   "trust",
-	Short: "Trust ctxloom to auto-commit this checkout's dirty tree",
-	Args:  cobra.NoArgs,
-	RunE:  runManageCommitTrust,
+	Use:     "trust",
+	Short:   "Trust ctxloom to auto-commit this checkout's dirty tree",
+	Example: `  ctxloom manage commit trust`,
+	Args:    cobra.NoArgs,
+	RunE:    runManageCommitTrust,
 }
 
 var manageCommitUntrustCmd = &cobra.Command{
-	Use:   "untrust",
-	Short: "Withdraw that trust for this checkout",
-	Args:  cobra.NoArgs,
-	RunE:  runManageCommitUntrust,
+	Use:     "untrust",
+	Short:   "Withdraw that trust for this checkout",
+	Example: `  ctxloom manage commit untrust`,
+	Args:    cobra.NoArgs,
+	RunE:    runManageCommitUntrust,
 }
 
 // runManageCommitTrust and runManageCommitUntrust are named rather than inline

@@ -42,10 +42,8 @@ Path formats:
   bundle-name#commands/name       Command content (prompts/ is accepted too)
   bundle-name#mcp/name            MCP server config
   bundle-name#skills/name         Skill manifest
-  bundle-name#profiles/name       Profile definition
-
-Examples:
-  ctxloom bundle view core-practices
+  bundle-name#profiles/name       Profile definition`,
+	Example: `  ctxloom bundle view core-practices
   ctxloom bundle view core-practices#fragments/tdd
   ctxloom bundle view mcp-tasks#commands/setup-tasks
   ctxloom bundle view sequential-thinking#mcp/default

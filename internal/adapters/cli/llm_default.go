@@ -18,6 +18,8 @@ var llmDefaultCmd = &cobra.Command{
 
 Without arguments, prints the current default LLM name.
 With an LLM name argument, sets that LLM as the default.`,
+	Example: `  ctxloom llm default                 # show the default engine
+  ctxloom llm default big             # make 'big' the default`,
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeLLMNames,
 	RunE:              runLLMDefaultCmd,

@@ -15,10 +15,8 @@ var bundleCmd = groupNodeDefault(&cobra.Command{
 	Long: `Manage ctxloom bundles - versioned collections of fragments, commands, and MCP servers.
 
 Bundles are the primary content unit in ctxloom. They group related context fragments,
-commands, and optional MCP server configurations with a single version.
-
-Examples:
-  ctxloom bundle list                  # List all installed bundles
+commands, and optional MCP server configurations with a single version.`,
+	Example: `  ctxloom bundle list                  # List all installed bundles
   ctxloom bundle show go-tools         # Show bundle contents
   ctxloom bundle create my-bundle      # Create a new bundle
   ctxloom bundle export go-tools ./out # Export bundle to directory

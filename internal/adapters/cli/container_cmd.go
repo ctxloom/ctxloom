@@ -36,47 +36,38 @@ var (
 	containerBuildKeepCache           bool
 )
 
+// containerBuildCmd builds in two stages: a shared base (the distro plus the
+// coding-agent tool layer) and the engine's agent stage (the client CLI, from
+// that engine's own official installer as its own cacheable layer, plus the
+// running ctxloom binary), so a rebuilt image never needs a ctxloom release.
+// The client is never pinned: the install fetches the newest, and the build
+// validates it from inside the image with its --version gate. The devcontainer
+// base exists because an isolated agent should run in the environment the
+// human develops in; its "features" are not honored because this build does
+// not depend on the devcontainer CLI, and a compose project needs a service
+// named because several services do not map to one agent container. A chosen
+// base that fails to build is refused, never silently substituted.
 var containerBuildCmd = &cobra.Command{
 	Use:   "build [backend]",
 	Short: "Build the agent container image for a backend",
-	Long: `Build the agent image a containerized run of the given backend uses
-(the configured default backend when omitted).
+	Long: `Build the agent image a containerized run of the given backend uses (the
+configured default backend when omitted). Each image carries one engine and
+the running ctxloom binary; --engines (or config isolation_engines) builds
+several, one image each.
 
-The image builds in two stages: a shared BASE (the distro plus the coding-agent
-tool layer — git, ripgrep, curl, certs, jq) and the engine's AGENT stage (the
-client CLI install plus the RUNNING ctxloom binary) layered on top, so a
-rebuilt image never needs a ctxloom release. The client validates the build
-from inside the image (its --version gate), and the install fetches the MOST
-RECENT client — never pinned.
+The base comes from --base (or config isolation_base): 'ctxloom' (the
+embedded default), 'devcontainer' (the project's .devcontainer/devcontainer.json
+or .devcontainer.json; its "features" are skipped with a warning, and a
+compose file needs --devcontainer-service), or an image ref. Unset, the
+project's devcontainer is used when there is one. --overlay-image instead adds
+ctxloom to an image that already ships the engine's client.
 
-The base is one of three, chosen by --base (or config isolation_base):
-'ctxloom' (the embedded default base), 'devcontainer' (the project's own
-.devcontainer/devcontainer.json or .devcontainer.json — "an isolated agent
-should run in the environment the human develops in"), or an image ref to
-build on. Unset, the project's devcontainer is used when one exists, else
-ctxloom's own. The same agent stage layers on top of whichever is chosen, and
-a chosen base that fails to build is refused, never silently substituted.
-Alternatively --overlay-image skips the client install entirely and overlays
-ctxloom onto an image that ALREADY ships the client CLI.
-
-A devcontainer.json declaring "features" is NOT honored
-(pre1 does not depend on the devcontainer CLI) — a loud warning names what is
-skipped. A devcontainer.json declaring dockerComposeFile needs an explicit
-service pick (--devcontainer-service, or config isolation_devcontainer_service)
-since a multi-service compose project does not map to one agent container.
-
-An agent image carries exactly ONE engine, installed via that engine's own
-official installer as an independently-cacheable Containerfile layer. By
-default the image built is the configured backend's (or the one named as the
-positional argument); --engines (or config isolation_engines) names several to
-pre-build, one image each.
-
-By default the build runs with --pull --no-cache so a rebuild picks up the most
-recent client; --keep-cache reuses layers for a fast local iteration. Runs of
-` + "`ctxloom run`" + ` (and delegated ` + "`agent_run`" + ` children) also build this image
-automatically when it is absent (honoring the same base/engine resolution); this command is the
-explicit path (refresh, a one-off base). To run a fully user-provided image
-instead, set isolation_images in config — those are run as-is and never built.`,
+Builds use --pull --no-cache so the client is the newest; --keep-cache reuses
+layers for quick local iteration. ` + "`ctxloom run`" + ` and delegated agents build
+the image themselves when it is missing; use this command to refresh it. To
+run your own image as-is, set isolation_images in config instead.`,
+	Example: `  ctxloom container build
+  ctxloom container build --runtime podman`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runContainerBuild,
 }
@@ -236,10 +227,11 @@ var containerToolingCmd = groupNodeDefault(&cobra.Command{
 // containerToolingListCmd is the tooling sub-noun's `list` domain verb: emit
 // every trusted bundle's declared agent-image tooling for the LLM to apply.
 var containerToolingListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "Emit admitted companions' agent-image tooling declarations for the LLM to apply",
-	Args:  cobra.NoArgs,
-	RunE:  runToolingListCmd,
+	Use:     "list",
+	Short:   "Emit admitted companions' agent-image tooling declarations for the LLM to apply",
+	Example: `  ctxloom container tooling list`,
+	Args:    cobra.NoArgs,
+	RunE:    runToolingListCmd,
 }
 
 // toolingJSON is the --format json shape for `container tooling list`.
@@ -278,8 +270,9 @@ can edit — and the environment your editor's devcontainer support opens too.
 With isolation_base unset (or 'devcontainer'), every locally-built agent image
 builds on it from then on. Refused when the project already has a devcontainer
 (.devcontainer/ or .devcontainer.json): edit that one instead.`,
-	Args: cobra.NoArgs,
-	RunE: runContainerScaffold,
+	Example: `  ctxloom container scaffold`,
+	Args:    cobra.NoArgs,
+	RunE:    runContainerScaffold,
 }
 
 func runContainerScaffold(cmd *cobra.Command, args []string) error {
@@ -325,8 +318,9 @@ Run it inside a dev container to learn whether its agents can use the host's
 daemon through a mounted socket (docker-outside-of-docker: every path they
 mount must be on a bind mount or volume of the dev container), need
 docker-in-docker, or should stay on 'runtime: host'.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runContainerCheck,
+	Example: `  ctxloom container check`,
+	Args:    cobra.MaximumNArgs(1),
+	RunE:    runContainerCheck,
 }
 
 func runContainerCheck(cmd *cobra.Command, args []string) error {

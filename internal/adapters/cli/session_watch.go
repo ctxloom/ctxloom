@@ -18,58 +18,46 @@ import (
 // watchBoundaryRule is the text-mode separator drawn at each response boundary.
 const watchBoundaryRule = "──────────────────────────────────────────"
 
+// sessionWatchCmd is ctxloom's per-session observation contract: the stream
+// structured frontends (the VSCode companion, the terminal viewer) consume.
+//
+// The live source taps a delegation child's event stream over its
+// orchestrator's agent bus socket. Only children are tappable: an
+// orchestrator does not drive its own serving session's engine. Recorded
+// entries replay first as scrollback, then live events follow, and the watch
+// ends when the child's engine exits. The store source re-reads the backend
+// session on a ~250ms poll and diffs it. A session with a hook-bound session
+// id is tailed through its backend; one with no bound backend session whose
+// transcript lives in its own session dir (a containerized run's native/
+// history) is tailed by file location. Delivery to the agent is never delayed
+// for a slow watcher, which is what the live source's gap event reports.
 var sessionWatchCmd = &cobra.Command{
 	Use:   "watch <session-name>",
 	Short: "Stream a session's transcript as structured turns (messages, not raw bytes)",
-	Long: `Tail a session as a structured turn stream: each new entry arrives
-as it appears, with a boundary marking where a response completes. This is
-ctxloom's per-session observation contract — the stream structured frontends
-(the VSCode companion, the terminal viewer) consume.
+	Long: `Tail a session as structured turns: each new entry as it appears, with a
+boundary where a response completes. Entries are complete and untruncated.
 
-One feed, two sources behind it (--source, default auto):
+--source picks the feed: live (a delegated child's event stream, while its
+orchestrator holds it; ends when the child exits), store (the recorded
+transcript, polled; runs until Ctrl-C), or auto (live when available, else
+store). It errors when the session has no transcript and no live feed.
 
-  live   the session is a delegation child whose orchestrator currently holds
-         its event stream — the watch taps it over the orchestrator's agent
-         bus socket for zero-lag events. Only such CHILDREN are tappable
-         (an orchestrator does not drive its own serving session's engine).
-         Recorded transcript entries replay first as scrollback, then live
-         events follow; the watch ENDS when the child's engine exits.
-  store  the transcript tail: the backend session is re-read on a short poll
-         (~250ms) and diffed. Works for any session with a transcript
-         association, live or not, and runs until interrupted.
+Text output pretty-prints each turn, draws a rule at each response boundary
+and marks a subagent's entries with "↳". With --format json the stream is
+NDJSON, one event per line, each carrying exactly one of:
 
-auto prefers the live tap and falls back to the store tail; forcing --source
-live errors when no orchestrator holds the session.
-
-With --format json the stream is NDJSON: one event per line, carrying
-exactly one of
-
-  {"entry": {...}}     a newly-appended normalized turn — type (user |
-                       assistant | thinking | tool_use | tool_result |
-                       system), content, toolName, toolInput (the raw JSON
-                       arguments, base64-encoded), toolOutput, isError,
-                       timestampUnix, and sidechain (true marks an engine
-                       subagent's interior entry, not the main thread)
-  {"boundary": {...}}  a completed response: entries[fromIndex, toIndex)
-                       (live-source indexes are feed-relative)
-  {"heartbeat": {}}    idle keepalive, roughly every 2s (store source only)
-  {"gap": {...}}       live source only: this viewer fell behind and missed
-                       {"dropped": N} events (delivery to the agent is never
-                       delayed for a slow watcher)
-
-The stream is lossless while the viewer keeps up: each entry is the backend's
-full normalized form — complete tool inputs/outputs and thinking content,
-untruncated. Text mode pretty-prints each turn, draws a rule at each response
-boundary, prefixes subagent-interior entries with "↳", and stays silent on
-heartbeats.
-
-Ctrl-C ends the stream cleanly. A session with a hook-bound session id is tailed
-through the owning backend; a session with no bound backend session whose transcript
-lives in its own session dir (a containerized run's native/ history) is
-tailed by file location. Errors if the session has neither and no live tap holds
-it.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSessionWatch,
+  {"entry": {...}}     a new turn: type (user | assistant | thinking |
+                       tool_use | tool_result | system), content, toolName,
+                       toolInput (raw JSON arguments, base64), toolOutput,
+                       isError, timestampUnix, sidechain (a subagent's entry)
+  {"boundary": {...}}  a completed response: entries[fromIndex, toIndex),
+                       feed-relative on the live source
+  {"heartbeat": {}}    idle keepalive, about every 2s (store only)
+  {"gap": {...}}       this viewer fell behind and missed {"dropped": N}
+                       events (live only)`,
+	Example: `  ctxloom session transcript watch amber-swift-owl`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSessionWatch,
 }
 
 func init() {

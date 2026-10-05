@@ -54,8 +54,9 @@ by ctxloom itself, and its summary is derived — 'ctxloom session compact'
 rewrites that file whole. There is no authored document here for an editor to
 round-trip, so the bare form refuses rather than accept edits a later
 compaction would discard.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSessionEdit,
+	Example: `  ctxloom session edit amber-swift-owl --name release-notes`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runSessionEdit,
 }
 
 func init() {

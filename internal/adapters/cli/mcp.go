@@ -91,6 +91,7 @@ var errMCPBareIsNotTheServer = fmt.Errorf(
 // mcpServerListCmd is the canonical spine's `list` for the MCP-server noun.
 var mcpServerListCmd = &cobra.Command{
 	Use:     "list",
+	Example: `  ctxloom mcp server list`,
 	Aliases: []string{"ls"},
 	Short:   "List configured MCP servers",
 	RunE:    runMCPList,
@@ -192,10 +193,11 @@ func printMCPServerTarget(w io.Writer, indent string, e operations.MCPServerEntr
 
 // mcpServerShowCmd is the canonical spine's `show` for the MCP-server noun.
 var mcpServerShowCmd = &cobra.Command{
-	Use:   "show <name>",
-	Short: "Show details of an MCP server configuration",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runMCPShow,
+	Use:     "show <name>",
+	Short:   "Show details of an MCP server configuration",
+	Example: `  ctxloom mcp server show postgres`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runMCPShow,
 }
 
 func runMCPShow(cmd *cobra.Command, args []string) error {
@@ -262,10 +264,8 @@ Opens the MCP server config as YAML in your editor. When you save and close,
 the containing bundle is updated with the new configuration.
 
 The ref shape selects the store, per the universal addressing grammar:
-a '<bundle>#mcp/<name>' ref addresses a bundle-scoped server.
-
-Examples:
-  ctxloom mcp server edit my-bundle#mcp/tree-sitter
+a '<bundle>#mcp/<name>' ref addresses a bundle-scoped server.`,
+	Example: `  ctxloom mcp server edit my-bundle#mcp/tree-sitter
   ctxloom mcp server edit tools#mcp/sequential-thinking`,
 	Args: cobra.ExactArgs(1),
 	RunE: runMCPServerEdit,

@@ -36,8 +36,9 @@ and discarded per session — it is never handed to a model and never
 returned in a result row (the same lightweight name/summary/start/end shape
 ` + "`session list`" + ` renders). Fetch a matched session's full summary with
 ` + "`session show <session-name>`" + `.`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: runSessionQuery,
+	Example: `  ctxloom session search lockfile migration`,
+	Args:    cobra.MinimumNArgs(1),
+	RunE:    runSessionQuery,
 }
 
 func init() {

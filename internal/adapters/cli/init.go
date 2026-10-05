@@ -73,10 +73,8 @@ project is already set up. ctxloom never captures or stores the token.
 The working outcome of init is a functioning ctxloom CLI/TUI.
 
 Skipped or interrupted the interview? 'ctxloom init prompt' (or ask your
-agent to run it) re-enters the companions/profiles/agent-binding half any time.
-
-Examples:
-  ctxloom init                     # Interactive setup (if TTY)
+agent to run it) re-enters the companions/profiles/agent-binding half any time.`,
+	Example: `  ctxloom init                     # Interactive setup (if TTY)
   ctxloom init --home              # Initialize in ~/.ctxloom
   ctxloom init --engine claude-code # Pre-select engine
   ctxloom init --non-interactive   # Skip all prompts
@@ -118,8 +116,9 @@ This is the same body 'ctxloom init' hands to your engine at bootstrap and
 re-entry pointer onto it, for a shell/script that wants the raw prompt text.
 
 Run this (or ask your agent to) any time you want to reconfigure.`,
-	Args: cobra.NoArgs,
-	RunE: runSetupPromptCmd,
+	Example: `  ctxloom init prompt`,
+	Args:    cobra.NoArgs,
+	RunE:    runSetupPromptCmd,
 }
 
 func init() {

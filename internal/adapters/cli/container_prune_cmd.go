@@ -52,6 +52,8 @@ image a container started using since the plan was made.
 Exit status: 0 when the plan printed or everything planned was removed
 (including nothing to do); 1 when any removal failed (each is listed); 3 when
 no container runtime is available.`,
+	Example: `  ctxloom container prune              # print the plan
+  ctxloom container prune --yes --min-age 72h`,
 	Args: cobra.NoArgs,
 	RunE: runContainerPrune,
 }

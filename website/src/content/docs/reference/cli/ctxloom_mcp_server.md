@@ -9,7 +9,7 @@ This page is generated from `ctxloom mcp server --help`.
 
 ## ctxloom mcp server
 
-List, show, or edit the MCP servers this project registers
+List, show, edit, or set the MCP servers this project registers
 
 ```
 ctxloom mcp server [flags]
@@ -32,5 +32,6 @@ ctxloom mcp server [flags]
 * [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List the MCP servers this project registers
 * [ctxloom mcp server edit](/reference/cli/ctxloom_mcp_server_edit/)	 - Edit an MCP server configuration in $EDITOR
 * [ctxloom mcp server list](/reference/cli/ctxloom_mcp_server_list/)	 - List configured MCP servers
+* [ctxloom mcp server set](/reference/cli/ctxloom_mcp_server_set/)	 - Set fields of a bundle's MCP server from flags
 * [ctxloom mcp server show](/reference/cli/ctxloom_mcp_server_show/)	 - Show details of an MCP server configuration
 

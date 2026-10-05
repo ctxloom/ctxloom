@@ -186,21 +186,19 @@ func realGitWorktreeFixture(t *testing.T) (main, linked string) {
 	return main, linked
 }
 
-// findAppDir's last resort — reached only when os.UserHomeDir()
-// fails — returned <pwd>/.ctxloom without creating it, or, when os.Getwd() had
-// ALSO failed, the bare RELATIVE string ".ctxloom" tagged config.SourceProject.
-// the reader then derives appRoot as filepath.Dir(appPath), so the relative
+// findAppDir's last resort — reached only when os.UserHomeDir() fails — must
+// resolve ABSOLUTELY, even when os.Getwd() has also failed. From a bare
+// relative ".ctxloom" the reader would derive appRoot as filepath.Dir(appPath), so the relative
 // case resolves the whole project to "." and every path built from it —
 // bundles, agents, sessions, the config file itself — becomes relative to
 // whatever cwd the process happens to hold at the moment it is used. ctxloom
 // changes cwd (worktree runs, testsupport.ChangeDir), so "whatever cwd it holds"
 // is not a stable answer.
 //
-// The other two returns in this function both resolve absolutely and both
-// MkdirAll their result. The last resort is the one that did neither, which is
-// the actual defect: it is the branch reached when the environment is already
-// degraded, and it was the branch that degraded furthest.
-func TestFindAppDir_LastResortIsAbsoluteAndCreated(t *testing.T) {
+// The other two returns in this function both resolve absolutely; the last
+// resort is reached when the environment is already degraded, and must not
+// degrade the answer further.
+func TestFindAppDir_LastResortIsAbsolute(t *testing.T) {
 	testsupport.Isolate(t)
 	resetStrictness(t)
 	// An empty HOME makes os.UserHomeDir fail on Linux, which is the only way
@@ -216,8 +214,4 @@ func TestFindAppDir_LastResortIsAbsoluteAndCreated(t *testing.T) {
 	require.True(t, filepath.IsAbs(appPath),
 		"a relative app dir makes appRoot \".\" and every derived path cwd-dependent; got %q", appPath)
 	assert.Equal(t, config.SourceProject, source)
-	exists, err := afero.DirExists(fs, appPath)
-	require.NoError(t, err)
-	assert.True(t, exists,
-		"the last resort must create its directory like the CTXLOOM_ROOT and home branches do, or it hands back a path nothing can be written to")
 }

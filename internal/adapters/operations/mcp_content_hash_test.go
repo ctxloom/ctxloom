@@ -19,7 +19,7 @@ func TestBundleMCP_EditDropsALegacyContentHashFromTheSidecar(t *testing.T) {
 	cfg := newItemTestBundle(t)
 	_, err := UpdateBundle(ctx, cfg, UpdateBundleRequest{
 		Name:          "b",
-		SetMCPServers: map[string]BundleMCPInput{"srv": {Command: "old", Notes: "kept notes"}},
+		SetMCPServers: map[string]BundleMCPInput{"srv": {Command: new("old"), Notes: new("kept notes")}},
 	})
 	require.NoError(t, err)
 
@@ -36,7 +36,7 @@ func TestBundleMCP_EditDropsALegacyContentHashFromTheSidecar(t *testing.T) {
 	assert.Equal(t, "kept notes", got.MCP.Notes)
 
 	_, err = SetBundleMCP(ctx, cfg, SetBundleMCPRequest{
-		Bundle: "b", Name: "srv", MCP: BundleMCPInput{Command: "new", Notes: "kept notes"},
+		Bundle: "b", Name: "srv", MCP: BundleMCPInput{Command: new("new"), Notes: new("kept notes")},
 	})
 	require.NoError(t, err)
 

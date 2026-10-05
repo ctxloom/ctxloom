@@ -16,7 +16,7 @@ import (
 // scheme test Load uses to tell a remote profile reference from a local
 // profile name: every canonical URL scheme must produce the "no lockfile
 // entry" diagnosis (a remote ref can never resolve from disk), and a bare
-// local name must not. The scheme list itself is remote.IsCanonicalRef's;
+// local name must not. The scheme list itself is remote.IsFetchAddressRef's;
 // this pin is what keeps a second, drifting copy of it out of this package.
 func TestLoad_RemoteSchemeRefsReportNoLockfileEntry(t *testing.T) {
 	loader := bundleLoader(t, afero.NewMemMapFs())

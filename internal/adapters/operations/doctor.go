@@ -832,37 +832,49 @@ func doctorProjectDir(cfg *config.Config) string {
 	return filepath.Dir(appDir)
 }
 
-// doctorCheckSetupMarker verifies the .ctxloom marker directory the reader
-// already resolved (cfg.AppPaths) is present and the project config was read
-// without a hard error — the ground-floor precondition every other check in
-// this report assumes. Read-only: it inspects the generation's ALREADY-resolved
-// record instead of re-globbing the filesystem for .ctxloom.
+// doctorCheckSetupMarker verifies a PROJECT .ctxloom marker directory was
+// resolved, is on disk, carries its config file (paths.ConfigPath), and that config was read
+// without a hard error or load-time warning — the ground-floor precondition
+// every other check in this report assumes. A resolved AppDir alone proves
+// none of that: with no project marker above cwd the reader falls back to
+// ~/.ctxloom and creates it (findAppDir), so in a fresh repo the directory
+// this check would otherwise vouch for is the empty one this run just made.
+// It inspects only the reader's already-resolved record plus two stats; it
+// never re-globs the filesystem for .ctxloom.
 func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-MARKER-e5"
+	const remedy = "(run `ctxloom manage install` or `ctxloom init`)"
 	if cfgErr != nil {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
 	appDir := doctorAppDir(cfg)
 	if appDir == "" {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn,
-			Detail: "no .ctxloom marker directory found (run `ctxloom manage install` or `ctxloom init`)"}
+			Detail: "no .ctxloom marker directory found " + remedy}
 	}
-	// A config that FAILED SCHEMA VALIDATION still loads -- config.go's
-	// loadConfigFile records the violation as a Warning and keeps going, the
-	// same fault-tolerant shape every load-time defect gets (CLAUDE.md). This
-	// check used to report "config valid" unconditionally the instant the
-	// marker directory existed, in the SAME doctor run that had just printed
-	// "ctxloom: warning: config validation warning ..." to the exact same
-	// terminal -- a health check asserting the opposite of what it had just
-	// printed (task unwatched-discharge, found on `agents.<x>.runtime`
-	// carrying the retired "container" spelling, but the defect is general:
-	// ANY schema violation this config carries was being reported as
-	// "config valid"). cfg.GetWarnings() is EVERY load-time warning
-	// (WarnKindRead/Parse/Validate/UnknownKey/MigrationLossy/LayerScope) --
-	// see internal/core/config/warnings.go's own doc: "EVERY kind declared below
-	// is fatal-class in strict mode". Doctor's own contract (doctor.feature:
-	// "why its exit code is not the verdict") means this stays DoctorWarn,
-	// never a process exit change -- warn IS doctor's fail-loud signal.
+	if cfg.Source() == config.SourceHome {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn,
+			Detail: "no project .ctxloom marker found from the working directory; config resolved to the home fallback " + appDir + " " + remedy}
+	}
+	fs := cfg.FS()
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
+	if info, err := fs.Stat(appDir); err != nil || !info.IsDir() {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn,
+			Detail: "resolved .ctxloom marker directory is not on disk: " + appDir + " " + remedy}
+	}
+	configPath := paths.ConfigPath(appDir)
+	if _, err := fs.Stat(configPath); err != nil {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn,
+			Detail: "marker present, but its config file is absent: " + configPath + " " + remedy}
+	}
+	// A config that FAILS SCHEMA VALIDATION still loads: the reader records
+	// every load-time defect as a Warning and keeps going (cfg.GetWarnings,
+	// every kind fatal-class in strict mode), and has already printed it to
+	// this terminal. Reporting "config valid" here would contradict that
+	// line. Doctor's contract (doctor.feature: "why its exit code is not the
+	// verdict") keeps this a DoctorWarn, never an exit-code change.
 	if warnings := cfg.GetWarnings(); len(warnings) > 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn,
 			Detail: fmt.Sprintf("marker present, but config.yaml failed schema validation (%d issue(s) -- see the warning line(s) printed above, or `ctxloom manage config edit`): %s", len(warnings), appDir)}

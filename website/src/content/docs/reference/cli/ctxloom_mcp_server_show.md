@@ -29,5 +29,5 @@ ctxloom mcp server show <name> [flags]
 
 ### SEE ALSO
 
-* [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, show, or edit the MCP servers this project registers
+* [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, show, edit, or set the MCP servers this project registers
 

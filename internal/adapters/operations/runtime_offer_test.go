@@ -31,7 +31,7 @@ import (
 // container story. A label is the only reachable subject for this gate — every
 // backend in the registry declares a container story — and it is a real one, since
 // `llm.configs.<label>.type` accepts any string a user types.
-const noContainerStoryConfig = "schema_version: 6\nllm:\n  configs:\n    editor: { type: unmapped-engine }\n  defaults:\n    primary: editor\n"
+const noContainerStoryConfig = "schema_version: 7\nllm:\n  configs:\n    editor: { type: unmapped-engine }\n  defaults:\n    primary: editor\n"
 
 // TestAgentRuntimeOffer_EngineWithoutContainerStoryIsNotOfferedAContainerRuntime
 // is the gate. An engine that cannot authenticate inside a container gets host
@@ -77,7 +77,7 @@ func TestAgentRuntimeOffer_WithheldContainerSaysWhy(t *testing.T) {
 // not simply off: an engine that CAN authenticate is offered both container
 // axes, and nothing is withheld.
 func TestAgentRuntimeOffer_EngineWithContainerStoryGetsBothAxes(t *testing.T) {
-	cfg, _ := loadConfigDir(t, "schema_version: 6\n")
+	cfg, _ := loadConfigDir(t, "schema_version: 7\n")
 
 	offer := AgentRuntimeOffer(engines.Registry(), cfg, "claude-code")
 
@@ -101,7 +101,7 @@ func TestAgentRuntimeOffer_EngineWithContainerStoryGetsBothAxes(t *testing.T) {
 // therefore has nowhere to put a default, and this test pins that absence: host
 // leads because it is the axis every engine can take, not because it wins.
 func TestAgentRuntimeOffer_NoDefaultIsMarked(t *testing.T) {
-	cfg, _ := loadConfigDir(t, "schema_version: 6\n")
+	cfg, _ := loadConfigDir(t, "schema_version: 7\n")
 
 	offer := AgentRuntimeOffer(engines.Registry(), cfg, "claude-code")
 
@@ -141,7 +141,7 @@ func TestAgentRuntimeOffer_AgreesWithWhatTheWriterAccepts(t *testing.T) {
 
 	for _, backend := range names {
 		t.Run(backend, func(t *testing.T) {
-			cfg, appDir := loadConfigDir(t, "schema_version: 6\n")
+			cfg, appDir := loadConfigDir(t, "schema_version: 7\n")
 			offer := AgentRuntimeOffer(engines.Registry(), cfg, backend)
 
 			_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
@@ -167,7 +167,7 @@ func TestAgentRuntimeOffer_AgreesWithWhatTheWriterAccepts(t *testing.T) {
 // (tests/acceptance's j002200ConfigYAML): one label on the mock backend, and an
 // agent bound to it with a container runtime. It is the exact pair a live
 // daemon would launch, so the proof below runs on the same shape.
-const mockContainerConfig = "schema_version: 6\nllm:\n  configs:\n    fast: { type: mock }\n  defaults:\n    primary: fast\nagents:\n  mock-container:\n    llm: fast\n    profiles: []\n    runtime: container-rootless\n"
+const mockContainerConfig = "schema_version: 7\nllm:\n  configs:\n    fast: { type: mock }\n  defaults:\n    primary: fast\nagents:\n  mock-container:\n    llm: fast\n    profiles: []\n    runtime: container-rootless\n"
 
 // TestMockBoundToContainer_PassesEveryValidationShortOfADaemon is the
 // operations-layer half of the claim "nothing outside internal/adapters/isolation

@@ -56,7 +56,7 @@ func TestTaskStoreRoot_CommittedCtxloomIsNotAnOptOut(t *testing.T) {
 	// Exactly what a checkout produces: the directory and its tracked
 	// contents, but no project-id (that one file is gitignored).
 	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, filepath.Join(linked, ".ctxloom")), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(linked, ".ctxloom", "config.yaml"), []byte("schema_version: 6\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(linked, ".ctxloom", "config.yaml"), []byte("schema_version: 7\n"), 0o644))
 
 	got, err := TaskStoreRoot(afero.NewOsFs(), linked)
 	require.NoError(t, err)

@@ -114,7 +114,7 @@ func TestRefIngestPointsStripControlChars(t *testing.T) {
 
 	t.Run("CanonicalizeShortRef expands an alias", func(t *testing.T) {
 		got := CanonicalizeShortRef("acme/pack"+nl, func(string) string { return "https://example.com/acme/content" }, nil)
-		assert.Equal(t, "https://example.com/acme/content@bundles/pack", got)
+		assert.Equal(t, "ctxloom+git://example.com/acme/content//bundles/pack", got)
 	})
 
 	t.Run("CanonicalizeProfileShortRef", func(t *testing.T) {
@@ -190,7 +190,8 @@ func TestRefIngestPointsStripControlChars(t *testing.T) {
 }
 
 // TestRefIngest_CleanRefsAreUntouched pins the other half: normalisation is a
-// no-op on every legal ref shape, byte for byte.
+// no-op on every legal ref shape, byte for byte, and the short-ref resolver
+// changes a clean ref only by its canonical spelling.
 func TestRefIngest_CleanRefsAreUntouched(t *testing.T) {
 	for _, ref := range []string{
 		"https://github.com/owner/repo@bundles/core",
@@ -205,7 +206,8 @@ func TestRefIngest_CleanRefsAreUntouched(t *testing.T) {
 		"tools#profiles/dev",
 	} {
 		assert.Equal(t, ref, NormalizeRef(ref), "clean ref must survive verbatim")
-		assert.Equal(t, ref, CanonicalizeShortRef(ref, nil, nil))
+		assert.Equal(t, CanonicalSpelling(ref), CanonicalizeShortRef(ref, nil, nil),
+			"a clean ref is only re-spelled, never otherwise altered")
 		if strings.Contains(ref, "@bundles/") || strings.HasPrefix(ref, CompanionSource) {
 			parsed, err := ParseReference(ref)
 			require.NoError(t, err, ref)

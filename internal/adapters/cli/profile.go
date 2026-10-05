@@ -26,7 +26,7 @@ A profile is an item of a bundle. A project's own profiles live in its
 project bundle, so a bare profile name is that bundle's profile; a profile of
 any other bundle is addressed as <bundle>#profiles/<name>. The write commands
 (create, update, edit, remove, import) write into the project bundle unless
-the name addresses another LOCAL bundle (create and import take --in-bundle).`,
+the name addresses another LOCAL bundle (create and import take --bundle).`,
 }, "list")
 
 var profileListCmd = &cobra.Command{
@@ -55,7 +55,7 @@ func runProfileList(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
 		if len(list) == 0 {
 			fmt.Fprintln(out, "No profiles defined.")
-			fmt.Fprintln(out, "Use 'ctxloom profile create <name> -b <bundles...>' to create one.")
+			fmt.Fprintln(out, "Use 'ctxloom profile create <name> --include <bundle>...' to create one.")
 			return nil
 		}
 		return renderProfileList(out, list)
@@ -99,22 +99,25 @@ func renderProfileList(out io.Writer, list []operations.ProfileEntry) error {
 
 var (
 	profileCreateParents     []string
-	profileCreateBundles     []string
+	profileCreateIncludes    []string
 	profileCreateDescription string
 	profileCreateLLM         string
-	profileCreateInBundle    string
+	profileCreateTarget      string
 )
 
 var profileCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a new profile",
-	Long: `Create a new profile with bundles and/or parents.
+	Long: `Create a new profile with included bundles and/or parents.
 
-Bundle references use full URLs:
+--include names a bundle the profile pulls in; --bundle names the LOCAL bundle
+the profile is written into (default: the project bundle).
+
+Included bundle references use full URLs:
   https://github.com/user/repo@bundles/name    # Bundle from remote
 
 Example:
-  ctxloom profile create developer -b https://github.com/user/ctxloom@bundles/go-development -d "Standard dev context"`,
+  ctxloom profile create developer -i https://github.com/user/ctxloom@bundles/go-development -d "Standard dev context"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runProfileCreate,
 }
@@ -122,8 +125,8 @@ Example:
 func runProfileCreate(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	if len(profileCreateParents) == 0 && len(profileCreateBundles) == 0 {
-		return fmt.Errorf("at least one parent (--parent) or bundle (-b) is required")
+	if len(profileCreateParents) == 0 && len(profileCreateIncludes) == 0 {
+		return fmt.Errorf("at least one parent (--parent) or included bundle (--include) is required")
 	}
 
 	cfg, err := GetConfig()
@@ -149,11 +152,11 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 	// Route through the operations core so the CLI shares the MCP path's
 	// validation and its choice of the local bundle the profile lands in.
 	res, err := operations.CreateProfile(cmd.Context(), cfg, operations.CreateProfileRequest{
-		Name:        inBundle(profileCreateInBundle, name),
+		Name:        inBundle(profileCreateTarget, name),
 		Description: profileCreateDescription,
 		LLM:         profileCreateLLM,
 		Parents:     profileCreateParents,
-		Bundles:     profileCreateBundles,
+		Bundles:     profileCreateIncludes,
 	})
 	if err != nil {
 		return err
@@ -179,8 +182,8 @@ func printProfileCreated(w io.Writer, name, path string) {
 	if len(profileCreateParents) > 0 {
 		parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(profileCreateParents, ", ")))
 	}
-	if len(profileCreateBundles) > 0 {
-		parts = append(parts, fmt.Sprintf("bundles: %s", strings.Join(profileCreateBundles, ", ")))
+	if len(profileCreateIncludes) > 0 {
+		parts = append(parts, fmt.Sprintf("bundles: %s", strings.Join(profileCreateIncludes, ", ")))
 	}
 	fmt.Fprintf(w, "Created profile %q with %s\n", name, strings.Join(parts, "; "))
 	fmt.Fprintf(w, "Saved to: %s\n", path)
@@ -465,14 +468,14 @@ func runProfileExport(cmd *cobra.Command, args []string) error {
 }
 
 var (
-	profileImportForce    bool
-	profileImportInBundle string
+	profileImportForce  bool
+	profileImportTarget string
 )
 
 var profileImportCmd = &cobra.Command{
 	Use:   "import <path>",
 	Short: "Import a profile from a local file",
-	Long: `Import a profile YAML file into the project bundle (or, with --in-bundle,
+	Long: `Import a profile YAML file into the project bundle (or, with --bundle,
 another local bundle) as the profile named by the file's basename.
 
 Use --force to overwrite an existing profile.
@@ -495,7 +498,7 @@ func runProfileImport(cmd *cobra.Command, args []string) error {
 	res, err := operations.ImportProfile(cmd.Context(), cfg, operations.ImportProfileRequest{
 		SourcePath: srcPath,
 		Force:      profileImportForce,
-		Bundle:     profileImportInBundle,
+		Bundle:     profileImportTarget,
 	})
 	if err != nil {
 		return err
@@ -518,7 +521,7 @@ func init() {
 	profileCmd.AddCommand(profileImportCmd)
 
 	profileCreateCmd.Flags().StringSliceVar(&profileCreateParents, "parent", nil, "Parent profile(s) to inherit from: a local name or <bundle>#profiles/<name> (bundle = canonical URL, remote/bundle alias, or local bundle name)")
-	profileCreateCmd.Flags().StringSliceVarP(&profileCreateBundles, "bundle", "b", nil, "Bundle URL(s) to include")
+	profileCreateCmd.Flags().StringSliceVarP(&profileCreateIncludes, "include", "i", nil, "Bundle URL(s) the profile includes")
 	profileCreateCmd.Flags().StringVarP(&profileCreateDescription, "description", "d", "", "Description of the profile")
 	profileCreateCmd.Flags().StringVar(&profileCreateLLM, "llm", "", "Preferred LLM config label/backend to launch (overridable by run -l)")
 
@@ -534,8 +537,8 @@ func init() {
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveExcludeMCP, "include-mcp", nil, "MCP server name(s) to stop excluding")
 
 	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")
-	profileImportCmd.Flags().StringVar(&profileImportInBundle, "in-bundle", "", "Local bundle to import into (default: the project bundle)")
-	profileCreateCmd.Flags().StringVar(&profileCreateInBundle, "in-bundle", "", "Local bundle to create the profile in (default: the project bundle)")
+	profileImportCmd.Flags().StringVar(&profileImportTarget, "bundle", "", "Local bundle to import into (default: the project bundle)")
+	profileCreateCmd.Flags().StringVar(&profileCreateTarget, "bundle", "", "Local bundle to create the profile in (default: the project bundle)")
 	profileRemoveCmd.Flags().BoolVarP(&profileRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
 
 	// Register positional arg completions

@@ -357,11 +357,11 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		if err := runFixture(c, "bundle", "create", name+"-base", "-d", "profile base"); err != nil {
 			return err
 		}
-		return runFixture(c, "profile", "create", name, "-b", name+"-base", "-d", "acceptance fixture profile")
+		return runFixture(c, "profile", "create", name, "--include", name+"-base", "-d", "acceptance fixture profile")
 	})
 
 	ctx.Step(`^a profile "([^"]*)" with bundle "([^"]*)"$`, func(c context.Context, name, bundle string) error {
-		return runFixture(c, "profile", "create", name, "-b", bundle, "-d", "acceptance fixture profile")
+		return runFixture(c, "profile", "create", name, "--include", bundle, "-d", "acceptance fixture profile")
 	})
 
 	// A directory profile carrying deny_tools, written directly (no CLI surface

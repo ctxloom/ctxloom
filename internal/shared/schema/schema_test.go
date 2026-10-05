@@ -27,7 +27,7 @@ func TestConfigValidator_ValidateBytes(t *testing.T) {
 
 	t.Run("valid config", func(t *testing.T) {
 		yaml := `
-schema_version: 6
+schema_version: 7
 llm:
   configs:
     big: { type: claude-code, model: opus }
@@ -58,7 +58,7 @@ config:
 	// ctxloom can run.
 	for _, removed := range []string{"codex", "opencode"} {
 		t.Run("unregistered backend type "+removed+" is refused", func(t *testing.T) {
-			err := v.ValidateBytes([]byte("schema_version: 6\nllm:\n  configs:\n    big: { type: " + removed + " }\n"))
+			err := v.ValidateBytes([]byte("schema_version: 7\nllm:\n  configs:\n    big: { type: " + removed + " }\n"))
 			assert.Error(t, err)
 		})
 	}
@@ -90,7 +90,7 @@ func TestConfigValidator_RejectsTypoedHookKey(t *testing.T) {
 	require.NoError(t, err)
 
 	yaml := `
-schema_version: 6
+schema_version: 7
 hooks:
   unified:
     session_start:

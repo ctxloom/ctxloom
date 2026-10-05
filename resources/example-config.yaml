@@ -1,6 +1,6 @@
 # ctxloom Configuration
 # See https://github.com/ctxloom/ctxloom for documentation
-schema_version: 6
+schema_version: 7
 
 # Large language model configuration.
 #

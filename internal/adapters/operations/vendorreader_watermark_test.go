@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -54,7 +55,7 @@ func writeWatermark(t *testing.T, harp string, wm transcriptWatermark) {
 
 func refresh(t *testing.T, e sessions.Entry) {
 	t.Helper()
-	converted, err := RefreshVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 }
@@ -95,7 +96,7 @@ func TestRefreshVendorTranscript_ResumesFromTheWatermarkWithoutReadingThePrefix(
 	vendorPath := vendorFileWithLines(t, settledPrefix)
 	e := liveClaudeEntry(harp, vendorPath)
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	require.True(t, converted)
 	wm := readWatermark(t, harp)
@@ -255,7 +256,7 @@ func TestRefreshVendorTranscript_FailedResumeKeepsTheTranscriptAndWatermark(t *t
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = RefreshVendorTranscript(ctx, engines.Registry(), e)
+	_, err = RefreshVendorTranscript(ctx, afero.NewOsFs(), engines.Registry(), e)
 	require.ErrorIs(t, err, context.Canceled)
 
 	assert.Equal(t, before, canonicalLines(t, harp))
@@ -317,7 +318,7 @@ func TestRefreshVendorTranscript_NonResumableAdapterIgnoresTheWatermark(t *testi
 	require.NoError(t, err)
 
 	e.Backend = registerReaderFixture(t, partialFailAdapter{n: 3})
-	_, err = RefreshVendorTranscript(context.Background(), engines.Registry(), e)
+	_, err = RefreshVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.Error(t, err)
 
 	assert.Equal(t, before, canonicalLines(t, harp))

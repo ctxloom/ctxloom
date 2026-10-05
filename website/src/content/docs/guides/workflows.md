@@ -34,8 +34,8 @@ ctxloom remote show community
 ```bash
 # Create a development profile that references the remote bundles
 ctxloom profile create go-dev \
-  -b community/go-development \
-  -b community/testing-patterns \
+  --include community/go-development \
+  --include community/testing-patterns \
   -d "Go development environment"
 
 # Pull the referenced content
@@ -191,14 +191,14 @@ ctxloom init
 # Create project-specific profile
 ctxloom profile create project \
   --parent go-dev \
-  -b project-specific \
+  --include project-specific \
   -d "This project's development context"
 
 # Use the profile
 ctxloom run -p project "help with code"
 ```
 
-A bare `-b` name means a bundle you authored locally, and it is what you want
+A bare `--include` name means a bundle you authored locally, and it is what you want
 here: `project-specific` is the bundle file created below. Bundles that came from
 a remote must be named as `<remote-alias>/<bundle>` or as a full URL — a bare name
 is stored as a local reference, is not checked at create time, and silently
@@ -239,9 +239,9 @@ fragments:
 
 ```bash
 # Create language-specific profiles (remote bundles by <remote-alias>/<bundle>)
-ctxloom profile create go-work -b community/go-development -b community/go-testing
-ctxloom profile create python-work -b community/python-development -b community/python-testing
-ctxloom profile create frontend-work -b community/typescript -b community/react
+ctxloom profile create go-work --include community/go-development --include community/go-testing
+ctxloom profile create python-work --include community/python-development --include community/python-testing
+ctxloom profile create frontend-work --include community/typescript --include community/react
 
 # Use based on current task
 ctxloom run -p go-work "help with Go code"
@@ -272,8 +272,8 @@ Use different `.ctxloom/` configurations in different project directories:
 ```bash
 # Author a profile referencing the security bundles
 ctxloom profile create security \
-  -b ctxloom-default/security \
-  -b ctxloom-default/owasp
+  --include ctxloom-default/security \
+  --include ctxloom-default/owasp
 
 # Pull the referenced content
 ctxloom deps pull
@@ -310,9 +310,9 @@ the full `https://github.com/ctxloom/ctxloom-default@bundles/security#fragments/
 ```bash
 # Create a code review profile (remote bundles by <remote-alias>/<bundle>)
 ctxloom profile create reviewer \
-  -b community/code-quality \
-  -b community/testing-patterns \
-  -b ctxloom-default/security \
+  --include community/code-quality \
+  --include community/testing-patterns \
+  --include ctxloom-default/security \
   -d "Code review context"
 ```
 
@@ -442,12 +442,12 @@ ctxloom deps pull
 
 ```bash
 # Instead of one huge profile
-ctxloom profile create everything -b bundle1 -b bundle2 -b bundle3...
+ctxloom profile create everything --include bundle1 --include bundle2 --include bundle3...
 
 # Create task-specific profiles
-ctxloom profile create api-dev -b community/go-development -b community/api-patterns
-ctxloom profile create testing -b community/testing-patterns -b community/mocking
-ctxloom profile create security -b ctxloom-default/security -b ctxloom-default/owasp
+ctxloom profile create api-dev --include community/go-development --include community/api-patterns
+ctxloom profile create testing --include community/testing-patterns --include community/mocking
+ctxloom profile create security --include ctxloom-default/security --include ctxloom-default/owasp
 ```
 
 ### Use Tags Effectively

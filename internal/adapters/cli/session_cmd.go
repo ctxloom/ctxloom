@@ -338,7 +338,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	// success. A one-shot CLI process genuinely cannot tell whether the
 	// session it was pointed at is still growing elsewhere, so it heals
 	// unconditionally every call — slower, and truthful.
-	src, herr := operations.ResolveAndHeal(cmd.Context(), App().Engines(), harpName)
+	src, herr := operations.ResolveAndHeal(cmd.Context(), afero.NewOsFs(), App().Engines(), harpName)
 	if herr != nil {
 		return herr
 	}

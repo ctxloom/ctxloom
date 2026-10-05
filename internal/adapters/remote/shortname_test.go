@@ -11,11 +11,14 @@ func aliasToPersonal(alias string) string {
 	return ""
 }
 
-const personalURL = "https://github.com/ben/ctxloom-personal"
+// personalBundles is the canonical ctxloom URI prefix of the "personal"
+// remote's bundles: the one spelling CanonicalizeShortRef emits for it.
+const personalBundles = "ctxloom+git://github.com/ben/ctxloom-personal//bundles/"
 
 // TestCanonicalizeShortRef pins the short-name → canonical grammar: bare names
 // stay local, "<remote>/<bundle>" (with or without a selector) expands to the
-// canonical URL, the local file wins a collision, and any selector rides through
+// canonical ctxloom URI, a self-contained fetch-address ref is re-spelled in that
+// same grammar, the local file wins a collision, and any selector rides through
 // unchanged. Mirrors internal/core/profiles/grammar_test.go's spelling→identity pins.
 func TestCanonicalizeShortRef(t *testing.T) {
 	tests := []struct {
@@ -31,26 +34,28 @@ func TestCanonicalizeShortRef(t *testing.T) {
 
 		// "<remote>/<bundle>[#<sel>/<item>]" → canonical URL, selector preserved.
 		{"remote bundle plain", "personal/agent-ensemble", nil,
-			personalURL + "@bundles/agent-ensemble"},
+			personalBundles + "agent-ensemble"},
 		{"remote bundle with profile selector", "personal/agent-ensemble#profiles/finder", nil,
-			personalURL + "@bundles/agent-ensemble#profiles/finder"},
+			personalBundles + "agent-ensemble#profiles/finder"},
 		{"remote bundle with fragment selector", "personal/agent-ensemble#fragments/tdd", nil,
-			personalURL + "@bundles/agent-ensemble#fragments/tdd"},
+			personalBundles + "agent-ensemble#fragments/tdd"},
 		{"selector carries a version pin through", "personal/agent-ensemble#profiles/finder@abc1234", nil,
-			personalURL + "@bundles/agent-ensemble#profiles/finder@abc1234"},
+			personalBundles + "agent-ensemble#profiles/finder@abc1234"},
 		{"nested bundle path keeps its slashes", "personal/lang/go#profiles/dev", nil,
-			personalURL + "@bundles/lang/go#profiles/dev"},
+			personalBundles + "lang/go#profiles/dev"},
 
 		// Decision E: local-file-wins over a same-spelled remote alias.
 		{"local file wins the collision", "personal/agent-ensemble#profiles/finder",
 			func(base string) bool { return base == "personal/agent-ensemble" },
 			"personal/agent-ensemble#profiles/finder"},
 
-		// Unknown alias / already-canonical pass through untouched.
+		// Unknown alias / self-contained refs need no registry.
 		{"unknown alias stays as authored", "work/agent-ensemble#profiles/finder", nil,
 			"work/agent-ensemble#profiles/finder"},
-		{"canonical URL is self-contained", "https://github.com/x/y@bundles/z#profiles/p", nil,
-			"https://github.com/x/y@bundles/z#profiles/p"},
+		{"fetch-address ref is re-spelled canonically", "https://github.com/x/y@bundles/z#profiles/p", nil,
+			"ctxloom+git://github.com/x/y//bundles/z#profiles/p"},
+		{"canonical URI is self-contained", "ctxloom+git://github.com/x/y//bundles/z#profiles/p", nil,
+			"ctxloom+git://github.com/x/y//bundles/z#profiles/p"},
 		{"ctxloom:local is self-contained", "ctxloom:local@bundles/dev", nil,
 			"ctxloom:local@bundles/dev"},
 	}
@@ -87,7 +92,7 @@ func TestCanonicalizeProfileShortRef(t *testing.T) {
 		{"bare local profile name stays local", "developer", "developer"},
 		{"local bundle profile stays local", "tools#profiles/probe", "tools#profiles/probe"},
 		{"alias bundle profile canonicalizes", "personal/agent-ensemble#profiles/finder",
-			personalURL + "@bundles/agent-ensemble#profiles/finder"},
+			personalBundles + "agent-ensemble#profiles/finder"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

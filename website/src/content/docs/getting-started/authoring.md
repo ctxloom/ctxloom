@@ -255,7 +255,7 @@ profile, pulls it, and accepts it:
 
 ```bash
 ctxloom remote create standards you/ctxloom-standards
-ctxloom profile create standards -b standards/my-standards
+ctxloom profile create standards --include standards/my-standards
 ctxloom deps pull
 ctxloom review
 ctxloom run -p standards "help me"

@@ -83,7 +83,7 @@ func runCLIFixture(t *testing.T) string {
 	for _, argv := range [][]string{
 		{"bundle", "create", "demo", "-d", "characterization fixture"},
 		{"fragment", "create", "demo", "testing"},
-		{"profile", "create", "dev", "-b", "demo", "-d", "characterization fixture"},
+		{"profile", "create", "dev", "--include", "demo", "-d", "characterization fixture"},
 	} {
 		res := runCLI(t, argv...)
 		require.NoError(t, res.err, "fixture %v: %s", argv, res.stderr)

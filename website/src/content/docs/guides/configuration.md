@@ -66,7 +66,7 @@ The file declares its format generation as `schema_version` (currently 6; `versi
 :::
 
 ```yaml
-schema_version: 6
+schema_version: 7
 
 # Language model configuration.
 # `llm.configs` is a registry of arbitrarily-labeled backend configs — the

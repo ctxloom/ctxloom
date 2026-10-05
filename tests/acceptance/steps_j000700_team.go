@@ -315,7 +315,7 @@ func j000700SetupProject(w *World, configYAML string) error {
 	if err := runOK(w, "bundle", "create", j000700Bundle, "-d", "Team standards"); err != nil {
 		return err
 	}
-	if err := runOK(w, "profile", "create", j000700Profile, "-b", j000700Bundle, "-d", "Team default profile"); err != nil {
+	if err := runOK(w, "profile", "create", j000700Profile, "--include", j000700Bundle, "-d", "Team default profile"); err != nil {
 		return err
 	}
 	if err := w.env.GitCommit("initial ctxloom project scaffold"); err != nil {

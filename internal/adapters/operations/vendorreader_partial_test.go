@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -22,7 +23,7 @@ import (
 // legitimately captured transcript" once the fact of failure is thrown away.
 type partialFailAdapter struct{ n int }
 
-func (a partialFailAdapter) Convert(_ context.Context, rec transcript.Recorder, _ string) error {
+func (a partialFailAdapter) Convert(_ context.Context, _ afero.Fs, rec transcript.Recorder, _ string) error {
 	for i := 0; i < a.n; i++ {
 		if err := rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
 			Type:    agent.EntryTypeUser,
@@ -50,17 +51,17 @@ func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(
 
 	e := sessions.Entry{HarpName: harp, Backend: engine, TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	assert.True(t, converted, "Convert was genuinely attempted")
 	require.Error(t, err, "a partial failure must surface as an error the first time")
 
-	assert.False(t, hasCanonicalTranscript(harp),
+	assert.False(t, hasCanonicalTranscript(afero.NewOsFs(), harp),
 		"a failed import must not leave a canonical file that a later retry mistakes for a complete, already-captured transcript")
 
 	// A second call must genuinely retry, not silently no-op as "already
 	// captured" — confirm the same partial-then-fail signature reproduces
 	// (not "converted=false, nil" as a stale-guard no-op would give).
-	converted2, err2 := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted2, err2 := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	assert.True(t, converted2, "a prior failed attempt must not permanently block retry")
 	assert.Error(t, err2)
 }
@@ -72,7 +73,7 @@ func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(
 // a failure.
 type zeroLineAdapter struct{}
 
-func (zeroLineAdapter) Convert(_ context.Context, _ transcript.Recorder, _ string) error {
+func (zeroLineAdapter) Convert(_ context.Context, _ afero.Fs, _ transcript.Recorder, _ string) error {
 	return nil
 }
 
@@ -92,9 +93,9 @@ func TestConvertVendorTranscript_ZeroLinesIsNotReportedAsConverted(t *testing.T)
 
 	e := sessions.Entry{HarpName: harp, Backend: engine, TranscriptPath: claudeFixturePath, EngineVersion: stubEngineVersion}
 
-	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), afero.NewOsFs(), engines.Registry(), e)
 	require.NoError(t, err)
 	assert.False(t, converted,
 		"a Convert that wrote zero canonical lines must not be reported as \"converted\" — nothing was actually delivered")
-	assert.False(t, hasCanonicalTranscript(harp), "no canonical file should exist when nothing was recorded")
+	assert.False(t, hasCanonicalTranscript(afero.NewOsFs(), harp), "no canonical file should exist when nothing was recorded")
 }

@@ -2,14 +2,18 @@ package turnchange
 
 import (
 	"context"
+	"io/fs"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // assistantTextLine is an assistant message carrying TEXT rather than a tool
@@ -98,7 +102,7 @@ func TestReadTranscript_ReadsTheVendorFormatEndToEnd(t *testing.T) {
 		assistantTextLine("a2", "msg_2", "Next I will merge the branch.", false),
 	)
 
-	evs, err := ReadTranscript(context.Background(), claudereader.Adapter{}, p)
+	evs, err := ReadTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, p)
 	require.NoError(t, err)
 	require.NotEmpty(t, evs, "the vendor transcript must yield events")
 
@@ -111,7 +115,26 @@ func TestReadTranscript_ReadsTheVendorFormatEndToEnd(t *testing.T) {
 //
 // MUTATION — swallow the Convert error and return (c.events, nil) — red.
 func TestReadTranscript_UnreadableFileErrors(t *testing.T) {
-	_, err := ReadTranscript(context.Background(), claudereader.Adapter{}, "/nonexistent/transcript.jsonl")
+	_, err := ReadTranscript(context.Background(), afero.NewOsFs(), claudereader.Adapter{}, "/nonexistent/transcript.jsonl")
 	require.Error(t, err)
 	assert.False(t, strings.Contains(err.Error(), "no error"))
+}
+
+// TestReadTranscript_ReadsThroughTheGivenFs: the transcript exists only in
+// the injected fs, so a read that reached for the disk would fail to open it.
+func TestReadTranscript_ReadsThroughTheGivenFs(t *testing.T) {
+	raw, err := os.ReadFile(writeTranscript(t,
+		promptLine("capture my next step", "u1"),
+		assistantTextLine("a1", "msg_1", "Next I will merge the branch.", false),
+	))
+	require.NoError(t, err)
+	const src = "/turnchange-memfs-only/transcript.jsonl"
+	_, statErr := os.Stat(src)
+	require.ErrorIs(t, statErr, fs.ErrNotExist, "the transcript must be absent from disk")
+	mem := afero.NewMemMapFs()
+	testsupport.WriteFile(t, mem, src, raw, 0o644)
+
+	evs, err := ReadTranscript(context.Background(), mem, claudereader.Adapter{}, src)
+	require.NoError(t, err)
+	assert.Equal(t, "Next I will merge the branch.", LastAssistantText(evs))
 }

@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/instal
 ctxloom init                  # Create .ctxloom directory in current project
 
 # Reference remote content from a local profile, then pull it
-ctxloom profile create developer -b ctxloom-default/core
+ctxloom profile create developer --include ctxloom-default/core
 ctxloom deps pull           # Fetch referenced bundles and update the lockfile
 
 # Search for content

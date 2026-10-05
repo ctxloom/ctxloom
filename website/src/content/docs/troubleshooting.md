@@ -242,7 +242,7 @@ ctxloom bundle list
 **Pull missing bundles:** reference the remote bundle from a local profile, then
 pull so ctxloom fetches it and updates the lockfile:
 ```bash
-ctxloom profile create missing -b remote/missing-bundle
+ctxloom profile create missing --include remote/missing-bundle
 ctxloom deps pull
 ```
 

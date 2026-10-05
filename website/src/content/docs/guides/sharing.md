@@ -184,7 +184,7 @@ Context bundles for [description].
 
 ```bash
 ctxloom remote create mybundles username/my-ctxloom-bundles
-ctxloom profile create dev -b mybundles/go-development
+ctxloom profile create dev --include mybundles/go-development
 ctxloom deps pull
 ctxloom review
 ```
@@ -295,7 +295,7 @@ git push origin v1.0.0
 Users can then pin to specific versions by referencing the tagged ref:
 
 ```bash
-ctxloom profile create dev -b mybundles/go-development@v1.0.0
+ctxloom profile create dev --include mybundles/go-development@v1.0.0
 ctxloom deps pull
 ctxloom review
 ```

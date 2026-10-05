@@ -55,7 +55,7 @@ func TestProjectConfig_ValidConfig(t *testing.T) {
 	// Create .ctxloom directory with valid config
 	require.NoError(t, os.MkdirAll(paths.AppDirName, 0755))
 	validConfig := `
-schema_version: 6
+schema_version: 7
 default_agent: default
 agents:
   default:
@@ -146,7 +146,7 @@ func TestProjectConfig_ComplexValidConfig(t *testing.T) {
 	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(paths.AppDirName), 0755))
 
 	complexConfig := `
-schema_version: 6
+schema_version: 7
 
 config:
   use_distilled: true

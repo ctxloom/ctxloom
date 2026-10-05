@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,14 +54,14 @@ func TestOpenAndReadJSONLLines_Success(t *testing.T) {
 	path := filepath.Join(dir, "fixture.jsonl")
 	require.NoError(t, os.WriteFile(path, []byte("{\"a\":1}\n{\"b\":2}\n"), 0o644))
 
-	lines, err := OpenAndReadJSONLLines("claude-code", path)
+	lines, err := OpenAndReadJSONLLines(afero.NewOsFs(), "claude-code", path)
 	require.NoError(t, err)
 	require.Len(t, lines, 2)
 	assert.Equal(t, `{"a":1}`, string(lines[0]))
 }
 
 func TestOpenAndReadJSONLLines_OpenFailureWrapsVendorPrefix(t *testing.T) {
-	_, err := OpenAndReadJSONLLines("claude", filepath.Join(t.TempDir(), "does-not-exist.jsonl"))
+	_, err := OpenAndReadJSONLLines(afero.NewOsFs(), "claude", filepath.Join(t.TempDir(), "does-not-exist.jsonl"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "claude: open")
 }

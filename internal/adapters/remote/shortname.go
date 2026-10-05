@@ -3,16 +3,19 @@ package remote
 import "strings"
 
 // CanonicalizeShortRef expands a per-remote short bundle reference —
-// "<alias>/<bundle-path>[#<sel>/<item>]" — to its canonical
-// "<url>@bundles/<bundle-path>[#<sel>/<item>]" form, resolving <alias> to a repo
-// URL via aliasToURL against the remotes registry. It is the single widening of
+// "<alias>/<bundle-path>[#<sel>/<item>]" — to its canonical ctxloom URI
+// ("ctxloom+git://<host>/<repo>//bundles/<bundle-path>[#<sel>/<item>]", via
+// CanonicalSpelling), resolving <alias> to a repo URL via aliasToURL against
+// the remotes registry. It is the single widening of
 // the resolver every short-name store site and the agents.*.profiles migration
 // route through, so the grammar lives in exactly one place.
 //
 // Rules (the locked short-name decisions):
 //
-//   - An already scheme-qualified ref — a canonical URL (https://, git@, file://)
-//     or a ctxloom:local ref — is self-contained and returned unchanged.
+//   - An already self-contained ref — a fetch address (https://, git@, file://
+//     "<url>@bundles/<path>"), a ctxloom URI, or a ctxloom:local ref — needs no
+//     registry: it is returned in CanonicalSpelling, which re-spells a fetch
+//     address and leaves every other form as written.
 //   - A BARE name with NO "<alias>/" prefix ("foo", "foo#profiles/x",
 //     "lang/go" only when the first segment names no configured remote) is LOCAL
 //     by decision A/C: returned unchanged for the loader's local resolution. The
@@ -21,7 +24,7 @@ import "strings"
 //   - "<alias>/<bundle-path>[#<sel>/<item>]": local-file-wins (decision E) — when
 //     localExists is non-nil and reports a local file for the base
 //     ("<alias>/<bundle-path>"), the ref is LOCAL and returned unchanged. Otherwise
-//     the alias resolves via aliasToURL; a hit expands to
+//     the alias resolves via aliasToURL; a hit expands to the canonical URI of
 //     "<url>@bundles/<bundle-path>[#<sel>/<item>]" with the selector preserved
 //     VERBATIM (including any trailing "@<version>" pin), and a miss — unknown
 //     alias or a nil resolver — returns the ref unchanged for the downstream
@@ -36,9 +39,9 @@ func CanonicalizeShortRef(ref string, aliasToURL func(alias string) string, loca
 	// returns `ref` verbatim — the resolver would otherwise hand an
 	// un-normalised ref straight to the store it is canonicalizing for.
 	ref = NormalizeRef(ref)
-	// Already self-contained (canonical URL or ctxloom:local) → as-is.
+	// Already self-contained (fetch address, ctxloom URI or ctxloom:local).
 	if _, err := ParseReference(ref); err == nil {
-		return ref
+		return CanonicalSpelling(ref)
 	}
 	base, selector := SplitItemPath(ref)
 	alias, path, ok := strings.Cut(base, "/")
@@ -55,7 +58,7 @@ func CanonicalizeShortRef(ref string, aliasToURL func(alias string) string, loca
 	if url == "" {
 		return ref // unknown alias → leave for the downstream parser/loader
 	}
-	return url + "@" + ItemTypeBundle.DirName() + "/" + path + selector
+	return CanonicalSpelling(url + "@" + ItemTypeBundle.DirName() + "/" + path + selector)
 }
 
 // CanonicalizeProfileShortRef canonicalizes a bundle-profile reference written in

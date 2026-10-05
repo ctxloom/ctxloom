@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,7 +40,7 @@ func tryLockProbe(t *testing.T, path string) (unlock func(), acquired bool) {
 // scenario across both.
 
 // TestRecorder_DefaultPath_HoldsSharedOwnershipLockUntilClose asserts a
-// default-path Recorder (no WithPath override — the shape
+// default-path Recorder (no WithWriter — the shape
 // coord/enginehost constructs for a live structured session) takes the shared ownership
 // lock on ITS OWN canonical path once it actually opens the file (first
 // successful Record, per ensureFile's lazy-open contract), holds it for as
@@ -82,32 +83,32 @@ func TestRecorder_DefaultPath_HoldsSharedOwnershipLockUntilClose(t *testing.T) {
 	unlock()
 }
 
-// TestRecorder_WithPathOverride_TakesNoOwnershipLock asserts the OTHER half
-// of the design: a WithPath-overridden recorder (the segment and
-// rebuild-temp writers operations.convertVendorTranscript constructs) takes
-// NO lock on the path it writes to. Nothing else ever contends for a fresh
-// per-rebuild temp/segment file, so a lock there would cost a syscall for no
-// exclusion anybody needs — and, more importantly, taking one keyed on the
-// TEMP path rather than the canonical DEST path would not even provide the
-// exclusion the design relies on.
+// TestRecorder_WithWriter_TakesNoOwnershipLock asserts the OTHER half of the
+// design: a WithWriter recorder takes NO lock on the canonical transcript. A
+// vendor re-conversion (operations.convertVendorTranscript) fills one while
+// holding that transcript's EXCLUSIVE lock, so a shared lock taken here would
+// block it against its own writer.
 //
-// Mutation kill: locking unconditionally in ensureFile (dropping the
-// `if r.defaultPath` guard) makes the TryLock probe below wrongly fail
-// (acquired=false) while this WithPath recorder is open — red.
-func TestRecorder_WithPathOverride_TakesNoOwnershipLock(t *testing.T) {
+// Mutation kill: taking the lock before ensureFile's writer branch makes the
+// TryLock probe below wrongly fail (acquired=false) while this recorder is
+// open — red.
+func TestRecorder_WithWriter_TakesNoOwnershipLock(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "lock-free-harp"
-	tmpPath := t.TempDir() + "/rebuild.tmp"
+	var sink bytes.Buffer
 
-	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code", WithPath(tmpPath))
+	rec, err := NewRecorder(afero.NewOsFs(), harp, "claude-code", WithWriter(&sink))
 	require.NoError(t, err)
 
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
 		Type: agent.EntryTypeUser, Content: "hello",
 	}}))
+	require.NotZero(t, sink.Len(), "the line went to the writer")
 
-	unlock, acquired := tryLockProbe(t, paths.PathFor(tmpPath))
-	assert.True(t, acquired, "a WithPath-overridden recorder must not hold a lock on the file it writes")
+	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	unlock, acquired := tryLockProbe(t, paths.PathFor(canonPath))
+	assert.True(t, acquired, "a WithWriter recorder must not hold the canonical transcript's ownership lock")
 	unlock()
 
 	require.NoError(t, rec.Close())

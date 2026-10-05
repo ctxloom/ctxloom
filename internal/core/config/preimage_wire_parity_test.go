@@ -171,7 +171,10 @@ func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]b
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 	})
 
-	got := extractHooksFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", bundle, bundletree.Unsigned), mustLocalRef(t, "parity-src"), gate, bundles.LinksUnchecked())
+	// Set on a reader-established read, not written as a tree: the sentinel
+	// fill populates every field, and a tree round-trip would test which of
+	// them the tree format carries rather than whether extraction delivers them.
+	got := extractHooksFromBundle(report.Reporter{}, readWithHooks(t, bundle.Hooks), mustLocalRef(t, "parity-src"), gate, bundles.LinksUnchecked())
 
 	out := map[string][]byte{}
 	for label, hooks := range map[string][]wire.Hook{
@@ -215,7 +218,6 @@ func deliverMCPToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]by
 	m, ok := item.Interface().(bundles.BundleMCP)
 	require.True(t, ok, "subject item is not a bundles.BundleMCP")
 
-	bundle := &bundles.Bundle{MCP: map[string]bundles.BundleMCP{"parity": m}}
 
 	var payload []byte
 	gate := bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
@@ -223,7 +225,11 @@ func deliverMCPToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]by
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 	})
 
-	servers := extractMCPFromBundle(report.Reporter{}, bundletree.ProjectRead(t, "fixture", bundle, bundletree.Unsigned), mustLocalRef(t, "parity-src"), gate)
+	// Set on a reader-established read for the reason deliverHookToWire gives:
+	// the tree format does not carry every field the sentinel fill sets.
+	read := bundletree.ProjectRead(t, "fixture", &bundles.Bundle{}, bundletree.Unsigned)
+	read.Bundle.MCP = map[string]bundles.BundleMCP{"parity": m}
+	servers := extractMCPFromBundle(report.Reporter{}, read, mustLocalRef(t, "parity-src"), gate)
 	srv, ok := servers["parity"]
 	if !ok {
 		t.Fatal("the production path produced no wire MCP server — nothing to compare against")

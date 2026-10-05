@@ -299,9 +299,12 @@ var (
 	// approver that is not the human: nobody could ever approve its plan.
 	// It is always wrapped in ErrPermissionUnhonoured.
 	ErrPlansFirstNeedsHuman = errors.New("launch: a posture that plans first needs the human as its approver")
-	ErrContextEmpty         = errors.New("launch: the named profile set assembled to nothing")
-	ErrNoClaimCheck         = errors.New("launch: the package exceeds the inline ceiling and no claim check is composed")
-	ErrBindingRoots         = errors.New("launch: the binding's root selection does not parse")
+	// ErrPlansFirstNoApprovalRoute is a structured run that plans first
+	// with no session endpoint: its plan's approval has no route to travel.
+	ErrPlansFirstNoApprovalRoute = errors.New("launch: a structured run that plans first needs a session endpoint to carry its plan's approval")
+	ErrContextEmpty              = errors.New("launch: the named profile set assembled to nothing")
+	ErrNoClaimCheck              = errors.New("launch: the package exceeds the inline ceiling and no claim check is composed")
+	ErrBindingRoots              = errors.New("launch: the binding's root selection does not parse")
 )
 
 // Open is the in-process consumer of the carrier — the local launcher's

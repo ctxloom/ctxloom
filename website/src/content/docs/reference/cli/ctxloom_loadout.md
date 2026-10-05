@@ -9,7 +9,7 @@ This page is generated from `ctxloom loadout --help`.
 
 ## ctxloom loadout
 
-Print ctxloom's ctxloom loadout — the content ctxloom contributes to a session
+Print the context, commands, hooks and MCP servers ctxloom contributes to a session
 
 ### Synopsis
 
@@ -47,5 +47,5 @@ ctxloom loadout [flags]
 
 ### SEE ALSO
 
-* [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom](/reference/cli/ctxloom/)	 - Assemble context for your AI coding assistant and launch it
 

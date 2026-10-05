@@ -30,7 +30,7 @@ ctxloom session transcript [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)
-      --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+      --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
@@ -38,7 +38,7 @@ ctxloom session transcript [flags]
 
 ### SEE ALSO
 
-* [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage harp-named sessions
+* [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage your recorded sessions
 * [ctxloom session transcript list](/reference/cli/ctxloom_session_transcript_list/)	 - List which sessions have a captured transcript, and how large each one is
 * [ctxloom session transcript purge](/reference/cli/ctxloom_session_transcript_purge/)	 - Destroy a finished session's recorded conversation, keeping its essence
 * [ctxloom session transcript watch](/reference/cli/ctxloom_session_transcript_watch/)	 - Stream a session's transcript as structured turns (messages, not raw bytes)

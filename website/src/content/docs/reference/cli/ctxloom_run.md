@@ -36,7 +36,7 @@ Verbosity levels (-v can be repeated):
   -vv     Show command arguments
   -vvv    Show debug output
 
-Use --session <harp> to deterministically resume a prior harp-named session:
+Use --session <name> to resume a prior session by the name 'ctxloom session list' shows:
 its full recorded transcript is folded into this run's assembled context.
 Add --distill to resume via the session's distilled essence instead
 (distilling on demand first if one doesn't exist yet).
@@ -64,22 +64,22 @@ ctxloom run [flags] [prompt...]
 ### Options
 
 ```
-      --agent string          Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)
-  -r, --command string        Run a saved command by name
-      --distill               With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)
-  -n, --dry-run               Show command that would be executed
-  -f, --fragment strings      Context fragment(s) to include (can be repeated)
-  -l, --llm string            config label to use (e.g. claude-code, claude-fast); overrides the configured default
-      --no-startup-findings   Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context
-      --one-shot              Run one turn non-interactively, print the response, and exit
-      --permissions string    Permission mode, in the resolved engine's own vocabulary (overrides the agent/label mode)
-      --plain-terminal        Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session
-  -p, --profile string        Profile to use (predefined fragment collection)
-      --prompt string         Prompt to send to the AI (alternative to positional args)
-      --session string        Resume the named harp session: folds its full recorded transcript into this run's assembled context. Combine with --distill to resume via its distilled essence instead.
-  -t, --tag strings           Include fragments with this tag (can be repeated)
-  -v, --verbose count         Increase verbosity (can be repeated: -v, -vv, -vvv)
-      --workspace string      Session workspace axis (none|worktree; empty = project default)
+      --agent string                   Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)
+  -r, --command string                 Run a saved command by name
+      --distill                        With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)
+  -n, --dry-run                        Show command that would be executed
+  -f, --fragment strings               Context fragment(s) to include (can be repeated)
+  -l, --llm string                     config label to use (e.g. claude-code, claude-fast); overrides the configured default
+      --no-startup-findings            Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context
+      --one-shot                       Run one turn non-interactively, print the response, and exit
+      --permissions string             Permission mode, in the resolved engine's own vocabulary (overrides the agent/label mode)
+      --plain-terminal                 Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session
+  -p, --profile string                 Profile to use (predefined fragment collection)
+      --prompt string                  Prompt to send to the AI (alternative to positional args)
+      --session ctxloom session list   Resume the named session (see ctxloom session list): folds its full recorded transcript into this run's assembled context. Combine with --distill to resume via its distilled essence instead.
+  -t, --tag strings                    Include fragments with this tag (can be repeated)
+  -v, --verbose count                  Increase verbosity (can be repeated: -v, -vv, -vvv)
+      --workspace string               Session workspace axis (none|worktree; empty = project default)
 ```
 
 ### Options inherited from parent commands
@@ -88,7 +88,7 @@ ctxloom run [flags] [prompt...]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)
-      --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+      --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
@@ -96,5 +96,5 @@ ctxloom run [flags] [prompt...]
 
 ### SEE ALSO
 
-* [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom](/reference/cli/ctxloom/)	 - Assemble context for your AI coding assistant and launch it
 

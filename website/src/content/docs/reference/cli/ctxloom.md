@@ -9,40 +9,38 @@ This page is generated from `ctxloom --help`.
 
 ## ctxloom
 
-Sophisticated Context Management
+Assemble context for your AI coding assistant and launch it
 
 ### Synopsis
 
-ctxloom manages context for AI coding assistants.
+ctxloom assembles context for your AI coding assistant — coding standards,
+saved prompts, tools — from bundles you choose, and launches the assistant
+with it.
 
-QUICK START
-  ctxloom run -p developer "explain this code"    Run with a profile
-  ctxloom fragment edit core#fragments/coding     Edit a fragment
+GET STARTED
+  ctxloom init                     Set up this project (once per project)
+  ctxloom doctor                   Check the setup; each problem names its fix
+  ctxloom run -n                   Show what a launch would carry, without launching
+  ctxloom run                      Launch your assistant with the default agent
 
-CONTENT COMMANDS
-  fragment      Manage fragments (list, show, create, remove, edit, search)
-  command       Manage commands (list, show, create, remove, edit)
-  profile       Manage profiles (list, show, create, remove, edit)
-
-INFRASTRUCTURE
-  manage        Install/manage ctxloom's project harness (init, hooks, mcp, config)
-  remote        Manage remotes (create, remove, list, default, pull, update, upgrade)
-  mcp           Run ctxloom as an MCP server
-
-WORKFLOW
-  run           Assemble context and run AI
+FIND AND ADD CONTENT
+  ctxloom search <query>           Search installed and remote content
+  ctxloom profile list             The profiles you can launch with 'run -p <ref>'
+  ctxloom deps pull                Install what the project's profiles name
+  ctxloom review                   Accept or reject content waiting for review
 
 KEY CONCEPTS
-  Fragments   Reusable context snippets (coding standards, patterns, etc.)
-  Commands    Saved prompt templates, exported as slash commands
-  Profiles    Named configurations combining bundles and variables
-  Bundles     YAML files containing fragments/commands (internal format)
-  Remotes     Git repositories for sharing content (GitHub or generic git)
+  Fragment   A reusable piece of context: a coding standard, a pattern
+  Command    A saved prompt, exported to the assistant as a slash command
+  Profile    A named set of fragments and settings to launch with
+  Bundle     A package of fragments, commands and profiles
+  Remote     A git repository that publishes bundles
+  Agent      An engine bound to profiles; a bare 'ctxloom run' uses the default
 
 REFERENCE SYNTAX
-  bundle#fragments/name           Specific fragment from bundle
-  bundle#commands/name            Specific command from bundle
-  remote/bundle                   Bundle from a remote repository
+  <remote>/<bundle>                A bundle a remote publishes
+  <bundle>#fragments/<name>        One fragment of a bundle
+  <bundle>#profiles/<name>         One profile of a bundle
 
 Run 'ctxloom <command> --help' for details on any command.
 
@@ -52,7 +50,7 @@ Run 'ctxloom <command> --help' for details on any command.
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)
-      --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+      --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
@@ -60,7 +58,7 @@ Run 'ctxloom <command> --help' for details on any command.
 
 ### SEE ALSO
 
-* [ctxloom agent](/reference/cli/ctxloom_agent/)	 - Inspect local agents (engine↔profile bindings)
+* [ctxloom agent](/reference/cli/ctxloom_agent/)	 - Create, inspect and change local agents (engine↔profile bindings)
 * [ctxloom auth](/reference/cli/ctxloom_auth/)	 - Show how engines authenticate and whether each credential is exported
 * [ctxloom bundle](/reference/cli/ctxloom_bundle/)	 - Manage ctxloom bundles
 * [ctxloom clean](/reference/cli/ctxloom_clean/)	 - Remove this project's regenerable cache, keeping everything a clone cannot restore
@@ -73,7 +71,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom fragment](/reference/cli/ctxloom_fragment/)	 - Manage context fragments
 * [ctxloom init](/reference/cli/ctxloom_init/)	 - Initialize a new .ctxloom directory
 * [ctxloom llm](/reference/cli/ctxloom_llm/)	 - Manage LLM backends
-* [ctxloom loadout](/reference/cli/ctxloom_loadout/)	 - Print ctxloom's ctxloom loadout — the content ctxloom contributes to a session
+* [ctxloom loadout](/reference/cli/ctxloom_loadout/)	 - Print the context, commands, hooks and MCP servers ctxloom contributes to a session
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
 * [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List the MCP servers this project registers
 * [ctxloom profile](/reference/cli/ctxloom_profile/)	 - Manage profiles (named fragment collections)
@@ -81,7 +79,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom review](/reference/cli/ctxloom_review/)	 - Review pending items: trust or reject what the agent may see
 * [ctxloom run](/reference/cli/ctxloom_run/)	 - Assemble context and run AI
 * [ctxloom search](/reference/cli/ctxloom_search/)	 - Search content across local and remote sources
-* [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage harp-named sessions
+* [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage your recorded sessions
 * [ctxloom signer](/reference/cli/ctxloom_signer/)	 - Manage who ctxloom trusts to sign content
 * [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage Agent Skills (SKILL.md packages)
 * [ctxloom version](/reference/cli/ctxloom_version/)	 - Print the version number

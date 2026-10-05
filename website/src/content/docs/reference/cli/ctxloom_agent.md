@@ -9,11 +9,11 @@ This page is generated from `ctxloom agent --help`.
 
 ## ctxloom agent
 
-Inspect local agents (engine↔profile bindings)
+Create, inspect and change local agents (engine↔profile bindings)
 
 ### Synopsis
 
-Inspect agents — named, LOCAL-ONLY bindings of an LLM engine to one or
+Create, inspect and change agents — named, LOCAL-ONLY bindings of an LLM engine to one or
 more composed profiles.
 
 An agent names an 'engine' (the LLM config label/backend, which overrides the
@@ -32,7 +32,7 @@ ctxloom agent [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)
-      --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+      --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
@@ -40,7 +40,7 @@ ctxloom agent [flags]
 
 ### SEE ALSO
 
-* [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom](/reference/cli/ctxloom/)	 - Assemble context for your AI coding assistant and launch it
 * [ctxloom agent create](/reference/cli/ctxloom_agent_create/)	 - Create a local agent (engine↔profile binding)
 * [ctxloom agent default](/reference/cli/ctxloom_agent_default/)	 - Show or set the always-bound default agent
 * [ctxloom agent edit](/reference/cli/ctxloom_agent_edit/)	 - Edit an existing local agent (engine↔profile binding)

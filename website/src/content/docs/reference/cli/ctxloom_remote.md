@@ -16,8 +16,9 @@ Register and browse the sources content comes from
 Register the Git repositories (GitHub or generic git) this project draws shared
 bundles from, and browse what they publish.
 
-A remote is an ADDRESS. Registering one is local bookkeeping over
-.ctxloom/remotes.yaml — no fetch, no credential, nothing installed.
+A remote is an ADDRESS. Registering one records it in .ctxloom/remotes.yaml
+and clones it into the cache, so a wrong URL or missing access shows up now
+rather than on first use. Nothing is installed and nothing is trusted.
 
 Registry:
   ctxloom remote list                    List configured remotes
@@ -52,7 +53,7 @@ ctxloom remote [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)
-      --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+      --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
@@ -60,7 +61,7 @@ ctxloom remote [flags]
 
 ### SEE ALSO
 
-* [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom](/reference/cli/ctxloom/)	 - Assemble context for your AI coding assistant and launch it
 * [ctxloom remote create](/reference/cli/ctxloom_remote_create/)	 - Register a remote source
 * [ctxloom remote default](/reference/cli/ctxloom_remote_default/)	 - Set the default remote
 * [ctxloom remote discover](/reference/cli/ctxloom_remote_discover/)	 - Search GitHub for ctxloom repositories

@@ -9,7 +9,7 @@ This page is generated from `ltk loadout --help`.
 
 ## ltk loadout
 
-Print ltk's ctxloom loadout — the content ltk contributes to a session
+Print the context, commands, hooks and MCP servers ltk contributes to a session
 
 ### Synopsis
 

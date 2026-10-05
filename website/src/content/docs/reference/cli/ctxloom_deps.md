@@ -41,7 +41,7 @@ ctxloom deps [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)
-      --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+      --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
@@ -49,7 +49,7 @@ ctxloom deps [flags]
 
 ### SEE ALSO
 
-* [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom](/reference/cli/ctxloom/)	 - Assemble context for your AI coding assistant and launch it
 * [ctxloom deps check](/reference/cli/ctxloom_deps_check/)	 - Report which dependencies have a newer commit available
 * [ctxloom deps hold](/reference/cli/ctxloom_deps_hold/)	 - Freeze a dependency at its locked commit so `upgrade` cannot advance it
 * [ctxloom deps list](/reference/cli/ctxloom_deps_list/)	 - List the installed dependency closure

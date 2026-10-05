@@ -9,7 +9,7 @@ This page is generated from `ctxloom session --help`.
 
 ## ctxloom session
 
-Browse and manage harp-named sessions
+Browse and manage your recorded sessions
 
 ### Synopsis
 
@@ -28,7 +28,7 @@ ctxloom session [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --disable-sig-check        disable bundle signature verification for this invocation: remote content that is unsigned or signed by an untrusted key is admitted without review (rejections and retractions still hold; nothing ctxloom starts inherits it; signing is unaffected)
-      --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+      --format string            Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)
   -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
       --write-upgrades           Persist in-memory upgrades of older-format files (a config's old file is kept as <file>.bak; version-controlled project content keeps none, git holds it)
@@ -36,13 +36,13 @@ ctxloom session [flags]
 
 ### SEE ALSO
 
-* [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom](/reference/cli/ctxloom/)	 - Assemble context for your AI coding assistant and launch it
 * [ctxloom session adopt](/reference/cli/ctxloom_session_adopt/)	 - Re-index orphaned vendor transcripts into a harp's rotation lineage
 * [ctxloom session approvals](/reference/cli/ctxloom_session_approvals/)	 - List approvals waiting for the human, from any terminal (read-only)
 * [ctxloom session artifacts](/reference/cli/ctxloom_session_artifacts/)	 - What a session produced — its distilled essence: list it, destroy it
 * [ctxloom session distill](/reference/cli/ctxloom_session_distill/)	 - Distill a session by harp name. Distillation is on-demand: nothing distills a session automatically when it ends.
 * [ctxloom session edit](/reference/cli/ctxloom_session_edit/)	 - Assign a recorded session's fields (today: --name, which renames the harp)
-* [ctxloom session list](/reference/cli/ctxloom_session_list/)	 - List harp-named sessions (default: current project; --all for everything)
+* [ctxloom session list](/reference/cli/ctxloom_session_list/)	 - List recorded sessions (default: current project; --all for everything)
 * [ctxloom session purge](/reference/cli/ctxloom_session_purge/)	 - Empty a finished session: its transcript, its artifacts and its scratch worktrees
 * [ctxloom session remove](/reference/cli/ctxloom_session_remove/)	 - Remove a session entirely: its index entry, its transcript and its essence
 * [ctxloom session search](/reference/cli/ctxloom_session_search/)	 - Search sessions by harp, summary, and distilled essence content (default: current project; --all for everything)

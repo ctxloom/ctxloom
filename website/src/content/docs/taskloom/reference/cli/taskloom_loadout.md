@@ -9,7 +9,7 @@ This page is generated from `taskloom loadout --help`.
 
 ## taskloom loadout
 
-Print taskloom's ctxloom loadout — the content taskloom contributes to a session
+Print the context, commands, hooks and MCP servers taskloom contributes to a session
 
 ### Synopsis
 

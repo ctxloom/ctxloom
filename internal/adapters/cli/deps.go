@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // `deps` is the LOCAL CLOSURE: what this project has installed, at which
@@ -201,7 +200,7 @@ func renderDepsList(out io.Writer, listing *depsListing) error {
 	fmt.Fprintln(out, "Installed dependencies:")
 	for _, d := range listing.Deps {
 		fmt.Fprintf(out, "  %-20s %-10s %s%s\n",
-			termsafe.Field(d.Name), gitutil.ShortSHA(d.SHA), termsafe.Field(depOrigin(d)), depMarks(d))
+			inertField(d.Name), gitutil.ShortSHA(d.SHA), inertField(depOrigin(d)), depMarks(d))
 	}
 	return nil
 }
@@ -225,7 +224,7 @@ func depOrigin(d installedDep) string {
 func depMarks(d installedDep) string {
 	marks := ""
 	if d.Constraint != "" {
-		marks += "  (" + termsafe.Field(d.Constraint) + ")"
+		marks += "  (" + inertField(d.Constraint) + ")"
 	}
 	if d.Held {
 		marks += "  [held]"

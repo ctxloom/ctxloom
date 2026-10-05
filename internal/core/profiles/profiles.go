@@ -262,8 +262,8 @@ type Loader struct {
 	// checks.
 	localBundleExists func(name string) bool
 	// seeded holds every profile this loader resolves, indexed by canonical
-	// "<bundle>#profiles/<name>" ref — the profile-side mirror of
-	// bundles.WithSeededBundles.
+	// "<bundle>#profiles/<name>" ref. WithSeededProfiles fills it and Save
+	// adds to it; nothing else is read.
 	seeded map[string]*Profile
 
 	// rep receives what a load reports about one profile without failing the

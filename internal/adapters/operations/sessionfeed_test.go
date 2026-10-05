@@ -66,6 +66,10 @@ type fakeConsumerServer struct {
 	runs  []*agentcoordpb.ListRunsResult_RunInfo
 	subs  map[chan *agentcoordpb.AgentEvent]struct{}
 	stats *agentcoordpb.SpoolStatsResult // nil answers all-zero, like a fresh coordinator
+	// approvals answers PendingApprovals (nil: an empty queue) unless
+	// approvalsErr is set, which answers instead.
+	approvals    *agentcoordpb.PendingApprovalsResult
+	approvalsErr error
 }
 
 func newFakeConsumerServer() *fakeConsumerServer {
@@ -91,6 +95,18 @@ func (f *fakeConsumerServer) SpoolStats(context.Context, *agentcoordpb.SpoolStat
 		return &agentcoordpb.SpoolStatsResult{}, nil
 	}
 	return f.stats, nil
+}
+
+func (f *fakeConsumerServer) PendingApprovals(context.Context, *agentcoordpb.PendingApprovalsRequest) (*agentcoordpb.PendingApprovalsResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.approvalsErr != nil {
+		return nil, f.approvalsErr
+	}
+	if f.approvals == nil {
+		return &agentcoordpb.PendingApprovalsResult{}, nil
+	}
+	return f.approvals, nil
 }
 
 func (f *fakeConsumerServer) WatchRuns(_ *agentcoordpb.WatchRunsRequest, stream grpc.ServerStreamingServer[agentcoordpb.WatchEvent]) error {
@@ -170,10 +186,14 @@ func startFakeCoordinator(t *testing.T, home, projectKey string, f *fakeConsumer
 	port := ln.Addr().(*net.TCPAddr).Port
 	dir := filepath.Join(home, ".ctxloom", "coord", projectKey, "root-harp")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
-	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q}`, port, fakeConsumerCred)
+	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":%q,"project_dir":%q}`, port, fakeConsumerCred, fakeProjectDir(projectKey))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte(body), 0o600))
 	holdRootLock(t, dir)
 }
+
+// fakeProjectDir is the project path startFakeCoordinator records for
+// projectKey's coordinator.
+func fakeProjectDir(projectKey string) string { return "/work/" + projectKey }
 
 // fakeConsumerCred is the consumer credential every startFakeCoordinator
 // endpoint.json advertises and its interceptor demands back.

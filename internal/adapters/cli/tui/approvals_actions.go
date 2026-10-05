@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/displaysafe"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
@@ -27,7 +28,7 @@ func (a approvalsModel) actions() []apprAction {
 	}
 	acts = append(acts, toolActions...)
 	return append(acts,
-		apprAction{label: "Deny all from " + sanitizeForDisplay(row.p.From.Harp) + "…", run: openDenyAll},
+		apprAction{label: "Deny all from " + displaysafe.Text(row.p.From.Harp, true) + "…", run: openDenyAll},
 		apprAction{label: "Grants…", run: func(a approvalsModel, p coord.PendingApproval) (approvalsModel, tea.Cmd) {
 			a.sub = openGrants(a.src, p.From.Harp)
 			return a, nil
@@ -45,7 +46,7 @@ var toolActions = []apprAction{
 
 func allowOnce(a approvalsModel, p coord.PendingApproval) (approvalsModel, tea.Cmd) {
 	a.focus, a.latch = 0, ""
-	return a, answerCmd(a.src, "allowed "+sanitizeForDisplay(p.Ask.Tool)+" once for "+sanitizeForDisplay(p.From.Harp), []coord.ApprovalID{p.ID}, coord.ApprovalDecision{Allow: true})
+	return a, answerCmd(a.src, "allowed "+displaysafe.Text(p.Ask.Tool, true)+" once for "+displaysafe.Text(p.From.Harp, true), []coord.ApprovalID{p.ID}, coord.ApprovalDecision{Allow: true})
 }
 
 func opener(kind subKind) func(approvalsModel, coord.PendingApproval) (approvalsModel, tea.Cmd) {
@@ -181,7 +182,7 @@ func confirmScope(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
 	what := "allowed for the session"
 	if o.rule != "" {
 		d.SessionRules = []string{o.rule}
-		what = "granted " + sanitizeForDisplay(o.rule) + " to " + sanitizeForDisplay(s.harp) + " for this run"
+		what = "granted " + displaysafe.Text(o.rule, true) + " to " + displaysafe.Text(s.harp, true) + " for this run"
 	} else {
 		d.SetMode = o.mode
 	}
@@ -190,7 +191,7 @@ func confirmScope(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
 
 func confirmDeny(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
 	d := coord.ApprovalDecision{Message: strings.TrimSpace(s.text)}
-	return a.decided(), answerCmd(a.src, "denied "+sanitizeForDisplay(s.harp)+"'s request", []coord.ApprovalID{s.target}, d)
+	return a.decided(), answerCmd(a.src, "denied "+displaysafe.Text(s.harp, true)+"'s request", []coord.ApprovalID{s.target}, d)
 }
 
 // denyAllMessage is what each denied request tells its model.
@@ -198,7 +199,7 @@ const denyAllMessage = "denied: the human denied every pending request from this
 
 func confirmDenyAll(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
 	d := coord.ApprovalDecision{Message: denyAllMessage}
-	return a.decided(), answerCmd(a.src, "denied every pending request from "+sanitizeForDisplay(s.harp), s.ids, d)
+	return a.decided(), answerCmd(a.src, "denied every pending request from "+displaysafe.Text(s.harp, true), s.ids, d)
 }
 
 func confirmRevoke(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {

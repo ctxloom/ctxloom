@@ -1,4 +1,4 @@
-package tui
+package displaysafe
 
 import (
 	"testing"
@@ -8,13 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestSanitizeForDisplay_Goldens is T14: every character a child could use to
-// repaint the modal or hide part of what it asks for — ESC and the sequences
+// TestText_Goldens is T14: every character a child could use to
+// repaint the approval modal or hide part of what it asks for — ESC and the sequences
 // it opens (CSI, OSC, DCS), the other C0 controls, DEL, C1, bidi overrides,
 // zero-width and tag characters, invalid UTF-8 — comes out as a visible
 // marker, never as the character itself. Text a human should read unchanged
 // stays unchanged.
-func TestSanitizeForDisplay_Goldens(t *testing.T) {
+func TestText_Goldens(t *testing.T) {
 	for _, tc := range []struct{ name, in, want string }{
 		{"plain text is untouched", "rm -rf build/ && make test", "rm -rf build/ && make test"},
 		{"a newline is a line break, kept", "a\nb", "a\nb"},
@@ -43,25 +43,19 @@ func TestSanitizeForDisplay_Goldens(t *testing.T) {
 		{"wide and accented text is untouched", "日本語 café", "日本語 café"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, sanitizeForDisplay(tc.in))
+			assert.Equal(t, tc.want, Text(tc.in, true))
 		})
 	}
 }
 
-// TestSanitizeForDisplay_NothingLiveSurvives is the property the goldens
-// sample: for every rune from U+0000 to U+FFFF plus the tag block, the output
-// holds no C0 but the newline, no DEL, no C1 and no format character.
-func TestSanitizeForDisplay_NothingLiveSurvives(t *testing.T) {
+// TestText_NothingLiveSurvives is the property the goldens sample: for every
+// rune from U+0000 to U+FFFF plus the tag block, the output holds no C0 (but
+// the newline, and only where line breaks are kept), no DEL, no C1 and no
+// format character.
+func TestText_NothingLiveSurvives(t *testing.T) {
 	check := func(r rune) {
-		out := sanitizeForDisplay("x" + string(r) + "y")
-		for _, o := range out {
-			if o == '\n' {
-				continue
-			}
-			// Judged by category here, independently of the implementation.
-			if unicode.IsControl(o) || unicode.In(o, unicode.Cf, unicode.Zl, unicode.Zp) {
-				t.Fatalf("U+%04X survived sanitizing as U+%04X in %q", r, o, out)
-			}
+		for _, multiline := range []bool{true, false} {
+			checkLive(t, r, multiline)
 		}
 	}
 	for r := rune(0); r <= 0xFFFF; r++ {
@@ -72,5 +66,37 @@ func TestSanitizeForDisplay_NothingLiveSurvives(t *testing.T) {
 	}
 	for r := rune(0xE0000); r <= 0xE007F; r++ {
 		check(r)
+	}
+}
+
+func checkLive(t *testing.T, r rune, multiline bool) {
+	t.Helper()
+	out := Text("x"+string(r)+"y", multiline)
+	for _, o := range out {
+		if o == '\n' && multiline {
+			continue
+		}
+		// Judged by category here, independently of the implementation.
+		if unicode.IsControl(o) || unicode.In(o, unicode.Cf, unicode.Zl, unicode.Zp) {
+			t.Fatalf("U+%04X survived (multiline=%v) as U+%04X in %q", r, multiline, o, out)
+		}
+	}
+}
+
+// TestText_OneLine: without line breaks the text cannot leave its line — a
+// newline or CRLF is a marker like any other control — and everything else
+// renders as it does on the modal.
+func TestText_OneLine(t *testing.T) {
+	for _, tc := range []struct{ name, in, want string }{
+		{"a newline is a marker", "a\nb", "a⟨U+000A⟩b"},
+		{"CRLF is two markers", "a\r\nb", "a⟨U+000D⟩⟨U+000A⟩b"},
+		{"a tab expands to spaces", "a\tb", "a    b"},
+		{"ESC", "a\x1bb", "a⟨ESC⟩b"},
+		{"bidi override", "ls \u202egnp.exe", "ls ⟨U+202E⟩gnp.exe"},
+		{"plain text is untouched", "make test", "make test"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, Text(tc.in, false))
+		})
 	}
 }

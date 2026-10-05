@@ -21,7 +21,7 @@ package cli
 // more widely than it is honored". It is the machine-readable
 // list of commands currently allowed to register/inherit the persistent
 // --format flag and silently discard it (their RunE never reaches
-// emit()/cliemit.Emit). TestFormatCoverage_DebtAllowlistTracksRegistry below
+// emit()/cliemit.Emit). TestFormatCoverage_DebtAllowlistTracksRegistry
 // requires every formatCoverageRegistry entry marked formatDebt: true to have
 // exactly one matching key here, and vice versa — so a new broken command (or
 // a stale allowlist entry left behind after a fix) fails the build instead of
@@ -44,18 +44,6 @@ var formatDebtAllowlist = map[string]string{
 	// payload, so all five encodings carry the real configuration.
 	"config edit":   "config.go: runConfigEdit must route through emit() (or be reclassified as structurally exempt: it only launches $EDITOR, no renderable result)",
 	"config create": "config.go: runConfigCreate must route through emit() instead of a bare fmt.Fprintf",
-
-	// --- remote surface (remote.go, remote_browse.go, remote_discover.go, remote_update.go, remote_upgrade.go) ---
-	// `remote remove` (runRemoteRemove) was paid down alongside the report/
-	// --yes safety-posture rewrite: both its report and --yes branches now
-	// route through emit().
-	"remote create":   "remote.go: remoteCreateCmd's inline RunE must route through emit() instead of fmt.Printf",
-	"remote default":  "remote.go: runRemoteDefault must route through emit() instead of fmt.Println/fmt.Printf",
-	"deps pull":       "deps_pull.go: runDepsPull's RunE + renderPullSummary must route through emit()",
-	"remote show":     "remote_browse.go: runRemoteBrowse must route through emit()",
-	"remote discover": "remote_discover.go: the inline RunE (interactive add flow) must route through emit()",
-	"deps check":      "deps_check.go: runDepsCheck must route through emit()",
-	"deps upgrade":    "deps_upgrade.go: runDepsUpgrade must route through emit()",
 
 	// --- bundle destructive/fixture-gated surface (bundle_edit.go, bundle_hold_cli.go, bundle_items.go) ---
 	// `bundle remove` (runBundleRemove) was paid down alongside the report/

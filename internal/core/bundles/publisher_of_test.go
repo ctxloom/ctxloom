@@ -12,7 +12,7 @@ import (
 // edited and did not re-sign.
 func TestPublisherOf_NamesAnInvalidRemoteSignatureTampered(t *testing.T) {
 	read := func(ctx TrustCtx) BundleRead {
-		return NewRead("tools", &Bundle{Name: "tools"}, ProvenanceRemote, ctx,
+		return newRead("tools", &Bundle{Name: "tools"}, ProvenanceRemote, ctx,
 			SignatureFacts{Signature: SignatureInvalid, Signer: SignerTrusted})
 	}
 	assert.Equal(t, ReasonTampered, PublisherOf(read(TrustCtxRemote)))
@@ -24,7 +24,7 @@ func TestPublisherOf_NamesAnInvalidRemoteSignatureTampered(t *testing.T) {
 // they were edited — sorted, so doctor and the dry run print a stable list.
 func TestEditedSignedTrees_NamesOnlyRemoteInvalidReads(t *testing.T) {
 	read := func(ref string, ctx TrustCtx, sig Signature) BundleRead {
-		return NewRead(ref, &Bundle{Name: ref}, ProvenanceRemote, ctx, SignatureFacts{Signature: sig, Signer: SignerTrusted})
+		return newRead(ref, &Bundle{Name: ref}, ProvenanceRemote, ctx, SignatureFacts{Signature: sig, Signer: SignerTrusted})
 	}
 	reads := []BundleRead{
 		read("mid", TrustCtxRemote, SignatureInvalid),

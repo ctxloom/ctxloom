@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // Interactive trust review/marking surface (trust rework, TR4). The `show -i`
@@ -195,13 +194,13 @@ func printBundleItemTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 	res := stamper.ForRef(ref)
 	// name is bundle-authored and reaches this print RAW; ForRef normalizes
 	// its own copy for the trust decision (via trust.Ref.Key), but never
-	// hands the cleaned string back. termsafe.Field (not NormalizeRef) so a
+	// hands the cleaned string back. inertField (not NormalizeRef) so a
 	// malicious name cannot repaint this terminal line without a second,
 	// redundant warning on top of the one ForRef's ingest already emitted for
 	// the same bytes -- and it ESCAPES rather than deletes, so the reviewer
 	// sees that the publisher put a control byte here instead of being shown
 	// a name that silently lost one.
-	fmt.Fprintf(w, "  %s: %s\n", trust.FormatSelector(kind, termsafe.Field(name)), stampedTrust(res))
+	fmt.Fprintf(w, "  %s: %s\n", trust.FormatSelector(kind, inertField(name)), stampedTrust(res))
 }
 
 // printBundleHookTrust stamps one bundle hook by its (bundle, entry) identity and
@@ -214,5 +213,5 @@ func printBundleHookTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 	// entry.ID() is bundle-authored ("<event>/<index>", but the event name
 	// comes straight from the bundle's hooks config) — same rationale as
 	// printBundleItemTrust above.
-	fmt.Fprintf(w, "  hooks/%s: %s\n", termsafe.Field(entry.ID()), stampedTrust(res))
+	fmt.Fprintf(w, "  hooks/%s: %s\n", inertField(entry.ID()), stampedTrust(res))
 }

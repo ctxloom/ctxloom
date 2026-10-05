@@ -74,7 +74,7 @@ func TestEffectiveTrust_CorruptLockfile_WithholdsRemoteContent(t *testing.T) {
 	cfg := testConfigWithSCMPath(baseDir)
 
 	mark := strictness.Checkpoint()
-	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, cfg, EffectiveTrustRequest{
 		Ref:        retractionTestRef(),
 		Posture:    postureCtxOf(retractionTestRef()),
 		Provenance: postureProvOf(retractionTestRef()),
@@ -113,7 +113,7 @@ func TestEffectiveTrust_AbsentLockfile_NormalDecision(t *testing.T) {
 	mark := strictness.Checkpoint()
 
 	// A signed remote item resolves its ordinary ALLOW.
-	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, cfg, EffectiveTrustRequest{
 		Ref:        retractionTestRef(),
 		Posture:    postureCtxOf(retractionTestRef()),
 		Provenance: postureProvOf(retractionTestRef()),
@@ -128,7 +128,7 @@ func TestEffectiveTrust_AbsentLockfile_NormalDecision(t *testing.T) {
 
 	// An unsigned remote item resolves the everyday "awaiting review" pending,
 	// not a fail-closed deny.
-	res2, err2 := EffectiveTrust(cfg, EffectiveTrustRequest{
+	res2, err2 := EffectiveTrust(t, cfg, EffectiveTrustRequest{
 		Ref:        trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "never-reviewed"},
 		Posture:    postureCtxOf(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "never-reviewed"}),
 		Provenance: postureProvOf(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "never-reviewed"}),
@@ -169,7 +169,7 @@ func TestEffectiveTrust_ValidLockfile_RetractionBehaviorUnchanged(t *testing.T) 
 
 	// The retracted bundle: denied, with the publisher's reason, beating an
 	// otherwise-winning trusted signature.
-	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, cfg, EffectiveTrustRequest{
 		Ref:        retractionTestRef(),
 		Posture:    postureCtxOf(retractionTestRef()),
 		Provenance: postureProvOf(retractionTestRef()),
@@ -184,7 +184,7 @@ func TestEffectiveTrust_ValidLockfile_RetractionBehaviorUnchanged(t *testing.T) 
 	assert.Equal(t, "leaked a credential", res.Detail, "the publisher's stated reason still rides through as display-only Detail")
 
 	// A sibling bundle with no retraction recorded is unaffected.
-	res2, err2 := EffectiveTrust(cfg, EffectiveTrustRequest{
+	res2, err2 := EffectiveTrust(t, cfg, EffectiveTrustRequest{
 		Ref:        trust.Ref{RepoURL: trustRepo, Bundle: "fine", Kind: trust.KindFragment, Name: "helper"},
 		Posture:    postureCtxOf(trust.Ref{RepoURL: trustRepo, Bundle: "fine", Kind: trust.KindFragment, Name: "helper"}),
 		Provenance: postureProvOf(trust.Ref{RepoURL: trustRepo, Bundle: "fine", Kind: trust.KindFragment, Name: "helper"}),
@@ -217,7 +217,7 @@ func TestEffectiveTrust_CorruptLockfile_LocalAndBuiltinStillAllowed(t *testing.T
 	writeLockYAML(t, baseDir, corruptLockYAML)
 	cfg := testConfigWithSCMPath(baseDir)
 
-	local, err := EffectiveTrust(cfg, EffectiveTrustRequest{
+	local, err := EffectiveTrust(t, cfg, EffectiveTrustRequest{
 		Ref:        trust.Ref{Bundle: "dev", Kind: trust.KindFragment, Name: "notes", IsLocal: true},
 		Posture:    postureCtxOf(trust.Ref{Bundle: "dev", Kind: trust.KindFragment, Name: "notes", IsLocal: true}),
 		Provenance: postureProvOf(trust.Ref{Bundle: "dev", Kind: trust.KindFragment, Name: "notes", IsLocal: true}),
@@ -246,7 +246,7 @@ func TestEffectiveTrust_CorruptLockfile_RejectionStillOutranks(t *testing.T) {
 	cfg := testConfigWithSCMPath(baseDir)
 
 	ref := retractionTestRef()
-	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, cfg, EffectiveTrustRequest{
 		Ref:        ref,
 		Posture:    postureCtxOf(ref),
 		Provenance: postureProvOf(ref),
@@ -276,7 +276,7 @@ func TestEffectiveTrust_CorruptLockfile_FindingNamesTheRecovery(t *testing.T) {
 	cfg := testConfigWithSCMPath(baseDir)
 
 	mark := strictness.Checkpoint()
-	_, err := EffectiveTrust(cfg, EffectiveTrustRequest{
+	_, err := EffectiveTrust(t, cfg, EffectiveTrustRequest{
 		Ref: retractionTestRef(), Payload: pbytes("x"), Form: rawForm, Signer: "publisher@example.com", FS: fs,
 		Posture: postureCtxOf(retractionTestRef()), Provenance: postureProvOf(retractionTestRef()),
 	})
@@ -340,7 +340,7 @@ func TestEffectiveTrust_CorruptLockfile_DegradedModeWarnsAndContinues(t *testing
 	cfg := testConfigWithSCMPath(baseDir)
 
 	mark := strictness.Checkpoint()
-	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, cfg, EffectiveTrustRequest{
 		Ref: retractionTestRef(), Payload: pbytes("x"), Form: rawForm, Signer: "publisher@example.com", FS: fs,
 		Posture: postureCtxOf(retractionTestRef()), Provenance: postureProvOf(retractionTestRef()),
 	})

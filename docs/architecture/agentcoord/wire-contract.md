@@ -78,7 +78,6 @@ field decodes to. This table is the security-relevant audit.
 
 | Enum | Zero value | Polarity | Evidence |
 | --- | --- | --- | --- |
-| `ApprovalRequest.ApprovalKind` | `APPROVAL_KIND_UNSPECIFIED` | **fails closed** | `coordgrpc.ApprovalRequestFromWire` refuses it at decode |
 | `Summary.Scope` | `SCOPE_UNSPECIFIED` | **fails closed** | `runner/interaction/server.go` hard-rejects |
 | `Result.RunStatus` | `RUN_STATUS_UNSPECIFIED` | **fails open** | every consumer tests `== RUN_STATUS_FAILED`, so `run_owned.go` exits 0 for UNSPECIFIED, CANCELLED and TIMED_OUT; `children.go` records no failure reason |
 | `MessageChannel` | `MESSAGE_CHANNEL_UNSPECIFIED` | **read two opposite ways** | `children.go` treats unset as *not* final (dropped from the turn accumulator); `operations/sessionfeed.go` renders it as user-facing assistant output |

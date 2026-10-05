@@ -222,6 +222,18 @@ const (
 	CauseFinalReported = "final-reported"
 )
 
+// CauseIsFailure reports whether a run that ended with cause did not finish:
+// it never came up, its runner was lost, its turn was forced down, or it was
+// stopped. Every other cause is a clean end.
+func CauseIsFailure(cause string) bool {
+	switch cause {
+	case CauseLaunchFailed, CauseRunnerLoss, CauseDrainInterrupted, CauseStopped:
+		return true
+	default:
+		return false
+	}
+}
+
 // runEnqueued is factRunEnqueued's payload.
 type runEnqueued struct {
 	RunID      string `json:"run_id"`

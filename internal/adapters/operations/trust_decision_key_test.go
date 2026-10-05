@@ -89,7 +89,7 @@ func TestSetItemTrust_RefusesAKeyUntrustedForApprove(t *testing.T) {
 	// And the item is still pending, by the same decision function the gate
 	// serves: the refusal changed no exposure.
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
-	got, gerr := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("solid body"), Form: rawForm, Records: fx.records()})
+	got, gerr := EffectiveTrust(t, nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("solid body"), Form: rawForm, Records: fx.records()})
 	require.NoError(t, gerr)
 	assert.Equal(t, trust.Deny, got.Decision)
 	assert.Equal(t, trust.SourcePending, got.Source)

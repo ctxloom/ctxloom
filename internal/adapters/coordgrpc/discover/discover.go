@@ -62,6 +62,11 @@ type State struct {
 	// loopback, all on LoopbackPort.
 	ListenAddrs  []string `json:"listen_addrs,omitempty"`
 	ConsumerCred string   `json:"consumer_cred,omitempty"`
+	// ProjectDir is the project the coordinator serves. The state dir is
+	// keyed by the project's id, not its path, so this is how a viewer that
+	// has not asked the coordinator anything can still say which project it
+	// belongs to.
+	ProjectDir string `json:"project_dir,omitempty"`
 }
 
 // LoopbackURL is the host-local URL for a coordinator bound to port on
@@ -71,11 +76,13 @@ func LoopbackURL(port int) string {
 	return fmt.Sprintf("http://127.0.0.1:%d%s", port, MCPPath)
 }
 
-// Endpoint is one root's coordinator: the URL to dial (gRPC over h2c) and
-// the read-only D1 consumer credential to present as a bearer token.
+// Endpoint is one root's coordinator: the URL to dial (gRPC over h2c), the
+// read-only D1 consumer credential to present as a bearer token, and the
+// project it serves.
 type Endpoint struct {
-	URL  string
-	Cred string
+	URL        string
+	Cred       string
+	ProjectDir string
 }
 
 // redactedCred stands in for Cred wherever an Endpoint is rendered
@@ -208,7 +215,7 @@ func readEndpoint(m string) (Endpoint, bool, error) {
 		// every coordinator that ever exited leaves one.
 		return Endpoint{}, false, nil
 	}
-	return Endpoint{URL: LoopbackURL(ep.LoopbackPort), Cred: ep.ConsumerCred}, true, nil
+	return Endpoint{URL: LoopbackURL(ep.LoopbackPort), Cred: ep.ConsumerCred, ProjectDir: ep.ProjectDir}, true, nil
 }
 
 // mtime reads a path's modification time (zero on error, which sorts an

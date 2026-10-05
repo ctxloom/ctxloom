@@ -8,7 +8,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -99,10 +98,10 @@ func renderDoctorReport(out io.Writer, report operations.DoctorReport) error {
 	w.Println("ctxloom doctor")
 	for _, c := range report.Checks {
 		// A detail is ctxloom's sentence with publisher values (bundle refs,
-		// remote errors) spliced in. termsafe.Sanitize and not Field: Field's
+		// remote errors) spliced in. inertBody and not inertField: inertField's
 		// line-sized cap would clip ctxloom's own longer sentences.
-		w.Printf("  %s [%s] %s%s\n", c.Marker, c.Status, termsafe.Sanitize(c.Detail, 0, false).Text,
-			clifmt.FixLine("    ", termsafe.Sanitize(c.Remedy, 0, false).Text))
+		w.Printf("  %s [%s] %s%s\n", c.Marker, c.Status, inertBody(c.Detail, 0, false).Text,
+			clifmt.FixLine("    ", inertBody(c.Remedy, 0, false).Text))
 	}
 	return w.Err()
 }

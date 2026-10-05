@@ -53,11 +53,18 @@ func stateGlyph(state string) string {
 // will not take mail until the hold releases it.
 const heldGlyph = "‖"
 
-// rowGlyph is r's agents-pane glyph: the hold's when one parks it, otherwise
-// its state's.
+// failedGlyph marks an ended row whose terminal cause is a failure
+// (coord.CauseIsFailure): it ended, but it did not finish.
+const failedGlyph = "✗"
+
+// rowGlyph is r's agents-pane glyph: the hold's when one parks it, the
+// failure's when it ended without finishing, otherwise its state's.
 func rowGlyph(r RosterRow) string {
 	if r.Hold != nil {
 		return heldGlyph
+	}
+	if r.State == StateEnded && coord.CauseIsFailure(r.Cause) {
+		return failedGlyph
 	}
 	return stateGlyph(r.State)
 }

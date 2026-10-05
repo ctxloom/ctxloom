@@ -54,7 +54,10 @@ func TestAtomicFile_TempNameIsUnique(t *testing.T) {
 
 	af, err := NewAtomicFile(afero.NewOsFs(), target, 0o644)
 	require.NoError(t, err)
-	tmp := af.TempPath()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "exactly the temp file exists before Commit")
+	tmp := filepath.Join(dir, entries[0].Name())
 
 	assert.NotEqual(t, target+".tmp", tmp)
 	assert.True(t, strings.HasPrefix(filepath.Base(tmp), ".out.jsonl."), "temp name %q must derive from the target base name", tmp)
@@ -83,31 +86,6 @@ func TestAtomicFile_Abort_LeavesNoTemp(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "Abort left a temp file behind")
 	assert.Equal(t, "out.jsonl", entries[0].Name())
-}
-
-// TestAtomicFile_TempPath_ExternalWritesAreCommitted pins the escape hatch
-// TempPath exists for: a caller that writes to the temp path directly (never
-// calling af.Write at all) still gets those bytes installed on Commit,
-// because Commit stats the file on disk rather than trusting an internal
-// Write-call counter.
-func TestAtomicFile_TempPath_ExternalWritesAreCommitted(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "out.jsonl")
-
-	af, err := NewAtomicFile(afero.NewOsFs(), target, 0o644)
-	require.NoError(t, err)
-
-	f, err := os.OpenFile(af.TempPath(), os.O_APPEND|os.O_WRONLY, 0o644)
-	require.NoError(t, err)
-	_, err = f.WriteString("external bytes\n")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-
-	require.NoError(t, af.Commit())
-
-	got, err := os.ReadFile(target)
-	require.NoError(t, err)
-	assert.Equal(t, "external bytes\n", string(got))
 }
 
 // TestAtomicFile_EmptyCommitOverExisting_Refused pins the empty-guard applied

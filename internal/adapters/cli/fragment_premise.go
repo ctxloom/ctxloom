@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // Premise authoring is a PROPOSAL surface: the model drafts and critiques, and
@@ -159,9 +158,9 @@ func runFragmentDraftPremise(cmd *cobra.Command, args []string) error {
 			_, err := fmt.Fprintln(w, "Rejected: nothing written.")
 			return err
 		}
-		fmt.Fprintf(w, "Wrote the premise for %s.\n", termsafe.Field(ref))
+		fmt.Fprintf(w, "Wrote the premise for %s.\n", inertField(ref))
 		if p.StaleApprovals {
-			fmt.Fprintf(w, "The item's approvals are now stale: run 'ctxloom bundle sign %s' to ratify it.\n", termsafe.Field(bundleName))
+			fmt.Fprintf(w, "The item's approvals are now stale: run 'ctxloom bundle sign %s' to ratify it.\n", inertField(bundleName))
 		}
 		return nil
 	})
@@ -365,16 +364,16 @@ func findingText(f operations.PremiseFinding) string {
 // renderPremiseProposal prints the current values, the draft, the split hint
 // (first and loud: a fragment doing two jobs needs splitting, not a premise)
 // and the findings. Every value is model- or author-written, so it goes
-// through termsafe.
+// through inertBody.
 func renderPremiseProposal(w io.Writer, p *premiseProposal) {
-	safe := func(s string) string { return termsafe.Sanitize(s, 0, true).Text }
+	safe := func(s string) string { return inertBody(s, 0, true).Text }
 	orNone := func(s string) string {
 		if s == "" {
 			return "NONE (always loads)"
 		}
 		return safe(s)
 	}
-	fmt.Fprintf(w, "Fragment: %s\n", termsafe.Field(p.Ref))
+	fmt.Fprintf(w, "Fragment: %s\n", inertField(p.Ref))
 	if p.Draft.SplitHint != "" {
 		fmt.Fprintf(w, "\n!! SPLIT SUGGESTED: this fragment may be doing more than one job.\n%s\n", safe(p.Draft.SplitHint))
 	}
@@ -393,7 +392,7 @@ func renderPremiseProposal(w io.Writer, p *premiseProposal) {
 	}
 	fmt.Fprintf(w, "\nCritique: %d %s\n", len(p.Critique.Findings), plural(len(p.Critique.Findings), "finding", "findings"))
 	for _, f := range p.Critique.Findings {
-		fmt.Fprintf(w, "  [%s]\n", termsafe.Field(string(f.Kind)))
+		fmt.Fprintf(w, "  [%s]\n", inertField(string(f.Kind)))
 		for _, line := range strings.Split(findingText(f), "\n") {
 			if line != "" {
 				fmt.Fprintf(w, "    %s\n", safe(line))

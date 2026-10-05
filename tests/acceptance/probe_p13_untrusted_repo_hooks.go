@@ -218,6 +218,12 @@ func p13CtxloomLaunch(home, cfg, repo string) (p13Launch, error) {
 // hook per p13Markers event, each touching its marker under dir. The PreToolUse
 // matcher is the gated tool; SessionStart takes no matcher.
 func p13RepoSettingsJSON(dir string) ([]byte, error) {
+	return json.Marshal(p12Settings{Hooks: p13MarkerHooks(dir)})
+}
+
+// p13MarkerHooks is one hook per p13Markers event, each touching its marker
+// under dir.
+func p13MarkerHooks(dir string) map[string][]p12HookMatcher {
 	hooks := map[string][]p12HookMatcher{}
 	for event, marker := range p13Markers {
 		m := p12HookMatcher{Hooks: []p12HookCommand{{Type: "command", Command: "touch " + p12ShellQuote(dir+"/"+marker)}}}
@@ -226,7 +232,7 @@ func p13RepoSettingsJSON(dir string) ([]byte, error) {
 		}
 		hooks[event] = []p12HookMatcher{m}
 	}
-	return json.Marshal(p12Settings{Hooks: hooks})
+	return hooks
 }
 
 // p13SkillMD renders the repo's committed SKILL.md: a PreToolUse hook on the
@@ -340,7 +346,7 @@ func p13Assert(o p13Outcome) error {
 	if err != nil {
 		return err
 	}
-	if !p13EchoRan(s) {
+	if !gatedCallPrinted(s, p13EchoOutput) {
 		return v.fail(shapeEchoNotRun, fmt.Sprintf("no %s tool_result printed a line %q without error", p12GatedTool, p13EchoOutput), o.evidence())
 	}
 	if o.MarkerErr != nil {
@@ -439,17 +445,17 @@ func p13Listing(s p12Stream) (listed, unlisted []string) {
 	return listed, unlisted
 }
 
-// p13EchoRan reports whether any gated call's tool_result succeeded and
-// printed the echo's output as a line of its own — a line, not a substring,
-// because a shell's startup noise can contain those two letters.
-func p13EchoRan(s p12Stream) bool {
+// gatedCallPrinted reports whether any gated call's tool_result succeeded and
+// printed line as a line of its own — a line, not a substring, because a
+// shell's startup noise can contain those letters.
+func gatedCallPrinted(s p12Stream, line string) bool {
 	for _, call := range s.GatedCalls {
 		res, ok := s.Results[call]
 		if !ok || res.IsError {
 			continue
 		}
-		for _, line := range strings.Split(res.Text, "\n") {
-			if strings.TrimSpace(line) == p13EchoOutput {
+		for _, l := range strings.Split(res.Text, "\n") {
+			if strings.TrimSpace(l) == line {
 				return true
 			}
 		}

@@ -350,41 +350,37 @@ func (r BundleRead) Claimed() bool {
 		r.trustCtx != TrustCtxUnset && r.signature != SignatureUnset && r.signer != SignerUnset
 }
 
-// newRead builds a read with its axes set. Unexported by design: it is the
-// only way the axes are ever populated, so every value on them came from a
-// reader that established it.
+// newRead builds a read with its axes set. It is unexported because it is the
+// only way the axes are ever populated: outside this package a read comes
+// from a reader, so every value on it was established over the bytes rather
+// than claimed by the caller.
 //
-// It also STAMPS the content trust key (Bundle.sourceRef) from ref when a
-// reader left it empty, which makes that key location-derived for every read
+// It also STAMPS the content trust key (Bundle.sourceRef) from ref when the
+// caller left it empty, which makes that key location-derived for every read
 // without exception. ref is the bundle's RESOLUTION identity, and resolution
 // identity is decided by where the bundle was found — the path-relative name
 // under the project tree, the lockfile's canonical ref, the companion's
-// ctxloom:companion ref — never by the document's own `name:`. Without this,
-// contentSourceRef fell back to Bundle.Name, which a bundle DECLARES, so the
-// content being judged supplied an input to its own trust key: a project
-// bundle declaring `name: ctxloom:companion@ltk` keyed as that companion
-// (outdated-recoil).
+// ctxloom:companion ref — never by the document's own `name:`. A key that fell
+// back to Bundle.Name would take an input from the content being judged: a
+// project bundle declaring `name: ctxloom:companion@ltk` would key as that
+// companion.
 //
-// Only-when-empty, so a ref a reader already established deliberately wins:
-// WithSeededBundles' lockfile ref, the repofs reader's, the companion
-// reader's.
-//
+// Only-when-empty, so a ref the caller already established deliberately wins.
 // Every caller that reaches this fallback with sourceRefSet still false is, by
-// construction, a genuinely local resolution ref — the companion and repofs
-// call sites stamp sourceRef (and sourceRefSet) themselves before
-// calling newRead, so the only ones left unset here are localFSReader's
-// project-provenance bundles. The stamp below is minted with
-// trust.LocalRef accordingly, not re-derived by inspecting prov/tctx: a fifth
-// reader that reached this fallback for a non-local ref would be a bug in
-// THAT reader, not something this function could detect from its own
-// arguments.
+// construction, a genuinely local resolution ref — every non-local caller
+// stamps sourceRef (and sourceRefSet) itself before calling newRead, so the
+// only ones left unset here are localFSReader's project-provenance bundles.
+// The stamp below is minted with trust.LocalRef accordingly, not re-derived by
+// inspecting prov/tctx: another reader that reached this fallback for a
+// non-local ref would be a bug in THAT reader, not something this function
+// could detect from its own arguments.
 //
 // Gated on sourceRefSet, not on sourceRef's value: a reader whose mint FAILED
 // still stamped sourceRefSet, and that failure (the zero BundleRef) must
 // stick — checking sourceRef itself would be unable to tell "unmintable" from
 // "untouched" and would silently paper over the failure as a local bundle of
 // that name.
-func NewRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts SignatureFacts) BundleRead {
+func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts SignatureFacts) BundleRead {
 	if b != nil && !b.sourceRefSet {
 		// The mint failure is not reported here: every reader stamps its
 		// own ref (and reports an unmintable one at that site). A zero ref
@@ -408,7 +404,7 @@ func NewRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts S
 
 // SignatureFacts is the (signature, signer) pair a reader established over one
 // bundle's bytes, plus the two display-only strings that go with them. A
-// reader adapter builds it and hands it to NewRead; nothing else sets the
+// reader adapter builds it and hands it to newRead; nothing else sets the
 // axes of a BundleRead, which is what lets a struct-literal BundleRead claim
 // nothing (Claimed) and be withheld.
 type SignatureFacts struct {

@@ -70,7 +70,7 @@ Feature: Fault tolerance
     Given an initialized ctxloom project
     And I run "ctxloom remote create broken file:///nonexistent/ctxloom-repo.git --forge git"
     And I run "ctxloom profile create dev --include broken/demo"
-    When I run "ctxloom deps pull"
+    When I run "ctxloom deps pull --format text"
     Then the command fails
     And the output contains "Failed: 1"
     And the output contains "ctxloom+file:///nonexistent/ctxloom-repo.git//bundles/demo"

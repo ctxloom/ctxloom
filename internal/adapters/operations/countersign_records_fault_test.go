@@ -60,7 +60,7 @@ func TestEffectiveTrust_UnresolvableUserStore_DeniesAndNamesTheCause(t *testing.
 
 	ref := trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"}
 	mark := strictness.Checkpoint()
-	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+	res, err := EffectiveTrust(t, nil, EffectiveTrustRequest{
 		Ref:        ref,
 		Posture:    postureCtxOf(ref),
 		Provenance: postureProvOf(ref),

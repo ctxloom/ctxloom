@@ -106,8 +106,8 @@ func TestCatalogResolveAsk_AmbiguousBareNameRefuses(t *testing.T) {
 	companionBundle.sourceRefSet = true
 
 	unsigned := SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
-	localRead := NewRead("isolation", localBundle, ProvenanceProject, TrustCtxLocal, unsigned)
-	companionRead := NewRead("isolation", companionBundle, ProvenanceCompanion, TrustCtxLocal, unsigned)
+	localRead := newRead("isolation", localBundle, ProvenanceProject, TrustCtxLocal, unsigned)
+	companionRead := newRead("isolation", companionBundle, ProvenanceCompanion, TrustCtxLocal, unsigned)
 
 	cat := Catalog{reads: []BundleRead{localRead, companionRead}}
 

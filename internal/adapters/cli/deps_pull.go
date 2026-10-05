@@ -8,8 +8,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -62,9 +62,9 @@ func runDepsPull(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	fmt.Fprintln(cmd.OutOrStdout(), "Pulling dependencies...")
+	fmt.Fprintln(cmd.ErrOrStderr(), "Pulling dependencies...")
 
-	result, err := operations.SyncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
+	result, err := syncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
 		Force:          depsPullForce,
 		Lock:           depsPullLock,
 		ApplyHooks:     true,
@@ -74,18 +74,102 @@ func runDepsPull(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	renderPullSummary(cmd.OutOrStdout(), result)
-
 	// Reconcile AFTER the install half, and only when the lockfile is this
 	// command's to move. --lock=false says "do not touch the lockfile", and a
 	// reconcile prunes entries from it, so honoring the install half of that
 	// flag while ignoring the removal half would be the flag not meaning what
 	// it says.
+	var plan *operations.ReconcilePlan
 	if depsPullLock {
-		reconcileInstalled(cmd.Context(), cfg, cmd.OutOrStdout())
+		plan = reconcileInstalled(cmd.Context(), cfg)
 	}
 
+	// The payload goes out BEFORE the exit decision, so a caller whose pull
+	// partly failed still gets what did happen.
+	if err := emit(cmd, newPullView(result, plan), func() error {
+		renderPullSummary(cmd.OutOrStdout(), result)
+		if plan != nil {
+			renderReconcile(cmd.OutOrStdout(), *plan)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
 	return pullResultErr(result)
+}
+
+// pullView is `deps pull`'s structured result: the sync's outcome, each failed
+// item with the fix it names, and — when a reconcile ran — what it removed and
+// what it could not check. Every list is always present.
+type pullView struct {
+	Status      string                `json:"status"`
+	Total       int                   `json:"total"`
+	Installed   int                   `json:"installed"`
+	Updated     int                   `json:"updated"`
+	Errors      int                   `json:"errors"`
+	Synced      []operations.SyncItem `json:"synced"`
+	Skipped     []operations.SyncItem `json:"skipped"`
+	Retracted   []operations.SyncItem `json:"retracted"`
+	Failed      []pullFailureView     `json:"failed"`
+	Removed     []string              `json:"removed"`
+	Incomplete  bool                  `json:"incomplete"`
+	Unreachable []string              `json:"unreachable"`
+	Message     string                `json:"message"`
+	// Reconcile is nil when no reconcile ran: --lock=false, or a lockfile it
+	// could not read. An empty plan would claim a check that never happened.
+	Reconcile *reconcileView `json:"reconcile,omitempty"`
+}
+
+// pullFailureView is one failed item and the fix its failure names
+// (operations.SyncItem.Remedy), which the item itself does not serialize.
+type pullFailureView struct {
+	Reference string `json:"reference"`
+	Type      string `json:"type"`
+	Status    string `json:"status"`
+	Error     string `json:"error"`
+	Fix       string `json:"fix"`
+}
+
+// reconcileView is operations.ReconcilePlan with snake_case keys.
+type reconcileView struct {
+	Gone        []trust.BundleKey          `json:"gone"`
+	Unreachable []reconcileUnreachableView `json:"unreachable"`
+}
+
+type reconcileUnreachableView struct {
+	URL    string            `json:"url"`
+	Reason string            `json:"reason"`
+	Refs   []trust.BundleKey `json:"refs"`
+}
+
+func newPullView(result *operations.SyncDependenciesResult, plan *operations.ReconcilePlan) pullView {
+	view := pullView{
+		Status:      result.Status,
+		Total:       result.Total,
+		Installed:   result.Installed,
+		Updated:     result.Updated,
+		Errors:      result.Errors,
+		Synced:      result.Synced,
+		Skipped:     result.Skipped,
+		Retracted:   result.Retracted,
+		Removed:     result.Removed,
+		Incomplete:  result.Incomplete,
+		Unreachable: result.Unreachable,
+		Message:     result.Message,
+	}
+	for _, item := range result.Failed {
+		view.Failed = append(view.Failed, pullFailureView{
+			Reference: item.Reference, Type: item.Type, Status: item.Status, Error: item.Error, Fix: item.Remedy(),
+		})
+	}
+	if plan != nil {
+		view.Reconcile = &reconcileView{Gone: plan.Gone}
+		for _, u := range plan.Unreachable {
+			view.Reconcile.Unreachable = append(view.Reconcile.Unreachable,
+				reconcileUnreachableView{URL: u.URL, Reason: u.Reason, Refs: u.Refs})
+		}
+	}
+	return view
 }
 
 // pullResultErr decides the exit code from what the pull actually did.
@@ -98,9 +182,9 @@ func runDepsPull(cmd *cobra.Command, _ []string) error {
 // is "the sync still succeeds; the retracted content just never reaches the
 // user"). Only Errors — a real fetch or apply failure — makes the pull fail.
 //
-// The failures are printed to stdout by renderPullSummary, so a caller
-// scripting on the EXIT CODE rather than scraping stdout has to be able to see
-// them here.
+// The failures are in the payload (and in renderPullSummary's text), so a
+// caller scripting on the EXIT CODE rather than reading the output has to be
+// able to see them here.
 //
 // The error names a fix only when every failed item shares one (the usual
 // single-failure case): one remedy field cannot honestly stand for several,
@@ -154,17 +238,17 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 	if len(result.Retracted) > 0 {
 		fmt.Fprintf(w, "  Retracted: %d\n", len(result.Retracted))
 		for _, item := range result.Retracted {
-			fmt.Fprintf(w, "    - %s: retracted (%s)\n", termsafe.Field(item.Reference), termsafe.Sanitize(item.Error, 0, false).Text)
+			fmt.Fprintf(w, "    - %s: retracted (%s)\n", inertField(item.Reference), inertBody(item.Error, 0, false).Text)
 		}
 	}
 	for _, identity := range result.Removed {
-		fmt.Fprintf(w, "  Removed %s from the lockfile: nothing this project composes depends on it any more.\n", termsafe.Field(identity))
+		fmt.Fprintf(w, "  Removed %s from the lockfile: nothing this project composes depends on it any more.\n", inertField(identity))
 	}
 	if result.Errors > 0 {
 		fmt.Fprintf(w, "  Failed: %d\n", result.Errors)
 		for _, item := range result.Failed {
-			fmt.Fprintf(w, "    - %s: %s%s\n", termsafe.Field(item.Reference), termsafe.Sanitize(item.Error, 0, false).Text,
-				clifmt.FixLine("      ", termsafe.Sanitize(item.Remedy(), 0, false).Text))
+			fmt.Fprintf(w, "    - %s: %s%s\n", inertField(item.Reference), inertBody(item.Error, 0, false).Text,
+				clifmt.FixLine("      ", inertBody(item.Remedy(), 0, false).Text))
 		}
 	}
 	renderIncompleteLock(w, result)
@@ -178,7 +262,7 @@ func renderIncompleteLock(w io.Writer, result *operations.SyncDependenciesResult
 	}
 	names := make([]string, 0, len(result.Unreachable))
 	for _, ref := range result.Unreachable {
-		names = append(names, termsafe.Field(ref))
+		names = append(names, inertField(ref))
 	}
 	fmt.Fprintf(w, pullIncompleteFormat, strings.Join(names, ", "))
 }

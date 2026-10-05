@@ -189,12 +189,13 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	}},
 
 	// --- exercised: a representative sample of pre-existing emit()-wired list commands ---
-	"fragment list": {extraArgs: noExtraArgs},
-	"command list":  {extraArgs: noExtraArgs},
-	"skill list":    {extraArgs: noExtraArgs},
-	"agent list":    {extraArgs: noExtraArgs},
-	"profile list":  {extraArgs: noExtraArgs},
-	"session list":  {extraArgs: noExtraArgs},
+	"fragment list":     {extraArgs: noExtraArgs},
+	"command list":      {extraArgs: noExtraArgs},
+	"skill list":        {extraArgs: noExtraArgs},
+	"agent list":        {extraArgs: noExtraArgs},
+	"profile list":      {extraArgs: noExtraArgs},
+	"session list":      {extraArgs: noExtraArgs},
+	"session approvals": {extraArgs: noExtraArgs},
 	// Bare, read-only listing: safe against a fresh sessions dir with nothing
 	// (or nothing of this test's own making) under it — an empty report is
 	// exactly what proves the "no ctxloom-owned scratch worktrees" path
@@ -269,16 +270,13 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"mcp server edit": {skip: "needs an existing bundle-scoped MCP entry fixture; not exercised here", formatDebt: true},
 
 	// --- skip: network / real remote required ---
-	// 8 of these 9 `remote` commands ARE format debt — none of
-	// remote_browse.go/remote_discover.go/remote_update.go/remote_upgrade.go,
-	// nor remote.go's add/remove/default/pull RunEs, call emit() (confirmed:
-	// zero "emit(" occurrences in those RunE bodies). `remote list` is the
-	// lone exception (fixtured above) — so an earlier claim of "all nine
-	// remote commands" overstates by one; it's 8/9, not 9/9.
-	"remote create":   {skip: "network: adds and probes a real remote", formatDebt: true},
-	"remote show":     {skip: "network: reads a real remote's catalog", formatDebt: true},
-	"remote default":  {skip: "needs a configured remote fixture", formatDebt: true},
-	"remote discover": {skip: "network: queries GitHub for discoverable remotes", formatDebt: true},
+	// Each of these routes through emit(); remote_deps_format_test.go drives
+	// them through fakes instead.
+	"remote create":   {skip: "network: adds and probes a real remote"},
+	"remote show":     {skip: "network: reads a real remote's catalog"},
+	"remote discover": {skip: "network: queries GitHub for discoverable remotes"},
+	// Clearing the default needs no network and no remote fixture.
+	"remote default": {extraArgs: func(string) []string { return []string{"--clear"} }},
 	// runRemoteRemove now calls emit() on both its report and --yes branches
 	// (it did not before) — not format debt, just fixture-gated.
 	"remote remove": {skip: "needs a configured remote fixture"},
@@ -289,9 +287,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// all — it is the offline lockfile view — so it is exercised for real; the
 	// rest reach a git remote.
 	"deps list":    {extraArgs: noExtraArgs},
-	"deps pull":    {skip: "network: clones/fetches a real git remote", formatDebt: true},
-	"deps check":   {skip: "network: resolves each pinned bundle against a real remote", formatDebt: true},
-	"deps upgrade": {skip: "network: re-resolves pinned bundle content from a real remote", formatDebt: true},
+	"deps pull":    {skip: "network: clones/fetches a real git remote"},
+	"deps check":   {skip: "network: resolves each pinned bundle against a real remote"},
+	"deps upgrade": {skip: "network: re-resolves pinned bundle content from a real remote"},
 	// Exercised, not skipped: the corpus gate is a pure function over an
 	// injected fetcher, so it needs no network here. This project has no
 	// remotes, so it honestly reports "nothing was checked" and exits 2 —

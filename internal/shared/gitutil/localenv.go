@@ -2,7 +2,6 @@ package gitutil
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -55,8 +54,8 @@ func resolveLocalEnvVars(probe func() ([]string, error)) []string {
 // very variables it reports cannot steer the question.
 func probeLocalEnvVars() ([]string, error) {
 	cmd := exec.Command("git", "rev-parse", "--local-env-vars")
-	// The filesystem root, outside any repository.
-	cmd.Dir = filepath.VolumeName(os.TempDir()) + string(filepath.Separator)
+	// The filesystem root (the current drive's, on Windows), outside any repository.
+	cmd.Dir = string(filepath.Separator)
 	// Empty, not nil: a nil Env inherits os.Environ().
 	cmd.Env = []string{}
 	out, err := cmd.Output()

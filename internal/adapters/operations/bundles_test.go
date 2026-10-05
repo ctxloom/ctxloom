@@ -155,8 +155,8 @@ func TestCreateBundle_WithMCPServers(t *testing.T) {
 		MCPServers: map[string]BundleMCPInput{
 			"tree-sitter": {
 				Command: new("tree-sitter-mcp"),
-				Args: &[]string{"--lang", "rust"},
-				Env: &map[string]string{"DEBUG": "1"},
+				Args:    &[]string{"--lang", "rust"},
+				Env:     &map[string]string{"DEBUG": "1"},
 			},
 		},
 	})

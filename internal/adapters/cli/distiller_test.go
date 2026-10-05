@@ -53,7 +53,7 @@ func TestNewLLMDistiller_ResolvableLabelIsSilent(t *testing.T) {
 	// inside a linked git worktree). What must be absent is the raw-content
 	// warning.
 	assert.NotContains(t, warn.String(), "RAW", "a working configuration must not be warned about")
-	assert.Equal(t, "fast", d.label, "the fast role's label; the launch resolver maps it to its engine and model")
+	assert.Empty(t, d.label, "no --llm: the distiller runs as the distiller agent (operations.DistillerOneShot)")
 	assert.NotEmpty(t, d.prompt, "a distiller with an EMPTY prompt would silently distill against nothing")
 }
 

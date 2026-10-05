@@ -895,19 +895,6 @@ func (c *Config) GetDefaultLLM() string {
 	return backend
 }
 
-// GetCompactionLLM returns the backend type for the fast (compression) role.
-func (c *Config) GetCompactionLLM() string {
-	backend, _ := c.ResolveLLM(c.FastLabel())
-	return backend
-}
-
-// GetCompactionModel returns the model for the fast (compression) role.
-// Empty means the backend substitutes its own lightweight model.
-func (c *Config) GetCompactionModel() string {
-	_, model := c.ResolveLLM(c.FastLabel())
-	return model
-}
-
 // GetToolReflectBytes returns the tool-result size at or above which the
 // PostToolUse reflect hook fires, and whether the hook is enabled at all.
 //

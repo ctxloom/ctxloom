@@ -78,19 +78,24 @@ func renderBundleList(out io.Writer, infos []*bundles.BundleInfo) error {
 }
 
 // bundleContentParts builds the "Contains: …" summary parts for a bundle,
-// applying the 1-MCP-server singular/plural rule and omitting zero counts.
+// each count agreeing with its noun ("1 fragment", "2 fragments") and zero
+// counts omitted.
 func bundleContentParts(info *bundles.BundleInfo) []string {
 	var parts []string
-	if info.FragmentCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d fragments", info.FragmentCount))
-	}
-	if info.CommandCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d commands", info.CommandCount))
-	}
-	if info.MCPCount == 1 {
-		parts = append(parts, "1 MCP server")
-	} else if info.MCPCount > 1 {
-		parts = append(parts, fmt.Sprintf("%d MCP servers", info.MCPCount))
+	for _, c := range []struct {
+		n                int
+		singular, plural string
+	}{
+		{info.FragmentCount, "fragment", "fragments"},
+		{info.CommandCount, "command", "commands"},
+		{info.MCPCount, "MCP server", "MCP servers"},
+	} {
+		switch {
+		case c.n == 1:
+			parts = append(parts, "1 "+c.singular)
+		case c.n > 1:
+			parts = append(parts, fmt.Sprintf("%d %s", c.n, c.plural))
+		}
 	}
 	return parts
 }

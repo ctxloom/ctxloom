@@ -344,7 +344,7 @@ Verbosity levels (-v can be repeated):
   -vv     Show command arguments
   -vvv    Show debug output
 
-Use --session <harp> to deterministically resume a prior harp-named session:
+Use --session <name> to resume a prior session by the name 'ctxloom session list' shows:
 its full recorded transcript is folded into this run's assembled context.
 Add --distill to resume via the session's distilled essence instead
 (distilling on demand first if one doesn't exist yet).
@@ -1562,7 +1562,7 @@ func init() {
 	// bare --session folds the harp's full recorded transcript into this run's
 	// assembled context; --session --distill resumes via its distilled essence
 	// instead, distilling on demand first if one doesn't exist yet.
-	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named harp session: folds its full recorded transcript into this run's assembled context. Combine with --distill to resume via its distilled essence instead.")
+	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named session (see `ctxloom session list`): folds its full recorded transcript into this run's assembled context. Combine with --distill to resume via its distilled essence instead.")
 	runCmd.Flags().BoolVar(&runResumeDistill, "distill", false, "With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)")
 
 	// Internal: used by `ctxloom tasks run` to seed one browsed task into the

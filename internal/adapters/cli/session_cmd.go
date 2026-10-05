@@ -20,7 +20,7 @@ import (
 // one thing the noun is about, and reading it touches nothing.
 var sessionCmd = groupNodeDefault(&cobra.Command{
 	Use:   "session",
-	Short: "Browse and manage harp-named sessions",
+	Short: "Browse and manage your recorded sessions",
 	Long: `Read and manage the harp-keyed sessions under ~/.ctxloom/sessions:
 one directory per session, each carrying its own record. Use to list/show/edit/remove
 sessions without launching the LLM. Sessions appear here automatically
@@ -35,7 +35,7 @@ var (
 
 var sessionListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List harp-named sessions (default: current project; --all for everything)",
+	Short: "List recorded sessions (default: current project; --all for everything)",
 	RunE:  runSessionList,
 }
 

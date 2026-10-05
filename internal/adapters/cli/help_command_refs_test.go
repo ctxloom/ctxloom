@@ -55,3 +55,16 @@ func TestRootHelp_FirstStepIsInit(t *testing.T) {
 		t.Errorf("root help's first command is %q, want %q", got, rootFirstStep)
 	}
 }
+
+// TestFormatFlagHelp_StatesTheDerivedDefault: with --format unset the output
+// is text on a terminal and json otherwise (cliemit.Resolve). The help must
+// say that, not advertise a fixed "text" default a piped run contradicts.
+func TestFormatFlagHelp_StatesTheDerivedDefault(t *testing.T) {
+	usage := rootCommand().PersistentFlags().FlagUsages()
+	if strings.Contains(usage, `(default "`+formatText+`")`) {
+		t.Errorf("--format help advertises a fixed default:\n%s", usage)
+	}
+	if !strings.Contains(usage, formatFlagUsage) {
+		t.Errorf("--format help does not state the derived default:\n%s", usage)
+	}
+}

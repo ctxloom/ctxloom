@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -27,4 +28,13 @@ func TestShowMiss_NamesTheListingCommand(t *testing.T) {
 		require.True(t, ok, "%v: the miss names its fix: %v", tc.args, err)
 		assert.Equal(t, tc.fix, fix, "%v", tc.args)
 	}
+}
+
+// TestBundleContentParts_CountsAgreeWithTheirNoun: "1 fragments" reads as a
+// bug; a count of one takes the singular, as MCP servers already did.
+func TestBundleContentParts_CountsAgreeWithTheirNoun(t *testing.T) {
+	one := bundleContentParts(&bundles.BundleInfo{FragmentCount: 1, CommandCount: 1, MCPCount: 1})
+	assert.Equal(t, []string{"1 fragment", "1 command", "1 MCP server"}, one)
+	two := bundleContentParts(&bundles.BundleInfo{FragmentCount: 2, CommandCount: 2, MCPCount: 2})
+	assert.Equal(t, []string{"2 fragments", "2 commands", "2 MCP servers"}, two)
 }

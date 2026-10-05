@@ -39,8 +39,8 @@ var ctxloomInitPrompt = resources.MustGetBuiltinCommandBody("ctxloom-init")
 // one thing the noun is about, and reading it touches nothing.
 var agentCmd = groupNodeDefault(&cobra.Command{
 	Use:   "agent",
-	Short: "Inspect local agents (engine↔profile bindings)",
-	Long: `Inspect agents — named, LOCAL-ONLY bindings of an LLM engine to one or
+	Short: "Create, inspect and change local agents (engine↔profile bindings)",
+	Long: `Create, inspect and change agents — named, LOCAL-ONLY bindings of an LLM engine to one or
 more composed profiles.
 
 An agent names an 'engine' (the LLM config label/backend, which overrides the

@@ -81,7 +81,7 @@ func NewDeferredCommand(binName string, content func() (loadoutYAML, sig []byte)
 	var format string
 	cmd := &cobra.Command{
 		Use:   Subcommand,
-		Short: fmt.Sprintf("Print %s's ctxloom loadout — the content %s contributes to a session", binName, binName),
+		Short: fmt.Sprintf("Print the context, commands, hooks and MCP servers %s contributes to a session", binName),
 		Long: fmt.Sprintf(`loadout emits the ctxloom loadout %s contributes — a document with the RUN
 bundle a session consumes and the typed INIT section setup consumes — for
 ctxloom's companion discovery to seed into its trust gate under the source ref

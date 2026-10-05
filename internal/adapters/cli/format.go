@@ -209,7 +209,11 @@ func refuseUnsupportedFormat(cmd *cobra.Command) error {
 	return unsupportedFormatError(cmd, string(format))
 }
 
+// formatFlagUsage is --format's help. Its default is derived, not fixed —
+// cliemit.Resolve answers text on a terminal and json off one — so the flag is
+// registered with an empty default and the usage says what an unset flag does.
+const formatFlagUsage = "Output format: json, yaml, toml, text, or markdown (default: text on a terminal, json when output is piped or redirected)"
+
 func init() {
-	rootCmd.PersistentFlags().String("format", formatText,
-		"Output format: json, yaml, toml, text, or markdown")
+	rootCmd.PersistentFlags().String("format", "", formatFlagUsage)
 }

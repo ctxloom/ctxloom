@@ -71,11 +71,8 @@ func TestFragmentSurface_GettersAreWhatThePreimageFrames(t *testing.T) {
 	assert.Equal(t, FormDistilled, frag.Surface(true).Form())
 }
 
-// THE SUPPRESSION ATTACK, stated at the layer review records approvals on:
-// operations/review.go hashes ContentPayload. Rewriting a guardrail's premise
-// to a condition that never holds — body untouched — must move that hash in
-// EVERY form, so a previously granted approval stops matching and the item
-// returns to pending instead of silently never loading.
+// THE SUPPRESSION ATTACK: rewriting a guardrail's premise to a condition that
+// never holds — body untouched — must move its content hash in EVERY form.
 func TestBundleFragment_PremiseRewriteInvalidatesEveryApprovalHash(t *testing.T) {
 	guardrail := BundleFragment{
 		ItemBody: ItemBody{

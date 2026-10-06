@@ -99,11 +99,8 @@ func TestCommandSurface_ExportsPayload_IsCanonical(t *testing.T) {
 		string(bare.Surface(false).ExportsPayload()))
 }
 
-// THE DESCRIPTION ATTACK, stated at the layer review records approvals on:
-// operations/review.go hashes ContentPayload. Approve a command whose
-// description says one thing, then rewrite the description — body untouched.
-// The hash must move in EVERY form, so the approval stops matching and the
-// command returns to pending instead of reaching the agent under new help text.
+// THE DESCRIPTION ATTACK: rewrite a command's description, body untouched —
+// its content hash must move in EVERY form.
 func TestBundleCommand_DescriptionRewriteInvalidatesEveryApprovalHash(t *testing.T) {
 	approvedCmd := exportedCommand()
 	approvedRaw, _ := approvedCmd.EffectiveContentHash(false)

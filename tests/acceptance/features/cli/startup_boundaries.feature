@@ -69,13 +69,15 @@ Feature: What a start writes, and whose pins it reads
       # gone. Without this the assertions above are satisfied by a run that
       # never started, and by a session that was never going to be delivered
       # into in the first place. The managed surface lands in the SESSION's
-      # home (the mock's context file), and the project tree stays as the dry
-      # run left it: sessions carry their surfaces.
+      # home (the mock's context file), and the project gains exactly one
+      # file: the identity marker a real run establishes and a dry run only
+      # looks up — so it is absent from the snapshot both dry runs left.
+      # Sessions carry their surfaces; nothing else of the start lands here.
       When I run "ctxloom run --one-shot --profile dev hello"
       Then the command succeeds
       And the output contains "MOCK-REPLY"
       And the run delivered the file "MOCK_CONTEXT.md" into a session home
-      And the project tree is unchanged
+      And the project tree changed only by adding ".ctxloom/project-id"
       And the output contains "syncing remote bundles and profiles from config"
       # Without this line the assertion above is satisfied by a worktree that
       # was never reapable — a fixture git could not remove, an owner that

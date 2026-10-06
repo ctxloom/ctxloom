@@ -212,31 +212,32 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 		if len(w.projectTree) == 0 {
 			return fmt.Errorf(`the recorded project tree is EMPTY — comparing nothing to nothing is trivially "unchanged"; the "I record the project tree" step must run first, against a project that has files`)
 		}
-		now, err := snapshotProjectTree(w.env.ProjectDir)
+		d, err := diffProjectTree(w.env.ProjectDir, w.projectTree)
 		if err != nil {
-			return fmt.Errorf("re-read project tree: %w", err)
+			return err
 		}
-		var added, removed, modified []string
-		for rel, sum := range now {
-			switch before, ok := w.projectTree[rel]; {
-			case !ok:
-				added = append(added, rel)
-			case before != sum:
-				modified = append(modified, rel)
-			}
-		}
-		for rel := range w.projectTree {
-			if _, ok := now[rel]; !ok {
-				removed = append(removed, rel)
-			}
-		}
-		if len(added)+len(removed)+len(modified) == 0 {
+		if d.empty() {
 			return nil
 		}
-		slices.Sort(added)
-		slices.Sort(removed)
-		slices.Sort(modified)
-		return fmt.Errorf("the project tree changed: added %v, removed %v, modified %v", added, removed, modified)
+		return fmt.Errorf("the project tree changed: %s", d)
+	})
+
+	// The exact form of the control: the command wrote, and what it wrote is
+	// ONE file the scenario names — so a control that also leaked anything
+	// else into the project fails here rather than passing as "it moved".
+	ctx.Step(`^the project tree changed only by adding "([^"]*)"$`, func(c context.Context, rel string) error {
+		w := worldFrom(c)
+		if len(w.projectTree) == 0 {
+			return fmt.Errorf(`the recorded project tree is EMPTY — every file would count as added; the "I record the project tree" step must run first, against a project that has files`)
+		}
+		d, err := diffProjectTree(w.env.ProjectDir, w.projectTree)
+		if err != nil {
+			return err
+		}
+		if len(d.added) == 1 && d.added[0] == filepath.FromSlash(rel) && len(d.removed)+len(d.modified) == 0 {
+			return nil
+		}
+		return fmt.Errorf("the project tree should have gained only %q: %s", rel, d)
 	})
 
 	// The CONTROL half of "the project tree is unchanged", and the reason that
@@ -259,23 +260,51 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 		if len(w.projectTree) == 0 {
 			return fmt.Errorf(`the recorded project tree is EMPTY — every file would count as added, so this passes without the command writing anything; the "I record the project tree" step must run first, against a project that has files`)
 		}
-		now, err := snapshotProjectTree(w.env.ProjectDir)
+		d, err := diffProjectTree(w.env.ProjectDir, w.projectTree)
 		if err != nil {
-			return fmt.Errorf("re-read project tree: %w", err)
+			return err
 		}
-		for rel, sum := range now {
-			switch before, ok := w.projectTree[rel]; {
-			case !ok, before != sum:
-				return nil // an addition or a modification: the tree moved
-			}
+		if !d.empty() {
+			return nil
 		}
-		for rel := range w.projectTree {
-			if _, ok := now[rel]; !ok {
-				return nil // a removal counts too
-			}
-		}
-		return fmt.Errorf("the project tree is UNCHANGED across %d files — this step is the control for a paired no-write assertion, so the command was expected to write; if it wrote nothing, the negative half of that pair proves nothing", len(now))
+		return fmt.Errorf("the project tree is UNCHANGED across %d files — this step is the control for a paired no-write assertion, so the command was expected to write; if it wrote nothing, the negative half of that pair proves nothing", len(w.projectTree))
 	})
+}
+
+// treeDiff is a project tree's movement against a recorded snapshot, each
+// list sorted.
+type treeDiff struct{ added, removed, modified []string }
+
+func (d treeDiff) empty() bool { return len(d.added)+len(d.removed)+len(d.modified) == 0 }
+
+func (d treeDiff) String() string {
+	return fmt.Sprintf("added %v, removed %v, modified %v", d.added, d.removed, d.modified)
+}
+
+// diffProjectTree re-snapshots root and compares it with recorded.
+func diffProjectTree(root string, recorded map[string]string) (treeDiff, error) {
+	now, err := snapshotProjectTree(root)
+	if err != nil {
+		return treeDiff{}, fmt.Errorf("re-read project tree: %w", err)
+	}
+	var d treeDiff
+	for rel, sum := range now {
+		switch before, ok := recorded[rel]; {
+		case !ok:
+			d.added = append(d.added, rel)
+		case before != sum:
+			d.modified = append(d.modified, rel)
+		}
+	}
+	for rel := range recorded {
+		if _, ok := now[rel]; !ok {
+			d.removed = append(d.removed, rel)
+		}
+	}
+	slices.Sort(d.added)
+	slices.Sort(d.removed)
+	slices.Sort(d.modified)
+	return d, nil
 }
 
 // snapshotProjectTree maps every file under root to a digest of its content.

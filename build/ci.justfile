@@ -344,7 +344,10 @@ mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mut
 # all-zeroes SHA GitHub sends for a branch creation), and a scope with no
 # mutable Go — gremlins scores an empty changeset 0% and would fail the gate
 # for having nothing to test. "Mutable" is gremlins' own file rule plus
-# .gremlins.yaml's exclude-files, read from that file, not restated.
+# .gremlins.yaml's exclude-files, read from that file, not restated. Mutable
+# files whose diffed lines hold no mutable token (a comment-only change) do
+# run, and the aggregate passes them as nothing in scope — but only once every
+# shard has shown it looked.
 
 # mutshard builds scripts/mutshard and runs it. Built, not `go run`: `go run`
 # reports every failing exit as 1, and the aggregate's exit code is gremlins'

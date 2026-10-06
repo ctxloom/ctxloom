@@ -75,6 +75,12 @@ func (t *tally) add(o tally) {
 	t.skipped += o.skipped
 }
 
+// inScope counts every mutant the diff put in scope: each status gremlins
+// scored, i.e. all but SKIPPED.
+func (t tally) inScope() int {
+	return t.killed + t.lived + t.notCovered + t.timedOut + t.notViable
+}
+
 // efficacy and mutantCoverage are gremlins' formulas (report.newReport),
 // including 0 when nothing was killed.
 func (t tally) efficacy() float64 {
@@ -118,12 +124,19 @@ func exitCode(err error) int {
 // only below it). Before any arithmetic it refuses a union it cannot vouch
 // for: a missing, duplicated or stale shard, a shard whose run left no
 // evidence of having looked, and a shard that tested a file it was not given.
+//
+// A vouched-for union with ZERO in-scope mutants (only SKIPPED records: the
+// diff touched no mutable token) passes with nothing to judge — the
+// line-level analogue of the plan's "no mutable Go files" skip. It needs at
+// least one shard that was given files, since only those had to show they
+// looked; without one, zero is not evidence of anything and is judged.
 func judge(shards [][]string, st stamp, reports []report, th thresholds) (tally, error) {
 	var total tally
 	byShard, err := indexReports(len(shards), reports)
 	if err != nil {
 		return total, err
 	}
+	looked := false
 	for k, files := range shards {
 		r, ok := byShard[k]
 		if !ok {
@@ -134,6 +147,10 @@ func judge(shards [][]string, st stamp, reports []report, th thresholds) (tally,
 			return total, err
 		}
 		total.add(t)
+		looked = looked || len(files) > 0
+	}
+	if looked && total.inScope() == 0 {
+		return total, nil
 	}
 	return total, th.assess(total)
 }

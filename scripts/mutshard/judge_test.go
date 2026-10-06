@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -112,8 +114,9 @@ func TestJudge_AShardWithNoTestedMutantsIsFineIfItLooked(t *testing.T) {
 	}
 }
 
-// Nothing killed across the whole union is 0% — refused exactly as gremlins
-// refuses an empty changeset.
+// Nothing killed across a union that HAS in-scope mutants is 0% — refused, as
+// gremlins refuses it. A union whose only in-scope mutant went uncovered is
+// not "nothing to judge".
 func TestJudge_NothingKilledAnywhereIsRefused(t *testing.T) {
 	reports := []report{
 		rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusNotCovered, 1})),
@@ -121,6 +124,64 @@ func TestJudge_NothingKilledAnywhereIsRefused(t *testing.T) {
 	}
 	if _, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80}); !errors.Is(err, errEfficacy) {
 		t.Errorf("err = %v, want errEfficacy", err)
+	}
+}
+
+// A fully-checked union whose every record is SKIPPED — the diff touched Go
+// files but no mutable token (a comment-only change) — has nothing in scope
+// to judge, and passes: the line-level analogue of the plan's "no mutable Go
+// files" skip. Every shard still had to show it LOOKED.
+func TestJudge_ZeroInScopeMutantsInAFullyCheckedUnionPasses(t *testing.T) {
+	reports := []report{
+		rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"other.go", statusSkipped, 1})),
+		rep(1, 2, twoShards[1], gremlinsJSON(t, mut{"other.go", statusSkipped, 2})),
+	}
+	got, err := judge(twoShards, testStamp, reports, thresholds{efficacy: 80, mutantCoverage: 70})
+	if err != nil {
+		t.Fatalf("err = %v, want pass: nothing in scope to judge", err)
+	}
+	if got.inScope() != 0 || got.skipped != 2 {
+		t.Errorf("tally = %+v, want 0 in scope / 2 skipped", got)
+	}
+}
+
+// Zero in scope passes ONLY over a union every shard vouched for. Without
+// that, "nothing to mutate" is indistinguishable from a broken plan or a
+// shard that never ran.
+func TestJudge_ZeroInScopeIsRefusedWithoutEveryShardsEvidence(t *testing.T) {
+	skippedOnly := gremlinsJSON(t, mut{"other.go", statusSkipped, 1})
+	cases := []struct {
+		name    string
+		plan    [][]string
+		reports []report
+		want    error
+	}{
+		{"a shard's report is missing", twoShards, []report{rep(0, 2, twoShards[0], skippedOnly)}, errMissingShard},
+		{"a shard never reported a gremlins run", twoShards, []report{rep(0, 2, twoShards[0], skippedOnly), rep(1, 2, twoShards[1], nil)}, errMeasuredNothing},
+		{"gremlins walked nothing", twoShards, []report{rep(0, 2, twoShards[0], skippedOnly), rep(1, 2, twoShards[1], gremlinsJSON(t))}, errMeasuredNothing},
+		{"no shard was given anything to look at", [][]string{nil, nil}, []report{rep(0, 2, nil, nil), rep(1, 2, nil, nil)}, errEfficacy},
+		{"the only in-scope mutant timed out", twoShards, []report{rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusTimedOut, 1})), rep(1, 2, twoShards[1], skippedOnly)}, errEfficacy},
+		{"the only in-scope mutant was not viable", twoShards, []report{rep(0, 2, twoShards[0], gremlinsJSON(t, mut{"a.go", statusNotViable, 1})), rep(1, 2, twoShards[1], skippedOnly)}, errEfficacy},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := judge(c.plan, testStamp, c.reports, thresholds{efficacy: 80}); !errors.Is(err, c.want) {
+				t.Errorf("err = %v, want %v", err, c.want)
+			}
+		})
+	}
+}
+
+// The pass over an empty scope says so, rather than printing a 0.00% efficacy
+// beside a green verdict.
+func TestReportVerdict_SaysNothingWasInScope(t *testing.T) {
+	var out bytes.Buffer
+	reportVerdict(&out, 2, scope{base: "origin/main"}, tally{skipped: 5}, nil)
+	if !strings.Contains(out.String(), msgNothingInScope) {
+		t.Errorf("output = %q, want it to carry %q", out.String(), msgNothingInScope)
+	}
+	if strings.Contains(out.String(), "efficacy") {
+		t.Errorf("output = %q, want no efficacy figure for an empty scope", out.String())
 	}
 }
 

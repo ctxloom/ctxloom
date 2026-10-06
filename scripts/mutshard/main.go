@@ -278,10 +278,23 @@ func cmdAggregate(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	t, verdict := judge(p.shards, st, reports, thresholds{efficacy: cfg.efficacy, mutantCoverage: cfg.mutantCoverage})
-	if judged(verdict) {
-		printTally(stdout, len(p.shards), sc, t)
-	}
+	reportVerdict(stdout, len(p.shards), sc, t, verdict)
 	return verdict
+}
+
+// msgNothingInScope is what a pass over a union with zero in-scope mutants
+// says instead of a 0.00% efficacy beside a green verdict.
+const msgNothingInScope = "no mutant in scope — nothing to judge"
+
+// reportVerdict prints the union's counts when the verdict judged one; a
+// refusal to judge prints nothing, its counts describing nothing.
+func reportVerdict(stdout io.Writer, shards int, sc scope, t tally, verdict error) {
+	switch {
+	case verdict == nil && t.inScope() == 0:
+		_, _ = fmt.Fprintf(stdout, "\nMutation testing, %d shard(s) of %s: %s (every shard looked; %d skipped)\n", shards, sc, msgNothingInScope, t.skipped)
+	case judged(verdict):
+		printTally(stdout, shards, sc, t)
+	}
 }
 
 func parseAggregateFlags(args []string) (scope, string, error) {

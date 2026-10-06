@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofrs/flock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // ContextRendezvousTimeout bounds how long a chunk hook waits for its
@@ -37,8 +38,20 @@ const (
 // process (e.g. parallel callers sharing a binary) must not race the append.
 var (
 	heldRendezvousLocksMu sync.Mutex
-	heldRendezvousLocks   []*flock.Flock
+	heldRendezvousLocks   []safefs.Lock
 )
+
+// rendezvousLocks are the locks the rendezvous takes in os.TempDir: the
+// controller's own, as the rendezvous files are on its own filesystem.
+func rendezvousLocks() safefs.Locks { return safefs.New().Locks }
+
+// gaveUp is an already-ended context: a TryLock under it makes exactly one
+// attempt.
+func gaveUp() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}
 
 // AwaitTurn blocks until it is part k's turn to emit its context chunk.
 //
@@ -70,9 +83,8 @@ func AwaitTurn(sessionID string, part, total int) {
 		return // degrade: emit without ordering rather than fail startup
 	}
 
-	own := flock.New(lockPath(dir, part))
-	locked, err := own.TryLock()
-	if err != nil || !locked {
+	own, err := rendezvousLocks().TryLock(gaveUp(), lockPath(dir, part))
+	if err != nil {
 		// Each part owns a distinct lock file, so contention here means stale
 		// state from a crashed run; degrade rather than block.
 		return
@@ -176,9 +188,9 @@ func waitFreshMarker(dir string, part int, deadline time.Time) {
 // which the OS permits only after the predecessor process has exited. We
 // release it again immediately — we only needed the exit signal.
 func waitPredecessorExit(dir string, part int, deadline time.Time) {
-	prev := flock.New(lockPath(dir, part))
+	locks := rendezvousLocks()
 	for time.Now().Before(deadline) {
-		if locked, err := prev.TryLock(); err == nil && locked {
+		if prev, err := locks.TryLock(gaveUp(), lockPath(dir, part)); err == nil {
 			_ = prev.Unlock()
 			return
 		}

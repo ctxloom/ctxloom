@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // exitBound caps how long a released waiter may take to finish. It bounds a
@@ -36,8 +36,8 @@ const exitBound = 30 * time.Second
 func Force(t testing.TB, lockPath, logPath string, start func() *exec.Cmd) []map[string]any {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Dir(lockPath), 0o700))
-	held := flock.New(lockPath)
-	require.NoError(t, held.Lock())
+	held, err := safefs.New().Locks.Lock(lockPath)
+	require.NoError(t, err)
 	unlocked := false
 	unlock := func() {
 		if !unlocked {

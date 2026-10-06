@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -120,8 +119,8 @@ func TestContainerLockMounts_InPlaceFileLockExcludesAcrossBoundary(t *testing.T)
 		return out
 	}
 
-	fl := flock.New(hostLock)
-	require.NoError(t, fl.Lock())
+	fl, err := safefs.New().Locks.Lock(hostLock)
+	require.NoError(t, err)
 	assert.Contains(t, try(), "rc=1", "the child must not take the lock the host holds")
 	require.NoError(t, fl.Unlock())
 	assert.Contains(t, try(), "rc=0", "released by the host, the lock is the child's to take")

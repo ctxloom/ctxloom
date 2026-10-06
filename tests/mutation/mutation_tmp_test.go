@@ -48,3 +48,25 @@ func TestMutationTmp_ReplacesInheritedGOTMPDIRWithTheRunDir(t *testing.T) {
 		t.Fatalf("run dir %q survived the run (stat err %v)", gotmpdir, err)
 	}
 }
+
+// A mutant that flips a directory mode can leave a directory its owner may
+// write and traverse but not read (0360). rm -rf cannot list it, so the run dir
+// survives and the wrapper turns a finished mutation run red at cleanup. The
+// cleanup must restore the owner's read and search bits, not only write.
+func TestMutationTmp_RemovesARunDirAMutantLeftUnreadable(t *testing.T) {
+	script := repoInput(t, "tests/mutation/mutation_tmp.sh")[0]
+	base := filepath.Join(t.TempDir(), "mutation")
+
+	cmd := exec.Command("bash", script, base, "bash", "-c",
+		`mkdir -p "$TMPDIR/home/.ctxloom/sub" && touch "$TMPDIR/home/.ctxloom/sub/f" && chmod 0360 "$TMPDIR/home/.ctxloom"`)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("mutation_tmp.sh exited non-zero after an unreadable dir was left: %v\n%s", err, out)
+	}
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		t.Fatalf("read %s: %v", base, err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("run dir survived cleanup: %v", entries)
+	}
+}

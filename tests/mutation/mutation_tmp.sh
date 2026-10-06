@@ -37,10 +37,11 @@ shift
 
 mkdir -p "$base"
 run=$(mktemp -d "$base/run-XXXXXX")
-# chmod first: Go leaves module-cache directories read-only, and rm -rf cannot
-# unlink inside a directory it may not write.
+# chmod first: rm -rf cannot unlink inside a directory it may not write (Go
+# leaves module-cache directories read-only) nor list one it may not read or
+# search (a mutant that flips a directory mode leaves those behind).
 cleanup() {
-    chmod -R u+w "$run" 2>/dev/null || true
+    chmod -R u+rwX "$run" 2>/dev/null || true
     rm -rf "$run"
 }
 trap cleanup EXIT

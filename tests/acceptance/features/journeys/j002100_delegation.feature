@@ -201,7 +201,7 @@ Feature: Coordinator delegates isolated work
     Then the tool call succeeds
     And the tool result carries the ask's id
     When "fixer" answers that ask from its own outbox with "the reversible one"
-    Then within 45s the coordinator's reader delivers "fixer"'s answer "the reversible one", quoting the ask's id
+    Then the coordinator's reader delivers "fixer"'s answer "the reversible one", quoting the ask's id
 
   # DURABLE HOLDS — a child parked on its rate limit, and a child the human
   # paused, are the coordinator's own state: the session's coordinator dying
@@ -225,15 +225,15 @@ Feature: Coordinator delegates isolated work
       | input.workspace | none  |
     Then the tool call succeeds
     And "fixer"'s spawned session is remembered
-    And within 45s the roster shows "reviewer" held with kind "rate_limited"
+    And the roster comes to show "reviewer" held with kind "rate_limited"
     And "reviewer"'s hold deadline is remembered
     When the human pauses "fixer" from the overlay
-    Then within 15s the roster shows "fixer" held with kind "human"
+    Then the roster comes to show "fixer" held with kind "human"
     When the session's coordinator dies and the session is resumed
-    Then within 60s the roster shows "reviewer" held with kind "rate_limited"
+    Then the roster comes to show "reviewer" held with kind "rate_limited"
     And "reviewer"'s hold deadline is unchanged
     And the roster shows "fixer" held with kind "human"
-    And within 120s the roster shows "reviewer" released on time
+    And the roster comes to show "reviewer" released on time
     And the journal records "reviewer"'s hold released by its own backoff
     And the roster shows "fixer" held with kind "human"
 
@@ -247,9 +247,9 @@ Feature: Coordinator delegates isolated work
     When the agent calls tool "agent_run" for "reviewer" with a briefing whose credential is refused
     Then the tool call succeeds
     And "reviewer"'s spawned session is remembered
-    And within 45s the roster shows "reviewer" held with kind "credential_rejected"
+    And the roster comes to show "reviewer" held with kind "credential_rejected"
     When the session's coordinator dies and the session is resumed
-    Then within 60s the roster shows "reviewer" held with kind "credential_rejected"
+    Then the roster comes to show "reviewer" held with kind "credential_rejected"
 
   # REMOVED with the orchestrator-routed escalation ladder (2026-08-31). The
   # scenario's own Given configured a ladder ("whose escalation ladder relays to

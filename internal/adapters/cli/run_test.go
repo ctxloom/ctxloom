@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
@@ -12,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // =============================================================================
@@ -225,6 +228,50 @@ func TestShellOutCompact_PropagatesError(t *testing.T) {
 
 // The resolveSelfExecutable decision tree (deleted-suffix stripping, PATH
 // fallback) is owned and tested by internal/adapters/selfexec.
+
+// TestEndOnSignal_TheNoticeLandsBeforeTheRunEnds: a shutdown signal ends the
+// run, and says so through the diagnostics sink BEFORE the run's context ends —
+// the unwind that context starts is what takes the session's diagnostics log
+// away, so a notice written after it would land on a terminal that may already
+// be gone (a hangup is exactly that case).
+func TestEndOnSignal_TheNoticeLandsBeforeTheRunEnds(t *testing.T) {
+	sigs := make(chan os.Signal, 1)
+	ctx, stop := endOnSignal(context.Background(), sigs)
+	defer stop()
+	sink := &runStateAtWrite{ctx: ctx}
+	restore := clidiag.SetSink(sink)
+
+	sigs <- syscall.SIGHUP
+	<-ctx.Done()
+	restore()
+	assert.Contains(t, sink.diag.String(), fmt.Sprintf(ShutdownSignalNotice, syscall.SIGHUP))
+	assert.False(t, sink.endedFirst, "the run ended before its shutdown notice was written")
+}
+
+// runStateAtWrite is a diagnostics sink that records whether ctx had already
+// ended when anything was written to it.
+type runStateAtWrite struct {
+	ctx        context.Context
+	diag       bytes.Buffer
+	endedFirst bool
+}
+
+func (w *runStateAtWrite) Write(p []byte) (int, error) {
+	w.endedFirst = w.endedFirst || w.ctx.Err() != nil
+	return w.diag.Write(p)
+}
+
+// TestEndOnSignal_StopEndsTheRunWithoutANotice: a run that ends on its own
+// says nothing about a signal it never received.
+func TestEndOnSignal_StopEndsTheRunWithoutANotice(t *testing.T) {
+	var diag bytes.Buffer
+	restore := clidiag.SetSink(&diag)
+	ctx, stop := endOnSignal(context.Background(), make(chan os.Signal))
+	stop()
+	<-ctx.Done()
+	restore()
+	assert.Empty(t, diag.String())
+}
 
 // TestAwaitDrain_ASignalDuringTheDrainCutsItShort: the session-exit drain is
 // bounded in minutes, so a shutdown signal sent while it waits must end the

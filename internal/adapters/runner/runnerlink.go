@@ -275,7 +275,8 @@ const runnerLinkCloseJoinBudget = 3 * time.Second
 
 // goTracked runs fn on a new goroutine Shutdown joins before closing the conn —
 // see trackedGroup. receiveLoop can dispatch a serveRequest that arrives just as
-// Shutdown begins, which is what the seal is for.
+// Shutdown begins; Abort seals only once receiveLoop has ended, so that serve
+// is joined too.
 func (l *RunnerLink) goTracked(fn func()) { l.tracked.Dispatch(fn) }
 
 // waitTracked joins every l.goTracked goroutine, with a bounded escape.
@@ -362,7 +363,6 @@ func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
 			},
 		}})
 	}
-	l.tracked.Seal()
 	// SERIALIZED WITH EVERY SENDER (closeSend). The heartbeat loop is still
 	// ticking at this point — deliberately, because the half-close below is
 	// what makes this a graceful end rather than a cancellation, so it must
@@ -378,10 +378,16 @@ func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
 // link that is being replaced (Home's redial) or crashed with its Home owes
 // the process: a ClientConn left open keeps its goroutines and buffers for
 // the life of the process, which is a leak per reconnect and per run.
+//
+// The receive loop ends BEFORE the group is sealed, and that order is the
+// join's whole guarantee: the receive loop is what dispatches serveRequest,
+// and a sealed group still runs what it is handed, only untracked. Sealed
+// first, a request that landed as the teardown began was served after Abort
+// returned — a StartRun driven for a runner already torn down.
 func (l *RunnerLink) Abort() {
-	l.tracked.Seal()
 	l.cancel()
 	<-l.done
+	l.tracked.Seal()
 	l.waitTracked()
 	_ = l.conn.Close()
 }

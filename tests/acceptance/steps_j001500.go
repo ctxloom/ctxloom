@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -41,40 +40,9 @@ const (
 	j001500UnsignedMarker = "J001500-UNSIGNED-OUTSIDE-MARKER"
 )
 
-// The unsigned bundle Alice references from outside the company, by remote and
-// bundle name.
-const (
-	j001500UnsignedRemote = "outside"
-	j001500UnsignedBundle = "outside-tools"
-)
-
-// j001500WithheldLine captures one per-item withheld advisory line
-// (operations.WarnWithheldBy): the ref, possibly empty, and its reason. The
-// reason stops at a double quote because off a terminal each warning is a JSON
-// object, whose closing `"}` would otherwise read as part of the reason.
-var j001500WithheldLine = regexp.MustCompile(`(?m)withheld (\S*): ([^"\n]*)`)
-
-// j001500CheckHeldReason checks one held item's reason against bare, the
-// reason's own rendering with no detail: a fragment's is exactly that, and an
-// executable's extends it with what would admit it.
-func j001500CheckHeldReason(ref, reason, bare string) error {
-	if strings.Contains(ref, "#fragment") {
-		if reason != bare {
-			return fmt.Errorf("the held guidance's reason is %q, want exactly %q: a fragment has nothing to add", reason, bare)
-		}
-		return nil
-	}
-	if !strings.HasPrefix(reason, bare) || reason == bare {
-		return fmt.Errorf("the held executable %s says only %q; it must also say what would admit it", ref, reason)
-	}
-	return nil
-}
-
 // j001500State is this journey's fixture state: the company's signed bundle
 // (signer identity, seeded remote, bundle name), whether Alice has wired it
-// into her project yet, and bookkeeping the later scenarios need (rejected
-// hook, extra company-signed bundles, the review --project PTY session's
-// outcome).
+// into her project yet, and the refused tamper pull's outcome.
 type j001500State struct {
 	signer     *testenv.TestSigner
 	principal  string
@@ -82,11 +50,6 @@ type j001500State struct {
 	bare       string // bare repo path (no file:// prefix), for AdvanceRemote/AdvanceSignedTreeRemote
 	bundleName string
 	referenced bool // remote added + profile modified (addRemoteBundleBase wiring done)
-
-	extraMarkers []string // scenario 6: additional company-signed bundles' markers
-
-	reviewPTYOutput string // scenario 7: captured `ctxloom review --project` pty output
-	reviewPTYExit   int
 
 	tamperPullOutput string // scenario 2: the refused `deps pull`'s output
 	tamperPullExit   int
@@ -157,21 +120,6 @@ func j001500EnsureReferenced(w *World) error {
 		return err
 	}
 	return runOK(w, "deps", "pull")
-}
-
-// j001500StartSession is "Alice starts a session": ensure the company bundle is
-// referenced and pulled, then materialize the default profile into "out" —
-// the single command that writes CLAUDE.md AND the generated settings files
-// (.mcp.json, .claude/settings.json) together (operations.MaterializeProfile),
-// so scenarios 1/3/4 share one implementation. Exit code is ignored here (a
-// strictness abort on a fatal trust finding is itself asserted by dedicated
-// Then steps, mirroring steps_j000200_setup.go's materializeDefault).
-func j001500StartSession(w *World) error {
-	if err := j001500EnsureReferenced(w); err != nil {
-		return err
-	}
-	_ = w.env.Run("profile", "materialize", "default", "--target", "out")
-	return nil
 }
 
 // j001500ReadMaterialized reads out/CLAUDE.md, the assembled content surface.

@@ -96,11 +96,3 @@ func TestSkillCommands_UseCobraContextNotBackground(t *testing.T) {
 	assert.Empty(t, offending,
 		"skill subcommands must pass cmd.Context() to the operations layer, not a detached root context")
 }
-
-// dirFormBundle creates an empty bundle tree, ready to hold skill packages.
-func dirFormBundle(t *testing.T, appDir, name string) {
-	t.Helper()
-	dir := filepath.Join(authoredV1(appDir), name)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "bundle.yaml"), []byte("version: \"1.0\"\n"), 0o644))
-}

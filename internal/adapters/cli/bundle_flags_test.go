@@ -56,8 +56,7 @@ func TestBundleSubcommandFlags(t *testing.T) {
 		{bundleViewCmd, []flagSpec{
 			{"distilled", "d", "false", "Show distilled version if available"},
 		}},
-		{bundleShowCmd, []flagSpec{
-		}},
+		{bundleShowCmd, []flagSpec{}},
 		{bundleEditCmd, []flagSpec{
 			{"description", "d", "", "New description"},
 			{"version", "", "", "New version"},

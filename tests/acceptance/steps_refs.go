@@ -23,11 +23,3 @@ func canonicalBundleRef(repoURL, bundle string) string {
 	}
 	return br.String()
 }
-
-// canonicalItemRef appends a "<kind>/<name>" selector to a canonical bundle
-// URI. The selector rides VERBATIM rather than through trust.ParseSelector, so
-// a scenario can drive a kind the grammar refuses — "profiles/x" — and assert
-// the refusal it is there to prove.
-func canonicalItemRef(repoURL, bundle, selector string) string {
-	return canonicalBundleRef(repoURL, bundle) + "#" + selector
-}

@@ -40,7 +40,6 @@ package acceptance
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -482,41 +481,6 @@ func j001600SeedFromDisk(w *World, name string) error {
 	return w.env.AdvanceRemote(st.bare, files)
 }
 
-// j001600VerifyPublished runs the CONSUMER's verifier — attest.VerifyBundle,
-// the same call config.loadTreeBundle makes for every pulled tree — over the
-// archived PUBLISHED tree, against a trust root holding Trent's key. Mirrors
-// j001600VerifyTreeAttestation, which does the identical check for a locally
-// signed directory bundle; this one reads what actually went to the remote.
-func j001600VerifyPublished(w *World, name string) error {
-	st := j001600Of(w)
-	if st.publishedDir == "" {
-		return fmt.Errorf("nothing has been published yet")
-	}
-	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(st.publishedDir), content.Provenance{IsLocal: true})
-	if err != nil {
-		return fmt.Errorf("open the published tree at %s: %w", st.publishedDir, err)
-	}
-	ctx := context.Background()
-	tree, err := store.Open(ctx, content.BundleID(name))
-	if err != nil {
-		return fmt.Errorf("open the published bundle %q: %w", name, err)
-	}
-	root := allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{j001600Principal},
-		Namespaces: []string{signing.NamespacePublish},
-		PublicKey:  st.signer.Public,
-		KeyType:    st.signer.Public.Type(),
-	})
-	verdict, err := attest.VerifyBundle(ctx, tree, root, time.Now())
-	if err != nil {
-		return fmt.Errorf("verify the published bundle %q: %w", name, err)
-	}
-	if !verdict.OK() {
-		return fmt.Errorf("the published bundle %q verifies as %q (%s), not as Trent signed it", name, verdict.Status, verdict.Detail)
-	}
-	return nil
-}
-
 // j001600Reference wires the company remote into the consuming project the way a
 // developer does — remote add (an address; never trust), reference it from the
 // composed profile, then pull.
@@ -542,13 +506,6 @@ func j001600Reference(w *World) error {
 	}
 	st.referenced = true
 	return runOK(w, "deps", "pull")
-}
-
-// j001600ItemRef builds the canonical item ref for a fragment of the PUBLISHED
-// bundle — the same grammar `bundle trust`, `bundle reject` and `bundle sign`
-// all share.
-func j001600ItemRef(w *World, fragment string) string {
-	return canonicalItemRef("file://"+j001600Of(w).bare, j001600PublishedName, "fragments/"+fragment)
 }
 
 // j001600Delivered materializes the default profile and returns the assembled
@@ -577,48 +534,6 @@ func j001600AssertDelivery(w *World, marker string, want bool) error {
 		return fmt.Errorf("the assembled context still carries %q, which should have been withheld; delivered:\n%s", marker, body)
 	}
 	return nil
-}
-
-// j001600AssertReviewState reads the review-state LABEL `ctxloom fragment list
-// --format json` renders for a fragment of the PUBLISHED bundle — the same
-// operations.TrustStamper/EffectiveTrust verdict materialize applies, surfaced
-// as the word a human sees in `ctxloom review`.
-//
-// This is the half of "a later revision returns it to review" that an ABSENCE
-// cannot fake. Withheld-because-the-approval-no-longer-covers-these-bytes and
-// withheld-because-the-revision-never-arrived look identical in the delivered
-// payload; they read differently here, because bytes that never arrived leave
-// the original sitting at "accepted".
-func j001600AssertReviewState(w *World, fragment, want string) error {
-	if err := runOK(w, "fragment", "list", "--format", "json"); err != nil {
-		return err
-	}
-	out := w.env.LastStdout()
-	var rows []map[string]any
-	if err := json.Unmarshal([]byte(out), &rows); err != nil {
-		return fmt.Errorf("parse `fragment list --format json`: %w\nstdout:\n%s", err, out)
-	}
-	for _, row := range rows {
-		if n, _ := row["name"].(string); n != fragment {
-			continue
-		}
-		// bundle_label, not bundle: for remote content "bundle" is the whole
-		// canonical "<url>@bundles/<name>" ref, and the label is the bare name.
-		// The pairing matters — the SAME fragment name also arrives from the
-		// companion bundles this machine happens to have installed.
-		if b, _ := row["bundle_label"].(string); b != j001600PublishedName {
-			continue
-		}
-		got, _ := row["state"].(string)
-		w.docStepMaterialized = fmt.Sprintf("fragment list --format json → %q: state=%q trust_source=%v trusted=%v",
-			fragment, got, row["trust_source"], row["trusted"])
-		if got != want {
-			return fmt.Errorf("the published %q fragment's review state is %q, want %q — a revision the earlier acceptance "+
-				"does not cover must come back for review, not stay decided; row: %v", fragment, got, want, row)
-		}
-		return nil
-	}
-	return fmt.Errorf("no %q fragment of bundle %q in `fragment list --format json`:\n%s", fragment, j001600PublishedName, out)
 }
 
 // j001600EmbeddedPrincipals returns the principals ctxloom's compiled-in trust

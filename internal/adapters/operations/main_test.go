@@ -12,11 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
-// realHOME is the ambient HOME this process started with, captured before
-// TestMain ever overwrites it. A test that must prove nothing reached the
-// developer's genuine ~/.ctxloom needs the pre-sandbox location to inspect.
-var realHOME = os.Getenv("HOME")
-
 // TestMain sandboxes the WHOLE package binary — an isolated HOME and an
 // isolated working directory, installed before a single test runs — via
 // testsupport.SandboxedMain, and pins the package-specific seams around it.

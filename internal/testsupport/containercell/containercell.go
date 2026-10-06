@@ -41,12 +41,15 @@
 // docker and podman, which have separate image stores and would otherwise each
 // need their own warm cache.
 //
-// 2. MOUNTS ARE IDENTICAL-PATH. The host directory is bind-mounted at exactly
-// its own absolute path, which is the shape ctxloom's own container isolation
-// uses (a workspace mounted where the editor already looks). It also means the
-// test can hand the in-container ctxloom the SAME absolute paths it would use
-// on the host — no path translation layer to get wrong, and an assertion that
-// reads the host side is reading the very bytes the container wrote.
+// 2. MOUNTS ARE IDENTICAL-PATH. A directory is bind-mounted at exactly the
+// absolute path the test sees it at, which is the shape ctxloom's own
+// container isolation uses (a workspace mounted where the editor already
+// looks). It also means the test can hand the in-container ctxloom the SAME
+// absolute paths it uses itself, and an assertion that reads the test's side
+// is reading the very bytes the container wrote. Only the bind SOURCE is
+// translated (Mount.Source): it is the daemon's name for the directory, which
+// differs from the test's when the test runs in a container sharing nothing
+// with the daemon at the same path.
 //
 // 3. THE IN-CONTAINER UID IS CHOSEN PER RUNTIME, and this is the part that
 // actually differs across the matrix. Under ROOTLESS docker/podman, container
@@ -517,12 +520,12 @@ const InContainerBinary = "/ctxloom"
 
 // Spec is one in-container ctxloom invocation.
 type Spec struct {
-	// Mounts are host directories bind-mounted READ-WRITE at their own
+	// Mounts are directories bind-mounted READ-WRITE at the test's own
 	// absolute paths (see the package doc's decision 2). Delivery targets must
 	// be under one of them, or the container writes into its own ephemeral
 	// layer and the host observes nothing — a silent no-op the caller's
 	// payload assertion is what catches.
-	Mounts []string
+	Mounts []Mount
 	// WorkDir is the in-container working directory, i.e. a host path under
 	// one of Mounts.
 	WorkDir string
@@ -532,6 +535,12 @@ type Spec struct {
 	// Args is the ctxloom argv, without the binary.
 	Args []string
 }
+
+// Mount is one directory the container sees at Path, the absolute path the
+// test sees it at. Source is the daemon's name for it: Path itself where the
+// test shares the daemon's filesystem, else Path as the test process's layer
+// reverses it.
+type Mount struct{ Source, Path string }
 
 // Result is what the run did. Output is combined stdout+stderr: a caller
 // asserting on delivered payload still needs the diagnostic when the payload is
@@ -560,7 +569,7 @@ func (r Runtime) Run(ctx context.Context, spec Spec) (Result, error) {
 	if spec.WorkDir == "" {
 		return Result{}, errors.New("cell spec has no WorkDir; a container with no working directory would resolve the project from nowhere")
 	}
-	if !underAny(spec.WorkDir, spec.Mounts) {
+	if !underAny(spec.WorkDir, mountPaths(spec.Mounts)) {
 		return Result{}, fmt.Errorf("cell WorkDir %q is not under any mount %v: the container would run against an empty ephemeral layer and the host would observe nothing",
 			spec.WorkDir, spec.Mounts)
 	}
@@ -568,20 +577,7 @@ func (r Runtime) Run(ctx context.Context, spec Spec) (Result, error) {
 		return Result{}, err
 	}
 
-	argv := []string{"run", "--rm", "--network=none"}
-	if u := r.UserFlag(); u != "" {
-		argv = append(argv, "--user", u)
-	}
-	for _, m := range spec.Mounts {
-		argv = append(argv, "-v", m+":"+m)
-	}
-	argv = append(argv, "-w", spec.WorkDir)
-	for _, k := range collections.SortedKeys(spec.Env) {
-		argv = append(argv, "-e", k+"="+spec.Env[k])
-	}
-	argv = append(argv, ImageTag, InContainerBinary)
-	argv = append(argv, spec.Args...)
-
+	argv := r.runArgv(spec)
 	cmd := exec.CommandContext(ctx, r.Command, argv...)
 	out, err := cmd.CombinedOutput()
 	res := Result{
@@ -594,6 +590,33 @@ func (r Runtime) Run(ctx context.Context, spec Spec) (Result, error) {
 		return res, fmt.Errorf("%s run failed to start: %w\n%s", r.Command, err, out)
 	}
 	return res, nil
+}
+
+// runArgv is the run's argv after the runtime binary: each mount's daemon
+// source bound at its path, the work dir, the environment, then ctxloom.
+func (r Runtime) runArgv(spec Spec) []string {
+	argv := []string{"run", "--rm", "--network=none"}
+	if u := r.UserFlag(); u != "" {
+		argv = append(argv, "--user", u)
+	}
+	for _, m := range spec.Mounts {
+		argv = append(argv, "-v", m.Source+":"+m.Path)
+	}
+	argv = append(argv, "-w", spec.WorkDir)
+	for _, k := range collections.SortedKeys(spec.Env) {
+		argv = append(argv, "-e", k+"="+spec.Env[k])
+	}
+	argv = append(argv, ImageTag, InContainerBinary)
+	return append(argv, spec.Args...)
+}
+
+// mountPaths is each mount's Path.
+func mountPaths(mounts []Mount) []string {
+	paths := make([]string, len(mounts))
+	for i, m := range mounts {
+		paths[i] = m.Path
+	}
+	return paths
 }
 
 // UserFlag is the --user value this runtime needs so files written through the

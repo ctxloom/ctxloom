@@ -1,1 +1,0 @@
-`next: Closeout found no work changed—nothing to verify, no tests written, no mutations. Ready for the next task.`

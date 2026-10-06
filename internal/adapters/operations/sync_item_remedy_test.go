@@ -31,7 +31,7 @@ func TestSyncItem_RemedyUsesItsCause(t *testing.T) {
 // An invalid reference is a spelling problem, not a network one: its fix
 // must say so rather than send the user to check their connection (6c).
 func TestSyncItem_InvalidReferenceNamesItsOwnFix(t *testing.T) {
-	item := syncItem(context.Background(), &syncMockPuller{}, "not a reference at all ::", remote.ItemTypeBundle, treeBase, true, nil, nil)
+	item := syncItem(context.Background(), &syncMockPuller{}, "not a reference at all ::", remote.ItemTypeBundle, treeBase, true, nil)
 	assert.Equal(t, "failed", item.Status)
 	assert.Equal(t, remedyInvalidReference, item.Remedy())
 	assert.Contains(t, item.Error, "invalid reference")

@@ -1,1 +1,0 @@
-`next: pre-flight — examine working directory, establish queue, and confirm baseline before starting work`

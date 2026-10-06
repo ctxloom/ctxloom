@@ -1,1 +1,0 @@
-`next: Explore the current directory to find design work, task logs, or design docs that contain open decisions I should walk through`

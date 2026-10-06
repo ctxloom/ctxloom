@@ -77,19 +77,19 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	}
 
 	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
-	// The previous lockfile anchors three safety nets across the closure
-	// rebuild: the per-item Pinned flag (the user's "do not upgrade this" hold
-	// must survive a relock), the per-item Retracted flag, and the preserved
-	// entries when the closure is incomplete.
+	// The previous lockfile anchors two safety nets across the closure
+	// rebuild: the per-item Held flag (the user's "do not upgrade this" hold
+	// must survive a relock), and the preserved entries when the closure is
+	// incomplete.
 	//
 	// An UNREADABLE previous lockfile FAILS the rebuild (ruled). A rebuild that
 	// started from an empty lock would treat every pin as a first pin and
 	// re-resolve it — moving pins outside `deps upgrade`, decided by a read
-	// error. The corrupt file, and the holds, retractions and floors still
-	// recorded in it, is left for the user to fix or delete.
+	// error. The corrupt file, and the pins and holds still recorded in it, is
+	// left for the user to fix or delete.
 	prev, prevErr := lockManager.Load()
 	if prevErr != nil {
-		return nil, fmt.Errorf("%w: the holds, retractions and version floors in %s would be lost to a rebuild; fix or delete it: %w", remote.ErrLockfileUnreadable, lockManager.Path(), prevErr)
+		return nil, fmt.Errorf("%w: the pins and holds in %s would be lost to a rebuild; fix or delete it: %w", remote.ErrLockfileUnreadable, lockManager.Path(), prevErr)
 	}
 	// prevEntries is the previous lockfile keyed the same way the rebuild keys
 	// its pins, so every field that must OUTLIVE a closure rebuild is read from
@@ -98,16 +98,9 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	// by relockEntry rather than one lookup per field.
 	//
 	// What must survive, and why:
-	//   Pinned    — the user's "do not upgrade this" hold is a decision, and a
+	//   Held      — the user's "do not upgrade this" hold is a decision, and a
 	//               relock is not entitled to reverse it.
-	//   RequestedVersion, SignedVersion/Publisher — what the carried pin was
-	//               resolved from, and its version floor.
-	//   Retracted — this rebuild has no live manifest in hand, so it must never
-	//               CLEAR a retraction only a fresh check (sync's own re-check,
-	//               or the next Pull) is entitled to lift. Without it a relock
-	//               triggered right after syncItem's installed-ref re-check
-	//               (operations.checkInstalledRetraction) would drop the flag
-	//               that check had just recorded.
+	//   RequestedVersion — what the carried pin was resolved from.
 	prevEntries := map[string]remote.LockEntry{}
 	for _, e := range prev.AllEntries() {
 		prevEntries[relockKey(e.Type, e.Ref)] = e.Entry
@@ -172,8 +165,8 @@ func relockKey(t remote.ItemType, id trust.BundleKey) string {
 
 // relockEntry is the entry p lands as in a rebuild, carrying what its previous
 // entry must keep. The rebuild never moves a pin (the lock-mode resolver
-// carries every existing SHA), so a carried pin keeps its constraint, floor and
-// fetch time; Held and the retraction verdict carry regardless.
+// carries every existing SHA), so a carried pin keeps its constraint and fetch
+// time; Held carries regardless.
 func relockEntry(p PinnedRef, prevEntries map[string]remote.LockEntry) remote.LockEntry {
 	entry := pinnedEntry(p)
 	prevEntry, ok := prevEntries[relockKey(p.Type, p.Identity)]
@@ -181,13 +174,10 @@ func relockEntry(p PinnedRef, prevEntries map[string]remote.LockEntry) remote.Lo
 		return entry
 	}
 	entry.Held = prevEntry.Held
-	entry.Retracted = prevEntry.Retracted
-	entry.RetractedReason = prevEntry.RetractedReason
 	if prevEntry.SHA == p.Hash {
 		// The manifest may ask for something else now; only `deps upgrade`
 		// applies that (see constraintChanges).
 		entry.RequestedVersion = prevEntry.RequestedVersion
-		entry.SignedVersion, entry.Publisher = prevEntry.SignedVersion, prevEntry.Publisher
 		keepFetchedAt(&entry, prevEntry)
 	}
 	return entry

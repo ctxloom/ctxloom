@@ -869,7 +869,7 @@ func p0Cells() []probeCell {
 // cache file. A LAUNCH is not that path: the context surface is the thing that
 // would have written the cache file, and at this approach it writes nothing.
 // TestClaudeHookApproach_DeliversNothing holds that fact so this attribution
-// cannot rot the way the codex one did.
+// cannot rot.
 //
 // So the finding is sharper than "the hook route is broken": a user-selectable
 // config key elects a context delivery of ZERO BYTES, and the session launches
@@ -879,7 +879,7 @@ func p0Cells() []probeCell {
 // WHAT IT IS NOT. Not a degrade: no degrade marker appeared on stderr, so the
 // pin reached the wire (approachPinHonoured is the check that tells those
 // apart). Not an unwritten hook surface either — claude has a durable project
-// home, so unlike codex its hook IS written; approachRequiredSurfaceDelivered
+// home, so its hook IS written; approachRequiredSurfaceDelivered
 // stays silent here, correctly. Not an empty assembly: the same stderr reports
 // "context: 2 fragment(s), ~336 tokens". And not the output contract — the JSON
 // was perfect every time.

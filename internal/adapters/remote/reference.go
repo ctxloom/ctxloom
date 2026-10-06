@@ -493,9 +493,8 @@ func (r *Reference) CanonicalString() string {
 // fields — the source class, the repository the URL names (read by the one
 // repo-level canonicalizer, refuri.ParseRepoIdentity), the bundle path and the
 // content version. It is the ONE place a parsed Reference becomes an identity:
-// the lockfile key, the canonical string, a reader's source ref and the key a
-// retraction is looked up by all come from here, so no two of them can spell
-// one bundle two ways.
+// the lockfile key, the canonical string and a reader's source ref all come
+// from here, so no two of them can spell one bundle two ways.
 func (r *Reference) BundleRef() (trust.BundleRef, error) {
 	var (
 		br  trust.BundleRef
@@ -606,8 +605,7 @@ const WorktreeDirSuffix = ".worktree"
 // repository to its last two segments, and a case-folding filesystem merges
 // names that differ only in case, though path case is identity. Two lock keys
 // sharing one worktree read one tree — whichever was pulled last — so one
-// repository's bytes would be served under another's key, a retraction
-// included. An unaddressable reference has no lock key and so no directory.
+// repository's bytes would be served under another's key. An unaddressable reference has no lock key and so no directory.
 //
 // CONTAINMENT: the result is handed to MkdirAll, a git worktree add and
 // RemoveAll, so it must lie strictly inside the bundle cache root however the

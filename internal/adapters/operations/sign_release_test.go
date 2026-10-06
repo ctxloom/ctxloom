@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -50,24 +49,19 @@ func TestSignBundleFile_RefusesAVersionThatIsNotStrictSemver(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrUnsignableVersion), "got %v", err)
 }
 
-func TestSignBundleFile_SignsTheAuthoredReleaseIncludingRetractions(t *testing.T) {
+func TestSignBundleFile_SignsTheAuthoredRelease(t *testing.T) {
 	_, cfg := setupBundleTestDir(t)
-	dir := authorKit(t, cfg, "version: 1.3.0\nretracts:\n  - version: 1.2.0\n    reason: broken hook\nwithdrawn: superseded by kit2\n", "KEEPER\n")
+	dir := authorKit(t, cfg, "version: 1.3.0\n", "KEEPER\n")
 	require.NoError(t, signKit(t, cfg, false))
 
 	rel := signedKitManifest(t, dir).Release()
 	assert.Equal(t, "kit", rel.Name)
 	assert.Equal(t, "1.3.0", rel.Version.String())
-	retracted, why := rel.Retracted(semver.MustParse("1.2.0"))
-	assert.True(t, retracted)
-	assert.Equal(t, "superseded by kit2", why, "a withdrawal answers for every version")
-	require.Len(t, rel.Retracts, 1)
-	assert.Equal(t, "broken hook", rel.Retracts[0].Reason)
 }
 
-// RULED: one version names one content. A consumer holding the floor at a
-// version accepts that same version again, so re-signing it over different
-// bytes would change what they run without anything they check moving.
+// RULED: one version names one content: re-signing it over different bytes
+// would change what a consumer of that version runs while the version they see
+// stays the same.
 func TestSignBundleFile_RefusesToReSignAVersionOverDifferentContent(t *testing.T) {
 	_, cfg := setupBundleTestDir(t)
 	dir := authorKit(t, cfg, "version: 1.0.0\n", "KEEPER\n")

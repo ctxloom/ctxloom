@@ -1,7 +1,0 @@
-name: hcl/remove-block
-seams: [e2e]
-kind: ok
-format: hcl
-ops: [OP-35]
-why: A whole block removed by its label address, with its body as the assertion.
-spec: "§8.5, §11 OP-35"

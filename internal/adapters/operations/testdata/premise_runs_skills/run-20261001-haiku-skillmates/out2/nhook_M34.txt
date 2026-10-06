@@ -1,1 +1,0 @@
-`next: Call task_list to get Deferred tasks and their triggers`

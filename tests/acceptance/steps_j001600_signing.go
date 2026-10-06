@@ -2,7 +2,7 @@
 
 // J001600: "a signature somebody can check" (j001600_signing.feature) — the PRODUCTION
 // half of ctxloom's signing story, which no acceptance scenario had ever
-// driven. J001500 proves CONSUMPTION (tamper, retraction, key revocation, rejection
+// driven. J001500 proves CONSUMPTION (tamper, key revocation, rejection
 // beating trust) beautifully, but against fixtures signed IN GO by
 // testenv.TestSigner, sometimes with the trust root written straight to disk by
 // TrustSigner. Before this file, `ctxloom bundle sign` had never produced a

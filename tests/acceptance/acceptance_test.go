@@ -113,8 +113,8 @@ func TestAcceptance(t *testing.T) {
 		//   j000700_team_authoring.feature's own-active-session scenario) — excluded
 		//   rather than left undefined, which Strict mode would fail on.
 		// @wip: a scenario that cannot be honestly greened yet because of a real
-		//   product gap, not a harness gap (see j001500_corporate_signed.feature's
-		//   retraction scenario and the filed task) — excluded from the default run.
+		//   product gap, not a harness gap; each carries its own untag condition
+		//   — excluded from the default run.
 		// @container: needs a reachable docker/podman daemon AND an agent image,
 		//   built before the scenarios run (prepareSuiteImages). It has its own
 		//   gate, `just test-acceptance-container`, which really performs the

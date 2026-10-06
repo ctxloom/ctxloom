@@ -1,12 +1,12 @@
 package remote
 
 import (
-	"bytes"
 	"context"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -15,49 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
-
-func TestPromptConfirmation(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected bool
-	}{
-		{"lowercase y", "y\n", true},
-		{"uppercase Y", "Y\n", true},
-		{"lowercase yes", "yes\n", true},
-		{"uppercase YES", "YES\n", true},
-		{"mixed case Yes", "Yes\n", true},
-		{"n", "n\n", false},
-		{"no", "no\n", false},
-		{"empty", "\n", false},
-		{"other text", "maybe\n", false},
-		{"y with spaces", "  y  \n", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var buf bytes.Buffer
-			reader := strings.NewReader(tt.input)
-
-			got, err := promptConfirmation(&buf, reader, "Test prompt")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			if got != tt.expected {
-				t.Errorf("promptConfirmation() = %v, want %v", got, tt.expected)
-			}
-
-			// Check prompt was written
-			if !strings.Contains(buf.String(), "Test prompt") {
-				t.Error("prompt not written to output")
-			}
-			if !strings.Contains(buf.String(), "[y/N]") {
-				t.Error("default indicator not in prompt")
-			}
-		})
-	}
-}
 
 // mockFetcher is a test double for Fetcher.
 type mockFetcher struct {
@@ -199,12 +156,9 @@ func TestPuller_Pull(t *testing.T) {
 		}, nil)),
 	)
 
-	var stdout bytes.Buffer
 	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
 		LocalDir: "/test",
 		ItemType: ItemTypeBundle,
-		Stdout:   &stdout,
-		Stdin:    strings.NewReader(""),
 	})
 
 	require.NoError(t, err)
@@ -229,11 +183,9 @@ func TestPuller_Pull(t *testing.T) {
 // TestPuller_Pull_LockfileWriteFailureIsNotSwallowed pins that for a
 // bundle the lockfile is the ONLY on-disk record (writePulledContent is a
 // synthetic no-op — nothing else is written). installPulledItem demoted a
-// failed lockfile write to a printed "Warning:" on opts.Stdout and returned
-// success anyway, so a pull whose sole persistent record failed to write
-// still reported a SHA and LocalPath for a pin that does not exist on disk —
-// including, on a retracted item, silently dropping the freshly-computed
-// Retracted verdict so EffectiveTrust never learns to withhold it.
+// failed lockfile write to a printed "Warning:" and returned success anyway,
+// so a pull whose sole persistent record failed to write still reported a SHA
+// and LocalPath for a pin that does not exist on disk.
 func TestPuller_Pull_LockfileWriteFailureIsNotSwallowed(t *testing.T) {
 	base := afero.NewMemMapFs()
 	require.NoError(t, base.MkdirAll("/test", 0755))
@@ -256,12 +208,9 @@ func TestPuller_Pull_LockfileWriteFailureIsNotSwallowed(t *testing.T) {
 		WithFetcherFactory(mockFetcherFactory(mf)),
 	)
 
-	var stdout bytes.Buffer
 	_, err = puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
 		LocalDir: "/test",
 		ItemType: ItemTypeBundle,
-		Stdout:   &stdout,
-		Stdin:    strings.NewReader(""),
 	})
 
 	require.Error(t, err, "a pull whose only persistent record failed to write must not report success")
@@ -286,11 +235,8 @@ func TestPuller_Pull_RejectsEmptyContent(t *testing.T) {
 		WithLockfileManager(lm),
 	)
 
-	var stdout bytes.Buffer
 	_, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
 		ItemType: ItemTypeBundle,
-		Stdout:   &stdout,
-		Stdin:    strings.NewReader(""),
 	})
 
 	require.Error(t, err, "a zero-byte remote file must not pull successfully")
@@ -313,83 +259,6 @@ func TestPuller_Pull_InvalidReference(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid reference")
-}
-
-// TestPuller_Pull_RetractedVersion_Force pins the retraction contract: a
-// retracted version warns, and a forced (non-interactive) pull proceeds without
-// prompting — sync/batch callers set Force so a prompt never blocks on a stdin
-// nobody answers.
-func TestPuller_Pull_RetractedVersion_Force(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-	// No single file at the bundle's own path: FetchFile 404s there and
-	// fetchItemBytes falls back to the wired TreeFetchFunc. The retraction is
-	// the signed SHA256SUMS at the default branch's tip, fetched on its own.
-	mf := NewMockFetcher()
-	mf.Files[".ctxloom/content/bundles/v2/security/SHA256SUMS"] = []byte("withdrawn")
-	mf.Refs["main"] = "abc123"
-
-	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()),
-		WithManifestVerifier(verifierFor(map[string]Verified{"withdrawn": signedTip("security", "2.0.0", "compromised release")})),
-		WithFetcherFactory(mockFetcherFactory(mf)),
-		WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
-		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
-			".ctxloom/content/bundles/v2/security": {
-				BundleManifestName: {Data: []byte("description: Security\n")},
-			},
-		}, nil)),
-	)
-
-	var stdout bytes.Buffer
-	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
-		Force:    true,
-		LocalDir: paths.AppDirName,
-		ItemType: ItemTypeBundle,
-		Stdout:   &stdout,
-		Stdin:    strings.NewReader(""), // EOF: a prompt read here would fail the pull
-	})
-
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Contains(t, stdout.String(), "retracted")
-}
-
-func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-	// Mock fetcher: no single file at the bundle's path, so FetchFile 404s
-	// and fetchItemBytes falls back to the wired TreeFetchFunc.
-	mf := NewMockFetcher()
-	mf.Refs["main"] = "abc123"
-
-	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()),
-		WithFetcherFactory(mockFetcherFactory(mf)),
-		WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
-		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
-			".ctxloom/content/bundles/v2/security": {
-				BundleManifestName: {Data: []byte("description: Security\n")},
-			},
-		}, nil)),
-	)
-
-	// Call with nil Stdout and Stdin - should use defaults
-	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
-		Force:    true,
-		LocalDir: paths.AppDirName,
-		ItemType: ItemTypeBundle,
-		Stdout:   nil, // Should default to os.Stdout
-		Stdin:    nil, // Should default to os.Stdin
-	})
-
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Equal(t, "abc123", result.SHA)
 }
 
 func TestDefaultFetcherFactory(t *testing.T) {
@@ -423,7 +292,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		hadExisting, err := puller.updateLockfile("ctxloom+git://github.com/alice/ctxloom//bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "^1.0", "v1.0.0", SelectorVersion, false, "", time.Time{}, Verified{})
+		hadExisting, err := puller.updateLockfile(&fetchedItem{localName: "ctxloom+git://github.com/alice/ctxloom//bundles/security", rem: rem, sha: "abc123def456", requestedVersion: "^1.0", resolvedVersion: "v1.0.0", kind: SelectorVersion}, ItemTypeBundle)
 
 		require.NoError(t, err)
 		assert.False(t, hadExisting, "a brand new entry is not an overwrite")
@@ -455,10 +324,10 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		_, err := puller.updateLockfile("ctxloom+git://github.com/alice/ctxloom//bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0", "", SelectorVersion, false, "", time.Time{}, Verified{})
+		_, err := puller.updateLockfile(&fetchedItem{localName: "ctxloom+git://github.com/alice/ctxloom//bundles/security", rem: rem, sha: "abc123", requestedVersion: "v1.0.0", kind: SelectorVersion}, ItemTypeBundle)
 		require.NoError(t, err)
 
-		_, err = puller.updateLockfile("ctxloom+git://github.com/alice/ctxloom//bundles/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0", "", SelectorVersion, false, "", time.Time{}, Verified{})
+		_, err = puller.updateLockfile(&fetchedItem{localName: "ctxloom+git://github.com/alice/ctxloom//bundles/testing", rem: rem, sha: "def456", requestedVersion: "v2.0.0", kind: SelectorVersion}, ItemTypeBundle)
 		require.NoError(t, err)
 
 		loaded, err := lm.Load()
@@ -467,75 +336,50 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		assert.Contains(t, loaded.Bundles, trust.BundleKey("ctxloom+git://github.com/alice/ctxloom//bundles/security"))
 		assert.Contains(t, loaded.Bundles, trust.BundleKey("ctxloom+git://github.com/alice/ctxloom//bundles/testing"))
 	})
-
-	// A blanket re-pull (no explicit version, as in `deps pull --force`) must
-	// not silently un-hold a held entry or advance its frozen SHA. The hold is a
-	// "do not upgrade" decision; force repairs, it does not move past the hold.
-	t.Run("blanket re-pull preserves hold and frozen SHA", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(paths.AppDirName, 0755))
-
-		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
-		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
-
-		const ref = "https://github.com/alice/ctxloom@bundles/security" // as typed; keyed via lockKeyOf
-		seeded := &Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}
-		seeded.AddEntry(ItemTypeBundle, lockKeyOf(t, ref), LockEntry{
-			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom",
-			Version: "v1.0.0", RequestedVersion: "v1.0.0", Held: true,
-		})
-		require.NoError(t, lm.Save(seeded))
-
-		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-			WithTreeVerifier(stubTreeVerifier()), WithLockfileManager(lm))
-		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
-
-		// Force pull resolves default-branch HEAD ("newhead") with no requested version.
-		requireUpdateLockfile(t, puller, ref, "newhead", "", rem)
-
-		loaded, err := lm.Load()
-		require.NoError(t, err)
-		entry := loaded.Bundles[lockKeyOf(t, ref)]
-		assert.True(t, entry.Held, "hold must survive a blanket re-pull")
-		assert.Equal(t, "pinnedsha", entry.SHA, "frozen SHA must not advance to HEAD")
-		assert.Equal(t, "v1.0.0", entry.Version)
-	})
-
-	// An explicit version pull is a deliberate move; it advances a held entry
-	// but keeps it held at the new SHA (the flag is never silently dropped).
-	t.Run("explicit version pull advances a held entry but keeps the hold", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(paths.AppDirName, 0755))
-
-		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
-		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
-
-		const ref = "https://github.com/alice/ctxloom@bundles/security" // as typed; keyed via lockKeyOf
-		seeded := &Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}
-		seeded.AddEntry(ItemTypeBundle, lockKeyOf(t, ref), LockEntry{
-			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom", Held: true,
-		})
-		require.NoError(t, lm.Save(seeded))
-
-		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-			WithTreeVerifier(stubTreeVerifier()), WithLockfileManager(lm))
-		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
-
-		requireUpdateLockfile(t, puller, ref, "v2sha", "v2.0.0", rem)
-
-		loaded, err := lm.Load()
-		require.NoError(t, err)
-		entry := loaded.Bundles[lockKeyOf(t, ref)]
-		assert.True(t, entry.Held, "hold must survive an explicit move")
-		assert.Equal(t, "v2sha", entry.SHA, "explicit version pull advances the SHA")
-		assert.Equal(t, "v2.0.0", entry.RequestedVersion)
-	})
 }
 
-// requireUpdateLockfile calls updateLockfile with a bundle PullOptions and
-// fails the test on error (helper for the hold-preservation cases above).
-func requireUpdateLockfile(t *testing.T, puller *Puller, ref, sha, requestedVersion string, rem *Remote) {
-	t.Helper()
-	_, err := puller.updateLockfile(lockKeyOf(t, ref), PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "", "", false, "", time.Time{}, Verified{})
+// A pull never moves an existing pin, held or not: `deps pull --force` repairs
+// a tree, it does not advance past the pin, and the hold is carried forward.
+func TestPuller_Pull_ARePullKeepsTheHeldPin(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry, err := NewRegistry("", WithRegistryFS(fs))
 	require.NoError(t, err)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+	lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
+
+	const ref = "https://github.com/alice/ctxloom@bundles/security"
+	seeded := &Lockfile{Version: LockfileVersion, Bundles: map[trust.BundleKey]LockEntry{}}
+	seeded.AddEntry(ItemTypeBundle, lockKeyOf(t, ref), LockEntry{
+		SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom", Version: "v1.0.0", RequestedVersion: "v1.0.0", Held: true,
+	})
+	require.NoError(t, lm.Save(seeded))
+
+	mf := NewMockFetcher()
+	mf.Refs["main"] = "newhead"
+	var checkedOut string
+	puller := NewPuller(registry, AuthConfig{},
+		WithTreeInstaller(func(_ context.Context, _, sha, subpath, worktreeDir string) (string, error) {
+			checkedOut = sha
+			return filepath.Join(worktreeDir, filepath.FromSlash(subpath)), nil
+		}),
+		WithTreeVerifier(stubTreeVerifier()),
+		WithFetcherFactory(mockFetcherFactory(mf)),
+		WithLockfileManager(lm),
+		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
+			".ctxloom/content/bundles/v2/security": {BundleManifestName: {Data: []byte("description: Security\n")}},
+		}, nil)),
+	)
+
+	res, err := puller.Pull(context.Background(), ref, PullOptions{LocalDir: paths.AppDirName, ItemType: ItemTypeBundle})
+	require.NoError(t, err)
+	assert.Equal(t, "pinnedsha", res.SHA)
+	assert.Equal(t, "pinnedsha", checkedOut, "the checkout and the record are one commit: the held one")
+	assert.True(t, res.Reinstalled)
+
+	loaded, err := lm.Load()
+	require.NoError(t, err)
+	entry := loaded.Bundles[lockKeyOf(t, ref)]
+	assert.True(t, entry.Held, "a re-pull must not clear the hold")
+	assert.Equal(t, "pinnedsha", entry.SHA, "a re-pull must not advance the pin to HEAD")
+	assert.Equal(t, "v1.0.0", entry.Version)
 }

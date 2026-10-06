@@ -1,7 +1,0 @@
-{
-  // ctxloom-managed block below
-
-  // the old telemetry opt-out
-  "telemetry": false,
-  "port": 8080
-}

@@ -51,7 +51,7 @@ import (
 // VARIANT when the cell has one.
 //
 // The FAMILY is part of the line because the ladder runs many probes over the
-// same engine × axis grid: "SKIP [engine=codex runtime=host workspace=none]"
+// same engine × axis grid: "SKIP [engine=claude-code runtime=host workspace=none]"
 // read on its own cannot tell you whether the MCP round trip or the approach
 // sweep declined to run. The VARIANT is part of it for the same reason one rung
 // down: P4 runs a plan cell and its bypass control on identical axes, and a

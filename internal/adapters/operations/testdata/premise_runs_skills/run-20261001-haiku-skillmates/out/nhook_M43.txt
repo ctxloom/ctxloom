@@ -1,3 +1,0 @@
-I need to recover the context from before the clear to understand what work those ten commits represent.
-
-invoke: recover_session

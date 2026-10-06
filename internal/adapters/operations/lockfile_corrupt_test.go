@@ -18,9 +18,7 @@ import (
 // (Retracted) — forward by reading the PREVIOUS lockfile. When that read
 // failed it degraded the previous lockfile to an empty one and carried nothing
 // forward, then saved the result over the corrupt file: unparseable became
-// empty, empty got written back, and every hold and retraction was gone. A
-// silently un-retracted bundle is content the publisher withdrew being served
-// to an agent again.
+// empty, empty got written back, and every pin and hold was gone.
 //
 // The fix is the same guard as the empty-write case: Save reads back what is
 // on disk and refuses to overwrite what it cannot parse.
@@ -39,14 +37,14 @@ func TestLockDependencies_CorruptLockfileIsNotOverwritten(t *testing.T) {
 	require.NoError(t, os.WriteFile(lockPath, corrupt, 0o644))
 
 	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
-	require.Error(t, err, "a rebuild that could not read the previous holds/retractions must not persist")
+	require.Error(t, err, "a rebuild that could not read the previous holds must not persist")
 	assert.ErrorIs(t, err, remote.ErrLockfileUnreadable)
 	assert.Contains(t, err.Error(), lockPath, "the error names the file to fix")
 
 	after, err := os.ReadFile(lockPath)
 	require.NoError(t, err)
 	assert.Equal(t, string(corrupt), string(after),
-		"the corrupt lockfile is left intact — its holds and retractions are still recoverable by hand")
+		"the corrupt lockfile is left intact — its pins and holds are still recoverable by hand")
 }
 
 // The recovery path the error message points at: delete the unreadable file

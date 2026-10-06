@@ -27,10 +27,8 @@ const ManifestVersionMarker = "# ctxloom-bundle-manifest/1"
 
 // The release header's line prefixes, in the one order they may appear.
 const (
-	headerName      = "# name: "
-	headerVersion   = "# version: "
-	headerRetracts  = "# retracts: "
-	headerWithdrawn = "# withdrawn: "
+	headerName    = "# name: "
+	headerVersion = "# version: "
 )
 
 // ManifestPath is the bundle-relative path of the tree manifest: the ONE
@@ -102,12 +100,9 @@ type ManifestEntry struct {
 // hash -> signatures map. Keeping them separate is what lets the manifest be
 // the link (path -> hash -> signature) with no second, drift-prone pointer.
 //
-// It also carries the RELEASE the publisher is signing: the bundle's name, its
-// version, and the earlier versions it withdraws. Those are signed for the same
-// reason the hashes are — a name the signature does not cover lets a trusted
-// tree be served as another bundle, a version it does not cover lets an old
-// signed tree be served as current, and retractions it does not cover can be
-// stripped by whoever controls the repository.
+// It also carries the RELEASE the publisher is signing: the bundle's name and
+// its version. Those are signed for the same reason the hashes are — a name the
+// signature does not cover lets a trusted tree be served as another bundle.
 //
 // The zero Manifest is empty and carries no claims; use IsZero to tell it from
 // a loaded one.
@@ -118,7 +113,7 @@ type Manifest struct {
 }
 
 // NewManifest builds a manifest for rel from entries, sorting and validating
-// both. Retractions are sorted by version.
+// both.
 func NewManifest(rel release.Release, entries []ManifestEntry) (Manifest, error) {
 	rel, err := canonicalRelease(rel)
 	if err != nil {
@@ -146,9 +141,9 @@ func NewManifest(rel release.Release, entries []ManifestEntry) (Manifest, error)
 	return Manifest{rel: rel, entries: cloned, index: index}, nil
 }
 
-// canonicalRelease validates a release for rendering and returns a copy with
-// its retractions sorted. Every field lands on one header line, so each must be
-// a single line with nothing a strict re-render would normalise away.
+// canonicalRelease validates a release for rendering and returns a copy. Every
+// field lands on one header line, so each must be a single line with nothing a
+// strict re-render would normalise away.
 func canonicalRelease(rel release.Release) (release.Release, error) {
 	if err := validateBundleID(BundleID(rel.Name)); err != nil {
 		return release.Release{}, fmt.Errorf("%w: release name: %w", ErrManifestFormat, err)
@@ -159,39 +154,7 @@ func canonicalRelease(rel release.Release) (release.Release, error) {
 	if rel.Version == nil {
 		return release.Release{}, fmt.Errorf("%w: release %q has no version", ErrManifestFormat, rel.Name)
 	}
-	retracts, err := canonicalRetractions(rel.Retracts)
-	if err != nil {
-		return release.Release{}, err
-	}
-	if rel.Withdrawn != "" {
-		if err := headerField("withdrawal reason", rel.Withdrawn); err != nil {
-			return release.Release{}, err
-		}
-	}
-	return release.Release{Name: rel.Name, Version: rel.Version, Withdrawn: rel.Withdrawn, Retracts: retracts}, nil
-}
-
-// canonicalRetractions is a sorted copy of the retractions, refusing one
-// with no version, a reason that cannot sit on one header line, and a
-// version retracted twice.
-func canonicalRetractions(in []release.Retraction) ([]release.Retraction, error) {
-	out := make([]release.Retraction, len(in))
-	copy(out, in)
-	for _, r := range out {
-		if r.Version == nil {
-			return nil, fmt.Errorf("%w: a retraction names no version", ErrManifestFormat)
-		}
-		if err := headerField("retraction reason", r.Reason); err != nil {
-			return nil, err
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Version.LessThan(out[j].Version) })
-	for i := 1; i < len(out); i++ {
-		if out[i].Version.Equal(out[i-1].Version) {
-			return nil, fmt.Errorf("%w: version %s is retracted twice", ErrManifestFormat, out[i].Version)
-		}
-	}
-	return out, nil
+	return release.Release{Name: rel.Name, Version: rel.Version}, nil
 }
 
 // headerField refuses a value that cannot sit on one header line and survive a
@@ -254,7 +217,7 @@ func ParseManifest(raw []byte) (Manifest, error) {
 		return Manifest{}, err
 	}
 	if !bytes.Equal(m.Bytes(), raw) {
-		return Manifest{}, fmt.Errorf("%w: not in canonical form (header in order name, version, retracts sorted by version, withdrawn; entries sorted by path, separated by two spaces, LF-terminated)", ErrManifestFormat)
+		return Manifest{}, fmt.Errorf("%w: not in canonical form (header in order name, version; entries sorted by path, separated by two spaces, LF-terminated)", ErrManifestFormat)
 	}
 	return m, nil
 }
@@ -343,21 +306,6 @@ func parseReleaseHeader(lines []string) (release.Release, []string, error) {
 		return release.Release{}, nil, err
 	}
 	rel.Version = v
-	for {
-		r, ok := next(headerRetracts)
-		if !ok {
-			break
-		}
-		vs, reason, _ := strings.Cut(r, " ")
-		rv, err := parseStrictVersion(vs)
-		if err != nil {
-			return release.Release{}, nil, err
-		}
-		rel.Retracts = append(rel.Retracts, release.Retraction{Version: rv, Reason: reason})
-	}
-	if w, ok := next(headerWithdrawn); ok {
-		rel.Withdrawn = w
-	}
 	rest := lines[i:]
 	for _, line := range rest {
 		if strings.HasPrefix(line, "#") {
@@ -376,12 +324,6 @@ func (m Manifest) Bytes() []byte {
 	if m.rel.Version != nil {
 		buf.WriteString(headerName + m.rel.Name + "\n")
 		buf.WriteString(headerVersion + m.rel.Version.String() + "\n")
-		for _, r := range m.rel.Retracts {
-			buf.WriteString(headerRetracts + r.Version.String() + " " + r.Reason + "\n")
-		}
-		if m.rel.Withdrawn != "" {
-			buf.WriteString(headerWithdrawn + m.rel.Withdrawn + "\n")
-		}
 	}
 	for _, e := range m.entries {
 		buf.WriteString(e.SHA256)
@@ -394,9 +336,7 @@ func (m Manifest) Bytes() []byte {
 
 // Release is the release the manifest's signature covers.
 func (m Manifest) Release() release.Release {
-	out := m.rel
-	out.Retracts = append([]release.Retraction(nil), m.rel.Retracts...)
-	return out
+	return m.rel
 }
 
 // Entries returns the covered entries, sorted by path.

@@ -400,7 +400,7 @@ var mutationTargets = []mutationTarget{
 
 // minIgnoredFiles is the floor for buildIgnorePattern's ignored count. An
 // unscoped ooze run over this module would enumerate ~830 non-test .go files
-// across internal/, cmd/, tests/, container/, examples/, prototypes/ — the
+// across internal/, cmd/, tests/, container/, examples/ — the
 // scope-blindness that gave gremlins 24,000 phantom mutants from stray agent
 // worktrees. Every entry ignores "the whole module minus one file", so the
 // count must be in the hundreds; anything smaller means the walk saw a

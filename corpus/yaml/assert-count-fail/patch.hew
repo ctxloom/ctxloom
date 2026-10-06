@@ -1,8 +1,0 @@
-hew: 1
-
---- target.yaml format=yaml
-
-@@ / @@
-? count /mcpServers = 2
-  mcpServers:
-    - name: filesystem

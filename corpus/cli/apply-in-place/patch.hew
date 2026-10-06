@@ -1,7 +1,0 @@
-hew: 1
-
---- target.yaml format=yaml
-
-@@ /server @@
-- timeout: 30
-+ timeout: 60

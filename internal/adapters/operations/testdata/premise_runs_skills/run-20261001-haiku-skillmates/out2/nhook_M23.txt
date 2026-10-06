@@ -1,1 +1,0 @@
-`next: Look for task log, memory index, and directory contents to identify the four items`

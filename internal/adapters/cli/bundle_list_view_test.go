@@ -27,20 +27,18 @@ import (
 // field dropped from the row is a consumer-visible break either way.
 func TestBundleListRow_JSONShape(t *testing.T) {
 	info := &bundles.BundleInfo{
-		Name:            "developer",
-		Ref:             trust.BundleKey("local:developer"),
-		Path:            "/proj/.ctxloom/content/bundles/developer.yaml",
-		Version:         "1.2.0",
-		Description:     "Dev context",
-		Tags:            []string{"go", "review"},
-		FragmentCount:   3,
-		CommandCount:    2,
-		MCPCount:        1,
-		ProfileCount:    1,
-		Held:            true,
-		Retracted:       true,
-		RetractedReason: "superseded by v2",
-		Signer:          "alice@example.com",
+		Name:          "developer",
+		Ref:           trust.BundleKey("local:developer"),
+		Path:          "/proj/.ctxloom/content/bundles/developer.yaml",
+		Version:       "1.2.0",
+		Description:   "Dev context",
+		Tags:          []string{"go", "review"},
+		FragmentCount: 3,
+		CommandCount:  2,
+		MCPCount:      1,
+		ProfileCount:  1,
+		Held:          true,
+		Signer:        "alice@example.com",
 	}
 
 	b, err := json.Marshal(newBundleListRow(info))
@@ -51,7 +49,7 @@ func TestBundleListRow_JSONShape(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		"name", "ref", "path", "version", "description", "tags",
 		"fragment_count", "command_count", "mcp_count", "profile_count",
-		"held", "retracted", "retracted_reason",
+		"held",
 		"signed", "signer",
 	}, keysOf(got))
 
@@ -66,15 +64,13 @@ func TestBundleListRow_JSONShape(t *testing.T) {
 	assert.EqualValues(t, 1, got["mcp_count"])
 	assert.EqualValues(t, 1, got["profile_count"])
 	assert.Equal(t, true, got["held"])
-	assert.Equal(t, true, got["retracted"])
-	assert.Equal(t, "superseded by v2", got["retracted_reason"])
 	assert.Equal(t, true, got["signed"])
 	assert.Equal(t, "alice@example.com", got["signer"])
 }
 
 // TestBundleListRow_UnsignedMinimalEntry: the counts and state flags are
 // ALWAYS present — a script asking "is this held?" must read false, not a
-// missing key — while the optional prose (description, tags, reason, signer)
+// missing key — while the optional prose (description, tags, signer)
 // is omitted when empty. `signed` is derived from Signer: "" is unsigned.
 func TestBundleListRow_UnsignedMinimalEntry(t *testing.T) {
 	info := &bundles.BundleInfo{Name: "bare", Ref: trust.BundleKey("local:bare"), Path: "/p/bare.yaml"}
@@ -87,7 +83,7 @@ func TestBundleListRow_UnsignedMinimalEntry(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		"name", "ref", "path",
 		"fragment_count", "command_count", "mcp_count", "profile_count",
-		"held", "retracted", "signed",
+		"held", "signed",
 	}, keysOf(got))
 	assert.EqualValues(t, 0, got["fragment_count"])
 	assert.Equal(t, false, got["held"])

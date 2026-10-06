@@ -1,3 +1,0 @@
-[hooks]
-# ctxloom-managed — regenerate with `ctxloom apply`
-on_start = "ctxloom apply"

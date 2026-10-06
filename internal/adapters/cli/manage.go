@@ -638,8 +638,7 @@ var (
 )
 
 // manageHooksListCmd is `list` from the canonical verb spine (enumerate the
-// noun's instances — docs/cli-surface-recommendation.md §3), on the `manage
-// hooks` noun that already exists.
+// noun's instances), on the `manage hooks` noun that already exists.
 //
 // It is a NEW LEAF rather than an extension of `manage hooks check` on purpose,
 // having checked what check does: check answers "which BACKENDS have ctxloom

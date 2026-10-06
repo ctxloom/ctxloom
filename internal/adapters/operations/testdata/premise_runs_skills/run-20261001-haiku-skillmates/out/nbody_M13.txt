@@ -1,1 +1,0 @@
-`next: run pre-flight checklist — establish queue source (taskloom), verify git repository status, confirm baseline gate`

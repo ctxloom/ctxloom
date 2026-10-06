@@ -39,24 +39,12 @@ func oneEntry() []ManifestEntry {
 }
 
 func TestManifest_RendersTheSignedReleaseHeader(t *testing.T) {
-	rel := release.Release{
-		Name:    "b",
-		Version: testVersion(t, "1.3.0"),
-		// Deliberately out of order: the manifest sorts them.
-		Retracts: []release.Retraction{
-			{Version: testVersion(t, "1.2.0"), Reason: "broken hook"},
-			{Version: testVersion(t, "1.1.0"), Reason: "leaked token"},
-		},
-		Withdrawn: "superseded by c",
-	}
+	rel := release.Release{Name: "b", Version: testVersion(t, "1.3.0")}
 	m, err := NewManifest(rel, oneEntry())
 	require.NoError(t, err)
 	want := "# ctxloom-bundle-manifest/1\n" +
 		"# name: b\n" +
 		"# version: 1.3.0\n" +
-		"# retracts: 1.1.0 leaked token\n" +
-		"# retracts: 1.2.0 broken hook\n" +
-		"# withdrawn: superseded by c\n" +
 		strings.Repeat("a", 64) + "  fragments/a.md\n"
 	assert.Equal(t, want, string(m.Bytes()))
 
@@ -65,26 +53,15 @@ func TestManifest_RendersTheSignedReleaseHeader(t *testing.T) {
 	got := back.Release()
 	assert.Equal(t, "b", got.Name)
 	assert.Equal(t, "1.3.0", got.Version.String())
-	require.Len(t, got.Retracts, 2)
-	assert.Equal(t, "1.1.0", got.Retracts[0].Version.String())
-	assert.Equal(t, "leaked token", got.Retracts[0].Reason)
-	assert.Equal(t, "superseded by c", got.Withdrawn)
 	assert.Equal(t, m.Bytes(), back.Bytes())
 }
 
 func TestNewManifest_RefusesAnUnrenderableRelease(t *testing.T) {
 	cases := map[string]release.Release{
-		"no name":               {Version: testVersion(t, "1.0.0")},
-		"nested name":           {Name: "a/b", Version: testVersion(t, "1.0.0")},
-		"name with newline":     {Name: "a\n# version: 9.9.9", Version: testVersion(t, "1.0.0")},
-		"no version":            {Name: "b"},
-		"multi-line reason":     {Name: "b", Version: testVersion(t, "2.0.0"), Retracts: []release.Retraction{{Version: testVersion(t, "1.0.0"), Reason: "a\nb"}}},
-		"empty reason":          {Name: "b", Version: testVersion(t, "2.0.0"), Retracts: []release.Retraction{{Version: testVersion(t, "1.0.0")}}},
-		"nil retracted version": {Name: "b", Version: testVersion(t, "2.0.0"), Retracts: []release.Retraction{{Reason: "x"}}},
-		"duplicate retraction": {Name: "b", Version: testVersion(t, "2.0.0"), Retracts: []release.Retraction{
-			{Version: testVersion(t, "1.0.0"), Reason: "x"}, {Version: testVersion(t, "1.0.0"), Reason: "y"}}},
-		"multi-line withdrawal": {Name: "b", Version: testVersion(t, "1.0.0"), Withdrawn: "a\rb"},
-		"padded withdrawal":     {Name: "b", Version: testVersion(t, "1.0.0"), Withdrawn: " x"},
+		"no name":           {Version: testVersion(t, "1.0.0")},
+		"nested name":       {Name: "a/b", Version: testVersion(t, "1.0.0")},
+		"name with newline": {Name: "a\n# version: 9.9.9", Version: testVersion(t, "1.0.0")},
+		"no version":        {Name: "b"},
 	}
 	for name, rel := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -97,18 +74,18 @@ func TestNewManifest_RefusesAnUnrenderableRelease(t *testing.T) {
 func TestParseManifest_HeaderGrammarIsStrict(t *testing.T) {
 	line := strings.Repeat("a", 64) + "  fragments/a.md\n"
 	cases := map[string]string{
-		"old digest marker":        DigestVersionMarker + "\n" + line,
-		"no name":                  "# ctxloom-bundle-manifest/1\n# version: 1.0.0\n" + line,
-		"no version":               "# ctxloom-bundle-manifest/1\n# name: b\n" + line,
-		"version before name":      "# ctxloom-bundle-manifest/1\n# version: 1.0.0\n# name: b\n" + line,
-		"loose version":            "# ctxloom-bundle-manifest/1\n# name: b\n# version: v1.0.0\n" + line,
-		"two-part version":         "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0\n" + line,
-		"unsorted retracts":        "# ctxloom-bundle-manifest/1\n# name: b\n# version: 2.0.0\n# retracts: 1.2.0 x\n# retracts: 1.1.0 y\n" + line,
-		"withdrawn before retract": "# ctxloom-bundle-manifest/1\n# name: b\n# version: 2.0.0\n# withdrawn: w\n# retracts: 1.1.0 y\n" + line,
-		"unknown header":           "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n# signer: me\n" + line,
-		"trailing space":           "# ctxloom-bundle-manifest/1\n# name: b \n# version: 1.0.0\n" + line,
-		"header after entries":     "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n" + line + "# withdrawn: w\n",
-		"no entries":               "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n",
+		"old digest marker":    DigestVersionMarker + "\n" + line,
+		"no name":              "# ctxloom-bundle-manifest/1\n# version: 1.0.0\n" + line,
+		"no version":           "# ctxloom-bundle-manifest/1\n# name: b\n" + line,
+		"version before name":  "# ctxloom-bundle-manifest/1\n# version: 1.0.0\n# name: b\n" + line,
+		"loose version":        "# ctxloom-bundle-manifest/1\n# name: b\n# version: v1.0.0\n" + line,
+		"two-part version":     "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0\n" + line,
+		"retracts header":      "# ctxloom-bundle-manifest/1\n# name: b\n# version: 2.0.0\n# retracts: 1.1.0 y\n" + line,
+		"withdrawn header":     "# ctxloom-bundle-manifest/1\n# name: b\n# version: 2.0.0\n# withdrawn: w\n" + line,
+		"unknown header":       "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n# signer: me\n" + line,
+		"trailing space":       "# ctxloom-bundle-manifest/1\n# name: b \n# version: 1.0.0\n" + line,
+		"header after entries": "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n" + line + "# name: c\n",
+		"no entries":           "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n",
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -146,9 +123,7 @@ func TestManifest_StockSha256sumStillChecksIt(t *testing.T) {
 	body := []byte("hello\n")
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "fragments", "a.md"), body, 0o600))
-	rel := release.Release{Name: "b", Version: testVersion(t, "1.3.0"),
-		Retracts:  []release.Retraction{{Version: testVersion(t, "1.1.0"), Reason: "leaked token"}},
-		Withdrawn: "superseded"}
+	rel := release.Release{Name: "b", Version: testVersion(t, "1.3.0")}
 	m, err := NewManifest(rel, []ManifestEntry{{Path: "fragments/a.md", SHA256: SHA256Hex(body)}})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ManifestPath), m.Bytes(), 0o600))

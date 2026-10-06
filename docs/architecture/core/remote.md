@@ -8,7 +8,7 @@ read bytes and write publications. Its contract is: **every byte of third-party 
 agent ever sees is fetched at a commit SHA that the lockfile pinned**, and every trust
 decision upstream keys off a canonical string produced here. It performs no trust
 evaluation of its own: tree verification and admission are injected seams
-(`WithTreeVerifier`, `WithTreeFetcher`, `WithManifestVerifier`) that callers wire in.
+(`WithTreeVerifier`, `WithTreeFetcher`) that callers wire in.
 
 ## Responsibilities
 
@@ -31,15 +31,13 @@ evaluation of its own: tree verification and admission are injected seams
   (`bundle_reader.go`, `bundle_reader_cache.go`, `fetch_ref.go`).
 - Pull (record a pin) and publish (push a bundle tree to a forge as one commit)
   (`pull.go`, `publish.go`, `git_publisher.go`).
-- Publisher-manifest retraction lookup (`retract.go`) and manifest search
-  (`search.go`).
+- Manifest search (`search.go`).
 
 ## Non-responsibilities
 
 - Signature verification and publisher trust — `internal/core/trust` and
   `internal/adapters/signing`; see [trust.md](./trust.md).
-- Trust-state evaluation and exposure gating (`EffectiveTrust`, retraction withholding),
-  tree verification of every pinned bundle, lock rebuild/upgrade orchestration, and the
+- Tree verification of every pinned bundle, lock rebuild/upgrade orchestration, and the
   `deps pull`/`sync` command flows — `internal/adapters/operations`; see
   [operations.md](./operations.md).
 - Bundle parsing, item loading and skill materialization — `internal/core/bundles`; see
@@ -95,7 +93,7 @@ flowchart TD
 |---|---|---|
 | `Reference` | `internal/adapters/remote/types.go` | Parsed content identity: `URL`, `Path`, `ItemType`, `ContentVersion`, `IsLocal`, `IsCompanion`. Methods live in `reference.go`. |
 | `ItemType` | `internal/adapters/remote/types.go` | Item-kind enum; `ItemType.DirName` is the single home of the on-disk `bundles/` convention. |
-| `LockEntry` | `internal/adapters/remote/types.go` | One pin: `SHA`, `URL`, `RequestedVersion`, `Version`, `Kind`, `FetchedAt`, `Pinned`, and the recorded retraction verdict. |
+| `LockEntry` | `internal/adapters/remote/types.go` | One pin: `SHA`, `URL`, `RequestedVersion`, `Version`, `Kind`, `FetchedAt` and `Held`. |
 | `Lockfile` | `internal/adapters/remote/types.go` | `Version`, `LockedAt`, `Bundles map[...]LockEntry` — bundles only. |
 | `Manifest` / `ManifestEntry` | `internal/adapters/remote/types.go` | Publisher-side manifest. |
 | `Remote` | `internal/adapters/remote/types.go` | A configured remote: `Name`, `URL`, `Forge`. Carries a load-bearing comment that a trust flag must never return to this struct. |
@@ -180,7 +178,6 @@ flowchart TD
 | `GitHubFetcher.FetchFile/ListDir/ResolveRef` | `internal/adapters/remote/github.go` | REST reads; ref resolution is commit → branch → tag (`resolveRefWithClient`). |
 | `GitHubFetcher.ValidateRepo/GetDefaultBranch` | `internal/adapters/remote/github.go` | Does `.ctxloom/content/` exist; repo metadata default branch. |
 | `FetchRef(ctx, factory, auth, ref, sha, treeFetch) (RefContent, error)` | `internal/adapters/remote/fetch_ref.go` | The low-level pinned read shared by bundle/profile readers and the dependency-graph walker: a hash-pinned canonical ref needs no lockfile and no registry. |
-| `CheckRetracted(ctx, fetcher, owner, repo, ref, pinned, verify) (RetractionVerdict, string, error)` | `internal/adapters/remote/retract.go` | Read and verify the publisher manifest; the verdict distinguishes clean, retracted, rollback below the recorded signed version, unpublished and unknown. |
 
 ### Cache
 
@@ -216,21 +213,18 @@ flowchart TD
 | `BundleReader.ListBundleNames/HasBundle/LockEntryFor` | `internal/adapters/remote/bundle_reader.go` | Pure `*Lockfile` accessors; `ListBundleNames` returns sorted keys. |
 | `BundleReader.fetchAtLockedSHA(...)` | `internal/adapters/remote/bundle_reader.go` | key → `ParseReference` → repo URL → fetcher → `BuildFilePath` → `readFromTree` at `entry.SHA`. |
 | `LoadAllBytes(ctx, src)` | `internal/adapters/remote/bundle_reader.go` | Read every bundle a source knows, partitioning into loaded and per-item failures; a nil source yields empty results and no error. |
-| `Puller.updateLockfile(...)` | `internal/adapters/remote/pull.go` | Build the `LockEntry` (carrying `Pinned` holds and the retraction verdict forward) and `Save`; reports whether a pin already existed. |
-| `Puller.RecordRetraction(kind, ref, retracted, reason, checkedAt)` | `internal/adapters/remote/pull.go` | Persist the retraction verdict onto an existing entry; no-op when no entry exists. |
+| `Puller.updateLockfile(...)` | `internal/adapters/remote/pull.go` | Build the `LockEntry` (carrying the `Held` hold forward) and `Save`; reports whether a pin already existed. |
 
-### Pull, publish, retract
+### Pull and publish
 
 | Signature | File | Contract |
 |---|---|---|
-| `NewPuller(registry, auth, opts...)` | `internal/adapters/remote/pull.go` | Options: `WithLockfileManager`, `WithFetcherFactory`, `WithTreeFetcher`, `WithTreeVerifier`, `WithTreeInstaller`, `WithManifestVerifier`. |
+| `NewPuller(registry, auth, opts...)` | `internal/adapters/remote/pull.go` | Options: `WithLockfileManager`, `WithFetcherFactory`, `WithTreeFetcher`, `WithTreeVerifier`, `WithTreeInstaller`. |
 | `Puller.Pull(ctx, ref, opts) (*PullResult, error)` | `internal/adapters/remote/pull.go` | Orchestrate `fetchForPull` → `installPulledItem`. |
-| `Puller.fetchForPull(...)` | `internal/adapters/remote/pull.go` | resolve target → retraction check → constraint→SHA → fetch and admit the tree. |
+| `Puller.fetchForPull(...)` | `internal/adapters/remote/pull.go` | resolve target → the existing pin, else constraint→SHA → fetch the tree. |
 | `Puller.resolveRemoteTarget(...)` | `internal/adapters/remote/pull.go` | ref → repo URL, registered remote, lockfile key; an unregistered repository is refused (`NotRegisteredError`). |
-| `Puller.confirmRetraction(...)` | `internal/adapters/remote/pull.go` | Warn and prompt (default No, `promptConfirmation`) when the requested version is retracted; `opts.Force` skips the prompt. |
 | `resolveContentSHA(...)` | `internal/adapters/remote/pull.go` | Constraint expression → concrete SHA via `ResolveConstraint`. |
-| `Puller.installPulledItem(...)` | `internal/adapters/remote/pull.go` | Write the lockfile entry — the only on-disk record of the pull. |
-| `Puller.CheckRetraction(ctx, ref, kind)` | `internal/adapters/remote/pull.go` | Live retraction re-check with no pin write; used by `operations` sync. |
+| `Puller.installPulledItem(...)` | `internal/adapters/remote/pull.go` | Verify the tree, check it out, and write the lockfile entry — the only on-disk record of the pull. |
 | `NewPublishManager(registry, auth, opts...)` | `internal/adapters/remote/publish.go` | Options: `WithPublisherFactory`, `WithPublishFetcherFactory`. |
 | `PublishManager.PublishTree(ctx, files, remoteName, opts) (*PublishResult, error)` | `internal/adapters/remote/publish.go` | Publish a bundle tree the caller already read, directly or via a pull request (`publishTreeViaPR`). This package does not decide what belongs to a bundle. |
 | `Publisher.CreateOrUpdateFiles(...)` | `internal/adapters/remote/publish.go` | Every file of a tree lands as **one** commit, so a partial publish is impossible rather than merely unlikely. |
@@ -248,7 +242,7 @@ flowchart TD
 ## Invariants
 
 1. **The lockfile is authoritative for the pin, not for the content.** A `LockEntry`
-   records the pin, its selector and the retraction verdict, and nothing else. Bundle
+   records the pin, its selector and the hold, and nothing else. Bundle
    bytes are never stored in it; they are re-read from the clone cache at `entry.SHA` on
    every read (`BundleReader.fetchAtLockedSHA`).
 2. **Only bundles are locked.** `Lockfile.Bundles` is the sole entry map and
@@ -259,10 +253,9 @@ flowchart TD
    through `schemaver.WriteBack`, and only under `--write-upgrades`. `Save` is a guard,
    not just a writer: it reads the current file back and refuses an empty-over-populated
    write, any write over a corrupt one, and any write over a lockfile declaring a newer
-   `schema_version`. The guard is security-relevant: `deps upgrade` clears retraction
-   state, so a wiped lockfile would silently **un-retract** withdrawn content. Within
-   this package, `Save` is called by `Puller.updateLockfile` and
-   `Puller.RecordRetraction`; outside it, the writer is `internal/adapters/operations`
+   `schema_version`. A wiped lockfile would silently un-hold every hold and re-resolve
+   every pin. Within this package, `Save` is called by `Puller.updateLockfile`;
+   outside it, the writer is `internal/adapters/operations`
    through the `LockfileStore` port.
 4. **`Save` owns the `LockedAt` timestamp.** Every save stamps `LockedAt = time.Now().UTC()`;
    `write` never modifies it.
@@ -301,9 +294,8 @@ flowchart TD
     path (`GitCloneFetcher.treeAtRef`).
 13. **A pull records a pin and nothing else.** For bundles the lockfile is the only
     on-disk record of the pull.
-14. **Retraction is learned only from the publisher's signed manifest, never derived
-    locally** (`CheckRetracted`), and the verdict is carried forward across relocks
-    alongside `Pinned`.
+14. **A pull never moves an existing pin.** `Puller.pinFor` takes the recorded SHA
+    when there is one, held or not; only `deps upgrade` moves a pin.
 15. **A publish is one commit.** `Publisher.CreateOrUpdateFiles` lands every file of the
     tree together, so a consumer never sees a tree whose checksum manifest covers files
     that never arrived.

@@ -168,26 +168,49 @@ func dumpGoroutines(t *testing.T, sess *testenv.PTYSession, runner int, runnerGo
 // TestRunPTY_RunnerDeadWithoutAnOutcomeEndsTheRun is the incident's second
 // half: the runner dies without ever reporting the run's outcome — SIGQUIT,
 // as the operator sent it, which ends a Go process with no teardown at all.
-// `ctxloom run` must still finish: report that the outcome never arrived,
-// exit non-zero, and release its root's owner lock.
+// `ctxloom run` must still finish: exit non-zero and release its root's owner
+// lock. The second case is the incident's whole state at that moment: the
+// engine already dead, a process it left holding its terminal still alive,
+// and the runner ended inside its drain, before it could report.
 func TestRunPTY_RunnerDeadWithoutAnOutcomeEndsTheRun(t *testing.T) {
-	env, sess := startInteractiveFakeClaude(t, fmt.Sprintf(fakeLongLivedClaudeBody, "%s", ""))
-	announcedPID(t, sess, enginePIDLine)
-	runners := testenv.RunnerChildrenOf(sess.PID())
-	require.Len(t, runners, 1, "exactly one runner serves the session")
-	locks := ownerLocks(t, env.HomeDir)
-	require.Len(t, locks, 1, "the session owns exactly one root")
+	for _, tc := range []struct {
+		name        string
+		before      string
+		killEngine  bool
+		saysOutcome bool
+	}{
+		{name: "engine alive", saysOutcome: true},
+		{name: "engine dead and its terminal still held", before: grandchildHoldingTheTerminal, killEngine: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, sess := startInteractiveFakeClaude(t, fmt.Sprintf(fakeLongLivedClaudeBody, "%s", tc.before))
+			if tc.before != "" {
+				grandchild := announcedPID(t, sess, grandchildPIDLine)
+				t.Cleanup(func() { testenv.KillPids([]int{grandchild}) })
+			}
+			engine := announcedPID(t, sess, enginePIDLine)
+			runners := testenv.RunnerChildrenOf(sess.PID())
+			require.Len(t, runners, 1, "exactly one runner serves the session")
+			locks := ownerLocks(t, env.HomeDir)
+			require.Len(t, locks, 1, "the session owns exactly one root")
 
-	require.NoError(t, syscall.Kill(runners[0], syscall.SIGQUIT), "end the runner with no teardown")
+			if tc.killEngine {
+				require.NoError(t, syscall.Kill(engine, syscall.SIGKILL), "kill the engine")
+			}
+			require.NoError(t, syscall.Kill(runners[0], syscall.SIGQUIT), "end the runner with no teardown")
 
-	exited, _ := sess.Wait(engineDeathExitBound)
-	if !exited {
-		dumpGoroutines(t, sess, runners[0], true, exited)
+			exited, _ := sess.Wait(engineDeathExitBound)
+			if !exited {
+				dumpGoroutines(t, sess, runners[0], true, exited)
+			}
+			require.True(t, exited, "ctxloom run (pid %d) outlived its runner by %s", sess.PID(), engineDeathExitBound)
+			assert.NotEqual(t, 0, sess.ExitCode(), "a run whose runner died unreported is not a success; captured: %q", sess.Output())
+			if tc.saysOutcome {
+				assert.Contains(t, sess.Output(), "never reported its outcome", "the run says why it ended")
+			}
+			released, err := coord.ProbeOwner(filepath.Dir(locks[0]))
+			require.NoError(t, err)
+			assert.False(t, released.Held, "the run released its root's owner lock")
+		})
 	}
-	require.True(t, exited, "ctxloom run (pid %d) outlived its runner by %s", sess.PID(), engineDeathExitBound)
-	assert.NotEqual(t, 0, sess.ExitCode(), "a run whose outcome never arrived is not a success; captured: %q", sess.Output())
-	assert.Contains(t, sess.Output(), "never reported its outcome", "the run says why it ended")
-	released, err := coord.ProbeOwner(filepath.Dir(locks[0]))
-	require.NoError(t, err)
-	assert.False(t, released.Held, "the run released its root's owner lock")
 }

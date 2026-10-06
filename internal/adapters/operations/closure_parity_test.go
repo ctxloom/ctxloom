@@ -61,6 +61,7 @@ func newShippedProfileProject(t *testing.T) *shippedProfileProject {
 
 	p.appDir = filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(bundletree.ProjectProfilesDir(t, p.appDir), 0o755))
+	registerTestRemote(t, p.appDir, repoURL)
 	require.NoError(t, os.WriteFile(filepath.Join(bundletree.ProjectProfilesDir(t, p.appDir), "dev.yaml"),
 		[]byte("bundles:\n  - "+p.kitRef+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(p.appDir),
@@ -165,11 +166,13 @@ func TestClosureParity_IndependentOfInstalledTrees(t *testing.T) {
 	ctx := context.Background()
 	p.pull(t)
 
-	withTrees, _, unexpanded := FlattenDependencies(ctx, p.cfg(t), nil)
+	withTrees, _, unexpanded, err := FlattenDependencies(ctx, p.cfg(t), nil)
+	require.NoError(t, err)
 	require.Empty(t, unexpanded)
 
 	p.removeTree(t, p.kitRef)
-	withoutTrees, _, unexpanded := FlattenDependencies(ctx, p.cfg(t), nil)
+	withoutTrees, _, unexpanded, err := FlattenDependencies(ctx, p.cfg(t), nil)
+	require.NoError(t, err)
 	require.Empty(t, unexpanded)
 
 	assert.Equal(t, pinIdentities(withoutTrees), pinIdentities(withTrees),

@@ -257,14 +257,36 @@ func detectSingleUpdate(ctx context.Context, fetcher remote.Fetcher, lockfile *r
 // can be detected — the single-ref counterpart of refreshRemoteRepos.
 func refreshRemoteClone(ctx context.Context, cfg *config.Config, repoURL string) []RefreshFailure {
 	var failures []RefreshFailure
-	fetchIntoClone(ctx, NewRepoCache(cfg), repoURL, &failures)
+	fetchIntoClone(ctx, NewRepoCache(cfg), refreshGate(cfg), repoURL, &failures)
 	return failures
+}
+
+// refreshGate answers whether a repository may be fetched: nil for a
+// registered remote, remote.NotRegisteredError for any other, and the
+// registry's own error when it cannot be read — so an unreadable registry
+// fetches nothing rather than everything.
+func refreshGate(cfg *config.Config) func(repoURL string) error {
+	registered, err := registeredRepos(cfg)
+	if err != nil {
+		return func(string) error { return err }
+	}
+	return func(repoURL string) error {
+		if !registered(repoURL) {
+			return remote.NotRegisteredError(repoURL)
+		}
+		return nil
+	}
 }
 
 // fetchIntoClone refreshes one repository's local clone. A fetch failure is
 // recorded for the caller, which must not then answer from the stale clone; a
-// URL whose forge cannot be detected has nothing to fetch from at all.
-func fetchIntoClone(ctx context.Context, cache *remote.RepoCache, repoURL string, failures *[]RefreshFailure) {
+// URL whose forge cannot be detected has nothing to fetch from at all. A
+// repository gate refuses is recorded with its refusal and never fetched.
+func fetchIntoClone(ctx context.Context, cache *remote.RepoCache, gate func(repoURL string) error, repoURL string, failures *[]RefreshFailure) {
+	if err := gate(repoURL); err != nil {
+		*failures = append(*failures, RefreshFailure{URL: repoURL, Err: err})
+		return
+	}
 	forgeType, _, ferr := remote.DetectForge(repoURL)
 	if ferr != nil {
 		return
@@ -319,8 +341,8 @@ func closureLock(ctx context.Context, cfg *config.Config, cfgErr error, lockfile
 	if cfgErr != nil {
 		return lockfile
 	}
-	pins, _, unexpanded := FlattenDependencies(ctx, cfg, nil)
-	if len(unexpanded) > 0 {
+	pins, _, unexpanded, err := FlattenDependencies(ctx, cfg, nil)
+	if err != nil || len(unexpanded) > 0 {
 		return lockfile
 	}
 	narrowed := &remote.Lockfile{Version: lockfile.Version, Bundles: map[trust.BundleKey]remote.LockEntry{}}
@@ -339,6 +361,7 @@ func closureLock(ctx context.Context, cfg *config.Config, cfgErr error, lockfile
 // and an unparseable or URL-less reference is skipped.
 func refreshRemoteRepos(ctx context.Context, cfg *config.Config, lockfile *remote.Lockfile) []RefreshFailure {
 	cache := NewRepoCache(cfg)
+	gate := refreshGate(cfg)
 	fetched := map[string]struct{}{}
 	var failures []RefreshFailure
 	for _, e := range lockfile.AllEntries() {
@@ -353,7 +376,7 @@ func refreshRemoteRepos(ctx context.Context, cfg *config.Config, lockfile *remot
 			continue
 		}
 		fetched[ref.URL] = struct{}{}
-		fetchIntoClone(ctx, cache, ref.URL, &failures)
+		fetchIntoClone(ctx, cache, gate, ref.URL, &failures)
 	}
 	return failures
 }

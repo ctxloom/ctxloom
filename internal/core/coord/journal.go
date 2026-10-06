@@ -11,6 +11,9 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // Fact is one durable, append-only record in a journal. Folds take time from
@@ -48,7 +51,7 @@ type fold interface {
 //     Exec's decide and never mutate a projection directly.
 type Store struct {
 	path  string
-	f     *os.File
+	f     afero.File
 	folds []fold
 
 	mu   sync.RWMutex // held for write during apply; View readers take RLock
@@ -66,11 +69,11 @@ type storeReq struct {
 // errStoreClosed answers Exec on a closed store.
 var errStoreClosed = errors.New("coord: store closed")
 
-// openStore opens (creating if needed, 0600 file / 0700 dir) the journal at
-// path, replays it through the folds (truncating a torn tail), and starts the
-// single writer goroutine.
-func openStore(path string, folds ...fold) (*Store, error) {
-	return openStoreFromOffset(path, 0, folds...)
+// openStore opens on fs (creating if needed, 0600 file / 0700 dir) the
+// journal at path, replays it through the folds (truncating a torn tail), and
+// starts the single writer goroutine.
+func openStore(fs afero.Fs, path string, folds ...fold) (*Store, error) {
+	return openStoreFromOffset(fs, path, 0, folds...)
 }
 
 // openStoreFromOffset is openStore's snapshot-aware variant (D4 CHECKPOINT
@@ -83,11 +86,11 @@ func openStore(path string, folds ...fold) (*Store, error) {
 // construction, since the snapshot is purely an additive replay shortcut
 // and the journal remains the sole source of truth (journal truncation
 // itself stays deferred to Wave E's retention decision).
-func openStoreFromOffset(path string, fromOffset int64, folds ...fold) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+func openStoreFromOffset(fs afero.Fs, path string, fromOffset int64, folds ...fold) (*Store, error) {
+	if err := fs.MkdirAll(filepath.Dir(path), safefs.PrivateDirMode); err != nil {
 		return nil, fmt.Errorf("coord: journal dir: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	f, err := fs.OpenFile(path, os.O_RDWR|os.O_CREATE, safefs.PrivateFileMode)
 	if err != nil {
 		return nil, fmt.Errorf("coord: open journal %s: %w", path, err)
 	}

@@ -108,7 +108,7 @@ func TestSecretRefresh_ARealContainersNextTurnReadsTheRewrittenSecret(t *testing
 			// The coordinator that launched the container dies: its lock goes,
 			// the dir and the container's mount of it stay. The restarted one
 			// takes the dir over and rewrites the credential in place.
-			require.NoError(t, env.(*containerEnvironment).cw.secrets.scratch.lock.Close())
+			require.NoError(t, env.(*containerEnvironment).cw.secrets.scratch.lock.Unlock())
 			release, err := RefreshSecrets(env.SecretsFile(), map[string]string{secretVar: refreshedSecret})
 			require.NoError(t, err)
 			defer release()

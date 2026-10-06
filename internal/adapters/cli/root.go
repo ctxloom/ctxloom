@@ -29,6 +29,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/schemaver"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
@@ -142,6 +143,9 @@ func (e *ExitError) Error() string {
 type Composition struct {
 	Reporter   report.Sink
 	OpenConfig operations.ConfigOpener
+	// Root is ctxloom's root as this process sees it (safefs.New, built
+	// once by the composition root), handed to the App.
+	Root safefs.Root
 	// Loadout is ctxloom's own companion loadout, embedded beside main and
 	// emitted by `ctxloom loadout` (see EmbeddedLoadout).
 	Loadout EmbeddedLoadout
@@ -223,6 +227,7 @@ func installApp(flags *pflag.FlagSet, environ []string, sw operations.Switches, 
 		Reporter:      theComposition.Reporter,
 		Engines:       theComposition.Engines,
 		SessionClaims: theComposition.SessionClaims,
+		Root:          theComposition.Root,
 	})
 }
 

@@ -214,18 +214,19 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 	// A wake is a line posted to the mock's own socket, taken exactly as a
 	// typed line — so the woken turn is visible on the owner's terminal as
 	// the echo of the wake text (engine.WakeNonce recognises it).
-	ctx.Step(`^the session owner is woken within (\d+)s$`,
-		func(c context.Context, secs int) error {
+	ctx.Step(`^the session owner is woken$`,
+		func(c context.Context) error {
 			w := worldFrom(c)
 			if w.owner == nil {
 				return fmt.Errorf("no session owner is standing")
 			}
 			var wake string
-			if !w.owner.sess.WaitForOutput(time.Duration(secs)*time.Second, func(out string) bool {
+			budget := eventBudget()
+			if !w.owner.sess.WaitForOutput(budget, func(out string) bool {
 				wake = wakeLineIn(out)
 				return wake != ""
 			}) {
-				return fmt.Errorf("the session owner was never woken within %ds; its terminal:\n%s", secs, w.owner.sess.Output())
+				return fmt.Errorf("the session owner was never woken within %s; its terminal:\n%s", budget, w.owner.sess.Output())
 			}
 			w.docStepMaterialized = "session owner's terminal — the woken turn:\n  " + wake
 			return nil
@@ -236,9 +237,10 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 	// file itself is deleted once delivered, so THIS child's own words are
 	// read from the child's routed copy in its out/consumed/. The kind filter
 	// (reportFrom) is the correctness condition, and the guidance pins the
-	// report as THIS child's own.
-	ctx.Step(`^the coordinator's own spool shows "([^"]*)"'s report delivered within (\d+)s, carrying its own guidance, not "([^"]*)"'s$`,
-		func(c context.Context, self string, secs int, other string) error {
+	// report as THIS child's own. The delivered record is a file nothing
+	// announces, so it is polled, bounded by the suite deadline (eventBudget).
+	ctx.Step(`^the coordinator's own spool shows "([^"]*)"'s report delivered, carrying its own guidance, not "([^"]*)"'s$`,
+		func(c context.Context, self, other string) error {
 			w := worldFrom(c)
 			j002300 := j002300Of(w)
 			selfSpec, ok := j002300.specs[self]
@@ -253,7 +255,8 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 			if !ok {
 				return fmt.Errorf("no session harp remembered for %q", self)
 			}
-			deadline := time.Now().Add(time.Duration(secs) * time.Second)
+			budget := eventBudget()
+			deadline := time.Now().Add(budget)
 			for {
 				r, err := deliveredReportFrom(w, harp)
 				if err != nil {
@@ -269,7 +272,7 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 					return nil
 				}
 				if time.Now().After(deadline) {
-					return fmt.Errorf("after %ds %s's report (harp %s) is not in the owner's delivered record — the woken turn's hook never delivered it", secs, self, harp)
+					return fmt.Errorf("after %s %s's report (harp %s) is not in the owner's delivered record — the woken turn's hook never delivered it", budget, self, harp)
 				}
 				time.Sleep(100 * time.Millisecond)
 			}

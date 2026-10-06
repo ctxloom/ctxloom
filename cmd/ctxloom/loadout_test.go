@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -86,7 +87,7 @@ func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
 // to the CLI, which owns the command (so the documented tree carries it)
 // but not the content (go:embed cannot reach outside this package).
 func TestCompose_CarriesTheEmbeddedLoadout(t *testing.T) {
-	comp := compose(strictness.Sink("ctxloom"))
+	comp := compose(strictness.Sink("ctxloom"), safefs.New())
 	assert.Equal(t, loadoutYAML, comp.Loadout.YAML)
 	assert.Equal(t, loadoutSig, comp.Loadout.Sig)
 }
@@ -96,7 +97,7 @@ func TestCompose_CarriesTheEmbeddedLoadout(t *testing.T) {
 // — and proves the output is a v2 envelope over the embedded document.
 func TestLoadoutCommand_EmitsTheV2Envelope(t *testing.T) {
 	var out bytes.Buffer
-	code := cli.RunWithArgs(compose(strictness.Sink("ctxloom")), []string{loadout.Subcommand, "--" + loadout.FormatFlag, loadout.FormatJSON}, &out)
+	code := cli.RunWithArgs(compose(strictness.Sink("ctxloom"), safefs.New()), []string{loadout.Subcommand, "--" + loadout.FormatFlag, loadout.FormatJSON}, &out)
 	require.Equal(t, 0, code, out.String())
 
 	doc, sig, _, err := signing.ParseLoadoutEnvelope(out.Bytes())
@@ -117,7 +118,7 @@ var loadoutCommandSpan = regexp.MustCompile("`ctxloom\\s+([^`]+)`")
 func TestLoadout_FragmentsNameCommandsThatExist(t *testing.T) {
 	lo, err := bundles.ParseLoadout(loadoutYAML)
 	require.NoError(t, err)
-	root := cli.GetRootCmd(compose(strictness.Sink("ctxloom")))
+	root := cli.GetRootCmd(compose(strictness.Sink("ctxloom"), safefs.New()))
 	for name, frag := range lo.Run.Fragments {
 		for _, m := range loadoutCommandSpan.FindAllStringSubmatch(frag.Content, -1) {
 			var words []string

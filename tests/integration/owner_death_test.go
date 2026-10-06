@@ -3,14 +3,17 @@
 package integration
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -18,7 +21,7 @@ const ownerDeathSentinel = "owner-death-sentinel"
 
 // startParkedSession starts an interactive run whose mock engine parks in its
 // echo loop, and waits until it is up.
-func startParkedSession(t *testing.T) *testenv.PTYSession {
+func startParkedSession(t *testing.T) (*testenv.PTYSession, *testenv.TestEnvironment) {
 	t.Helper()
 	env := setupTestEnv(t)
 	_, err := env.SetupMockLM()
@@ -43,14 +46,14 @@ func startParkedSession(t *testing.T) *testenv.PTYSession {
 		return strings.Contains(out, "mock echo: "+ownerDeathSentinel)
 	})
 	require.True(t, up, "the session never came up; output:\n%s", out)
-	return s
+	return s, env
 }
 
 // A terminal that dies under an interactive run must end the run: SIGHUP is
 // one of the shutdown signals the run absorbs, and a run that absorbs it
 // without ending keeps owning its project with nothing attached to it.
 func TestInteractiveRun_ExitsWhenItsTerminalHangsUp(t *testing.T) {
-	s := startParkedSession(t)
+	s, _ := startParkedSession(t)
 	require.NoError(t, s.Hangup())
 	exited, _ := s.AwaitExit(t)
 	require.True(t, exited, "the run outlived its terminal; output:\n%s", s.Output())
@@ -60,11 +63,17 @@ func TestInteractiveRun_ExitsWhenItsTerminalHangsUp(t *testing.T) {
 // incident's second half, where ending the engine and its runner still left
 // the orphaned run alive.
 func TestInteractiveRun_ExitsWhenItsRunnerDiesAfterHangup(t *testing.T) {
-	s := startParkedSession(t)
+	s, env := startParkedSession(t)
 	runners := testenv.RunnerChildrenOf(s.PID())
 	require.NotEmpty(t, runners, "the run's runner child was not found")
 	require.NoError(t, s.Hangup())
-	time.Sleep(2 * time.Second) // let the hangup land before the runner dies
+	// The runner must die AFTER the run has absorbed the hangup, or this is
+	// the runner-dies case below. The terminal is gone, so the run's notice is
+	// read from the session's diagnostics log, where the terminal UI diverts it.
+	sessions := filepath.Join(env.HomeDir, paths.AppDirName, paths.SessionsDir)
+	notice := fmt.Sprintf(cli.ShutdownSignalNotice, syscall.SIGHUP)
+	_, received := testenv.AwaitFileContaining(t, sessions, paths.DiagnosticsLogFileName, notice)
+	require.True(t, received, "the run never recorded %q in a session diagnostics log", notice)
 	for _, pid := range runners {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 	}
@@ -75,7 +84,7 @@ func TestInteractiveRun_ExitsWhenItsRunnerDiesAfterHangup(t *testing.T) {
 // Control: a runner that dies under a run whose terminal is intact ends the
 // run through the drive's ordinary exit path.
 func TestInteractiveRun_ExitsWhenItsRunnerDies(t *testing.T) {
-	s := startParkedSession(t)
+	s, _ := startParkedSession(t)
 	runners := testenv.RunnerChildrenOf(s.PID())
 	require.NotEmpty(t, runners, "the run's runner child was not found")
 	for _, pid := range runners {

@@ -26,6 +26,7 @@ import (
 // on disk and refuses to overwrite what it cannot parse.
 func TestLockDependencies_CorruptLockfileIsNotOverwritten(t *testing.T) {
 	tmp := t.TempDir()
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 	writeLocalProfile(t, tmp, "default",
 		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
 	cfg := testConfigWithSCMPath(tmp)
@@ -53,6 +54,7 @@ func TestLockDependencies_CorruptLockfileIsNotOverwritten(t *testing.T) {
 // from would be a wedge, not a guard.
 func TestLockDependencies_DeletingTheCorruptLockfileRecovers(t *testing.T) {
 	tmp := t.TempDir()
+	registerTestRemote(t, tmp, "https://github.com/test/repo")
 	writeLocalProfile(t, tmp, "default",
 		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
 	cfg := testConfigWithSCMPath(tmp)

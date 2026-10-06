@@ -160,7 +160,8 @@ flowchart TD
 | `SelectorKind.IsPin() bool` | `internal/adapters/remote/version_constraint.go` | `sha` or `tag` — the "never goes outdated" concept. |
 | `LooksLikeCommit(s) bool` | `internal/adapters/remote/version_constraint.go` | Shape test for an already-concrete SHA (skip the network). |
 | `Registry.Get/List/Has/Add/Remove/Update` | `internal/adapters/remote/registry.go` | Remote CRUD under `mu`; `Get` returns a defensive copy; mutators roll back the in-memory state when `save()` fails. |
-| `Registry.GetOrCreateByURL(url) (*Remote, error)` | `internal/adapters/remote/registry.go` | Find-or-auto-register a remote by URL; called on every pull (`Puller.resolveRemoteTarget`). |
+| `Registry.LookupURL(url) (*Remote, bool)` | `internal/adapters/remote/registry.go` | The registered remote for a repository, by `SameRepository`; never registers one. Nothing registers a remote but `Add` (`ctxloom remote create`). |
+| `NotRegisteredError(url) error` | `internal/adapters/remote/registry.go` | The `ErrRemoteNotRegistered` refusal naming `ctxloom remote create <name> <url>`; returned by the fetch (`Puller.resolveRemoteTarget`), the lock walk before it resolves anything (`operations.FlattenDependencies`, upgrade's re-resolve), and the read of installed content (`operations.RemoteBundleReaders`, `operations.BundleVersionResolver`). |
 | `Registry.SetForge / Forges / GetDefault / SetDefault / ResolveForgeForURL` | `internal/adapters/remote/registry.go` | Forge binding and default-remote accessors. |
 
 ### Fetch
@@ -225,7 +226,7 @@ flowchart TD
 | `NewPuller(registry, auth, opts...)` | `internal/adapters/remote/pull.go` | Options: `WithLockfileManager`, `WithFetcherFactory`, `WithTreeFetcher`, `WithTreeVerifier`, `WithTreeInstaller`, `WithManifestVerifier`. |
 | `Puller.Pull(ctx, ref, opts) (*PullResult, error)` | `internal/adapters/remote/pull.go` | Orchestrate `fetchForPull` → `installPulledItem`. |
 | `Puller.fetchForPull(...)` | `internal/adapters/remote/pull.go` | resolve target → retraction check → constraint→SHA → fetch and admit the tree. |
-| `Puller.resolveRemoteTarget(...)` | `internal/adapters/remote/pull.go` | ref → repo URL, registered remote (auto-registering), lockfile key. |
+| `Puller.resolveRemoteTarget(...)` | `internal/adapters/remote/pull.go` | ref → repo URL, registered remote, lockfile key; an unregistered repository is refused (`NotRegisteredError`). |
 | `Puller.confirmRetraction(...)` | `internal/adapters/remote/pull.go` | Warn and prompt (default No, `promptConfirmation`) when the requested version is retracted; `opts.Force` skips the prompt. |
 | `resolveContentSHA(...)` | `internal/adapters/remote/pull.go` | Constraint expression → concrete SHA via `ResolveConstraint`. |
 | `Puller.installPulledItem(...)` | `internal/adapters/remote/pull.go` | Write the lockfile entry — the only on-disk record of the pull. |

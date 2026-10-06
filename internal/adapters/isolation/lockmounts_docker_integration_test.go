@@ -20,7 +20,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
@@ -45,7 +45,7 @@ func TestContainerLockMounts_HostLocksUnreachableFromChild(t *testing.T) {
 	} {
 		lp, err := paths.HomePathFor(protected)
 		require.NoError(t, err)
-		require.NoError(t, filelock.Prepare(lp))
+		require.NoError(t, prepareLockFile(safefs.New().Locks, lp))
 		require.NoError(t, os.WriteFile(lp, []byte("host"), 0o644))
 		hostLocks = append(hostLocks, lp)
 	}

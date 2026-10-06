@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // allowWorld is a HOME under a temp root (so the allow store is this test's)
@@ -27,7 +27,7 @@ func allowWorld(t *testing.T, body string) (bin string) {
 
 func allowStoreRecords(t *testing.T) []companions.CompanionKey {
 	t.Helper()
-	store, err := companions.NewAllowStore(afero.NewOsFs())
+	store, err := companions.NewAllowStore(safefs.New())
 	require.NoError(t, err)
 	recs, err := store.List()
 	require.NoError(t, err)
@@ -43,7 +43,7 @@ func allowStoreRecords(t *testing.T) []companions.CompanionKey {
 func TestAllowCompanion_PreviewWritesNothing(t *testing.T) {
 	bin := allowWorld(t, "#!/bin/sh\n")
 
-	res, err := AllowCompanion(context.Background(), afero.NewOsFs(), CompanionAllowRequest{PathOrName: bin})
+	res, err := AllowCompanion(context.Background(), safefs.New(), CompanionAllowRequest{PathOrName: bin})
 	require.NoError(t, err)
 	assert.False(t, res.Applied)
 	assert.Equal(t, bin, res.Key.Path)
@@ -64,7 +64,7 @@ func TestAllowCompanion_PreviewWritesNothing(t *testing.T) {
 func TestAllowCompanion_ApplyRecordsPathAndHash(t *testing.T) {
 	bin := allowWorld(t, "#!/bin/sh\n")
 
-	res, err := AllowCompanion(context.Background(), afero.NewOsFs(), CompanionAllowRequest{PathOrName: bin, Apply: true})
+	res, err := AllowCompanion(context.Background(), safefs.New(), CompanionAllowRequest{PathOrName: bin, Apply: true})
 	require.NoError(t, err)
 	assert.True(t, res.Applied)
 	assert.Equal(t, []companions.CompanionKey{res.Key}, allowStoreRecords(t))
@@ -75,17 +75,17 @@ func TestAllowCompanion_ApplyRecordsPathAndHash(t *testing.T) {
 // record rather than adding a second one for the same path.
 func TestAllowCompanion_RebuiltBinaryDisclosesThePreviousHash(t *testing.T) {
 	bin := allowWorld(t, "#!/bin/sh\necho one\n")
-	first, err := AllowCompanion(context.Background(), afero.NewOsFs(), CompanionAllowRequest{PathOrName: bin, Apply: true})
+	first, err := AllowCompanion(context.Background(), safefs.New(), CompanionAllowRequest{PathOrName: bin, Apply: true})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\necho two\n"), 0o755)) //nolint:gosec // a fake companion
 
-	preview, err := AllowCompanion(context.Background(), afero.NewOsFs(), CompanionAllowRequest{PathOrName: bin})
+	preview, err := AllowCompanion(context.Background(), safefs.New(), CompanionAllowRequest{PathOrName: bin})
 	require.NoError(t, err)
 	require.NotNil(t, preview.Previous)
 	assert.Equal(t, first.Key.SHA256, preview.Previous.SHA256)
 	assert.NotEqual(t, first.Key.SHA256, preview.Key.SHA256)
 
-	applied, err := AllowCompanion(context.Background(), afero.NewOsFs(), CompanionAllowRequest{PathOrName: bin, Apply: true})
+	applied, err := AllowCompanion(context.Background(), safefs.New(), CompanionAllowRequest{PathOrName: bin, Apply: true})
 	require.NoError(t, err)
 	assert.Equal(t, []companions.CompanionKey{applied.Key}, allowStoreRecords(t), "one record per path")
 }
@@ -94,7 +94,7 @@ func TestAllowCompanion_RebuiltBinaryDisclosesThePreviousHash(t *testing.T) {
 // be hashed, so there is nothing to allow.
 func TestAllowCompanion_UnresolvableTargetFails(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	_, err := AllowCompanion(context.Background(), afero.NewOsFs(),
+	_, err := AllowCompanion(context.Background(), safefs.New(),
 		CompanionAllowRequest{PathOrName: filepath.Join(t.TempDir(), "missing")})
 	require.Error(t, err)
 }
@@ -103,16 +103,16 @@ func TestAllowCompanion_UnresolvableTargetFails(t *testing.T) {
 // drop without dropping them; with apply they are gone.
 func TestForgetCompanion_PreviewThenApply(t *testing.T) {
 	bin := allowWorld(t, "#!/bin/sh\n")
-	allowed, err := AllowCompanion(context.Background(), afero.NewOsFs(), CompanionAllowRequest{PathOrName: bin, Apply: true})
+	allowed, err := AllowCompanion(context.Background(), safefs.New(), CompanionAllowRequest{PathOrName: bin, Apply: true})
 	require.NoError(t, err)
 
-	preview, err := ForgetCompanion(context.Background(), afero.NewOsFs(), bin, false)
+	preview, err := ForgetCompanion(context.Background(), safefs.New(), bin, false)
 	require.NoError(t, err)
 	assert.False(t, preview.Applied)
 	assert.Equal(t, []companions.CompanionKey{allowed.Key}, preview.Records)
 	assert.Len(t, allowStoreRecords(t), 1, "a preview must not forget anything")
 
-	done, err := ForgetCompanion(context.Background(), afero.NewOsFs(), bin, true)
+	done, err := ForgetCompanion(context.Background(), safefs.New(), bin, true)
 	require.NoError(t, err)
 	assert.True(t, done.Applied)
 	assert.Empty(t, allowStoreRecords(t))
@@ -122,11 +122,11 @@ func TestForgetCompanion_PreviewThenApply(t *testing.T) {
 // records allowed under that name, even once the binary itself is gone.
 func TestForgetCompanion_ByNameMatchesTheRecordedName(t *testing.T) {
 	bin := allowWorld(t, "#!/bin/sh\n")
-	_, err := AllowCompanion(context.Background(), afero.NewOsFs(), CompanionAllowRequest{PathOrName: bin, Apply: true})
+	_, err := AllowCompanion(context.Background(), safefs.New(), CompanionAllowRequest{PathOrName: bin, Apply: true})
 	require.NoError(t, err)
 	require.NoError(t, os.Remove(bin))
 
-	done, err := ForgetCompanion(context.Background(), afero.NewOsFs(), "ltk", true)
+	done, err := ForgetCompanion(context.Background(), safefs.New(), "ltk", true)
 	require.NoError(t, err)
 	assert.Len(t, done.Records, 1)
 	assert.Empty(t, allowStoreRecords(t))
@@ -136,6 +136,6 @@ func TestForgetCompanion_ByNameMatchesTheRecordedName(t *testing.T) {
 // allowed is the caller's mistake to see, not a silent success.
 func TestForgetCompanion_NothingRecordedIsNotAllowed(t *testing.T) {
 	bin := allowWorld(t, "#!/bin/sh\n")
-	_, err := ForgetCompanion(context.Background(), afero.NewOsFs(), bin, true)
+	_, err := ForgetCompanion(context.Background(), safefs.New(), bin, true)
 	require.ErrorIs(t, err, ErrCompanionNotAllowed)
 }

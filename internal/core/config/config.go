@@ -1174,18 +1174,17 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 				// lockfile already pins the bundle, and the version-agnostic
 				// leaf identities let the read path honor that pin.
 				p.ResolveShortRefs(sourceURL, "")
+				// A profile shipped in a REPOSITORY may name only that
+				// repository's content (profiles.Profile.CheckOwnRepo, enforced
+				// when it loads). A companion loadout is not a repository: it
+				// has no URL its refs could be held to.
+				if fromRepository(src) {
+					p.SourceURL = sourceURL
+				}
 				// Sentinel path marks the profile read-only (Save/Delete
 				// refuse): a remote bundle's profile is edited at its source.
 				p.Path = profiles.SeededProfilePathPrefix + key
 			}
-			// The VERIFIED publisher identity of the bundle this profile ships
-			// inside (bundle.Signer() — stamped only by a load path that already
-			// checked a signature against the trust root; "" for unsigned/
-			// untrusted). resolveProfileRecursive threads this into
-			// ResolvedProfile.Signer so a trusted-publisher profile's directly-
-			// declared hooks/mcp are trusted-signer-allowed exactly like
-			// bundle-declared ones (B2, gateProfileExec parity).
-			p.Signer = bundle.Signer()
 			loaded[key] = &p
 		}
 	}
@@ -1228,6 +1227,12 @@ func seedBundleRef(read bundles.BundleRead, src trust.BundleRef) (string, bool) 
 		return "", false
 	}
 	return name, true
+}
+
+// fromRepository reports whether src is content fetched from a repository —
+// the sources a remote is registered for.
+func fromRepository(src trust.BundleRef) bool {
+	return src.Class == trust.ClassGit || src.Class == trust.ClassFile
 }
 
 // bundleProfileSourceURL returns the source a bundle profile's short same-repo

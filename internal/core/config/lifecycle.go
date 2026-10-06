@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
 // Draft is the mutable view an Owner.Update transaction hands fn: every
@@ -249,5 +249,5 @@ func withUpdateLock(injectedFS bool, configPath string, fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("config: locating update lock for %s: %w", configPath, err)
 	}
-	return filelock.WithLock(nil, lockPath, fn)
+	return safefs.WithLock(safefs.New().Locks, lockPath, fn)
 }

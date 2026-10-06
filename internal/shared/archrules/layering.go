@@ -127,7 +127,6 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/filelock",
 			"internal/shared/exectoken",
 			"internal/shared/textblocks",
-			"internal/shared/owneronly",
 			"internal/shared/schemaver",
 		},
 		Allowed: map[string]string{

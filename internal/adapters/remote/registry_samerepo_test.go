@@ -21,9 +21,8 @@ func TestSameRepository_AnUnreadableURLMatchesNothing(t *testing.T) {
 	assert.True(t, SameRepository("git@github.com:o/r", "https://GitHub.com/o/r/"))
 }
 
-// With no fallback, the registry could no longer tell a second registration
-// of an unreadable URL from a new one, and each failing pull would register
-// another remote. So the registry refuses the URL at the door instead.
+// A URL that names no repository has no identity to register or look up, so
+// the registry refuses it at the door and no lookup ever finds it.
 func TestRegistry_RefusesAURLThatNamesNoRepository(t *testing.T) {
 	reg := newResolveTestRegistry(t)
 	const bad = "https://h/o/a%2Fb/r"
@@ -32,9 +31,8 @@ func TestRegistry_RefusesAURLThatNamesNoRepository(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, refuri.ErrSyntax), "%v", err)
 
-	_, err = reg.GetOrCreateByURL(bad)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, refuri.ErrSyntax), "%v", err)
+	_, found := reg.LookupURL(bad)
+	assert.False(t, found, "an address that names no repository finds no remote")
 
 	bad2 := bad
 	_, err = reg.Update("personal", RemoteEdit{URL: &bad2})

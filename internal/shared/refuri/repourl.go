@@ -58,7 +58,6 @@ func isRelativePath(raw string) bool {
 //	  .CloneArg()    string              transport -> what git receives
 //	  .CacheSegments() ([]string, error)  filesystem -> cache path segments
 //	  .Kind()        SourceKind          dispatch  -> local / companion / remote
-//	  .Name()        string              naming    -> a remote's auto-registered name
 //
 // Adding a consumer means adding a renderer here, not another copy of the
 // grammar somewhere else.
@@ -130,8 +129,7 @@ type RepoURL struct {
 	path string // no leading or trailing "/", no trailing ".git"
 
 	// pathVerbatim is the path exactly as written, minus a leading "/". It is
-	// what the URL renderers emit for a NON-http(s) scheme, and what Name
-	// reads the final segment of (scp form included).
+	// what the URL renderers emit for a NON-http(s) scheme.
 	//
 	// This is not fastidiousness, it is the one place this refactor could
 	// have failed OPEN. Folding "file:///srv/repo/" onto "file:///srv/repo"
@@ -514,34 +512,6 @@ func splitPathSegments(p string) []string {
 		out = append(out, seg)
 	}
 	return out
-}
-
-// Name renders the NAMING concern: the name a remote is auto-registered under
-// when it is first fetched by URL.
-//
-// Scheme URLs (https, ssh://, git://, file:// …) and scp addresses are named
-// by their final path segment, read from the path as written so "owner/.git"
-// is distinguishable from "owner.git". Every other form — shorthand, a
-// host-qualified path, a bare host, a scheme URL that does not parse, the
-// sentinels — is named by its whole spelling with the URL separators
-// flattened to "/": shorthand and host-qualified addresses keep their
-// "owner/repo" name, because the last segment alone would collide across
-// owners.
-//
-// One trailing ".git" is dropped in every form — it is the bare-repository
-// convention, not part of the name — unless dropping it would leave nothing.
-func (r RepoURL) Name() string {
-	var name string
-	if r.form == formSCP || r.form == formURL {
-		p := strings.Trim(r.pathVerbatim, "/")
-		name = p[strings.LastIndex(p, "/")+1:]
-	} else {
-		name = strings.NewReplacer("://", "/", ":", "/", "@", "/").Replace(r.raw)
-	}
-	if trimmed := strings.TrimSuffix(name, ".git"); trimmed != "" {
-		return trimmed
-	}
-	return name
 }
 
 // isHTTP reports whether this is an http(s) URL, the only transport whose

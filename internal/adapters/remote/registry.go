@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -176,9 +177,8 @@ func (r *Registry) save() error {
 	}
 
 	// A plain afero.WriteFile truncates the file in place — a crash
-	// or a concurrent writer (GetOrCreateByURL auto-registers on every pull,
-	// and agent children run concurrently) can observe or leave a half-written
-	// remotes.yaml. LockfileManager.write already uses this same atomic
+	// or a concurrent writer (agent children run concurrently) can observe or
+	// leave a half-written remotes.yaml. LockfileManager.write already uses this same atomic
 	// temp-file-then-rename primitive for the same reason, same directory.
 	if err := safefs.WriteFile(r.fs, r.configPath, out, 0644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
@@ -228,53 +228,33 @@ func (r *Registry) Add(name, repoURL string) error {
 	return nil
 }
 
-// GetOrCreateByURL finds an existing remote by URL or creates a new one.
-// Used for auto-registration during pull - returns existing remote if URL already registered.
-// New remotes are named using the repository name extracted from the URL.
-// If a name conflict exists (same repo name, different URL), appends a numeric suffix.
-func (r *Registry) GetOrCreateByURL(repoURL string) (*Remote, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// ErrRemoteNotRegistered is the refusal for content addressed by a
+// repository no remote is registered for. Registering a remote is the one
+// deliberate act that admits a repository's content, so an address is never
+// enough on its own: nothing registers a remote except `ctxloom remote create`.
+var ErrRemoteNotRegistered = errors.New("remote not registered")
 
-	if err := requireRepository(repoURL); err != nil {
-		return nil, err
+// NotRegisteredError is the ErrRemoteNotRegistered refusal for repoURL, naming
+// the command that registers it. Every site that refuses an unregistered
+// repository (the fetch and the read of installed content) returns this one
+// error, so they cannot drift apart.
+func NotRegisteredError(repoURL string) error {
+	return report.Errorf("ctxloom remote create <name> "+repoURL,
+		"%w: %s is reached only by reference", ErrRemoteNotRegistered, repoURL)
+}
+
+// LookupURL returns a copy of the remote registered for repoURL's repository,
+// compared by SameRepository so any spelling of it matches. It never
+// registers anything.
+func (r *Registry) LookupURL(repoURL string) (*Remote, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	name, found := r.findByURLLocked(repoURL)
+	if !found {
+		return nil, false
 	}
-	normalizedURL := storedRepoURL(repoURL)
-
-	// Check if any existing remote points to this URL
-	if existing, found := r.findByURLLocked(repoURL); found {
-		remoteCopy := *r.remotes[existing]
-		return &remoteCopy, nil
-	}
-
-	// Auto-register using repo name
-	baseName := ExtractRepoName(repoURL)
-	name := baseName
-
-	// Handle name conflicts with numeric suffix
-	suffix := 2
-	for {
-		if _, exists := r.remotes[name]; !exists {
-			break
-		}
-		name = fmt.Sprintf("%s-%d", baseName, suffix)
-		suffix++
-	}
-
-	remote := &Remote{
-		Name: name,
-		URL:  normalizedURL,
-	}
-
-	r.remotes[name] = remote
-
-	if err := r.save(); err != nil {
-		delete(r.remotes, name) // Rollback
-		return nil, err
-	}
-
-	remoteCopy := *remote
-	return &remoteCopy, nil
+	remoteCopy := *r.remotes[name]
+	return &remoteCopy, true
 }
 
 // RemoteEdit names the fields Update may change. A nil field is unchanged.

@@ -212,7 +212,11 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 		// Skipped when a Puller is injected (tests drive a mock fetcher with no
 		// real clone to advance); per-URL failures warn and continue.
 		if req.Puller == nil {
-			refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(refs))
+			registered, err := registeredRepos(cfg)
+			if err != nil {
+				return err
+			}
+			refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(refs), registered)
 		}
 		if err := syncRefs(ctx, puller, refs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, downgrades, result); err != nil {
 			return err
@@ -870,9 +874,13 @@ var startupCloneRefresh = refreshReferencedClones
 // (the bundle refs collectRemoteReferences gathers across profiles and config
 // defaults) to its live tip. Best-effort throughout: a fetch failure
 // leaves the cache as-is; the probe and sync paths surface any real
-// problem.
+// problem — an unreadable registry included: nothing is refreshed.
 func refreshReferencedClones(ctx context.Context, cfg *config.Config) {
-	refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(collectRemoteReferences(cfg, nil)))
+	registered, err := registeredRepos(cfg)
+	if err != nil {
+		return
+	}
+	refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(collectRemoteReferences(cfg, nil)), registered)
 }
 
 // SyncOnStartup is a convenience function that runs sync with sensible defaults.

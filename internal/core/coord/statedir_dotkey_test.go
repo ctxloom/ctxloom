@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,7 +34,7 @@ func TestRootStateDir_DotOnlyKeyNeverResolvesToTheCoordRoot(t *testing.T) {
 	root := filepath.Join(home, paths.AppDirName, coordDirName)
 
 	for _, key := range []string{".", "..", "...", "./.", "/."} {
-		dir, err := ensureRootStateDir(key, "", "root-harp")
+		dir, err := ensureRootStateDir(afero.NewOsFs(), key, "", "root-harp")
 		require.NoError(t, err, "key %q", key)
 		project := filepath.Dir(filepath.Clean(dir))
 		assert.NotEqual(t, root, project,

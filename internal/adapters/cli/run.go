@@ -816,13 +816,41 @@ func (st *runState) resolvePrompt() error {
 	return nil
 }
 
+// ShutdownSignalNotice is the diagnostic a run emits, formatted with the
+// os.Signal, when a shutdown signal ends it. It is the observable record of
+// WHY a session ended: under the terminal UI it lands in the session's
+// diagnostics log, which outlives a terminal that hung up.
+const ShutdownSignalNotice = "%s signal received; ending the session"
+
 // withShutdownSignals installs the run's shutdown-signal context and returns
 // the stop function for runRun to defer. (Interactive ^C is raw-mode input
 // forwarded to the child, not a SIGINT to us.)
 func (st *runState) withShutdownSignals() context.CancelFunc {
-	ctx, stopSignals := signal.NotifyContext(st.cmd.Context(), shutdownSignals...)
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, shutdownSignals...)
+	ctx, stop := endOnSignal(st.cmd.Context(), sigs)
 	st.ctx = ctx
-	return stopSignals
+	return func() {
+		signal.Stop(sigs)
+		stop()
+	}
+}
+
+// endOnSignal returns a context that ends on the first signal from sigs, or
+// when stop runs. A signal is announced (ShutdownSignalNotice) BEFORE the
+// context ends: ending it starts the unwind that restores the diagnostics
+// sink, so the notice must already be written when that begins.
+func endOnSignal(parent context.Context, sigs <-chan os.Signal) (ctx context.Context, stop context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	go func() {
+		select {
+		case sig := <-sigs:
+			clidiag.Warn("ctxloom", ShutdownSignalNotice, sig)
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
 }
 
 // runStartupTasks is the side-effecting startup window: dependency sync,

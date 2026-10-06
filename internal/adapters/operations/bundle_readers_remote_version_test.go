@@ -96,6 +96,7 @@ func TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle(t *testing.T) {
 	repoDir, rev1, rev2, pub := remoteTreeContentRepo(t)
 	appDir := filepath.Join(t.TempDir(), "consumer", ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	registerTestRemote(t, appDir, "file://"+filepath.ToSlash(repoDir))
 	// The consumer trusts the publisher to PUBLISH. Without this the tree is
 	// merely "unsigned to you" and the resolver refuses it before ReadTree,
 	// so the item bytes under test are never reached.

@@ -269,13 +269,14 @@ func j002300ReadTranscriptEntries(w *World, harp string) (out []j002300Transcrip
 	return out, skipped, firstSkipErr, nil
 }
 
-// j002300TranscriptAssistantCount waits (bounded) for harp's transcript to carry
-// AT LEAST want assistant entries, returning them in order. A mock turn in
-// the child's runner completes in well under a second locally, but this box
-// runs other agents concurrently — polling tolerates load-induced slack
-// without a fixed sleep either racing or over-waiting.
+// j002300TranscriptAssistantCount waits for harp's transcript to carry AT
+// LEAST want assistant entries, returning them in order. The transcript is a
+// file the child's engine writes and nothing announces, so it is polled,
+// bounded by the suite deadline (eventBudget): load delays a mock turn by any
+// amount, and a fixed cap fails on a turn that was merely late.
 func j002300TranscriptAssistantCount(w *World, harp string, want int) ([]j002300TranscriptEntry, error) {
-	deadline := time.Now().Add(10 * time.Second)
+	budget := eventBudget()
+	deadline := time.Now().Add(budget)
 	var assistants []j002300TranscriptEntry
 	var lastErr error
 	var lastSkipped int
@@ -299,13 +300,13 @@ func j002300TranscriptAssistantCount(w *World, harp string, want int) ([]j002300
 		time.Sleep(100 * time.Millisecond)
 	}
 	if lastErr != nil {
-		return nil, fmt.Errorf("j002300: transcript for harp %q never appeared after 10s: %w", harp, lastErr)
+		return nil, fmt.Errorf("j002300: transcript for harp %q never appeared after %s: %w", harp, budget, lastErr)
 	}
 	if lastSkipped > 0 {
-		return nil, fmt.Errorf("j002300: transcript for harp %q carries %d assistant entr(y/ies) after 10s, want >= %d -- and %d transcript line(s) failed to parse (first: %v), so this may be a corrupted/schema-drifted transcript, not a slow child",
-			harp, len(assistants), want, lastSkipped, lastSkipErr)
+		return nil, fmt.Errorf("j002300: transcript for harp %q carries %d assistant entr(y/ies) after %s, want >= %d -- and %d transcript line(s) failed to parse (first: %v), so this may be a corrupted/schema-drifted transcript, not a slow child",
+			harp, len(assistants), budget, want, lastSkipped, lastSkipErr)
 	}
-	return nil, fmt.Errorf("j002300: transcript for harp %q carries %d assistant entr(y/ies) after 10s, want >= %d", harp, len(assistants), want)
+	return nil, fmt.Errorf("j002300: transcript for harp %q carries %d assistant entr(y/ies) after %s, want >= %d", harp, len(assistants), budget, want)
 }
 
 // --- The negative probe: withholding the runner ------------------------------
@@ -637,16 +638,17 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 	// turn-start hook is its only reader — nothing is received by a tool
 	// call. So these steps wait on the spool itself (j002300OwnerMail), and
 	// every poll is a free local directory read, never a second paid model
-	// call, so a generous budget costs nothing.
-	ctx.Step(`^the coordinator's own spool receives a message from "([^"]*)" within (\d+)s$`,
-		func(c context.Context, name string, budgetSec int) error {
+	// call, so polling to the suite deadline (eventBudget) costs nothing.
+	ctx.Step(`^the coordinator's own spool receives a message from "([^"]*)"$`,
+		func(c context.Context, name string) error {
 			w := worldFrom(c)
 			j002300 := j002300Of(w)
 			harp, ok := j002300.harps[name]
 			if !ok {
 				return fmt.Errorf("j002300: no session harp remembered for %q — spawn it first", name)
 			}
-			deadline := time.Now().Add(time.Duration(budgetSec) * time.Second)
+			budget := eventBudget()
+			deadline := time.Now().Add(budget)
 			for {
 				mail, err := j002300OwnerMail(w)
 				if err != nil {
@@ -657,7 +659,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 					return nil // subsequent Then steps assert its content
 				}
 				if time.Now().After(deadline) {
-					return fmt.Errorf("j002300: no message from %q (harp %s) reached the owner's spool within %ds; it holds %d message(s)", name, harp, budgetSec, len(mail))
+					return fmt.Errorf("j002300: no message from %q (harp %s) reached the owner's spool within %s; it holds %d message(s)", name, harp, budget, len(mail))
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
@@ -676,8 +678,8 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 	// fails the step AT ONCE with that message's text: the child is dead,
 	// the marker can never come, and waiting out the budget only buries the
 	// cause under a timeout. Every message is scanned for the marker first.
-	ctx.Step(`^the coordinator's own spool receives a body containing "([^"]*)" from "([^"]*)" within (\d+)s$`,
-		func(c context.Context, want, name string, budgetSec int) error {
+	ctx.Step(`^the coordinator's own spool receives a body containing "([^"]*)" from "([^"]*)"$`,
+		func(c context.Context, want, name string) error {
 			w := worldFrom(c)
 			j002300 := j002300Of(w)
 			harp, ok := j002300.harps[name]
@@ -687,7 +689,8 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if strings.TrimSpace(want) == "" {
 				return fmt.Errorf("j002300: waiting for an EMPTY body from %q would be satisfied by any message at all, including a runner-exit report", name)
 			}
-			deadline := time.Now().Add(time.Duration(budgetSec) * time.Second)
+			budget := eventBudget()
+			deadline := time.Now().Add(budget)
 			for {
 				mail, err := j002300OwnerMail(w)
 				if err != nil {
@@ -703,8 +706,8 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 						name, kindLabel(coord.KindError), want, harp, strings.Join(failed, "\n---\n"))
 				}
 				if time.Now().After(deadline) {
-					return fmt.Errorf("j002300: %q never sent its coordinator a body containing %q within %ds — %d message(s) arrived from harp %s:\n%s",
-						name, want, budgetSec, len(seen), harp, strings.Join(seen, "\n---\n"))
+					return fmt.Errorf("j002300: %q never sent its coordinator a body containing %q within %s — %d message(s) arrived from harp %s:\n%s",
+						name, want, budget, len(seen), harp, strings.Join(seen, "\n---\n"))
 				}
 				time.Sleep(250 * time.Millisecond)
 			}

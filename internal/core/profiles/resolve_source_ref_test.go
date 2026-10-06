@@ -19,7 +19,7 @@ import (
 func TestResolveProfile_SourceRef_BundleShippedRemote(t *testing.T) {
 	key := defaultURI + "//bundles/kit#profiles/dev"
 	seed := map[string]*Profile{
-		key: {Name: key, Path: SeededProfilePathPrefix + key, Signer: "vendor@example.com"},
+		key: {Name: key, Path: SeededProfilePathPrefix + key},
 	}
 	loader := NewLoader(nil, WithSeededProfiles(seed))
 
@@ -27,8 +27,6 @@ func TestResolveProfile_SourceRef_BundleShippedRemote(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, defaultURI+"//bundles/kit", resolved.SourceRef,
 		"SourceRef must be the origin bundle's canonical ref, with the #profiles/<name> selector stripped")
-	assert.Equal(t, "vendor@example.com", resolved.Signer,
-		"the seeded Profile.Signer (the origin bundle's verified publisher) must flow through to ResolvedProfile.Signer")
 }
 
 // TestResolveProfile_SourceRef_BundleShippedLocal proves a LOCAL bundle's
@@ -40,14 +38,13 @@ func TestResolveProfile_SourceRef_BundleShippedRemote(t *testing.T) {
 func TestResolveProfile_SourceRef_BundleShippedLocal(t *testing.T) {
 	key := "ctxloom+local:kit#profiles/dev"
 	seed := map[string]*Profile{
-		key: {Name: key, Path: SeededProfilePathPrefix + key}, // unsigned local bundle: no Signer
+		key: {Name: key, Path: SeededProfilePathPrefix + key},
 	}
 	loader := NewLoader(nil, WithSeededProfiles(seed))
 
 	resolved, err := loader.ResolveProfile(key, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "ctxloom+local:kit", resolved.SourceRef)
-	assert.Empty(t, resolved.Signer, "an unsigned local bundle carries no verified signer")
 }
 
 // TestResolveProfile_SourceRef_ProjectProfileIsTheProjectBundle proves a
@@ -62,18 +59,17 @@ func TestResolveProfile_SourceRef_ProjectProfileIsTheProjectBundle(t *testing.T)
 	resolved, err := loader.ResolveProfile("dev", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "ctxloom+local:project", resolved.SourceRef)
-	assert.Empty(t, resolved.Signer)
 }
 
 // TestResolveProfile_SourceRef_ChildNeverInheritsParentSource proves a
-// profile's SourceRef/Signer are its OWN provenance, never a parent's: a
+// profile's SourceRef is its OWN provenance, never a parent's: a
 // project profile that inherits from a bundle-shipped remote parent still keys
 // its OWN directly-declared hooks/mcp by the project bundle — a parent's
-// remote origin and signer must never leak onto the child's gate identity.
+// remote origin must never leak onto the child's gate identity.
 func TestResolveProfile_SourceRef_ChildNeverInheritsParentSource(t *testing.T) {
 	parentKey := defaultURL + "@bundles/kit#profiles/base"
 	seed := map[string]*Profile{
-		parentKey: {Name: parentKey, Path: SeededProfilePathPrefix + parentKey, Signer: "vendor@example.com"},
+		parentKey: {Name: parentKey, Path: SeededProfilePathPrefix + parentKey},
 	}
 	fs := afero.NewMemMapFs()
 	writeProjectProfile(t, fs, "child", "parents:\n  - "+parentKey+"\ndescription: local child\n")
@@ -83,5 +79,4 @@ func TestResolveProfile_SourceRef_ChildNeverInheritsParentSource(t *testing.T) {
 	resolved, err := loader.ResolveProfile("child", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "ctxloom+local:project", resolved.SourceRef, "the child keys by its own bundle, not its parent's")
-	assert.Empty(t, resolved.Signer, "the parent's signer never leaks onto the child")
 }

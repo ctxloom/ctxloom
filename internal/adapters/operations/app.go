@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/spf13/pflag"
@@ -41,6 +42,9 @@ type App struct {
 	// Reporter is the sink the composition root chose; every component this
 	// App composes reports through it.
 	Reporter report.Sink
+	// Root is ctxloom's root as this process sees it (Handed.Root). Zero is
+	// the controller's own filesystem (safefs.New).
+	Root safefs.Root
 
 	src     config.Sources
 	open    ConfigOpener
@@ -107,6 +111,7 @@ type Handed struct {
 	Reporter      report.Sink
 	Engines       engine.Registry
 	SessionClaims launch.SessionClaims
+	Root          safefs.Root
 }
 
 // Switches are the per-invocation process switches an App is composed with.
@@ -125,13 +130,13 @@ type Switches struct {
 // Owner/Snapshot/Config call, so a command that never reads configuration
 // never reads the files either.
 func NewApp(src config.Sources, sw Switches, selfLoadout func() string, mode strictness.Mode, h Handed) *App {
-	return &App{NoCompanions: sw.NoCompanions, SigCheckDisabled: sw.SigCheckDisabled, SessionSigCheckWaived: sw.SessionSigCheckWaived, SelfLoadout: selfLoadout, Strictness: mode, Reporter: h.Reporter, src: src, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
+	return &App{NoCompanions: sw.NoCompanions, SigCheckDisabled: sw.SigCheckDisabled, SessionSigCheckWaived: sw.SessionSigCheckWaived, SelfLoadout: selfLoadout, Strictness: mode, Reporter: h.Reporter, Root: h.Root, src: src, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
 }
 
 // OpenedApp wraps an owner a test already opened, with what a composition
 // root would have handed it.
 func OpenedApp(owner *config.Owner, h Handed) *App {
-	a := &App{owner: owner, opened: true, Reporter: h.Reporter, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
+	a := &App{owner: owner, opened: true, Reporter: h.Reporter, Root: h.Root, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
 	a.once.Do(func() {})
 	return a
 }
@@ -207,4 +212,13 @@ func (a *App) Update(ctx context.Context, fn func(*config.Draft) error) (*config
 		return nil, err
 	}
 	return owner.Update(ctx, fn)
+}
+
+// root is the App's Root, or the controller's own filesystem when none was
+// handed.
+func (a *App) root() safefs.Root {
+	if a.Root.Fs == nil {
+		return safefs.New()
+	}
+	return a.Root
 }

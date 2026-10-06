@@ -1,6 +1,6 @@
 //go:build windows
 
-package owneronly
+package safefs
 
 import (
 	"errors"
@@ -8,14 +8,21 @@ import (
 	"io/fs"
 	"unsafe"
 
+	"github.com/spf13/afero"
 	"golang.org/x/sys/windows"
 )
 
-// restrict replaces dir's DACL with a PROTECTED one (nothing inherited from
+// osPrivate is owner-only on Windows: the DACL. A mode is not access control
+// here — os.Chmod only toggles the read-only attribute.
+func osPrivate() privateOn {
+	return privateOn{fs: afero.NewOsFs(), violation: daclViolation, restrict: restrictDACL}
+}
+
+// restrictDACL replaces dir's DACL with a PROTECTED one (nothing inherited from
 // above) holding one inheritable ACE for the current user. What is created
 // inside dir afterwards inherits exactly that ACE, and SetNamedSecurityInfo
 // propagates it to the inheriting children already there.
-func restrict(dir string) error {
+func restrictDACL(dir string) error {
 	sid, err := currentUserSID()
 	if err != nil {
 		return err
@@ -41,11 +48,11 @@ func restrict(dir string) error {
 	return nil
 }
 
-// violation says why p is open beyond the current user and the tolerated
+// daclViolation says why p is open beyond the current user and the tolerated
 // principals (toleratedSIDs), or "" when it is not. Deny ACEs narrow access
 // and are ignored; any other ACE type is refused rather than interpreted. No
 // DACL at all means unrestricted access.
-func violation(p string, _ fs.FileInfo) (string, error) {
+func daclViolation(p string, _ fs.FileInfo) (string, error) {
 	sid, err := currentUserSID()
 	if err != nil {
 		return "", err

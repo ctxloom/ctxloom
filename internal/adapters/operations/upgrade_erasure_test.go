@@ -52,6 +52,7 @@ func setupSeededLockProject(t *testing.T) (baseDir, ref string, cfg *config.Conf
 	src := filepath.Join(tmp, "src")
 	initLocalRepoWithFile(t, src, repoV2("demo")+"/bundle.yaml", "name: demo\n")
 	ref = "file://" + src + "@bundles/demo"
+	registerRefRemotes(t, baseDir, ref)
 
 	// baseDir stays AppPaths[0] — that is where the lockfile lives — and the
 	// profile goes in a SECOND app dir the loader also searches.

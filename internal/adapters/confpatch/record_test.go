@@ -82,16 +82,3 @@ func TestTwoDeepTargetsDifferingOnlyBeforeTheTailDoNotCollide(t *testing.T) {
 	require.True(t, found)
 	assert.Equal(t, b, recB.Targets[0].Target)
 }
-
-// A records directory already prepared on the real filesystem is written
-// through fsstatic's copy-on-write overlay without the overlay being asked to
-// change it: its Chmod of a directory in the base fails, and on Windows, where
-// a directory never reports mode 0700, a "chmod unless already 0700" guard
-// asked it every time.
-func TestEnsureRecordDir_ThroughAnOverlayOverAPreparedDir(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "records")
-	require.NoError(t, EnsureRecordDir(afero.NewOsFs(), dir))
-
-	overlay := afero.NewCopyOnWriteFs(afero.NewOsFs(), afero.NewMemMapFs())
-	require.NoError(t, EnsureRecordDir(overlay, dir))
-}

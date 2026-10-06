@@ -6,9 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // CompanionAllowRequest names the companion binary to allow — a path, or a
@@ -31,7 +30,7 @@ type CompanionAllowResult struct {
 
 // AllowCompanion records that ctxloom may execute the binary req names, as its
 // bytes are now. Without Apply it writes nothing.
-func AllowCompanion(ctx context.Context, fs afero.Fs, req CompanionAllowRequest) (CompanionAllowResult, error) {
+func AllowCompanion(ctx context.Context, root safefs.Root, req CompanionAllowRequest) (CompanionAllowResult, error) {
 	if err := ctx.Err(); err != nil {
 		return CompanionAllowResult{}, err
 	}
@@ -39,7 +38,7 @@ func AllowCompanion(ctx context.Context, fs afero.Fs, req CompanionAllowRequest)
 	if err != nil {
 		return CompanionAllowResult{}, err
 	}
-	store, err := companions.NewAllowStore(fs)
+	store, err := companions.NewAllowStore(root)
 	if err != nil {
 		return CompanionAllowResult{}, err
 	}
@@ -85,11 +84,11 @@ type CompanionForgetResult struct {
 // path when it is a path, by the recorded name when it is a bare name — so a
 // binary that is already gone can still be forgotten. Without apply it writes
 // nothing. Matching no record is ErrCompanionNotAllowed.
-func ForgetCompanion(ctx context.Context, fs afero.Fs, pathOrName string, apply bool) (CompanionForgetResult, error) {
+func ForgetCompanion(ctx context.Context, root safefs.Root, pathOrName string, apply bool) (CompanionForgetResult, error) {
 	if err := ctx.Err(); err != nil {
 		return CompanionForgetResult{}, err
 	}
-	store, err := companions.NewAllowStore(fs)
+	store, err := companions.NewAllowStore(root)
 	if err != nil {
 		return CompanionForgetResult{}, err
 	}

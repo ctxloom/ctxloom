@@ -6,11 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 )
 
 // The owner's reader is a SUBPROCESS PER TURN (the turn-start hook), so its
@@ -195,7 +194,7 @@ func TestClaim_ReportsAnUnreadableFileAsAProblemAndLeavesItInPlace(t *testing.T)
 	inDir, err := DirPath(m, testHarp, DirIn)
 	require.NoError(t, err)
 	junk := filepath.Join(inDir, "00000000000000000000000.00000001.coord.md")
-	require.NoError(t, os.WriteFile(junk, []byte("no frontmatter at all\n"), owneronly.FileMode))
+	require.NoError(t, os.WriteFile(junk, []byte("no frontmatter at all\n"), safefs.PrivateFileMode))
 
 	res, err := Claim(afero.NewOsFs(), m, testHarp)
 	require.NoError(t, err)

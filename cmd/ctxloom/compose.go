@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 var (
@@ -30,10 +31,11 @@ var (
 // than minting a second owner or a second coordinator the rest of the
 // process would not know about. The CLI parses flags and renders; the
 // application services compose over what this hands them.
-func compose(sink report.Sink) cli.Composition {
+func compose(sink report.Sink, root safefs.Root) cli.Composition {
 	var owners, coordinators sync.Once
 	return cli.Composition{
 		Reporter: sink,
+		Root:     root,
 		Loadout:  embeddedLoadout(),
 		// The ONE composed registry: the same value the cli's own engine
 		// readers resolve through, so the App and the runner cannot disagree
@@ -54,6 +56,9 @@ func compose(sink report.Sink) cli.Composition {
 			c, err := (*coord.Coordinator)(nil), errSecondCoordinator
 			coordinators.Do(func() {
 				opts.Reporter = sink
+				if opts.Root.Fs == nil {
+					opts.Root = root
+				}
 				// The production launch seam: the spawn adapter over the one
 				// App, starting real runners. A caller that injected its own
 				// (a test double) keeps it.

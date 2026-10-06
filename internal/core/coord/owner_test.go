@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/procpin"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // holdOwnerLock takes dir's owner lock through a descriptor of the test's own,
@@ -75,10 +76,10 @@ func interactiveStamp() ownerStamp {
 // held without claiming it, and release frees it while the lock file stays.
 func TestClaimOwner_StampsAndReleases(t *testing.T) {
 	dir := t.TempDir()
-	release, err := claimOwner(termRep(), dir, newOwnerStamp("owner-harp", OwnerInteractive))
+	release, err := claimOwner(safefs.New(), termRep(), dir, newOwnerStamp("owner-harp", OwnerInteractive))
 	require.NoError(t, err)
 
-	st, err := ProbeOwner(dir)
+	st, err := ProbeOwner(safefs.New(), dir)
 	require.NoError(t, err)
 	assert.True(t, st.Held)
 	assert.Equal(t, os.Getpid(), st.PID)
@@ -87,7 +88,7 @@ func TestClaimOwner_StampsAndReleases(t *testing.T) {
 	assert.False(t, st.Orphan, "this process has a parent")
 
 	release()
-	st, err = ProbeOwner(dir)
+	st, err = ProbeOwner(safefs.New(), dir)
 	require.NoError(t, err)
 	assert.False(t, st.Held, "release frees the project")
 	_, statErr := os.Stat(filepath.Join(dir, OwnerLockFileName))
@@ -101,7 +102,7 @@ func TestClaimOwner_StaleStampOfALivePidDoesNotBlock(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, OwnerLockFileName), nil, 0o600))
 	writeStamp(t, dir, ownerStamp{PID: os.Getppid(), Harp: "long-dead-harp", Mode: OwnerInteractive})
 
-	release, err := claimOwner(termRep(), dir, newOwnerStamp("new-harp", OwnerInteractive))
+	release, err := claimOwner(safefs.New(), termRep(), dir, newOwnerStamp("new-harp", OwnerInteractive))
 	require.NoError(t, err, "an unlocked owner lock is free, whatever pid its stale stamp names")
 	t.Cleanup(release)
 }
@@ -115,7 +116,7 @@ func TestClaimOwner_LiveOwnerIsRefusedByName(t *testing.T) {
 	fakeProc(t, procpin.Stat{PPID: 1, TTYNr: 34816, StartTicks: orphanTicks}, nil)
 	calls := fakeEnd(t, func() {})
 
-	_, err := claimOwner(termRep(), dir, newOwnerStamp("loser", OwnerInteractive))
+	_, err := claimOwner(safefs.New(), termRep(), dir, newOwnerStamp("loser", OwnerInteractive))
 	require.ErrorIs(t, err, ErrStateOwned)
 	assert.Contains(t, err.Error(), s.Harp)
 	assert.Contains(t, err.Error(), strconv.Itoa(s.PID))
@@ -139,7 +140,7 @@ func TestClaimOwner_OrphanIsReclaimed(t *testing.T) {
 	calls := fakeEnd(t, release)
 
 	var found report.Findings
-	rel, err := claimOwner(report.To(&found), dir, newOwnerStamp("new-owner", OwnerInteractive))
+	rel, err := claimOwner(safefs.New(), report.To(&found), dir, newOwnerStamp("new-owner", OwnerInteractive))
 	require.NoError(t, err)
 	t.Cleanup(rel)
 	assert.Equal(t, 1, *calls)
@@ -147,7 +148,7 @@ func TestClaimOwner_OrphanIsReclaimed(t *testing.T) {
 	assert.Contains(t, found[0].Text, s.Harp)
 	assert.Contains(t, found[0].Text, strconv.Itoa(s.PID))
 
-	st, err := ProbeOwner(dir)
+	st, err := ProbeOwner(safefs.New(), dir)
 	require.NoError(t, err)
 	assert.Equal(t, "new-owner", st.Harp, "the reclaimer now owns the project")
 }
@@ -165,7 +166,7 @@ func claimConcurrently(t *testing.T, dir string, harps []string) map[string]erro
 		go func() {
 			defer wg.Done()
 			<-start
-			rel, err := claimOwner(termRep(), dir, newOwnerStamp(h, OwnerInteractive))
+			rel, err := claimOwner(safefs.New(), termRep(), dir, newOwnerStamp(h, OwnerInteractive))
 			if err == nil {
 				t.Cleanup(rel)
 			}
@@ -192,7 +193,7 @@ func requireOneOwner(t *testing.T, dir string, results map[string]error) {
 		require.ErrorIs(t, err, ErrStateOwned, "claimer %s", h)
 	}
 	require.Len(t, winners, 1, "exactly one claimer owns the project")
-	st, err := ProbeOwner(dir)
+	st, err := ProbeOwner(safefs.New(), dir)
 	require.NoError(t, err)
 	assert.True(t, st.Held)
 	assert.Equal(t, winners[0], st.Harp, "the stamp names the one owner")
@@ -270,11 +271,11 @@ func TestClaimOwner_NonOrphansAreRefused(t *testing.T) {
 			fakeProc(t, tc.stat, tc.statErr)
 			calls := fakeEnd(t, release)
 
-			_, err := claimOwner(termRep(), dir, newOwnerStamp("loser", OwnerInteractive))
+			_, err := claimOwner(safefs.New(), termRep(), dir, newOwnerStamp("loser", OwnerInteractive))
 			require.ErrorIs(t, err, ErrStateOwned)
 			assert.Zero(t, *calls, "a non-orphan is never ended")
 
-			st, perr := ProbeOwner(dir)
+			st, perr := ProbeOwner(safefs.New(), dir)
 			require.NoError(t, perr)
 			assert.True(t, st.Held)
 			assert.False(t, st.Orphan)
@@ -287,7 +288,7 @@ func TestClaimOwner_NonOrphansAreRefused(t *testing.T) {
 // nothing.
 func TestProbeOwner_UnclaimedDir(t *testing.T) {
 	dir := t.TempDir()
-	st, err := ProbeOwner(dir)
+	st, err := ProbeOwner(safefs.New(), dir)
 	require.NoError(t, err)
 	assert.Equal(t, OwnerStatus{}, st)
 	entries, err := os.ReadDir(dir)

@@ -21,7 +21,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // testReason is a domain's own Reason enum, standing in for the three real
@@ -64,7 +66,7 @@ func newTestStore(t *testing.T) (*admission.Store[testKey, testReason], afero.Fs
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	path := filepath.Join("/home", "u", ".ctxloom", "decisions.yaml")
-	s := admission.NewStore(fs, path, keyOf, testReasons(),
+	s := admission.NewStore(safefs.NewMem(fs), path, keyOf, testReasons(),
 		admission.WithScope(scopeOf), admission.WithClock[testKey](fixedClock()))
 	return s, fs, path
 }
@@ -91,7 +93,7 @@ func TestProperty_ZeroValueWithholds(t *testing.T) {
 	// And no store may emit that zero reason as a real answer: a Reasons whose
 	// members include the zero value is a construction fault, so a caller
 	// cannot accidentally make "unset" mean something.
-	bad := admission.NewStore(afero.NewMemMapFs(), "/x/y.yaml", keyOf,
+	bad := admission.NewStore(safefs.NewMem(afero.NewMemMapFs()), "/x/y.yaml", keyOf,
 		admission.Reasons[testReason]{Approved: reasonApproved, Declined: reasonDeclined, Unasked: reasonUnasked})
 	_, err := bad.List()
 	require.Error(t, err, "a store whose Fault reason is the zero value must refuse to operate")
@@ -154,7 +156,7 @@ func TestProperty_UnaskedAndDeclinedStayDifferent(t *testing.T) {
 
 	// The store refuses to be built with them spelled the same, so no future
 	// domain can quietly merge them.
-	merged := admission.NewStore(afero.NewMemMapFs(), "/x/y.yaml", keyOf,
+	merged := admission.NewStore(safefs.NewMem(afero.NewMemMapFs()), "/x/y.yaml", keyOf,
 		admission.Reasons[testReason]{
 			Approved: reasonApproved, Declined: reasonDeclined,
 			Unasked: reasonDeclined, Fault: reasonFault,
@@ -211,7 +213,7 @@ func TestProperty_UnconfiguredStoreRefusesRatherThanReadingTheWorkingDirectory(t
 	require.NoError(t, afero.WriteFile(fs, planted, []byte(
 		"version: 1\nrecords:\n  - key:\n      scope: a\n      fine: \"1\"\n    approved: true\n"), 0o600))
 
-	s := admission.NewStore(fs, "", keyOf, testReasons(), admission.WithScope(scopeOf))
+	s := admission.NewStore(safefs.NewMem(fs), "", keyOf, testReasons(), admission.WithScope(scopeOf))
 	assert.Empty(t, s.Path(), "an unresolvable home yields an unconfigured store, not an empty one")
 
 	d, err := s.Decide(context.Background(), testKey{"a", "1"}, nil)
@@ -247,8 +249,8 @@ func TestProperty_RecordsArePersonalAndNeverCommittable(t *testing.T) {
 
 	var written []string
 	require.NoError(t, afero.Walk(fs, "/", func(p string, info os.FileInfo, werr error) error {
-		if werr != nil || info == nil || info.IsDir() {
-			return nil
+		if werr != nil || info == nil || info.IsDir() || p == paths.PathFor(path) {
+			return nil // the lock sidecar holds no decision
 		}
 		written = append(written, p)
 		return nil
@@ -378,7 +380,7 @@ func TestStore_AbsentFileIsNotAFaultButAnUnreadableOneIs(t *testing.T) {
 func TestStore_AnAnsweredYesThatCannotBeRecordedStillHoldsAndSaysSo(t *testing.T) {
 	base := afero.NewMemMapFs()
 	path := filepath.Join("/home", "u", ".ctxloom", "decisions.yaml")
-	s := admission.NewStore(afero.NewReadOnlyFs(base), path, keyOf, testReasons(),
+	s := admission.NewStore(safefs.Root{Fs: afero.NewReadOnlyFs(base), Locks: safefs.NewMem(base).Locks}, path, keyOf, testReasons(),
 		admission.WithScope(scopeOf), admission.WithClock[testKey](fixedClock()))
 
 	asked := 0
@@ -448,7 +450,7 @@ func TestAuthorizerFunc_AdaptsAPlainFunction(t *testing.T) {
 // TestNewStore_WithoutAKeyFunctionRefuses: a store that cannot say what two
 // records mean by "the same thing" cannot decide anything.
 func TestNewStore_WithoutAKeyFunctionRefuses(t *testing.T) {
-	s := admission.NewStore[testKey](afero.NewMemMapFs(), "/x/y.yaml", nil, testReasons())
+	s := admission.NewStore[testKey](safefs.NewMem(afero.NewMemMapFs()), "/x/y.yaml", nil, testReasons())
 	_, err := s.List()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no key function")

@@ -250,12 +250,22 @@ type EngineHost struct {
 	// terminal drive). Close joins it before returning, so a runner-side
 	// teardown leaves no goroutine still touching eh/home state — the same
 	// discipline as Coordinator's and Home's groups, mirrored here for the
-	// runner-hosted engine half. A still-in-flight tracked goroutine, or a
-	// startRun reissue landing exactly as Close begins, is what the seal in
-	// trackedGroup is for.
+	// runner-hosted engine half. A sealed group still RUNS what it is handed,
+	// untracked, so the seal alone does not stop a run starting after Close:
+	// closed does.
 	tracked   coord.TrackedGroup
 	closeOnce sync.Once
+	// closed is set when Close begins (guarded by mu): from then on no run
+	// starts — startRun and Drive refuse with errEngineHostClosed — so nothing
+	// can dispatch onto the sealed group or open a recorder Close will not
+	// close.
+	closed bool
 }
+
+// errEngineHostClosed refuses a run that reaches the engine host after Close
+// began: a StartRun the link joined on its way down, or one whose delivery
+// outlasted the teardown.
+var errEngineHostClosed = errors.New("engine host: closed; it starts no run")
 
 // NewEngineHost builds the host for the runner's one hostable run. ctx bounds
 // the engine's whole lifetime (the runner process's serve context).
@@ -289,10 +299,11 @@ func (eh *EngineHost) waitTracked() {
 // (closeOnce-guarded) and safe to call even when no run was ever started.
 func (eh *EngineHost) Close() {
 	eh.closeOnce.Do(func() {
-		eh.tracked.Seal()
 		eh.mu.Lock()
+		eh.closed = true
 		cancel := eh.cancel
 		eh.mu.Unlock()
+		eh.tracked.Seal()
 		if cancel != nil {
 			cancel()
 		}
@@ -393,6 +404,10 @@ func (eh *EngineHost) turnControl(req *agentcoordpb.RunnerRequest) *agentcoordpb
 // result); a second DIFFERENT run is refused (MaxConcurrentRuns=1).
 func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerResponse {
 	eh.mu.Lock()
+	if eh.closed {
+		eh.mu.Unlock()
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, errEngineHostClosed.Error())}
+	}
 	if eh.started {
 		if sr.GetRunId() == eh.runID && eh.result != nil {
 			cached := eh.result
@@ -418,6 +433,9 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		eh.installPause()
 	}
 	if err := runner.Execute(eh.baseCtx, sr.GetLaunch()); err != nil {
+		if errors.Is(err, errEngineHostClosed) {
+			return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, err.Error())}
+		}
 		// The ONE refusal the coordinator answers with a rebind rides a code
 		// of its own: the minted endpoint could not be bound (another
 		// process took the port between mint and bind). Everything else
@@ -446,6 +464,10 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 // refused any other before delivering.
 func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	eh.mu.Lock()
+	if eh.closed {
+		eh.mu.Unlock()
+		return errEngineHostClosed
+	}
 	if eh.started {
 		eh.mu.Unlock()
 		return fmt.Errorf("engine host: run %s is already driven", eh.runID)

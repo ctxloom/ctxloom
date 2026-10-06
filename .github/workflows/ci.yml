@@ -460,9 +460,11 @@ jobs:
       - name: Mark workspace as safe
         run: just ci-git-safe-directory
 
+      # Must meet the `engines.node` floor of the astro release pinned in
+      # website/package.json; astro refuses to build on an older Node.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: website/package-lock.json
 

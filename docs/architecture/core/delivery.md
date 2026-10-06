@@ -85,15 +85,15 @@ ctxloom never mints or stores one. See
 
 The record store is owner-only before any delivery writes through it, and
 that is a security invariant: a claims record keeps every value ctxloom put
-into the file it describes. `Static.Deliver` calls
-`delivery.Ownership.Prepare` first, on the real filesystem, before anything
-is staged; Prepare is the one place the protection is applied. `fsstatic.Records.Prepare` makes the
-store's directory owner-only with `confpatch.EnsureRecordDir` on the real
-filesystem, which goes through the per-OS `owneronly` seam (a mode on unix,
-an owner-only DACL on Windows). It does not depend on
-when, or whether, a caller opened the store
-(`TestDeliver_PreparesTheRecordDirItself`,
-`TestStatic_PreparesTheRecordOnceBeforeAnyWrite`).
+into the file it describes. The store lives under `paths.HomeRecordsDir`, one
+of the home roots every ctxloom process establishes owner-only at startup
+(`paths.EnsureHomeRoots`, through `safefs.Root`'s `Private`: a mode on unix,
+an owner-only DACL on Windows), and every directory a delivery creates beneath
+it is created `safefs.PrivateDirMode`. `Static.Deliver` calls
+`delivery.Ownership.Prepare` first, before anything is staged;
+`fsstatic.Records.Prepare` has nothing left to apply
+(`TestDeliver_CreatesAMissingRecordDirOwnerOnly`,
+`TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir`).
 
 Two writers meet on one project-root file (a session whose binding selected
 the shared root, and a materialize): each keeps its own claims in the one

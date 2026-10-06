@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -123,20 +124,56 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 	}
 }
 
+// ErrCrossRepoReference is the refusal for a remote profile naming content
+// outside the repository it was shipped in. Only a local profile composes
+// several repositories: registering a remote admits that repository's
+// content, never whatever its profiles name.
+var ErrCrossRepoReference = errors.New("a remote profile may refer only to bundles in its own repository")
+
+// CheckOwnRepo refuses a remote profile (SourceURL set) that names, through
+// any field carrying a bundle reference, content outside its own repository —
+// the consumer's local content included. It reads refs as ResolveShortRefs
+// leaves them, so a short same-repo ref is already canonical; a ref that does
+// not parse cannot be attributed to the repository and is refused too. A
+// local profile (SourceURL "") may name any repository.
+func (p *Profile) CheckOwnRepo() error {
+	if p.SourceURL == "" {
+		return nil
+	}
+	refs := slices.Concat(p.Bundles, p.Parents, p.Commands, p.Skills, p.BundleItems)
+	for _, fr := range p.Fragments {
+		refs = append(refs, fr.Name)
+	}
+	for _, ref := range refs {
+		if !inRepository(ref, p.SourceURL) {
+			return fmt.Errorf("profile %s: %w: %s", p.Name, ErrCrossRepoReference, ref)
+		}
+	}
+	return nil
+}
+
+// inRepository reports whether ref names content of the repository repoURL.
+func inRepository(ref, repoURL string) bool {
+	base, _ := remote.SplitItemPath(ref)
+	parsed, err := remote.ParseReference(base)
+	if err != nil || parsed.IsLocal {
+		return false
+	}
+	return remote.SameRepository(parsed.URL, repoURL)
+}
+
 // Profile is a named collection of fragments, bundles, and configuration: a
 // bundle's profile item, stored as <bundle>/profiles/<name>.yaml. A project's
 // own profiles are the items of its project bundle (paths.ProjectBundleName).
 type Profile struct {
 	Name string `yaml:"-"` // Derived from filename
 	Path string `yaml:"-"` // Full path to the file
-	// Signer is the VERIFIED publisher identity of the bundle this profile
-	// was shipped inside (bundles.Bundle.Signer(), copied at seed time by
-	// config.loadBundleProfileSeed) — empty for a genuinely local/
-	// project-authored profile, or for a bundle-shipped profile whose bundle
-	// is unsigned/untrusted. Read-only derived data (yaml:"-"), the
-	// profile-side mirror of Name/Path: a profile file can never set its own
-	// Signer, exactly like a bundle file can never set Bundle.signer.
-	Signer      string   `yaml:"-"`
+	// SourceURL is the repository this profile was shipped in, stamped at
+	// seed time by config.loadBundleProfileSeed; "" for a local/project
+	// profile. A profile with one may name only that repository's content
+	// (CheckOwnRepo). Read-only derived data (yaml:"-"), like Name/Path: a
+	// profile file can never claim its own source.
+	SourceURL   string   `yaml:"-"`
 	Description string   `yaml:"description,omitempty"`
 	Parents     []string `yaml:"parents,omitempty"`     // Parent profiles to inherit from
 	Tags        []string `yaml:"tags,omitempty"`        // Descriptive tags (listing/discovery only; NOT content-selecting)
@@ -561,6 +598,12 @@ func (l *Loader) Load(name string) (*Profile, error) {
 		}
 		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom deps pull')", errs.ErrProfileNotFound, name)
 	}
+	// A remote profile fails to LOAD, not to seed: every reader — run, sync,
+	// lock, upgrade, a child resolving it as a parent — reaches it here, and
+	// sees the same refusal naming the profile and the offending ref.
+	if err := p.CheckOwnRepo(); err != nil {
+		return nil, err
+	}
 	// A profile that selects nothing loads, so List and the pickers can still
 	// enumerate a half-authored one, but nothing may launch on it while
 	// pretending it composed something: the fail-loudly gate says so. Only
@@ -854,7 +897,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 		Name:      name,
 		Variables: make(map[string]string),
 	}
-	// SourceRef/Signer are THIS profile's own provenance — never inherited
+	// SourceRef is THIS profile's own provenance — never inherited
 	// from (or overwritten by) a parent's Merge below: a profile's
 	// directly-declared hooks/mcp must key the executable
 	// trust gate by ITS OWN origin, not a parent's. profile.Name is already
@@ -872,7 +915,6 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 			return nil, fmt.Errorf("profile %q: %w", name, err)
 		}
 		resolved.SourceRef = sourceRef
-		resolved.Signer = profile.Signer
 	}
 
 	// Resolve parents first (depth-first)
@@ -1018,15 +1060,6 @@ type ResolvedProfile struct {
 	// deliberately never touches it, so a parent's SourceRef can never leak
 	// onto a child's directly-declared execs.
 	SourceRef string
-	// Signer is the verified publisher identity of the bundle this profile
-	// is an item of (Profile.Signer) — "" for an unsigned bundle or an
-	// unsigned/untrusted bundle. Threaded to gateProfileExec so a
-	// trusted-publisher profile's inline hooks/mcp are trusted-signer-allowed
-	// exactly like bundle-declared ones, rather than every one of them
-	// falling to manual review the moment that gap is fixed. Like
-	// SourceRef, this is the profile's OWN signer and is never inherited
-	// from a parent by Merge.
-	Signer string
 
 	// Exclusions accumulated through the parent chain (a child cannot
 	// un-exclude what a parent excluded), matching the inline config-map

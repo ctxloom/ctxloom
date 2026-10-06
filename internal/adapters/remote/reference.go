@@ -745,14 +745,3 @@ func (r *Reference) localRemoteName() string {
 	}
 	return ""
 }
-
-// ExtractRepoName derives the name a remote is auto-registered under from its
-// repository URL; refuri.RepoURL.Name owns the naming rule. It is "" for a URL
-// the repository grammar refuses.
-func ExtractRepoName(repoURL string) string {
-	parsed, err := refuri.ParseRepoURL(repoURL)
-	if err != nil {
-		return ""
-	}
-	return parsed.Name()
-}

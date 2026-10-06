@@ -112,19 +112,9 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 		return result, err
 	}
 
-	// Advance every referenced clone to live HEAD (and fetch tags) so resolution
-	// sees the newest commit each constraint permits. The direct refs alone miss
-	// repos reached only through transitive parents; union in every repo URL the
-	// active lock already records so the whole known closure refreshes.
-	fetchFailed := refreshRepoCaches(ctx, NewRepoCache(cfg), unionLockedRepoURLs(directRepoURLs(roots), active))
-
-	// Re-resolve the whole closure (upgrade mode): every unheld ref advances to
-	// the newest commit its constraint allows; held entries stay put. Conflicts
-	// abort before anything is written.
-	resolve := newConstraintResolver(ctx, active, factory, auth, true)
-	proposed, conflicts, unexpanded := flattenRootsWith(ctx, loader, factory, auth, cfg.Trust().Root(), roots, resolve)
-	if len(conflicts) > 0 {
-		return result, ConflictError(conflicts)
+	proposed, unexpanded, fetchFailed, err := reResolveClosure(ctx, cfg, loader, roots, active, factory, auth)
+	if err != nil {
+		return result, err
 	}
 	// closureRoots' OWN failures (a root that could not load) feed the
 	// preserve-existing-entries guard below alongside the walker's internal
@@ -176,6 +166,33 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 		clidiag.Warn("ctxloom", "could not record this upgrade's refusal(s) for later inspection (`ctxloom doctor` will not report them): %v", rerr)
 	}
 	return result, nil
+}
+
+// reResolveClosure re-resolves the closure of roots in upgrade mode: every
+// unheld ref advances to the newest commit its constraint allows; held entries
+// stay put. Conflicts are an error, returned before anything is written.
+//
+// It first advances every registered clone the closure reaches to live HEAD
+// (and fetches tags) so resolution sees the newest commit each constraint
+// permits. The direct refs alone miss repos reached only through transitive
+// parents, so every repo URL the active lock records is refreshed too. An
+// unregistered repository is neither refreshed nor resolved: the walk refuses
+// it (remote.NotRegisteredError).
+func reResolveClosure(ctx context.Context, cfg *config.Config, loader *profiles.Loader, roots []*profiles.Profile, active *remote.Lockfile, factory remote.FetcherFactory, auth remote.AuthConfig) (proposed []PinnedRef, unexpanded []string, fetchFailed bool, err error) {
+	registered, err := registeredRepos(cfg)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	fetchFailed = refreshRepoCaches(ctx, NewRepoCache(cfg), unionLockedRepoURLs(directRepoURLs(roots), active), registered)
+	resolve := newConstraintResolver(ctx, active, factory, auth, true)
+	proposed, conflicts, unexpanded, err := flattenRootsWith(ctx, loader, factory, auth, cfg.Trust().Root(), roots, resolve, registered)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if len(conflicts) > 0 {
+		return nil, nil, false, ConflictError(conflicts)
+	}
+	return proposed, unexpanded, fetchFailed, nil
 }
 
 // upgradeRound is one UpgradeDependencies pass: the active lock it reads,

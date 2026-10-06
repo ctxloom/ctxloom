@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/shared/procpin"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -121,7 +122,7 @@ func TestRunPTY_EngineKilledMidSessionEndsTheRunnerAndTheRun(t *testing.T) {
 			runner := pinRunner(t, runners[0])
 			locks := ownerLocks(t, env.HomeDir)
 			require.Len(t, locks, 1, "the session owns exactly one root")
-			owner, err := coord.ProbeOwner(filepath.Dir(locks[0]))
+			owner, err := coord.ProbeOwner(safefs.New(), filepath.Dir(locks[0]))
 			require.NoError(t, err)
 			require.True(t, owner.Held, "the live session holds its root")
 			require.Equal(t, sess.PID(), owner.PID, "the root is stamped with the run's pid")
@@ -138,7 +139,7 @@ func TestRunPTY_EngineKilledMidSessionEndsTheRunnerAndTheRun(t *testing.T) {
 			require.True(t, exited, "ctxloom run (pid %d) outlived its engine; captured: %q", sess.PID(), sess.Output())
 			assert.Equal(t, 128+int(syscall.SIGKILL), sess.ExitCode(),
 				"the run exits with the killed engine's status; captured: %q", sess.Output())
-			released, err := coord.ProbeOwner(filepath.Dir(locks[0]))
+			released, err := coord.ProbeOwner(safefs.New(), filepath.Dir(locks[0]))
 			require.NoError(t, err)
 			assert.False(t, released.Held, "the run released its root's owner lock")
 		})
@@ -207,7 +208,7 @@ func TestRunPTY_RunnerDeadWithoutAnOutcomeEndsTheRun(t *testing.T) {
 			if tc.saysOutcome {
 				assert.Contains(t, sess.Output(), "never reported its outcome", "the run says why it ended")
 			}
-			released, err := coord.ProbeOwner(filepath.Dir(locks[0]))
+			released, err := coord.ProbeOwner(safefs.New(), filepath.Dir(locks[0]))
 			require.NoError(t, err)
 			assert.False(t, released.Held, "the run released its root's owner lock")
 		})

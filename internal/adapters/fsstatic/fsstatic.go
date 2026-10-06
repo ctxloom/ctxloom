@@ -26,7 +26,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -386,8 +385,9 @@ func (w *writeLayer) files() []string {
 // writeThrough lands a file the approach wrote outside the target's roots
 // on the real filesystem, bytes and mode as written. That file is the
 // approach's own state, which may hold anything the approach keeps, so a
-// directory created for it is owner-only, through the record store's own
-// seam. A directory that already exists is left as it
+// directory created for it is owner-only by mode (safefs.PrivateDirMode: on
+// Windows no DACL is applied, as these paths lie outside ctxloom's
+// established home roots). A directory that already exists is left as it
 // is: this lands a file, it does not own the directory it lands in.
 func writeThrough(fs afero.Fs, path string, bytes []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
@@ -396,7 +396,7 @@ func writeThrough(fs afero.Fs, path string, bytes []byte, mode os.FileMode) erro
 		return err
 	}
 	if !exists {
-		if err := confpatch.EnsureRecordDir(fs, dir); err != nil {
+		if err := fs.MkdirAll(dir, safefs.PrivateDirMode); err != nil {
 			return err
 		}
 	}

@@ -1,10 +1,9 @@
 //go:build windows
 
-package owneronly
+package safefs
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -13,41 +12,54 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// ownerOnlyFixture is an EnsureDir'd directory holding one file.
+// loosen grants Everyone read on dir, which on Windows is exposure.
+func loosen(t *testing.T, dir string) {
+	t.Helper()
+	grantWellKnownRead(t, dir, windows.WinWorldSid)
+}
+
+// ownerOnlyFixture is an Ensure'd directory holding one file.
 func ownerOnlyFixture(t *testing.T) (dir, file string) {
 	t.Helper()
+	root := New()
 	dir = filepath.Join(t.TempDir(), "private")
-	require.NoError(t, EnsureDir(dir))
+	require.NoError(t, root.Private.Ensure(dir))
 	file = filepath.Join(dir, "secret")
-	require.NoError(t, os.WriteFile(file, []byte("x"), FileMode))
+	require.NoError(t, WriteFile(root.Fs, file, []byte("x"), PrivateFileMode))
 	return dir, file
 }
 
-// On Windows the directory's DACL is PROTECTED: it inherits nothing from
-// above, so a permissive parent (a user-profile temp dir grants SYSTEM and
-// Administrators, a shared drive grants more) cannot reach in.
-func TestEnsureDir_TheDACLIsProtected(t *testing.T) {
-	dir, _ := ownerOnlyFixture(t)
+// An exposed directory is restricted to a PROTECTED DACL: it inherits nothing
+// from above, so a permissive parent cannot reach in again, and what is
+// created inside afterwards inherits the owner's ACE.
+func TestNewPrivate_EnsureProtectsAnExposedDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "private")
+	root := New()
+	require.NoError(t, root.Private.Ensure(dir))
+	loosen(t, dir)
+	require.NoError(t, root.Private.Ensure(dir))
+
 	sd, err := windows.GetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	require.NoError(t, err)
 	control, _, err := sd.Control()
 	require.NoError(t, err)
 	assert.NotZero(t, control&windows.SE_DACL_PROTECTED, "the directory inherits nothing")
+	require.NoError(t, root.Private.Check(dir))
 }
 
 // SYSTEM and Administrators beside the owner are tolerated (ruled
 // 2026-09-25): such a path passes the check.
-func TestCheck_ToleratesSystemAndAdministrators(t *testing.T) {
+func TestNewPrivate_CheckToleratesSystemAndAdministrators(t *testing.T) {
 	dir, f := ownerOnlyFixture(t)
 	grantWellKnownRead(t, f, windows.WinLocalSystemSid)
 	grantWellKnownRead(t, f, windows.WinBuiltinAdministratorsSid)
 
-	require.NoError(t, Check(dir, f))
+	require.NoError(t, New().Private.Check(dir, f))
 }
 
 // Anyone else granted access is exposure, refused as an *ExposedError, and
 // the refusal names who.
-func TestCheck_RefusesAPathOthersCanRead(t *testing.T) {
+func TestNewPrivate_CheckRefusesAPathOthersCanRead(t *testing.T) {
 	for _, target := range []string{"file", "dir"} {
 		t.Run(target, func(t *testing.T) {
 			dir, f := ownerOnlyFixture(t)
@@ -57,7 +69,7 @@ func TestCheck_RefusesAPathOthersCanRead(t *testing.T) {
 			}
 			grantWellKnownRead(t, loose, windows.WinWorldSid)
 
-			err := Check(dir, f)
+			err := New().Private.Check(dir, f)
 			var exposed *ExposedError
 			require.True(t, errors.As(err, &exposed), "got %v", err)
 			assert.Equal(t, loose, exposed.Path)

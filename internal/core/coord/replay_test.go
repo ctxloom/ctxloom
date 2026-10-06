@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -99,7 +100,7 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "runs.jsonl")
 			runsF, queueF, rosterF, reportsF := newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold(termRep())
-			store, err := openStore(path, runsF, queueF, rosterF, reportsF)
+			store, err := openStore(afero.NewOsFs(), path, runsF, queueF, rosterF, reportsF)
 			require.NoError(t, err)
 
 			rng := rand.New(rand.NewSource(seed))
@@ -160,7 +161,7 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 
 			// Replay the same journal into fresh folds.
 			rRunsF, rQueueF, rRosterF, rReportsF := newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold(termRep())
-			rStore, err := openStore(path, rRunsF, rQueueF, rRosterF, rReportsF)
+			rStore, err := openStore(afero.NewOsFs(), path, rRunsF, rQueueF, rRosterF, rReportsF)
 			require.NoError(t, err)
 			replayed := projectRuns(rRunsF, rQueueF, rRosterF, rReportsF)
 			require.NoError(t, rStore.Close())
@@ -182,7 +183,7 @@ func TestReplayEquivalence_Items(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "items.jsonl")
 			itemsF := newItemsFold()
-			store, err := openStore(path, itemsF)
+			store, err := openStore(afero.NewOsFs(), path, itemsF)
 			require.NoError(t, err)
 
 			rng := rand.New(rand.NewSource(seed + 200))
@@ -221,7 +222,7 @@ func TestReplayEquivalence_Items(t *testing.T) {
 			require.NoError(t, store.Close())
 
 			rItemsF := newItemsFold()
-			rStore, err := openStore(path, rItemsF)
+			rStore, err := openStore(afero.NewOsFs(), path, rItemsF)
 			require.NoError(t, err)
 			after := project(rItemsF)
 			require.NoError(t, rStore.Close())
@@ -250,7 +251,7 @@ func TestJournal_TruncatesTornTail(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "runs.jsonl")
 	runsF, queueF, rosterF := newRunsFold(), newQueueFold(), newRosterFold()
-	store, err := openStore(path, runsF, queueF, rosterF)
+	store, err := openStore(afero.NewOsFs(), path, runsF, queueF, rosterF)
 	require.NoError(t, err)
 	at := time.Unix(1_700_000_000, 0)
 	require.NoError(t, store.Exec(func() ([]Fact, error) {
@@ -267,7 +268,7 @@ func TestJournal_TruncatesTornTail(t *testing.T) {
 
 	// Replay must truncate the torn tail and keep run-1.
 	rRunsF, rQueueF, rRosterF := newRunsFold(), newQueueFold(), newRosterFold()
-	rStore, err := openStore(path, rRunsF, rQueueF, rRosterF)
+	rStore, err := openStore(afero.NewOsFs(), path, rRunsF, rQueueF, rRosterF)
 	require.NoError(t, err)
 	require.NotNil(t, rRunsF.run("run-1"), "the intact fact before the torn tail survives")
 	assert.Equal(t, StateQueued, rRunsF.run("run-1").State)
@@ -282,7 +283,7 @@ func TestJournal_TruncatesTornTail(t *testing.T) {
 	require.NoError(t, rStore.Close())
 
 	vRunsF, vQueueF, vRosterF := newRunsFold(), newQueueFold(), newRosterFold()
-	vStore, err := openStore(path, vRunsF, vQueueF, vRosterF)
+	vStore, err := openStore(afero.NewOsFs(), path, vRunsF, vQueueF, vRosterF)
 	require.NoError(t, err)
 	assert.Equal(t, StateExecuting, vRunsF.run("run-1").State, "the post-truncation append replays cleanly")
 	_ = vQueueF

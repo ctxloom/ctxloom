@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -145,7 +146,7 @@ func TestRunsFold_OldEntryMissingPrivilegeFields_LoadsWithoutError(t *testing.T)
 	require.NoError(t, os.WriteFile(path, []byte(oldLine), 0o600))
 
 	runsF, queueF, rosterF := newRunsFold(), newQueueFold(), newRosterFold()
-	store, err := openStore(path, runsF, queueF, rosterF)
+	store, err := openStore(afero.NewOsFs(), path, runsF, queueF, rosterF)
 	require.NoError(t, err, "an old journal entry lacking the new privilege fields must still load")
 	t.Cleanup(func() { _ = store.Close() })
 
@@ -170,7 +171,7 @@ func TestRunsFold_EntryCarryingARetiredLadderKey_LoadsWithoutError(t *testing.T)
 	require.NoError(t, os.WriteFile(path, []byte(line), 0o600))
 
 	runsF, queueF, rosterF := newRunsFold(), newQueueFold(), newRosterFold()
-	store, err := openStore(path, runsF, queueF, rosterF)
+	store, err := openStore(afero.NewOsFs(), path, runsF, queueF, rosterF)
 	require.NoError(t, err, "a journal entry carrying the retired ladder key must still load")
 	t.Cleanup(func() { _ = store.Close() })
 

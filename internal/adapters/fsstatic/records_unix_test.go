@@ -12,42 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNewRecords_TightensAnExistingRecordDir: the records directory holds the
-// claims records, which keep every value ctxloom put into the files they
-// describe, so it is owner-only. Opening the store tightens a looser existing
-// directory before any delivery runs. Opening creates nothing — `manage
-// check` opens it too.
-func TestNewRecords_TightensAnExistingRecordDir(t *testing.T) {
-	fs := afero.NewOsFs()
-	dir := filepath.Join(t.TempDir(), "records")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.Chmod(dir, 0o755))
-
-	_, err := NewRecords(fs, dir)
-	require.NoError(t, err)
-
-	info, err := os.Stat(dir)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "an existing records directory must be tightened to owner-only")
-}
-
-// TestRecords_Prepare_TightensADirLoosenedAfterOpen: Prepare, not opening,
-// is what makes the store owner-only for a delivery: a directory left loose
-// after the store was opened is tightened, and a missing one is not created.
-func TestRecords_Prepare_TightensADirLoosenedAfterOpen(t *testing.T) {
+// TestRecords_PrepareCreatesNothing: opening the store and preparing it
+// create no directory — `manage check` opens it too. A delivery's writes
+// create what they need owner-only.
+func TestRecords_PrepareCreatesNothing(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "records")
 	r, err := NewRecords(afero.NewOsFs(), dir)
 	require.NoError(t, err)
 
 	require.NoError(t, r.Prepare(context.Background()))
 	require.NoDirExists(t, dir, "preparing must not create the directory")
-
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.Chmod(dir, 0o755))
-	require.NoError(t, r.Prepare(context.Background()))
-	info, err := os.Stat(dir)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 }
 
 // TestWriteThrough_CreatesAMissingDirectoryOwnerOnly: what an approach writes

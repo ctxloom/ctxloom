@@ -11,32 +11,27 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // The artifact store reaches the disk only through the fs it is given.
 
-// renameCountingFs counts renames, and can make the FIRST Stat of one path
-// report it absent — the window between the store's existence check and its
-// rename, in which a concurrent identical upload lands.
-type renameCountingFs struct {
+// statHidingFs can make the FIRST Stat of one path report it absent — the
+// window between the store's existence check and its rename, in which a
+// concurrent identical upload lands.
+type statHidingFs struct {
 	afero.Fs
 	mu       sync.Mutex
-	renames  int
 	hideOnce string
 }
 
-func (f *renameCountingFs) Rename(oldname, newname string) error {
-	f.mu.Lock()
-	f.renames++
-	f.mu.Unlock()
-	return f.Fs.Rename(oldname, newname)
-}
-
-func (f *renameCountingFs) Stat(name string) (os.FileInfo, error) {
+func (f *statHidingFs) Stat(name string) (os.FileInfo, error) {
 	f.mu.Lock()
 	hide := name == f.hideOnce
 	if hide {
@@ -49,12 +44,23 @@ func (f *renameCountingFs) Stat(name string) (os.FileInfo, error) {
 	return f.Fs.Stat(name)
 }
 
-func memStore(t *testing.T) (*artifactStore, *renameCountingFs) {
+func memStore(t *testing.T) (*artifactStore, *statHidingFs) {
 	t.Helper()
-	fs := &renameCountingFs{Fs: afero.NewMemMapFs()}
+	fs := &statHidingFs{Fs: afero.NewMemMapFs()}
 	st, err := newArtifactStore(fs, "/state")
 	require.NoError(t, err)
 	return st, fs
+}
+
+// agedBlob backdates the blob at path, so a later rename over it — which
+// installs the fresh temp file — shows as a changed mtime.
+var agedBlob = time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
+
+func blobAge(t *testing.T, fs afero.Fs, path string) time.Time {
+	t.Helper()
+	info, err := fs.Stat(path)
+	require.NoError(t, err)
+	return info.ModTime()
 }
 
 func TestArtifactStore_WritesAndReadsThroughItsFs(t *testing.T) {
@@ -85,13 +91,14 @@ func TestArtifactStore_WritesAndReadsThroughItsFs(t *testing.T) {
 func TestArtifactStore_DedupeHitDoesNotRename(t *testing.T) {
 	st, fs := memStore(t)
 
-	_, _, err := st.writeAtomic(strings.NewReader("same bytes"), nil, 0)
+	shaHex, _, err := st.writeAtomic(strings.NewReader("same bytes"), nil, 0)
 	require.NoError(t, err)
-	require.Equal(t, 1, fs.renames)
+	require.NoError(t, fs.Chtimes(st.path(shaHex), agedBlob, agedBlob))
 
 	_, _, err = st.writeAtomic(strings.NewReader("same bytes"), nil, 0)
 	require.NoError(t, err)
-	assert.Equal(t, 1, fs.renames, "a dedupe hit discards its temp; it renames nothing")
+	assert.Equal(t, agedBlob, blobAge(t, fs, st.path(shaHex)).UTC(),
+		"a dedupe hit discards its temp; it renames nothing over the stored blob")
 	names, err := afero.ReadDir(fs, st.dir)
 	require.NoError(t, err)
 	assert.Len(t, names, 1, "the dedupe hit's temp is removed")
@@ -129,12 +136,13 @@ func TestArtifactStore_EmptyUploadRacingAnIdenticalOneSucceeds(t *testing.T) {
 	st, fs := memStore(t)
 	emptySum := sha256.Sum256(nil)
 	path := st.path(hex.EncodeToString(emptySum[:]))
-	require.NoError(t, afero.WriteFile(fs, path, nil, 0o600))
+	testsupport.WriteFile(t, fs, path, nil, 0o600)
+	require.NoError(t, fs.Chtimes(path, agedBlob, agedBlob))
 	fs.hideOnce = path
 
 	_, _, err := st.writeAtomic(strings.NewReader(""), nil, 0)
 	require.NoError(t, err)
-	assert.Equal(t, 1, fs.renames, "the check missed the racer, so the rename ran over it")
+	assert.NotEqual(t, agedBlob, blobAge(t, fs, path).UTC(), "the check missed the racer, so the rename ran over it")
 }
 
 // A coordinator handed a MemMapFs stores and serves artifacts entirely in

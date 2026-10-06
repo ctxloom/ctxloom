@@ -102,7 +102,7 @@ type pullView struct {
 	Status      string                `json:"status"`
 	Total       int                   `json:"total"`
 	Installed   int                   `json:"installed"`
-	Updated     int                   `json:"updated"`
+	Reinstalled int                   `json:"reinstalled"`
 	Errors      int                   `json:"errors"`
 	Synced      []operations.SyncItem `json:"synced"`
 	Skipped     []operations.SyncItem `json:"skipped"`
@@ -149,7 +149,7 @@ func newPullView(result *operations.SyncDependenciesResult, plan *operations.Rec
 		Status:      result.Status,
 		Total:       result.Total,
 		Installed:   result.Installed,
-		Updated:     result.Updated,
+		Reinstalled: result.Reinstalled,
 		Errors:      result.Errors,
 		Synced:      result.Synced,
 		Skipped:     result.Skipped,
@@ -232,8 +232,8 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 	if result.Installed > 0 {
 		fmt.Fprintf(w, "  Installed: %d\n", result.Installed)
 	}
-	if result.Updated > 0 {
-		fmt.Fprintf(w, "  Updated: %d\n", result.Updated)
+	if result.Reinstalled > 0 {
+		fmt.Fprintf(w, "  Reinstalled at their pin: %d\n", result.Reinstalled)
 	}
 	if len(result.Skipped) > 0 {
 		fmt.Fprintf(w, "  Skipped (kept at their locked commit): %d\n", len(result.Skipped))

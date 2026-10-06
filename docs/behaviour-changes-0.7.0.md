@@ -288,7 +288,10 @@ Grouped by what you would have to change.
 - `deps pull`, `init` and startup sync never move an existing pin. A changed
   constraint is reported and takes effect only on `deps upgrade --yes`;
   `deps pull --force` reinstalls each reference at its pin instead of
-  re-resolving it. Each new pin is shown with everything it brings in.
+  re-resolving it. Each new pin is shown with everything it brings in. A
+  reference re-pulled at the pin it already had is counted as `reinstalled`
+  ("Reinstalled at their pin: N"; JSON field and item status `reinstalled`),
+  replacing `updated`.
 - `session delete` actually destroys the session (it previously did not).
 - `session purge` fans out to the population that owns each destroyer.
 - `session backfill` is deleted, and nothing replaces it — see §7 for what that

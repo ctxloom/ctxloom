@@ -82,7 +82,7 @@ func (m *syncMockPuller) Pull(ctx context.Context, refStr string, opts remote.Pu
 	return &remote.PullResult{
 		LocalPath:   opts.LocalDir + "/bundles/test/bundle.yaml",
 		SHA:         "abc1234",
-		Overwritten: false,
+		Reinstalled: false,
 	}, nil
 }
 
@@ -831,7 +831,7 @@ func (p *overwritePuller) Pull(ctx context.Context, refStr string, opts remote.P
 	return &remote.PullResult{
 		LocalPath:   opts.LocalDir + "/bundles/test/bundle.yaml",
 		SHA:         "abc1234",
-		Overwritten: true, // Mark as updated
+		Reinstalled: true, // re-recorded at its existing pin
 	}, nil
 }
 
@@ -866,8 +866,8 @@ remotes:
 	if err != nil {
 		t.Fatalf("SyncDependencies failed: %v", err)
 	}
-	if result.Updated != 1 {
-		t.Errorf("expected 1 updated, got %d", result.Updated)
+	if result.Reinstalled != 1 {
+		t.Errorf("expected 1 reinstalled, got %d", result.Reinstalled)
 	}
 	if result.Status != "completed" {
 		t.Errorf("expected 'completed' status, got %q", result.Status)
@@ -1186,14 +1186,14 @@ func TestAddSyncItem_UpdatedStatus(t *testing.T) {
 	item := SyncItem{
 		Reference: "test-bundle",
 		Type:      "bundle",
-		Status:    "updated",
+		Status:    "reinstalled",
 		LocalPath: "/path/to/bundle",
 	}
 
 	addSyncItem(result, item)
 
-	if result.Updated != 1 {
-		t.Errorf("expected Updated=1, got %d", result.Updated)
+	if result.Reinstalled != 1 {
+		t.Errorf("expected Reinstalled=1, got %d", result.Reinstalled)
 	}
 	if len(result.Synced) != 1 {
 		t.Errorf("expected 1 synced item, got %d", len(result.Synced))
@@ -1326,10 +1326,10 @@ func TestCollectRemoteReferences_CircularDependency(t *testing.T) {
 
 // TestRunSyncPostSteps_Guards pins the two guard conditions in runSyncPostSteps
 // (sync.go:160/168) via recording seams: the lockfile step fires only when
-// req.Lock AND there was at least one install/update; the hooks step fires only
+// req.Lock AND there was at least one install/reinstall; the hooks step fires only
 // when req.ApplyHooks AND there was at least one remote reference (Total > 0).
 // The table covers each flag off, each boundary at zero, and that Installed and
-// Updated each independently satisfy the lock guard.
+// Reinstalled each independently satisfy the lock guard.
 func TestRunSyncPostSteps_Guards(t *testing.T) {
 	origLock, origHooks := syncLockStep, syncHooksStep
 	t.Cleanup(func() { syncLockStep, syncHooksStep = origLock, origHooks })
@@ -1345,16 +1345,16 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                      string
-		lock, applyHooks          bool
-		installed, updated, total int
-		wantLock, wantHooks       bool
+		name                          string
+		lock, applyHooks              bool
+		installed, reinstalled, total int
+		wantLock, wantHooks           bool
 	}{
 		{name: "all_off", total: 1},
 		{name: "lock_off_with_installs", installed: 1, total: 1},
 		{name: "lock_on_no_changes", lock: true, total: 1, wantLock: false},
 		{name: "lock_on_installed", lock: true, installed: 1, total: 1, wantLock: true},
-		{name: "lock_on_updated_only", lock: true, updated: 1, total: 1, wantLock: true},
+		{name: "lock_on_reinstalled_only", lock: true, reinstalled: 1, total: 1, wantLock: true},
 		{name: "hooks_off_with_total", total: 1},
 		{name: "hooks_on_zero_total", applyHooks: true, total: 0, wantHooks: false},
 		{name: "hooks_on_with_total", applyHooks: true, total: 1, wantHooks: true},
@@ -1364,7 +1364,7 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lockCalls, hookCalls = 0, 0
-			result := &SyncDependenciesResult{Installed: tt.installed, Updated: tt.updated, Total: tt.total}
+			result := &SyncDependenciesResult{Installed: tt.installed, Reinstalled: tt.reinstalled, Total: tt.total}
 			req := SyncDependenciesRequest{Lock: tt.lock, ApplyHooks: tt.applyHooks}
 
 			runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, req, result, afero.NewMemMapFs())

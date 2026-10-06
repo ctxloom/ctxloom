@@ -205,7 +205,7 @@ func TestDepsPull_PipedEmitsTheApprovedShapeThenFails(t *testing.T) {
 	require.Error(t, err, "a failed item still fails the pull — after the payload")
 
 	got := decodeObject(t, stdout)
-	assertKeys(t, got, "status", "total", "installed", "updated", "errors", "synced", "skipped", "retracted",
+	assertKeys(t, got, "status", "total", "installed", "reinstalled", "errors", "synced", "skipped", "retracted",
 		"failed", "removed", "incomplete", "unreachable", "constraint_changes", "changes", "message", "reconcile")
 	assert.Equal(t, "completed_with_errors", got["status"])
 	assert.Equal(t, []any{}, got["skipped"])

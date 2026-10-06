@@ -180,3 +180,12 @@ func TestRenderPullSummary_DisclosesNewPins(t *testing.T) {
 	assert.Contains(t, text, operations.MsgNewPinsHeader)
 	assert.Contains(t, text, "corp/a  first pin -> unversioned  (new -> 3333333)\n  + hook session_start/0\n      command: ./hello.sh\n")
 }
+
+// A pull never moves an existing pin, so re-recording one is a reinstall at
+// that pin — never an "update".
+func TestRenderPullSummary_NamesAReinstallAsAtItsPin(t *testing.T) {
+	var out bytes.Buffer
+	renderPullSummary(&out, &operations.SyncDependenciesResult{Total: 1, Reinstalled: 1})
+	assert.Contains(t, out.String(), "  Reinstalled at their pin: 1\n")
+	assert.NotContains(t, out.String(), "Updated")
+}

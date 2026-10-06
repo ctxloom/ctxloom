@@ -63,7 +63,7 @@ type SyncDependenciesRequest struct {
 type SyncItem struct {
 	Reference string `json:"reference"`
 	Type      string `json:"type"`
-	Status    string `json:"status"` // "installed", "updated", "skipped", "retracted", "failed"
+	Status    string `json:"status"` // "installed", "reinstalled", "skipped", "retracted", "failed"
 	Error     string `json:"error,omitempty"`
 	LocalPath string `json:"local_path,omitempty"`
 	// cause is the failure Error was rendered from, kept typed so Remedy can
@@ -138,9 +138,11 @@ type SyncDependenciesResult struct {
 	Failed    []SyncItem `json:"failed,omitempty"`
 	Total     int        `json:"total"`
 	Installed int        `json:"installed"`
-	Updated   int        `json:"updated"`
-	Errors    int        `json:"errors"`
-	Message   string     `json:"message,omitempty"`
+	// Reinstalled counts refs re-pulled at the pin they already had (a missing
+	// tree, or --force): a sync never moves an existing pin.
+	Reinstalled int    `json:"reinstalled"`
+	Errors      int    `json:"errors"`
+	Message     string `json:"message,omitempty"`
 	// Removed names the lockfile entries the post-pull lock rebuild dropped
 	// because nothing the project composes reaches them any more.
 	Removed []string `json:"removed,omitempty"`
@@ -339,8 +341,8 @@ func summarizeSync(result *SyncDependenciesResult) {
 	if result.Errors > 0 {
 		result.Status = "completed_with_errors"
 	}
-	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d retracted, %d failed",
-		result.Total, result.Installed, result.Updated, len(result.Skipped), len(result.Retracted), result.Errors)
+	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d reinstalled, %d skipped, %d retracted, %d failed",
+		result.Total, result.Installed, result.Reinstalled, len(result.Skipped), len(result.Retracted), result.Errors)
 }
 
 // RefCollector reports every remote ref currently visible.
@@ -485,7 +487,7 @@ func init() {
 // Each step warns and continues on failure — partial success is success and a
 // post-step failure must not fail the sync the user just completed (CLAUDE.md).
 func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Config, req SyncDependenciesRequest, result *SyncDependenciesResult, fs afero.Fs) {
-	if req.Lock && result.Installed+result.Updated > 0 {
+	if req.Lock && result.Installed+result.Reinstalled > 0 {
 		// The puller already wrote the lockfile inline during this sync, so the
 		// lock step only needs to surface it — SkipSync avoids a redundant
 		// second sync pass.
@@ -751,8 +753,8 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 		item.Error = result.RetractedReason
 		return item
 	}
-	if result.Overwritten {
-		item.Status = "updated"
+	if result.Reinstalled {
+		item.Status = "reinstalled"
 	} else {
 		item.Status = "installed"
 	}
@@ -813,9 +815,9 @@ func addSyncItem(result *SyncDependenciesResult, item SyncItem) {
 	case "installed":
 		result.Synced = append(result.Synced, item)
 		result.Installed++
-	case "updated":
+	case "reinstalled":
 		result.Synced = append(result.Synced, item)
-		result.Updated++
+		result.Reinstalled++
 	case "skipped":
 		result.Skipped = append(result.Skipped, item)
 	case "retracted":

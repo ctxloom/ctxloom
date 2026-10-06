@@ -52,10 +52,10 @@ type PullResult struct {
 	// SHA is the commit SHA of the fetched content.
 	SHA string
 
-	// Overwritten is true when this pull replaced a lockfile pin the item
-	// already had, false when it recorded the item's first pin — the signal
-	// sync reports as "updated" rather than "installed".
-	Overwritten bool
+	// Reinstalled is true when the item already had a lockfile pin, which this
+	// pull re-recorded at that same pin (pinFor never moves one); false when it
+	// recorded the item's first pin — sync's "reinstalled" vs "installed".
+	Reinstalled bool
 
 	// Content holds the fetched bytes for callers that would otherwise
 	// re-read from LocalPath. Populated for bundles (whose LocalPath is
@@ -668,8 +668,8 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// operations.EffectiveTrust with nothing to withhold against. The lockfile
 	// is the only record; its write failing means the pull failed.
 	// hadExisting reports whether localName already had a lockfile entry
-	// BEFORE this write — i.e. this pull replaced an existing pin rather than
-	// creating a new one: the signal for "updated" vs "installed".
+	// BEFORE this write — i.e. this pull re-recorded an existing pin rather
+	// than creating a new one: the signal for "reinstalled" vs "installed".
 	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, installSHA, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt, signed)
 	if err != nil {
 		return nil, fmt.Errorf("pulled %s but failed to record its lockfile pin (the only on-disk record of this pull): %w", item.localName, err)
@@ -678,7 +678,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	return &PullResult{
 		LocalPath:       localPath,
 		SHA:             installSHA,
-		Overwritten:     hadExisting,
+		Reinstalled:     hadExisting,
 		Content:         content,
 		Retracted:       item.retracted,
 		RetractedReason: item.retractedReason,
@@ -815,7 +815,7 @@ func (p *Puller) heldPin(itemType ItemType, localName trust.BundleKey, requested
 //
 // hadExisting reports whether localName already had a lockfile entry before
 // this write — the caller (installPulledItem) surfaces it as
-// PullResult.Overwritten.
+// PullResult.Reinstalled.
 func (p *Puller) updateLockfile(localName trust.BundleKey, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time, signed Verified) (hadExisting bool, err error) {
 	itemType := opts.ItemType
 	target := p.lockfileManager

@@ -36,10 +36,10 @@ func TestWriteAndRecordSyncSummary_UpToDateIsSilent(t *testing.T) {
 func TestWriteAndRecordSyncSummary_InstalledOrUpdatedPrintsMessage(t *testing.T) {
 	var buf bytes.Buffer
 	WriteAndRecordSyncSummary(&buf, &SyncDependenciesResult{
-		Status:    "synced",
-		Installed: 2,
-		Updated:   1,
-		Message:   "installed 2, updated 1",
+		Status:      "synced",
+		Installed:   2,
+		Reinstalled: 1,
+		Message:     "installed 2, updated 1",
 	})
 
 	out := buf.String()

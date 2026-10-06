@@ -43,17 +43,11 @@ func AllowCompanion(ctx context.Context, fs afero.Fs, req CompanionAllowRequest)
 	if err != nil {
 		return CompanionAllowResult{}, err
 	}
-	recs, err := store.List()
+	prev, err := allowedWithOtherHash(store, key)
 	if err != nil {
 		return CompanionAllowResult{}, err
 	}
-	res := CompanionAllowResult{Key: key}
-	for _, r := range recs {
-		if r.Approved && r.Key.Path == key.Path && r.Key.SHA256 != key.SHA256 {
-			prev := r.Key
-			res.Previous = &prev
-		}
-	}
+	res := CompanionAllowResult{Key: key, Previous: prev}
 	if !req.Apply {
 		return res, nil
 	}
@@ -62,6 +56,22 @@ func AllowCompanion(ctx context.Context, fs afero.Fs, req CompanionAllowRequest)
 	}
 	res.Applied = true
 	return res, nil
+}
+
+// allowedWithOtherHash returns the record already allowing key's path for
+// different bytes, or nil.
+func allowedWithOtherHash(store *companions.AllowStore, key companions.CompanionKey) (*companions.CompanionKey, error) {
+	recs, err := store.List()
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range recs {
+		if r.Approved && r.Key.Path == key.Path && r.Key.SHA256 != key.SHA256 {
+			prev := r.Key
+			return &prev, nil
+		}
+	}
+	return nil, nil
 }
 
 // CompanionForgetResult is what a forget removed, or would remove.

@@ -68,7 +68,7 @@ func TestLoadCompactedSession_RenamesDistilledAtAtAnyPosition(t *testing.T) {
 		"distilled_at: 2024-01-15T10:00:00Z\n" +
 		"---\n\nbody\n"
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, "/s/late-one.md", []byte(late), 0o644))
+	testsupport.WriteFile(t, fsys, "/s/late-one.md", []byte(late), 0o644)
 
 	loaded, err := LoadCompactedSession(fsys, "/s", "late-one")
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestLoadCompactedSession_WriteUpgradesLeavesCurrentEssenceUntouched(t *test
 	current := "---\n" + schemaver.Key + ": " + strconv.Itoa(essenceKind.Current()) + "\n" +
 		"session_id: now\ncompacted_at: 2024-01-15T10:00:00Z\n---\n\nbody\n"
 	base := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(base, "/s/now.md", []byte(current), 0o644))
+	testsupport.WriteFile(t, base, "/s/now.md", []byte(current), 0o644)
 
 	loaded, err := LoadCompactedSession(afero.NewReadOnlyFs(base), "/s", "now")
 	require.NoError(t, err, "a read with nothing to migrate must not attempt a write")

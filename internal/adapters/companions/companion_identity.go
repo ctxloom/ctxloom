@@ -38,11 +38,11 @@ import (
 type CompanionKey struct {
 	// Bin is the companion name as discovered (filepath.Base of Path). Display
 	// and grouping only.
-	Bin string `yaml:"bin"`
+	Bin string `json:"bin" yaml:"bin"`
 	// Path is the resolved, symlink-followed absolute path of the binary.
-	Path string `yaml:"path"`
+	Path string `json:"path" yaml:"path"`
 	// SHA256 is the lowercase hex SHA-256 of the binary's bytes.
-	SHA256 string `yaml:"sha256"`
+	SHA256 string `json:"sha256" yaml:"sha256"`
 }
 
 // resolveCompanionPath canonicalizes a companion binary's location: absolute,

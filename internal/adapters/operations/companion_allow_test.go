@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,6 +49,10 @@ func TestAllowCompanion_PreviewWritesNothing(t *testing.T) {
 	assert.Equal(t, bin, res.Key.Path)
 	assert.Len(t, res.Key.SHA256, 64)
 	assert.Nil(t, res.Previous)
+	wire, err := json.Marshal(res)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"key":{"bin":"ltk","path":"`+bin+`","sha256":"`+res.Key.SHA256+`"},"applied":false}`, string(wire),
+		"--format json carries the same lower-case keys as every other payload")
 
 	storePath, err := paths.HomeCompanionAllowPath()
 	require.NoError(t, err)

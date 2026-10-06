@@ -61,14 +61,6 @@ docker_integration_pkgs := "./internal/adapters/attach/... ./internal/adapters/i
 test-docker-integration: _require-generated _check-docker-integration-pkgs _check-docker-skip-gate
     go test -trimpath -v -count=1 -tags docker_integration {{docker_integration_pkgs}}
 
-# The docker-gated tests that name every bind source through ctxloom's own
-# path layers (isolation.Crossing), and so hold where NOTHING is shared with
-# the daemon at the same path — the CI lane that runs without /tmp:/tmp.
-# The rest of the docker_integration suite mounts /tmp fixtures directly
-# (dockergate.BindFixtureRoot) and needs that share.
-test-docker-crossing: _require-generated
-    go test -trimpath -v -count=1 -tags docker_integration -run '^(TestCrossing_ThreePaths|TestSelfRoute_TakenInsideADaemonContainer)$' ./internal/adapters/isolation
-
 # Drift gate for docker_integration_pkgs: every file carrying the
 # `//go:build docker_integration` constraint must live under a package the
 # list selects. Catches the "new package, new docker test, never run" hole

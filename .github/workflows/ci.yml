@@ -366,10 +366,10 @@ jobs:
   # Docker-outside-of-docker with NOTHING shared at the same path: the job
   # container's own /tmp stays private, and the workspace is the runner's
   # /home/runner/work seen at /__w. Every other DooD lane shares /tmp:/tmp,
-  # so it never exercises path translation; this one runs only the tests
-  # that name their bind sources through ctxloom's own layers
-  # (isolation.Crossing) — the rest mount /tmp fixtures directly and need
-  # the share.
+  # so it never exercises path translation; this one runs the whole docker
+  # suite, whose tests name every bind source through this process's own
+  # layer (internal/testsupport/daemonfixture), so their fixtures land under
+  # $RUNNER_TEMP and reach the daemon by its host name.
   crossing-integration:
     name: Path Crossing (no shared /tmp)
     runs-on: ubuntu-latest
@@ -392,10 +392,10 @@ jobs:
       - name: Build
         run: just build
 
-      - name: Run the path-crossing container tests
+      - name: Run the docker-gated container tests with no shared /tmp
         env:
           CTXLOOM_REQUIRE_DOCKER: "1"
-        run: just test-docker-crossing
+        run: just test-docker-integration
 
   acceptance:
     name: Acceptance Tests (hermetic)

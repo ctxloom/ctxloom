@@ -235,11 +235,11 @@ func (a *assembly) commands() {
 		}
 		// A companion's commands are unconditional whenever the companion
 		// is present; a curation names bundle commands, never theirs.
-		cc.fromBundles(companionRefs(a.pipe.Loader().Catalog()))
+		cc.fromBundles(a.pipe.Loader().Catalog().CompanionRefs())
 		return
 	}
 	cc.fromBundles(a.sel.Bundles)
-	cc.fromBundles(companionRefs(a.pipe.Loader().Catalog()))
+	cc.fromBundles(a.pipe.Loader().Catalog().CompanionRefs())
 }
 
 // curatedCommand loads one curated command ask, at its pinned version when
@@ -385,17 +385,6 @@ func blocks(e bundles.EngineBlocks) map[string][]byte {
 	out := make(map[string][]byte, len(e))
 	for engine, raw := range e {
 		out[engine] = slices.Clone(raw)
-	}
-	return out
-}
-
-// companionRefs are the catalog's companion loadout refs, in name order:
-// what was READ, not a second discovery pass.
-func companionRefs(cat bundles.Catalog) []string {
-	reads := cat.Scoped(bundles.ProvenanceCompanion).Reads()
-	out := make([]string, 0, len(reads))
-	for _, read := range reads {
-		out = append(out, read.DisplayName())
 	}
 	return out
 }

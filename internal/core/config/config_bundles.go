@@ -273,7 +273,7 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	// declares a name a companion already claimed is refused loudly rather
 	// than allowed to override (see mcpNameClaims).
 	cat := bundleLoader.Catalog()
-	for _, ref := range companionRefs(cat) {
+	for _, ref := range cat.CompanionRefs() {
 		addServers(ref, loadMCPFromBundleRef(c.rep, ref, cat, c.ExecutableTrustGate()))
 	}
 
@@ -429,7 +429,7 @@ func (c *Config) ResolveBundleHooksFor(set []profiles.ResolvedProfile) wire.Unif
 	// path a profile-referenced bundle uses, keyed and signed by the
 	// companion's OWN bundle. Sorted for a deterministic result across runs.
 	cat := bundleLoader.Catalog()
-	for _, ref := range companionRefs(cat) {
+	for _, ref := range cat.CompanionRefs() {
 		result.Append(loadHooksFromBundleRef(c.rep, ref, cat, c.ExecutableTrustGate(), links))
 	}
 
@@ -449,29 +449,6 @@ func eachBundleRef(set []profiles.ResolvedProfile, fn func(bundleRef string)) {
 			fn(bundleRef)
 		}
 	}
-}
-
-// companionRefs returns the loader's companion loadout refs
-// (ctxloom:companion@<bin>) in deterministic sorted order.
-//
-// It asks the RESOLVED SET what was read rather than re-probing: the reads
-// already carry which source each bundle came from, so "everything the
-// companion reader contributed" is a fact on the record instead of a second
-// discovery pass that could answer differently — and it does not exec anything
-// a second time.
-func companionRefs(cat bundles.Catalog) []string {
-	reads := companionReads(cat)
-	out := make([]string, 0, len(reads))
-	for _, read := range reads {
-		out = append(out, read.DisplayName())
-	}
-	return out
-}
-
-// companionReads returns the companion loadout reads in deterministic order,
-// for the callers that need the bundles themselves.
-func companionReads(cat bundles.Catalog) []bundles.BundleRead {
-	return cat.Scoped(bundles.ProvenanceCompanion).Reads()
 }
 
 // resolveProfileScope returns the profile set a bundle-resolution call should

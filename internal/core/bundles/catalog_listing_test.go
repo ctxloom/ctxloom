@@ -199,3 +199,19 @@ func TestCatalogScoped_ViewDoesNotShareFailuresWithParent(t *testing.T) {
 	assert.NotContains(t, parent.failures, "injected", "a write through the view must not appear in the parent")
 	assert.Equal(t, map[string]error{"broken": errBroken}, parent.failures, "a delete through the view must not remove the parent's entry")
 }
+
+// CompanionRefs names exactly the companion loadouts the catalog READ, by the
+// ref their items are loaded under, and never a project bundle that shares
+// the companion's name.
+func TestCatalog_CompanionRefsNamesOnlyTheCompanionReads(t *testing.T) {
+	cat := twoBundlesOneDisplayName(t)
+	var companion BundleRead
+	for _, read := range cat.Reads() {
+		if read.Provenance == ProvenanceCompanion {
+			companion = read
+		}
+	}
+	require.NotEmpty(t, companion.DisplayName(), "guard: the fixture must carry a companion read")
+
+	assert.Equal(t, []string{companion.DisplayName()}, cat.CompanionRefs())
+}

@@ -35,12 +35,12 @@ type Root struct {
 // SYSTEM and the Administrators group tolerated beside the owner (ruled
 // 2026-09-25: both can take any file on the machine regardless).
 type Private interface {
-	// Ensure creates dir owner-only if it is missing, and restricts it only
-	// when Check finds it exposed — on Windows a restriction propagates to
-	// every inheriting child, so restricting an already-private tree on
-	// every start would walk all of it. What is created inside dir
-	// afterwards is owner-only too (unix: a 0700 parent blocks traversal;
-	// Windows: the new DACL is inheritable).
+	// Ensure creates dir owner-only if it is missing; an existing dir it
+	// restricts only when Check finds it exposed — on Windows a restriction
+	// propagates to every inheriting child, so restricting an
+	// already-private tree on every start would walk all of it. What is
+	// created inside dir afterwards is owner-only too (unix: a 0700 parent
+	// blocks traversal; Windows: the restricted DACL is inheritable).
 	Ensure(dir string) error
 	// Check holds each path to owner-only, in order, and returns the first
 	// that is not as an *ExposedError. A path that cannot be stat'ed is

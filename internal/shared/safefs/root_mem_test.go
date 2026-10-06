@@ -205,9 +205,9 @@ func TestNewMem_Private(t *testing.T) {
 	assert.NotErrorAs(t, err, &exposed)
 }
 
-// Ensure checks first and restricts only an exposed dir: restricting
-// propagates to every child on Windows, so doing it on every start would walk
-// the whole tree each time.
+// Ensure restricts a dir it creates (empty, so nothing is walked), and an
+// existing dir only when it is exposed: restricting propagates to every child
+// on Windows, so doing it on every start would walk the whole tree each time.
 func TestPrivate_EnsureRestrictsOnlyWhenExposed(t *testing.T) {
 	mfs := afero.NewMemMapFs()
 	restricts := 0
@@ -216,7 +216,8 @@ func TestPrivate_EnsureRestrictsOnlyWhenExposed(t *testing.T) {
 		return mfs.Chmod(dir, PrivateDirMode)
 	}}
 	require.NoError(t, p.Ensure("/a"))
-	assert.Zero(t, restricts, "a dir created owner-only is not restricted again")
+	assert.Equal(t, 1, restricts, "a dir Ensure creates is restricted as it is made")
+	restricts = 0
 	require.NoError(t, p.Ensure("/a"))
 	assert.Zero(t, restricts, "an owner-only dir is left alone")
 

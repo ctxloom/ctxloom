@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
@@ -50,6 +49,18 @@ type InstanceHomeRequest struct {
 	// history as a real directory, started from NativeHome's
 	// (restoreNativeHistory) instead of linked to it.
 	HistoryInHome bool
+	// Root is ctxloom's root the home is prepared on: its Private makes the
+	// home owner-only and checks what the engine wrote. Zero is the
+	// controller's own filesystem (safefs.New).
+	Root safefs.Root
+}
+
+// root is req.Root, or the controller's own filesystem when none was given.
+func (req InstanceHomeRequest) root() safefs.Root {
+	if req.Root.Fs == nil {
+		return safefs.New()
+	}
+	return req.Root
 }
 
 // InstanceHomeReport is what one PrepareInstanceHome call decided and wrote.
@@ -63,18 +74,12 @@ type InstanceHomeReport struct {
 	Warnings []string
 }
 
-// ensureOwnerOnlyDir is owneronly.EnsureDir, indirected so a test can make
-// it fail: no ACL a test can write stops an elevated Windows administrator
-// (the account CI runs as) from replacing a DACL, so the failure has no
-// honest on-disk fixture there.
-var ensureOwnerOnlyDir = owneronly.EnsureDir
-
 // PrepareInstanceHome readies a session's engine home: it asks the ENGINE
 // to generate its own instance config (claude's field-scoped .claude.json).
 // Every byte-level edit of a vendor's format happens inside that vendor's
 // package.
 //
-// The home is owner-only (owneronly.EnsureDir) BEFORE the engine writes, so
+// The home is owner-only (Root.Private.Ensure) BEFORE the engine writes, so
 // what the engine writes inherits it where the platform's protection is an
 // inherited ACL (Windows), and a home that exists loosened is tightened. The
 // home and every file the engine reports writing are then held to
@@ -112,7 +117,7 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	defer unlock()
 
 	var rep InstanceHomeReport
-	if err := ensureOwnerOnlyDir(req.InstanceHome); err != nil {
+	if err := req.root().Private.Ensure(req.InstanceHome); err != nil {
 		return rep, fmt.Errorf("instance home for %s: restrict %s to its owner: %w", req.Engine, req.InstanceHome, err)
 	}
 	if req.NativeHome != "" && f.Home.TranscriptStoreRel != "" {
@@ -153,7 +158,7 @@ func writeInstanceConfig(req InstanceHomeRequest, writer engine.InstanceConfigWr
 	if err != nil {
 		return rep, err
 	}
-	if err := owneronly.Check(append([]string{req.InstanceHome}, rep.Generated...)...); err != nil {
+	if err := req.root().Private.Check(append([]string{req.InstanceHome}, rep.Generated...)...); err != nil {
 		return rep, fmt.Errorf("instance home for %s: %w", req.Engine, err)
 	}
 	return rep, nil

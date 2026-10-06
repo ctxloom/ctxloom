@@ -19,13 +19,23 @@ type privateOn struct {
 }
 
 func (p privateOn) Ensure(dir string) error {
-	if err := p.fs.MkdirAll(dir, PrivateDirMode); err != nil {
+	_, err := p.fs.Stat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		// A dir this call creates holds nothing, so restricting it walks
+		// nothing: it is made owner-only outright rather than left with
+		// whatever it inherited.
+		if err := p.fs.MkdirAll(dir, PrivateDirMode); err != nil {
+			return err
+		}
+	case err != nil:
 		return err
-	}
-	err := p.Check(dir)
-	var exposed *ExposedError
-	if !errors.As(err, &exposed) {
-		return err
+	default:
+		err := p.Check(dir)
+		var exposed *ExposedError
+		if !errors.As(err, &exposed) {
+			return err
+		}
 	}
 	if err := p.restrict(dir); err != nil {
 		return fmt.Errorf("restrict %s to its owner: %w", dir, err)

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -27,5 +27,5 @@ func TestLockMounts_RefusesANonRegularHostLock(t *testing.T) {
 	require.NoError(t, syscall.Mkfifo(hostLock, 0o600))
 
 	_, err = c.lockMounts(projectDir, scratch)
-	require.ErrorIs(t, err, filelock.ErrNotRegularFile)
+	require.ErrorIs(t, err, safefs.ErrNotRegularFile)
 }

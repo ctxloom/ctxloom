@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	taskpaths "github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 )
 
@@ -258,6 +258,7 @@ func (c Container) taskStoreMounts() ([]mount, error) {
 // copy on a different inode from the host's.
 func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
 	seam := c.runtime.paths()
+	locks := safefs.New().Locks
 	runLocks := filepath.Join(scratchRoot, paths.HomeLocksDirName)
 	if err := os.MkdirAll(runLocks, 0o755); err != nil {
 		return nil, fmt.Errorf("container lock mounts: %w", err)
@@ -279,13 +280,25 @@ func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
 		// runtime creates a directory in its place; and the target inside the
 		// per-run dir, or a rootful runtime creates it there as root.
 		for _, f := range []string{hostLock, filepath.Join(runLocks, name)} {
-			if err := filelock.Prepare(f); err != nil {
+			if err := prepareLockFile(locks, f); err != nil {
 				return nil, fmt.Errorf("container lock mounts: %w", err)
 			}
 		}
 		mounts = append(mounts, seam.bind(hostLock, path.Join(containerLocks, name), false))
 	}
 	return mounts, nil
+}
+
+// prepareLockFile makes the lock file at path (and its directory) exist as a
+// regular file, under the refusals taking a lock applies, by taking it and
+// letting it go: a bind source has to exist as a FILE before the runtime sees
+// it. A holder of the lock at that instant is waited out.
+func prepareLockFile(locks safefs.Locks, path string) error {
+	lock, err := locks.Lock(path)
+	if err != nil {
+		return err
+	}
+	return lock.Unlock()
 }
 
 // ensureFile creates path as an empty regular file if it does not exist, and

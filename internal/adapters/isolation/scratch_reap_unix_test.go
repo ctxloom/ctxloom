@@ -215,3 +215,31 @@ read _ < %q
 	require.NoError(t, <-aDone, "A's runtime still finds its build context")
 	assert.Empty(t, scratchDirs(t, tmp, imageBaseScratchPrefix))
 }
+
+// TestNewOwnedScratch_ALockOnAFileNoLongerAtItsPathIsNotKept: a reaper's
+// delete can land between the owner's open and its grant, so the owner holds a
+// lock on a file nobody else can see. The owner must notice (Lock.Current)
+// and claim a fresh dir. Unix only: there a locked file can be unlinked. The
+// delete is forced through the scratchLocked seam, once.
+func TestNewOwnedScratch_ALockOnAFileNoLongerAtItsPathIsNotKept(t *testing.T) {
+	parent := t.TempDir()
+	const prefix = "ctxloom-unlinked-"
+	var raced string
+	orig := scratchLocked
+	scratchLocked = func(dir string) {
+		if raced == "" {
+			raced = dir
+			require.NoError(t, os.RemoveAll(dir))
+		}
+	}
+	t.Cleanup(func() { scratchLocked = orig })
+
+	s, err := newOwnedScratch(parent, prefix)
+	require.NoError(t, err)
+	t.Cleanup(s.release)
+
+	require.NotEmpty(t, raced)
+	assert.NotEqual(t, raced, s.dir, "the owner did not keep the lock on the deleted dir")
+	assert.DirExists(t, s.dir)
+	assert.Equal(t, []string{s.dir}, scratchDirs(t, parent, prefix), "nothing left behind")
+}

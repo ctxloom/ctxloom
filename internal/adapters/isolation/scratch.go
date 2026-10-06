@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -8,14 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gofrs/flock"
-
-	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // ownedScratchLockName is the lock file inside every owned scratch dir. The
-// owner holds an exclusive lock on it (lockOwnerFile) for the scratch's whole
+// owner holds an exclusive lock on it (safefs.Locks) for the scratch's whole
 // life, and the kernel drops that lock when the owner exits by ANY route — a
 // SIGKILL or an OOM included, where no deferred cleanup runs. So "the lock is
 // obtainable" is exactly "the owner is gone", which is the liveness answer a
@@ -34,10 +32,16 @@ const ownedScratchAttempts = 3
 // instead of waiting for it.
 var scratchCreated = func(dir string) {}
 
-// scratchOpened runs between the owner opening its lock file and locking it:
-// the instant it can hold an open handle on a dir a reaper is deleting under
-// its lock. A seam so tests can run the reaper's delete exactly there.
-var scratchOpened = func(dir string) {}
+// scratchContended runs when the owner's first attempt at its lock finds a
+// reaper holding it, before the owner waits the reaper out. A seam so tests
+// can run the reaper's delete exactly there.
+var scratchContended = func(dir string) {}
+
+// scratchLocked runs once the owner is granted its lock, before it checks the
+// lock is on the file still at its path (Lock.Current): the instant a delete
+// made between the owner's open and its grant shows. A seam so tests can make
+// that delete.
+var scratchLocked = func(dir string) {}
 
 // scratchReapRemove is the reaper's delete of a dead owner's dir, made while
 // it HOLDS that dir's lock: the instant an owner can open the lock file of a
@@ -47,7 +51,7 @@ var scratchReapRemove = os.RemoveAll
 // ownedScratch is an ephemeral directory held live by its owner's lock.
 type ownedScratch struct {
 	dir  string
-	lock *os.File // the held-locked handle; closing it releases the lock
+	lock safefs.Lock // released by release
 }
 
 // newOwnedScratch reaps every dead owner's prefix-named scratch under parent,
@@ -62,14 +66,15 @@ type ownedScratch struct {
 // There is an unavoidable instant between creating the dir and locking it, in
 // which a concurrent reaper sees an unlocked dir and takes it. The protocol
 // makes that loss detectable rather than silent: the reaper deletes only while
-// HOLDING the lock, so this owner's open fails outright (the dir is already
-// gone), or its lock is granted only after the delete. On unix that grant is
-// on a lock file no longer at its path, and the owner retries with a new dir.
-// On Windows the delete cannot remove a lock file the owner already has open,
-// so the owner keeps a dir that still exists. Either way it never proceeds in
-// a deleted one.
+// HOLDING the lock, so this owner's attempt finds the dir gone
+// (fs.ErrNotExist — TryLock never recreates it), or its lock is granted on a
+// file no longer at its path (Lock.Current); either way the owner retries
+// with a new dir. On Windows the delete cannot remove a lock file the owner
+// has open, so an owner holding it keeps a dir that still exists. It never
+// proceeds in a deleted one.
 func newOwnedScratch(parent, prefix string) (*ownedScratch, error) {
-	reapDeadScratch(parent, prefix)
+	root := safefs.New()
+	reapDeadScratch(root.Locks, parent, prefix)
 	for range ownedScratchAttempts {
 		dir, err := os.MkdirTemp(parent, prefix)
 		if err != nil {
@@ -79,35 +84,49 @@ func newOwnedScratch(parent, prefix string) (*ownedScratch, error) {
 			return nil, err
 		}
 		scratchCreated(dir)
-		lockPath := filepath.Join(dir, ownedScratchLockName)
-		f, err := safefs.OpenLockFile(lockPath, safefs.PrivateFileMode)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			_ = os.RemoveAll(dir)
-			return nil, fmt.Errorf("open scratch lock %s: %w", dir, err)
+		lock, err := lockScratch(root.Locks, dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
 		}
-		scratchOpened(dir)
-		if err := lockOwnerFile(f); err != nil {
-			_ = f.Close()
+		if err != nil {
 			_ = os.RemoveAll(dir)
 			return nil, fmt.Errorf("lock scratch %s: %w", dir, err)
 		}
-		if _, err := os.Lstat(lockPath); err == nil {
-			return claim(dir, f)
+		scratchLocked(dir)
+		if lock.Current() {
+			return claim(root.Private, dir, lock)
 		}
-		_ = f.Close()
+		_ = lock.Unlock()
 	}
 	return nil, fmt.Errorf("scratch under %s: reaped before it could be claimed, %d times", parent, ownedScratchAttempts)
 }
 
-// claim makes a scratch this owner holds locked owner-only. On Windows the
-// lock file, created before the restriction, is brought under it with the
-// rest of the directory.
-func claim(dir string, lock *os.File) (*ownedScratch, error) {
+// lockScratch takes dir's owner lock: one attempt, then — a reaper holds it
+// (scratchContended) — a wait for as long as the reaper holds it.
+func lockScratch(locks safefs.Locks, dir string) (safefs.Lock, error) {
+	lockPath := filepath.Join(dir, ownedScratchLockName)
+	lock, err := locks.TryLock(doneContext(), lockPath)
+	if errors.Is(err, safefs.ErrLockHeld) {
+		scratchContended(dir)
+		lock, err = locks.TryLock(context.Background(), lockPath)
+	}
+	return lock, err
+}
+
+// doneContext is a context already done: a TryLock given it makes exactly
+// one attempt.
+func doneContext() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}
+
+// claim makes a scratch this owner holds locked owner-only. On Windows a
+// restriction propagates to the lock file, created before it, with the rest
+// of the directory.
+func claim(private safefs.Private, dir string, lock safefs.Lock) (*ownedScratch, error) {
 	s := &ownedScratch{dir: dir, lock: lock}
-	if err := owneronly.EnsureDir(dir); err != nil {
+	if err := private.Ensure(dir); err != nil {
 		s.release()
 		return nil, fmt.Errorf("restrict scratch %s to its owner: %w", dir, err)
 	}
@@ -119,7 +138,7 @@ func claim(dir string, lock *os.File) (*ownedScratch, error) {
 // between only repeats the removal; and it lets the removal succeed where an
 // open file cannot be unlinked.
 func (s *ownedScratch) release() {
-	_ = s.lock.Close()
+	_ = s.lock.Unlock()
 	_ = os.RemoveAll(s.dir)
 }
 
@@ -132,7 +151,7 @@ func (s *ownedScratch) release() {
 // Best-effort: an unreadable parent or an unremovable dir is left for the
 // next owner to reap, because creating scratch must never fail over a
 // janitor.
-func reapDeadScratch(parent, prefix string) {
+func reapDeadScratch(locks safefs.Locks, parent, prefix string) {
 	entries, err := os.ReadDir(parent)
 	if err != nil {
 		return
@@ -146,8 +165,8 @@ func reapDeadScratch(parent, prefix string) {
 			continue
 		}
 		dir := filepath.Join(parent, e.Name())
-		fl := flock.New(filepath.Join(dir, ownedScratchLockName), flock.SetPermissions(safefs.PrivateFileMode))
-		if locked, err := fl.TryLock(); err != nil || !locked {
+		lock, err := locks.TryLock(doneContext(), filepath.Join(dir, ownedScratchLockName))
+		if err != nil {
 			continue
 		}
 		// Removed while HOLDING the lock: an owner that created this dir but
@@ -156,7 +175,7 @@ func reapDeadScratch(parent, prefix string) {
 		// after the unlock, finishes the job where the held lock file itself
 		// could not be unlinked while open.
 		_ = scratchReapRemove(dir)
-		_ = fl.Unlock()
+		_ = lock.Unlock()
 		_ = os.RemoveAll(dir)
 	}
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 
 	"github.com/stretchr/testify/assert"
@@ -247,16 +248,15 @@ func TestPrepareInstanceHome_WritesClaudesConfigAndNoCredential(t *testing.T) {
 // A session home holds the engine's config (.claude.json records the run's
 // trust answer and account identity), so it gets the same owner-only
 // protection as the credential store — on Windows an ACL, since a mode is
-// not access control there. A home that already exists loosened is
-// tightened, not trusted.
+// not access control there. (A home that already exists loosened:
+// TestPrepareInstanceHome_ALoosenedHomeIsTightened.)
 //
-// MUTATION TARGET: drop the ensureOwnerOnlyDir call in PrepareInstanceHome
-// and this goes red.
+// MUTATION TARGET: drop the Private.Ensure call in PrepareInstanceHome and
+// this goes red.
 func TestPrepareInstanceHome_TheHomeIsOwnerOnly(t *testing.T) {
 	withFakeHome(t)
 	clearAuth(t)
-	instance := t.TempDir()
-	require.NoError(t, os.Chmod(instance, 0o755))
+	instance := filepath.Join(t.TempDir(), "home")
 
 	_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.NoError(t, err)
@@ -270,15 +270,22 @@ func TestPrepareInstanceHome_TheHomeIsOwnerOnly(t *testing.T) {
 func TestPrepareInstanceHome_FailsWhenTheHomeCannotBeRestricted(t *testing.T) {
 	withFakeHome(t)
 	refused := errors.New("restriction refused")
-	prev := ensureOwnerOnlyDir
-	ensureOwnerOnlyDir = func(string) error { return refused }
-	t.Cleanup(func() { ensureOwnerOnlyDir = prev })
+	root := safefs.New()
+	root.Private = refusingPrivate{refused}
 	rec := &recordingInstanceConfig{}
 	withInstanceConfigWriter(t, "claude-code", rec)
 
 	instance := t.TempDir()
-	_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Root: root})
 	require.ErrorIs(t, err, refused)
 	assert.Contains(t, err.Error(), instance)
 	assert.Empty(t, rec.seen(), "nothing is written into a home that is not owner-only")
 }
+
+// refusingPrivate is a Private whose restriction fails: no ACL a test can
+// write stops an elevated Windows administrator (the account CI runs as) from
+// replacing a DACL, so the failure has no honest on-disk fixture there.
+type refusingPrivate struct{ err error }
+
+func (p refusingPrivate) Ensure(string) error   { return p.err }
+func (p refusingPrivate) Check(...string) error { return nil }

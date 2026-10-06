@@ -32,3 +32,15 @@ func TestPrepareInstanceHome_RefusesAGeneratedFileLooserThanOwnerOnly(t *testing
 	require.True(t, errors.As(err, &exposed), "got %v", err)
 	assert.Equal(t, loose, exposed.Path)
 }
+
+// A home that already exists loosened is tightened, not trusted.
+func TestPrepareInstanceHome_ALoosenedHomeIsTightened(t *testing.T) {
+	withFakeHome(t)
+	clearAuth(t)
+	instance := t.TempDir()
+	require.NoError(t, os.Chmod(instance, 0o755))
+
+	_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	require.NoError(t, err)
+	require.NoError(t, safefs.New().Private.Check(instance))
+}

@@ -109,6 +109,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		opts.MCP = cfg.ResolveBundleMCPServersFor(resolved)
 		opts.Hooks = *managedhooks.AssembleFor(cfg, resolved, req.Mail).Wire()
 		opts.Statusline = managedStatuslineEnabled(cfg)
+		opts.ShellTimeout = cfg.GetShellTimeout()
 	}
 	sel, err := composite.Select(resolved, cat, composite.SelectRequest{Fragments: req.Fragments, Tags: req.Tags, Versions: versions, VersionRoot: versionRoot})
 	if err != nil {
@@ -274,7 +275,7 @@ func managedStatuslineEnabled(cfg *config.Config) bool {
 // ManagedSurfacesOf is the package's surfaces as the writers' payload names
 // them.
 func ManagedSurfacesOf(pkg composite.Package) agent.ManagedSurfaces {
-	return agent.ManagedSurfaces{Hooks: pkg.Hooks, MCP: pkg.MCP, DenyTools: pkg.DenyTools, Statusline: pkg.Statusline}
+	return agent.ManagedSurfaces{Hooks: pkg.Hooks, MCP: pkg.MCP, DenyTools: pkg.DenyTools, Statusline: pkg.Statusline, ShellTimeout: pkg.ShellTimeout}
 }
 
 // ExportsFor is what the named engine says about the package: its own

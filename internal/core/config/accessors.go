@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
@@ -189,6 +190,17 @@ func (c *Config) GetDelegationIdleTimeout() time.Duration {
 		return DefaultDelegationIdleTimeout
 	}
 	return d
+}
+
+// GetShellTimeout returns the RESOLVED shell_timeout: each half configured,
+// else its built-in default. Load refused any value that does not resolve,
+// so the resolution here cannot fail.
+func (c *Config) GetShellTimeout() engine.ShellTimeout {
+	st, err := c.shellTimeout.resolve()
+	if err != nil {
+		return engine.ShellTimeout{Default: DefaultShellTimeout, Max: DefaultShellTimeoutMax}
+	}
+	return st
 }
 
 // GetDefaultAgent returns the name of the always-bound default agent (may be

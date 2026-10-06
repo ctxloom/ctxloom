@@ -43,6 +43,7 @@ func fullyPopulatedFixture() Fixture {
 		Runtime:                      "container",
 		Permissions:                  agents.NeutralPermissions{Approver: "none", Network: func() *bool { b := false; return &b }()},
 		Delegation:                   DelegationConfig{Concurrency: 7, Depth: 2},
+		ShellTimeout:                 ShellTimeoutConfig{Default: "3m", Max: "90m"},
 		IsolationImages:              map[string]string{"claude-code": "example.invalid/img:tag"},
 		IsolationBase:                "devcontainer",
 		IsolationDevcontainerService: "app",

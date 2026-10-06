@@ -43,6 +43,7 @@ Schema for ctxloom config.yaml files
 | `schema_version` | integer | Config format generation (integer; distinct from the application version). A file older than this ctxloom reads, or newer than it knows, is refused. Examples: `7`. |
 | `session_purge_age` | string | How old an ended session must be before `ctxloom session sweep --yes` purges it - its transcripts and native history, never its output dir or the files you wrote: an offset in the same grammar as session_reap_age - 30d, 12w, 720h. NO default: unset, the sweep reports what it would purge and purges nothing. `session sweep --purge-older-than` overrides it for one invocation. A session never compacted is never purged by a sweep. A fact about this machine's disk, so it is honoured from ~/.ctxloom/config.yaml (or CTXLOOM_CONFIG_SESSION_PURGE_AGE) and never from the committed project file. A value the grammar cannot parse is REFUSED. |
 | `session_reap_age` | string | How old a session must be before `ctxloom clean` reclaims its disposable members (~/.ctxloom/sessions/<harp>/home, work and scratch): an offset in `clean --older-than`'s grammar - 30d, 12w, 720h. Default 30d when unset. `clean --older-than` overrides it for one invocation. Its transcripts and native history are never taken on this age alone; that needs `clean --include-persist`. A session carrying a top-level file named `keep` is never reclaimed. A fact about this machine's disk, so it is honoured from ~/.ctxloom/config.yaml (or CTXLOOM_CONFIG_SESSION_REAP_AGE) and never from the committed project file. A value the grammar cannot parse is REFUSED, never resolved to the default. |
+| `shell_timeout` | object | The shell-tool timeout every engine is given, engine-neutral: each engine maps it onto its own mechanism, leaving a value the user set in that engine's own settings alone. A command that outlives the foreground timeout is moved to the background by the engine rather than finished, so a git commit behind slow hooks ends the turn unconfirmed; the defaults sit far above the engines' own for that reason. |
 | `sync` | object | Remote dependency sync behavior |
 | `ui` | object | Interactive-run terminal layer: the prefix-key agent-observation viewer and the persistent surround bar. `ctxloom run --plain-terminal` disables the whole layer for one session regardless of this section. |
 | `workspace` | string | Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/acp --workspace (or an agent_run spawn's workspace field). Deliberately not an agent trait — needing a private cwd is a property of how a session is launched. A value outside this set is REFUSED, never degraded: asserted past the parser it would read as the shared checkout, so a typo'd request for isolation would run in your live project directory. Allowed values: `none`, `worktree`. |
@@ -121,6 +122,15 @@ Role → config-label map. Roles select which labeled config plays which part.
 |-------|------|-------------|
 | `fast` | string | Label of the config for the compression role (distill, compaction) |
 | `primary` | string | Label of the config for the coding/interactive role |
+
+### shell_timeout
+
+The shell-tool timeout every engine is given, engine-neutral: each engine maps it onto its own mechanism, leaving a value the user set in that engine's own settings alone. A command that outlives the foreground timeout is moved to the background by the engine rather than finished, so a git commit behind slow hooks ends the turn unconfirmed; the defaults sit far above the engines' own for that reason.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `default` | string | How long a shell command runs in the foreground when the model names no timeout. A Go duration such as "10m"; a value that does not parse, is not positive, or exceeds max is refused at load. Unset uses the built-in default of ten minutes. |
+| `max` | string | The longest timeout the model may name for one shell command. A Go duration such as "1h"; a value that does not parse or is not positive is refused at load. Unset uses the built-in default of one hour. |
 
 ### sync
 

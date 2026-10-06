@@ -230,7 +230,7 @@ func bearerByReference(bundle map[string]wire.MCPServer) (map[string]wire.MCPSer
 }
 
 // settingsSurface is claude's settings approach's presentation:
-// .claude/settings.json, which holds hooks, the statusline and the deny list.
+// .claude/settings.json, which holds the hooks and ctxloom's settings claims.
 // The write is settingsApproach.DeliverSettings's claims.
 type settingsSurface struct{}
 

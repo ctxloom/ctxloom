@@ -11,16 +11,17 @@ import (
 // what the composite package carries for the writers, named here so this
 // package (linked by the lean binaries) never imports the package model.
 type ManagedSurfaces struct {
-	Hooks      wire.HooksConfig
-	MCP        map[string]wire.MCPServer
-	DenyTools  []string
-	Statusline bool
+	Hooks        wire.HooksConfig
+	MCP          map[string]wire.MCPServer
+	DenyTools    []string
+	Statusline   bool
+	ShellTimeout engine.ShellTimeout
 }
 
 // ManagedConfigFor is the ONE projection of a decoded package's surfaces and
 // the engine's exports over it onto the managed payload today's writers
 // deliver: the command and skill exports as that engine decided them, the
-// hooks, the servers, the deny list and the statusline. The originator (the
+// hooks, the servers, the deny list, the statusline and the shell timeout. The originator (the
 // plugin arm) and the runner both build the payload here, which is what
 // makes a host launch and a delegated launch deliver the same set.
 func ManagedConfigFor(surfaces ManagedSurfaces, exports engine.Exports) *ManagedConfig {
@@ -32,6 +33,7 @@ func ManagedConfigFor(surfaces ManagedSurfaces, exports engine.Exports) *Managed
 		BundleMCP:        surfaces.MCP,
 		ManageStatusline: surfaces.Statusline,
 		DenyTools:        surfaces.DenyTools,
+		ShellTimeout:     surfaces.ShellTimeout,
 	}
 }
 

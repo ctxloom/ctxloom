@@ -81,7 +81,7 @@ by `enrich` and must never be written back:
 - `HarpName` is the directory's name — never persisted, so a rename cannot desynchronise it.
 - `Summary` / `Detail` come from the essence in the output dir (`fillFromEssence`); the essence
   is the record and a second copy would be a second thing to disagree.
-- Transcript locations are filled by `fillTranscriptByLocation` and `fillCanonicalTranscript`.
+- Transcript locations, and the session a located transcript records, are filled by `fillBindingByLocation`; the canonical transcript by `fillCanonicalTranscript`.
 - `SourceEntries` is the staleness fingerprint: the transcript's ENTRY COUNT at last
   distillation, not its byte size — see the field's doc comment for why that distinction is
   load-bearing.

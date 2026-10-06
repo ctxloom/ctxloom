@@ -39,6 +39,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -96,7 +97,7 @@ func openContractLane(t *testing.T, stateDir string) *contractLane {
 	records, err := fsstatic.NewRecords(afero.NewOsFs(), filepath.Join(t.TempDir(), "records"))
 	require.NoError(t, err)
 	served := make(chan delivery.Loadout, 4)
-	runners.Static, runners.Records = fsstatic.New(afero.NewOsFs()), records
+	runners.Static, runners.Records = fsstatic.New(safefs.New()), records
 	runners.Endpoint = func(h *runner.Home) delivery.Dynamic {
 		return recordedEndpoint{Endpoint: interaction.Endpoint{Home: h, Wake: interaction.NewWakeSignal(h.SetWake)}, served: served}
 	}

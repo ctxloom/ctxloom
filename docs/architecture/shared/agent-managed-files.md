@@ -8,7 +8,7 @@ References below are by **symbol** (`Type.Method` or bare function name), not `f
 flowchart TD
   subgraph prim["primitives"]
     AWF["safefs.WriteFileKeepMode(fs, path, data, desc)"]
-    WFL["sessions.WithFileLock(fs, target, fn)"]
+    WFL["sessions.WithFileLock(locks, target, fn)"]
     GFS["GetFS(fs) — nil → OsFs"]
     WRN["Warn(fmt, ...) → clidiag"]
     CC["CtxloomCommand() = CtxloomBinary"]
@@ -63,7 +63,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | Symbol | Purpose |
 |---|---|
 | `safefs.WriteFileKeepMode` (in `internal/shared/safefs`) | The engine-file writers' write: `safefs.WriteFile`'s **unique** temp name in the destination directory (so two concurrent writers never clobber each other's in-flight bytes), fsync and rename, keeping an existing file's mode. **No backup is taken** (see the invariants below). Refuses a zero-byte write over an existing file unless the caller passes `safefs.AllowEmpty()`. |
-| `sessions.WithFileLock` | The engine-file writers' one lock idiom (the static writer's batch included): `fn` runs as the WHOLE read-modify-write cycle under a lock at `paths.HomePathFor(target)` (a real OS home-rooted lock directory, not a sidecar beside `target`). Skipped when `fs` is not OS-backed (a test double has no other process to exclude). Fail-closed on acquisition failure. |
+| `sessions.WithFileLock` | The engine-file writers' one lock idiom (the static writer's batch included): `fn` runs as the WHOLE read-modify-write cycle under a lock at `paths.HomePathFor(target)` (a home-rooted lock directory, not a sidecar beside `target`), taken through the caller's Root's `Locks` — never skipped. Fail-closed on acquisition failure. |
 | `GetFS` | nil → `afero.NewOsFs()`; the single defaulting point every writer in this package and its engine callers uses. |
 | `Warn` | `clidiag.Warn("ctxloom", …)`; binds the program name once. |
 | `CtxloomCommand` | Returns `CtxloomBinary` — the bare executable name, so a materialized surface resolves against `PATH` at fire time and carries no fact about the machine that wrote it. |
@@ -76,7 +76,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | Symbol | Purpose |
 |---|---|
 | `PackageFile` | One rendered file in a package: `{Path, Data, Mode}`. Shared vocabulary across every engine's command/skill writer. |
-| `WriteManagedPackageFiles[T]` | Manifest-scoped tree writer: remove the previously-tracked set, render-to-a-temp-sibling-then-swap each file into place, rewrite the `ledger.Surface`-scoped manifest. Carries an empty-render guard (refuses to touch an existing surface when every enabled item rendered zero files). **Not itself wrapped in `WithFileLock`** — a known, deferred gap (it writes into directories shared with the user and with concurrently-firing hooks/applies); its render-to-temp-then-swap shape is also invisible to `LockDisciplineAnalyzer`'s write-signal heuristic, which recognizes `AtomicWriteFile`/`save*` but not this function's own `afero.WriteFile`-into-temp-dir + `fs.Rename` swap. |
+| `WriteManagedPackageFiles[T]` | Manifest-scoped tree writer: remove the previously-tracked set, render-to-a-temp-sibling-then-swap each file into place, rewrite the `ledger.Surface`-scoped manifest. Carries an empty-render guard (refuses to touch an existing surface when every enabled item rendered zero files). The whole cycle runs under the lock at `paths.HomePathFor(dir)`, taken only when its `afero.Fs` is the OS filesystem (it is handed no Root; see `filelock`); its render-to-temp-then-swap shape is also invisible to `LockDisciplineAnalyzer`'s write-signal heuristic, which recognizes `AtomicWriteFile`/`save*` but not this function's own `afero.WriteFile`-into-temp-dir + `fs.Rename` swap. |
 | `pruneEmptyDirs` | Best-effort bottom-up empty-directory cleanup; all errors ignored by design. |
 
 ## Command and skill rendering
@@ -122,7 +122,7 @@ Consumers: `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`).
 - **A rename failure is returned, never papered over**, and there is no cross-device fallback: the temp file lives in the destination directory by construction, so cross-device rename cannot occur, and every internal failure branch best-effort removes the orphaned temp file before returning the error.
 - **`safefs.WriteFile` and `safefs.WriteFileKeepMode` refuse a zero-byte write over an existing file** unless the caller passes `safefs.AllowEmpty()` — for a writer whose correct output can be literally zero bytes.
 - **`CtxloomCommand` is the command policy for materialized surfaces**, and every writer — hooks, statusline, MCP registry — resolves through it. It returns the BARE name: several materialized surfaces (`.claude/settings.json`, `.mcp.json`) are tracked files shared across machines, and one is read from inside a container where a host path names nothing. The accepted cost is that a surface can fire a different build than the one that wrote it; `WarnOnCtxloomPathSkew` is the only thing that reports it.
-- **`WriteManagedPackageFiles` removes the previously-tracked set BEFORE rendering.** Every per-item failure warns and continues, and the function returns `nil` when nothing was written — so a total render failure wipes the prior delivery and reports success. The manifest is the only record of what ctxloom owns in that tree, and (see R6 above) this function is not itself under `WithFileLock` — a known, deferred gap, not a fixed one.
+- **`WriteManagedPackageFiles` removes the previously-tracked set BEFORE rendering.** Every per-item failure warns and continues, and the function returns `nil` when nothing was written — so a total render failure wipes the prior delivery and reports success. The manifest is the only record of what ctxloom owns in that tree.
 - **`SafeCommandRelPath` must gate every bundle-supplied name** before it becomes a path. Bundle content is remote content.
 - **The sidecar ledger (`internal/shared/ledger`, marker `.ctxloom-managed`) is the record of managed names** for every surface that uses it — not a per-engine `<Path>.ledger` file. Written sorted and atomically, removed only when every co-located surface is empty.
 - **A ledger read error is propagated, not flattened.** `ledger.Ledger.Read` returns a real error rather than degrading to "nothing managed" — a writer that mistakes an unreadable ledger for an empty one concludes it manages nothing and orphans every entry it wrote last time. A missing marker is the one legitimate empty case, and it alone returns `(nil, nil)`.

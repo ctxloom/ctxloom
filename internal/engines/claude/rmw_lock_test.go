@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -48,15 +48,14 @@ func TestWriteInstanceConfig_SerializesAgainstConcurrentWriter(t *testing.T) {
 	// concurrent WriteInstanceConfig call already mid-critical-section.
 	lockPath, err := paths.HomePathFor(dest)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Dir(lockPath), 0o755))
-	aLock := flock.New(lockPath)
-	require.NoError(t, aLock.Lock())
+	aLock, err := safefs.New().Locks.Lock(lockPath)
+	require.NoError(t, err)
 
 	bDone := make(chan error, 1)
 	go func() {
 		_, werr := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 			HostHome: t.TempDir(), InstanceHome: instance, WorkDir: workDir,
-		}, nil)
+		}, safefs.New())
 		bDone <- werr
 	}()
 

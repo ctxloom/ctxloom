@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -37,7 +38,7 @@ func TestApplyHooks_ReadsNoRecordOfAnotherProject(t *testing.T) {
 			SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
 		}}, config.Fixture{})
 		_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
-			Backend: "claude-code", FS: fs, Cfg: cfg, WorkDir: "/project",
+			Backend: "claude-code", Root: safefs.NewMem(fs), Cfg: cfg, WorkDir: "/project",
 		})
 		require.NoError(t, err)
 	}

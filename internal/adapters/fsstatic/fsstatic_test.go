@@ -53,7 +53,7 @@ func TestDeliver_OverTheProductionRecord_MaterializeThenUninstallLeavesTheProjec
 	require.Len(t, plan.Static, 6, "every kind is routed to the project root")
 
 	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter}
-	static := fsstatic.New(fs)
+	static := fsstatic.New(safefs.NewMem(fs))
 	d, err := static.Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root(), target)
 	require.NoError(t, err)
 	require.Len(t, d.Wrote, 6)
@@ -109,7 +109,7 @@ func TestDeliver_KeepsTheModeAnApproachWrote(t *testing.T) {
 	pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Context: present.RootProjectRoot, present.Skills: present.RootProjectRoot}}
 	plan, err := delivery.Route(items, eng.Root(), pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
 	require.NoError(t, err)
-	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root(), delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter})
+	_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root(), delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter})
 	require.NoError(t, err)
 	for rel, want := range map[string]os.FileMode{mock.ContextFileName: 0o600, ".mock/skills/greet/SKILL.md": 0o644, ".mock/skills/greet/scripts/run.sh": 0o755} {
 		info, err := os.Stat(filepath.Join(project, rel))
@@ -176,7 +176,7 @@ func TestDeliver_RefusesAnInPlaceWriteToAnExistingFile(t *testing.T) {
 			plan, err := delivery.Route(items, root, pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
 			require.NoError(t, err)
 
-			_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, root, delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter})
+			_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, root, delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter})
 			require.True(t, errors.Is(err, fsstatic.ErrInPlaceWrite), "want ErrInPlaceWrite, got %v", err)
 			require.ErrorContains(t, err, existing, "the refusal names the file")
 
@@ -202,7 +202,7 @@ func deliverMock(t *testing.T, fs afero.Fs, rec delivery.Ownership, root engine.
 		require.NoError(t, err)
 		lo.Plan = plan
 	}
-	_, err := fsstatic.New(fs).Deliver(context.Background(), lo, root, delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: w})
+	_, err := fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), lo, root, delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: w})
 	return err
 }
 

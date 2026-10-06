@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // wireClaudeHarness writes a ctxloom-managed hook set into dir's claude-code
@@ -53,7 +54,7 @@ func TestRemoveHooks_StripsWiring(t *testing.T) {
 	wireClaudeHarness(t, fs, dir)
 
 	cfg := &config.Config{}
-	res, err := RemoveHooks(context.Background(), engines.Registry(), cfg, RemoveHooksRequest{Backend: "", FS: fs, WorkDir: dir})
+	res, err := RemoveHooks(context.Background(), engines.Registry(), cfg, RemoveHooksRequest{Backend: "", Root: safefs.NewMem(fs), WorkDir: dir})
 	require.NoError(t, err)
 	assert.Equal(t, "removed", res.Status)
 	assert.Contains(t, res.Backends, "claude-code")
@@ -70,7 +71,7 @@ func TestRemoveHooks_SingleBackendFilter(t *testing.T) {
 	wireClaudeHarness(t, fs, dir)
 
 	cfg := &config.Config{}
-	res, err := RemoveHooks(context.Background(), engines.Registry(), cfg, RemoveHooksRequest{Backend: "claude-code", FS: fs, WorkDir: dir})
+	res, err := RemoveHooks(context.Background(), engines.Registry(), cfg, RemoveHooksRequest{Backend: "claude-code", Root: safefs.NewMem(fs), WorkDir: dir})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-code"}, res.Backends)
 }
@@ -123,7 +124,7 @@ func TestApplyHooks_HonorsStatuslineOptOut(t *testing.T) {
 
 	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, loader),
 		WorkDir: tmpDir,
 	})

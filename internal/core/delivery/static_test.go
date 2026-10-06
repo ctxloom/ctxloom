@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 var (
@@ -110,7 +111,7 @@ func loadoutFor(t *testing.T, eng engine.Engine, roots present.Paths) delivery.L
 func TestStatic_SessionAndMaterialize_ShareWritersAndDifferOnlyInTarget(t *testing.T) {
 	eng := mock.New()
 	fs := afero.NewMemMapFs()
-	static := fsstatic.New(fs)
+	static := fsstatic.New(safefs.NewMem(fs))
 	rec := newRecord(t, fs)
 	sessionW, projectW := delivery.SessionWriter("harp-1"), delivery.ProjectWriter
 
@@ -145,7 +146,7 @@ func TestStatic_SessionAndMaterialize_ShareWritersAndDifferOnlyInTarget(t *testi
 func TestStatic_TwoWritersOneTarget_ReconcileRemovesOnlyOwnEntries(t *testing.T) {
 	eng := mock.New()
 	fs := afero.NewMemMapFs()
-	static := fsstatic.New(fs)
+	static := fsstatic.New(safefs.NewMem(fs))
 	rec := newRecord(t, fs)
 	pkg := compositetest.Fixture(t, compositetest.WithMCP("tasks", tasks))
 	plan, err := delivery.Route(items(pkg, eng), eng.Root(), delivery.Preference{Root: map[present.Kind]present.RootKind{present.MCP: present.RootProjectRoot}}, projectRoots)
@@ -173,7 +174,7 @@ func TestStatic_ZeroTarget_Refused(t *testing.T) {
 	eng := mock.New()
 	lo := loadoutFor(t, eng, sessionRoots)
 	fs := afero.NewMemMapFs()
-	_, err := fsstatic.New(fs).Deliver(context.Background(), lo, eng.Root(), delivery.Target{})
+	_, err := fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), lo, eng.Root(), delivery.Target{})
 	require.ErrorIs(t, err, delivery.ErrNoRoot)
 	require.Empty(t, deliverytest.RelativeFiles(fs, "/"))
 }
@@ -210,7 +211,7 @@ func TestStatic_UnrootableApproach_RefusesWithRemedy_NeverSubstitutes(t *testing
 	require.NoError(t, err)
 	fs := afero.NewMemMapFs()
 	noProject := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: newRecord(t, fs), Writer: delivery.SessionWriter("h")}
-	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), noProject)
+	_, err = fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), noProject)
 	require.ErrorIs(t, err, delivery.ErrUnrootable)
 	var u delivery.Unrootable
 	require.True(t, errors.As(err, &u))
@@ -233,7 +234,7 @@ func TestStatic_SharedRootIsASelection_NotAFallback(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	rec := newRecord(t, fs)
 	withProject := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.SessionWriter("h")}
-	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), withProject)
+	d, err := fsstatic.New(safefs.NewMem(fs)).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), withProject)
 	require.NoError(t, err)
 	require.Equal(t, []present.Kind{present.MCP}, d.Wrote)
 	require.ElementsMatch(t, owned(t, rec, delivery.SessionWriter("h"), "/p"), deliverytest.RelativeFiles(fs, "/p"))

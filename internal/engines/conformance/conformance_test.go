@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
 )
 
@@ -62,7 +63,7 @@ func agentCases() []agentCase {
 
 // project is a's project at projectDir on fs.
 func (a agentCase) project(t *testing.T, fs afero.Fs) *atrest.Project {
-	return atrest.New(t, fs, a.kind(t), projectDir)
+	return atrest.New(t, safefs.NewMem(fs), a.kind(t), projectDir)
 }
 
 // status is the engine's own account of what is wired into p.

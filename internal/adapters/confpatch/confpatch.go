@@ -51,8 +51,11 @@ import (
 // application on the way in; a writer that shares a file with another (taskloom
 // manage and ctxloom both write .mcp.json) keeps its own store.
 type Store struct {
-	fs  afero.Fs
-	dir string
+	fs afero.Fs
+	// locks serialize each Apply's read-modify-write of its target
+	// (sessions.WithFileLock): the Root the store was opened on.
+	locks safefs.Locks
+	dir   string
 	// owner is the executable basename that proves an entry is this writer's
 	// own when no record accounts for it (see WithOwnedPaths and heal.go). A
 	// BASENAME on purpose: agent.IsManaged compares exec tokens that way, so
@@ -62,8 +65,8 @@ type Store struct {
 	owner string
 }
 
-// NewStore opens the record store at dir on fs for the writer whose executable
-// basename is owner. dir is created lazily, on the first record written, so
+// NewStore opens the record store at dir on root's filesystem for the writer
+// whose executable basename is owner; root's Locks serialize every Apply. dir is created lazily, on the first record written, so
 // merely constructing a Store touches no disk.
 //
 // AN ACCEPTABLY SMALL DUPLICATION, KEPT DELIBERATELY: removing it would
@@ -76,9 +79,9 @@ type Store struct {
 // preserve those messages, so it would be longer than the few lines it
 // replaced, and it would couple two unrelated packages to do it.
 // reprise:accept-drift
-func NewStore(recordFS afero.Fs, dir, owner string) (*Store, error) {
-	if recordFS == nil {
-		return nil, errors.New("confpatch: nil record filesystem")
+func NewStore(root safefs.Root, dir, owner string) (*Store, error) {
+	if root.Fs == nil || root.Locks == nil {
+		return nil, errors.New("confpatch: a record root needs a filesystem and locks")
 	}
 	if strings.TrimSpace(dir) == "" {
 		return nil, errors.New("confpatch: empty record directory")
@@ -86,7 +89,7 @@ func NewStore(recordFS afero.Fs, dir, owner string) (*Store, error) {
 	if strings.TrimSpace(owner) == "" {
 		return nil, errors.New("confpatch: empty owner; the store cannot prove which recordless entries are its writer's own")
 	}
-	return &Store{fs: recordFS, dir: dir, owner: owner}, nil
+	return &Store{fs: root.Fs, locks: root.Locks, dir: dir, owner: owner}, nil
 }
 
 // Result reports what one Apply did.
@@ -219,7 +222,7 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 		store: s, targetFS: targetFS, target: target, format: format,
 		binding: binding, build: build, cfg: cfg, res: &res,
 	}
-	if err := sessions.WithFileLock(targetFS, target, run.locked); err != nil {
+	if err := sessions.WithFileLock(s.locks, target, run.locked); err != nil {
 		return res, err
 	}
 	return res, nil

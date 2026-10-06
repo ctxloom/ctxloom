@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -36,7 +37,7 @@ func TestMCPRegistrar_ConfigPath(t *testing.T) {
 func TestMCPRegistrar_RegisterPreservesForeignBytesAndUninstallRestoresThem(t *testing.T) {
 	const existing = "{\n  \"mcpServers\": {\n    \"ctxloom\": {\"_ctxloom\": \"ctxloom-auto\", \"command\": \"ctxloom\", \"cwd\": \"${CLAUDE_PROJECT_DIR}\"}\n  }\n}\n"
 	fs := afero.NewMemMapFs()
-	store, err := confpatch.NewStore(fs, "/home/u/.ctxloom/records/taskloom", "taskloom")
+	store, err := confpatch.NewStore(safefs.NewMem(fs), "/home/u/.ctxloom/records/taskloom", "taskloom")
 	require.NoError(t, err)
 	const path = "/proj/.mcp.json"
 	testsupport.WriteFileString(t, fs, path, existing, 0o644)

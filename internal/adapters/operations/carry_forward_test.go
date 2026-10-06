@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // TestDeliverProject_ACompanionWhoseProbeFailedKeepsItsEntries: a verified
@@ -28,7 +29,7 @@ func TestDeliverProject_ACompanionWhoseProbeFailedKeepsItsEntries(t *testing.T) 
 	own := wire.MCPServer{Command: "own-mcp"}
 	deliver := func(pkg composite.Package) map[string]any {
 		t.Helper()
-		_, _, err := DeliverProject(context.Background(), fs, kind, pkg, dir)
+		_, _, err := DeliverProject(context.Background(), safefs.NewMem(fs), kind, pkg, dir)
 		require.NoError(t, err)
 		return mcpServersIn(t, fs, dir)
 	}

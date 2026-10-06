@@ -17,15 +17,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/spf13/afero"
 )
 
 // ApplyHooksRequest contains parameters for applying hooks.
 type ApplyHooksRequest struct {
 	Backend           string         `json:"backend"`            // an engine name, or all
 	RegenerateContext bool           `json:"regenerate_context"` // Also regenerate context file
-	FS                afero.Fs       `json:"-"`                  // Optional filesystem for testing
+	Root              safefs.Root    `json:"-"`                  // Optional Root for testing (zero = safefs.New())
 	Cfg               *config.Config `json:"-"`                  // The generation to apply from; required
 	WorkDir           string         `json:"-"`                  // Optional work directory for testing (defaults to git root)
 	// Force overrides the refusal in checkHookTargetScope when the resolved
@@ -84,7 +84,8 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 
 	backend := req.Backend
 
-	fs := getFS(req.FS)
+	root := rootOf(req.Root)
+	fs := root.Fs
 	contextOpts := []agent.ContextFileOption{agent.WithContextFS(fs)}
 
 	freshCfg, err := resolveHookConfig(req)
@@ -167,7 +168,7 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 		workDir:      workDir,
 		contextHash:  contextHash,
 		pkg:          pkg,
-		fs:           fs,
+		root:         root,
 	})
 	if err != nil {
 		return nil, err
@@ -515,8 +516,8 @@ type hookApplyParams struct {
 	workDir      string
 	contextHash  string
 	// pkg is the one package the surfaces are written from.
-	pkg composite.Package
-	fs  afero.Fs
+	pkg  composite.Package
+	root safefs.Root
 	// dryRun stops short of the single write, see ApplyHooksRequest.DryRun.
 	dryRun bool
 }
@@ -590,7 +591,7 @@ func applyHooksToBackend(ctx context.Context, reg engine.Registry, backendName s
 	if p.dryRun {
 		return nil, nil
 	}
-	if _, _, err := DeliverProject(ctx, p.fs, kind, pkg, p.workDir); err != nil {
+	if _, _, err := DeliverProject(ctx, p.root, kind, pkg, p.workDir); err != nil {
 		return nil, fmt.Errorf("failed to apply %s: %w", backendName, err)
 	}
 	return nil, nil

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gofrs/flock"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -219,6 +220,35 @@ func TestExposure(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, exposure(owner, tolerated, tc.grantees))
+		})
+	}
+}
+
+// A lock's Unlock is safe to call twice, and the second call releases
+// nothing: in particular not the lock the NEXT taker of the path now holds.
+// A caller's deferred Unlock beside an explicit one must not hand the
+// resource to a third taker while the second still works under it.
+func TestLocks_UnlockTwiceReleasesOnlyItsOwnHold(t *testing.T) {
+	roots := map[string]func(t *testing.T) (Root, string){
+		"New": func(t *testing.T) (Root, string) { return New(), filepath.Join(t.TempDir(), "x.lock") },
+		"NewMem": func(*testing.T) (Root, string) {
+			return NewMem(afero.NewMemMapFs()), "/l/x.lock"
+		},
+	}
+	for name, mk := range roots {
+		t.Run(name, func(t *testing.T) {
+			root, path := mk(t)
+			first, err := root.Locks.Lock(path)
+			require.NoError(t, err)
+			require.NoError(t, first.Unlock())
+
+			second, err := root.Locks.Lock(path)
+			require.NoError(t, err)
+			defer func() { _ = second.Unlock() }()
+
+			require.NoError(t, first.Unlock(), "a second Unlock is not an error")
+			_, err = root.Locks.TryLock(expired(), path)
+			assert.ErrorIs(t, err, ErrLockHeld, "the second taker still holds the lock")
 		})
 	}
 }

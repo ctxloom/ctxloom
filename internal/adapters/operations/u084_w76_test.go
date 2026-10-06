@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -202,7 +203,7 @@ func TestApplyHooks_TotalFailureIsNotReportedAsPartialSuccess(t *testing.T) {
 
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      readOnly,
+		Root:    safefs.NewMem(readOnly),
 		Cfg:     loaded(t, loader),
 		WorkDir: workDir,
 	})
@@ -238,7 +239,7 @@ func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
 
 	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
-		FS:      fs,
+		Root:    safefs.NewMem(fs),
 		Cfg:     loaded(t, loader),
 		WorkDir: tmpDir,
 	})

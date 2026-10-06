@@ -19,6 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -74,7 +75,7 @@ func TestRunConfigWrite_JSONMerge_PreservesForeignKeysAndAddsNew(t *testing.T) {
 	patch := `{"agent_servers":{"ctxloom: dev":{"command":"/usr/local/bin/ctxloom","args":["run","--agent","dev"]}}}`
 	cmd, _ := configWriteTestCmd(patch)
 
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.NoError(t, err)
 	assert.False(t, result.Created)
 	assert.True(t, result.Verified)
@@ -106,7 +107,7 @@ func TestRunConfigWrite_TOMLMerge_PreservesForeignKeysAndAddsNew(t *testing.T) {
 	patch := `{"agent_servers":{"ctxloom: dev":{"command":"/usr/local/bin/ctxloom","args":["run","--agent","dev"]}}}`
 	cmd, _ := configWriteTestCmd(patch)
 
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.NoError(t, err)
 	assert.True(t, result.Verified)
 	assert.Equal(t, configWriteFiletypeTOML, result.Filetype, "filetype inferred from .toml extension")
@@ -142,7 +143,7 @@ func TestRunConfigWrite_UnparseableExisting_RefusesAndPreservesBytes(t *testing.
 	patch := `{"agent_servers":{"ctxloom: dev":{"command":"ctxloom"}}}`
 	cmd, _ := configWriteTestCmd(patch)
 
-	_, err := runConfigWrite(fs, cmd, path, "")
+	_, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), path)
 	assert.Contains(t, err.Error(), "refusing to overwrite")
@@ -198,7 +199,7 @@ func TestRunConfigWrite_ReReadVerify_CatchesBadWrite(t *testing.T) {
 	patch := `{"agent_servers":{"ctxloom: dev":{"command":"ctxloom"}}}`
 	cmd, _ := configWriteTestCmd(patch)
 
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.Error(t, err, "a verify step that never checks anything would return nil here")
 	assert.Contains(t, err.Error(), "verify failed")
 	// No backup is kept any more, so the failure must say so and point the
@@ -224,7 +225,7 @@ func TestRunConfigWrite_EmptyStdinPatch_Refuses(t *testing.T) {
 	path := "/home/user/.config/zed/settings.json"
 	cmd, _ := configWriteTestCmd("   \n")
 
-	_, err := runConfigWrite(fs, cmd, path, "")
+	_, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty patch")
 
@@ -236,7 +237,7 @@ func TestRunConfigWrite_EmptyObjectPatch_Refuses(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cmd, _ := configWriteTestCmd(`{}`)
 
-	_, err := runConfigWrite(fs, cmd, "/home/user/.config/zed/settings.json", "")
+	_, err := runConfigWrite(safefs.NewMem(fs), cmd, "/home/user/.config/zed/settings.json", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty JSON object")
 }
@@ -336,7 +337,7 @@ func TestRunConfigWrite_JSONPatch_ModePreserved(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, path, []byte(`{"foreign":"keep"}`), 0640))
 
 	cmd, _ := configWriteTestCmd(`{"agent_servers":{"dev":{"command":"ctxloom"}}}`)
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.NoError(t, err)
 	assert.True(t, result.Verified)
 
@@ -366,7 +367,7 @@ func TestRunConfigWrite_JSONPatch_BytePreservingFormatting(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0644))
 
 	cmd, _ := configWriteTestCmd(`{"beta":"new"}`)
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.NoError(t, err)
 	assert.True(t, result.Verified)
 
@@ -402,7 +403,7 @@ func TestRunConfigWrite_JSONPatch_NullDeletesKey(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, path, []byte(`{"keep":"yes","drop":"me"}`), 0644))
 
 	cmd, _ := configWriteTestCmd(`{"drop":null}`)
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.NoError(t, err)
 	assert.True(t, result.Verified)
 
@@ -425,7 +426,7 @@ func TestRunConfigWrite_JSONPatch_NullOnAbsentKey_NoOp(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, path, []byte(`{"keep":"yes"}`), 0644))
 
 	cmd, _ := configWriteTestCmd(`{"never-existed":null}`)
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.NoError(t, err, "deleting an absent key must not error")
 	assert.True(t, result.Verified)
 
@@ -452,7 +453,7 @@ func TestRunConfigWrite_JSONPatch_NestedMergePreservesSiblingsBeyondOneLevel(t *
 
 	patch := `{"agent_servers":{"other-client":{"nested":{"added":"now"}}}}`
 	cmd, _ := configWriteTestCmd(patch)
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.NoError(t, err)
 	assert.True(t, result.Verified)
 
@@ -485,7 +486,7 @@ func TestRunConfigWrite_JSONPatch_ApplicationRecord_WrittenWithContent(t *testin
 
 	patchBytes := []byte(`{"agent_servers":{"dev":{"command":"ctxloom"}}}`)
 	cmd, _ := configWriteTestCmd(string(patchBytes))
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.NoError(t, err)
 	require.True(t, result.Verified)
 	require.NotEmpty(t, result.Record, "a successful JSON apply must report where its application record went")
@@ -569,7 +570,7 @@ func TestRunConfigWrite_TOMLPatch_WritesApplicationRecord(t *testing.T) {
 
 	patchBytes := []byte(`{"agent_servers":{"dev":{"command":"ctxloom"}}}`)
 	cmd, _ := configWriteTestCmd(string(patchBytes))
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.NoError(t, err)
 	require.True(t, result.Verified)
 	require.NotEmpty(t, result.Record, "a successful TOML apply must report where its application record went")
@@ -616,7 +617,7 @@ func TestRunConfigWrite_CreatesMissingFile_PerFormatEmptyDocument(t *testing.T) 
 			fs := afero.NewMemMapFs()
 			cmd, _ := configWriteTestCmd(`{"agent_servers":{"dev":{"command":"ctxloom"}}}`)
 
-			result, err := runConfigWrite(fs, cmd, c.path, "")
+			result, err := runConfigWrite(safefs.NewMem(fs), cmd, c.path, "")
 			require.NoError(t, err, "creating a missing %s target must succeed", c.name)
 			assert.True(t, result.Created, "the report must say the file was created")
 			require.True(t, result.Verified)
@@ -641,7 +642,7 @@ func TestRunConfigWrite_TOMLPatch_PreservesUnrelatedBytes(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, path, original, 0644))
 
 	cmd, _ := configWriteTestCmd(`{"agent_servers":{"dev":{"command":"ctxloom"}}}`)
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.NoError(t, err)
 	require.True(t, result.Verified)
 
@@ -669,7 +670,7 @@ func TestApplicationRecord_InverseRestoresTheOriginalBytes(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, path, original, 0o644))
 
 	cmd, _ := configWriteTestCmd(`{"agent_servers":{"other":{"command":"replaced"},"dev":{"command":"ctxloom"}}}`)
-	result, err := runConfigWrite(fs, cmd, path, "")
+	result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, result.Record)
 
@@ -753,7 +754,7 @@ func TestApplicationRecord_NeverCopiesANeighboursValue(t *testing.T) {
 			testsupport.WriteFile(t, fs, path, []byte(tc.original), 0o644)
 
 			cmd, _ := configWriteTestCmd(tc.patch)
-			result, err := runConfigWrite(fs, cmd, path, "")
+			result, err := runConfigWrite(safefs.NewMem(fs), cmd, path, "")
 			require.NoError(t, err)
 			require.NotEmpty(t, result.Record)
 

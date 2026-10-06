@@ -39,13 +39,17 @@ import (
 // (safefs.WriteFile and the helpers built on it).
 var ErrInPlaceWrite = errors.New("an approach may not change an existing file in place; write it to a temp file and rename it into place (safefs.WriteFile)")
 
-// Static is the writer over one filesystem.
-type Static struct{ fs afero.Fs }
+// Static is the writer over one Root: its filesystem, and the locks every
+// writer of a target file takes.
+type Static struct {
+	fs    afero.Fs
+	locks safefs.Locks
+}
 
 var _ delivery.Static = (*Static)(nil)
 
-// New is the static writer over fs.
-func New(fs afero.Fs) *Static { return &Static{fs: fs} }
+// New is the static writer over root.
+func New(root safefs.Root) *Static { return &Static{fs: root.Fs, locks: root.Locks} }
 
 // Deliver validates the target, refuses a plan whose items cannot root under
 // it, then releases the writer's previous delivery and stages each static
@@ -92,7 +96,7 @@ func (s *Static) Deliver(_ context.Context, lo delivery.Loadout, root engine.Bas
 // batch is a batch over the static writer's filesystem, each target locked
 // by the lock every writer of that file takes.
 func (s *Static) batch() *safefs.Batch {
-	return safefs.NewBatch(s.fs, func(path string, fn func() error) error { return sessions.WithFileLock(s.fs, path, fn) })
+	return safefs.NewBatch(s.fs, func(path string, fn func() error) error { return sessions.WithFileLock(s.locks, path, fn) })
 }
 
 // restoreModes gives each file an approach wrote whole the mode it wrote it

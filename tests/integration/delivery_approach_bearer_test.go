@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // TestDeliveryApproach_ClaudeProjectMCPNeverHoldsTheBearerAcrossSessions:
@@ -49,7 +50,7 @@ func TestDeliveryApproach_ClaudeProjectMCPNeverHoldsTheBearerAcrossSessions(t *t
 	items := pkg.EngineItems(root.Name)
 	exports, err := kind.Exports(items)
 	require.NoError(t, err)
-	static := fsstatic.New(fs)
+	static := fsstatic.New(safefs.NewMem(fs))
 
 	deliver := func(harp, bearer string) delivery.Writer {
 		t.Helper()
@@ -120,7 +121,7 @@ func newSharedMCPFile(t *testing.T) *sharedMCPFile {
 // atRest is the hooks install's delivery into the project.
 func (s *sharedMCPFile) atRest() {
 	s.t.Helper()
-	_, _, err := operations.DeliverProject(context.Background(), s.fs, s.kind, s.pkg, s.project)
+	_, _, err := operations.DeliverProject(context.Background(), safefs.New(), s.kind, s.pkg, s.project)
 	require.NoError(s.t, err, "the at-rest delivery")
 }
 
@@ -136,7 +137,7 @@ func (s *sharedMCPFile) run(harp, bearer string) func() {
 	plan, err := delivery.Route(items, root, delivery.Preference{Root: map[present.Kind]present.RootKind{present.MCP: present.RootProjectRoot}}, cell)
 	require.NoError(s.t, err)
 	lo := delivery.Loadout{Plan: plan, Package: s.pkg, Exports: exports, MCP: sessions.Endpoint{URL: "http://127.0.0.1:1/mcp", Credential: bearer}}
-	d, err := fsstatic.New(s.fs).Deliver(context.Background(), lo, root, delivery.Target{Root: present.New(present.OnHost(cell)), Ownership: s.rec, Writer: delivery.SessionWriter(harp)})
+	d, err := fsstatic.New(safefs.New()).Deliver(context.Background(), lo, root, delivery.Target{Root: present.New(present.OnHost(cell)), Ownership: s.rec, Writer: delivery.SessionWriter(harp)})
 	require.NoError(s.t, err, "session %s's delivery", harp)
 	return func() {
 		s.t.Helper()
@@ -182,7 +183,7 @@ func TestDeliveryApproach_AtRestThenARunShareTheProjectMCPFile(t *testing.T) {
 	s.expect("3 the run tore down", bearer, true, false)
 	s.atRest()
 	s.expect("4 at rest again", bearer, true, false)
-	require.NoError(t, operations.RemoveProject(context.Background(), s.fs, s.kind, s.project))
+	require.NoError(t, operations.RemoveProject(context.Background(), safefs.New(), s.kind, s.project))
 	s.expect("5 uninstalled", bearer, false, false)
 }
 
@@ -199,6 +200,6 @@ func TestDeliveryApproach_AnAtRestApplyMidRunKeepsTheRunsEntry(t *testing.T) {
 	s.expect("2 at rest mid-run", bearer, true, true)
 	teardown()
 	s.expect("3 the run tore down", bearer, true, false)
-	require.NoError(t, operations.RemoveProject(context.Background(), s.fs, s.kind, s.project))
+	require.NoError(t, operations.RemoveProject(context.Background(), safefs.New(), s.kind, s.project))
 	s.expect("4 uninstalled", bearer, false, false)
 }

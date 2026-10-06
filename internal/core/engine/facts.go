@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file is the vocabulary an engine's Home() and Container() speak: how
@@ -120,7 +122,7 @@ func (h HomeSpec) validateAuth() error {
 // inside a provisioned session home: the engine decides what a single byte
 // of it says; the cells adapter decides that one is generated at all.
 type InstanceConfigWriter interface {
-	WriteInstanceConfig(req InstanceConfigRequest, fs afero.Fs) (InstanceConfigReport, error)
+	WriteInstanceConfig(req InstanceConfigRequest, root safefs.Root) (InstanceConfigReport, error)
 }
 
 // InstanceConfigRequest is what the writer is handed: the host user's real

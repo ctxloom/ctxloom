@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // TestApplyHooks_ReportsThroughTheGenerationsReporter pins that a finding
@@ -30,7 +31,7 @@ func TestApplyHooks_ReportsThroughTheGenerationsReporter(t *testing.T) {
 		workDir:     t.TempDir(),
 		contextHash: "0000000000000000",
 		pkg:         composite.Package{},
-		fs:          fs,
+		root:        safefs.NewMem(fs),
 		dryRun:      true,
 	})
 	require.NoError(t, err)

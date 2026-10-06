@@ -69,6 +69,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // p13Family is this rung's name in a skip line, a failure message and the
@@ -192,7 +193,7 @@ func p13CtxloomLaunch(home, cfg, repo string) (p13Launch, error) {
 	if err != nil {
 		return p13Launch{}, err
 	}
-	if _, err := kind.Home().InstanceConfig.WriteInstanceConfig(engine.InstanceConfigRequest{HostHome: home, InstanceHome: cfg, WorkDir: repo, Trust: verdict}, nil); err != nil {
+	if _, err := kind.Home().InstanceConfig.WriteInstanceConfig(engine.InstanceConfigRequest{HostHome: home, InstanceHome: cfg, WorkDir: repo, Trust: verdict}, safefs.New()); err != nil {
 		return p13Launch{}, err
 	}
 	inst, err := kind.Instance(engine.Session{

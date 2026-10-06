@@ -35,16 +35,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	mockrt "github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
-	"github.com/spf13/afero"
-	"github.com/stretchr/testify/require"
 )
 
 const mockEngineImage = "ctxloom-mockengine-itest:latest"
@@ -104,7 +105,7 @@ func materializeClaudeContext(t *testing.T, workspace, context string) string {
 		t.Fatal(err)
 	}
 	pkg := compositetest.Fixture(t, compositetest.WithFragment("rules", context))
-	if err := atrest.New(t, afero.NewOsFs(), kind, workspace).Install(pkg); err != nil {
+	if err := atrest.New(t, safefs.New(), kind, workspace).Install(pkg); err != nil {
 		t.Fatalf("materialize context: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(workspace, "CLAUDE.md"))

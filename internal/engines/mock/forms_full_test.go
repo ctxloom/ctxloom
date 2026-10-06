@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
 )
 
@@ -23,7 +24,7 @@ import (
 // present after an install, nothing after the uninstall.
 func TestMockSettingsReader_InstallThenRemove_ReportsWhatIsWired(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	p := atrest.New(t, fs, New(), "/proj")
+	p := atrest.New(t, safefs.NewMem(fs), New(), "/proj")
 	require.NoError(t, p.Install(composite.Package{
 		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}}}},
 		MCP:   map[string]wire.MCPServer{"ctxloom": {Command: "ctxloom"}},
@@ -49,7 +50,7 @@ func TestMockSettingsReader_InstallThenRemove_ReportsWhatIsWired(t *testing.T) {
 // that the path is STILL absent after a removal that ran.
 func TestMockUninstall_NeverCreatesAFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, atrest.New(t, fs, New(), "/proj").Uninstall(), "removing from a project with no settings file is not an error")
+	require.NoError(t, atrest.New(t, safefs.NewMem(fs), New(), "/proj").Uninstall(), "removing from a project with no settings file is not an error")
 
 	_, err := fs.Stat(mockSettingsPath("/proj"))
 	assert.Error(t, err, "uninstall must never create the file it was asked to clean")

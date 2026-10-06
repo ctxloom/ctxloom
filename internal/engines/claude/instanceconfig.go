@@ -11,7 +11,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
@@ -147,26 +146,26 @@ var _ engine.InstanceConfigWriter = claudeInstanceConfig{}
 // This does NOT double-acquire with isolation.PrepareInstanceHome's caller-side lock
 // (isolation.lockInstanceHome): that lock is paths.HomePathFor(instanceHome),
 // a DIFFERENT path (InstanceHome itself, not InstanceHome/.claude.json) than
-// the paths.HomePathFor(dest) this function's own WithFileLock takes. flock is
-// per-inode; two distinct paths never contend, so nesting is safe. It is also
+// the paths.HomePathFor(dest) this function's own WithFileLock takes. A lock
+// is per path; two distinct paths never contend, so nesting is safe. It is also
 // NOT redundant: the caller's lock serializes PrepareInstanceHome, while this
 // one holds for any caller of this writer. No ledger is added here:
 // unlike a shared settings.json, ctxloom owns the WHOLE file, so there is no
 // foreign content to distinguish from ctxloom's own and nothing for a ledger
 // to record beyond "this file exists" — see PrepareInstanceHome's doc: the
 // real home is read, never written.
-func (w claudeInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigRequest, fs afero.Fs) (engine.InstanceConfigReport, error) {
+func (w claudeInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigRequest, root safefs.Root) (engine.InstanceConfigReport, error) {
 	var rep engine.InstanceConfigReport
 	if req.InstanceHome == "" {
 		return rep, fmt.Errorf("claude instance config: no instance home to generate %s in", InstanceConfigFileName)
 	}
-	fs = agent.GetFS(fs)
+	fs := root.Fs
 	// InstanceHome IS the session home launch.SessionHome placed — the dir
 	// CLAUDE_CONFIG_DIR names — so the file goes straight into it.
 	dir := req.InstanceHome
 	dest := filepath.Join(dir, InstanceConfigFileName)
 
-	err := sessions.WithFileLock(fs, dest, func() error {
+	err := sessions.WithFileLock(root.Locks, dest, func() error {
 		cfg, err := loadJSONObject(fs, dest)
 		if err != nil {
 			// The instance file is ctxloom's own; one we cannot read is a real

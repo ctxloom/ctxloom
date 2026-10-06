@@ -14,15 +14,17 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
+
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/spf13/afero"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -39,7 +41,7 @@ func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfi
 	if hooks != nil {
 		pkg.Hooks = *hooks
 	}
-	p := atrest.New(t, fs, kind, dir)
+	p := atrest.New(t, safefs.NewMem(fs), kind, dir)
 	require.NoError(t, p.Install(pkg))
 	return p
 }

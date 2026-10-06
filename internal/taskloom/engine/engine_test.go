@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -40,7 +41,7 @@ func jsonServers(t *testing.T, config []byte) map[string]any {
 func registrar(t *testing.T, e Engine, config string) (afero.Fs, *confpatch.Store, string) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	store, err := confpatch.NewStore(fs, "/home/u/.ctxloom/records/taskloom", TaskloomCommand)
+	store, err := confpatch.NewStore(safefs.NewMem(fs), "/home/u/.ctxloom/records/taskloom", TaskloomCommand)
 	require.NoError(t, err)
 	path := "/proj/" + strings.TrimPrefix(e.Name(), "claude-code") + ".mcp.json"
 	if config != "" {

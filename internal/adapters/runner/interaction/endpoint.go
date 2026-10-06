@@ -15,7 +15,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -35,11 +37,48 @@ type Endpoint struct {
 	Wake *WakeSignal
 	// Reporter receives the endpoint's diagnostics; nil discards.
 	Reporter report.Sink
+	// ClientExit registers what runs each time the client process that owns
+	// the endpoint's MCP sessions exits, and returns its release
+	// (runner.Home.SetEngineExit in production). The owner is the engine's
+	// process tree: the bearer is delivered only into the engine's entry,
+	// and claude's relay is claude's own child. None of them sends DELETE on
+	// its way out, so without this every session they opened stays open,
+	// with its goroutines, for the life of the runner. Nil registers nowhere.
+	ClientExit func(onExit func()) (release func())
+	// SessionTimeout closes an MCP session no request has reached for that
+	// long; zero is IdleSessionTimeout.
+	SessionTimeout time.Duration
 
 	// serveGate, when set, runs at the head of the serve goroutine — before
 	// http.Server.Serve has registered the listener. Tests hold it to force
 	// Close into that window; see WithServeGate in export_test.go.
 	serveGate func()
+	// reaped, when set, runs once a reap has closed every session it took;
+	// see WithReapHook in export_test.go.
+	reaped func()
+	// served, when set, is handed the MCP server Serve builds; see
+	// WithServerHook in export_test.go.
+	served func(*mcp.Server)
+}
+
+// IdleSessionTimeout is how long a session may go without a request before
+// the endpoint closes it. It collects the sessions ClientExit cannot
+// attribute: a client that is still alive but has abandoned its session (a
+// relay claude replaced, the spare session a re-initialization opened) never
+// sends DELETE and never exits while the engine lives. It is generous
+// because a live session can be legitimately idle for hours while its
+// coordinator waits on a human, and because the production client, claude's
+// relay, does not re-initialize after the 404 a closed session answers: the
+// relay pings each of its sessions (relay.KeepAliveInterval) to stay inside
+// it, and only a POST resets go-sdk's idle timer.
+const IdleSessionTimeout = 12 * time.Hour
+
+// sessionTimeout is SessionTimeout, or IdleSessionTimeout when it is zero.
+func (e Endpoint) sessionTimeout() time.Duration {
+	if e.SessionTimeout == 0 {
+		return IdleSessionTimeout
+	}
+	return e.SessionTimeout
 }
 
 // ErrNoHome refuses to serve without the reach-back link: every
@@ -75,11 +114,18 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 		path = "/"
 	}
 	mux := http.NewServeMux()
-	mux.Handle(path, guard(lo.MCP.Credential, policy.AllowedOrigins, mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)))
+	mux.Handle(path, guard(lo.MCP.Credential, policy.AllowedOrigins, mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{SessionTimeout: e.sessionTimeout()})))
 	// The approval hook's POST rides the same listener, behind the same
 	// bearer and Origin rules.
 	mux.Handle(runner.HookPath, guard(lo.MCP.Credential, policy.AllowedOrigins, hookHandler(e.Home)))
 	srv := &http.Server{Handler: mux}
+	if e.served != nil {
+		e.served(server)
+	}
+	release := func() {}
+	if e.ClientExit != nil {
+		release = e.ClientExit(func() { e.reap(server) })
+	}
 	go func() {
 		if e.serveGate != nil {
 			e.serveGate()
@@ -93,8 +139,16 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 		}
 	}()
 	return delivery.Served{Close: func() error {
+		release()
 		sctx, cancel := context.WithTimeout(context.Background(), shutdownBudget)
 		defer cancel()
+		// The sessions close FIRST: Shutdown ends the HTTP connections, not
+		// the MCP sessions they carry, and a session's open stream keeps its
+		// connection from ever going idle for Shutdown to close.
+		select {
+		case <-e.reap(server):
+		case <-sctx.Done():
+		}
 		err := srv.Shutdown(sctx)
 		// Shutdown closes only the listeners srv.Serve has already registered.
 		// Until the goroutine above reaches that point ln is not yet srv's, and
@@ -105,6 +159,29 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 		}
 		return err
 	}}, nil
+}
+
+// reap closes every MCP session open on server: their client is gone, so
+// none of them can be used again. The set is taken here, on the caller's
+// goroutine, so a session the next client opens afterwards is never in it;
+// the closes run off it, because ServerSession.Close waits for the session's
+// in-flight handlers and must not hold up the engine host's turn loop. done
+// is closed once every one of them is.
+func (e Endpoint) reap(server *mcp.Server) (done <-chan struct{}) {
+	open := slices.Collect(server.Sessions())
+	closed := make(chan struct{})
+	go func() {
+		var wg sync.WaitGroup
+		for _, ss := range open {
+			wg.Go(func() { _ = ss.Close() })
+		}
+		wg.Wait()
+		close(closed)
+		if e.reaped != nil {
+			e.reaped()
+		}
+	}()
+	return closed
 }
 
 // bindable refuses what Serve cannot serve — no allowlist, no reach-back

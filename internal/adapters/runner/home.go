@@ -117,6 +117,11 @@ type Home struct {
 	wake    engine.Wake
 	wakeGen uint64
 	wakeMu  sync.Mutex
+	// engineExit is what runs when the hosted engine's process exits
+	// (SetEngineExit) and engineExitGen the generation of its registration,
+	// compared by a release exactly as wakeGen is. Guarded by mu.
+	engineExit    func()
+	engineExitGen uint64
 	// wakeAlarm schedules f after d — time.AfterFunc unless a test captures
 	// it to run the expiry itself.
 	wakeAlarm func(d time.Duration, f func())
@@ -939,6 +944,39 @@ func (h *Home) SetWake(w engine.Wake) (release func()) {
 		if h.wakeGen == gen {
 			h.wake = nil
 		}
+	}
+}
+
+// SetEngineExit registers onExit to run each time the hosted engine's
+// process exits — every structured turn's process, or the interactive
+// engine — and returns its release. The session's endpoint registers here:
+// every MCP session on it belongs to the engine's process tree, so that
+// tree's exit is what ends them. A later registration REPLACES the earlier
+// one (the endpoint served again), and a release unbinds only while its own
+// registration is the current one.
+func (h *Home) SetEngineExit(onExit func()) (release func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.engineExitGen++
+	gen := h.engineExitGen
+	h.engineExit = onExit
+	return func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.engineExitGen == gen {
+			h.engineExit = nil
+		}
+	}
+}
+
+// engineExited runs the registered SetEngineExit callback, if any, outside
+// the lock.
+func (h *Home) engineExited() {
+	h.mu.Lock()
+	onExit := h.engineExit
+	h.mu.Unlock()
+	if onExit != nil {
+		onExit()
 	}
 }
 

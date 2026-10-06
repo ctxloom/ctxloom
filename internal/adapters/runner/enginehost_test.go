@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -71,8 +72,9 @@ type fakeEngineHome struct {
 	awaitedAcks []string
 	lifecycle   []string
 
-	// atBoundary, when set, observes each turn-idle event ("idle") and each
-	// boundary sweep ("sweep") at the instant it happens, outside the lock —
+	// atBoundary, when set, observes each turn-idle event ("idle"), each
+	// boundary sweep ("sweep") and the run's exit report ("exited") at the
+	// instant it happens, outside the lock —
 	// the seam a test uses to see what was already true at that moment.
 	atBoundary func(what string)
 
@@ -212,12 +214,23 @@ func (f *fakeEngineHome) spoolSweepCount() int {
 
 func (f *fakeEngineHome) ReportRunExited(code int, sessionID string) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.exited = append(f.exited, struct {
 		Code      int
 		SessionID string
 	}{code, sessionID})
 	f.lifecycle = append(f.lifecycle, "exited")
+	f.mu.Unlock()
+	f.observe("exited")
+}
+
+// engineExitedMark is engineExited's entry in the fake's lifecycle.
+const engineExitedMark = "engine-exited"
+
+// engineExited records the engine process's exit in lifecycle order.
+func (f *fakeEngineHome) engineExited() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lifecycle = append(f.lifecycle, engineExitedMark)
 }
 
 // AwaitMailAcked records which delivered turns the engine host waited on
@@ -600,7 +613,8 @@ func TestEngineHost_ExitWaitsForDeliveredTurnsToBeAcked(t *testing.T) {
 	home.mu.Lock()
 	defer home.mu.Unlock()
 	assert.Equal(t, []string{"m-9", "m-10"}, home.awaitedAcks, "exactly the delivered turns the engine took — the briefing carried no mail")
-	assert.Equal(t, []string{"await-acks", "exited"}, home.lifecycle, "the ack wait must come BEFORE the exit report, or it protects nothing")
+	reports := slices.DeleteFunc(slices.Clone(home.lifecycle), func(s string) bool { return s == engineExitedMark })
+	assert.Equal(t, []string{"await-acks", "exited"}, reports, "the ack wait must come BEFORE the exit report, or it protects nothing")
 }
 
 // TestEngineHost_StartRunIdempotentOnReissue: the SAME run_id reissued

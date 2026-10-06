@@ -1,2 +1,0 @@
-[hooks]
-on_start = "ctxloom apply"

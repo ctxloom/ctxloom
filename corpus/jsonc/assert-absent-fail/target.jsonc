@@ -1,6 +1,0 @@
-{
-  // do not commit secrets here
-  "env": {
-    "ANTHROPIC_API_KEY": "sk-ant-real-key"
-  }
-}

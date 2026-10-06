@@ -1,8 +1,0 @@
-hew: 1
-
---- target.yaml format=yaml
-
-@@ /service_a @@
-! anchor fork
-- timeout: 30
-+ timeout: 60

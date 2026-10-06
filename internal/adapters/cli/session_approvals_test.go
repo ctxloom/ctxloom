@@ -173,27 +173,40 @@ func TestRenderApprovals_ProjectColumnWithSeveralCoordinators(t *testing.T) {
 
 // TestSessionApprovals_SummaryRawInJSONMarkedInText: the summary arrives raw;
 // a program reading --format json gets the child's characters as they are,
-// and a terminal gets them made visible — a bidi override can neither
-// reorder the line a human reads nor turn into a marker a script parses.
+// and a terminal gets them made visible — a bidi override, a zero-width
+// character or a control can neither reorder, hide nor repaint the line a
+// human reads, nor turn into a marker a script parses. The asker's own name
+// is the child's text too, and is held to the same rule.
 func TestSessionApprovals_SummaryRawInJSONMarkedInText(t *testing.T) {
-	home := testsupport.Isolate(t)
-	f := newFakeConsumerServer()
-	f.approvals = pendingFixture(time.Now())
-	f.approvals.Pending[0].Summary = "Bash: ls \u202egnp.exe"
-	f.approvals.Pending[0].Agent = "work\u202eer"
-	startFakeCoordinator(t, home, f)
+	for _, tc := range []struct{ name, raw, marked string }{
+		{"bidi override", "\u202e", "⟨U+202E⟩"},
+		{"zero-width space", "\u200b", "⟨U+200B⟩"},
+		{"escape sequence", "\x1b[2J", "⟨ESC⟩[2J"},
+		{"backspace", "\b", "⟨U+0008⟩"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := testsupport.Isolate(t)
+			f := newFakeConsumerServer()
+			f.approvals = pendingFixture(time.Now())
+			summary, agentName := "Bash: ls "+tc.raw+"gnp.exe", "work"+tc.raw+"er"
+			f.approvals.Pending[0].Summary = summary
+			f.approvals.Pending[0].Agent = agentName
+			startFakeCoordinator(t, home, f)
 
-	out, _, err := runApprovals(t, formatJSON)
-	require.NoError(t, err)
-	var got approvalsListResult
-	require.NoError(t, json.Unmarshal([]byte(out), &got), out)
-	require.Len(t, got.Approvals, 1)
-	assert.Equal(t, "Bash: ls \u202egnp.exe", got.Approvals[0].Summary, "JSON carries the raw text")
-	assert.NotContains(t, out, "⟨U+202E⟩", "no marker reaches JSON")
+			out, _, err := runApprovals(t, formatJSON)
+			require.NoError(t, err)
+			var got approvalsListResult
+			require.NoError(t, json.Unmarshal([]byte(out), &got), out)
+			require.Len(t, got.Approvals, 1)
+			assert.Equal(t, summary, got.Approvals[0].Summary, "JSON carries the raw text")
+			assert.Equal(t, agentName, got.Approvals[0].Agent, "JSON carries the raw text")
+			assert.NotContains(t, out, tc.marked, "no marker reaches JSON")
 
-	out, _, err = runApprovals(t, formatText)
-	require.NoError(t, err)
-	assert.Contains(t, out, "Bash: ls ⟨U+202E⟩gnp.exe")
-	assert.Contains(t, out, "work⟨U+202E⟩er")
-	assert.NotContains(t, out, "\u202e", "no bidi override reaches the terminal")
+			out, _, err = runApprovals(t, formatText)
+			require.NoError(t, err)
+			assert.Contains(t, out, "Bash: ls "+tc.marked+"gnp.exe")
+			assert.Contains(t, out, "work"+tc.marked+"er")
+			assert.NotContains(t, out, tc.raw, "the character itself never reaches the terminal")
+		})
+	}
 }

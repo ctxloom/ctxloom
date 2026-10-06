@@ -1070,11 +1070,13 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// A run refused for an ENGINE reason, not an isolation one. Two things
 	// have to be true at once and the pairing is the whole point: ctxloom's
 	// OWN isolation gates stayed out of the way (no finding, and NOT the
-	// ClassIsolation exit 3 those gates use), yet the run still failed,
-	// naming why the engine could not be authenticated. Asserting the engine never launched (no spy
-	// recording) is what keeps this from degenerating into "some error
-	// happened".
-	ctx.Step(`^the run fails without any isolation finding, naming "([^"]*)"$`, func(c context.Context, needle string) error {
+	// ClassIsolation exit 3 those gates use), yet the run was still refused
+	// with the refusal status (cli.exitCodeRefused, 2: a credential the human
+	// supplies is missing, not a fault on their machine), naming why the
+	// engine could not be authenticated. Asserting the engine never launched
+	// (no spy recording) is what keeps this from degenerating into "some
+	// error happened".
+	ctx.Step(`^the run is refused without any isolation finding, naming "([^"]*)"$`, func(c context.Context, needle string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
 		out := w.env.LastOutput()
@@ -1082,8 +1084,8 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if strings.Contains(out, "worktree isolation for agent") || strings.Contains(out, "[isolation]") {
 			return fmt.Errorf("unexpected isolation finding present; output:\n%s", out)
 		}
-		if code := w.env.LastExitCode(); code != 1 {
-			return fmt.Errorf("expected exit 1 (a plain backend failure, not the ClassIsolation exit 3), got %d; output:\n%s", code, out)
+		if code := w.env.LastExitCode(); code != 2 {
+			return fmt.Errorf("expected exit 2 (the refusal status, not the ClassIsolation exit 3 or a plain failure's 1), got %d; output:\n%s", code, out)
 		}
 		if !strings.Contains(out, needle) {
 			return fmt.Errorf("output does not contain %q; output:\n%s", needle, out)

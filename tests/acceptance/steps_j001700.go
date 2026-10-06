@@ -230,9 +230,12 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		return w.env.AdvanceSignedTreeRemote(j001700.companyBare, root, j001700BundleName, envelope, j001700TreeItems(j001700Marker), j001700.companySigner)
 	})
 
+	// Both routine syncs pin --format text: what a developer is TOLD is the
+	// terminal summary, and a non-terminal stdout (this harness) otherwise
+	// defaults to the JSON payload, which assertToldOfRetraction does not read.
 	ctx.Step(`^Carol runs her next routine sync$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := runOK(w, "deps", "pull"); err != nil {
+		if err := runOK(w, "--format", "text", "deps", "pull"); err != nil {
 			return err
 		}
 		if _, err := materializeDefault(w, "out"); err != nil {
@@ -243,7 +246,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Bob runs his next routine sync$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := runBob(w, "deps", "pull"); err != nil {
+		if err := runBob(w, "--format", "text", "deps", "pull"); err != nil {
 			return err
 		}
 		return runBob(w, "profile", "materialize", "default", "--target", "out")

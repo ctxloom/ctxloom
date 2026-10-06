@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +31,7 @@ func TestArtifactStore_OpenRefusesNamesThatAreNotHashes(t *testing.T) {
 	// traversal target has to really be there or the test passes for the
 	// wrong reason (ENOENT rather than refusal).
 	require.NoError(t, os.WriteFile(filepath.Join(root, "secret"), []byte("not an artifact"), 0o600))
-	st, err := newArtifactStore(root)
+	st, err := newArtifactStore(afero.NewOsFs(), root)
 	require.NoError(t, err)
 
 	// "deadbeef" is hex but not a sha256's 64 nibbles; the uppercase one is
@@ -57,7 +58,7 @@ func TestArtifactStore_OpenRefusesNamesThatAreNotHashes(t *testing.T) {
 
 // The ordinary path is untouched: a real content hash still opens.
 func TestArtifactStore_OpenAcceptsARealHash(t *testing.T) {
-	st, err := newArtifactStore(t.TempDir())
+	st, err := newArtifactStore(afero.NewOsFs(), t.TempDir())
 	require.NoError(t, err)
 	shaHex, _, err := st.writeAtomic(strings.NewReader("artifact bytes"), nil, 0)
 	require.NoError(t, err)

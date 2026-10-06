@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"os"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -198,10 +197,10 @@ func downloadHeaderFrame(rec coord.ArtifactRecord, shaBytes []byte) *agentcoordp
 	}}}
 }
 
-func streamArtifactBody(f *os.File, offset uint64, stream grpc.ServerStreamingServer[agentcoordpb.ArtifactDownloadFrame]) error {
+func streamArtifactBody(r io.Reader, offset uint64, stream grpc.ServerStreamingServer[agentcoordpb.ArtifactDownloadFrame]) error {
 	buf := make([]byte, coord.ArtifactChunkCap)
 	for {
-		n, rerr := f.Read(buf)
+		n, rerr := r.Read(buf)
 		if n > 0 {
 			if serr := stream.Send(&agentcoordpb.ArtifactDownloadFrame{Kind: &agentcoordpb.ArtifactDownloadFrame_Chunk{Chunk: &agentcoordpb.ArtifactChunk{
 				Offset: offset,

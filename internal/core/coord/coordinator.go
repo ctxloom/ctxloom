@@ -172,6 +172,14 @@ type Options struct {
 	// read and write this coordinator performs goes through. Nil is the
 	// home-relative mapper (spool.NewHomeMapper).
 	Mapper spool.PathMapper
+	// FS is the filesystem the coordinator's own files are read and written
+	// through: the artifact store, the items snapshot, saved reports, and the
+	// spool. Nil is the OS filesystem. The journals, the owner lock and its
+	// stamp, and the engine homes Close removes stay on the OS filesystem:
+	// the lock is an OS file lock the stamp must sit beside, a journal is a
+	// long-lived append handle, and the homes are created by other packages
+	// on the OS.
+	FS afero.Fs
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval). Exposed for tests, which must be able to
 	// prove that a DROPPED doorbell is still delivered by the sweep without
@@ -195,9 +203,8 @@ type Coordinator struct {
 	projectDir string
 	projectID  string
 	stateDir   string
-	// fs is the filesystem the coordinator's own state, saved reports and
-	// spool traffic are read and written through, so a decorator on it sees
-	// them all.
+	// fs is Options.FS (the OS filesystem when unset); Options.FS says what
+	// goes through it and what stays on the OS.
 	fs  afero.Fs
 	now func() time.Time
 
@@ -563,7 +570,10 @@ func New(opts Options) (*Coordinator, error) {
 	if mapper == nil {
 		mapper = spool.NewHomeMapper()
 	}
-	fs := afero.NewOsFs()
+	fs := opts.FS
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
 	c := &Coordinator{
 		rep:                rep,
 		tracked:            TrackedGroup{rep: rep},
@@ -804,7 +814,7 @@ func (c *Coordinator) openJournals() error {
 		return err
 	}
 	c.auditJ = auditJ
-	artifacts, err := newArtifactStore(c.stateDir)
+	artifacts, err := newArtifactStore(c.fs, c.stateDir)
 	if err != nil {
 		return err
 	}

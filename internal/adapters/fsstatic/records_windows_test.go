@@ -3,8 +3,6 @@
 package fsstatic
 
 import (
-	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -18,37 +16,24 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
-// On Windows owner-only is a DACL, not a mode. A records directory that
-// already exists carrying the ACL it inherited from its parent is made
-// owner-only by opening the store and by Prepare, and a claims record
-// saved into it inherits the protection.
-func TestRecords_AnExistingDirAndItsRecordsAreOwnerOnly_ADACL(t *testing.T) {
+// On Windows owner-only is a DACL, not a mode, and it is the established
+// records root's (paths.EnsureHomeRoots establishes it with Private.Ensure):
+// the store applies none of its own, and a claims record it saves there —
+// through a temp file renamed into place — inherits the root's owner-only
+// ACE.
+func TestRecords_ARecordUnderAnEstablishedDirIsOwnerOnly_ADACL(t *testing.T) {
 	fs := afero.NewOsFs()
 	dir := filepath.Join(t.TempDir(), "records")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, safefs.New().Private.Ensure(dir))
 
 	rec, err := NewRecords(fs, dir)
 	require.NoError(t, err)
-	fileperm.OwnerOnly(t, dir)
-	require.NoError(t, rec.Prepare(context.Background()))
-	fileperm.OwnerOnly(t, dir)
-
 	target := filepath.Join(t.TempDir(), "settings.json")
 	testsupport.WriteFileString(t, fs, target, "{}\n", 0o644)
 	b := safefs.NewBatch(fs, func(_ string, fn func() error) error { return fn() })
 	require.NoError(t, rec.In(b).Stage(target, delivery.ProjectWriter, []present.Claim{{Pointer: "/project", Value: "p"}}))
 	_, err = b.Commit()
 	require.NoError(t, err)
+	fileperm.OwnerOnly(t, dir)
 	fileperm.OwnerOnly(t, rec.path(target))
-}
-
-// A directory writeThrough creates for an approach's own state is owner-only
-// as an ACL, and the file landed in it inherits that.
-func TestWriteThrough_CreatesAMissingDirectoryOwnerOnly_ADACL(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "records", "x.hew-record.yaml")
-
-	require.NoError(t, writeThrough(afero.NewOsFs(), path, []byte("x"), 0o600))
-
-	fileperm.OwnerOnly(t, filepath.Dir(path))
-	fileperm.OwnerOnly(t, path)
 }

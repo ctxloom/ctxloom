@@ -34,10 +34,10 @@ func TestWriter_FragmentRoundTrip(t *testing.T) {
 			DistilledBy:  "test-model-2",
 		},
 	}
-	if err := store.Put(ctx, ref, signing.FormRaw, want); err != nil {
+	if err := store.Put(ctx, ref, trust.FormRaw, want); err != nil {
 		t.Fatalf("Put(raw): %v", err)
 	}
-	if err := store.Put(ctx, ref, signing.FormDistilled, want); err != nil {
+	if err := store.Put(ctx, ref, trust.FormDistilled, want); err != nil {
 		t.Fatalf("Put(distilled): %v", err)
 	}
 
@@ -53,7 +53,7 @@ func TestWriter_FragmentRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Forms: %v", err)
 	}
-	if !slices.Equal(forms, []signing.Form{signing.FormRaw, signing.FormDistilled}) {
+	if !slices.Equal(forms, []trust.ContentForm{trust.FormRaw, trust.FormDistilled}) {
 		t.Fatalf("Forms = %v", forms)
 	}
 	surface, err := item.Surface(ctx)
@@ -75,7 +75,7 @@ func TestWriter_FragmentRoundTrip(t *testing.T) {
 		t.Fatalf("Encode: %v", err)
 	}
 	byPath := map[string][]byte{}
-	for _, f := range []signing.Form{signing.FormRaw, signing.FormDistilled} {
+	for _, f := range []trust.ContentForm{trust.FormRaw, trust.FormDistilled} {
 		form, err := item.Form(ctx, f)
 		if err != nil {
 			t.Fatalf("Form(%s): %v", f, err)
@@ -107,10 +107,10 @@ func TestWriter_PutOneFormLeavesTheOtherAlone(t *testing.T) {
 	store := emptyStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solo"}
 	original := Fragment{Name: "solo", ItemMeta: ItemMeta{Body: "raw body\n", Distilled: "distilled body\n"}}
-	if err := store.Put(ctx, ref, signing.FormRaw, original); err != nil {
+	if err := store.Put(ctx, ref, trust.FormRaw, original); err != nil {
 		t.Fatalf("Put(raw): %v", err)
 	}
-	if err := store.Put(ctx, ref, signing.FormDistilled, original); err != nil {
+	if err := store.Put(ctx, ref, trust.FormDistilled, original); err != nil {
 		t.Fatalf("Put(distilled): %v", err)
 	}
 	rawBefore, err := afero.ReadFile(store.fsys, fixtureRoot+"/code-quality/fragments/solo.md")
@@ -120,7 +120,7 @@ func TestWriter_PutOneFormLeavesTheOtherAlone(t *testing.T) {
 
 	revised := original
 	revised.Distilled = "a different distillation\n"
-	if err := store.Put(ctx, ref, signing.FormDistilled, revised); err != nil {
+	if err := store.Put(ctx, ref, trust.FormDistilled, revised); err != nil {
 		t.Fatalf("Put(distilled): %v", err)
 	}
 	rawAfter, err := afero.ReadFile(store.fsys, fixtureRoot+"/code-quality/fragments/solo.md")
@@ -222,7 +222,7 @@ func TestWriter_PutRefusesMismatchedIdentity(t *testing.T) {
 			MCP{Name: "thing", Command: "x"},
 		},
 	} {
-		if err := store.Put(ctx, tc.ref, signing.FormRaw, tc.surface); !errors.Is(err, ErrSurfaceType) {
+		if err := store.Put(ctx, tc.ref, trust.FormRaw, tc.surface); !errors.Is(err, ErrSurfaceType) {
 			t.Errorf("%s: err = %v, want ErrSurfaceType", name, err)
 		}
 	}
@@ -232,7 +232,7 @@ func TestWriter_PutRefusesAFormTheSurfaceDoesNotCarry(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "plain"}
-	err := store.Put(ctx, ref, signing.FormDistilled, Fragment{Name: "plain", ItemMeta: ItemMeta{Body: "only raw\n"}})
+	err := store.Put(ctx, ref, trust.FormDistilled, Fragment{Name: "plain", ItemMeta: ItemMeta{Body: "only raw\n"}})
 	if !errors.Is(err, ErrNoSuchForm) {
 		t.Fatalf("err = %v, want ErrNoSuchForm", err)
 	}
@@ -253,7 +253,7 @@ func TestWriter_PutSkillAppliesDeclaredMode(t *testing.T) {
 			{Path: "scripts/go.sh", Mode: ModeExecutable, Bytes: []byte("#!/bin/sh\ntrue\n")},
 		},
 	}
-	if err := store.Put(ctx, ref, signing.FormRaw, skill); err != nil {
+	if err := store.Put(ctx, ref, trust.FormRaw, skill); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	info, err := store.fsys.Stat(fixtureRoot + "/code-quality/skills/helper/scripts/go.sh")

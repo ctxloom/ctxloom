@@ -6,7 +6,6 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
@@ -58,7 +57,7 @@ type SurfaceType interface {
 	// Forms reports the forms present in this candidate group. The FIRST entry
 	// is the base form — the one that unsuffixed component filenames belong
 	// to. See formOf for the layout convention this establishes.
-	Forms(src Source) ([]signing.Form, error)
+	Forms(src Source) ([]trust.ContentForm, error)
 	// Meta declares where this type keeps its ctxloom metadata — a sidecar, or
 	// inside the content file, or nowhere. See MetaStore for why residency is a
 	// per-type decision while RECOGNISING a metadata-shaped path is not.

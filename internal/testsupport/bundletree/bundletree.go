@@ -24,7 +24,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -164,7 +163,7 @@ type treeWriter struct {
 
 // put writes one item, raw.
 func (tw treeWriter) put(kind trust.ItemKind, item string, s content.Surface) error {
-	return tw.w.Put(tw.ctx, trust.Ref{Bundle: tw.id, Kind: kind, Name: item}, signing.FormRaw, s)
+	return tw.w.Put(tw.ctx, trust.Ref{Bundle: tw.id, Kind: kind, Name: item}, trust.FormRaw, s)
 }
 
 // putProfiles writes b's profiles, in name order.

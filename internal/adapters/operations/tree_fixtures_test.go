@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -28,7 +27,7 @@ func stageSignedTreeOn(t *testing.T, fs afero.Fs, bundlesDir, name string, signe
 	require.NoError(t, err)
 	require.NoError(t, st.Put(context.Background(),
 		trust.Ref{Bundle: name, Kind: trust.KindFragment, Name: "keeper"},
-		signing.FormRaw,
+		trust.FormRaw,
 		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: "KEEPER-PAYLOAD"}}))
 	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(name), bundles.DirectoryFormManifest, []byte("version: \"1.0.0\"\n")))
 	tree, err := st.Open(context.Background(), content.BundleID(name))

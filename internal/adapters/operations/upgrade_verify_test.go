@@ -54,7 +54,7 @@ func demoTreeFilesEnvelope(t *testing.T, signer ssh.Signer, fragBody, envelope s
 	require.NoError(t, err)
 	require.NoError(t, st.Put(context.Background(),
 		trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "keeper"},
-		signing.FormRaw,
+		trust.FormRaw,
 		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: fragBody}}))
 	require.NoError(t, st.PutRootFile(context.Background(), "demo", bundles.DirectoryFormManifest, []byte(envelope)))
 	tree, err := st.Open(context.Background(), "demo")

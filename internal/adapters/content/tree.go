@@ -13,7 +13,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -587,7 +586,7 @@ func (i *treeItem) Surface(ctx context.Context) (Surface, error) {
 	return s, nil
 }
 
-func (i *treeItem) Forms(ctx context.Context) ([]signing.Form, error) {
+func (i *treeItem) Forms(ctx context.Context) ([]trust.ContentForm, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -598,7 +597,7 @@ func (i *treeItem) Forms(ctx context.Context) ([]signing.Form, error) {
 	return forms, nil
 }
 
-func (i *treeItem) Form(ctx context.Context, f signing.Form) (Form, error) {
+func (i *treeItem) Form(ctx context.Context, f trust.ContentForm) (Form, error) {
 	forms, err := i.Forms(ctx)
 	if err != nil {
 		return nil, err
@@ -612,11 +611,11 @@ func (i *treeItem) Form(ctx context.Context, f signing.Form) (Form, error) {
 // treeForm is one attestable form of one item.
 type treeForm struct {
 	item  *treeItem
-	form  signing.Form
-	forms []signing.Form
+	form  trust.ContentForm
+	forms []trust.ContentForm
 }
 
-func (f *treeForm) ContentForm() signing.Form { return f.form }
+func (f *treeForm) ContentForm() trust.ContentForm { return f.form }
 
 func (f *treeForm) Surface(ctx context.Context) (Surface, error) { return f.item.Surface(ctx) }
 

@@ -15,7 +15,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
 // A bundle in the project's own content tree is delivered whatever its
@@ -49,7 +48,7 @@ func localTreeFixture(t *testing.T, name string, signed bool) (afero.Fs, string)
 	require.NoError(t, err)
 	require.NoError(t, st.Put(context.Background(),
 		trust.Ref{Bundle: name, Kind: trust.KindFragment, Name: "keeper"},
-		signing.FormRaw,
+		trust.FormRaw,
 		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: "KEEPER-PAYLOAD"}}))
 	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(name), DirectoryFormManifest,
 		[]byte("name: "+name+"\nversion: 2.0.0\n")))

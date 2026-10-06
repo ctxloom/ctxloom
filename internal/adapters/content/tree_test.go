@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -163,15 +162,15 @@ func TestItem_FormsReportExactlyWhatExists(t *testing.T) {
 	bundle, _ := store.Open(context.Background(), "code-quality")
 	for _, tc := range []struct {
 		ref  trust.Ref
-		want []signing.Form
+		want []trust.ContentForm
 	}{
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}, []signing.Form{signing.FormRaw, signing.FormDistilled}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"}, []signing.Form{signing.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindPrompt, Name: "review"}, []signing.Form{signing.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, []signing.Form{signing.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}, []signing.Form{signing.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}, []signing.Form{signing.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: KindProfile, Name: "strict"}, []signing.Form{signing.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}, []trust.ContentForm{trust.FormRaw, trust.FormDistilled}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"}, []trust.ContentForm{trust.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindPrompt, Name: "review"}, []trust.ContentForm{trust.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, []trust.ContentForm{trust.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}, []trust.ContentForm{trust.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}, []trust.ContentForm{trust.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: KindProfile, Name: "strict"}, []trust.ContentForm{trust.FormRaw}},
 	} {
 		item, err := bundle.Item(context.Background(), tc.ref)
 		if err != nil {
@@ -207,10 +206,10 @@ func TestItem_ExecutableSurfacesCarryOnlyTheBaseForm(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Item(%s): %v", ref.Key(), err)
 		}
-		if _, err := item.Form(context.Background(), signing.FormRaw); err != nil {
+		if _, err := item.Form(context.Background(), trust.FormRaw); err != nil {
 			t.Errorf("%s: FormRaw: %v", ref.Key(), err)
 		}
-		if _, err := item.Form(context.Background(), signing.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
+		if _, err := item.Form(context.Background(), trust.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
 			t.Errorf("%s: FormDistilled err = %v, want ErrNoSuchForm", ref.Key(), err)
 		}
 	}
@@ -223,7 +222,7 @@ func TestItem_MissingFormIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	if _, err := item.Form(context.Background(), signing.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
+	if _, err := item.Form(context.Background(), trust.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
 		t.Fatalf("err = %v, want ErrNoSuchForm for a never-distilled fragment", err)
 	}
 }
@@ -241,11 +240,11 @@ func TestForm_RawAndDistilledAreIndependent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	raw, err := item.Form(ctx, signing.FormRaw)
+	raw, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form(raw): %v", err)
 	}
-	distilled, err := item.Form(ctx, signing.FormDistilled)
+	distilled, err := item.Form(ctx, trust.FormDistilled)
 	if err != nil {
 		t.Fatalf("Form(distilled): %v", err)
 	}
@@ -289,7 +288,7 @@ func TestForm_ContentIsAlwaysADigestEvenAtN1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -328,7 +327,7 @@ func TestForm_ContentIsDeterministic(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Item: %v", err)
 		}
-		form, err := item.Form(ctx, signing.FormRaw)
+		form, err := item.Form(ctx, trust.FormRaw)
 		if err != nil {
 			t.Fatalf("Form: %v", err)
 		}
@@ -379,7 +378,7 @@ func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -428,7 +427,7 @@ func TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item after sidecar edit: %v", err)
 	}
-	form2, err := item2.Form(ctx, signing.FormRaw)
+	form2, err := item2.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form after sidecar edit: %v", err)
 	}
@@ -461,7 +460,7 @@ func TestMCP_SidecarIsHashedAndContentFileStaysPure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -513,7 +512,7 @@ func TestHook_TwoHooksInOneEventHaveNameIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Item(%s): %v", tc.name, err)
 		}
-		form, err := item.Form(ctx, signing.FormRaw)
+		form, err := item.Form(ctx, trust.FormRaw)
 		if err != nil {
 			t.Fatalf("Form(%s): %v", tc.name, err)
 		}
@@ -575,7 +574,7 @@ func TestHook_SingleHookInAnEventResolvesIdentically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -595,7 +594,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 	store := fixtureStore(t)
 	bundle, _ := store.Open(ctx, "code-quality")
 
-	formFor := func(ref trust.Ref, f signing.Form) Form {
+	formFor := func(ref trust.Ref, f trust.ContentForm) Form {
 		t.Helper()
 		item, err := bundle.Item(ctx, ref)
 		if err != nil {
@@ -608,7 +607,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		return form
 	}
 
-	frag, err := As[Fragment](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}, signing.FormRaw))
+	frag, err := As[Fragment](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}, trust.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Fragment]: %v", err)
 	}
@@ -625,7 +624,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Error("content_hash not carried verbatim")
 	}
 
-	tricky, err := As[Fragment](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"}, signing.FormRaw))
+	tricky, err := As[Fragment](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"}, trust.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Fragment]: %v", err)
 	}
@@ -636,7 +635,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Errorf("body with rules and mustaches corrupted: %q", tricky.Body)
 	}
 
-	cmd, err := As[Command](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindPrompt, Name: "review"}, signing.FormRaw))
+	cmd, err := As[Command](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindPrompt, Name: "review"}, trust.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Command]: %v", err)
 	}
@@ -662,7 +661,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Errorf("unknown engine's settings were dropped: %+v", cmd.Exports)
 	}
 
-	mcp, err := As[MCP](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, signing.FormRaw))
+	mcp, err := As[MCP](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, trust.FormRaw))
 	if err != nil {
 		t.Fatalf("As[MCP]: %v", err)
 	}
@@ -670,7 +669,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Errorf("mcp = %+v", mcp)
 	}
 
-	skill, err := As[Skill](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}, signing.FormRaw))
+	skill, err := As[Skill](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}, trust.FormRaw))
 	if err != nil {
 		t.Fatalf("As[Skill]: %v", err)
 	}
@@ -709,7 +708,7 @@ func TestProfile_PriorityOrderingRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -766,7 +765,7 @@ func TestAs_WrongTypeIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormRaw)
+	form, err := item.Form(ctx, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}

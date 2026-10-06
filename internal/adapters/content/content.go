@@ -55,7 +55,6 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -133,14 +132,14 @@ type Item interface {
 	// Forms reports exactly the LAYOUT forms this item actually has on disk. A
 	// fragment with no distilled sibling reports only FormRaw, and so does a
 	// single-form surface such as an mcp server or a hook.
-	Forms(ctx context.Context) ([]signing.Form, error)
+	Forms(ctx context.Context) ([]trust.ContentForm, error)
 	// Form returns one form, or ErrNoSuchForm when the item does not carry it.
-	Form(ctx context.Context, f signing.Form) (Form, error)
+	Form(ctx context.Context, f trust.ContentForm) (Form, error)
 }
 
 // Form is one attestable materialization of an item.
 type Form interface {
-	ContentForm() signing.Form
+	ContentForm() trust.ContentForm
 	// Content is ALWAYS the deterministic component digest — never raw bytes,
 	// not even when there is a single component. See digest.go.
 	Content(ctx context.Context) ([]byte, error)
@@ -165,7 +164,7 @@ type Writer interface {
 	// Put writes the components of s that belong to form f. A surface decoded
 	// with two forms therefore writes one form per call, and writing the
 	// distilled form never rewrites the raw file.
-	Put(ctx context.Context, ref trust.Ref, f signing.Form, s Surface) error
+	Put(ctx context.Context, ref trust.Ref, f trust.ContentForm, s Surface) error
 	// Delete removes every component of the item, in every form — the content
 	// file AND its metadata sidecar.
 	Delete(ctx context.Context, ref trust.Ref) error

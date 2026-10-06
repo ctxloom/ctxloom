@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -46,7 +45,7 @@ func oneBodySkill() Skill {
 	}
 }
 
-func skillForms(t *testing.T, store *TreeStore, ref trust.Ref) []signing.Form {
+func skillForms(t *testing.T, store *TreeStore, ref trust.Ref) []trust.ContentForm {
 	t.Helper()
 	ctx := context.Background()
 	bundle, err := store.Open(ctx, BundleID(ref.Bundle))
@@ -69,20 +68,20 @@ func TestSkillType_Forms_ReportsEachBodyThePackageCarries(t *testing.T) {
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "helper"}
 
 	single := emptyStore(t)
-	if err := single.Put(ctx, ref, signing.FormRaw, oneBodySkill()); err != nil {
+	if err := single.Put(ctx, ref, trust.FormRaw, oneBodySkill()); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	if got, want := skillForms(t, single, ref), []signing.Form{signing.FormRaw}; !reflect.DeepEqual(got, want) {
+	if got, want := skillForms(t, single, ref), []trust.ContentForm{trust.FormRaw}; !reflect.DeepEqual(got, want) {
 		t.Errorf("one-body package forms = %v, want %v", got, want)
 	}
 
 	double := emptyStore(t)
-	for _, f := range []signing.Form{signing.FormRaw, signing.FormDistilled} {
+	for _, f := range []trust.ContentForm{trust.FormRaw, trust.FormDistilled} {
 		if err := double.Put(ctx, ref, f, twoBodySkill()); err != nil {
 			t.Fatalf("Put(%s): %v", f, err)
 		}
 	}
-	if got, want := skillForms(t, double, ref), []signing.Form{signing.FormRaw, signing.FormDistilled}; !reflect.DeepEqual(got, want) {
+	if got, want := skillForms(t, double, ref), []trust.ContentForm{trust.FormRaw, trust.FormDistilled}; !reflect.DeepEqual(got, want) {
 		t.Errorf("two-body package forms = %v, want %v", got, want)
 	}
 }
@@ -98,22 +97,22 @@ func TestSkillType_Forms_OnlyTheDescriptorCarriesAForm(t *testing.T) {
 	ctx := context.Background()
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "helper"}
 	store := emptyStore(t)
-	if err := store.Put(ctx, ref, signing.FormRaw, oneBodySkill()); err != nil {
+	if err := store.Put(ctx, ref, trust.FormRaw, oneBodySkill()); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	writeFile(t, store.fsys, fixtureRoot+"/code-quality/skills/helper/references/notes.distilled.md", "notes\n")
-	if got, want := skillForms(t, store, ref), []signing.Form{signing.FormRaw}; !reflect.DeepEqual(got, want) {
+	if got, want := skillForms(t, store, ref), []trust.ContentForm{trust.FormRaw}; !reflect.DeepEqual(got, want) {
 		t.Errorf("forms = %v, want %v", got, want)
 	}
 }
 
 func TestSkill_Materialize_WritesExactlyTheSelectedBodyAtTheDescriptor(t *testing.T) {
 	for _, tc := range []struct {
-		form signing.Form
+		form trust.ContentForm
 		body []byte
 	}{
-		{signing.FormRaw, rawBody},
-		{signing.FormDistilled, distilledBody},
+		{trust.FormRaw, rawBody},
+		{trust.FormDistilled, distilledBody},
 	} {
 		got, err := twoBodySkill().Materialize(tc.form)
 		if err != nil {
@@ -132,7 +131,7 @@ func TestSkill_Materialize_WritesExactlyTheSelectedBodyAtTheDescriptor(t *testin
 // Selecting a body the package does not carry is refused — never an empty
 // package, never a silent fallback to the body it does have.
 func TestSkill_Materialize_AbsentFormIsALoudError(t *testing.T) {
-	got, err := oneBodySkill().Materialize(signing.FormDistilled)
+	got, err := oneBodySkill().Materialize(trust.FormDistilled)
 	if !errors.Is(err, ErrNoSuchForm) {
 		t.Fatalf("err = %v, want ErrNoSuchForm", err)
 	}
@@ -142,7 +141,7 @@ func TestSkill_Materialize_AbsentFormIsALoudError(t *testing.T) {
 }
 
 func TestSkill_Materialize_RefusesAFormThatIsNotALayoutForm(t *testing.T) {
-	if _, err := twoBodySkill().Materialize(signing.FormNone); !errors.Is(err, ErrNoSuchForm) {
+	if _, err := twoBodySkill().Materialize(trust.FormNone); !errors.Is(err, ErrNoSuchForm) {
 		t.Fatalf("err = %v, want ErrNoSuchForm", err)
 	}
 }
@@ -152,7 +151,7 @@ func TestSkill_Materialize_RefusesAFormThatIsNotALayoutForm(t *testing.T) {
 // as a Skill, so the two cannot disagree about which file is the body.
 func TestSkillMaterialization_MapsTheSelectedBodyOntoTheDescriptor(t *testing.T) {
 	paths := []string{"SKILL.distilled.md", "SKILL.md", "scripts/go.sh"}
-	got, err := SkillMaterialization(paths, signing.FormDistilled)
+	got, err := SkillMaterialization(paths, trust.FormDistilled)
 	if err != nil {
 		t.Fatalf("SkillMaterialization: %v", err)
 	}
@@ -160,7 +159,7 @@ func TestSkillMaterialization_MapsTheSelectedBodyOntoTheDescriptor(t *testing.T)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("distilled layout = %v, want %v", got, want)
 	}
-	got, err = SkillMaterialization(paths, signing.FormRaw)
+	got, err = SkillMaterialization(paths, trust.FormRaw)
 	if err != nil {
 		t.Fatalf("SkillMaterialization: %v", err)
 	}
@@ -168,16 +167,16 @@ func TestSkillMaterialization_MapsTheSelectedBodyOntoTheDescriptor(t *testing.T)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("raw layout = %v, want %v", got, want)
 	}
-	if _, err := SkillMaterialization([]string{"SKILL.md"}, signing.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
+	if _, err := SkillMaterialization([]string{"SKILL.md"}, trust.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
 		t.Fatalf("absent body: err = %v, want ErrNoSuchForm", err)
 	}
 }
 
 func TestSkillForms_ReportsTheBaseFormFirstThenEachBodyPresent(t *testing.T) {
-	if got, want := SkillForms([]string{"SKILL.md"}), []signing.Form{signing.FormRaw}; !reflect.DeepEqual(got, want) {
+	if got, want := SkillForms([]string{"SKILL.md"}), []trust.ContentForm{trust.FormRaw}; !reflect.DeepEqual(got, want) {
 		t.Errorf("SkillForms = %v, want %v", got, want)
 	}
-	if got, want := SkillForms([]string{"scripts/go.sh", "SKILL.distilled.md", "SKILL.md"}), []signing.Form{signing.FormRaw, signing.FormDistilled}; !reflect.DeepEqual(got, want) {
+	if got, want := SkillForms([]string{"scripts/go.sh", "SKILL.distilled.md", "SKILL.md"}), []trust.ContentForm{trust.FormRaw, trust.FormDistilled}; !reflect.DeepEqual(got, want) {
 		t.Errorf("SkillForms = %v, want %v", got, want)
 	}
 }
@@ -191,12 +190,12 @@ func TestWriter_PutSkillPartitionsBodiesByForm(t *testing.T) {
 	pkg := fixtureRoot + "/code-quality/skills/helper/"
 
 	store := emptyStore(t)
-	if err := store.Put(ctx, ref, signing.FormDistilled, twoBodySkill()); err != nil {
+	if err := store.Put(ctx, ref, trust.FormDistilled, twoBodySkill()); err != nil {
 		t.Fatalf("Put(distilled): %v", err)
 	}
 	assertDistilledOnlyWritten(t, store, pkg)
 
-	if err := store.Put(ctx, ref, signing.FormRaw, twoBodySkill()); err != nil {
+	if err := store.Put(ctx, ref, trust.FormRaw, twoBodySkill()); err != nil {
 		t.Fatalf("Put(raw): %v", err)
 	}
 	assertSkillComponents(t, ctx, store, ref)
@@ -234,11 +233,11 @@ func assertSkillComponents(t *testing.T, ctx context.Context, store *TreeStore, 
 		t.Fatalf("Item: %v", err)
 	}
 	for _, tc := range []struct {
-		form signing.Form
+		form trust.ContentForm
 		want []string
 	}{
-		{signing.FormRaw, []string{"skills/.helper.meta.yaml", "skills/helper/SKILL.md", "skills/helper/scripts/go.sh"}},
-		{signing.FormDistilled, []string{"skills/helper/SKILL.distilled.md"}},
+		{trust.FormRaw, []string{"skills/.helper.meta.yaml", "skills/helper/SKILL.md", "skills/helper/scripts/go.sh"}},
+		{trust.FormDistilled, []string{"skills/helper/SKILL.distilled.md"}},
 	} {
 		form, err := item.Form(ctx, tc.form)
 		if err != nil {
@@ -260,7 +259,7 @@ func TestWriter_PutSkillRefusesAnAbsentBody(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "helper"}
-	err := store.Put(ctx, ref, signing.FormDistilled, oneBodySkill())
+	err := store.Put(ctx, ref, trust.FormDistilled, oneBodySkill())
 	if !errors.Is(err, ErrNoSuchForm) {
 		t.Fatalf("err = %v, want ErrNoSuchForm", err)
 	}

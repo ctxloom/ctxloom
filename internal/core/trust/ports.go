@@ -13,6 +13,8 @@ type ContentForm string
 const (
 	FormRaw       ContentForm = "raw"
 	FormDistilled ContentForm = "distilled"
+	// FormNone is the absence of a form: an item that binds no content body.
+	FormNone ContentForm = ""
 )
 
 // SignerDecision is what a TrustRoot says about one key in one namespace. It

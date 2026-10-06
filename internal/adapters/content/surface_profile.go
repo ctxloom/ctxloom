@@ -7,7 +7,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
@@ -44,11 +43,11 @@ func (t profileType) Detect(src Source) bool {
 // Forms reports FormRaw. A profile is an authored document with exactly one
 // materialization; FormNone would claim it binds no content at all, which is
 // false — its bytes are hashed and covered like every other component's.
-func (t profileType) Forms(src Source) ([]signing.Form, error) {
+func (t profileType) Forms(src Source) ([]trust.ContentForm, error) {
 	if _, ok := detectSingleYAML(t.Dir(), src, 0); !ok {
 		return nil, fmt.Errorf("%w: not a profile", ErrUnrecognized)
 	}
-	return []signing.Form{signing.FormRaw}, nil
+	return []trust.ContentForm{trust.FormRaw}, nil
 }
 
 func (t profileType) RefFor(bundle string, src Source) (trust.Ref, error) {

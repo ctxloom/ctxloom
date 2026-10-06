@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
@@ -35,7 +34,7 @@ func stageTree(t *testing.T, fsys afero.Fs, root, name, body string) {
 func putFragmentIn(w content.Writer, bundle, name, body string) {
 	_ = w.Put(context.Background(),
 		trust.Ref{Bundle: bundle, Kind: trust.KindFragment, Name: name},
-		signing.FormRaw,
+		trust.FormRaw,
 		content.Fragment{Name: name, ItemMeta: content.ItemMeta{Body: body}})
 }
 

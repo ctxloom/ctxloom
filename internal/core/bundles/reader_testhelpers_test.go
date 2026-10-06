@@ -12,7 +12,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/release"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
@@ -70,7 +69,7 @@ func stageRepoTree(t *testing.T, leaf, envelope string, frags map[string]string,
 	for name, body := range frags {
 		require.NoError(t, st.Put(context.Background(),
 			trust.Ref{Bundle: leaf, Kind: trust.KindFragment, Name: name},
-			signing.FormRaw,
+			trust.FormRaw,
 			content.Fragment{Name: name, ItemMeta: content.ItemMeta{Body: body}}))
 	}
 	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(leaf), DirectoryFormManifest, []byte(envelope)))

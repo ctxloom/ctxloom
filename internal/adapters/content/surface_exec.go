@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
@@ -16,7 +15,7 @@ import (
 //
 // This axis is purely about layout, so an executable surface reports the same
 // base form a never-distilled document does.
-var execForms = []signing.Form{signing.FormRaw}
+var execForms = []trust.ContentForm{trust.FormRaw}
 
 // detectSingleYAML is the shared recognition for the executable surfaces: exactly
 // one non-sidecar component, a .yaml file, at the expected depth below the kind
@@ -190,7 +189,7 @@ func (t mcpType) Detect(src Source) bool {
 	return ok
 }
 
-func (t mcpType) Forms(src Source) ([]signing.Form, error) {
+func (t mcpType) Forms(src Source) ([]trust.ContentForm, error) {
 	if _, ok := detectSingleYAML(t.Dir(), src, 0); !ok {
 		return nil, fmt.Errorf("%w: not an mcp item", ErrUnrecognized)
 	}
@@ -366,7 +365,7 @@ func (t hookType) Detect(src Source) bool {
 	return ok
 }
 
-func (t hookType) Forms(src Source) ([]signing.Form, error) {
+func (t hookType) Forms(src Source) ([]trust.ContentForm, error) {
 	if _, ok := detectSingleYAML(t.Dir(), src, 1); !ok {
 		return nil, fmt.Errorf("%w: not a hook item", ErrUnrecognized)
 	}

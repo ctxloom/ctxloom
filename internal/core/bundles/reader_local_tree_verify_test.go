@@ -14,7 +14,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -59,7 +58,7 @@ func stageUnsignedTree(t *testing.T, root, fragBody string) (afero.Fs, string) {
 	require.NoError(t, err)
 	require.NoError(t, st.Put(context.Background(),
 		trust.Ref{Bundle: verifyTreeName, Kind: trust.KindFragment, Name: "house-style"},
-		signing.FormRaw,
+		trust.FormRaw,
 		content.Fragment{Name: "house-style", ItemMeta: content.ItemMeta{Body: fragBody}}))
 	require.NoError(t, st.PutRootFile(context.Background(), verifyTreeName, DirectoryFormManifest,
 		[]byte("name: "+verifyTreeName+"\nversion: 2.0.0\n")))

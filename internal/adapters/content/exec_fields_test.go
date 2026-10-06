@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -30,7 +29,7 @@ func putAndReadBack(t *testing.T, ref trust.Ref, s Surface) (Surface, []Componen
 	t.Helper()
 	ctx := context.Background()
 	store := emptyStore(t)
-	if err := store.Put(ctx, ref, signing.FormRaw, s); err != nil {
+	if err := store.Put(ctx, ref, trust.FormRaw, s); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	bundle, err := store.Open(ctx, BundleID(ref.Bundle))
@@ -133,11 +132,11 @@ func TestWriter_RePutWithEmptiedMetadataDropsTheSidecar(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
 	ref := trust.Ref{Bundle: "b", Kind: trust.KindMCP, Name: "srv", IsLocal: true}
-	if err := store.Put(ctx, ref, signing.FormRaw, MCP{Name: "srv", Command: "c", Tags: []string{"old"}}); err != nil {
+	if err := store.Put(ctx, ref, trust.FormRaw, MCP{Name: "srv", Command: "c", Tags: []string{"old"}}); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	want := MCP{Name: "srv", Command: "c"}
-	if err := store.Put(ctx, ref, signing.FormRaw, want); err != nil {
+	if err := store.Put(ctx, ref, trust.FormRaw, want); err != nil {
 		t.Fatalf("re-Put: %v", err)
 	}
 	bundle, err := store.Open(ctx, "b")

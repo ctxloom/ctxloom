@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -157,8 +158,8 @@ func (b *Bundle) checkLinks() error {
 // LinkGrant answers the one question a link group asks of a run: did the MCP
 // server `server`, AS SHIPPED BY the bundle `read`, reach the run's granted
 // set? It is handed the read rather than a bare name so a same-named server
-// from another bundle cannot answer for this one. config answers it from
-// ResolveBundleMCPServers; a surface that is not a run says LinksUnchecked.
+// from another bundle cannot answer for this one. A run answers it with
+// ServerGrant; a surface that is not a run says LinksUnchecked.
 type LinkGrant interface {
 	Granted(read BundleRead, server string) bool
 }
@@ -167,6 +168,18 @@ type LinkGrant interface {
 type LinkGrantFunc func(read BundleRead, server string) bool
 
 func (f LinkGrantFunc) Granted(read BundleRead, server string) bool { return f(read, server) }
+
+// ServerGrant is the LinkGrant a run answers from its own granted MCP set,
+// keyed by server name AND owning bundle: the name arbiter can withhold one
+// bundle's server while a same-named server from another survives, and the
+// survivor must not stand in for the one a linked item depends on. Ownership
+// is the BundleSCM mark a resolved server carries.
+func ServerGrant(granted map[string]wire.MCPServer) LinkGrant {
+	return LinkGrantFunc(func(read BundleRead, server string) bool {
+		srv, ok := granted[server]
+		return ok && srv.SCM == BundleSCM(read.SourceRef())
+	})
+}
 
 // LinkWithholds reports whether an item carrying tags, read from read, belongs
 // to a link group grant cannot deliver whole: one of the group's MCP members

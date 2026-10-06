@@ -289,51 +289,36 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 	return result
 }
 
-// bundleSCM is the marker a resolved MCP server carries to name the bundle
-// that shipped it (wire.MCPServer.SCM). extractMCPFromBundle stamps it and
-// LinkGrant reads it back, so "granted from THIS bundle" is one spelling.
-func bundleSCM(src trust.BundleRef) string { return bundles.BundleSCM(src) }
-
 // LinkGrant answers the link-group question for a run over profileNames from
 // the run's OWN granted set — ResolveBundleMCPServers over the same profiles
-// the engine is launched with — so a fragment or skill linked to an MCP server
-// is delivered exactly when that server is. It is keyed by server name AND
-// owning bundle: the name arbiter can withhold one bundle's server while a
-// same-named server from another survives, and the survivor must not stand in
-// for the one the linked item actually depends on.
-//
-// The granted set is resolved ONCE, on the FIRST question, and never at
-// construction. Both halves matter. The resolve reports a fail-loudly finding
-// per unresolvable ref and per name contest; a grant asked many times in one
-// assembly must not repeat them, so it is memoised. And a grant is BUILT by
-// every pipeline the run constructs -- context assembly, skills, commands,
-// curated exports -- most of which never meet a linked item: resolving eagerly
-// re-records the run's own findings once per pipeline, and `ctxloom doctor`,
-// which counts ClassRef findings around one AssembleContext call to report how
-// many refs were skipped, then reports double. Deferring to the first question
-// makes a run with no linked items resolve zero extra times.
+// the engine is launched with — through bundles.ServerGrant, so a fragment,
+// skill or hook linked to an MCP server is delivered exactly when that
+// server, as shipped by its own bundle, is.
 func (c *Config) LinkGrant(profileNames []string) bundles.LinkGrant {
-	var (
-		once    sync.Once
-		granted map[string]wire.MCPServer
-	)
-	return bundles.LinkGrantFunc(func(read bundles.BundleRead, server string) bool {
-		once.Do(func() { granted = c.ResolveBundleMCPServers(profileNames) })
-		srv, ok := granted[server]
-		return ok && srv.SCM == bundleSCM(read.SourceRef())
-	})
+	return lazyGrant(func() map[string]wire.MCPServer { return c.ResolveBundleMCPServers(profileNames) })
 }
 
 // LinkGrantFor is LinkGrant over an already resolved profile set.
 func (c *Config) LinkGrantFor(set []profiles.ResolvedProfile) bundles.LinkGrant {
+	return lazyGrant(func() map[string]wire.MCPServer { return c.ResolveBundleMCPServersFor(set) })
+}
+
+// lazyGrant is bundles.ServerGrant over the set resolve returns, resolved
+// ONCE, on the FIRST question, and never at construction. Both halves matter.
+// The resolve reports a fail-loudly finding per unresolvable ref and per name
+// contest; a grant asked many times in one assembly must not repeat them, so
+// it is memoised. And a grant built by a surface that never meets a linked
+// item must not record the run's findings again: `ctxloom doctor` counts
+// ClassRef findings around one assembly to report how many refs were skipped,
+// and an eager resolve makes it report double.
+func lazyGrant(resolve func() map[string]wire.MCPServer) bundles.LinkGrant {
 	var (
-		once    sync.Once
-		granted map[string]wire.MCPServer
+		once  sync.Once
+		grant bundles.LinkGrant
 	)
 	return bundles.LinkGrantFunc(func(read bundles.BundleRead, server string) bool {
-		once.Do(func() { granted = c.ResolveBundleMCPServersFor(set) })
-		srv, ok := granted[server]
-		return ok && srv.SCM == bundleSCM(read.SourceRef())
+		once.Do(func() { grant = bundles.ServerGrant(resolve()) })
+		return grant.Granted(read, server)
 	})
 }
 
@@ -671,7 +656,7 @@ func extractMCPFromBundle(rep report.Reporter, read bundles.BundleRead, src trus
 		srv := mcp.AsWire()
 		srv.Notes = mcp.Notes
 		srv.Installation = mcp.Installation
-		srv.SCM = bundleSCM(src)
+		srv.SCM = bundles.BundleSCM(src)
 		result[name] = srv
 	}
 

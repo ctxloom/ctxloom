@@ -46,7 +46,7 @@ func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, tr Trust,
 		if opts.Versions != nil {
 			loader.WithVersionResolver(opts.Versions, tr.Root())
 		}
-		pipe = bundles.NewPipeline(loader, tr.Authorizer(), linkGrant(opts.MCP), opts.PreferDistilled)
+		pipe = bundles.NewPipeline(loader, tr.Authorizer(), bundles.ServerGrant(opts.MCP), opts.PreferDistilled)
 	}
 	a := &assembly{sel: sel, opts: opts, pipe: pipe, ingest: newIngest()}
 
@@ -398,17 +398,6 @@ func companionRefs(cat bundles.Catalog) []string {
 		out = append(out, read.DisplayName())
 	}
 	return out
-}
-
-// linkGrant answers the link-group question from the run's OWN granted
-// set — the servers the caller resolved for the same profiles the engine
-// is launched with — keyed by server name AND owning bundle, so a same-named
-// server from another bundle cannot stand in for the one an item depends on.
-func linkGrant(mcp map[string]wire.MCPServer) bundles.LinkGrant {
-	return bundles.LinkGrantFunc(func(read bundles.BundleRead, server string) bool {
-		srv, ok := mcp[server]
-		return ok && srv.SCM == bundles.BundleSCM(read.SourceRef())
-	})
 }
 
 // linkGroups names the servers the package grants, in name order.

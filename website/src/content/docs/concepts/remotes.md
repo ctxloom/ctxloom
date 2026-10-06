@@ -139,11 +139,13 @@ tightest constraint.
 ### Pull, update, upgrade
 
 ```bash
-ctxloom deps pull      # resolve every constraint → lock.yaml and fetch exactly what
-                         # the lock pins (stable: keeps the current commit while a
-                         # constraint is unchanged)
+ctxloom deps pull      # pin anything not yet pinned → lock.yaml, showing everything
+                         # each new pin brings in, and fetch exactly what the lock
+                         # pins; an existing pin never moves, even if its
+                         # constraint changed
 ctxloom deps check    # report the newest commit available within each constraint
-ctxloom deps upgrade   # re-resolve within constraints and move the LOCK (never the
+ctxloom deps upgrade   # show every pin that would move within its constraint, and
+                         # what it brings in; --yes moves the LOCK (never the
                          # manifest); whether changed content reaches the agent is
                          # decided per item at exposure (ctxloom review)
 ```
@@ -151,9 +153,13 @@ ctxloom deps upgrade   # re-resolve within constraints and move the LOCK (never 
 Locking happens automatically as part of `pull` — there is no separate lock step.
 
 `upgrade` resolves a range (`@^1.2`) to the newest matching tag, a branch to its
-new tip, and leaves exact pins and [held](#holds) items untouched. It writes only
-the lockfile — your profile YAML is never rewritten, so a version bump is a clean
-`lock.yaml` diff. Whether any changed content reaches the agent is decided per
+new tip, and leaves exact pins and [held](#holds) items untouched. It is the only
+command that moves an existing pin, and it shows each move first — every item
+added, removed or changed, what hooks and MCP servers run before and after, and a
+diff of every changed script — and writes nothing until you re-run it with
+`--yes`. A constraint you change in a profile takes effect there too: `pull`
+reports it and keeps the pin. `upgrade --yes` writes only the lockfile — your
+profile YAML is never rewritten, so a version bump is a clean `lock.yaml` diff. Whether any changed content reaches the agent is decided per
 item at exposure and reviewed with `ctxloom review`; see
 [Review and trust](/concepts/review-and-trust/).
 
@@ -183,7 +189,7 @@ fix line that depends on why it is missing:
 - **Absent at its pin.** The commit is checked out but has no bundle where
   ctxloom looks, for example a pin that predates a layout change in the remote.
   `deps pull` keeps an existing pin at its commit, so it cannot fix this; run
-  `ctxloom deps upgrade` to advance the pin. A [held](#holds) pin is never
+  `ctxloom deps upgrade --yes` to advance the pin. A [held](#holds) pin is never
   advanced, so the fix line says to `ctxloom deps unhold <name>` first.
 
 ### Pinned bundles are read-only
@@ -194,7 +200,7 @@ and the pin along with both ways forward:
 
 - to change it only here, fork it with `ctxloom bundle import <name>` and edit
   the local copy;
-- to change it for everyone, edit it upstream, then `ctxloom deps upgrade`.
+- to change it for everyone, edit it upstream, then `ctxloom deps upgrade --yes`.
 
 ## Discovering Remotes
 

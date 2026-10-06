@@ -343,10 +343,10 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 
 	var res UpgradeResult
 	stderr := captureStderr(t, func() {
-		res, err = UpgradeDependencies(ctx, cfg, nil)
+		res, err = UpgradeDependencies(ctx, cfg, UpgradeRequest{Apply: true})
 		require.NoError(t, err)
 	})
-	assert.GreaterOrEqual(t, res.Advanced, 1, "repo A advanced")
+	assert.NotEmpty(t, res.Changes, "repo A advanced")
 	assert.Contains(t, stderr, "could not expand remote parent profile")
 	// The caller (runRemoteUpgrade) needs this to avoid claiming
 	// "Everything is up to date" on a round where part of the closure was

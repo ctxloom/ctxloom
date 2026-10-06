@@ -152,9 +152,9 @@ func TestClosureParity_UnreferencedPinAgreedByPullCheckUpgrade(t *testing.T) {
 	assert.Contains(t, offered, p.kitKey, "check offers the referenced bundle its update")
 	assert.NotContains(t, offered, p.containKey, "check never offers an update for an entry outside the closure")
 
-	res, err := UpgradeDependencies(ctx, p.cfg(t), nil)
+	res, err := UpgradeDependencies(ctx, p.cfg(t), UpgradeRequest{Apply: true})
 	require.NoError(t, err)
-	assert.Equal(t, 1, res.Advanced, "only the referenced bundle advances")
+	assert.Len(t, res.Changes, 1, "only the referenced bundle advances")
 	assert.Equal(t, []string{p.containKey}, res.Removed, "upgrade reports the entry it dropped, by name")
 	assert.Equal(t, []string{p.kitKey}, p.lockedKeys(t), "the unreferenced entry is gone from the lock")
 }

@@ -26,17 +26,28 @@ const (
 		"  'ctxloom profile list' shows what this directory actually resolves, and 'ctxloom init' sets a new project up."
 )
 
-// depsUpgradeCmd is the apt-style "upgrade" verb: it advances every unheld
-// pinned dependency to the newest commit its version constraint allows and
-// writes the result straight to the active lock. Where 'deps check' reads and
-// reports, 'deps upgrade' advances your pins.
+// depsUpgradeCmd is the apt-style "upgrade" verb and the ONE command that
+// moves an existing pin: it shows every pin that would move to the newest
+// commit its version constraint allows, and with --yes writes the result
+// straight to the active lock.
 var depsUpgradeCmd = &cobra.Command{
 	Use:   "upgrade",
-	Short: "Upgrade pinned dependencies to the latest available",
+	Short: "Show, then apply, the newest pins your constraints allow",
 	Long: `Re-resolve each local profile's dependency closure to the newest commit each
-version constraint allows and write the advances straight to the active lock —
-your profile YAML is never rewritten. A held entry ('ctxloom deps hold') stays
-frozen.
+version constraint allows, and show what every moved pin brings in: each hook,
+MCP server, skill, command, fragment and profile added, removed or changed —
+with what hooks and MCP servers run, before and after — and a unified diff of
+every changed script.
+
+Nothing is written without --yes. With it, the closure is resolved again,
+applied to the active lock, each moved bundle's installed tree is moved with
+it, and what was actually applied is shown — so a remote that moved since the
+preview is what lands, and what you see. Your profile YAML is never rewritten.
+A held entry ('ctxloom deps hold') stays frozen.
+
+This is the only command that moves an existing pin. 'deps pull', 'init' and
+startup create first pins and keep every existing one, even when you change a
+constraint; that change takes effect here.
 
 The lockfile is pure dependency pinning: upgrading a pin does not expose new
 content to the agent. Any changed content from an untrusted source is withheld
@@ -49,20 +60,17 @@ copy. The old pin is kept and the refusal is reported.
 
 A refusal EXITS 2, not 0 and not 1: the command ran fine and deliberately did
 not do part of what it was asked, so an unattended sync can tell "I refused
-something" apart from both "nothing to do" (0) and a failure (1). The refusal
-also survives the run — 'ctxloom doctor' reports it until an upgrade advances
-that pin.
-
-Mirrors apt: 'deps check' reports what is out of date, 'deps upgrade' advances
-your pins to the newest commit. 'deps pull' installs exactly what is already
-pinned and never advances one.
+something" apart from both "nothing to do" (0) and a failure (1). An applied
+refusal also survives the run — 'ctxloom doctor' reports it until an upgrade
+advances that pin.
 
 A pin is also NOT moved below the version its publisher signed at the last pin
 — a rollback to an older signed release — nor from signed to unsigned content.
 Name a ref with --allow-downgrade to accept that for it; the lower version then
 becomes its floor.`,
-	Example: `  ctxloom deps upgrade                   # Advance pins to the latest available
-  ctxloom deps upgrade --allow-downgrade <ref>   # Accept a lower signed version for <ref>`,
+	Example: `  ctxloom deps upgrade                   # Show what would move, and what it brings in
+  ctxloom deps upgrade --yes             # Apply it
+  ctxloom deps upgrade --yes --allow-downgrade <ref>   # Accept a lower signed version for <ref>`,
 	RunE: runDepsUpgradeCmd,
 }
 
@@ -70,7 +78,8 @@ func runDepsUpgradeCmd(cmd *cobra.Command, args []string) error {
 	return runDepsUpgrade(cmd, GetConfig)
 }
 
-// runDepsUpgrade re-resolves and rewrites the active lock.
+// runDepsUpgrade re-resolves the closure, and with --yes rewrites the active
+// lock.
 //
 // It deliberately does NOT use loadConfigOrFallback. That helper exists for the
 // fault-tolerant READ-ONLY startup paths (`deps check`, `search`) and hands
@@ -88,7 +97,7 @@ func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error
 
 	fmt.Fprintln(cmd.ErrOrStderr(), "Resolving latest commits for pinned dependencies...")
 
-	res, err := upgradeDependencies(cmd.Context(), cfg, depsUpgradeAllowDowngrade)
+	res, err := upgradeDependencies(cmd.Context(), cfg, operations.UpgradeRequest{Apply: depsUpgradeYes, AllowDowngrade: depsUpgradeAllowDowngrade})
 	if err != nil {
 		return err
 	}
@@ -110,47 +119,56 @@ func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error
 	return nil
 }
 
-// renderUpgrade is the human report of an upgrade round.
+// renderUpgrade is the human report of an upgrade round: refusals, removals,
+// each pin that moves with what it brings in, and what to do next.
 func renderUpgrade(out io.Writer, res operations.UpgradeResult) {
-	// The refusals print FIRST and unconditionally, before any tally. A pin
-	// that did not move because its new content failed publisher verification
-	// reads exactly like a pin that had nothing to move to, and the difference
-	// is the whole point: one means "you are current", the other means
-	// "somebody published bytes their signature does not cover".
+	// The refusals print FIRST and unconditionally. A pin that did not move
+	// because its new content failed publisher verification reads exactly
+	// like a pin that had nothing to move to, and the difference is the whole
+	// point: one means "you are current", the other means "somebody published
+	// bytes their signature does not cover".
 	reportRefusedAdvances(out, res.Refused)
-	// Removals print on every branch below: the lock is rewritten wholesale, so
-	// an entry dropped without a line here is indistinguishable from one that
-	// was never pinned — including under "Everything is up to date."
-	reportRemovedPins(out, res.Removed)
-
-	if res.Advanced == 0 {
-		switch {
-		case len(res.Refused) > 0:
-			// Deliberately NOT "Everything is up to date." — nothing advanced
-			// precisely because something was wrong upstream.
-			fmt.Fprintf(out, "No pins advanced: %d refused above. Your existing pins are unchanged.\n", len(res.Refused))
-		case res.Incomplete:
-			// advanced==0 only means nothing that WAS resolved needed to move —
-			// it says nothing about the part that was never resolved at all.
-			fmt.Fprintln(out, "No pins advanced among what could be resolved — part of the dependency closure was unreachable this round (see warning above); re-run once it's reachable to get a complete picture.")
-		case res.NothingDeclared:
-			// An empty closure reaches here with advanced==0 and nothing
-			// refused, exactly like a healthy current project. The difference
-			// is the one the user needs: one means "your pins are current", the
-			// other means "there is nothing here", and only the second has a
-			// remedy.
-			fmt.Fprintln(out, msgNothingDeclared)
-		default:
-			fmt.Fprintln(out, msgEverythingUpToDate)
-		}
-		return
+	// Removals print on every branch: the lock is rewritten wholesale, so an
+	// entry dropped without a line here is indistinguishable from one that was
+	// never pinned — including under "Everything is up to date."
+	reportRemovedPins(out, res.Removed, res.Applied)
+	operations.WritePinChanges(out, res.Changes)
+	if len(res.Changes) == 0 {
+		renderNothingMoves(out, res)
 	}
+	switch {
+	case res.Applied && len(res.Changes) > 0:
+		fmt.Fprintf(out, "Applied %d pin(s).\n", len(res.Changes))
+		// Content withheld as TAMPERED is deliberately not reviewable, so
+		// `ctxloom review` would answer "Nothing is pending review." here;
+		// doctor answers whatever the state actually is.
+		fmt.Fprintln(out, "Newly pinned content is not exposed to your assistant until it passes the trust gate: run 'ctxloom doctor' to see whether any of it is withheld, and why.")
+	case !res.Applied && len(res.Changes)+len(res.Removed) > 0:
+		fmt.Fprintf(out, "%d pin(s) would move. Re-run with --yes to apply.\n", len(res.Changes))
+	}
+}
 
-	fmt.Fprintf(out, "Advanced %d dependency pin(s).\n", res.Advanced)
-	// Content withheld as TAMPERED is deliberately not reviewable, so
-	// `ctxloom review` would answer "Nothing is pending review." here; doctor
-	// answers whatever the state actually is.
-	fmt.Fprintln(out, "Newly pinned content is not exposed to your assistant until it passes the trust gate: run 'ctxloom doctor' to see whether any of it is withheld, and why.")
+// renderNothingMoves is the line for a round in which no pin moves; which line
+// depends on WHY nothing moves.
+func renderNothingMoves(out io.Writer, res operations.UpgradeResult) {
+	switch {
+	case len(res.Refused) > 0:
+		// Deliberately NOT "Everything is up to date." — nothing moves
+		// precisely because something was wrong upstream.
+		fmt.Fprintf(out, "No pins advanced: %d refused above. Your existing pins are unchanged.\n", len(res.Refused))
+	case res.Incomplete:
+		// No changes only means nothing that WAS resolved needs to move — it
+		// says nothing about the part that was never resolved at all.
+		fmt.Fprintln(out, "No pins advanced among what could be resolved — part of the dependency closure was unreachable this round (see warning above); re-run once it's reachable to get a complete picture.")
+	case res.NothingDeclared:
+		// An empty closure reaches here with nothing refused, exactly like a
+		// healthy current project. The difference is the one the user needs:
+		// one means "your pins are current", the other means "there is
+		// nothing here", and only the second has a remedy.
+		fmt.Fprintln(out, msgNothingDeclared)
+	default:
+		fmt.Fprintln(out, msgEverythingUpToDate)
+	}
 }
 
 // refusedExit is the exit-2 outcome: the command completed, said in full why,
@@ -207,18 +225,28 @@ func reportRefusedAdvances(out io.Writer, refused []operations.RefusedAdvance) {
 	}
 }
 
-// reportRemovedPins names each lockfile entry upgrade dropped because nothing
-// the project composes reaches it any more.
-func reportRemovedPins(out io.Writer, removed []string) {
+// reportRemovedPins names each lockfile entry upgrade dropped (applied) or
+// would drop (a preview) because nothing the project composes reaches it any
+// more.
+func reportRemovedPins(out io.Writer, removed []string, applied bool) {
+	verb := "Would remove"
+	if applied {
+		verb = "Removed"
+	}
 	for _, identity := range removed {
-		fmt.Fprintf(out, "Removed %s from the lockfile: nothing this project composes depends on it any more.\n", identity)
+		fmt.Fprintf(out, "%s %s from the lockfile: nothing this project composes depends on it any more.\n", verb, identity)
 	}
 }
 
-var depsUpgradeAllowDowngrade []string
+var (
+	depsUpgradeAllowDowngrade []string
+	depsUpgradeYes            bool
+)
 
 func init() {
 	depsCmd.AddCommand(depsUpgradeCmd)
+	depsUpgradeCmd.Flags().BoolVarP(&depsUpgradeYes, yesFlagName, "y", false,
+		"Apply the upgrade this invocation would report (default: report only)")
 	depsUpgradeCmd.Flags().StringArrayVar(&depsUpgradeAllowDowngrade, "allow-downgrade", nil,
 		"Accept a lower signed version (or unsigned content) for this ref, and record it as the new floor; repeat per ref")
 }

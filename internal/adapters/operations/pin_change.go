@@ -89,6 +89,9 @@ type FileChange struct {
 // exactly as fully as a signed one.
 func diffPin(ctx context.Context, cfg *config.Config, p PinnedRef, prior remote.LockEntry, has bool) (PinChange, error) {
 	pc := PinChange{Identity: string(p.Identity), URL: p.URL, ToSHA: p.Hash, ToVersion: p.Version}
+	if has {
+		pc.FromSHA, pc.FromVersion = prior.SHA, prior.Version
+	}
 	ref, err := remote.ParseReference(string(p.Identity))
 	if err != nil {
 		return pc, err
@@ -101,8 +104,7 @@ func diffPin(ctx context.Context, cfg *config.Config, p PinnedRef, prior remote.
 	}
 	var fromTree map[string]remote.TreeFile
 	fromBundle := &bundles.Bundle{}
-	if has && prior.SHA != "" {
-		pc.FromSHA, pc.FromVersion = prior.SHA, prior.Version
+	if pc.FromSHA != "" {
 		if fromTree, fromBundle, err = readPinTree(ctx, factory, auth, ref, prior.SHA); err != nil {
 			return pc, err
 		}

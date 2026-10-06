@@ -108,7 +108,8 @@ review them. If a bundle's content isn't appearing, run `ctxloom review`.
 
 `ctxloom deps upgrade` re-resolves your dependencies within their version
 constraints (see [Versioning, locking, and holds](/concepts/remotes/#versioning-locking-and-holds))
-and moves the lockfile to the newest commit each constraint allows. It does not
+and shows what moving each pin brings in; `ctxloom deps upgrade --yes` moves the
+lockfile to the newest commit each constraint allows. It does not
 gate at the lockfile: changed content no longer verifies against the approval you
 gave the old content, so it re-gates to **pending** and is withheld until you
 review it.

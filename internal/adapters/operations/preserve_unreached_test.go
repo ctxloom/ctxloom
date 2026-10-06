@@ -90,7 +90,7 @@ func TestUpgradeDependencies_IncompleteClosurePreservesUnreachedEntries(t *testi
 	baseDir, orphan := setupIncompleteClosure(t)
 	warnings := captureWarnings(t)
 
-	res, err := UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir), nil)
+	res, err := UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir), UpgradeRequest{Apply: true})
 	require.NoError(t, err)
 
 	assert.True(t, res.Incomplete)

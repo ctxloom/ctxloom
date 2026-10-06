@@ -59,7 +59,7 @@ func TestUpgrade_ARollbackToAnOlderSignedReleaseIsRefused(t *testing.T) {
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	commitTree(t, src, demoTreeFilesAt(t, signer, "old\n", "1.1.0"), false)
 
-	res, err := UpgradeDependencies(context.Background(), cfg, nil)
+	res, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
 	require.Len(t, res.Refused, 1)
 	assert.Contains(t, res.Refused[0].Detail, "below")
@@ -74,7 +74,7 @@ func TestUpgrade_AllowDowngradeNamingTheRefMovesItAndLowersTheFloor(t *testing.T
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	older := commitTree(t, src, demoTreeFilesAt(t, signer, "old\n", "1.1.0"), false)
 
-	res, err := UpgradeDependencies(context.Background(), cfg, []string{ref})
+	res, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true, AllowDowngrade: []string{ref}})
 	require.NoError(t, err)
 	assert.Empty(t, res.Refused)
 	got := floorEntry(t, baseDir, ref)
@@ -87,7 +87,7 @@ func TestUpgrade_AllowDowngradeNamingAnotherRefDoesNotApply(t *testing.T) {
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	commitTree(t, src, demoTreeFilesAt(t, signer, "old\n", "1.1.0"), false)
 
-	res, err := UpgradeDependencies(context.Background(), cfg, []string{"https://example.test/other@bundles/x"})
+	res, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true, AllowDowngrade: []string{"https://example.test/other@bundles/x"}})
 	require.NoError(t, err)
 	require.Len(t, res.Refused, 1)
 	assert.Equal(t, first, floorEntry(t, baseDir, ref).SHA)
@@ -98,7 +98,7 @@ func TestUpgrade_AForwardMoveRecordsTheNewFloorAndPublisher(t *testing.T) {
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	newer := commitTree(t, src, demoTreeFilesAt(t, signer, "new\n", "1.3.0"), false)
 
-	res, err := UpgradeDependencies(context.Background(), cfg, nil)
+	res, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
 	assert.Empty(t, res.Refused)
 	got := floorEntry(t, baseDir, ref)
@@ -112,7 +112,7 @@ func TestUpgrade_StrippingTheSignatureDoesNotEscapeTheFloor(t *testing.T) {
 	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	commitTree(t, src, demoTreeFilesAt(t, nil, "unsigned\n", "9.0.0"), false)
 
-	res, err := UpgradeDependencies(context.Background(), cfg, nil)
+	res, err := UpgradeDependencies(context.Background(), cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
 	require.Len(t, res.Refused, 1)
 	assert.Contains(t, res.Refused[0].Detail, "no longer signed")

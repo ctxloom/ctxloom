@@ -278,6 +278,15 @@ What else follows from profiles being bundle items:
 Grouped by what you would have to change.
 
 **CLI surface**
+- `deps upgrade` previews by default: it shows every pin that would move and
+  what each brings in — items added, removed or changed, what hooks and MCP
+  servers run before and after, a diff of every changed script — and writes
+  nothing. `deps upgrade --yes` applies it. It is the only command that moves
+  an existing pin.
+- `deps pull`, `init` and startup sync never move an existing pin. A changed
+  constraint is reported and takes effect only on `deps upgrade --yes`;
+  `deps pull --force` reinstalls each reference at its pin instead of
+  re-resolving it. Each new pin is shown with everything it brings in.
 - `session delete` actually destroys the session (it previously did not).
 - `session purge` fans out to the population that owns each destroyer.
 - `session backfill` is deleted, and nothing replaces it — see §7 for what that

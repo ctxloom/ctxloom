@@ -168,9 +168,9 @@ func TestUpgrade_RefusesAdvanceOntoUnverifiableSignature(t *testing.T) {
 	edited := addFileToLocalRepo(t, src, repoV2("demo")+"/fragments/keeper.md", "EDITED AFTER SIGNING\n")
 	require.NotEqual(t, verified, edited)
 
-	res, err := UpgradeDependencies(ctx, cfg, nil)
+	res, err := UpgradeDependencies(ctx, cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err, "a refused advance is a reported outcome, not a command failure")
-	assert.Equal(t, 0, res.Advanced, "nothing may be counted as advanced")
+	assert.Len(t, res.Changes, 0, "nothing may be counted as advanced")
 
 	require.Len(t, res.Refused, 1, "the refusal must be REPORTED — a silent non-advance reads as 'already up to date'")
 	assert.Equal(t, string(lockKeyOf(t, ref)), res.Refused[0].Identity)
@@ -202,9 +202,9 @@ func TestUpgrade_AdvancesOntoReSignedContent(t *testing.T) {
 	reSigned := commitTree(t, src, demoTreeFiles(t, signer, "REVISED AND RE-SIGNED\n"), false)
 	require.NotEqual(t, verified, reSigned)
 
-	res, err := UpgradeDependencies(ctx, cfg, nil)
+	res, err := UpgradeDependencies(ctx, cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
-	assert.Equal(t, 1, res.Advanced, "a properly re-signed republish still advances")
+	assert.Len(t, res.Changes, 1, "a properly re-signed republish still advances")
 	assert.Empty(t, res.Refused)
 
 	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
@@ -232,9 +232,9 @@ func TestUpgrade_UnsignedContentStillAdvances(t *testing.T) {
 	c2 := addFileToLocalRepo(t, src, repoV2("demo")+"/bundle.yaml", "version: \"2.0.0\"\n")
 	require.NotEqual(t, c1, c2)
 
-	res, err := UpgradeDependencies(ctx, cfg, nil)
+	res, err := UpgradeDependencies(ctx, cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
-	assert.Equal(t, 1, res.Advanced, "unsigned content is ordinary and still advances")
+	assert.Len(t, res.Changes, 1, "unsigned content is ordinary and still advances")
 	assert.Empty(t, res.Refused)
 
 	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
@@ -258,7 +258,7 @@ func TestUpgrade_AStructurallyInvalidTreeIsRefusedAsUnreadableNotTampered(t *tes
 		"version: 1.0.0\nfragments:\n  inline-one:\n    content: hi\n"), false)
 	require.NotEqual(t, verified, halfMigrated)
 
-	res, err := UpgradeDependencies(ctx, cfg, nil)
+	res, err := UpgradeDependencies(ctx, cfg, UpgradeRequest{Apply: true})
 	require.NoError(t, err)
 	require.Len(t, res.Refused, 1, "a tree that cannot be read is still refused")
 	assert.Equal(t, verified, res.Refused[0].KeptSHA)

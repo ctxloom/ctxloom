@@ -202,12 +202,26 @@ func (c *Coordinator) startDrain(d *Drain) {
 	c.drains[d] = struct{}{}
 	c.drainMu.Unlock()
 	bound := c.drainBound
-	c.goTracked(func() {
-		c.runDrain(d, bound)
+	forget := func() {
 		c.drainMu.Lock()
 		delete(c.drains, d)
 		c.drainMu.Unlock()
+	}
+	err := c.goTracked(func() {
+		c.runDrain(d, bound)
+		forget()
 	})
+	if err != nil {
+		// Close has begun and overtakes the drain: it closes every child
+		// itself, so each one the drain accounted for is reported the way
+		// drainWait reports a child Close overtook — interrupted.
+		forget()
+		harps := make([]string, 0, len(d.tracked))
+		for _, ch := range d.tracked {
+			harps = append(harps, ch.harp)
+		}
+		d.settle(DrainOutcome{Interrupted: sortedCopy(harps)})
+	}
 }
 
 // drainWake pokes every live drain runner to re-read the folds.
@@ -437,7 +451,8 @@ func (c *Coordinator) interruptThenClose(ch drainChild, p drainPolicy) {
 	}
 	c.setPendingStop(ch.runID, p.endDetail("when its runner closed it"))
 	ask := *p.stop
-	c.goTracked(func() { c.stopAtRunner(rec, ask.reason, ask.grace) })
+	// Refused, Close has begun, and Close closes every attachment itself.
+	_ = c.goTracked(func() { c.stopAtRunner(rec, ask.reason, ask.grace) })
 }
 
 // ---------------------------------------------------------------------------

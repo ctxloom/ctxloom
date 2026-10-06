@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/testsupport/trackedtest"
 )
 
@@ -14,7 +15,7 @@ import (
 // they share one join budget, tighter than the coordinator's.
 func TestTrackedOwners_RunnerSide(t *testing.T) {
 	h, eh, l := &Home{}, &EngineHost{}, &RunnerLink{}
-	trackedtest.RunOwnerTests(t, map[string]trackedtest.Owner{
+	trackedtest.RunOwnerTests(t, coord.ErrGroupSealed, map[string]trackedtest.Owner{
 		"Home":       {Dispatch: h.goTracked, Wait: h.waitTracked, Seal: h.tracked.Seal},
 		"EngineHost": {Dispatch: eh.goTracked, Wait: eh.waitTracked, Seal: eh.tracked.Seal},
 		"RunnerLink": {Dispatch: l.goTracked, Wait: l.waitTracked, Seal: l.tracked.Seal},

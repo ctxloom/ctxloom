@@ -250,9 +250,9 @@ type EngineHost struct {
 	// terminal drive). Close joins it before returning, so a runner-side
 	// teardown leaves no goroutine still touching eh/home state — the same
 	// discipline as Coordinator's and Home's groups, mirrored here for the
-	// runner-hosted engine half. A sealed group still RUNS what it is handed,
-	// untracked, so the seal alone does not stop a run starting after Close:
-	// closed does.
+	// runner-hosted engine half. Past the seal a dispatch is refused
+	// (coord.ErrGroupSealed); closed refuses a whole run before it dispatches
+	// anything.
 	tracked   coord.TrackedGroup
 	closeOnce sync.Once
 	// closed is set when Close begins (guarded by mu): from then on no run
@@ -284,9 +284,10 @@ func NewEngineHost(ctx context.Context, rep report.Sink, harness, runID string) 
 // keys off the run's own ctx, cancelled by Close before waitTracked runs).
 const engineHostCloseJoinBudget = 3 * time.Second
 
-// goTracked runs fn on a new goroutine Close joins before returning — see
-// trackedGroup.
-func (eh *EngineHost) goTracked(fn func()) { eh.tracked.Dispatch(fn) }
+// goTracked runs fn on a new goroutine Close joins before returning, or
+// refuses with coord.ErrGroupSealed once Close has sealed — see
+// coord.TrackedGroup.
+func (eh *EngineHost) goTracked(fn func()) error { return eh.tracked.Dispatch(fn) }
 
 // waitTracked joins every eh.goTracked goroutine, with a bounded escape.
 func (eh *EngineHost) waitTracked() {
@@ -535,19 +536,24 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	// A run started paused answers its StartRun now and hands its first turn
 	// off once the gate lifts; otherwise the hand-off is synchronous, and a
 	// briefing that cannot start fails the launch.
+	//
+	// A refused dispatch here or below means Close has sealed: the run is
+	// being torn down, and Drive says so rather than leave half of it running.
 	if eh.pauseGate() != nil {
-		eh.goTracked(func() {
+		if err := eh.goTracked(func() {
 			if err := eh.deliverFirstTurn(home, prompt); err != nil {
 				eh.rep.Warnf("engine host: the run started paused never handed off its first turn: %v", err)
 			}
-		})
+		}); err != nil {
+			return errEngineHostClosed
+		}
 	} else if err := eh.deliverFirstTurn(home, prompt); err != nil {
 		return err
 	}
 	// The run's cancellation ends a PARKED run too: with no turn in flight
 	// nothing else would report the terminal. A turn in flight ends with
 	// the cancellation itself and reports it (runTurn → finish).
-	eh.goTracked(func() {
+	if err := eh.goTracked(func() {
 		<-ctx.Done()
 		eh.mu.Lock()
 		busy := eh.turnBusy
@@ -556,7 +562,9 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 			<-busy
 		}
 		eh.finish(home, nil, ctx.Err())
-	})
+	}); err != nil {
+		return errEngineHostClosed
+	}
 	return nil
 }
 
@@ -657,7 +665,7 @@ func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) e
 		Input:  runStartedInput(t.Prompt),
 		Config: runStartedConfig(eh.rep, t),
 	}}})
-	eh.goTracked(func() {
+	err := eh.goTracked(func() {
 		code, err := term.Run(ctx, t)
 		home.engineExited()
 		releaseWake()
@@ -686,6 +694,11 @@ func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) e
 		home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{Result: result}}})
 		home.ReportRunExited(code, "")
 	})
+	if err != nil {
+		// Close has sealed: the engine is never started on the terminal.
+		releaseWake()
+		return errEngineHostClosed
+	}
 	return nil
 }
 

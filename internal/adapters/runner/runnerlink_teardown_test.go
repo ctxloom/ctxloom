@@ -84,7 +84,7 @@ func TestRunnerLink_AbortJoinsARequestReceivedAsTeardownBegins(t *testing.T) {
 			return &agentcoordpb.RunnerResponse{}
 		},
 	}
-	l.goTracked(l.receiveLoop)
+	require.NoError(t, l.goTracked(l.receiveLoop))
 
 	abortDone := make(chan struct{})
 	go func() { defer close(abortDone); l.Abort() }()

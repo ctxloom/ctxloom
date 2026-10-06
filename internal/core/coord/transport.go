@@ -161,8 +161,10 @@ func (c *Coordinator) ConsumerCredential() string { return c.consumerCreds.token
 func (c *Coordinator) EnterStream() (done func(), ok bool) { return c.streams.enter() }
 
 // Track runs fn on a goroutine Close joins — the stream pumps and receive
-// loops the wire adapter runs on the coordinator's behalf.
-func (c *Coordinator) Track(fn func()) { c.goTracked(fn) }
+// loops the wire adapter runs on the coordinator's behalf. Once Close has
+// begun fn does not run and Track returns ErrGroupSealed: the coordinator is
+// shutting down.
+func (c *Coordinator) Track(fn func()) error { return c.goTracked(fn) }
 
 // Reporter is the coordinator's diagnostic sink, for the wire adapter to
 // report through beside it.

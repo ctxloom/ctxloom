@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -16,12 +17,12 @@ import (
 // Three rules, all load-bearing:
 //
 //   - dispatch TRACKS. A goroutine that skips it makes the join prove nothing.
-//   - seal comes BEFORE the join. A still-live handler's deferred cleanup can
-//     dispatch after its transport is torn down, concurrently with the join, and
-//     wg.Add racing an in-progress wg.Wait is a sync.WaitGroup misuse (caught by
-//     -race). Past the seal fn still RUNS, untracked: the dispatchers are
-//     cleanups that cannot be told to stand down, and every tracked loop already
-//     respects its own context.
+//   - seal comes BEFORE the join, and past it a dispatch is REFUSED
+//     (ErrGroupSealed), never run. wg.Add racing an in-progress wg.Wait is a
+//     sync.WaitGroup misuse (caught by -race), and running the work untracked
+//     instead lets it outlive the join that was meant to prove the owner quiet
+//     — a request served by an owner already torn down. Each caller decides
+//     what a refusal means for it: drop, answer "unavailable", or return it.
 //   - the join is BOUNDED. One wedged handler must not hang shutdown forever.
 //
 // Budget and diagnostic wording stay with the OWNER (passed to wait): they are
@@ -33,14 +34,17 @@ type TrackedGroup struct {
 	closing bool
 }
 
-// Dispatch runs fn on a new goroutine, tracked so wait can join it — unless the
-// group is already sealed, in which case fn still runs but untracked.
-func (g *TrackedGroup) Dispatch(fn func()) {
+// ErrGroupSealed refuses a dispatch made after its owner's teardown began: the
+// owner is shutting down and starts no new work.
+var ErrGroupSealed = errors.New("shutting down: teardown has begun, so no new work starts")
+
+// Dispatch runs fn on a new goroutine, tracked so wait can join it. Once the
+// group is sealed fn does NOT run and Dispatch returns ErrGroupSealed.
+func (g *TrackedGroup) Dispatch(fn func()) error {
 	g.mu.Lock()
 	if g.closing {
 		g.mu.Unlock()
-		go fn()
-		return
+		return ErrGroupSealed
 	}
 	g.wg.Add(1)
 	g.mu.Unlock()
@@ -48,6 +52,7 @@ func (g *TrackedGroup) Dispatch(fn func()) {
 		defer g.wg.Done()
 		fn()
 	}()
+	return nil
 }
 
 // enter takes a slot for a goroutine the owner did NOT dispatch — a stream
@@ -66,7 +71,7 @@ func (g *TrackedGroup) enter() (done func(), ok bool) {
 	return g.wg.Done, true
 }
 
-// Seal stops tracking new dispatches. Called at the START of a teardown, before
+// Seal refuses every later dispatch. Called at the START of a teardown, before
 // wait, so nothing can Add into an in-progress Wait.
 func (g *TrackedGroup) Seal() {
 	g.mu.Lock()

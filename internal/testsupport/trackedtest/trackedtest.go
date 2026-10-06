@@ -1,7 +1,7 @@
 // Package trackedtest is the goroutine-owner discipline test, shared by every
 // package that has long-lived types owning background goroutines under it:
-// dispatch tracked, refuse to track once teardown has begun, and join with a
-// bounded escape. An unjoined goroutine racing a teardown is the worst flake
+// dispatch tracked, refuse to run anything once teardown has begun, and join
+// with a bounded escape. An unjoined goroutine racing a teardown is the worst flake
 // class these suites have had, so the discipline is load-bearing and every
 // owner must implement it identically — one driver exercises them all, so no
 // owner can quietly implement it differently.
@@ -13,13 +13,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Owner is one type's discipline surface, exercised on a zero-value shell:
 // the three funcs touch only the owner's group, never any constructed state.
 type Owner struct {
-	// Dispatch runs fn on a tracked goroutine.
-	Dispatch func(fn func())
+	// Dispatch runs fn on a tracked goroutine, or refuses once sealed.
+	Dispatch func(fn func()) error
 	// Wait joins every dispatched goroutine, with the owner's bounded escape.
 	Wait func()
 	// Seal begins teardown the way the owner's own teardown path does,
@@ -27,8 +28,10 @@ type Owner struct {
 	Seal func()
 }
 
-// RunOwnerTests drives every owner through the discipline.
-func RunOwnerTests(t *testing.T, owners map[string]Owner) {
+// RunOwnerTests drives every owner through the discipline. sealed is the
+// refusal a dispatch past the seal must return — passed in, because the
+// package that defines it tests its own owners with this driver.
+func RunOwnerTests(t *testing.T, sealed error, owners map[string]Owner) {
 	t.Helper()
 	// Wait joins every dispatched goroutine — the whole point of the
 	// discipline.
@@ -39,12 +42,12 @@ func RunOwnerTests(t *testing.T, owners map[string]Owner) {
 				var mu sync.Mutex
 				finished := 0
 				for range 8 {
-					owner.Dispatch(func() {
+					require.NoError(t, owner.Dispatch(func() {
 						<-release
 						mu.Lock()
 						finished++
 						mu.Unlock()
-					})
+					}))
 				}
 				close(release)
 				owner.Wait()
@@ -54,28 +57,19 @@ func RunOwnerTests(t *testing.T, owners map[string]Owner) {
 			})
 		}
 	})
-	// The sealed window's exact semantics: past the point teardown began, a
-	// fresh dispatch must NOT reach wg.Add (Add racing an in-progress Wait
-	// is a sync.WaitGroup misuse) yet must still run, because the
-	// dispatchers are deferred cleanups that cannot be told to stand down.
-	t.Run("SealedDispatchStillRunsButIsNotJoined", func(t *testing.T) {
+	// Past the point teardown began, a dispatch is REFUSED and never runs:
+	// run untracked it would outlive the join that proves the owner quiet.
+	t.Run("SealedDispatchIsRefused", func(t *testing.T) {
 		for name, owner := range owners {
 			t.Run(name, func(t *testing.T) {
 				owner.Seal()
 				ran := make(chan struct{})
-				owner.Dispatch(func() { close(ran) })
+				require.ErrorIs(t, owner.Dispatch(func() { close(ran) }), sealed)
+				owner.Wait()
 				select {
 				case <-ran:
-				case <-time.After(2 * time.Second):
-					t.Fatal("a dispatch past the seal must still run, untracked and best-effort")
-				}
-				// Untracked: the join has nothing to wait for and returns at once.
-				done := make(chan struct{})
-				go func() { owner.Wait(); close(done) }()
-				select {
-				case <-done:
-				case <-time.After(2 * time.Second):
-					t.Fatal("Wait blocked on a goroutine dispatched past the seal")
+					t.Fatal("a dispatch past the seal ran")
+				case <-time.After(100 * time.Millisecond):
 				}
 			})
 		}

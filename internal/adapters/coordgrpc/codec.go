@@ -1067,7 +1067,7 @@ func StatusFromErr(err error) *rpcstatus.Status {
 		code = codes.PermissionDenied
 	case errors.Is(err, coord.ErrSenderMailKind), errors.Is(err, coord.ErrInvalidRequest):
 		code = codes.InvalidArgument
-	case errors.Is(err, coord.ErrDraining):
+	case errors.Is(err, coord.ErrDraining), errors.Is(err, coord.ErrGroupSealed):
 		code = codes.Unavailable
 	case errors.Is(err, coord.ErrNotInjectable), errors.Is(err, coord.ErrNotFound):
 		code = codes.NotFound

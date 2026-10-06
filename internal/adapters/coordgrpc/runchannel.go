@@ -72,7 +72,9 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	// the underlying gRPC transport down (streamCtx derives from the STREAM's
 	// context, not c.baseCtx, so only the server actually cutting the
 	// transport unblocks a still-live channel — see Coordinator.Close's doc).
-	c.Track(func() {
+	// A refused Track means the coordinator is closing: the channel ends
+	// Unavailable, and returning cancels streamCtx, ending a started pump.
+	if err := c.Track(func() {
 		ch.Pump(streamCtx, func(f coord.OutFrame) error {
 			frame := OutFrameToWire(f)
 			if frame == nil {
@@ -80,10 +82,12 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 			}
 			return stream.Send(frame)
 		})
-	})
+	}); err != nil {
+		return status.Error(codes.Unavailable, err.Error())
+	}
 
 	recvErr := make(chan error, 1)
-	c.Track(func() {
+	if err := c.Track(func() {
 		for {
 			frame, rerr := stream.Recv()
 			if rerr != nil {
@@ -93,7 +97,9 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 			c.ConfirmAttach(ch)
 			handleAgentFrame(c, ch, frame)
 		}
-	})
+	}); err != nil {
+		return status.Error(codes.Unavailable, err.Error())
+	}
 
 	select {
 	case err := <-recvErr:

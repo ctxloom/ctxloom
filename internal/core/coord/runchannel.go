@@ -514,7 +514,7 @@ func (c *Coordinator) HandleRequest(ch *RunChannel, req AgentRequest) {
 	// this ch, which may have died mid-dispatch.
 	id := ch.id
 	role := ch.role
-	c.goTracked(func() {
+	err := c.goTracked(func() {
 		reply := c.serveAgentRequest(id, req)
 		reply.RequestID = reqID
 		c.mu.Lock()
@@ -522,6 +522,16 @@ func (c *Coordinator) HandleRequest(ch *RunChannel, req AgentRequest) {
 		c.mu.Unlock()
 		c.respondRole(role, reply)
 	})
+	if err != nil {
+		// Close has begun: the request is refused, not served. Its in-flight
+		// record goes with it — nothing will ever answer it — and the refusal
+		// is not cached, so a reissue to whatever coordinator comes next is
+		// served there.
+		c.mu.Lock()
+		delete(c.reqTrack, key)
+		c.mu.Unlock()
+		c.respond(ch, AgentReply{RequestID: reqID, Err: fmt.Errorf("coordinator: %w", err)})
+	}
 }
 
 // RefuseRequest answers a request the wire could not decode: the refusal is
@@ -564,7 +574,10 @@ func (c *Coordinator) respond(ch *RunChannel, reply AgentReply) {
 	default:
 	}
 	role := ch.role
-	c.goTracked(func() {
+	// Refused, Close has begun and the reply is dropped — the same end the
+	// window's give-up below reaches: the runner's request fails at its own
+	// timeout, and a reconnect reissues it.
+	_ = c.goTracked(func() {
 		select {
 		case ch.send <- frame:
 		case <-c.baseCtx.Done():

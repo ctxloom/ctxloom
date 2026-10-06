@@ -17,7 +17,7 @@ import (
 //
 // The comparator itself is copy-pasted verbatim, so it cannot diverge. The
 // enrichment wrapped around it can, and does: *Manager runs
-// fillTranscriptByLocation, MemStore does not. A session whose bound vendor
+// fillBindingByLocation, MemStore does not. A session whose bound vendor
 // transcript was pruned but whose transcript is discoverable BY LOCATION (the
 // containerized case -- the engine's store root is bind-mounted into the harp
 // dir) therefore resolves through the real store and not through the fake that

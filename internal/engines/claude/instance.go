@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -70,6 +71,20 @@ func (c Claude) Container() (engine.ContainerSpec, error) {
 // the conversion of claude's own store is a transcript adapter, composed
 // beside this kind at the root, never imported by it.
 func (c Claude) Transcripts() []engine.TranscriptReader { return c.transcripts }
+
+// TranscriptSession is a transcript's file stem: claude writes each session
+// to <encoded-project>/<session-id>.jsonl.
+func (c Claude) TranscriptSession(p string) (string, error) {
+	base := path.Base(filepath.ToSlash(p))
+	id, ok := strings.CutSuffix(base, transcriptExt)
+	if !ok || id == "" {
+		return "", fmt.Errorf("%w: %s", engine.ErrForeignTranscript, p)
+	}
+	return id, nil
+}
+
+// transcriptExt is the extension of every claude transcript.
+const transcriptExt = ".jsonl"
 
 // Hooks is claude's hook codec.
 func (c Claude) Hooks() engine.HookCodec { return hookCodec{} }

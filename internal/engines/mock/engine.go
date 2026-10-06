@@ -315,6 +315,11 @@ func (m Mock) Container() (engine.ContainerSpec, error) {
 // bare double.
 func (m Mock) Transcripts() []engine.TranscriptReader { return m.transcripts }
 
+// TranscriptSession refuses: the mock keeps no transcript store of its own.
+func (m Mock) TranscriptSession(string) (string, error) {
+	return "", engine.ErrUnsupported{Engine: m.Name, Capability: "transcript session"}
+}
+
 // Hooks decodes the payload the mock's own turn writes to a hook's stdin
 // (hooks.go).
 func (m Mock) Hooks() engine.HookCodec { return hookCodec{m.Name} }

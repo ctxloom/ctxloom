@@ -603,13 +603,13 @@ func (m *Manager) AppendRotations(harpName string, rotations []Rotation) error {
 }
 
 // enrich fills an entry's derived fields: the transcript located by
-// position, the canonical transcript, and essence.md's summary/detail. Every
+// position and the session it records, the canonical transcript, and essence.md's summary/detail. Every
 // read path — one-harp lookups and listings alike — goes through it, so an
 // entry whose CanonicalTranscriptPath is empty means no capture exists, not
 // that this path skipped the stat; SourceStale reads that field to decide
 // which file the staleness fingerprint is even about.
 func enrich(e *Entry) {
-	fillTranscriptByLocation(e)
+	fillBindingByLocation(e)
 	fillCanonicalTranscript(e)
 	fillFromEssence(e)
 }
@@ -656,6 +656,16 @@ func (m *Manager) FindBySessionID(sessionID string) (*Entry, error) {
 				enrich(e)
 				return e, nil
 			}
+		}
+	}
+	// No record holds it: a session bound only by location (a containerized
+	// child's) is named by its transcript, so look there — only on a miss, as
+	// it walks each harp's native dir.
+	for i := range entries {
+		e := &entries[i]
+		if fillBindingByLocation(e) && e.SessionID == sessionID {
+			enrich(e)
+			return e, nil
 		}
 	}
 	return nil, nil

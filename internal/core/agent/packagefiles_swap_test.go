@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
@@ -257,7 +258,7 @@ func nonAtomicReplace(observe func()) func(fs afero.Fs, oldpath, newpath string)
 			return err
 		}
 		observe()
-		return fs.Rename(oldpath, newpath)
+		return safefs.Rename(fs, oldpath, newpath)
 	}
 }
 
@@ -323,7 +324,7 @@ func TestWriteManagedPackageFiles_RedeliverySwapsChangedContentAndMode(t *testin
 		rel, err := filepath.Rel(dir, newpath)
 		require.NoError(t, err)
 		swapped = append(swapped, filepath.ToSlash(rel))
-		return fs.Rename(oldpath, newpath)
+		return safefs.Rename(fs, oldpath, newpath)
 	}
 	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, render("v2", 0755), fakeItemEnabled, fakeItemName, fakeItemRender,
 		withRename(recording)))

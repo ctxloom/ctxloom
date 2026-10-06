@@ -430,6 +430,23 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// A reference spelled as the repository's full address instead of through a
+	// registered remote. Pulling it registers the repository as a remote under
+	// the repository's own name: the last path component of its address, and
+	// SeedRemote's bare repository is remote.git.
+	ctx.Step(`^the profile "([^"]*)" draws on a bundle straight from an unregistered git repository$`, func(c context.Context, profile string) error {
+		w := worldFrom(c)
+		url, err := w.env.SeedRemote(fixtureDemoTreeFiles("1.0.0", "Demo bundle", "demo-frag", "Demo fragment content.", true))
+		if err != nil {
+			return fmt.Errorf("seed repository: %w", err)
+		}
+		_ = w.env.Run("profile", "create", profile, "--include", "ctxloom+"+url+"//bundles/demo")
+		if w.env.LastExitCode() != 0 {
+			return fmt.Errorf("profile create failed: %s", w.env.LastOutput())
+		}
+		return nil
+	})
+
 	// Deletes a bundle from a seeded remote and pushes that deletion. The
 	// remote stays perfectly reachable, which is what makes the absence
 	// AUTHORITY rather than a failed lookup — see the unreachable step below

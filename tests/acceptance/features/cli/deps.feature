@@ -131,6 +131,24 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the file ".ctxloom/lock.yaml" contains "//bundles/demo"
 
+    # A bundle referenced by its repository's full address needs no remote
+    # registered first: pulling it registers one, named for the repository,
+    # and a name already taken by another address gets the next free suffix
+    # rather than being overwritten.
+    Scenario: Pulling straight from an address registers its repository as a remote
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create remote.git file:///tmp/acceptance-elsewhere.git --forge git"
+      And the profile "dev" draws on a bundle straight from an unregistered git repository
+      When Alice installs the content her profile draws on:
+        """
+        ctxloom deps pull
+        """
+      Then the command succeeds
+      And the file ".ctxloom/lock.yaml" contains "//bundles/demo"
+      When I run "ctxloom remote list --format json"
+      Then the JSON output array "remotes" contains an object whose "name" is "remote.git" and whose "url" is "file:///tmp/acceptance-elsewhere.git"
+      And the JSON output array "remotes" contains an object whose "name" is "remote.git-2"
+
     Scenario: A second pull is incremental — an already-locked dependency is not re-fetched
       Given an initialized ctxloom project
       And a git remote "origin" serving a ctxloom bundle

@@ -653,13 +653,7 @@ func (r *secretsRefresher) refresh(file string, vals map[string]string) (func(),
 // the very next refused-marker turn runs on the fresh credential — no new
 // refusal, no new hold, no relaunch.
 func TestHoldRestart_ARestartRewritesAReadoptedRunsSecretsSoItsNextTurnUsesTheFreshCredential(t *testing.T) {
-	secrets := t.TempDir()
-	clk := fakeclock.New()
-	f := newHoldFixtureOpts(t, rateFailure, func(o *Options) {
-		o.Clock, o.AfterFunc = clk.Now, clk.AfterFunc
-		sp := o.Spawner.(*fakeSpawner)
-		sp.secretsDir, sp.secretAgents = secrets, map[string]bool{"worker": true, "sibling": true}
-	}, nil)
+	f, clk := newSecretsFixture(t, nil)
 	f.send(t, f.worker, credRefused+" do the work")
 	f.awaitHold(t, f.worker, f.sibling)
 	f.awaitParks(t, f.worker, f.sibling)
@@ -694,6 +688,65 @@ func TestHoldRestart_ARestartRewritesAReadoptedRunsSecretsSoItsNextTurnUsesTheFr
 	assert.Empty(t, f.c.CredentialHolds(), "no new refusal")
 	assert.Len(t, journaled[holdOpened](t, f.c, factHoldOpened), 1, "no new hold opened")
 	assert.Equal(t, 3, f.sp.chatCount(), "nothing was relaunched")
+}
+
+// newSecretsFixture is the hold fixture on a manual clock with worker and
+// sibling container-shaped — each runner reads its credential from a secrets
+// file at every turn — and stranger host-shaped; tune, when set, adjusts the
+// coordinator before any child is spawned.
+func newSecretsFixture(t *testing.T, tune func(*Coordinator)) (*holdFixture, *fakeclock.Clock) {
+	t.Helper()
+	secrets := t.TempDir()
+	clk := fakeclock.New()
+	f := newHoldFixtureOpts(t, rateFailure, func(o *Options) {
+		o.Clock, o.AfterFunc = clk.Now, clk.AfterFunc
+		sp := o.Spawner.(*fakeSpawner)
+		sp.secretsDir, sp.secretAgents = secrets, map[string]bool{"worker": true, "sibling": true}
+	}, tune)
+	return f, clk
+}
+
+// TestHoldRestart_ARefusalReplayedAfterAReauthRestartOpensNoHold forces the
+// crash after the worker's refused turn folded into its hold but before its
+// boundary was acked, so its runner still holds that boundary and re-sends
+// it to the coordinator restarted on a fresh credential. That refusal was of
+// the credential the restart replaced, and the hold it opened is already
+// released: re-folded against the run's refreshed launch it would open a hold
+// on the fresh credential and tell the human their re-authentication was
+// refused. It must fold into nothing.
+func TestHoldRestart_ARefusalReplayedAfterAReauthRestartOpensNoHold(t *testing.T) {
+	var armed atomic.Bool
+	atBoundary, letBoundary := make(chan struct{}), make(chan struct{})
+	var reached, released sync.Once
+	t.Cleanup(func() { released.Do(func() { close(letBoundary) }) }) // the crashed coordinator's boundary stays parked until the end
+	f, clk := newSecretsFixture(t, func(c *Coordinator) {
+		c.turnIdleHook = func(string) {
+			if armed.Load() {
+				reached.Do(func() { close(atBoundary) })
+				<-letBoundary
+			}
+		}
+	})
+	armed.Store(true)
+	f.send(t, f.worker, credRefused+" do the work")
+	within(t, atBoundary, "the worker's refused turn never reached its boundary")
+	f.awaitHold(t, f.worker, f.sibling)
+	f.awaitParks(t, f.worker, f.sibling)
+
+	f.opts.RefreshSecrets = (&secretsRefresher{}).refresh
+	f.opts.LookupEnv = envOf(map[string]string{tokenVar: freshToken})
+	reasserted := make(chan struct{}, 8)
+	f.restart(t, clk, 0, stepSignal(holdStepReasserted, reasserted))
+	require.Empty(t, f.c.CredentialHolds(), "premise: the re-auth released the hold at adoption")
+	f.redial(t)
+	within(t, reasserted, "the worker's owed resume was never delivered")
+	within(t, reasserted, "the sibling's owed resume was never delivered")
+	f.awaitReplayed(t, 0)
+
+	assert.Equal(t, StateIdle, f.state(f.worker), "the replayed boundary still settles the run")
+	assert.Empty(t, f.c.CredentialHolds(), "no hold on the fresh credential")
+	assert.Len(t, journaled[holdOpened](t, f.c, factHoldOpened), 1, "no new hold opened")
+	assert.Zero(t, f.findingsWith(refusedFinding), "the human is not told the fresh credential was refused: %v", f.findings.All())
 }
 
 // lastExecEnv is the env the i-th child's latest turn started its engine with.
